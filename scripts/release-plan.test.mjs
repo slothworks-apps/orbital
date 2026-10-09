@@ -36,7 +36,11 @@ const lookups = (answers) => {
   const asked = []
   const answer = (kind) => async (name) => {
     asked.push([kind, name])
-    const a = answers[kind]
+    // An answer can differ per name: `{ [name]: answer }`.
+    const a =
+      answers[kind] && typeof answers[kind] === 'object' && !(answers[kind] instanceof Error)
+        ? answers[kind][name]
+        : answers[kind]
     if (a instanceof Error) throw a
     return a
   }
@@ -51,8 +55,14 @@ const lookups = (answers) => {
   }
 }
 
-test('reads the four versions', () => {
-  assert.deepEqual(readVersions(files()), { mac: '0.25.0', ota: '0.7.2', mobile: '0.7.0', relay: '0.4.0' })
+test('reads the versions, the native one for both stores', () => {
+  assert.deepEqual(readVersions(files()), {
+    mac: '0.25.0',
+    ota: '0.7.2',
+    ios: '0.7.0',
+    android: '0.7.0',
+    relay: '0.4.0',
+  })
 })
 
 test('a missing or malformed versionName fails', () => {
@@ -82,14 +92,16 @@ test('a package without a usable version fails', () => {
 })
 
 test('names what it asks about, the image owner lowercased', () => {
-  assert.deepEqual(names({ mac: '0.25.0', ota: '0.7.2', mobile: '0.7.0', relay: '0.4.0' }, 'SlothWorks-Apps'), {
+  const versions = { mac: '0.25.0', ota: '0.7.2', ios: '0.7.0', android: '0.7.0', relay: '0.4.0' }
+  assert.deepEqual(names(versions, 'SlothWorks-Apps'), {
     mac: 'v0.25.0',
     ota: '0.7.2',
-    mobile: 'mobile-v0.7.0',
+    ios: 'mobile-ios-v0.7.0',
+    android: 'mobile-android-v0.7.0',
     relay: 'ghcr.io/slothworks-apps/orbital-relay:0.4.0',
   })
   assert.throws(
-    () => names({ mac: '1.0.0', ota: '1.0.0', mobile: '1.0.0', relay: '1.0.0' }, undefined),
+    () => names(versions, undefined),
     /GITHUB_REPOSITORY_OWNER/,
   )
 })
@@ -97,32 +109,60 @@ test('names what it asks about, the image owner lowercased', () => {
 test('ships what is missing and skips what is there', async () => {
   const { asked, lookups: l } = lookups({ release: false, bundle: false, tag: true, image: true })
   const result = await plan({ read: files(), owner: 'slothworks-apps', lookups: l, held: {} })
-  assert.deepEqual(result.ship, { mac: true, ota: true, mobile: false, relay: false })
+  assert.deepEqual(result.ship, { mac: true, ota: true, ios: false, android: false, relay: false })
   assert.deepEqual(asked.sort(), [
     ['bundle', '0.7.2'],
     ['image', 'ghcr.io/slothworks-apps/orbital-relay:0.4.0'],
     ['release', 'v0.25.0'],
-    ['tag', 'mobile-v0.7.0'],
+    ['tag', 'mobile-android-v0.7.0'],
+    ['tag', 'mobile-ios-v0.7.0'],
   ])
   assert.equal(
     outputs(result),
-    'mac=true\nota=true\nmobile=false\nrelay=false\nmac-version=0.25.0\nota-version=0.7.2\nmobile-version=0.7.0\nrelay-version=0.4.0',
+    [
+      'mac=true',
+      'ota=true',
+      'ios=false',
+      'android=false',
+      'relay=false',
+      'mac-version=0.25.0',
+      'ota-version=0.7.2',
+      'ios-version=0.7.0',
+      'android-version=0.7.0',
+      'relay-version=0.4.0',
+    ].join('\n'),
   )
 })
 
 test('the phone app and its shell ship apart', async () => {
   const { lookups: l } = lookups({ release: true, bundle: true, tag: false, image: true })
   const result = await plan({ read: files(), owner: 'o', lookups: l, held: {} })
-  assert.deepEqual(result.ship, { mac: false, ota: false, mobile: true, relay: false })
+  assert.deepEqual(result.ship, { mac: false, ota: false, ios: true, android: true, relay: false })
   assert.match(summary(result), /phone app\s+0\.7\.2\s+shipped\s+\(0\.7\.2\)/)
-  assert.match(summary(result), /phone shell\s+0\.7\.0\s+ship\s+\(mobile-v0\.7\.0\)/)
+  assert.match(summary(result), /iOS shell\s+0\.7\.0\s+ship\s+\(mobile-ios-v0\.7\.0\)/)
+  assert.match(summary(result), /Android shell\s+0\.7\.0\s+ship\s+\(mobile-android-v0\.7\.0\)/)
+})
+
+test('a store that has the build is not shipped to again while the other is retried', async () => {
+  // The first phone release: Play took the build, the iOS export failed.
+  const { lookups: l } = lookups({
+    release: true,
+    bundle: true,
+    tag: { 'mobile-ios-v0.7.0': false, 'mobile-android-v0.7.0': true },
+    image: true,
+  })
+  const result = await plan({ read: files(), owner: 'o', lookups: l, held: {} })
+  assert.deepEqual(result.ship, { mac: false, ota: false, ios: true, android: false, relay: false })
+  assert.match(outputs(result), /^ios=true$/m)
+  assert.match(outputs(result), /^android=false$/m)
+  assert.match(summary(result), /Android shell\s+0\.7\.0\s+shipped/)
 })
 
 test('a held app does not ship even with a new version', async () => {
   const { lookups: l } = lookups({ release: false, bundle: false, tag: false, image: false })
-  const result = await plan({ read: files(), owner: 'o', lookups: l, held: { mobile: 'not yet' } })
-  assert.deepEqual(result.ship, { mac: true, ota: true, mobile: false, relay: true })
-  assert.match(summary(result), /phone shell\s+0\.7\.0\s+held\s+\(not yet\)/)
+  const result = await plan({ read: files(), owner: 'o', lookups: l, held: { ios: 'not yet' } })
+  assert.deepEqual(result.ship, { mac: true, ota: true, ios: false, android: true, relay: true })
+  assert.match(summary(result), /iOS shell\s+0\.7\.0\s+held\s+\(not yet\)/)
 })
 
 test('nothing is held now that the phone updates over the air', () => {
@@ -132,7 +172,7 @@ test('nothing is held now that the phone updates over the air', () => {
 test('ships nothing when everything is there', async () => {
   const { lookups: l } = lookups({ release: true, bundle: true, tag: true, image: true })
   const result = await plan({ read: files(), owner: 'o', lookups: l })
-  assert.deepEqual(result.ship, { mac: false, ota: false, mobile: false, relay: false })
+  assert.deepEqual(result.ship, { mac: false, ota: false, ios: false, android: false, relay: false })
 })
 
 test('a lookup that errors fails the plan instead of reading as not shipped', async () => {
@@ -144,7 +184,7 @@ test('a lookup that answers something other than a boolean fails the plan', asyn
   const { lookups: l } = lookups({ release: false, bundle: false, tag: undefined, image: true })
   await assert.rejects(
     plan({ read: files(), owner: 'o', lookups: l }),
-    /mobile lookup answered undefined/,
+    /ios lookup answered undefined/,
   )
 })
 
@@ -180,7 +220,7 @@ test('no section, or an empty one, is no notes', () => {
 test("Beam not answering stops only the phone app, as an error, never as not shipped", async () => {
   const { lookups: l } = lookups({ release: false, bundle: new Error('Beam answered 503'), tag: false, image: false })
   const result = await plan({ read: files(), owner: 'o', lookups: l, held: {} })
-  assert.deepEqual(result.ship, { mac: true, ota: 'error', mobile: true, relay: true })
+  assert.deepEqual(result.ship, { mac: true, ota: 'error', ios: true, android: true, relay: true })
   assert.match(outputs(result), /^ota=error$/m)
   assert.match(summary(result), /phone app\s+0\.7\.2\s+error\s+\(Beam answered 503\)/)
 })

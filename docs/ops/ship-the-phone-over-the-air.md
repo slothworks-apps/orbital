@@ -26,7 +26,7 @@ change to the native shell needs TestFlight and Play
 | what | version | ships when |
 |---|---|---|
 | the app (bundle) | `version` in `mobile/package.json` | Beam has no bundle of that version |
-| the shell (native) | `versionName` / `versionCode` in `build.gradle` | no tag `mobile-v<versionName>` |
+| the shell (native) | `versionName` / `versionCode` in `build.gradle` | per store: no tag `mobile-ios-v<versionName>` or `mobile-android-v<versionName>` |
 
 Both go out from `.github/workflows/release.yml` on a merge to `main`
 ([[the-phone-has-an-app-version-and-a-native-version]]).
