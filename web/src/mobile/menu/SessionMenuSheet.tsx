@@ -4,6 +4,7 @@ import { reportError } from '../../lib/errors'
 import { tagColor, type ApiSession } from '../../lib/types'
 import { useMedia } from '../../store/media'
 import { useOrbital } from '../../store/store'
+import { patchSession } from '../session/patchSession'
 import { useMobile } from '../state'
 import { BottomSheet, ConfirmBody } from '../ui'
 import { noteOutcome } from './MenuOutcome'
@@ -254,15 +255,6 @@ export function SessionMenuSheet({
       {body}
     </BottomSheet>
   )
-}
-
-/** One session's optimistic write, a no-op once the store no longer holds it. */
-function patchSession(id: string, fields: Partial<ApiSession>): void {
-  useOrbital.setState((state) => {
-    const current = state.sessions[id]
-    if (!current) return state
-    return { sessions: { ...state.sessions, [id]: { ...current, ...fields } } }
-  })
 }
 
 /** canvas 10i: a 52 px menu row — the glyph in a 20 px column, the label, a mono hint at the end. */
