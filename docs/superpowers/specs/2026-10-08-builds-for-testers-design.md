@@ -237,12 +237,18 @@ update.dc.html`.
 
 ### In the main process
 
-- `electron-updater` checks on launch and then every
-  `UPDATE_CHECK_INTERVAL_MS` (a few hours), and installs what it has
-  downloaded on the next quit (`autoInstallOnAppQuit`).
+- `electron-updater` checks on launch, then every
+  `UPDATE_CHECK_INTERVAL_MS`, and also when the Mac wakes from sleep or an
+  Orbital window comes to the front, if the last completed check is at
+  least `UPDATE_CHECK_MIN_GAP_MS` old (`checkIsDue`). The interval alone
+  was not enough: its timer stands still while the Mac sleeps, so a release
+  published overnight waited for hours of use and only Check now found it.
+  It installs what it has downloaded on the next quit
+  (`autoInstallOnAppQuit`).
 - It does not run in a dev build, and not when `app-update.yml` is absent
   from the resources (`dist:local`, `dist:self`).
-- A failed check is logged and tried again at the next interval. It is
+- A failed check is logged and tried again at the next interval, wake or
+  focus. It is
   never shown: a tester without an update loses nothing.
 - Every decision — whether to download, what the prompt shows, when a
   restart may happen — is the pure state machine `UpdateFlow` in

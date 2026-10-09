@@ -11,10 +11,28 @@
 
 /**
  * How often a running app looks for a newer release, after the check at
- * launch. A tester's app is open for days; a few hours keeps it near the
- * newest release without asking GitHub more than it needs to.
+ * launch. A tester's app is open for days. The timer does not run while the
+ * Mac sleeps, so waking and coming back to a window check too
+ * (`checkIsDue`); this only covers an app left in front for hours.
  */
-export const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+export const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+
+/**
+ * The least time since the last completed check before waking the Mac or
+ * coming back to an Orbital window checks again. A check reads two small
+ * files off GitHub Releases, not the rate-limited API; the gap only keeps
+ * switching between windows from checking on every switch.
+ */
+export const UPDATE_CHECK_MIN_GAP_MS = 15 * 60 * 1000;
+
+/**
+ * Whether a wake or a focus checks now. `checkedAt` is the last completed
+ * check, so one that failed — a wake before the network is back — is tried
+ * again at the next focus.
+ */
+export function checkIsDue(checkedAt: number | null, now: number): boolean {
+  return checkedAt === null || now - checkedAt >= UPDATE_CHECK_MIN_GAP_MS;
+}
 
 /**
  * Settings › Updates › "Download updates automatically", in the server's
