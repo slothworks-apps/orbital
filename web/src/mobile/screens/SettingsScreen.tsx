@@ -11,6 +11,7 @@ import { askForNotifications } from '../platform/push'
 import { saveAppLock } from '../platform/appLock'
 import { readNotificationsCache, writeNotificationsCache } from '../platform/cache'
 import { useMobile } from '../state'
+import { usePhoneUpdate } from '../update/state'
 import { clientRef } from '../transport/clientRef'
 import { CARD, MobileScreen, PrimaryButton, SecondaryButton, SectionLabel, Toggle } from '../ui'
 
@@ -52,6 +53,7 @@ export const NOTIFICATION_ROWS: readonly { key: keyof NotificationSettings; labe
 /** 9f (spec § 5): the Mac, this phone's notification rules, the app lock, the relay. */
 export function SettingsScreen() {
   const pairing = useMobile((s) => s.pairing)
+  const shell = usePhoneUpdate((s) => s.shell)
   const macName = useMobile((s) => s.macName)
   const macOnline = useMobile((s) => s.macOnline)
   const ready = useMobile((s) => s.ready)
@@ -215,9 +217,10 @@ export function SettingsScreen() {
           )}
         </div>
 
-        <footer className="px-1 pt-[18px] font-mono text-[10px] leading-[1.7] text-[rgba(160,190,225,.45)]">
-          orbital mobile {__MOBILE_VERSION__}
-          {pairing && ` · fingerprint ${formatFingerprint(pairing.fingerprint)}`}
+        {/* Canvas `Feature - Phone update`: the app's version and the shell's on one line, the fingerprint on its own. */}
+        <footer className="px-1 pt-[18px] font-mono text-[10px] leading-[1.7] text-[rgba(160,190,225,.6)]">
+          <p>{shell ? `${__MOBILE_VERSION__} · shell ${shell}` : __MOBILE_VERSION__}</p>
+          {pairing && <p>fingerprint {formatFingerprint(pairing.fingerprint)}</p>}
         </footer>
       </div>
 

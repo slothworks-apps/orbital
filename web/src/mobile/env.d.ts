@@ -6,3 +6,6 @@ declare const __MOBILE_VERSION__: string
 
 /** Per platform, whether the build found its Firebase config (vite.mobile.config.ts): push can register. */
 declare const __MOBILE_PUSH__: { android: boolean; ios: boolean }
+
+/** Beam's address and the app's id there, from mobile/beam.json (vite.mobile.config.ts). */
+declare const __MOBILE_BEAM__: { url: string; appId: string }

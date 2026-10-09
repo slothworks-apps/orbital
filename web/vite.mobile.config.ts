@@ -10,12 +10,22 @@ import { defineConfig, type Plugin } from 'vite'
  * since the phone never talks to a local server; and every chunk's module
  * list beside the manifest, for the bundle guard (`src/mobile/bundleGuard.ts`).
  */
-/** `orbital mobile <version>` in 9f's footer and the `hello` app string: the shell's version. */
+/**
+ * The phone's app version (ADR the-phone-has-an-app-version-and-a-native-version):
+ * the bundle's, in 9f's footer, the `hello` app string and the update prompt.
+ * The shell's native version is read at run time instead.
+ */
 const mobileVersion = (
   JSON.parse(readFileSync(new URL('../mobile/package.json', import.meta.url), 'utf8')) as {
     version: string
   }
 ).version
+
+/** Beam's address and the app's id there (spec 2026-10-09-phone-ota-updates-design), for the phone's device_info event. */
+const beam = JSON.parse(readFileSync(new URL('../mobile/beam.json', import.meta.url), 'utf8')) as {
+  url: string
+  appId: string
+}
 
 /**
  * Whether each native project carries its Firebase config, git-ignored and
@@ -77,6 +87,7 @@ export default defineConfig({
     __MOBILE_DEV__: JSON.stringify(process.env.ORBITAL_MOBILE_DEV === '1'),
     __MOBILE_VERSION__: JSON.stringify(mobileVersion),
     __MOBILE_PUSH__: JSON.stringify(pushConfigured),
+    __MOBILE_BEAM__: JSON.stringify({ url: beam.url, appId: beam.appId }),
   },
   resolve: {
     // The push plugin's web implementation wants the Firebase web SDK, which the shell never uses.
