@@ -38,7 +38,7 @@ export function installUpdateDemo(): void {
     answered: () => Promise.resolve(),
   }
   usePhoneUpdate.getState().connect(source, null)
-  usePhoneUpdate.setState({ shell: '0.8.0' })
+  usePhoneUpdate.setState({ shell: '0.8.0', diagnostics: true })
 
   const set = (name: DemoName, options: DemoOptions = {}) => {
     version = options.version ?? version

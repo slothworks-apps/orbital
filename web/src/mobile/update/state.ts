@@ -69,6 +69,8 @@ interface PhoneUpdateState {
   answered: string | null
   /** The shell's native version, for Settings' footer; null until read, and in a browser. */
   shell: string | null
+  /** "Send diagnostics" (`diagnostics.ts`); null until read. */
+  diagnostics: boolean | null
   source: UpdateSource | null
   connect(source: UpdateSource, answered: string | null): void
   downloaded(bundle: DownloadedBundle, running: string): void
@@ -84,6 +86,7 @@ export const usePhoneUpdate = create<PhoneUpdateState>()((set, get) => ({
   shown: null,
   answered: null,
   shell: null,
+  diagnostics: null,
   source: null,
 
   connect: (source, answered) => set({ source, answered }),

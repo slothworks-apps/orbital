@@ -3,6 +3,7 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import { Device } from '@capacitor/device'
 import { CapacitorUpdater } from '@capgo/capacitor-updater'
 import { deviceInfoEvent, statsUrl } from './beam'
+import { loadDiagnostics, saveDiagnostics } from './diagnostics'
 import { stashForRestart } from './restartStash'
 import { usePhoneUpdate, type DownloadedBundle, type UpdateSource } from './state'
 
@@ -104,11 +105,35 @@ export function notifyStarted(): void {
   CapacitorUpdater.notifyAppReady().catch(warn('tell the updater the app started'))
 }
 
-/** Wires the prompt to the plugin and sends this start's device_info. Once per start, beside boot. */
-export async function startUpdates(
-  beam: { url: string; appId: string },
-  running: string,
-): Promise<void> {
+type Beam = { url: string; appId: string }
+
+/**
+ * Points the plugin's reports at Beam, or at nothing. The shell's config has
+ * `persistModifyUrl`, so the plugin keeps the URL and loads it on the next
+ * start before it reports anything; this runs on every start as well, to
+ * repair a URL that drifted from the setting.
+ */
+async function applyDiagnostics(beam: Beam, on: boolean): Promise<void> {
+  await CapacitorUpdater.setStatsUrl({ url: on ? statsUrl(beam.url) : '' })
+}
+
+/** Set once the updater is known to be on; only then is there a stats URL to change. */
+let beamForSettings: Beam | null = null
+
+/** "Send diagnostics" switched in 9f: stored, then applied to the plugin at once. */
+export async function setDiagnostics(on: boolean): Promise<void> {
+  usePhoneUpdate.setState({ diagnostics: on })
+  await saveDiagnostics(on)
+  if (native() && beamForSettings) await applyDiagnostics(beamForSettings, on)
+}
+
+/**
+ * Wires the prompt to the plugin, applies "Send diagnostics" and, with it
+ * on, sends this start's device_info. Once per start, beside boot.
+ */
+export async function startUpdates(beam: Beam, running: string): Promise<void> {
+  const diagnostics = await loadDiagnostics().catch(() => true)
+  usePhoneUpdate.setState({ diagnostics })
   if (!native()) return
   App.getInfo()
     .then((info) => usePhoneUpdate.setState({ shell: info.version }))
@@ -116,6 +141,8 @@ export async function startUpdates(
 
   try {
     if (!(await CapacitorUpdater.isAutoUpdateEnabled()).enabled) return
+    beamForSettings = beam
+    await applyDiagnostics(beam, diagnostics).catch(warn('apply Send diagnostics'))
     usePhoneUpdate.getState().connect(source, storage.get(ANSWERED_KEY))
     await CapacitorUpdater.addListener('updateAvailable', ({ bundle }) => {
       usePhoneUpdate.getState().downloaded({ id: bundle.id, version: bundle.version }, running)
@@ -124,10 +151,10 @@ export async function startUpdates(
     warn('listen for updates')(err)
     return
   }
-  void sendDeviceInfo(beam)
+  if (diagnostics) void sendDeviceInfo(beam)
 }
 
-async function sendDeviceInfo(beam: { url: string; appId: string }): Promise<void> {
+async function sendDeviceInfo(beam: Beam): Promise<void> {
   try {
     const [{ deviceId }, current, device] = await Promise.all([
       CapacitorUpdater.getDeviceId(),

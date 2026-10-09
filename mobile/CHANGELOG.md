@@ -9,7 +9,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 - The app updates itself: a new version downloads in the background, and a quiet notice above the session list offers to restart into it, keeping what you are typing. Close the notice and the new version starts the next time you open the app. Only versions signed by Orbital are installed, and one that fails to start is undone on its own. Needs this update from TestFlight or Google Play.
 ### Changed
 - Settings shows the app's version beside the version installed from TestFlight or Google Play, and the fingerprint on a line of its own.
-- To deliver updates, the app tells Orbital's own update server a random install id, the phone's model, its system version, the app's versions, whether an update installed, and the errors the app runs into. No name, account or location.
+- To check for updates, the app tells Orbital's own update server a random install id, the platform, its system version and the app's versions. With Settings → Send diagnostics on, which it is unless you turn it off, it also reports whether updates installed, the app's errors and crashes, and the phone's model. No name, account or location.
 
 ## [0.7.0] — 2026-10-08
 ### Added

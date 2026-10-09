@@ -11,6 +11,7 @@ import { askForNotifications } from '../platform/push'
 import { saveAppLock } from '../platform/appLock'
 import { readNotificationsCache, writeNotificationsCache } from '../platform/cache'
 import { useMobile } from '../state'
+import { DiagnosticsSetting } from '../update/DiagnosticsSetting'
 import { usePhoneUpdate } from '../update/state'
 import { clientRef } from '../transport/clientRef'
 import { CARD, MobileScreen, PrimaryButton, SecondaryButton, SectionLabel, Toggle } from '../ui'
@@ -197,7 +198,9 @@ export function SettingsScreen() {
         <SecuritySection />
 
         <SectionLabel>ADVANCED</SectionLabel>
-        <div className={CARD}>
+        {/* Provisional place, until Claude Design gives it one. */}
+        <DiagnosticsSetting />
+        <div className={[CARD, 'mt-2'].join(' ')}>
           <button
             type="button"
             aria-expanded={relayOpen}

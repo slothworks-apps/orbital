@@ -76,6 +76,11 @@ const updater = release
       resetWhenUpdate: true,
       autoDeleteFailed: true,
       autoDeletePrevious: true,
+      // "Send diagnostics" off sets the stats URL to '' (web/src/mobile/update/platform.ts); persisted, the
+      // plugin loads it on the next start before it reports anything. It also lets a bundle change the update
+      // URL, which gains nothing: a bundle from anywhere must still be signed with our key.
+      allowModifyUrl: true,
+      persistModifyUrl: true,
     }
   : { autoUpdate: false, updateUrl: '', statsUrl: '', channelUrl: '' };
 
