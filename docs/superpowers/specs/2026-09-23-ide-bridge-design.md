@@ -258,6 +258,16 @@ control to refuse it not worth its place. The transcript bubble shows only the
 typed words and no caption (`stripSentOpenFile`), and the indexer's derived
 title skips both this sentence and the selection block (`cleanTitle`).
 
+**A slash command goes out as typed** (amended 2026-10-09). The CLI runs a
+command only when the turn's text opens with it, so neither the selection
+block nor the open-file sentence may stand in front of one: a `/compact` sent
+behind the sentence reached the model as an ordinary message whenever a file
+was open in the editor. The CLI itself keeps the two apart, because its IDE
+context travels as attachments beside the prompt and Orbital's travels inside
+it. A command is a slash followed by a name and then a space or the end
+(`isSlashCommand`), so a pasted absolute path is still a prompt and keeps its
+context.
+
 **Two rates, because there are two problems.** The cursor line rewrites in
 place at `IDE_CURSOR_THROTTLE_HZ` so that arrowing through a file does not
 strobe; the lip waits `IDE_SELECTION_DEBOUNCE_MS` after the first change so a

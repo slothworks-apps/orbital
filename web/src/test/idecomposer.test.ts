@@ -161,6 +161,22 @@ describe('the editor selection on the way out', () => {
     expect(sentTexts()).toEqual([OPEN('web/CLAUDE.md', 'hello caret'), OPEN('web/CLAUDE.md', 'hello empty')])
   })
 
+  it('sends a slash command as typed — the CLI runs it only from the first character', async () => {
+    seed([
+      session({ id: 'selected', ide: { ideName: 'WebStorm', workspaceRoot: '/w/x', selection: SELECTION } }),
+      session({
+        id: 'caret',
+        ide: { ideName: 'WebStorm', workspaceRoot: '/w/x', selection: { ...SELECTION, text: null } },
+      }),
+    ])
+
+    await useOrbital.getState().sendPrompt('selected', '/compact keep the plan')
+    await useOrbital.getState().sendPrompt('caret', '/compact')
+    // A pasted path is a prompt, not a command, and keeps its context.
+    await useOrbital.getState().sendPrompt('caret', '/w/x/a.ts fails')
+    expect(sentTexts()).toEqual(['/compact keep the plan', '/compact', OPEN('web/CLAUDE.md', '/w/x/a.ts fails')])
+  })
+
   it('leaves an answer to an open question alone — it is words for the ask', async () => {
     seed([session({ id: 's1', ide: { ideName: 'WebStorm', workspaceRoot: '/w/x', selection: SELECTION } })])
     useOrbital.setState({
