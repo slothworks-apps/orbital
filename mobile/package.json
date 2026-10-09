@@ -13,7 +13,8 @@
     "ipa": "./scripts/ios-release.sh",
     "run": ". ./scripts/android-env.sh && cap run android",
     "ios:open": "cap open ios",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test 'scripts/*.test.mjs'"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",

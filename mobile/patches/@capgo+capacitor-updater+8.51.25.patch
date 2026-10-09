@@ -1,0 +1,128 @@
+diff --git a/node_modules/@capgo/capacitor-updater/android/src/main/java/ee/forgr/capacitor_updater/AndroidAppExitReporter.java b/node_modules/@capgo/capacitor-updater/android/src/main/java/ee/forgr/capacitor_updater/AndroidAppExitReporter.java
+index a2927a1..e2c3072 100644
+--- a/node_modules/@capgo/capacitor-updater/android/src/main/java/ee/forgr/capacitor_updater/AndroidAppExitReporter.java
++++ b/node_modules/@capgo/capacitor-updater/android/src/main/java/ee/forgr/capacitor_updater/AndroidAppExitReporter.java
+@@ -77,15 +77,7 @@ final class AndroidAppExitReporter {
+         metadata.put("pss_kb", Long.toString(exitInfo.getPss()));
+         metadata.put("rss_kb", Long.toString(exitInfo.getRss()));
+ 
+-        final String processName = exitInfo.getProcessName();
+-        if (processName != null && !processName.isEmpty()) {
+-            metadata.put("process_name", CapacitorUpdaterPlugin.truncateStatsMetadataValue(processName, 128));
+-        }
+-
+-        final String description = exitInfo.getDescription();
+-        if (description != null && !description.isEmpty()) {
+-            metadata.put("exit_description", CapacitorUpdaterPlugin.truncateStatsMetadataValue(description, 512));
+-        }
++        // Orbital: no process name and no exit description, which is free text from the system.
+ 
+         return metadata;
+     }
+diff --git a/node_modules/@capgo/capacitor-updater/android/src/main/java/ee/forgr/capacitor_updater/CapacitorUpdaterPlugin.java b/node_modules/@capgo/capacitor-updater/android/src/main/java/ee/forgr/capacitor_updater/CapacitorUpdaterPlugin.java
+index ca3987a..73cfa35 100644
+--- a/node_modules/@capgo/capacitor-updater/android/src/main/java/ee/forgr/capacitor_updater/CapacitorUpdaterPlugin.java
++++ b/node_modules/@capgo/capacitor-updater/android/src/main/java/ee/forgr/capacitor_updater/CapacitorUpdaterPlugin.java
+@@ -1809,9 +1809,7 @@ public class CapacitorUpdaterPlugin extends Plugin {
+             metadata.put("duration_ms", Long.toString(Math.max(0, System.currentTimeMillis() - pageStartedAt)));
+             metadata.put("page_started_at", Long.toString(pageStartedAt));
+         }
+-        if (view != null && view.getUrl() != null && !view.getUrl().isEmpty()) {
+-            metadata.put("href", truncateStatsMetadataValue(sanitizeStatsMetadataUrl(view.getUrl()), 512));
+-        }
++        // Orbital: no page URL.
+         this.reportWebViewStats("webview_page_loaded", metadata);
+     }
+ 
+@@ -1933,24 +1931,11 @@ public class CapacitorUpdaterPlugin extends Plugin {
+         }
+     }
+ 
++    // Orbital: a WebView report carries its type alone, one of the known ones, whatever the page sent.
+     static Map<String, String> buildWebViewErrorMetadata(final JSObject data) {
+         final Map<String, String> metadata = new HashMap<>();
+-        putStatsMetadataValue(metadata, "error_type", data.optString("type", "javascript_error"), 64);
+-        putStatsMetadataValue(metadata, "message", data.optString("message", ""), 1024);
+-        putStatsMetadataValue(metadata, "source", sanitizeStatsMetadataUrl(data.optString("source", "")), 512);
+-        putStatsMetadataValue(metadata, "line", data.optString("line", data.optString("lineno", "")), 32);
+-        putStatsMetadataValue(metadata, "column", data.optString("column", data.optString("colno", "")), 32);
+-        putStatsMetadataValue(metadata, "stack", data.optString("stack", ""), 2048);
+-        putStatsMetadataValue(metadata, "tag_name", data.optString("tag_name", ""), 64);
+-        putStatsMetadataValue(metadata, "href", sanitizeStatsMetadataUrl(data.optString("href", "")), 512);
+-        putStatsMetadataValue(metadata, "user_agent", data.optString("user_agent", ""), 256);
+-        putStatsMetadataValue(metadata, "session_id", data.optString("session_id", ""), 128);
+-        putStatsMetadataValue(metadata, "duration_ms", data.optString("duration_ms", ""), 32);
+-        putStatsMetadataValue(metadata, "page_started_at", data.optString("page_started_at", ""), 64);
+-        putStatsMetadataValue(metadata, "previous_session_id", data.optString("previous_session_id", ""), 128);
+-        putStatsMetadataValue(metadata, "previous_href", sanitizeStatsMetadataUrl(data.optString("previous_href", "")), 512);
+-        putStatsMetadataValue(metadata, "previous_started_at", data.optString("previous_started_at", ""), 64);
+-        putStatsMetadataValue(metadata, "previous_updated_at", data.optString("previous_updated_at", ""), 64);
++        final String action = statsActionForWebViewErrorType(data.optString("type", "javascript_error"));
++        metadata.put("error_type", action.substring("webview_".length()));
+         return metadata;
+     }
+ 
+@@ -2071,7 +2056,8 @@ public class CapacitorUpdaterPlugin extends Plugin {
+             "function updater(){var cap=window.Capacitor;if(!cap||!cap.Plugins){return null;}return cap.Plugins.CapacitorUpdater||null;}" +
+             "function flush(){var plugin=updater();if(!plugin||typeof plugin.reportWebViewError!=='function'){return false;}while(queue.length){var payload=queue.shift();try{var result=plugin.reportWebViewError(payload);if(result&&typeof result.catch==='function'){result.catch(function(){});}}catch(_){}}return true;}" +
+             "var retries=0;function scheduleFlush(){if(flush()){return;}if(retries++<40){setTimeout(scheduleFlush,250);}}" +
+-            "function send(payload){try{if(sentReports>=maxReports){return;}payload.href=payload.href||location.href||'';payload.user_agent=navigator.userAgent||'';payload.session_id=sessionId;var key=[payload.type,payload.message,payload.source,payload.line,payload.column,payload.tag_name].join('|');if(seen[key]){return;}seen[key]=true;sentReports+=1;queue.push(payload);scheduleFlush();}catch(_){}}" +
++            // Orbital: only the event's type leaves the WebView, never a message, stack, source, URL or any other text.
++            "function send(payload){try{if(sentReports>=maxReports){return;}var key=String(payload&&payload.type||'');if(seen[key]){return;}seen[key]=true;sentReports+=1;queue.push({type:key});scheduleFlush();}catch(_){}}" +
+             "function readSession(){try{return JSON.parse(localStorage.getItem(sessionKey)||'null')||null;}catch(_){return null;}}" +
+             "function writeSession(active){try{localStorage.setItem(sessionKey,JSON.stringify({id:sessionId,active:active,href:location.href||'',started_at:window.__capgoWebViewSessionStartedAt,updated_at:String(Date.now())}));}catch(_){}}" +
+             "window.__capgoWebViewSessionStartedAt=String(Date.now());" +
+diff --git a/node_modules/@capgo/capacitor-updater/ios/Sources/CapacitorUpdaterPlugin/WebViewStatsReporter.swift b/node_modules/@capgo/capacitor-updater/ios/Sources/CapacitorUpdaterPlugin/WebViewStatsReporter.swift
+index 37ca9be..0a7463c 100644
+--- a/node_modules/@capgo/capacitor-updater/ios/Sources/CapacitorUpdaterPlugin/WebViewStatsReporter.swift
++++ b/node_modules/@capgo/capacitor-updater/ios/Sources/CapacitorUpdaterPlugin/WebViewStatsReporter.swift
+@@ -44,17 +44,15 @@ final class WebViewStatsReporter {
+         if(flush()){return;}
+         if(retries++<40){setTimeout(scheduleFlush,250);}
+       }
++      // Orbital: only the event's type leaves the WebView, never a message, stack, source, URL or any other text.
+       function send(payload){
+         try{
+           if(sentReports>=maxReports){return;}
+-          payload.href=payload.href||location.href||'';
+-          payload.user_agent=navigator.userAgent||'';
+-          payload.session_id=sessionId;
+-          var key=[payload.type,payload.message,payload.source,payload.line,payload.column,payload.tag_name].join('|');
++          var key=String(payload&&payload.type||'');
+           if(seen[key]){return;}
+           seen[key]=true;
+           sentReports+=1;
+-          queue.push(payload);
++          queue.push({type:key});
+           scheduleFlush();
+         }catch(_){}
+       }
+@@ -220,25 +218,10 @@ final class WebViewStatsReporter {
+         }
+     }
+ 
++    // Orbital: a WebView report carries its type alone, one of the known ones, whatever the page sent.
+     static func buildMetadata(_ values: [String: String?]) -> [String: String] {
+-        var metadata: [String: String] = [:]
+-        put(&metadata, key: "error_type", value: payloadValue(values, "type") ?? "javascript_error", maxLength: 64)
+-        put(&metadata, key: "message", value: payloadValue(values, "message"), maxLength: 1_024)
+-        put(&metadata, key: "source", value: sanitizeUrl(payloadValue(values, "source")), maxLength: 512)
+-        put(&metadata, key: "line", value: payloadValue(values, "line"), maxLength: 32)
+-        put(&metadata, key: "column", value: payloadValue(values, "column"), maxLength: 32)
+-        put(&metadata, key: "stack", value: payloadValue(values, "stack"), maxLength: 2_048)
+-        put(&metadata, key: "tag_name", value: payloadValue(values, "tag_name"), maxLength: 64)
+-        put(&metadata, key: "href", value: sanitizeUrl(payloadValue(values, "href")), maxLength: 512)
+-        put(&metadata, key: "user_agent", value: payloadValue(values, "user_agent"), maxLength: 256)
+-        put(&metadata, key: "session_id", value: payloadValue(values, "session_id"), maxLength: 128)
+-        put(&metadata, key: "duration_ms", value: payloadValue(values, "duration_ms"), maxLength: 32)
+-        put(&metadata, key: "page_started_at", value: payloadValue(values, "page_started_at"), maxLength: 64)
+-        put(&metadata, key: "previous_session_id", value: payloadValue(values, "previous_session_id"), maxLength: 128)
+-        put(&metadata, key: "previous_href", value: sanitizeUrl(payloadValue(values, "previous_href")), maxLength: 512)
+-        put(&metadata, key: "previous_started_at", value: payloadValue(values, "previous_started_at"), maxLength: 64)
+-        put(&metadata, key: "previous_updated_at", value: payloadValue(values, "previous_updated_at"), maxLength: 64)
+-        return metadata
++        let action = statsAction(for: payloadValue(values, "type") ?? "javascript_error")
++        return ["error_type": String(action.dropFirst("webview_".count))]
+     }
+ 
+     private static func payloadValue(_ values: [String: String?], _ key: String) -> String? {

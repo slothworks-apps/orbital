@@ -106,10 +106,10 @@ jobs:
       - run: npm ci
       - run: npm run typecheck -w ${{ matrix.workspace }}
       - run: npx eslint ${{ matrix.workspace }}
-      # mobile/ has no tests of its own; web's `test` is vitest in watch mode,
-      # `test:run` the single run.
-      - if: matrix.workspace != 'mobile'
-        run: npm run ${{ matrix.workspace == 'web' && 'test:run' || 'test' }} -w ${{ matrix.workspace }}
+      # web's `test` is vitest in watch mode, `test:run` the single run.
+      # mobile's checks that the updater plugin's privacy patch applied
+      # (mobile/scripts/plugin-privacy.test.mjs); `npm ci` applies it.
+      - run: npm run ${{ matrix.workspace == 'web' && 'test:run' || 'test' }} -w ${{ matrix.workspace }}
 
   desktop-app:
     # Packages Orbital.app the way the release does, minus the Developer ID:

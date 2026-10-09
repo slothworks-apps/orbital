@@ -180,6 +180,9 @@ jobs:
           pod --version
 
       - run: npm ci
+      # The updater plugin carries no session text only with its patch, which
+      # npm ci applies; this fails the build when it did not.
+      - run: npm test -w @orbital/mobile
 
       - name: Write the Firebase config and the App Store Connect API key
         env:
@@ -222,6 +225,9 @@ jobs:
           java-version: 21
           cache: gradle
       - run: npm ci
+      # The updater plugin carries no session text only with its patch, which
+      # npm ci applies; this fails the build when it did not.
+      - run: npm test -w @orbital/mobile
 
       # The paths build.gradle reads, all git-ignored.
       - name: Write the upload key, the Play service account and the Firebase config
