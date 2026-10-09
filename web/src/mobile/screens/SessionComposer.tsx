@@ -2,7 +2,7 @@ import { useContext, useEffect, useRef, useState } from 'react'
 import { promptWithFiles } from '../../lib/attachedFiles'
 import { COMPACTING_PLACEHOLDER } from '../../lib/compaction'
 import { isReadOnly } from '../../lib/types'
-import { Composer, ComposerLockContext } from '../../panels/Composer'
+import { Composer, ComposerLockContext, type ComposerControl } from '../../panels/Composer'
 import { StopDialog } from '../../panels/StopDialog'
 import { useAttachments } from '../../panels/useAttachments'
 import { useOrbital, type SentAttachment } from '../../store/store'
@@ -82,6 +82,7 @@ function LiveComposer({ id }: { id: string }) {
   const reopenStep = intent?.intent.kind === 'reopen' ? intent.intent.step : null
   const attachments = useAttachments(id)
   const [stopOpen, setStopOpen] = useState(false)
+  const composer = useRef<ComposerControl>(null)
   // The phone has no toast surface: what this client's own requests raise (a
   // send, an answer, a verdict on a card) and what its photos raise is said on
   // a line under the well. The Mac's error records (`source: 'log'`) are not.
@@ -193,6 +194,7 @@ function LiveComposer({ id }: { id: string }) {
         locked={locked}
         attachments={attachments}
         aria-label="Prompt"
+        control={composer}
       />
       {error && (
         <div role="alert" className="mt-2 px-1 font-mono text-[11px] text-[var(--state-input)]">
@@ -201,8 +203,9 @@ function LiveComposer({ id }: { id: string }) {
       )}
       <Controls
         hint={reopenStep !== null ? reopenHint(reopenStep) : undefined}
-        photosDisabled={!ready || locked}
+        toolsDisabled={!ready || locked}
         onPhoto={attachPhoto}
+        onSlash={() => composer.current?.startCommand()}
         onStop={status === 'working' ? () => setStopOpen(true) : undefined}
         onSend={handleSend}
         sendDisabled={!canSend}
@@ -224,8 +227,10 @@ function Controls(
         inert?: false
         /** A line in the photos' place: where a reopened step's message goes (canvas 10b, third phone). */
         hint?: string
-        photosDisabled: boolean
+        toolsDisabled: boolean
         onPhoto(source: PhotoSource): void
+        /** Starts a slash command: the slash sits on the symbols page of a phone keyboard. */
+        onSlash(): void
         onStop?: () => void
         onSend(): void
         sendDisabled: boolean
@@ -246,7 +251,7 @@ function Controls(
             type="button"
             aria-label="Take a photo"
             className={iconButton}
-            disabled={!live || live.photosDisabled}
+            disabled={!live || live.toolsDisabled}
             onClick={() => live?.onPhoto('camera')}
           >
             <CameraIcon />
@@ -255,10 +260,21 @@ function Controls(
             type="button"
             aria-label="Choose from gallery"
             className={iconButton}
-            disabled={!live || live.photosDisabled}
+            disabled={!live || live.toolsDisabled}
             onClick={() => live?.onPhoto('gallery')}
           >
             <GalleryIcon />
+          </button>
+          <button
+            type="button"
+            aria-label="Commands and skills"
+            className={`${iconButton} font-mono text-[19px]`}
+            disabled={!live || live.toolsDisabled}
+            // Keeps the field focused, so the keyboard stays up and the caret where it was.
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={() => live?.onSlash()}
+          >
+            /
           </button>
           <span aria-hidden className="flex-1" />
         </>

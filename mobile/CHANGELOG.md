@@ -4,6 +4,11 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.9.1] — 2026-10-09
+### Added
+- A `/` button under the message field: it starts a slash command and opens the list of commands and skills, without hunting for the slash on the keyboard.
+- Tap a session's title, or its project and branch, at the top of a session to read them whole when they are cut short.
+
 ## [0.9.0] — 2026-10-09
 ### Added
 - Media: every image and PDF of a session, from the session menu — a gallery that hides tool screenshots if you like, and a viewer you swipe through, with PDFs shown page by page and a way back to the message in the chat.
