@@ -8,7 +8,7 @@ related:
   - 2026-10-08-release-roadmap
   - the-desktop-app-updates-itself
   - release-the-dmg-from-github-actions
-  - a-release-is-a-tag-written-by-one-workflow
+  - a-version-ships-once-from-one-workflow
   - trim-and-sign-the-desktop-package
   - firebase-ios-leaves-cocoapods
   - android-releases-upload-through-gradle-play-publisher
@@ -35,7 +35,6 @@ app reaches testers without anyone touching a Mac:
   downloads the update itself and offers a restart.
 - **iOS** — a build in TestFlight's internal group.
 - **Android** — a build on Play's Internal testing track.
-
 - **Relay** — a new image in GHCR, tagged with its version and `latest`.
 
 Only the app whose version went up is built. A merge without a bump
@@ -54,9 +53,10 @@ publishes nothing new anywhere: no build, no image, no moved tag.
 - The relay image is built **only on a relay version bump**, like the
   apps. Until now `relay-image.yml` rebuilt it on every change under
   `relay/` or `shared/` and moved its version tag and `latest` with it.
-- **One workflow**, `release.yml`, decides and ships all four; the
-  record of what has shipped is a git tag
-  ([[a-release-is-a-tag-written-by-one-workflow]]).
+- **One workflow**, `release.yml`, decides and ships all four. Whether a
+  version has shipped is read from where it ships to: the GitHub Release,
+  the image in GHCR, and for the phone a git tag the workflow writes
+  itself ([[a-version-ships-once-from-one-workflow]]). Nobody tags by hand.
 - iOS signs with **automatic signing through the App Store Connect API
   key**, not an exported distribution certificate and profile.
 - Only the desktop app makes **GitHub Releases**. The phone gets a tag.
@@ -73,21 +73,29 @@ It replaces `release-mac.yml` and `relay-image.yml`, which are deleted.
 
 Runs `scripts/release-plan.mjs` and exposes its answer as job outputs:
 
-- the desktop version from `desktop/package.json` → tag `v<version>`;
-- the phone version from `versionName` in `mobile/android/app/build.gradle`
-  → tag `mobile-v<versionName>`;
-- the relay version from `relay/package.json` → tag `relay-v<version>`;
-- for each tag, whether it exists on the remote (`git ls-remote --tags`).
-  A missing tag means the version has not shipped: `mac=true`,
-  `mobile=true` or `relay=true`.
+| app | version from | shipped when |
+|---|---|---|
+| desktop | `desktop/package.json` | a GitHub Release `v<version>` exists (`gh release view`) |
+| phone | `versionName` in `mobile/android/app/build.gradle` | the git tag `mobile-v<versionName>` exists (`git ls-remote --tags`) |
+| relay | `relay/package.json` | the image `orbital-relay:<version>` exists in GHCR (`docker manifest inspect`) |
 
-The tag, not the diff of the push, is the test. A run that failed half way
-leaves no tag, so the next push or a manual run ships it again; a push that
-does not touch a version ships nothing. `check-versions.mjs` already
-refuses a version that goes back ([[a-shipped-version-never-goes-back]]),
-so a missing tag is always a new version.
+A version that has not shipped sets `mac=true`, `mobile=true` or
+`relay=true`.
 
-The tag `v<version>` is the form `electron-updater` expects.
+Where the version ships to, not the diff of the push, is the test. A run
+that failed half way left nothing there, so the next push or a manual run
+ships it again; a push that does not touch a version ships nothing.
+`check-versions.mjs` already refuses a version that goes back
+([[a-shipped-version-never-goes-back]]), so a version not out there is
+always a new one. It also means a version that went out by hand — the relay
+image built before this workflow, say — is seen as shipped, with no step
+to tell the workflow about it.
+
+The phone is the exception because its builds land in two stores that are
+not cheap to ask; the tag is the workflow's own note that both took it.
+
+The tag `v<version>` that `gh release create` writes is the form
+`electron-updater` expects.
 
 ### `mac` (macOS runner, when `mac`)
 
@@ -149,8 +157,8 @@ with only the failed job (`Re-run failed jobs`), not by a new push.
 The two jobs of today's `relay-image.yml`, moved: typecheck and test the
 relay on Linux, then build `relay/Dockerfile` and push it to
 `ghcr.io/<owner>/orbital-relay` tagged `<version>`, `latest` and the
-commit's sha. Then push the tag `relay-v<version>`. Because it runs only
-for a new version, the version tag never moves once written, and `latest`
+commit's sha. Because it runs only for a version not yet in GHCR, the
+version tag never moves once written, and `latest`
 moves only to a new version. Nothing is deployed from here, as before; the
 runbook `run-the-relay` covers pulling the image.
 
@@ -253,8 +261,10 @@ bundle to the phone without a store build is a separate idea
 
 ## Testing
 
-- `scripts/release-plan.mjs`: reading both versions, the tag names, and
-  the answer for present and missing tags.
+- `scripts/release-plan.mjs`: reading the three versions, the names it
+  asks about, and the answer when each is present or missing. The lookups
+  themselves (`gh`, `git`, `docker`) are passed in, so the tests do not
+  reach the network.
 - `desktop/src/lib/updates.ts`: the restart states — now, waiting, a
   session starting while waiting, cancelling, nothing working.
 - The workflow itself is proven by its first real run; nothing replaces
@@ -262,12 +272,10 @@ bundle to the phone without a store build is a separate idea
 
 ## The first run
 
-The first push after `release.yml` lands finds no tags at all, so it would
-ship every current version. A version that already went out by hand — the
-relay image built from `relay-image.yml`, a phone build uploaded with
-`npm run ios:release` or `android:release` — gets its tag pushed by hand
-before this merges, so the first run ships only what has not gone out. The
-runbooks say which tags those are at the time.
+Nothing is prepared by hand. As of 2026-10-09 the first run after this
+lands ships desktop 0.24.0 (no GitHub Release yet) and phone 0.7.0 (never
+uploaded, no tag), and skips relay 0.4.0, whose image is already in GHCR.
+The phone thereby tests both store uploads at once.
 
 ## Out of scope
 
