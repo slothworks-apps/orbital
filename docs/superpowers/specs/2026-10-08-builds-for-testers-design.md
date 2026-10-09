@@ -1,7 +1,7 @@
 ---
 id: 2026-10-08-builds-for-testers-design
 title: A merged version bump builds and ships that app to testers
-status: draft
+status: active
 type: spec
 domain: release
 related:
@@ -272,10 +272,15 @@ bundle to the phone without a store build is a separate idea
 
 ## The first run
 
-Nothing is prepared by hand. As of 2026-10-09 the first run after this
-lands ships desktop 0.24.0 (no GitHub Release yet) and phone 0.7.0 (never
+Nothing is prepared by hand. The pull request that lands this phase bumps
+the desktop app to 0.25.0, so the first GitHub Release already carries the
+updater; 0.24.0, which has none, is never released on its own. As of
+2026-10-09 the first run then ships desktop 0.25.0 and phone 0.7.0 (never
 uploaded, no tag), and skips relay 0.4.0, whose image is already in GHCR.
 The phone thereby tests both store uploads at once.
+
+Whoever runs an older desktop build installs the 0.25.0 DMG once by hand;
+from then on the app updates itself.
 
 ## Out of scope
 
