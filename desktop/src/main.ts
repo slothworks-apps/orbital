@@ -1,5 +1,6 @@
 import {
   app,
+  autoUpdater as nativeUpdater,
   BrowserWindow,
   dialog,
   ipcMain,
@@ -14,9 +15,10 @@ import {
   type UtilityProcess,
   type WebContents,
 } from 'electron';
-import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { autoUpdater } from 'electron-updater';
 import { apiTokenPath, authCookies, bearerHeaders, parseApiToken } from './lib/apiToken';
 import { appMenuTemplate, parseMenuCommands, type MenuCommand } from './lib/appMenu';
 import { decideQuit, decideWindowClose, WorkingSessions } from './lib/background';
@@ -57,6 +59,13 @@ import {
   VITE_URL,
   type HealthInfo,
 } from './lib/startup';
+import {
+  parseUpdateAction,
+  shouldCheckForUpdates,
+  UPDATE_CHECK_INTERVAL_MS,
+  UpdateFlow,
+  type UpdateStep,
+} from './lib/updates';
 import {
   atLeast,
   cascadeFrom,
@@ -159,6 +168,8 @@ let feed: { close(): void } | null = null;
 const notifier = new SessionNotifier();
 /** What a quit would kill, folded off the same feed the notifier reads. */
 const working = new WorkingSessions();
+/** A downloaded update, and when it may restart the app (`lib/updates`). */
+const updates = new UpdateFlow();
 /** True only when this process forked the server — shutdown kills only that. */
 let forked = false;
 let quitting = false;
@@ -930,6 +941,7 @@ function startNotifications(): void {
       // Two folds over one socket: what is worth saying, and what a quit would
       // cost (spec: 2026-09-22-desktop-background-mode-design § "Quit guard").
       working.onFrame(frame);
+      onWorkingFrame(frame);
       const d = notifier.onEvent(frame);
       if (!d) return;
       if (!win || win.isDestroyed()) return;
@@ -967,6 +979,69 @@ function startNotifications(): void {
       n.show();
     },
   });
+}
+
+/**
+ * The app updating itself from GitHub Releases (spec
+ * 2026-10-08-builds-for-testers-design § The desktop app updates itself).
+ * Only a packaged build carrying `app-update.yml` — what the release build's
+ * `publish` setting writes — looks; a dev build and `dist:local`/`dist:self`
+ * never do.
+ *
+ * A newer version downloads in the background and installs when the app next
+ * quits. A failed check or download is logged and tried again at the next
+ * interval, never shown: a tester without an update loses nothing.
+ */
+function startUpdates(): void {
+  const hasAppUpdateYml = existsSync(join(process.resourcesPath, 'app-update.yml'));
+  if (!shouldCheckForUpdates({ isPackaged: app.isPackaged, hasAppUpdateYml })) return;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('error', (err) => console.error('Orbital could not update itself:', err));
+  autoUpdater.on('update-downloaded', (info) => applyUpdateStep(updates.downloaded(info.version)));
+  // `quitAndInstall` has Squirrel.Mac close every window first and emit
+  // `before-quit` only after. A window that hides on close would stop that
+  // quit, and the quit dialog would ask again about sessions the user already
+  // chose to interrupt — so both guards stand down, for this quit only. The
+  // `before-quit` handler still stops the feed and the server, and
+  // `will-quit` still writes the window frames.
+  nativeUpdater.on('before-quit-for-update', () => {
+    quitting = true;
+    quitConfirmed = true;
+  });
+  const check = (): void => {
+    // A failed check is emitted as `error` as well, and logged there.
+    autoUpdater.checkForUpdates().catch(() => {});
+  };
+  check();
+  setInterval(check, UPDATE_CHECK_INTERVAL_MS);
+}
+
+/**
+ * Hand the update flow the working count after a `sessions` frame, the only
+ * kind that moves it. A wait for sessions to finish ends here.
+ */
+function onWorkingFrame(frame: unknown): void {
+  if (typeof frame !== 'object' || frame === null) return;
+  if ((frame as { topic?: unknown }).topic !== 'sessions') return;
+  applyUpdateStep(updates.setWorkingCount(working.count));
+}
+
+/** Tell every Orbital window what changed, and restart when the flow says so. */
+function applyUpdateStep(step: UpdateStep): void {
+  if (step.changed) {
+    const view = updates.view;
+    for (const target of [win, ...sessionWindows.values()]) {
+      if (target && !target.isDestroyed()) target.webContents.send('update-state', view);
+    }
+  }
+  if (step.restart) autoUpdater.quitAndInstall();
+}
+
+/** Whether an IPC message came from one of Orbital's own windows. */
+function fromOrbitalWindow(sender: WebContents): boolean {
+  const from = BrowserWindow.fromWebContents(sender);
+  return !!from && (from === win || [...sessionWindows.values()].includes(from));
 }
 
 /**
@@ -1094,6 +1169,7 @@ async function start(): Promise<void> {
   // this line ends in `app.quit()`, where a menu bar item would be a leak.
   createTray();
   startNotifications();
+  startUpdates();
 }
 
 /**
@@ -1208,6 +1284,15 @@ ipcMain.handle('request-notification-permission', (event) => {
   return probeNotificationPermission(
     () => new Notification({ title: 'Orbital', body: 'Notifications are on.', silent: true }),
   );
+});
+// The update prompt (spec 2026-10-08-builds-for-testers-design § Restarting
+// into it): a page asks for the state on load, so a reload keeps it, and
+// sends the prompt's buttons back. Only Orbital's own windows are heard.
+ipcMain.handle('get-update-state', (event) => (fromOrbitalWindow(event.sender) ? updates.view : { phase: 'none' }));
+ipcMain.on('update-action', (event, payload: unknown) => {
+  if (!fromOrbitalWindow(event.sender)) return;
+  const action = parseUpdateAction(payload);
+  if (action) applyUpdateStep(updates.act(action));
 });
 // The refused tip's one way out (canvas 1d): System Settings → Notifications.
 ipcMain.on('open-notification-settings', () => {

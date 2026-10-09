@@ -19,7 +19,28 @@ type DesktopBridge = {
   onCommand?: (cb: (id: string) => void) => void
   pathForFile?: (file: File) => string
   chooseDirectory?: (startPath: string) => Promise<unknown>
+  onUpdateState?: (cb: (state: UpdateState) => void) => void
+  getUpdateState?: () => Promise<UpdateState>
+  updateAction?: (action: UpdateAction) => void
 }
+
+/**
+ * A downloaded desktop update, as main reports it
+ * (`desktop/src/lib/updates.ts` has the same type as `UpdateView` and
+ * validates it in the preload). `workingCount` is the Orbital sessions a
+ * restart now would interrupt. `dismissed`: the prompt was closed and the
+ * update installs when Orbital quits.
+ */
+export type UpdateState =
+  | { phase: 'none' }
+  | {
+      phase: 'ready' | 'waiting' | 'dismissed' | 'restarting'
+      version: string
+      workingCount: number
+    }
+
+/** The update prompt's buttons; closing it is `dismiss`. */
+export type UpdateAction = 'restart-now' | 'restart-when-idle' | 'cancel-wait' | 'dismiss'
 
 /**
  * One keymap command as the desktop menu lists it (`menuCommands` in

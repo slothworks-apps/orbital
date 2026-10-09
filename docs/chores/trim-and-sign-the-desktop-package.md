@@ -54,13 +54,20 @@ fresh `ORBITAL_DATA_DIR` (`/api/health` returns 200 after migrations run,
 confirming better-sqlite3 loads and works) and confirming clean shutdown on
 SIGTERM.
 
-## `electron-builder` still floats on a caret
+## ~~`electron-builder` still floats on a caret~~ — done
 
 `electron` is pinned exactly — electron-builder refuses a range, because it
 downloads binaries for one specific release. The tool that decides what bytes
 end up in the artifact deserves the same treatment for the same reason: a
 packaging tool that can change under you between two builds of the same commit
 makes every "it built yesterday" report unfalsifiable.
+
+Pinned to the version that was installed (26.15.3) with the self-update
+(spec 2026-10-08-builds-for-testers-design), and `electron-updater` beside it
+at 6.8.9, the release built on the same `builder-util-runtime` (9.7.0), so the
+updater and the feed the builder writes for it move together. Both are devDependencies: esbuild bundles
+`electron-updater` into `dist/main.cjs`, so `app.asar` still holds only
+`dist/` and `package.json`.
 
 ## ~~`desktop/package.json` has no `author`~~ — done
 

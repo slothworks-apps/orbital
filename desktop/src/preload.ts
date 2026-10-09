@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import { parseFullScreen } from './lib/mainWindow';
 import { parseDetachedIds } from './lib/sessionWindows';
+import { parseUpdateView, type UpdateView } from './lib/updates';
 
 // The bridge the renderer sees. `select-session` is sent by main.ts when the
 // user clicks a native notification; `web/src/lib/desktop.ts` is the other end,
@@ -87,5 +88,19 @@ contextBridge.exposeInMainWorld('orbitalDesktop', {
   },
   onCommand(cb: (id: string) => void) {
     ipcRenderer.on('command', (_e, id) => cb(String(id)));
+  },
+  // A downloaded update and the restart into it (spec
+  // 2026-10-08-builds-for-testers-design § The desktop app updates itself):
+  // main pushes the state on every change and answers it on load, so a reload
+  // keeps the prompt; the prompt's buttons go back as actions, which main
+  // validates (`lib/updates`).
+  onUpdateState(cb: (state: UpdateView) => void) {
+    ipcRenderer.on('update-state', (_e, state) => cb(parseUpdateView(state)));
+  },
+  async getUpdateState(): Promise<UpdateView> {
+    return parseUpdateView(await ipcRenderer.invoke('get-update-state'));
+  },
+  updateAction(action: unknown) {
+    ipcRenderer.send('update-action', action);
   },
 });
