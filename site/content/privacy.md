@@ -141,20 +141,24 @@ needed for updates and always happens. The request carries:
 **Diagnostics.** With Settings → Send diagnostics on, the app also reports,
 under the same install id:
 
-- whether an update downloaded, installed or failed;
+- whether an update downloaded, installed or failed, and how long the app
+  took to start;
 - when the app comes to the foreground or goes to the background;
-- errors in the app and unexpected stops: the kind of error, its message,
-  where in the app's code it happened (the stack and the page's address
-  inside the app), and crashes, freezes and low-memory exits;
+- that something went wrong, by its kind only: an error in the app's code,
+  a file of the app that failed to load, a crash, a freeze or a low-memory
+  exit, with the system's reason code and how much memory the app used;
 - the phone's model.
+
+The text of an error, stack traces, addresses inside the app and anything
+from your sessions are never sent, with diagnostics on or off: only that an
+error of a given kind happened.
 
 Diagnostics are on unless you turn them off. When you turn them off, the
 app stops sending these reports at once; a report it had already queued
 just before may still go out. The update check stays.
 
 None of it carries a name, account or location, or anything from your
-sessions or your Mac beyond what the text of an error message may happen to
-contain. Like any server, the update server sees the IP address a request
+sessions or your Mac. Like any server, the update server sees the IP address a request
 comes from. SlothWorks uses all of this only to deliver updates and to see
 whether they work.
 
