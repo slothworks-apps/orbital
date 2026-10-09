@@ -61,6 +61,7 @@ import {
 } from './lib/startup';
 import {
   checkAnswerMessage,
+  IDLE_SETTLE_MS,
   parseAutoDownload,
   parseSkippedVersion,
   parseUpdateAction,
@@ -922,7 +923,7 @@ async function loadSettings(): Promise<void> {
     if (!res.ok) return;
     const body: unknown = await res.json();
     notifier.setSettings(parseNotificationSettings(body));
-    updates.setAutoDownload(parseAutoDownload(body));
+    applyUpdateStep(updates.setAutoDownload(parseAutoDownload(body)));
   } catch {
     /* server still coming up, or gone: keep the settings we have */
   }
@@ -946,7 +947,7 @@ async function seedWorkingSessions(): Promise<void> {
     });
     if (res.ok) {
       working.seed(token, await res.json());
-      applyUpdateStep(updates.setWorkingCount(working.count, working.seeded));
+      applyUpdateStep(updates.setWorkingCount(working.busyCount, working.seeded));
     }
   } catch {
     /* server still coming up, or gone: retried below */
@@ -978,7 +979,7 @@ function startNotifications(): void {
       working.reset();
       // The update flow forgets the count too, so a restart waiting for
       // sessions to finish cannot take the one from before the drop.
-      applyUpdateStep(updates.setWorkingCount(working.count, working.seeded));
+      applyUpdateStep(updates.setWorkingCount(working.busyCount, working.seeded));
       void seedWorkingSessions();
       void loadSettings();
     },
@@ -1028,8 +1029,6 @@ function startNotifications(): void {
 
 /** True once `startUpdates` found a build that updates itself. */
 let updatesEnabled = false;
-/** True while a check the user asked for runs: it offers a skipped version again. */
-let manualCheck = false;
 
 function skippedVersionPath(): string {
   return join(app.getPath('userData'), SKIPPED_VERSION_FILE);
@@ -1078,10 +1077,12 @@ function startUpdates(): void {
   updatesEnabled = true;
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on('error', (err) => console.error('Orbital could not update itself:', err));
-  autoUpdater.on('update-available', (info) =>
-    applyUpdateStep(updates.available(info.version, updateSize(info.files), { manual: manualCheck })),
-  );
+  // A failed check changes nothing; a failed `quitAndInstall` gives the
+  // version back to the prompt rather than leaving it restarting forever.
+  autoUpdater.on('error', (err) => {
+    console.error('Orbital could not update itself:', err);
+    applyUpdateStep(updates.updaterError());
+  });
   autoUpdater.on('download-progress', (progress) =>
     applyUpdateStep(updates.progress(progress.percent, progress.total)),
   );
@@ -1102,23 +1103,27 @@ function startUpdates(): void {
 
 /**
  * One check: the setting read first, so the flow knows whether to download
- * what it finds. `manual` is Check now, from Settings or the menu.
+ * what it finds. `manual` is Check now, from Settings or the menu, which
+ * offers a skipped version again. What it found goes to the flow from the
+ * check's own result rather than from `update-available`, so a check at
+ * launch or on the interval running at the same moment cannot take the
+ * manual one's version for its own.
  */
 async function checkForUpdates(manual: boolean): Promise<UpdateCheckAnswer> {
   if (!updatesEnabled) return { kind: 'unsupported' };
   await loadSettings();
-  manualCheck = manual;
   try {
-    // `update-available` is emitted, and handled, before this resolves.
     const result = await autoUpdater.checkForUpdates();
     if (!result) return { kind: 'unsupported' };
     applyUpdateStep(updates.checked(Date.now()));
-    return result.isUpdateAvailable ? { kind: 'found', version: result.updateInfo.version } : { kind: 'up-to-date' };
+    if (!result.isUpdateAvailable) return { kind: 'up-to-date' };
+    const { version, files } = result.updateInfo;
+    const step = updates.available(version, updateSize(files), { manual });
+    applyUpdateStep(step);
+    return { kind: 'found', version, outcome: step.outcome };
   } catch {
     // Emitted as `error` as well, and logged there.
     return { kind: 'error' };
-  } finally {
-    manualCheck = false;
   }
 }
 
@@ -1128,10 +1133,7 @@ async function checkForUpdates(manual: boolean): Promise<UpdateCheckAnswer> {
  */
 async function checkForUpdatesFromMenu(): Promise<void> {
   const answer = await checkForUpdates(true);
-  const message = checkAnswerMessage(answer, {
-    current: app.getVersion(),
-    autoDownload: updates.autoDownloadOn,
-  });
+  const message = checkAnswerMessage(answer, { current: app.getVersion() });
   if (message) await dialog.showMessageBox({ type: 'none', message: message.message, detail: message.detail });
 }
 
@@ -1142,12 +1144,16 @@ async function checkForUpdatesFromMenu(): Promise<void> {
 function onWorkingFrame(frame: unknown): void {
   if (typeof frame !== 'object' || frame === null) return;
   if ((frame as { topic?: unknown }).topic !== 'sessions') return;
-  applyUpdateStep(updates.setWorkingCount(working.count, working.seeded));
+  applyUpdateStep(updates.setWorkingCount(working.busyCount, working.seeded));
 }
+
+/** The pending `idleSettled` call after the working count reached zero in a wait. */
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Carry out what the flow decided: tell every Orbital window what changed,
- * remember a skip, start a download, restart.
+ * remember a skip, start a download, look again once a zero has settled,
+ * restart.
  */
 function applyUpdateStep(step: UpdateStep): void {
   if (step.changed) {
@@ -1158,10 +1164,19 @@ function applyUpdateStep(step: UpdateStep): void {
   }
   if (step.skipChanged) writeSkippedVersion(updates.skippedVersion);
   if (step.download) {
+    // Resolves only once Squirrel.Mac has staged the update, so a refusal
+    // after `update-downloaded` lands here too.
     autoUpdater.downloadUpdate().catch((err: unknown) => {
       console.error('Orbital could not download the update:', err);
       applyUpdateStep(updates.downloadFailed());
     });
+  }
+  if (step.idleCheck) {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      idleTimer = null;
+      applyUpdateStep(updates.idleSettled());
+    }, IDLE_SETTLE_MS);
   }
   if (step.restart) autoUpdater.quitAndInstall();
 }

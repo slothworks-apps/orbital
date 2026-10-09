@@ -12,6 +12,7 @@ import {
   shouldCheckForUpdates,
   updateSize,
   UpdateFlow,
+  type FoundOutcome,
   type UpdateAction,
 } from '../src/lib/updates';
 
@@ -70,6 +71,15 @@ describe('UpdateFlow', () => {
   function ready(version = '0.26.0', working = 0): void {
     flow.setWorkingCount(working, true);
     flow.downloaded(version);
+  }
+
+  /**
+   * A new count, and — when it asks for one — the look again
+   * `IDLE_SETTLE_MS` later with nothing else in between.
+   */
+  function settle(count: number, seeded: boolean) {
+    const step = flow.setWorkingCount(count, seeded);
+    return step.idleCheck ? flow.idleSettled() : step;
   }
 
   it('shows nothing until a check finds something', () => {
@@ -190,6 +200,102 @@ describe('UpdateFlow', () => {
       ready();
       expect(flow.available('0.26.0', 130 * MB).download).toBe(false);
     });
+
+    it('starts a download once, however many checks find it meanwhile', () => {
+      expect(flow.available('0.26.0', 130 * MB)).toMatchObject({ download: true, outcome: 'downloading' });
+      expect(flow.available('0.26.0', 130 * MB, { manual: true })).toMatchObject({
+        download: false,
+        outcome: 'downloading',
+      });
+      flow.downloadFailed();
+      expect(flow.available('0.26.0', 130 * MB).download).toBe(true);
+    });
+  });
+
+  describe('turning automatic download on', () => {
+    it('downloads the version Available is offering, as Download would', () => {
+      flow.available('0.26.0', 130 * MB);
+      expect(flow.setAutoDownload(true)).toMatchObject({ changed: true, download: true });
+      expect(flow.view).toMatchObject({ phase: 'downloading', version: '0.26.0', percent: 0 });
+    });
+
+    it('starts nothing when nothing is offered, or when turned off', () => {
+      expect(flow.setAutoDownload(true)).toMatchObject({ changed: false, download: false });
+      flow = new UpdateFlow();
+      flow.available('0.26.0', 130 * MB);
+      expect(flow.setAutoDownload(false)).toMatchObject({ changed: false, download: false });
+      expect(flow.view.phase).toBe('available');
+    });
+  });
+
+  describe('what a check found', () => {
+    it('is offered when the map shows it, whatever state the prompt is in', () => {
+      expect(flow.available('0.26.0', MB).outcome).toBe('offered');
+      expect(flow.available('0.26.0', MB, { manual: true })).toMatchObject({ outcome: 'offered', changed: false });
+      flow.act('download');
+      expect(flow.available('0.26.0', MB).outcome).toBe('offered');
+      flow.downloaded('0.26.0');
+      expect(flow.available('0.26.0', MB).outcome).toBe('offered');
+    });
+
+    it('installs on quit once its receipt was OK’d', () => {
+      ready('0.26.0', 0);
+      flow.act('close');
+      flow.act('ok');
+      expect(flow.available('0.26.0', MB, { manual: true })).toMatchObject({
+        outcome: 'installs-on-quit',
+        changed: false,
+        download: false,
+      });
+    });
+
+    it('is held behind a downloaded version waiting for its restart', () => {
+      ready('0.26.0', 1);
+      expect(flow.available('0.27.0', MB, { manual: true }).outcome).toBe('held');
+    });
+
+    it('is skipped only for a check the user did not ask for', () => {
+      flow = new UpdateFlow({ skippedVersion: '0.26.0' });
+      expect(flow.available('0.26.0', MB).outcome).toBe('skipped');
+      expect(flow.available('0.26.0', MB, { manual: true }).outcome).toBe('offered');
+    });
+  });
+
+  describe('a download that fails after it was reported done', () => {
+    // Squirrel.Mac stages the zip after `update-downloaded`, and can refuse it.
+    it('offers the version again from Ready, Waiting or the receipt', () => {
+      for (const to of [() => {}, () => flow.act('restart-when-idle'), () => flow.act('close')]) {
+        flow = new UpdateFlow();
+        ready('0.26.0', 1);
+        to();
+        expect(flow.downloadFailed().changed).toBe(true);
+        expect(flow.view).toMatchObject({ phase: 'available', version: '0.26.0' });
+        // No longer downloaded: Download fetches it again, and it comes back as Ready.
+        expect(flow.act('download').download).toBe(true);
+        flow.downloaded('0.26.0');
+        expect(flow.view.phase).toBe('ready');
+      }
+    });
+
+    it('does not leave a restart that failed restarting', () => {
+      ready('0.26.0', 0);
+      flow.act('restart-now');
+      expect(flow.updaterError().changed).toBe(true);
+      expect(flow.view).toMatchObject({ phase: 'available', version: '0.26.0' });
+    });
+
+    it('a failed check changes nothing', () => {
+      ready('0.26.0', 1);
+      expect(flow.updaterError().changed).toBe(false);
+      expect(flow.view.phase).toBe('ready');
+    });
+
+    it('stays silent for a download that ran by itself', () => {
+      flow.setAutoDownload(true);
+      flow.available('0.26.0', MB);
+      expect(flow.downloadFailed().changed).toBe(false);
+      expect(flow.view.phase).toBe('none');
+    });
   });
 
   describe('Ready', () => {
@@ -243,7 +349,7 @@ describe('UpdateFlow', () => {
     it('a session finishing on the receipt restarts nothing', () => {
       ready('0.26.0', 1);
       flow.act('close');
-      expect(flow.setWorkingCount(0, true).restart).toBe(false);
+      expect(settle(0, true).restart).toBe(false);
     });
 
     it('a newer download replaces the receipt with a prompt for it', () => {
@@ -273,23 +379,42 @@ describe('UpdateFlow', () => {
       ready('0.26.0', 2);
       expect(flow.act('restart-when-idle').restart).toBe(false);
       expect(flow.view).toMatchObject({ phase: 'waiting', version: '0.26.0', workingCount: 2 });
-      expect(flow.setWorkingCount(1, true).restart).toBe(false);
-      expect(flow.setWorkingCount(0, true).restart).toBe(true);
+      expect(settle(1, true).restart).toBe(false);
+      expect(settle(0, true).restart).toBe(true);
     });
 
     it('keeps waiting when a session starts during the wait', () => {
       ready('0.26.0', 1);
       flow.act('restart-when-idle');
-      expect(flow.setWorkingCount(2, true).restart).toBe(false);
+      expect(settle(2, true).restart).toBe(false);
       expect(flow.view).toMatchObject({ phase: 'waiting', workingCount: 2 });
+    });
+
+    it('restarts only once the zero has settled, not on a zero between two frames', () => {
+      ready('0.26.0', 1);
+      flow.act('restart-when-idle');
+      const zero = flow.setWorkingCount(0, true);
+      expect(zero).toMatchObject({ restart: false, idleCheck: true });
+      flow.setWorkingCount(1, true);
+      expect(flow.idleSettled().restart).toBe(false);
+      flow.setWorkingCount(0, true);
+      expect(flow.idleSettled().restart).toBe(true);
+    });
+
+    it('a settled zero restarts nothing once the wait was cancelled', () => {
+      ready('0.26.0', 1);
+      flow.act('restart-when-idle');
+      flow.setWorkingCount(0, true);
+      flow.act('cancel-wait');
+      expect(flow.idleSettled().restart).toBe(false);
     });
 
     it('restarts only once, however the count moves after', () => {
       ready('0.26.0', 1);
       flow.act('restart-when-idle');
-      expect(flow.setWorkingCount(0, true).restart).toBe(true);
-      expect(flow.setWorkingCount(1, true).restart).toBe(false);
-      expect(flow.setWorkingCount(0, true).restart).toBe(false);
+      expect(settle(0, true).restart).toBe(true);
+      expect(settle(1, true).restart).toBe(false);
+      expect(settle(0, true).restart).toBe(false);
       expect(flow.act('restart-now').restart).toBe(false);
     });
 
@@ -298,7 +423,7 @@ describe('UpdateFlow', () => {
       flow.act('restart-when-idle');
       flow.act('cancel-wait');
       expect(flow.view).toMatchObject({ phase: 'ready', workingCount: 1, buttons: 'two' });
-      expect(flow.setWorkingCount(0, true).restart).toBe(false);
+      expect(settle(0, true).restart).toBe(false);
     });
 
     it('Restart on the one-button prompt waits if a session started meanwhile', () => {
@@ -315,13 +440,13 @@ describe('UpdateFlow', () => {
       flow.act('restart-when-idle');
       flow.downloaded('0.27.0');
       expect(flow.view).toMatchObject({ phase: 'ready', version: '0.27.0', workingCount: 1, buttons: 'two' });
-      expect(flow.setWorkingCount(0, true).restart).toBe(false);
+      expect(settle(0, true).restart).toBe(false);
     });
 
     it('never restarts a wait on a count that is not known', () => {
       ready('0.26.0', 1);
       flow.act('restart-when-idle');
-      expect(flow.setWorkingCount(0, false).restart).toBe(false);
+      expect(settle(0, false).restart).toBe(false);
     });
 
     it('Restart when sessions finish waits while the count is not known', () => {
@@ -329,20 +454,43 @@ describe('UpdateFlow', () => {
       flow.downloaded('0.26.0');
       expect(flow.act('restart-when-idle').restart).toBe(false);
       expect(flow.view.phase).toBe('waiting');
-      expect(flow.setWorkingCount(0, true).restart).toBe(true);
+      expect(settle(0, true).restart).toBe(true);
     });
 
     it('counts only Orbital sessions — a working terminal session does not hold a restart', () => {
       const working = new WorkingSessions();
       working.seed(working.beginSeed(), { sessions: [] });
       working.onFrame({ topic: 'sessions', event: 'upsert', session: { id: 'w', source: 'web', status: 'working' } });
-      flow.setWorkingCount(working.count, working.seeded);
+      flow.setWorkingCount(working.busyCount, working.seeded);
       flow.downloaded('0.26.0');
       flow.act('restart-when-idle');
       working.onFrame({ topic: 'sessions', event: 'upsert', session: { id: 't', source: 'terminal', status: 'working' } });
-      expect(flow.setWorkingCount(working.count, working.seeded).restart).toBe(false);
+      expect(settle(working.busyCount, working.seeded).restart).toBe(false);
       working.onFrame({ topic: 'sessions', event: 'status', sessionId: 'w', status: 'needs_input' });
-      expect(flow.setWorkingCount(working.count, working.seeded).restart).toBe(true);
+      expect(settle(working.busyCount, working.seeded).restart).toBe(true);
+    });
+
+    it('waits for a session parked on a permission prompt, though it reads needs_input', () => {
+      const working = new WorkingSessions();
+      working.seed(working.beginSeed(), { sessions: [] });
+      const parked = { id: 'p', source: 'web', status: 'working', pendingDecision: { id: 'd1' } };
+      working.onFrame({ topic: 'sessions', event: 'upsert', session: parked });
+      working.onFrame({ topic: 'sessions', event: 'status', sessionId: 'p', status: 'needs_input' });
+      flow.setWorkingCount(working.busyCount, working.seeded);
+      flow.downloaded('0.26.0');
+      expect(flow.view).toMatchObject({ phase: 'ready', workingCount: 1, buttons: 'two' });
+      flow.act('restart-when-idle');
+      expect(flow.view.phase).toBe('waiting');
+      // Answered: the server sends the session without its decision, still
+      // `needs_input`, then `working` — the count reads zero between the two.
+      working.onFrame({ topic: 'sessions', event: 'upsert', session: { ...parked, status: 'needs_input', pendingDecision: null } });
+      expect(flow.setWorkingCount(working.busyCount, working.seeded)).toMatchObject({ restart: false, idleCheck: true });
+      working.onFrame({ topic: 'sessions', event: 'status', sessionId: 'p', status: 'working' });
+      flow.setWorkingCount(working.busyCount, working.seeded);
+      expect(flow.idleSettled().restart).toBe(false);
+      // The turn ends with nothing pending.
+      working.onFrame({ topic: 'sessions', event: 'status', sessionId: 'p', status: 'needs_input' });
+      expect(settle(working.busyCount, working.seeded).restart).toBe(true);
     });
 
     describe('after the sessions socket reconnects', () => {
@@ -352,7 +500,7 @@ describe('UpdateFlow', () => {
       beforeEach(() => {
         working = new WorkingSessions();
         working.seed(working.beginSeed(), { sessions: [{ id: 'w', source: 'web', status: 'working' }] });
-        flow.setWorkingCount(working.count, working.seeded);
+        flow.setWorkingCount(working.busyCount, working.seeded);
         flow.downloaded('0.26.0');
         flow.act('restart-when-idle');
       });
@@ -362,27 +510,27 @@ describe('UpdateFlow', () => {
         working.beginSeed(); // the list is on its way, not here yet
         working.onFrame({ topic: 'sessions', event: 'upsert', session: { id: 'x', source: 'web', status: 'idle' } });
         expect(working.count).toBe(0);
-        expect(flow.setWorkingCount(working.count, working.seeded).restart).toBe(false);
+        expect(settle(working.busyCount, working.seeded).restart).toBe(false);
         expect(flow.view).toMatchObject({ phase: 'waiting', workingCount: 1 });
       });
 
       it('keeps waiting when the list read again still has a working session', () => {
         working.reset();
         working.seed(working.beginSeed(), { sessions: [{ id: 'w', source: 'web', status: 'working' }] });
-        expect(flow.setWorkingCount(working.count, working.seeded).restart).toBe(false);
+        expect(settle(working.busyCount, working.seeded).restart).toBe(false);
       });
 
       it('restarts when the list read again has nothing working', () => {
         working.reset();
         working.seed(working.beginSeed(), { sessions: [{ id: 'w', source: 'web', status: 'idle' }] });
-        expect(flow.setWorkingCount(working.count, working.seeded).restart).toBe(true);
+        expect(settle(working.busyCount, working.seeded).restart).toBe(true);
       });
     });
   });
 
   it('a session finishing without a wait restarts nothing', () => {
     ready('0.26.0', 1);
-    expect(flow.setWorkingCount(0, true).restart).toBe(false);
+    expect(settle(0, true).restart).toBe(false);
     expect(flow.view.phase).toBe('ready');
   });
 
@@ -473,30 +621,48 @@ describe('parseUpdateView', () => {
 });
 
 describe('parseUpdateCheckAnswer', () => {
-  it('passes the four answers through and reads anything else as an error', () => {
+  it('passes the answers through and reads anything else as an error', () => {
     for (const answer of [
       { kind: 'up-to-date' },
-      { kind: 'found', version: '0.26.0' },
+      { kind: 'found', version: '0.26.0', outcome: 'offered' },
+      { kind: 'found', version: '0.26.0', outcome: 'installs-on-quit' },
       { kind: 'error' },
       { kind: 'unsupported' },
     ]) {
       expect(parseUpdateCheckAnswer(answer)).toEqual(answer);
     }
-    for (const raw of [null, { kind: 'found' }, { kind: 'found', version: '' }, { kind: 'maybe' }]) {
+    for (const raw of [
+      null,
+      { kind: 'found' },
+      { kind: 'found', version: '', outcome: 'offered' },
+      { kind: 'found', version: '0.26.0' },
+      { kind: 'found', version: '0.26.0', outcome: 'maybe' },
+      { kind: 'maybe' },
+    ]) {
       expect(parseUpdateCheckAnswer(raw)).toEqual({ kind: 'error' });
     }
   });
 });
 
 describe('checkAnswerMessage', () => {
+  const ctx = { current: '0.25.0' };
+  const found = (outcome: FoundOutcome) => checkAnswerMessage({ kind: 'found', version: '0.26.0', outcome }, ctx);
+
   it('says nothing when the prompt on the map is the answer', () => {
-    expect(checkAnswerMessage({ kind: 'found', version: '0.26.0' }, { current: '0.25.0', autoDownload: false })).toBeNull();
+    expect(found('offered')).toBeNull();
+  });
+
+  it('says what became of a version the map shows nothing for', () => {
+    expect(found('downloading')?.detail).toContain('downloading');
+    expect(found('installs-on-quit')).toEqual({
+      message: 'Orbital 0.26.0 is downloaded.',
+      detail: 'It installs when you quit Orbital.',
+    });
+    expect(found('held')?.detail).toContain('after Orbital restarts');
   });
 
   it('answers every other result of the menu item', () => {
-    const ctx = { current: '0.25.0', autoDownload: true };
     expect(checkAnswerMessage({ kind: 'up-to-date' }, ctx)?.message).toContain('0.25.0');
-    expect(checkAnswerMessage({ kind: 'found', version: '0.26.0' }, ctx)?.message).toContain('0.26.0');
     expect(checkAnswerMessage({ kind: 'error' }, ctx)).not.toBeNull();
     expect(checkAnswerMessage({ kind: 'unsupported' }, ctx)).not.toBeNull();
   });

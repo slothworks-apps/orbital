@@ -173,42 +173,80 @@ export function parseUpdateView(raw: unknown): UpdateView {
 }
 
 /**
+ * What a check found version-wise, as the flow took it:
+ *
+ * - `offered` — the map shows a prompt for it now.
+ * - `downloading` — downloading by itself (setting on); the prompt appears
+ *   when it is ready.
+ * - `installs-on-quit` — already downloaded and its prompt ended (× then
+ *   OK): nothing is shown, and it installs when Orbital quits.
+ * - `held` — another version is downloaded and waiting for its restart;
+ *   this one is offered after it.
+ * - `skipped` — skipped with ×, and the check was not one the user asked
+ *   for. Never the answer to Check now, which offers it again.
+ * - `none` — the app is already restarting.
+ */
+export type FoundOutcome = 'offered' | 'downloading' | 'installs-on-quit' | 'held' | 'skipped' | 'none';
+
+const FOUND_OUTCOMES: readonly FoundOutcome[] = ['offered', 'downloading', 'installs-on-quit', 'held', 'skipped', 'none'];
+
+/**
  * What a Check now (Settings, or Orbital → Check for Updates…) found:
  * `unsupported` in a build that does not update itself.
  */
 export type UpdateCheckAnswer =
   | { kind: 'up-to-date' }
-  | { kind: 'found'; version: string }
+  | { kind: 'found'; version: string; outcome: FoundOutcome }
   | { kind: 'error' }
   | { kind: 'unsupported' };
 
 export function parseUpdateCheckAnswer(raw: unknown): UpdateCheckAnswer {
   if (typeof raw !== 'object' || raw === null) return { kind: 'error' };
-  const { kind, version } = raw as Record<string, unknown>;
+  const { kind, version, outcome } = raw as Record<string, unknown>;
   if (kind === 'up-to-date' || kind === 'unsupported') return { kind };
-  if (kind === 'found' && typeof version === 'string' && version !== '') return { kind, version };
+  if (
+    kind === 'found' &&
+    typeof version === 'string' &&
+    version !== '' &&
+    FOUND_OUTCOMES.includes(outcome as FoundOutcome)
+  ) {
+    return { kind, version, outcome: outcome as FoundOutcome };
+  }
   return { kind: 'error' };
 }
 
 /**
  * What the menu item says once its check is done, or null when the prompt
- * on the map already answers (found, setting off). Settings › Updates says
- * the same on its own line.
+ * on the map already answers. Settings › Updates says the same on its own
+ * line (`web/src/lib/appUpdate.ts`).
  */
 export function checkAnswerMessage(
   answer: UpdateCheckAnswer,
-  ctx: { current: string; autoDownload: boolean },
+  ctx: { current: string },
 ): { message: string; detail: string } | null {
   switch (answer.kind) {
     case 'up-to-date':
       return { message: `Orbital ${ctx.current} is up to date.`, detail: '' };
     case 'found':
-      return ctx.autoDownload
-        ? {
+      switch (answer.outcome) {
+        case 'offered':
+        case 'none':
+          return null;
+        case 'downloading':
+          return {
             message: `Orbital ${answer.version} found.`,
             detail: 'It is downloading; the prompt appears on the map when it is ready.',
-          }
-        : null;
+          };
+        case 'installs-on-quit':
+          return { message: `Orbital ${answer.version} is downloaded.`, detail: 'It installs when you quit Orbital.' };
+        case 'held':
+        case 'skipped':
+          return {
+            message: `Orbital ${answer.version} found.`,
+            detail: 'It is offered after Orbital restarts into the version already downloaded.',
+          };
+      }
+      return null;
     case 'error':
       return { message: 'Orbital could not check for updates.', detail: 'Try again later.' };
     case 'unsupported':
@@ -220,19 +258,41 @@ export function checkAnswerMessage(
 }
 
 /**
+ * How long the working count has to stay at zero before a restart waiting
+ * for sessions to finish happens. The server answers a decision with two
+ * frames — the session without its decision, still `needs_input`, then its
+ * `working` status — and the count reads zero between them; a restart in
+ * that gap would cut the turn the answer just resumed. Frames of one change
+ * arrive within milliseconds, so a couple of seconds covers them and is
+ * still "the first moment" to a person.
+ */
+export const IDLE_SETTLE_MS = 2_000;
+
+/**
  * What one input did, for `main.ts` to carry out: whether the view the web
  * app holds is stale, whether to call `downloadUpdate` or `quitAndInstall`
- * now, and whether the skipped version changed and must be written.
+ * now, whether the skipped version changed and must be written, and whether
+ * to call `idleSettled` after `IDLE_SETTLE_MS`.
  */
-export type UpdateStep = { changed: boolean; restart: boolean; download: boolean; skipChanged: boolean };
+export type UpdateStep = {
+  changed: boolean;
+  restart: boolean;
+  download: boolean;
+  skipChanged: boolean;
+  idleCheck: boolean;
+};
+
+/** `available`'s step, with what it did with the version. */
+export type FoundStep = UpdateStep & { outcome: FoundOutcome };
 
 type Phase = UpdatePrompt['phase'];
 
 /**
- * The update's state machine. The working count is `WorkingSessions.count`,
- * which already counts only Orbital-run sessions: a terminal session belongs
- * to a CLI in someone's shell, and restarting the app does not touch it. A
- * count that is not known yet counts as "not idle": waiting is safe, a
+ * The update's state machine. The working count is
+ * `WorkingSessions.busyCount`, which counts only Orbital-run sessions that
+ * are mid-turn — working, or parked on a decision: a terminal session
+ * belongs to a CLI in someone's shell, and restarting the app does not touch
+ * it. A count that is not known yet counts as "not idle": waiting is safe, a
  * restart over a working session is not.
  *
  * Whether to download is decided here, not by electron-updater's
@@ -256,6 +316,8 @@ export class UpdateFlow {
   private dismissedVersion: string | null = null;
   /** The last version electron-updater finished downloading. */
   private downloadedVersion: string | null = null;
+  /** A version downloading by itself (setting on), so a second check does not start it again. */
+  private silentDownload: string | null = null;
 
   constructor(init: { skippedVersion?: string | null } = {}) {
     this.skipped = init.skippedVersion ?? null;
@@ -269,13 +331,14 @@ export class UpdateFlow {
     return this.skipped;
   }
 
-  get autoDownloadOn(): boolean {
-    return this.autoDownload;
-  }
-
-  /** Settings › Updates › Download updates automatically. */
-  setAutoDownload(on: boolean): void {
+  /**
+   * Settings › Updates › Download updates automatically. Turned on while
+   * Available is on screen, it downloads that version as Download would.
+   */
+  setAutoDownload(on: boolean): UpdateStep {
     this.autoDownload = on;
+    if (on && this.phase === 'available') return this.act('download');
+    return this.step();
   }
 
   /** A check completed at `at` (epoch ms). */
@@ -286,27 +349,39 @@ export class UpdateFlow {
   }
 
   /**
-   * A check found `version` (`update-available`). `manual` is a check the
-   * user asked for, which offers a skipped version again.
+   * A check found `version`. `manual` is a check the user asked for, which
+   * offers a skipped version again. Safe to call twice for one check.
    */
-  available(version: string, totalBytes: number, { manual = false } = {}): UpdateStep {
-    if (this.phase === 'restarting' || this.phase === 'downloading') return this.step();
-    if (version === this.downloadedVersion || version === this.dismissedVersion) return this.step();
+  available(version: string, totalBytes: number, { manual = false } = {}): FoundStep {
+    const found = (outcome: FoundOutcome, parts: Partial<UpdateStep> = {}): FoundStep => ({
+      ...this.step(parts),
+      outcome,
+    });
+    if (this.phase === 'restarting') return found('none');
+    const shown = this.phase !== 'none' && this.version === version;
+    if (shown) return found('offered');
+    if (version === this.dismissedVersion) return found('installs-on-quit');
+    if (version === this.downloadedVersion) return found(this.phase === 'none' ? 'installs-on-quit' : 'held');
+    if (this.phase === 'downloading') return found('held');
     let skipChanged = false;
     if (version === this.skipped) {
-      if (!manual) return this.step();
+      if (!manual) return found('skipped');
       this.skipped = null;
       skipChanged = true;
     }
-    if (this.autoDownload) return this.step({ download: true, skipChanged });
     // A prompt for a downloaded version stays: the restart installs it, and
     // the newer one is found again after.
-    if (this.phase === 'ready' || this.phase === 'waiting') return this.step({ skipChanged });
+    if (this.phase === 'ready' || this.phase === 'waiting') return found('held', { skipChanged });
+    if (this.autoDownload) {
+      const download = this.silentDownload !== version;
+      this.silentDownload = version;
+      return found('downloading', { download, skipChanged });
+    }
     const before = this.snapshot();
     this.phase = 'available';
     this.version = version;
     this.totalMB = toMB(totalBytes);
-    return this.step({ changed: before !== this.snapshot(), skipChanged });
+    return found('offered', { changed: before !== this.snapshot(), skipChanged });
   }
 
   /** `download-progress`: only a download the user asked for is shown. */
@@ -319,18 +394,34 @@ export class UpdateFlow {
   }
 
   /**
-   * A download failed. One the user asked for is offered again; one that
-   * ran by itself stays silent and the next check tries again.
+   * `downloadUpdate()` failed — while downloading, or after `update-
+   * downloaded`, when Squirrel.Mac stages the zip and can still refuse it.
+   * A version on screen is offered again as Available; one that was
+   * downloading by itself stays silent and the next check tries again.
+   * Either way it no longer counts as downloaded.
    */
   downloadFailed(): UpdateStep {
-    if (this.phase !== 'downloading') return this.step();
+    this.silentDownload = null;
+    this.downloadedVersion = null;
+    if (this.phase === 'none' || this.phase === 'available') return this.step();
     this.phase = 'available';
     return this.step({ changed: true });
+  }
+
+  /**
+   * electron-updater reported an error. A failed check changes nothing; but
+   * while restarting it means `quitAndInstall` did not get the app out, and
+   * waiting on it would hold the prompt forever — so it counts as a failed
+   * download, and the version is offered again.
+   */
+  updaterError(): UpdateStep {
+    return this.phase === 'restarting' ? this.downloadFailed() : this.step();
   }
 
   /** electron-updater finished downloading `version`. */
   downloaded(version: string): UpdateStep {
     if (this.phase === 'restarting') return this.step();
+    if (version === this.silentDownload) this.silentDownload = null;
     if (version === this.dismissedVersion) return this.step();
     if (version === this.downloadedVersion && this.phase !== 'available' && this.phase !== 'downloading') {
       return this.step();
@@ -347,15 +438,23 @@ export class UpdateFlow {
    * The number of Orbital sessions mid-turn changed (or was re-read).
    * `seeded` is `WorkingSessions.seeded`: while it is false the count may be
    * short — the socket reconnected and the session list has not been read
-   * yet — so it is not taken, and a zero never ends a wait.
+   * yet — so it is not taken, and a zero never ends a wait. A zero during a
+   * wait asks for `idleSettled` after `IDLE_SETTLE_MS` rather than
+   * restarting at once.
    */
   setWorkingCount(count: number, seeded: boolean): UpdateStep {
     this.countKnown = seeded;
     if (!seeded) return this.step();
     const before = this.snapshot();
     this.workingCount = count;
-    if (this.phase === 'waiting' && count === 0) return this.restart();
-    return this.step({ changed: before !== this.snapshot() });
+    const changed = before !== this.snapshot();
+    return this.step({ changed, idleCheck: this.phase === 'waiting' && count === 0 });
+  }
+
+  /** `IDLE_SETTLE_MS` after a zero: restart if the wait is still on and still nothing works. */
+  idleSettled(): UpdateStep {
+    if (this.phase === 'waiting' && this.countKnown && this.workingCount === 0) return this.restart();
+    return this.step();
   }
 
   /** A button in the prompt; one that is not on screen in this state does nothing. */
@@ -426,11 +525,11 @@ export class UpdateFlow {
 
   private restart(): UpdateStep {
     this.phase = 'restarting';
-    return { changed: true, restart: true, download: false, skipChanged: false };
+    return { changed: true, restart: true, download: false, skipChanged: false, idleCheck: false };
   }
 
   private step(parts: Partial<Omit<UpdateStep, 'restart'>> = {}): UpdateStep {
-    return { changed: false, download: false, skipChanged: false, ...parts, restart: false };
+    return { changed: false, download: false, skipChanged: false, idleCheck: false, ...parts, restart: false };
   }
 
   private snapshot(): string {

@@ -205,3 +205,74 @@ describe('WorkingSessions seeding', () => {
     expect(working.count).toBe(0);
   });
 });
+
+// A session parked on a permission prompt or a question is mid-turn too, but
+// its status reads `needs_input`, the same as a session whose turn ended.
+// What tells them apart is the snapshot's `pendingDecision`, republished as
+// an upsert when the decision parks and again when it settles.
+describe('WorkingSessions.busyCount', () => {
+  let working: WorkingSessions;
+  const decision = { id: 'd1', kind: 'permission' };
+
+  beforeEach(() => {
+    working = new WorkingSessions();
+    working.seed(working.beginSeed(), { sessions: [] });
+  });
+
+  it('counts a working session, like count', () => {
+    working.onFrame(upsert({ id: 'w', source: 'web', status: 'working' }));
+    expect(working.busyCount).toBe(1);
+  });
+
+  it('counts an Orbital session parked on a decision, which count does not', () => {
+    working.onFrame(upsert({ id: 'p', source: 'web', status: 'working', pendingDecision: decision }));
+    working.onFrame(statusFrame('p', 'needs_input'));
+    expect(working.count).toBe(0);
+    expect(working.busyCount).toBe(1);
+  });
+
+  it('does not count a session whose turn ended with nothing pending', () => {
+    working.onFrame(upsert({ id: 'd', source: 'web', status: 'needs_input', pendingDecision: null }));
+    expect(working.busyCount).toBe(0);
+  });
+
+  it('drops the decision when it settles, and counts the turn going on', () => {
+    working.onFrame(upsert({ id: 'p', source: 'web', status: 'needs_input', pendingDecision: decision }));
+    working.onFrame(upsert({ id: 'p', source: 'web', status: 'needs_input', pendingDecision: null }));
+    expect(working.busyCount).toBe(0);
+    working.onFrame(statusFrame('p', 'working'));
+    expect(working.busyCount).toBe(1);
+  });
+
+  it('counts a session once when it is both', () => {
+    working.onFrame(upsert({ id: 'p', source: 'web', status: 'working', pendingDecision: decision }));
+    expect(working.busyCount).toBe(1);
+  });
+
+  it('forgets the decision of a session that ended or was removed', () => {
+    working.onFrame(upsert({ id: 'a', source: 'web', status: 'needs_input', pendingDecision: decision }));
+    working.onFrame(upsert({ id: 'b', source: 'web', status: 'needs_input', pendingDecision: decision }));
+    working.onFrame(statusFrame('a', 'ended'));
+    working.onFrame(remove('b'));
+    expect(working.busyCount).toBe(0);
+  });
+
+  it('ignores a terminal session’s decision', () => {
+    working.onFrame(upsert({ id: 't', source: 'terminal', status: 'needs_input', pendingDecision: decision }));
+    expect(working.busyCount).toBe(0);
+  });
+
+  it('reads parked decisions from the session list, a newer frame winning', () => {
+    working.reset();
+    const token = working.beginSeed();
+    working.onFrame(upsert({ id: 'q', source: 'web', status: 'needs_input', pendingDecision: null }));
+    working.seed(token, {
+      sessions: [
+        { id: 'p', source: 'web', status: 'needs_input', pendingDecision: decision },
+        { id: 'q', source: 'web', status: 'needs_input', pendingDecision: decision },
+      ],
+    });
+    expect(working.busyCount).toBe(1);
+    expect(working.count).toBe(0);
+  });
+});
