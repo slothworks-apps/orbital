@@ -1,4 +1,5 @@
 PODS:
+  - Alamofire (5.10.2)
   - AparajitaCapacitorBiometricAuth (10.0.0):
     - Capacitor
   - AparajitaCapacitorSecureStorage (8.0.1):
@@ -29,6 +30,11 @@ PODS:
     - Capacitor
   - CapacitorSplashScreen (8.0.2):
     - Capacitor
+  - CapgoCapacitorUpdater (8.51.25):
+    - Alamofire (= 5.10.2)
+    - Capacitor
+    - Version (= 0.8.0)
+    - ZIPFoundation (~> 0.9)
   - FirebaseCore (12.19.0):
     - FirebaseCoreInternal (~> 12.19.0)
     - GoogleUtilities/Environment (~> 8.1)
@@ -113,6 +119,8 @@ PODS:
   - nanopb/decode (3.30910.0)
   - nanopb/encode (3.30910.0)
   - PromisesObjC (2.4.1)
+  - Version (0.8.0)
+  - ZIPFoundation (0.9.20)
 
 DEPENDENCIES:
   - "AparajitaCapacitorBiometricAuth (from `../../../node_modules/@aparajita/capacitor-biometric-auth`)"
@@ -128,9 +136,11 @@ DEPENDENCIES:
   - "CapacitorMlkitBarcodeScanning (from `../../../node_modules/@capacitor-mlkit/barcode-scanning`)"
   - "CapacitorPreferences (from `../../../node_modules/@capacitor/preferences`)"
   - "CapacitorSplashScreen (from `../../../node_modules/@capacitor/splash-screen`)"
+  - "CapgoCapacitorUpdater (from `../../../node_modules/@capgo/capacitor-updater`)"
 
 SPEC REPOS:
   trunk:
+    - Alamofire
     - FirebaseCore
     - FirebaseCoreInternal
     - FirebaseInstallations
@@ -149,6 +159,8 @@ SPEC REPOS:
     - MLKitVision
     - nanopb
     - PromisesObjC
+    - Version
+    - ZIPFoundation
 
 EXTERNAL SOURCES:
   AparajitaCapacitorBiometricAuth:
@@ -177,8 +189,11 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/@capacitor/preferences"
   CapacitorSplashScreen:
     :path: "../../../node_modules/@capacitor/splash-screen"
+  CapgoCapacitorUpdater:
+    :path: "../../../node_modules/@capgo/capacitor-updater"
 
 SPEC CHECKSUMS:
+  Alamofire: 7193b3b92c74a07f85569e1a6c4f4237291e7496
   AparajitaCapacitorBiometricAuth: 1ae24ba90d7977dffb4bc9040f374a807a510c98
   AparajitaCapacitorSecureStorage: 64fcd783a62dce106dd73d54caa2d7232589eabe
   Capacitor: 89067779e14fb7ea56af07b4817f45d1f0c2a269
@@ -192,6 +207,7 @@ SPEC CHECKSUMS:
   CapacitorMlkitBarcodeScanning: 1070a9d56dd84c08a7354d12354293daeee28100
   CapacitorPreferences: cca2021f386efb75947c850334447d9ff22b14f1
   CapacitorSplashScreen: 7bf61c2001557ff9e195e601c6b87344480d3c65
+  CapgoCapacitorUpdater: b95a7de96a5f9e790dc3e4f22bc8d267a068fd81
   FirebaseCore: c990214798d7c568ad436a15ba7da25c7a278c9a
   FirebaseCoreInternal: 656b1c2fd5a1c5976183dc54b73deda78fb26ee3
   FirebaseInstallations: f70a49eed611f5602f373e40974b3b01556ac217
@@ -210,7 +226,9 @@ SPEC CHECKSUMS:
   MLKitVision: fa8dea9012ac59497c79ddbe9ebf32051047ac4c
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
   PromisesObjC: 752c3227f599e3467650e47ea36f433eeb10c273
+  Version: de5907f2c5d0f3cf21708db7801d1d5401139486
+  ZIPFoundation: dfd3d681c4053ff7e2f7350bc4e53b5dba3f5351
 
-PODFILE CHECKSUM: f1249d9e8b0828d6d061011d87fc4f1cae7ded9a
+PODFILE CHECKSUM: d6d47cf1d7b0efaada97bd95e56ed4c2087238e4
 
 COCOAPODS: 1.17.0
