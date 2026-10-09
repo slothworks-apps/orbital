@@ -69,6 +69,12 @@ From the canvas header (BEHAVIOUR + RULES, ACCEPTANCE) and `why-orbital`:
 - **Motion as in 9p.** Working pulses, needs input breathes, a harness gate
   stays still. No spinner anywhere: loading is a reserved box plus a byte
   count. Any wait longer than five seconds becomes a sentence and a Retry.
+- **Sheets move** (added 2026-10-09). Every bottom sheet rises from the
+  bottom edge over a fading backdrop and sinks out the same way, however it
+  was closed — backdrop, back button, swipe or an action inside it. Under
+  reduced motion it appears and goes at once. A sheet is opened through
+  `SheetPresence` in `web/src/mobile/ui.tsx`, which keeps it mounted while
+  it leaves.
 - **Mac asleep** (`isMacAsleep`): everything stays readable from the last
   sync, labelled with its age; every action that needs the Mac becomes one
   sentence saying it waits for the Mac. No control looks enabled that would

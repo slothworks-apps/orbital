@@ -102,3 +102,49 @@
   font-size: 14px;
   line-height: 1.55;
 }
+
+/*
+ * Every bottom sheet rises from the bottom edge over a fading backdrop, and
+ * leaves the same way (`BottomSheet`, `SheetPresence` in `ui.tsx`). The way
+ * out is quicker than the way in, and its length comes from `SHEET_EXIT_MS`
+ * through `--sheet-exit`, so the unmount waits for exactly as long.
+ */
+@keyframes orbital-sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes orbital-sheet-sink {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+.orbital-sheet-backdrop {
+  animation: orbital-fade-in 0.24s ease-out;
+}
+.orbital-sheet-panel {
+  animation: orbital-sheet-rise 0.32s cubic-bezier(0.2, 0.8, 0.25, 1);
+}
+[data-sheet-leaving] {
+  pointer-events: none;
+}
+[data-sheet-leaving] .orbital-sheet-backdrop {
+  animation: orbital-fade-out var(--sheet-exit) ease-in forwards;
+}
+[data-sheet-leaving] .orbital-sheet-panel {
+  animation: orbital-sheet-sink var(--sheet-exit) cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .orbital-sheet-backdrop,
+  .orbital-sheet-panel,
+  [data-sheet-leaving] .orbital-sheet-backdrop,
+  [data-sheet-leaving] .orbital-sheet-panel {
+    animation: none;
+  }
+}

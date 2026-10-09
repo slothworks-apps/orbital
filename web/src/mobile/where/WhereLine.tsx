@@ -4,6 +4,7 @@ import { treesCompactText, treesCountText, treesHeadText, whereFormOf } from '..
 import { basename } from '../format'
 import { COUNT_MARK_GAP_PX, MARK_GAP_PX, charPxOf, fitWhere } from './fit'
 import { TreeMark } from './marks'
+import { SheetPresence } from '../ui'
 import { TreesSheet } from './TreesSheet'
 
 /**
@@ -139,7 +140,7 @@ export function WhereLine({
             </>
           ))}
       </span>
-      {open && <TreesSheet session={session} onClose={() => setOpen(false)} />}
+      <SheetPresence>{open && <TreesSheet session={session} onClose={() => setOpen(false)} />}</SheetPresence>
     </>
   )
 }

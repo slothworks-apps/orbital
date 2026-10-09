@@ -4,6 +4,7 @@ import { isReadOnly } from '../../lib/types'
 import { progress } from '../harness/gate'
 import { SEGMENT_INK, StepsSheet } from '../harness/StepsSheet'
 import { useHarness } from '../harness/useHarness'
+import { SheetPresence } from '../ui'
 import type { SlotProps } from './slot'
 
 /**
@@ -39,13 +40,15 @@ export function HarnessProgress({ session }: SlotProps) {
           ▸
         </span>
       </button>
-      {open &&
-        harness &&
-        // Out of the header: a fixed sheet inside a clipped or transformed ancestor is cut away.
-        createPortal(
-          <StepsSheet sessionId={session.id} harness={harness} events={events} onDismiss={() => setOpen(false)} />,
-          document.body,
-        )}
+      {/* Out of the header: a fixed sheet inside a clipped or transformed ancestor is cut away. */}
+      {createPortal(
+        <SheetPresence>
+          {open && harness && (
+            <StepsSheet sessionId={session.id} harness={harness} events={events} onDismiss={() => setOpen(false)} />
+          )}
+        </SheetPresence>,
+        document.body,
+      )}
     </>
   )
 }
