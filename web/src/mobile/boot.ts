@@ -2,12 +2,16 @@ import { App } from '@capacitor/app'
 import type { RemoteClientEvent } from '@orbital/shared/remote/client'
 import { configureApi } from '../lib/api'
 import { configureImages } from '../lib/images'
+import { configurePdf } from '../lib/pdf'
 import { configureSocket, getSocket } from '../lib/socket'
 import { configureTranscriptPages, useOrbital, type ErrorsEvent, type SessionsEvent } from '../store/store'
 import { connect, recheckOnForeground } from './connect'
 import { wireCache } from './cacheWriter'
 import { markSummarized, wireEndedFold } from './endedFold'
 import { PHONE_OUTPUT_TAIL_BYTES, PHONE_SUBAGENT_PAGE, TRANSCRIPT_PAGE_SIZE } from './constants'
+import { fileCache } from './files/fileCache'
+import { readPath } from './files/fileResolver'
+import { makeNamedFileResolver, makePdfLoader, type ReadNamed } from './files/namedFiles'
 import { installFileOpen } from './files/open'
 import { forgetEverything } from './forget'
 import { lockAtStart } from './lock'
@@ -60,7 +64,13 @@ export async function boot(): Promise<void> {
     taskOutputMaxBytes: PHONE_OUTPUT_TAIL_BYTES,
   })
   configureSocket({ WebSocketImpl: () => new TunnelSocket(clientRef) as unknown as WebSocket })
-  configureImages({ resolve: makeImageResolver(clientRef, { read: readCachedImage, write: writeCachedImage }) })
+  // Named files — reply thumbnails, the gallery's agent items, PDFs — come over `file_get`.
+  const readNamed: ReadNamed = (req) => readPath({ client: clientRef, cache: fileCache }, req)
+  configureImages({
+    resolve: makeImageResolver(clientRef, { read: readCachedImage, write: writeCachedImage }),
+    resolvePath: makeNamedFileResolver(readNamed),
+  })
+  configurePdf({ load: makePdfLoader(readNamed) })
   installFileOpen()
   clientRef.on(onClientEvent)
   wireSocket()

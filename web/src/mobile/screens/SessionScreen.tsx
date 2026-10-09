@@ -23,12 +23,14 @@
  *
  * The model label and the mode dot stay labels (spec "Decided before").
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { sessionModelLabel } from '../../lib/models'
 import { isReadOnly, tagColor, type BackgroundTask, type ChatMessage, type Subagent } from '../../lib/types'
 import { getSocket } from '../../lib/socket'
+import { ReplyMediaSession } from '../../panels/ReplyMedia'
 import { PhoneToolRowContext } from '../../panels/ToolRow'
 import { TranscriptView } from '../../panels/TranscriptView'
+import { useMedia } from '../../store/media'
 import { useOrbital, type SessionEvent } from '../../store/store'
 import { ModeDot } from '../../ui/ModeDot'
 import { notificationId } from '../notify'
@@ -132,6 +134,13 @@ function SessionView({ id }: { id: string }) {
 
   const tailKey = useTranscriptTailKey({ session, offline })
 
+  // ↩ Show in chat from the media viewer (canvas 24g): page back to the message and scroll to it.
+  const jump = useMedia((s) => (s.jump?.sessionId === id ? s.jump : null))
+  const jumpTo = useMemo(
+    () => (jump ? { messageId: jump.messageId, onDone: () => useMedia.getState().endJump(jump.seq) } : undefined),
+    [jump],
+  )
+
   const tagHue = tag ? tagColor(tag.hue) : 'var(--state-neutral)'
   const phoneRows = usePhoneToolRow(id, tagHue, offline)
   const header = (
@@ -189,8 +198,11 @@ function SessionView({ id }: { id: string }) {
     <MobileScreen header={header} footer={session ? <SessionComposer id={id} /> : undefined} scroll={false}>
       {/* The phone's tool rows: 10g's chips, 10d's wide image results. */}
       <PhoneToolRowContext.Provider value={phoneRows}>
+      {/* Reply thumbnails read named files through this session (canvas 24f A, 24g). */}
+      <ReplyMediaSession.Provider value={id}>
       <TranscriptView
         messages={shown}
+        jumpTo={jumpTo}
         isWorking={!offline && session?.status === 'working'}
         models={models}
         resetKey={id}
@@ -209,6 +221,7 @@ function SessionView({ id }: { id: string }) {
         footer={session ? <TranscriptTail session={session} offline={offline} /> : undefined}
         footerKey={tailKey}
       />
+      </ReplyMediaSession.Provider>
       </PhoneToolRowContext.Provider>
     </MobileScreen>
   )

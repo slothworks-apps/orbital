@@ -188,6 +188,24 @@ transcript stays where it was.
   swipe ↔ moves to the next item. This replaces the "No preview on the
   phone" state (10e) for PDFs.
 
+As built:
+
+- The viewer pages through the list whenever the file is a listed item:
+  opened from the gallery, or pressed in the session's own transcript (a
+  thumbnail or a path). A file pressed in a subagent's transcript or a
+  task's output keeps 10d's paging through its message.
+- Swipe ↔ stops at either end instead of wrapping like the Mac's ‹ ›.
+- Opened on a tool image while Hide tool images is on, the viewer pages
+  through every item, the hidden ones included: the image was pressed by
+  name, and handing the view to another item would be wrong.
+- The PDF viewer has no pinch zoom. Pages fill the screen's width, and
+  zooming a scrolling column of canvases is a separate piece of work. Its
+  hint reads "scroll · swipe ↔".
+- Named files reach the phone through `configureImages`' `resolvePath`
+  (images as `blob:` URLs over `file_get` as `image`) and `configurePdf`'s
+  loader (an `orbital-pdf:` address read over `file_get` as `pdf` only when
+  pdf.js asks), both through the phone's file cache.
+
 How it reaches the phone:
 
 - `GET /api/sessions/:id/media` is added to `server/src/remote/allowlist.ts`.
@@ -196,10 +214,12 @@ How it reaches the phone:
   `as: 'pdf'` refuses an image the same way. The limit is the desktop route's 10 MB, not the
   phone text preview's 512 KB. `ref` items already travel through
   `blob_get`.
-- An older Mac answers `file_get` with `as: 'pdf'` by failing schema
-  validation. The phone treats any non-200 answer as "can't show this here"
-  (today's 10e state), so a new phone against an old Mac degrades instead of
-  breaking. An old phone never sends `'pdf'`.
+- An older Mac fails `file_get` with `as: 'pdf'` on schema validation and
+  drops the message without an answer (`PhoneSession.receive`), so the
+  phone hears nothing until its wait runs out. The phone treats any non-200
+  answer to `as: 'pdf'`, and a wait that runs out before the first byte, as
+  "can't show this here" (today's 10e state), so a new phone against an old
+  Mac degrades instead of breaking. An old phone never sends `'pdf'`.
 - The relay is blind to message contents and needs no change. Whether the
   `shared/` schema change still warrants a relay bump is decided when the
   versions are asked about.

@@ -14,12 +14,14 @@ export type BaseScreen = 'pairing' | 'list' | 'session' | 'settings' | 'new' | '
 
 /**
  * What can be pushed over a session (spec 2026-10-05-mobile-next § 3, § 2):
- * a subagent's transcript, a background task's output, a file. Each names
- * its session, which stays the open one underneath it.
+ * a subagent's transcript, a background task's output, a file, the session's
+ * media (spec 2026-10-09-session-media-design § Phone). Each names its
+ * session, which stays the open one underneath it.
  */
 export type Pushed =
   | { kind: 'subagent'; sessionId: string; toolUseId: string }
   | { kind: 'task'; sessionId: string; taskId: string }
+  | { kind: 'media'; sessionId: string }
   | {
       kind: 'file'
       sessionId: string
@@ -32,6 +34,8 @@ export type Pushed =
       messageId?: string
       /** The `cwd` that message was written in, which the path is read against (`FileCwdContext`). */
       cwd?: string
+      /** The session's media item it is, when opened from the gallery: the viewer pages through the media. */
+      mediaId?: string
     }
 
 /**
@@ -45,7 +49,7 @@ export type ComposerIntent = { kind: 'reopen'; step: number }
 export type PushedScreen = Pushed['kind']
 export type PushedOf<K extends PushedScreen> = Extract<Pushed, { kind: K }>
 
-const PUSHED_SCREENS: ReadonlySet<Screen> = new Set<PushedScreen>(['subagent', 'task', 'file'])
+const PUSHED_SCREENS: ReadonlySet<Screen> = new Set<PushedScreen>(['subagent', 'task', 'media', 'file'])
 export function isPushedScreen(screen: Screen): screen is PushedScreen {
   return PUSHED_SCREENS.has(screen)
 }
@@ -332,6 +336,8 @@ interface MobileActions {
   openSubagent(ref: { sessionId: string; toolUseId: string }): void
   openTask(ref: { sessionId: string; taskId: string }): void
   openFile(ref: Omit<PushedOf<'file'>, 'kind'>): void
+  /** The ⋯ sheet's Media: the session's gallery, pushed over it. */
+  openMedia(sessionId: string): void
   goBack(): 'exit' | 'stayed'
   /** Asks the open session's composer for `intent`; a gate's Reopen calls it. */
   focusComposer(intent: ComposerIntent): void
@@ -352,6 +358,7 @@ export const useMobile = create<MobileState & MobileActions>()((set, get) => ({
   openSubagent: (ref) => set(push(get(), { kind: 'subagent', ...ref })),
   openTask: (ref) => set(push(get(), { kind: 'task', ...ref })),
   openFile: (ref) => set(push(get(), { kind: 'file', ...ref })),
+  openMedia: (sessionId) => set(push(get(), { kind: 'media', sessionId })),
   goBack: () => {
     const next = back(get())
     if (next === 'exit') return 'exit'

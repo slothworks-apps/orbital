@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { api } from '../../lib/api'
 import { reportError } from '../../lib/errors'
 import { tagColor, type ApiSession } from '../../lib/types'
+import { useMedia } from '../../store/media'
 import { useOrbital } from '../../store/store'
 import { useMobile } from '../state'
 import { BottomSheet, ConfirmBody } from '../ui'
@@ -37,6 +38,8 @@ export function SessionMenuSheet({
   const models = useOrbital((s) => s.models)
   const macName = useMobile((s) => s.macName)
   const id = session.id
+  // Every item, tool images too: the total, as 24g puts it beside the row.
+  const mediaCount = useMedia((s) => s.lists[session.id]?.length ?? 0)
   const tag = tags.find((t) => t.id === session.tagIds[0])
   const shape = menuFor(session, offline)
   const pinned = session.pinnedAt != null
@@ -192,6 +195,21 @@ export function SessionMenuSheet({
     const deliberate = shape.items.filter((item) => item === 'clear' || item === 'end')
     const list = (
       <>
+        {mediaCount > 0 && (
+          // canvas 24g: Media first, with its own divider; absent without media (24h B).
+          <>
+            <Row
+              glyph={<MediaGlyph />}
+              label="Media"
+              hint={<span className="text-[rgba(160,190,225,.6)]">{mediaCount} ›</span>}
+              onPress={() => {
+                onClose()
+                useMobile.getState().openMedia(id)
+              }}
+            />
+            <div className="mx-2.5 my-1.5 h-px bg-[rgba(150,205,255,.1)]" />
+          </>
+        )}
         {quick.map((item) => rows[item])}
         {(deliberate.length > 0 || shape.terminalNote) && <div className="mx-2.5 my-1.5 h-px bg-[rgba(150,205,255,.1)]" />}
         {deliberate.map((item) => rows[item])}
@@ -272,6 +290,17 @@ function PinGlyph() {
     <span className="relative block h-3.5 w-5">
       <span className="absolute left-[6.5px] top-0 box-border block h-[7px] w-[7px] rounded-full border-[1.5px] border-[rgba(200,220,245,.75)]" />
       <span className="absolute left-[9.3px] top-[7px] block h-[7px] w-[1.4px] rounded-[1px] bg-[rgba(200,220,245,.75)]" />
+    </span>
+  )
+}
+
+/** canvas 24g: the media glyph — four 5px squares, 2px apart. */
+function MediaGlyph() {
+  return (
+    <span className="grid grid-cols-[repeat(2,5px)] gap-0.5 text-[rgba(200,220,245,.75)]">
+      {[0, 1, 2, 3].map((i) => (
+        <span key={i} className="block h-[5px] w-[5px] rounded-[1.2px] bg-current" />
+      ))}
     </span>
   )
 }

@@ -71,6 +71,12 @@ export async function readPath(
     })
   } catch (err) {
     if (isOffline(err)) return (await cachedCopy()) ?? { kind: 'waits' }
+    // A Mac from before PDFs drops a `file_get` it cannot parse without a
+    // word, so its refusal of `as: 'pdf'` arrives as silence: the wait runs
+    // out before the first byte. Read like any other refusal of a PDF below.
+    if (req.as === 'pdf' && received === 0 && err instanceof TunnelError && err.reason === 'timeout') {
+      return { kind: 'cant-show', size: null, mediaType: null }
+    }
     return { kind: 'failed', received }
   }
   if (answer.status === 200) {
@@ -82,6 +88,9 @@ export async function readPath(
   if (answer.status === 404) return { kind: 'gone', copy: await cachedCopy() }
   if (answer.status === 403) return { kind: 'outside' }
   if (isCantShowStatus(answer.status)) return { kind: 'cant-show', size: answer.size, mediaType: answer.mediaType }
+  // A Mac from before PDFs refuses `as: 'pdf'` (spec 2026-10-09-session-media-design
+  // § Phone): whatever it answers, the file cannot be shown here.
+  if (req.as === 'pdf') return { kind: 'cant-show', size: answer.size, mediaType: answer.mediaType }
   return { kind: 'failed', received }
 }
 
