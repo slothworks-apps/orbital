@@ -85,6 +85,8 @@ import { TagsRulesSection } from './TagsRules'
 import { ShortcutsSection } from './ShortcutsSection'
 import { HarnessTemplatesSection } from './HarnessTemplates'
 import { MobileSection } from './MobileSection'
+import { UpdatesSection } from './UpdatesSection'
+import { useAppUpdate } from '../store/appUpdate'
 import { ClaudeDirsRows } from './ClaudeDirsRows'
 import { DEBOUNCE_MS, Row, SectionLabel } from './settingsRows'
 import {
@@ -189,6 +191,9 @@ const NAV_ITEMS = [
   // switch is on (spec 2026-10-01-settings-mobile-design).
   { key: 'mobile', label: 'Mobile', disabled: false },
   { key: 'shortcuts', label: 'Shortcuts', disabled: false },
+  // The desktop app's own updates (canvas `Feature - App update`): listed
+  // only where the update bridge is, so never in a browser or on the phone.
+  { key: 'updates', label: 'Updates', disabled: false },
   // Listed only once the reveal chord has unlocked it (`lib/experimental`).
   { key: 'experimental', label: 'Experimental', disabled: false },
 ] as const
@@ -207,18 +212,25 @@ type SectionKey = (typeof NAV_ITEMS)[number]['key']
  * actually happen: a section that was live when it was stored and has since
  * been disabled, which must not strand the user on an inert page.
  */
-export function initialSection(settings: Record<string, string | undefined>): SectionKey {
+export function initialSection(
+  settings: Record<string, string | undefined>,
+  hasUpdates: boolean = useAppUpdate.getState().source !== null,
+): SectionKey {
   const stored = settings.settings_last_section
-  const match = visibleNavItems(settings).find((item) => item.key === stored)
+  const match = visibleNavItems(settings, hasUpdates).find((item) => item.key === stored)
   return match && !match.disabled ? match.key : NAV_ITEMS[0].key
 }
 
-/** The nav as drawn: Experimental stays out until unlocked, Harness until enabled. */
-function visibleNavItems(settings: Record<string, string | undefined>) {
+/**
+ * The nav as drawn: Experimental stays out until unlocked, Harness until
+ * enabled, Updates outside the desktop app.
+ */
+function visibleNavItems(settings: Record<string, string | undefined>, hasUpdates: boolean) {
   return NAV_ITEMS.filter(
     (item) =>
       (item.key !== 'experimental' || experimentalUnlocked(settings)) &&
-      (item.key !== 'harness' || harnessEnabled(settings)),
+      (item.key !== 'harness' || harnessEnabled(settings)) &&
+      (item.key !== 'updates' || hasUpdates),
   )
 }
 
@@ -416,6 +428,7 @@ export function Settings({ open, onClose }: SettingsProps) {
   const settings = useOrbital(useShallow((s) => s.settings))
   const models = useOrbital(useShallow((s) => s.models))
   const claudeDirCount = useOrbital((s) => s.claudeDirs.length)
+  const hasUpdates = useAppUpdate((s) => s.source !== null)
   const [projectDirDraft, setProjectDirDraft] = useState(settings.default_project_dir ?? '')
   const [cliPathDraft, setCliPathDraft] = useState(settings.claude_executable_path ?? '')
   const [instructionsDraft, setInstructionsDraft] = useState(
@@ -951,7 +964,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                 className={`${editorTakesPanel ? 'hidden' : 'flex'} flex-col gap-0.5 border-r border-[rgba(150,205,255,.1)] px-3 py-4`}
                 aria-label="Settings sections"
               >
-                {visibleNavItems(settings).map((item) => (
+                {visibleNavItems(settings, hasUpdates).map((item) => (
                   <button
                     key={item.key}
                     type="button"
@@ -996,6 +1009,8 @@ export function Settings({ open, onClose }: SettingsProps) {
                 <MobileSection patchAndSet={patchAndSet} onSaved={() => setSaved(true)} />
               ) : section === 'shortcuts' ? (
                 <ShortcutsSection />
+              ) : section === 'updates' ? (
+                <UpdatesSection patchAndSet={patchAndSet} />
               ) : (
                 <div className="flex min-h-0 flex-col overflow-y-auto px-8 pb-5 pt-2">
                   {section === 'general' && (

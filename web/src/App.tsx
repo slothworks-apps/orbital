@@ -31,6 +31,7 @@ import { PairConfirmDialog } from './panels/PairConfirmDialog'
 import { Toasts } from './ui/Toasts'
 import { MapNoticeHost } from './ui/MapNoticeHost'
 import { useNotificationsTip } from './panels/NotificationsTip'
+import { useAppUpdateNotice } from './panels/UpdateNotice'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
 import {
@@ -92,6 +93,9 @@ export default function App() {
   // The one-time notifications tip, the first of the map's notices (spec
   // 2026-10-08-notifications-off-by-default-design § 3).
   useNotificationsTip()
+  // The desktop app's update prompt, the toast's UPDATE kind (canvas
+  // `Feature - App update`). Nothing outside the desktop app.
+  useAppUpdateNotice()
 
   // The desktop menu is built from the keymap, and the main window is the
   // one that sends it (spec: 2026-09-23-shortcuts-design § 5); `App` never
