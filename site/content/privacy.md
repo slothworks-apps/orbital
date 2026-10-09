@@ -1,6 +1,6 @@
 # Privacy
 
-Last updated: 8 October 2026
+Last updated: 9 October 2026
 
 Orbital is built to keep your work on your own machines. This page says
 exactly what the Mac app, the phone app, the relay and this website do with
@@ -51,8 +51,8 @@ else to look for a new version.
 
 ## The phone and the relay
 
-The phone app is optional. Nothing connects anywhere until you turn it on in
-the Mac app's Settings → Mobile and enter a relay address. **There is no
+The phone app is optional. Nothing connects to a relay until you turn it on
+in the Mac app's Settings → Mobile and enter a relay address. **There is no
 default relay.** The relay is part of the open source code and ships as a
 Docker image; whoever runs the relay you use holds the data described below.
 
@@ -115,6 +115,29 @@ for the camera or your photos only when you choose to scan a code, take a
 photo or pick one; a large photo is downscaled on the phone, and photos are
 sent, encrypted, only to your Mac.
 
+## Updates for the phone app
+
+The phone app from TestFlight or Google Play updates its own code over the
+air, from Orbital's own update server at `beam.slothworks.io`, which
+SlothWorks runs itself; no other update service is involved. Every update is
+signed by Orbital's build system, and the app refuses one that is not. The
+app asks the server whether there is a new version when you open it, and
+tells it how updates went. What it sends:
+
+- a random install id that the app makes up for itself and that identifies
+  nothing but this installation;
+- the phone's model, its operating system and that system's version;
+- the app's version and the version of the app installed from the store;
+- whether an update downloaded, installed or failed, and when the app comes
+  to the foreground or goes to the background;
+- when the app runs into an error or stops unexpectedly: the kind of error,
+  its message and where in the app's code it happened.
+
+It sends no name, account or location, and nothing from your sessions or
+your Mac beyond what the text of an error message may happen to contain. Like
+any server, the update server sees the IP address a request comes from.
+SlothWorks uses this only to deliver updates and to see whether they work.
+
 ## Notifications
 
 **On the Mac**, Orbital shows the system's own notifications when a session
@@ -144,9 +167,9 @@ Analytics, no Crashlytics.
 Orbital has no accounts. There is nothing to sign up for and nothing to log
 in to, other than the Claude login you already use with Claude Code.
 
-There are no analytics, no telemetry and no crash reporting in the Mac app,
-the phone app or the relay. Orbital does not track how you use it, and it
-does not show ads.
+There are no analytics, no telemetry and no crash reporting in the Mac app
+or the relay, and none in the phone app beyond the update reports described
+above. Orbital does not track how you use it, and it does not show ads.
 
 **This website** is a static site served by Cloudflare. It sets no cookies,
 loads no analytics or tracking scripts, and loads its fonts from its own
@@ -163,7 +186,7 @@ phone app and the relay are all in that repository.
 
 ## Who is responsible
 
-For this website, the data controller is:
+For this website and the phone app's update server, the data controller is:
 
 SlothWorks s.r.o.\
 Mostecká 232/4, 412 01 Litoměřice, Czech Republic\
@@ -171,7 +194,7 @@ Company ID (IČO): 107 98 838\
 Email: orbital@slothworks.io
 
 For everything that stays on your own Mac and phone, you are in control and
-we receive nothing. The relay's data is held by whoever runs it. For your
+we receive nothing but the phone app's update reports. The relay's data is held by whoever runs it. For your
 Claude sessions, Anthropic is responsible for its own processing.
 
 Push notifications are delivered by Google (Firebase Cloud Messaging) and,
