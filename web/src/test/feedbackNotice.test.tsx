@@ -5,7 +5,7 @@ vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
 import { useOrbital, type Toast } from '../store/store'
 import { useMapNotices } from '../store/mapNotices'
-import { FEEDBACK_NOTICE_ID, FEEDBACK_NOTICE_MS, useFeedbackNotice } from '../ui/FeedbackNotice'
+import { FEEDBACK_NOTICE_ID, FEEDBACK_NOTICE_MS, FEEDBACK_UNDO_MS, useFeedbackNotice } from '../ui/FeedbackNotice'
 import { MapNoticeHost } from '../ui/MapNoticeHost'
 
 // Spec 2026-10-09-one-place-for-messages-design: the store's toast rides the
@@ -49,6 +49,13 @@ describe('the reply in the notice queue', () => {
     expect(ids()).toEqual(['app-update'])
   })
 
+  it('is not one of the dots: they count the notices it covers', () => {
+    for (const id of ['a', 'b', 'c']) useMapNotices.getState().push({ id, kind: 'tip', Body: () => <p>{id}</p> })
+    render(<Replies />)
+    raise({ kind: 'info', message: 'Paired with Pixel' })
+    expect(screen.getByLabelText('3 messages')).toBeInTheDocument()
+  })
+
   it('a newer reply replaces the one showing, in the same entry', () => {
     render(<Replies />)
     raise({ kind: 'info', message: 'Record copied as Markdown' })
@@ -70,6 +77,15 @@ describe('what goes by itself', () => {
     raise({ kind: 'error', message: 'Could not stop the session' })
     pass(FEEDBACK_NOTICE_MS * 3)
     expect(useOrbital.getState().toast?.message).toBe('Could not stop the session')
+  })
+
+  it('an info reply with Undo stays longer, to be reached', () => {
+    render(<Replies />)
+    raise({ kind: 'info', message: 'auth refactor ended', action: { label: 'Undo', run: vi.fn() } })
+    pass(FEEDBACK_NOTICE_MS)
+    expect(useOrbital.getState().toast).not.toBeNull()
+    pass(FEEDBACK_UNDO_MS - FEEDBACK_NOTICE_MS)
+    expect(useOrbital.getState().toast).toBeNull()
   })
 
   it('waits while the pointer is over it, and counts again once it leaves', () => {
@@ -109,13 +125,12 @@ describe('the reply\'s action', () => {
     expect(useOrbital.getState().toast).toBeNull()
   })
 
-  it('Details opens the log and leaves a refused rewind up', () => {
-    const run = vi.fn()
+  it('Detail on an error opens the log and ends the reply', () => {
     render(<Replies />)
-    raise({ kind: 'rewind_refused', message: 'The CLI refused the rewind', action: { label: 'Details', run } })
+    raise({ kind: 'error', message: 'Could not stop the session' })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Details' }))
-    expect(run).toHaveBeenCalledOnce()
-    expect(useOrbital.getState().toast?.kind).toBe('rewind_refused')
+    fireEvent.click(screen.getByRole('button', { name: 'Detail' }))
+    expect(useOrbital.getState().ui.dialog).toBe('errors')
+    expect(useOrbital.getState().toast).toBeNull()
   })
 })

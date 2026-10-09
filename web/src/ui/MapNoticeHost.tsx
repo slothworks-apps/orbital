@@ -23,7 +23,8 @@ const NO_INSETS = { left: 0, right: 0 }
  */
 export function MapNoticeHost({ inWindow = false }: { inWindow?: boolean }) {
   const head = useMapNotices((s) => s.queue[0] ?? null)
-  const count = useMapNotices((s) => s.queue.length)
+  // The dots count notices only: a reply is never one of them (3a).
+  const notices = useMapNotices((s) => s.queue.filter((e) => e.kind !== 'feedback').length)
   const dismiss = useMapNotices((s) => s.dismiss)
   const { insets: mapInsets } = useMapInsets()
   const insets = inWindow ? NO_INSETS : mapInsets
@@ -32,6 +33,7 @@ export function MapNoticeHost({ inWindow = false }: { inWindow?: boolean }) {
 
   if (!shown) return null
   const { Body, id } = shown
+  const covered = shown.kind === 'feedback'
   return (
     <div
       data-overlay="map-notice"
@@ -41,7 +43,7 @@ export function MapNoticeHost({ inWindow = false }: { inWindow?: boolean }) {
         // the window's drag band, which would otherwise take the clicks in the
         // top 48 px. A reply sits over the dialogs (z-50) too: it often
         // answers something done inside one.
-        shown.kind === 'feedback' ? 'z-[55]' : 'z-[8]',
+        covered ? 'z-[55]' : 'z-[8]',
         resizingPanel ? '' : 'transition-[left,right] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]',
       ].join(' ')}
       style={{ left: insets.left, right: insets.right, top: NOTICE_TOP_PX }}
@@ -56,7 +58,7 @@ export function MapNoticeHost({ inWindow = false }: { inWindow?: boolean }) {
         ].join(' ')}
         style={{ width: NOTICE_WIDTH_PX }}
       >
-        <NoticeDots count={count} size="map" />
+        <NoticeDots count={notices} covered={covered} size="map" />
         <Body key={id} close={() => dismiss(id)} />
       </div>
     </div>

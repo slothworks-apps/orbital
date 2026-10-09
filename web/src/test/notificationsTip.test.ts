@@ -94,4 +94,9 @@ describe('notice queue', () => {
     expect(noticeDots(5).more).toBe(0)
     expect(noticeDots(8)).toEqual({ dots: ['current', 'waiting', 'waiting', 'waiting', 'waiting'], more: 3 })
   })
+
+  it('draws every dot hollow while a reply covers the notices', () => {
+    expect(noticeDots(3, true)).toEqual({ dots: ['waiting', 'waiting', 'waiting'], more: 0 })
+    expect(noticeDots(1, true)).toEqual({ dots: [], more: 0 })
+  })
 })

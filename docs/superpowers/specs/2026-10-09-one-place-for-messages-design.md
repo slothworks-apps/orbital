@@ -1,7 +1,7 @@
 ---
 id: 2026-10-09-one-place-for-messages-design
 title: On the Mac, every message shows in one place, between the panels
-status: active
+status: done
 type: spec
 domain: desktop
 related:
@@ -72,8 +72,8 @@ the existing fade, when the reply ends.
 
 - × clears the toast (`clearToast`), which ends the entry.
 - An action that already did its job clears the toast: Undo, as today.
-- Details on an error opens the errors log and leaves the toast up, as
-  today; `rewind_refused` still goes on the next send.
+- Detail on an error opens the errors log and ends the reply (see Drawn
+  below); `rewind_refused` still goes on the next send.
 - Dismissing a reply does not mark an error seen
   ([[errors-are-recorded-not-announced]]): only the log does.
 
@@ -99,11 +99,9 @@ so every message follows the panels' widths.
 
 ### Look
 
-The notice card (`ui/MapNotice`) is too heavy for "Copied". Until Claude
-Design has a feedback variant, the reply uses a provisional compact card in
-the notice card's family: one line, at most one action and ×, the errors
-log's red dot for `error` and `rewind_refused`. A fidelity pass follows the
-artboard. Prompt for `Feature - Notice toast`:
+The notice card (`ui/MapNotice`) is too heavy for "Copied". The reply's card
+is drawn in `Feature - Notice toast` 3a–3e (see Drawn below), from this
+prompt:
 
 > Add a feedback variant of the notice toast (1a) for the Mac: the reply to
 > something the user just did — "Paired with Pixel 9", "Record copied as
@@ -160,3 +158,22 @@ As specified, with these details:
 - **The session window** has no map. It mounts `MapNoticeHost inWindow`
   for its replies, top centre across the whole window. The website's demos
   mount the same as the window they stand for.
+
+## Drawn 2026-10-09: `Feature - Notice toast` 3a–3e
+
+The artboard arrived after the first build; where it differs from the
+sections above, the artboard wins and the code follows it:
+
+- **The card** (3a–3d): one line, 40 px tall, as wide as its text up to the
+  column, a long message ending in …; no head line, no fill colour, a
+  fainter hairline and a shorter shadow than the notice. The action is
+  plain bright text, not the accent.
+- **Timing** (3a, 3b): `info` goes after `FEEDBACK_NOTICE_MS`, one with an
+  action (Undo) after `FEEDBACK_UNDO_MS`; the pointer over it holds it.
+  Canvas 4a's longer Undo window no longer applies.
+- **Every action ends the reply** (3c): Detail opens the errors log and
+  closes the toast, the refused rewind's included, whose action is now
+  labelled Detail too (3d).
+- **The dots** (3a, 3c): a reply is not one of them. They count the
+  notices it covers, all hollow, since none of them is showing; one covered
+  notice draws no dots, as before. `noticeDots(count, covered)`.

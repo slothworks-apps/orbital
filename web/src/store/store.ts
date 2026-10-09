@@ -173,9 +173,9 @@ export type RemoteEvent =
 export interface Toast {
   /**
    * `rewind_refused` is the CLI turning down a pending rewind's send (spec
-   * 2026-09-29-rewind-design § Behaviour 8; canvas 27c REFUSAL): the 1g toast
-   * shell with the errors-log red dot, a Details link to the log, and it stays
-   * until dismissed or the next send.
+   * 2026-09-29-rewind-design § Behaviour 8; canvas 27c REFUSAL, drawn now as
+   * `Feature - Notice toast` 3d): the errors-log red dot, a Detail link to the
+   * log, and it stays until dismissed, Detail or the next send.
    */
   kind: 'error' | 'info' | 'rewind_refused'
   message: string
@@ -1575,7 +1575,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         toast: {
           kind: 'rewind_refused',
           message: REWIND_REFUSED_TOAST,
-          action: { label: 'Details', run: () => get().setDialog('errors') },
+          action: { label: 'Detail', run: () => get().setDialog('errors') },
         },
       })
       if (draft !== undefined) get().setComposerDraft(sessionId, draft)

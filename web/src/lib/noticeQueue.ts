@@ -56,12 +56,17 @@ export const NOTICE_DOTS_MAX = 5
  * The passive dots above the toast (1c DOTS): none for a single message; for
  * two or more, the one showing filled first, then one hollow per waiting
  * message up to `NOTICE_DOTS_MAX` dots, and the remainder as `+N`.
+ * `covered`: a reply is showing over them (3a, 3c), so none of the `count`
+ * is the one showing and every dot is hollow.
  */
-export function noticeDots(count: number): { dots: ('current' | 'waiting')[]; more: number } {
+export function noticeDots(
+  count: number,
+  covered = false,
+): { dots: ('current' | 'waiting')[]; more: number } {
   if (count < 2) return { dots: [], more: 0 }
   const shown = Math.min(count, NOTICE_DOTS_MAX)
   return {
-    dots: Array.from({ length: shown }, (_, i) => (i === 0 ? 'current' : 'waiting')),
+    dots: Array.from({ length: shown }, (_, i) => (i === 0 && !covered ? 'current' : 'waiting')),
     more: count - shown,
   }
 }
