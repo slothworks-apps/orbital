@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { usePresence } from '../ui/usePresence'
 import { registerSheet } from './state'
 
 /**
@@ -228,7 +229,8 @@ export function LitMark({ variant }: { variant: 'paired' | 'lock' }) {
  * The dropdown shell every phone sheet is drawn in (canvas 10i, "ONE SHEET";
  * 10b and 10g's confirms use the same one): a dimmed backdrop whose tap
  * dismisses, and a panel rising from the bottom edge with a grab handle.
- * Render it while open, unmount it to close. What is inside is the caller's
+ * Render it inside a `SheetPresence` while open, and drop it to close; the
+ * presence keeps it long enough to sink out. What is inside is the caller's
  * and can be swapped in place — 10i's End and Clear replace the menu with
  * their confirm in the same sheet, no second layer.
  */
@@ -288,7 +290,7 @@ export function BottomSheet({
   // safe-area inset, and never less than that row.
   return (
     <div className="fixed inset-0 z-20 flex flex-col justify-end">
-      <div aria-hidden onClick={onDismiss} className={['absolute inset-0', look.backdrop].join(' ')} />
+      <div aria-hidden onClick={onDismiss} className={['orbital-sheet-backdrop absolute inset-0', look.backdrop].join(' ')} />
       <div
         role="dialog"
         aria-modal="true"
@@ -313,13 +315,48 @@ export function BottomSheet({
             : undefined
         }
         onTouchEnd={swipeToDismiss ? () => (touchY.current = null) : undefined}
-        className={['relative pb-[max(22px,env(safe-area-inset-bottom))]', look.panel].join(' ')}
+        className={['orbital-sheet-panel relative pb-[max(22px,env(safe-area-inset-bottom))]', look.panel].join(' ')}
       >
         <div aria-hidden className={['grid place-items-center', look.handle].join(' ')}>
           <span className="block h-1 w-9 rounded-[2px] bg-[rgba(200,220,245,.3)]" />
         </div>
         {children}
       </div>
+    </div>
+  )
+}
+
+/** How long a closing sheet stays mounted while it sinks (`--sheet-exit` in `mobile.css`). */
+const SHEET_EXIT_MS = 200
+
+function present(node: ReactNode): boolean {
+  return node !== null && node !== undefined && node !== false
+}
+
+/**
+ * Where a sheet is opened: `<SheetPresence>{open && <SomeSheet … />}</SheetPresence>`.
+ * When the condition turns false, the sheet it last rendered stays for
+ * `SHEET_EXIT_MS` under `data-sheet-leaving`, so it sinks out instead of
+ * vanishing — however it was closed: the backdrop, the back button, a swipe,
+ * or the caller's own state after an action. Reopened meanwhile, it rises
+ * again. An overlay that is not a `BottomSheet` opts in with the
+ * `orbital-sheet-backdrop` and `orbital-sheet-panel` classes.
+ */
+export function SheetPresence({ children }: { children: ReactNode }) {
+  const open = present(children)
+  // The way in is a CSS animation that runs on mount, so it needs no hold.
+  const { mounted } = usePresence(open, 0, SHEET_EXIT_MS)
+  const [last, setLast] = useState(children)
+  if (open && children !== last) setLast(children)
+  if (!open && !mounted) return null
+
+  return (
+    <div
+      className="contents"
+      data-sheet-leaving={open ? undefined : ''}
+      style={{ '--sheet-exit': `${SHEET_EXIT_MS}ms` } as CSSProperties}
+    >
+      {open ? children : last}
     </div>
   )
 }

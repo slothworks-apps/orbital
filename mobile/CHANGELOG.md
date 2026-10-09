@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.8.1] — 2026-10-09
+### Changed
+- Menus and sheets — the session's ⋯ menu, context, subagents, worktrees, harness steps and every confirmation — slide up from the bottom and back down when they close, instead of popping in and out.
+
 ## [0.8.0] — 2026-10-09
 ### Added
 - The app updates itself: a new version downloads in the background, and a quiet notice above the session list offers to restart into it, keeping what you are typing. Close the notice and the new version starts the next time you open the app. Only versions signed by Orbital are installed, and one that fails to start is undone on its own. Needs this update from TestFlight or Google Play.

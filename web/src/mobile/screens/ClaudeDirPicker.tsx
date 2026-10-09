@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { claudeDirChoosable, claudeDirMonograms, claudeDirSubline } from '../../lib/claudeDirs'
 import type { ClaudeDirName } from '../../lib/types'
 import { ClaudeDirMark } from '../../ui/ClaudeDirMark'
-import { FieldLabel } from '../ui'
+import { FieldLabel, SheetPresence } from '../ui'
 
 /**
  * The phone's Claude directory choice (canvas 44d): one 52px row under
@@ -46,60 +46,62 @@ export function ClaudeDirPicker({
         </button>
       </div>
 
-      {open && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="Run this session under"
-          onClick={() => setOpen(false)}
-          className="fixed inset-0 z-20 flex items-end bg-[rgba(2,4,9,.6)]"
-        >
+      <SheetPresence>
+        {open && (
           <div
-            onClick={(event) => event.stopPropagation()}
-            className="flex w-full flex-col rounded-t-[24px] border-t border-[rgba(150,205,255,.18)] bg-[oklch(15%_.02_258)] px-3 pb-[calc(28px+env(safe-area-inset-bottom))] pt-2"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Run this session under"
+            onClick={() => setOpen(false)}
+            className="orbital-sheet-backdrop fixed inset-0 z-20 flex items-end bg-[rgba(2,4,9,.6)]"
           >
-            <span aria-hidden className="mb-3 mt-0.5 block h-1 w-9 self-center rounded-[2px] bg-[rgba(200,220,245,.3)]" />
-            <div className="px-2 pb-2 font-mono text-[10px] tracking-[0.16em] text-[rgba(160,190,225,.6)]">
-              RUN THIS SESSION UNDER
-            </div>
-            {dirs.map((dir) => {
-              const on = dir.id === value
-              const choosable = claudeDirChoosable(dir)
-              return (
-                <button
-                  key={dir.id}
-                  type="button"
-                  aria-pressed={on}
-                  disabled={!choosable}
-                  onClick={() => {
-                    onChange(dir.id)
-                    setOpen(false)
-                  }}
-                  className={[
-                    'box-border flex min-h-[60px] w-full items-center gap-3 rounded-[12px] p-2.5 text-left disabled:opacity-50',
-                    on ? 'bg-[rgba(150,205,255,.09)]' : 'bg-transparent',
-                  ].join(' ')}
-                >
-                  <ClaudeDirMark mono={monograms.get(dir.id) ?? '?'} size="sheet" />
-                  <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                    <span className="line-clamp-2 text-[15px] font-semibold text-text-bright">{dir.name}</span>
-                    <span className="truncate font-mono text-[11px] text-[rgba(160,190,225,.6)]">{claudeDirSubline(dir)}</span>
-                  </span>
-                  <span
-                    aria-hidden
-                    className={['w-6 flex-none font-mono text-[13px] text-accent', on ? 'opacity-100' : 'opacity-0'].join(' ')}
+            <div
+              onClick={(event) => event.stopPropagation()}
+              className="orbital-sheet-panel flex w-full flex-col rounded-t-[24px] border-t border-[rgba(150,205,255,.18)] bg-[oklch(15%_.02_258)] px-3 pb-[calc(28px+env(safe-area-inset-bottom))] pt-2"
+            >
+              <span aria-hidden className="mb-3 mt-0.5 block h-1 w-9 self-center rounded-[2px] bg-[rgba(200,220,245,.3)]" />
+              <div className="px-2 pb-2 font-mono text-[10px] tracking-[0.16em] text-[rgba(160,190,225,.6)]">
+                RUN THIS SESSION UNDER
+              </div>
+              {dirs.map((dir) => {
+                const on = dir.id === value
+                const choosable = claudeDirChoosable(dir)
+                return (
+                  <button
+                    key={dir.id}
+                    type="button"
+                    aria-pressed={on}
+                    disabled={!choosable}
+                    onClick={() => {
+                      onChange(dir.id)
+                      setOpen(false)
+                    }}
+                    className={[
+                      'box-border flex min-h-[60px] w-full items-center gap-3 rounded-[12px] p-2.5 text-left disabled:opacity-50',
+                      on ? 'bg-[rgba(150,205,255,.09)]' : 'bg-transparent',
+                    ].join(' ')}
                   >
-                    ✓
-                  </span>
-                </button>
-              )
-            })}
-            <div className="px-2 pt-2.5 font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.5)]">
-              add or rename directories on the Mac · Settings → General
+                    <ClaudeDirMark mono={monograms.get(dir.id) ?? '?'} size="sheet" />
+                    <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+                      <span className="line-clamp-2 text-[15px] font-semibold text-text-bright">{dir.name}</span>
+                      <span className="truncate font-mono text-[11px] text-[rgba(160,190,225,.6)]">{claudeDirSubline(dir)}</span>
+                    </span>
+                    <span
+                      aria-hidden
+                      className={['w-6 flex-none font-mono text-[13px] text-accent', on ? 'opacity-100' : 'opacity-0'].join(' ')}
+                    >
+                      ✓
+                    </span>
+                  </button>
+                )
+              })}
+              <div className="px-2 pt-2.5 font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.5)]">
+                add or rename directories on the Mac · Settings → General
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </SheetPresence>
     </>
   )
 }

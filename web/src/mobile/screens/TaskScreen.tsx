@@ -10,7 +10,7 @@ import { isMacAsleep, pushedTop, useMobile } from '../state'
 import { INK, elapsedLabel } from '../subagents/model'
 import { StopTaskSheet, stoppedHereKey, useStoppedHere } from '../subagents/StopTaskSheet'
 import { appendedLines, followPill, taskView } from '../subagents/tasks'
-import { MobileScreen } from '../ui'
+import { MobileScreen, SheetPresence } from '../ui'
 
 /** How far above the bottom the reader may sit and still be following the tail. */
 const FOLLOW_SLACK_PX = 4
@@ -172,19 +172,21 @@ function TaskView({ sessionId, taskId }: { sessionId: string; taskId: string }) 
           )}
         </div>
       </div>
-      {confirming && task && (
-        <StopTaskSheet
-          label={task.label}
-          ranFor={ranFor === undefined ? undefined : elapsedLabel(ranFor, true)}
-          parentTitle={parentTitle}
-          onCancel={() => setConfirming(false)}
-          onStop={() => {
-            setConfirming(false)
-            markStopped(stoppedHereKey(sessionId, taskId))
-            void stopTask(sessionId, taskId)
-          }}
-        />
-      )}
+      <SheetPresence>
+        {confirming && task && (
+          <StopTaskSheet
+            label={task.label}
+            ranFor={ranFor === undefined ? undefined : elapsedLabel(ranFor, true)}
+            parentTitle={parentTitle}
+            onCancel={() => setConfirming(false)}
+            onStop={() => {
+              setConfirming(false)
+              markStopped(stoppedHereKey(sessionId, taskId))
+              void stopTask(sessionId, taskId)
+            }}
+          />
+        )}
+      </SheetPresence>
     </MobileScreen>
   )
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { SessionMenuSheet } from '../menu/SessionMenuSheet'
+import { SheetPresence } from '../ui'
 import type { SlotProps } from './slot'
 
 /**
@@ -25,7 +26,9 @@ export function SessionMenuButton({ session, offline }: SlotProps) {
       >
         ⋯
       </button>
-      {open && <SessionMenuSheet session={session} offline={offline} onClose={() => setOpen(false)} />}
+      <SheetPresence>
+        {open && <SessionMenuSheet session={session} offline={offline} onClose={() => setOpen(false)} />}
+      </SheetPresence>
     </>
   )
 }

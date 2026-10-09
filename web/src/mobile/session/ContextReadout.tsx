@@ -4,6 +4,7 @@ import { useOrbital } from '../../store/store'
 import { CLOCK_TICK_MS } from '../constants'
 import { ContextSheet } from '../limits/ContextSheet'
 import { contextReading, readoutLines, ringGradient } from '../limits/context'
+import { SheetPresence } from '../ui'
 import type { SlotProps } from './slot'
 
 /** Canvas 10k: the ring's stroke, cut out of a filled disc. */
@@ -47,9 +48,11 @@ export function ContextReadout({ session, offline }: SlotProps) {
           />
         )}
       </button>
-      {open && (
-        <ContextSheet session={session} reading={reading} models={models} now={now} onDismiss={() => setOpen(false)} />
-      )}
+      <SheetPresence>
+        {open && (
+          <ContextSheet session={session} reading={reading} models={models} now={now} onDismiss={() => setOpen(false)} />
+        )}
+      </SheetPresence>
     </>
   )
 }

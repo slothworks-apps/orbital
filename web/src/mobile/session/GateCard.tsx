@@ -10,7 +10,7 @@ import { setGateFold, useGateFold } from '../harness/gateFold'
 import { GoBackSheet } from '../harness/GoBackSheet'
 import { useHarness } from '../harness/useHarness'
 import { useMobile } from '../state'
-import { AckLine } from '../ui'
+import { AckLine, SheetPresence } from '../ui'
 import type { SlotKeyProps, SlotProps } from './slot'
 
 /** What the card shows for this session, from the harness, its log and this phone's last answer. */
@@ -230,15 +230,17 @@ function WaitingCard({ sessionId, card }: { sessionId: string; card: GateCardDat
         </div>
       </div>
       <ErrorLine text={error} />
-      {asking && harness && (
-        <GoBackSheet
-          harness={harness}
-          index={card.index}
-          running={asking.running}
-          onConfirm={goBack}
-          onCancel={() => setAsking(null)}
-        />
-      )}
+      <SheetPresence>
+        {asking && harness && (
+          <GoBackSheet
+            harness={harness}
+            index={card.index}
+            running={asking.running}
+            onConfirm={goBack}
+            onCancel={() => setAsking(null)}
+          />
+        )}
+      </SheetPresence>
     </>
   )
 }

@@ -14,7 +14,7 @@ import { useMobile } from '../state'
 import { DiagnosticsSetting } from '../update/DiagnosticsSetting'
 import { usePhoneUpdate } from '../update/state'
 import { clientRef } from '../transport/clientRef'
-import { CARD, MobileScreen, PrimaryButton, SecondaryButton, SectionLabel, Toggle } from '../ui'
+import { CARD, MobileScreen, PrimaryButton, SecondaryButton, SectionLabel, SheetPresence, Toggle } from '../ui'
 
 /**
  * The desktop's five rows, in its order (Settings → Notifications). Three
@@ -227,30 +227,32 @@ export function SettingsScreen() {
         </footer>
       </div>
 
-      {confirming && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={`Replace ${name}?`}
-          onClick={() => setConfirming(false)}
-          className="fixed inset-0 z-20 flex items-end bg-[rgba(2,3,8,.62)]"
-        >
+      <SheetPresence>
+        {confirming && (
           <div
-            onClick={(event) => event.stopPropagation()}
-            className="flex w-full flex-col gap-3 rounded-t-[26px] border-t border-[rgba(150,205,255,.18)] bg-[rgba(10,16,28,.98)] px-4 pb-[calc(30px+env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-20px_60px_rgba(0,0,0,.5)]"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Replace ${name}?`}
+            onClick={() => setConfirming(false)}
+            className="orbital-sheet-backdrop fixed inset-0 z-20 flex items-end bg-[rgba(2,3,8,.62)]"
           >
-            <span aria-hidden className="mx-auto mb-1.5 block h-1 w-9 rounded-full bg-[rgba(232,238,248,.25)]" />
-            <h2 className="text-[18px] font-bold">Replace {name}?</h2>
-            <p className="text-[14px] leading-[1.5] text-[rgba(200,214,235,.85)]">
-              This phone forgets {name} and its key, then opens the scanner. Sessions on the Mac keep running.
-            </p>
-            <div className="mt-1.5 flex flex-col gap-3">
-              <PrimaryButton onClick={() => void replace()}>Forget and scan</PrimaryButton>
-              <SecondaryButton onClick={() => setConfirming(false)}>Cancel</SecondaryButton>
+            <div
+              onClick={(event) => event.stopPropagation()}
+              className="orbital-sheet-panel flex w-full flex-col gap-3 rounded-t-[26px] border-t border-[rgba(150,205,255,.18)] bg-[rgba(10,16,28,.98)] px-4 pb-[calc(30px+env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-20px_60px_rgba(0,0,0,.5)]"
+            >
+              <span aria-hidden className="mx-auto mb-1.5 block h-1 w-9 rounded-full bg-[rgba(232,238,248,.25)]" />
+              <h2 className="text-[18px] font-bold">Replace {name}?</h2>
+              <p className="text-[14px] leading-[1.5] text-[rgba(200,214,235,.85)]">
+                This phone forgets {name} and its key, then opens the scanner. Sessions on the Mac keep running.
+              </p>
+              <div className="mt-1.5 flex flex-col gap-3">
+                <PrimaryButton onClick={() => void replace()}>Forget and scan</PrimaryButton>
+                <SecondaryButton onClick={() => setConfirming(false)}>Cancel</SecondaryButton>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </SheetPresence>
     </MobileScreen>
   )
 }

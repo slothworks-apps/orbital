@@ -3,6 +3,7 @@ import { tagColor } from '../../lib/types'
 import { useOrbital } from '../../store/store'
 import { chipLabel } from '../subagents/model'
 import { MoonsSheet, takeReturnToSheet } from '../subagents/MoonsSheet'
+import { SheetPresence } from '../ui'
 import type { SlotProps } from './slot'
 
 /** 9b's header draws at most this many moons before the count. */
@@ -54,7 +55,9 @@ export function MoonsChip({ session, offline }: SlotProps) {
           {label}
         </span>
       </button>
-      {open && <MoonsSheet session={session} tagHue={tagHue} offline={offline} onClose={() => setOpen(false)} />}
+      <SheetPresence>
+        {open && <MoonsSheet session={session} tagHue={tagHue} offline={offline} onClose={() => setOpen(false)} />}
+      </SheetPresence>
     </>
   )
 }

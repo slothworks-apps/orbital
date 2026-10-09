@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { HarnessEvent, SessionHarness } from '../../lib/types'
 import { MARKER, type StepKind } from '../../panels/harness/model'
-import { BottomSheet } from '../ui'
+import { BottomSheet, SheetPresence } from '../ui'
 import { segmentTone, stepsSheet, type SegmentTone } from './gate'
 import { RecordSheet } from './RecordSheet'
 
@@ -142,9 +142,11 @@ export function StepsSheet({
           </div>
         </div>
       </BottomSheet>
-      {record !== null && (
-        <RecordSheet sessionId={sessionId} harness={harness} events={events} index={record} onDismiss={() => setRecord(null)} />
-      )}
+      <SheetPresence>
+        {record !== null && (
+          <RecordSheet sessionId={sessionId} harness={harness} events={events} index={record} onDismiss={() => setRecord(null)} />
+        )}
+      </SheetPresence>
     </>
   )
 }

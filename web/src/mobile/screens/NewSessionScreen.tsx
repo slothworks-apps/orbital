@@ -18,7 +18,7 @@ import {
   type DirectoryRow,
 } from '../newSession'
 import { isMacAsleep, useMobile } from '../state'
-import { FieldLabel, MobileScreen, PrimaryButton } from '../ui'
+import { FieldLabel, MobileScreen, PrimaryButton, SheetPresence } from '../ui'
 import { ClaudeDirPicker } from './ClaudeDirPicker'
 import { McpjsonSheet } from './McpjsonSheet'
 import { undecidedBeforeLaunch, type McpjsonAnswers, type McpjsonDecisions, type McpjsonServer } from '../../lib/mcpjson'
@@ -382,18 +382,20 @@ export function NewSessionScreen() {
         />
         </div>
       </div>
-      {question && (
-        <McpjsonSheet
-          servers={question.servers}
-          answers={question.answers}
-          project={basename(cwd.trim())}
-          macName={macName ?? 'your Mac'}
-          pending={pending}
-          onAnswer={(name, answer) => setQuestion((q) => (q ? { ...q, answers: { ...q.answers, [name]: answer } } : q))}
-          onStart={(decisions) => void launch(decisions)}
-          onBack={() => setQuestion(null)}
-        />
-      )}
+      <SheetPresence>
+        {question && (
+          <McpjsonSheet
+            servers={question.servers}
+            answers={question.answers}
+            project={basename(cwd.trim())}
+            macName={macName ?? 'your Mac'}
+            pending={pending}
+            onAnswer={(name, answer) => setQuestion((q) => (q ? { ...q, answers: { ...q.answers, [name]: answer } } : q))}
+            onStart={(decisions) => void launch(decisions)}
+            onBack={() => setQuestion(null)}
+          />
+        )}
+      </SheetPresence>
     </MobileScreen>
   )
 }
