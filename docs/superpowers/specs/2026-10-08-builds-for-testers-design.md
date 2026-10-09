@@ -57,11 +57,13 @@ publishes nothing new anywhere: no build, no image, no moved tag.
   `relay/` or `shared/` and moved its version tag and `latest` with it.
 - **One workflow**, `release.yml`, decides and ships all four. Whether a
   version has shipped is read from where it ships to: the GitHub Release,
-  the image in GHCR, and for the phone a git tag the workflow writes
-  itself ([[a-version-ships-once-from-one-workflow]]). Nobody tags by hand.
+  the image in GHCR, and for the phone a git tag per store that the
+  workflow writes itself ([[a-version-ships-once-from-one-workflow]]).
+  Nobody tags by hand.
 - iOS signs with **automatic signing through the App Store Connect API
   key**, not an exported distribution certificate and profile.
-- Only the desktop app makes **GitHub Releases**. The phone gets a tag.
+- Only the desktop app makes **GitHub Releases**. The phone gets a tag
+  per store.
 
 ## The release workflow
 
@@ -78,11 +80,12 @@ Runs `scripts/release-plan.mjs` and exposes its answer as job outputs:
 | app | version from | shipped when |
 |---|---|---|
 | desktop | `desktop/package.json` | a GitHub Release `v<version>` is published (`gh release view`) |
-| phone | `versionName` in `mobile/android/app/build.gradle` | the git tag `mobile-v<versionName>` exists (`git ls-remote --tags`) |
+| phone, iOS | `versionName` in `mobile/android/app/build.gradle` | the git tag `mobile-ios-v<versionName>` exists (`git ls-remote --tags`) |
+| phone, Android | the same `versionName` | the git tag `mobile-android-v<versionName>` exists |
 | relay | `relay/package.json` | the image `orbital-relay:<version>` exists in GHCR (`docker manifest inspect`) |
 
-A version that has not shipped sets `mac=true`, `mobile=true` or
-`relay=true`.
+A version that has not shipped sets `mac=true`, `ios=true`,
+`android=true` or `relay=true`.
 
 Where the version ships to, not the diff of the push, is the test. A run
 that failed half way left nothing there, so the next push or a manual run
@@ -94,7 +97,11 @@ image built before this workflow, say — is seen as shipped, with no step
 to tell the workflow about it.
 
 The phone is the exception because its builds land in two stores that are
-not cheap to ask; the tag is the workflow's own note that both took it.
+not cheap to ask; each store's tag is the workflow's own note that that
+store took it. One tag per store, not one for both: the first phone
+release uploaded to Play while its iOS export failed, and a single tag
+written only when both jobs passed could then never be written — the
+retry builds both, and Play refuses the build number it already has.
 
 The tag `v<version>` that `gh release create` writes is the form
 `electron-updater` expects.
@@ -127,7 +134,7 @@ The steps of today's `release-mac.yml`, changed where the update needs it:
 - `electron-builder` is pinned to an exact version, closing that item of
   [[trim-and-sign-the-desktop-package]].
 
-### `ios` (macOS runner, when `mobile`)
+### `ios` (macOS runner, when `ios`)
 
 `npm ci`, `GoogleService-Info.plist` written from its secret, then
 `npm run ios:release` — the command run locally today.
@@ -147,7 +154,7 @@ A clean runner is where a pod that stops resolving shows up first
 ([[firebase-ios-leaves-cocoapods]]). A failure here does not stop the Mac
 or Android jobs.
 
-### `android` (Ubuntu runner, JDK 21, when `mobile`)
+### `android` (Ubuntu runner, JDK 21, when `android`)
 
 The secrets are written to the paths `build.gradle` already reads —
 `secrets/orbital-upload.jks`, `secrets/keystore.properties`,
@@ -155,13 +162,36 @@ The secrets are written to the paths `build.gradle` already reads —
 `mobile/android/app/google-services.json` — then
 `npm run android:release` builds and uploads to Internal testing.
 
-### `tag-mobile` (when `mobile`)
+### The phone's tags
 
-Needs `ios` and `android`. When both succeeded, pushes the tag
-`mobile-v<versionName>`. If one failed, no tag: the retry builds both
-again. Apple and Play both refuse a build number they have seen, so the
-platform that had already uploaded fails its retry; the retry is then run
-with only the failed job (`Re-run failed jobs`), not by a new push.
+Each store job, once its upload succeeded, pushes its own tag at the
+commit: `ios` writes `mobile-ios-v<versionName>`, `android` writes
+`mobile-android-v<versionName>`, and only these two jobs have
+`contents: write`. A platform that failed is retried by any later run —
+a push, Run workflow or a re-run — without touching the other.
+
+**A duplicate counts as shipped.** When the store refuses the upload
+because it already has that build number, the build is in the store,
+which is what "shipped" means here; the job leaves a notice and writes its
+tag instead of failing. That covers an upload that went through while its
+job failed after it, and a build uploaded by hand. The refusal is read
+from the upload's own output — `export.log` of `ios-release.sh`, and
+Gradle's output for Android, which the `play` script runs with
+`--stacktrace` so that Play's answer is printed — and matched narrowly
+by `scripts/store-duplicate.mjs`: Play's "APK specifies a version code
+that has already been used" or "Version code <n> has already been used",
+App Store Connect's `ENTITY_ERROR.ATTRIBUTE.INVALID.DUPLICATE`, its text
+"The provided entity includes an attribute with a value that has already
+been used", or ITMS-90189 "Redundant Binary Upload" for the same build
+number. Gradle Play Publisher's own "Version code is too low or has
+already been used" is not enough alone, since it also stands for a code
+below the track's. Any other failure still fails.
+
+**The iOS export is tried twice.** `ios-release.sh` repeats a failed
+export (signing and upload) once after a short pause, from the same
+archive, unless the failure is a duplicate. The first phone release's
+export failed once with "The data couldn't be read because it isn't in
+the correct format" and passed on the next run.
 
 ### `relay` (Ubuntu runner, when `relay`)
 

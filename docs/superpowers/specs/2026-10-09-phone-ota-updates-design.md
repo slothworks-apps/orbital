@@ -125,7 +125,8 @@ before Orbital's OTA job runs:
 |---|---|---|
 | desktop | `desktop/package.json` | a GitHub Release `v<version>` is published |
 | **phone app (OTA)** | `mobile/package.json` | Beam has the bundle `<version>` |
-| phone native | `versionName` in `build.gradle` | the git tag `mobile-v<versionName>` exists |
+| phone native, iOS | `versionName` in `build.gradle` | the git tag `mobile-ios-v<versionName>` exists |
+| phone native, Android | `versionName` in `build.gradle` | the git tag `mobile-android-v<versionName>` exists |
 | relay | `relay/package.json` | the image is in GHCR |
 
 - New job `ota`: build `web/src/mobile` for release, zip, encrypt and sign,

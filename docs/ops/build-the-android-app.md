@@ -339,9 +339,11 @@ A merged bump of `versionName` (with its `versionCode`) releases the phone
 app without a Mac: the `android` job of `.github/workflows/release.yml` runs
 `npm run android:release` on a GitHub-hosted Linux runner with JDK 21 and
 the runner's own Android SDK, beside the `ios` job ([[build-the-ios-app]] →
-Release from GitHub Actions). It runs when the tag `mobile-v<versionName>`
-does not exist yet; the workflow pushes that tag once both stores took the
-build ([[2026-10-08-builds-for-testers-design]]). `npm run android:release`
+Release from GitHub Actions). It runs when the tag
+`mobile-android-v<versionName>` does not exist yet, and pushes that tag
+itself once Play has the build ([[2026-10-08-builds-for-testers-design]]).
+The `play` script runs Gradle with `--stacktrace`: Play's own answer to a
+refused upload is only printed that way, and the job reads it from there. `npm run android:release`
 stays the way to release from this Mac.
 
 The job writes four secrets to the git-ignored paths `build.gradle` already
@@ -363,11 +365,20 @@ gh secret set PLAY_SERVICE_ACCOUNT_JSON < secrets/play-service-account.json
 gh secret set ANDROID_GOOGLE_SERVICES_JSON < mobile/android/app/google-services.json
 ```
 
-**When it fails,** re-run only the failed job (the run's page → Re-run jobs
-→ Re-run failed jobs), not the whole workflow: Play and App Store Connect
-both refuse a build number they have seen, so the platform that already
-uploaded would fail its retry. [[build-the-ios-app]] → Release from GitHub
-Actions has the rest.
+**When it fails,** any later run retries it — a new push, Run workflow,
+or Re-run on the run's page, all jobs or only the failed one. Each store
+job has its own tag (`mobile-ios-v<versionName>`,
+`mobile-android-v<versionName>`), so a platform whose tag exists is not
+built again. When a store refuses the build because it already has that
+build number — an upload that went through but whose job failed after it,
+or a build uploaded by hand — the job counts it as shipped, writes its tag
+and leaves a notice "Already in TestFlight" or "Already in Play" on the
+run (`scripts/store-duplicate.mjs` holds the exact refusals it accepts).
+Any other refusal still fails the job. The iOS export (signing and upload)
+is tried once more after a short pause before the job fails. A fix that
+needs a pull request bumps `versionCode` with it (and its copies,
+`mobile/CLAUDE.md`), so both stores see a new build number. [[build-the-ios-app]] → Release from GitHub
+Actions has the rest, and how build 12 of 0.8.0 gets its tags.
 
 ### Play Console, the first time
 

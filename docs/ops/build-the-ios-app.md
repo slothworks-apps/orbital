@@ -160,8 +160,9 @@ A merged bump of `versionName` (with its `versionCode`) releases the phone
 app without a Mac: the `ios` job of `.github/workflows/release.yml` runs
 `npm run ios:release` on a GitHub-hosted Mac, beside the `android` job
 ([[build-the-android-app]] → Release from GitHub Actions). It runs when the
-tag `mobile-v<versionName>` does not exist yet; the workflow pushes that tag
-once both stores took the build ([[2026-10-08-builds-for-testers-design]]).
+tag `mobile-ios-v<versionName>` does not exist yet, and pushes that tag
+itself once TestFlight has the build
+([[2026-10-08-builds-for-testers-design]]).
 `npm run ios:release` stays the way to release from this Mac.
 
 The runner has no Apple account signed in to Xcode. The job writes the App
@@ -181,14 +182,26 @@ gh secret set IOS_GOOGLE_SERVICE_INFO_PLIST < mobile/ios/App/App/GoogleService-I
 
 The job removes both files when it ends, failed or not.
 
-**When it fails.** App Store Connect and Play both refuse a build number
-they have seen, and the tag is pushed only when both jobs passed. So when
-one of the two failed, re-run only that job (the run's page → Re-run jobs →
-Re-run failed jobs), not the whole workflow: the platform that already
-uploaded would fail its retry. A new push or Run workflow builds both again
-and fails the same way. A fix that needs a pull request bumps `versionCode`
-with it (and its copies, `mobile/CLAUDE.md`), so both stores see a new
-build number.
+**When it fails,** any later run retries it — a new push, Run workflow,
+or Re-run on the run's page, all jobs or only the failed one. Each store
+job has its own tag (`mobile-ios-v<versionName>`,
+`mobile-android-v<versionName>`), so a platform whose tag exists is not
+built again. When a store refuses the build because it already has that
+build number — an upload that went through but whose job failed after it,
+or a build uploaded by hand — the job counts it as shipped, writes its tag
+and leaves a notice "Already in TestFlight" or "Already in Play" on the
+run (`scripts/store-duplicate.mjs` holds the exact refusals it accepts).
+Any other refusal still fails the job. The iOS export (signing and upload)
+is tried once more after a short pause before the job fails. A fix that
+needs a pull request bumps `versionCode` with it (and its copies,
+`mobile/CLAUDE.md`), so both stores see a new build number.
+
+**0.8.0 (build 12).** The first phone release left both stores with build
+12 and neither tag: Play took it in the release run, whose iOS export then
+failed once ("The data couldn't be read because it isn't in the correct
+format"), and a re-run from a branch put it in TestFlight. The first run
+after per-store tags landed builds both, both stores refuse build 12 as a
+duplicate, and the two tags are written then — nobody tags by hand.
 
 ## Troubleshooting
 

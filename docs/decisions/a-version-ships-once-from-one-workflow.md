@@ -33,9 +33,13 @@ to code that no version described.
   decides what to ship; one job per platform ships it.
 - A version has shipped when it is where it ships to: a GitHub Release
   `v<version>` for the desktop app, an image `orbital-relay:<version>` in
-  GHCR for the relay. The phone ships to two stores, so the workflow
-  writes a git tag `mobile-v<versionName>` once both took the build. A
-  version that has not shipped is shipped by the next run.
+  GHCR for the relay. The phone ships to two stores, so each store's
+  job writes its own git tag once that store has the build:
+  `mobile-ios-v<versionName>` and `mobile-android-v<versionName>`. A
+  version that has not shipped is shipped by the next run, per platform.
+- A store refusing a build number it already has counts as shipped: the
+  job writes its tag instead of failing. The store is the destination,
+  and it has the build.
 - Nobody tags or marks anything by hand, not even once.
 - A merge without a version bump publishes nothing: no build, no image, no
   moved tag.
@@ -52,14 +56,33 @@ to code that no version described.
   workflow existed — is seen as shipped without anyone writing a tag for
   it. TestFlight and Play are not cheap to ask from a workflow, so the
   phone keeps a tag.
+- **A tag per store.** The first phone release went to Play while its iOS
+  export failed. With one tag written only when both stores took the
+  build, every retry built both, Play refused the build number it already
+  had, and the tag could never be written. Per-store tags retry only the
+  platform that is missing.
+- **A duplicate is shipped, not a failure.** The tag is a note about the
+  store, and the store's own answer outranks it: a build that reached the
+  store without its tag (a job that failed after the upload, a build
+  uploaded by hand) is recorded by the next run, with nobody tagging by
+  hand. Only the refusal of that exact build number counts; any other
+  refusal still fails.
 - **One workflow.** The question "which app has an unshipped version" is
   answered in one tested script instead of copies of a shell check. A
-  failed platform job can still be re-run on its own.
+  failed platform job is retried by any later run.
 - **Desktop-only Releases.** `electron-updater` takes the repository's
   latest published release as the newest app. A phone or relay release
   there would hide the desktop's from it.
 
 ## Alternatives
+
+- **One phone tag for both stores**, the first form of this decision. It
+  got stuck after the first release, as above, unless only the failed job
+  was re-run in the same run — a rule nobody can follow after a new push.
+- **Asking TestFlight and Play for the build** instead of keeping tags.
+  The real destination, but each needs its own API client and credentials
+  in the plan job; the duplicate refusal gets the same answer from the
+  upload that is happening anyway.
 
 - **A git tag for every app**, written by the workflow. Uniform, but a
   version that went out before the workflow needs its tag pushed by hand,
