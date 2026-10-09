@@ -1,8 +1,15 @@
 # Changelog — Orbital for the phone
 
-All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `versionName` in `mobile/android/app/build.gradle`.
+All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+
+## [0.8.0] — 2026-10-09
+### Added
+- The app updates itself: a new version downloads in the background, and a quiet notice above the session list offers to restart into it, keeping what you are typing. Close the notice and the new version starts the next time you open the app. Only versions signed by Orbital are installed, and one that fails to start is undone on its own. Needs this update from TestFlight or Google Play.
+### Changed
+- Settings shows the app's version beside the version installed from TestFlight or Google Play, and the fingerprint on a line of its own.
+- To deliver updates, the app tells Orbital's own update server a random install id, the phone's model, its system version, the app's versions, whether an update installed, and the errors the app runs into. No name, account or location.
 
 ## [0.7.0] — 2026-10-08
 ### Added
