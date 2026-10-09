@@ -48,7 +48,8 @@ publishes nothing new anywhere: no build, no image, no moved tag.
   build is CI before the merge; the fix is the next bump.
 - Release notes go **only to the GitHub Release**, from the version's
   section of `desktop/CHANGELOG.md`. TestFlight and Play get none.
-- Restarting into an update offers **"Restart now"** and **"Restart when
+- Downloading an update is **asked first by default**; a setting turns on
+  automatic download. Restarting into an update offers **"Restart now"** and **"Restart when
   sessions finish"**.
 - The relay image is built **only on a relay version bump**, like the
   apps. Until now `relay-image.yml` rebuilt it on every change under
@@ -220,6 +221,25 @@ As decided in [[the-desktop-app-updates-itself]]; this is how.
   (`updateAction`): `restart-now`, `restart-when-idle`, `cancel-wait` or
   `dismiss`.
 
+### Download: asked first, or automatic
+
+A setting, **Download updates automatically**, off by default. It lives
+with the other settings (`/api/settings`), which main already reads for
+notifications and re-reads on `settings-changed`.
+
+- **Off** (default): `autoDownload = false`. A check that finds a newer
+  version moves the flow to `available` with that version; the prompt
+  offers **Download**, which sends `update-action` `download` and main
+  calls `downloadUpdate()`. Closing it dismisses that version; a newer one
+  is offered again.
+- **On**: `autoDownload = true`, the flow goes straight to `ready` when the
+  download completes, as above.
+- While a download runs the phase is `downloading`; a failed download goes
+  back to `available` (off) or stays silent and retries at the next check
+  (on).
+- `autoInstallOnAppQuit` stays on in both modes: what has been downloaded
+  installs on quit.
+
 ### Restarting into it
 
 The prompt (below) offers:
@@ -251,19 +271,32 @@ waiting state and what cancels it — are pure functions in
 Not designed here. Its look and place come from Claude Design, from this
 prompt, and the build is checked against the canvas:
 
-> Orbital's desktop app has downloaded a new version and can restart into
-> it. Design a quiet prompt for that, following `docs/why-orbital.md`: no
-> badge, no colour that reads as a state, no sound, nothing that moves
-> after it appears, nothing that covers a session the user is working in.
-> It appears once per version and stays until acted on or closed. It
-> carries the new version, and either one action **Restart** (no Orbital
-> session working) or two, **Restart now** and **Restart when sessions
-> finish**, with the number of working sessions that "now" would
-> interrupt. Once "when sessions finish" is chosen it shows that it is
-> waiting and lets the wait be cancelled. Closing it says the update
-> installs when Orbital quits. Look at the existing notice toast
-> (`Feature - Notifications off.dc.html`) and say whether this is a kind
-> of it or something else.
+> Orbital's desktop app finds new versions of itself. Design a quiet
+> prompt for it, following `docs/why-orbital.md`: no badge, no colour that
+> reads as a state, no sound, nothing that moves after it appears except a
+> download's progress, nothing that covers a session the user is working
+> in. It appears once per version and stays until acted on or closed. It
+> has these states:
+>
+> 1. **Available** — a new version exists and has not been downloaded
+>    (the default: Orbital asks before downloading). Carries the version
+>    and one action, **Download**. Closing it skips that version; a newer
+>    one is offered again.
+> 2. **Downloading** — quiet progress, no actions.
+> 3. **Ready** — downloaded. Either one action **Restart** (no Orbital
+>    session working) or two, **Restart now** and **Restart when sessions
+>    finish**, with the number of working sessions that "now" would
+>    interrupt. Closing it says the update installs when Orbital quits.
+> 4. **Waiting** — "when sessions finish" was chosen: it shows that it is
+>    waiting and lets the wait be cancelled.
+>
+> Settings gains one switch, **Download updates automatically**, off by
+> default; when on, the prompt starts at Ready. Place it where it belongs
+> among the existing settings.
+>
+> Look at the existing notice toast (`Feature - Notifications off.dc.html`)
+> and say whether this is a kind of it or something else. Put it in a new
+> file `Feature - App update.dc.html`.
 
 ## The phone
 
