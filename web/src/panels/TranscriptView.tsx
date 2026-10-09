@@ -432,12 +432,17 @@ function groupMessageIds(group: TranscriptGroup): string {
   }
 }
 
-/** The group row holding `messageId`, if it is on screen. A word list, so a tool run's every call is found. */
+/**
+ * The row holding `messageId`, if it is on screen. A word list, so a tool
+ * run's every call is found; the innermost match wins, so an open run gives
+ * up the call itself and a folded one (its calls unmounted) its header.
+ */
 function findMessageRow(container: HTMLElement, messageId: string): HTMLElement | null {
+  let found: HTMLElement | null = null
   for (const el of container.querySelectorAll<HTMLElement>('[data-message-ids]')) {
-    if (el.dataset.messageIds?.split(' ').includes(messageId)) return el
+    if (el.dataset.messageIds?.split(' ').includes(messageId)) found = el
   }
-  return null
+  return found
 }
 
 /**
@@ -591,15 +596,18 @@ function ToolRunGroup({
                 inside the clip, so a folded run leaves no orphaned gap. */}
             <div className="flex flex-col gap-1 pt-1">
               {items.map((item) => (
-                <ToolRow
-                  key={item.key}
-                  toolUse={item.toolUse}
-                  toolResult={item.toolResult}
-                  subagents={subagents}
-                  onOpenSubagent={onOpenSubagent}
-                  backgroundTasks={backgroundTasks}
-                  onOpenTaskOutput={onOpenTaskOutput}
-                />
+                // Its own ids too, so Show in transcript centres the call
+                // rather than a run taller than the view (findMessageRow).
+                <div key={item.key} data-message-ids={[item.toolUse.id, item.toolResult?.id].filter(Boolean).join(' ')}>
+                  <ToolRow
+                    toolUse={item.toolUse}
+                    toolResult={item.toolResult}
+                    subagents={subagents}
+                    onOpenSubagent={onOpenSubagent}
+                    backgroundTasks={backgroundTasks}
+                    onOpenTaskOutput={onOpenTaskOutput}
+                  />
+                </div>
               ))}
             </div>
           </div>
