@@ -102,12 +102,17 @@ The tag `v<version>` that `gh release create` writes is the form
 The steps of today's `release-mac.yml`, changed where the update needs it:
 
 - `desktop/electron-builder.yml` adds a `zip` target beside `dmg` and
-  `publish: { provider: github }`. The publish setting is what writes
-  `app-update.yml` into the app, from which `electron-updater` knows where
-  to look. The build itself runs with `--publish never`; the workflow
-  uploads.
-- `dist:local` and `dist:self` pass `-c.publish=null`, so a local build
-  carries no `app-update.yml` and never checks.
+  sets `publish: null`. Only the `dist` script — the release build — turns
+  the publisher on, with `-c.publish.provider=github
+  -c.publish.owner=slothworks-apps -c.publish.repo=orbital`. The publish
+  setting is what writes `app-update.yml` into the app, from which
+  `electron-updater` knows where to look. The build itself runs with
+  `--publish never`; the workflow uploads.
+- `dist:local` and `dist:self` inherit `publish: null`, so a local build
+  carries no `app-update.yml` and never checks. The default is off rather
+  than the local scripts switching it off because `-c.publish=null` on the
+  command line reaches electron-builder as the string `"null"`, which it
+  takes for the name of a publisher and fails on.
 - After the `spctl` check, `gh release create v<version>` with the DMG,
   the ZIP, their blockmaps and `latest-mac.yml`, **published**, target
   the commit, title `Orbital <version>`. The notes are the
@@ -206,9 +211,14 @@ As decided in [[the-desktop-app-updates-itself]]; this is how.
   from the resources (`dist:local`, `dist:self`).
 - A failed check or download is logged and tried again at the next
   interval. It is never shown: a tester without an update loses nothing.
-- When the download is complete, main sends `update-ready` with the
-  version through the preload; the web app asks for the current state on
-  load, so a reload does not lose it.
+- When the download is complete, and on every change after, main pushes
+  `update-state` through the preload (`onUpdateState`): the phase —
+  `none`, `ready`, `waiting`, `dismissed` or `restarting` — the version and
+  the number of working Orbital sessions. The web app asks for the current
+  state on load with `get-update-state` (`getUpdateState`), so a reload
+  does not lose it. The prompt's buttons go back as `update-action`
+  (`updateAction`): `restart-now`, `restart-when-idle`, `cancel-wait` or
+  `dismiss`.
 
 ### Restarting into it
 
@@ -221,7 +231,11 @@ The prompt (below) offers:
   `quitAndInstall` the first moment no Orbital session is working. It
   reads that from `sessionsFeed`, which it already keeps for
   notifications. Terminal sessions do not count: restarting the app does
-  not touch them.
+  not touch them. The server replays nothing to a new subscriber, so after
+  every connect and reconnect main reads `GET /api/sessions?source=web`
+  once to learn which sessions were already mid-turn; until that read has
+  landed the count is unknown, and an unknown count never ends the wait.
+  The quit guard reads the same seeded count.
 
 When nothing is working, the prompt shows a single **Restart**. Closing
 the prompt leaves the update to install on quit; it does not come back for
