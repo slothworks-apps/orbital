@@ -3,7 +3,7 @@ import { api, ApiError, type EndedSummary } from '../lib/api'
 import type { McpjsonDecisions } from '../lib/mcpjson'
 import { getSocket } from '../lib/socket'
 import { completedAnswers, openQuestion, type AnswerMap } from '../lib/questionCard'
-import { isAttachable, promptWithOpenFile, promptWithSelection, selectionId } from '../lib/ideSelection'
+import { isAttachable, isSlashCommand, promptWithOpenFile, promptWithSelection, selectionId } from '../lib/ideSelection'
 import { withViewTransition } from '../lib/viewTransition'
 import { focusSession } from '../lib/desktop'
 import { MAX_SUBAGENT_MESSAGES } from '../lib/types'
@@ -1940,12 +1940,14 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     //
     // Deliberately after the decision branch above: an answer to a question,
     // or the reason on a refused permission, is words meant for the ask — not
-    // a new turn, and nothing rides on it.
+    // a new turn, and nothing rides on it. Nor on a slash command, which the
+    // CLI runs only when it opens the turn.
     const session = get().sessions[id]
     const selection = session?.ide?.selection ?? null
     const cwd = session?.cwd ?? ''
-    const outgoing =
-      isAttachable(selection) && get().ideDismissed[id] !== selectionId(selection)
+    const outgoing = isSlashCommand(text)
+      ? text
+      : isAttachable(selection) && get().ideDismissed[id] !== selectionId(selection)
         ? promptWithSelection(text, cwd, selection)
         : selection
           ? promptWithOpenFile(text, cwd, selection.filePath)

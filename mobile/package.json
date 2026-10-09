@@ -1,6 +1,6 @@
 {
   "name": "@orbital/mobile",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "private": true,
   "description": "Orbital on the phone: the Capacitor shell around web/'s mobile entry.",
   "author": "SlothWorks s.r.o.",

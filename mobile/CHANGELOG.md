@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.8.2] — 2026-10-09
+### Fixed
+- `/compact` and other slash commands sent from the phone run again while a file is open in the editor on your Mac; before, they reached Claude as an ordinary message.
+
 ## [0.8.1] — 2026-10-09
 ### Changed
 - Menus and sheets — the session's ⋯ menu, context, subagents, worktrees, harness steps and every confirmation — slide up from the bottom and back down when they close, instead of popping in and out.
