@@ -36,6 +36,7 @@ import {
 import type { StripButton, StripForm, StripPresence } from './stripFold'
 import { BRANCH_FADE_MS, WhereLine } from './WhereLine'
 import { useSessionHarness } from './HarnessPill'
+import { MediaReadout } from './MediaReadout'
 
 /**
  * How long the pointer rests on a strip button before its tooltip appears
@@ -439,6 +440,10 @@ export function UtilityStrip({
         onFoldReserve={setFoldReservePx}
         otherTrees={session?.otherTrees}
       />
+      {/* The session's media (canvas `Feature - Media` 24b): a readout of the
+          session like the path before it, so it sits on the path's line and
+          never folds. Absent until the session has media. */}
+      {session && <MediaReadout sessionId={session.id} onScreen={onScreen} />}
       {/* The walkthrough's entry (canvas 21f): the first icon of the
           strip, present only once there is something to walk through. Not
           one of the six, so it never folds. A detached window holds only

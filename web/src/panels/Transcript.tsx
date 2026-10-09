@@ -12,6 +12,8 @@ import { LimitWaitNotice } from './LimitWaitNotice'
 import { compactingOf } from '../lib/compaction'
 import { contextWindowFor } from '../lib/models'
 import { useCompactionUi } from '../store/compaction'
+import { useMedia } from '../store/media'
+import { ReplyMediaSession } from './ReplyMedia'
 import { pickRewindTarget, useRewindUi } from '../store/rewind'
 import { rewindTargetIds } from '../lib/rewind'
 
@@ -212,9 +214,23 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
     return added.length
   }, [loadOlder, sessionId])
 
+  // Show in transcript from the media view (spec
+  // 2026-10-09-session-media-design § Show in transcript).
+  const jump = useMedia((s) => (s.jump?.sessionId === sessionId ? s.jump : null))
+  const jumpTo = useMemo(
+    () =>
+      jump
+        ? { messageId: jump.messageId, onDone: () => useMedia.getState().endJump(jump.seq) }
+        : undefined,
+    [jump],
+  )
+
   return (
+    // Reply thumbnails read named files through this session (24f A).
+    <ReplyMediaSession.Provider value={sessionId}>
     <TranscriptView
       messages={shown}
+      jumpTo={jumpTo}
       isWorking={isWorking}
       models={models}
       resetKey={sessionId}
@@ -290,5 +306,6 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
         </>
       }
     />
+    </ReplyMediaSession.Provider>
   )
 }

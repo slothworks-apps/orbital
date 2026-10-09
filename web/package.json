@@ -45,6 +45,7 @@
     "@tiptap/starter-kit": "^3.31.4",
     "anser": "^2.1.1",
     "marked": "^17.0.6",
+    "pdfjs-dist": "^6.4.299",
     "qrcode-generator": "^2.0.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",

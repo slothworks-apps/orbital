@@ -247,6 +247,17 @@ export const COMMANDS: readonly Command[] = [
     note: 'opens or closes it · experimental',
   },
   {
+    // Canvas `Feature - Media` 24b draws ⇧⌘M, but that has been Switch model
+    // since the shortcuts spec; G for gallery instead. A letter, so it binds
+    // by character, which holds on the Czech layout (rule 2).
+    id: 'session.media',
+    label: 'Media gallery',
+    scope: 'session',
+    chords: ['meta+shift+g'],
+    whileTyping: true,
+    note: 'opens or closes it · only with media',
+  },
+  {
     id: 'composer.send',
     label: 'Send',
     scope: 'composer',

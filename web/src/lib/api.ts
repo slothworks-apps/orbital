@@ -9,6 +9,7 @@ import type {
   CompletionKey,
   FileEntry,
   ImageRefEntry,
+  MediaItem,
   ErrorKind,
   ErrorRecord,
   FileCompletionEntry,
@@ -273,6 +274,16 @@ export const api = {
 
     const data = await request<{ messages: ChatMessage[] }>('GET', url.pathname + url.search)
     return data.messages
+  },
+
+  /**
+   * Every image and PDF of the session, oldest first (spec
+   * 2026-10-09-session-media-design § Data). References only — the bytes
+   * come through the image store and `/api/files/image`.
+   */
+  async sessionMedia(id: string): Promise<MediaItem[]> {
+    const data = await request<{ items: MediaItem[] }>('GET', `/api/sessions/${id}/media`)
+    return data.items
   },
 
   async getWalkthrough(id: string): Promise<{ session: ApiSession; walkthrough: Walkthrough }> {

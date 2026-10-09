@@ -65,8 +65,8 @@ As drawn in 24b–24h, briefly:
 
 - **Header readout ▦** next to the session's folder and branch. It is
   absent when the session has no media, and it carries no count. It opens
-  a glance popover with the latest 8 tiles and **Open gallery** (⇧⌘M,
-  matched on `e.code` so it works on Czech QWERTZ).
+  a glance popover with the latest 8 tiles and **Open gallery** (⌘⇧G; see
+  below).
 - **Gallery** (24d) takes over the panel body (Transcript ⇄ Media). It
   shows items newest first in a 3-column square-crop grid, with 5 columns in
   the detached window. Consecutive tool images from one tool run stack into
@@ -98,6 +98,10 @@ Calm (`docs/why-orbital.md`): nothing moves when an item arrives, there is no
   **"named 14:24 · not on disk now"**.
 - "changed since 14:24" stays: the file's `mtime` is later than the
   reply's timestamp. No copy is kept.
+- The canvas gives Open gallery ⇧⌘M, which has been Switch model since
+  the shortcuts spec. The gallery takes **⌘⇧G** instead. A letter binds by
+  character (`lib/keymap.ts`, rule 2), which holds on Czech QWERTZ.
+- The maximised view keeps 7c's click on the backdrop to close, beside Esc.
 
 ## Data
 
@@ -155,14 +159,18 @@ preview's 10 MB.
 `pdfjs-dist` is loaded with a dynamic `import()` the first time a PDF is
 shown, so the map's first paint does not pay for it. The worker is bundled by
 Vite. First-page thumbnails are rendered at 2× the tile size and kept in an
-in-memory LRU keyed by path + `mtime`.
+in-memory LRU. The client is never told a file's `mtime`, so the key is the
+file's URL plus its `disk` state from the list: a file rewritten after the
+reply reads `changed` and is drawn again.
 
 ### Show in transcript
 
 The transcript is paged. When the target message is not in the loaded
 window, the panel pages back until it is, then scrolls to it the way the
 compaction badge's reveal does (`TranscriptView.tsx`, `data-compaction-id`),
-with a `data-message-id` instead. If paging reaches the start without
+with a `data-message-ids` word list on each transcript row instead — a
+row of tool calls holds several messages, and a tool image's message is
+the call's result. If paging reaches the start without
 finding it (the message was rewound away), the dialog closes and the
 transcript stays where it was.
 

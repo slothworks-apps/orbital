@@ -471,7 +471,7 @@ export function ToolRow({
         <FileMessageContext.Provider value={{ messageId: toolResult.id, images: messageImages(toolResult) }}>
           <div className="flex flex-col gap-2 px-2.5 pb-2.5">
             {wideImages.map((image) => (
-              <ImageThumb key={image.ref} image={image} variant="tool-wide" source={toolUse.toolName ?? 'tool result'} />
+              <ImageThumb key={image.ref} image={image} messageId={toolResult.id} variant="tool-wide" source={toolUse.toolName ?? 'tool result'} />
             ))}
           </div>
         </FileMessageContext.Provider>
@@ -512,6 +512,7 @@ export function ToolRow({
                     <div key={image.ref} className="flex items-start gap-2.5">
                       <ImageThumb
                         image={image}
+                        messageId={toolResult.id}
                         variant="tool"
                         source={toolUse.toolName ?? 'tool result'}
                       />

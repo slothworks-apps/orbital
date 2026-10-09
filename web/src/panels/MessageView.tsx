@@ -5,11 +5,12 @@ import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '../lib/types'
 import { formatBytes } from '../lib/format'
 import { highlightCode } from '../lib/highlight'
-import { FileCwdContext, FileMessageContext, fileOpenHandlers, messageImages } from '../lib/fileOpen'
+import { FileCwdContext, FileMessageContext, MessageIdContext, fileOpenHandlers, messageImages } from '../lib/fileOpen'
 import { rehypePathLinks } from '../lib/pathLinks'
 import { rehypeSentTokens } from '../lib/sentTokens'
 import { ImageThumb } from './ImageThumb'
 import { PathButton, PlainPath } from './PathButton'
+import { ReplyMedia } from './ReplyMedia'
 import { parseSentSelection, stripSentOpenFile } from '../lib/ideSelection'
 import { parseSentFiles } from '../lib/attachedFiles'
 import { FileGlyph } from './AttachmentChip'
@@ -374,6 +375,7 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
     <FileMessageContext.Provider value={fileMessage}>
     {/* A path in this message opens from the tree it was written in. */}
     <FileCwdContext.Provider value={message.cwd}>
+    <MessageIdContext.Provider value={message.id}>
     <div
       data-role={message.role}
       className={['flex flex-col gap-1', isUser && authored ? 'items-end' : 'items-start'].join(' ')}
@@ -428,6 +430,8 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
         )}
       </div>
       )}
+      {/* 24f A: the images and PDFs the reply names, under its text. */}
+      {!isUser && <ReplyMedia message={message} />}
       {sentSelection && (
         // 20a / 20f: a 9.5px caption 6px under the bubble — the lines glyph,
         // the count, and the file as a pressable path to the lines. It is a
@@ -484,6 +488,7 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
             const thumb = (
               <ImageThumb
                 image={image}
+                messageId={message.id}
                 variant={isUser && !hasText && !command ? 'user-solo' : 'user'}
                 source={provenance?.name ?? 'pasted image'}
                 widthCapPx={images.length > 1 ? TWO_UP_WIDTH_PX : undefined}
@@ -561,6 +566,7 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
         </span>
       )}
     </div>
+    </MessageIdContext.Provider>
     </FileCwdContext.Provider>
     </FileMessageContext.Provider>
   )

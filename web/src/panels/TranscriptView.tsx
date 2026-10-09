@@ -405,6 +405,39 @@ export interface TranscriptViewProps {
   /** Called after the reader clicks the jump-to-bottom indicator — the session
    * panel moves focus to its composer (43e, Triggers). */
   onJump?: () => void
+  /**
+   * Show in transcript (spec 2026-10-09-session-media-design § Show in
+   * transcript): page back until the message is held, scroll it to the
+   * middle and fade a hairline on it once. `onDone(false)` when paging
+   * reached the start without it — the transcript stays where it was.
+   */
+  jumpTo?: { messageId: string; onDone: (found: boolean) => void }
+}
+
+/** Canvas `Feature - Media` 24b ACCEPTANCE: the hairline Show in transcript fades on the message, once. */
+const JUMP_HAIRLINE_MS = 600
+
+/** The messages a group draws — what `data-message-ids` lists, for Show in transcript to find. */
+function groupMessageIds(group: TranscriptGroup): string {
+  switch (group.kind) {
+    case 'message':
+      return group.item.message.id
+    case 'tools':
+      return group.items.flatMap((item) => [item.toolUse.id, item.toolResult?.id ?? []].flat()).join(' ')
+    case 'question':
+    case 'decision':
+      return [group.item.toolUse.id, group.item.toolResult?.id].filter(Boolean).join(' ')
+    case 'model-divider':
+      return ''
+  }
+}
+
+/** The group row holding `messageId`, if it is on screen. A word list, so a tool run's every call is found. */
+function findMessageRow(container: HTMLElement, messageId: string): HTMLElement | null {
+  for (const el of container.querySelectorAll<HTMLElement>('[data-message-ids]')) {
+    if (el.dataset.messageIds?.split(' ').includes(messageId)) return el
+  }
+  return null
 }
 
 /**
@@ -640,6 +673,7 @@ export function TranscriptView({
   rewind,
   surface = 'panel',
   onJump,
+  jumpTo,
 }: TranscriptViewProps) {
   const [visibleCount, setVisibleCount] = useState(MAX_VISIBLE_MESSAGES)
   // The row under the pointer in pick mode. Forgotten when the mode ends, so
@@ -930,6 +964,35 @@ export function TranscriptView({
     return () => observer.disconnect()
   }, [observerFactory, loadOlder, pages, messages.length, visibleCount])
 
+  // Show in transcript. Re-run on every page that lands until the message is
+  // held; then it goes to the middle, the way the compaction reveal above
+  // does, and the reader is deliberately no longer at the bottom. A
+  // transcript paged to its start without it (the message was rewound away)
+  // reports so and is left where it was — prepends keep the reader anchored.
+  useLayoutEffect(() => {
+    if (!jumpTo) return
+    const el = containerRef.current && findMessageRow(containerRef.current, jumpTo.messageId)
+    if (el) {
+      scrollerRef.current?.cancel()
+      el.scrollIntoView?.({ block: 'center' })
+      setStick(false)
+      el.animate?.(
+        [
+          { outline: '1px solid oklch(85% .12 205 / .7)', outlineOffset: '4px', borderRadius: '8px' },
+          { outline: '1px solid oklch(85% .12 205 / 0)', outlineOffset: '4px', borderRadius: '8px' },
+        ],
+        { duration: JUMP_HAIRLINE_MS, easing: 'ease-out' },
+      )
+      jumpTo.onDone(true)
+      return
+    }
+    if (!pages) {
+      jumpTo.onDone(false)
+      return
+    }
+    void loadOlder()
+  }, [jumpTo, items, pages, loadOlder, setStick])
+
   // Pick mode's preview: the picked row while one is held, else the one
   // under the pointer (canvas 27a, 27b's confirmation keeps its ring).
   const previewId = rewind ? (rewind.pickedId ?? hoveredId) : null
@@ -985,6 +1048,7 @@ export function TranscriptView({
         // anywhere on it picks rather than reaching the chip or path inside.
         <div
           key={group.key}
+          data-message-ids={groupMessageIds(group) || undefined}
           data-rewind-target={target || undefined}
           className={[
             'shrink-0 motion-safe:transition-opacity motion-safe:duration-150',
