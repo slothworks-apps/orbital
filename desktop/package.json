@@ -1,6 +1,6 @@
 {
   "name": "@orbital/desktop",
-  "version": "0.24.0",
+  "version": "0.25.0",
   "description": "Orbital as a macOS desktop app: the window, the notifications and the server's lifecycle.",
   "author": "SlothWorks s.r.o.",
   "private": true,
@@ -8,7 +8,7 @@
   "scripts": {
     "build": "esbuild src/main.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/main.cjs && esbuild src/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/preload.cjs",
     "dev": "npm run build && ORBITAL_DESKTOP_DEV=1 electron .",
-    "dist": "npm run build && APPLE_KEYCHAIN_PROFILE=${APPLE_KEYCHAIN_PROFILE:-orbital-notary} electron-builder --mac --arm64",
+    "dist": "npm run build && APPLE_KEYCHAIN_PROFILE=${APPLE_KEYCHAIN_PROFILE:-orbital-notary} electron-builder --mac --arm64 -c.publish.provider=github -c.publish.owner=slothworks-apps -c.publish.repo=orbital --publish never",
     "dist:local": "npm run build && electron-builder --mac --arm64 -c.mac.notarize=false -c.directories.output=release/local '-c.dmg.artifactName=${productName}-${version}-${arch}-local.${ext}'",
     "dist:self": "npm run build && electron-builder --mac --arm64 '-c.mac.identity=Orbital Local' -c.mac.notarize=false -c.directories.output=release/local '-c.dmg.artifactName=${productName}-${version}-${arch}-local.${ext}'",
     "test": "vitest run",
@@ -18,7 +18,8 @@
     "@orbital/shared": "*",
     "@types/node": "^24.19.1",
     "electron": "44.5.1",
-    "electron-builder": "^26.15.3",
+    "electron-builder": "26.15.3",
+    "electron-updater": "6.8.9",
     "esbuild": "^0.28.2",
     "typescript": "^5.9.3",
     "vitest": "^5.0.3"

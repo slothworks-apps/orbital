@@ -4,6 +4,14 @@ productName: Orbital
 afterSign: build/verify-signature.cjs
 directories:
   output: release
+# Where an installed app looks for updates (ADR the-desktop-app-updates-itself).
+# Off here, so a build from the repository — `dist:local`, `dist:self` — carries
+# no app-update.yml and never replaces itself with a published release; only
+# the release build's `dist` script turns it on, with the repository on
+# GitHub. `null` has to be the default rather than the override: on the
+# command line `-c.publish=null` arrives as the string "null", which
+# electron-builder reads as the name of a publisher and fails on.
+publish: null
 files:
   - dist/**
   - package.json
@@ -48,8 +56,12 @@ mac:
   # anyway so it isn't implicit. Regenerate with build/make-icon.sh if the
   # favicon artwork changes.
   icon: build/icon.icns
+  # The DMG is the first install; Squirrel.Mac installs every update after it
+  # from the ZIP.
   target:
     - target: dmg
+      arch: [arm64]
+    - target: zip
       arch: [arm64]
   category: public.app-category.developer-tools
   # Developer ID, named explicitly (ADR desktop-app-is-developer-id-signed).

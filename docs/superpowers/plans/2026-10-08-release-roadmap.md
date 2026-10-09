@@ -80,8 +80,8 @@ and only that app. The bump is already part of the PR and
 `check-versions.mjs` already refuses a version that goes back
 ([[a-shipped-version-never-goes-back]]), so there is no extra manual step.
 
-- **Mac** — `release-mac.yml` builds, signs, notarizes and publishes to
-  GitHub Releases ([[release-the-dmg-from-github-actions]]). The new
+- **Mac** — `release.yml` (once `release-mac.yml`) builds, signs,
+  notarizes and publishes to GitHub Releases ([[release-the-dmg-from-github-actions]]). The new
   public repository has none of its secrets yet; they are set once, by
   the maintainer. The release carries the ZIP and update feed as well as
   the DMG, and the app updates itself from it
@@ -96,8 +96,10 @@ and only that app. The bump is already part of the PR and
 - **Android** — `publishReleaseBundle` on a runner, with the upload key and
   the Play service account from secrets, to the Internal testing track
   (`build-the-android-app`).
-- **Relay** — `relay-image.yml` already publishes the image on every
-  change. Nothing new, except that testers need a relay they can reach.
+- **Relay** — `release.yml` publishes the image when `relay/package.json`
+  goes up and the version is not yet in GHCR, like the apps; it replaces
+  `relay-image.yml`, which rebuilt it on every change. Testers also need a
+  relay they can reach.
 
 The steps for setting the secrets go into the runbooks
 `run-the-desktop-app`, `build-the-ios-app` and `build-the-android-app`.
@@ -121,12 +123,23 @@ updates itself to it.
 **Exit:** the README has a real screenshot, and the website is live with
 working download links and the privacy policy.
 
+**Done 2026-10-09:** the website at orbital.slothworks.io (#57, #61) with
+live demos on demo data, and the README's screenshot, the hero
+demo's own still (`site/public/demo-images/map-hero.webp`). The Mac download
+button points at the GitHub Releases list, which Phase 1's first run fills.
+
 ## Phase 3 — Over-the-air updates for the phone
 
 [[ota-updates-through-beam]]: the web bundle of `web/src/mobile` ships
 through Beam, and the app verifies every bundle against a public key built
 into the binary before running it. The plugin has to be in the first
-public build, which is why this phase comes before Phase 4. The versions
+public build, which is why this phase comes before Phase 4.
+
+Moved ahead on 2026-10-09: testers get the phone app only once it takes
+updates over the air, so a fix during internal testing reaches them without
+a store build. Phase 1 ships the desktop app and holds the phone
+(`HELD` in `scripts/release-plan.mjs`); this phase's pull request removes the
+hold, and its merge is the phone's first release to testers. The versions
 table in the root `CLAUDE.md` gains the bundle version and the rule for
 what can ship over the air and what needs a store build.
 

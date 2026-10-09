@@ -5,6 +5,7 @@ type: runbook
 status: in-force
 domain: remote
 related:
+  - 2026-10-08-builds-for-testers-design
   - 2026-10-02-mobile-app-design
   - run-the-relay
 tags:
@@ -328,6 +329,42 @@ configured in `mobile/android/app/build.gradle`). Set it up once:
 An app that has never been rolled out is a draft and takes only draft
 releases: `npm run play -w @orbital/mobile -- -PplayStatus=draft`, then roll
 the draft out in the Console.
+
+### Release from GitHub Actions
+
+A merged bump of `versionName` (with its `versionCode`) releases the phone
+app without a Mac: the `android` job of `.github/workflows/release.yml` runs
+`npm run android:release` on a GitHub-hosted Linux runner with JDK 21 and
+the runner's own Android SDK, beside the `ios` job ([[build-the-ios-app]] →
+Release from GitHub Actions). It runs when the tag `mobile-v<versionName>`
+does not exist yet; the workflow pushes that tag once both stores took the
+build ([[2026-10-08-builds-for-testers-design]]). `npm run android:release`
+stays the way to release from this Mac.
+
+The job writes four secrets to the git-ignored paths `build.gradle` already
+reads, and removes them when it ends, failed or not:
+
+| secret | written to |
+|---|---|
+| `ANDROID_UPLOAD_KEYSTORE_BASE64` | `secrets/orbital-upload.jks`, from base64 |
+| `ANDROID_KEYSTORE_PROPERTIES` | `secrets/keystore.properties`; its `storeFile` must stay `orbital-upload.jks` |
+| `PLAY_SERVICE_ACCOUNT_JSON` | `secrets/play-service-account.json` |
+| `ANDROID_GOOGLE_SERVICES_JSON` | `mobile/android/app/google-services.json` |
+
+Set them from the files this Mac already uses, from the repo root:
+
+```bash
+base64 -i secrets/orbital-upload.jks | gh secret set ANDROID_UPLOAD_KEYSTORE_BASE64
+gh secret set ANDROID_KEYSTORE_PROPERTIES < secrets/keystore.properties
+gh secret set PLAY_SERVICE_ACCOUNT_JSON < secrets/play-service-account.json
+gh secret set ANDROID_GOOGLE_SERVICES_JSON < mobile/android/app/google-services.json
+```
+
+**When it fails,** re-run only the failed job (the run's page → Re-run jobs
+→ Re-run failed jobs), not the whole workflow: Play and App Store Connect
+both refuse a build number they have seen, so the platform that already
+uploaded would fail its retry. [[build-the-ios-app]] → Release from GitHub
+Actions has the rest.
 
 ### Play Console, the first time
 

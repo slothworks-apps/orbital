@@ -4,8 +4,13 @@
 # the root `npm run ios:release` does both.
 #
 # The version is the Android app's: `versionName` and `versionCode` in
-# android/app/build.gradle, so the two platforms cannot drift apart. Upload
-# goes through the Apple account signed in to Xcode (Settings → Accounts).
+# android/app/build.gradle, so the two platforms cannot drift apart.
+#
+# Signing and upload go through the Apple account signed in to Xcode
+# (Settings → Accounts). When ASC_KEY_PATH, ASC_KEY_ID and ASC_KEY_ISSUER are
+# all set, they go through that App Store Connect API key instead, which is how
+# .github/workflows/release.yml runs it on a runner with no account (runbook
+# build-the-ios-app → Release from GitHub Actions).
 set -eu
 cd "$(dirname "$0")/.."
 export LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
@@ -28,6 +33,11 @@ run() {
   log="$PWD/$OUT/$1.log"
   echo "$1: log in $log"
   shift
+  # Archive and export both sign, so both get the API key when there is one.
+  if [ -n "${ASC_KEY_PATH:-}" ] && [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_KEY_ISSUER:-}" ]; then
+    set -- -authenticationKeyPath "$ASC_KEY_PATH" -authenticationKeyID "$ASC_KEY_ID" \
+      -authenticationKeyIssuerID "$ASC_KEY_ISSUER" "$@"
+  fi
   status=0
   xcodebuild "$@" >"$log" 2>&1 || status=$?
   if [ "$status" -ne 0 ]; then

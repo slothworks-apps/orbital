@@ -23,7 +23,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'pill-quiet'
     | 'quiet'
     | 'hairline'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'check'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -120,6 +120,8 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   // 1a's tip actions: 7px/14px at 13px, and 7px/11px for the text-only Settings →.
   notice: 'px-3.5 py-[7px] text-[13px]',
   'notice-link': 'px-[11px] py-[7px] text-[13px]',
+  // `Feature - App update`'s Check now in Settings › Updates: 6px/12px at 12.5px.
+  check: 'px-3 py-1.5 text-[12.5px]',
 }
 
 export function Button({

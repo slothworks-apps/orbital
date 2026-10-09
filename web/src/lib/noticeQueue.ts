@@ -14,10 +14,13 @@ import { create } from 'zustand'
  *   then it leaves the queue with `dismiss`.
  * - A message that no longer applies is `dismiss`ed by its feature before it
  *   shows, and drops out unseen.
+ * - A kind may have states (canvas `Feature - App update`): its message
+ *   swaps its words in place, and only its last state ends it. Until then it
+ *   keeps the slot — the messages behind it wait, and their dots stay.
  * - Nothing auto-dismisses.
  */
 
-/** In the order they show. Only `tip` has a message so far; the rest are reserved. */
+/** In the order they show. `update` and `tip` have messages so far; the rest are reserved. */
 export const NOTICE_KINDS = ['update', 'changelog', 'pairing', 'usage', 'tip'] as const
 export type NoticeKind = (typeof NOTICE_KINDS)[number]
 

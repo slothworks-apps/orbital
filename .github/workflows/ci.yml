@@ -69,6 +69,9 @@ jobs:
               - *shared
               - 'site/**'
               - 'web/src/**'
+            scripts:
+              - *root
+              - 'scripts/**'
             docs:
               - .github/workflows/ci.yml
               - 'docs/**'
@@ -135,8 +138,8 @@ jobs:
         run: npx electron-builder --mac --arm64 --dir -c.mac.identity=- -c.mac.notarize=false
 
   relay-image:
-    # The image relay-image.yml pushes after the merge, built here and
-    # thrown away.
+    # The image release.yml pushes once its version is bumped, built here
+    # and thrown away.
     name: build (relay)
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.filters), 'relay-image')
@@ -213,6 +216,20 @@ jobs:
           git fetch --no-tags --depth=1 origin "refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
           node scripts/check-versions.mjs --base "origin/$BASE_REF"
 
+  scripts:
+    # The root scripts' own tests: release-plan.mjs, which decides what
+    # release.yml ships. Plain `node --test`; the scripts have no workspace.
+    name: test (scripts)
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.filters), 'scripts')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: node --test 'scripts/*.test.mjs'
+
   docs:
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.filters), 'docs')
@@ -266,7 +283,7 @@ jobs:
     # not.
     name: ci passed
     if: always()
-    needs: [changes, check, desktop-app, relay-image, mobile-bundle, site, versions, docs, secrets, dependencies]
+    needs: [changes, check, desktop-app, relay-image, mobile-bundle, site, versions, scripts, docs, secrets, dependencies]
     runs-on: ubuntu-latest
     steps:
       - env:

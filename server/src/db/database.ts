@@ -224,6 +224,15 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    */
   [AUTO_CONTINUE_KEY]: 'true',
   [CONTINUE_TEXT_KEY]: DEFAULT_CONTINUE_TEXT,
+  /**
+   * Settings › Updates › "Download updates automatically" (spec
+   * 2026-10-08-builds-for-testers-design § Download: asked first, or
+   * automatic). Off: the desktop app asks before it downloads a new version.
+   * Read by the desktop's main process (`desktop/src/lib/updates.ts`
+   * `AUTO_DOWNLOAD_KEY`) as `=== 'true'`. The phone never sees it: the
+   * remote allowlist denies `/api/settings`.
+   */
+  update_auto_download: 'false',
 };
 
 export type OrbitalDb = BetterSQLite3Database<typeof schema> & { $client: Database.Database };

@@ -1,5 +1,6 @@
 import {
   app,
+  autoUpdater as nativeUpdater,
   BrowserWindow,
   dialog,
   ipcMain,
@@ -14,9 +15,10 @@ import {
   type UtilityProcess,
   type WebContents,
 } from 'electron';
-import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { autoUpdater } from 'electron-updater';
 import { apiTokenPath, authCookies, bearerHeaders, parseApiToken } from './lib/apiToken';
 import { appMenuTemplate, parseMenuCommands, type MenuCommand } from './lib/appMenu';
 import { decideQuit, decideWindowClose, WorkingSessions } from './lib/background';
@@ -58,6 +60,21 @@ import {
   type HealthInfo,
 } from './lib/startup';
 import {
+  checkAnswerMessage,
+  IDLE_SETTLE_MS,
+  parseAutoDownload,
+  parseSkippedVersion,
+  parseUpdateAction,
+  serializeSkippedVersion,
+  shouldCheckForUpdates,
+  SKIPPED_VERSION_FILE,
+  UPDATE_CHECK_INTERVAL_MS,
+  updateSize,
+  UpdateFlow,
+  type UpdateCheckAnswer,
+  type UpdateStep,
+} from './lib/updates';
+import {
   atLeast,
   cascadeFrom,
   centredIn,
@@ -86,6 +103,10 @@ const HEALTH_POLL_TIMEOUT_MS = 15_000;
 const CHILD_EXIT_TIMEOUT_MS = 5_000;
 // The local API requests main makes itself; the server answers them at once.
 const API_REQUEST_TIMEOUT_MS = 5_000;
+// The working-sessions seed after a (re)connect: the largest page
+// `GET /api/sessions` gives, and how soon a failed read is tried again.
+const SEED_SESSIONS_LIMIT = 200;
+const SEED_RETRY_MS = 2_000;
 
 // A detached window holds one detail panel, not the map beside it: it opens
 // at the docked panel's own width until a frame is remembered, never shrinks
@@ -159,6 +180,8 @@ let feed: { close(): void } | null = null;
 const notifier = new SessionNotifier();
 /** What a quit would kill, folded off the same feed the notifier reads. */
 const working = new WorkingSessions();
+/** An update: whether to download it, and when it may restart the app (`lib/updates`). */
+const updates = new UpdateFlow({ skippedVersion: readSkippedVersion() });
 /** True only when this process forked the server — shutdown kills only that. */
 let forked = false;
 let quitting = false;
@@ -878,27 +901,61 @@ function createTray(): void {
 }
 
 /**
- * Pull Settings → Notifications into the notifier.
+ * Pull the settings main acts on: Settings → Notifications into the
+ * notifier, and Settings › Updates › Download updates automatically into the
+ * update flow.
  *
- * The WebSocket publishes `sessions` and `errors` only, so these five
- * booleans do not arrive on the feed that drives them. Rather than grow a
- * topic for them, they are fetched here — at startup, on every reconnect, and
- * whenever the renderer reports a save (spec
+ * The WebSocket publishes `sessions` and `errors` only, so these do not
+ * arrive on the feed that drives them. Rather than grow a topic for them,
+ * they are fetched here — at startup, on every reconnect, before every update
+ * check, and whenever the renderer reports a save (spec
  * 2026-09-21-settings-sections-design § 5). A failed read leaves whatever was
  * loaded last standing, which on a cold start is the defaults: silent
- * (spec 2026-10-08-notifications-off-by-default-design).
+ * (spec 2026-10-08-notifications-off-by-default-design), and asking before a
+ * download.
  */
-async function loadNotificationSettings(): Promise<void> {
+async function loadSettings(): Promise<void> {
   try {
     const res = await fetch(`http://127.0.0.1:${PORT}/api/settings`, {
       headers: authHeaders(),
       signal: AbortSignal.timeout(2_000),
     });
     if (!res.ok) return;
-    notifier.setSettings(parseNotificationSettings(await res.json()));
+    const body: unknown = await res.json();
+    notifier.setSettings(parseNotificationSettings(body));
+    applyUpdateStep(updates.setAutoDownload(parseAutoDownload(body)));
   } catch {
     /* server still coming up, or gone: keep the settings we have */
   }
+}
+
+/**
+ * Read which Orbital sessions are already mid-turn, after every (re)connect:
+ * the server replays nothing to a new subscriber, so the frames alone would
+ * miss them (`WorkingSessions`). The same list the web app loads, narrowed to
+ * Orbital's own sessions; a working one is recent, so the first page holds
+ * it. A failed read is retried until it lands or a newer socket makes it
+ * stale — until then the quit guard counts what the frames showed, and a
+ * restart waiting for sessions to finish keeps waiting.
+ */
+async function seedWorkingSessions(): Promise<void> {
+  const token = working.beginSeed();
+  try {
+    const res = await fetch(`http://127.0.0.1:${PORT}/api/sessions?source=web&limit=${SEED_SESSIONS_LIMIT}`, {
+      headers: authHeaders(),
+      signal: AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
+    });
+    if (res.ok) {
+      working.seed(token, await res.json());
+      applyUpdateStep(updates.setWorkingCount(working.count, working.seeded));
+    }
+  } catch {
+    /* server still coming up, or gone: retried below */
+  }
+  if (quitting || working.seeded || working.beginSeed() !== token) return;
+  setTimeout(() => {
+    if (working.beginSeed() === token && !working.seeded) void seedWorkingSessions();
+  }, SEED_RETRY_MS);
 }
 
 /**
@@ -912,11 +969,7 @@ async function loadNotificationSettings(): Promise<void> {
  */
 function startNotifications(): void {
   if (!Notification.isSupported()) return;
-  void loadNotificationSettings();
-  // The renderer is the only thing that changes these, so it can say so
-  // exactly. A missed message costs one notification judged by the previous
-  // rule; the next reconnect corrects it.
-  ipcMain.on('settings-changed', () => void loadNotificationSettings());
+  void loadSettings();
   feed = startSessionsFeed({
     url: `ws://127.0.0.1:${PORT}/ws`,
     headers: authHeaders,
@@ -924,12 +977,17 @@ function startNotifications(): void {
     onReconnect: () => {
       notifier.reset();
       working.reset();
-      void loadNotificationSettings();
+      // The update flow forgets the count too, so a restart waiting for
+      // sessions to finish cannot take the one from before the drop.
+      applyUpdateStep(updates.setWorkingCount(working.count, working.seeded));
+      void seedWorkingSessions();
+      void loadSettings();
     },
     onFrame: (frame) => {
       // Two folds over one socket: what is worth saying, and what a quit would
       // cost (spec: 2026-09-22-desktop-background-mode-design § "Quit guard").
       working.onFrame(frame);
+      onWorkingFrame(frame);
       const d = notifier.onEvent(frame);
       if (!d) return;
       if (!win || win.isDestroyed()) return;
@@ -967,6 +1025,166 @@ function startNotifications(): void {
       n.show();
     },
   });
+}
+
+/** True once `startUpdates` found a build that updates itself. */
+let updatesEnabled = false;
+
+function skippedVersionPath(): string {
+  return join(app.getPath('userData'), SKIPPED_VERSION_FILE);
+}
+
+/**
+ * The version skipped with × on Available, kept in a file of main's own in
+ * `userData` rather than in the server's settings: it belongs to this app's
+ * installer, main is its only reader and writer, and it has to be known at
+ * the first check whether or not the server answers yet.
+ */
+function readSkippedVersion(): string | null {
+  try {
+    return parseSkippedVersion(readFileSync(skippedVersionPath(), 'utf8'));
+  } catch {
+    return null; // no file yet: nothing skipped
+  }
+}
+
+function writeSkippedVersion(version: string | null): void {
+  try {
+    writeFileSync(skippedVersionPath(), serializeSkippedVersion(version));
+  } catch (err) {
+    // Costs one more offer of that version after a restart, nothing else.
+    console.error('Orbital could not remember the skipped update:', err);
+  }
+}
+
+/**
+ * The app updating itself from GitHub Releases (spec
+ * 2026-10-08-builds-for-testers-design § The desktop app updates itself;
+ * canvas `Feature - App update`). Only a packaged build carrying
+ * `app-update.yml` — what the release build's `publish` setting writes —
+ * looks; a dev build and `dist:local`/`dist:self` never do.
+ *
+ * electron-updater's own `autoDownload` stays off: the flow says when to
+ * download — at once with Settings › Updates › Download updates
+ * automatically on, on the prompt's Download otherwise, and never for a
+ * skipped version. What has been downloaded installs when the app next
+ * quits. A failed check is logged and tried again at the next interval,
+ * never shown: a tester without an update loses nothing.
+ */
+function startUpdates(): void {
+  const hasAppUpdateYml = existsSync(join(process.resourcesPath, 'app-update.yml'));
+  if (!shouldCheckForUpdates({ isPackaged: app.isPackaged, hasAppUpdateYml })) return;
+  updatesEnabled = true;
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = true;
+  // A failed check changes nothing; a failed `quitAndInstall` gives the
+  // version back to the prompt rather than leaving it restarting forever.
+  autoUpdater.on('error', (err) => {
+    console.error('Orbital could not update itself:', err);
+    applyUpdateStep(updates.updaterError());
+  });
+  autoUpdater.on('download-progress', (progress) =>
+    applyUpdateStep(updates.progress(progress.percent, progress.total)),
+  );
+  autoUpdater.on('update-downloaded', (info) => applyUpdateStep(updates.downloaded(info.version)));
+  // `quitAndInstall` has Squirrel.Mac close every window first and emit
+  // `before-quit` only after. A window that hides on close would stop that
+  // quit, and the quit dialog would ask again about sessions the user already
+  // chose to interrupt — so both guards stand down, for this quit only. The
+  // `before-quit` handler still stops the feed and the server, and
+  // `will-quit` still writes the window frames.
+  nativeUpdater.on('before-quit-for-update', () => {
+    quitting = true;
+    quitConfirmed = true;
+  });
+  void checkForUpdates(false);
+  setInterval(() => void checkForUpdates(false), UPDATE_CHECK_INTERVAL_MS);
+}
+
+/**
+ * One check: the setting read first, so the flow knows whether to download
+ * what it finds. `manual` is Check now, from Settings or the menu, which
+ * offers a skipped version again. What it found goes to the flow from the
+ * check's own result rather than from `update-available`, so a check at
+ * launch or on the interval running at the same moment cannot take the
+ * manual one's version for its own.
+ */
+async function checkForUpdates(manual: boolean): Promise<UpdateCheckAnswer> {
+  if (!updatesEnabled) return { kind: 'unsupported' };
+  await loadSettings();
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    if (!result) return { kind: 'unsupported' };
+    applyUpdateStep(updates.checked(Date.now()));
+    if (!result.isUpdateAvailable) return { kind: 'up-to-date' };
+    const { version, files } = result.updateInfo;
+    const step = updates.available(version, updateSize(files), { manual });
+    applyUpdateStep(step);
+    return { kind: 'found', version, outcome: step.outcome };
+  } catch {
+    // Emitted as `error` as well, and logged there.
+    return { kind: 'error' };
+  }
+}
+
+/**
+ * Orbital → Check for Updates…: the same check as Settings' Check now, and
+ * a quiet answer when the map has nothing to show for it.
+ */
+async function checkForUpdatesFromMenu(): Promise<void> {
+  const answer = await checkForUpdates(true);
+  const message = checkAnswerMessage(answer, { current: app.getVersion() });
+  if (message) await dialog.showMessageBox({ type: 'none', message: message.message, detail: message.detail });
+}
+
+/**
+ * Hand the update flow the working count after a `sessions` frame, the only
+ * kind that moves it. A wait for sessions to finish ends here.
+ */
+function onWorkingFrame(frame: unknown): void {
+  if (typeof frame !== 'object' || frame === null) return;
+  if ((frame as { topic?: unknown }).topic !== 'sessions') return;
+  applyUpdateStep(updates.setWorkingCount(working.count, working.seeded));
+}
+
+/** The pending `idleSettled` call after the working count reached zero in a wait. */
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Carry out what the flow decided: tell every Orbital window what changed,
+ * remember a skip, start a download, look again once a zero has settled,
+ * restart.
+ */
+function applyUpdateStep(step: UpdateStep): void {
+  if (step.changed) {
+    const view = updates.view;
+    for (const target of [win, ...sessionWindows.values()]) {
+      if (target && !target.isDestroyed()) target.webContents.send('update-state', view);
+    }
+  }
+  if (step.skipChanged) writeSkippedVersion(updates.skippedVersion);
+  if (step.download) {
+    // Resolves only once Squirrel.Mac has staged the update, so a refusal
+    // after `update-downloaded` lands here too.
+    autoUpdater.downloadUpdate().catch((err: unknown) => {
+      console.error('Orbital could not download the update:', err);
+      applyUpdateStep(updates.downloadFailed());
+    });
+  }
+  if (step.idleCheck) {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      idleTimer = null;
+      applyUpdateStep(updates.idleSettled());
+    }, IDLE_SETTLE_MS);
+  }
+  if (step.restart) autoUpdater.quitAndInstall();
+}
+
+/** Whether an IPC message came from one of Orbital's own windows. */
+function fromOrbitalWindow(sender: WebContents): boolean {
+  const from = BrowserWindow.fromWebContents(sender);
+  return !!from && (from === win || [...sessionWindows.values()].includes(from));
 }
 
 /**
@@ -1094,6 +1312,7 @@ async function start(): Promise<void> {
   // this line ends in `app.quit()`, where a menu bar item would be a leak.
   createTray();
   startNotifications();
+  startUpdates();
 }
 
 /**
@@ -1112,6 +1331,7 @@ function rebuildMenu(): void {
         commands: menuCommands,
         run: runCommand,
         runInMain: runCommandInMain,
+        checkForUpdates: () => void checkForUpdatesFromMenu(),
       }),
     ),
   );
@@ -1209,6 +1429,26 @@ ipcMain.handle('request-notification-permission', (event) => {
     () => new Notification({ title: 'Orbital', body: 'Notifications are on.', silent: true }),
   );
 });
+// The update prompt (spec 2026-10-08-builds-for-testers-design § The desktop
+// app updates itself): a page asks for the state on load, so a reload keeps
+// it, and sends the prompt's buttons back; Settings › Updates' Check now asks
+// for a check and shows its answer. Only Orbital's own windows are heard.
+ipcMain.handle('get-update-state', (event) =>
+  fromOrbitalWindow(event.sender) ? updates.view : { phase: 'none', checkedAt: null },
+);
+ipcMain.on('update-action', (event, payload: unknown) => {
+  if (!fromOrbitalWindow(event.sender)) return;
+  const action = parseUpdateAction(payload);
+  if (action) applyUpdateStep(updates.act(action));
+});
+ipcMain.handle('check-for-updates', (event) =>
+  fromOrbitalWindow(event.sender) ? checkForUpdates(true) : { kind: 'unsupported' },
+);
+// The renderer is the only thing that changes settings, so it can say so
+// exactly. A missed message costs one notification judged by the previous
+// rule, or one check by the previous download setting; the next reconnect or
+// check corrects it.
+ipcMain.on('settings-changed', () => void loadSettings());
 // The refused tip's one way out (canvas 1d): System Settings → Notifications.
 ipcMain.on('open-notification-settings', () => {
   void shell.openExternal(NOTIFICATION_SETTINGS_URL);

@@ -1,16 +1,22 @@
 ---
 id: release-the-dmg-from-github-actions
 title: Build, sign, notarize and release the DMG from GitHub Actions
-status: active
+status: done
 type: idea
 domain: desktop
 related:
+  - 2026-10-08-builds-for-testers-design
   - 2026-10-01-going-public
 tags:
   - release
   - ci
 ---
 # Build, sign, notarize and release the DMG from GitHub Actions
+
+Done: `.github/workflows/release.yml` builds, signs, notarizes and publishes
+the DMG when a merged bump raises the desktop version, as
+[[2026-10-08-builds-for-testers-design]] describes. The rest of this note is
+how it stood before.
 
 ## Today
 

@@ -18,6 +18,12 @@
 
 export type MenuRole =
   | 'appMenu'
+  | 'about'
+  | 'services'
+  | 'hide'
+  | 'hideOthers'
+  | 'unhide'
+  | 'quit'
   | 'fileMenu'
   | 'editMenu'
   | 'window'
@@ -104,6 +110,7 @@ export function appMenuTemplate({
   commands = [],
   run = () => {},
   runInMain = () => {},
+  checkForUpdates,
 }: {
   dev: boolean;
   /** Shows and focuses the main window, rebuilding it if it is gone. */
@@ -113,6 +120,11 @@ export function appMenuTemplate({
   run?: (id: string) => void;
   /** Runs a command id in the main window, whichever window has focus. */
   runInMain?: (id: string) => void;
+  /**
+   * Orbital → Check for Updates…, the menu bar's Check now (canvas `Feature -
+   * App update`). Without it the app menu is the role's own.
+   */
+  checkForUpdates?: () => void;
 }): MenuItemTemplate[] {
   const devTools: MenuItemTemplate[] = dev ? [{ role: 'toggleDevTools' }] : [];
   const itemsOf = (menu: MenuCommand['menu']): MenuItemTemplate[] =>
@@ -126,7 +138,7 @@ export function appMenuTemplate({
   const windowItems = itemsOf('Window');
 
   return [
-    { role: 'appMenu' },
+    checkForUpdates ? appMenuWithUpdates(checkForUpdates) : { role: 'appMenu' },
     // A role's submenu cannot be added to, so File is spelled out as soon as
     // it holds a command of ours; `close` is the Close Window the role had.
     fileItems.length > 0
@@ -181,6 +193,29 @@ export function appMenuTemplate({
       ],
     },
   ];
+}
+
+/**
+ * The app menu spelled out, because a role's submenu cannot be added to:
+ * the `appMenu` role's items in its order, with Check for Updates… under
+ * About, where macOS apps put it. `quit` still goes through `app.quit()`.
+ */
+function appMenuWithUpdates(checkForUpdates: () => void): MenuItemTemplate {
+  return {
+    label: 'Orbital',
+    submenu: [
+      { role: 'about' },
+      { label: 'Check for Updates…', click: checkForUpdates },
+      SEPARATOR,
+      { role: 'services' },
+      SEPARATOR,
+      { role: 'hide' },
+      { role: 'hideOthers' },
+      { role: 'unhide' },
+      SEPARATOR,
+      { role: 'quit' },
+    ],
+  };
 }
 
 /**

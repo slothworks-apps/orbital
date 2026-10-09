@@ -19,6 +19,75 @@ type DesktopBridge = {
   onCommand?: (cb: (id: string) => void) => void
   pathForFile?: (file: File) => string
   chooseDirectory?: (startPath: string) => Promise<unknown>
+  onUpdateState?: (cb: (state: UpdateState) => void) => void
+  getUpdateState?: () => Promise<UpdateState>
+  updateAction?: (action: UpdateAction) => void
+  checkForUpdates?: () => Promise<UpdateCheckAnswer>
+}
+
+/**
+ * An update of the desktop app, as main reports it
+ * (`desktop/src/lib/updates.ts` has the same type as `UpdateView` and
+ * validates it in the preload; canvas `Feature - App update`).
+ *
+ * - `available` — found, not downloaded: Download, and × skips it.
+ * - `downloading` — the download the user asked for; `percent` is whole.
+ * - `ready` — downloaded. `buttons` was fixed when it appeared: `one`
+ *   (Restart) or `two` (Restart now · Restart when sessions finish);
+ *   `workingCount` is live.
+ * - `waiting` — restarts once no Orbital session is working.
+ * - `closed` — × on Ready: the receipt that it installs on quit, with OK.
+ * - `restarting` — the app is quitting into the update.
+ *
+ * `checkedAt` is when a check last completed (epoch ms), or null.
+ */
+export type UpdatePrompt =
+  | { phase: 'none' }
+  | { phase: 'available'; version: string; totalMB: number }
+  | { phase: 'downloading'; version: string; percent: number; totalMB: number }
+  | { phase: 'ready'; version: string; workingCount: number; buttons: 'one' | 'two' }
+  | { phase: 'waiting'; version: string; workingCount: number }
+  | { phase: 'closed'; version: string }
+  | { phase: 'restarting'; version: string }
+
+export type UpdateState = UpdatePrompt & { checkedAt: number | null }
+
+/**
+ * The prompt's buttons: Available's Download and × (`skip`), Ready's
+ * buttons and × (`close`), Waiting's Cancel (`cancel-wait`), the receipt's
+ * OK. Ready's single Restart is `restart-when-idle`.
+ */
+export type UpdateAction =
+  | 'download'
+  | 'skip'
+  | 'restart-now'
+  | 'restart-when-idle'
+  | 'cancel-wait'
+  | 'close'
+  | 'ok'
+
+/**
+ * What a check found version-wise, as main's update flow took it
+ * (`FoundOutcome` in `desktop/src/lib/updates.ts`): `offered` on the map now,
+ * `downloading` by itself, `installs-on-quit` (downloaded, its prompt ended),
+ * `held` behind a downloaded version waiting for its restart, `skipped`, or
+ * `none` while restarting.
+ */
+export type FoundOutcome = 'offered' | 'downloading' | 'installs-on-quit' | 'held' | 'skipped' | 'none'
+
+/** What a Check now found; `unsupported` in a build that does not update itself. */
+export type UpdateCheckAnswer =
+  | { kind: 'up-to-date' }
+  | { kind: 'found'; version: string; outcome: FoundOutcome }
+  | { kind: 'error' }
+  | { kind: 'unsupported' }
+
+/** The update half of the bridge, all four or nothing (`updateBridge`). */
+export type UpdateBridge = {
+  onUpdateState: (cb: (state: UpdateState) => void) => void
+  getUpdateState: () => Promise<UpdateState>
+  updateAction: (action: UpdateAction) => void
+  checkForUpdates: () => Promise<UpdateCheckAnswer>
 }
 
 /**
@@ -201,4 +270,20 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
 /** System Settings → Notifications, from the refused tip. A no-op in the browser. */
 export function openNotificationSettings(): void {
   bridge()?.openNotificationSettings?.()
+}
+
+/**
+ * The desktop app's update bridge (canvas `Feature - App update`), or null
+ * in a browser, on the phone, and in a build whose preload predates Check
+ * now: the prompt and Settings › Updates exist only where all four are.
+ */
+export function updateBridge(): UpdateBridge | null {
+  const b = bridge()
+  if (!b?.onUpdateState || !b.getUpdateState || !b.updateAction || !b.checkForUpdates) return null
+  return {
+    onUpdateState: b.onUpdateState,
+    getUpdateState: b.getUpdateState,
+    updateAction: b.updateAction,
+    checkForUpdates: b.checkForUpdates,
+  }
 }

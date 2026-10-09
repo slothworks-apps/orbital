@@ -227,6 +227,7 @@ describe('openDb', () => {
       remote_mac_name: '',
       limits_auto_continue: 'true',
       limits_continue_text: 'Continue where you left off.',
+      update_auto_download: 'false',
     });
 
     // Rule regeneration works against the migrated legacy data, and honors

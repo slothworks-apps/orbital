@@ -5,7 +5,8 @@ import './theme.css'
 import { StrictMode, Suspense, lazy, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { dispatchFromMenu, installKeyListener } from './lib/commands'
-import { initDesktopBridge, onCommand } from './lib/desktop'
+import { initDesktopBridge, onCommand, updateBridge } from './lib/desktop'
+import { useAppUpdate } from './store/appUpdate'
 import { setWindowFullScreen } from './lib/windowChrome'
 import { useOrbital } from './store/store'
 import { ErrorBoundary, resetErrorBoundaries } from './ui/ErrorBoundary'
@@ -115,6 +116,24 @@ if (sessionWindowId === null) {
     setDetached: (ids) => useOrbital.getState().setDetached(ids),
     setFullScreen: setWindowFullScreen,
   })
+}
+
+/**
+ * The desktop app's update (canvas `Feature - App update`): the map's
+ * UPDATE notice and Settings › Updates read it, and both live in the main
+ * window only. `?update-demo` swaps in a stand-in bridge for checking them
+ * in a browser — only in a dev server or a build made with
+ * `VITE_ORBITAL_UPDATE_DEMO=1`; a release build drops the branch and the
+ * module with it (`lib/updateDemo`).
+ */
+if (
+  (import.meta.env.DEV || import.meta.env.VITE_ORBITAL_UPDATE_DEMO === '1') &&
+  new URLSearchParams(window.location.search).has('update-demo')
+) {
+  void import('./lib/updateDemo').then((demo) => demo.installUpdateDemo())
+} else if (sessionWindowId === null) {
+  const updates = updateBridge()
+  if (updates) useAppUpdate.getState().connect(updates)
 }
 
 /**

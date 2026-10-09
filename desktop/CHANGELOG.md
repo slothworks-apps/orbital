@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.25.0] — 2026-10-09
+### Added
+- Orbital now updates itself: a quiet notice on the map asks before downloading a new version (Settings › Updates can make it download by itself), then lets you restart now, when your sessions finish, or the next time you quit. Installing this version from the DMG is the last time you need to.
+
 ## [0.24.0] — 2026-10-08
 ### Changed
 - The sidebar no longer shows a "recent ▾" sort control above History that did nothing; history is listed newest first, as before.
