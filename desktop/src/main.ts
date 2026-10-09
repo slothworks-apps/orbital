@@ -968,6 +968,9 @@ function startNotifications(): void {
     onReconnect: () => {
       notifier.reset();
       working.reset();
+      // The update flow forgets the count too, so a restart waiting for
+      // sessions to finish cannot take the one from before the drop.
+      applyUpdateStep(updates.setWorkingCount(working.count, working.seeded));
       void seedWorkingSessions();
       void loadNotificationSettings();
     },

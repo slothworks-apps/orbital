@@ -30,6 +30,9 @@ concurrency:
 
 jobs:
   plan:
+    # A manual run from another branch would release unmerged code; every
+    # other job needs this one, so they are skipped with it.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
