@@ -112,7 +112,9 @@ not list.
 ### `GET /api/sessions/:id/media`
 
 The server builds the list from the parsed transcript it already caches for
-paging (`transcriptMessages`). It does not persist anything new. Per item:
+paging (`transcriptMessages`), on the branch the messages route presents. It
+does not persist anything new. `MediaItem` lives in `@orbital/shared/media`, so
+the web and the phone read the same type. Per item:
 
 ```ts
 type MediaItem = {
@@ -129,6 +131,8 @@ type MediaItem = {
 }
 ```
 
+- Image blocks inside assistant messages have no source and are left out;
+  `agent` items are by path only.
 - Oldest first on the wire. The web reverses it for the gallery.
 - `disk` is read with one `stat` per `agent` item when the route answers.
   Nothing polls: the web asks again when the popover or the gallery opens,
@@ -180,7 +184,8 @@ How it reaches the phone:
 
 - `GET /api/sessions/:id/media` is added to `server/src/remote/allowlist.ts`.
 - `FileAs` in `shared/src/remote/messages.ts` gains `'pdf'`, so `file_get`
-  can return a PDF as bytes. The limit is the desktop route's 10 MB, not the
+  can return a PDF as bytes. `as: 'image'` refuses a PDF with 415 and
+  `as: 'pdf'` refuses an image the same way. The limit is the desktop route's 10 MB, not the
   phone text preview's 512 KB. `ref` items already travel through
   `blob_get`.
 - An older Mac answers `file_get` with `as: 'pdf'` by failing schema
