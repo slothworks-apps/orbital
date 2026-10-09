@@ -76,9 +76,14 @@ const updater = release
       resetWhenUpdate: true,
       autoDeleteFailed: true,
       autoDeletePrevious: true,
+      // No channels: Beam has one per app, and nothing may pick another.
+      channelUrl: '',
+      allowSetDefaultChannel: false,
       // "Send diagnostics" off sets the stats URL to '' (web/src/mobile/update/platform.ts); persisted, the
-      // plugin loads it on the next start before it reports anything. It also lets a bundle change the update
-      // URL, which gains nothing: a bundle from anywhere must still be signed with our key.
+      // plugin loads it on the next start before it reports anything. The plugin has no switch for the stats
+      // URL alone, so any script in the WebView could also move the update and channel URLs, persistently;
+      // every start puts them back (`pinUrls`), and a bundle from anywhere must still be signed with our key
+      // and newer than what the phone has run (ADR an-ota-bundle-runs-only-if-signed-by-ci).
       allowModifyUrl: true,
       persistModifyUrl: true,
     }

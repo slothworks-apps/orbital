@@ -9,7 +9,13 @@ import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { MobileApp } from './MobileApp'
 import { boot } from './boot'
 import { hideSplashAfterPaint } from './platform/splash'
-import { notifyStarted, startUpdates, switchToPendingBundle, takePendingBundle } from './update/platform'
+import {
+  notifyStarted,
+  refuseOldBundle,
+  startUpdates,
+  switchToPendingBundle,
+  takePendingBundle,
+} from './update/platform'
 import { RestartFrame } from './update/RestartFrame'
 import { restoreDrafts, takeRestartStash } from './update/restartStash'
 
@@ -25,7 +31,7 @@ function FirstPaint(): null {
  * the plugin (spec 2026-10-09-phone-ota-updates-design → The app).
  */
 function Started(): null {
-  useEffect(notifyStarted, [])
+  useEffect(() => notifyStarted(__MOBILE_VERSION__), [])
   return null
 }
 
@@ -50,6 +56,9 @@ const updateDemo =
   new URLSearchParams(window.location.search).has('update-demo')
 
 void (async () => {
+  // An older signed bundle under a newer name never gets further than this
+  // (update/guard.ts); the launch screen stays until the plugin has left it.
+  if (await refuseOldBundle(__MOBILE_VERSION__)) return
   // A bundle closed with × last time is switched to now, behind the launch
   // screen; the reload starts this file again in the new bundle. A start
   // without one awaits nothing before boot.

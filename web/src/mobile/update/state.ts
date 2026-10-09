@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { compareVersions } from '@orbital/shared/remote/version'
 
 /**
  * The phone's over-the-air update as the user meets it (spec
@@ -36,14 +37,18 @@ export interface UpdateSource {
   answered(version: string): Promise<void>
 }
 
-export type DownloadVerdict = 'prompt' | 'quietly-later' | 'ignore'
+export type DownloadVerdict = 'prompt' | 'not-newer' | 'ignore'
 
 /**
  * What a finished download means:
  *
- * - the version this app already runs — a fresh store install offered the
- *   bundle it carries built in — is the same code: it is taken quietly at the
- *   next start, with no prompt (`quietly-later`);
+ * - a version not above the one running — the same one (a fresh store
+ *   install is offered the bundle it carries built in), `builtin` or an
+ *   older one — is never offered and never stored (`not-newer`). A signed
+ *   bundle's session key and checksum are not bound to its version, so a
+ *   server could replay an older signed bundle under any name; only newer
+ *   versions are taken, and `guard.ts` refuses an old one that slips in
+ *   under a newer name;
  * - a version already answered, or a download while the app restarts, is
  *   left alone;
  * - anything else is offered, replacing an unanswered offer of another
@@ -57,7 +62,8 @@ export function downloadVerdict(input: {
 }): DownloadVerdict {
   const { bundle, running, answered, shown } = input
   if (shown?.phase === 'restarting') return 'ignore'
-  if (bundle.version === running) return 'quietly-later'
+  if (bundle.version === 'builtin' || compareVersions(bundle.version, running) <= 0)
+    return 'not-newer'
   if (bundle.version === answered) return 'ignore'
   if (shown?.phase === 'closed' && shown.bundle.version === bundle.version) return 'ignore'
   return 'prompt'
@@ -92,11 +98,13 @@ export const usePhoneUpdate = create<PhoneUpdateState>()((set, get) => ({
   connect: (source, answered) => set({ source, answered }),
 
   downloaded: (bundle, running) => {
-    const { shown, answered, source } = get()
+    const { shown, answered } = get()
     const verdict = downloadVerdict({ bundle, running, answered, shown })
     if (verdict === 'prompt') set({ shown: { phase: 'ready', bundle } })
-    else if (verdict === 'quietly-later')
-      source?.later(bundle).catch(warn('keep the bundle for the next start'))
+    else if (verdict === 'not-newer')
+      console.warn(
+        `[mobile] update: ignored a download of ${bundle.version}, not newer than ${running}`,
+      )
   },
 
   restart: () => {

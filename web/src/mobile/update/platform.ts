@@ -4,7 +4,8 @@ import { Device } from '@capacitor/device'
 import { CapacitorUpdater } from '@capgo/capacitor-updater'
 import { deviceInfoEvent, statsUrl } from './beam'
 import { loadDiagnostics, saveDiagnostics } from './diagnostics'
-import { stashForRestart } from './restartStash'
+import { BUILTIN, belowFloor, nextHighWater, parseHighWater, revertTarget } from './guard'
+import { stashForRestart, takeRestartStash } from './restartStash'
 import { usePhoneUpdate, type DownloadedBundle, type UpdateSource } from './state'
 
 /**
@@ -21,6 +22,10 @@ import { usePhoneUpdate, type DownloadedBundle, type UpdateSource } from './stat
 const ANSWERED_KEY = 'orbital.update.answered'
 /** A bundle left for the next start, as `DownloadedBundle` JSON. */
 const PENDING_KEY = 'orbital.update.pending'
+/** The replay guard's high-water mark (`guard.ts`), as `HighWater` JSON. */
+const HIGH_WATER_KEY = 'orbital.update.highWater'
+/** The app version the built-in bundle reported when it last started well. */
+const BUILTIN_VERSION_KEY = 'orbital.update.builtinVersion'
 
 const storage = {
   get: (key: string): string | null => {
@@ -47,7 +52,14 @@ const source: UpdateSource = {
   restart: async (bundle) => {
     stashForRestart(bundle.version)
     await storage.set(PENDING_KEY, null)
-    await CapacitorUpdater.set({ id: bundle.id })
+    try {
+      await CapacitorUpdater.set({ id: bundle.id })
+    } catch (err) {
+      // No reload follows: the drafts are still in memory, and a stash left
+      // behind would come back at some later start.
+      takeRestartStash()
+      throw err
+    }
   },
   // Not the plugin's `next()`: that switches the next time the app goes to
   // the background, under the user's feet. The next start does it instead
@@ -97,15 +109,62 @@ export async function switchToPendingBundle(pending: DownloadedBundle): Promise<
 }
 
 /**
- * Once the app is up: tells the plugin this bundle started, so it is not
- * rolled back. Called after the first screen rendered without a crash.
+ * The replay guard, before anything else starts (`guard.ts`). True when this
+ * bundle must not run: it has already asked the plugin to go back to a good
+ * bundle, or, when there is none it can name, it never calls
+ * `notifyAppReady()` and the plugin rolls it back by itself.
  */
-export function notifyStarted(): void {
+export async function refuseOldBundle(running: string): Promise<boolean> {
+  if (!native()) return false
+  const highWater = parseHighWater(storage.get(HIGH_WATER_KEY))
+  // The usual start: nothing to await.
+  if (!belowFloor(running, highWater)) return false
+  try {
+    const { bundle } = await CapacitorUpdater.current()
+    if (bundle.id === BUILTIN) return false
+    const { bundles } = await CapacitorUpdater.list()
+    const target = revertTarget({
+      highWater,
+      bundles,
+      currentId: bundle.id,
+      builtinVersion: storage.get(BUILTIN_VERSION_KEY),
+    })
+    console.warn(
+      `[mobile] update: refused bundle ${running}, below what this phone has run`,
+      target,
+    )
+    if (target.kind === 'set') await CapacitorUpdater.set({ id: target.id })
+    else if (target.kind === 'reset') await CapacitorUpdater.reset()
+  } catch (err) {
+    warn('leave a refused bundle')(err)
+  }
+  return true
+}
+
+/**
+ * Once the app is up: tells the plugin this bundle started, so it is not
+ * rolled back, and raises the guard's high-water mark. Called after the
+ * first screen rendered without a crash.
+ */
+export function notifyStarted(running: string): void {
   if (!native()) return
-  CapacitorUpdater.notifyAppReady().catch(warn('tell the updater the app started'))
+  void (async () => {
+    try {
+      await CapacitorUpdater.notifyAppReady()
+      const { bundle } = await CapacitorUpdater.current()
+      if (bundle.id === BUILTIN) await storage.set(BUILTIN_VERSION_KEY, running)
+      const next = nextHighWater(parseHighWater(storage.get(HIGH_WATER_KEY)), running, bundle.id)
+      if (next) await storage.set(HIGH_WATER_KEY, JSON.stringify(next))
+    } catch (err) {
+      warn('tell the updater the app started')(err)
+    }
+  })()
 }
 
 type Beam = { url: string; appId: string }
+
+/** Beam as this build knows it (mobile/beam.json). */
+const BEAM: Beam = __MOBILE_BEAM__
 
 /**
  * Points the plugin's reports at Beam, or at nothing. The shell's config has
@@ -117,14 +176,26 @@ async function applyDiagnostics(beam: Beam, on: boolean): Promise<void> {
   await CapacitorUpdater.setStatsUrl({ url: on ? statsUrl(beam.url) : '' })
 }
 
-/** Set once the updater is known to be on; only then is there a stats URL to change. */
-let beamForSettings: Beam | null = null
-
-/** "Send diagnostics" switched in 9f: stored, then applied to the plugin at once. */
+/**
+ * "Send diagnostics" switched in 9f: stored, then applied to the plugin at
+ * once. A shell without the updater refuses the call, which changes nothing.
+ */
 export async function setDiagnostics(on: boolean): Promise<void> {
   usePhoneUpdate.setState({ diagnostics: on })
   await saveDiagnostics(on)
-  if (native() && beamForSettings) await applyDiagnostics(beamForSettings, on)
+  if (native()) await applyDiagnostics(BEAM, on).catch(warn('apply Send diagnostics'))
+}
+
+/**
+ * `allowModifyUrl` lets any script in the WebView move the plugin's URLs,
+ * and `persistModifyUrl` keeps them: every start puts the update URL back on
+ * Beam and the channel URL back to nothing. A URL moved in between is used
+ * until then, and what it serves must still be signed (`guard.ts` for an
+ * old one).
+ */
+async function pinUrls(beam: Beam): Promise<void> {
+  await CapacitorUpdater.setUpdateUrl({ url: `${beam.url}/api/updates` })
+  await CapacitorUpdater.setChannelUrl({ url: '' })
 }
 
 /**
@@ -141,9 +212,12 @@ export async function startUpdates(beam: Beam, running: string): Promise<void> {
 
   try {
     if (!(await CapacitorUpdater.isAutoUpdateEnabled()).enabled) return
-    beamForSettings = beam
+    await pinUrls(beam).catch(warn("pin the updater's URLs"))
     await applyDiagnostics(beam, diagnostics).catch(warn('apply Send diagnostics'))
     usePhoneUpdate.getState().connect(source, storage.get(ANSWERED_KEY))
+    // `updateAvailable` only: it comes after the plugin has decrypted the
+    // bundle and checked its signed checksum. Never act on `downloadComplete`:
+    // iOS emits it before the checksum is verified.
     await CapacitorUpdater.addListener('updateAvailable', ({ bundle }) => {
       usePhoneUpdate.getState().downloaded({ id: bundle.id, version: bundle.version }, running)
     })
