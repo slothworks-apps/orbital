@@ -228,6 +228,10 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
+          cache: npm
+      # The OTA signing script zips with fflate; no install script is needed
+      # to test it.
+      - run: npm ci --ignore-scripts
       - run: node --test 'scripts/*.test.mjs'
 
   docs:
