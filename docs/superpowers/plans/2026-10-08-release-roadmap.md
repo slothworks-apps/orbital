@@ -80,8 +80,8 @@ and only that app. The bump is already part of the PR and
 `check-versions.mjs` already refuses a version that goes back
 ([[a-shipped-version-never-goes-back]]), so there is no extra manual step.
 
-- **Mac** — `release-mac.yml` builds, signs, notarizes and publishes to
-  GitHub Releases ([[release-the-dmg-from-github-actions]]). The new
+- **Mac** — `release.yml` (once `release-mac.yml`) builds, signs,
+  notarizes and publishes to GitHub Releases ([[release-the-dmg-from-github-actions]]). The new
   public repository has none of its secrets yet; they are set once, by
   the maintainer. The release carries the ZIP and update feed as well as
   the DMG, and the app updates itself from it
@@ -96,8 +96,10 @@ and only that app. The bump is already part of the PR and
 - **Android** — `publishReleaseBundle` on a runner, with the upload key and
   the Play service account from secrets, to the Internal testing track
   (`build-the-android-app`).
-- **Relay** — `relay-image.yml` already publishes the image on every
-  change. Nothing new, except that testers need a relay they can reach.
+- **Relay** — `release.yml` publishes the image when `relay/package.json`
+  goes up and the version is not yet in GHCR, like the apps; it replaces
+  `relay-image.yml`, which rebuilt it on every change. Testers also need a
+  relay they can reach.
 
 The steps for setting the secrets go into the runbooks
 `run-the-desktop-app`, `build-the-ios-app` and `build-the-android-app`.

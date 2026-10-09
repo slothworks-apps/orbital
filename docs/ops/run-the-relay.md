@@ -5,6 +5,7 @@ type: runbook
 status: in-force
 domain: remote
 related:
+  - 2026-10-08-builds-for-testers-design
   - 2026-09-30-mobile-remote-design
   - 2026-10-01-mobile-remote-backend
   - the-relay-store-is-kysely-over-sqlite-and-postgres
@@ -66,20 +67,22 @@ relay can count ("2 sessions need your input") but not name.
    - health check `GET /health`, answering `{"app":"orbital-relay"}`
 
 Instead of building from the repository, the application can pull the
-image GitHub Actions publishes (`.github/workflows/relay-image.yml`, on
-every push to `main` that touches `relay/`, `shared/` or the lockfile):
+image GitHub Actions publishes. `.github/workflows/release.yml` builds it
+only when `version` in `relay/package.json` has gone up and that version is
+not yet in GHCR ([[2026-10-08-builds-for-testers-design]]); a change merged
+without a bump never reaches the image:
 
-- `ghcr.io/slothworks-apps/orbital-relay:latest` — the newest build
 - `ghcr.io/slothworks-apps/orbital-relay:<version>` — `version` from
-  `relay/package.json`; it moves with every push until that version is
-  bumped, so bump it when a release should stay pullable by name
-- `ghcr.io/slothworks-apps/orbital-relay:sha-<commit>` — never moves; the
-  one to roll back to
+  `relay/package.json`; written once, never moved
+- `ghcr.io/slothworks-apps/orbital-relay:latest` — the newest version
+- `ghcr.io/slothworks-apps/orbital-relay:sha-<commit>` — the commit the
+  version was built from
 
 The workflow runs the relay's typecheck and tests on Linux first and does
-not deploy anything; redeploy by hand. The package is public, so anyone can
-pull it without a registry login. The image is built for
-`linux/amd64` only.
+not deploy anything; redeploy by hand. If the run failed before the push,
+nothing was published; run it again with Actions → Release → Run workflow.
+The package is public, so anyone can pull it without a registry login.
+The image is built for `linux/amd64` only.
 
 The build context is the repository root, so the ignore file is
 `relay/Dockerfile.dockerignore` (BuildKit reads it next to the Dockerfile);

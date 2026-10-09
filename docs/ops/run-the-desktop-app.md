@@ -5,6 +5,7 @@ type: runbook
 status: in-force
 domain: desktop
 related:
+  - 2026-10-08-builds-for-testers-design
   - 2026-09-16-electron-wrapper-design
   - trim-and-sign-the-desktop-package
   - desktop-app-is-developer-id-signed
@@ -183,14 +184,25 @@ not the default.
 
 ### Releasing from GitHub Actions
 
-`.github/workflows/release-mac.yml` does what `npm run desktop:release` does, on
-a GitHub-hosted Mac, and attaches the DMG to a **draft** release tagged
-`v<version>`. Start it by hand: Actions → Release macOS → Run workflow. It refuses
-to run when a release for the current `version` in `desktop/package.json`
-already exists, so bump the version first.
+A desktop release is a merged version bump. `.github/workflows/release.yml`
+runs on every push to `main`; when the `version` in `desktop/package.json`
+has no published GitHub Release `v<version>` yet, its `mac` job does what
+`npm run desktop:release` does on a GitHub-hosted Mac, checks the app with
+`spctl`, and publishes the release: the DMG, the ZIP, their blockmaps and
+`latest-mac.yml`, from which installed apps update themselves. The notes are
+that version's section of `desktop/CHANGELOG.md`, or GitHub's generated
+notes when there is none. A push that does not bump the version releases
+nothing ([[2026-10-08-builds-for-testers-design]]).
+
+The release is uploaded as a draft and published only when every file is
+there. A run that failed leaves no published release, so nothing has to be
+cleaned up: once the cause is gone (an Apple outage, a missing secret), run
+it again with Actions → Release → Run workflow. It replaces a draft a failed
+run left behind.
 
 There is no keychain on the runner, so the credentials are repository
-secrets (Settings → Secrets and variables → Actions):
+secrets (Settings → Secrets and variables → Actions). The iOS job of the
+same workflow uses the API key too ([[build-the-ios-app]]).
 
 | secret | what it holds |
 |---|---|
@@ -205,22 +217,32 @@ secrets (Settings → Secrets and variables → Actions):
    with a password. Then:
 
    ```bash
-   base64 -i Certificates.p12 | pbcopy    # paste as MAC_CERT_P12_BASE64
+   base64 -i Certificates.p12 | gh secret set MAC_CERT_P12_BASE64
+   gh secret set MAC_CERT_PASSWORD          # asks for the export password
    ```
 
    Delete the `.p12` file afterwards.
 
 2. **Create the API key.** App Store Connect → Users and Access →
-   Integrations → App Store Connect API → Team Keys → `+`, access
-   *Developer*. The `.p8` downloads once only. Its ID is in the list, the
-   issuer ID above it. Paste the file's whole contents as
-   `APPLE_API_KEY_P8`.
+   Integrations → App Store Connect API → Team Keys → `+`, access *Admin*:
+   notarization alone needs only *Developer*, but the iOS job signs through
+   the same key with cloud-managed certificates, which may need *Admin*. If
+   the first iOS run passes with a narrower key, keep the narrower one. The
+   `.p8` downloads once only. Its ID is in the list, the issuer ID above it:
+
+   ```bash
+   gh secret set APPLE_API_KEY_P8 < AuthKey_<key id>.p8
+   gh secret set APPLE_API_KEY_ID --body <key id>
+   gh secret set APPLE_API_ISSUER --body <issuer id>
+   ```
+
+   This is not the APNs key in `secrets/` ([[build-the-ios-app]] → Push):
+   that one is also an `AuthKey_….p8`, but it only lets Firebase send pushes
+   and cannot sign or upload anything.
 
    The API key is used rather than the Apple ID with an app-specific password
    the local setup uses: it belongs to the team, not to a person, and can be
    revoked on its own.
-
-After the run, open the draft release, check the notes, and publish it.
 
 ### After a `node_modules` wipe: Electron's binary is missing
 

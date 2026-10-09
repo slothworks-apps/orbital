@@ -5,6 +5,7 @@ type: runbook
 status: in-force
 domain: remote
 related:
+  - 2026-10-08-builds-for-testers-design
   - 2026-10-05-ios-app-design
   - build-the-android-app
   - run-the-relay
@@ -149,6 +150,42 @@ appears in TestFlight and internal testers get it in the TestFlight app.
 encryption is standard algorithms (`@noble/ciphers`, `@noble/curves`),
 which Apple treats as exempt, so App Store Connect does not ask the
 export-compliance question for each build.
+
+### Release from GitHub Actions
+
+A merged bump of `versionName` (with its `versionCode`) releases the phone
+app without a Mac: the `ios` job of `.github/workflows/release.yml` runs
+`npm run ios:release` on a GitHub-hosted Mac, beside the `android` job
+([[build-the-android-app]] → Release from GitHub Actions). It runs when the
+tag `mobile-v<versionName>` does not exist yet; the workflow pushes that tag
+once both stores took the build ([[2026-10-08-builds-for-testers-design]]).
+`npm run ios:release` stays the way to release from this Mac.
+
+The runner has no Apple account signed in to Xcode. The job writes the App
+Store Connect API key to a file and passes it to `ios-release.sh` as
+`ASC_KEY_PATH`, `ASC_KEY_ID` and `ASC_KEY_ISSUER`; the script then hands it
+to both `xcodebuild` calls, and Xcode fetches the signing certificate and
+profile through it (`-allowProvisioningUpdates`). The secrets:
+
+| secret | what it holds |
+|---|---|
+| `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` | the App Store Connect API key the Mac job notarizes with; set up in [[run-the-desktop-app]] → Releasing from GitHub Actions |
+| `IOS_GOOGLE_SERVICE_INFO_PLIST` | the contents of `GoogleService-Info.plist` ([Push](#push)) |
+
+```bash
+gh secret set IOS_GOOGLE_SERVICE_INFO_PLIST < mobile/ios/App/App/GoogleService-Info.plist
+```
+
+The job removes both files when it ends, failed or not.
+
+**When it fails.** App Store Connect and Play both refuse a build number
+they have seen, and the tag is pushed only when both jobs passed. So when
+one of the two failed, re-run only that job (the run's page → Re-run jobs →
+Re-run failed jobs), not the whole workflow: the platform that already
+uploaded would fail its retry. A new push or Run workflow builds both again
+and fails the same way. A fix that needs a pull request bumps `versionCode`
+with it (and its copies, `mobile/CLAUDE.md`), so both stores see a new
+build number.
 
 ## Troubleshooting
 

@@ -1,0 +1,290 @@
+name: Release
+
+# Ships every app whose version has not shipped yet, and nothing else
+# (spec 2026-10-08-builds-for-testers-design, ADR
+# a-version-ships-once-from-one-workflow). `plan` asks where each version
+# ships to; the jobs after it build and publish only what is missing:
+#
+#   mac         desktop/package.json  → a published GitHub Release v<version>
+#   ios+android build.gradle          → TestFlight and Play Internal testing,
+#                                       then the tag mobile-v<versionName>
+#   relay       relay/package.json    → ghcr.io/<owner>/orbital-relay:<version>
+#
+# A merge without a version bump ships nothing. Run it by hand (Actions →
+# Release → Run workflow) to retry what an outage stopped. For the phone,
+# re-run only the failed job: the stores refuse a build number they have
+# seen, so the platform that already uploaded would fail a full retry.
+# The secrets each job reads are in the runbooks run-the-desktop-app,
+# build-the-ios-app and build-the-android-app.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+# Two releases never run over each other; a queued one runs after.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      mac: ${{ steps.plan.outputs.mac }}
+      mobile: ${{ steps.plan.outputs.mobile }}
+      relay: ${{ steps.plan.outputs.relay }}
+      mac-version: ${{ steps.plan.outputs.mac-version }}
+      mobile-version: ${{ steps.plan.outputs.mobile-version }}
+      relay-version: ${{ steps.plan.outputs.relay-version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      # The package is public, but a login keeps the image lookup an answer
+      # rather than an "unauthorized" should it ever not be.
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: node scripts/release-plan.mjs
+
+  mac:
+    needs: plan
+    if: needs.plan.outputs.mac == 'true'
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.plan.outputs.mac-version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      - name: Write the App Store Connect API key
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          key="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s' "$APPLE_API_KEY_P8" > "$key"
+          echo "APPLE_API_KEY=$key" >> "$GITHUB_ENV"
+
+      # The `dist` script builds with `--publish never`: on CI electron-builder
+      # would otherwise publish on its own, and the release is made below.
+      # The API key takes precedence over the keychain profile it sets.
+      - name: Build, sign and notarize
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: npm run desktop:release
+
+      - name: Check Gatekeeper accepts it
+        run: spctl -a -vv desktop/release/mac-arm64/Orbital.app 2>&1 | tee /dev/stderr | grep -q "Notarized Developer ID"
+
+      # Uploaded as a draft and published once every file is there, so an
+      # upload that fails half way leaves no published release without its
+      # update feed. `plan` counts a draft as not shipped, and the next run
+      # replaces it. Publishing writes the tag v<version> at this commit.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag="v$VERSION"
+          draft="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null || true)"
+          case "$draft" in
+            true) gh release delete "$tag" --yes ;;
+            false) echo "::error::$tag is already published"; exit 1 ;;
+          esac
+          notes="$RUNNER_TEMP/notes.md"
+          node scripts/release-plan.mjs notes "$VERSION" > "$notes"
+          if [ -s "$notes" ]; then set -- --notes-file "$notes"; else set -- --generate-notes; fi
+          gh release create "$tag" \
+            desktop/release/*.dmg desktop/release/*.zip desktop/release/*.blockmap desktop/release/latest-mac.yml \
+            --draft --target "$GITHUB_SHA" --title "Orbital $VERSION" "$@"
+          gh release edit "$tag" --draft=false
+
+      - name: Remove the API key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8"
+
+  ios:
+    needs: plan
+    if: needs.plan.outputs.mobile == 'true'
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      # App Store Connect takes only builds made with a current SDK, and the
+      # runner's default Xcode can lag behind the newest one it carries.
+      - name: Select the newest released Xcode
+        run: |
+          xcode="$(printf '%s\n' /Applications/Xcode_*.app | grep -viE 'beta|release_candidate|_rc' | sort -V | tail -n 1)"
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+          pod --version
+
+      - run: npm ci
+
+      - name: Write the Firebase config and the App Store Connect API key
+        env:
+          IOS_GOOGLE_SERVICE_INFO_PLIST: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_PLIST }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          printf '%s' "$IOS_GOOGLE_SERVICE_INFO_PLIST" > mobile/ios/App/App/GoogleService-Info.plist
+          printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+
+      # Signing and upload through the API key: with -allowProvisioningUpdates
+      # Xcode fetches the certificate and the profile through it.
+      - name: Build and upload to TestFlight
+        env:
+          ASC_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+          ASC_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ASC_KEY_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: npm run ios:release
+
+      - name: Remove the secrets
+        if: always()
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8" mobile/ios/App/App/GoogleService-Info.plist
+
+  android:
+    needs: plan
+    if: needs.plan.outputs.mobile == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      # JAVA_HOME from here is JDK 21, which mobile/scripts/android-env.sh
+      # keeps; ANDROID_HOME is preset on the runner.
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+      - run: npm ci
+
+      # The paths build.gradle reads, all git-ignored.
+      - name: Write the upload key, the Play service account and the Firebase config
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PROPERTIES: ${{ secrets.ANDROID_KEYSTORE_PROPERTIES }}
+          PLAY_SERVICE_ACCOUNT_JSON: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
+        run: |
+          mkdir -p secrets
+          printf '%s' "$ANDROID_UPLOAD_KEYSTORE_BASE64" | base64 -d > secrets/orbital-upload.jks
+          printf '%s\n' "$ANDROID_KEYSTORE_PROPERTIES" > secrets/keystore.properties
+          printf '%s' "$PLAY_SERVICE_ACCOUNT_JSON" > secrets/play-service-account.json
+          printf '%s' "$ANDROID_GOOGLE_SERVICES_JSON" > mobile/android/app/google-services.json
+
+      - name: Build and upload to Internal testing
+        run: npm run android:release
+
+      - name: Remove the secrets
+        if: always()
+        run: |
+          rm -f secrets/orbital-upload.jks secrets/keystore.properties secrets/play-service-account.json \
+            mobile/android/app/google-services.json
+
+  tag-mobile:
+    # Only when both stores took the build; otherwise the next run builds
+    # both again.
+    needs: [plan, ios, android]
+    if: needs.plan.outputs.mobile == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.mobile-version }}
+        run: gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/mobile-v$VERSION" -f sha="$GITHUB_SHA"
+
+  relay-check:
+    # The relay ships as a Linux image, so unlike ci.yml it is tested on Linux.
+    needs: plan
+    if: needs.plan.outputs.relay == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --workspace shared --workspace relay --include-workspace-root=false
+      - run: npm run typecheck -w relay
+      - run: npm test -w relay
+
+  relay:
+    # Nothing is deployed from here; the runbook run-the-relay covers pulling
+    # the image.
+    needs: [plan, relay-check]
+    if: needs.plan.outputs.relay == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/orbital-relay
+          # This job runs only for a version not yet in GHCR, so the version
+          # tag is written once and never moves; `latest` moves only to a new
+          # version.
+          tags: |
+            type=raw,value=${{ needs.plan.outputs.relay-version }}
+            type=raw,value=latest
+            type=sha
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: relay/Dockerfile
+          push: true
+          # A plain image manifest, without an attestation index, so every
+          # tag pulls directly.
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=relay
+          cache-to: type=gha,mode=max,scope=relay

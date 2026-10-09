@@ -75,7 +75,7 @@ Runs `scripts/release-plan.mjs` and exposes its answer as job outputs:
 
 | app | version from | shipped when |
 |---|---|---|
-| desktop | `desktop/package.json` | a GitHub Release `v<version>` exists (`gh release view`) |
+| desktop | `desktop/package.json` | a GitHub Release `v<version>` is published (`gh release view`) |
 | phone | `versionName` in `mobile/android/app/build.gradle` | the git tag `mobile-v<versionName>` exists (`git ls-remote --tags`) |
 | relay | `relay/package.json` | the image `orbital-relay:<version>` exists in GHCR (`docker manifest inspect`) |
 
@@ -112,7 +112,11 @@ The steps of today's `release-mac.yml`, changed where the update needs it:
   the ZIP, their blockmaps and `latest-mac.yml`, **published**, target
   the commit, title `Orbital <version>`. The notes are the
   `## [<version>]` section of `desktop/CHANGELOG.md`; when there is none,
-  `--generate-notes`. `gh release create` writes the tag.
+  `--generate-notes`. The release is created as a draft with its files and
+  published as soon as they are all up, so an upload that fails half way
+  never leaves a published release without its update feed; `plan` counts
+  a draft as not shipped, and the next run replaces it. Publishing writes
+  the tag.
 - `electron-builder` is pinned to an exact version, closing that item of
   [[trim-and-sign-the-desktop-package]].
 
