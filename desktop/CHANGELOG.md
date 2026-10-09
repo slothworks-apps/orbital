@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.27.0] — 2026-10-09
 ### Changed
 - Every short message now shows in one place, at the top of the map between the side panels: replies like "Paired", "Copied" or "Session ended · Undo" and errors appear there too, ahead of an update notice, which comes back when they end. Replies go by themselves after a few seconds; errors stay until you close them.
 
