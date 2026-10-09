@@ -89,24 +89,34 @@ export function names(versions, owner) {
 export const HELD = {}
 
 // `lookups` answer true when the name is there, false when it is not, and
-// throw for anything else; a throw is not caught here.
+// throw for anything else. A throw fails the plan — except Beam's: an outage
+// of Beam must not hold back the desktop app, the relay or the store builds,
+// so the phone app alone is planned as `error`, which the `ota` job turns
+// into a visible failure. It is never read as "not shipped".
 export async function plan({ read, owner, lookups, held = HELD }) {
   const versions = readVersions(read)
   const asked = names(versions, owner)
   const [mac, ota, mobile, relay] = await Promise.all([
     lookups.release(asked.mac),
-    lookups.bundle(asked.ota),
+    lookups.bundle(asked.ota).then(
+      (answer) => answer,
+      (error) => ({ error }),
+    ),
     lookups.tag(asked.mobile),
     lookups.image(asked.relay),
   ])
-  const shipped = { mac, ota, mobile, relay }
+  const errors = {}
+  if (ota && typeof ota === 'object' && 'error' in ota) {
+    errors.ota = ota.error instanceof Error ? ota.error.message : String(ota.error)
+  }
+  const shipped = { mac, mobile, relay, ...(errors.ota ? {} : { ota }) }
   for (const [app, answer] of Object.entries(shipped)) {
     if (typeof answer !== 'boolean')
       throw new Error(`the ${app} lookup answered ${String(answer)}, not true or false`)
   }
-  const ship = { mac: !mac, ota: !ota, mobile: !mobile, relay: !relay }
+  const ship = { mac: !mac, ota: errors.ota ? 'error' : !ota, mobile: !mobile, relay: !relay }
   for (const app of Object.keys(held)) ship[app] = false
-  return { versions, names: asked, ship, held }
+  return { versions, names: asked, ship, held, errors }
 }
 
 export function outputs(result) {
@@ -124,7 +134,7 @@ export function outputs(result) {
 
 export function summary(result) {
   const line = (app, label) =>
-    `${label.padEnd(13)}${result.versions[app].padEnd(10)}${result.held?.[app] ? 'held' : result.ship[app] ? 'ship' : 'shipped'}  (${result.held?.[app] ?? result.names[app]})`
+    `${label.padEnd(13)}${result.versions[app].padEnd(10)}${result.held?.[app] ? 'held' : result.ship[app] === 'error' ? 'error' : result.ship[app] ? 'ship' : 'shipped'}  (${result.held?.[app] ?? result.errors?.[app] ?? result.names[app]})`
   return [
     line('mac', 'desktop'),
     line('ota', 'phone app'),

@@ -265,12 +265,19 @@ jobs:
     # 2026-10-09-phone-ota-updates-design → Releasing), apart from the store
     # jobs: when both run, the bundle still goes up — shells older than its
     # minNativeVersion are told to wait, new shells carry it built in.
+    # `error` when Beam could not say whether the version is there: this job
+    # then fails visibly, while the other apps still ship.
     needs: plan
-    if: needs.plan.outputs.ota == 'true'
+    if: needs.plan.outputs.ota == 'true' || needs.plan.outputs.ota == 'error'
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
+      - name: Stop when Beam could not be asked
+        if: needs.plan.outputs.ota == 'error'
+        run: |
+          echo "::error::The plan could not ask Beam whether the phone's bundle is there; see the plan job. Re-run when Beam answers."
+          exit 1
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
@@ -280,17 +287,14 @@ jobs:
 
       # The web build asks whether each shell has its Firebase config
       # (vite.mobile.config.ts), and the store builds have both: without them
-      # the bundle would never register for pushes. The private key goes where
-      # only this job reads it.
-      - name: Write the Firebase configs and the signing key
+      # the bundle would never register for pushes.
+      - name: Write the Firebase configs
         env:
           ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
           IOS_GOOGLE_SERVICE_INFO_PLIST: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_PLIST }}
-          OTA_PRIVATE_KEY: ${{ secrets.OTA_PRIVATE_KEY }}
         run: |
           printf '%s' "$ANDROID_GOOGLE_SERVICES_JSON" > mobile/android/app/google-services.json
           printf '%s' "$IOS_GOOGLE_SERVICE_INFO_PLIST" > mobile/ios/App/App/GoogleService-Info.plist
-          (umask 077 && printf '%s\n' "$OTA_PRIVATE_KEY" > "$RUNNER_TEMP/ota-private.pem")
 
       # The same build the store jobs put in the shell, and the same guard.
       - name: Build the phone's bundle
@@ -300,18 +304,19 @@ jobs:
 
       # Signs, checks the result opens with mobile/ota-public-key.pem, uploads
       # with minNativeVersion = build.gradle's versionName and the version's
-      # section of mobile/CHANGELOG.md as its notes.
+      # section of mobile/CHANGELOG.md as its notes. The private key exists
+      # only in this step's environment: never on disk, never while npm or
+      # the build ran.
       - name: Sign and upload to Beam
         env:
-          OTA_PRIVATE_KEY_FILE: ${{ runner.temp }}/ota-private.pem
+          OTA_PRIVATE_KEY: ${{ secrets.OTA_PRIVATE_KEY }}
           BEAM_UPLOAD_KEY: ${{ secrets.BEAM_UPLOAD_KEY }}
         run: node scripts/ota-bundle.mjs
 
       - name: Remove the secrets
         if: always()
         run: |
-          rm -f "$RUNNER_TEMP/ota-private.pem" mobile/android/app/google-services.json \
-            mobile/ios/App/App/GoogleService-Info.plist
+          rm -f mobile/android/app/google-services.json mobile/ios/App/App/GoogleService-Info.plist
 
   relay-check:
     # The relay ships as a Linux image, so unlike ci.yml it is tested on Linux.

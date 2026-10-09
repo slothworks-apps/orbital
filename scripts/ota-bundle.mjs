@@ -5,8 +5,11 @@
 // an-ota-bundle-runs-only-if-signed-by-ci). Run by the `ota` job of
 // .github/workflows/release.yml after `npm run build:mobile -w @orbital/web`.
 //
-//   OTA_PRIVATE_KEY_FILE=<pem> BEAM_UPLOAD_KEY=<key> node scripts/ota-bundle.mjs
+//   OTA_PRIVATE_KEY=<pem text> BEAM_UPLOAD_KEY=<key> node scripts/ota-bundle.mjs
 //   OTA_PRIVATE_KEY_FILE=<pem> node scripts/ota-bundle.mjs --out <file>
+//
+// CI passes the key in OTA_PRIVATE_KEY, to this step only, and it never
+// touches the disk; OTA_PRIVATE_KEY_FILE is for a run on the maintainer's Mac.
 //                                    encrypts and checks, writes the encrypted
 //                                    zip there, and uploads nothing
 //
@@ -157,8 +160,9 @@ async function main(argv) {
   const read = (p) => readFileSync(path(p), 'utf8')
 
   const keyFile = process.env.OTA_PRIVATE_KEY_FILE
-  if (!keyFile)
-    throw new Error('OTA_PRIVATE_KEY_FILE names no file with the over-the-air private key')
+  const privateKey = process.env.OTA_PRIVATE_KEY || (keyFile ? readFileSync(keyFile, 'utf8') : '')
+  if (!privateKey)
+    throw new Error('no over-the-air private key (OTA_PRIVATE_KEY or OTA_PRIVATE_KEY_FILE)')
   const outAt = argv.indexOf('--out')
   const out = outAt === -1 ? null : argv[outAt + 1]
   if (outAt !== -1 && !out) throw new Error('--out needs a file')
@@ -168,7 +172,7 @@ async function main(argv) {
   const releaseNotes = changelogSection(read(MOBILE_CHANGELOG), version)
 
   const zip = zipBundle(bundleFiles(path(BUNDLE_DIR)))
-  const sealed = encryptBundle(zip, readFileSync(keyFile, 'utf8'))
+  const sealed = encryptBundle(zip, privateKey)
   try {
     verifyBundle(sealed, read(PUBLIC_KEY))
   } catch (e) {
@@ -186,6 +190,9 @@ async function main(argv) {
   if (out) {
     writeFileSync(out, sealed.encrypted)
     console.log(`written to ${out}; nothing uploaded`)
+    // Not secret: Beam stores and serves both. For uploading by hand.
+    console.log(`sessionKey ${sealed.sessionKey}`)
+    console.log(`checksum ${sealed.checksum}`)
     return
   }
   const beam = readBeam(read(BEAM_CONFIG))

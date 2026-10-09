@@ -138,8 +138,6 @@ test('ships nothing when everything is there', async () => {
 test('a lookup that errors fails the plan instead of reading as not shipped', async () => {
   const { lookups: l } = lookups({ release: new Error('gh: HTTP 502'), bundle: false, tag: false, image: true })
   await assert.rejects(plan({ read: files(), owner: 'o', lookups: l }), /HTTP 502/)
-  const beamDown = lookups({ release: false, bundle: new Error('Beam answered 503'), tag: false, image: true })
-  await assert.rejects(plan({ read: files(), owner: 'o', lookups: beamDown.lookups }), /Beam answered 503/)
 })
 
 test('a lookup that answers something other than a boolean fails the plan', async () => {
@@ -177,4 +175,12 @@ test('no section, or an empty one, is no notes', () => {
   assert.equal(changelogSection(changelog, 'Unreleased'), null)
   // A prefix of a version is not that version.
   assert.equal(changelogSection(changelog, '0.2'), null)
+})
+
+test("Beam not answering stops only the phone app, as an error, never as not shipped", async () => {
+  const { lookups: l } = lookups({ release: false, bundle: new Error('Beam answered 503'), tag: false, image: false })
+  const result = await plan({ read: files(), owner: 'o', lookups: l, held: {} })
+  assert.deepEqual(result.ship, { mac: true, ota: 'error', mobile: true, relay: true })
+  assert.match(outputs(result), /^ota=error$/m)
+  assert.match(summary(result), /phone app\s+0\.7\.2\s+error\s+\(Beam answered 503\)/)
 })
