@@ -75,9 +75,17 @@ export function names(versions, owner) {
   }
 }
 
+// Apps that do not ship even with a new version, and why. The phone waits for
+// over-the-air updates (roadmap Phase 3): its first build in testers' hands
+// should already take them. The pull request that builds them removes the
+// entry, and the next run ships the phone's version.
+export const HELD = {
+  mobile: 'waits for over-the-air updates (release roadmap, Phase 3)',
+}
+
 // `lookups` answer true when the name is there, false when it is not, and
 // throw for anything else; a throw is not caught here.
-export async function plan({ read, owner, lookups }) {
+export async function plan({ read, owner, lookups, held = HELD }) {
   const versions = readVersions(read)
   const asked = names(versions, owner)
   const [mac, mobile, relay] = await Promise.all([
@@ -90,7 +98,9 @@ export async function plan({ read, owner, lookups }) {
     if (typeof answer !== 'boolean')
       throw new Error(`the ${app} lookup answered ${String(answer)}, not true or false`)
   }
-  return { versions, names: asked, ship: { mac: !mac, mobile: !mobile, relay: !relay } }
+  const ship = { mac: !mac, mobile: !mobile, relay: !relay }
+  for (const app of Object.keys(held)) ship[app] = false
+  return { versions, names: asked, ship, held }
 }
 
 export function outputs(result) {
@@ -106,7 +116,7 @@ export function outputs(result) {
 
 export function summary(result) {
   const line = (app, label) =>
-    `${label.padEnd(8)}${result.versions[app].padEnd(10)}${result.ship[app] ? 'ship' : 'shipped'}  (${result.names[app]})`
+    `${label.padEnd(8)}${result.versions[app].padEnd(10)}${result.held?.[app] ? 'held' : result.ship[app] ? 'ship' : 'shipped'}  (${result.held?.[app] ?? result.names[app]})`
   return [line('mac', 'desktop'), line('mobile', 'phone'), line('relay', 'relay')].join('\n')
 }
 

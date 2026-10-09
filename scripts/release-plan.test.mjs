@@ -10,6 +10,7 @@ import {
   phoneVersion,
   plan,
   readVersions,
+  summary,
 } from './release-plan.mjs'
 
 const gradle = (line) =>
@@ -86,7 +87,7 @@ test('names what it asks about, the image owner lowercased', () => {
 
 test('ships what is missing and skips what is there', async () => {
   const { asked, lookups: l } = lookups({ release: false, tag: false, image: true })
-  const result = await plan({ read: files(), owner: 'slothworks-apps', lookups: l })
+  const result = await plan({ read: files(), owner: 'slothworks-apps', lookups: l, held: {} })
   assert.deepEqual(result.ship, { mac: true, mobile: true, relay: false })
   assert.deepEqual(asked.sort(), [
     ['image', 'ghcr.io/slothworks-apps/orbital-relay:0.4.0'],
@@ -97,6 +98,13 @@ test('ships what is missing and skips what is there', async () => {
     outputs(result),
     'mac=true\nmobile=true\nrelay=false\nmac-version=0.25.0\nmobile-version=0.7.0\nrelay-version=0.4.0',
   )
+})
+
+test('a held app does not ship even with a new version', async () => {
+  const { lookups: l } = lookups({ release: false, tag: false, image: false })
+  const result = await plan({ read: files(), owner: 'o', lookups: l, held: { mobile: 'not yet' } })
+  assert.deepEqual(result.ship, { mac: true, mobile: false, relay: true })
+  assert.match(summary(result), /phone\s+0\.7\.0\s+held\s+\(not yet\)/)
 })
 
 test('ships nothing when everything is there', async () => {

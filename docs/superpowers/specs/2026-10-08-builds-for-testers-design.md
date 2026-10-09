@@ -384,9 +384,16 @@ bundle to the phone without a store build is a separate idea
 Nothing is prepared by hand. The pull request that lands this phase bumps
 the desktop app to 0.25.0, so the first GitHub Release already carries the
 updater; 0.24.0, which has none, is never released on its own. As of
-2026-10-09 the first run then ships desktop 0.25.0 and phone 0.7.0 (never
-uploaded, no tag), and skips relay 0.4.0, whose image is already in GHCR.
-The phone thereby tests both store uploads at once.
+2026-10-09 the first run then ships desktop 0.25.0 and skips relay 0.4.0,
+whose image is already in GHCR.
+
+The phone is **held**: `HELD` in `scripts/release-plan.mjs` keeps it from
+shipping until over-the-air updates are built (roadmap Phase 3, moved ahead
+of the public release on 2026-10-09), so the first build in testers' hands
+already takes fixes without a store update. The pull request that builds
+them removes the entry; the next run then ships the phone's version and is
+the first test of both store uploads. The plan job's summary prints a held
+app as `held`, with the reason.
 
 Whoever runs an older desktop build installs the 0.25.0 DMG once by hand;
 from then on the app updates itself.

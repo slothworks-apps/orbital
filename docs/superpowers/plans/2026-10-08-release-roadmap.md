@@ -128,7 +128,13 @@ working download links and the privacy policy.
 [[ota-updates-through-beam]]: the web bundle of `web/src/mobile` ships
 through Beam, and the app verifies every bundle against a public key built
 into the binary before running it. The plugin has to be in the first
-public build, which is why this phase comes before Phase 4. The versions
+public build, which is why this phase comes before Phase 4.
+
+Moved ahead on 2026-10-09: testers get the phone app only once it takes
+updates over the air, so a fix during internal testing reaches them without
+a store build. Phase 1 ships the desktop app and holds the phone
+(`HELD` in `scripts/release-plan.mjs`); this phase's pull request removes the
+hold, and its merge is the phone's first release to testers. The versions
 table in the root `CLAUDE.md` gains the bundle version and the rule for
 what can ship over the air and what needs a store build.
 
