@@ -204,10 +204,20 @@ the web app changes only under `web/src/mobile`.
   the app goes to the background, which reloads it under the user. × stores
   the bundle instead, and the next start switches to it before boot, behind
   the launch screen (`web/src/mobile/update/platform.ts`).
-- **A fresh store install is not prompted for itself.** The built-in bundle
-  reports itself to Beam as `builtin`, so Beam offers a new shell the
-  bundle it already carries. A download of the version already running is
-  taken quietly at the next start.
+- **Only newer versions are taken.** The built-in bundle reports itself to
+  Beam as `builtin`, so Beam offers a new shell the bundle it already
+  carries; that download, like any of a version not above the one running,
+  is ignored. Signatures are not bound to versions, so every bundle also
+  refuses to start below the highest version the phone has run or
+  `MIN_APP_VERSION` (replay guard,
+  [[an-ota-bundle-runs-only-if-signed-by-ci]] → Residual risk). Rollback in
+  Beam is replaced by fixing forward.
+- **URLs are pinned on every start** (update URL to Beam, channel URL to
+  nothing), since `allowModifyUrl` cannot be limited to the stats URL.
+- **A Beam outage stops only the phone app's release**: `release-plan`
+  plans it as `error`, the `ota` job fails, the rest ships.
+- **The signing key is never on disk in CI**: it is passed in the
+  environment of the signing step alone.
 - **The prompt** is canvas `Feature - Phone update`: the UPDATE notice kind
   on the session list, READY then the AFTER × receipt, the restart frame;
   Settings' footer is `<app> · shell <native>` with the fingerprint on its
@@ -225,7 +235,8 @@ the web app changes only under `web/src/mobile`.
   `setStatsUrl('')`, which the plugin stores and loads on the next start
   before its first report, and every start applies the setting again. The
   update check, which carries the install id, platform, OS version and both
-  app versions, always runs.
+  app versions (and the plugin version, build number, key id and an empty
+  channel), on every open and return to the foreground, always runs.
 - **The `ota` job writes the Firebase configs** before the web build: the
   build turns push off for a shell without them (`__MOBILE_PUSH__`).
 

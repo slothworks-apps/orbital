@@ -53,8 +53,10 @@ gh secret set OTA_PRIVATE_KEY < ota-private.pem
   afterwards (`.gitignore` ignores `*private*.pem`, gitleaks would refuse it
   anyway). Keep one copy offline, in the password manager: without it no
   installed shell takes another update.
-- Commit `mobile/ota-public-key.pem` in a pull request before the one that
-  first ships the shell with the updater, or that release's store jobs fail.
+- **The maintainer commits `mobile/ota-public-key.pem` before the pull
+  request that adds the updater is merged.** Without it the release build
+  stops at `cap sync` and the store jobs fail, and the `ota` job fails
+  checking the signed bundle against it.
 
 **A new key** is a new shell: each installed shell trusts only the key it
 was built with. Commit the new public key with a native version bump, set
@@ -67,9 +69,19 @@ the old shell to take no bundles until they update from the store.
    (`mobile/beam.json`).
 2. Copy its upload key: `gh secret set BEAM_UPLOAD_KEY`.
 
-The `plan` job reads the same key to ask Beam whether a version is there;
-without it, or with Beam down, the whole release run fails rather than
-guessing, desktop and relay included.
+The `plan` job reads the same key to ask Beam whether a version is there.
+Without it, or with Beam down, the phone app is planned as `error` and the
+`ota` job fails visibly; the desktop app, the relay and the store builds
+still ship. It is never read as "not shipped".
+
+**A stolen upload key** cannot ship code (bundles must be signed), but it can
+upload a bundle under a version before CI does — Beam then refuses CI's
+upload with 409 and `release-plan` sees the version as shipped — or promote
+an older signed bundle (refused by the phone's replay guard). Beam's version
+lookup returns only the version and its date, so CI cannot check that what
+Beam holds opens with our key. If the key may have leaked: rotate it in
+Beam's admin, update `BEAM_UPLOAD_KEY`, delete any bundle CI did not upload,
+and ship the next version.
 
 ## Every release
 
@@ -100,6 +112,9 @@ The signing needs the private key, so only the maintainer can run it:
 npm run build:mobile -w @orbital/web
 OTA_PRIVATE_KEY_FILE=~/path/ota-private.pem node scripts/ota-bundle.mjs --out /tmp/bundle.enc   # check only
 OTA_PRIVATE_KEY_FILE=~/path/ota-private.pem BEAM_UPLOAD_KEY=… node scripts/ota-bundle.mjs       # upload
+
+CI passes the key in `OTA_PRIVATE_KEY` to the signing step alone; it is never
+written to disk and does not exist while `npm ci` or the build runs.
 ```
 
 Without the Firebase configs in the native projects the web build turns
@@ -110,10 +125,15 @@ push off; the CI job writes them first for that reason.
 - **A bundle that does not start** rolls back on the phone by itself: one
   that never reaches its first screen does not call `notifyAppReady()`, and
   the plugin goes back to the previous bundle about ten seconds later.
-- **A bundle that starts but is wrong:** Beam's admin → the app → Bundles →
-  promote the previous one. Phones are offered it as an update (the prompt
-  names the older version). Then fix forward with a higher version: a
-  version is never reused, and Beam refuses one it already has (409).
+- **A bundle that starts but is wrong:** fix forward with a higher version
+  — revert the change and ship it as the next patch. Promoting an older
+  bundle in Beam does nothing: phones take only a version above the one they
+  run, and a bundle below the highest one a phone has run refuses to start
+  ([[an-ota-bundle-runs-only-if-signed-by-ci]] → Residual risk). A version is
+  never reused, and Beam refuses one it already has (409).
+- **A security fix** also raises `MIN_APP_VERSION` in
+  `web/src/mobile/update/guard.ts` to the fixed version, so no older bundle
+  starts again on any phone that runs it.
 
 ## Check it on a device
 
@@ -142,11 +162,15 @@ diagnostics is on, which it is by default.
 6. **Diagnostics off:** Settings → Send diagnostics off. Close and reopen the
    app: Beam still sees the update checks, but no new stats events and no
    `device_info` for the install. On again: they come back.
-7. **A bundle that never starts rolls back:** a bundle whose `main.tsx`
+7. **An older signed bundle is refused:** take the encrypted zip, session
+   key and checksum of a version the phone has already passed and upload them
+   under a higher, unused version. Restart into it: the launch screen stays,
+   the app goes back to the newer bundle, and the log says "refused bundle".
+8. **A bundle that never starts rolls back:** a bundle whose `main.tsx`
    throws before rendering. Restart into it: the app comes back on the
    previous version and Beam records the failed update.
 
-Steps 4, 5 and 7 reach every tester's phone while they are in Beam, to be refused
+Steps 4, 5, 7 and 8 reach every tester's phone while they are in Beam, to be refused
 or rolled back; do them when nobody relies on the app.
 
 ## Dev builds

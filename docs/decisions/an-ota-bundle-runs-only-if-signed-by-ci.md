@@ -44,10 +44,42 @@ SHA-256 instead.
   `capacitor.config.ts` and the signing script refuse anything else.
 - Only a release build's shell has the updater on, and it does not build
   without the public key; every other build switches the plugin off.
-- The shell allows the update and stats URLs to be changed from the bundle
-  (`allowModifyUrl`), for Settings → Send diagnostics. A bundle that points
-  the update URL elsewhere gains nothing: whatever it fetches from there must
-  still open with the public key built into the shell.
+- The shell allows the update, channel and stats URLs to be changed from
+  the WebView (`allowModifyUrl`, persisted by `persistModifyUrl`), for
+  Settings → Send diagnostics; the plugin has no switch for the stats URL
+  alone. Every start puts the update URL back on Beam and the channel URL
+  back to nothing, and the release config sets `channelUrl: ''` and
+  `allowSetDefaultChannel: false`. A URL moved by a script in between is
+  used until the next start; what it serves must still be signed, and newer
+  than what the phone has run (below).
+
+## Residual risk: replay of an older signed bundle
+
+The signature covers the bundle's content, not its version: the session key
+and checksum say nothing about which version they belong to. A compromised
+Beam, or a redirected update URL, can serve any bundle CI ever signed, under
+any version name — an older one with a hole since fixed, say. Redirecting
+does not let anyone run code we did not sign, but it does let them choose
+which of our signed bundles runs.
+
+Mitigation, in every bundle from 0.8.0 (`web/src/mobile/update/guard.ts`):
+
+- The phone takes only a download whose claimed version is above the one
+  running; the same version, `builtin` or an older one is ignored and never
+  kept for a later switch.
+- A name can lie, so each bundle checks its own version, built into its
+  code, first thing on start: below the highest version this phone has run
+  (a high-water mark kept on the phone) or below `MIN_APP_VERSION` — raised
+  with a security fix — it does not start. It asks the plugin to go back to
+  the bundle the high-water mark ran in, or to the built-in bundle when that
+  one is high enough; failing both, it never calls `notifyAppReady()` and
+  the plugin rolls it back.
+
+What remains: a phone that never ran a fixed version, while
+`MIN_APP_VERSION` was not raised for it, can be served an older signed
+bundle; a script that runs in the WebView can clear the high-water mark.
+Rolling back by promoting an older bundle in Beam no longer works for the
+same reason: a bad release is fixed forward with a higher version.
 
 ## As built (2026-10-09)
 
