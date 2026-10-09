@@ -7,6 +7,7 @@ domain: mobile
 related:
   - 2026-10-09-phone-ota-updates-design
   - ota-updates-through-beam
+  - ship-the-phone-over-the-air
 tags:
   - mobile
   - security
@@ -23,9 +24,10 @@ server, or its upload key, must not be able to push code to phones.
 
 Beam, the update server, checks only a plain SHA-256: it guards against a
 broken download, not against a hostile server. The plugin
-`@capgo/capacitor-updater` (8.51.x) has an encryption scheme that signs the
-bundle's session key and checksum with an RSA key, but on Android it skips
-the check when the server sends no session key.
+`@capgo/capacitor-updater` has an encryption scheme that signs the bundle's
+session key and checksum with an RSA key. Up to 8.51.22 its Android side
+skipped the check when the server sent no session key, comparing a plain
+SHA-256 instead.
 
 ## Decision
 
@@ -34,9 +36,38 @@ the check when the server sends no session key.
   public key is built into release builds.
 - Beam stores and serves the signed session key and checksum; it cannot
   make a valid one.
-- The Android plugin is patched (`patch-package`) to refuse a bundle with
-  no session key when a public key is configured; the fix is offered
-  upstream. iOS already refuses.
+- The plugin is pinned exactly at 8.51.25, which refuses a bundle without a
+  valid session key whenever a public key is configured, on both platforms.
+  No patch is needed; going below 8.51.23 reopens the gap on Android.
+- The public key is PKCS#1 (`-----BEGIN RSA PUBLIC KEY-----`): with any other
+  header both platforms skip decryption (`CryptoCipher.decryptFile`).
+  `capacitor.config.ts` and the signing script refuse anything else.
+- Only a release build's shell has the updater on, and it does not build
+  without the public key; every other build switches the plugin off.
+
+## As built (2026-10-09)
+
+The patch this ADR first planned turned out to be upstream already. Found by
+reading every 8.51.x release's Android source: 8.51.14 to 8.51.22 have no
+check, 8.51.23 adds it. In 8.51.25 a public key with an empty or malformed
+session key fails the download at every entry point:
+
+- Android: `CapgoUpdater.requireSessionKeyForEncryptedUpdate` (called from
+  `finishDownload`, `downloadBackground` and `download`), and
+  `DownloadService.handleSingleFileDownload` / `handleManifestDownload`
+  before anything is fetched. A non-empty session key then makes
+  `decryptChecksum` insist on a 256-byte RSA checksum.
+- iOS: `CapgoUpdater.requireSessionKeyForEncryptedUpdate`
+  (`CapgoUpdater.swift:464`, called from `download` at line 2110 and
+  `downloadManifest` at line 1437), and the auto-update path in
+  `CapacitorUpdaterPlugin.swift:4549`.
+
+The scheme the signing script (`scripts/ota-bundle.mjs`) implements, as
+both platforms decrypt it: AES-128-CBC with PKCS#7 padding under a random
+16-byte key and IV; `session_key` = `<IV base64>:<AES key RSA-encrypted
+with the private key, PKCS#1 v1.5, base64>`; `checksum` = the SHA-256 of
+the plain zip, RSA-encrypted the same way, hex. Its tests mirror the
+plugin's decryption step by step.
 
 ## Alternatives
 

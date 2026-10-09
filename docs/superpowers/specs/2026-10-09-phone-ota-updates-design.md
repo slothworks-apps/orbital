@@ -69,7 +69,7 @@ take it. Built from the idea [[ota-updates-through-beam]].
   CLI, and is tested against the plugin's decryption rules (a bundle
   encrypted by the script decrypts with the public key; one altered or
   signed with another key does not).
-- **Android patch.** Plugin 8.51.x on Android accepts a bundle that comes
+- **Android patch** (not needed in the end, see As built). Plugin 8.51.x on Android accepts a bundle that comes
   without a session key even when a public key is configured, comparing a
   plain SHA-256. A server that drops the session key would run unsigned
   code. `mobile/patches/` (`patch-package`) makes it refuse such a bundle:
@@ -147,7 +147,8 @@ before Orbital's OTA job runs:
   started, and a bundle that does not is rolled back by the plugin.
 - On `updateAvailable` (downloaded), the phone shows a quiet prompt with
   the version: **Restart** calls `set()` and the app reloads into it;
-  closing it calls `next()`, so the bundle is used at the next cold start.
+  closing it leaves the bundle for the next start (As built: not through
+  `next()`).
   Shown once per version. Its look comes from Claude Design.
 - A draft in the composer survives the reload.
 - Stats carry the device model (from `@capacitor/device`); no
@@ -180,6 +181,41 @@ the web app changes only under `web/src/mobile`.
 - On a device: the patched Android plugin refuses a bundle without a
   session key; iOS refuses one with a bad signature; a bundle that never
   calls `notifyAppReady()` rolls back.
+
+## As built (2026-10-09)
+
+- **No Android patch.** 8.51.23 added the check upstream; 8.51.25 is pinned
+  exactly and refuses a missing session key on both platforms
+  ([[an-ota-bundle-runs-only-if-signed-by-ci]] has the lines).
+- **The release build is named.** The root `android:release`,
+  `android:bundle` and `ios:release` set `ORBITAL_MOBILE_RELEASE=1`; only
+  that build configures the updater, and it fails without
+  `mobile/ota-public-key.pem` (PKCS#1). Every other build sets
+  `autoUpdate: false` and empty URLs: with no config at all the plugin
+  would ask Capgo's cloud.
+- **Beam in one place.** `mobile/beam.json` holds the URL and app id for
+  the native config, the scripts and the web build; `scripts/beam.mjs`
+  holds the HTTP contract.
+- **Closing is not `next()`.** The plugin's `next()` switches the next time
+  the app goes to the background, which reloads it under the user. × stores
+  the bundle instead, and the next start switches to it before boot, behind
+  the launch screen (`web/src/mobile/update/platform.ts`).
+- **A fresh store install is not prompted for itself.** The built-in bundle
+  reports itself to Beam as `builtin`, so Beam offers a new shell the
+  bundle it already carries. A download of the version already running is
+  taken quietly at the next start.
+- **The prompt** is canvas `Feature - Phone update`: the UPDATE notice kind
+  on the session list, READY then the AFTER × receipt, the restart frame;
+  Settings' footer is `<app> · shell <native>` with the fingerprint on its
+  own line. Drafts cross the reload through a one-time localStorage stash.
+- **device_info** goes through native HTTP once per start, with the
+  plugin's install id and its name for the running bundle.
+- **The plugin reports more than update results.** With `statsUrl` set it
+  also sends foreground and background events and the WebView's errors —
+  message, stack, page URL — and crash and low-memory exits, with no switch
+  to turn those off short of no stats at all. The privacy policy says so.
+- **The `ota` job writes the Firebase configs** before the web build: the
+  build turns push off for a shell without them (`__MOBILE_PUSH__`).
 
 ## Out of scope
 

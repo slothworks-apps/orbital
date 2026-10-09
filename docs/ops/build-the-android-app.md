@@ -5,6 +5,7 @@ type: runbook
 status: in-force
 domain: remote
 related:
+  - ship-the-phone-over-the-air
   - 2026-10-08-builds-for-testers-design
   - 2026-10-02-mobile-app-design
   - run-the-relay
@@ -295,7 +296,9 @@ npm run android:bundle    # the same without the upload
 ```
 
 Both run `build` without `ORBITAL_MOBILE_DEV` (a release must never be a dev
-build). `android:bundle` then runs `aab` (`gradlew bundleRelease`);
+build) and with `ORBITAL_MOBILE_RELEASE=1`, which turns the over-the-air
+updater on and needs `mobile/ota-public-key.pem`; without it `cap sync` stops
+([[ship-the-phone-over-the-air]]). `android:bundle` then runs `aab` (`gradlew bundleRelease`);
 `android:release` runs `play` (`gradlew publishReleaseBundle`), which builds
 the same bundle and uploads it to the Internal testing track, rolled out at
 once — the Android side of `ios:release`. It needs the service account
