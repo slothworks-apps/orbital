@@ -123,6 +123,11 @@ updates itself to it.
 **Exit:** the README has a real screenshot, and the website is live with
 working download links and the privacy policy.
 
+**Done 2026-10-09:** the website at orbital.slothworks.io (#57, #61) with
+live demos on demo data, and the README's screenshot, the hero
+demo's own still (`site/public/demo-images/map-hero.webp`). The Mac download
+button points at the GitHub Releases list, which Phase 1's first run fills.
+
 ## Phase 3 — Over-the-air updates for the phone
 
 [[ota-updates-through-beam]]: the web bundle of `web/src/mobile` ships

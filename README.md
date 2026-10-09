@@ -25,9 +25,7 @@ principles in full.
 
 ## Screenshot
 
-![Orbital map view](docs/screenshot.png)
-
-*(placeholder — capture after first run and drop the file at `docs/screenshot.png`)*
+![Orbital map view](site/public/demo-images/map-hero.webp)
 
 ## Prerequisites
 
