@@ -125,14 +125,17 @@ air, from Orbital's own update server at `beam.slothworks.io`, which
 SlothWorks runs itself; no other update service is involved. Every update is
 signed by Orbital's build system, and the app refuses one that is not.
 
-**The update check.** When you open the app, it asks the server whether
-there is a new version. This is needed for updates and always happens. The
-request carries:
+**The update check.** When you open the app, and whenever it comes back to
+the foreground, it asks the server whether there is a new version. This is
+needed for updates and always happens. The request carries:
 
 - a random install id that the app makes up for itself and that identifies
   nothing but this installation;
 - the platform (Android or iOS) and the system's version;
-- the app's version and the version of the app installed from the store;
+- the app's version, and the version and build number of the app installed
+  from the store;
+- the version of the update component, the first characters of the public
+  key updates are checked against, and the update channel (none);
 - whether the app came from a store and whether it runs in an emulator.
 
 **Diagnostics.** With Settings → Send diagnostics on, the app also reports,
@@ -145,8 +148,9 @@ under the same install id:
   inside the app), and crashes, freezes and low-memory exits;
 - the phone's model.
 
-Diagnostics are on unless you turn them off. Turned off, the app sends none
-of this, from the next report on; the update check stays.
+Diagnostics are on unless you turn them off. When you turn them off, the
+app stops sending these reports at once; a report it had already queued
+just before may still go out. The update check stays.
 
 None of it carries a name, account or location, or anything from your
 sessions or your Mac beyond what the text of an error message may happen to
