@@ -13,8 +13,8 @@
 // published (a draft is a release whose upload did not finish), the relay
 // when its image is in GHCR, the phone's app version when Beam has its bundle
 // (spec 2026-10-09-phone-ota-updates-design → Releasing), the phone's native
-// version when the tag the workflow writes after both stores took the build
-// exists. A lookup that fails for any other reason than "not there" stops the
+// version on iOS and on Android each when the tag its store job writes once
+// that store has the build exists. A lookup that fails for any other reason than "not there" stops the
 // run: read as "not shipped", an outage of GitHub or Beam would ship a version
 // again.
 //
@@ -60,26 +60,32 @@ export function phoneVersion(gradle) {
   return checked(name, `${GRADLE} versionName`)
 }
 
+// The phone's native version is one `versionName` that ships to two stores,
+// each tracked on its own.
 export function readVersions(read) {
+  const native = phoneVersion(read(GRADLE))
   return {
     mac: packageVersion(read(DESKTOP_PACKAGE), DESKTOP_PACKAGE),
     ota: packageVersion(read(MOBILE_PACKAGE), MOBILE_PACKAGE),
-    mobile: phoneVersion(read(GRADLE)),
+    ios: native,
+    android: native,
     relay: packageVersion(read(RELAY_PACKAGE), RELAY_PACKAGE),
   }
 }
 
 // What each version is looked up as: the GitHub Release (and its tag, which
 // electron-updater expects as `v<version>`), the bundle version on Beam, the
-// git tag release.yml pushes for the phone's native build, the image
-// reference. GHCR names are lowercase.
+// git tag release.yml pushes for the phone's native build once a store has
+// it — one per store, so a platform that failed is retried without the
+// other — the image reference. GHCR names are lowercase.
 export function names(versions, owner) {
   if (!owner)
     throw new Error('no repository owner (GITHUB_REPOSITORY_OWNER) to name the relay image by')
   return {
     mac: `v${versions.mac}`,
     ota: versions.ota,
-    mobile: `mobile-v${versions.mobile}`,
+    ios: `mobile-ios-v${versions.ios}`,
+    android: `mobile-android-v${versions.android}`,
     relay: `ghcr.io/${owner.toLowerCase()}/${RELAY_IMAGE}:${versions.relay}`,
   }
 }
@@ -96,25 +102,32 @@ export const HELD = {}
 export async function plan({ read, owner, lookups, held = HELD }) {
   const versions = readVersions(read)
   const asked = names(versions, owner)
-  const [mac, ota, mobile, relay] = await Promise.all([
+  const [mac, ota, ios, android, relay] = await Promise.all([
     lookups.release(asked.mac),
     lookups.bundle(asked.ota).then(
       (answer) => answer,
       (error) => ({ error }),
     ),
-    lookups.tag(asked.mobile),
+    lookups.tag(asked.ios),
+    lookups.tag(asked.android),
     lookups.image(asked.relay),
   ])
   const errors = {}
   if (ota && typeof ota === 'object' && 'error' in ota) {
     errors.ota = ota.error instanceof Error ? ota.error.message : String(ota.error)
   }
-  const shipped = { mac, mobile, relay, ...(errors.ota ? {} : { ota }) }
+  const shipped = { mac, ios, android, relay, ...(errors.ota ? {} : { ota }) }
   for (const [app, answer] of Object.entries(shipped)) {
     if (typeof answer !== 'boolean')
       throw new Error(`the ${app} lookup answered ${String(answer)}, not true or false`)
   }
-  const ship = { mac: !mac, ota: errors.ota ? 'error' : !ota, mobile: !mobile, relay: !relay }
+  const ship = {
+    mac: !mac,
+    ota: errors.ota ? 'error' : !ota,
+    ios: !ios,
+    android: !android,
+    relay: !relay,
+  }
   for (const app of Object.keys(held)) ship[app] = false
   return { versions, names: asked, ship, held, errors }
 }
@@ -123,22 +136,25 @@ export function outputs(result) {
   return [
     `mac=${result.ship.mac}`,
     `ota=${result.ship.ota}`,
-    `mobile=${result.ship.mobile}`,
+    `ios=${result.ship.ios}`,
+    `android=${result.ship.android}`,
     `relay=${result.ship.relay}`,
     `mac-version=${result.versions.mac}`,
     `ota-version=${result.versions.ota}`,
-    `mobile-version=${result.versions.mobile}`,
+    `ios-version=${result.versions.ios}`,
+    `android-version=${result.versions.android}`,
     `relay-version=${result.versions.relay}`,
   ].join('\n')
 }
 
 export function summary(result) {
   const line = (app, label) =>
-    `${label.padEnd(13)}${result.versions[app].padEnd(10)}${result.held?.[app] ? 'held' : result.ship[app] === 'error' ? 'error' : result.ship[app] ? 'ship' : 'shipped'}  (${result.held?.[app] ?? result.errors?.[app] ?? result.names[app]})`
+    `${label.padEnd(15)}${result.versions[app].padEnd(10)}${result.held?.[app] ? 'held' : result.ship[app] === 'error' ? 'error' : result.ship[app] ? 'ship' : 'shipped'}  (${result.held?.[app] ?? result.errors?.[app] ?? result.names[app]})`
   return [
     line('mac', 'desktop'),
     line('ota', 'phone app'),
-    line('mobile', 'phone shell'),
+    line('ios', 'iOS shell'),
+    line('android', 'Android shell'),
     line('relay', 'relay'),
   ].join('\n')
 }
