@@ -40,7 +40,7 @@ export function locateOnDisk(sandboxes: (cwd: string | undefined) => string[], n
 }
 
 function refItem(
-  m: ChatMessage, index: number, image: ImageRefEntry, source: 'you' | 'tool',
+  m: ChatMessage, index: number, image: ImageRefEntry, source: 'you' | 'tool', tool?: string,
 ): MediaItem {
   return {
     id: `${m.id}:${index}`,
@@ -51,6 +51,7 @@ function refItem(
     ref: image.ref,
     ...(image.w && image.h ? { w: image.w, h: image.h } : {}),
     ...(source === 'tool' && m.toolUseId ? { toolRun: m.toolUseId } : {}),
+    ...(tool ? { tool } : {}),
   };
 }
 
@@ -75,11 +76,16 @@ function diskState(location: Extract<MediaLocation, { kind: 'ok' }>, ts: string)
  */
 export function mediaItems(messages: readonly ChatMessage[], locate: LocateMedia): MediaItem[] {
   const out: MediaItem[] = [];
+  // A tool_result names only the call it answers; the call, earlier in the
+  // transcript, carries the tool's name.
+  const toolNames = new Map<string, string>();
   for (const m of messages) {
+    if (m.role === 'tool_use' && m.toolUseId && m.toolName) toolNames.set(m.toolUseId, m.toolName);
     if (m.role === 'user' && m.images?.length) {
       m.images.forEach((image, i) => out.push(refItem(m, i, image, 'you')));
     } else if (m.role === 'tool_result' && m.images?.length) {
-      m.images.forEach((image, i) => out.push(refItem(m, i, image, 'tool')));
+      const tool = m.toolUseId ? toolNames.get(m.toolUseId) : undefined;
+      m.images.forEach((image, i) => out.push(refItem(m, i, image, 'tool', tool)));
     } else if (m.role === 'assistant' && m.text) {
       const ts = m.timestamp ?? '';
       mediaPathsInReply(m.text).forEach((path, i) => {

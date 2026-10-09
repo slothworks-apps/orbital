@@ -97,7 +97,7 @@ describe('mediaItems', () => {
     expect(items[0]).toMatchObject({ messageId: 'u1:1', ts: T1, w: 4, h: 3 });
     expect(items[0].ref).toMatch(/\.png$/);
     expect(items[0].toolRun).toBeUndefined();
-    expect(items[1]).toMatchObject({ toolRun: 'toolu_1', w: 8, h: 6 });
+    expect(items[1]).toMatchObject({ toolRun: 'toolu_1', tool: 'mcp__playwright__browser_take_screenshot', w: 8, h: 6 });
     expect(items[2].toolRun).toBe('toolu_1');
     expect(items[1].ref).not.toBe(items[2].ref);
   });

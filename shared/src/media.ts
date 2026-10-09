@@ -24,6 +24,8 @@ export interface MediaItem {
   h?: number;
   /** `tool`: the tool_use id of the call whose result carried it, for stacking one run's images. */
   toolRun?: string;
+  /** `tool`: the name of the tool whose result carried it, as the transcript records it. */
+  tool?: string;
   /** `agent` only: the file now — there, gone, or written after the reply named it. */
   disk?: 'present' | 'missing' | 'changed';
 }

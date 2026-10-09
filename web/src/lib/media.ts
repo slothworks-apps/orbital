@@ -127,13 +127,27 @@ export function mediaClock(ts: string): string {
   return at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 }
 
+/**
+ * The tool a `tool` item came from, as the caption names it (24e: the tool,
+ * not just "a tool" — `Playwright · browser take screenshot`). An MCP
+ * tool's transcript name is `mcp__<server>__<tool>`; a plugin's server repeats its own name
+ * (`plugin_playwright_playwright`), so the last word of the server stands for
+ * it. A built-in tool (`Read`) is its own name.
+ */
+export function mediaToolLabel(tool: string): string {
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(tool)
+  if (!mcp) return tool
+  const server = mcp[1].split('_').filter(Boolean).pop() ?? mcp[1]
+  return `${server.charAt(0).toUpperCase()}${server.slice(1)} · ${mcp[2].replace(/_/g, ' ')}`
+}
+
 /** The caption's source line (24e). */
 export function mediaSourceLabel(item: MediaItem): string {
   switch (item.source) {
     case 'you':
       return 'Attached by you'
     case 'tool':
-      return 'Returned by a tool'
+      return item.tool ? mediaToolLabel(item.tool) : 'Returned by a tool'
     case 'agent':
       return 'Named by the agent'
   }

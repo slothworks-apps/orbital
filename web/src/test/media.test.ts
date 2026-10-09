@@ -4,6 +4,7 @@ import {
   matchMediaItem,
   mediaCountLine,
   mediaTiles,
+  mediaToolLabel,
   pagingOrder,
   positionIn,
   stepIndex,
@@ -162,5 +163,18 @@ describe('mediaCountLine', () => {
     const only = [tool('1', 'r'), tool('2', 'r')]
     expect(visibleMedia(only, true)).toEqual([])
     expect(mediaCountLine(only, true)).toBe('MEDIA · 0 · 2 tool hidden')
+  })
+})
+
+describe('mediaToolLabel', () => {
+  it('names an MCP tool by its server and tool, a plugin server by its own name', () => {
+    expect(mediaToolLabel('mcp__plugin_playwright_playwright__browser_take_screenshot')).toBe(
+      'Playwright · browser take screenshot'
+    )
+    expect(mediaToolLabel('mcp__figma__get_screenshot')).toBe('Figma · get screenshot')
+  })
+
+  it('leaves a built-in tool as it is', () => {
+    expect(mediaToolLabel('Read')).toBe('Read')
   })
 })
