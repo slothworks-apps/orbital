@@ -9,7 +9,15 @@ import { api, ApiError } from '../lib/api'
 import { useOrbital } from '../store/store'
 import { reportError } from '../lib/errors'
 import { ErrorLog } from '../panels/ErrorLog'
-import { Toasts } from '../ui/Toasts'
+import { useMapNotices } from '../store/mapNotices'
+import { useFeedbackNotice } from '../ui/FeedbackNotice'
+import { MapNoticeHost } from '../ui/MapNoticeHost'
+
+/** Where a reply shows: the store's toast in the notice queue. */
+function Replies() {
+  useFeedbackNotice()
+  return <MapNoticeHost inWindow />
+}
 
 // ---------------------------------------------------------------------------
 // The error surface as the user meets it: the log dialog, the toast's way
@@ -33,6 +41,7 @@ function makeError(overrides: Partial<ErrorRecord> & { id: number }): ErrorRecor
 
 function resetStore(errors: ErrorRecord[] = [], errorsUnseen = 0) {
   useOrbital.setState({ errors, errorsUnseen, toast: null })
+  useMapNotices.setState({ queue: [] })
   useOrbital.setState((s) => ({ ui: { ...s.ui, dialog: null } }))
 }
 
@@ -167,12 +176,12 @@ describe('ErrorLog', () => {
   })
 })
 
-describe('Toasts', () => {
+describe('the reply to a failure', () => {
   it('offers a Detail button that opens the log', async () => {
     const user = userEvent.setup()
     useOrbital.setState({ toast: { kind: 'error', message: 'spawn claude ENOENT' } })
 
-    render(<Toasts />)
+    render(<Replies />)
     await user.click(screen.getByRole('button', { name: /detail/i }))
 
     expect(useOrbital.getState().ui.dialog).toBe('errors')
@@ -183,7 +192,7 @@ describe('Toasts', () => {
     resetStore([makeError({ id: 1 })], 3)
     useOrbital.setState({ toast: { kind: 'error', message: 'spawn claude ENOENT' } })
 
-    render(<Toasts />)
+    render(<Replies />)
     await user.click(screen.getByRole('button', { name: /dismiss/i }))
 
     expect(useOrbital.getState().toast).toBeNull()

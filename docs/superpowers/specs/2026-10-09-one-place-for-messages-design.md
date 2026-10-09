@@ -1,7 +1,7 @@
 ---
 id: 2026-10-09-one-place-for-messages-design
 title: On the Mac, every message shows in one place, between the panels
-status: draft
+status: active
 type: spec
 domain: desktop
 related:
@@ -79,7 +79,7 @@ the existing fade, when the reply ends.
 
 ### What goes by itself
 
-- `info` goes after `FEEDBACK_TOAST_MS`; the countdown pauses while the
+- `info` goes after `FEEDBACK_NOTICE_MS`; the countdown waits while the
   pointer is over the card. The Undo toast's own timer (`UNDO_TOAST_MS` in
   the store) is replaced by this rule.
 - `error` and `rewind_refused` stay until ×, until a newer reply replaces
@@ -123,8 +123,10 @@ artboard. Prompt for `Feature - Notice toast`:
 Left out on purpose. The phone has different needs — a small screen, its
 notice pinned above the session list, request failures said on the
 composer's line — and deserves its own design rather than a copy of the
-Mac's. It keeps reading `useOrbital.toast` exactly as today, so this change
-does not reach it. An `idea` records the phone's side.
+Mac's. It keeps reading `useOrbital.toast` exactly as today. The one piece
+of this change in its bundle is the new `feedback` kind in the shared
+`lib/noticeQueue`, which the phone never pushes, so it behaves as before.
+An `idea` records the phone's side.
 
 ## Tests
 
@@ -139,3 +141,22 @@ Not tested: the card's look.
 
 Reaches the desktop only: a line in `desktop/CHANGELOG.md`, and a bump of
 the desktop version asked for when the work is done.
+
+## Built 2026-10-09
+
+As specified, with these details:
+
+- **Where it lives.** `ui/FeedbackNotice` holds the bridge
+  (`useFeedbackNotice`, mounted next to each `MapNoticeHost`), the reply's
+  provisional card and `FEEDBACK_NOTICE_MS` — canvas 4a's "Undo 10 s", now
+  the time for every `info` reply. The store's `UNDO_TOAST_MS` timer is gone.
+- **The countdown starts over** when the pointer leaves the card, rather
+  than resuming where it stopped.
+- **A reply sits over the dialogs.** A notice stays under the docked panels
+  (z-8); a reply lifts the host over the dialogs' overlay (z-50), because
+  it often answers something done inside one — Settings, the pairing
+  dialog. Only the card and the dots take clicks, so the empty sides of the
+  narrower reply leave the map usable.
+- **The session window** has no map. It mounts `MapNoticeHost inWindow`
+  for its replies, top centre across the whole window. The website's demos
+  mount the same as the window they stand for.

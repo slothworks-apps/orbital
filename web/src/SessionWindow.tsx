@@ -21,7 +21,8 @@ import { HarnessPanel } from './panels/HarnessPanel'
 import { ErrorLog } from './panels/ErrorLog'
 import { CompactDialog } from './panels/CompactDialog'
 import { McpDialog } from './panels/McpDialog'
-import { Toasts } from './ui/Toasts'
+import { useFeedbackNotice } from './ui/FeedbackNotice'
+import { MapNoticeHost } from './ui/MapNoticeHost'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { EscapeBoundary } from './ui/escapeLayer'
 
@@ -71,6 +72,7 @@ export function SessionWindow({ id }: { id: string }) {
   const setDialog = useOrbital((s) => s.setDialog)
   const dialog = useOrbital((s) => s.ui.dialog)
   const wsStatus = useOrbital((s) => s.ui.wsStatus)
+  useFeedbackNotice()
   const title = useOrbital((s) => s.sessions[id]?.title)
 
   // Selected only once the snapshot has settled: `loadInitial` replaces the
@@ -224,7 +226,8 @@ export function SessionWindow({ id }: { id: string }) {
         {/* A `/compact` past running subagents, from the composer or the map's badge. */}
         <CompactDialog />
         <McpDialog />
-        <Toasts />
+        {/* The window's replies, across the whole window: it has no map. */}
+        <MapNoticeHost inWindow />
       </div>
     </EscapeBoundary>
   )

@@ -28,7 +28,7 @@ import { ErrorLog } from './panels/ErrorLog'
 import { CompactDialog } from './panels/CompactDialog'
 import { McpDialog } from './panels/McpDialog'
 import { PairConfirmDialog } from './panels/PairConfirmDialog'
-import { Toasts } from './ui/Toasts'
+import { useFeedbackNotice } from './ui/FeedbackNotice'
 import { MapNoticeHost } from './ui/MapNoticeHost'
 import { useNotificationsTip } from './panels/NotificationsTip'
 import { useAppUpdateNotice } from './panels/UpdateNotice'
@@ -64,8 +64,9 @@ const socket = getSocket()
  * the docked `Sidebar`/`DetailPanel`/`SubagentPanel`, the three dialogs
  * that don't own their own trigger+render site (`NewSessionDialog`/
  * `Settings` — `StopDialog`/`ClearDialog` are rendered by `DetailPanel`
- * itself, so they're deliberately NOT repeated here), a single `Toasts`
- * surface, and the WS status banner. Owns the data lifecycle
+ * itself, so they're deliberately NOT repeated here), the one place every
+ * message shows (`MapNoticeHost`, the replies included) and the WS status
+ * banner. Owns the data lifecycle
  * (`loadInitial` + the `sessions`/`session:<id>` WS subscriptions) and the
  * keymap commands no panel owns (the dialogs, the pages and the session
  * cycling), plus `Esc` — `Sidebar`, `SpaceMap` and the detail panel register
@@ -96,6 +97,8 @@ export default function App() {
   // The desktop app's update prompt, the toast's UPDATE kind (canvas
   // `Feature - App update`). Nothing outside the desktop app.
   useAppUpdateNotice()
+  // The reply to what the user just did, ahead of every notice.
+  useFeedbackNotice()
 
   // The desktop menu is built from the keymap, and the main window is the
   // one that sends it (spec: 2026-09-23-shortcuts-design § 5); `App` never
@@ -334,7 +337,7 @@ export default function App() {
         </ErrorBoundary>
       </div>
 
-      {/* One notice at a time at the top centre of the map, over every map
+      {/* One message at a time at the top centre of the map, over every map
           theme (canvas `Feature - Notifications off` 1a). */}
       <MapNoticeHost />
 
@@ -369,8 +372,6 @@ export default function App() {
 
       {/* The way into the error log lives in SpaceMap's HUD now — an icon
           with the unseen count as its badge, riding the zoom column. */}
-
-      <Toasts />
     </div>
     </EscapeBoundary>
   )

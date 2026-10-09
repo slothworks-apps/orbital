@@ -7,8 +7,11 @@ import { create } from 'zustand'
  * The Mac and the phone each keep their own (`store/mapNotices`,
  * `mobile/notices`); nothing seen on one is marked on the other.
  *
- * - One shows at a time, chosen by kind and then age: update › changelog ›
- *   relay & pairing › usage limit › tips; within a kind, oldest first.
+ * - One shows at a time, chosen by kind and then age: feedback › update ›
+ *   changelog › relay & pairing › usage limit › tips; within a kind, oldest
+ *   first. `feedback` is the Mac's reply to what the user just did
+ *   (`ui/FeedbackNotice`): it shows at once, and the message it covers waits
+ *   in the dots until it ends.
  * - × or any action ends a message for good. Ending is the message's own
  *   business — it knows where its "seen" lives and persists it there — and
  *   then it leaves the queue with `dismiss`.
@@ -17,11 +20,11 @@ import { create } from 'zustand'
  * - A kind may have states (canvas `Feature - App update`): its message
  *   swaps its words in place, and only its last state ends it. Until then it
  *   keeps the slot — the messages behind it wait, and their dots stay.
- * - Nothing auto-dismisses.
+ * - No notice goes by itself; only a reply may (`ui/FeedbackNotice`).
  */
 
-/** In the order they show. `update` and `tip` have messages so far; the rest are reserved. */
-export const NOTICE_KINDS = ['update', 'changelog', 'pairing', 'usage', 'tip'] as const
+/** In the order they show. `feedback`, `update` and `tip` have messages so far; the rest are reserved. */
+export const NOTICE_KINDS = ['feedback', 'update', 'changelog', 'pairing', 'usage', 'tip'] as const
 export type NoticeKind = (typeof NOTICE_KINDS)[number]
 
 export interface NoticeEntry {

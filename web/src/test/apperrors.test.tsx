@@ -16,7 +16,7 @@ vi.mock('../panels/DetailPanel', () => ({
 }))
 vi.mock('../panels/NewSessionDialog', () => ({ NewSessionDialog: () => null }))
 vi.mock('../panels/Settings', () => ({ Settings: () => null }))
-vi.mock('../ui/Toasts', () => ({ Toasts: () => null }))
+vi.mock('../ui/MapNoticeHost', () => ({ MapNoticeHost: () => null }))
 vi.mock('../lib/ws', () => ({
   resolveWsUrl: () => 'ws://test/ws',
   OrbitalSocket: class {
