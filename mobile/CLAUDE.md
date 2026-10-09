@@ -35,7 +35,9 @@ says.
 
 ## The updater
 
-`@capgo/capacitor-updater` is pinned exactly; below 8.51.23 Android accepts
+`@capgo/capacitor-updater` is pinned exactly and patched (`patches/`, applied
+by the root postinstall; `npm test -w @orbital/mobile` checks it): its
+reports may carry no text from the app. Below 8.51.23 Android accepts
 an unsigned bundle (ADR `an-ota-bundle-runs-only-if-signed-by-ci`). Only a
 build made with `ORBITAL_MOBILE_RELEASE=1` (the root release scripts) turns
 it on, and that build needs `ota-public-key.pem`; every other build

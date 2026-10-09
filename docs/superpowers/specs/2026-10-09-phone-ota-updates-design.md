@@ -225,9 +225,13 @@ the web app changes only under `web/src/mobile`.
 - **device_info** goes through native HTTP once per start, with diagnostics
   on, with the plugin's install id and its name for the running bundle.
 - **The plugin reports more than update results.** With `statsUrl` set it
-  also sends foreground and background events and the WebView's errors —
-  message, stack, page URL — and crash and low-memory exits, with no switch
-  for those alone. Decided 2026-10-09: all of it, and `device_info`, sits
+  also sends foreground and background events, crash and low-memory exits
+  and the WebView's errors, with no switch for those alone. **Nothing from a
+  session leaves the phone** (the maintainer's rule): a patch strips every
+  text field from those reports — message, stack, file, line and column,
+  addresses, user agent — so an error is reported by its kind only
+  ([[an-ota-bundle-runs-only-if-signed-by-ci]] → Nothing from a session
+  leaves the phone). Decided 2026-10-09: all of it, and `device_info`, sits
   behind **Settings → Send diagnostics**, on by default (Preferences key
   `orbital.diagnostics`; the row is provisionally under Advanced until
   Claude Design places it). The shell's config keeps Beam's stats URL and

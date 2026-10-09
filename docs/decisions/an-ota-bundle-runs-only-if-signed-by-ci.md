@@ -53,6 +53,28 @@ SHA-256 instead.
   used until the next start; what it serves must still be signed, and newer
   than what the phone has run (below).
 
+## Nothing from a session leaves the phone
+
+A rule from the maintainer, diagnostics on or off: no text from the app — an
+error's message, a stack trace, a file or page address, anything from a
+session — is sent anywhere. Plugin 8.51.25's WebView reporter breaks it: it
+sends every JavaScript error's and unhandled rejection's message and stack,
+its file, line and column, a failed resource's address and tag, the page's
+URL, the user agent and a session id. Android's app-exit report adds the
+system's free-text exit description.
+
+`mobile/patches/@capgo+capacitor-updater+8.51.25.patch` (patch-package,
+applied by the root `postinstall` through `mobile/scripts/apply-patches.mjs`)
+cuts them on both layers: the injected script queues `{ type }` and nothing
+else, and the native side (`buildWebViewErrorMetadata` on Android,
+`WebViewStatsReporter.buildMetadata` on iOS) keeps only `error_type`, mapped
+to one of the known kinds whatever the page sent. Page-loaded loses its URL;
+Android exits lose `exit_description` and `process_name`.
+`mobile/scripts/plugin-privacy.test.mjs` reads the installed plugin's
+sources and fails when the patch is not applied or the plugin is not
+8.51.25; CI's mobile check and the store jobs run it. Upgrading the plugin
+means rewriting the patch, and the test says so.
+
 ## Residual risk: replay of an older signed bundle
 
 The signature covers the bundle's content, not its version: the session key

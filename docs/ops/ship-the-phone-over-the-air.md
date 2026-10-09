@@ -173,6 +173,19 @@ diagnostics is on, which it is by default.
 Steps 4, 5, 7 and 8 reach every tester's phone while they are in Beam, to be refused
 or rolled back; do them when nobody relies on the app.
 
+## The plugin's privacy patch
+
+`mobile/patches/@capgo+capacitor-updater+8.51.25.patch` keeps every text
+from the app out of the plugin's reports. `npm ci` and `npm install` apply
+it (root `postinstall` → `mobile/scripts/apply-patches.mjs`), and
+`npm test -w @orbital/mobile` fails when it is missing. To upgrade the
+plugin: install the new version, make the same edits in
+`node_modules/@capgo/capacitor-updater`, delete its `android/build`, run
+`npx patch-package @capgo/capacitor-updater --patch-dir mobile/patches`,
+remove the old patch and update `PATCHED_VERSION` in
+`mobile/scripts/plugin-privacy.test.mjs`. A changed patch changes the
+shell: it needs a native version bump.
+
 ## Dev builds
 
 Every build but the release scripts' turns the updater off
