@@ -11,6 +11,7 @@ import { expandHome } from '../paths.js';
 import { NamedPathCache, readFilePreview, readImageFile, readInSandboxes } from '../files/preview.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
 import { completeFilePath } from '../files/complete.js';
+import { locateOnDisk, mediaItems } from '../media/items.js';
 import { OpenTabsReader } from '../files/openTabs.js';
 import { collectCommands, findCommandFile, type CatalogCommand } from '../commands/catalog.js';
 import type { OrbitalDb } from '../db/database.js';
@@ -633,6 +634,22 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { messages: messages.slice(Math.max(0, end - limit), end) };
   });
 
+  // Every image and PDF of the session, oldest first (spec
+  // 2026-10-09-session-media-design § Data): built from the transcript the
+  // route above presents, so an item's message is one the panel can scroll
+  // to. A path a reply named is located within the file routes' bounds; one
+  // the session may not show is left out.
+  app.get('/api/sessions/:id/media', (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as
+      | SessionRow
+      | undefined;
+    const messages = row && presentTranscript(id);
+    if (!row || !messages) return reply.code(404).send({ error: 'not found' });
+    const locate = locateOnDisk((cwd) => sandboxesOf(row, cwd), namedBy(id, row));
+    return { items: mediaItems(messages, locate) };
+  });
+
   /**
    * A subagent's own transcript — the panel's read (spec
    * `2026-09-22-subagent-transcript-panel-design.md` § 9). Keyed by
@@ -796,7 +813,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
   });
 
-  // An image a prose path names, for the lightbox — the same sandbox as the
+  // An image or a PDF a prose path names, for the lightbox — the same sandbox as the
   // read above, `cwd` included (`readImageFile` confines through `resolveForSession`). Not
   // cached: unlike `/api/images/:ref` the file on disk can change under the
   // same path. An SVG is served sandboxed, so opening this URL directly

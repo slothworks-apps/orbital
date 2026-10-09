@@ -60,9 +60,10 @@ describe('message schemas', () => {
       { ...ok, session: '' },
       { ...ok, session: 's\r1' },
       { ...ok, as: undefined },
-      { ...ok, as: 'pdf' },
+      { ...ok, as: 'video' },
     ]) expect(PhoneMessage.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
     expect(PhoneMessage.safeParse({ ...ok, path: '/' + 'a'.repeat(FILE_PATH_MAX_CHARS - 1) }).success).toBe(true);
+    expect(PhoneMessage.safeParse({ ...ok, as: 'pdf' }).success).toBe(true);
     expect(PhoneMessage.safeParse({ t: 'http', id: 1, method: 'TRACE', path: '/' }).success).toBe(false);
   });
   it('accepts every mac message', () => {

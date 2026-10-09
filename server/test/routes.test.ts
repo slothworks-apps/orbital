@@ -2419,6 +2419,55 @@ describe('GET /api/files/image', () => {
     writeFileSync(join(cwd, 'huge.png'), Buffer.alloc(FILE_PREVIEW_MAX_BYTES + 1));
     expect((await get('si', 'huge.png')).statusCode).toBe(413);
   });
+
+  it('serves a PDF inside the cwd as application/pdf, sandboxed, within the same bounds', async () => {
+    const pdf = Buffer.from('%PDF-1.4\n%%EOF\n');
+    writeFileSync(join(cwd, 'report.pdf'), pdf);
+    const res = await get('si', 'report.pdf');
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('application/pdf');
+    expect(res.headers['content-security-policy']).toContain('sandbox');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.rawPayload.equals(pdf)).toBe(true);
+
+    const outside = makeTmpDir('outside-pdf');
+    writeFileSync(join(outside, 'secret.pdf'), pdf);
+    expect((await get('si', join(outside, 'secret.pdf'))).statusCode).toBe(403);
+    writeFileSync(join(cwd, 'huge.pdf'), Buffer.alloc(FILE_PREVIEW_MAX_BYTES + 1));
+    expect((await get('si', 'huge.pdf')).statusCode).toBe(413);
+  });
+});
+
+describe('GET /api/sessions/:id/media', () => {
+  it('404s an unknown session', async () => {
+    const { app } = makeApp();
+    expect((await app.inject({ method: 'GET', url: '/api/sessions/nope/media' })).statusCode).toBe(404);
+  });
+
+  it('lists the media of the transcript the panel shows, a named path located on disk', async () => {
+    const projectsDir = makeTmpDir('media-routes');
+    const cwd = makeTmpDir('media-cwd');
+    writeFileSync(join(cwd, 'shot.png'), 'png');
+    mkdirSync(join(projectsDir, 'p'), { recursive: true });
+    const at = new Date(Date.now() + 60_000).toISOString();
+    writeFileSync(
+      join(projectsDir, 'p', 'sm.jsonl'),
+      JSON.stringify({
+        type: 'assistant', uuid: 'a1', cwd, timestamp: at,
+        message: { role: 'assistant', content: [{ type: 'text', text: 'Saved ./shot.png and ./gone.pdf' }] },
+      }) + '\n',
+    );
+    const { app, db } = makeApp({ projectsDir });
+    db.insert(sessions)
+      .values({ id: 'sm', projectDir: 'p', cwd, title: 'media', lastAt: 300, source: 'web', permissionMode: null })
+      .run();
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/sm/media' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().items).toEqual([
+      { id: 'a1:0:0', kind: 'image', source: 'agent', messageId: 'a1:0', ts: at, path: './shot.png', cwd, disk: 'present' },
+      { id: 'a1:0:1', kind: 'pdf', source: 'agent', messageId: 'a1:0', ts: at, path: './gone.pdf', cwd, disk: 'missing' },
+    ]);
+  });
 });
 
 // Tag clusters: a clump's home moves where the user drops it, per tag,

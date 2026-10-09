@@ -9,7 +9,7 @@ import { eq } from 'drizzle-orm';
 import type { FileAs } from '@orbital/shared/remote/messages';
 import type { OrbitalDb } from '../db/database.js';
 import { sessions } from '../db/schema.js';
-import { NamedPathCache, readImageFile, readInSandboxes, readTextFile } from '../files/preview.js';
+import { NamedPathCache, PDF_CONTENT_TYPE, readImageFile, readInSandboxes, readTextFile } from '../files/preview.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
 import { sniffDims } from '../images/store.js';
 
@@ -24,8 +24,8 @@ const TEXT_MEDIA_TYPE = 'text/plain; charset=utf-8';
 /**
  * The Mac's answer to one `file_get`, as `blob_meta` carries it: 200 with
  * the bytes; 403 outside what the session may show; 404 no such session or
- * file; 413 too large (with `size`); 415 not an image, or binary when text
- * was asked (with `mediaType` when the Mac knows it).
+ * file; 413 too large (with `size`); 415 not an image, not a PDF, or binary
+ * when text was asked (with `mediaType` when the Mac knows it).
  */
 export type PhoneFileAnswer = {
   status: 200 | 403 | 404 | 413 | 415;
@@ -63,10 +63,19 @@ export function createPhoneFileReader(
     const named = namedPaths.forSession(session, transcriptPath(session, row.project_dir, row.claude_dir_id));
     const sandboxes = trees?.sandboxes(row, cwd) ?? [row.cwd];
 
-    if (as === 'image') {
+    // A PDF comes through the image read, under the desktop's cap, not the
+    // phone's text one (spec 2026-10-09-session-media-design § Phone).
+    if (as === 'image' || as === 'pdf') {
       const read = readInSandboxes(sandboxes, (dir) => readImageFile(dir, path, named));
       switch (read.kind) {
         case 'ok': {
+          // One read serves both, so each answer refuses the other's kind.
+          if ((read.contentType === PDF_CONTENT_TYPE) !== (as === 'pdf')) {
+            return { status: 415, mediaType: read.contentType };
+          }
+          if (as === 'pdf') {
+            return { status: 200, bytes: new Uint8Array(read.bytes), mediaType: read.contentType, size: read.bytes.length };
+          }
           const dims = sniffDims(read.bytes);
           // A header that claims zero pixels is no size to reserve a box from.
           const known = dims && dims[0] > 0 && dims[1] > 0;

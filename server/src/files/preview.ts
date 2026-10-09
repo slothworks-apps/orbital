@@ -345,9 +345,15 @@ export function readTextFile(
   return { kind: 'ok', bytes, size: bytes.length, mtimeMs: stat.mtimeMs };
 }
 
+/** The content type `readImageFile` serves a PDF as. */
+export const PDF_CONTENT_TYPE = 'application/pdf';
+
 /** Content type per extension for `readImageFile` — the formats an `<img>`
- * shows, matched by the web's `IMAGE_EXTENSIONS` in `pathLinks.ts`. */
+ * shows, matched by `IMAGE_EXTENSIONS` in `@orbital/shared/paths`, and the
+ * PDF the media viewer renders (spec 2026-10-09-session-media-design
+ * § Bytes of named files). */
 export const IMAGE_FILE_CONTENT_TYPES: Record<string, string> = {
+  pdf: PDF_CONTENT_TYPE,
   png: 'image/png',
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
@@ -367,9 +373,10 @@ export type ImageFileResult =
   | { kind: 'not_image' };
 
 /**
- * Reads an image a prose path names, for the lightbox. Confined exactly like
- * `readFilePreview`, under the same size cap; the extension decides the type
- * because it is all an `<img>` needs and nothing here interprets the bytes.
+ * Reads an image or a PDF a prose path names, for the lightbox. Confined
+ * exactly like `readFilePreview`, under the same size cap
+ * (`FILE_PREVIEW_MAX_BYTES`); the extension decides the type because it is
+ * all an `<img>` or pdf.js needs and nothing here interprets the bytes.
  */
 export function readImageFile(cwd: string, rawPath: string, named: NamedCheck = NAMES_NOTHING): ImageFileResult {
   const confined = resolveForSession(cwd, rawPath, named);

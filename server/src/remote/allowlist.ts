@@ -28,6 +28,7 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['GET', '/api/sessions/:id'],
   ['PATCH', '/api/sessions/:id'],
   ['GET', '/api/sessions/:id/messages'],
+  ['GET', '/api/sessions/:id/media'],
   ['POST', '/api/sessions/:id/messages'],
   ['GET', '/api/sessions/:id/subagents/:toolUseId/messages'],
   ['POST', '/api/sessions/:id/tasks/:taskId/stop'],

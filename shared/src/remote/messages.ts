@@ -91,8 +91,13 @@ export const FILE_SESSION_MAX_CHARS = 256;
 // named carries, and each one a way to make a log line or a comparison lie.
 // eslint-disable-next-line no-control-regex
 const NO_CONTROL_CHARS = /^[^\u0000-\u001f\u007f]+$/;
-/** How the phone wants a file: an image for the viewer, or text for the read-only preview. */
-export const FileAs = z.enum(['image', 'text']);
+/**
+ * How the phone wants a file: an image for the viewer, text for the
+ * read-only preview, or a PDF's bytes for pdf.js (spec
+ * 2026-10-09-session-media-design § Phone). An older Mac refuses `pdf` at
+ * this schema, and the phone reads any refusal as "can't show this here".
+ */
+export const FileAs = z.enum(['image', 'text', 'pdf']);
 export type FileAs = z.infer<typeof FileAs>;
 
 export const PhoneMessage = z.discriminatedUnion('t', [
