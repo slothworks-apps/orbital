@@ -30,6 +30,31 @@ describe('appMenuTemplate', () => {
     expect(roles(false)).not.toContain('toggleDevTools');
   });
 
+  it('spells out the app menu with Check for Updates… under About, keeping Quit', () => {
+    const checkForUpdates = vi.fn();
+    const appMenu = appMenuTemplate({ dev: false, showMap: () => {}, checkForUpdates })[0];
+    expect(appMenu.role).toBeUndefined();
+    const items = appMenu.submenu ?? [];
+    expect(items.map((item) => item.role ?? item.label ?? item.type)).toEqual([
+      'about',
+      'Check for Updates…',
+      'separator',
+      'services',
+      'separator',
+      'hide',
+      'hideOthers',
+      'unhide',
+      'separator',
+      'quit',
+    ]);
+    items[1].click?.();
+    expect(checkForUpdates).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the app menu role when nothing checks for updates', () => {
+    expect(appMenuTemplate({ dev: false, showMap: () => {} })[0]).toEqual({ role: 'appMenu' });
+  });
+
   it('puts Map in the Window menu, on ⌘1, showing the main window', () => {
     const showMap = vi.fn();
     const windowMenu = appMenuTemplate({ dev: false, showMap }).find((item) => item.role === 'window');
