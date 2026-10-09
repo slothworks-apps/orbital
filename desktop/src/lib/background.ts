@@ -57,37 +57,12 @@ export class WorkingSessions {
   private ids = new Set<string>();
   /** Sessions a frame has spoken for since the last reset; they outrank the list. */
   private touched = new Set<string>();
-  /**
-   * Orbital sessions parked on a decision — a permission prompt or a
-   * question. Their status reads `needs_input`, the same as a session whose
-   * turn has ended, but the turn is still in flight: what tells them apart is
-   * the snapshot's `pendingDecision`, which the server republishes as an
-   * upsert when the decision parks and again when it settles.
-   */
-  private deciding = new Set<string>();
-  /** Sessions an upsert has spoken for since the last reset, for `deciding`. */
-  private touchedDecision = new Set<string>();
   private generation = 0;
   private isSeeded = false;
 
-  /**
-   * How many orbital-run sessions are working right now, as far as known —
-   * what the quit guard asks about.
-   */
+  /** How many orbital-run sessions are mid-turn right now, as far as known. */
   get count(): number {
     return this.ids.size;
-  }
-
-  /**
-   * How many orbital-run sessions are mid-turn: working, or parked on a
-   * decision nobody has answered yet. What a restart into an update must
-   * wait for — restarting under a parked decision drops the question with
-   * nobody there to see it go.
-   */
-  get busyCount(): number {
-    let n = this.ids.size;
-    for (const id of this.deciding) if (!this.ids.has(id)) n += 1;
-    return n;
   }
 
   /** Whether `count` covers sessions that were working before the socket opened. */
@@ -100,10 +75,7 @@ export class WorkingSessions {
     if (!isRecord(frame) || frame.topic !== 'sessions') return;
 
     if (frame.event === 'remove') {
-      if (typeof frame.sessionId === 'string') {
-        this.mark(frame.sessionId, false);
-        this.markDecision(frame.sessionId, false);
-      }
+      if (typeof frame.sessionId === 'string') this.mark(frame.sessionId, false);
       return;
     }
 
@@ -116,9 +88,6 @@ export class WorkingSessions {
       const id = frame.sessionId;
       if (typeof id !== 'string' || id === '') return;
       this.mark(id, frame.status === 'working');
-      // A status frame says nothing about a decision, except that an ended
-      // session has none left.
-      if (frame.status === 'ended') this.markDecision(id, false);
       return;
     }
 
@@ -130,7 +99,6 @@ export class WorkingSessions {
     const id = session.id;
     if (typeof id !== 'string' || id === '') return;
     this.mark(id, isWorkingOrbitalSession(session));
-    this.markDecision(id, isParkedOrbitalSession(session));
   }
 
   /**
@@ -154,9 +122,8 @@ export class WorkingSessions {
     for (const session of raw.sessions) {
       if (!isRecord(session)) continue;
       const id = session.id;
-      if (typeof id !== 'string' || id === '') continue;
-      if (!this.touched.has(id) && isWorkingOrbitalSession(session)) this.ids.add(id);
-      if (!this.touchedDecision.has(id) && isParkedOrbitalSession(session)) this.deciding.add(id);
+      if (typeof id !== 'string' || id === '' || this.touched.has(id)) continue;
+      if (isWorkingOrbitalSession(session)) this.ids.add(id);
     }
     this.isSeeded = true;
   }
@@ -165,8 +132,6 @@ export class WorkingSessions {
   reset(): void {
     this.ids.clear();
     this.touched.clear();
-    this.deciding.clear();
-    this.touchedDecision.clear();
     this.generation += 1;
     this.isSeeded = false;
   }
@@ -176,20 +141,9 @@ export class WorkingSessions {
     if (working) this.ids.add(id);
     else this.ids.delete(id);
   }
-
-  private markDecision(id: string, parked: boolean): void {
-    this.touchedDecision.add(id);
-    if (parked) this.deciding.add(id);
-    else this.deciding.delete(id);
-  }
 }
 
 /** The one rule, for an upsert and a listed session alike. */
 function isWorkingOrbitalSession(session: Record<string, unknown>): boolean {
   return session.source === 'web' && session.status === 'working';
-}
-
-/** An Orbital session blocked mid-turn on a decision (`ApiSession.pendingDecision`). */
-function isParkedOrbitalSession(session: Record<string, unknown>): boolean {
-  return session.source === 'web' && session.status !== 'ended' && isRecord(session.pendingDecision);
 }

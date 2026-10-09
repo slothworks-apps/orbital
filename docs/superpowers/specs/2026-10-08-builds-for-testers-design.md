@@ -304,23 +304,21 @@ working end mid-turn and are marked `interrupted`, as on any restart.
 session started meanwhile waited for too. **Cancel** goes back to the
 two-button choice.
 
-The count is `WorkingSessions.busyCount`, folded from `sessionsFeed`, which
-main already keeps for notifications: Orbital sessions that are `working`,
-and those parked mid-turn on a decision — a permission prompt, a question,
-a plan — whose status reads `needs_input` like a session whose turn has
-ended. What tells the two apart is the session snapshot's
-`pendingDecision`, which the server republishes as an upsert when the
-decision parks and when it settles. Terminal sessions do not count:
-restarting the app does not touch them. Answering a decision sends the
-session without it, still `needs_input`, and only then `working`, so the
-count can read zero between two frames; a wait restarts only once the
-zero has held for `IDLE_SETTLE_MS`. The server replays nothing to a new
-subscriber, so after every connect and reconnect main reads
+The count is `WorkingSessions.count`, folded from `sessionsFeed`, which
+main already keeps for notifications — the same count the quit guard reads:
+Orbital sessions that are `working`. Terminal sessions do not count:
+restarting the app does not touch them. **A session waiting on a decision
+— a permission prompt, a question, a plan — does not hold the restart**: it
+reads `needs_input`, is interrupted like any session, and is continued
+after the update. A turn's end reads `needs_input` until the CLI says it is
+running again, so a turn the CLI starts by itself right after (a message
+queued while it worked, a background agent reporting back) can read
+working, not working, working within milliseconds; a wait restarts only
+once the zero has held for `IDLE_SETTLE_MS`. The server replays nothing to
+a new subscriber, so after every connect and reconnect main reads
 `GET /api/sessions?source=web` once to learn which sessions were already
-mid-turn or parked; until that read has landed the count is unknown, an
-unknown count never ends the wait, and Ready shows two buttons. The quit
-guard reads the same seeded fold, but its own `count` — working sessions
-only.
+mid-turn; until that read has landed the count is unknown, an unknown count
+never ends the wait, and Ready shows two buttons.
 
 **× on Ready** shows the receipt (`closed`): the update installs when
 Orbital quits, with **OK**, which ends the prompt for that version.

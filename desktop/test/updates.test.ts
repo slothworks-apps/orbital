@@ -461,36 +461,39 @@ describe('UpdateFlow', () => {
       const working = new WorkingSessions();
       working.seed(working.beginSeed(), { sessions: [] });
       working.onFrame({ topic: 'sessions', event: 'upsert', session: { id: 'w', source: 'web', status: 'working' } });
-      flow.setWorkingCount(working.busyCount, working.seeded);
+      flow.setWorkingCount(working.count, working.seeded);
       flow.downloaded('0.26.0');
       flow.act('restart-when-idle');
       working.onFrame({ topic: 'sessions', event: 'upsert', session: { id: 't', source: 'terminal', status: 'working' } });
-      expect(settle(working.busyCount, working.seeded).restart).toBe(false);
+      expect(settle(working.count, working.seeded).restart).toBe(false);
       working.onFrame({ topic: 'sessions', event: 'status', sessionId: 'w', status: 'needs_input' });
-      expect(settle(working.busyCount, working.seeded).restart).toBe(true);
+      expect(settle(working.count, working.seeded).restart).toBe(true);
     });
 
-    it('waits for a session parked on a permission prompt, though it reads needs_input', () => {
+    it('does not wait for a session parked on a decision: it is continued after the update', () => {
       const working = new WorkingSessions();
-      working.seed(working.beginSeed(), { sessions: [] });
-      const parked = { id: 'p', source: 'web', status: 'working', pendingDecision: { id: 'd1' } };
-      working.onFrame({ topic: 'sessions', event: 'upsert', session: parked });
-      working.onFrame({ topic: 'sessions', event: 'status', sessionId: 'p', status: 'needs_input' });
-      flow.setWorkingCount(working.busyCount, working.seeded);
+      working.seed(working.beginSeed(), { sessions: [{ id: 'p', source: 'web', status: 'working' }] });
+      flow.setWorkingCount(working.count, working.seeded);
       flow.downloaded('0.26.0');
-      expect(flow.view).toMatchObject({ phase: 'ready', workingCount: 1, buttons: 'two' });
       flow.act('restart-when-idle');
-      expect(flow.view.phase).toBe('waiting');
-      // Answered: the server sends the session without its decision, still
-      // `needs_input`, then `working` — the count reads zero between the two.
-      working.onFrame({ topic: 'sessions', event: 'upsert', session: { ...parked, status: 'needs_input', pendingDecision: null } });
-      expect(flow.setWorkingCount(working.busyCount, working.seeded)).toMatchObject({ restart: false, idleCheck: true });
-      working.onFrame({ topic: 'sessions', event: 'status', sessionId: 'p', status: 'working' });
-      flow.setWorkingCount(working.busyCount, working.seeded);
-      expect(flow.idleSettled().restart).toBe(false);
-      // The turn ends with nothing pending.
+      // A permission prompt or a question parks the turn as `needs_input`.
       working.onFrame({ topic: 'sessions', event: 'status', sessionId: 'p', status: 'needs_input' });
-      expect(settle(working.busyCount, working.seeded).restart).toBe(true);
+      expect(settle(working.count, working.seeded).restart).toBe(true);
+    });
+
+    it('does not restart in the gap between a turn and the one the CLI starts by itself', () => {
+      // A queued message or a background agent reporting back: the turn's
+      // end reads `needs_input`, and the next turn's first frame `working`.
+      const working = new WorkingSessions();
+      working.seed(working.beginSeed(), { sessions: [{ id: 'w', source: 'web', status: 'working' }] });
+      flow.setWorkingCount(working.count, working.seeded);
+      flow.downloaded('0.26.0');
+      flow.act('restart-when-idle');
+      working.onFrame({ topic: 'sessions', event: 'status', sessionId: 'w', status: 'needs_input' });
+      expect(flow.setWorkingCount(working.count, working.seeded)).toMatchObject({ restart: false, idleCheck: true });
+      working.onFrame({ topic: 'sessions', event: 'status', sessionId: 'w', status: 'working' });
+      flow.setWorkingCount(working.count, working.seeded);
+      expect(flow.idleSettled().restart).toBe(false);
     });
 
     describe('after the sessions socket reconnects', () => {
@@ -500,7 +503,7 @@ describe('UpdateFlow', () => {
       beforeEach(() => {
         working = new WorkingSessions();
         working.seed(working.beginSeed(), { sessions: [{ id: 'w', source: 'web', status: 'working' }] });
-        flow.setWorkingCount(working.busyCount, working.seeded);
+        flow.setWorkingCount(working.count, working.seeded);
         flow.downloaded('0.26.0');
         flow.act('restart-when-idle');
       });
@@ -510,20 +513,20 @@ describe('UpdateFlow', () => {
         working.beginSeed(); // the list is on its way, not here yet
         working.onFrame({ topic: 'sessions', event: 'upsert', session: { id: 'x', source: 'web', status: 'idle' } });
         expect(working.count).toBe(0);
-        expect(settle(working.busyCount, working.seeded).restart).toBe(false);
+        expect(settle(working.count, working.seeded).restart).toBe(false);
         expect(flow.view).toMatchObject({ phase: 'waiting', workingCount: 1 });
       });
 
       it('keeps waiting when the list read again still has a working session', () => {
         working.reset();
         working.seed(working.beginSeed(), { sessions: [{ id: 'w', source: 'web', status: 'working' }] });
-        expect(settle(working.busyCount, working.seeded).restart).toBe(false);
+        expect(settle(working.count, working.seeded).restart).toBe(false);
       });
 
       it('restarts when the list read again has nothing working', () => {
         working.reset();
         working.seed(working.beginSeed(), { sessions: [{ id: 'w', source: 'web', status: 'idle' }] });
-        expect(settle(working.busyCount, working.seeded).restart).toBe(true);
+        expect(settle(working.count, working.seeded).restart).toBe(true);
       });
     });
   });

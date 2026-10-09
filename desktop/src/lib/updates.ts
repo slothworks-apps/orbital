@@ -259,12 +259,12 @@ export function checkAnswerMessage(
 
 /**
  * How long the working count has to stay at zero before a restart waiting
- * for sessions to finish happens. The server answers a decision with two
- * frames — the session without its decision, still `needs_input`, then its
- * `working` status — and the count reads zero between them; a restart in
- * that gap would cut the turn the answer just resumed. Frames of one change
- * arrive within milliseconds, so a couple of seconds covers them and is
- * still "the first moment" to a person.
+ * for sessions to finish happens. A turn's end reads `needs_input` until the
+ * CLI says it is running again, so a turn the CLI starts by itself right
+ * after — a message queued while it worked, a background agent reporting
+ * back — reads working, not working, working within milliseconds; a restart
+ * in that gap would cut the turn just starting. A couple of seconds covers
+ * it and is still "the first moment" to a person.
  */
 export const IDLE_SETTLE_MS = 2_000;
 
@@ -288,12 +288,14 @@ export type FoundStep = UpdateStep & { outcome: FoundOutcome };
 type Phase = UpdatePrompt['phase'];
 
 /**
- * The update's state machine. The working count is
- * `WorkingSessions.busyCount`, which counts only Orbital-run sessions that
- * are mid-turn — working, or parked on a decision: a terminal session
- * belongs to a CLI in someone's shell, and restarting the app does not touch
- * it. A count that is not known yet counts as "not idle": waiting is safe, a
- * restart over a working session is not.
+ * The update's state machine. The working count is `WorkingSessions.count`,
+ * the quit guard's, which counts only Orbital-run sessions that are
+ * `working`: a terminal session belongs to a CLI in someone's shell, and
+ * restarting the app does not touch it; a session parked on a decision (a
+ * permission prompt, a question) does not hold the restart — it is
+ * interrupted and continued after the update. A count that is not known yet
+ * counts as "not idle": waiting is safe, a restart over a working session
+ * is not.
  *
  * Whether to download is decided here, not by electron-updater's
  * `autoDownload` (which `main.ts` keeps off): a skipped version must not
