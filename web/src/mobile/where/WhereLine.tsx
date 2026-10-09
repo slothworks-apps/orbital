@@ -1,6 +1,7 @@
 import { useLayoutEffect, useState } from 'react'
 import type { ApiSession } from '../../lib/types'
 import { treesCompactText, treesCountText, treesHeadText, whereFormOf } from '../../lib/whereForm'
+import { FullTextTip } from '../FullTextTip'
 import { basename } from '../format'
 import { COUNT_MARK_GAP_PX, MARK_GAP_PX, charPxOf, fitWhere } from './fit'
 import { TreeMark } from './marks'
@@ -22,7 +23,8 @@ import { TreesSheet } from './TreesSheet'
  *
  * In the list the row is the one tap target, so the count is only text and
  * its words join the row's name. In the header the count is a button whose ▾
- * opens the list of trees.
+ * opens the list of trees, and a tap on the project and branch shows them
+ * uncut (`FullTextTip`).
  */
 
 /** 2h: the header's ▾ and the gap before it, which the count pays for in the fit. */
@@ -72,9 +74,12 @@ export function WhereLine({
   const git = session.git ?? null
   const form = whereFormOf(git, session.otherTrees)
   const inWorktree = git?.worktree ?? false
+  const project = basename(session.cwd)
+  // Form B draws the worktree count in the branch's place.
+  const branch = form.kind === 'trees' ? '' : (git?.ref ?? '')
   const fit = fitWhere({
-    project: basename(session.cwd),
-    branch: git?.ref ?? '',
+    project,
+    branch,
     inWorktree,
     form,
     availPx: width,
@@ -99,22 +104,40 @@ export function WhereLine({
       </span>
     )
 
+  const place = (
+    <>
+      <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dotColor }} />
+      <span className="shrink-0">{fit.project}</span>
+      {fit.branch && (
+        <>
+          {sep}
+          <span className="flex min-w-0 items-center" style={{ gap: MARK_GAP_PX }}>
+            {inWorktree ? <TreeMark /> : <span aria-hidden>⎇</span>}
+            <span className="truncate">{fit.branch}</span>
+          </span>
+        </>
+      )}
+    </>
+  )
+
   return (
     <>
       <span
         ref={ref}
         className={['flex min-w-0 items-center gap-1.5 whitespace-nowrap font-mono', v.text, dim ? v.dimInk : v.ink].join(' ')}
       >
-        <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dotColor }} />
-        <span className="shrink-0">{fit.project}</span>
-        {fit.branch && (
-          <>
-            {sep}
-            <span className="flex min-w-0 items-center" style={{ gap: MARK_GAP_PX }}>
-              {inWorktree ? <TreeMark /> : <span aria-hidden>⎇</span>}
-              <span className="truncate">{fit.branch}</span>
-            </span>
-          </>
+        {header ? (
+          // The header's project and branch, cut to fit, read whole on a tap.
+          <FullTextTip
+            text={[project, branch].filter(Boolean).join(' · ⎇ ')}
+            cut={fit.project !== project || fit.branch !== branch}
+            mono
+            className="flex items-center gap-1.5"
+          >
+            {place}
+          </FullTextTip>
+        ) : (
+          place
         )}
         {count && sep}
         {count &&

@@ -1,5 +1,7 @@
-import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import {
+  createContext, useCallback, useContext, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState,
+} from 'react'
+import type { MouseEvent as ReactMouseEvent, ReactNode, Ref } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react'
 import { Extension, type Editor } from '@tiptap/core'
 import { Placeholder } from '@tiptap/extensions'
@@ -228,6 +230,17 @@ export interface ComposerProps {
   dropArmed?: boolean
   /** Layout-only passthrough. */
   className?: string
+  /** What the mount's own controls can do to the field. */
+  control?: Ref<ComposerControl>
+}
+
+export interface ComposerControl {
+  /**
+   * Starts a slash command at the caret and focuses the field, so the
+   * completion list opens: the phone's `/` button, for a keyboard that keeps
+   * the slash on its symbols page.
+   */
+  startCommand(): void
 }
 
 export function Composer({
@@ -254,6 +267,7 @@ export function Composer({
   attachments,
   dropArmed = false,
   className,
+  control,
   ...aria
 }: ComposerProps) {
   const lockedFor = useContext(ComposerLockContext)
@@ -599,6 +613,23 @@ export function Composer({
       editor.view.dispatch(state.tr.insertText(insert + tail, context.start, state.selection.from))
     },
     [context, editor, actOnAccept],
+  )
+
+  useImperativeHandle(
+    control,
+    () => ({
+      startCommand() {
+        if (!editor || locked) return
+        const { state } = editor
+        const { $from } = state.selection
+        // A command is a word of its own: after text it needs a space first.
+        const before = $from.parent.textBetween(0, $from.parentOffset, undefined, '\n')
+        editor.view.dispatch(state.tr.insertText(before === '' || /\s$/.test(before) ? '/' : ' /'))
+        setDismissed(false)
+        editor.commands.focus()
+      },
+    }),
+    [editor, locked],
   )
 
   // The editor slot's two rates, run once for the slot and the hint line both

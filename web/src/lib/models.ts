@@ -1,3 +1,4 @@
+import { formatTokens } from './format'
 import type { ApiSession, OrbitalModel } from './types'
 
 /** Drops a trailing variant suffix: `claude-opus-5[1m]` -> `claude-opus-5`. */
@@ -86,6 +87,20 @@ export function matchModel(session: ApiSession, models: OrbitalModel[]): Orbital
  */
 export function isExactModelMatch(session: ApiSession, model: OrbitalModel): boolean {
   return model.value === session.model || model.resolvedModel === session.resolvedModel
+}
+
+
+/**
+ * What a model switch costs, as the confirm before it says it — the desktop's
+ * `SwitchDialog` and the phone's model sheet
+ * (docs/decisions/a-model-switch-always-asks.md). `name` is the model switched to.
+ */
+export function modelSwitchCost(name: string, contextTokens: number | null | undefined): string {
+  const amount = contextTokens ? `all ${formatTokens(contextTokens)} tokens of it` : 'all of it'
+  return (
+    `The conversation is kept, but ${name} reads it from scratch on your next message — ${amount}. ` +
+    'The cache that makes a turn cheap belongs to the current model, so that turn uses noticeably more of your limit than usual.'
+  )
 }
 
 /**

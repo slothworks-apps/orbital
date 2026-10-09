@@ -12,6 +12,7 @@
  *   header row 2, first        session/StateLine.tsx             F2 (words: stateWords.ts)
  *   header row 2, after state  session/HarnessProgress.tsx       T1.2
  *   header row 2, after that   session/MoonsChip.tsx             T3.1
+ *   header row 2, right        session/ModelSwitch.tsx, ModeSwitch.tsx
  *   transcript tail            session/TranscriptTail.tsx        F2: GateCard, LimitNotice, MenuOutcome, divider
  *     gate card + its key      session/GateCard.tsx              T1.1, T1.3 (thumbnails: harness/GateThumbs.tsx)
  *     limit notice + its key   session/LimitNotice.tsx           T5.1
@@ -20,11 +21,8 @@
  *   tool rows: chips, images   session/TranscriptChip.tsx        Z1, through `PhoneToolRowContext`
  *   path and image presses     files/open.ts (`installFileOpen`) T2.1
  *   composer focus + hint      `focusComposer` (state)           T1.1 calls it on Reopen
- *
- * The model label and the mode dot stay labels (spec "Decided before").
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { sessionModelLabel } from '../../lib/models'
 import { isReadOnly, tagColor, type BackgroundTask, type ChatMessage, type Subagent } from '../../lib/types'
 import { getSocket } from '../../lib/socket'
 import { ReplyMediaSession } from '../../panels/ReplyMedia'
@@ -32,13 +30,15 @@ import { PhoneToolRowContext } from '../../panels/ToolRow'
 import { TranscriptView } from '../../panels/TranscriptView'
 import { useMedia } from '../../store/media'
 import { useOrbital, type SessionEvent } from '../../store/store'
-import { ModeDot } from '../../ui/ModeDot'
+import { FullTextTip } from '../FullTextTip'
 import { notificationId } from '../notify'
 import { readTranscriptCache } from '../platform/cache'
 import { removeDeliveredNotification } from '../platform/localNotify'
 import { ContextReadout } from '../session/ContextReadout'
 import { HarnessProgress } from '../session/HarnessProgress'
 import { useHarnessRows } from '../session/harnessRows'
+import { ModelSwitch } from '../session/ModelSwitch'
+import { ModeSwitch } from '../session/ModeSwitch'
 import { MoonsChip } from '../session/MoonsChip'
 import { SessionMenuButton } from '../session/SessionMenuButton'
 import { StateLine } from '../session/StateLine'
@@ -155,7 +155,11 @@ function SessionView({ id }: { id: string }) {
           ‹
         </button>
         <div className="min-w-0 flex-1 pr-2">
-          <h1 className="truncate text-[16.5px] font-bold tracking-[-0.01em]">{session?.title || 'Untitled session'}</h1>
+          <h1 className="flex text-[16.5px] font-bold tracking-[-0.01em]">
+            <FullTextTip text={session?.title || 'Untitled session'} className="truncate">
+              {session?.title || 'Untitled session'}
+            </FullTextTip>
+          </h1>
           {session && (
             // 9b's cwd · branch line; 2h adds the worktree count, which opens their list.
             <div className="mt-0.5 min-w-0">
@@ -172,21 +176,8 @@ function SessionView({ id }: { id: string }) {
           <HarnessProgress session={session} offline={offline} />
           <MoonsChip session={session} offline={offline} />
           <span aria-hidden className="flex-1" />
-          {/* The phone reads the model and the mode; switching either stays on the Mac for now. */}
-          {(session.model || session.resolvedModel) && (
-            <span className="mx-1.5 flex h-7 min-w-0 items-center rounded-[6px] border border-[rgba(150,205,255,.2)] px-[9px] font-mono text-[11px] text-text-bright">
-              <span className="truncate">{sessionModelLabel(session, models)}</span>
-            </span>
-          )}
-          {session.permissionMode && (
-            <span
-              role="img"
-              aria-label={`Permission mode ${session.permissionMode}`}
-              className="mx-2 grid h-7 w-7 shrink-0 place-items-center rounded-[6px] border border-[rgba(150,205,255,.2)]"
-            >
-              <ModeDot mode={session.permissionMode} size={8} />
-            </span>
-          )}
+          <ModelSwitch session={session} offline={offline} />
+          <ModeSwitch session={session} offline={offline} />
         </div>
       )}
     </div>

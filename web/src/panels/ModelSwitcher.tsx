@@ -4,8 +4,7 @@ import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { useCommand } from '../lib/commands'
 import { command, matches, shortcutLabel } from '../lib/keymap'
-import { formatTokens } from '../lib/format'
-import { matchModel, modelChipLabel, sessionModelLabel } from '../lib/models'
+import { matchModel, modelChipLabel, modelSwitchCost, sessionModelLabel } from '../lib/models'
 import { Badge } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { Dialog } from '../ui/Dialog'
@@ -232,7 +231,6 @@ function SwitchDialog({
   }, [open, onConfirm])
 
   const name = to ? modelChipLabel(to) : ''
-  const amount = contextTokens ? `all ${formatTokens(contextTokens)} tokens of it` : 'all of it'
   return (
     <Dialog
       open={open}
@@ -253,9 +251,7 @@ function SwitchDialog({
       }
     >
       <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
-        The conversation is kept, but {name} reads it from scratch on your next message — {amount}. The
-        cache that makes a turn cheap belongs to the current model, so that turn uses noticeably more of your
-        limit than usual.
+        {modelSwitchCost(name, contextTokens)}
       </p>
     </Dialog>
   )
