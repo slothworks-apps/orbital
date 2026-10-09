@@ -12,6 +12,9 @@ import { SubagentScreen } from './screens/SubagentScreen'
 import { TaskScreen } from './screens/TaskScreen'
 import { UnpairedScreen } from './screens/UnpairedScreen'
 import { useMobile } from './state'
+import { RestartFrame } from './update/RestartFrame'
+import { usePhoneUpdate } from './update/state'
+import { usePhoneUpdateNotice } from './update/UpdateNotice'
 
 /**
  * One screen at a time, chosen by in-memory state (spec § 5), behind two
@@ -24,6 +27,9 @@ export function MobileApp() {
   const screen = useMobile((s) => s.screen)
   const screenLock = useMobile((s) => s.screenLock)
   const locked = useMobile((s) => s.lock !== 'open')
+  // The UPDATE notice waits in the queue; only the session list shows it.
+  usePhoneUpdateNotice()
+  const restarting = usePhoneUpdate((s) => (s.shown?.phase === 'restarting' ? s.shown.bundle.version : null))
   if (screenLock) {
     return (
       <div className="h-full bg-space font-sans text-text-bright">
@@ -45,6 +51,7 @@ export function MobileApp() {
       {screen === 'unpaired' && <UnpairedScreen />}
       {screen === 'mismatch' && <MismatchScreen />}
       {locked && <LockScreen />}
+      {restarting && <RestartFrame version={restarting} />}
     </div>
   )
 }

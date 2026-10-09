@@ -1,0 +1,139 @@
+import { create } from 'zustand'
+import { compareVersions } from '@orbital/shared/remote/version'
+
+/**
+ * The phone's over-the-air update as the user meets it (spec
+ * 2026-10-09-phone-ota-updates-design → The app; canvas `Feature - Phone
+ * update`): a bundle the plugin finished downloading becomes the UPDATE
+ * notice on the session list, READY with Restart; × turns it into a one-line
+ * receipt (AFTER ×) whose OK ends it. Restart shows the restart frame and
+ * reloads into the bundle; closing leaves the bundle for the next time the app
+ * starts. Each version is offered once.
+ *
+ * The plugin, the stored answers and the reload are behind `UpdateSource`
+ * (`platform.ts` on a phone, `demo.ts` in a browser), so this holds no
+ * Capacitor.
+ */
+
+export interface DownloadedBundle {
+  /** The plugin's id for the downloaded bundle; `set` takes it. */
+  id: string
+  version: string
+}
+
+export type UpdatePhase = 'ready' | 'closed' | 'restarting'
+
+export interface ShownUpdate {
+  phase: UpdatePhase
+  bundle: DownloadedBundle
+}
+
+export interface UpdateSource {
+  /** Reloads into the bundle now; a failure rejects. */
+  restart(bundle: DownloadedBundle): Promise<void>
+  /** Leaves the bundle for the next time the app starts. */
+  later(bundle: DownloadedBundle): Promise<void>
+  /** Remembers that this version has been answered, so it is not offered again. */
+  answered(version: string): Promise<void>
+}
+
+export type DownloadVerdict = 'prompt' | 'not-newer' | 'ignore'
+
+/**
+ * What a finished download means:
+ *
+ * - a version not above the one running — the same one (a fresh store
+ *   install is offered the bundle it carries built in), `builtin` or an
+ *   older one — is never offered and never stored (`not-newer`). A signed
+ *   bundle's session key and checksum are not bound to its version, so a
+ *   server could replay an older signed bundle under any name; only newer
+ *   versions are taken, and `guard.ts` refuses an old one that slips in
+ *   under a newer name;
+ * - a version already answered, or a download while the app restarts, is
+ *   left alone;
+ * - anything else is offered, replacing an unanswered offer of another
+ *   version: the newer download wins.
+ */
+export function downloadVerdict(input: {
+  bundle: DownloadedBundle
+  running: string
+  answered: string | null
+  shown: ShownUpdate | null
+}): DownloadVerdict {
+  const { bundle, running, answered, shown } = input
+  if (shown?.phase === 'restarting') return 'ignore'
+  if (bundle.version === 'builtin' || compareVersions(bundle.version, running) <= 0)
+    return 'not-newer'
+  if (bundle.version === answered) return 'ignore'
+  if (shown?.phase === 'closed' && shown.bundle.version === bundle.version) return 'ignore'
+  return 'prompt'
+}
+
+interface PhoneUpdateState {
+  shown: ShownUpdate | null
+  /** The last version answered, as stored; null when none or not read yet. */
+  answered: string | null
+  /** The shell's native version, for Settings' footer; null until read, and in a browser. */
+  shell: string | null
+  /** "Send diagnostics" (`diagnostics.ts`); null until read. */
+  diagnostics: boolean | null
+  source: UpdateSource | null
+  connect(source: UpdateSource, answered: string | null): void
+  downloaded(bundle: DownloadedBundle, running: string): void
+  restart(): void
+  close(): void
+  ok(): void
+}
+
+const warn = (what: string) => (err: unknown) =>
+  console.warn(`[mobile] update: could not ${what}`, err)
+
+export const usePhoneUpdate = create<PhoneUpdateState>()((set, get) => ({
+  shown: null,
+  answered: null,
+  shell: null,
+  diagnostics: null,
+  source: null,
+
+  connect: (source, answered) => set({ source, answered }),
+
+  downloaded: (bundle, running) => {
+    const { shown, answered } = get()
+    const verdict = downloadVerdict({ bundle, running, answered, shown })
+    if (verdict === 'prompt') set({ shown: { phase: 'ready', bundle } })
+    else if (verdict === 'not-newer')
+      console.warn(
+        `[mobile] update: ignored a download of ${bundle.version}, not newer than ${running}`,
+      )
+  },
+
+  restart: () => {
+    const { shown, source } = get()
+    if (shown?.phase !== 'ready' || !source) return
+    const { bundle } = shown
+    set({ shown: { phase: 'restarting', bundle }, answered: bundle.version })
+    void (async () => {
+      await source.answered(bundle.version).catch(warn('store the answer'))
+      try {
+        await source.restart(bundle)
+      } catch (err) {
+        // The bundle could not be switched to: nothing more is offered for it.
+        warn('restart into the bundle')(err)
+        set({ shown: null })
+      }
+    })()
+  },
+
+  close: () => {
+    const { shown, source } = get()
+    if (shown?.phase !== 'ready' || !source) return
+    const { bundle } = shown
+    set({ shown: { phase: 'closed', bundle }, answered: bundle.version })
+    source.answered(bundle.version).catch(warn('store the answer'))
+    source.later(bundle).catch(warn('keep the bundle for the next start'))
+  },
+
+  ok: () => {
+    if (get().shown?.phase === 'closed') set({ shown: null })
+  },
+}))

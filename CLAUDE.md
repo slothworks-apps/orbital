@@ -38,13 +38,20 @@ Seven npm workspaces:
 
 ### Versions
 
-Three things ship, and each carries its own version:
+Three things ship, and each carries its own version; the phone carries two:
 
 | what ships | its version | changed by |
 |---|---|---|
 | the desktop DMG | `version` in `desktop/package.json` | `desktop/`, `server/`, `web/`, `shared/` |
 | the relay image | `version` in `relay/package.json` | `relay/`, `shared/` |
-| the phone app (Android and iOS) | `versionName` in `mobile/android/app/build.gradle` | `mobile/`, `web/src/mobile` and what it imports, `shared/` |
+| the phone app, over the air (Android and iOS) | `version` in `mobile/package.json` | `mobile/`, `web/src/mobile` and what it imports, `shared/` |
+| the phone's native shell, through the stores | `versionName` in `mobile/android/app/build.gradle` | a native plugin, a permission, an `Info.plist` or manifest change, a Capacitor upgrade |
+
+Every change that reaches the phone bumps its app version, which ships as a
+signed bundle through Beam. Only a change the bundle cannot carry bumps the
+native version too, and that is a store build; a native bump always bumps
+the app version with it, which never falls below the native one
+(`docs/ops/ship-the-phone-over-the-air.md`).
 
 When you finish a change that alters what ships — a fix or a feature, not
 a test, a comment or a document — ask whether to bump each version it
@@ -60,13 +67,14 @@ reach.
 The website has no version and no changelog. It is deployed straight from
 `main` by `.github/workflows/site-deploy.yml`.
 
-A phone bump is not one edit: `versionName` and `versionCode` have copies
-in `mobile/package.json` (and `package-lock.json`) and in the Xcode
-project, and every copy changes with them (`mobile/CLAUDE.md`). Run
+A phone bump is not one edit: the app version has a copy in
+`package-lock.json`, and `versionName` and `versionCode` have copies in the
+Xcode project; every copy changes with its source (`mobile/CLAUDE.md`). Run
 `node scripts/check-versions.mjs` after a bump; the `versions` CI job runs
 it on every PR and fails on a copy left behind. In a PR it also runs with
-`--base`, which fails on a version lower than on `main`, and on a new
-`versionName` without a higher `versionCode`.
+`--base`, which fails on a version lower than on `main` (either phone
+version included), and on a new `versionName` without a higher
+`versionCode`.
 
 ### Changelogs
 

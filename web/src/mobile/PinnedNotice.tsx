@@ -44,7 +44,8 @@ export function PinnedNotice({
 }: {
   label: string
   closeLabel?: string
-  onClose: () => void
+  /** Without it the card has no ×; a message's last state may end only through its action. */
+  onClose?: () => void
   /** The buttons, primary first. */
   actions?: ReactNode
   children: ReactNode
@@ -57,16 +58,18 @@ export function PinnedNotice({
       aria-label={label}
       className="flex w-full flex-col gap-2.5 rounded-[16px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] pb-3.5 pl-4 pr-1 pt-1 text-left shadow-[0_14px_36px_rgba(0,0,0,.5),inset_0_1px_0_rgba(255,255,255,.05)] backdrop-blur-[12px]"
     >
-      <div className="flex items-center">
+      <div className="flex min-h-11 items-center">
         <span className="flex-1 font-mono text-[10.5px] tracking-[0.16em] text-[rgba(160,190,225,.65)]">{label}</span>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label={closeLabel}
-          className="grid h-11 w-11 place-items-center text-[18px] text-[rgba(160,190,225,.7)]"
-        >
-          ×
-        </button>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={closeLabel}
+            className="grid h-11 w-11 place-items-center text-[18px] text-[rgba(160,190,225,.7)]"
+          >
+            ×
+          </button>
+        )}
       </div>
       {/* 2a: the message tucks 6 px up under the header's 44 px target. */}
       <div className="-mt-1.5 flex flex-col">{children}</div>

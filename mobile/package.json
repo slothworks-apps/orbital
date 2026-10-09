@@ -1,6 +1,6 @@
 {
   "name": "@orbital/mobile",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "description": "Orbital on the phone: the Capacitor shell around web/'s mobile entry.",
   "author": "SlothWorks s.r.o.",
@@ -13,7 +13,8 @@
     "ipa": "./scripts/ios-release.sh",
     "run": ". ./scripts/android-env.sh && cap run android",
     "ios:open": "cap open ios",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test 'scripts/*.test.mjs'"
   },
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^10.0.0",
@@ -29,7 +30,8 @@
     "@capacitor/ios": "^8.5.2",
     "@capacitor/local-notifications": "^8.3.1",
     "@capacitor/preferences": "^8.0.1",
-    "@capacitor/splash-screen": "^8.0.2"
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capgo/capacitor-updater": "8.51.25"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.5.2",

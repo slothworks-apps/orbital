@@ -5,6 +5,7 @@ type: runbook
 status: in-force
 domain: remote
 related:
+  - ship-the-phone-over-the-air
   - 2026-10-08-builds-for-testers-design
   - 2026-10-05-ios-app-design
   - build-the-android-app
@@ -125,7 +126,9 @@ The simulator gets no FCM pushes; test them on a device.
 npm run ios:release   # from the repo root
 ```
 
-It runs `build:ios` without `ORBITAL_MOBILE_DEV`, then
+It runs `build:ios` without `ORBITAL_MOBILE_DEV` and with
+`ORBITAL_MOBILE_RELEASE=1`, which turns the over-the-air updater on and needs
+`mobile/ota-public-key.pem` ([[ship-the-phone-over-the-air]]), then
 `mobile/scripts/ios-release.sh`: `xcodebuild archive` and
 `xcodebuild -exportArchive` with `mobile/ios/ExportOptions.plist`, whose
 destination `upload` sends the build to App Store Connect through the

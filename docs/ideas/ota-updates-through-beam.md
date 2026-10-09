@@ -1,7 +1,7 @@
 ---
 id: ota-updates-through-beam
 title: Over-the-air updates for the phone app through Beam
-status: backlog
+status: done
 type: idea
 domain: mobile
 related:

@@ -6,6 +6,8 @@ name: Release
 # ships to; the jobs after it build and publish only what is missing:
 #
 #   mac         desktop/package.json  → a published GitHub Release v<version>
+#   ota         mobile/package.json   → the phone's bundle <version> on Beam,
+#                                       encrypted and signed
 #   ios+android build.gradle          → TestFlight and Play Internal testing,
 #                                       then the tag mobile-v<versionName>
 #   relay       relay/package.json    → ghcr.io/<owner>/orbital-relay:<version>
@@ -15,7 +17,7 @@ name: Release
 # re-run only the failed job: the stores refuse a build number they have
 # seen, so the platform that already uploaded would fail a full retry.
 # The secrets each job reads are in the runbooks run-the-desktop-app,
-# build-the-ios-app and build-the-android-app.
+# build-the-ios-app, build-the-android-app and ship-the-phone-over-the-air.
 on:
   push:
     branches: [main]
@@ -39,9 +41,11 @@ jobs:
       packages: read
     outputs:
       mac: ${{ steps.plan.outputs.mac }}
+      ota: ${{ steps.plan.outputs.ota }}
       mobile: ${{ steps.plan.outputs.mobile }}
       relay: ${{ steps.plan.outputs.relay }}
       mac-version: ${{ steps.plan.outputs.mac-version }}
+      ota-version: ${{ steps.plan.outputs.ota-version }}
       mobile-version: ${{ steps.plan.outputs.mobile-version }}
       relay-version: ${{ steps.plan.outputs.relay-version }}
     steps:
@@ -60,6 +64,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          # Read-only use here: the bundle lookup on Beam.
+          BEAM_UPLOAD_KEY: ${{ secrets.BEAM_UPLOAD_KEY }}
         run: node scripts/release-plan.mjs
 
   mac:
@@ -174,6 +180,9 @@ jobs:
           pod --version
 
       - run: npm ci
+      # The updater plugin carries no session text only with its patch, which
+      # npm ci applies; this fails the build when it did not.
+      - run: npm test -w @orbital/mobile
 
       - name: Write the Firebase config and the App Store Connect API key
         env:
@@ -216,6 +225,9 @@ jobs:
           java-version: 21
           cache: gradle
       - run: npm ci
+      # The updater plugin carries no session text only with its patch, which
+      # npm ci applies; this fails the build when it did not.
+      - run: npm test -w @orbital/mobile
 
       # The paths build.gradle reads, all git-ignored.
       - name: Write the upload key, the Play service account and the Firebase config
@@ -253,6 +265,64 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.plan.outputs.mobile-version }}
         run: gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/mobile-v$VERSION" -f sha="$GITHUB_SHA"
+
+  ota:
+    # The phone's app version over the air (spec
+    # 2026-10-09-phone-ota-updates-design → Releasing), apart from the store
+    # jobs: when both run, the bundle still goes up — shells older than its
+    # minNativeVersion are told to wait, new shells carry it built in.
+    # `error` when Beam could not say whether the version is there: this job
+    # then fails visibly, while the other apps still ship.
+    needs: plan
+    if: needs.plan.outputs.ota == 'true' || needs.plan.outputs.ota == 'error'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Stop when Beam could not be asked
+        if: needs.plan.outputs.ota == 'error'
+        run: |
+          echo "::error::The plan could not ask Beam whether the phone's bundle is there; see the plan job. Re-run when Beam answers."
+          exit 1
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      # The web build asks whether each shell has its Firebase config
+      # (vite.mobile.config.ts), and the store builds have both: without them
+      # the bundle would never register for pushes.
+      - name: Write the Firebase configs
+        env:
+          ANDROID_GOOGLE_SERVICES_JSON: ${{ secrets.ANDROID_GOOGLE_SERVICES_JSON }}
+          IOS_GOOGLE_SERVICE_INFO_PLIST: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_PLIST }}
+        run: |
+          printf '%s' "$ANDROID_GOOGLE_SERVICES_JSON" > mobile/android/app/google-services.json
+          printf '%s' "$IOS_GOOGLE_SERVICE_INFO_PLIST" > mobile/ios/App/App/GoogleService-Info.plist
+
+      # The same build the store jobs put in the shell, and the same guard.
+      - name: Build the phone's bundle
+        run: |
+          env -u ORBITAL_MOBILE_DEV npm run build:mobile -w @orbital/web
+          npm run test:bundle -w @orbital/web
+
+      # Signs, checks the result opens with mobile/ota-public-key.pem, uploads
+      # with minNativeVersion = build.gradle's versionName and the version's
+      # section of mobile/CHANGELOG.md as its notes. The private key exists
+      # only in this step's environment: never on disk, never while npm or
+      # the build ran.
+      - name: Sign and upload to Beam
+        env:
+          OTA_PRIVATE_KEY: ${{ secrets.OTA_PRIVATE_KEY }}
+          BEAM_UPLOAD_KEY: ${{ secrets.BEAM_UPLOAD_KEY }}
+        run: node scripts/ota-bundle.mjs
+
+      - name: Remove the secrets
+        if: always()
+        run: |
+          rm -f mobile/android/app/google-services.json mobile/ios/App/App/GoogleService-Info.plist
 
   relay-check:
     # The relay ships as a Linux image, so unlike ci.yml it is tested on Linux.

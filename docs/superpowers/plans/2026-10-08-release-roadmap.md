@@ -146,6 +146,14 @@ what can ship over the air and what needs a store build.
 **Exit:** a fix to `web/src/mobile` reaches testers' phones without a
 store build, and a bundle with a bad signature is refused.
 
+**Built 2026-10-09** ([[2026-10-09-phone-ota-updates-design]], phone 0.8.0
+on shell 0.8.0): the updater in release builds, signing in CI, the `ota`
+job, `HELD` emptied. Before the merge the maintainer makes the key pair,
+commits `mobile/ota-public-key.pem`, creates the Beam app and sets
+`OTA_PRIVATE_KEY` and `BEAM_UPLOAD_KEY`
+([[ship-the-phone-over-the-air]]). The exit is met once the device checks
+in that runbook pass.
+
 ## Phase 4 — Public release in the stores
 
 - Review: the video on the demo data from Phase 2 and the review notes
