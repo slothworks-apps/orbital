@@ -4,6 +4,11 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.9.2] — 2026-10-09
+### Added
+- A `/` button under the message field: it starts a slash command and opens the list of commands and skills, without hunting for the slash on the keyboard.
+- Tap a session's title, or its project and branch, at the top of a session to read them whole when they are cut short.
+
 ## [0.9.1] — 2026-10-09
 ### Added
 - Change a session's model and permission mode from its header: tap the model or the mode dot. A model switch asks first, as on the Mac, because the next message costs more.

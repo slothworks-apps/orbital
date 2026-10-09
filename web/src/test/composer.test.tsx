@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useState } from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { createRef, useState } from 'react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
 import { api } from '../lib/api'
-import { Composer, type ComposerProps } from '../panels/Composer'
+import { Composer, type ComposerControl, type ComposerProps } from '../panels/Composer'
 import { backspace, clickAndType, editorOf, fieldValue, replaceField, typeInto } from './composerField'
 import { escapeLayerDepth } from '../ui/escapeLayer'
 import type { SlashCommand, FileCompletionEntry } from '../lib/types'
@@ -331,6 +331,15 @@ describe('CompletionPopup — commands', () => {
     render(<Harness />)
     clickAndType(field(), 'then run /co')
     await screen.findByRole('option', { name: /code-review/ })
+  })
+
+  it("opens from the mount's / control, as a word of its own after text", async () => {
+    const control = createRef<ComposerControl>()
+    render(<Harness initial="then run" control={control} />)
+    act(() => control.current?.startCommand())
+
+    await screen.findByRole('option', { name: /code-review/ })
+    expect(fieldValue(field())).toBe('then run /')
   })
 
   it('inserts a command accepted mid-prompt in place, leaving the prose alone', async () => {

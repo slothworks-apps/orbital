@@ -30,6 +30,7 @@ import { PhoneToolRowContext } from '../../panels/ToolRow'
 import { TranscriptView } from '../../panels/TranscriptView'
 import { useMedia } from '../../store/media'
 import { useOrbital, type SessionEvent } from '../../store/store'
+import { FullTextTip } from '../FullTextTip'
 import { notificationId } from '../notify'
 import { readTranscriptCache } from '../platform/cache'
 import { removeDeliveredNotification } from '../platform/localNotify'
@@ -154,7 +155,11 @@ function SessionView({ id }: { id: string }) {
           ‹
         </button>
         <div className="min-w-0 flex-1 pr-2">
-          <h1 className="truncate text-[16.5px] font-bold tracking-[-0.01em]">{session?.title || 'Untitled session'}</h1>
+          <h1 className="flex text-[16.5px] font-bold tracking-[-0.01em]">
+            <FullTextTip text={session?.title || 'Untitled session'} className="truncate">
+              {session?.title || 'Untitled session'}
+            </FullTextTip>
+          </h1>
           {session && (
             // 9b's cwd · branch line; 2h adds the worktree count, which opens their list.
             <div className="mt-0.5 min-w-0">
