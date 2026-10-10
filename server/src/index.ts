@@ -20,6 +20,7 @@ import {
   RETENTION_KEY,
 } from './retention.js';
 import { openDb } from './db/database.js';
+import { parseAutoCompactSettings } from './runner/autoCompact.js';
 import { compactionFailures, pendingRewinds, sessionColumns, sessions, settings as settingsTable } from './db/schema.js';
 import { indexPaths, indexProjectsSliced, type IndexOwner } from './indexer/indexer.js';
 import { batchSessionIds, watchProjects } from './watcher/projects.js';
@@ -820,6 +821,9 @@ export async function buildServer(overrides: {
     autoAllow: (sessionId, toolName, input) => harness.allowsWithoutAsking(sessionId, toolName, input),
     hasLiveBackgroundWork: (sessionId) => holdsWorking(sessionId),
     keepsAwake: (sessionId) => backgroundTasks.kept(sessionId).length > 0,
+    // Auto-compact between turns, behind its Experimental switch (spec
+    // 2026-10-10-auto-compact-between-turns-design).
+    autoCompact: () => parseAutoCompactSettings((key) => settingsStore.get(key)),
     // A launch's tool_result named the output file after its task started:
     // the task gains `hasOutput`, and a view already open on it can follow.
     onTaskOutputPath: (sessionId, toolUseId, path) => {

@@ -35,6 +35,11 @@ export const TERMINAL_CURSOR_BLINK_KEY = 'terminal_cursor_blink'
 export type TerminalPlacement = 'dock' | 'side'
 export type TerminalCursor = 'block' | 'bar' | 'underline'
 
+/** Auto-compact between turns (spec 2026-10-10-auto-compact-between-turns-design); parsed and clamped server-side. */
+export const AUTO_COMPACT_ENABLED_KEY = 'auto_compact_enabled'
+export const AUTO_COMPACT_THRESHOLD_KEY = 'auto_compact_threshold_tokens'
+export const AUTO_COMPACT_QUIET_KEY = 'auto_compact_quiet_seconds'
+
 type Settings = Record<string, string | undefined>
 
 export function experimentalUnlocked(settings: Settings): boolean {
@@ -55,6 +60,23 @@ export function narrateCommentary(settings: Settings): boolean {
 
 export function harnessEnabled(settings: Settings): boolean {
   return settings[HARNESS_ENABLED_KEY] === 'true'
+}
+
+export function autoCompactEnabled(settings: Settings): boolean {
+  return settings[AUTO_COMPACT_ENABLED_KEY] === 'true'
+}
+
+/** The threshold in thousands of tokens, as the row edits it. */
+export function autoCompactThresholdK(settings: Settings): string {
+  const n = Number(settings[AUTO_COMPACT_THRESHOLD_KEY])
+  return String(Number.isFinite(n) && n > 0 ? Math.round(n / 1000) : 200)
+}
+
+export function autoCompactQuietSeconds(settings: Settings): string {
+  const n = Number(settings[AUTO_COMPACT_QUIET_KEY])
+  return String(
+    settings[AUTO_COMPACT_QUIET_KEY] && Number.isFinite(n) && n >= 0 ? Math.round(n) : 120,
+  )
 }
 
 export function archipelagoEnabled(settings: Settings): boolean {

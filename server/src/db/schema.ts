@@ -367,7 +367,7 @@ export const compactionFailures = sqliteTable(
     at: integer('at').notNull(),
     error: text('error'),
     preTokens: integer('pre_tokens'),
-    trigger: text('trigger').$type<'manual' | 'auto'>().notNull(),
+    trigger: text('trigger').$type<'manual' | 'auto' | 'orbital'>().notNull(),
     durationMs: integer('duration_ms'),
     clearedAt: integer('cleared_at'),
   },

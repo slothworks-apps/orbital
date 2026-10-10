@@ -46,7 +46,13 @@ import {
   WALKTHROUGH_ENABLED_KEY,
   HARNESS_ENABLED_KEY,
   ARCHIPELAGO_ENABLED_KEY,
+  AUTO_COMPACT_ENABLED_KEY,
+  AUTO_COMPACT_QUIET_KEY,
+  AUTO_COMPACT_THRESHOLD_KEY,
   archipelagoEnabled,
+  autoCompactEnabled,
+  autoCompactQuietSeconds,
+  autoCompactThresholdK,
   experimentalUnlocked,
   isRevealChord,
   narrateCommentary,
@@ -1372,6 +1378,62 @@ export function Settings({ open, onClose }: SettingsProps) {
                             })
                           }
                         />
+                      </Row>
+                      <Row
+                        title="Auto-compact between turns"
+                        desc="Compacts an Orbital session by itself once it has ended a turn, has waited for you for the quiet delay and its context is above the threshold. Never in the middle of a turn. Saves tokens; the session keeps only a summary of what came before."
+                      >
+                        <div className="flex flex-col items-start gap-2">
+                          <Toggle
+                            aria-label="Auto-compact between turns"
+                            checked={autoCompactEnabled(settings)}
+                            onChange={(checked) =>
+                              void patchAndSet({ [AUTO_COMPACT_ENABLED_KEY]: checked ? 'true' : 'false' })
+                            }
+                          />
+                          <div className="flex items-center gap-3.5 font-mono text-xs text-[rgba(160,190,225,.7)]">
+                            <label className="flex items-center gap-1.5">
+                              above
+                              <Input
+                                key={autoCompactThresholdK(settings)}
+                                aria-label="Auto-compact threshold in thousands of tokens"
+                                font="mono"
+                                size="sm"
+                                type="number"
+                                min={50}
+                                max={900}
+                                defaultValue={autoCompactThresholdK(settings)}
+                                onBlur={(e) => {
+                                  const k = Number(e.target.value)
+                                  if (Number.isFinite(k) && k > 0)
+                                    void patchAndSet({ [AUTO_COMPACT_THRESHOLD_KEY]: String(Math.round(k) * 1000) })
+                                }}
+                                className="w-[60px] text-center"
+                              />
+                              k tokens
+                            </label>
+                            <label className="flex items-center gap-1.5">
+                              quiet for
+                              <Input
+                                key={autoCompactQuietSeconds(settings)}
+                                aria-label="Auto-compact quiet delay in seconds"
+                                font="mono"
+                                size="sm"
+                                type="number"
+                                min={0}
+                                max={1500}
+                                defaultValue={autoCompactQuietSeconds(settings)}
+                                onBlur={(e) => {
+                                  const sec = Number(e.target.value)
+                                  if (Number.isFinite(sec) && sec >= 0)
+                                    void patchAndSet({ [AUTO_COMPACT_QUIET_KEY]: String(Math.round(sec)) })
+                                }}
+                                className="w-[60px] text-center"
+                              />
+                              s
+                            </label>
+                          </div>
+                        </div>
                       </Row>
                       <Row
                         title="Harness"

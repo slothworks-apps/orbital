@@ -236,7 +236,7 @@ export interface ApiSession {
    *
    * Optional here, like every other snapshot field added after the fixtures.
    */
-  compacting?: { startedAt: number; trigger: 'manual' | 'auto' } | null
+  compacting?: { startedAt: number; trigger: CompactionTrigger } | null
   /**
    * The newest compaction failed and nothing has moved on from it yet — no
    * success, no new turn. Survives a restart; opening the session does not
@@ -581,7 +581,7 @@ export type NoticeLevel = 'info' | 'notice' | 'suggestion' | 'warning'
  */
 export interface CompactionMark {
   outcome: 'success' | 'failed'
-  trigger: 'manual' | 'auto'
+  trigger: CompactionTrigger
   preTokens: number | null
   postTokens: number | null
   durationMs: number | null
@@ -1863,3 +1863,6 @@ export type PairConfirmResult =
   | { ok: true }
   | { error: Exclude<PairConfirmError, 'code_mismatch'> }
   | { error: 'code_mismatch'; attemptsLeft: number }
+
+/** `orbital` is a `/compact` Orbital sent by itself (spec 2026-10-10-auto-compact-between-turns-design). */
+export type CompactionTrigger = 'manual' | 'auto' | 'orbital'

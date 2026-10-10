@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Experimental: auto-compact between turns. A session whose context is above a threshold you set is compacted once it has finished a turn and waited for you a while, never in the middle of work. It keeps only a summary of what came before and uses far fewer tokens from then on.
 
 ## [0.29.0] — 2026-10-12
 ### Added

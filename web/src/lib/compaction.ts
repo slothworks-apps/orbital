@@ -1,4 +1,4 @@
-import type { ApiSession, ChatMessage, CompactionMark, ErrorRecord } from './types'
+import type { ApiSession, ChatMessage, CompactionMark, CompactionTrigger, ErrorRecord } from './types'
 import { sessionStateKey } from './types'
 import { chipSegments } from './subagentList'
 
@@ -35,7 +35,7 @@ export function compactingOf(
     ApiSession,
     'source' | 'status' | 'compacting' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks'
   >,
-): { startedAt: number; trigger: 'manual' | 'auto' } | null {
+): { startedAt: number; trigger: CompactionTrigger } | null {
   if (session.source !== 'web' || session.status === 'ended' || !session.compacting) return null
   if (sessionStateKey(session) === 'needs_input') return null
   return session.compacting

@@ -2,6 +2,7 @@ import type { ChatMessage, ImageRefEntry } from '../types.js';
 import type { ImageWriter } from '../images/store.js';
 import { messageFromLocalCommandEntry } from './notices.js';
 import { compactSummaryText, markFromTranscriptBoundary } from './compaction.js';
+import { AUTO_COMPACT_TAG } from '../runner/autoCompact.js';
 import { parseWalkthroughTag, walkthroughChipName, WALKTHROUGH_TAG } from '../walkthrough/tag.js';
 
 export type { ImageWriter };
@@ -124,7 +125,7 @@ function textOf(content: string | Array<Record<string, unknown>>): string {
 // is a resume, and a session that sleeps and wakes often collects them faster
 // than anything the human types. Folded, not dropped: which agent died is
 // worth keeping one click away.
-const NOISE_BLOCK = /<(local-command-caveat|local-command-stdout|local-command-stderr|system-reminder|command-message|command-name|command-args|command-contents|task-notification|orbital-walkthrough)(?:\s[^>]*)?>[\s\S]*?(<\/\1>|$)/g;
+const NOISE_BLOCK = /<(local-command-caveat|local-command-stdout|local-command-stderr|system-reminder|command-message|command-name|command-args|command-contents|task-notification|orbital-walkthrough|orbital-auto-compact)(?:\s[^>]*)?>[\s\S]*?(<\/\1>|$)/g;
 
 /**
  * The command-expansion fold (spec: 2026-09-18-transcript-folding-design).
@@ -307,10 +308,23 @@ export function toolResultParts(
   return { text: texts.join('\n'), images: refs };
 }
 
+/** A user entry's typed text, or null for one that carries tool results. */
+function promptText(content: unknown): string | null {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content) || content.some((b) => b?.type === 'tool_result')) return null;
+  return content
+    .filter((b) => b?.type === 'text' && typeof b.text === 'string')
+    .map((b) => b.text as string)
+    .join('\n');
+}
+
 export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWriter): ChatMessage[] {
   const out: ChatMessage[] = [];
   // The newest compaction mark still waiting for its summary entry.
   let unsummarised: ChatMessage | null = null;
+  // The newest prompt was Orbital's own `/compact`: the CLI records its
+  // boundary as `manual` (spec 2026-10-10-auto-compact-between-turns-design).
+  let orbitalCompactAsked = false;
   for (const e of entries) {
     // The entry's uuid rides on every message it becomes: a rewind names its
     // target by it, and the messages API cuts and places dividers by it
@@ -324,10 +338,17 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
     // A compaction becomes its own mark, carrying the summary from the entry
     // that follows it — the same item the runner builds live (spec
     // 2026-09-28-context-compaction-design § Success).
+    if (e.type === 'user' && e.isCompactSummary !== true && e.isSidechain !== true) {
+      const prompt = promptText(e.message?.content);
+      if (prompt !== null) orbitalCompactAsked = prompt.includes(`<${AUTO_COMPACT_TAG}`);
+    }
     if (e.type === 'system' && e.subtype === 'compact_boundary' && e.isSidechain !== true) {
+      const compaction = markFromTranscriptBoundary(e);
+      if (compaction.trigger === 'manual' && orbitalCompactAsked) compaction.trigger = 'orbital';
+      orbitalCompactAsked = false;
       unsummarised = {
         id: `${e.uuid}:0`, role: 'compaction', timestamp: e.timestamp, ...origin,
-        compaction: markFromTranscriptBoundary(e),
+        compaction,
       };
       out.push(unsummarised);
       continue;
