@@ -17,7 +17,6 @@ import {
   showTrash,
   trashDropFor,
   PANEL_GUTTER_PX,
-  SUBAGENT_PANEL_DEFAULT_PX,
 } from '../store/store'
 import { isReadOnly, sessionStateKey, type SessionStateKey } from '../lib/types'
 import { stateColor, stateDot } from '../lib/stateStyle'
@@ -80,6 +79,7 @@ import {
   type FitBody,
   type Position,
 } from './camera'
+import { useSideSlotWidth } from '../terminal/useTerminalHost'
 
 /**
  * Top-down space map scene: a `Canvas` (WebGL, untestable in jsdom) driven
@@ -558,13 +558,15 @@ export function SpaceMap() {
   // not regress).
   const viewportWidth = useViewportWidth()
   const rawDetailPanelWidth = useOrbital((s) => parseDetailPanelWidth(s.settings, viewportWidth))
-  const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null || s.taskOutput !== null)
+  // Whatever holds the side slot — an agent's panel or the terminal's (48b).
+  const slotWidthPx = useSideSlotWidth()
+  const subagentPanelOpen = slotWidthPx > 0
   const pairWidths = useMemo(
     () =>
       subagentPanelOpen
-        ? resolvePanelPairWidths(rawDetailPanelWidth, SUBAGENT_PANEL_DEFAULT_PX, viewportWidth)
+        ? resolvePanelPairWidths(rawDetailPanelWidth, slotWidthPx, viewportWidth)
         : { detailWidthPx: rawDetailPanelWidth, subagentWidthPx: 0 },
-    [subagentPanelOpen, rawDetailPanelWidth, viewportWidth]
+    [subagentPanelOpen, slotWidthPx, rawDetailPanelWidth, viewportWidth]
   )
   const detailPanelWidth = pairWidths.detailWidthPx
   const sidebarWidth = useOrbital((s) => parseSidebarWidth(s.settings, viewportWidth))

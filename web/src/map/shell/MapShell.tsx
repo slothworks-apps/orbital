@@ -4,7 +4,6 @@ import {
   parseSidebarWidth,
   parseDetailPanelWidth,
   resolvePanelPairWidths,
-  SUBAGENT_PANEL_DEFAULT_PX,
   PANEL_GUTTER_PX,
 } from '../../store/store'
 import { sessionStateKey, type SessionStateKey } from '../../lib/types'
@@ -18,6 +17,7 @@ import { shortcutLabel } from '../../lib/keymap'
 import { useCommand } from '../../lib/commands'
 import { EndDialog } from '../../panels/EndDialog'
 import type { CameraState } from '../camera'
+import { useSideSlotWidth } from '../../terminal/useTerminalHost'
 
 const SIDEBAR_GUTTER_PX = 40
 const SIDEBAR_COLLAPSED_PX = 96
@@ -31,16 +31,18 @@ export function useMapInsets() {
   const settings = useOrbital((s) => s.settings)
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const sidebarCollapsed = useOrbital((s) => s.ui.sidebarCollapsed)
-  const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null || s.taskOutput !== null)
+  // Whatever holds the side slot — an agent's panel or the terminal's (48b).
+  const slotWidthPx = useSideSlotWidth()
+  const subagentPanelOpen = slotWidthPx > 0
   const viewportWidth = useViewportWidth()
   const sidebarWidth = parseSidebarWidth(settings, viewportWidth)
   const rawDetailPanelWidth = parseDetailPanelWidth(settings, viewportWidth)
   const pairWidths = useMemo(
     () =>
       subagentPanelOpen
-        ? resolvePanelPairWidths(rawDetailPanelWidth, SUBAGENT_PANEL_DEFAULT_PX, viewportWidth)
+        ? resolvePanelPairWidths(rawDetailPanelWidth, slotWidthPx, viewportWidth)
         : { detailWidthPx: rawDetailPanelWidth, subagentWidthPx: 0 },
-    [subagentPanelOpen, rawDetailPanelWidth, viewportWidth],
+    [subagentPanelOpen, slotWidthPx, rawDetailPanelWidth, viewportWidth],
   )
   const rightPanelsChromePx =
     pairWidths.detailWidthPx +

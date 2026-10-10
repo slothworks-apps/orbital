@@ -25,6 +25,8 @@ import { useFeedbackNotice } from './ui/FeedbackNotice'
 import { MapNoticeHost } from './ui/MapNoticeHost'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { EscapeBoundary } from './ui/escapeLayer'
+import { TerminalWindowDock } from './terminal/TerminalFrames'
+import { useTerminalHost, useTerminalPlacement } from './terminal/useTerminalHost'
 
 /** Module level for the same reason as App's: one connection per page load. */
 const socket = getSocket()
@@ -181,34 +183,46 @@ export function SessionWindow({ id }: { id: string }) {
   const showSubagent = subagentPanelOpen && layout !== 'pending'
   const swap = showSubagent && layout === 'swap'
 
+  // The user's own shells: here always the dock, across the window under the
+  // composer (canvas `Feature - Terminal` 48a's note).
+  useTerminalHost(id, { mainWindow: false })
+  const terminal = useTerminalPlacement(id)
+
   return (
     <EscapeBoundary>
-      <div className="relative flex h-screen w-screen overflow-hidden bg-space">
-        {/* Flush, no gutter: the window is the two panels. In swap the
-            subagent takes the whole window and the detail panel stays mounted
-            underneath, hidden and inert, so its scroll and composer draft
-            are there when the session comes back. */}
-        <div
-          className={swap ? 'invisible absolute inset-0' : 'h-full shrink-0'}
-          style={swap ? undefined : { width: showSubagent ? detailWidthPx : '100%' }}
-          inert={swap || undefined}
-        >
-          <ErrorBoundary label="Detail panel">
-            <DetailPanel standalone hidden={swap} />
-          </ErrorBoundary>
-        </div>
-        {showSubagent && (
-          <div className="h-full shrink-0" style={{ width: swap ? '100%' : subagentWidthPx }}>
-            <ErrorBoundary label="Subagent panel">
-              <SubagentPanel widthPx={swap ? windowWidth : subagentWidthPx} inWindow swap={swap} />
-            </ErrorBoundary>
-            <ErrorBoundary label="Task output">
-              <TaskOutputPanel widthPx={swap ? windowWidth : subagentWidthPx} inWindow swap={swap} />
-            </ErrorBoundary>
-            <ErrorBoundary label="Harness">
-              <HarnessPanel widthPx={swap ? windowWidth : subagentWidthPx} inWindow swap={swap} />
+      <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-space">
+        <div className="relative flex min-h-0 w-full flex-1">
+          {/* Flush, no gutter: the window is the two panels. In swap the
+              subagent takes the whole window and the detail panel stays mounted
+              underneath, hidden and inert, so its scroll and composer draft
+              are there when the session comes back. */}
+          <div
+            className={swap ? 'invisible absolute inset-0' : 'h-full shrink-0'}
+            style={swap ? undefined : { width: showSubagent ? detailWidthPx : '100%' }}
+            inert={swap || undefined}
+          >
+            <ErrorBoundary label="Detail panel">
+              <DetailPanel standalone hidden={swap} />
             </ErrorBoundary>
           </div>
+          {showSubagent && (
+            <div className="h-full shrink-0" style={{ width: swap ? '100%' : subagentWidthPx }}>
+              <ErrorBoundary label="Subagent panel">
+                <SubagentPanel widthPx={swap ? windowWidth : subagentWidthPx} inWindow swap={swap} />
+              </ErrorBoundary>
+              <ErrorBoundary label="Task output">
+                <TaskOutputPanel widthPx={swap ? windowWidth : subagentWidthPx} inWindow swap={swap} />
+              </ErrorBoundary>
+              <ErrorBoundary label="Harness">
+                <HarnessPanel widthPx={swap ? windowWidth : subagentWidthPx} inWindow swap={swap} />
+              </ErrorBoundary>
+            </div>
+          )}
+        </div>
+        {terminal.shown && (
+          <ErrorBoundary label="Terminal">
+            <TerminalWindowDock sessionId={id} />
+          </ErrorBoundary>
         )}
 
         {wsStatus !== 'open' && (
