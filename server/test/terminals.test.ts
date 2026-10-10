@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { join } from 'node:path';
+import { mkdirSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import type { FastifyInstance } from 'fastify';
 import WebSocket from 'ws';
@@ -9,6 +10,7 @@ import { sessions } from '../src/db/schema.js';
 import { API_TOKEN_COOKIE } from '../src/auth/token.js';
 import { isAllowed } from '../src/remote/allowlist.js';
 import { Scrollback } from '../src/terminal/scrollback.js';
+import { commandLabel, folderLabel, foregroundCommand, parsePs } from '../src/terminal/label.js';
 import { TerminalStore, parseInput, shellEnv } from '../src/terminal/store.js';
 import { makeTmpDir } from './tmp.js';
 
@@ -35,6 +37,42 @@ describe('Scrollback', () => {
     const s = new Scrollback(12);
     s.push('line one\nline two\nline three\n');
     expect(s.text()).toBe('line three\n');
+  });
+});
+
+describe('tab labels', () => {
+  it('cuts a command down to what it does', () => {
+    for (const [args, label] of [
+      ['npm run dev', 'npm run dev'],
+      ['node /usr/local/lib/node_modules/npm/bin/npm-cli.js run dev', 'npm run dev'],
+      ['npm install', 'npm install'],
+      ['npm', 'npm'],
+      ['pnpm run --silent build', 'pnpm run build'],
+      ['npx vitest run src/terminal', 'vitest'],
+      ['npx --yes vitest', 'vitest'],
+      ['node /x/node_modules/.bin/vite.js --port 5174', 'vite'],
+      ['/usr/bin/git rebase -i HEAD~3', 'git rebase'],
+      ['python3 manage.py runserver', 'manage'],
+      ['-zsh', 'zsh'],
+      ['vim src/a.ts', 'vim'],
+      ['  ', ''],
+    ]) expect(commandLabel(args), args).toBe(label);
+  });
+  it('names a folder by its base name, and home as ~', () => {
+    expect(folderLabel('/Users/a/orbital/web', '/Users/a')).toBe('web');
+    expect(folderLabel('/Users/a', '/Users/a')).toBe('~');
+    expect(folderLabel('/', '/Users/a')).toBe('/');
+  });
+  it('finds the foreground group leader, or none at a prompt', () => {
+    const rows = parsePs([
+      '27778 27778 27780 /bin/zsh -l',
+      '27780 27780 27780 npm run dev',
+      '27781 27780 27780 sh -c vite',
+      '',
+    ].join('\n'));
+    expect(foregroundCommand(rows, 27778)).toBe('npm run dev');
+    expect(foregroundCommand(parsePs('27778 27778 27778 /bin/zsh -l\n'), 27778)).toBeNull();
+    expect(foregroundCommand([], 27778)).toBeNull();
   });
 });
 
@@ -95,6 +133,40 @@ describe('TerminalStore', () => {
     terminals.closeSession('s1');
     expect(terminals.list('s1')).toEqual([]);
     expect(terminals.list('s2').map((t) => t.id)).toEqual([other.id]);
+  });
+
+  it('the tab follows the foreground command and the folder', async () => {
+    const terminals = store();
+    const cwd = makeTmpDir('term');
+    mkdirSync(join(cwd, 'web'));
+    const t = terminals.open('s1', cwd);
+    const socket = fakeSocket([]);
+    terminals.attach(t.id, socket as any);
+    expect(t.label).toBe(basename(cwd));
+    socket.input('sleep 30\n');
+    await vi.waitFor(() => expect(terminals.get(t.id)).toMatchObject({ label: 'sleep', busy: true }), { timeout: 5000 });
+    socket.input('\x03');
+    socket.input('cd web\n');
+    await vi.waitFor(() => expect(terminals.get(t.id)).toMatchObject({ label: 'web', busy: false }), { timeout: 5000 });
+    expect(socket.controls).toContainEqual({ type: 'status', label: 'sleep', busy: true });
+  });
+
+  it('a new shell starts in an exited tab, and only there', async () => {
+    const terminals = store();
+    const t = terminals.open('s1', makeTmpDir('term'));
+    expect(terminals.restart(t.id)).toBe('running');
+    const output: string[] = [];
+    const socket = fakeSocket(output);
+    terminals.attach(t.id, socket as any);
+    socket.input('echo FIRST; exit 1\n');
+    await vi.waitFor(() => expect(terminals.get(t.id)?.exitCode).toBe(1));
+    const restarted = terminals.restart(t.id);
+    expect(restarted).toMatchObject({ id: t.id, exitCode: null });
+    expect(socket.controls).toContainEqual({ type: 'restart' });
+    socket.input('echo SECOND\n');
+    await vi.waitFor(() => expect(output.join('')).toMatch(/SECOND\r?\n/));
+    expect(output.join('')).toContain('FIRST');
+    expect(terminals.restart('nope')).toBe('missing');
   });
 
   it('an exited shell stays listed, with its code, until closed', async () => {
@@ -212,6 +284,10 @@ describe('terminals through the server', () => {
     await start();
     expect((await app!.inject({ method: 'POST', url: '/api/sessions/nope/terminals', headers: auth, payload: {} })).statusCode).toBe(404);
     expect((await app!.inject({ method: 'DELETE', url: '/api/terminals/nope', headers: auth })).statusCode).toBe(404);
+    expect((await app!.inject({ method: 'POST', url: '/api/terminals/nope/restart', headers: auth, payload: {} })).statusCode).toBe(404);
+    const id = (await app!.inject({ method: 'POST', url: '/api/sessions/s1/terminals', headers: auth, payload: {} })).json().id;
+    const running = await app!.inject({ method: 'POST', url: `/api/terminals/${id}/restart`, headers: auth, payload: {} });
+    expect(running.statusCode).toBe(409);
   });
 
   it('a cookie carries the token as well as a bearer', async () => {
@@ -226,7 +302,7 @@ describe('the phone', () => {
   it('reaches no terminal route', () => {
     for (const [m, p] of [
       ['GET', '/api/sessions/s1/terminals'], ['POST', '/api/sessions/s1/terminals'],
-      ['DELETE', '/api/terminals/t1'], ['GET', '/ws/terminal/t1'],
+      ['DELETE', '/api/terminals/t1'], ['POST', '/api/terminals/t1/restart'], ['GET', '/ws/terminal/t1'],
     ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(false);
   });
 });

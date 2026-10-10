@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { spawn as spawnPty, type IPty } from 'node-pty';
 import type { RawData, WebSocket } from 'ws';
 import { Scrollback } from './scrollback.js';
+import { folderLabel, readStatus, type TerminalStatus } from './label.js';
 
 /**
  * The shells the user runs inside Orbital, each tied to a session and started
@@ -15,6 +16,13 @@ export const SCROLLBACK_CHARS = 256 * 1024;
 export const CLOSE_GRACE_MS = 2_000;
 /** Unsent output per socket past which the shell is paused until the socket catches up. */
 const SOCKET_HIGH_WATER = 1024 * 1024;
+/**
+ * When a tab's status is read after a line is typed: soon, for a command that
+ * starts at once, and again, for one that takes a moment (or a `cd`).
+ */
+const STATUS_DELAYS_MS = [300, 1_500];
+/** At most one status read per this long while a busy shell prints, to notice its command ending. */
+const BUSY_STATUS_EVERY_MS = 2_000;
 
 export interface TerminalInfo {
   id: string;
@@ -23,10 +31,17 @@ export interface TerminalInfo {
   createdAt: number;
   /** null while the shell runs. */
   exitCode: number | null;
+  /** The tab's name: the foreground command, or the shell's folder (§ What a tab is called). */
+  label: string;
+  /** Something other than the shell holds the foreground. */
+  busy: boolean;
 }
 
 /** What the server sends on a terminal's socket besides output, which goes as binary frames. */
-export type TerminalControl = { type: 'exit'; exitCode: number };
+export type TerminalControl =
+  | { type: 'exit'; exitCode: number }
+  | { type: 'status'; label: string; busy: boolean }
+  | { type: 'restart' };
 /** What the window sends; every frame from it is one of these, as JSON text. */
 export type TerminalInput =
   | { type: 'input'; data: string }
@@ -39,7 +54,14 @@ interface Terminal {
   sockets: Map<WebSocket, { pending: number }>;
   paused: boolean;
   killTimer: NodeJS.Timeout | null;
+  statusTimers: NodeJS.Timeout[];
+  lastStatusAt: number;
+  /** The label at the last prompt, which an exited tab keeps. */
+  idleLabel: string;
 }
+
+type Size = { cols: number; rows: number };
+const DEFAULT_SIZE: Size = { cols: 80, rows: 24 };
 
 export interface TerminalStoreOptions {
   /** The shell and its arguments; defaults to the user's `$SHELL` as a login shell. */
@@ -60,31 +82,104 @@ export class TerminalStore {
     this.env = opts.env ?? process.env;
   }
 
-  open(sessionId: string, cwd: string, size: { cols: number; rows: number } = { cols: 80, rows: 24 }): TerminalInfo {
-    const pty = spawnPty(this.shell.file, this.shell.args, {
+  open(sessionId: string, cwd: string, size: Size = DEFAULT_SIZE): TerminalInfo {
+    const label = folderLabel(cwd);
+    const info: TerminalInfo = {
+      id: randomUUID(), sessionId, cwd, createdAt: Date.now(), exitCode: null, label, busy: false,
+    };
+    const terminal: Terminal = {
+      info, pty: this.spawn(cwd, size), scrollback: new Scrollback(SCROLLBACK_CHARS), sockets: new Map(),
+      paused: false, killTimer: null, statusTimers: [], lastStatusAt: 0, idleLabel: label,
+    };
+    this.terminals.set(info.id, terminal);
+    this.wire(terminal);
+    return { ...info };
+  }
+
+  /**
+   * A new shell in an exited terminal's tab (48d: ⏎ on an exited tab). The
+   * scrollback stays, so the old shell's output is still above the new prompt.
+   */
+  restart(id: string, size: Size = DEFAULT_SIZE): TerminalInfo | 'missing' | 'running' {
+    const terminal = this.terminals.get(id);
+    if (!terminal) return 'missing';
+    if (terminal.info.exitCode === null) return 'running';
+    terminal.pty = this.spawn(terminal.info.cwd, size);
+    terminal.paused = false;
+    terminal.info.exitCode = null;
+    terminal.info.busy = false;
+    terminal.info.label = folderLabel(terminal.info.cwd);
+    this.wire(terminal);
+    this.broadcast(terminal, { type: 'restart' });
+    this.broadcast(terminal, { type: 'status', label: terminal.info.label, busy: false });
+    return { ...terminal.info };
+  }
+
+  private spawn(cwd: string, size: Size): IPty {
+    return spawnPty(this.shell.file, this.shell.args, {
       name: 'xterm-256color',
       cwd,
       cols: size.cols,
       rows: size.rows,
       env: shellEnv(this.env),
     });
-    const info: TerminalInfo = { id: randomUUID(), sessionId, cwd, createdAt: Date.now(), exitCode: null };
-    const terminal: Terminal = {
-      info, pty, scrollback: new Scrollback(SCROLLBACK_CHARS), sockets: new Map(), paused: false, killTimer: null,
-    };
-    this.terminals.set(info.id, terminal);
+  }
+
+  private wire(terminal: Terminal): void {
+    const pty = terminal.pty;
     pty.onData((data) => {
       terminal.scrollback.push(data);
       for (const socket of terminal.sockets.keys()) this.send(terminal, socket, data);
+      // A busy shell's command may end on its own (a dev server crashing);
+      // its output is the only sign, so it is when to look.
+      if (terminal.info.busy && Date.now() - terminal.lastStatusAt > BUSY_STATUS_EVERY_MS) this.scheduleStatus(terminal);
     });
     pty.onExit(({ exitCode }) => {
-      info.exitCode = exitCode;
+      if (terminal.pty !== pty) return;
+      terminal.info.exitCode = exitCode;
       if (terminal.killTimer) clearTimeout(terminal.killTimer);
       terminal.killTimer = null;
-      const exit: TerminalControl = { type: 'exit', exitCode };
-      for (const socket of terminal.sockets.keys()) socket.send(JSON.stringify(exit));
+      this.clearStatusTimers(terminal);
+      this.setStatus(terminal, { label: terminal.idleLabel, busy: false });
+      this.broadcast(terminal, { type: 'exit', exitCode });
     });
-    return { ...info };
+  }
+
+  private scheduleStatus(terminal: Terminal): void {
+    this.clearStatusTimers(terminal);
+    terminal.lastStatusAt = Date.now();
+    terminal.statusTimers = STATUS_DELAYS_MS.map((ms) => {
+      const timer = setTimeout(() => void this.refreshStatus(terminal), ms);
+      timer.unref();
+      return timer;
+    });
+  }
+
+  private async refreshStatus(terminal: Terminal): Promise<void> {
+    if (terminal.info.exitCode !== null || !this.terminals.has(terminal.info.id)) return;
+    const pty = terminal.pty;
+    const status = await readStatus(pty.pid, (pty as IPty & { ptsName?: string }).ptsName ?? '', terminal.info.cwd);
+    terminal.lastStatusAt = Date.now();
+    if (terminal.pty !== pty || terminal.info.exitCode !== null) return;
+    if (!status.busy) terminal.idleLabel = status.label;
+    this.setStatus(terminal, status);
+  }
+
+  private setStatus(terminal: Terminal, status: TerminalStatus): void {
+    if (terminal.info.label === status.label && terminal.info.busy === status.busy) return;
+    terminal.info.label = status.label;
+    terminal.info.busy = status.busy;
+    this.broadcast(terminal, { type: 'status', ...status });
+  }
+
+  private clearStatusTimers(terminal: Terminal): void {
+    for (const timer of terminal.statusTimers) clearTimeout(timer);
+    terminal.statusTimers = [];
+  }
+
+  private broadcast(terminal: Terminal, control: TerminalControl): void {
+    const text = JSON.stringify(control);
+    for (const socket of terminal.sockets.keys()) socket.send(text);
   }
 
   get(id: string): TerminalInfo | null {
@@ -107,6 +202,7 @@ export class TerminalStore {
     const terminal = this.terminals.get(id);
     if (!terminal) return false;
     this.terminals.delete(id);
+    this.clearStatusTimers(terminal);
     for (const socket of terminal.sockets.keys()) socket.close();
     terminal.sockets.clear();
     if (terminal.info.exitCode !== null) return true;
@@ -142,8 +238,11 @@ export class TerminalStore {
     socket.on('message', (raw, isBinary) => {
       if (isBinary || terminal.info.exitCode !== null) return;
       const msg = parseInput(rawText(raw));
-      if (msg?.type === 'input') terminal.pty.write(msg.data);
-      else if (msg?.type === 'resize') terminal.pty.resize(msg.cols, msg.rows);
+      if (msg?.type === 'input') {
+        terminal.pty.write(msg.data);
+        // A line typed is when the foreground or the folder can change.
+        if (/[\r\n]/.test(msg.data)) this.scheduleStatus(terminal);
+      } else if (msg?.type === 'resize') terminal.pty.resize(msg.cols, msg.rows);
     });
     socket.on('close', () => {
       terminal.sockets.delete(socket);

@@ -32,6 +32,19 @@ export function registerTerminalRoutes(app: FastifyInstance, ctx: RouteContext):
     return reply.code(201).send(terminals.open(id, row.cwd, size));
   });
 
+  app.post('/api/terminals/:id/restart', (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { cols, rows } = (req.body ?? {}) as { cols?: unknown; rows?: unknown };
+    const terminal = terminals.get(id);
+    if (!terminal) return reply.code(404).send({ error: 'not found' });
+    if (!existsSync(terminal.cwd)) return reply.code(409).send({ error: 'cwd_missing' });
+    const size = isTerminalSize(cols) && isTerminalSize(rows) ? { cols, rows } : undefined;
+    const restarted = terminals.restart(id, size);
+    if (restarted === 'missing') return reply.code(404).send({ error: 'not found' });
+    if (restarted === 'running') return reply.code(409).send({ error: 'running' });
+    return restarted;
+  });
+
   app.delete('/api/terminals/:id', (req, reply) => {
     const { id } = req.params as { id: string };
     if (!terminals.close(id)) return reply.code(404).send({ error: 'not found' });
