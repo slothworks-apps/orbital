@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.9.3] — 2026-10-10
+### Changed
+- Messages are rendered by a newer version of the Markdown library; nothing should look different.
+
 ## [0.9.2] — 2026-10-09
 ### Added
 - A `/` button under the message field: it starts a slash command and opens the list of commands and skills, without hunting for the slash on the keyboard.
