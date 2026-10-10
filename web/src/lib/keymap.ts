@@ -14,7 +14,7 @@
 
 import type { MenuCommand } from './desktop'
 
-export type Scope = 'global' | 'map' | 'session' | 'composer' | 'dialogs' | 'files'
+export type Scope = 'global' | 'map' | 'session' | 'composer' | 'dialogs' | 'files' | 'terminal'
 
 /** 'meta+shift+n', 'ctrl+shift+Tab', 'meta+Digit2', 'meta+,', 'Enter', 'alt+Enter' */
 export type Chord = string
@@ -56,6 +56,7 @@ export const SCOPES: readonly { scope: Scope; title: string; when: string }[] = 
   { scope: 'composer', title: 'COMPOSER', when: 'caret in the input' },
   { scope: 'dialogs', title: 'DIALOGS & CARDS', when: 'a dialog or a question is up' },
   { scope: 'files', title: 'FILES', when: 'a file is open' },
+  { scope: 'terminal', title: 'TERMINAL', when: 'the terminal has focus · experimental' },
 ]
 
 export const COMMANDS: readonly Command[] = [
@@ -258,6 +259,17 @@ export const COMMANDS: readonly Command[] = [
     note: 'opens or closes it · only with media',
   },
   {
+    // Spec 2026-10-05-embedded-terminal-design § Keys. ⌃ rather than ⌘: ⌘`
+    // is macOS's own window cycling. Bound by position (`POSITION_KEYS`),
+    // because the key prints a dead accent or nothing on the Czech layout.
+    id: 'terminal.toggle',
+    label: 'Show or hide the terminal',
+    scope: 'session',
+    chords: ['ctrl+Backquote'],
+    whileTyping: true,
+    note: 'the first press starts a shell · experimental',
+  },
+  {
     id: 'composer.send',
     label: 'Send',
     scope: 'composer',
@@ -349,6 +361,46 @@ export const COMMANDS: readonly Command[] = [
     local: true,
     note: 'file viewer',
   },
+  // A focused terminal's own keys (spec § Keys). They shadow the window's ⌘W,
+  // ⌘T and ⌘1 only while the terminal has focus, which the desktop's main
+  // process decides ahead of the menu (`desktop/src/lib/terminalKeys.ts`), so
+  // the dispatcher never matches them: display-only rows.
+  {
+    id: 'terminal.new-tab',
+    label: 'New terminal tab',
+    scope: 'terminal',
+    chords: ['meta+t'],
+    whileTyping: true,
+    local: true,
+  },
+  {
+    id: 'terminal.close-tab',
+    label: 'Close terminal tab',
+    scope: 'terminal',
+    chords: ['meta+w'],
+    whileTyping: true,
+    local: true,
+    note: 'asks first while something runs in it',
+  },
+  {
+    id: 'terminal.pick-tab',
+    label: 'Pick a terminal tab',
+    scope: 'terminal',
+    chords: [
+      'meta+Digit1',
+      'meta+Digit2',
+      'meta+Digit3',
+      'meta+Digit4',
+      'meta+Digit5',
+      'meta+Digit6',
+      'meta+Digit7',
+      'meta+Digit8',
+      'meta+Digit9',
+    ],
+    display: ['⌘1–9'],
+    whileTyping: true,
+    local: true,
+  },
   {
     id: 'files.open-path-in-ide',
     label: 'Open path in IDE',
@@ -424,7 +476,22 @@ function letterOrPunctuation(key: string): string {
   return /[a-z]/i.test(key) ? key.toUpperCase() : key
 }
 
+/**
+ * Keys bound by position whose position moves. On a Mac ISO keyboard
+ * Chromium reports the key left of 1 as `IntlBackslash` and the one beside
+ * the left Shift as `Backquote` — swapped against ANSI — so a chord on
+ * either answers to both.
+ */
+const POSITION_KEYS: Record<string, readonly string[]> = {
+  Backquote: ['Backquote', 'IntlBackslash'],
+}
+
+/** How a position key prints in a keycap and in an accelerator. */
+const POSITION_KEY_GLYPHS: Record<string, string> = { Backquote: '`' }
+
 function keyMatches(key: string, e: KeyboardEventLike): boolean {
+  const codes = POSITION_KEYS[key]
+  if (codes) return codes.includes(e.code)
   if (DIGIT_KEY.test(key)) return e.code === key
   if (key.length === 1) return e.key.toLowerCase() === key.toLowerCase()
   return e.key === key
@@ -491,7 +558,7 @@ const NAMED_KEY_GLYPHS: Record<string, string> = {
 }
 
 function keyGlyph(key: string): string {
-  const named = NAMED_KEY_GLYPHS[key]
+  const named = NAMED_KEY_GLYPHS[key] ?? POSITION_KEY_GLYPHS[key]
   if (named) return named
   const digit = digitOf(key)
   if (digit) return digit
@@ -546,7 +613,7 @@ const NAMED_ACCELERATOR_KEYS: Record<string, string> = {
 }
 
 function acceleratorKey(key: string): string {
-  const named = NAMED_ACCELERATOR_KEYS[key]
+  const named = NAMED_ACCELERATOR_KEYS[key] ?? POSITION_KEY_GLYPHS[key]
   if (named) return named
   const digit = digitOf(key)
   if (digit) return digit
