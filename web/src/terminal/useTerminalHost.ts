@@ -1,12 +1,12 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useCommand } from '../lib/commands'
 import { onTerminalKey } from '../lib/desktop'
 import { terminalCursor, terminalCursorBlink, terminalEnabled, type TerminalPlacement } from '../lib/experimental'
-import { useOrbital } from '../store/store'
+import { PANEL_GUTTER_PX, useOrbital } from '../store/store'
 import { agentSlotOpen, placementIn, runTerminalChord, toggleTerminalFromKey } from './actions'
 import { parseTerminalChord } from './keys'
-import { sideSlotWidth } from './layout'
+import { parseDockHeight, sideSlotWidth } from './layout'
 import { useTerminals } from './store'
 
 /** Main's terminal chords are heard once per page, whichever window mounts first. */
@@ -118,4 +118,39 @@ export function useSideSlotWidth(): number {
   const agentOpen = useOrbital(agentSlotOpen)
   const { sideOnScreen } = useTerminalPlacement(selectedId)
   return sideSlotWidth(agentOpen, sideOnScreen)
+}
+
+/** The window's inner height, followed through every resize (as `useViewportWidth` does the width). */
+export function useViewportHeight(): number {
+  const [height, setHeight] = useState(() => window.innerHeight)
+  useEffect(() => {
+    let frame: number | null = null
+    const onResize = () => {
+      if (frame !== null) return
+      frame = requestAnimationFrame(() => {
+        frame = null
+        setHeight(window.innerHeight)
+      })
+    }
+    window.addEventListener('resize', onResize)
+    return () => {
+      window.removeEventListener('resize', onResize)
+      if (frame !== null) cancelAnimationFrame(frame)
+    }
+  }, [])
+  return height
+}
+
+/**
+ * How much of the window's bottom the dock takes in this window — its height
+ * and the gutter under it — or 0 while it is not shown. The map's bottom
+ * overlays (the zoom column, the camera readout, New session) stand on it, so
+ * the dock never covers them, and follow its drag live.
+ */
+export function useDockClearancePx(): number {
+  const selectedId = useOrbital((s) => s.ui.selectedId)
+  const { shown, placement } = useTerminalPlacement(selectedId)
+  const viewportHeight = useViewportHeight()
+  const height = useOrbital((s) => parseDockHeight(s.settings, viewportHeight))
+  return shown && placement === 'dock' ? height + PANEL_GUTTER_PX : 0
 }

@@ -202,7 +202,11 @@ class TerminalRuntime {
     ws.onmessage = (event) => {
       if (typeof event.data === 'string') {
         const control = parseTerminalControl(event.data)
-        if (control) useTerminals.getState().applyControl(this.id, control)
+        if (!control) return
+        useTerminals.getState().applyControl(this.id, control)
+        // 48d draws no cursor after the shell has ended; a new shell brings it back.
+        if (control.type === 'exit') this.term.write('\x1b[?25l')
+        if (control.type === 'restart') this.term.write('\x1b[?25h')
         return
       }
       this.term.write(new Uint8Array(event.data as ArrayBuffer))

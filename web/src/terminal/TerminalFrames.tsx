@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { useOrbital } from '../store/store'
 import { TerminalSurface } from './TerminalSurface'
 import { DOCK_DEFAULT_PX, DOCK_HEIGHT_SETTING, clampDockHeight, parseDockHeight } from './layout'
+import { useViewportHeight } from './useTerminalHost'
 
 /**
  * The frame the dock and the side panel share (48a, 48b): the standard panel
@@ -16,27 +17,6 @@ const FRAME = [
   'bg-gradient-to-b from-[rgba(14,20,34,.9)] to-[rgba(8,12,22,.94)]',
   'shadow-[0_30px_80px_rgba(0,0,0,.55),inset_0_1px_0_rgba(255,255,255,.06)]',
 ].join(' ')
-
-/** The window's inner height, followed through every resize (as `useViewportWidth` does the width). */
-function useViewportHeight(): number {
-  const [height, setHeight] = useState(() => window.innerHeight)
-  useEffect(() => {
-    let frame: number | null = null
-    const onResize = () => {
-      if (frame !== null) return
-      frame = requestAnimationFrame(() => {
-        frame = null
-        setHeight(window.innerHeight)
-      })
-    }
-    window.addEventListener('resize', onResize)
-    return () => {
-      window.removeEventListener('resize', onResize)
-      if (frame !== null) cancelAnimationFrame(frame)
-    }
-  }, [])
-  return height
-}
 
 /**
  * The dock's height and the handle on its top edge (48a): the value moves

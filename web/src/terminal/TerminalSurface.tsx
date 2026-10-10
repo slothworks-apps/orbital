@@ -230,7 +230,9 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
         <span className="min-w-0 flex-1" />
         {/* The side panel says it in its footer instead (48b). */}
         {variant !== 'side' && (
-          <span className="flex-none font-mono text-[10px] tracking-[0.06em] whitespace-nowrap text-[rgba(160,190,225,.5)]">
+          // The first thing to give way when the strip runs short — long
+          // before a tab label does.
+          <span className="min-w-0 shrink-[1000] truncate font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
             yours · not sent to the agent
           </span>
         )}
