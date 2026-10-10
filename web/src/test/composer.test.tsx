@@ -588,9 +588,13 @@ describe('CompletionPopup — placement', () => {
     clickAndType(field(), '/co')
     await screen.findByRole('option', { name: /code-review/ })
 
-    anchorLow()
     const shell = popup()!.closest('[data-completion-popup]') as HTMLElement
-    expect(shell.dataset.placement).toBe('above')
+    // The row can be in the DOM before the popup listens for `resize`, so the
+    // re-measure is retried until it lands.
+    await waitFor(() => {
+      anchorLow()
+      expect(shell.dataset.placement).toBe('above')
+    })
     // Width = the well's, one 8px gap clear of its top edge (9e).
     expect(shell.style.width).toBe('418px')
   })

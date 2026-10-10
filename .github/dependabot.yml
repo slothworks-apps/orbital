@@ -1,15 +1,29 @@
-# Security updates only. They are switched on in the repository settings and
-# arrive as their own pull requests whenever an advisory hits a dependency.
-# Routine version updates are off (`open-pull-requests-limit: 0`); upgrades
-# are taken by hand, when there is a reason to.
+# Security updates, plus the Claude Agent SDK. Security updates are switched
+# on in the repository settings and arrive as their own pull requests whenever
+# an advisory hits a dependency. Of the routine version updates only the Agent
+# SDK's are kept, since it tracks the Claude Code CLI Orbital runs; everything
+# else is off (`open-pull-requests-limit: 0`) and upgraded by hand.
 version: 2
 updates:
+  # Security updates read this entry: it has no `target-branch`. Its
+  # `open-pull-requests-limit` stops version updates and does not apply to
+  # security ones, so every npm dependency still gets its security fixes.
   - package-ecosystem: npm
     # The root lockfile covers every workspace.
     directory: /
     schedule:
       interval: monthly
     open-pull-requests-limit: 0
+
+  # The Agent SDK's version updates. Security updates ignore an entry with a
+  # `target-branch`, so the `allow` below cannot narrow them to this package.
+  - package-ecosystem: npm
+    directory: /
+    target-branch: main
+    schedule:
+      interval: weekly
+    allow:
+      - dependency-name: '@anthropic-ai/claude-agent-sdk'
 
   - package-ecosystem: github-actions
     directory: /
