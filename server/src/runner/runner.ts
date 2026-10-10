@@ -2735,8 +2735,10 @@ export class Runner {
     // stream does. Without the mark, a task event landing in the gap before
     // the CLI's first frame would run `settleStatus` against a session that
     // still looked finished and snap it back to `needs_input`.
+    // A message sent into a running turn (one queued behind Orbital's own
+    // compaction) does not start it, so it does not rename it.
+    if (s.turnEnded) s.turnPrompt = text;
     s.turnEnded = false;
-    s.turnPrompt = text;
     this.setStatus(sessionId, 'working');
     this.enqueue(sessionId, msg);
     return uuid;

@@ -137,6 +137,40 @@ describe('Runner auto-compact', () => {
   });
 });
 
+describe('a message sent while Orbital compacts', () => {
+  it('does not rename the turn, so the compaction stays Orbital\'s', async () => {
+    const queue: any[] = [];
+    let wake: (() => void) | null = null;
+    const push = (...msgs: any[]) => { queue.push(...msgs); const w = wake; wake = null; w?.(); };
+    const prompts: string[] = [];
+    const fn = ({ prompt, options }: { prompt: AsyncIterable<any>; options: any }) => {
+      void (async () => { for await (const m of prompt) if (m) prompts.push(m.message.content.at(-1)?.text ?? ''); })();
+      async function* gen() {
+        for (;;) {
+          while (queue.length) yield { session_id: options.sessionId, ...queue.shift() };
+          await new Promise<void>((resolve) => { wake = resolve; });
+        }
+      }
+      return gen() as any;
+    };
+    const r = new Runner({
+      hub: new Hub(), queryFn: fn as any, newSessionId: () => 'web-1',
+      readContextUsed: () => 250_000,
+      autoCompact: () => ({ thresholdTokens: 200_000, quietMs: 0 }),
+    });
+    await r.start({ cwd: '/w', prompt: 'go', permissionMode: 'acceptEdits' });
+    push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(prompts.some((p) => p.startsWith('/compact'))).toBe(true));
+    push({ type: 'system', subtype: 'status', status: 'compacting' });
+    await vi.waitFor(() => expect(r.compacting('web-1')).toMatchObject({ trigger: 'orbital' }));
+    r.send('web-1', 'meanwhile');
+    push({ type: 'system', subtype: 'status', status: null, compact_result: 'failed' });
+    await vi.waitFor(() => expect(r.compacting('web-1')).toBeNull());
+    expect(compactTriggerOf((r as any).sessions.get('web-1').turnPrompt)).toBe('orbital');
+    await r.stop('web-1');
+  });
+});
+
 describe('an Orbital compaction read back from the transcript', () => {
   const boundary = {
     type: 'system', subtype: 'compact_boundary', uuid: 'b1', isSidechain: false,

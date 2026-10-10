@@ -151,6 +151,15 @@ describe('the composer while a compaction runs', () => {
     expect(screen.getByRole('button', { name: /Send/ })).toBeDisabled()
   })
 
+  it('takes a message during a compaction Orbital started, and says it waits', async () => {
+    renderWith(session({ compacting: { startedAt: Date.now(), trigger: 'orbital' } }), 'hello')
+    const field = screen.getByRole('textbox', { name: 'Prompt' })
+    expect(field).not.toHaveAttribute('aria-disabled')
+    expect(field).toHaveAttribute('aria-placeholder', 'Orbital is compacting. What you send goes out when it’s done.')
+    await userEvent.click(screen.getByRole('button', { name: /Send/ }))
+    expect(api.sendMessage).toHaveBeenCalled()
+  })
+
   it('is open again once it is not compacting', () => {
     renderWith(session({ compacting: null }), 'hello')
     expect(screen.getByRole('textbox', { name: 'Prompt' })).not.toHaveAttribute('aria-disabled')

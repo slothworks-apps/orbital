@@ -111,7 +111,21 @@ From here everything is the existing compaction machinery
 (`2026-09-28-context-compaction-design`): the `compacting` state on the
 planet, the locked composer, the permanent mark, the failure record and the
 `compacted · 186k → 22k` caption. Nothing about it is new except the
-trigger.
+trigger and the composer.
+
+### The composer stays open
+
+A compaction takes 1–2.5 minutes. One the user asked for locks the composer,
+as before. One Orbital started does not: nobody should wait on something they
+did not ask for. The field reads `Orbital is compacting. What you send goes
+out when it's done.`, and a message sent then is queued into the CLI's input
+behind the `/compact` and runs once the compaction ends. This holds on the
+phone too (`composerLockedByCompaction` in `web/src/lib/compaction.ts`, read
+by `DetailPanel` and `SessionComposer`).
+
+A message sent into a turn that is already running does not become that
+turn's prompt (`turnPrompt` in the runner), so the compaction it was queued
+behind keeps its `orbital` trigger.
 
 ### The trigger: `orbital`
 
@@ -160,7 +174,8 @@ parsing is a pure function next to the runner and is unit-tested.
 
 ## The phone
 
-The phone gets no settings for this on purpose: Experimental is a desktop
+The phone's composer follows the same rule as the desktop's: it stays open
+during a compaction Orbital started. The phone gets no settings for this on purpose: Experimental is a desktop
 section, and the switch belongs to the Mac that runs the sessions. Nothing
 else is needed for the phone to show it. The compaction reaches the phone
 through what it already uses: `compacting` and `lastCompacted` on the

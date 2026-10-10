@@ -18,6 +18,17 @@ export const COMPACTED_CAPTION_MS = 6_000
 export const COMPACTING_SWITCH_MS = 300
 /** 26c's locked composer: what its field says while the session compacts. */
 export const COMPACTING_PLACEHOLDER = 'Compacting. You can write again when it\u2019s done.'
+/** Orbital's own compaction takes a message and sends it once it is done (spec 2026-10-10-auto-compact-between-turns-design). */
+export const ORBITAL_COMPACTING_PLACEHOLDER = 'Orbital is compacting. What you send goes out when it\u2019s done.'
+
+/**
+ * Whether the composer takes no message: an Orbital session compacting
+ * because someone asked for it. A compaction Orbital started by itself
+ * queues the message instead, so nobody waits on what they did not ask for.
+ */
+export function composerLockedByCompaction(session: Pick<ApiSession, 'source' | 'compacting'>): boolean {
+  return session.source === 'web' && session.compacting != null && session.compacting.trigger !== 'orbital'
+}
 
 /** The command a manual compaction is. Matched with or without arguments. */
 const COMPACT_COMMAND_RE = /^\/compact(\s|$)/
