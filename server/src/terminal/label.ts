@@ -51,6 +51,11 @@ function labelOf(tokens: string[]): string {
     const i = firstArg(rest);
     if (i < 0) return program;
     const sub = rest[i];
+    // `npx` runs as `npm exec`: named, like it, for what it runs.
+    if (sub === 'exec' || sub === 'x' || sub === 'dlx') {
+      const j = firstArg(rest.slice(i + 1));
+      return j < 0 ? `${program} ${sub}` : labelOf(rest.slice(i + 1 + j));
+    }
     if (sub === 'run' || sub === 'run-script') {
       const j = firstArg(rest.slice(i + 1));
       return j < 0 ? `${program} run` : `${program} run ${rest[i + 1 + j]}`;

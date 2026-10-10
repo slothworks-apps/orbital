@@ -227,14 +227,16 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
         >
           +
         </button>
-        <span className="min-w-0 flex-1" />
-        {/* The side panel says it in its footer instead (48b). */}
-        {variant !== 'side' && (
-          // The first thing to give way when the strip runs short — long
-          // before a tab label does.
-          <span className="min-w-0 shrink-[1000] truncate font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+        {/* The side panel says it in its footer instead (48b). The note only
+            fills the room the tabs leave: with no width of its own it can
+            never make a tab shrink, where a high flex-shrink still takes a
+            fraction of a pixel from every tab, enough to ellipsize it. */}
+        {variant !== 'side' ? (
+          <span className="ml-3 min-w-0 flex-1 basis-0 truncate text-right font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
             yours · not sent to the agent
           </span>
+        ) : (
+          <span className="min-w-0 flex-1" />
         )}
         {size && (
           <span
