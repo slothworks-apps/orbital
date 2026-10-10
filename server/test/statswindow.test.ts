@@ -20,6 +20,7 @@ import {
   RESOLVED_TTL_DAYS,
   TOOL_LEADERBOARD_LIMIT,
 } from '../src/stats/constants.js';
+import { emptyCompactionStats } from '../src/stats/compaction.js';
 import type { StatsRollup, ToolStat, Finding, FindingRule, SubagentModelUsage } from '../src/stats/compute.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -36,6 +37,7 @@ function rollup(overrides: Partial<StatsRollup> = {}): StatsRollup {
     subagentUsage: {},
     toolCalls: 0, toolErrors: 0, toolBreakdown: {}, findings: [],
     humanWaitMs: 0, humanBreakdown: {}, permissionBreakdown: {},
+    compaction: emptyCompactionStats(),
     ...overrides,
   };
 }

@@ -21,6 +21,7 @@ import type {
   TitleSource,
 } from '../types.js';
 import type { Finding, PermissionOutcome, SubagentModelUsage, ToolStat } from '../stats/compute.js';
+import type { CompactionStats } from '../stats/compaction.js';
 import type {
   HarnessEventKind, HarnessInput, HarnessMessageKind, HarnessOptions, HarnessStep, PauseKind, StepState,
 } from '../harness/types.js';
@@ -229,6 +230,11 @@ export const sessionStats = sqliteTable('session_stats', {
   /** Permission waits by the prompted tool's name; `ms` and `buckets` are the wait. */
   permissionBreakdown: text('permission_breakdown', { mode: 'json' })
     .$type<Record<string, ToolStat>>()
+    .notNull()
+    .default({}),
+  /** What the session's compactions did; `{}` on a row from before it existed. */
+  compaction: text('compaction', { mode: 'json' })
+    .$type<Partial<CompactionStats>>()
     .notNull()
     .default({}),
 });

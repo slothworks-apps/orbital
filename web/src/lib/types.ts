@@ -1470,6 +1470,30 @@ export interface StatsOverview {
   cacheRatioSeries: StatsCacheRatioDay[]
   toolLeaderboard: StatsToolLeaderboard
   findings: StatsFinding[]
+  /** Absent from a server older than the auto-compact stats. */
+  autoCompact?: StatsAutoCompact
+}
+
+interface StatsAutoCompactGroup {
+  sessions: number
+  costPerTurn: number | null
+  avgContextTokens: number | null
+}
+
+/** Mirrors `AutoCompactSummary` in `server/src/stats/window.ts`. */
+export interface StatsAutoCompact {
+  compactions: number
+  otherCompactions: number
+  avgPreTokens: number | null
+  avgPostTokens: number | null
+  avgDurationMs: number | null
+  savedUsd: number
+  costUsd: number
+  netUsd: number
+  netPct: number | null
+  rereads: number
+  withAutoCompact: StatsAutoCompactGroup
+  withoutAutoCompact: StatsAutoCompactGroup
 }
 
 export interface StatsRollup {

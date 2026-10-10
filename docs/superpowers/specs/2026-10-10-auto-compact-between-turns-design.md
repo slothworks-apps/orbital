@@ -192,6 +192,42 @@ afterwards. There is no notification and no sound, and a failure lands where
 every compaction failure already lands. The session is not ended, stopped or
 woken.
 
+## Stats
+
+The Stats page gets an **AUTO-COMPACT** panel under the cache hit ratio,
+shown once Orbital has compacted something in the window. It answers
+whether the experiment pays, from the transcripts, so it covers every
+compaction ever made, including those from before the panel existed.
+
+`computeCompactionStats` (`server/src/stats/compaction.ts`) reads one
+session in a single pass and stores the result in `session_stats.compaction`
+(JSON; `STATS_VERSION` 4 re-indexes every session once).
+`autoCompactSummary` (`server/src/stats/window.ts`) adds up the window and
+prices it at each session's own model when the page is read.
+
+- **Compactions:** how many Orbital started, the average context before and
+  after, the average duration, and how many others (the CLI's, the user's)
+  happened beside them.
+- **Saving (an estimate):** compared with the same session without Orbital's
+  compactions. After each one, every later main-loop request would have
+  carried the tokens it removed: as a cache read when the request read the
+  cache, and as a cache write when the cache had gone cold. That lasts until
+  a compaction Orbital did not start, which would have happened anyway. From
+  that comes the cost of the compactions: reading the context once, writing
+  the summary, and writing the summary to the cache where the request after
+  would otherwise have read. The headline is the net, in dollars and as a
+  share of what those sessions would have cost without it.
+- **Re-read after:** `Read` calls in the turn after an Orbital compaction
+  (up to the second human prompt after it) of a file read before it, once
+  per file. It shows whether the summary dropped something the session
+  needed.
+- **Orbital sessions with and without it:** cost per turn and context per
+  request, measured. The two groups are not like for like (long sessions are
+  the ones that get compacted), so this sits under the estimate as a check,
+  not as the answer.
+
+The phone has no Stats page, so this does not reach it.
+
 ## Not in scope
 
 - **Compacting before the user's next message.** A session that is answered

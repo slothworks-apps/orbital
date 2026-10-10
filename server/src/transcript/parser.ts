@@ -2,7 +2,7 @@ import type { ChatMessage, ImageRefEntry } from '../types.js';
 import type { ImageWriter } from '../images/store.js';
 import { messageFromLocalCommandEntry } from './notices.js';
 import { compactSummaryText, markFromTranscriptBoundary } from './compaction.js';
-import { AUTO_COMPACT_TAG } from '../runner/autoCompact.js';
+import { asksOrbitalCompact } from '../runner/autoCompact.js';
 import { parseWalkthroughTag, walkthroughChipName, WALKTHROUGH_TAG } from '../walkthrough/tag.js';
 
 export type { ImageWriter };
@@ -308,16 +308,6 @@ export function toolResultParts(
   return { text: texts.join('\n'), images: refs };
 }
 
-/** A user entry's typed text, or null for one that carries tool results. */
-function promptText(content: unknown): string | null {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content) || content.some((b) => b?.type === 'tool_result')) return null;
-  return content
-    .filter((b) => b?.type === 'text' && typeof b.text === 'string')
-    .map((b) => b.text as string)
-    .join('\n');
-}
-
 export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWriter): ChatMessage[] {
   const out: ChatMessage[] = [];
   // The newest compaction mark still waiting for its summary entry.
@@ -339,8 +329,8 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
     // that follows it — the same item the runner builds live (spec
     // 2026-09-28-context-compaction-design § Success).
     if (e.type === 'user' && e.isCompactSummary !== true && e.isSidechain !== true) {
-      const prompt = promptText(e.message?.content);
-      if (prompt !== null) orbitalCompactAsked = prompt.includes(`<${AUTO_COMPACT_TAG}`);
+      const asked = asksOrbitalCompact(e.message?.content);
+      if (asked !== null) orbitalCompactAsked = asked;
     }
     if (e.type === 'system' && e.subtype === 'compact_boundary' && e.isSidechain !== true) {
       const compaction = markFromTranscriptBoundary(e);

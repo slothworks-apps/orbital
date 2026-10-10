@@ -73,3 +73,20 @@ export function autoCompactPrompt(thresholdTokens: number): string {
 export function isAutoCompactPrompt(text: string): boolean {
   return /^\/compact\s/.test(text.trim()) && text.includes(`<${AUTO_COMPACT_TAG}`);
 }
+
+/**
+ * Whether a user entry's content is Orbital's own `/compact`, as the CLI wrote
+ * it (the tag rides inside `<command-args>`); null for an entry that carries
+ * tool results, which says nothing either way.
+ */
+export function asksOrbitalCompact(content: unknown): boolean | null {
+  let text: string;
+  if (typeof content === 'string') text = content;
+  else if (!Array.isArray(content) || content.some((b) => b?.type === 'tool_result')) return null;
+  else
+    text = content
+      .filter((b) => b?.type === 'text' && typeof b.text === 'string')
+      .map((b) => b.text as string)
+      .join('\n');
+  return text.includes(`<${AUTO_COMPACT_TAG}`);
+}
