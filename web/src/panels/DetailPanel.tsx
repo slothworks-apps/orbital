@@ -76,7 +76,7 @@ import { contextWindowFor } from '../lib/models'
 import { COMPACTING_PLACEHOLDER, compactConfirmCount, compactingOf, formatElapsed } from '../lib/compaction'
 import { useNow } from '../lib/useNow'
 import { useCompactionUi } from '../store/compaction'
-import { harnessEnabled, terminalEnabled, walkthroughEnabled } from '../lib/experimental'
+import { harnessEnabled, walkthroughEnabled } from '../lib/experimental'
 import { TerminalChip } from '../terminal/TerminalEntry'
 import { useSideSlotWidth } from '../terminal/useTerminalHost'
 import { gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
@@ -670,8 +670,6 @@ export function DetailPanel({
   // arc, an ENDED session keeps its last reading here.
   const canShowContext = session?.source !== 'terminal'
   const showContext = canShowContext && contextWindow !== null
-  // The terminal's switch moves the read-out onto its bar's line (48e).
-  const readoutOnBar = terminalEnabled(settings)
   // Same predicate the sidebar badges a row with — one definition, so the
   // mark on the row and the refusal at the composer cannot drift apart.
   const isTerminalLive = session ? isReadOnly(session) : false
@@ -762,43 +760,6 @@ export function DetailPanel({
   const columnWidth = standalone ? standaloneWidth : renderedDetailWidth
   const compactChips =
     columnWidth < CHIPS_FULL_MIN_PX && tasks.length > 0 && (session?.subagents.length ?? 0) > 0
-
-  /** The context bar's track (9d), on its own line or sharing it with the read-out (48e). */
-  function contextTrack(layout: string) {
-    return (
-      <div className={`relative h-[3px] overflow-hidden rounded-[2px] bg-[rgba(150,205,255,.12)] ${layout}`}>
-        {contextPercent !== undefined && (
-          <span
-            role="progressbar"
-            aria-label="Context usage"
-            aria-valuenow={contextPercent}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            className="block h-full rounded-[2px]"
-            data-context-level={contextBarLevel}
-            style={{
-              width: `${contextPercent}%`,
-              background: compacting ? COMPACTING_BAR_INK : contextInk,
-              boxShadow: compacting ? 'none' : `0 0 8px ${contextGlow}`,
-              transition: 'width .45s ease, background .3s ease',
-            }}
-          />
-        )}
-        {/* The two notches mark where the ink changes. Positioned
-            from the SETTINGS, not from 9d's literal 50/80 — those are
-            the defaults the artboard happens to draw. */}
-        {[contextThresholds.warn, contextThresholds.critical].map((percent) => (
-          <span
-            key={percent}
-            aria-hidden
-            data-context-notch={percent}
-            className="absolute top-0 bottom-0 w-[1.5px] bg-[rgba(4,8,16,.8)]"
-            style={{ left: `${percent}%` }}
-          />
-        ))}
-      </div>
-    )
-  }
 
   return (
     // 1b paints a faint outer bloom in the session's hue around the panel.
@@ -1048,11 +1009,11 @@ export function DetailPanel({
               <ModeSwitcher session={session} disabled={isTerminalLive} />
             </div>
 
-            {/* Row 4 — status + context (canvas `Feature - Detail header`
-                9d): the state chip on the left — outlined in its state colour
-                since `Feature - State colours` 24c — and the context read-out
-                pushed right. The read-out, and the bar under
-                this row, are drawn only when the window is actually known — a
+            {/* Row 4 — status (canvas `Feature - Detail header` 9d): the state
+                chip on the left — outlined in its state colour since
+                `Feature - State colours` 24c — then the chips. The context
+                read-out sits on the bar's line below (48e). The read-out, and
+                the bar, are drawn only when the window is actually known — a
                 bar scaled to a made-up denominator is worse than no bar (per
                 docs/decisions/models-come-from-the-sdk.md). A terminal
                 session never gets either (see `canShowContext`); 9d ends its
@@ -1098,39 +1059,6 @@ export function DetailPanel({
                   too: it is the one thing they can type into. */}
               <TerminalChip sessionId={session.id} />
               <span aria-hidden className="flex-1" />
-              {showContext && !readoutOnBar && contextNote && (
-                // 9d names the note but draws no state that carries one; it
-                // sits just left of the read-out, so the number keeps the
-                // row's right edge in every state.
-                <span
-                  data-context-note
-                  className="font-mono text-[9.5px] tracking-[0.16em]"
-                  style={{ color: contextNote.ink }}
-                >
-                  {contextNote.text}
-                </span>
-              )}
-              {showContext && !readoutOnBar && (
-                <span
-                  data-context-readout
-                  data-testid="context-readout"
-                  className="flex items-baseline gap-[5px] font-mono"
-                >
-                  <span
-                    className="text-[17px] leading-none tracking-[-0.01em] transition-colors duration-300"
-                    style={{
-                      color: compacting ? COMPACTING_READOUT_INK : contextUsed != null ? contextInk : UNMEASURED_INK,
-                    }}
-                  >
-                    {/* The measurement itself, NOT the bar's clamped fraction:
-                        a session past a mis-learned window says so. */}
-                    {contextUsed != null ? formatTokens(contextUsed) : NO_VALUE}
-                  </span>
-                  <span className="text-[10.5px] text-[rgba(160,190,225,.55)]">
-                    / {formatContextWindow(contextWindow)}
-                  </span>
-                </span>
-              )}
               {session.source === 'terminal' && (
                 <span
                   data-terminal-chip
@@ -1143,14 +1071,43 @@ export function DetailPanel({
             </div>
 
             {/* The context bar (9d): a 3px track notched at the two
-                thresholds, filled in the same ink as the read-out above.
-                With the terminal on, the read-out moves onto the bar's line
-                to make room for the `›_` chip in the state row (canvas
+                thresholds, with the read-out on its line, in the same ink
+                as the fill. The read-out used to end the state row; it
+                moved here to make room there for the chips (canvas
                 `Feature - Terminal` 48e: bar flex, gap 12, read-out right). */}
-            {showContext && !readoutOnBar && contextTrack('mt-[9px]')}
-            {showContext && readoutOnBar && (
+            {showContext && (
               <div className="mt-[9px] flex items-center gap-3">
-                {contextTrack('min-w-0 flex-1')}
+                <div className="relative h-[3px] min-w-0 flex-1 overflow-hidden rounded-[2px] bg-[rgba(150,205,255,.12)]">
+                  {contextPercent !== undefined && (
+                    <span
+                      role="progressbar"
+                      aria-label="Context usage"
+                      aria-valuenow={contextPercent}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      className="block h-full rounded-[2px]"
+                      data-context-level={contextBarLevel}
+                      style={{
+                        width: `${contextPercent}%`,
+                        background: compacting ? COMPACTING_BAR_INK : contextInk,
+                        boxShadow: compacting ? 'none' : `0 0 8px ${contextGlow}`,
+                        transition: 'width .45s ease, background .3s ease',
+                      }}
+                    />
+                  )}
+                  {/* The two notches mark where the ink changes. Positioned
+                      from the SETTINGS, not from 9d's literal 50/80 — those are
+                      the defaults the artboard happens to draw. */}
+                  {[contextThresholds.warn, contextThresholds.critical].map((percent) => (
+                    <span
+                      key={percent}
+                      aria-hidden
+                      data-context-notch={percent}
+                      className="absolute top-0 bottom-0 w-[1.5px] bg-[rgba(4,8,16,.8)]"
+                      style={{ left: `${percent}%` }}
+                    />
+                  ))}
+                </div>
                 {contextNote && (
                   <span
                     data-context-note
@@ -1171,6 +1128,8 @@ export function DetailPanel({
                       color: compacting ? COMPACTING_READOUT_INK : contextUsed != null ? contextInk : UNMEASURED_INK,
                     }}
                   >
+                    {/* The measurement itself, NOT the bar's clamped fraction:
+                        a session past a mis-learned window says so. */}
                     {contextUsed != null ? formatTokens(contextUsed) : NO_VALUE}
                   </span>
                   <span className="text-[10px] text-[rgba(160,190,225,.55)]">

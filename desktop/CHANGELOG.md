@@ -5,6 +5,8 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ## [Unreleased]
 ### Added
 - An experimental terminal (Settings → Experimental): your own shell in a session's folder, as tabs in a dock under the map or in the side panel. ⌃` shows and hides it; shells keep running when you hide it or switch sessions, and nothing you run there is sent to the agent.
+### Changed
+- A session's context reading (such as 212k / 1M) now sits at the end of its bar, under the state, instead of at the end of the state line.
 
 ## [0.27.0] — 2026-10-09
 ### Changed
