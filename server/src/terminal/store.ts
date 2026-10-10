@@ -31,6 +31,8 @@ export interface TerminalInfo {
   createdAt: number;
   /** null while the shell runs. */
   exitCode: number | null;
+  /** When the shell ended, which the exited tab shows; null while it runs. */
+  exitedAt: number | null;
   /** The tab's name: the foreground command, or the shell's folder (§ What a tab is called). */
   label: string;
   /** Something other than the shell holds the foreground. */
@@ -85,7 +87,7 @@ export class TerminalStore {
   open(sessionId: string, cwd: string, size: Size = DEFAULT_SIZE): TerminalInfo {
     const label = folderLabel(cwd);
     const info: TerminalInfo = {
-      id: randomUUID(), sessionId, cwd, createdAt: Date.now(), exitCode: null, label, busy: false,
+      id: randomUUID(), sessionId, cwd, createdAt: Date.now(), exitCode: null, exitedAt: null, label, busy: false,
     };
     const terminal: Terminal = {
       info, pty: this.spawn(cwd, size), scrollback: new Scrollback(SCROLLBACK_CHARS), sockets: new Map(),
@@ -107,6 +109,7 @@ export class TerminalStore {
     terminal.pty = this.spawn(terminal.info.cwd, size);
     terminal.paused = false;
     terminal.info.exitCode = null;
+    terminal.info.exitedAt = null;
     terminal.info.busy = false;
     terminal.info.label = folderLabel(terminal.info.cwd);
     this.wire(terminal);
@@ -137,6 +140,7 @@ export class TerminalStore {
     pty.onExit(({ exitCode }) => {
       if (terminal.pty !== pty) return;
       terminal.info.exitCode = exitCode;
+      terminal.info.exitedAt = Date.now();
       if (terminal.killTimer) clearTimeout(terminal.killTimer);
       terminal.killTimer = null;
       this.clearStatusTimers(terminal);

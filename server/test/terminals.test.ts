@@ -176,6 +176,7 @@ describe('TerminalStore', () => {
     terminals.attach(t.id, socket as any);
     socket.input('exit 3\n');
     await vi.waitFor(() => expect(terminals.get(t.id)?.exitCode).toBe(3));
+    expect(terminals.get(t.id)?.exitedAt).toEqual(expect.any(Number));
     expect(socket.controls).toContainEqual({ type: 'exit', exitCode: 3 });
     expect(terminals.list('s1')).toHaveLength(1);
   });
