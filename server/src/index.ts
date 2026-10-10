@@ -44,6 +44,7 @@ import { listedBackgroundTasks, listedSubagents, statusOf, toApiSession, type Sh
 import { entriesToMessages } from './transcript/parser.js';
 import { SubagentStore, SubagentTranscripts } from './transcript/subagents.js';
 import { BackgroundTaskStore } from './transcript/backgroundTasks.js';
+import { TerminalStore, type TerminalStoreOptions } from './terminal/store.js';
 import { RecentToolsStore } from './transcript/recentTools.js';
 import { OutputFollower } from './files/taskOutput.js';
 import { SessionTitler, type TitleQueryFn } from './titler/titler.js';
@@ -253,6 +254,8 @@ export async function buildServer(overrides: {
    * loads one, and anything else without it refuses to start.
    */
   apiToken?: string;
+  /** The user's shells; tests give them a plain `/bin/sh` instead of a login shell. */
+  terminals?: TerminalStoreOptions;
   /** The full index pass, in slices. Tests wrap it to hold the boot pass back. */
   indexProjectsSliced?: typeof indexProjectsSliced;
 } = {}): Promise<FastifyInstance> {
@@ -424,6 +427,7 @@ export async function buildServer(overrides: {
   // `republish` is only called once the runner below exists.
   const backgroundTasks = new BackgroundTaskStore({ db, onChange: (sessionId) => republish(sessionId) });
   backgroundTasks.load();
+  const terminals = new TerminalStore(overrides.terminals);
   // What a session whose turn is over still waits for: its subagents and its
   // background tasks, a shell the agent marked `[keep]` aside (spec
   // 2026-10-08-kept-shells-design § 4). The Runner's busy rule and the
@@ -1318,7 +1322,9 @@ export async function buildServer(overrides: {
     if (api && !isAllowedWsOrigin(req.headers.origin, CONFIG.port)) {
       return reply.code(403).send({ error: 'origin not allowed' });
     }
-    if (!api && route !== '/ws' && path !== '/ws') return; // the public bundle and the SPA fallback
+    // `/ws` and every socket under it: a terminal's socket is a shell.
+    const isWs = (p: string | undefined) => p !== undefined && (p === '/ws' || p.startsWith('/ws/'));
+    if (!api && !isWs(route) && !isWs(path)) return; // the public bundle and the SPA fallback
     const read = req.method === 'GET' || req.method === 'HEAD';
     if (read && (route === '/api/auth' || route === '/api/health')) return;
     if (!authenticated(req)) return reply.code(401).send({ error: 'unauthorized' });
@@ -1351,6 +1357,23 @@ export async function buildServer(overrides: {
       },
     },
     (socket) => hub.handleSocket(socket),
+  );
+  // A terminal's socket (spec 2026-10-05-embedded-terminal-design § Transport):
+  // the token guard above and the same Origin check as `/ws`.
+  app.get(
+    '/ws/terminal/:id',
+    {
+      websocket: true,
+      preValidation: async (req, reply) => {
+        if (!isAllowedWsOrigin(req.headers.origin, CONFIG.port)) {
+          return reply.code(403).send({ error: 'origin not allowed' });
+        }
+      },
+    },
+    (socket, req) => {
+      const { id } = req.params as { id: string };
+      if (!terminals.attach(id, socket)) socket.close(4404, 'no such terminal');
+    },
   );
   // The packaged app's window loads this server's origin, so the frontend has
   // to come from here too (spec § 1). `wildcard: false` leaves unmatched GETs
@@ -1410,7 +1433,7 @@ export async function buildServer(overrides: {
     allSettings: () => Object.fromEntries(db.select().from(settingsTable).all().map((r) => [r.key, r.value])),
   });
   registerRoutes(app, {
-    db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, recentTools, errors,
+    db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, terminals, recentTools, errors,
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, trees,
     settings: settingsStore,
     mcpFor,
@@ -1447,6 +1470,7 @@ export async function buildServer(overrides: {
     for (const tail of tails.values()) tail.stop();
     for (const follower of followers.values()) follower.stop();
     backgroundTasks.dispose();
+    terminals.dispose();
     harness.dispose();
     db.$client.close();
     done();

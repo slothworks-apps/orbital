@@ -89,6 +89,16 @@ contextBridge.exposeInMainWorld('orbitalDesktop', {
   onCommand(cb: (id: string) => void) {
     ipcRenderer.on('command', (_e, id) => cb(String(id)));
   },
+  // The terminal (spec 2026-10-05-embedded-terminal-design § Keys): the
+  // renderer says when a terminal in this window gains or loses focus, and
+  // while it has it main takes ⌘T, ⌘W and ⌘1–9 ahead of the menu and sends
+  // them back here as a chord name, which the renderer validates.
+  setTerminalFocused(focused: boolean) {
+    ipcRenderer.send('terminal-focus', focused === true);
+  },
+  onTerminalKey(cb: (chord: string) => void) {
+    ipcRenderer.on('terminal-key', (_e, chord) => cb(String(chord)));
+  },
   // An update, from found to the restart into it (spec
   // 2026-10-08-builds-for-testers-design § The desktop app updates itself):
   // main pushes the state on every change and answers it on load, so a reload

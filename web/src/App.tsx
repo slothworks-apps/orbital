@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import {
   useOrbital,
   parseDetailPanelWidth,
+  parseSidebarWidth,
   resolvePanelPairWidths,
   PANEL_GUTTER_PX,
-  SUBAGENT_PANEL_DEFAULT_PX,
 } from './store/store'
 import type { ErrorsEvent, RemoteEvent, SessionEvent, SessionsEvent } from './store/store'
 import { getSocket } from './lib/socket'
@@ -28,6 +28,9 @@ import { ErrorLog } from './panels/ErrorLog'
 import { CompactDialog } from './panels/CompactDialog'
 import { McpDialog } from './panels/McpDialog'
 import { PairConfirmDialog } from './panels/PairConfirmDialog'
+import { TerminalDock, TerminalSidePanel } from './terminal/TerminalFrames'
+import { useSideSlotWidth, useTerminalHost, useTerminalPlacement } from './terminal/useTerminalHost'
+import { dockExtent } from './terminal/layout'
 import { useFeedbackNotice } from './ui/FeedbackNotice'
 import { MapNoticeHost } from './ui/MapNoticeHost'
 import { useNotificationsTip } from './panels/NotificationsTip'
@@ -119,18 +122,33 @@ export default function App() {
   // to make room for the subagent panel sitting to its right. `subagentWidthPx`
   // stays 0 (no offset added) whenever the subagent panel is closed, which
   // is what keeps this a no-op in the regression case (requirement 1).
-  const subagentPanelOpen = useOrbital(
-    (s) => s.subagentPanel !== null || s.taskOutput !== null || s.harnessPanel !== null,
-  )
+  //
+  // The terminal's side panel takes the same slot (canvas `Feature -
+  // Terminal` 48b), at its own width; `useSideSlotWidth` says who holds it.
+  const slotWidthPx = useSideSlotWidth()
+  const subagentPanelOpen = slotWidthPx > 0
   const viewportWidth = useViewportWidth()
   const rawDetailPanelWidth = useOrbital((s) => parseDetailPanelWidth(s.settings, viewportWidth))
-  const subagentWidthPx = subagentPanelOpen
-    ? resolvePanelPairWidths(rawDetailPanelWidth, SUBAGENT_PANEL_DEFAULT_PX, viewportWidth)
-        .subagentWidthPx
-    : 0
+  const pairWidths = subagentPanelOpen
+    ? resolvePanelPairWidths(rawDetailPanelWidth, slotWidthPx, viewportWidth)
+    : { detailWidthPx: rawDetailPanelWidth, subagentWidthPx: 0 }
+  const subagentWidthPx = pairWidths.subagentWidthPx
   const detailPanelRightPx = subagentPanelOpen
     ? PANEL_GUTTER_PX + subagentWidthPx + PANEL_GUTTER_PX
     : PANEL_GUTTER_PX
+
+  // The user's own shells (spec 2026-10-05-embedded-terminal-design): the
+  // selected session's, in the dock under the map (48a) or the side slot
+  // (48b). Nothing at all while the experimental switch is off.
+  useTerminalHost(selectedId, { mainWindow: true })
+  const terminal = useTerminalPlacement(selectedId)
+  const sidebarWidthPx = useOrbital((s) => parseSidebarWidth(s.settings, viewportWidth))
+  const dock = dockExtent({
+    sidebarCollapsed,
+    sidebarWidthPx,
+    detailRightPx: detailPanelRightPx,
+    detailWidthPx: pairWidths.detailWidthPx,
+  })
 
   // Initial REST snapshot (sessions/tags/rules/settings) — once per mount.
   // The flag gates `useSessionUrl`'s restore: `loadInitial` replaces the whole
@@ -335,7 +353,20 @@ export default function App() {
         <ErrorBoundary label="Harness">
           <HarnessPanel widthPx={subagentWidthPx} />
         </ErrorBoundary>
+        {terminal.sideOnScreen && selectedId && (
+          <ErrorBoundary label="Terminal">
+            <TerminalSidePanel sessionId={selectedId} widthPx={subagentWidthPx} />
+          </ErrorBoundary>
+        )}
       </div>
+
+      {/* The terminal's dock (48a): under the map, between the sidebar and
+          the detail panel, ending where the side slot's panel begins. */}
+      {terminal.shown && terminal.placement === 'dock' && selectedId && (
+        <ErrorBoundary label="Terminal">
+          <TerminalDock sessionId={selectedId} leftPx={dock.leftPx} rightPx={dock.rightPx} />
+        </ErrorBoundary>
+      )}
 
       {/* One message at a time at the top centre of the map, over every map
           theme (canvas `Feature - Notifications off` 1a). */}

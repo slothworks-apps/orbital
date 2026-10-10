@@ -17,7 +17,6 @@ import {
   showTrash,
   trashDropFor,
   PANEL_GUTTER_PX,
-  SUBAGENT_PANEL_DEFAULT_PX,
 } from '../store/store'
 import { isReadOnly, sessionStateKey, type SessionStateKey } from '../lib/types'
 import { stateColor, stateDot } from '../lib/stateStyle'
@@ -80,6 +79,8 @@ import {
   type FitBody,
   type Position,
 } from './camera'
+import { useDockClearancePx, useSideSlotWidth } from '../terminal/useTerminalHost'
+import { MAP_OVERLAY_BOTTOM_PX } from './shell/MapShell'
 
 /**
  * Top-down space map scene: a `Canvas` (WebGL, untestable in jsdom) driven
@@ -558,13 +559,15 @@ export function SpaceMap() {
   // not regress).
   const viewportWidth = useViewportWidth()
   const rawDetailPanelWidth = useOrbital((s) => parseDetailPanelWidth(s.settings, viewportWidth))
-  const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null || s.taskOutput !== null)
+  // Whatever holds the side slot — an agent's panel or the terminal's (48b).
+  const slotWidthPx = useSideSlotWidth()
+  const subagentPanelOpen = slotWidthPx > 0
   const pairWidths = useMemo(
     () =>
       subagentPanelOpen
-        ? resolvePanelPairWidths(rawDetailPanelWidth, SUBAGENT_PANEL_DEFAULT_PX, viewportWidth)
+        ? resolvePanelPairWidths(rawDetailPanelWidth, slotWidthPx, viewportWidth)
         : { detailWidthPx: rawDetailPanelWidth, subagentWidthPx: 0 },
-    [subagentPanelOpen, rawDetailPanelWidth, viewportWidth]
+    [subagentPanelOpen, slotWidthPx, rawDetailPanelWidth, viewportWidth]
   )
   const detailPanelWidth = pairWidths.detailWidthPx
   const sidebarWidth = useOrbital((s) => parseSidebarWidth(s.settings, viewportWidth))
@@ -591,6 +594,9 @@ export function SpaceMap() {
   // the drag handle is held — the overlays track the pointer with the
   // panel.
   const overlayRightPx = selectedId ? rightPanelsChromePx + 24 : 24
+  // The export's bottom inset (`bottom-6`), raised above the terminal's dock
+  // while it is shown, so the dock never covers these (48a).
+  const overlayBottomPx = MAP_OVERLAY_BOTTOM_PX + useDockClearancePx()
   // Screen-space chrome the camera helpers keep the sessions clear of. Both
   // sides are live, and the right side only counts when a panel is actually
   // open — nothing is selected, nothing is covering that edge. The top is the
@@ -1261,9 +1267,9 @@ export function SpaceMap() {
             and it drops the transition mid-drag like the right-hand overlays. */}
         <div
           data-overlay="camera-readout"
-          style={{ left: mapInsets.left }}
+          style={{ bottom: overlayBottomPx, left: mapInsets.left }}
           className={[
-            'pointer-events-none absolute bottom-6 font-mono text-[10.5px] tracking-[0.08em] text-text-muted/70',
+            'pointer-events-none absolute font-mono text-[10.5px] tracking-[0.08em] text-text-muted/70',
             overlayLeftTransition,
           ]
             .filter(Boolean)
@@ -1279,12 +1285,12 @@ export function SpaceMap() {
         <div
           data-overlay="zoom-column"
           className={[
-            'pointer-events-auto absolute bottom-6 flex flex-col items-stretch gap-2',
+            'pointer-events-auto absolute flex flex-col items-stretch gap-2',
             overlayTransition,
           ]
             .filter(Boolean)
             .join(' ')}
-          style={{ right: overlayRightPx }}
+          style={{ bottom: overlayBottomPx, right: overlayRightPx }}
         >
           {/* The one always-there way into the error log — canvas 5a/5c.
               Same shell as the zoom stack, 8px above it, never joined to it.
@@ -1358,9 +1364,9 @@ export function SpaceMap() {
             the same curve as the other overlays and drops it mid-drag. */}
         <div
           data-overlay="new-session"
-          style={{ left: mapInsets.left, right: mapInsets.right }}
+          style={{ bottom: overlayBottomPx, left: mapInsets.left, right: mapInsets.right }}
           className={[
-            'pointer-events-none absolute bottom-6 flex justify-center',
+            'pointer-events-none absolute flex justify-center',
             resizingPanel
               ? ''
               : 'transition-[left,right] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]',
