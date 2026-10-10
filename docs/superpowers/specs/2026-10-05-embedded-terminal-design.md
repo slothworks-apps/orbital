@@ -49,8 +49,9 @@ while it is on, the placement and the cursor:
 - `terminal_cursor`: `block` (default), `bar` or `underline`;
 - `terminal_cursor_blink`: off by default.
 
-With the switch off nothing of the terminal shows, and the detail header looks
-as it does without the feature. Turning it off does not end running shells;
+With the switch off nothing of the terminal shows. The one change to the
+detail header, the context readout on its bar's line (see *The way in*), holds
+with the switch off too. Turning it off does not end running shells;
 they are there again when it is turned back on.
 
 ## Server
@@ -188,8 +189,8 @@ utility strip. From the first tab on, it is a `›_ N` chip in the state row
 after ▣, where N counts tabs (exited ones included) and changes only when a
 tab is added or closed. The chip has neutral ink, no cyan and no dot. Its
 hover title names the tab count and what runs. To make room, the context
-readout (`212k / 1M`) moves from the state row onto the line of its bar, only
-while the feature is on.
+readout (`212k / 1M`) moves from the state row onto the line of its bar. That
+move is for good, for every session, whether the terminal is on or not.
 
 **Tabs (48c, 48d).** `+` adds one; `×` closes an idle or exited tab at once
 and asks once, anchored under the tab, when something runs in it ("Keep
