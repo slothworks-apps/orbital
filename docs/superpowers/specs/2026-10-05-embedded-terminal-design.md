@@ -1,7 +1,7 @@
 ---
 id: 2026-10-05-embedded-terminal-design
 title: A terminal inside Orbital, in the session's directory
-status: draft
+status: active
 type: spec
 domain: sessions
 related:
@@ -212,6 +212,19 @@ and selection; JetBrains Mono at the file viewer's 12.5 px on a 20 px line;
 a scrollback of the canvas's line count per tab. The cursor is a steady
 block unless the user picks otherwise; an unfocused cursor is hollow and
 never blinks. Every map theme gets the same terminal.
+
+**Where the build differs from the canvas, on purpose:**
+
+- The side panel and the detail panel share the slot rule every side panel
+  follows (the pair stays within a share of the window), so at 1440 px the
+  detail panel is slightly narrower than the canvas draws it.
+- The dock and the side panel have no backdrop blur: docked panels sit over
+  the map without it, as everywhere else.
+- A detached session window always uses the dock; it has no side slot.
+- While the dock is shown, the map's bottom overlays (zoom column, camera
+  readout, New session) stand on it rather than under it.
+- ⌃\` on a shown terminal whose slot an agent's panel holds closes that
+  panel and brings the terminal back.
 
 None of this marks a tab that printed while hidden: no dot, count, blink or
 motion. The planet does not change because a session has terminals, and the
