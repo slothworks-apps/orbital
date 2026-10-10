@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import { autoUpdater } from 'electron-updater';
 import { apiTokenPath, authCookies, bearerHeaders, parseApiToken } from './lib/apiToken';
 import { appMenuTemplate, parseMenuCommands, type MenuCommand } from './lib/appMenu';
+import { parseTerminalFocused, terminalKeyDecision } from './lib/terminalKeys';
 import { decideQuit, decideWindowClose, WorkingSessions } from './lib/background';
 import { pickerStartPath } from './lib/chooseDirectory';
 import {
@@ -581,12 +582,35 @@ const webPreferences = {
   contextIsolation: true,
 };
 
+/** The windows whose renderer says a terminal in them has focus, by `WebContents` id. */
+const terminalFocused = new Set<number>();
+
+/**
+ * While a terminal in the window has focus, ⌘T, ⌘W and ⌘1–9 are the
+ * terminal's, not the menu's (spec 2026-10-05-embedded-terminal-design
+ * § Keys). The menu sees a key before the page does, so it is taken here and
+ * handed to the renderer as a chord name; `lib/terminalKeys` decides which.
+ * A page that reloads starts with nothing focused.
+ */
+function watchTerminalKeys(contents: WebContents): void {
+  const id = contents.id;
+  contents.on('before-input-event', (event, input) => {
+    const decision = terminalKeyDecision(input, terminalFocused.has(id));
+    if (decision.action === 'pass') return;
+    event.preventDefault();
+    if (decision.action === 'forward') contents.send('terminal-key', decision.chord);
+  });
+  contents.on('did-start-loading', () => terminalFocused.delete(id));
+  contents.once('destroyed', () => terminalFocused.delete(id));
+}
+
 /**
  * Every Orbital window is Orbital and nothing else. A link in a transcript
  * opens in the user's browser instead of replacing the page — there is no
  * Back here, and a remote page would be loaded with the preload attached.
  */
 function confineToOrbital(contents: WebContents): void {
+  watchTerminalKeys(contents);
   contents.setWindowOpenHandler(({ url }) => {
     if (decideNavigation(url, PORT) === 'external') void shell.openExternal(url);
     return { action: 'deny' };
@@ -1458,6 +1482,14 @@ ipcMain.handle('check-for-updates', (event) =>
 // exactly. A missed message costs one notification judged by the previous
 // rule, or one check by the previous download setting; the next reconnect or
 // check corrects it.
+// A terminal in a window gained or lost focus (`watchTerminalKeys`). Each
+// window speaks only for itself.
+ipcMain.on('terminal-focus', (event, payload: unknown) => {
+  const focused = parseTerminalFocused(payload);
+  if (focused === null) return;
+  if (focused) terminalFocused.add(event.sender.id);
+  else terminalFocused.delete(event.sender.id);
+});
 ipcMain.on('settings-changed', () => void loadSettings());
 // The refused tip's one way out (canvas 1d): System Settings → Notifications.
 ipcMain.on('open-notification-settings', () => {

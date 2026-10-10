@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- An experimental terminal (Settings → Experimental): your own shell in a session's folder, as tabs in a dock under the map or in the side panel. ⌃` shows and hides it; shells keep running when you hide it or switch sessions, and nothing you run there is sent to the agent.
 
 ## [0.27.0] — 2026-10-09
 ### Changed
