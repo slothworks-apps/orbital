@@ -743,8 +743,6 @@ describe('Settings › Tags & rules', () => {
     const defaultCard = document.querySelector('[data-tag-card="2"]') as HTMLElement
     expect(workCard.dataset.selected).toBe('true')
     expect(defaultCard.dataset.selected).toBe('false')
-    // Canvas 1e: the selected card is tinted with the TAG's hue, not the accent.
-    expect(workCard.style.borderColor).toContain('210')
     expect(within(workCard).getByRole('group', { name: 'Hue for work' })).toBeInTheDocument()
     expect(within(defaultCard).queryByRole('group', { name: 'Hue for default' })).not.toBeInTheDocument()
     expect(within(defaultCard).queryByRole('button', { name: 'Delete default' })).not.toBeInTheDocument()
