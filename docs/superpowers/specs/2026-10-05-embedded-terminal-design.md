@@ -48,7 +48,9 @@ place that spawns or kills one.
 
 - `POST /api/sessions/:id/terminals` spawns the user's shell (`$SHELL -l`, a
   login shell, so `.zprofile` and its nvm setup are loaded) in the session's
-  `cwd` through `node-pty`, and returns the terminal's `id`.
+  `cwd` through `node-pty`, and returns the terminal's `id`. A `cwd` that is
+  gone from disk (a removed worktree) is a `409 cwd_missing`, not a shell
+  quietly started somewhere else.
 - `GET /api/sessions/:id/terminals` lists the session's terminals and whether
   each is still running, with the exit code when it is not. The window rebuilds
   its tabs from this after a reload.
@@ -78,17 +80,24 @@ does not outlive the server, so neither should its history.
 |---|---|---|
 | `exit`, or the shell dies | already gone | stays, marked as exited with its code, until you close it |
 | you close the tab | process group gets `SIGHUP` | gone |
-| you end the session (`POST /api/sessions/:id/end`) | every terminal of the session is closed | gone |
+| you end the session (End, or Clear) | every terminal of the session is closed | gone |
 | Orbital quits | the server closes every terminal on shutdown | — |
 
 The last row matters most: a dev server orphaned by a quit Orbital would hold
 its port with nothing left to stop it.
 
+Only the user's End or Clear closes a session's terminals. A terminal session
+that ends because the CLI exited keeps them: nothing the user did ended them.
+
 ## Transport
 
 Each terminal has its own WebSocket, `/ws/terminal/:id`, next to the existing
-`/ws`. Keystrokes go in and output comes out as raw bytes. The only other
-messages are a resize from the window and an exit notice from the server.
+`/ws`. Output comes out as binary frames of raw bytes; the one other thing the
+server sends is the exit notice, as JSON text. Everything the window sends is
+JSON text, `{ type: 'input', data }` or `{ type: 'resize', cols, rows }`, so
+typed text can never be mistaken for a control message. A window that falls
+behind pauses the shell until it catches up, so a runaway `yes` does not grow
+the server.
 Keeping it off `/ws` means a `cat` of a large file does not queue up behind, or
 in front of, the map's events.
 
@@ -99,6 +108,9 @@ optional:
 - the Origin check `/ws` uses (`isAllowedWsOrigin` in `server/src/index.ts`),
   so a foreign page cannot open the socket;
 - the server binds to `127.0.0.1` only, as it already does.
+
+The token guard used to let through anything that was neither `/api` nor
+exactly `/ws`; it now covers every path under `/ws/` as well.
 
 ## Web
 
@@ -140,13 +152,18 @@ worth doing later; it is written down as [[phone-reads-a-sessions-terminals]].
 
 `node-pty` is a native addon. It ships beside the server the way
 `better-sqlite3` does (`desktop/electron-builder.yml`), with only the
-darwin-arm64 build and its `spawn-helper` binary, which has to stay
-executable.
+darwin-arm64 prebuild and its `spawn-helper` binary, which forks every shell
+and has to stay executable.
+
+The version is pinned to `1.2.0-beta.15`. The stable `1.1.0` publishes
+`spawn-helper` without the executable bit, and every spawn fails with
+`posix_spawnp failed`; its install scripts do not fix it, and npm here does
+not run them anyway. The 1.2 beta line publishes it executable, and it is the
+line VS Code ships.
 
 The server runs in Electron's `utilityProcess`, so the addon is loaded by
-Electron's Node. `node-pty` is built on N-API, which should make it load
-without an Electron-specific rebuild. This is the main technical risk of the
-feature and is verified on a packaged DMG before anything else is built on top.
+Electron's Node. `node-pty` is built on N-API and loads there without an
+Electron-specific rebuild (checked 2026-10-10 under Electron 44.5.1).
 
 ## Tests
 
