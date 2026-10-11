@@ -55,6 +55,8 @@ import type { HarnessService } from '../harness/service.js';
 import { registerHarnessRoutes, type CarryHarness } from './harness.js';
 import { registerStatsRoutes } from './stats.js';
 import { registerMcpRoutes } from './mcp.js';
+import { registerTerminalRoutes } from './terminals.js';
+import type { TerminalStore } from '../terminal/store.js';
 import { recordDecisions, serverFile, undecidedServers, type McpjsonDecisions } from '../mcp/mcpjson.js';
 import { dbFingerprints } from '../mcp/approvals.js';
 import type { McpConfig } from '../mcp/config.js';
@@ -120,6 +122,8 @@ export interface RouteContext {
   /** Every session's background tasks, with the output path each one's
    * output route may read (spec 2026-09-28-background-tasks-design §§ 2, 4). */
   backgroundTasks: BackgroundTaskStore;
+  /** The user's own shells, per session (spec 2026-10-05-embedded-terminal-design). */
+  terminals: TerminalStore;
   /** Every session's recent tool calls — the last 30 per session, fed from
    * tool_use blocks in the runner stream and transcript tails (spec
    * 2026-10-01-map-themes-design § 5). */
@@ -1953,6 +1957,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     ctx.harness.sessionEnded(id);
     // Ending the session drops its wait for a limit reset, unfired.
     ctx.limits?.drop(id);
+    // The user's terminals go with the session they belong to. Only here, on
+    // the user's End or Clear: a terminal session the CLI ended keeps them.
+    ctx.terminals.closeSession(id);
     await ctx.runner.stop(id);
     publishRow(id);
     // An ended drafting conversation is gone from everywhere, the map included.
@@ -2484,6 +2491,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   registerStatsRoutes(app, ctx);
   registerMcpRoutes(app, ctx);
+  registerTerminalRoutes(app, ctx);
   carry = registerHarnessRoutes(app, ctx, deliverToSession, readTranscriptMessages, async (opts) => {
     const refused = clientIdRefusal(opts.sessionId);
     if (refused) return { ok: false, ...refused };

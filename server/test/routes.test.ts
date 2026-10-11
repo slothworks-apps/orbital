@@ -38,6 +38,7 @@ import { sdkBundledCliAvailable } from '../src/runner/claudeCli.js';
 import type { SessionRow, SessionStatus } from '../src/types.js';
 import { SubagentStore, SubagentTranscripts } from '../src/transcript/subagents.js';
 import { BackgroundTaskStore } from '../src/transcript/backgroundTasks.js';
+import { TerminalStore } from '../src/terminal/store.js';
 import { RecentToolsStore } from '../src/transcript/recentTools.js';
 import { createImageStore, type ImageStore } from '../src/images/store.js';
 import { RemoteService } from '../src/remote/service.js';
@@ -246,6 +247,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: 
     images: imageStore, imagesDir, files: fileStore,
     subagents,
     backgroundTasks,
+    terminals: new TerminalStore({ shell: { file: '/bin/sh', args: [] } }),
     recentTools,
     git: gitStore,
     ide: opts.ide ?? ideStore,
@@ -1685,6 +1687,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       transcriptPath: (id, projectDir) => join('/nonexistent', projectDir, `${id}.jsonl`),
       subagents: new SubagentStore(),
       backgroundTasks: new BackgroundTaskStore(),
+      terminals: new TerminalStore({ shell: { file: '/bin/sh', args: [] } }),
       recentTools: new RecentToolsStore(),
       git: gitStore,
       ide: ideStore,

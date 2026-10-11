@@ -53,6 +53,16 @@ import {
   narrateModel,
   walkthroughEnabled,
   harnessEnabled,
+  TERMINAL_ENABLED_KEY,
+  TERMINAL_PLACEMENT_KEY,
+  TERMINAL_CURSOR_KEY,
+  TERMINAL_CURSOR_BLINK_KEY,
+  terminalEnabled,
+  terminalPlacement,
+  terminalCursor,
+  terminalCursorBlink,
+  type TerminalCursor,
+  type TerminalPlacement,
 } from '../lib/experimental'
 import { Panel } from '../ui/Panel'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
@@ -148,6 +158,19 @@ const GH_REASON: Record<Exclude<GhAvailability, 'ready'>, string> = {
   missing: 'gh is not installed',
   logged_out: 'gh is not logged in',
 }
+
+/** Settings → Experimental → the terminal's placement. The dock first: it is the default (48a). */
+const TERMINAL_PLACEMENT_OPTIONS: Array<{ value: TerminalPlacement; label: string }> = [
+  { value: 'dock', label: 'Dock' },
+  { value: 'side', label: 'Side panel' },
+]
+
+/** The terminal's cursor shape (48f). Block first: it is the default. */
+const TERMINAL_CURSOR_OPTIONS: Array<{ value: TerminalCursor; label: string }> = [
+  { value: 'block', label: 'Block' },
+  { value: 'bar', label: 'Bar' },
+  { value: 'underline', label: 'Underline' },
+]
 
 /** Settings → Appearance → MAP → "State on the map" (canvas 24e / 24a). Dot first: it is the default. */
 const STATE_PILL_OPTIONS: Array<{ value: MapStatePills; label: string }> = [
@@ -1359,6 +1382,58 @@ export function Settings({ open, onClose }: SettingsProps) {
                           }
                         />
                       </Row>
+                      {/* Spec 2026-10-05-embedded-terminal-design § Behind an
+                          experimental switch: the switch, and while it is on,
+                          where the terminal sits and how its cursor looks. */}
+                      <Row
+                        title="Terminal"
+                        desc="Your own shell in the session's folder, as tabs beside the session. What you run in it is not sent to the agent. Turning this off leaves running shells running."
+                      >
+                        <Toggle
+                          aria-label="Terminal"
+                          checked={terminalEnabled(settings)}
+                          onChange={(checked) =>
+                            void patchAndSet({ [TERMINAL_ENABLED_KEY]: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
+                      {terminalEnabled(settings) && (
+                        <>
+                          <Row
+                            title="Terminal placement"
+                            desc="A dock under the map, or a panel in the side slot the subagent and harness panels use."
+                          >
+                            <Segmented<TerminalPlacement>
+                              label="Terminal placement"
+                              size="row"
+                              options={TERMINAL_PLACEMENT_OPTIONS}
+                              value={terminalPlacement(settings)}
+                              onChange={(value) => void patchAndSet({ [TERMINAL_PLACEMENT_KEY]: value })}
+                            />
+                          </Row>
+                          <Row title="Terminal cursor" desc="An unfocused cursor is always hollow and never blinks.">
+                            <Segmented<TerminalCursor>
+                              label="Terminal cursor"
+                              size="row"
+                              options={TERMINAL_CURSOR_OPTIONS}
+                              value={terminalCursor(settings)}
+                              onChange={(value) => void patchAndSet({ [TERMINAL_CURSOR_KEY]: value })}
+                            />
+                          </Row>
+                          <Row
+                            title="Blinking cursor"
+                            desc="The standard caret blink, only while the terminal has focus. Off, the cursor stays steady."
+                          >
+                            <Toggle
+                              aria-label="Blinking cursor"
+                              checked={terminalCursorBlink(settings)}
+                              onChange={(checked) =>
+                                void patchAndSet({ [TERMINAL_CURSOR_BLINK_KEY]: checked ? 'true' : 'false' })
+                              }
+                            />
+                          </Row>
+                        </>
+                      )}
                     </>
                   )}
 

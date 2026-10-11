@@ -4,7 +4,6 @@ import {
   parseSidebarWidth,
   parseDetailPanelWidth,
   resolvePanelPairWidths,
-  SUBAGENT_PANEL_DEFAULT_PX,
   PANEL_GUTTER_PX,
 } from '../../store/store'
 import { sessionStateKey, type SessionStateKey } from '../../lib/types'
@@ -18,6 +17,10 @@ import { shortcutLabel } from '../../lib/keymap'
 import { useCommand } from '../../lib/commands'
 import { EndDialog } from '../../panels/EndDialog'
 import type { CameraState } from '../camera'
+import { useDockClearancePx, useSideSlotWidth } from '../../terminal/useTerminalHost'
+
+/** The bottom overlays' inset from the window's edge (artboard 1a). */
+export const MAP_OVERLAY_BOTTOM_PX = 24
 
 const SIDEBAR_GUTTER_PX = 40
 const SIDEBAR_COLLAPSED_PX = 96
@@ -31,16 +34,18 @@ export function useMapInsets() {
   const settings = useOrbital((s) => s.settings)
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const sidebarCollapsed = useOrbital((s) => s.ui.sidebarCollapsed)
-  const subagentPanelOpen = useOrbital((s) => s.subagentPanel !== null || s.taskOutput !== null)
+  // Whatever holds the side slot — an agent's panel or the terminal's (48b).
+  const slotWidthPx = useSideSlotWidth()
+  const subagentPanelOpen = slotWidthPx > 0
   const viewportWidth = useViewportWidth()
   const sidebarWidth = parseSidebarWidth(settings, viewportWidth)
   const rawDetailPanelWidth = parseDetailPanelWidth(settings, viewportWidth)
   const pairWidths = useMemo(
     () =>
       subagentPanelOpen
-        ? resolvePanelPairWidths(rawDetailPanelWidth, SUBAGENT_PANEL_DEFAULT_PX, viewportWidth)
+        ? resolvePanelPairWidths(rawDetailPanelWidth, slotWidthPx, viewportWidth)
         : { detailWidthPx: rawDetailPanelWidth, subagentWidthPx: 0 },
-    [subagentPanelOpen, rawDetailPanelWidth, viewportWidth],
+    [subagentPanelOpen, slotWidthPx, rawDetailPanelWidth, viewportWidth],
   )
   const rightPanelsChromePx =
     pairWidths.detailWidthPx +
@@ -84,6 +89,9 @@ export function MapShell(props: {
   const errorsUnseen = useOrbital((s) => s.errorsUnseen)
   const resizingPanel = useOrbital((s) => s.ui.resizingPanel ?? false)
   const { insets: mapInsets, overlayRightPx } = useMapInsets()
+  // The export's bottom inset (`bottom-6`), raised above the terminal's dock
+  // while it is shown, so the dock never covers these (48a).
+  const overlayBottomPx = MAP_OVERLAY_BOTTOM_PX + useDockClearancePx()
 
   const overlayTransition = resizingPanel
     ? ''
@@ -164,9 +172,9 @@ export function MapShell(props: {
       {props.showCameraReadout !== false && (
         <div
           data-overlay="camera-readout"
-          style={{ left: mapInsets.left }}
+          style={{ bottom: overlayBottomPx, left: mapInsets.left }}
           className={[
-            'pointer-events-none absolute bottom-6 font-mono text-[10.5px] tracking-[0.08em] text-text-muted/70',
+            'pointer-events-none absolute font-mono text-[10.5px] tracking-[0.08em] text-text-muted/70',
             overlayLeftTransition,
           ]
             .filter(Boolean)
@@ -181,12 +189,12 @@ export function MapShell(props: {
         <div
           data-overlay="zoom-column"
           className={[
-            'pointer-events-auto absolute bottom-6 flex flex-col items-stretch gap-2',
+            'pointer-events-auto absolute flex flex-col items-stretch gap-2',
             overlayTransition,
           ]
             .filter(Boolean)
             .join(' ')}
-          style={{ right: overlayRightPx }}
+          style={{ bottom: overlayBottomPx, right: overlayRightPx }}
         >
           <button
             type="button"
@@ -252,9 +260,9 @@ export function MapShell(props: {
       {/* New session CTA */}
       <div
         data-overlay="new-session"
-        style={{ left: mapInsets.left, right: mapInsets.right }}
+        style={{ bottom: overlayBottomPx, left: mapInsets.left, right: mapInsets.right }}
         className={[
-          'pointer-events-none absolute bottom-6 flex justify-center',
+          'pointer-events-none absolute flex justify-center',
           resizingPanel
             ? ''
             : 'transition-[left,right] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]',

@@ -59,6 +59,15 @@ describe('matches', () => {
     expect(matches('meta+Digit1', e, { isMac: true })).toBe(true)
   })
 
+  it('matches the backquote chord on either key a Mac ISO keyboard may report', () => {
+    // The terminal's ⌃` on a Czech layout, where the key prints a dead accent.
+    for (const code of ['Backquote', 'IntlBackslash']) {
+      expect(matches('ctrl+Backquote', event({ key: 'Dead', code, ctrlKey: true }), { isMac: true })).toBe(true)
+    }
+    expect(matches('ctrl+Backquote', event({ key: '`', code: 'Quote', ctrlKey: true }), { isMac: true })).toBe(false)
+    expect(chordLabel('ctrl+Backquote')).toBe('⌃`')
+  })
+
   it('matches shift+letter arriving as the upper-case key', () => {
     const e = event({ key: 'N', code: 'KeyN', metaKey: true, shiftKey: true })
     expect(matches('meta+shift+n', e, { isMac: true })).toBe(true)
@@ -136,10 +145,10 @@ describe('chordGlyphs / chordLabel / accelerator', () => {
 })
 
 describe('keymapGroups', () => {
-  it('yields the six scopes in SCOPES order for an empty query', () => {
+  it('yields every scope in SCOPES order for an empty query', () => {
     const groups = keymapGroups('')
     expect(groups.map((g) => g.scope)).toEqual(SCOPES.map((s) => s.scope))
-    expect(groups).toHaveLength(6)
+    expect(groups).toHaveLength(7)
   })
 
   it('narrows to one group with one row for a label match', () => {

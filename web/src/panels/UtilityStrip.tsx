@@ -37,6 +37,7 @@ import type { StripButton, StripForm, StripPresence } from './stripFold'
 import { BRANCH_FADE_MS, WhereLine } from './WhereLine'
 import { useSessionHarness } from './HarnessPill'
 import { MediaReadout } from './MediaReadout'
+import { TerminalStripButton } from '../terminal/TerminalEntry'
 
 /**
  * How long the pointer rests on a strip button before its tooltip appears
@@ -476,6 +477,11 @@ export function UtilityStrip({
           </Tooltip>
         </span>
       )}
+      {/* The terminal's way in before its first tab (canvas `Feature -
+          Terminal` 48e): after the path, ahead of the six. Not one of them,
+          so it never folds; it leaves for the state row's chip with the
+          first tab. Behind its experimental switch. */}
+      {session && <TerminalStripButton session={session} delayMs={PIN_TOOLTIP_DELAY_MS} />}
       <span
         className="flex h-full flex-none items-center"
         onPointerEnter={() => setPointerIn(true)}

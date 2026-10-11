@@ -46,6 +46,7 @@ import type {
   SessionDefaults,
 } from './types'
 import { markUnauthorized } from './unauthorized'
+import type { TerminalInfo } from '../terminal/types'
 
 /**
  * What a send answers. `uuid` is the transcript entry the turn is written
@@ -324,6 +325,30 @@ export const api = {
    */
   async stopTask(id: string, taskId: string): Promise<void> {
     return request<void>('POST', `/api/sessions/${id}/tasks/${encodeURIComponent(taskId)}/stop`)
+  },
+
+  /**
+   * The user's own shells of a session (spec 2026-10-05-embedded-terminal-design
+   * § Routes), running and exited, in the order they were opened.
+   */
+  async listTerminals(sessionId: string): Promise<TerminalInfo[]> {
+    const data = await request<{ terminals: TerminalInfo[] }>('GET', `/api/sessions/${sessionId}/terminals`)
+    return data.terminals
+  },
+
+  /** A new shell in the session's folder. 409 `cwd_missing` when the folder is gone. */
+  async openTerminal(sessionId: string, size?: { cols: number; rows: number }): Promise<TerminalInfo> {
+    return request<TerminalInfo>('POST', `/api/sessions/${sessionId}/terminals`, size ?? {})
+  },
+
+  /** A new shell in an exited terminal's tab, its scrollback kept. 409 while the old one runs. */
+  async restartTerminal(id: string, size?: { cols: number; rows: number }): Promise<TerminalInfo> {
+    return request<TerminalInfo>('POST', `/api/terminals/${id}/restart`, size ?? {})
+  },
+
+  /** Ends the shell, and everything started in it, and forgets the tab. */
+  async closeTerminal(id: string): Promise<void> {
+    await request<{ ok: true }>('DELETE', `/api/terminals/${id}`)
   },
 
   /**

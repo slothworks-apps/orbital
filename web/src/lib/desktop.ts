@@ -23,6 +23,8 @@ type DesktopBridge = {
   getUpdateState?: () => Promise<UpdateState>
   updateAction?: (action: UpdateAction) => void
   checkForUpdates?: () => Promise<UpdateCheckAnswer>
+  setTerminalFocused?: (focused: boolean) => void
+  onTerminalKey?: (cb: (chord: string) => void) => void
 }
 
 /**
@@ -204,6 +206,28 @@ export function setMenuCommands(items: MenuCommand[]): void {
  */
 export function onCommand(cb: (id: string) => void): void {
   bridge()?.onCommand?.(cb)
+}
+
+/**
+ * Tells main whether a terminal in this window has focus. While it has, main
+ * takes ⌘T, ⌘W and ⌘1–9 ahead of the menu and hands them back through
+ * `onTerminalKey` (spec 2026-10-05-embedded-terminal-design § Keys). A no-op
+ * in the browser.
+ */
+export function setTerminalFocused(focused: boolean): void {
+  bridge()?.setTerminalFocused?.(focused)
+}
+
+/**
+ * A terminal chord main caught for this window: `cb` gets its name
+ * (`terminal/keys.ts`). Registers for the page's lifetime. Returns false in
+ * the browser, where the terminal reads the keys itself.
+ */
+export function onTerminalKey(cb: (chord: string) => void): boolean {
+  const listen = bridge()?.onTerminalKey
+  if (!listen) return false
+  listen(cb)
+  return true
 }
 
 /** Opens the session in its own window, or focuses the one it already has. */
