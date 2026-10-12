@@ -203,8 +203,9 @@ The browser opens `pr.url` through the desktop shell's external-link path.
 
 ## The phone
 
-The phone's session header shows the branch on its where-line. Tapping the
-branch opens a bottom sheet, BRANCH, the way the context readout opens its
+The phone's session header shows the project and branch on its where-line.
+Tapping them opens a bottom sheet (in place of the tooltip that only showed
+them uncut), BRANCH, the way the context readout opens its
 sheet: the full branch name and where it is checked out, then the
 desktop's line-changes block, then the pull request — number, the same
 STATE · REVIEW · CHECKS rows, and an "Open on GitHub" button that hands

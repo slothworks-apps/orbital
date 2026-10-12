@@ -3,8 +3,10 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+
+## [0.10.1] — 2026-10-12
 ### Added
-- Tapping the branch in a session's header opens a panel with its line changes and pull request — state, review and checks — and a button that opens the pull request on GitHub.
+- Tapping the project and branch in a session's header opens a panel instead of a tooltip: the full branch name, its line changes and its pull request — state, review and checks — with a button that opens the pull request on GitHub.
 ### Changed
 - An image that is still loading shows a small, slow moon instead of a striped placeholder, and only when the load takes a moment; the full-screen viewer fills its orbit as the bytes arrive.
 - Going back to an image you have just looked at shows it at once instead of loading it again; an image from a file is still checked with the Mac in the background and updates if the file changed.
