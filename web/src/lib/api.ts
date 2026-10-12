@@ -61,6 +61,9 @@ export interface SendResult {
   rewind?: true
 }
 
+/** What a typed project directory is on the Mac (`GET /api/directory`). */
+export type DirectoryState = 'directory' | 'missing' | 'not_a_directory' | 'not_absolute'
+
 export interface SessionListParams {
   tag?: number
   q?: string
@@ -755,6 +758,19 @@ export const api = {
     if (claudeDirId !== undefined) params.set('claudeDirId', String(claudeDirId))
     const data = await request<{ undecided: McpjsonServer[] }>('GET', `/api/mcpjson?${params}`)
     return data.undecided
+  },
+
+  /**
+   * What a typed project directory is on the Mac, `~` expanded (spec
+   * 2026-10-12-new-session-missing-directory-design § Server).
+   */
+  async directoryState(path: string): Promise<{ path: string; state: DirectoryState }> {
+    return request<{ path: string; state: DirectoryState }>('GET', `/api/directory?${new URLSearchParams({ path })}`)
+  },
+
+  /** Creates a missing project directory and its parents; answers the expanded path. */
+  async createDirectory(path: string): Promise<{ path: string }> {
+    return request<{ path: string }>('POST', '/api/directory', { path })
   },
 
   /**

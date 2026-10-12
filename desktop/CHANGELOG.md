@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.29.0] — 2026-10-12
+### Added
+- New session tells you, as you type, when the project folder doesn't exist, and offers to create it when you launch — instead of starting a session that fails with an unclear error.
+
 ## [0.28.0] — 2026-10-10
 ### Added
 - An experimental terminal (Settings → Experimental): your own shell in a session's folder, as tabs in a dock under the map or in the side panel. ⌃` shows and hides it; shells keep running when you hide it or switch sessions, and nothing you run there is sent to the agent.

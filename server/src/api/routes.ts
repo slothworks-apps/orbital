@@ -11,6 +11,7 @@ import { expandHome } from '../paths.js';
 import { NamedPathCache, readFilePreview, readImageFile, readInSandboxes } from '../files/preview.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
 import { completeFilePath } from '../files/complete.js';
+import { createDirectory, directoryState } from '../files/directory.js';
 import { locateOnDisk, mediaItems } from '../media/items.js';
 import { OpenTabsReader } from '../files/openTabs.js';
 import { collectCommands, findCommandFile, type CatalogCommand } from '../commands/catalog.js';
@@ -1194,6 +1195,27 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       ctx.settings.set(LAST_CLAUDE_DIR_KEY, String(claudeDirId));
     }
     return reply.code(201).send({ sessionId });
+  });
+
+  /**
+   * What a typed project directory is on disk, for the New Session form's
+   * line under its field (spec 2026-10-12-new-session-missing-directory-design).
+   * Expanded like `POST /api/sessions`, so the path checked is the path launched.
+   */
+  app.get('/api/directory', (req, reply) => {
+    const q = req.query as { path?: string };
+    if (!q.path?.trim()) return reply.code(400).send({ error: 'path_required' });
+    return directoryState(q.path);
+  });
+
+  /** Creates a missing project directory, parents included — the form's *Create and start*. */
+  app.post('/api/directory', (req, reply) => {
+    const body = (req.body ?? {}) as { path?: unknown };
+    if (typeof body.path !== 'string' || !body.path.trim()) return reply.code(400).send({ error: 'path_required' });
+    const created = createDirectory(body.path);
+    if (created.ok) return reply.code(201).send({ path: created.path });
+    const status = { not_absolute: 400, not_a_directory: 409, not_permitted: 403 }[created.error];
+    return reply.code(status).send({ error: created.error });
   });
 
   /**

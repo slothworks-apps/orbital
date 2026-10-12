@@ -5,6 +5,7 @@ import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { command, matches, shortcutLabel } from '../lib/keymap'
 import { reportError } from '../lib/errors'
+import { blocksLaunch, directoryLine, useDirectoryState } from '../lib/useDirectoryState'
 import { shortenPath } from '../lib/format'
 import { canChooseDirectory, chooseDirectory } from '../lib/desktop'
 import { Dialog } from '../ui/Dialog'
@@ -203,6 +204,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
    * finds every field as it was.
    */
   const [question, setQuestion] = useState<{ servers: McpjsonServer[]; answers: McpjsonAnswers } | null>(null)
+  /**
+   * Launch found the directory missing (spec
+   * 2026-10-12-new-session-missing-directory-design § 2): the path, `~`
+   * expanded, that *Create and launch* makes. Set, it takes the dialog's
+   * place like the `.mcp.json` question does.
+   */
+  const [missingDir, setMissingDir] = useState<string | null>(null)
   /** The project file a question row's *View file* opened (canvas 2d). */
   const [viewing, setViewing] = useState<{ name: string; file: string } | null>(null)
   const choosesDir = claudeDirs.length >= 2
@@ -259,6 +267,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setCustomInitial(null)
       setPending(false)
       setQuestion(null)
+      setMissingDir(null)
       setViewing(null)
       const prefill = claudeDirPrefill({
         dirs: claudeDirs,
@@ -372,6 +381,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   /** Other is selected but no id has validated yet. */
   const awaitingCustomModel = otherActive && model === null
 
+  const dirState = useDirectoryState(cwd, open)
+  const dirLine = directoryLine(dirState, 'this Mac')
+
   /** The launch itself, with the question's answers when it was asked. */
   const launch = useCallback(async (mcpjson?: McpjsonDecisions) => {
     setPending(true)
@@ -396,6 +408,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         permissionMode,
         tagId: tagId ?? undefined,
         model: model ?? undefined,
+        // A directory gone between Launch's check and the spawn is refused,
+        // not written as a session that never runs.
+        requireDirectory: true,
         // Only when the choice was offered: with one directory nothing changes.
         ...(choosesDir && claudeDirId !== null ? { claudeDirId } : {}),
         // Omitted rather than sent empty: absent and `[]` mean the same thing to
@@ -435,6 +450,15 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const handleLaunch = useCallback(async () => {
     if (!cwd.trim() || pending || awaitingCustomModel) return
     setPending(true)
+    // Asked again rather than read off the line: the field may have changed
+    // since its answer, and a folder may have been made meanwhile. A failed
+    // ask launches, and `requireDirectory` still refuses a missing directory.
+    const dir = await api.directoryState(cwd.trim()).catch(() => null)
+    if (dir && dir.state !== 'directory') {
+      setPending(false)
+      if (dir.state === 'missing') setMissingDir(dir.path)
+      return
+    }
     const servers = await undecidedBeforeLaunch(cwd.trim(), choosesDir && claudeDirId !== null ? claudeDirId : undefined)
     if (servers.length > 0) {
       setPending(false)
@@ -443,6 +467,24 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     }
     await launch()
   }, [cwd, pending, awaitingCustomModel, choosesDir, claudeDirId, launch])
+
+  /**
+   * *Create and launch*. A directory just made has no `.mcp.json` to ask
+   * about, so the launch goes straight out.
+   */
+  const handleCreateAndLaunch = useCallback(async () => {
+    if (!missingDir || pending) return
+    setPending(true)
+    try {
+      await api.createDirectory(missingDir)
+    } catch (err) {
+      setPending(false)
+      reportError(err, 'Could not create the folder')
+      return
+    }
+    setMissingDir(null)
+    await launch()
+  }, [missingDir, pending, launch])
 
   const decisions = question ? decisionsOf(question.servers, question.answers) : null
 
@@ -455,6 +497,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   /** ← Back and esc: the launch is cancelled, the form is where it was (47e "Back / dismiss"). */
   const backToForm = useCallback(() => {
     setQuestion(null)
+    setMissingDir(null)
     setViewing(null)
   }, [])
 
@@ -466,15 +509,15 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (matches(command('composer.start').chords[0], e)) {
         e.preventDefault()
-        void (question ? handleStart() : handleLaunch())
-      } else if (!question && choosesDir && matches(command('composer.next-claude-dir').chords[0], e)) {
+        void (missingDir ? handleCreateAndLaunch() : question ? handleStart() : handleLaunch())
+      } else if (!question && !missingDir && choosesDir && matches(command('composer.next-claude-dir').chords[0], e)) {
         e.preventDefault()
         setClaudeDirId((current) => nextClaudeDir(claudeDirs, current))
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, question, handleLaunch, handleStart, choosesDir, claudeDirs])
+  }, [open, question, missingDir, handleLaunch, handleStart, handleCreateAndLaunch, choosesDir, claudeDirs])
 
   const matchedRule = matchedRuleId != null ? rules.find((r) => r.id === matchedRuleId) : undefined
   const showAutoCaption = !manualOverride && matchedTagId != null && tagId === matchedTagId
@@ -531,6 +574,29 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       }
     : null
 
+  // The missing-directory question, in the same shell (spec
+  // 2026-10-12-new-session-missing-directory-design § 2). Copy and layout
+  // provisional until the canvas draws it.
+  const missingDirShell = missingDir
+    ? {
+        title: 'Create this folder?',
+        eyebrow: `LAUNCH · ${projectName.toUpperCase()}`,
+        onClose: backToForm,
+        headerAction: undefined,
+        footerLead: (
+          <Button variant="ghost" size="lg" onClick={backToForm}>
+            ← Back
+          </Button>
+        ),
+        footerCaption: undefined,
+        footer: (
+          <Button variant="primary" size="lg" disabled={pending} onClick={() => void handleCreateAndLaunch()}>
+            Create and launch <span className="font-mono text-[10px] opacity-70">{shortcutLabel('composer.start')}</span>
+          </Button>
+        ),
+      }
+    : null
+
   return (
     <>
       <Dialog
@@ -540,7 +606,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         size="lg"
         onClose={onClose}
         surfaceRef={dropTargetRef}
-        dropArmed={dropArmed && !question}
+        dropArmed={dropArmed && !question && !missingDir}
         headerAction={
           choosesDir && claudeDirs.length > CLAUDE_DIR_SEGMENTS_MAX ? (
             <ClaudeDirHeaderControl
@@ -578,17 +644,18 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               variant="primary"
               size="lg"
               onClick={() => void handleLaunch()}
-              disabled={pending || !cwd.trim() || awaitingCustomModel}
+              disabled={pending || !cwd.trim() || awaitingCustomModel || blocksLaunch(dirState)}
             >
               Launch session <span className="font-mono text-[10px] opacity-70">⌘⏎</span>
             </Button>
           </>
         }
         {...questionShell}
+        {...missingDirShell}
       >
         {/* Hidden rather than unmounted while the question is up, so Back
             finds every field — the custom model's text included — as it was. */}
-        <div hidden={question !== null}>
+        <div hidden={question !== null || missingDir !== null}>
           {/* 20px between field groups, 8px inside one (canvas 1d). */}
           <div className="flex flex-col gap-5">
             {/* Everything but FIRST PROMPT steps back to .35 while a drop is armed —
@@ -618,6 +685,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                     </Button>
                   )}
                 </div>
+                {dirLine && (
+                  // Copy and colour provisional until the canvas draws the line.
+                  <p className="flex items-center gap-2 px-0.5 text-[12px] text-[oklch(80%_.1_70)]">
+                    <span aria-hidden className="font-mono text-[11px]">!</span>
+                    {dirLine}
+                  </p>
+                )}
                 {projects.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Recent directories">
                     <span className="mr-0.5 shrink-0 font-mono text-[10px] tracking-[0.08em] text-[rgba(160,190,225,.5)]">
@@ -777,6 +851,17 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             </div>
           </div>
         </div>
+        {missingDir && (
+          <div className="flex flex-col gap-3">
+            <p className="break-all rounded-[10px] border border-panel-border bg-[rgba(4,8,16,.5)] px-3.5 py-3 font-mono text-[13px] text-text-bright">
+              {missingDir}
+            </p>
+            <p className="text-[13px] leading-[1.5] text-[rgba(200,214,235,.88)]">
+              This folder doesn't exist yet. Orbital can create it, with any missing folders above it, and launch the
+              session there — or go back and change the path.
+            </p>
+          </div>
+        )}
         {question && (
           <McpjsonRows
             servers={question.servers}
