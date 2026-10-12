@@ -298,6 +298,11 @@ confirm sheet are phone components under `web/src/mobile/`; nothing in
   the entry); asleep it shows the entry with its age. A ref entry never
   goes stale (its name is its content hash). The cache is cleared with the
   pairing (`forget.ts`).
+- **Going back to a file.** A file the phone already has shows at once,
+  without the loading state: the last `RECENT_FILES_MAX` shown from memory
+  on the first paint, else the copy on disk. A ref is then done. A path is
+  still read again from the Mac behind the copy on screen, and the image is
+  swapped only when the bytes differ; a failed read keeps the copy.
 - **The phone only reads.** It never asks the Mac to open, launch or run a
   file; there is no route for it (Decision 8).
 - **Copy path** copies the path as written (`copyToClipboard`).

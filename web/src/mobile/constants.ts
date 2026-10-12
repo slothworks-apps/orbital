@@ -41,6 +41,13 @@ export const FILE_IDLE_TIMEOUT_MS = 10_000
  */
 export const FILE_CACHE_MAX_BYTES = 200 * 1024 * 1024
 /**
+ * How many of the files the phone showed last stay in memory, so going back
+ * to one shows it at once instead of reading it again (spec
+ * 2026-10-05-mobile-next § 2, Cache). A path among them is still asked of the
+ * Mac again, behind the copy on screen.
+ */
+export const RECENT_FILES_MAX = 8
+/**
  * The largest text file the phone previews (spec 2026-10-05-mobile-next § 2).
  * The Mac enforces its own cap of the same name and answers 413 above it;
  * this one lets the phone say so for a size it already knows.

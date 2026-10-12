@@ -7,6 +7,7 @@ import { forgetIdentity } from './platform/identity'
 import { clearImageCache } from './platform/imageCache'
 import { clearDeliveredNotifications } from './platform/localNotify'
 import { clearFileCache } from './files/fileCache'
+import { clearRecentFiles } from './files/recentFiles'
 import { clearHarnessCache } from './harness/harnessCache'
 import { clearPairing, setUnpaired } from './platform/pairing'
 import { useMobile } from './state'
@@ -38,6 +39,7 @@ export async function forgetEverything(opts: { unpaired: boolean }): Promise<voi
     }
   }
   clientRef.set(null)
+  clearRecentFiles()
   // Nothing about the old Mac stays on screen or in the shade.
   useBanner.getState().dismiss()
   void clearDeliveredNotifications()

@@ -87,7 +87,7 @@ export function ImagePage({
   media?: { item: MediaItem; onShowInChat: () => void }
 }) {
   const source = useMemo(() => sourceOf(sessionId, cwd, item), [sessionId, cwd, item])
-  const { view, retry, known } = useFile(source)
+  const { view, retry, known, instant } = useFile(source)
   const mac = useMobile((s) => s.macName) ?? 'the Mac'
   const path = item.kind === 'path' ? item.path : null
   const name = path ? basename(path) : 'Image'
@@ -237,8 +237,8 @@ export function ImagePage({
         style={{
           transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})`,
           // 10e LOADING: "bytes in → fade .4 s"; the phone's own copy just shows.
-          opacity: loaded || shown?.cached ? 1 : 0,
-          transition: [animate ? 'transform .3s ease' : null, shown?.cached ? null : 'opacity .4s'].filter(Boolean).join(', ') || 'none',
+          opacity: loaded || instant || shown?.cached ? 1 : 0,
+          transition: [animate ? 'transform .3s ease' : null, instant || shown?.cached ? null : 'opacity .4s'].filter(Boolean).join(', ') || 'none',
         }}
       />
     )

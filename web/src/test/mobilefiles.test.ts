@@ -4,7 +4,8 @@ import { TunnelError, type FileResult } from '@orbital/shared/remote/client'
 vi.mock('@capacitor/filesystem', () => ({ Directory: { Cache: 'CACHE' }, Filesystem: {} }))
 
 import { FileCache, evictionVictims, pathKey, refKey, type CacheEntry, type CacheIO } from '../mobile/files/fileCache'
-import { readPath, readRef, type ResolverDeps } from '../mobile/files/fileResolver'
+import { readPath, readRef, revalidated, type ResolverDeps } from '../mobile/files/fileResolver'
+import { clearRecentFiles, recentFile, rememberFile } from '../mobile/files/recentFiles'
 import { fileKindOf, isCantShowStatus } from '../mobile/files/route'
 import { progressLabel } from '../mobile/files/FileStates'
 import { previewLines } from '../mobile/files/TextPreview'
@@ -326,5 +327,36 @@ describe('the text preview', () => {
     expect(progressLabel(116 * 1024, 186 * 1024)).toBe('116 of 186 KB')
     expect(progressLabel(512, 2 * 1024 * 1024)).toBe('512 B of 2 MB')
     expect(progressLabel(40 * 1024, null)).toBe('40 KB')
+  })
+})
+
+describe('going back to a file the phone has', () => {
+  const shown = { kind: 'ready' as const, bytes: bytes(3), mediaType: 'image/png', w: 4, h: 2, readAt: 1, cached: false }
+
+  it('keeps the very copy on screen when the Mac sends the same bytes', () => {
+    expect(revalidated(shown, { ...shown, bytes: bytes(3), readAt: 2 })).toBe(shown)
+  })
+
+  it('swaps in what the Mac sent when the file changed', () => {
+    const fresh = { ...shown, bytes: new Uint8Array([1, 2, 3]) }
+    expect(revalidated(shown, fresh)).toBe(fresh)
+  })
+
+  it('keeps the copy when the transfer fails, and says so when the Mac is gone or the file is', () => {
+    expect(revalidated(shown, { kind: 'failed', received: 0 })).toBe(shown)
+    const asleep = { ...shown, cached: true }
+    expect(revalidated(shown, asleep)).toBe(asleep)
+    expect(revalidated(shown, { kind: 'gone', copy: null })).toEqual({ kind: 'gone', copy: null })
+  })
+
+  it('remembers only the last few, the least recently shown leaving first', () => {
+    clearRecentFiles()
+    rememberFile('a', shown, 2)
+    rememberFile('b', shown, 2)
+    expect(recentFile('a')).toBe(shown)
+    rememberFile('c', shown, 2)
+    expect(recentFile('b')).toBeNull()
+    expect(recentFile('a')).toBe(shown)
+    expect(recentFile('c')).toBe(shown)
   })
 })
