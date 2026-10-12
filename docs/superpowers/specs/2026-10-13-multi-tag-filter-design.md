@@ -1,9 +1,12 @@
 ---
-id: multi-tag-filter
+id: 2026-10-13-multi-tag-filter-design
 title: Filter sessions by multiple tags
 type: spec
 status: done
-date: 2026-10-13
+domain: sessions
+tags:
+  - tags
+  - mobile
 ---
 
 # Filter sessions by multiple tags
@@ -22,7 +25,7 @@ Sessions tagged with one of many selected tags now appear. A plain click selects
 
 ### Phone (web/src/mobile/screens/SessionListScreen.tsx)
 
-**Tap:** Select only that tag. Tapping "All" clears the selection.
+**Tap:** Select only that tag; tapping the only selected tag again clears the filter, as before.
 
 **Long-press (500ms):** Add or remove that tag from the selection. Multiple tags stay selected until cleared by tapping "All".
 

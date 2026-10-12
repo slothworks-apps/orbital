@@ -26,6 +26,7 @@ import { StateDot } from '../ui/StateDot'
 import type { ApiSession, SessionSource, Tag } from '../lib/types'
 import { Panel } from '../ui/Panel'
 import { Chip } from '../ui/Chip'
+import { toggleTag } from '../lib/tagFilter'
 import { Select } from '../ui/Select'
 import { Logo } from '../ui/Logo'
 import { PinButton } from '../ui/PinButton'
@@ -463,13 +464,13 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
   const windowBand = useWindowBand()
   const windowFocused = useWindowFocused(hasDesktopBridge())
   const historyRevealNonce = useOrbital((s) => s.ui.historyRevealNonce ?? 0)
-  const filterTagId = useOrbital((s) => s.ui.filterTagIds)
+  const filterTagIds = useOrbital((s) => s.ui.filterTagIds)
   const search = useOrbital((s) => s.ui.search)
   const sourceFilter = useOrbital((s) => s.ui.sourceFilter)
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const detachedIds = useOrbital((s) => s.detachedIds)
 
-  const setFilterTag = useOrbital((s) => s.setFilterTagIds)
+  const setFilterTagIds = useOrbital((s) => s.setFilterTagIds)
   const setSearch = useOrbital((s) => s.setSearch)
   const setSourceFilter = useOrbital((s) => s.setSourceFilter)
   const setSidebarCollapsed = useOrbital((s) => s.setSidebarCollapsed)
@@ -605,7 +606,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
   // rows the server returns.
   useEffect(() => {
     setExhausted(false)
-  }, [filterTagId, search])
+  }, [filterTagIds, search])
 
   const loadMore = useCallback(async () => {
     if (loadingRef.current) return
@@ -614,7 +615,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
       const fetched = await api.listSessions({
         offset: visible.length,
         limit: PAGE_SIZE,
-        tags: filterTagId.length > 0 ? filterTagId : undefined,
+        tags: filterTagIds.length > 0 ? filterTagIds : undefined,
         q: search || undefined,
       })
       for (const session of fetched) {
@@ -624,7 +625,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
     } finally {
       loadingRef.current = false
     }
-  }, [applySessionsEvent, visible.length, filterTagId, search])
+  }, [applySessionsEvent, visible.length, filterTagIds, search])
 
   // Infinite scroll: observe the sentinel at the bottom of the session
   // lists and fetch the next page once it enters the viewport.
@@ -777,26 +778,14 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         role="group"
         aria-label="Filter by tag"
       >
-        <Chip label="All" active={filterTagId.length === 0} onClick={(e: React.MouseEvent) => {
-          if (e.metaKey || e.ctrlKey) return
-          setFilterTag([])
-        }} />
+        <Chip label="All" active={filterTagIds.length === 0} onClick={() => setFilterTagIds([])} />
         {tags.map((tag) => (
           <Chip
             key={tag.id}
             label={tag.name}
             hue={tag.hue}
-            active={filterTagId.includes(tag.id)}
-            onClick={(e: React.MouseEvent) => {
-              if (e.metaKey || e.ctrlKey) {
-                const newIds = filterTagId.includes(tag.id)
-                  ? filterTagId.filter((id) => id !== tag.id)
-                  : [...filterTagId, tag.id]
-                setFilterTag(newIds)
-              } else {
-                setFilterTag([tag.id])
-              }
-            }}
+            active={filterTagIds.includes(tag.id)}
+            onClick={(e) => setFilterTagIds(e.metaKey || e.ctrlKey ? toggleTag(filterTagIds, tag.id) : [tag.id])}
           />
         ))}
       </div>
