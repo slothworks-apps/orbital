@@ -42,8 +42,10 @@ Claude is the CLI's `!` shell mode, a separate gap listed in
 ## Behind an experimental switch
 
 The terminal starts as an experimental feature. Settings → Experimental has a
-switch that turns it on and off (`terminal_enabled`, off by default), and,
-while it is on, the placement and the cursor:
+switch that turns it on and off (`terminal_enabled`, off by default), and
+nothing else. While it is on, Settings has a Terminal section of its own, as
+Harness templates appears with the harness switch, holding the placement and
+the cursor:
 
 - `terminal_placement`: `dock` (48a, the default) or `side` (48b);
 - `terminal_cursor`: `block` (default), `bar` or `underline`;
@@ -199,12 +201,14 @@ scrollback and shows one neutral line, `shell ended · exit N · HH:MM`, with �
 for a new shell in the tab and ⌘W to close it. Exit 0 and any other code
 differ only in the number.
 
-**Keys.** ⌃\` toggles the terminal: the first press in a session with none
+**Keys.** ⌘T toggles the terminal: the first press in a session with none
 starts a shell, later presses show and hide it and never stop anything. From
-the composer it focuses the terminal; pressed again it hides it and returns
-focus to the composer. While the terminal has focus, ⌘T adds a tab, ⌘W closes
-the active one and ⌘1–9 pick a tab, ahead of what those keys do elsewhere
-(the window's ⌘W, ⌘T for tags, ⌘1 for the map).
+the composer it focuses the terminal; pressed again — in the terminal too —
+it hides it and returns focus to the composer. While the terminal has focus,
+⌘⇧T adds a tab, ⌘W closes the active one and ⌘1–9 pick a tab, ahead of what
+those keys do elsewhere (the window's ⌘W, ⌘1 for the map). The toggle was
+first ⌃\`, whose key prints a dead accent on the Czech layout; ⌘T was
+changing a tag, which gave it up and has no shortcut now.
 
 **Look (48f).** An opaque `#070a12` body inside the standard panel glass;
 the canvas's 16-colour ANSI palette, foreground, cursor (the brand accent)
@@ -223,7 +227,7 @@ never blinks. Every map theme gets the same terminal.
 - A detached session window always uses the dock; it has no side slot.
 - While the dock is shown, the map's bottom overlays (zoom column, camera
   readout, New session) stand on it rather than under it.
-- ⌃\` on a shown terminal whose slot an agent's panel holds closes that
+- ⌘T on a shown terminal whose slot an agent's panel holds closes that
   panel and brings the terminal back.
 
 None of this marks a tab that printed while hidden: no dot, count, blink or

@@ -54,7 +54,7 @@ export function TerminalStripButton({ session, delayMs }: { session: ApiSession;
  * counts tabs, exited ones included, and changes only when one is added or
  * closed — never with output, so it cannot become an unread mark. Neutral
  * ink, no cyan and no dot, so it never reads as ◐ or ▣. A click shows or
- * hides the terminal, as ⌃` does.
+ * hides the terminal, as ⌘T does.
  */
 export function TerminalChip({ sessionId }: { sessionId: string }) {
   const { enabled, onScreen } = useTerminalPlacement(sessionId)

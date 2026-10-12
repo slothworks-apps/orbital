@@ -42,7 +42,7 @@ function terminalOnScreen(sessionId: string): boolean {
   return placementIn(orbital.settings) !== 'side' || !agentSlotOpen(orbital)
 }
 
-/** Where focus was before ⌃` took it into the terminal, so the next ⌃` can give it back. */
+/** Where focus was before ⌘T took it into the terminal, so the next ⌘T can give it back. */
 let returnFocus: HTMLElement | null = null
 
 /**
@@ -64,7 +64,7 @@ export function toggleTerminalShown(sessionId: string): void {
 }
 
 /**
- * ⌃` (spec § Keys): the first press in a session with no terminal starts a
+ * ⌘T (spec § Keys): the first press in a session with no terminal starts a
  * shell; later presses show and hide it and never stop anything. From the
  * composer — any field — it moves focus into the terminal; pressed in the
  * terminal it hides it and gives focus back to where it came from.
@@ -100,7 +100,7 @@ export function toggleTerminalFromKey(sessionId: string): void {
 }
 
 /**
- * ⌘T, ⌘W or ⌘1–9 pressed in a focused terminal (spec § Keys), for the
+ * ⌘⇧T, ⌘W or ⌘1–9 pressed in a focused terminal (spec § Keys), for the
  * selected session's tabs. ⌘W on a busy tab asks first, as × does.
  */
 export function runTerminalChord(chord: TerminalChord): void {

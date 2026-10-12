@@ -4,6 +4,7 @@ import {
   COMMANDS,
   SCOPES,
   accelerator,
+  bindingCount,
   chordGlyphs,
   chordLabel,
   command,
@@ -13,6 +14,7 @@ import {
   matches,
   menuCommands,
   parseChord,
+  scopeCount,
 } from '../lib/keymap'
 
 /** A forbidden punctuation key per rule 3 — no default chord may use these. */
@@ -168,6 +170,25 @@ describe('keymapGroups', () => {
 
   it('yields no groups for a query that matches nothing', () => {
     expect(keymapGroups('zzzzzz-no-match')).toEqual([])
+  })
+  it('leaves out the keys of an Experimental feature that is switched off', () => {
+    const ids = (settings: Record<string, string>) =>
+      keymapGroups('', settings).flatMap((g) => g.rows.map((r) => r.id))
+    const off = ids({})
+    expect(off).not.toContain('terminal.toggle')
+    expect(off).not.toContain('session.harness')
+    expect(keymapGroups('', {}).map((g) => g.scope)).not.toContain('terminal')
+    expect(scopeCount({})).toBe(SCOPES.length - 1)
+    const on = ids({ terminal_enabled: 'true', harness_enabled: 'true' })
+    expect(on).toContain('terminal.toggle')
+    expect(on).toContain('terminal.new-tab')
+    expect(on).toContain('session.harness')
+    expect(bindingCount({ terminal_enabled: 'true', harness_enabled: 'true' })).toBe(COMMANDS.length)
+  })
+
+  it('drops a switched-off feature from the desktop menu', () => {
+    expect(menuCommands({}).map((item) => item.id)).not.toContain('session.harness')
+    expect(menuCommands({ harness_enabled: 'true' }).map((item) => item.id)).toContain('session.harness')
   })
 })
 

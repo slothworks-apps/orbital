@@ -13,6 +13,8 @@ export { MIN_SERVER_VERSION, compareVersions, isSupportedServer } from '@orbital
 export const MAC_FEATURES = {
   /** Session media: `GET /api/sessions/:id/media` and `file_get` as `pdf` (spec 2026-10-09-session-media-design). */
   media: '0.26.0',
+  /** New Session's missing-directory line and *Create and start*: `GET`/`POST /api/directory` (spec 2026-10-12-new-session-missing-directory-design). */
+  directoryCheck: '0.29.0',
 } as const
 
 export type MacFeature = keyof typeof MAC_FEATURES

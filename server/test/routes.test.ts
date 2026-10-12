@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { eq } from 'drizzle-orm';
 import { EventEmitter } from 'node:events';
-import { appendFileSync, copyFileSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
@@ -4127,5 +4127,49 @@ describe('branch status routes', () => {
     expect(res.statusCode).toBe(201);
     expect(watchSession).toHaveBeenCalledWith('web-9', dir);
     store.close();
+  });
+});
+
+describe('/api/directory', () => {
+  it('GET says what a typed path is, ~ expanded', async () => {
+    const { app } = makeApp();
+    const dir = makeTmpDir('dirstate');
+    const file = join(dir, 'f.txt');
+    writeFileSync(file, 'x');
+    const ask = async (path: string) =>
+      (await app.inject({ method: 'GET', url: `/api/directory?${new URLSearchParams({ path })}` })).json();
+    expect(await ask(dir)).toEqual({ path: dir, state: 'directory' });
+    expect(await ask(join(dir, 'nope'))).toEqual({ path: join(dir, 'nope'), state: 'missing' });
+    expect(await ask(file)).toEqual({ path: file, state: 'not_a_directory' });
+    expect(await ask('relative/dir')).toEqual({ path: 'relative/dir', state: 'not_absolute' });
+    expect(await ask('~')).toEqual({ path: homedir(), state: 'directory' });
+    const empty = await app.inject({ method: 'GET', url: '/api/directory?path=' });
+    expect(empty.statusCode).toBe(400);
+  });
+
+  it('POST creates the directory and its missing parents', async () => {
+    const { app } = makeApp();
+    const target = join(makeTmpDir('mkdir'), 'a', 'b');
+    const res = await app.inject({ method: 'POST', url: '/api/directory', payload: { path: target } });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toEqual({ path: target });
+    expect(statSync(target).isDirectory()).toBe(true);
+    // Answering the question twice, or after Finder made it, is still a yes.
+    const again = await app.inject({ method: 'POST', url: '/api/directory', payload: { path: target } });
+    expect(again.statusCode).toBe(201);
+  });
+
+  it('POST refuses a relative path and a file in the way', async () => {
+    const { app } = makeApp();
+    const dir = makeTmpDir('mkdir');
+    const file = join(dir, 'f.txt');
+    writeFileSync(file, 'x');
+    const post = (path: string) => app.inject({ method: 'POST', url: '/api/directory', payload: { path } });
+    const relative = await post('relative/dir');
+    expect([relative.statusCode, relative.json()]).toEqual([400, { error: 'not_absolute' }]);
+    for (const path of [file, join(file, 'below')]) {
+      const res = await post(path);
+      expect([res.statusCode, res.json()], path).toEqual([409, { error: 'not_a_directory' }]);
+    }
   });
 });

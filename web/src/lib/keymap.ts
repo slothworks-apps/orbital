@@ -13,6 +13,7 @@
  */
 
 import type { MenuCommand } from './desktop'
+import { harnessEnabled, terminalEnabled } from './experimental'
 
 export type Scope = 'global' | 'map' | 'session' | 'composer' | 'dialogs' | 'files' | 'terminal'
 
@@ -47,6 +48,23 @@ export interface Command {
   local?: true
   /** A pointer gesture drawn as a dashed cap, e.g. '⌥-click'. */
   gesture?: string
+  /**
+   * The Experimental switch the command belongs to. While it is off the
+   * command is left out of the Shortcuts pane and the menu: a shortcut for
+   * a feature the user cannot see is noise.
+   */
+  feature?: 'harness' | 'terminal'
+}
+
+type Settings = Record<string, string | undefined>
+
+/**
+ * Whether `cmd`'s feature is switched on. Without `settings` every command
+ * counts — the keymap read as a whole, as its own tests read it.
+ */
+function available(cmd: Command, settings?: Settings): boolean {
+  if (!settings || !cmd.feature) return true
+  return cmd.feature === 'harness' ? harnessEnabled(settings) : terminalEnabled(settings)
 }
 
 export const SCOPES: readonly { scope: Scope; title: string; when: string }[] = [
@@ -56,7 +74,7 @@ export const SCOPES: readonly { scope: Scope; title: string; when: string }[] = 
   { scope: 'composer', title: 'COMPOSER', when: 'caret in the input' },
   { scope: 'dialogs', title: 'DIALOGS & CARDS', when: 'a dialog or a question is up' },
   { scope: 'files', title: 'FILES', when: 'a file is open' },
-  { scope: 'terminal', title: 'TERMINAL', when: 'the terminal has focus · experimental' },
+  { scope: 'terminal', title: 'TERMINAL', when: 'the terminal has focus' },
 ]
 
 export const COMMANDS: readonly Command[] = [
@@ -210,15 +228,6 @@ export const COMMANDS: readonly Command[] = [
     note: 'while the transcript is scrolled up',
   },
   {
-    id: 'session.tag',
-    label: 'Change tag',
-    scope: 'session',
-    chords: ['meta+t'],
-    whileTyping: true,
-    menu: { menu: 'Session', order: 5 },
-    note: 'opens the tag list · arrows or typing pick',
-  },
-  {
     id: 'session.model',
     label: 'Switch model',
     scope: 'session',
@@ -245,7 +254,8 @@ export const COMMANDS: readonly Command[] = [
     chords: ['meta+shift+h'],
     whileTyping: true,
     menu: { menu: 'Session', order: 8 },
-    note: 'opens or closes it · experimental',
+    note: 'opens or closes it',
+    feature: 'harness',
   },
   {
     // Canvas `Feature - Media` 24b draws ⇧⌘M, but that has been Switch model
@@ -259,15 +269,16 @@ export const COMMANDS: readonly Command[] = [
     note: 'opens or closes it · only with media',
   },
   {
-    // Spec 2026-10-05-embedded-terminal-design § Keys. ⌃ rather than ⌘: ⌘`
-    // is macOS's own window cycling. Bound by position (`POSITION_KEYS`),
-    // because the key prints a dead accent or nothing on the Czech layout.
+    // Spec 2026-10-05-embedded-terminal-design § Keys. ⌘T rather than the
+    // original ⌃`, whose key is a dead accent on the Czech layout; changing a
+    // tag gave the chord up. A focused terminal hands it back to the page.
     id: 'terminal.toggle',
     label: 'Show or hide the terminal',
     scope: 'session',
-    chords: ['ctrl+Backquote'],
+    chords: ['meta+t'],
     whileTyping: true,
-    note: 'the first press starts a shell · experimental',
+    note: 'the first press starts a shell',
+    feature: 'terminal',
   },
   {
     id: 'composer.send',
@@ -361,17 +372,18 @@ export const COMMANDS: readonly Command[] = [
     local: true,
     note: 'file viewer',
   },
-  // A focused terminal's own keys (spec § Keys). They shadow the window's ⌘W,
-  // ⌘T and ⌘1 only while the terminal has focus, which the desktop's main
+  // A focused terminal's own keys (spec § Keys). They shadow the window's ⌘W
+  // and ⌘1 only while the terminal has focus, which the desktop's main
   // process decides ahead of the menu (`desktop/src/lib/terminalKeys.ts`), so
   // the dispatcher never matches them: display-only rows.
   {
     id: 'terminal.new-tab',
     label: 'New terminal tab',
     scope: 'terminal',
-    chords: ['meta+t'],
+    chords: ['meta+shift+t'],
     whileTyping: true,
     local: true,
+    feature: 'terminal',
   },
   {
     id: 'terminal.close-tab',
@@ -380,6 +392,7 @@ export const COMMANDS: readonly Command[] = [
     chords: ['meta+w'],
     whileTyping: true,
     local: true,
+    feature: 'terminal',
     note: 'asks first while something runs in it',
   },
   {
@@ -400,6 +413,7 @@ export const COMMANDS: readonly Command[] = [
     display: ['⌘1–9'],
     whileTyping: true,
     local: true,
+    feature: 'terminal',
   },
   {
     id: 'files.open-path-in-ide',
@@ -641,9 +655,9 @@ const MENU_ORDER: readonly MenuCommand['menu'][] = ['File', 'Session', 'View', '
  * on its primary chord, sorted by menu and then by `order`. A command that
  * must not fire while typing asks main not to claim its key.
  */
-export function menuCommands(): MenuCommand[] {
+export function menuCommands(settings?: Settings): MenuCommand[] {
   return COMMANDS.flatMap((cmd) =>
-    cmd.menu
+    cmd.menu && available(cmd, settings)
       ? [
           {
             id: cmd.id,
@@ -701,11 +715,11 @@ function rowHaystack(row: Row): string {
 }
 
 /** The pane's data (§ 6): `SCOPES` order, filtered by `query`; scopes with no matching row drop out. */
-export function keymapGroups(query = ''): Group[] {
+export function keymapGroups(query = '', settings?: Settings): Group[] {
   const q = query.trim().toLowerCase()
   const groups: Group[] = []
   for (const { scope, title, when } of SCOPES) {
-    const rows = COMMANDS.filter((cmd) => cmd.scope === scope)
+    const rows = COMMANDS.filter((cmd) => cmd.scope === scope && available(cmd, settings))
       .map(commandRow)
       .filter((row) => q === '' || rowHaystack(row).includes(q))
     if (rows.length > 0) groups.push({ scope, title, when, rows })
@@ -714,8 +728,13 @@ export function keymapGroups(query = ''): Group[] {
 }
 
 /** The pane header's `{N} bindings` count. */
-export function bindingCount(): number {
-  return COMMANDS.length
+export function bindingCount(settings?: Settings): number {
+  return COMMANDS.filter((cmd) => available(cmd, settings)).length
+}
+
+/** The scopes with a binding to show — the pane header's `{N} scopes`. */
+export function scopeCount(settings?: Settings): number {
+  return SCOPES.filter(({ scope }) => COMMANDS.some((cmd) => cmd.scope === scope && available(cmd, settings))).length
 }
 
 /** The command by id — throws on an unknown one, so a typo fails loudly in tests rather than silently at runtime. */

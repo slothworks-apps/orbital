@@ -605,6 +605,11 @@ describe('Settings — remembered section', () => {
     expect(initialSection({ settings_last_section: '' })).toBe('general')
   })
 
+  it('resumes Terminal only while the terminal is switched on', () => {
+    expect(initialSection({ settings_last_section: 'terminal' })).toBe('general')
+    expect(initialSection({ settings_last_section: 'terminal', terminal_enabled: 'true' })).toBe('terminal')
+  })
+
   it('resumes Experimental only while it is unlocked', () => {
     expect(initialSection({ settings_last_section: 'experimental' })).toBe('general')
     expect(

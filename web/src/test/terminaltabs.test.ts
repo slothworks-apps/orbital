@@ -23,16 +23,16 @@ describe('tabLabels', () => {
 describe('terminalChipTitle', () => {
   it('names what runs, never an exited tab', () => {
     const tabs = [tab('npm run dev', true), tab('orbital'), tab('vitest', true, 1)]
-    expect(terminalChipTitle(tabs, '⌃`')).toBe('3 terminals · npm run dev running · ⌃`')
+    expect(terminalChipTitle(tabs, '⌘T')).toBe('3 terminals · npm run dev running · ⌘T')
   })
 
   it('says one terminal in the singular, and nothing about running when nothing runs', () => {
-    expect(terminalChipTitle([tab('orbital')], '⌃`')).toBe('1 terminal · ⌃`')
+    expect(terminalChipTitle([tab('orbital')], '⌘T')).toBe('1 terminal · ⌘T')
   })
 
   it('names a running tab by its numbered label', () => {
-    expect(terminalChipTitle([tab('orbital'), tab('orbital', true)], '⌃`')).toBe(
-      '2 terminals · orbital 2 running · ⌃`',
+    expect(terminalChipTitle([tab('orbital'), tab('orbital', true)], '⌘T')).toBe(
+      '2 terminals · orbital 2 running · ⌘T',
     )
   })
 })
@@ -68,12 +68,14 @@ describe('terminal chords', () => {
     ...mods,
   })
 
-  it('reads ⌘T and ⌘W by character and ⌘1–9 by position', () => {
+  it('reads ⌘⇧T and ⌘W by character and ⌘1–9 by position', () => {
     // Czech QWERTZ: the 1 key prints `+`.
-    expect(terminalChordOf(key('t', 'KeyT'))).toBe('new-tab')
+    expect(terminalChordOf(key('T', 'KeyT', { shiftKey: true }))).toBe('new-tab')
+    // Plain ⌘T is the toggle, left to the keymap.
+    expect(terminalChordOf(key('t', 'KeyT'))).toBeNull()
     expect(terminalChordOf(key('w', 'KeyW'))).toBe('close-tab')
     expect(terminalChordOf(key('+', 'Digit1'))).toBe('tab-1')
-    expect(terminalChordOf(key('t', 'KeyT', { shiftKey: true }))).toBeNull()
+    expect(terminalChordOf(key('W', 'KeyW', { shiftKey: true }))).toBeNull()
     expect(terminalChordOf(key('0', 'Digit0'))).toBeNull()
   })
 

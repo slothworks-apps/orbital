@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-10-12
+### Added
+- New session tells you, as you type, when the folder doesn't exist on your Mac, and offers to create it when you start. Needs Orbital for Mac 0.29.0 or newer.
+
 ## [0.9.2] — 2026-10-09
 ### Added
 - A `/` button under the message field: it starts a slash command and opens the list of commands and skills, without hunting for the slash on the keyboard.
