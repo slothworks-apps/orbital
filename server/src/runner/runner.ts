@@ -29,6 +29,7 @@ import {
 import type { ImageStore, ImageWriter } from '../images/store.js';
 import type { IdeApprovals, IdeReviewVerdict } from '../ide/approvals.js';
 import { ORBITAL_MCP_SERVER, orbitalMcpServer, type Spawner } from './spawnTool.js';
+import { LIST_SESSIONS_TOOL, type SessionKeeper } from './sessionsTools.js';
 import { shellIntentHooks } from './shellIntentHook.js';
 
 /**
@@ -834,6 +835,13 @@ export class Runner {
    * announced on; unset, sessions start without the tool.
    */
   spawner?: Spawner;
+  /**
+   * Lists and archives sessions on behalf of a running one — the back end of
+   * `list_sessions` and `archive_session` (spec
+   * 2026-10-12-a-session-archives-sessions-design). Assigned by the routes,
+   * like `spawner`.
+   */
+  sessionKeeper?: SessionKeeper;
 
   constructor(deps: {
     hub: Hub;
@@ -1472,14 +1480,19 @@ export class Runner {
     if (env) options.env = env;
     // Beside the servers the CLI loads from settings, not instead of them:
     // `strictMcpConfig` stays off. One `orbital` server holds every tool
-    // Orbital gives a session: `spawn_session`, and the harness's checklist
-    // tools while that feature is on.
+    // Orbital gives a session: `spawn_session`, `list_sessions` and
+    // `archive_session`, and the harness's checklist tools while that feature
+    // is on. Listing only reads, so it needs no permission card.
     const harnessTools = this.sessionTools?.(sessionId);
-    if (this.spawner || harnessTools) {
-      options.mcpServers = { [ORBITAL_MCP_SERVER]: orbitalMcpServer(sessionId, this.spawner, harnessTools) };
+    const keeper = this.sessionKeeper;
+    if (this.spawner || keeper || harnessTools) {
+      options.mcpServers = {
+        [ORBITAL_MCP_SERVER]: orbitalMcpServer(sessionId, { spawn: this.spawner, keeper }, harnessTools),
+      };
     }
-    if (harnessTools) {
-      options.allowedTools = harnessTools.allowedTools;
+    const allowedTools = [...(harnessTools?.allowedTools ?? []), ...(keeper ? [LIST_SESSIONS_TOOL] : [])];
+    if (allowedTools.length > 0) {
+      options.allowedTools = allowedTools;
     }
     // The SDK starts every `.mcp.json` server nobody turned down, where the
     // CLI would ask first. Every start path comes through here, so the ones

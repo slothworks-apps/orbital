@@ -1,5 +1,6 @@
 import { createSdkMcpServer, tool, type SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
 import * as z from 'zod/v4';
+import { archiveSessionTool, listSessionsTool, type SessionKeeper } from './sessionsTools.js';
 
 /**
  * The in-process MCP server every Orbital session gets, holding the one tool
@@ -66,17 +67,23 @@ export function spawnSessionTool(parentId: string, spawn: Spawner) {
 
 /**
  * The session's `orbital` server: `spawn_session` when the Runner can spawn,
- * and whatever else Orbital adds (the harness's tools, spec
+ * `list_sessions` and `archive_session` when it can look after sessions, and
+ * whatever else Orbital adds (the harness's tools, spec
  * 2026-09-30-session-harness-design § The agent's tools).
  */
 export function orbitalMcpServer(
   parentId: string,
-  spawn: Spawner | undefined,
+  backs: { spawn?: Spawner; keeper?: SessionKeeper },
   extra?: { tools: SdkMcpToolDefinition<any>[]; instructions?: string },
 ) {
+  const { spawn, keeper } = backs;
   return createSdkMcpServer({
     name: ORBITAL_MCP_SERVER,
     ...(extra?.instructions ? { instructions: extra.instructions } : {}),
-    tools: [...(spawn ? [spawnSessionTool(parentId, spawn)] : []), ...(extra?.tools ?? [])],
+    tools: [
+      ...(spawn ? [spawnSessionTool(parentId, spawn)] : []),
+      ...(keeper ? [listSessionsTool(parentId, keeper), archiveSessionTool(parentId, keeper)] : []),
+      ...(extra?.tools ?? []),
+    ],
   });
 }

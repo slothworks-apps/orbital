@@ -1880,6 +1880,79 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       close();
     });
   });
+
+  describe('list_sessions and archive_session', () => {
+    const IDLE = 'idle-1';
+    const ENDED = 'ended-1';
+
+    /** The caller running, a session it spawned working, one asleep and one archived. */
+    async function withSessions() {
+      const launched = makeLaunchApp();
+      const cwd = makeTmpDir('keeper');
+      await launch(launched.app, { sessionId: CLIENT_ID, cwd });
+      await launched.runner.spawner!(CLIENT_ID, { prompt: 'go' });
+      const claudeDirId = launched.claudeDirs.defaultId();
+      launched.db.insert(sessions).values([
+        { id: IDLE, projectDir: '', cwd: join(cwd, 'sub'), source: 'web', claudeDirId, lastAt: 2000 },
+        { id: ENDED, projectDir: '', cwd: '/elsewhere', source: 'web', claudeDirId, lastAt: 1000, endedAt: 1500 },
+      ]).run();
+      return { ...launched, cwd, keeper: launched.runner.sessionKeeper! };
+    }
+
+    const endedAt = (db: OrbitalDb, id: string) =>
+      db.select({ at: sessions.endedAt }).from(sessions).where(eq(sessions.id, id)).get()?.at;
+
+    it('lists sessions without the archived ones, the caller marked', async () => {
+      const { keeper, close } = await withSessions();
+      const listed = keeper.list(CLIENT_ID, {});
+      expect(listed.map((s) => s.id).sort()).toEqual([CLIENT_ID, IDLE, SERVER_MINTED].sort());
+      expect(listed.find((s) => s.id === CLIENT_ID)).toMatchObject({ self: true, alive: true });
+      expect(listed.find((s) => s.id === IDLE)).toMatchObject({
+        self: false, alive: false, status: 'idle', lastAt: new Date(2000).toISOString(), archivedAt: null,
+      });
+      expect(keeper.list(CLIENT_ID, { includeArchived: true }).find((s) => s.id === ENDED))
+        .toMatchObject({ status: 'ended', archivedAt: new Date(1500).toISOString() });
+      close();
+    });
+
+    it('filters by a directory and everything below it, not by a shared prefix', async () => {
+      const { keeper, cwd, close } = await withSessions();
+      expect(keeper.list(CLIENT_ID, { cwd: join(cwd, 'sub') }).map((s) => s.id)).toEqual([IDLE]);
+      expect(keeper.list(CLIENT_ID, { cwd: `${cwd}/` })).toHaveLength(3);
+      expect(keeper.list(CLIENT_ID, { cwd: `${cwd}-other` })).toEqual([]);
+      expect(() => keeper.list(CLIENT_ID, { cwd: 'relative' })).toThrow(/absolute/);
+      close();
+    });
+
+    it('archives an idle session the way End does, and a second time does nothing', async () => {
+      const { keeper, db, close } = await withSessions();
+      expect(await keeper.archive(CLIENT_ID, [IDLE, IDLE], false)).toEqual([{ id: IDLE, result: 'archived' }]);
+      expect(endedAt(db, IDLE)).toEqual(expect.any(Number));
+      expect(await keeper.archive(CLIENT_ID, [IDLE, ENDED, 'missing'], false)).toEqual([
+        { id: IDLE, result: 'already_archived' },
+        { id: ENDED, result: 'already_archived' },
+        { id: 'missing', result: 'not_found' },
+      ]);
+      close();
+    });
+
+    it('refuses a working or pinned session without force, and the caller always', async () => {
+      const { keeper, db, runner, close } = await withSessions();
+      db.update(sessions).set({ pinnedAt: 1 }).where(eq(sessions.id, IDLE)).run();
+      const refused = await keeper.archive(CLIENT_ID, [SERVER_MINTED, IDLE, CLIENT_ID], false);
+      expect(refused.map((o) => o.result)).toEqual(['refused', 'refused', 'refused']);
+      expect(endedAt(db, SERVER_MINTED)).toBeNull();
+      expect(endedAt(db, IDLE)).toBeNull();
+
+      const forced = await keeper.archive(CLIENT_ID, [SERVER_MINTED, IDLE, CLIENT_ID], true);
+      expect(forced.map((o) => o.result)).toEqual(['archived', 'archived', 'refused']);
+      expect(runner.status(SERVER_MINTED)).toBeUndefined();
+      // The trash's drop: ended and unpinned in one write.
+      expect(db.select({ at: sessions.pinnedAt }).from(sessions).where(eq(sessions.id, IDLE)).get()?.at).toBeNull();
+      expect(runner.status(CLIENT_ID)).toBeDefined();
+      close();
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
