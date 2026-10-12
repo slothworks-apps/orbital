@@ -1,3 +1,4 @@
+import { computeCompactionStats, emptyCompactionStats, type CompactionStats } from './compaction.js';
 import type { TranscriptEntry, TranscriptUsage } from '../transcript/parser.js';
 import { SUBAGENT_TOOLS } from '../transcript/subagents.js';
 import { liveBranch } from '../transcript/liveBranch.js';
@@ -57,6 +58,8 @@ export interface StatsRollup {
    * the wait, not the tool, and `errors` counts prompts that were not allowed.
    */
   permissionBreakdown: Record<string, ToolStat>;
+  /** What the session's compactions did (spec 2026-10-10-auto-compact-between-turns-design § Stats). */
+  compaction: CompactionStats;
 }
 
 export type PermissionOutcome = 'allowed' | 'denied' | 'aborted';
@@ -170,6 +173,7 @@ function emptyRollup(): StatsRollup {
     subagentUsage: {},
     toolCalls: 0, toolErrors: 0, toolBreakdown: {}, findings: [],
     humanWaitMs: 0, humanBreakdown: {}, permissionBreakdown: {},
+    compaction: emptyCompactionStats(),
   };
 }
 
@@ -467,6 +471,7 @@ export function computeStats(
   });
 
   rollup.turns = turns.length;
+  rollup.compaction = computeCompactionStats(entries);
   rollup.findings = sessionFindings(rollup, turns, turnUuids, toolRuns);
   return { rollup, turns };
 }

@@ -4,6 +4,11 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.29.1] — 2026-10-12
+### Added
+- Experimental: auto-compact between turns. A session whose context is above a threshold you set is compacted once it has finished a turn and waited for you a while, never in the middle of work. It keeps only a summary of what came before and uses far fewer tokens from then on. You can keep writing while it runs; the message goes out when it is done.
+- Stats show what auto-compact did: how many compactions, the estimated net saving, files re-read after a compaction, and Orbital sessions with and without it side by side.
+
 ## [0.29.0] — 2026-10-12
 ### Added
 - New session tells you, as you type, when the project folder doesn't exist, and offers to create it when you launch — instead of starting a session that fails with an unclear error.

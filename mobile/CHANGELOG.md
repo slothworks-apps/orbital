@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.10.2] — 2026-10-12
+### Changed
+- While Orbital compacts a session on its own, you can still write to it: the message goes out once the compaction is done.
+
 ## [0.10.1] — 2026-10-12
 ### Added
 - Tapping the project and branch in a session's header opens a panel instead of a tooltip: the full branch name, its line changes and its pull request — state, review and checks — with a button that opens the pull request on GitHub.

@@ -21,6 +21,7 @@ import type {
   TitleSource,
 } from '../types.js';
 import type { Finding, PermissionOutcome, SubagentModelUsage, ToolStat } from '../stats/compute.js';
+import type { CompactionStats } from '../stats/compaction.js';
 import type {
   HarnessEventKind, HarnessInput, HarnessMessageKind, HarnessOptions, HarnessStep, PauseKind, StepState,
 } from '../harness/types.js';
@@ -231,6 +232,11 @@ export const sessionStats = sqliteTable('session_stats', {
     .$type<Record<string, ToolStat>>()
     .notNull()
     .default({}),
+  /** What the session's compactions did; `{}` on a row from before it existed. */
+  compaction: text('compaction', { mode: 'json' })
+    .$type<Partial<CompactionStats>>()
+    .notNull()
+    .default({}),
 });
 
 /**
@@ -367,7 +373,7 @@ export const compactionFailures = sqliteTable(
     at: integer('at').notNull(),
     error: text('error'),
     preTokens: integer('pre_tokens'),
-    trigger: text('trigger').$type<'manual' | 'auto'>().notNull(),
+    trigger: text('trigger').$type<'manual' | 'auto' | 'orbital'>().notNull(),
     durationMs: integer('duration_ms'),
     clearedAt: integer('cleared_at'),
   },

@@ -54,6 +54,7 @@ function statsColumns(rollup: StatsRollup) {
     humanWaitMs: rollup.humanWaitMs,
     humanBreakdown: rollup.humanBreakdown,
     permissionBreakdown: rollup.permissionBreakdown,
+    compaction: rollup.compaction,
     statsVersion: STATS_VERSION,
   };
 }

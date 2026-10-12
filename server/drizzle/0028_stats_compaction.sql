@@ -1,0 +1,1 @@
+ALTER TABLE `session_stats` ADD `compaction` text DEFAULT '{}' NOT NULL;

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { ChatMessage, CompactionMark as Mark } from '../lib/types'
+import type { ChatMessage, CompactionMark as Mark, CompactionTrigger } from '../lib/types'
 import { Button } from '../ui/Button'
 import { copyToClipboard } from '../lib/clipboard'
 import { formatRecordForCopy } from './ErrorLog'
@@ -218,7 +218,7 @@ export function CompactingBlock({
   contextWindow,
 }: {
   startedAt: number
-  trigger: 'manual' | 'auto'
+  trigger: CompactionTrigger
   preTokens: number | null
   contextWindow: number | null
 }) {
@@ -226,7 +226,11 @@ export function CompactingBlock({
   const of = contextWindow !== null ? ` of ${formatCompactTokens(contextWindow)}` : ''
   const at = preTokens !== null ? `${formatCompactTokens(preTokens)}${of}` : null
   const cause =
-    trigger === 'manual'
+    trigger === 'orbital'
+      ? at
+        ? `Orbital: compacting between turns at ${at}.`
+        : 'Orbital: compacting between turns.'
+      : trigger === 'manual'
       ? at
         ? `Manual: you ran /compact at ${at}.`
         : 'Manual: you ran /compact.'

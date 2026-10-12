@@ -210,9 +210,12 @@ export interface LimitResetNotice {
  * null, never estimated (spec 2026-09-28-context-compaction-design § What the
  * SDK and the transcript give us).
  */
+/** `orbital` is a `/compact` Orbital sent by itself (spec 2026-10-10-auto-compact-between-turns-design). */
+export type CompactionTrigger = 'manual' | 'auto' | 'orbital';
+
 export interface CompactionMark {
   outcome: 'success' | 'failed';
-  trigger: 'manual' | 'auto';
+  trigger: CompactionTrigger;
   preTokens: number | null;
   /** Success only, and optional there too: absent in some real boundaries. */
   postTokens: number | null;

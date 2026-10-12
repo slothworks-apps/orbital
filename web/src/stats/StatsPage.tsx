@@ -5,6 +5,7 @@ import { NEW_SESSION_PARAM } from '../lib/sessionUrl'
 import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { PageBar } from '../ui/PageBar'
 import { BusyPerDayChart } from './BusyPerDayChart'
+import { AutoCompactPanel } from './AutoCompactPanel'
 import { CacheRatioChart } from './CacheRatioChart'
 import { FindingsFeed } from './FindingsFeed'
 import { StatsEmpty } from './StatsEmpty'
@@ -171,6 +172,10 @@ function Dashboard({
         <div className="flex min-w-0 flex-col gap-4" style={{ flex: '880 1 0' }}>
           <BusyPerDayChart days={days} showWaits={showWaits} />
           <CacheRatioChart series={overview.cacheRatioSeries} ratio={overview.totals.cachedRatio} />
+          {/* Only once Orbital has compacted something in the window: before that there is nothing to judge. */}
+          {overview.autoCompact && overview.autoCompact.compactions > 0 && (
+            <AutoCompactPanel stats={overview.autoCompact} />
+          )}
           <ToolLeaderboard
             leaderboard={overview.toolLeaderboard}
             totals={overview.totals}

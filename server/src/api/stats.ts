@@ -11,10 +11,12 @@ import {
   slowMcpFindings,
   toolLeaderboard,
   windowTotals,
+  autoCompactSummary,
   type WindowRow,
   type WindowTotals,
 } from '../stats/window.js';
 import { readSessionEntries } from '../stats/transcript.js';
+import { emptyCompactionStats } from '../stats/compaction.js';
 import { readPermissionWaits } from '../stats/store.js';
 import type { RouteContext } from './routes.js';
 
@@ -65,6 +67,7 @@ function emptyStatsRollup(): StatsRollup {
     cacheCreation5mTokens: 0, cacheCreation1hTokens: 0, thinkingTokens: 0, subagentTokens: 0,
     subagentUsage: {}, toolCalls: 0, toolErrors: 0, toolBreakdown: {}, findings: [],
     humanWaitMs: 0, humanBreakdown: {}, permissionBreakdown: {},
+    compaction: emptyCompactionStats(),
   };
 }
 
@@ -104,6 +107,7 @@ function fetchJoinedRows(ctx: RouteContext, conditions: SQL[]): JoinedRow[] {
       humanWaitMs: sessionStats.humanWaitMs,
       humanBreakdown: sessionStats.humanBreakdown,
       permissionBreakdown: sessionStats.permissionBreakdown,
+      compaction: sessionStats.compaction,
     })
     .from(sessionStats)
     .innerJoin(sessions, eq(sessions.id, sessionStats.sessionId))
@@ -128,6 +132,8 @@ function fetchJoinedRows(ctx: RouteContext, conditions: SQL[]): JoinedRow[] {
       subagentTokens: r.subagentTokens, subagentUsage: r.subagentUsage,
       toolCalls: r.toolCalls, toolErrors: r.toolErrors, toolBreakdown: r.toolBreakdown, findings: r.findings,
       humanWaitMs: r.humanWaitMs, humanBreakdown: r.humanBreakdown, permissionBreakdown: r.permissionBreakdown,
+      // A row written before the column existed reads as no compactions.
+      compaction: { ...emptyCompactionStats(), ...r.compaction },
     },
     permissionTimed: isPermissionTimed(r.source),
   }));
@@ -234,6 +240,7 @@ function rollupFromStoredRow(row: typeof sessionStats.$inferSelect): StatsRollup
     thinkingTokens: row.thinkingTokens, subagentTokens: row.subagentTokens, subagentUsage: row.subagentUsage,
     toolCalls: row.toolCalls, toolErrors: row.toolErrors, toolBreakdown: row.toolBreakdown, findings: row.findings,
     humanWaitMs: row.humanWaitMs, humanBreakdown: row.humanBreakdown, permissionBreakdown: row.permissionBreakdown,
+    compaction: { ...emptyCompactionStats(), ...row.compaction },
   };
 }
 
@@ -287,6 +294,7 @@ export function registerStatsRoutes(app: FastifyInstance, ctx: RouteContext): vo
       cacheRatioSeries: cacheRatioSeries(windowRows),
       toolLeaderboard: toolLeaderboard(windowRows),
       findings: findingsFeed(rows, windowRows, now),
+      autoCompact: autoCompactSummary(windowRows),
     };
   });
 

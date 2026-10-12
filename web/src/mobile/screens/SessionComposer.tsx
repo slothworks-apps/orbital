@@ -1,6 +1,10 @@
 import { useContext, useEffect, useRef, useState } from 'react'
 import { promptWithFiles } from '../../lib/attachedFiles'
-import { COMPACTING_PLACEHOLDER } from '../../lib/compaction'
+import {
+  COMPACTING_PLACEHOLDER,
+  ORBITAL_COMPACTING_PLACEHOLDER,
+  composerLockedByCompaction,
+} from '../../lib/compaction'
 import { isReadOnly } from '../../lib/types'
 import { Composer, ComposerLockContext, type ComposerControl } from '../../panels/Composer'
 import { StopDialog } from '../../panels/StopDialog'
@@ -62,8 +66,13 @@ let photoInFlight = false
 
 function LiveComposer({ id }: { id: string }) {
   const status = useOrbital((s) => s.sessions[id]?.status)
-  // 26c: an Orbital session compacting its context takes no message (as `DetailPanel`).
-  const compacting = useOrbital((s) => s.sessions[id]?.source === 'web' && s.sessions[id]?.compacting != null)
+  // 26c: an Orbital session compacting its context takes no message (as `DetailPanel`),
+  // unless Orbital started the compaction itself.
+  const compacting = useOrbital((s) => {
+    const session = s.sessions[id]
+    return session ? composerLockedByCompaction(session) : false
+  })
+  const orbitalCompacting = useOrbital((s) => s.sessions[id]?.compacting?.trigger === 'orbital')
   // A composer locked from outside (`ComposerLockContext`; the website's
   // phone demo) takes no photo either: a photo alone would arm Send.
   const lockedFromOutside = useContext(ComposerLockContext) !== null
@@ -189,7 +198,9 @@ function LiveComposer({ id }: { id: string }) {
         // No chords to name on a phone, and errors have their own line: the
         // hint row stays empty and the phone's CSS drops it.
         hint=""
-        placeholder={compacting ? COMPACTING_PLACEHOLDER : placeholder}
+        placeholder={
+          compacting ? COMPACTING_PLACEHOLDER : orbitalCompacting ? ORBITAL_COMPACTING_PLACEHOLDER : placeholder
+        }
         answering={answering}
         locked={locked}
         attachments={attachments}

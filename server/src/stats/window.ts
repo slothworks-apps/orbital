@@ -1,5 +1,5 @@
 import { toolKind, type FindingRule, type StatsRollup } from './compute.js';
-import { costOf, costOfSubagentUsage } from './pricing.js';
+import { costOf, costOfSubagentUsage, pricingFor } from './pricing.js';
 import {
   HIST_BUCKET_BOUNDS_MS,
   HIST_BUCKET_COUNT,
@@ -463,4 +463,102 @@ export function windowTotals(rows: WindowRow[]): WindowTotals {
 export function deltaVsPrevious(current: number, previous: number): number | null {
   if (previous === 0) return current === 0 ? 0 : null;
   return ((current - previous) / previous) * 100;
+}
+
+interface AutoCompactGroup {
+  sessions: number;
+  /** Main-thread cost per turn, USD. */
+  costPerTurn: number | null;
+  /** Context carried per main-loop request, tokens. */
+  avgContextTokens: number | null;
+}
+
+/** The Stats page's Auto-compact section (spec 2026-10-10-auto-compact-between-turns-design § Stats). */
+export interface AutoCompactSummary {
+  compactions: number;
+  /** Compactions Orbital did not start, for scale. */
+  otherCompactions: number;
+  avgPreTokens: number | null;
+  avgPostTokens: number | null;
+  avgDurationMs: number | null;
+  /** USD, priced at each session's own model. */
+  savedUsd: number;
+  costUsd: number;
+  netUsd: number;
+  /** The net saving as a share of what the sessions it ran in would have cost without it. */
+  netPct: number | null;
+  rereads: number;
+  /** Orbital sessions with at least one Orbital compaction, and those with none. */
+  withAutoCompact: AutoCompactGroup;
+  withoutAutoCompact: AutoCompactGroup;
+}
+
+const PER_MILLION = 1_000_000;
+
+export function autoCompactSummary(rows: WindowRow[]): AutoCompactSummary {
+  let compactions = 0;
+  let otherCompactions = 0;
+  let measured = 0;
+  let pre = 0;
+  let post = 0;
+  let timed = 0;
+  let durationMs = 0;
+  let savedUsd = 0;
+  let costUsd = 0;
+  let actualUsd = 0;
+  let rereads = 0;
+  const groups = {
+    with: { sessions: 0, cost: 0, turns: 0, context: 0, requests: 0 },
+    without: { sessions: 0, cost: 0, turns: 0, context: 0, requests: 0 },
+  };
+
+  for (const row of rows) {
+    const c = row.rollup.compaction;
+    otherCompactions += c.manual + c.auto;
+    const sessionCost = costOf(row.rollup, row.model).total;
+    if (row.permissionTimed) {
+      const g = c.orbital > 0 ? groups.with : groups.without;
+      g.sessions++;
+      g.cost += sessionCost;
+      g.turns += row.rollup.turns;
+      g.context += c.contextTokens;
+      g.requests += c.mainRequests;
+    }
+    if (c.orbital === 0) continue;
+    compactions += c.orbital;
+    measured += c.measured;
+    pre += c.preTokens;
+    post += c.postTokens;
+    timed += c.timed;
+    durationMs += c.durationMs;
+    rereads += c.rereads;
+    const p = pricingFor(row.model);
+    savedUsd += (c.savedReadTokens * p.cacheRead + c.savedWriteTokens * p.cacheWrite1h) / PER_MILLION;
+    costUsd +=
+      (c.costReadTokens * p.cacheRead + c.costOutputTokens * p.output + c.costWriteTokens * (p.cacheWrite1h - p.cacheRead)) /
+      PER_MILLION;
+    actualUsd += sessionCost;
+  }
+
+  const netUsd = savedUsd - costUsd;
+  const without = actualUsd + netUsd;
+  const group = (g: typeof groups.with): AutoCompactGroup => ({
+    sessions: g.sessions,
+    costPerTurn: g.turns > 0 ? g.cost / g.turns : null,
+    avgContextTokens: g.requests > 0 ? g.context / g.requests : null,
+  });
+  return {
+    compactions,
+    otherCompactions,
+    avgPreTokens: measured > 0 ? pre / measured : null,
+    avgPostTokens: measured > 0 ? post / measured : null,
+    avgDurationMs: timed > 0 ? durationMs / timed : null,
+    savedUsd,
+    costUsd,
+    netUsd,
+    netPct: compactions > 0 && without > 0 ? netUsd / without : null,
+    rereads,
+    withAutoCompact: group(groups.with),
+    withoutAutoCompact: group(groups.without),
+  };
 }

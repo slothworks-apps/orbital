@@ -72,7 +72,14 @@ import { TaskChip } from './TaskChip'
 import { PIN_TOOLTIP_DELAY_MS, UtilityStrip } from './UtilityStrip'
 import { endedFootnote, formatContextWindow, formatTokens } from '../lib/format'
 import { contextWindowFor } from '../lib/models'
-import { COMPACTING_PLACEHOLDER, compactConfirmCount, compactingOf, formatElapsed } from '../lib/compaction'
+import {
+  COMPACTING_PLACEHOLDER,
+  ORBITAL_COMPACTING_PLACEHOLDER,
+  compactConfirmCount,
+  compactingOf,
+  composerLockedByCompaction,
+  formatElapsed,
+} from '../lib/compaction'
 import { useNow } from '../lib/useNow'
 import { useCompactionUi } from '../store/compaction'
 import { harnessEnabled, walkthroughEnabled } from '../lib/experimental'
@@ -224,7 +231,7 @@ export function DetailPanel({
   // greys, and the composer locks until it ends.
   const compacting = session ? compactingOf(session) : null
   const compactingNow = useNow(compacting !== null)
-  const composerLocked = session?.source === 'web' && session.compacting != null
+  const composerLocked = session ? composerLockedByCompaction(session) : false
 
   const [titleDraft, setTitleDraft] = useState('')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -1274,6 +1281,8 @@ export function DetailPanel({
             placeholder={
               composerLocked
                 ? COMPACTING_PLACEHOLDER
+                : compacting?.trigger === 'orbital'
+                ? ORBITAL_COMPACTING_PLACEHOLDER
                 : openDecisionQuestion
                 ? `Answer ${openDecisionQuestion.header}, or pick an option above…`
                 : openVerdictKind

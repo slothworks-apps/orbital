@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { CanUseTool, PermissionResult, SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
 import type { Hub } from '../api/hub.js';
-import type { PermissionMode, SessionStatus, ChatMessage, McpServerRow } from '../types.js';
+import type { PermissionMode, SessionStatus, ChatMessage, McpServerRow, CompactionTrigger } from '../types.js';
+import { autoCompactPrompt, isAutoCompactPrompt, shouldAutoCompact, type AutoCompactSettings } from './autoCompact.js';
 import type { McpConfigSnapshot } from '../mcp/claudeJson.js';
 import { shapeMcpServers } from '../mcp/rows.js';
 import { undecidedServers, type McpjsonFingerprints } from '../mcp/mcpjson.js';
@@ -312,7 +313,7 @@ export interface SessionAttempt {
  */
 export interface CompactingState {
   startedAt: number;
-  trigger: 'manual' | 'auto';
+  trigger: CompactionTrigger;
 }
 
 /**
@@ -343,11 +344,13 @@ const SIMULATED_SUMMARY =
 
 /**
  * Whether a compaction was the user's `/compact`: the turn it runs in was
- * started by that command, with or without arguments. Everything else —
- * including a compaction in a turn the CLI started by itself — is `auto`.
+ * started by that command, with or without arguments. Orbital's own
+ * `/compact` carries its tag and is `orbital`. Everything else — including a
+ * compaction in a turn the CLI started by itself — is `auto`.
  */
-export function compactTriggerOf(turnPrompt: string | null): 'manual' | 'auto' {
-  return turnPrompt !== null && /^\/compact(\s|$)/.test(turnPrompt.trim()) ? 'manual' : 'auto';
+export function compactTriggerOf(turnPrompt: string | null): CompactionTrigger {
+  if (turnPrompt === null || !/^\/compact(\s|$)/.test(turnPrompt.trim())) return 'auto';
+  return isAutoCompactPrompt(turnPrompt) ? 'orbital' : 'manual';
 }
 
 /**
@@ -632,6 +635,15 @@ interface ManagedSession {
    */
   cliState: 'idle' | 'running' | 'requires_action' | null;
   sleepTimer:ReturnType<typeof setTimeout> | null;
+  /** The quiet-delay countdown to an auto-compact; armed beside the sleep timer. */
+  autoCompactTimer: ReturnType<typeof setTimeout> | null;
+  /**
+   * Orbital auto-compacted this session, or a compaction failed, since the
+   * last turn someone sent. Holds the next auto-compact back until then, so
+   * a summary still above the threshold cannot loop and a failure is not
+   * retried behind the user's back.
+   */
+  autoCompactBlocked: boolean;
   attempt: SessionAttempt;
   /** The session's command list once asked for (or pushed), `null` until then.
    * It lives on the session, so it dies with it — see `release()`. */
@@ -796,6 +808,7 @@ export class Runner {
   private onToolUse?: (sessionId: string, toolName: string, toolInput: unknown, at: number) => void;
   private hasLiveBackgroundWork?: (sessionId: string) => boolean;
   private keepsAwake?: (sessionId: string) => boolean;
+  private autoCompact?: () => AutoCompactSettings | null;
   private sessionTools?: (sessionId: string) => SessionTools | undefined;
   private autoAllow?: (sessionId: string, toolName: string, input: Record<string, unknown>) => boolean;
   private onTaskOutputPath?: (sessionId: string, toolUseId: string, path: string) => void;
@@ -942,6 +955,12 @@ export class Runner {
      * put to sleep: sleeping stops its process, and the shell with it.
      */
     keepsAwake?: (sessionId: string) => boolean;
+    /**
+     * Auto-compact between turns: its settings, or null while it is off
+     * (spec 2026-10-10-auto-compact-between-turns-design). Read when the
+     * countdown is armed and again when it fires.
+     */
+    autoCompact?: () => AutoCompactSettings | null;
     /**
      * Extra tools for the session's `orbital` MCP server, and the ones among
      * them that need no permission card — the harness's checklist tools (spec
@@ -1110,6 +1129,7 @@ export class Runner {
     this.onToolUse = deps.onToolUse;
     this.hasLiveBackgroundWork = deps.hasLiveBackgroundWork;
     this.keepsAwake = deps.keepsAwake;
+    this.autoCompact = deps.autoCompact;
     this.sessionTools = deps.sessionTools;
     this.autoAllow = deps.autoAllow;
     this.onTaskOutputPath = deps.onTaskOutputPath;
@@ -1219,6 +1239,48 @@ export class Runner {
     } else {
       this.armSleepTimer(sessionId);
     }
+    this.armAutoCompact(sessionId);
+  }
+
+  /**
+   * Starts the quiet-delay countdown to an auto-compact when the session
+   * qualifies, and cancels it otherwise (spec
+   * 2026-10-10-auto-compact-between-turns-design). Every condition is checked
+   * again when it fires, since the timer can outlive any of them.
+   */
+  private armAutoCompact(sessionId: string): void {
+    const s = this.sessions.get(sessionId);
+    if (!s) return;
+    if (s.autoCompactTimer) clearTimeout(s.autoCompactTimer);
+    s.autoCompactTimer = null;
+    const settings = this.autoCompact?.() ?? null;
+    if (!settings || !this.autoCompactDue(sessionId, settings)) return;
+    const timer = setTimeout(() => {
+      const now = this.sessions.get(sessionId);
+      if (now !== s) return;
+      s.autoCompactTimer = null;
+      const current = this.autoCompact?.() ?? null;
+      if (!current || !this.autoCompactDue(sessionId, current)) return;
+      s.autoCompactBlocked = true;
+      this.send(sessionId, autoCompactPrompt(current.thresholdTokens));
+    }, settings.quietMs);
+    (timer as unknown as { unref?: () => void }).unref?.();
+    s.autoCompactTimer = timer;
+  }
+
+  private autoCompactDue(sessionId: string, settings: AutoCompactSettings): boolean {
+    const s = this.sessions.get(sessionId);
+    if (!s) return false;
+    return shouldAutoCompact(
+      {
+        status: s.status,
+        hasDecision: s.decision != null,
+        compacting: s.compacting !== null,
+        blocked: s.autoCompactBlocked,
+        contextUsedTokens: this.readContextUsed?.(sessionId) ?? null,
+      },
+      settings,
+    );
   }
 
   /**
@@ -1301,6 +1363,8 @@ export class Runner {
     this.settleDecision(sessionId, { behavior: 'deny', message: 'The session ended.' });
     if (state.sleepTimer) clearTimeout(state.sleepTimer);
     state.sleepTimer = null;
+    if (state.autoCompactTimer) clearTimeout(state.autoCompactTimer);
+    state.autoCompactTimer = null;
     // A mark still waiting for its summary goes out as it is, while the
     // session is still this one's; the compaction itself dies with it.
     this.publishHeldCompaction(sessionId, state);
@@ -1379,7 +1443,7 @@ export class Runner {
       throw new Error(`resume collision: session ${sessionId} already active`);
     }
     const state: ManagedSession = {
-      status: 'working', queue: [], pending: [], stream: null, agentStreams: new Map(), generator: null, sleepTimer: null,
+      status: 'working', queue: [], pending: [], stream: null, agentStreams: new Map(), generator: null, sleepTimer: null, autoCompactTimer: null, autoCompactBlocked: false,
       launchingCalls: new Map(), agentCalls: new Map(), agentParents: new Map(),
       lastCall: null, turnEnded: false, cliState: null,
       attempt: { cwd: opts.cwd, permissionMode: opts.permissionMode, model: opts.model ?? null },
@@ -1662,6 +1726,8 @@ export class Runner {
       const measuredMs =
         state.measuredCompactionMs ?? (state.compacting ? Date.now() - state.compacting.startedAt : null);
       const mark = markFromSdkBoundary(msg, { measuredMs, fallbackTrigger: state.compacting?.trigger });
+      // The CLI calls every `/compact` manual, Orbital's own included.
+      if (mark.trigger === 'manual' && compactTriggerOf(state.turnPrompt) === 'orbital') mark.trigger = 'orbital';
       state.measuredCompactionMs = null;
       state.compacting = null;
       // Set before the republish below, so the map's caption and the drained
@@ -1933,6 +1999,7 @@ export class Runner {
       this.onCompaction?.(sessionId, { type: 'succeeded' });
       return;
     }
+    state.autoCompactBlocked = true;
     const error = typeof msg.compact_error === 'string' && msg.compact_error.trim() ? msg.compact_error : null;
     const failure: CompactionFailureRecord = {
       id: `compaction:${randomUUID()}`,
@@ -2661,12 +2728,17 @@ export class Runner {
     // dangling reference to a timer that can never fire again.
     if (s.sleepTimer) clearTimeout(s.sleepTimer);
     s.sleepTimer = null;
+    if (s.autoCompactTimer) clearTimeout(s.autoCompactTimer);
+    s.autoCompactTimer = null;
+    if (!isAutoCompactPrompt(text)) s.autoCompactBlocked = false;
     // A turn is starting, and this is the one place that knows it before the
     // stream does. Without the mark, a task event landing in the gap before
     // the CLI's first frame would run `settleStatus` against a session that
     // still looked finished and snap it back to `needs_input`.
+    // A message sent into a running turn (one queued behind Orbital's own
+    // compaction) does not start it, so it does not rename it.
+    if (s.turnEnded) s.turnPrompt = text;
     s.turnEnded = false;
-    s.turnPrompt = text;
     this.setStatus(sessionId, 'working');
     this.enqueue(sessionId, msg);
     return uuid;

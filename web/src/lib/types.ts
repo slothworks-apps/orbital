@@ -236,7 +236,7 @@ export interface ApiSession {
    *
    * Optional here, like every other snapshot field added after the fixtures.
    */
-  compacting?: { startedAt: number; trigger: 'manual' | 'auto' } | null
+  compacting?: { startedAt: number; trigger: CompactionTrigger } | null
   /**
    * The newest compaction failed and nothing has moved on from it yet — no
    * success, no new turn. Survives a restart; opening the session does not
@@ -581,7 +581,7 @@ export type NoticeLevel = 'info' | 'notice' | 'suggestion' | 'warning'
  */
 export interface CompactionMark {
   outcome: 'success' | 'failed'
-  trigger: 'manual' | 'auto'
+  trigger: CompactionTrigger
   preTokens: number | null
   postTokens: number | null
   durationMs: number | null
@@ -1470,6 +1470,30 @@ export interface StatsOverview {
   cacheRatioSeries: StatsCacheRatioDay[]
   toolLeaderboard: StatsToolLeaderboard
   findings: StatsFinding[]
+  /** Absent from a server older than the auto-compact stats. */
+  autoCompact?: StatsAutoCompact
+}
+
+interface StatsAutoCompactGroup {
+  sessions: number
+  costPerTurn: number | null
+  avgContextTokens: number | null
+}
+
+/** Mirrors `AutoCompactSummary` in `server/src/stats/window.ts`. */
+export interface StatsAutoCompact {
+  compactions: number
+  otherCompactions: number
+  avgPreTokens: number | null
+  avgPostTokens: number | null
+  avgDurationMs: number | null
+  savedUsd: number
+  costUsd: number
+  netUsd: number
+  netPct: number | null
+  rereads: number
+  withAutoCompact: StatsAutoCompactGroup
+  withoutAutoCompact: StatsAutoCompactGroup
 }
 
 export interface StatsRollup {
@@ -1863,3 +1887,6 @@ export type PairConfirmResult =
   | { ok: true }
   | { error: Exclude<PairConfirmError, 'code_mismatch'> }
   | { error: 'code_mismatch'; attemptsLeft: number }
+
+/** `orbital` is a `/compact` Orbital sent by itself (spec 2026-10-10-auto-compact-between-turns-design). */
+export type CompactionTrigger = 'manual' | 'auto' | 'orbital'

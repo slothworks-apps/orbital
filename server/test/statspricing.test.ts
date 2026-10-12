@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { MODEL_PRICING, DEFAULT_PRICING, pricingFor, costOf, costOfSubagentUsage, severityOf } from '../src/stats/pricing.js';
 import { CACHE_BURN_CRITICAL_USD } from '../src/stats/constants.js';
+import { emptyCompactionStats } from '../src/stats/compaction.js';
 import type { StatsRollup, Finding, SubagentModelUsage } from '../src/stats/compute.js';
 
 function rollup(overrides: Partial<StatsRollup> = {}): StatsRollup {
@@ -11,6 +12,7 @@ function rollup(overrides: Partial<StatsRollup> = {}): StatsRollup {
     subagentUsage: {},
     toolCalls: 0, toolErrors: 0, toolBreakdown: {}, findings: [],
     humanWaitMs: 0, humanBreakdown: {}, permissionBreakdown: {},
+    compaction: emptyCompactionStats(),
     ...overrides,
   };
 }
