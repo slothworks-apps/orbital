@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState, type MouseEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { timeAgo } from '../../lib/format'
 import { isReadOnly, tagColor, type ApiSession, type Tag } from '../../lib/types'
@@ -34,7 +34,7 @@ export function SessionListScreen() {
   const openSubagent = useMobile((s) => s.openSubagent)
   const openTask = useMobile((s) => s.openTask)
   const go = useMobile((s) => s.go)
-  const [tagId, setTagId] = useState<number | null>(null)
+  const [tagIds, setTagIds] = useState<number[]>([])
   const [endedOpen, setEndedOpen] = useState(false)
   const [checking, setChecking] = useState(false)
   const now = useNow(true, CLOCK_TICK_MS)
@@ -45,8 +45,8 @@ export function SessionListScreen() {
   const endedFold = useMobile(useShallow((s) => ({ summary: s.endedSummary, loaded: s.endedLoaded })))
 
   const mac = macName ?? 'Your Mac'
-  const held = useMemo(() => groupSessions(sessions, tagId), [sessions, tagId])
-  const heading = endedHeading(held.find((g) => g.key === 'ended')?.sessions ?? [], endedFold, countedBySummary, tagId !== null)
+  const held = useMemo(() => groupSessions(sessions, tagIds), [sessions, tagIds])
+  const heading = endedHeading(held.find((g) => g.key === 'ended')?.sessions ?? [], endedFold, countedBySummary, tagIds.length > 0)
   // The fold is drawn from the Mac's count even before a single ended row is held.
   const groups = heading && !held.some((g) => g.key === 'ended') ? [...held, { key: 'ended' as const, sessions: [] }] : held
   const chips = useMemo(() => tagChips(sessions, tags), [sessions, tags])
@@ -76,17 +76,27 @@ export function SessionListScreen() {
 
       {chips.length > 0 && (
         <div className="flex gap-2 overflow-x-auto px-4 pb-2.5 pt-1">
-          <Chip active={tagId === null} onClick={() => setTagId(null)} label="All" count={liveCount} />
-          {chips.map(({ tag, live }) => (
-            <Chip
-              key={tag.id}
-              active={tagId === tag.id}
-              onClick={() => setTagId(tagId === tag.id ? null : tag.id)}
-              label={tag.name}
-              count={live}
-              hue={tag.hue}
-            />
-          ))}
+          <Chip active={tagIds.length === 0} onClick={() => setTagIds([])} label="All" count={liveCount} />
+          {chips.map(({ tag, live }) => {
+            const isSelected = tagIds.includes(tag.id);
+            return (
+              <Chip
+                key={tag.id}
+                active={isSelected}
+                onClick={() => setTagIds([tag.id])}
+                onLongPress={() => {
+                  if (isSelected) {
+                    setTagIds(tagIds.filter((id) => id !== tag.id))
+                  } else {
+                    setTagIds([...tagIds, tag.id])
+                  }
+                }}
+                label={tag.name}
+                count={live}
+                hue={tag.hue}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -238,7 +248,7 @@ export function SessionListScreen() {
 
         {groups.length === 0 && (
           <p className="px-8 py-10 text-center text-[13px] text-[rgba(160,190,225,.6)]">
-            {tagId === null ? 'No sessions yet.' : `No live sessions tagged ${tagById.get(tagId)?.name ?? ''}.`}
+            {tagIds.length === 0 ? 'No sessions yet.' : `No live sessions with the selected tags.`}
           </p>
         )}
       </div>
@@ -278,21 +288,43 @@ function MacDot({ state }: { state: 'online' | 'asleep' | 'connecting' }) {
 function Chip({
   active,
   onClick,
+  onLongPress,
   label,
   count,
   hue,
 }: {
   active: boolean
   onClick: () => void
+  onLongPress?: () => void
   label: string
   count?: number
   hue?: number
 }) {
+  const longPressRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleMouseDown = () => {
+    if (!onLongPress) return
+    longPressRef.current = setTimeout(() => {
+      onLongPress()
+      longPressRef.current = null
+    }, 500)
+  }
+
+  const handleMouseUp = () => {
+    if (longPressRef.current) {
+      clearTimeout(longPressRef.current)
+      longPressRef.current = null
+    }
+  }
+
   return (
     <button
       type="button"
       aria-pressed={active}
       onClick={onClick}
+      onMouseDown={handleMouseDown}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
       className={[
         'flex h-9 shrink-0 items-center gap-[7px] rounded-full border px-[13px] text-[13px] font-semibold',
         active

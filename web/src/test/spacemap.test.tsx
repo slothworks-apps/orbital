@@ -56,7 +56,7 @@ const defaultTag: Tag = { id: 3, name: 'untagged', hue: 0, is_default: 1 }
 
 const defaultUi: OrbitalUiState = {
   selectedId: null,
-  filterTagId: 'all',
+  filterTagIds: [],
   search: '',
   sourceFilter: 'all',
   wsStatus: 'connected',
@@ -222,7 +222,7 @@ describe('buildSceneModel', () => {
       makeSession({ id: 'b', tagIds: [2], status: 'working', subagents: [makeSubagent({ id: 'sb' })] }),
     ]
     const plain = sceneModelAt(withSessions(sessions))
-    const filtered = sceneModelAt(withSessions(sessions, { ui: { ...defaultUi, filterTagId: 1 } }))
+    const filtered = sceneModelAt(withSessions(sessions, { ui: { ...defaultUi, filterTagIds: [1] } }))
 
     const place = (m: SceneModel) => m.planets.map((p) => ({ id: p.session.id, x: p.x, y: p.y }))
     expect(place(filtered)).toEqual(place(plain))
@@ -241,7 +241,7 @@ describe('buildSceneModel', () => {
       makeSession({ id: 'c', tagIds: [2], title: 'Alpha too' }),
     ]
     const model = sceneModelAt(
-      withSessions(sessions, { ui: { ...defaultUi, filterTagId: 1, search: 'alpha' } })
+      withSessions(sessions, { ui: { ...defaultUi, filterTagIds: [1], search: 'alpha' } })
     )
     const muted = Object.fromEntries(model.planets.map((p) => [p.session.id, p.muted]))
     expect(muted).toEqual({ a: false, b: true, c: true })

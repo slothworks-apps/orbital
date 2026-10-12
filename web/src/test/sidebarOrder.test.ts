@@ -23,7 +23,7 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
 
 const ui: OrbitalUiState = {
   selectedId: null,
-  filterTagId: 'all',
+  filterTagIds: [],
   search: '',
   sourceFilter: 'all',
   wsStatus: 'open',
@@ -78,7 +78,7 @@ describe('sidebarOrder', () => {
           makeSession({ id: 'a', tagIds: [1], lastAt: 2 }),
           makeSession({ id: 'b', tagIds: [2], lastAt: 1 }),
         ],
-        { filterTagId: 2 },
+        { filterTagIds: [2] },
       ),
     ).toEqual(['b'])
   })

@@ -157,7 +157,7 @@ describe('Sessions API', () => {
       new Response(JSON.stringify({ sessions: [] }), { status: 200 })
     )
 
-    await api.listSessions({ q: 'test', tag: 5 })
+    await api.listSessions({ q: 'test', tags: [5] })
 
     const call = fetchMock.mock.calls[0][0] as string
     expect(call).toContain('q=test')

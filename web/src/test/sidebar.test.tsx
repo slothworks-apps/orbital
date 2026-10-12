@@ -43,7 +43,7 @@ const personalTag: Tag = { id: 2, name: 'personal', hue: 330, is_default: 0 }
 
 const defaultUi: OrbitalUiState = {
   selectedId: null,
-  filterTagId: 'all',
+  filterTagIds: [],
   search: '',
   sourceFilter: 'all',
   wsStatus: 'connected',
@@ -427,7 +427,7 @@ describe('Sidebar', () => {
     expect(screen.getByText('Work session')).toBeInTheDocument()
     expect(screen.queryByText('Personal session')).not.toBeInTheDocument()
 
-    expect(useOrbital.getState().ui.filterTagId).toBe(1)
+    expect(useOrbital.getState().ui.filterTagIds).toEqual([1])
   })
 
   it('narrows the visible list as the user types into search', async () => {
@@ -553,7 +553,7 @@ describe('Sidebar', () => {
         b: makeSession({ id: 'b', title: 'Bravo', status: 'ended', tagIds: [1], lastAt: 2 }),
         c: makeSession({ id: 'c', title: 'Charlie', status: 'ended', tagIds: [2], lastAt: 3 }),
       },
-      ui: { filterTagId: 1 },
+      ui: { filterTagIds: [1] },
     })
     vi.mocked(api.listSessions).mockResolvedValue([])
 
@@ -570,7 +570,7 @@ describe('Sidebar', () => {
     })
 
     expect(api.listSessions).toHaveBeenCalledWith(
-      expect.objectContaining({ offset: 2, tag: 1 })
+      expect.objectContaining({ offset: 2, tags: [1] })
     )
   })
 
@@ -656,7 +656,7 @@ describe('Sidebar', () => {
       await Promise.resolve()
     })
     expect(api.listSessions).toHaveBeenCalledTimes(2)
-    expect(api.listSessions).toHaveBeenLastCalledWith(expect.objectContaining({ tag: 1 }))
+    expect(api.listSessions).toHaveBeenLastCalledWith(expect.objectContaining({ tags: [1] }))
   })
 
   describe('⌘K', () => {

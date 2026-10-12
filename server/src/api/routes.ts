@@ -488,7 +488,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (q.source) rows = rows.filter((r) => r.source === q.source);
     if (q.q) rows = rows.filter((r) => r.title.toLowerCase().includes(q.q.toLowerCase()));
     let sessionsOut = rows.map((r) => toApiSession(ctx, r));
-    if (q.tag) sessionsOut = sessionsOut.filter((s) => s.tagIds.includes(Number(q.tag)));
+    if (q.tag) {
+      const tagIds = q.tag.split(',').map((t) => Number(t));
+      sessionsOut = sessionsOut.filter((s) => s.tagIds.some((id) => tagIds.includes(id)));
+    }
     // The phone's list asks for the ENDED fold apart, when it is opened: an
     // ended session the user pinned is not in the fold and stays in the list.
     // Without `ended`, everything, as the desktop and older phones expect.

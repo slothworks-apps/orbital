@@ -17,6 +17,7 @@ import {
   useOrbital,
   visibleSessions,
   matchesSearch,
+  matchesSidebarFilters,
   mapSessions,
   statusCounts,
   recordedFailureFor,
@@ -107,7 +108,7 @@ const initialSnapshot: OrbitalState = {
   harnessTemplatesFocus: null,
   ui: {
     selectedId: null,
-    filterTagId: 'all',
+    filterTagIds: [],
     search: '',
     sourceFilter: 'all',
     wsStatus: 'connecting',
@@ -1205,7 +1206,7 @@ describe('the error log', () => {
 
 describe('filter/search/dialog setters', () => {
   it('update ui state', () => {
-    useOrbital.getState().setFilterTag(3)
+    useOrbital.getState().setFilterTagIds([3])
     useOrbital.getState().setSearch('foo')
     useOrbital.getState().setSourceFilter('web')
     useOrbital.getState().setDialog('new')
@@ -1214,7 +1215,7 @@ describe('filter/search/dialog setters', () => {
 
     expect(useOrbital.getState().ui).toEqual({
       selectedId: null,
-      filterTagId: 3,
+      filterTagIds: [3],
       search: 'foo',
       sourceFilter: 'web',
       wsStatus: 'open',
@@ -1245,7 +1246,7 @@ describe('visibleSessions (pure)', () => {
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions: { s1, s2, s3 },
-      ui: { ...initialSnapshot.ui, filterTagId: 1 },
+      ui: { ...initialSnapshot.ui, filterTagIds: [1] },
     }
     expect(visibleSessions(state).map((s) => s.id)).toEqual(['s1', 's3'])
   })
@@ -1275,7 +1276,7 @@ describe('visibleSessions (pure)', () => {
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions: { s1, s2, s3 },
-      ui: { ...initialSnapshot.ui, filterTagId: 1, search: 'gamma' },
+      ui: { ...initialSnapshot.ui, filterTagIds: [1], search: 'gamma' },
     }
     expect(visibleSessions(state).map((s) => s.id)).toEqual(['s3'])
   })
@@ -1319,7 +1320,7 @@ describe('statusCounts (pure)', () => {
       ...initialSnapshot,
       sessions,
       leavingSince: { e: NOW - 1 },
-      ui: { ...initialSnapshot.ui, filterTagId: 1 },
+      ui: { ...initialSnapshot.ui, filterTagIds: [1] },
     }
     // Only sessions a, c, e (tagIds includes 1) should be counted.
     expect(statusCounts(state, NOW)).toEqual({ working: 1, idle: 1, needs_input: 0, ended: 1 })
@@ -1359,6 +1360,30 @@ describe('matchesSearch (pure)', () => {
   it('matches everything for an empty or all-whitespace query', () => {
     expect(matchesSearch(session, '')).toBe(true)
     expect(matchesSearch(session, '   ')).toBe(true)
+  })
+})
+
+describe('matchesSidebarFilters (pure)', () => {
+  const session = makeSession({ id: 'm', title: 'Test', cwd: '/home/test', tagIds: [1, 2] })
+
+  it('passes when no tags are selected (empty filterTagIds)', () => {
+    expect(matchesSidebarFilters(session, { filterTagIds: [], search: '' })).toBe(true)
+  })
+
+  it('passes when session has any of the selected tags (OR semantics)', () => {
+    expect(matchesSidebarFilters(session, { filterTagIds: [1], search: '' })).toBe(true)
+    expect(matchesSidebarFilters(session, { filterTagIds: [2], search: '' })).toBe(true)
+    expect(matchesSidebarFilters(session, { filterTagIds: [1, 3], search: '' })).toBe(true)
+  })
+
+  it('fails when session has none of the selected tags', () => {
+    expect(matchesSidebarFilters(session, { filterTagIds: [3, 4], search: '' })).toBe(false)
+  })
+
+  it('combines tag and search filters with AND semantics', () => {
+    expect(matchesSidebarFilters(session, { filterTagIds: [1], search: 'Test' })).toBe(true)
+    expect(matchesSidebarFilters(session, { filterTagIds: [1], search: 'other' })).toBe(false)
+    expect(matchesSidebarFilters(session, { filterTagIds: [3], search: 'Test' })).toBe(false)
   })
 })
 
@@ -1452,7 +1477,7 @@ describe('mapSessions (pure)', () => {
     const state: OrbitalState = {
       ...initialSnapshot,
       sessions,
-      ui: { ...initialSnapshot.ui, filterTagId: 1 },
+      ui: { ...initialSnapshot.ui, filterTagIds: [1] },
     }
     expect(mapSessions(state, NOW).map((s) => s.id).sort()).toEqual(['keep', 'otherTag'])
   })

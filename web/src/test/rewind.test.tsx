@@ -78,7 +78,7 @@ const TRANSCRIPT: ChatMessage[] = [
 
 const defaultUi: OrbitalUiState = {
   selectedId: 'a',
-  filterTagId: 'all',
+  filterTagIds: [],
   search: '',
   sourceFilter: 'all',
   wsStatus: 'connected',

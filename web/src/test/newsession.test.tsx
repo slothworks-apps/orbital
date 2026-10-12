@@ -35,7 +35,7 @@ const defaultTag: Tag = { id: 2, name: 'default', hue: 60, is_default: 1 }
 
 const defaultUi: OrbitalUiState = {
   selectedId: null,
-  filterTagId: 'all',
+  filterTagIds: [],
   search: '',
   sourceFilter: 'all',
   wsStatus: 'connected',

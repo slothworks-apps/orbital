@@ -87,12 +87,12 @@ function byPinThenActivity(a: ApiSession, b: ApiSession): number {
 }
 
 /** 10a's groups in order, the empty ones left out; `tagId` filters locally. */
-export function groupSessions(sessions: readonly ApiSession[], tagId: number | null): SessionGroup[] {
+export function groupSessions(sessions: readonly ApiSession[], tagIds: number[]): SessionGroup[] {
   const buckets = new Map<GroupKey, ApiSession[]>(GROUP_ORDER.map((key) => [key, []]))
   for (const session of sessions) {
     // A harness drafting conversation is listed nowhere (`isListable`).
     if (!isListable(session)) continue
-    if (tagId !== null && !session.tagIds.includes(tagId)) continue
+    if (tagIds.length > 0 && !session.tagIds.some((id) => tagIds.includes(id))) continue
     buckets.get(groupOf(session))!.push(session)
   }
   return GROUP_ORDER.map((key) => ({
