@@ -475,6 +475,37 @@ describe('NewSessionDialog — model group (4b)', () => {
     )
   })
 
+  it('preselects the chosen tag\u2019s defaults, and leaves what was picked by hand', async () => {
+    const tagged: Tag = { ...workTag, model: 'haiku', permission_mode: 'plan' }
+    resetStore({ settings: { default_model: 'sonnet' }, models: MODELS, tags: [tagged, defaultTag] })
+    vi.mocked(api.previewRule).mockResolvedValue({ tagId: 1, ruleId: 10 })
+    vi.mocked(api.createSession).mockResolvedValue('new-1')
+    render(<NewSessionDialog open onClose={() => {}} />)
+    fireEvent.change(screen.getByLabelText('PROJECT DIRECTORY'), { target: { value: '/w/x' } })
+
+    // The rule's tag brings its model and mode…
+    await waitFor(() => {
+      expect(screen.getByRole('radio', { name: /^plan$/i })).toHaveAttribute('aria-checked', 'true')
+      expect(screen.getByRole('radio', { name: 'Haiku 4.5' })).toHaveAttribute('aria-checked', 'true')
+    })
+    // …and a tag without defaults gives the dialog's own back.
+    fireEvent.click(chip('default'))
+    await waitFor(() => {
+      expect(screen.getByRole('radio', { name: /^acceptEdits$/i })).toHaveAttribute('aria-checked', 'true')
+      expect(screen.getByRole('radio', { name: 'Sonnet 5' })).toHaveAttribute('aria-checked', 'true')
+    })
+
+    // A mode picked by hand stays through the next tag change; the model was not touched, so it follows.
+    fireEvent.click(screen.getByRole('radio', { name: /^auto$/i }))
+    fireEvent.click(chip('work'))
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Haiku 4.5' })).toHaveAttribute('aria-checked', 'true'))
+    expect(screen.getByRole('radio', { name: /^auto$/i })).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(screen.getByRole('button', { name: /Launch session/ }))
+    await waitFor(() =>
+      expect(api.createSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'haiku', permissionMode: 'auto', tagId: 1 }))
+    )
+  })
+
   it('launches with the chosen model', async () => {
     resetStore({ settings: { default_model: 'sonnet' }, models: MODELS })
     vi.mocked(api.listProjects).mockResolvedValue([])

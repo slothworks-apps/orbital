@@ -1246,6 +1246,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   async loadClaudeDirs() {
     try {
       const defaults = await api.sessionDefaults()
+      if (!defaults) return
       // A Mac from before the feature sends none of the three: one directory, no labels.
       set({
         claudeDirs: defaults?.claudeDirs ?? [],

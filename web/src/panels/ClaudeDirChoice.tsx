@@ -1,4 +1,5 @@
 import type { ClaudeDirPrefillSource } from '../lib/claudeDirs'
+import type { LaunchClaudeDirSource } from '@orbital/shared/launchDefaults'
 import { claudeDirChoosable, claudeDirSubline } from '../lib/claudeDirs'
 import { shortcutLabel } from '../lib/keymap'
 import type { ClaudeDirName } from '../lib/types'
@@ -15,9 +16,12 @@ export const CLAUDE_DIR_SEGMENTS_MAX = 3
 
 /** Where the choice stands, as the dialog says it: what prefilled it, or that it was changed. */
 export interface ClaudeDirOrigin {
-  from: ClaudeDirPrefillSource
+  /** `tag`: the session's tag names it; `tag_exhausted`: the tag's has its limit used up, so the default. */
+  from: ClaudeDirPrefillSource | LaunchClaudeDirSource
   /** The selected planet's title, when `from` is the planet. */
   planet?: string
+  /** The session's tag, when `from` is the tag's. */
+  tag?: string
   /** Picked by hand since the dialog opened, away from the prefill. */
   changed: boolean
 }
@@ -30,7 +34,12 @@ function prefillPhrase(origin: ClaudeDirOrigin): string {
       return 'your last launch'
     case 'default':
     case 'first':
+    case 'global':
       return 'the default'
+    case 'tag':
+      return `the tag · ${origin.tag ?? ''}`
+    case 'tag_exhausted':
+      return `the default · ${origin.tag ?? 'the tag'}’s directory is at its limit`
   }
 }
 

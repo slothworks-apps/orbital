@@ -4,7 +4,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 ### Added
-- Each tag now carries default launch config: Claude directory, model, permission mode and effort. When you start a session with a tag, the tag's defaults fill in values you don't pick; the settings of a tag manage them.
+- A tag can set the Claude directory, model and permission mode its sessions start with, in Settings → Tags; New session preselects them, and uses the default directory while the tag's has hit its limit.
 
 ## [0.29.0] — 2026-10-12
 ### Added

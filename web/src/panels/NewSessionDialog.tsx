@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
@@ -31,6 +31,7 @@ import {
 } from './ClaudeDirChoice'
 import { useClaudeDirModels } from '../lib/useClaudeDirModels'
 import { permissionMode as permissionModeDescriptor } from '../lib/permissionModes'
+import { effectiveLaunchDefaults } from '@orbital/shared/launchDefaults'
 import type { PermissionMode } from '../lib/types'
 import {
   answerSummary,
@@ -162,7 +163,10 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const launchSession = useOrbital((s) => s.launchSession)
 
   const [cwd, setCwd] = useState('')
+  /** The mode the dialog opened with (`openingLaunch`); the tag's default and a hand pick go over it. */
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('acceptEdits')
+  /** A mode picked by hand: a later tag change must not move it. */
+  const [modePick, setModePick] = useState<PermissionMode | null>(null)
   const [prompt, setPrompt] = useState('')
   const [tagId, setTagId] = useState<number | null>(null)
   const [manualOverride, setManualOverride] = useState(false)
@@ -192,7 +196,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
    * 2026-10-04-multiple-claude-directories-design § 3). Only offered with two
    * or more configured; null when the server named none.
    */
-  const [claudeDirId, setClaudeDirId] = useState<number | null>(null)
+  const [claudeDirPick, setClaudeDirPick] = useState<number | null>(null)
   /** What prefilled the choice as the dialog opened — the hint beside its label says so (canvas 44c). */
   const [claudeDirPrefilled, setClaudeDirPrefilled] = useState<Omit<ClaudeDirOrigin, 'changed'> & { id: number | null }>(
     { id: null, from: 'default' },
@@ -214,12 +218,32 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   /** The project file a question row's *View file* opened (canvas 2d). */
   const [viewing, setViewing] = useState<{ name: string; file: string } | null>(null)
   const choosesDir = claudeDirs.length >= 2
+  /**
+   * The tag the session will wear — the chosen one, else the default tag —
+   * and what it launches with where nothing was picked by hand (spec
+   * 2026-10-13-tag-defaults-design): its directory (the default's when its
+   * own has its limit used up), model and mode over the dialog's own prefill.
+   */
+  const launchTag = (tagId != null ? tags.find((t) => t.id === tagId) : undefined) ?? tags.find((t) => t.is_default === 1)
+  const tagPreset = useMemo(
+    () =>
+      effectiveLaunchDefaults({
+        tag: launchTag,
+        global: { claudeDirId: claudeDirPrefilled.id, model: null, permissionMode },
+        defaultClaudeDirId: defaultClaudeDir,
+        claudeDirs,
+      }),
+    [launchTag, claudeDirPrefilled.id, permissionMode, defaultClaudeDir, claudeDirs],
+  )
+  const claudeDirId = claudeDirPick ?? tagPreset.claudeDirId
+  const launchMode = modePick ?? tagPreset.permissionMode
   const claudeDirMonograms = useClaudeDirMonograms()
   const claudeDirName = claudeDirs.find((d) => d.id === claudeDirId)?.name ?? null
   const claudeDirOrigin: ClaudeDirOrigin = {
-    from: claudeDirPrefilled.from,
+    from: tagPreset.claudeDirFrom === 'global' ? claudeDirPrefilled.from : tagPreset.claudeDirFrom,
     planet: claudeDirPrefilled.planet,
-    changed: claudeDirId !== claudeDirPrefilled.id,
+    tag: launchTag?.name,
+    changed: claudeDirPick !== null && claudeDirPick !== tagPreset.claudeDirId,
   }
   /** The chosen directory's catalog: each account has its own models. */
   const models = useClaudeDirModels(claudeDirId, open)
@@ -255,6 +279,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       const opening = openingLaunch(settings, selectedSession, tags)
       setCwd(opening.cwd)
       setPermissionMode(opening.permissionMode)
+      setModePick(null)
       setPrompt('')
       setRememberedTag(opening.tag)
       setTagId(opening.tag?.tagId ?? null)
@@ -275,12 +300,14 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         last: lastClaudeDir,
         fallback: defaultClaudeDir,
       })
-      setClaudeDirId(prefill?.id ?? null)
+      setClaudeDirPick(null)
       setClaudeDirPrefilled({
         id: prefill?.id ?? null,
         from: prefill?.from ?? 'default',
         planet: prefill?.from === 'planet' ? selectedSession?.title : undefined,
       })
+      // Whether a directory has its limit used up moves while the app is open.
+      void useOrbital.getState().loadClaudeDirs()
       api
         .listProjects()
         .then(setProjects)
@@ -304,7 +331,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   // dialog in the URL) had nothing to prefill from on the open transition;
   // prefill once the list lands, unless the user already chose.
   useEffect(() => {
-    if (!open || claudeDirId !== null || claudeDirs.length === 0) return
+    if (!open || claudeDirPrefilled.id !== null || claudeDirs.length === 0) return
     const prefill = claudeDirPrefill({
       dirs: claudeDirs,
       planet: selectedSession?.claudeDirId,
@@ -312,18 +339,18 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       fallback: defaultClaudeDir,
     })
     if (!prefill) return
-    setClaudeDirId(prefill.id)
     setClaudeDirPrefilled({
       id: prefill.id,
       from: prefill.from,
       planet: prefill.from === 'planet' ? selectedSession?.title : undefined,
     })
-  }, [open, claudeDirId, claudeDirs, selectedSession, lastClaudeDir, defaultClaudeDir])
+  }, [open, claudeDirPrefilled.id, claudeDirs, selectedSession, lastClaudeDir, defaultClaudeDir])
 
-  // Preselection, in the order 4b describes: this project's last model when
-  // the toggle allows it, otherwise the Settings default, otherwise the first
-  // row the catalog offers (the default may name a model this install does
-  // not have). A manual pick wins over all of it.
+  // Preselection, in the order 4b describes, with the tag's default model
+  // first: this project's last model when the toggle allows it, otherwise
+  // the Settings default, otherwise the first row the catalog offers (the
+  // default may name a model this install does not have). A manual pick wins
+  // over all of it.
   const rememberPerProject = settings.remember_model_per_project !== 'false'
   const lastModelHere = projects.find((p) => p.cwd === cwd.trim())?.lastModel ?? null
   // A terminal-launched session only ever has a `resolved_model` (`GET
@@ -335,9 +362,10 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   // here, or a custom Settings default — preselects Other with that id
   // already trusted: it has run or been validated before, so it is not
   // probed again.
+  const tagModel = launchTag?.model ?? null
   useEffect(() => {
     if (!open || modelOverridden || models.length === 0) return
-    const preferred = (rememberPerProject ? lastModelHere : null) || settings.default_model || null
+    const preferred = tagModel || (rememberPerProject ? lastModelHere : null) || settings.default_model || null
     const row = modelByAnyId(preferred, models)
     if (preferred && !row) {
       setOtherActive(true)
@@ -347,10 +375,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setOtherActive(false)
       setModel((row ?? models[0]).value)
     }
-  }, [open, modelOverridden, models, rememberPerProject, lastModelHere, settings.default_model])
+  }, [open, modelOverridden, models, rememberPerProject, lastModelHere, settings.default_model, tagModel])
 
   // Debounced auto-match: re-preview whenever cwd or permission mode
   // changes, and (unless the user has manually overridden) adopt the match.
+  // The mode matched on is the user's own, never the tag's default: the tag
+  // decides that default, so matching on it could swing between two tags.
+  const ruleMode = modePick ?? permissionMode
   useEffect(() => {
     if (!open || !cwd.trim()) {
       setMatchedTagId(null)
@@ -359,7 +390,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     }
     const timer = setTimeout(() => {
       api
-        .previewRule({ cwd, title: '', permissionMode })
+        .previewRule({ cwd, title: '', permissionMode: ruleMode })
         .then(({ tagId: matched, ruleId }) => {
           setMatchedTagId(matched)
           setMatchedRuleId(ruleId)
@@ -371,7 +402,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         })
     }, PREVIEW_DEBOUNCE_MS)
     return () => clearTimeout(timer)
-  }, [open, cwd, permissionMode, manualOverride, rememberedTag])
+  }, [open, cwd, ruleMode, manualOverride, rememberedTag])
 
   function handleSelectTag(id: number) {
     setManualOverride(true)
@@ -405,7 +436,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       const sessionId = await launchSession({
         cwd: cwd.trim(),
         prompt: promptWithFiles(prompt, files.map((file) => file.path)),
-        permissionMode,
+        permissionMode: launchMode,
         tagId: tagId ?? undefined,
         model: model ?? undefined,
         // A directory gone between Launch's check and the spawn is refused,
@@ -427,7 +458,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
           (rememberedTag?.pickedByHand && rememberedTag.cwd === cwd.trim() && rememberedTag.tagId === tagId))
       rememberLaunch({
         new_session_last_cwd: cwd.trim(),
-        new_session_last_mode: permissionMode,
+        // The user's own mode, not a tag's default: the next open, in another
+        // project, starts from what the user chose.
+        new_session_last_mode: ruleMode,
         new_session_last_tag: pickedTag ? String(tagId) : '',
       })
       // The server stores the directory choice itself (the phone cannot write
@@ -440,7 +473,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     } finally {
       setPending(false)
     }
-  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments])
+  }, [cwd, prompt, launchMode, ruleMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments])
 
   /**
    * Launch: asks about the project's undecided `.mcp.json` servers first,
@@ -512,18 +545,16 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         void (missingDir ? handleCreateAndLaunch() : question ? handleStart() : handleLaunch())
       } else if (!question && !missingDir && choosesDir && matches(command('composer.next-claude-dir').chords[0], e)) {
         e.preventDefault()
-        setClaudeDirId((current) => nextClaudeDir(claudeDirs, current))
+        setClaudeDirPick(nextClaudeDir(claudeDirs, claudeDirId))
       }
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [open, question, missingDir, handleLaunch, handleStart, handleCreateAndLaunch, choosesDir, claudeDirs])
+  }, [open, question, missingDir, handleLaunch, handleStart, handleCreateAndLaunch, choosesDir, claudeDirs, claudeDirId])
 
   const matchedRule = matchedRuleId != null ? rules.find((r) => r.id === matchedRuleId) : undefined
   const showAutoCaption = !manualOverride && matchedTagId != null && tagId === matchedTagId
-  const selectedTag = tagId != null ? tags.find((t) => t.id === tagId) : undefined
-  const fallbackTag = tags.find((t) => t.is_default === 1)
-  const footerTagName = (selectedTag ?? fallbackTag)?.name
+  const footerTagName = launchTag?.name
   // What the launch would actually carry, which is what the footer promises: a
   // failed chip is not in the turn (it says so itself, on the chip), and a chip
   // mid-exit is already gone as far as the summary is concerned.
@@ -615,7 +646,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               value={claudeDirId}
               defaultId={defaultClaudeDir}
               origin={claudeDirOrigin}
-              onChange={setClaudeDirId}
+              onChange={setClaudeDirPick}
             />
           ) : undefined
         }
@@ -630,7 +661,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                 newline is stripped by JSX, which would run the count straight
                 into the model name. */}
             {chipCount > 0 && `${chipCount} image${chipCount === 1 ? '' : 's'} · `}
-            {modelByValue(model, models)?.shortVersion ?? (otherActive && model ? model : 'default model')} · {permissionMode}
+            {modelByValue(model, models)?.shortVersion ?? (otherActive && model ? model : 'default model')} · {launchMode}
             {choosesDir && claudeDirName ? ` · under ${claudeDirName}` : null}
             {footerTagName ? <> · <span className="text-text-soft">{footerTagName.toUpperCase()}</span></> : null}
           </>
@@ -734,7 +765,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                       {shortcutLabel('composer.next-claude-dir')} next
                     </span>
                   </FieldLabel>
-                  <ClaudeDirSegments dirs={claudeDirs} value={claudeDirId} onChange={setClaudeDirId} />
+                  <ClaudeDirSegments dirs={claudeDirs} value={claudeDirId} onChange={setClaudeDirPick} />
                 </div>
               )}
 
@@ -790,7 +821,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
 
               <div className="flex flex-col gap-2">
                 <FieldLabel>PERMISSION MODE</FieldLabel>
-                <ModeCards value={permissionMode} onChange={setPermissionMode} />
+                <ModeCards value={launchMode} onChange={setModePick} />
               </div>
 
               <div className="flex flex-col gap-2">

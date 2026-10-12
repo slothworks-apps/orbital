@@ -15,7 +15,7 @@ import { CLOCK_TICK_MS } from '../constants'
 import { basename, homePath } from '../format'
 import {
   filterDirectories, noSuchDirectory, prefillClaudeDir, preselectMode, preselectModel, startFailureLine,
-  type DirectoryRow,
+  tagPreselection, tagsCarryDefaults, type DirectoryRow,
 } from '../newSession'
 import { isMacAsleep, useMobile } from '../state'
 import { FieldLabel, MobileScreen, PrimaryButton, SheetPresence } from '../ui'
@@ -30,6 +30,8 @@ import { undecidedBeforeLaunch, type McpjsonAnswers, type McpjsonDecisions, type
 const COLLAPSED_ROWS = 3
 /** The folded window's height: three and a half rows, so the cut reads as "more below". */
 const COLLAPSED_LIST_PX = 196
+/** How long typing in the directory field rests before the Mac is asked which tag its rules give. */
+const TAG_MATCH_DEBOUNCE_MS = 300
 
 /**
  * 9d (spec § 6.4): a session started from the phone. Directory, mode, model
@@ -51,7 +53,12 @@ export function NewSessionScreen() {
   const [defaults, setDefaults] = useState<SessionDefaults | null | undefined>(undefined)
   const [projects, setProjects] = useState<DirectoryRow[]>([])
   const [cwd, setCwd] = useState('')
+  /** The Mac's default mode; the tag's default and a hand pick go over it. */
   const [mode, setMode] = useState<PermissionMode>('acceptEdits')
+  /** A mode picked by hand; until then the tag's default or the Mac's. */
+  const [pickedMode, setPickedMode] = useState<PermissionMode | null>(null)
+  /** The tag the directory's rules give, asked of the Mac only when some tag carries defaults. */
+  const [matchedTagId, setMatchedTagId] = useState<number | null>(null)
   /** A model picked by hand; until then the preselection follows the directory. */
   const [pickedModel, setPickedModel] = useState<string | null>(null)
   /** A Claude directory picked by hand; until then the Mac's prefill (`prefillClaudeDir`). */
@@ -93,21 +100,67 @@ export function NewSessionScreen() {
     }
   }, [])
 
+  const ruleMode = pickedMode ?? mode
+  const asksTag = tagsCarryDefaults(tags) && !asleep
+  useEffect(() => {
+    const path = cwd.trim()
+    if (!asksTag || !path) {
+      setMatchedTagId(null)
+      return
+    }
+    let current = true
+    const timer = setTimeout(() => {
+      api
+        .previewRule({ cwd: path, title: '', permissionMode: ruleMode })
+        .then(({ tagId }) => {
+          if (current) setMatchedTagId(tagId)
+        })
+        .catch(() => {
+          // Best-effort: without the match the default tag's defaults stand.
+        })
+    }, TAG_MATCH_DEBOUNCE_MS)
+    return () => {
+      current = false
+      clearTimeout(timer)
+    }
+  }, [asksTag, cwd, ruleMode])
+  /** The tag the session will wear: the rules' match, else the default tag. */
+  const launchTag = tags.find((t) => t.id === matchedTagId) ?? tags.find((t) => t.is_default === 1)
+
   const loaded = defaults !== undefined
   const dirs = defaults?.claudeDirs ?? []
   const choosesDir = dirs.length >= 2
   const prefill = choosesDir && defaults ? prefillClaudeDir(defaults) : null
-  const claudeDirId = choosesDir ? (pickedDir ?? prefill?.id ?? null) : null
-  /** 44d's hint beside the row: where the choice came from. */
-  const claudeDirHint =
-    pickedDir !== null && pickedDir !== prefill?.id ? 'changed' : prefill?.from === 'last' ? 'last launch' : 'default'
-  /** The chosen directory's catalog: each account has its own models. */
-  const models = useClaudeDirModels(claudeDirId)
-
   const list = useMemo(() => filterDirectories(projects, cwd), [projects, cwd])
   const project = projects.find((p) => p.cwd === cwd.trim())
-  const autoModel = defaults ? preselectModel({ defaults, project, models }) : (models[0]?.value ?? null)
-  const model = pickedModel ?? autoModel
+  /** The tag's directory decides the catalog, so it is resolved before the model. */
+  const dirPreset = defaults
+    ? tagPreselection({ tag: launchTag, defaults, base: { claudeDirId: prefill?.id ?? null, model: null, mode }, models: [] })
+    : null
+  const claudeDirId = choosesDir ? (pickedDir ?? dirPreset?.claudeDirId ?? null) : null
+  /** 44d's hint beside the row: where the choice came from. */
+  const claudeDirHint =
+    pickedDir !== null && pickedDir !== dirPreset?.claudeDirId
+      ? 'changed'
+      : dirPreset?.claudeDirFrom === 'tag'
+        ? `tag ${launchTag?.name ?? ''}`
+        : dirPreset?.claudeDirFrom === 'tag_exhausted'
+          ? `default · ${launchTag?.name ?? 'tag'} at its limit`
+          : prefill?.from === 'last'
+            ? 'last launch'
+            : 'default'
+  /** The chosen directory's catalog: each account has its own models. */
+  const models = useClaudeDirModels(claudeDirId)
+  const preset = defaults
+    ? tagPreselection({
+        tag: launchTag,
+        defaults,
+        base: { claudeDirId: prefill?.id ?? null, model: preselectModel({ defaults, project, models }), mode },
+        models,
+      })
+    : null
+  const model = pickedModel ?? preset?.model ?? models[0]?.value ?? null
+  const launchMode = pickedMode ?? preset?.mode ?? mode
 
   /** The tag dot of a session the phone holds in each directory. */
   const hueByCwd = useMemo(() => {
@@ -189,7 +242,7 @@ export function NewSessionScreen() {
         {
           cwd: cwd.trim(),
           prompt: promptWithFiles(prompt, files),
-          permissionMode: mode,
+          permissionMode: launchMode,
           model: model ?? undefined,
           requireDirectory: true,
           // Only when the choice was offered; the Mac remembers it for the next prefill.
@@ -410,7 +463,7 @@ export function NewSessionScreen() {
             )}
             <div className="flex flex-col gap-1.5">
               <FieldLabel>PERMISSION MODE</FieldLabel>
-              <ModeCards value={mode} onChange={setMode} touch />
+              <ModeCards value={launchMode} onChange={setPickedMode} touch />
             </div>
             <div className="flex flex-col gap-1.5">
               <FieldLabel>MODEL</FieldLabel>

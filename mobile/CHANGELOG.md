@@ -4,7 +4,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 ### Added
-- When you start a session with a tag that has defaults, the new session form preselects them: you see the Claude directory, model, permission mode and effort that will launch, and can still change them.
+- New session preselects the Claude directory, model and permission mode the project's tag sets on your Mac.
 
 ## [0.10.1] — 2026-10-12
 ### Added

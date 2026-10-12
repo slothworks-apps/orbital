@@ -671,8 +671,9 @@ export const api = {
 
   async patchTag(
     id: number,
-    // `anchor_*: null` clears the clump's stored home, so null and absent differ.
-    body: Partial<{ name: string; hue: number; anchor_x: number | null; anchor_y: number | null }>
+    // `anchor_*: null` clears the clump's stored home, and a launch default's
+    // null puts it back to the Settings default, so null and absent differ.
+    body: Partial<{ name: string; hue: number; anchor_x: number | null; anchor_y: number | null } & Pick<Tag, 'claude_dir_id' | 'model' | 'permission_mode'>>
   ): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>('PATCH', `/api/tags/${id}`, body)
   },
