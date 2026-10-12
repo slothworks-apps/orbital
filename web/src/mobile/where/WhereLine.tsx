@@ -5,7 +5,9 @@ import { FullTextTip } from '../FullTextTip'
 import { basename } from '../format'
 import { COUNT_MARK_GAP_PX, MARK_GAP_PX, charPxOf, fitWhere } from './fit'
 import { TreeMark } from './marks'
+import { useMobile } from '../state'
 import { SheetPresence } from '../ui'
+import { BranchSheet } from './BranchSheet'
 import { TreesSheet } from './TreesSheet'
 
 /**
@@ -23,7 +25,9 @@ import { TreesSheet } from './TreesSheet'
  *
  * In the list the row is the one tap target, so the count is only text and
  * its words join the row's name. In the header the count is a button whose ▾
- * opens the list of trees, and a tap on the project and branch shows them
+ * opens the list of trees, and a tap on the project and branch opens the
+ * branch sheet: both uncut, then the line changes and the pull request as the
+ * desktop's tooltips say them. Outside git the tap only shows the project
  * uncut (`FullTextTip`).
  */
 
@@ -69,6 +73,8 @@ export function WhereLine({
 }) {
   const [ref, width] = useWidth()
   const [open, setOpen] = useState(false)
+  const [branchOpen, setBranchOpen] = useState(false)
+  const mac = useMobile((s) => s.macName) ?? 'the Mac'
   const v = VARIANTS[variant]
   const header = variant === 'header'
   const git = session.git ?? null
@@ -126,8 +132,20 @@ export function WhereLine({
         ref={ref}
         className={['flex min-w-0 items-center gap-1.5 whitespace-nowrap font-mono', v.text, dim ? v.dimInk : v.ink].join(' ')}
       >
-        {header ? (
-          // The header's project and branch, cut to fit, read whole on a tap.
+        {header && git ? (
+          // A 44 px hit area reaching above and below the line, like the count's.
+          <button
+            type="button"
+            aria-label={`${project}, branch ${git.ref}. Opens its line changes and pull request.`}
+            aria-haspopup="dialog"
+            aria-expanded={branchOpen}
+            onClick={() => setBranchOpen(true)}
+            className="-my-[15px] flex min-w-0 items-center gap-1.5 py-[15px]"
+          >
+            {place}
+          </button>
+        ) : header ? (
+          // The header's project, cut to fit, read whole on a tap.
           <FullTextTip
             text={[project, branch].filter(Boolean).join(' · ⎇ ')}
             cut={fit.project !== project || fit.branch !== branch}
@@ -164,6 +182,9 @@ export function WhereLine({
           ))}
       </span>
       <SheetPresence>{open && <TreesSheet session={session} onClose={() => setOpen(false)} />}</SheetPresence>
+      <SheetPresence>
+        {branchOpen && <BranchSheet session={session} mac={mac} onClose={() => setBranchOpen(false)} />}
+      </SheetPresence>
     </>
   )
 }

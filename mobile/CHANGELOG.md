@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Added
+- Tapping the branch in a session's header opens a panel with its line changes and pull request — state, review and checks — and a button that opens the pull request on GitHub.
 ### Changed
 - Going back to an image you have just looked at shows it at once instead of loading it again; an image from a file is still checked with the Mac in the background and updates if the file changed.
 
