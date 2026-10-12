@@ -5,6 +5,7 @@ import { formatBytes } from '../lib/format'
 import { useOrbital } from '../store/store'
 import { MediaViewer } from './MediaViewer'
 import { useImageUrl } from '../lib/images'
+import { LOADER_FADE_MS, LOADING_SURFACE, MoonLoader } from '../ui/MoonLoader'
 import { fileOpenHandlers, useFileMessage } from '../lib/fileOpen'
 
 /**
@@ -79,6 +80,8 @@ export function ImageThumb({ image, variant, source, widthCapPx, messageId }: Im
   const box = boxFor(image, variant, widthCapPx)
   const { url, failed, async: fadeIn, retry } = useImageUrl(image.ref)
   const [loaded, setLoaded] = useState(false)
+  // 10e2: the moon stays under the image until the image is opaque.
+  const [covered, setCovered] = useState(false)
   // The phone's seam (`lib/fileOpen.ts`): configured, a press opens its own
   // viewer at this image of this message, and no `MediaViewer` is mounted.
   const routed = fileOpenHandlers()
@@ -140,8 +143,15 @@ export function ImageThumb({ image, variant, source, widthCapPx, messageId }: Im
           'hover:shadow-[0_0_0_3px_rgba(89,228,243,.12)]',
           'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[oklch(85%_.12_205_/_.7)]',
           FRAME_CLASSES[variant],
+          fadeIn ? 'relative' : '',
         ].join(' ')}
       >
+        {/* Canvas 10e2: only bytes that arrive later — the phone's — wait under the moon. */}
+        {fadeIn && !covered && (
+          <span aria-hidden className="absolute inset-0" style={{ background: LOADING_SURFACE }}>
+            <MoonLoader size={variant === 'tool-wide' ? 'row' : 'thumb'} />
+          </span>
+        )}
         {url && (
           <img
             src={url}
@@ -149,13 +159,14 @@ export function ImageThumb({ image, variant, source, widthCapPx, messageId }: Im
             loading="lazy"
             onError={() => setMissing(true)}
             onLoad={() => setLoaded(true)}
+            onTransitionEnd={() => loaded && setCovered(true)}
             // The reserved box already carries the aspect ratio; unknown dims
             // fall back to the height cap and let the image size itself.
-            className="block h-full w-full"
+            className={['block h-full w-full', fadeIn ? 'relative' : ''].join(' ')}
             style={{
               ...(image.w && image.h ? {} : { width: 'auto', maxHeight: '100%' }),
-              // Only bytes that arrived later fade in; a URL known at first paint just shows.
-              ...(fadeIn ? { opacity: loaded ? 1 : 0, transition: 'opacity 160ms ease-out' } : {}),
+              // Only bytes that arrived later fade in, over the moon (10e2); a URL known at first paint just shows.
+              ...(fadeIn ? { opacity: loaded ? 1 : 0, transition: `opacity ${LOADER_FADE_MS}ms ease` } : {}),
             }}
           />
         )}

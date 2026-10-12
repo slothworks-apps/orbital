@@ -245,6 +245,24 @@ body {
   }
 }
 
+/* The phone's image loading moon (`Feature - Mobile next` 10e2): the dashed
+   orbit turns once a minute, the moon once in eight seconds, both linear.
+   `MoonLoader` sets a negative delay so every loader turns in step. */
+.orbital-moon-orbit {
+  animation: orbital-spin 60s linear infinite;
+}
+
+.orbital-moon {
+  animation: orbital-spin 8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbital-moon-orbit,
+  .orbital-moon {
+    animation: none;
+  }
+}
+
 /* File viewer loading skeleton (canvas 8d-A): a highlight layer sweeping
    across each bar once per 1.4s cycle, staggered 100ms per bar. */
 @keyframes orbital-sweep {

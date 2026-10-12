@@ -4,6 +4,13 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.10.1] — 2026-10-12
+### Added
+- Tapping the project and branch in a session's header opens a panel instead of a tooltip: the full branch name, its line changes and its pull request — state, review and checks — with a button that opens the pull request on GitHub.
+### Changed
+- An image that is still loading shows a small, slow moon instead of a striped placeholder, and only when the load takes a moment; the full-screen viewer fills its orbit as the bytes arrive.
+- Going back to an image you have just looked at shows it at once instead of loading it again; an image from a file is still checked with the Mac in the background and updates if the file changed.
+
 ## [0.10.0] — 2026-10-12
 ### Added
 - New session tells you, as you type, when the folder doesn't exist on your Mac, and offers to create it when you start. Needs Orbital for Mac 0.29.0 or newer.

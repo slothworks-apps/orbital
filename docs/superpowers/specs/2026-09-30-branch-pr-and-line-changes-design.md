@@ -201,6 +201,21 @@ interface BranchStatus {
 
 The browser opens `pr.url` through the desktop shell's external-link path.
 
+## The phone
+
+The phone's session header shows the project and branch on its where-line.
+Tapping them opens a bottom sheet (in place of the tooltip that only showed
+them uncut), BRANCH, the way the context readout opens its
+sheet: the full branch name and where it is checked out, then the
+desktop's line-changes block, then the pull request — number, the same
+STATE · REVIEW · CHECKS rows, and an "Open on GitHub" button that hands
+the URL to the system browser. Nothing else in the sheet acts.
+
+No route or topic is added: `branch` rides on the session the phone already
+reads, and the phone watching `session:<id>` counts as someone looking at
+the tree, so it is kept fresh as for a desktop window. Both switches stay
+in the Mac's Settings; with both off the sheet says where to turn them on.
+
 ## Tests
 
 - Parsing `git diff --numstat` output: binary files (`-\t-`), renames,

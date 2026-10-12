@@ -12,8 +12,10 @@ import { isCantShowStatus } from './route'
  * outcome the screen draws (canvas 10e's states, Decision 8's can't-be-shown).
  *
  * A path is read again from the Mac every time it is there — the file may
- * have changed — and the cached copy stands in only while it is not. A ref is
- * its content, so a cached one is never asked for again.
+ * have changed. The screen may show the phone's copy meanwhile
+ * (`readCopy`, `revalidated`); on its own the copy stands in only while
+ * the Mac is not there. A ref is its content, so a cached one is never asked
+ * for again.
  */
 export type FileOutcome =
   /** `cached`: the phone's copy, shown because the Mac is not there; `readAt` is its age. */
@@ -29,12 +31,14 @@ export type FileOutcome =
   /** The Mac is not there and the phone has no copy. */
   | { kind: 'waits' }
 
+export type ReadyOutcome = Extract<FileOutcome, { kind: 'ready' }>
+
 export interface ResolverDeps {
   client: Pick<TunnelClient, 'getFile' | 'getBlob'>
   cache: Pick<FileCache, 'get' | 'put'>
 }
 
-function fromEntry(bytes: Uint8Array, entry: CacheEntry, cached: boolean): Extract<FileOutcome, { kind: 'ready' }> {
+function fromEntry(bytes: Uint8Array, entry: CacheEntry, cached: boolean): ReadyOutcome {
   return { kind: 'ready', bytes, mediaType: entry.mediaType, w: entry.w, h: entry.h, readAt: entry.readAt, cached }
 }
 
@@ -54,10 +58,7 @@ export async function readPath(
   },
 ): Promise<FileOutcome> {
   const key = pathKey(req.sessionId, req.path, req.cwd)
-  const cachedCopy = async () => {
-    const hit = await deps.cache.get(key).catch(() => null)
-    return hit ? fromEntry(hit.bytes, hit.entry, true) : null
-  }
+  const cachedCopy = () => copyOf(deps, key, true)
   let received = 0
   let answer: FileResult
   try {
@@ -92,6 +93,38 @@ export async function readPath(
   // § Phone): whatever it answers, the file cannot be shown here.
   if (req.as === 'pdf') return { kind: 'cant-show', size: answer.size, mediaType: answer.mediaType }
   return { kind: 'failed', received }
+}
+
+async function copyOf(deps: Pick<ResolverDeps, 'cache'>, key: string, cached: boolean): Promise<ReadyOutcome | null> {
+  const hit = await deps.cache.get(key).catch(() => null)
+  return hit ? fromEntry(hit.bytes, hit.entry, cached) : null
+}
+
+/**
+ * The phone's copy of a file, to show before the Mac is asked. Not labelled
+ * cached: for a path, whether it is the latest is still being asked.
+ */
+export function readCopy(deps: Pick<ResolverDeps, 'cache'>, key: string): Promise<ReadyOutcome | null> {
+  return copyOf(deps, key, false)
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+  return true
+}
+
+/**
+ * What the screen shows once the Mac answers for a path whose copy it is
+ * already showing. The same bytes keep the very outcome on screen, so the
+ * image is not drawn again; a transfer that failed keeps the copy too —
+ * a picture already there is not worth taking away for it. Anything else
+ * the Mac says replaces the copy.
+ */
+export function revalidated(shown: ReadyOutcome, fresh: FileOutcome): FileOutcome {
+  if (fresh.kind === 'failed') return shown
+  if (fresh.kind === 'ready' && fresh.cached === shown.cached && sameBytes(fresh.bytes, shown.bytes)) return shown
+  return fresh
 }
 
 export async function readRef(deps: ResolverDeps, ref: string): Promise<FileOutcome> {
