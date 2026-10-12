@@ -7,6 +7,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ## [0.29.0] — 2026-10-12
 ### Added
 - New session tells you, as you type, when the project folder doesn't exist, and offers to create it when you launch — instead of starting a session that fails with an unclear error.
+### Changed
+- The terminal's settings have their own Terminal section in Settings; Experimental keeps only the switch that turns it on.
+### Fixed
+- In the side panel, the terminal's tabs, ✕, + and hide buttons respond to clicks again.
 
 ## [0.28.0] — 2026-10-10
 ### Added

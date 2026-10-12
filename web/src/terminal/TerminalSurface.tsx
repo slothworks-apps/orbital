@@ -196,7 +196,9 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
       <div
         className={[
           'relative z-[2] flex flex-none items-center gap-1 border-b border-[rgba(150,205,255,.1)] pr-2.5 pl-3.5',
-          variant === 'side' ? 'h-11' : 'h-10 pt-0.5',
+          // The side panel runs to the window's top edge, through the drag
+          // band, which swallows every click that does not opt out.
+          variant === 'side' ? 'orbital-band-controls h-11' : 'h-10 pt-0.5',
         ].join(' ')}
       >
         <span
@@ -251,6 +253,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
         <button
           type="button"
           onClick={() => toggleTerminalShown(sessionId)}
+          title={`Hide the terminal · ${toggle} (Control + \`) shows it again`}
           className="ml-2 h-6 flex-none cursor-pointer rounded-md border-0 bg-transparent px-2 font-mono text-[10px] tracking-[0.06em] whitespace-nowrap text-[rgba(200,220,245,.7)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8]"
         >
           hide {toggle}

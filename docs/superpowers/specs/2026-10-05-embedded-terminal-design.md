@@ -42,8 +42,10 @@ Claude is the CLI's `!` shell mode, a separate gap listed in
 ## Behind an experimental switch
 
 The terminal starts as an experimental feature. Settings → Experimental has a
-switch that turns it on and off (`terminal_enabled`, off by default), and,
-while it is on, the placement and the cursor:
+switch that turns it on and off (`terminal_enabled`, off by default), and
+nothing else. While it is on, Settings has a Terminal section of its own, as
+Harness templates appears with the harness switch, holding the placement and
+the cursor:
 
 - `terminal_placement`: `dock` (48a, the default) or `side` (48b);
 - `terminal_cursor`: `block` (default), `bar` or `underline`;
