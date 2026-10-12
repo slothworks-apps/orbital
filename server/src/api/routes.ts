@@ -2242,11 +2242,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       claude_dir_id?: number | null;
       model?: string | null;
       permission_mode?: string | null;
-      effort?: string | null;
     };
     const set: Partial<{
       name: string; hue: number; anchorX: number | null; anchorY: number | null;
-      claudeDirId: number | null; model: string | null; permissionMode: string | null; effort: string | null;
+      claudeDirId: number | null; model: string | null; permissionMode: string | null;
     }> = {};
     if (body.name != null) set.name = body.name;
     if (body.hue != null) set.hue = body.hue;
@@ -2277,13 +2276,6 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         return reply.code(400).send({ error: 'invalid_permission_mode' });
       }
       set.permissionMode = mode ?? null;
-    }
-    if ('effort' in body) {
-      const effort = body.effort;
-      if (effort !== null && effort !== undefined && !['low', 'medium', 'high', 'ultra'].includes(effort)) {
-        return reply.code(400).send({ error: 'invalid_effort' });
-      }
-      set.effort = effort ?? null;
     }
     if (Object.keys(set).length > 0) {
       db.update(tags).set(set).where(eq(tags.id, Number(id))).run();
