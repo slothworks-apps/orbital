@@ -76,6 +76,10 @@ import {
   NOTIFICATION_SETTING_KEYS, NOTIFICATIONS_TIP_ENDED, NOTIFICATIONS_TIP_KEY,
 } from '@orbital/shared/notifications';
 import {
+  claudeDirExhausted, effectiveLaunchDefaults,
+  type LaunchClaudeDir, type LaunchConfig, type TagLaunchDefaults,
+} from '@orbital/shared/launchDefaults';
+import {
   DEFAULT_CLAUDE_DIR_KEY,
   LAST_CLAUDE_DIR_KEY,
   type ClaudeDirContext,
@@ -316,6 +320,12 @@ const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[
  */
 const MODEL_ID_MAX_LENGTH = 100;
 
+/** A model id fit to hand the CLI: non-empty, no whitespace inside, at most `MODEL_ID_MAX_LENGTH`. */
+const isModelIdShape = (value: unknown): value is string => {
+  const id = typeof value === 'string' ? value.trim() : '';
+  return id !== '' && !/\s/.test(id) && id.length <= MODEL_ID_MAX_LENGTH;
+};
+
 /**
  * An image store ref, the same shape `GET /api/images/:ref` serves: 64
  * lowercase hex characters and a whitelisted extension. A composer attachment
@@ -459,18 +469,54 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   /** A session's own directory while it is configured, else the default — what a launch runs under. */
   const launchDirOf = (id: number): number => (ctx.claudeDirs.has(id) ? id : ctx.claudeDirs.defaultId());
   /**
-   * Whether a Claude directory's limits are exhausted: any limit window at 100%
-   * or an open limit wait (spec 2026-10-13-tag-defaults-design). Never waits
-   * for a fresh probe; uses cached limits only.
+   * The configured directories with whether each one's usage limit is used
+   * up (spec 2026-10-13-tag-defaults-design). The cached snapshot only: a
+   * launch never waits for a probe.
    */
-  const dirHasExhaustedLimits = (claudeDirId: number): boolean => {
-    if (!ctx.limits) return false;
-    const snapshot = ctx.limits.snapshot();
-    const dirSnapshot = snapshot.dirs.find((d) => d.id === claudeDirId);
-    if (!dirSnapshot || !dirSnapshot.tracked) return false;
-    // Any window at 100% or any open wait
-    return dirSnapshot.windows.some((w) => w.percent === 100)
-      || dirSnapshot.waits.length > 0;
+  const launchClaudeDirs = (): LaunchClaudeDir[] => {
+    const snapshot = ctx.limits?.snapshot();
+    const now = Date.now();
+    return ctx.claudeDirs.info().map(({ id, exists }) => {
+      const reading = snapshot?.dirs.find((d) => d.id === id);
+      return { id, exists, exhausted: reading ? claudeDirExhausted(reading, now) : false };
+    });
+  };
+  /**
+   * The tag a new session will wear, for its launch defaults: the one it was
+   * given, else the tag its directory's rule names, else the default tag —
+   * the same order the map shows it in.
+   */
+  const launchTagDefaults = (
+    tagId: number | undefined, cwd: string, permissionMode: string | null,
+  ): TagLaunchDefaults | undefined => {
+    let id = tagId;
+    if (id == null) {
+      const rules = db.select(tagRuleColumns).from(tagRules).orderBy(tagRules.position).all();
+      id = matchRule(rules, { cwd, title: '', permissionMode })?.tag_id;
+    }
+    const columns = { claude_dir_id: tags.claudeDirId, model: tags.model, permission_mode: tags.permissionMode };
+    return id != null
+      ? db.select(columns).from(tags).where(eq(tags.id, id)).get()
+      : db.select(columns).from(tags).where(eq(tags.isDefault, 1)).get();
+  };
+  /**
+   * A launch's directory, model and mode: each value the request names, else
+   * its tag's default, else `global` (spec 2026-10-13-tag-defaults-design §
+   * Resolution).
+   */
+  const resolveLaunch = (
+    request: { claudeDirId?: number; model?: string; permissionMode?: PermissionMode },
+    tag: TagLaunchDefaults | undefined,
+    global: LaunchConfig<PermissionMode>,
+  ): { claudeDirId: number; model: string | undefined; permissionMode: PermissionMode } => {
+    const effective = effectiveLaunchDefaults({
+      tag, global, defaultClaudeDirId: ctx.claudeDirs.defaultId(), claudeDirs: launchClaudeDirs(),
+    });
+    return {
+      claudeDirId: request.claudeDirId ?? effective.claudeDirId ?? ctx.claudeDirs.defaultId(),
+      model: request.model ?? effective.model ?? undefined,
+      permissionMode: request.permissionMode ?? effective.permissionMode,
+    };
   };
   /** Clear's harness carry-over, set once the harness routes are registered (at the end). */
   let carry: CarryHarness | null = null;
@@ -1170,44 +1216,31 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const resumed = body.resume
       ? db.select({ claudeDirId: sessions.claudeDirId }).from(sessions).where(eq(sessions.id, body.resume)).get()
       : undefined;
-    let claudeDirId = resumed ? launchDirOf(resumed.claudeDirId) : ctx.claudeDirs.resolveId(body.claudeDirId);
-    if (claudeDirId === null) return reply.code(400).send({ error: 'unknown_claude_dir' });
-
-    // Resolve tag defaults: request > tag defaults > global defaults.
-    // For claudeDirId: check if the tag's directory is exhausted; if so, use the default.
-    let resolvedModel = body.model;
-    let resolvedPermissionMode = body.permissionMode;
-    if (body.tagId != null && !body.resume) {
-      const tag = db.select({
-        claudeDirId: tags.claudeDirId,
-        model: tags.model,
-        permissionMode: tags.permissionMode,
-      }).from(tags).where(eq(tags.id, body.tagId)).get();
-      if (tag) {
-        // claudeDirId: tag default, with fallback for exhausted limits
-        if (body.claudeDirId === undefined || body.claudeDirId === null) {
-          if (tag.claudeDirId != null) {
-            const tagDirId = tag.claudeDirId;
-            if (ctx.claudeDirs.has(tagDirId) && !dirHasExhaustedLimits(tagDirId)) {
-              claudeDirId = tagDirId;
-            }
-          }
-        }
-        // model: tag default if request doesn't specify one
-        if (body.model === undefined) {
-          resolvedModel = tag.model ?? undefined;
-        }
-        // permissionMode: tag default if request doesn't specify one
-        if (tag.permissionMode != null) {
-          resolvedPermissionMode = tag.permissionMode as PermissionMode;
-        }
-      }
-    }
     // The one door an unexpanded path comes through: every other cwd in this
     // file is read back from a row this line already wrote. Expanding before
     // both the runner and the insert keeps the spawn working *and* keeps one
     // directory from appearing twice in `/api/projects`, once per spelling.
     const cwd = expandHome(body.cwd);
+    const named = body.claudeDirId == null ? undefined : ctx.claudeDirs.resolveId(body.claudeDirId);
+    if (named === null && !resumed) return reply.code(400).send({ error: 'unknown_claude_dir' });
+    // A resume keeps what it was sent; a new session fills what the request
+    // leaves out from its tag, then from the Settings defaults.
+    const global: LaunchConfig<PermissionMode> = {
+      claudeDirId: ctx.claudeDirs.defaultId(),
+      model: ctx.settings.get('default_model') || null,
+      permissionMode: (ctx.settings.get('default_permission_mode') || 'acceptEdits') as PermissionMode,
+    };
+    const { claudeDirId, model, permissionMode } = body.resume
+      ? {
+          claudeDirId: resumed ? launchDirOf(resumed.claudeDirId) : (named ?? ctx.claudeDirs.defaultId()),
+          model: body.model,
+          permissionMode: body.permissionMode,
+        }
+      : resolveLaunch(
+          { claudeDirId: named ?? undefined, model: body.model ?? undefined, permissionMode: body.permissionMode ?? undefined },
+          launchTagDefaults(body.tagId ?? undefined, cwd, body.permissionMode ?? global.permissionMode),
+          global,
+        );
     // The same test the session-spawning tool makes (`ctx.runner.spawner`
     // below), answered as a code the client words for itself.
     if (body.requireDirectory === true
@@ -1238,8 +1271,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       cwd,
       sessionId: clientId,
       claudeDirId,
-      model: resolvedModel,
-      permissionMode: resolvedPermissionMode,
+      model,
+      permissionMode,
     });
     // The dialog's choice, remembered for the next one (spec § 3) — stored
     // here rather than by the client, because the phone cannot write settings.
@@ -1347,7 +1380,6 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (!statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
       throw new Error(`no such directory: ${cwd}`);
     }
-    const model = input.model?.trim() || parent.model || undefined;
     // The child joins the parent's hand-picked tag: a session spawned from
     // one under a tag belongs to the same work. A rule-derived tag needs no
     // copy — the rules tag the child on their own.
@@ -1357,12 +1389,19 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       .where(and(eq(sessionTags.sessionId, parentId), eq(sessionTags.origin, 'manual')))
       .orderBy(sessionTags.tagId)
       .get();
+    // The same resolution as a launch from a client (spec
+    // 2026-10-13-tag-defaults-design § spawn_session): the model the tool
+    // names wins, then the child's tag, then the parent. The parent's mode is
+    // always named, so a tag never gives a child more autonomy than its
+    // parent has. Without a tag directory the child runs under the parent's
+    // account (spec 2026-10-04-multiple-claude-directories-design § 3).
+    const { claudeDirId, model } = resolveLaunch(
+      { model: input.model?.trim() || undefined, permissionMode },
+      launchTagDefaults(parentTag?.tagId, cwd, permissionMode),
+      { claudeDirId: launchDirOf(parent.claude_dir_id), model: parent.model || null, permissionMode },
+    );
     const sessionId = await launchSession({
-      cwd, prompt: input.prompt, permissionMode, model, spawnedBy: parentId, tagId: parentTag?.tagId,
-      // The child runs under the parent's account (spec
-      // 2026-10-04-multiple-claude-directories-design § 3): its work belongs
-      // to the same employer, plan and transcripts.
-      claudeDirId: launchDirOf(parent.claude_dir_id),
+      cwd, prompt: input.prompt, permissionMode, model, spawnedBy: parentId, tagId: parentTag?.tagId, claudeDirId,
     });
     return { sessionId, cwd };
   };
@@ -2257,18 +2296,23 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       }
       set[column] = value;
     }
-    // Validate tag defaults
+    // The tag's launch defaults (spec 2026-10-13-tag-defaults-design § API):
+    // null clears one back to the Settings default.
     if ('claude_dir_id' in body) {
-      const dirId = body.claude_dir_id;
-      if (dirId !== null && dirId !== undefined) {
-        if (!ctx.claudeDirs.has(dirId)) {
-          return reply.code(400).send({ error: 'unknown_claude_dir' });
-        }
+      const dirId = body.claude_dir_id ?? null;
+      if (dirId !== null && (typeof dirId !== 'number' || !ctx.claudeDirs.has(dirId))) {
+        return reply.code(400).send({ error: 'unknown_claude_dir' });
       }
-      set.claudeDirId = dirId ?? null;
+      set.claudeDirId = dirId;
     }
     if ('model' in body) {
-      set.model = body.model ?? null;
+      // Held to the shape `POST /api/models/validate` accepts; the launch
+      // route itself passes a model through unchecked.
+      const model = body.model;
+      if (model !== null && model !== undefined && !isModelIdShape(model)) {
+        return reply.code(400).send({ error: 'invalid_model' });
+      }
+      set.model = typeof model === 'string' ? model.trim() : null;
     }
     if ('permission_mode' in body) {
       const mode = body.permission_mode;
@@ -2384,11 +2428,18 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   // named is gone, so the prefill falls through to `defaultClaudeDir`.
   app.get('/api/sessions/defaults', () => {
     const last = Number(ctx.settings.get(LAST_CLAUDE_DIR_KEY) || NaN);
+    const usable = launchClaudeDirs();
     return {
       permissionMode: (ctx.settings.get('default_permission_mode') || 'acceptEdits') as PermissionMode,
       model: ctx.settings.get('default_model') || null,
       rememberModelPerProject: ctx.settings.get('remember_model_per_project') !== 'false',
-      claudeDirs: ctx.claudeDirs.info().map(({ id, name, path, account, exists }) => ({ id, name, path, account, exists })),
+      // `exhausted`: the usage limit is used up, so a tag's directory gives
+      // way to the default in the clients' preselection (spec
+      // 2026-10-13-tag-defaults-design); from the cached limits only.
+      claudeDirs: ctx.claudeDirs.info().map(({ id, name, path, account, exists }) => ({
+        id, name, path, account, exists,
+        exhausted: usable.find((d) => d.id === id)?.exhausted ?? false,
+      })),
       defaultClaudeDir: ctx.claudeDirs.defaultId(),
       lastClaudeDir: Number.isInteger(last) && ctx.claudeDirs.has(last) ? last : null,
     };
@@ -2412,10 +2463,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   // failed request.
   app.post('/api/models/validate', async (req, reply) => {
     const { model, claudeDir } = (req.body ?? {}) as { model?: unknown; claudeDir?: unknown };
-    const id = typeof model === 'string' ? model.trim() : '';
-    if (!id || /\s/.test(id) || id.length > MODEL_ID_MAX_LENGTH) {
-      return reply.code(400).send({ error: 'model is required' });
-    }
+    if (!isModelIdShape(model)) return reply.code(400).send({ error: 'model is required' });
+    const id = model.trim();
     // Checked under the account the session would run under.
     const models = modelsOf(claudeDir);
     if (!models) return reply.code(400).send({ error: 'unknown_claude_dir' });

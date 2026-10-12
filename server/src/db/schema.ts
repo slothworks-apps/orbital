@@ -279,8 +279,8 @@ export const tags = sqliteTable('tags', {
   /**
    * Default launch config for sessions with this tag (spec
    * 2026-10-13-tag-defaults-design § Schema). Null = no tag default, fall
-   * back to global defaults. All three are nullable; a request supplies any
-   * that are missing.
+   * back to the Settings default; a value the launch request names wins over
+   * both.
    */
   claudeDirId: integer('claude_dir_id'),
   model: text('model'),

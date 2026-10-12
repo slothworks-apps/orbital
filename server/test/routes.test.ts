@@ -19,7 +19,7 @@ import {
   RETENTION_KEY,
 } from '../src/retention.js';
 import {
-  harnessMessages, pendingRewinds, sessionColumns, sessions, sessionStats, sessionTags, settings as settingsTable, tags,
+  harnessMessages, pendingRewinds, sessionColumns, sessions, sessionStats, sessionTags, settings as settingsTable, tagRules, tags,
 } from '../src/db/schema.js';
 import type { Finding } from '../src/stats/compute.js';
 import { HIST_BUCKET_COUNT } from '../src/stats/constants.js';
@@ -152,7 +152,7 @@ function retentionFor(db: OrbitalDb) {
   };
 }
 
-function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: NarrateQueryFn; branchStatus?: BranchStatusStore } = {}) {
+function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: NarrateQueryFn; branchStatus?: BranchStatusStore; limits?: unknown } = {}) {
   const db = openTmpDb('api');
   db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
   db.insert(sessions)
@@ -261,6 +261,7 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: 
     remote: stubRemote(db, hub, imageStore, imagesDir, settings),
     settings,
     retention: retentionFor(db),
+    ...(opts.limits ? { limits: opts.limits as any } : {}),
   });
   return {
     app, db, runner, hub, registry, startCalls, sendCalls, modelCatalog, subagents, subagentTranscripts, backgroundTasks, errors,
@@ -496,32 +497,6 @@ describe('REST routes', () => {
     expect(Object.keys(rulesRes.json().rules[0])).toEqual([
       'id', 'tag_id', 'position', 'enabled', 'condition', 'pattern',
     ]);
-  });
-
-  it('PATCH /api/tags/:id sets and validates tag defaults', async () => {
-    // Set tag defaults: model and permission_mode with valid values
-    await app.inject({
-      method: 'PATCH',
-      url: '/api/tags/10',
-      payload: {
-        model: 'opus[5]',
-        permission_mode: 'auto',
-      },
-    });
-    const res = await app.inject({ method: 'GET', url: '/api/tags' });
-    const tag = res.json().tags.find((t: any) => t.id === 10);
-    expect(tag.model).toBe('opus[5]');
-    expect(tag.permission_mode).toBe('auto');
-  });
-
-  it('PATCH /api/tags/:id rejects invalid permission_mode', async () => {
-    const res = await app.inject({
-      method: 'PATCH',
-      url: '/api/tags/10',
-      payload: { permission_mode: 'maybe' },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toBe('invalid_permission_mode');
   });
 
   // A just-launched session has a row (`project_dir: ''`) and no transcript
@@ -1432,6 +1407,136 @@ describe('REST routes', () => {
 // Claude directories (spec 2026-10-04-multiple-claude-directories-design)
 // ---------------------------------------------------------------------------
 
+describe('Tag launch defaults', () => {
+  const now = Date.now();
+  const later = new Date(now + 3_600_000).toISOString();
+
+  /** An app whose limits say `windows` for the directory `id`, under-limit for every other. */
+  function appWithLimits(readings: Record<number, { percent: number; resetsAt: string | null }[]> = {}) {
+    const limits = {
+      snapshot: () => ({
+        dirs: Object.entries(readings).map(([id, windows]) => ({
+          id: Number(id), name: '', tracked: true, readAt: null, stale: false, windows, extraUsage: null, waits: [],
+        })),
+      }),
+      waitFor: () => null,
+    };
+    return makeApp({ limits });
+  }
+  async function addDir(app: FastifyInstance, name: string): Promise<number> {
+    const res = await app.inject({ method: 'POST', url: '/api/claude-dirs', payload: { name, path: makeTmpDir(name) } });
+    expect(res.statusCode).toBe(201);
+    return res.json().claudeDir.id;
+  }
+  const patchTag = (app: FastifyInstance, id: number, payload: Record<string, unknown>) =>
+    app.inject({ method: 'PATCH', url: `/api/tags/${id}`, payload });
+  const post = (app: FastifyInstance, payload: Record<string, unknown>) =>
+    app.inject({ method: 'POST', url: '/api/sessions', payload: { cwd: '/p', prompt: 'go', ...payload } });
+
+  it('stores, returns and clears a tag’s defaults', async () => {
+    const { app } = makeApp();
+    const work = await addDir(app, 'Work');
+    res200(await patchTag(app, 10, { claude_dir_id: work, model: ' opus ', permission_mode: 'plan' }));
+    const tagOf = async () => res200(await app.inject({ method: 'GET', url: '/api/tags' })).tags.find((t: any) => t.id === 10);
+    expect(await tagOf()).toMatchObject({ claude_dir_id: work, model: 'opus', permission_mode: 'plan' });
+    // Absent leaves a value alone; null clears it.
+    res200(await patchTag(app, 10, { model: null }));
+    expect(await tagOf()).toMatchObject({ claude_dir_id: work, model: null, permission_mode: 'plan' });
+  });
+
+  it('refuses an unknown directory, a model id the CLI could not take, and a mode Orbital does not offer', async () => {
+    const { app } = makeApp();
+    for (const [payload, error] of [
+      [{ claude_dir_id: 99 }, 'unknown_claude_dir'],
+      [{ claude_dir_id: '1' }, 'unknown_claude_dir'],
+      [{ model: 'two words' }, 'invalid_model'],
+      [{ model: '' }, 'invalid_model'],
+      [{ model: 42 }, 'invalid_model'],
+      [{ permission_mode: 'default' }, 'invalid_permission_mode'],
+    ] as const) {
+      const res = await patchTag(app, 10, payload);
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error });
+    }
+    const tag = res200(await app.inject({ method: 'GET', url: '/api/tags' })).tags.find((t: any) => t.id === 10);
+    expect(tag).toMatchObject({ claude_dir_id: null, model: null, permission_mode: null });
+  });
+
+  it('fills each value the request leaves out from the tag', async () => {
+    const { app, startCalls } = appWithLimits();
+    const work = await addDir(app, 'Work');
+    res200(await patchTag(app, 10, { claude_dir_id: work, model: 'opus', permission_mode: 'plan' }));
+    expect((await post(app, { tagId: 10 })).statusCode).toBe(201);
+    expect(startCalls[0]).toMatchObject({ claudeDirId: work, model: 'opus', permissionMode: 'plan' });
+  });
+
+  it('lets each value the request names win over the tag, one field at a time', async () => {
+    const { app, startCalls } = appWithLimits();
+    const work = await addDir(app, 'Work');
+    res200(await patchTag(app, 10, { claude_dir_id: work, model: 'opus', permission_mode: 'plan' }));
+    await post(app, { tagId: 10, model: 'haiku' });
+    await post(app, { tagId: 10, permissionMode: 'auto' });
+    await post(app, { tagId: 10, claudeDirId: 1 });
+    expect(startCalls).toEqual([
+      expect.objectContaining({ claudeDirId: work, model: 'haiku', permissionMode: 'plan' }),
+      expect.objectContaining({ claudeDirId: work, model: 'opus', permissionMode: 'auto' }),
+      expect.objectContaining({ claudeDirId: 1, model: 'opus', permissionMode: 'plan' }),
+    ]);
+  });
+
+  it('falls back to the Settings defaults where the tag has none', async () => {
+    const { app, startCalls } = appWithLimits();
+    const work = await addDir(app, 'Work');
+    res200(await app.inject({
+      method: 'PATCH', url: '/api/settings',
+      payload: { default_claude_dir: String(work), default_model: 'haiku', default_permission_mode: 'auto' },
+    }));
+    res200(await patchTag(app, 10, { model: 'opus' }));
+    await post(app, { tagId: 10 });
+    expect(startCalls[0]).toMatchObject({ claudeDirId: work, model: 'opus', permissionMode: 'auto' });
+  });
+
+  it('runs under the main default directory when the tag’s has its limit used up', async () => {
+    const { app, startCalls } = appWithLimits({ 2: [{ percent: 100, resetsAt: later }] });
+    const work = await addDir(app, 'Work');
+    expect(work).toBe(2);
+    res200(await patchTag(app, 10, { claude_dir_id: work, model: 'opus' }));
+    await post(app, { tagId: 10 });
+    expect(startCalls[0]).toMatchObject({ claudeDirId: 1, model: 'opus' });
+    // The phone and the dialog learn it, to preselect the same.
+    const dirs = res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' })).claudeDirs;
+    expect(dirs.map((d: any) => [d.id, d.exhausted])).toEqual([[1, false], [work, true]]);
+  });
+
+  it('keeps the tag’s directory while its limit has room, even when another’s is used up', async () => {
+    const { app, startCalls } = appWithLimits({ 1: [{ percent: 100, resetsAt: later }], 2: [{ percent: 80, resetsAt: later }] });
+    const work = await addDir(app, 'Work');
+    res200(await patchTag(app, 10, { claude_dir_id: work }));
+    await post(app, { tagId: 10 });
+    expect(startCalls[0]).toMatchObject({ claudeDirId: work });
+  });
+
+  it('reads the tag a launch without one will wear from the rules, else the default tag (the phone sends none)', async () => {
+    const { app, db, startCalls } = appWithLimits();
+    db.insert(tagRules).values({ tagId: 10, position: 0, enabled: 1, condition: 'path_matches', pattern: '^/work/' }).run();
+    const defaultTag = db.select({ id: tags.id }).from(tags).where(eq(tags.isDefault, 1)).get()!.id;
+    res200(await patchTag(app, 10, { model: 'opus' }));
+    res200(await patchTag(app, defaultTag, { model: 'haiku' }));
+    await post(app, { cwd: '/work/api', permissionMode: 'acceptEdits' });
+    await post(app, { cwd: '/elsewhere', permissionMode: 'acceptEdits' });
+    expect(startCalls.map((c) => c.model)).toEqual(['opus', 'haiku']);
+  });
+
+  it('forgets a deleted Claude directory on every tag that launched under it', async () => {
+    const { app } = makeApp();
+    const work = await addDir(app, 'Work');
+    res200(await patchTag(app, 10, { claude_dir_id: work, model: 'opus' }));
+    expect((await app.inject({ method: 'DELETE', url: `/api/claude-dirs/${work}` })).statusCode).toBe(204);
+    const tag = res200(await app.inject({ method: 'GET', url: '/api/tags' })).tags.find((t: any) => t.id === 10);
+    expect(tag).toMatchObject({ claude_dir_id: null, model: 'opus' });
+  });
+});
+
 describe('Claude directories', () => {
   const launchBody = { cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' };
 
@@ -1459,9 +1564,9 @@ describe('Claude directories', () => {
     writeFileSync(join(work, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'me@work.example' } }));
     const id = await addDir(app, 'Work', work);
     const read = async () => res200(await app.inject({ method: 'GET', url: '/api/sessions/defaults' })).claudeDirs[1];
-    expect(await read()).toEqual({ id, name: 'Work', path: work, account: 'me@work.example', exists: true });
+    expect(await read()).toEqual({ id, name: 'Work', path: work, account: 'me@work.example', exists: true, exhausted: false });
     rmSync(work, { recursive: true, force: true });
-    expect(await read()).toEqual({ id, name: 'Work', path: work, account: null, exists: false });
+    expect(await read()).toEqual({ id, name: 'Work', path: work, account: null, exists: false, exhausted: false });
   });
 
   it('refuses an unknown claudeDirId and starts nothing', async () => {
@@ -1688,7 +1793,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
   // A real Runner, not the fake at the top of this file: the point of the
   // 400 case is that no CLI was spawned, and a fake whose `active()` is a
   // hardcoded `[]` could never show that.
-  function makeLaunchApp() {
+  function makeLaunchApp(opts: { limits?: unknown } = {}) {
     const db = openTmpDb('mint');
     const hub = new Hub();
     const claudeDirs = testClaudeDirs(db, { get: () => '', set: () => {} }, '/nonexistent', { list: async () => [] });
@@ -1728,6 +1833,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       settings: { get: () => '', set: () => {} },
       mcpFor: () => noMcp,
       retention: retentionFor(db),
+      ...(opts.limits ? { limits: opts.limits as any } : {}),
     });
     return { app, db, runner, hub, claudeDirs, envs, close: () => { runner.dispose(); db.$client.close(); } };
   }
@@ -1886,6 +1992,47 @@ describe('POST /api/sessions with a browser-minted session id', () => {
         expect.objectContaining({ CLAUDE_CONFIG_DIR: workPath }),
       ]);
       launched.close();
+    });
+
+    /** A parent launched under hand-picked tag 42 with everything named, and a Work directory. */
+    async function underTag(defaults: { claudeDirId?: 'work'; model?: string; permissionMode?: string }, limits?: unknown) {
+      const launched = makeLaunchApp({ limits });
+      const work = launched.claudeDirs.add({ name: 'Work', path: makeTmpDir('work') });
+      if (!work.ok) throw new Error('not added');
+      launched.db.insert(tags).values({ id: 42, name: 'work', hue: 10 }).run();
+      await launch(launched.app, { sessionId: CLIENT_ID, cwd: makeTmpDir('spawn'), tagId: 42, model: 'sonnet', claudeDirId: 1 });
+      launched.db.update(tags).set({
+        claudeDirId: defaults.claudeDirId ? work.dir.id : null,
+        model: defaults.model ?? null,
+        permissionMode: defaults.permissionMode ?? null,
+      }).where(eq(tags.id, 42)).run();
+      return { ...launched, work: work.dir.id };
+    }
+
+    it('gives the child its tag\u2019s directory and model over the parent\u2019s, but never a mode beyond the parent\u2019s', async () => {
+      const { db, runner, work, close } = await underTag({ claudeDirId: 'work', model: 'opus', permissionMode: 'bypassPermissions' });
+      await runner.spawner!(CLIENT_ID, { prompt: 'go' });
+      expect(rowOf(db, SERVER_MINTED)).toMatchObject({ claude_dir_id: work, model: 'opus', permission_mode: 'acceptEdits' });
+      close();
+    });
+
+    it('lets the tool\u2019s model win over the tag\u2019s', async () => {
+      const { db, runner, close } = await underTag({ model: 'opus' });
+      await runner.spawner!(CLIENT_ID, { prompt: 'go', model: 'haiku' });
+      expect(rowOf(db, SERVER_MINTED)).toMatchObject({ model: 'haiku', claude_dir_id: 1 });
+      close();
+    });
+
+    it('runs the child under the main default when the tag\u2019s directory has its limit used up', async () => {
+      const limits = {
+        snapshot: () => ({ dirs: [{ id: 2, name: 'Work', tracked: true, readAt: null, stale: false, windows: [], extraUsage: null, waits: [{}] }] }),
+        waitFor: () => null,
+      };
+      const { db, runner, work, close } = await underTag({ claudeDirId: 'work' }, limits);
+      expect(work).toBe(2);
+      await runner.spawner!(CLIENT_ID, { prompt: 'go' });
+      expect(rowOf(db, SERVER_MINTED)?.claude_dir_id).toBe(1);
+      close();
     });
 
     it('refuses a parent that is not running', async () => {

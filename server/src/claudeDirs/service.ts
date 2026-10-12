@@ -2,7 +2,7 @@ import { asc, eq } from 'drizzle-orm';
 import { homedir } from 'node:os';
 import { isAbsolute } from 'node:path';
 import type { OrbitalDb } from '../db/database.js';
-import { claudeDirs, sessions, settings as settingsTable } from '../db/schema.js';
+import { claudeDirs, sessions, settings as settingsTable, tags } from '../db/schema.js';
 import { resolveClaudeDir } from '../paths.js';
 import {
   FIRST_CLAUDE_DIR_ID,
@@ -234,6 +234,10 @@ export class ClaudeDirsService<C extends ClaudeDirContext = ClaudeDirContext> {
     const wasDefault = this.defaultId() === id;
     this.stopOne(id);
     this.deps.db.delete(claudeDirs).where(eq(claudeDirs.id, id)).run();
+    // A tag that launched under it falls back to the Settings default (spec
+    // 2026-10-13-tag-defaults-design § API); a directory added later never
+    // inherits the reference through a reused id.
+    this.deps.db.update(tags).set({ claudeDirId: null }).where(eq(tags.claudeDirId, id)).run();
     if (wasDefault) this.deps.settings.set(DEFAULT_CLAUDE_DIR_KEY, String(this.defaultId()));
     this.deps.onHidden?.(this.sessionsOf(id));
     return { ok: true };
