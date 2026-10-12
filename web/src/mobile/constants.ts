@@ -35,6 +35,12 @@ export const PHOTO_PLUGIN_EDGE = PHOTO_MAX_EDGE * 2
  */
 export const FILE_IDLE_TIMEOUT_MS = 10_000
 /**
+ * How long the viewer waits without a byte before its loading moon stops and
+ * the foot says it is waiting on the Mac (canvas 10e2 BYTES & STALL); past
+ * `FILE_IDLE_TIMEOUT_MS` it is COULDN'T LOAD.
+ */
+export const FILE_STALL_MS = 3_000
+/**
  * The phone's file cache — every image it has shown and every text preview —
  * holds at most this many bytes; past it, the least recently opened entry is
  * dropped first (spec 2026-10-05-mobile-next § 2).

@@ -18,7 +18,7 @@ export function MediaFoot({
   item: MediaItem
   /** 24g: the PDF's "page 2 of 6". */
   chip?: string | null
-  hint?: string | null
+  hint?: ReactNode
   /** What stands over the rows — the cached chip of 10e. */
   above?: ReactNode
   onShowInChat: () => void

@@ -68,7 +68,8 @@ From the canvas header (BEHAVIOUR + RULES, ACCEPTANCE) and `why-orbital`:
   task's exit code ≠ 0).
 - **Motion as in 9p.** Working pulses, needs input breathes, a harness gate
   stays still. No spinner anywhere: loading is a reserved box plus a byte
-  count. Any wait longer than five seconds becomes a sentence and a Retry.
+  count — for images, the slow moon of 10e2 in that box
+  ([[phone-images-load-under-a-moon]]). Any wait longer than five seconds becomes a sentence and a Retry.
 - **Sheets move** (added 2026-10-09). Every bottom sheet rises from the
   bottom edge over a fading backdrop and sinks out the same way, however it
   was closed — backdrop, back button, swipe or an action inside it. Under
@@ -255,8 +256,11 @@ confirm sheet are phone components under `web/src/mobile/`; nothing in
   <Mac>**) is not built — such a path is not a link at all, and the
   can't-be-shown line replaces it for the rest.
 - **Viewer states (10e)**, all in the same image area, none red:
-  - LOADING — the box reserved from w×h; a byte bar "116 of 186 KB from
-    <Mac>", no spinner; bytes in → fade.
+  - LOADING — replaced by canvas 10e2 MOON
+    ([[phone-images-load-under-a-moon]]): the box reserved from w×h on a
+    faint surface, the moon in it after a short delay, the arc filling when
+    the size is known, "116 of 186 KB" in the foot; no byte for a while
+    stops the moon and says it waits on <Mac>; bytes in → fade on top.
   - COULDN'T LOAD · RETRY — after a pause without a byte or a dropped
     transfer; the box stays; "The connection dropped at 40 KB." Retry.
   - THE FILE IS GONE — the Mac answered "no such file": "Not on <Mac> any

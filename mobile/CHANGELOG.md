@@ -6,6 +6,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 ### Added
 - Tapping the branch in a session's header opens a panel with its line changes and pull request — state, review and checks — and a button that opens the pull request on GitHub.
 ### Changed
+- An image that is still loading shows a small, slow moon instead of a striped placeholder, and only when the load takes a moment; the full-screen viewer fills its orbit as the bytes arrive.
 - Going back to an image you have just looked at shows it at once instead of loading it again; an image from a file is still checked with the Mac in the background and updates if the file changed.
 
 ## [0.10.0] — 2026-10-12
