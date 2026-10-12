@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+
+## [0.10.2] — 2026-10-12
 ### Changed
 - While Orbital compacts a session on its own, you can still write to it: the message goes out once the compaction is done.
 
