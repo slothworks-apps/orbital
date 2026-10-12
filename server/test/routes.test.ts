@@ -485,7 +485,7 @@ describe('REST routes', () => {
   it('GET /api/tags and /api/tag-rules preserve original snake_case key order (derived projection maps)', async () => {
     const tagsRes = await app.inject({ method: 'GET', url: '/api/tags' });
     expect(Object.keys(tagsRes.json().tags[0])).toEqual([
-      'id', 'name', 'hue', 'is_default', 'anchor_x', 'anchor_y',
+      'id', 'name', 'hue', 'is_default', 'anchor_x', 'anchor_y', 'claude_dir_id', 'model', 'permission_mode', 'effort',
     ]);
 
     await app.inject({
@@ -496,6 +496,42 @@ describe('REST routes', () => {
     expect(Object.keys(rulesRes.json().rules[0])).toEqual([
       'id', 'tag_id', 'position', 'enabled', 'condition', 'pattern',
     ]);
+  });
+
+  it('PATCH /api/tags/:id sets and validates tag defaults', async () => {
+    // Set tag defaults: model, permission_mode, and effort
+    await app.inject({
+      method: 'PATCH',
+      url: '/api/tags/10',
+      payload: {
+        model: 'opus[5]',
+        permission_mode: 'deny',
+        effort: 'high',
+      },
+    });
+    const res = await app.inject({ method: 'GET', url: '/api/tags' });
+    const tag = res.json().tags.find((t: any) => t.id === 10);
+    expect(tag.model).toBe('opus[5]');
+    expect(tag.permission_mode).toBe('deny');
+    expect(tag.effort).toBe('high');
+  });
+
+  it('PATCH /api/tags/:id rejects invalid permission_mode or effort', async () => {
+    const res1 = await app.inject({
+      method: 'PATCH',
+      url: '/api/tags/10',
+      payload: { permission_mode: 'maybe' },
+    });
+    expect(res1.statusCode).toBe(400);
+    expect(res1.json().error).toBe('invalid_permission_mode');
+
+    const res2 = await app.inject({
+      method: 'PATCH',
+      url: '/api/tags/10',
+      payload: { effort: 'extreme' },
+    });
+    expect(res2.statusCode).toBe(400);
+    expect(res2.json().error).toBe('invalid_effort');
   });
 
   // A just-launched session has a row (`project_dir: ''`) and no transcript

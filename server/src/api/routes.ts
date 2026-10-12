@@ -458,6 +458,20 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     (ctx.claudeDirs.get(id) ?? ctx.claudeDirs.get(ctx.claudeDirs.defaultId()))?.path ?? '';
   /** A session's own directory while it is configured, else the default — what a launch runs under. */
   const launchDirOf = (id: number): number => (ctx.claudeDirs.has(id) ? id : ctx.claudeDirs.defaultId());
+  /**
+   * Whether a Claude directory's limits are exhausted: any limit window at 100%
+   * or an open limit wait (spec 2026-10-13-tag-defaults-design). Never waits
+   * for a fresh probe; uses cached limits only.
+   */
+  const dirHasExhaustedLimits = (claudeDirId: number): boolean => {
+    if (!ctx.limits) return false;
+    const snapshot = ctx.limits.snapshot();
+    const dirSnapshot = snapshot.dirs.find((d) => d.id === claudeDirId);
+    if (!dirSnapshot || !dirSnapshot.tracked) return false;
+    // Any window at 100% or any open wait
+    return dirSnapshot.windows.some((w) => w.percent === 100)
+      || dirSnapshot.waits.length > 0;
+  };
   /** Clear's harness carry-over, set once the harness routes are registered (at the end). */
   let carry: CarryHarness | null = null;
 
@@ -1156,8 +1170,39 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const resumed = body.resume
       ? db.select({ claudeDirId: sessions.claudeDirId }).from(sessions).where(eq(sessions.id, body.resume)).get()
       : undefined;
-    const claudeDirId = resumed ? launchDirOf(resumed.claudeDirId) : ctx.claudeDirs.resolveId(body.claudeDirId);
+    let claudeDirId = resumed ? launchDirOf(resumed.claudeDirId) : ctx.claudeDirs.resolveId(body.claudeDirId);
     if (claudeDirId === null) return reply.code(400).send({ error: 'unknown_claude_dir' });
+
+    // Resolve tag defaults: request > tag defaults > global defaults.
+    // For claudeDirId: check if the tag's directory is exhausted; if so, use the default.
+    let resolvedModel = body.model;
+    let resolvedPermissionMode = body.permissionMode;
+    if (body.tagId != null && !body.resume) {
+      const tag = db.select({
+        claudeDirId: tags.claudeDirId,
+        model: tags.model,
+        permissionMode: tags.permissionMode,
+      }).from(tags).where(eq(tags.id, body.tagId)).get();
+      if (tag) {
+        // claudeDirId: tag default, with fallback for exhausted limits
+        if (body.claudeDirId === undefined || body.claudeDirId === null) {
+          if (tag.claudeDirId != null) {
+            const tagDirId = tag.claudeDirId;
+            if (ctx.claudeDirs.has(tagDirId) && !dirHasExhaustedLimits(tagDirId)) {
+              claudeDirId = tagDirId;
+            }
+          }
+        }
+        // model: tag default if request doesn't specify one
+        if (body.model === undefined) {
+          resolvedModel = tag.model ?? undefined;
+        }
+        // permissionMode: tag default if request doesn't specify one
+        if (tag.permissionMode != null) {
+          resolvedPermissionMode = tag.permissionMode as PermissionMode;
+        }
+      }
+    }
     // The one door an unexpanded path comes through: every other cwd in this
     // file is read back from a row this line already wrote. Expanding before
     // both the runner and the insert keeps the spawn working *and* keeps one
@@ -1188,7 +1233,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         return reply.code(500).send({ error: 'mcpjson_not_recorded' });
       }
     }
-    const sessionId = await launchSession({ ...launch, cwd, sessionId: clientId, claudeDirId });
+    const sessionId = await launchSession({
+      ...launch,
+      cwd,
+      sessionId: clientId,
+      claudeDirId,
+      model: resolvedModel,
+      permissionMode: resolvedPermissionMode,
+    });
     // The dialog's choice, remembered for the next one (spec § 3) — stored
     // here rather than by the client, because the phone cannot write settings.
     if (body.claudeDirId !== undefined && body.claudeDirId !== null) {
@@ -2186,8 +2238,16 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       // The clump's stored home spot (tag clusters). Explicit null clears it
       // back to the automatic layout, so `undefined` and `null` differ here.
       anchor_x?: number | null; anchor_y?: number | null;
+      // Tag defaults: launch config for sessions with this tag (spec § Schema)
+      claude_dir_id?: number | null;
+      model?: string | null;
+      permission_mode?: string | null;
+      effort?: string | null;
     };
-    const set: Partial<{ name: string; hue: number; anchorX: number | null; anchorY: number | null }> = {};
+    const set: Partial<{
+      name: string; hue: number; anchorX: number | null; anchorY: number | null;
+      claudeDirId: number | null; model: string | null; permissionMode: string | null; effort: string | null;
+    }> = {};
     if (body.name != null) set.name = body.name;
     if (body.hue != null) set.hue = body.hue;
     for (const [key, column] of [['anchor_x', 'anchorX'], ['anchor_y', 'anchorY']] as const) {
@@ -2197,6 +2257,33 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         return reply.code(400).send({ error: `${key} must be a finite number or null` });
       }
       set[column] = value;
+    }
+    // Validate tag defaults
+    if ('claude_dir_id' in body) {
+      const dirId = body.claude_dir_id;
+      if (dirId !== null && dirId !== undefined) {
+        if (!ctx.claudeDirs.has(dirId)) {
+          return reply.code(400).send({ error: 'unknown_claude_dir' });
+        }
+      }
+      set.claudeDirId = dirId ?? null;
+    }
+    if ('model' in body) {
+      set.model = body.model ?? null;
+    }
+    if ('permission_mode' in body) {
+      const mode = body.permission_mode;
+      if (mode !== null && mode !== undefined && !isPermissionMode(mode)) {
+        return reply.code(400).send({ error: 'invalid_permission_mode' });
+      }
+      set.permissionMode = mode ?? null;
+    }
+    if ('effort' in body) {
+      const effort = body.effort;
+      if (effort !== null && effort !== undefined && !['low', 'medium', 'high', 'ultra'].includes(effort)) {
+        return reply.code(400).send({ error: 'invalid_effort' });
+      }
+      set.effort = effort ?? null;
     }
     if (Object.keys(set).length > 0) {
       db.update(tags).set(set).where(eq(tags.id, Number(id))).run();

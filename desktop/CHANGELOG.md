@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Each tag now carries default launch config: Claude directory, model, permission mode and effort. When you start a session with a tag, the tag's defaults fill in values you don't pick; the settings of a tag manage them.
 
 ## [0.29.0] — 2026-10-12
 ### Added

@@ -276,6 +276,16 @@ export const tags = sqliteTable('tags', {
    */
   anchorX: real('anchor_x'),
   anchorY: real('anchor_y'),
+  /**
+   * Default launch config for sessions with this tag (spec
+   * 2026-10-13-tag-defaults-design § Schema). Null = no tag default, fall
+   * back to global defaults. All four are nullable; a request supplies any
+   * that are missing.
+   */
+  claudeDirId: integer('claude_dir_id'),
+  model: text('model'),
+  permissionMode: text('permission_mode'),
+  effort: text('effort'),
 }, (table) => [
   // Exactly one default tag: untagged sessions fall back to it, and a second
   // one would be undeletable dead weight (the delete route refuses defaults).

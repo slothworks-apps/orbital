@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Added
+- When you start a session with a tag that has defaults, the new session form preselects them: you see the Claude directory, model, permission mode and effort that will launch, and can still change them.
 
 ## [0.10.1] — 2026-10-12
 ### Added
