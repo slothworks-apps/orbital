@@ -46,7 +46,6 @@ import { RefreshGlyph, RewindGlyph, UtilityButton } from '../ui/UtilityButton'
 import { Tooltip } from '../ui/Tooltip'
 import { ModeSwitcher } from './ModeSwitcher'
 import { Select } from '../ui/Select'
-import type { SelectHandle } from '../ui/Select'
 import { Button } from '../ui/Button'
 import { Composer } from './Composer'
 import { useAttachments } from './useAttachments'
@@ -430,7 +429,6 @@ export function DetailPanel({
   // does what no button offers. `selectedId`, not `session`: the panel keeps
   // drawing the outgoing session while it slides away, and that one is no
   // longer the one the keys are about.
-  const tagSelectRef = useRef<SelectHandle>(null)
   /** Row 4, the header's full content width: the subagent list ends on its right edge (canvas 25a). */
   const stateRowRef = useRef<HTMLDivElement | null>(null)
   // A hidden panel draws no control, so it serves no key either.
@@ -463,11 +461,6 @@ export function DetailPanel({
       if (shown) void setSessionPinned(shown.id, shown.pinnedAt == null)
     },
     shown != null
-  )
-  useCommand(
-    'session.tag',
-    () => tagSelectRef.current?.open(),
-    shown != null && primaryTag(shown, tags) !== undefined
   )
 
   // Standalone has nothing to slide away to: it shows whenever its session is
@@ -976,11 +969,10 @@ export function DetailPanel({
             <div className="mt-3.5 flex flex-wrap items-center gap-1.5">
               {sessionTag && (
                 <Select
-                  ref={tagSelectRef}
                   variant="tag"
                   font="sans"
                   aria-label="Change tag"
-                  title={`Change tag · ${shortcutLabel('session.tag')}`}
+                  title="Change tag"
                   value={sessionTag.id}
                   options={tags.map((tag) => ({
                     value: tag.id,

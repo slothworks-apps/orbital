@@ -11,6 +11,7 @@ import { getSocket } from './lib/socket'
 import { useCommand } from './lib/commands'
 import { setMenuCommands } from './lib/desktop'
 import { menuCommands } from './lib/keymap'
+import { harnessEnabled, terminalEnabled } from './lib/experimental'
 import { nextNeedingInput, sidebarOrder, stepSession } from './lib/sidebarOrder'
 import { useViewportWidth } from './lib/useViewportWidth'
 import { useTranscriptCheck } from './lib/useTranscriptCheck'
@@ -108,9 +109,13 @@ export default function App() {
   // mounts in a detached window. Sending it again (StrictMode, a hot update)
   // only rebuilds the same menu. The commands come back through the
   // `onCommand` listener in `main.tsx`.
+  // Sent again when an Experimental switch moves, so a feature switched off
+  // takes its menu row with it.
+  const harnessOn = useOrbital((s) => harnessEnabled(s.settings))
+  const terminalOn = useOrbital((s) => terminalEnabled(s.settings))
   useEffect(() => {
-    setMenuCommands(menuCommands())
-  }, [])
+    setMenuCommands(menuCommands(useOrbital.getState().settings))
+  }, [harnessOn, terminalOn])
 
   // Task 8 (spec § 8 "Layout"): with the subagent panel open, it docks at
   // the right edge and the detail panel is pushed left to make room —

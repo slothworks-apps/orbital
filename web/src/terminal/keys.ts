@@ -24,14 +24,16 @@ export function chordTabIndex(chord: TerminalChord): number | null {
 }
 
 /**
- * ⌘T, ⌘W and ⌘1–9 as a focused terminal reads them in a browser, where no
+ * ⌘⇧T, ⌘W and ⌘1–9 as a focused terminal reads them in a browser, where no
  * main process catches them first. Letters by character, digits by position,
- * as the keymap binds them (its rule 2).
+ * as the keymap binds them (its rule 2). Plain ⌘T is not one of them: it is
+ * the toggle, which hides the terminal from inside it.
  */
 export function terminalChordOf(e: KeyboardEventLike): TerminalChord | null {
-  if (!e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return null
+  if (!e.metaKey || e.ctrlKey || e.altKey) return null
   const key = e.key.toLowerCase()
-  if (key === 't') return 'new-tab'
+  if (key === 't') return e.shiftKey ? 'new-tab' : null
+  if (e.shiftKey) return null
   if (key === 'w') return 'close-tab'
   const digit = /^Digit([1-9])$/.exec(e.code)
   return digit ? (`tab-${digit[1]}` as TerminalChord) : null

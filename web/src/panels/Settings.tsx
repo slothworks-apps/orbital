@@ -35,7 +35,7 @@ import {
 } from '../map/frameSchedule'
 import { api, type ServerHealth, type SessionTip } from '../lib/api'
 import { reportError } from '../lib/errors'
-import { SCOPES, bindingCount, chordLabel, command } from '../lib/keymap'
+import { bindingCount, chordLabel, command, scopeCount } from '../lib/keymap'
 import { notifyDesktopSettingsChanged } from '../lib/desktop'
 import { notificationsAllOff, parseNotificationSettings, type NotificationSettings } from '@orbital/shared/notifications'
 import { notificationRowPatch } from '../lib/notificationsTip'
@@ -968,7 +968,7 @@ export function Settings({ open, onClose }: SettingsProps) {
               keymap's size instead (canvas Feature - Shortcuts, artboard A). */}
               {section === 'shortcuts' && (
                 <span className="shrink-0 font-mono text-[10.5px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
-                  {bindingCount()} bindings · {SCOPES.length} scopes
+                  {bindingCount(settings)} bindings · {scopeCount(settings)} scopes
                 </span>
               )}
             </div>

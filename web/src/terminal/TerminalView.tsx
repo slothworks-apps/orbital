@@ -41,7 +41,7 @@ export default function TerminalView({ id, look }: { id: string; look: TerminalL
     runtimeFor(id, look).setLook(look)
   }, [id, look])
 
-  // A focus asked for this tab — a new tab, ⌃`, ⌘1–9 — lands once it is on
+  // A focus asked for this tab — a new tab, ⌘T, ⌘1–9 — lands once it is on
   // the page, and only once.
   const focusRequest = useTerminals((s) => (s.focusRequest?.id === id ? s.focusRequest : null))
   useEffect(() => {

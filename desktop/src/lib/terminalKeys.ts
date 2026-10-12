@@ -1,8 +1,8 @@
 /**
  * The keys a focused terminal takes ahead of the menu (spec
- * 2026-10-05-embedded-terminal-design § Keys): ⌘T adds a tab, ⌘W closes the
- * active one and ⌘1–9 pick one — ahead of the window's ⌘W, ⌘T for tags and
- * ⌘1 for the map. A menu key equivalent fires before the page sees the key,
+ * 2026-10-05-embedded-terminal-design § Keys): ⌘⇧T adds a tab, ⌘W closes
+ * the active one and ⌘1–9 pick one — ahead of the window's ⌘W and ⌘1 for the
+ * map. Plain ⌘T passes: it is the terminal's toggle, which the page handles. A menu key equivalent fires before the page sees the key,
  * so main has to decide in `before-input-event`, while the renderer says
  * whether a terminal has focus.
  *
@@ -41,9 +41,10 @@ const PASS: TerminalKeyDecision = { action: 'pass' };
  * position (there the 1 key prints `+`).
  */
 function chordOf(input: KeyInput): TerminalChord | null {
-  if (!input.meta || input.control || input.alt || input.shift) return null;
+  if (!input.meta || input.control || input.alt) return null;
   const key = input.key.toLowerCase();
-  if (key === 't') return 'new-tab';
+  if (key === 't') return input.shift ? 'new-tab' : null;
+  if (input.shift) return null;
   if (key === 'w') return 'close-tab';
   const digit = /^Digit([1-9])$/.exec(input.code);
   return digit ? (`tab-${digit[1]}` as TerminalChord) : null;

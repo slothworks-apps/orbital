@@ -46,8 +46,8 @@ export function useTerminalPlacement(sessionId: string | null): {
  *
  * - opening a session loads its terminals from the server and attaches to
  *   them; leaving it lets go of the sockets, never of the shells;
- * - ⌃` toggles the terminal, and the chords main catches while a terminal has
- *   focus (⌘T, ⌘W, ⌘1–9) land here;
+ * - ⌘T toggles the terminal, and the chords main catches while a terminal has
+ *   focus (⌘⇧T, ⌘W, ⌘1–9) land here;
  * - in the main window, the sidebar folds to its rail while the side panel
  *   holds the slot, and comes back as it was (48b).
  *

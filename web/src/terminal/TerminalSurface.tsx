@@ -253,7 +253,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
         <button
           type="button"
           onClick={() => toggleTerminalShown(sessionId)}
-          title={`Hide the terminal · ${toggle} (Control + \`) shows it again`}
+          title={`Hide the terminal · ${toggle} shows it again`}
           className="ml-2 h-6 flex-none cursor-pointer rounded-md border-0 bg-transparent px-2 font-mono text-[10px] tracking-[0.06em] whitespace-nowrap text-[rgba(200,220,245,.7)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8]"
         >
           hide {toggle}

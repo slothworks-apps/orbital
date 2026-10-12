@@ -6,8 +6,8 @@ function key(overrides: Partial<KeyInput>): KeyInput {
 }
 
 describe('terminalKeyDecision', () => {
-  it('takes ⌘T, ⌘W and ⌘1–9 from the menu while a terminal has focus', () => {
-    expect(terminalKeyDecision(key({ key: 't', code: 'KeyT' }), true)).toEqual({ action: 'forward', chord: 'new-tab' });
+  it('takes ⌘⇧T, ⌘W and ⌘1–9 from the menu while a terminal has focus', () => {
+    expect(terminalKeyDecision(key({ key: 'T', code: 'KeyT', shift: true }), true)).toEqual({ action: 'forward', chord: 'new-tab' });
     expect(terminalKeyDecision(key({ key: 'w', code: 'KeyW' }), true)).toEqual({ action: 'forward', chord: 'close-tab' });
     expect(terminalKeyDecision(key({ key: '9', code: 'Digit9' }), true)).toEqual({ action: 'forward', chord: 'tab-9' });
   });
@@ -19,12 +19,14 @@ describe('terminalKeyDecision', () => {
   it('reads a Czech layout: the letter by character, the digit by position', () => {
     // The 1 key prints `+` without Shift.
     expect(terminalKeyDecision(key({ key: '+', code: 'Digit1' }), true)).toEqual({ action: 'forward', chord: 'tab-1' });
-    // Caps Lock on: still T.
-    expect(terminalKeyDecision(key({ key: 'T', code: 'KeyT' }), true)).toEqual({ action: 'forward', chord: 'new-tab' });
+    // Caps Lock on: still W.
+    expect(terminalKeyDecision(key({ key: 'W', code: 'KeyW' }), true)).toEqual({ action: 'forward', chord: 'close-tab' });
   });
 
   it('passes the chords with another modifier, and keys other than these', () => {
     for (const input of [
+      // Plain ⌘T is the terminal's toggle: the page has it, to hide the terminal.
+      key({ key: 't', code: 'KeyT' }),
       key({ key: 'w', code: 'KeyW', shift: true }),
       key({ key: 't', code: 'KeyT', alt: true }),
       key({ key: 'w', code: 'KeyW', control: true }),

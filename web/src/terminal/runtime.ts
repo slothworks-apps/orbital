@@ -6,7 +6,6 @@ import '@xterm/xterm/css/xterm.css'
 import '@fontsource/jetbrains-mono/latin-600.css'
 import { resolveWsUrl } from '../lib/ws'
 import { hasDesktopBridge, setTerminalFocused } from '../lib/desktop'
-import { matches } from '../lib/keymap'
 import type { TerminalCursor } from '../lib/experimental'
 import { runTerminalChord } from './actions'
 import { terminalChordOf } from './keys'
@@ -142,13 +141,12 @@ class TerminalRuntime {
 
   /**
    * Which keys xterm may have (false hands one back to the page). A focused
-   * terminal takes every key, Ctrl-C and Esc included, except ⌃` — the
-   * terminal's own toggle — and the window's ⌘ shortcuts (spec § Web).
+   * terminal takes every key, Ctrl-C and Esc included, except the window's
+   * ⌘ shortcuts — ⌘T, the terminal's own toggle, among them (spec § Web).
    */
   private keepsKey(e: KeyboardEvent): boolean {
-    if (matches('ctrl+Backquote', e)) return false
     if (!e.metaKey) return true
-    // In the desktop app main has already taken ⌘T, ⌘W and ⌘1–9 ahead of
+    // In the desktop app main has already taken ⌘⇧T, ⌘W and ⌘1–9 ahead of
     // the menu; a browser hands them to the page, if at all.
     if (e.type === 'keydown' && !hasDesktopBridge()) {
       const chord = terminalChordOf(e)
