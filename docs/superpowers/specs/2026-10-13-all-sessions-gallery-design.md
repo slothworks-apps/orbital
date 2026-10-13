@@ -139,10 +139,10 @@ reaches both.
   (`server/src/remote/allowlist.ts`). The bytes go through `blob_get` and
   `file_get`, which every supported Mac already serves.
 - **An older Mac.** The phone updates first. `MAC_FEATURES.allMedia` is
-  `0.30.0`, the first Mac release that serves the route. Against an older
-  Mac, or before the Mac's hello, the ▦ button is not shown at all. If
-  another release ships 0.30.0 first, this flag moves to the release
-  that carries this change.
+  `0.33.0`, the first Mac release that serves the route (#80, #81 and the
+  session-media PR take 0.30–0.32). Against an older Mac, or before the
+  Mac's hello, the ▦ button is not shown at all. If the releases land in
+  another order, this flag moves to the release that carries this change.
 - Multi-select on the phone's chips (a hold to add) is left out here. The
   multi-tag filter PR adds it to the session list, and the gallery can
   take the same gesture once that has merged.

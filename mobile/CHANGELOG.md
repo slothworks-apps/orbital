@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+
+## [0.14.0] — 2026-10-13
 ### Added
 - A gallery of the images and PDFs of every session, grouped by session and filtered by tag: ▦ at the top of the session list (with a Mac that has it), and any image opens its session.
 

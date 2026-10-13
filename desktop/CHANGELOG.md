@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.33.0] — 2026-10-13
 ### Added
 - A gallery of the images and PDFs of every session, grouped by session and filtered by tag: ▦ in the sidebar or ⌘⇧A, and any image opens its session.
 
