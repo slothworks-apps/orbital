@@ -115,7 +115,15 @@ function Gallery({ sessionId }: { sessionId: string }) {
  * the tag bottom-left — ⚙, ⚙ ×n for a stack, PDF · pages — and NOT ON DISK
  * for a named file that is gone (24f B).
  */
-function PhoneTile({ sessionId, tile, onOpen }: { sessionId: string; tile: MediaTile; onOpen: (item: MediaItem) => void }) {
+export function PhoneTile({
+  sessionId, tile, onOpen, session,
+}: {
+  sessionId: string
+  tile: MediaTile
+  onOpen: (item: MediaItem) => void
+  /** The session's name, said with the tile in the gallery of every session. */
+  session?: string
+}) {
   const { cover, first, count } = tile
   const [goneId, setGoneId] = useState<string | null>(null)
   const [pages, setPages] = useState<number | null>(null)
@@ -127,7 +135,7 @@ function PhoneTile({ sessionId, tile, onOpen }: { sessionId: string; tile: Media
   return (
     <button
       type="button"
-      aria-label={`Open ${title}`}
+      aria-label={session ? `Open ${title} · ${session}` : `Open ${title}`}
       onClick={() => onOpen(first)}
       className={[
         'relative aspect-square w-full overflow-hidden bg-[rgba(4,8,16,.6)] p-0',

@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.33.0] — 2026-10-13
+### Added
+- A gallery of the images and PDFs of every session, grouped by session and filtered by tag: ▦ in the sidebar or ⌘⇧A, and any image opens its session.
+
 ## [0.32.0] — 2026-10-13
 ### Added
 - A session's Media also shows the images and PDFs its subagents produced, captioned with the subagent's name, and images the agent saved to disk without mentioning them (Hide tool images hides these too).

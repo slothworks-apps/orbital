@@ -822,7 +822,7 @@ export interface ImageRefEntry {
 }
 
 /** One image or PDF of a session (`GET /api/sessions/:id/media`) — shared with the server and the phone. */
-export type { MediaItem } from '@orbital/shared/media'
+export type { AllMediaItem, AllMediaPage, MediaItem } from '@orbital/shared/media'
 
 /**
  * Where an attachment came from — the composer's two desktop intakes (spec:

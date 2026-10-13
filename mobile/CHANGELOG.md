@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-10-13
+### Added
+- A gallery of the images and PDFs of every session, grouped by session and filtered by tag: ▦ at the top of the session list (with a Mac that has it), and any image opens its session.
+
 ## [0.13.0] — 2026-10-13
 ### Added
 - A session's Media also shows its subagents' images, captioned with the subagent's name, and images the agent saved to disk without mentioning them, which Hide tool images hides along with tool images. Needs the Mac update that brings them.

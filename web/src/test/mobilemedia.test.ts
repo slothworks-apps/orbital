@@ -94,6 +94,14 @@ describe('macSupports', () => {
     expect(macSupports('media', 'dev')).toBe(true)
     expect(macSupports('media', null)).toBe(false)
   })
+
+  it('offers the gallery of every session only from the Mac that serves GET /api/media', () => {
+    expect(macSupports('allMedia', MAC_FEATURES.allMedia)).toBe(true)
+    expect(macSupports('allMedia', '0.32.0')).toBe(false)
+    expect(macSupports('allMedia', '0.32.9')).toBe(false)
+    expect(macSupports('allMedia', '0.33.1')).toBe(true)
+    expect(macSupports('allMedia', null)).toBe(false)
+  })
 })
 
 const item = (id: string, over: Partial<MediaItem> = {}): MediaItem => ({

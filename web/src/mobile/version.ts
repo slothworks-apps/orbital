@@ -15,6 +15,8 @@ export const MAC_FEATURES = {
   media: '0.26.0',
   /** New Session's missing-directory line and *Create and start*: `GET`/`POST /api/directory` (spec 2026-10-12-new-session-missing-directory-design). */
   directoryCheck: '0.29.0',
+  /** The gallery of every session: `GET /api/media` (spec 2026-10-13-all-sessions-gallery-design). */
+  allMedia: '0.33.0',
 } as const
 
 export type MacFeature = keyof typeof MAC_FEATURES

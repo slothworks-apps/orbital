@@ -26,6 +26,8 @@ import { HarnessPanel } from './panels/HarnessPanel'
 import { NewSessionDialog } from './panels/NewSessionDialog'
 import { Settings } from './panels/Settings'
 import { ErrorLog } from './panels/ErrorLog'
+import { AllMediaGallery } from './panels/AllMediaGallery'
+import { useMedia } from './store/media'
 import { CompactDialog } from './panels/CompactDialog'
 import { McpDialog } from './panels/McpDialog'
 import { PairConfirmDialog } from './panels/PairConfirmDialog'
@@ -193,6 +195,7 @@ export default function App() {
   useCommand('global.new-session', () => setDialog('new'))
   useCommand('global.settings', () => setDialog('settings'))
   useCommand('global.errors', () => setDialog('errors'))
+  useCommand('global.media', () => useMedia.getState().setAllOpen(!useMedia.getState().allOpen))
   // `App` only ever mounts on the map (`main.tsx` branches every other page
   // away before it), so `global.map` has nothing to do here — `PageBar`
   // serves it on the pages that are not the map. Stats is a page load, and
@@ -399,6 +402,7 @@ export default function App() {
       <NewSessionDialog open={dialog === 'new'} onClose={() => setDialog(null)} />
       <Settings open={dialog === 'settings'} onClose={() => setDialog(null)} />
       <ErrorLog open={dialog === 'errors'} onClose={() => setDialog(null)} />
+      <AllMediaGallery />
       {/* A `/compact` past running subagents, from the composer or the map's badge. */}
       <CompactDialog />
       {/* `/mcp` from the composer (spec 2026-10-01-mcp-servers-in-the-session-design). */}

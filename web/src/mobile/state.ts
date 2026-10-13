@@ -10,7 +10,7 @@ import { MIN_SERVER_VERSION, isSupportedServer } from './version'
 export type Screen = BaseScreen | PushedScreen
 
 /** The screens that stand on their own. */
-export type BaseScreen = 'pairing' | 'list' | 'session' | 'settings' | 'new' | 'unpaired' | 'mismatch'
+export type BaseScreen = 'pairing' | 'list' | 'session' | 'settings' | 'new' | 'unpaired' | 'mismatch' | 'gallery'
 
 /**
  * What can be pushed over a session (spec 2026-10-05-mobile-next § 3, § 2):
@@ -81,6 +81,12 @@ export interface MobileState {
    * screen. While a pushed screen shows, `screen` is its top's `kind`.
    */
   pushed: Pushed[]
+  /**
+   * The item the gallery of every session shows full screen, by its key
+   * across sessions (`allMediaKey`); null while the grid shows. Back closes it
+   * before it leaves the gallery (spec 2026-10-13-all-sessions-gallery-design § Phone).
+   */
+  galleryItem: string | null
   /** The relay link (9a header: `connecting` is the dim dot). */
   link: LinkStatus
   macOnline: boolean
@@ -144,7 +150,7 @@ export interface MobileState {
 }
 
 export const initialMobileState: MobileState = {
-  screen: 'pairing', previous: null, sessionId: null, pushed: [], link: 'off', macOnline: false, ready: false,
+  screen: 'pairing', previous: null, sessionId: null, pushed: [], galleryItem: null, link: 'off', macOnline: false, ready: false,
   asOf: null, checkedAt: null, rechecking: null, listedAt: null, endedSummary: null, endedLoaded: false,
   mismatch: null, unpaired: false, pairing: null, macName: null, macVersion: null, composerIntent: null,
   screenLock: false, lock: 'open', appLock: true, lockLabel: 'screen lock', backgroundedAt: null, authenticating: false,
@@ -286,6 +292,8 @@ export function back(state: MobileState): Partial<MobileState> | 'exit' {
   switch (state.screen) {
     case 'session':
       return { screen: 'list', sessionId: null, pushed: [], composerIntent: null }
+    case 'gallery':
+      return state.galleryItem !== null ? { galleryItem: null } : { screen: 'list' }
     case 'settings':
     case 'new':
       return { screen: 'list' }
@@ -340,6 +348,8 @@ interface MobileActions {
   openFile(ref: Omit<PushedOf<'file'>, 'kind'>): void
   /** The ⋯ sheet's Media: the session's gallery, pushed over it. */
   openMedia(sessionId: string): void
+  /** The gallery of every session shows `key` full screen, or its grid again (null). */
+  viewGalleryItem(key: string | null): void
   goBack(): 'exit' | 'stayed'
   /** Asks the open session's composer for `intent`; a gate's Reopen calls it. */
   focusComposer(intent: ComposerIntent): void
@@ -351,16 +361,17 @@ interface MobileActions {
 export const useMobile = create<MobileState & MobileActions>()((set, get) => ({
   ...initialMobileState,
   apply: (event) => set(reduce(get(), event, Date.now())),
-  go: (screen) => set((s) => ({ screen, previous: s.screen, pushed: [] })),
+  go: (screen) => set((s) => ({ screen, previous: s.screen, pushed: [], galleryItem: null })),
   openSession: (id) =>
     set((s) => ({
-      screen: 'session', sessionId: id, pushed: [],
+      screen: 'session', sessionId: id, pushed: [], galleryItem: null,
       composerIntent: s.composerIntent?.sessionId === id ? s.composerIntent : null,
     })),
   openSubagent: (ref) => set(push(get(), { kind: 'subagent', ...ref })),
   openTask: (ref) => set(push(get(), { kind: 'task', ...ref })),
   openFile: (ref) => set(push(get(), { kind: 'file', ...ref })),
   openMedia: (sessionId) => set(push(get(), { kind: 'media', sessionId })),
+  viewGalleryItem: (galleryItem) => set({ galleryItem }),
   goBack: () => {
     const next = back(get())
     if (next === 'exit') return 'exit'

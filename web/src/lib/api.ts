@@ -9,6 +9,7 @@ import type {
   CompletionKey,
   FileEntry,
   ImageRefEntry,
+  AllMediaPage,
   MediaItem,
   ErrorKind,
   ErrorRecord,
@@ -288,6 +289,19 @@ export const api = {
   async sessionMedia(id: string): Promise<MediaItem[]> {
     const data = await request<{ items: MediaItem[] }>('GET', `/api/sessions/${id}/media`)
     return data.items
+  },
+
+  /**
+   * A page of the media of every session, newest activity first (spec
+   * 2026-10-13-all-sessions-gallery-design § Data). `cursor` is the `next`
+   * of the page before; `tags` keeps the sessions carrying any of them.
+   */
+  async allMedia(opts?: { cursor?: string; tags?: readonly number[]; limit?: number }): Promise<AllMediaPage> {
+    const url = new URL('/api/media', window.location.origin)
+    if (opts?.limit !== undefined) url.searchParams.set('limit', String(opts.limit))
+    if (opts?.tags?.length) url.searchParams.set('tag', opts.tags.join(','))
+    if (opts?.cursor !== undefined) url.searchParams.set('cursor', opts.cursor)
+    return request<AllMediaPage>('GET', url.pathname + url.search)
   },
 
   async getWalkthrough(id: string): Promise<{ session: ApiSession; walkthrough: Walkthrough }> {

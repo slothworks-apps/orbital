@@ -17,6 +17,7 @@ import { isMacAsleep, useMobile } from '../state'
 import { opensTask } from '../subagents/model'
 import { MobileScreen, PrimaryButton } from '../ui'
 import { WhereLine } from '../where/WhereLine'
+import { macSupports } from '../version'
 import { PlanetGlyph } from './Glyph'
 import { usePhoneNotificationsTip } from '../NotificationsTip'
 import { PinnedNoticeHost } from '../PinnedNotice'
@@ -34,6 +35,7 @@ export function SessionListScreen() {
   const openSubagent = useMobile((s) => s.openSubagent)
   const openTask = useMobile((s) => s.openTask)
   const go = useMobile((s) => s.go)
+  const allMedia = useMobile((s) => macSupports('allMedia', s.macVersion))
   const [tagId, setTagId] = useState<number | null>(null)
   const [endedOpen, setEndedOpen] = useState(false)
   const [checking, setChecking] = useState(false)
@@ -69,6 +71,17 @@ export function SessionListScreen() {
           <MacDot state={offline ? 'asleep' : link === 'online' ? 'online' : 'connecting'} />
           <span className={['truncate', offline ? 'text-[rgba(200,215,235,.65)]' : ''].join(' ')}>{mac}</span>
         </span>
+        {/* The gallery of every session, offered only by a Mac that serves it (spec 2026-10-13-all-sessions-gallery-design § Phone). */}
+        {allMedia && (
+          <button
+            type="button"
+            aria-label="Media of all sessions"
+            onClick={() => go('gallery')}
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] text-[17px] leading-none text-[rgba(220,235,255,.85)]"
+          >
+            <span aria-hidden>▦</span>
+          </button>
+        )}
         <button type="button" aria-label="Settings" onClick={() => go('settings')} className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px]">
           <span aria-hidden className="block h-4 w-4 rounded-full border-[1.5px] border-dashed border-[oklch(85%_.12_205)]" />
         </button>

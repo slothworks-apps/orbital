@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { eq } from 'drizzle-orm';
 import { EventEmitter } from 'node:events';
-import { appendFileSync, copyFileSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
@@ -2514,6 +2514,67 @@ describe('GET /api/sessions/:id/media', () => {
       ['written', join(cwd, 'main.png'), 'a2:0', undefined],
       ['agent', './sub.png', 'a1:0', subagent],
     ]);
+  });
+});
+
+describe('GET /api/media', () => {
+  /** s1 (tag 10) and s2 from `makeApp`, plus `sa`/`sb` with transcripts: sa newer with two images, sb one. */
+  function appWithMedia() {
+    const projectsDir = makeTmpDir('all-media');
+    const cwd = makeTmpDir('all-media-cwd');
+    for (const name of ['a.png', 'b.png', 'c.png']) {
+      writeFileSync(join(cwd, name), 'png');
+      // Older than the replies that name them, or they read as changed since.
+      utimesSync(join(cwd, name), new Date('2026-01-01'), new Date('2026-01-01'));
+    }
+    mkdirSync(join(projectsDir, 'p'), { recursive: true });
+    const reply = (uuid: string, text: string) =>
+      JSON.stringify({ type: 'assistant', uuid, cwd, timestamp: '2026-10-13T10:00:00.000Z', message: { role: 'assistant', content: [{ type: 'text', text }] } }) + '\n';
+    writeFileSync(join(projectsDir, 'p', 'sa.jsonl'), reply('a1', 'Saved ./a.png') + reply('a2', 'And ./b.png'));
+    writeFileSync(join(projectsDir, 'p', 'sb.jsonl'), reply('b1', 'Here ./c.png'));
+    const made = makeApp({ projectsDir });
+    made.db.insert(sessions).values([
+      { id: 'sa', projectDir: 'p', cwd, title: 'alpha', lastAt: 500, source: 'web', permissionMode: null },
+      { id: 'sb', projectDir: 'p', cwd, title: 'beta', lastAt: 400, source: 'web', permissionMode: null },
+    ]).run();
+    made.db.insert(sessionTags).values({ sessionId: 'sb', tagId: 10, origin: 'manual' }).run();
+    return made;
+  }
+
+  it('lists every session\'s media newest first, each item naming its session', async () => {
+    const { app } = appWithMedia();
+    const res = await app.inject({ method: 'GET', url: '/api/media' });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.items.map((i: { sessionId: string; path: string }) => `${i.sessionId}:${i.path}`))
+      .toEqual(['sa:./b.png', 'sa:./a.png', 'sb:./c.png']);
+    expect(body.items[0]).toMatchObject({ sessionTitle: 'alpha', kind: 'image', source: 'agent', disk: 'present' });
+    expect(body.items[2].tagIds).toEqual([10]);
+    expect(body.next).toBeNull();
+  });
+
+  it('pages by cursor without repeating or losing an item', async () => {
+    const { app } = appWithMedia();
+    const seen: string[] = [];
+    let url = '/api/media?limit=1';
+    for (let i = 0; i < 10; i++) {
+      const body = (await app.inject({ method: 'GET', url })).json();
+      seen.push(...body.items.map((it: { sessionId: string; id: string }) => `${it.sessionId}/${it.id}`));
+      if (!body.next) break;
+      url = `/api/media?limit=1&cursor=${body.next}`;
+    }
+    expect(seen).toEqual(['sa/a2:0:0', 'sa/a1:0:0', 'sb/b1:0:0']);
+  });
+
+  it('keeps the sessions carrying any of `tag`', async () => {
+    const { app } = appWithMedia();
+    const body = (await app.inject({ method: 'GET', url: '/api/media?tag=10,99' })).json();
+    expect(body.items.map((i: { sessionId: string }) => i.sessionId)).toEqual(['sb']);
+  });
+
+  it('400s a cursor it never handed out', async () => {
+    const { app } = appWithMedia();
+    expect((await app.inject({ method: 'GET', url: '/api/media?cursor=nonsense' })).statusCode).toBe(400);
   });
 });
 

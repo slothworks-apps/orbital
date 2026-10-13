@@ -22,6 +22,13 @@ describe('remote allowlist', () => {
       ['GET', '/api/mcpjson?cwd=/w/x&claudeDirId=2'],
     ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(true);
   });
+  it('allows the gallery of every session, read-only, with its cursor and tag filter', () => {
+    expect(isAllowed('GET', '/api/media')).toBe(true);
+    expect(isAllowed('GET', '/api/media?limit=60&tag=1,3&cursor=WzEsImEiLDJd')).toBe(true);
+    expect(isAllowed('GET', '/api/media?tag=1%2C3')).toBe(true);
+    expect(isAllowed('POST', '/api/media')).toBe(false);
+    expect(isAllowed('GET', '/api/media/x')).toBe(false);
+  });
   it('denies the file system, the editor, settings, errors, rules and dev routes', () => {
     for (const [m, p] of [
       ['GET', '/api/files?path=/etc/passwd'], ['GET', '/api/files/complete'], ['GET', '/api/files/image'], ['GET', '/api/commands/content'],

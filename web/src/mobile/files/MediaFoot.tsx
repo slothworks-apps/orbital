@@ -14,6 +14,8 @@ export function MediaFoot({
   hint,
   above,
   onShowInChat,
+  actionLabel = '↩ Show in chat',
+  where,
 }: {
   item: MediaItem
   /** 24g: the PDF's "page 2 of 6". */
@@ -22,6 +24,10 @@ export function MediaFoot({
   /** What stands over the rows — the cached chip of 10e. */
   above?: ReactNode
   onShowInChat: () => void
+  /** The action's label: the gallery of every session opens the session instead. */
+  actionLabel?: string
+  /** The session's name, in the gallery of every session. */
+  where?: string
 }) {
   const clock = mediaClock(item.ts)
   return (
@@ -40,14 +46,14 @@ export function MediaFoot({
       )}
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[rgba(200,215,235,.75)]">
-          {[mediaSourceLabel(item), clock].filter(Boolean).join(' · ')}
+          {[where, mediaSourceLabel(item), clock].filter(Boolean).join(' · ')}
         </span>
         <button
           type="button"
           onClick={onShowInChat}
           className="flex h-11 shrink-0 items-center rounded-[12px] border border-[rgba(150,205,255,.22)] bg-[rgba(5,7,13,.6)] px-3.5 text-[13px] font-semibold text-[#e8eef8]"
         >
-          ↩ Show in chat
+          {actionLabel}
         </button>
       </div>
     </div>

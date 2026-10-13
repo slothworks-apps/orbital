@@ -1,6 +1,7 @@
 import { Banner } from './Banner'
 import { FileScreen } from './screens/FileScreen'
 import { LockScreen } from './screens/LockScreen'
+import { AllMediaScreen } from './screens/AllMediaScreen'
 import { MediaScreen } from './screens/MediaScreen'
 import { MismatchScreen } from './screens/MismatchScreen'
 import { NewSessionScreen } from './screens/NewSessionScreen'
@@ -49,6 +50,7 @@ export function MobileApp() {
       {screen === 'media' && <MediaScreen />}
       {screen === 'file' && <FileScreen />}
       {screen === 'settings' && <SettingsScreen />}
+      {screen === 'gallery' && <AllMediaScreen />}
       {screen === 'new' && <NewSessionScreen />}
       {screen === 'unpaired' && <UnpairedScreen />}
       {screen === 'mismatch' && <MismatchScreen />}
