@@ -11,6 +11,7 @@ import { Chip } from '../ui/Chip'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
 import { HideToolChip, MediaTileButton } from './MediaParts'
 import { MediaViewer, type MediaPool } from './MediaViewer'
+import { isToolMedia } from '../lib/media'
 
 /**
  * The gallery of every session (spec 2026-10-13-all-sessions-gallery-design):
@@ -55,7 +56,7 @@ function Gallery({ onClose }: { onClose: () => void }) {
   const sections = useMemo(() => allMediaSections(keyed, hideTool), [keyed, hideTool])
   const order = useMemo(() => allMediaOrder(keyed), [keyed])
   const byKey = useMemo(() => new Map(keyed.map((item) => [item.id, item])), [keyed])
-  const anyTool = keyed.some((item) => item.source === 'tool')
+  const anyTool = keyed.some(isToolMedia)
   const [viewing, setViewing] = useState<string | null>(null)
 
   const pool: MediaPool = {

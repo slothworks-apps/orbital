@@ -8,6 +8,7 @@ import { MediaPager, type PhoneMediaPool } from '../files/MediaPager'
 import { useMobile } from '../state'
 import { MobileScreen } from '../ui'
 import { PhoneTile } from './MediaScreen'
+import { isToolMedia } from '../../lib/media'
 
 /** canvas 24g: the chip's two looks, the switch off and on. */
 const CHIP_OFF = 'border-[rgba(150,205,255,.14)] bg-transparent text-[rgba(200,220,245,.75)]'
@@ -34,7 +35,7 @@ export function AllMediaScreen() {
   const sections = useMemo(() => allMediaSections(keyed, hideTool), [keyed, hideTool])
   const order = useMemo(() => allMediaOrder(keyed), [keyed])
   const byKey = useMemo(() => new Map(keyed.map((item) => [item.id, item])), [keyed])
-  const anyTool = keyed.some((item) => item.source === 'tool')
+  const anyTool = keyed.some(isToolMedia)
 
   const pool: PhoneMediaPool = {
     sessionOf: (item) => byKey.get(item.id)?.sessionId ?? '',

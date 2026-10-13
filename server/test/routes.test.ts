@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { eq } from 'drizzle-orm';
 import { EventEmitter } from 'node:events';
-import { appendFileSync, copyFileSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
@@ -2522,7 +2522,11 @@ describe('GET /api/media', () => {
   function appWithMedia() {
     const projectsDir = makeTmpDir('all-media');
     const cwd = makeTmpDir('all-media-cwd');
-    for (const name of ['a.png', 'b.png', 'c.png']) writeFileSync(join(cwd, name), 'png');
+    for (const name of ['a.png', 'b.png', 'c.png']) {
+      writeFileSync(join(cwd, name), 'png');
+      // Older than the replies that name them, or they read as changed since.
+      utimesSync(join(cwd, name), new Date('2026-01-01'), new Date('2026-01-01'));
+    }
     mkdirSync(join(projectsDir, 'p'), { recursive: true });
     const reply = (uuid: string, text: string) =>
       JSON.stringify({ type: 'assistant', uuid, cwd, timestamp: '2026-10-13T10:00:00.000Z', message: { role: 'assistant', content: [{ type: 'text', text }] } }) + '\n';
