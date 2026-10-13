@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- A session's Media also shows the images and PDFs its subagents produced, captioned with the subagent's name, and images the agent saved to disk without mentioning them (Hide tool images hides these too).
 
 ## [0.30.0] — 2026-10-15
 ### Changed
