@@ -20,6 +20,8 @@ describe('remote allowlist', () => {
       // The Claude directory a catalog is read for rides the query string.
       ['GET', '/api/models?claudeDir=2'], ['GET', '/api/commands?cwd=/w/x&claudeDir=2'],
       ['GET', '/api/mcpjson?cwd=/w/x&claudeDirId=2'],
+      // Which tag a directory's rules give, for New Session's tag defaults; reading only.
+      ['POST', '/api/tag-rules/preview'],
     ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(true);
   });
   it('denies the file system, the editor, settings, errors, rules and dev routes', () => {
@@ -28,7 +30,8 @@ describe('remote allowlist', () => {
       ['GET', '/api/mcpjson/file?cwd=/w/x&server=a'],
       ['GET', '/api/sessions/abc/ide/open-files'], ['POST', '/api/sessions/abc/ide/open-file'],
       ['GET', '/api/settings'], ['PATCH', '/api/settings'], ['PATCH', '/api/settings/'],
-      ['GET', '/api/errors'], ['POST', '/api/errors'], ['GET', '/api/tag-rules'], ['POST', '/api/tag-rules/preview'],
+      ['GET', '/api/errors'], ['POST', '/api/errors'], ['GET', '/api/tag-rules'], ['POST', '/api/tag-rules'],
+      ['PATCH', '/api/tag-rules/1'], ['DELETE', '/api/tag-rules/1'], ['PATCH', '/api/tags/1'],
       ['POST', '/api/tags'], ['DELETE', '/api/tags/1'], ['POST', '/api/dev/sessions/abc/simulate-compaction'],
       ['POST', '/api/attachments'], ['POST', '/api/sessions/abc/attachments'], ['GET', '/api/images/abc.png'],
       ['POST', '/api/sessions/abc/retitle'],

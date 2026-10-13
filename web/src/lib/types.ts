@@ -42,6 +42,12 @@ export interface ClaudeDirName {
   account?: string | null
   /** False when the directory is missing on disk: shown, but not chosen (canvas 44f). */
   exists?: boolean
+  /**
+   * Its usage limit is used up, from the Mac's cached limits: a tag's
+   * directory gives way to the default (spec 2026-10-13-tag-defaults-design).
+   * Absent from an older Mac.
+   */
+  exhausted?: boolean
 }
 
 /** One row of `GET /api/claude-dirs` (Mac only). Mirrors `server/src/claudeDirs/service.ts`. */
@@ -908,6 +914,14 @@ export interface Tag {
    */
   anchor_x?: number | null
   anchor_y?: number | null
+  /**
+   * What a session launched with this tag starts with where the launch names
+   * nothing else (spec 2026-10-13-tag-defaults-design); null is the Settings
+   * default. Absent from a Mac before the feature, which reads the same.
+   */
+  claude_dir_id?: number | null
+  model?: string | null
+  permission_mode?: PermissionMode | null
 }
 
 export interface TagRule {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { TunnelError } from '@orbital/shared/remote/client'
 import { ApiError } from '../lib/api'
-import type { OrbitalModel, SessionDefaults } from '../lib/types'
+import type { OrbitalModel, SessionDefaults, Tag } from '../lib/types'
 import {
   RECENT_DIRECTORIES,
   filterDirectories,
@@ -11,6 +11,8 @@ import {
   preselectMode,
   preselectModel,
   startFailureLine,
+  tagPreselection,
+  tagsCarryDefaults,
   type DirectoryRow,
 } from '../mobile/newSession'
 
@@ -165,5 +167,45 @@ describe('startFailureLine', () => {
   it('says something even for an error with no words', () => {
     expect(startFailureLine(new ApiError('', 500), null)).toBe("Couldn't start the session — HTTP 500.")
     expect(startFailureLine('boom', null)).toBe("Couldn't start the session — boom.")
+  })
+})
+
+describe('tag defaults on 9d', () => {
+  const tag = (extra: Partial<Tag> = {}): Tag => ({ id: 5, name: 'work', hue: 210, is_default: 0, ...extra })
+  const dirs = { claudeDirs: [{ id: 1, name: 'Personal' }, { id: 2, name: 'Work' }], defaultClaudeDir: 1 }
+  const base = { claudeDirId: 1, model: 'sonnet', mode: 'acceptEdits' as const }
+
+  it('asks the Mac for a tag only when some tag carries a default, never an older Mac', () => {
+    expect(tagsCarryDefaults([tag()])).toBe(false)
+    expect(tagsCarryDefaults([tag({ claude_dir_id: null, model: null, permission_mode: null })])).toBe(false)
+    expect(tagsCarryDefaults([tag(), tag({ id: 6, model: 'opus' })])).toBe(true)
+  })
+
+  it('keeps the screen\u2019s own prefill for no tag or a tag from an older Mac', () => {
+    for (const t of [undefined, tag()]) {
+      expect(tagPreselection({ tag: t, defaults: defaults(dirs), base, models: MODELS })).toEqual({
+        claudeDirId: 1, claudeDirFrom: 'global', model: 'sonnet', mode: 'acceptEdits',
+      })
+    }
+  })
+
+  it('preselects the tag\u2019s directory, model and mode', () => {
+    const t = tag({ claude_dir_id: 2, model: 'claude-opus-5', permission_mode: 'plan' })
+    expect(tagPreselection({ tag: t, defaults: defaults(dirs), base, models: MODELS })).toEqual({
+      claudeDirId: 2, claudeDirFrom: 'tag', model: 'opus', mode: 'plan',
+    })
+  })
+
+  it('falls back to the default directory when the tag\u2019s has its limit used up', () => {
+    const used = { ...dirs, claudeDirs: [{ id: 1, name: 'Personal' }, { id: 2, name: 'Work', exhausted: true }] }
+    const result = tagPreselection({ tag: tag({ claude_dir_id: 2 }), defaults: defaults(used), base: { ...base, claudeDirId: 2 }, models: MODELS })
+    expect(result).toMatchObject({ claudeDirId: 1, claudeDirFrom: 'tag_exhausted' })
+  })
+
+  it('passes over a model the catalog lacks and a mode that never asks', () => {
+    const t = tag({ model: 'claude-custom-9', permission_mode: 'bypassPermissions' })
+    expect(tagPreselection({ tag: t, defaults: defaults(dirs), base, models: MODELS })).toMatchObject({
+      model: 'sonnet', mode: 'acceptEdits',
+    })
   })
 })

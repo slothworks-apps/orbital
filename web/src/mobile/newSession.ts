@@ -1,7 +1,8 @@
 import { ApiError } from '../lib/api'
 import { modelByAnyId } from '../lib/models'
 import { claudeDirPrefill, type ClaudeDirPrefillSource } from '../lib/claudeDirs'
-import type { OrbitalModel, PermissionMode, SessionDefaults } from '../lib/types'
+import type { OrbitalModel, PermissionMode, SessionDefaults, Tag } from '../lib/types'
+import { effectiveLaunchDefaults, type LaunchClaudeDirSource } from '@orbital/shared/launchDefaults'
 import { humanizeError } from './composer'
 import { homePath } from './format'
 
@@ -95,6 +96,45 @@ export function preselectClaudeDir(defaults: SessionDefaults): number | null {
 /** The Mac's default mode, except that a mode that never asks is never preselected (the desktop's rule). */
 export function preselectMode(defaults: SessionDefaults): PermissionMode {
   return defaults.permissionMode === 'bypassPermissions' ? 'acceptEdits' : defaults.permissionMode
+}
+
+/**
+ * Whether any tag carries a launch default, so 9d asks the Mac which tag a
+ * directory's rules give. A Mac from before tag defaults sends none of the
+ * fields, so nothing is asked of it and nothing is preselected.
+ */
+export function tagsCarryDefaults(tags: readonly Tag[]): boolean {
+  return tags.some((t) => t.claude_dir_id != null || t.model != null || t.permission_mode != null)
+}
+
+/**
+ * What 9d preselects for the tag the session will wear (spec
+ * 2026-10-13-tag-defaults-design): the tag's directory (the default's when
+ * its own has its limit used up), model and mode over the screen's own
+ * prefill. A tag model the catalog does not list falls through to `model`,
+ * as the phone has no "Other…" card, and a mode that never asks is never
+ * preselected, the Mac's default's rule.
+ */
+export function tagPreselection(input: {
+  tag: Tag | undefined
+  defaults: SessionDefaults
+  /** The screen's prefill without a tag: `prefillClaudeDir`, `preselectModel`, `preselectMode`. */
+  base: { claudeDirId: number | null; model: string | null; mode: PermissionMode }
+  models: OrbitalModel[]
+}): { claudeDirId: number | null; claudeDirFrom: LaunchClaudeDirSource; model: string | null; mode: PermissionMode } {
+  const { tag, defaults, base, models } = input
+  const preset = effectiveLaunchDefaults({
+    tag: tag ? { ...tag, model: modelByAnyId(tag.model, models)?.value ?? null } : undefined,
+    global: { claudeDirId: base.claudeDirId, model: base.model, permissionMode: base.mode },
+    defaultClaudeDirId: defaults.defaultClaudeDir ?? null,
+    claudeDirs: defaults.claudeDirs ?? [],
+  })
+  return {
+    claudeDirId: preset.claudeDirId,
+    claudeDirFrom: preset.claudeDirFrom,
+    model: preset.model,
+    mode: preset.permissionMode === 'bypassPermissions' ? base.mode : preset.permissionMode,
+  }
 }
 
 /**

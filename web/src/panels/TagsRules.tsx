@@ -11,6 +11,10 @@ import { Select } from '../ui/Select'
 import { Toggle } from '../ui/Checkbox'
 import { Input } from '../ui/Input'
 import { Chip } from '../ui/Chip'
+import { useClaudeDirModels } from '../lib/useClaudeDirModels'
+import { modelByValue, modelChipLabel } from '../lib/models'
+import { PERMISSION_MODES } from '../lib/permissionModes'
+import type { PermissionMode } from '../lib/types'
 
 export interface TagsRulesSectionProps {
   /** True while this is the section Settings is showing. Gates the reset, the
@@ -132,6 +136,74 @@ function TagPill({ hue, name }: { hue: number; name: string }) {
       />
       <span className="truncate">{name}</span>
     </span>
+  )
+}
+
+type TagLaunchPatch = Partial<Pick<Tag, 'claude_dir_id' | 'model' | 'permission_mode'>>
+
+/**
+ * What a session launched with this tag starts with (spec
+ * 2026-10-13-tag-defaults-design): a picker per value, each with a
+ * "Default" that leaves it to Settings. The selected card only, beneath the
+ * swatches; the option lists are the New session dialog's. The directory
+ * row shows only with two or more directories, as the dialog's does.
+ */
+function TagLaunchDefaults({ tag, onChange }: { tag: Tag; onChange: (patch: TagLaunchPatch) => void }) {
+  const claudeDirs = useOrbital(useShallow((s) => s.claudeDirs))
+  const defaultClaudeDir = useOrbital((s) => s.defaultClaudeDir)
+  // The models the tag's directory offers: each account has its own.
+  const models = useClaudeDirModels(tag.claude_dir_id ?? defaultClaudeDir)
+  // Select takes no null, so "Default" is the empty string here.
+  const dirOptions: Array<{ value: number | ''; label: string }> = [
+    { value: '', label: 'Default' },
+    ...claudeDirs.map((dir) => ({ value: dir.id, label: dir.name })),
+  ]
+  const model = tag.model ?? ''
+  const modelOptions: Array<{ value: string; label: string }> = [
+    { value: '', label: 'Default' },
+    ...models.map((m) => ({ value: m.value, label: modelChipLabel(m) })),
+    // A model the catalog does not list (set through Other elsewhere) stays shown.
+    ...(model && !modelByValue(model, models) ? [{ value: model, label: model }] : []),
+  ]
+  const modeOptions: Array<{ value: PermissionMode | ''; label: string; dotColor?: string }> = [
+    { value: '', label: 'Default' },
+    ...PERMISSION_MODES.map((mode) => ({ value: mode.value, label: mode.label, dotColor: mode.dot })),
+  ]
+  const label = 'font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.45)]'
+  return (
+    <div className="grid grid-cols-[72px_minmax(0,1fr)] items-center gap-x-2 gap-y-1.5" onClick={(e) => e.stopPropagation()}>
+      {claudeDirs.length >= 2 && (
+        <>
+          <span className={label}>DIRECTORY</span>
+          <Select
+            font="sans"
+            className="w-full"
+            aria-label={`Claude directory for ${tag.name}`}
+            options={dirOptions}
+            value={tag.claude_dir_id ?? ''}
+            onChange={(dir) => onChange({ claude_dir_id: dir === '' ? null : dir })}
+          />
+        </>
+      )}
+      <span className={label}>MODEL</span>
+      <Select
+        font="sans"
+        className="w-full"
+        aria-label={`Model for ${tag.name}`}
+        options={modelOptions}
+        value={model}
+        onChange={(next) => onChange({ model: next || null })}
+      />
+      <span className={label}>MODE</span>
+      <Select
+        font="sans"
+        className="w-full"
+        aria-label={`Permission mode for ${tag.name}`}
+        options={modeOptions}
+        value={tag.permission_mode ?? ''}
+        onChange={(mode) => onChange({ permission_mode: mode || null })}
+      />
+    </div>
   )
 }
 
@@ -508,6 +580,16 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
     }
   }
 
+  async function handleTagDefaults(id: number, patch: TagLaunchPatch) {
+    try {
+      await api.patchTag(id, patch)
+      useOrbital.setState((state) => ({ tags: replaceTag(state.tags, id, patch) }))
+      markSaved()
+    } catch (err) {
+      reportError(err, 'Failed to update the tag defaults')
+    }
+  }
+
   async function handleDeleteTag(tag: Tag) {
     if (tag.is_default) return
     try {
@@ -869,6 +951,9 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                           delete
                         </button>
                       </div>
+                    )}
+                    {isSelected && (
+                      <TagLaunchDefaults tag={tag} onChange={(patch) => void handleTagDefaults(tag.id, patch)} />
                     )}
                   </li>
                 )

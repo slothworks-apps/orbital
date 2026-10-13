@@ -57,6 +57,10 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['GET', '/api/sessions/:id/walkthrough'],
   ['GET', '/api/sessions/:id/walkthrough/summary'],
   ['GET', '/api/tags'],
+  // Which tag a directory's rules give, so New Session preselects that tag's
+  // launch defaults (spec 2026-10-13-tag-defaults-design § The phone). It
+  // reads the rules and changes nothing.
+  ['POST', '/api/tag-rules/preview'],
   ['GET', '/api/projects'],
   // New Session's missing-directory line and its *Create and start* (spec
   // 2026-10-12-new-session-missing-directory-design § Phone).

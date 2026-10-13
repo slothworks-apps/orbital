@@ -92,6 +92,10 @@ export function ClaudeDirsRows({
         return
       }
       onSaved()
+      // The server forgot the directory on every tag that launched under it.
+      useOrbital.setState((state) => ({
+        tags: state.tags.map((t) => (t.claude_dir_id === dir.id ? { ...t, claude_dir_id: null } : t)),
+      }))
       await reload()
       reloadSessions()
     } catch (err) {

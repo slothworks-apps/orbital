@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.31.0] — 2026-10-13
+### Added
+- A tag can set the Claude directory, model and permission mode its sessions start with, in Settings → Tags; New session preselects them, and uses the default directory while the tag's has hit its limit.
+
 ## [0.29.0] — 2026-10-12
 ### Added
 - New session tells you, as you type, when the project folder doesn't exist, and offers to create it when you launch — instead of starting a session that fails with an unclear error.
