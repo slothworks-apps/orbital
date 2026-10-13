@@ -11,6 +11,7 @@ related:
   - 2026-10-03-api-token-and-named-files-design
   - clickable-file-paths-in-the-transcript
   - media-from-subagents
+  - 2026-10-13-session-media-more-design
   - why-orbital
 tags:
   - images
@@ -30,6 +31,11 @@ The design is the Claude Design file `Feature - Media.dc.html`, artboards
 come from, the routes and the phone.
 
 ## What counts as media
+
+> Extended by [[2026-10-13-session-media-more-design]]: subagents' media and
+> images a tool call wrote are items too. The two exclusions below — a
+> subagent's own images and a `Write` the agent never mentions — no longer
+> hold.
 
 An item is an image or a PDF from one of three sources:
 

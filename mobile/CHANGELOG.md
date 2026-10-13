@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Added
+- A session's Media also shows its subagents' images, captioned with the subagent's name, and images the agent saved to disk without mentioning them, which Hide tool images hides along with tool images. Needs the Mac update that brings them.
 
 ## [0.10.1] — 2026-10-12
 ### Added
