@@ -26,6 +26,7 @@ import { StateDot } from '../ui/StateDot'
 import type { ApiSession, SessionSource, Tag } from '../lib/types'
 import { Panel } from '../ui/Panel'
 import { Chip } from '../ui/Chip'
+import { useMedia } from '../store/media'
 import { Select } from '../ui/Select'
 import { Logo } from '../ui/Logo'
 import { PinButton } from '../ui/PinButton'
@@ -747,6 +748,13 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         <Logo dimmed={!windowFocused} />
         <span className="text-[13px] font-bold tracking-[0.22em] text-text-bright">ORBITAL</span>
         <span className="flex-1" />
+        {/* The gallery of every session (spec 2026-10-13-all-sessions-gallery-design § Desktop). */}
+        <IconButton
+          label="Media of all sessions"
+          title={`Media of all sessions · ${shortcutLabel('global.media')}`}
+          glyph="▦"
+          onClick={() => useMedia.getState().setAllOpen(true)}
+        />
         <IconButton
           label="Collapse sidebar"
           title={`Collapse sidebar · ${shortcutLabel('global.sidebar')}`}

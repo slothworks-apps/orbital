@@ -24,11 +24,14 @@ interface MediaState {
   hideTool: Record<string, boolean>
   /** The session whose panel body shows Media instead of Transcript (24d). */
   gallery: string | null
+  /** The gallery of every session is open over the window (spec 2026-10-13-all-sessions-gallery-design). */
+  allOpen: boolean
   /** Show in transcript, waiting for the transcript to find the message. */
   jump: { sessionId: string; messageId: string; seq: number } | null
   load(sessionId: string): Promise<void>
   setHideTool(sessionId: string, hide: boolean): void
   setGallery(sessionId: string | null): void
+  setAllOpen(open: boolean): void
   showInTranscript(sessionId: string, messageId: string): void
   /** The transcript is done with `jump` — found and scrolled, or given up. */
   endJump(seq: number): void
@@ -65,6 +68,7 @@ export const useMedia = create<MediaState>((set, get) => ({
   lists: {},
   hideTool: {},
   gallery: null,
+  allOpen: false,
   jump: null,
 
   load(sessionId) {
@@ -102,6 +106,10 @@ export const useMedia = create<MediaState>((set, get) => ({
     if (get().gallery !== gallery) set({ gallery })
   },
 
+  setAllOpen(allOpen) {
+    if (get().allOpen !== allOpen) set({ allOpen })
+  },
+
   showInTranscript(sessionId, messageId) {
     jumpSeq += 1
     set({ jump: { sessionId, messageId, seq: jumpSeq }, gallery: null })
@@ -112,7 +120,13 @@ export const useMedia = create<MediaState>((set, get) => ({
   },
 }))
 
-/** The switch for one session, read through from `localStorage` the first time. */
+/**
+ * Where the gallery of every session keeps its one Hide tool images switch,
+ * beside the per-session ones. No session id has this shape.
+ */
+export const ALL_SESSIONS_MEDIA = '*all'
+
+/** The switch for one session (or `ALL_SESSIONS_MEDIA`), read through from `localStorage` the first time. */
 export function useHideTool(sessionId: string): [boolean, (hide: boolean) => void] {
   const hide = useMedia((s) => s.hideTool[sessionId] ?? readHideTool(sessionId))
   const setHideTool = useMedia((s) => s.setHideTool)

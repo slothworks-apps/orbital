@@ -198,6 +198,17 @@ describe('COMMANDS', () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 
+  it('binds no chord twice where both could fire', () => {
+    const live = COMMANDS.filter((c) => !c.local)
+    for (const a of live) {
+      for (const b of live) {
+        if (a === b || !(a.scope === b.scope || a.scope === 'global' || b.scope === 'global')) continue
+        const shared = a.chords.filter((chord) => b.chords.includes(chord))
+        expect(shared, `${a.id} and ${b.id}`).toEqual([])
+      }
+    }
+  })
+
   it('uses no forbidden punctuation key', () => {
     for (const cmd of COMMANDS) {
       for (const chord of cmd.chords) {

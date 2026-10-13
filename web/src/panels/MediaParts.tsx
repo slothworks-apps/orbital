@@ -115,11 +115,14 @@ export function MediaTileButton({
   tile,
   variant,
   onOpen,
+  title: titled,
 }: {
   sessionId: string
   tile: MediaTile
   variant: TileVariant
   onOpen: (item: MediaItem) => void
+  /** The hover title, when the caller says more than the tile — the session it belongs to. */
+  title?: string
 }) {
   const { cover, first, count } = tile
   const [goneKey, setGoneKey] = useState<string | null>(null)
@@ -127,7 +130,7 @@ export function MediaTileButton({
   const gone = isGone(cover) || goneKey === cover.id
   const stacked = count > 1
   const tag = isToolMedia(cover) ? (stacked ? `⚙ ×${count}` : '⚙') : cover.kind === 'pdf' && !gone ? (pages ? `PDF · ${pages}` : 'PDF') : null
-  const title = stacked ? `${count} tool images` : (cover.path ?? (cover.source === 'tool' ? 'Tool image' : 'Attached image'))
+  const title = titled ?? (stacked ? `${count} tool images` : (cover.path ?? (cover.source === 'tool' ? 'Tool image' : 'Attached image')))
   const gallery = variant === 'gallery'
   const label = stacked ? title : tileLabel(cover)
 

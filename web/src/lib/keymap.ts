@@ -118,6 +118,18 @@ export const COMMANDS: readonly Command[] = [
     menu: { menu: 'View', order: 4 },
   },
   {
+    // Spec 2026-10-13-all-sessions-gallery-design § Desktop. A letter, so it
+    // binds by character and holds on the Czech layout (rule 2); A for all,
+    // beside the session gallery's ⌘⇧G. Nothing in the menus takes ⇧⌘A.
+    id: 'global.media',
+    label: 'Media of all sessions',
+    scope: 'global',
+    chords: ['meta+shift+a'],
+    whileTyping: true,
+    menu: { menu: 'View', order: 5 },
+    note: 'opens or closes it',
+  },
+  {
     id: 'global.map',
     label: 'Map',
     scope: 'global',

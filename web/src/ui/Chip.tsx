@@ -12,7 +12,8 @@ export interface ChipProps {
   pulse?: boolean
   /** Native tooltip — e.g. the full path behind a shortened label. */
   title?: string
-  onClick?: () => void
+  /** Gets the event, so a caller can read ⌘/ctrl from a click or a key press alike. */
+  onClick?: (e: { metaKey: boolean; ctrlKey: boolean }) => void
   onRemove?: () => void
 }
 
@@ -34,7 +35,7 @@ export function Chip({ label, active = false, hue, dot = false, pulse = false, t
     if (!interactive) return
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
-      onClick?.()
+      onClick?.(e)
     }
   }
 

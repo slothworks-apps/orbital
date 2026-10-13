@@ -48,6 +48,22 @@ const GONE_BOX = { w: 1440, h: 900 }
 
 export type ViewerTarget = MediaTarget | { kind: 'item'; id: string }
 
+/**
+ * A list the view pages through instead of one session's: the gallery of
+ * every session (spec 2026-10-13-all-sessions-gallery-design). Item ids are
+ * unique across it; each item is read in its own session, and the caption's
+ * action opens that session instead of scrolling a transcript.
+ */
+export interface MediaPool {
+  /** Every item, in the order › steps through; Hide tool images is applied here. */
+  items: readonly MediaItem[]
+  sessionOf(item: MediaItem): string
+  titleOf(item: MediaItem): string | undefined
+  hideTool: boolean
+  setHideTool(hide: boolean): void
+  onOpenSession(item: MediaItem): void
+}
+
 export interface MediaViewerProps {
   open: boolean
   /** Whose list it pages through. Null — nothing selected — shows the pressed item alone. */
@@ -56,6 +72,8 @@ export interface MediaViewerProps {
   target: ViewerTarget | null
   /** The caption when the list holds no item for the press — what the 7c lightbox said: source · size. */
   fallbackCaption?: string
+  /** Pages through this list instead of `sessionId`'s; `target` is then an item of it. */
+  pool?: MediaPool
   onClose: () => void
 }
 
@@ -84,7 +102,7 @@ function standIn(target: ViewerTarget | null): MediaItem | null {
     : { ...common, kind: isPdfPath(target.path) ? 'pdf' : 'image', path: target.path, cwd: target.cwd }
 }
 
-export function MediaViewer({ open, sessionId, target, fallbackCaption, onClose }: MediaViewerProps) {
+export function MediaViewer({ open, sessionId, target, fallbackCaption, pool, onClose }: MediaViewerProps) {
   useEscapeLayer(open, onClose)
   const { mounted, state } = usePresence(open, VIEWER_ENTER_MS, VIEWER_EXIT_MS)
   if (!mounted) return null
@@ -94,6 +112,7 @@ export function MediaViewer({ open, sessionId, target, fallbackCaption, onClose 
         sessionId={sessionId}
         target={target}
         fallbackCaption={fallbackCaption}
+        pool={pool}
         entered={state === 'entered'} exiting={state === 'exiting'} onClose={onClose} />
     </EscapeBoundary>,
     document.body,
@@ -104,6 +123,7 @@ function ViewerBody({
   sessionId,
   target,
   fallbackCaption,
+  pool,
   entered,
   exiting,
   onClose,
@@ -111,20 +131,24 @@ function ViewerBody({
   sessionId: string | null
   target: ViewerTarget | null
   fallbackCaption?: string
+  pool?: MediaPool
   entered: boolean
   exiting: boolean
   onClose: () => void
 }) {
-  const items = useMedia((s) => (sessionId ? s.lists[sessionId] : undefined))
-  const [hideTool, setHideTool] = useHideTool(sessionId ?? '')
-  const title = useOrbital((s) => (sessionId ? s.sessions[sessionId]?.title : undefined))
+  const listed = useMedia((s) => (sessionId && !pool ? s.lists[sessionId] : undefined))
+  const items = pool ? pool.items : listed
+  const [ownHideTool, setOwnHideTool] = useHideTool(sessionId ?? '')
+  const hideTool = pool ? pool.hideTool : ownHideTool
+  const setHideTool = pool ? pool.setHideTool : setOwnHideTool
+  const sessionTitle = useOrbital((s) => (sessionId ? s.sessions[sessionId]?.title : undefined))
   const viewportHeight = useViewportHeight()
   const stageHeight = Math.max(160, Math.min(STAGE_MAX_H_PX, viewportHeight - STAGE_CHROME_H_PX))
 
   // Ask once on opening: the list may be older than the press.
   useEffect(() => {
-    if (sessionId) void useMedia.getState().load(sessionId)
-  }, [sessionId])
+    if (sessionId && !pool) void useMedia.getState().load(sessionId)
+  }, [sessionId, pool])
 
   // Where the reader is. Until they page, the item the press stands for —
   // which may only turn up once the list arrives. That item stays reachable
@@ -180,11 +204,16 @@ function ViewerBody({
   }
 
   const showInTranscript = () => {
-    if (!sessionId || !current) return
-    useMedia.getState().showInTranscript(sessionId, current.messageId)
+    if (!current) return
+    if (pool) pool.onOpenSession(current)
+    else if (sessionId) useMedia.getState().showInTranscript(sessionId, current.messageId)
+    else return
     onClose()
   }
+  /** Whose files an item is read among: its own session in a pool, else the one session. */
+  const sessionOf = (item: MediaItem): string => (pool ? pool.sessionOf(item) : (sessionId ?? ''))
 
+  const title = pool ? (current ? pool.titleOf(current) : undefined) : sessionTitle
   const clock = shown?.ts ? mediaClock(shown.ts) : ''
   const where = [title, clock].filter(Boolean).join(', ')
 
@@ -208,11 +237,11 @@ function ViewerBody({
           transform: entered ? 'scale(1)' : 'scale(.98)',
         }}
       >
-        {shown && (sessionId !== null || shown.ref !== undefined) && (
+        {shown && (sessionId !== null || pool !== undefined || shown.ref !== undefined) && (
           // With nothing selected a ref still has its bytes; a path has no tree to be read in.
           <Stage
             key={shown.id || `${shown.ref ?? ''}${shown.path ?? ''}`}
-            sessionId={sessionId ?? ''}
+            sessionId={sessionOf(shown)}
             item={shown}
             stageHeight={stageHeight}
             page={page}
@@ -248,7 +277,7 @@ function ViewerBody({
                   onClick={showInTranscript}
                   className="rounded-[5px] border border-[rgba(150,205,255,.2)] bg-transparent px-[9px] py-[3px] font-mono text-[10.5px] text-[#e8eef8] transition-[border-color] duration-[160ms] ease-[ease] hover:border-[rgba(150,205,255,.45)]"
                 >
-                  ↩ Show in transcript
+                  {pool ? '↗ Open session' : '↩ Show in transcript'}
                 </button>
                 <span className="text-[rgba(150,205,255,.28)]">·</span>
               </>
@@ -271,7 +300,7 @@ function ViewerBody({
           <span className="w-[150px] text-right font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
             {index + 1} of {order.length}
           </span>
-          <Filmstrip sessionId={sessionId!} order={order} current={current} onPick={go} />
+          <Filmstrip sessionOf={sessionOf} order={order} current={current} onPick={go} />
           <span className="w-[150px]">
             {all.some(isToolMedia) && <HideToolChip on={hideTool} onToggle={toggleHide} />}
           </span>
@@ -439,12 +468,12 @@ function Stage({
 
 /** 24e: 40px frames 4px apart; the current one in the accent with a 2px ring. Scrolls when the session has many. */
 function Filmstrip({
-  sessionId,
+  sessionOf,
   order,
   current,
   onPick,
 }: {
-  sessionId: string
+  sessionOf: (item: MediaItem) => string
   order: readonly MediaItem[]
   current: MediaItem
   onPick: (item: MediaItem) => void
@@ -459,7 +488,7 @@ function Filmstrip({
         <FilmFrame
           key={item.id}
           ref={item.id === current.id ? currentRef : undefined}
-          sessionId={sessionId}
+          sessionId={sessionOf(item)}
           item={item}
           current={item.id === current.id}
           onPick={() => onPick(item)}
