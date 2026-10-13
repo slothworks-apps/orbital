@@ -102,7 +102,7 @@ export function ImagePage({
   caption: string
   onBack: () => void
   onPage: (delta: number) => void
-  media?: { item: MediaItem; onShowInChat: () => void }
+  media?: { item: MediaItem; onShowInChat: () => void; actionLabel?: string; where?: string }
 }) {
   const source = useMemo(() => sourceOf(sessionId, cwd, item), [sessionId, cwd, item])
   const { view, retry, known, instant } = useFile(source)
@@ -379,6 +379,8 @@ export function ImagePage({
           hint={hint}
           above={shown?.cached ? <div><CachedChip asOf={asOfLabel(shown.readAt, now)} /></div> : null}
           onShowInChat={media.onShowInChat}
+          actionLabel={media.actionLabel}
+          where={media.where}
         />
       ) : (
       /* Canvas 10d: the foot — the pages, then the path and the session with its time. */

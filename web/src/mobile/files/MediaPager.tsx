@@ -23,15 +23,18 @@ import { PdfPage } from './PdfViewer'
  * message (`TranscriptView`'s `jumpTo`, through the media store's `jump`).
  */
 export function MediaPager({
-  sessionId, items, startId, onBack,
+  sessionId, items, startId, onBack, pool,
 }: {
   sessionId: string
   items: readonly MediaItem[]
   startId: string
   onBack: () => void
+  /** Pages through the gallery of every session instead: each item in its own session, the action opens it. */
+  pool?: PhoneMediaPool
 }) {
   const [currentId, setCurrentId] = useState(startId)
-  const [hideTool] = useHideTool(sessionId)
+  const [ownHideTool] = useHideTool(sessionId)
+  const hideTool = pool ? pool.hideTool : ownHideTool
   const startHidden = items.some((m) => m.id === startId && isToolMedia(m))
   const order = pagingOrder(items, hideTool && !startHidden)
   const at = positionIn(order, items, currentId)
@@ -48,19 +51,28 @@ export function MediaPager({
 
   if (!item) return null
   const showInChat = () => {
+    if (pool) return pool.onOpenSession(item)
     useMedia.getState().showInTranscript(sessionId, item.messageId)
     useMobile.getState().openSession(sessionId)
   }
-  const media = { item, onShowInChat: showInChat }
+  const actionLabel = pool ? '↗ Open session' : undefined
+  const where = pool?.titleOf(item)
+  const media = { item, onShowInChat: showInChat, actionLabel, where }
+  const itemSession = pool ? pool.sessionOf(item) : sessionId
 
   if (isGone(item)) {
-    return <GonePage key={item.id} item={item} index={at} count={order.length} onBack={onBack} onPage={onPage} onShowInChat={showInChat} />
+    return (
+      <GonePage
+        key={item.id} item={item} index={at} count={order.length} onBack={onBack} onPage={onPage} onShowInChat={showInChat}
+        actionLabel={actionLabel} where={where}
+      />
+    )
   }
   if (item.kind === 'pdf' && item.path) {
     return (
       <PdfPage
         key={item.id}
-        sessionId={sessionId}
+        sessionId={itemSession}
         path={item.path}
         cwd={item.cwd}
         index={at}
@@ -68,7 +80,10 @@ export function MediaPager({
         onBack={onBack}
         onPage={onPage}
         foot={({ page, cached }) => (
-          <MediaFoot item={item} chip={page} hint="scroll · swipe ↔" above={cached} onShowInChat={showInChat} />
+          <MediaFoot
+            item={item} chip={page} hint="scroll · swipe ↔" above={cached} onShowInChat={showInChat}
+            actionLabel={actionLabel} where={where}
+          />
         )}
       />
     )
@@ -76,7 +91,7 @@ export function MediaPager({
   return (
     <ImagePage
       key={item.id}
-      sessionId={sessionId}
+      sessionId={itemSession}
       cwd={item.cwd}
       item={asMessageImage(item)}
       index={at}
@@ -89,6 +104,14 @@ export function MediaPager({
   )
 }
 
+/** The gallery of every session, as the pager reads it (spec 2026-10-13-all-sessions-gallery-design § Phone). */
+export interface PhoneMediaPool {
+  sessionOf(item: MediaItem): string
+  titleOf(item: MediaItem): string
+  hideTool: boolean
+  onOpenSession(item: MediaItem): void
+}
+
 /** A media item in the shape the image viewer pages through. */
 function asMessageImage(item: MediaItem): MessageImage {
   if (item.ref) return { kind: 'ref', ref: item.ref, image: { ref: item.ref, w: item.w ?? null, h: item.h ?? null, bytes: 0 } }
@@ -97,7 +120,7 @@ function asMessageImage(item: MediaItem): MessageImage {
 
 /** 24f C on the phone: a named file no longer on disk keeps its place in the paging, as its footprint. */
 function GonePage({
-  item, index, count, onBack, onPage, onShowInChat,
+  item, index, count, onBack, onPage, onShowInChat, actionLabel, where,
 }: {
   item: MediaItem
   index: number
@@ -105,6 +128,8 @@ function GonePage({
   onBack: () => void
   onPage: (delta: number) => void
   onShowInChat: () => void
+  actionLabel?: string
+  where?: string
 }) {
   const stage = useRef<HTMLDivElement>(null)
   useSwipe(stage, onPage, onBack)
@@ -131,7 +156,7 @@ function GonePage({
         </div>
       </div>
       <div className="flex-1" />
-      <MediaFoot item={item} onShowInChat={onShowInChat} />
+      <MediaFoot item={item} onShowInChat={onShowInChat} actionLabel={actionLabel} where={where} />
     </main>
   )
 }

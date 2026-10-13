@@ -137,6 +137,11 @@ describe('back', () => {
     expect(back(state({ screen: 'mismatch' }))).toBe('exit')
   })
 
+  it('closes the gallery of every session\'s viewer before it leaves the gallery', () => {
+    expect(back(state({ screen: 'gallery', galleryItem: 's1/m1:0' }))).toEqual({ galleryItem: null })
+    expect(back(state({ screen: 'gallery', galleryItem: null }))).toEqual({ screen: 'list' })
+  })
+
   it('returns from pairing to where it came from, and stays when there is nowhere to go', () => {
     expect(back(state({ screen: 'pairing', previous: 'unpaired' }))).toEqual({ screen: 'unpaired', previous: null })
     expect(back(state({ screen: 'pairing', previous: null }))).toBe('exit')

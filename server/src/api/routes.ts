@@ -657,7 +657,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const subagentMedia = new SubagentMedia(ctx.images);
   /** What `sessionMedia` reads one session's media through. */
   const mediaCtx: SessionMediaContext = {
-    row: (id) => db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow | undefined,
+    row: (id) => db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get(),
     presentTranscript,
     locate: (id, row) => locateOnDisk((cwd) => sandboxesOf(row, cwd), namedBy(id, row)),
     subagents: (id, row) => subagentMedia.read(ctx.transcriptPath(id, row.project_dir, row.claude_dir_id)),

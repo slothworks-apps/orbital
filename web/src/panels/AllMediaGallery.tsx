@@ -61,7 +61,7 @@ function Gallery({ onClose }: { onClose: () => void }) {
   const pool: MediaPool = {
     items: order,
     sessionOf: (item) => byKey.get(item.id)?.sessionId ?? '',
-    titleOf: (item) => byKey.get(item.id)?.sessionTitle || 'Untitled session',
+    titleOf: (item) => shortTitle(byKey.get(item.id)?.sessionTitle || 'Untitled session'),
     hideTool,
     setHideTool,
     onOpenSession: (item) => {
@@ -211,4 +211,9 @@ function Section({
 function tileTitle(cover: AllMediaItem, count: number): string {
   if (count > 1) return `${count} tool images`
   return cover.path ?? (cover.source === 'tool' ? 'Tool image' : 'Attached image')
+}
+
+/** The caption's session name: a first prompt can run to a paragraph, and the caption is one line. */
+function shortTitle(title: string): string {
+  return title.length > 60 ? `${title.slice(0, 59)}…` : title
 }
