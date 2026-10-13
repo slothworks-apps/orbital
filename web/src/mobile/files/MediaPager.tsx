@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import type { MessageImage } from '../../lib/fileOpen'
-import { pagingOrder, positionIn } from '../../lib/media'
+import { isToolMedia, pagingOrder, positionIn } from '../../lib/media'
 import type { MediaItem } from '../../lib/types'
 import { GoneMark, isGone } from '../../panels/MediaParts'
 import { useHideTool, useMedia } from '../../store/media'
@@ -32,7 +32,7 @@ export function MediaPager({
 }) {
   const [currentId, setCurrentId] = useState(startId)
   const [hideTool] = useHideTool(sessionId)
-  const startHidden = items.find((m) => m.id === startId)?.source === 'tool'
+  const startHidden = items.some((m) => m.id === startId && isToolMedia(m))
   const order = pagingOrder(items, hideTool && !startHidden)
   const at = positionIn(order, items, currentId)
   const item = at >= 0 ? order[at] : undefined

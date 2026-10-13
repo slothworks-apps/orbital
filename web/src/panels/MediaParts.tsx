@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MediaItem } from '../lib/types'
 import type { MediaTile } from '../lib/media'
-import { mediaClock } from '../lib/media'
+import { isToolMedia, mediaClock } from '../lib/media'
 import { useMediaSourceUrl } from '../lib/images'
 import { usePdfThumbnail } from '../lib/pdf'
 
@@ -122,7 +122,7 @@ export function MediaTileButton({
   const [pages, setPages] = useState<number | null>(null)
   const gone = isGone(cover) || goneKey === cover.id
   const stacked = count > 1
-  const tag = cover.source === 'tool' ? (stacked ? `⚙ ×${count}` : '⚙') : cover.kind === 'pdf' && !gone ? (pages ? `PDF · ${pages}` : 'PDF') : null
+  const tag = isToolMedia(cover) ? (stacked ? `⚙ ×${count}` : '⚙') : cover.kind === 'pdf' && !gone ? (pages ? `PDF · ${pages}` : 'PDF') : null
   const title = stacked ? `${count} tool images` : (cover.path ?? (cover.source === 'tool' ? 'Tool image' : 'Attached image'))
   const gallery = variant === 'gallery'
 

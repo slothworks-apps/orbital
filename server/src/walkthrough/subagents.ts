@@ -22,26 +22,50 @@ export function subagentDirOf(transcriptPath: string): string {
  * that agent only.
  */
 export function readSubagentMessages(transcriptPath: string, images?: ImageWriter): Map<string, ChatMessage[]> {
-  const dir = subagentDirOf(transcriptPath);
   const out = new Map<string, ChatMessage[]>();
+  for (const file of subagentFiles(transcriptPath)) {
+    const messages = readSubagentFile(file.transcript, images);
+    if (messages) out.set(file.toolUseId, messages);
+  }
+  return out;
+}
+
+/** One subagent's files: its transcript, its meta, and the `Agent` call it joins back to. */
+export interface SubagentFile {
+  toolUseId: string;
+  transcript: string;
+  meta: string;
+}
+
+/**
+ * The joinable subagents of a session, in directory order: each with a
+ * readable meta naming its `toolUseId` (see `readSubagentMessages`).
+ */
+export function subagentFiles(transcriptPath: string): SubagentFile[] {
+  const dir = subagentDirOf(transcriptPath);
+  const out: SubagentFile[] = [];
   let files: string[];
   try { files = readdirSync(dir); } catch { return out; }
   for (const file of files) {
     const m = META_FILE.exec(file);
     if (!m) continue;
-    let toolUseId: string | null = null;
     try {
       const meta = JSON.parse(readFileSync(join(dir, file), 'utf8')) as { toolUseId?: unknown };
-      if (typeof meta.toolUseId === 'string' && meta.toolUseId) toolUseId = meta.toolUseId;
-    } catch { continue; }
-    if (!toolUseId) continue;
-    try {
-      const entries = parseTranscript(readFileSync(join(dir, `${m[1]}.jsonl`), 'utf8'))
-        .map((e) => ({ ...e, isSidechain: false }));
-      out.set(toolUseId, entriesToMessages(entries, images));
-    } catch {
-      // This agent's file is unreadable; the parent's story goes on without it.
-    }
+      if (typeof meta.toolUseId === 'string' && meta.toolUseId) {
+        out.push({ toolUseId: meta.toolUseId, transcript: join(dir, `${m[1]}.jsonl`), meta: join(dir, file) });
+      }
+    } catch { /* no readable meta: not joinable */ }
   }
   return out;
+}
+
+/** One subagent's messages, as the parent's own would read; null when its file is unreadable. */
+export function readSubagentFile(path: string, images?: ImageWriter): ChatMessage[] | null {
+  try {
+    const entries = parseTranscript(readFileSync(path, 'utf8')).map((e) => ({ ...e, isSidechain: false }));
+    return entriesToMessages(entries, images);
+  } catch {
+    // This agent's file is unreadable; the parent's story goes on without it.
+    return null;
+  }
 }

@@ -178,3 +178,20 @@ describe('mediaToolLabel', () => {
     expect(mediaToolLabel('Read')).toBe('Read')
   })
 })
+
+describe('written images', () => {
+  const written: MediaItem = {
+    id: 'w', kind: 'image', source: 'written', messageId: 'm-w', ts: '2026-10-13T10:00:00Z', path: 'out/w.png', cwd: '/w', tool: 'Write',
+  }
+  const all = [you('1'), written, agent('2', 'out/a.png')]
+
+  it('are hidden and counted with tool images, and never stacked with a tool run', () => {
+    expect(ids(visibleMedia(all, true))).toEqual(['1', '2'])
+    expect(mediaCountLine(all, true)).toBe('MEDIA · 2 · 1 tool hidden')
+    expect(mediaTiles([tool('3', 'r'), written, tool('4', 'r')], false).map((t) => t.count)).toEqual([1, 1, 1])
+  })
+
+  it('are what a press on the written path opens', () => {
+    expect(matchMediaItem(all, { kind: 'path', path: 'out/w.png', messageId: 'm-w' })?.id).toBe('w')
+  })
+})

@@ -1,5 +1,6 @@
 import type { ChatMessage, MediaItem } from './types'
 import { mediaPathsInReply } from './pathLinks'
+import { writtenImagePaths } from '@orbital/shared/paths'
 
 /**
  * The pure half of a session's media (spec 2026-10-09-session-media-design;
@@ -17,13 +18,21 @@ export type MediaTarget =
   | { kind: 'ref'; ref: string; messageId?: string }
   | { kind: 'path'; path: string; cwd?: string; messageId?: string }
 
+/**
+ * Whether "Hide tool images" hides the item: a tool's image, and an image a
+ * tool call wrote that no reply named (spec 2026-10-13-session-media-more-design).
+ */
+export function isToolMedia(item: Pick<MediaItem, 'source'>): boolean {
+  return item.source === 'tool' || item.source === 'written'
+}
+
 /** The items "Hide tool images" leaves standing — the one switch for popover, gallery and paging (24b). */
 export function visibleMedia(items: readonly MediaItem[], hideTool: boolean): MediaItem[] {
-  return hideTool ? items.filter((item) => item.source !== 'tool') : items.slice()
+  return hideTool ? items.filter((item) => !isToolMedia(item)) : items.slice()
 }
 
 export function toolMediaCount(items: readonly MediaItem[]): number {
-  return items.reduce((n, item) => n + (item.source === 'tool' ? 1 : 0), 0)
+  return items.reduce((n, item) => n + (isToolMedia(item) ? 1 : 0), 0)
 }
 
 /**
@@ -101,7 +110,7 @@ export function matchMediaItem(items: readonly MediaItem[], target: MediaTarget)
   const same = (item: MediaItem) =>
     target.kind === 'ref'
       ? item.ref === target.ref
-      : item.source === 'agent' && item.path === target.path
+      : (item.source === 'agent' || item.source === 'written') && item.path === target.path
   const inMessage = target.messageId
     ? items.find((item) => item.messageId === target.messageId && same(item))
     : undefined
@@ -117,6 +126,7 @@ export function matchMediaItem(items: readonly MediaItem[], target: MediaTarget)
 export function messageCarriesMedia(message: ChatMessage): boolean {
   if (message.partial) return false
   if (message.images?.length) return true
+  if (message.role === 'tool_use' && message.toolName) return writtenImagePaths(message.toolName, message.toolInput).length > 0
   return message.role === 'assistant' && Boolean(message.text) && mediaPathsInReply(message.text!).length > 0
 }
 
@@ -141,8 +151,12 @@ export function mediaToolLabel(tool: string): string {
   return `${server.charAt(0).toUpperCase()}${server.slice(1)} · ${mcp[2].replace(/_/g, ' ')}`
 }
 
-/** The caption's source line (24e). */
+/**
+ * The caption's source line (24e). A subagent's item names the subagent
+ * instead of the tool (spec 2026-10-13-session-media-more-design § Caption).
+ */
 export function mediaSourceLabel(item: MediaItem): string {
+  if (item.subagent) return `Subagent · ${item.subagent.name}`
   switch (item.source) {
     case 'you':
       return 'Attached by you'
@@ -150,6 +164,10 @@ export function mediaSourceLabel(item: MediaItem): string {
       return item.tool ? mediaToolLabel(item.tool) : 'Returned by a tool'
     case 'agent':
       return 'Named by the agent'
+    case 'written':
+      return 'Written by the agent'
+    default:
+      return ''
   }
 }
 

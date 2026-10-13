@@ -314,3 +314,38 @@ export function mediaPathsInReply(text: string): string[] {
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// The images a tool call writes
+// ---------------------------------------------------------------------------
+
+/** The input keys a screenshot tool names its file under (Playwright `filename`, Chrome DevTools `filePath`). */
+const SCREENSHOT_PATH_KEYS = ['filename', 'filePath', 'file_path', 'path'];
+
+/** An MCP tool that takes screenshots: `mcp__<server>__<…screenshot…>`. */
+export function isScreenshotTool(toolName: string): boolean {
+  return /^mcp__.+__.*screenshot/i.test(toolName);
+}
+
+/**
+ * The image paths a tool call's input says it writes, in order and once
+ * each (spec 2026-10-13-session-media-more-design § Written images): `Write`'s
+ * `file_path`, a screenshot tool's file argument, and the image paths in a
+ * `Bash` command's text. Whether the file is there is the server's question.
+ */
+export function writtenImagePaths(toolName: string, input: unknown): string[] {
+  if (typeof input !== 'object' || input === null) return [];
+  const args = input as Record<string, unknown>;
+  const found: string[] = [];
+  if (toolName === 'Write') {
+    if (typeof args.file_path === 'string' && isImagePath(args.file_path)) found.push(args.file_path);
+  } else if (toolName === 'Bash') {
+    if (typeof args.command === 'string') found.push(...scanPaths(args.command, isImagePath).map((m) => m.path));
+  } else if (isScreenshotTool(toolName)) {
+    for (const key of SCREENSHOT_PATH_KEYS) {
+      const value = args[key];
+      if (typeof value === 'string' && isImagePath(value.trim())) found.push(value.trim());
+    }
+  }
+  return [...new Set(found)];
+}
