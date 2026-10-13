@@ -30,6 +30,7 @@ import type { ImageStore, ImageWriter } from '../images/store.js';
 import type { IdeApprovals, IdeReviewVerdict } from '../ide/approvals.js';
 import { ORBITAL_MCP_SERVER, orbitalMcpServer, type Spawner } from './spawnTool.js';
 import { LIST_SESSIONS_TOOL, type SessionKeeper } from './sessionsTools.js';
+import { CONTROL_READ_TOOLS, type ControlCall } from './controlTools.js';
 import { shellIntentHooks } from './shellIntentHook.js';
 
 /**
@@ -842,6 +843,13 @@ export class Runner {
    * like `spawner`.
    */
   sessionKeeper?: SessionKeeper;
+  /**
+   * Calls Orbital's own routes on behalf of a running session — the back end
+   * of `orbital_read` and `orbital_act` (spec
+   * 2026-10-13-orbital-controls-itself-design). Assigned by the server, which
+   * holds the app and its token.
+   */
+  control?: ControlCall;
 
   constructor(deps: {
     hub: Hub;
@@ -1481,16 +1489,21 @@ export class Runner {
     // Beside the servers the CLI loads from settings, not instead of them:
     // `strictMcpConfig` stays off. One `orbital` server holds every tool
     // Orbital gives a session: `spawn_session`, `list_sessions` and
-    // `archive_session`, and the harness's checklist tools while that feature
-    // is on. Listing only reads, so it needs no permission card.
+    // `archive_session`, the control tools over Orbital's own routes, and the
+    // harness's checklist tools while that feature is on. Listing and reading
+    // need no permission card.
     const harnessTools = this.sessionTools?.(sessionId);
-    const keeper = this.sessionKeeper;
-    if (this.spawner || keeper || harnessTools) {
+    const { sessionKeeper: keeper, control } = this;
+    if (this.spawner || keeper || control || harnessTools) {
       options.mcpServers = {
-        [ORBITAL_MCP_SERVER]: orbitalMcpServer(sessionId, { spawn: this.spawner, keeper }, harnessTools),
+        [ORBITAL_MCP_SERVER]: orbitalMcpServer(sessionId, { spawn: this.spawner, keeper, control }, harnessTools),
       };
     }
-    const allowedTools = [...(harnessTools?.allowedTools ?? []), ...(keeper ? [LIST_SESSIONS_TOOL] : [])];
+    const allowedTools = [
+      ...(harnessTools?.allowedTools ?? []),
+      ...(keeper ? [LIST_SESSIONS_TOOL] : []),
+      ...(control ? CONTROL_READ_TOOLS : []),
+    ];
     if (allowedTools.length > 0) {
       options.allowedTools = allowedTools;
     }

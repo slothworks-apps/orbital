@@ -1448,6 +1448,14 @@ export async function buildServer(overrides: {
         countSweepable(db, retentionCutoff(parseRetentionDays(value), Date.now())),
     },
   });
+  // The session's own way into these routes (spec
+  // 2026-10-13-orbital-controls-itself-design): in-process like a phone's
+  // request, with the token, but not through the phone's allowlist — the
+  // operation catalog is its list.
+  runner.control = async (req) => {
+    const res = await app.inject(remoteInjectOptions(req, apiToken));
+    return { statusCode: res.statusCode, body: res.body };
+  };
   remote.start();
   // After the routes, which give it the path into a session: a wait that fell
   // due while the server was down fires now.
