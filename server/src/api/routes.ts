@@ -12,7 +12,8 @@ import { NamedPathCache, readFilePreview, readImageFile, readInSandboxes } from 
 import type { WorkingTrees } from '../git/workingTrees.js';
 import { completeFilePath } from '../files/complete.js';
 import { createDirectory, directoryState } from '../files/directory.js';
-import { locateOnDisk, mediaItems } from '../media/items.js';
+import { locateOnDisk } from '../media/items.js';
+import { SubagentMedia, sessionMedia, type SessionMediaContext } from '../media/sessionMedia.js';
 import { OpenTabsReader } from '../files/openTabs.js';
 import { collectCommands, findCommandFile, type CatalogCommand } from '../commands/catalog.js';
 import type { OrbitalDb } from '../db/database.js';
@@ -639,20 +640,27 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { messages: messages.slice(Math.max(0, end - limit), end) };
   });
 
-  // Every image and PDF of the session, oldest first (spec
-  // 2026-10-09-session-media-design § Data): built from the transcript the
-  // route above presents, so an item's message is one the panel can scroll
-  // to. A path a reply named is located within the file routes' bounds; one
-  // the session may not show is left out.
+  /** Subagents' media candidates, per subagent file (spec 2026-10-13-session-media-more-design § Performance). */
+  const subagentMedia = new SubagentMedia(ctx.images);
+  /** What `sessionMedia` reads one session's media through. */
+  const mediaCtx: SessionMediaContext = {
+    row: (id) => db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow | undefined,
+    presentTranscript,
+    locate: (id, row) => locateOnDisk((cwd) => sandboxesOf(row, cwd), namedBy(id, row)),
+    subagents: (id, row) => subagentMedia.read(ctx.transcriptPath(id, row.project_dir, row.claude_dir_id)),
+  };
+
+  // Every image and PDF of the session and its subagents, oldest first (specs
+  // 2026-10-09-session-media-design § Data, 2026-10-13-session-media-more-design):
+  // built from the transcript the route above presents, so an item's message
+  // is one the panel can scroll to. A path a reply named or a call wrote is
+  // located within the file routes' bounds; one the session may not show is
+  // left out.
   app.get('/api/sessions/:id/media', (req, reply) => {
     const { id } = req.params as { id: string };
-    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as
-      | SessionRow
-      | undefined;
-    const messages = row && presentTranscript(id);
-    if (!row || !messages) return reply.code(404).send({ error: 'not found' });
-    const locate = locateOnDisk((cwd) => sandboxesOf(row, cwd), namedBy(id, row));
-    return { items: mediaItems(messages, locate) };
+    const items = sessionMedia(mediaCtx, id);
+    if (!items) return reply.code(404).send({ error: 'not found' });
+    return { items };
   });
 
   /**

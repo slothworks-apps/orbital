@@ -3,7 +3,7 @@ import type { Ref } from 'react'
 import { createPortal } from 'react-dom'
 import type { MediaItem } from '../lib/types'
 import type { MediaTarget } from '../lib/media'
-import { matchMediaItem, mediaClock, mediaSourceLabel, positionIn, stepIndex } from '../lib/media'
+import { isToolMedia, matchMediaItem, mediaClock, mediaSourceLabel, positionIn, stepIndex } from '../lib/media'
 import { useMediaSourceUrl } from '../lib/images'
 import { isPdfPath } from '../lib/pathLinks'
 import { useHideTool, useMedia } from '../store/media'
@@ -135,7 +135,7 @@ function ViewerBody({
   const currentId = selected ?? targetItemId(items, target)
   const all = useMemo(() => items ?? [], [items])
   const order = useMemo(
-    () => all.filter((item) => !hideTool || item.source !== 'tool' || (pinned && item.id === currentId)),
+    () => all.filter((item) => !hideTool || !isToolMedia(item) || (pinned && item.id === currentId)),
     [all, hideTool, pinned, currentId],
   )
   const index = currentId ? positionIn(order, all, currentId) : -1
@@ -229,7 +229,7 @@ function ViewerBody({
           style={{ top: STAGE_TOP_PX + stageHeight + 18 }}
         >
           <div className="flex items-center gap-2.5 text-[11.5px] text-[#e8eef8]">
-            {shown.source === 'tool' && current && (
+            {isToolMedia(shown) && current && (
               <span className="rounded-[3px] border border-[rgba(150,205,255,.2)] px-1.5 py-px text-[10px] text-[rgba(200,220,245,.85)]">
                 ⚙ TOOL
               </span>
@@ -273,7 +273,7 @@ function ViewerBody({
           </span>
           <Filmstrip sessionId={sessionId!} order={order} current={current} onPick={go} />
           <span className="w-[150px]">
-            {all.some((item) => item.source === 'tool') && <HideToolChip on={hideTool} onToggle={toggleHide} />}
+            {all.some(isToolMedia) && <HideToolChip on={hideTool} onToggle={toggleHide} />}
           </span>
         </div>
       )}
@@ -498,7 +498,7 @@ function FilmFrame({
       ].join(' ')}
     >
       {!isGone(item) && !gone && <MediaPicture sessionId={sessionId} item={item} onGone={() => setGone(true)} />}
-      {item.source === 'tool' && (
+      {isToolMedia(item) && (
         <span className="absolute bottom-px left-0.5 font-mono text-[8px] text-[rgba(200,220,245,.8)]">⚙</span>
       )}
     </button>

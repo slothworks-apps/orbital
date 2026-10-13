@@ -2471,6 +2471,50 @@ describe('GET /api/sessions/:id/media', () => {
       { id: 'a1:0:1', kind: 'pdf', source: 'agent', messageId: 'a1:0', ts: at, path: './gone.pdf', cwd, disk: 'missing' },
     ]);
   });
+
+  it("adds its subagents' media under the Agent call, and images a call wrote, merged by time", async () => {
+    const projectsDir = makeTmpDir('media-routes-sub');
+    const cwd = makeTmpDir('media-cwd-sub');
+    writeFileSync(join(cwd, 'main.png'), 'png');
+    writeFileSync(join(cwd, 'sub.png'), 'png');
+    const dir = join(projectsDir, 'p');
+    mkdirSync(join(dir, 'sw', 'subagents'), { recursive: true });
+    const t = (min: number) => `2026-10-13T10:0${min}:00.000Z`;
+    const line = (o: object) => JSON.stringify(o) + '\n';
+    writeFileSync(
+      join(dir, 'sw.jsonl'),
+      line({ type: 'user', uuid: 'u1', cwd, timestamp: t(0), message: { role: 'user', content: 'go' } }) +
+        line({
+          type: 'assistant', uuid: 'a1', cwd, timestamp: t(1),
+          message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_agent', name: 'Agent', input: { description: 'Check layout', prompt: 'x' } }] },
+        }) +
+        line({
+          type: 'assistant', uuid: 'a2', cwd, timestamp: t(3),
+          message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_w', name: 'Write', input: { file_path: join(cwd, 'main.png'), content: 'x' } }] },
+        }),
+    );
+    writeFileSync(join(dir, 'sw', 'subagents', 'agent-1.meta.json'), JSON.stringify({ toolUseId: 'toolu_agent', description: 'Check layout' }));
+    writeFileSync(
+      join(dir, 'sw', 'subagents', 'agent-1.jsonl'),
+      line({
+        type: 'assistant', uuid: 's1', cwd, timestamp: t(2), isSidechain: true,
+        message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_bash', name: 'Bash', input: { command: `cp a.png ${cwd}/sub.png` } }] },
+      }) +
+        line({ type: 'assistant', uuid: 's2', cwd, timestamp: t(4), isSidechain: true, message: { role: 'assistant', content: [{ type: 'text', text: 'See ./sub.png' }] } }),
+    );
+    const { app, db } = makeApp({ projectsDir });
+    db.insert(sessions)
+      .values({ id: 'sw', projectDir: 'p', cwd, title: 'media', lastAt: 300, source: 'web', permissionMode: null })
+      .run();
+    const res = await app.inject({ method: 'GET', url: '/api/sessions/sw/media' });
+    expect(res.statusCode).toBe(200);
+    const subagent = { toolUseId: 'toolu_agent', name: 'Check layout' };
+    expect(res.json().items.map((i: Record<string, unknown>) => [i.source, i.path, i.messageId, i.subagent])).toEqual([
+      // The subagent's Bash wrote `sub.png` (t2) but its own reply named it (t4) in the same turn: one agent item.
+      ['written', join(cwd, 'main.png'), 'a2:0', undefined],
+      ['agent', './sub.png', 'a1:0', subagent],
+    ]);
+  });
 });
 
 // Tag clusters: a clump's home moves where the user drops it, per tag,

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { mediaTiles, toolMediaCount, type MediaTile } from '../../lib/media'
+import { isToolMedia, mediaTiles, toolMediaCount, type MediaTile } from '../../lib/media'
 import type { MediaItem } from '../../lib/types'
 import { GoneMark, MediaPicture, isGone } from '../../panels/MediaParts'
 import { useHideTool, useSessionMedia } from '../../store/media'
@@ -122,7 +122,7 @@ function PhoneTile({ sessionId, tile, onOpen }: { sessionId: string; tile: Media
   const gone = isGone(cover) || goneId === cover.id
   const stacked = count > 1
   const tag =
-    cover.source === 'tool' ? (stacked ? `⚙ ×${count}` : '⚙') : cover.kind === 'pdf' && !gone ? (pages ? `PDF · ${pages}` : 'PDF') : null
+    isToolMedia(cover) ? (stacked ? `⚙ ×${count}` : '⚙') : cover.kind === 'pdf' && !gone ? (pages ? `PDF · ${pages}` : 'PDF') : null
   const title = stacked ? `${count} tool images` : (cover.path ?? (cover.source === 'tool' ? 'Tool image' : 'Attached image'))
   return (
     <button
