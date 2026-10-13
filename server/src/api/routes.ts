@@ -14,6 +14,12 @@ import { completeFilePath } from '../files/complete.js';
 import { createDirectory, directoryState } from '../files/directory.js';
 import { locateOnDisk } from '../media/items.js';
 import { SubagentMedia, sessionMedia, type SessionMediaContext } from '../media/sessionMedia.js';
+import {
+  ALL_MEDIA_DEFAULT_LIMIT, ALL_MEDIA_MAX_LIMIT, ALL_MEDIA_SCAN_MAX, allMediaPage, decodeCursor, parseTagFilter,
+  type WalkPosition, type WalkSession,
+} from '../media/allMedia.js';
+import type { MediaItem } from '@orbital/shared/media';
+import { effectiveTagIds } from '../tags/rules.js';
 import { OpenTabsReader } from '../files/openTabs.js';
 import { collectCommands, findCommandFile, type CatalogCommand } from '../commands/catalog.js';
 import type { OrbitalDb } from '../db/database.js';
@@ -362,6 +368,13 @@ export const TRANSCRIPT_CACHE_SESSIONS = 3;
 const NAMED_PATH_CACHE_ENTRIES = 512;
 
 /**
+ * How many sessions' media lists the gallery of every session keeps. A list
+ * is references, not bytes — a few hundred bytes an item — so it can hold
+ * every session a user scrolls past.
+ */
+const MEDIA_LIST_CACHE_SESSIONS = 1000;
+
+/**
  * How many distinct directories `GET /api/projects` answers. Generous on
  * purpose: the phone's New Session picker has no file system to browse, so
  * this list is every place it can start a session without typing a path.
@@ -661,6 +674,65 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const items = sessionMedia(mediaCtx, id);
     if (!items) return reply.code(404).send({ error: 'not found' });
     return { items };
+  });
+
+  /**
+   * Each session's list as the gallery of every session last read it, held
+   * under its transcript's stamp and its pending rewind: scrolling and
+   * reopening the gallery do not parse a transcript again until it changes.
+   * A named file's `disk` state is as fresh as that read; a tile whose file
+   * is gone since finds out when it fails to load (spec
+   * 2026-10-13-all-sessions-gallery-design § Data).
+   */
+  const mediaLists = new StampedCache<MediaItem[] | null>(MEDIA_LIST_CACHE_SESSIONS);
+  const cachedSessionMedia = (id: string): MediaItem[] | null => {
+    const row = mediaCtx.row(id);
+    if (!row) return null;
+    const stamp = fileStamp(ctx.transcriptPath(id, row.project_dir, row.claude_dir_id));
+    if (stamp === null) return sessionMedia(mediaCtx, id);
+    return mediaLists.get(id, `${stamp}|${rewindStore.pending(id)?.targetUuid ?? ''}`, () => sessionMedia(mediaCtx, id));
+  };
+  /** Where a session stands in the gallery's walk, and what each item carries of it. */
+  const walkSession = (r: { id: string; title: string; last_at: number | null }): WalkSession => ({
+    id: r.id, at: r.last_at ?? 0, title: r.title, tagIds: effectiveTagIds(db, r.id),
+  });
+  /** The sessions the gallery may show: the list's, without a harness drafting conversation. */
+  const galleryRows = () =>
+    and(
+      inArray(sessions.claudeDirId, configuredDirIds()),
+      sql`(${sessions.purpose} IS NULL OR ${sessions.purpose} != 'harness_draft')`,
+    );
+  const walkAt = sql<number>`COALESCE(${sessions.lastAt}, 0)`;
+
+  // The media of every session, newest activity first, a page at a time
+  // (spec 2026-10-13-all-sessions-gallery-design § Data). `?cursor=` is the
+  // `next` of the page before; `?tag=1,3` keeps the sessions carrying any of
+  // those tags.
+  app.get('/api/media', (req, reply) => {
+    const q = req.query as Record<string, string>;
+    const cursor = q.cursor ? decodeCursor(q.cursor) : null;
+    if (q.cursor && !cursor) return reply.code(400).send({ error: 'bad cursor' });
+    const limit = Math.min(positiveIntParam(q.limit) ?? ALL_MEDIA_DEFAULT_LIMIT, ALL_MEDIA_MAX_LIMIT);
+    const columns = { id: sessions.id, title: sessions.title, last_at: sessions.lastAt };
+    return allMediaPage(
+      {
+        sessionsAfter: (after: WalkPosition | null, n: number) =>
+          db.select(columns).from(sessions)
+            .where(after
+              ? and(galleryRows(), sql`(${walkAt} < ${after.at} OR (${walkAt} = ${after.at} AND ${sessions.id} < ${after.id}))`)
+              : galleryRows())
+            .orderBy(desc(walkAt), desc(sessions.id))
+            .limit(n)
+            .all()
+            .map(walkSession),
+        session: (id: string) => {
+          const r = db.select(columns).from(sessions).where(and(galleryRows(), eq(sessions.id, id))).get();
+          return r && walkSession(r);
+        },
+        media: cachedSessionMedia,
+      },
+      { cursor, limit, tags: parseTagFilter(q.tag), scanMax: ALL_MEDIA_SCAN_MAX },
+    );
   });
 
   /**

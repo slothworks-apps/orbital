@@ -40,3 +40,22 @@ export interface MediaItem {
    */
   subagent?: { toolUseId: string; name: string };
 }
+
+/**
+ * One item of the gallery of every session, as `GET /api/media` lists it
+ * (spec 2026-10-13-all-sessions-gallery-design § Data): a session's item, and
+ * the session it belongs to. `id` is the item's id within its session, so the
+ * pair (`sessionId`, `id`) is what names it across sessions.
+ */
+export interface AllMediaItem extends MediaItem {
+  sessionId: string;
+  sessionTitle: string;
+  /** The session's effective tags, as `GET /api/sessions` reports them. */
+  tagIds: number[];
+}
+
+/** A page of `GET /api/media`: newest first, and where the next page starts (null at the end). */
+export interface AllMediaPage {
+  items: AllMediaItem[];
+  next: string | null;
+}

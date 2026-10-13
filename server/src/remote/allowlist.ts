@@ -56,6 +56,8 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['POST', '/api/sessions/:id/limit-wait/undo'],
   ['GET', '/api/sessions/:id/walkthrough'],
   ['GET', '/api/sessions/:id/walkthrough/summary'],
+  // The gallery of every session (spec 2026-10-13-all-sessions-gallery-design § Phone).
+  ['GET', '/api/media'],
   ['GET', '/api/tags'],
   ['GET', '/api/projects'],
   // New Session's missing-directory line and its *Create and start* (spec
