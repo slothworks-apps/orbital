@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MediaItem } from '../lib/types'
 import type { MediaTile } from '../lib/media'
-import { isToolMedia, mediaClock } from '../lib/media'
+import { isToolMedia, mediaClock, mediaSourceLabel } from '../lib/media'
 import { useMediaSourceUrl } from '../lib/images'
 import { usePdfThumbnail } from '../lib/pdf'
 
@@ -20,10 +20,10 @@ const TAG_CLASS =
 
 /** 24f B's TOOL RUN: one offset hairline behind the tile — a stack, not a shadow. */
 const STACK_SHADOW = 'shadow-[3px_-3px_0_-1px_#0b1120,3px_-3px_0_0_rgba(150,205,255,.16)]'
-/** 24f B: hover is 7d's — border to .42 and a 3px accent halo, no scale. */
-const HOVER_HALO = 'hover:shadow-[0_0_0_3px_rgba(89,228,243,.12)]'
+/** 24f B: hover is 7d's — border to .42 and a 3px accent halo, no scale; on the tile's group, so its line counts too. */
+const HOVER_HALO = 'group-hover:shadow-[0_0_0_3px_rgba(89,228,243,.12)]'
 const STACK_HOVER_HALO =
-  'hover:shadow-[3px_-3px_0_-1px_#0b1120,3px_-3px_0_0_rgba(150,205,255,.16),0_0_0_3px_rgba(89,228,243,.12)]'
+  'group-hover:shadow-[3px_-3px_0_-1px_#0b1120,3px_-3px_0_0_rgba(150,205,255,.16),0_0_0_3px_rgba(89,228,243,.12)]'
 
 /** Whether the list says the file an item names is gone. */
 export function isGone(item: MediaItem): boolean {
@@ -72,11 +72,14 @@ export function MediaPicture({
   item,
   onPages,
   onGone,
+  fit = 'cover',
 }: {
   sessionId: string
   item: MediaItem
   onPages?: (pages: number) => void
   onGone: () => void
+  /** `contain` shows the whole image, letterboxed — a wide screenshot read whole rather than cropped to its middle. */
+  fit?: 'cover' | 'contain'
 }) {
   const { url } = useMediaSourceUrl(sessionId, item)
   const pdf = usePdfThumbnail(item.kind === 'pdf' ? url : null, url ? pdfKey(url, item) : '')
@@ -94,15 +97,16 @@ export function MediaPicture({
     ) : null
   }
   return url ? (
-    <img src={url} alt="" loading="lazy" onError={onGone} className="block h-full w-full object-cover" />
+    <img src={url} alt="" loading="lazy" onError={onGone} className={['block h-full w-full', fit === 'contain' ? 'object-contain' : 'object-cover'].join(' ')} />
   ) : null
 }
 
 export type TileVariant = 'glance' | 'gallery'
 
 /**
- * One grid tile (24b's glance, 24d's gallery, 24f B): a square crop, the tag
- * bottom-left, and in the gallery the time top-right. Yours and the agent's
+ * One grid tile (24b's glance, 24d's gallery, 24f B): the whole image in a
+ * square, the tag bottom-left, in the gallery the time top-right, and under
+ * it one line naming the file or where the image came from. Yours and the agent's
  * images carry no tag; tool frames carry ⚙ (⚙ ×n for a stack); PDFs say
  * PDF · pages once pdf.js has counted them.
  */
@@ -125,6 +129,7 @@ export function MediaTileButton({
   const tag = isToolMedia(cover) ? (stacked ? `⚙ ×${count}` : '⚙') : cover.kind === 'pdf' && !gone ? (pages ? `PDF · ${pages}` : 'PDF') : null
   const title = stacked ? `${count} tool images` : (cover.path ?? (cover.source === 'tool' ? 'Tool image' : 'Attached image'))
   const gallery = variant === 'gallery'
+  const label = stacked ? title : tileLabel(cover)
 
   return (
     <button
@@ -132,12 +137,15 @@ export function MediaTileButton({
       title={title}
       aria-label={`Open ${title}`}
       onClick={() => onOpen(first)}
+      className="group block w-full min-w-0 cursor-zoom-in p-0 text-left"
+    >
+    <span
       className={[
-        'relative aspect-square w-full cursor-zoom-in overflow-hidden rounded-[6px] border p-0',
+        'relative aspect-square w-full overflow-hidden rounded-[6px] border',
         'transition-[border-color,box-shadow] duration-[160ms] ease-[ease]',
         gone
           ? 'flex flex-col items-center justify-center gap-[5px] border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.6)]'
-          : 'block border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.6)] hover:border-[rgba(150,205,255,.42)]',
+          : 'block border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.6)] group-hover:border-[rgba(150,205,255,.42)]',
         stacked ? `${STACK_SHADOW} ${STACK_HOVER_HALO}` : gone ? '' : HOVER_HALO,
       ].join(' ')}
     >
@@ -147,6 +155,7 @@ export function MediaTileButton({
         <MediaPicture
           sessionId={sessionId}
           item={cover}
+          fit="contain"
           onPages={setPages}
           onGone={() => setGoneKey(cover.id)}
         />
@@ -163,8 +172,18 @@ export function MediaTileButton({
           {mediaClock(cover.ts)}
         </span>
       )}
+    </span>
+    <span className="mt-1 block truncate font-mono text-[9.5px] text-[rgba(200,220,245,.6)] group-hover:text-[rgba(220,235,255,.85)]">
+      {label}
+    </span>
     </button>
   )
+}
+
+/** A tile's line: the file's name when it has a path, else where the image came from. */
+function tileLabel(item: MediaItem): string {
+  const name = item.path?.split('/').filter(Boolean).pop()
+  return name ?? mediaSourceLabel(item)
 }
 
 /** 24f A / 24b: the tag on a reply's PDF thumbnail. */
