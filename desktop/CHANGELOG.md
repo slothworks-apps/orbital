@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.30.0] — 2026-10-13
 ### Added
 - Filter by multiple tags at once: plain click selects only that tag, ⌘-click adds or removes it from the selection.
 
