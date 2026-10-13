@@ -153,19 +153,20 @@ function TagLaunchDefaults({ tag, onChange }: { tag: Tag; onChange: (patch: TagL
   const defaultClaudeDir = useOrbital((s) => s.defaultClaudeDir)
   // The models the tag's directory offers: each account has its own.
   const models = useClaudeDirModels(tag.claude_dir_id ?? defaultClaudeDir)
-  const dirOptions: Array<{ value: number | null; label: string }> = [
-    { value: null, label: 'Default' },
+  // Select takes no null, so "Default" is the empty string here.
+  const dirOptions: Array<{ value: number | ''; label: string }> = [
+    { value: '', label: 'Default' },
     ...claudeDirs.map((dir) => ({ value: dir.id, label: dir.name })),
   ]
-  const model = tag.model ?? null
-  const modelOptions: Array<{ value: string | null; label: string }> = [
-    { value: null, label: 'Default' },
+  const model = tag.model ?? ''
+  const modelOptions: Array<{ value: string; label: string }> = [
+    { value: '', label: 'Default' },
     ...models.map((m) => ({ value: m.value, label: modelChipLabel(m) })),
     // A model the catalog does not list (set through Other elsewhere) stays shown.
     ...(model && !modelByValue(model, models) ? [{ value: model, label: model }] : []),
   ]
-  const modeOptions: Array<{ value: PermissionMode | null; label: string; dotColor?: string }> = [
-    { value: null, label: 'Default' },
+  const modeOptions: Array<{ value: PermissionMode | ''; label: string; dotColor?: string }> = [
+    { value: '', label: 'Default' },
     ...PERMISSION_MODES.map((mode) => ({ value: mode.value, label: mode.label, dotColor: mode.dot })),
   ]
   const label = 'font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.45)]'
@@ -179,8 +180,8 @@ function TagLaunchDefaults({ tag, onChange }: { tag: Tag; onChange: (patch: TagL
             className="w-full"
             aria-label={`Claude directory for ${tag.name}`}
             options={dirOptions}
-            value={tag.claude_dir_id ?? null}
-            onChange={(claude_dir_id) => onChange({ claude_dir_id })}
+            value={tag.claude_dir_id ?? ''}
+            onChange={(dir) => onChange({ claude_dir_id: dir === '' ? null : dir })}
           />
         </>
       )}
@@ -191,7 +192,7 @@ function TagLaunchDefaults({ tag, onChange }: { tag: Tag; onChange: (patch: TagL
         aria-label={`Model for ${tag.name}`}
         options={modelOptions}
         value={model}
-        onChange={(next) => onChange({ model: next })}
+        onChange={(next) => onChange({ model: next || null })}
       />
       <span className={label}>MODE</span>
       <Select
@@ -199,8 +200,8 @@ function TagLaunchDefaults({ tag, onChange }: { tag: Tag; onChange: (patch: TagL
         className="w-full"
         aria-label={`Permission mode for ${tag.name}`}
         options={modeOptions}
-        value={tag.permission_mode ?? null}
-        onChange={(permission_mode) => onChange({ permission_mode })}
+        value={tag.permission_mode ?? ''}
+        onChange={(mode) => onChange({ permission_mode: mode || null })}
       />
     </div>
   )
