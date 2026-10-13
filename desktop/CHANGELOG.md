@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.31.0] — 2026-10-13
 ### Added
 - A tag can set the Claude directory, model and permission mode its sessions start with, in Settings → Tags; New session preselects them, and uses the default directory while the tag's has hit its limit.
 
