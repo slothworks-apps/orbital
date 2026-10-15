@@ -4,6 +4,11 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.32.1] — 2026-10-15
+### Added
+- Settings has a new Labs section with features you can try, each off until you turn it on. Harness and Terminal now live there.
+- Settings → Shortcuts lists the shortcuts of Labs features even while they are off, marked as off, so you can find them.
+
 ## [0.32.0] — 2026-10-15
 ### Added
 - A session's Media also shows the images and PDFs its subagents produced, and images the agent saved to disk without mentioning them.
