@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.29.3] — 2026-10-15
 ### Changed
 - Menus, dropdown lists, the media preview and the mode and model pickers slide open from their button more visibly.
 - The media gallery slides down over the transcript when it opens and back up when it closes.
