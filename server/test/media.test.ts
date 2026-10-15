@@ -203,7 +203,7 @@ describe('written images', () => {
 
 describe('sessionMedia', () => {
   const row = { id: 's', cwd: '/w' } as SessionRow;
-  const msg = (m: Partial<ChatMessage> & { id: string; role: ChatMessage['role'] }): ChatMessage => m as ChatMessage;
+  const msg = (m: Partial<ChatMessage> & { id: string; role: ChatMessage['role'] }): ChatMessage => m;
   const parent: ChatMessage[] = [
     msg({ id: 'u1:1', role: 'user', timestamp: T1, images: [{ ref: 'r1.png', w: 1, h: 1, bytes: 1 }] }),
     msg({ id: 'a1:0', role: 'tool_use', toolName: 'Agent', toolUseId: 'toolu_a', toolInput: { subagent_type: 'Explore' }, timestamp: T1 }),
