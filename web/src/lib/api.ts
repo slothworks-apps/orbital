@@ -65,7 +65,7 @@ export interface SendResult {
 export type DirectoryState = 'directory' | 'missing' | 'not_a_directory' | 'not_absolute'
 
 export interface SessionListParams {
-  tag?: number
+  tags?: number[]
   q?: string
   source?: string
   limit?: number
@@ -254,7 +254,7 @@ export const api = {
    */
   async listSessionPage(params?: SessionListParams): Promise<SessionListPage> {
     const url = new URL('/api/sessions', window.location.origin)
-    if (params?.tag !== undefined) url.searchParams.set('tag', String(params.tag))
+    if (params?.tags !== undefined && params.tags.length > 0) url.searchParams.set('tag', params.tags.join(','))
     if (params?.q !== undefined) url.searchParams.set('q', params.q)
     if (params?.source !== undefined) url.searchParams.set('source', params.source)
     if (params?.limit !== undefined) url.searchParams.set('limit', String(params.limit))

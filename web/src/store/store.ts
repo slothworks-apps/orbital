@@ -194,7 +194,7 @@ export interface Toast {
 
 export interface OrbitalUiState {
   selectedId: string | null
-  filterTagId: number | 'all'
+  filterTagIds: number[]
   search: string
   sourceFilter: 'all' | SessionSource
   wsStatus: string
@@ -618,7 +618,7 @@ export interface OrbitalActions {
    */
   dismissIdeSelection(sessionId: string, selectionId: string): void
   setComposerDraft(sessionId: string, text: string): void
-  setFilterTag(filterTagId: number | 'all'): void
+  setFilterTagIds(filterTagIds: number[]): void
   setSearch(search: string): void
   setSourceFilter(sourceFilter: 'all' | SessionSource): void
   /** Pins (or unpins) a session — a pinned session stays on the map once it has ended. */
@@ -1019,7 +1019,7 @@ function sortIdsByLastAtDesc(sessions: Record<string, ApiSession>): string[] {
 
 const initialUiState: OrbitalUiState = {
   selectedId: null,
-  filterTagId: 'all',
+  filterTagIds: [],
   search: '',
   sourceFilter: 'all',
   wsStatus: 'connecting',
@@ -2132,8 +2132,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     })
   },
 
-  setFilterTag(filterTagId) {
-    set((state) => ({ ui: { ...state.ui, filterTagId } }))
+  setFilterTagIds(filterTagIds) {
+    set((state) => ({ ui: { ...state.ui, filterTagIds } }))
   },
 
   setSearch(search) {
@@ -2983,9 +2983,9 @@ export function matchesSearch(session: ApiSession, query: string): boolean {
  */
 export function matchesSidebarFilters(
   session: ApiSession,
-  ui: Pick<OrbitalUiState, 'filterTagId' | 'search'>
+  ui: Pick<OrbitalUiState, 'filterTagIds' | 'search'>
 ): boolean {
-  const tagOk = ui.filterTagId === 'all' || session.tagIds.includes(ui.filterTagId)
+  const tagOk = ui.filterTagIds.length === 0 || session.tagIds.some((id) => ui.filterTagIds.includes(id))
   return tagOk && matchesSearch(session, ui.search)
 }
 

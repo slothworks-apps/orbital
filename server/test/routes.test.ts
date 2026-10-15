@@ -364,6 +364,18 @@ describe('REST routes', () => {
     expect(res.json().sessions.map((s: any) => s.id)).toEqual(['s1']);
   });
 
+  it('GET /api/sessions?tag= takes several tags, any of which lets a session through', async () => {
+    db.insert(tags).values({ id: 11, name: 'home', hue: 30 }).run();
+    db.insert(tags).values({ id: 12, name: 'empty', hue: 90 }).run();
+    db.insert(sessionTags).values({ sessionId: 's2', tagId: 11, origin: 'manual' }).run();
+    const ids = async (tag: string) =>
+      (await app.inject({ method: 'GET', url: `/api/sessions?tag=${tag}` })).json().sessions.map((s: any) => s.id);
+    expect(await ids('10,11')).toEqual(['s1', 's2']);
+    expect(await ids('11,12')).toEqual(['s2']);
+    // A single id, as older clients send it.
+    expect(await ids('10')).toEqual(['s1']);
+  });
+
   // The phone's ENDED fold, read only when it is opened. A pinned ended
   // session is not in the fold, and comes with the list.
   it('GET /api/sessions?ended= leaves the unpinned ended sessions out, or returns only them', async () => {

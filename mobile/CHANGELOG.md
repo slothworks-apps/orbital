@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.10.3] — 2026-10-15
+### Added
+- Filter by multiple tags at once: tap to select only that tag, long-press to add or remove it from the selection.
+
 ## [0.10.2] — 2026-10-15
 ### Changed
 - Messages are rendered by a newer version of the Markdown library; nothing should look different.

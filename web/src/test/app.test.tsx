@@ -175,7 +175,7 @@ function resetStore() {
     stoppingTasks: {},
     ui: {
       selectedId: null,
-      filterTagId: 'all',
+      filterTagIds: [],
       search: '',
       sourceFilter: 'all',
       wsStatus: 'connecting',

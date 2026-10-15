@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { timeAgo } from '../../lib/format'
+import { toggleTag } from '../../lib/tagFilter'
 import { isReadOnly, tagColor, type ApiSession, type Tag } from '../../lib/types'
 import { useNow } from '../../lib/useNow'
 import { ClaudeDirMark, useClaudeDirMark } from '../../ui/ClaudeDirMark'
@@ -34,7 +35,7 @@ export function SessionListScreen() {
   const openSubagent = useMobile((s) => s.openSubagent)
   const openTask = useMobile((s) => s.openTask)
   const go = useMobile((s) => s.go)
-  const [tagId, setTagId] = useState<number | null>(null)
+  const [tagIds, setTagIds] = useState<number[]>([])
   const [endedOpen, setEndedOpen] = useState(false)
   const [checking, setChecking] = useState(false)
   const now = useNow(true, CLOCK_TICK_MS)
@@ -45,8 +46,8 @@ export function SessionListScreen() {
   const endedFold = useMobile(useShallow((s) => ({ summary: s.endedSummary, loaded: s.endedLoaded })))
 
   const mac = macName ?? 'Your Mac'
-  const held = useMemo(() => groupSessions(sessions, tagId), [sessions, tagId])
-  const heading = endedHeading(held.find((g) => g.key === 'ended')?.sessions ?? [], endedFold, countedBySummary, tagId !== null)
+  const held = useMemo(() => groupSessions(sessions, tagIds), [sessions, tagIds])
+  const heading = endedHeading(held.find((g) => g.key === 'ended')?.sessions ?? [], endedFold, countedBySummary, tagIds.length > 0)
   // The fold is drawn from the Mac's count even before a single ended row is held.
   const groups = heading && !held.some((g) => g.key === 'ended') ? [...held, { key: 'ended' as const, sessions: [] }] : held
   const chips = useMemo(() => tagChips(sessions, tags), [sessions, tags])
@@ -76,12 +77,13 @@ export function SessionListScreen() {
 
       {chips.length > 0 && (
         <div className="flex gap-2 overflow-x-auto px-4 pb-2.5 pt-1">
-          <Chip active={tagId === null} onClick={() => setTagId(null)} label="All" count={liveCount} />
+          <Chip active={tagIds.length === 0} onClick={() => setTagIds([])} label="All" count={liveCount} />
           {chips.map(({ tag, live }) => (
             <Chip
               key={tag.id}
-              active={tagId === tag.id}
-              onClick={() => setTagId(tagId === tag.id ? null : tag.id)}
+              active={tagIds.includes(tag.id)}
+              onClick={() => setTagIds(tagIds.length === 1 && tagIds[0] === tag.id ? [] : [tag.id])}
+              onLongPress={() => setTagIds(toggleTag(tagIds, tag.id))}
               label={tag.name}
               count={live}
               hue={tag.hue}
@@ -238,7 +240,7 @@ export function SessionListScreen() {
 
         {groups.length === 0 && (
           <p className="px-8 py-10 text-center text-[13px] text-[rgba(160,190,225,.6)]">
-            {tagId === null ? 'No sessions yet.' : `No live sessions tagged ${tagById.get(tagId)?.name ?? ''}.`}
+            {tagIds.length === 0 ? 'No sessions yet.' : `No live sessions with the selected tags.`}
           </p>
         )}
       </div>
@@ -275,24 +277,59 @@ function MacDot({ state }: { state: 'online' | 'asleep' | 'connecting' }) {
   )
 }
 
+const LONG_PRESS_MS = 500
+
 function Chip({
   active,
   onClick,
+  onLongPress,
   label,
   count,
   hue,
 }: {
   active: boolean
   onClick: () => void
+  onLongPress?: () => void
   label: string
   count?: number
   hue?: number
 }) {
+  // A hold adds a tag to the selection (the phone has no ⌘). Pointer events,
+  // so it works under a finger; the click the release then fires is eaten.
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const held = useRef(false)
+  const cancel = () => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = null
+  }
+  const down = () => {
+    if (!onLongPress) return
+    held.current = false
+    cancel()
+    timer.current = setTimeout(() => {
+      timer.current = null
+      held.current = true
+      onLongPress()
+    }, LONG_PRESS_MS)
+  }
+  const click = () => {
+    if (held.current) {
+      held.current = false
+      return
+    }
+    onClick()
+  }
+
   return (
     <button
       type="button"
       aria-pressed={active}
-      onClick={onClick}
+      onClick={click}
+      onPointerDown={down}
+      onPointerUp={cancel}
+      onPointerLeave={cancel}
+      onPointerCancel={cancel}
+      onContextMenu={onLongPress ? (e) => e.preventDefault() : undefined}
       className={[
         'flex h-9 shrink-0 items-center gap-[7px] rounded-full border px-[13px] text-[13px] font-semibold',
         active

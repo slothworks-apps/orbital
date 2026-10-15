@@ -27,7 +27,7 @@ describe('groupSessions', () => {
         session('idle-new', { lastAt: 5 }),
         session('asks', { status: 'needs_input', pendingDecision: question }),
       ],
-      null,
+      [],
     )
     expect(groups.map((g) => g.key)).toEqual(['input', 'idle', 'ended'])
     expect(groups[1].sessions.map((s) => s.id)).toEqual(['idle-new', 'idle-old'])
@@ -39,9 +39,11 @@ describe('groupSessions', () => {
     expect(groupOf(session('i', { status: 'working', interruptedAt: 5 }))).toBe('idle')
   })
 
-  it('filters by tag, locally', () => {
-    const groups = groupSessions([session('a', { tagIds: [1] }), session('b', { tagIds: [2] })], 2)
-    expect(groups.flatMap((g) => g.sessions.map((s) => s.id))).toEqual(['b'])
+  it('filters by tag, locally (OR semantics for multiple tags)', () => {
+    const sessions = [session('a', { tagIds: [1] }), session('b', { tagIds: [2] }), session('c', { tagIds: [1, 3] })]
+    expect(groupSessions(sessions, [2]).flatMap((g) => g.sessions.map((s) => s.id))).toEqual(['b'])
+    expect(groupSessions(sessions, [1, 2]).flatMap((g) => g.sessions.map((s) => s.id))).toEqual(['a', 'b', 'c'])
+    expect(groupSessions(sessions, []).flatMap((g) => g.sessions.map((s) => s.id))).toEqual(['a', 'b', 'c'])
   })
 })
 
@@ -174,7 +176,7 @@ describe('10a groups', () => {
         session('cancelled', { limitWait: wait({ cancelled: true, willContinue: false }) }),
         session('work', { status: 'working' }),
       ],
-      null,
+      [],
     )
     expect(groups.map((g) => g.key)).toEqual(['working', 'limit', 'idle'])
     expect(groups[1].sessions.map((s) => s.id).sort()).toEqual(['cancelled', 'wait'])
@@ -189,7 +191,7 @@ describe('10a groups', () => {
         session('old', { lastAt: 2 }),
         session('pin-early', { lastAt: 1, pinnedAt: 10 }),
       ],
-      null,
+      [],
     )
     expect(idle.sessions.map((s) => s.id)).toEqual(['pin-early', 'pin-late', 'new', 'old'])
   })
@@ -201,7 +203,7 @@ describe('10a groups', () => {
         session('kept', { status: 'ended', pinnedAt: 5 }),
         session('asks', { status: 'needs_input', pendingDecision: question, pinnedAt: 1 }),
       ],
-      null,
+      [],
     )
     expect(groups.map((g) => [g.key, g.sessions.map((s) => s.id)])).toEqual([
       ['input', ['asks']],

@@ -33,7 +33,7 @@ export function useSceneModel(): SceneModel {
   const order = useOrbital((s) => s.order)
   const tags = useOrbital((s) => s.tags)
   const selectedId = useOrbital((s) => s.ui.selectedId)
-  const filterTagId = useOrbital((s) => s.ui.filterTagId)
+  const filterTagIds = useOrbital((s) => s.ui.filterTagIds)
   const search = useOrbital((s) => s.ui.search)
   const sourceFilter = useOrbital((s) => s.ui.sourceFilter)
   const settings = useOrbital((s) => s.settings)
@@ -108,7 +108,7 @@ export function useSceneModel(): SceneModel {
           harnessTemplatesFocus: null,
           ui: {
             selectedId,
-            filterTagId,
+            filterTagIds,
             search,
             sourceFilter,
             wsStatus: '',
@@ -129,7 +129,7 @@ export function useSceneModel(): SceneModel {
       sessionsTotal,
       leavingSince,
       selectedId,
-      filterTagId,
+      filterTagIds,
       search,
       sourceFilter,
       nowMs,
