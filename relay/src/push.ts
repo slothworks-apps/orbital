@@ -1,7 +1,7 @@
 /**
  * The one thing the relay says to a phone that is not connected: a generic
- * push, through Firebase Cloud Messaging, counting how many sessions wait
- * without knowing which (spec 2026-09-30-mobile-remote-design § 5).
+ * push, through Firebase Cloud Messaging, that a session needs input without
+ * saying which (spec 2026-09-30-mobile-remote-design § 5).
  */
 import { createSign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -9,8 +9,14 @@ import { log, short } from './log.js';
 import type { RelayStore } from './store.js';
 import type { WakeHook } from './ws.js';
 
-/** A count and nothing else: no device name crosses the relay or the push services (spec 2026-10-08-relay-knows-no-names-design). */
-export type PushPayload = { count: number };
+/**
+ * The wake token, as hex, and nothing else: no device name crosses the relay
+ * or the push services (spec 2026-10-08-relay-knows-no-names-design). The
+ * token is the Mac's per-session HMAC, which the relay cannot read; as the
+ * notification's tag it makes a later push for the same session replace the
+ * earlier one (spec 2026-10-15-the-phone-is-quiet-while-you-are-at-the-mac-design § 3).
+ */
+export type PushPayload = { tag: string };
 
 export interface PushSender {
   send(token: string, payload: PushPayload): Promise<void>;
@@ -18,66 +24,26 @@ export interface PushSender {
 
 export class LogPushSender implements PushSender {
   send(token: string, payload: PushPayload): Promise<void> {
-    log(`push not sent (no FCM configured) to ${short(token)}, count ${payload.count}`);
+    log(`push not sent (no FCM configured) to ${short(token)}, tag ${short(payload.tag)}`);
     return Promise.resolve();
   }
 }
 
-/** Caps on `WakeTracker`'s memory: a wedged phone must not grow it without bound. */
-export const WAKE_TRACKER_MAX_PER_PHONE = 64;
-export const WAKE_TRACKER_MAX_PHONES = 1024;
-
-/** Distinct wake tokens per phone since it was last online. */
-export class WakeTracker {
-  private pending = new Map<string, Set<string>>();
-
-  add(phone: string, wake: Uint8Array): number {
-    let set = this.pending.get(phone);
-    if (set) {
-      // Re-insert: Maps iterate in insertion order, so this keeps the first
-      // key equal to the least recently touched phone (see WAKE_TRACKER_MAX_PHONES below).
-      this.pending.delete(phone);
-    } else if (this.pending.size >= WAKE_TRACKER_MAX_PHONES) {
-      const oldest = this.pending.keys().next().value;
-      if (oldest !== undefined) this.pending.delete(oldest);
-    }
-    if (!set) set = new Set();
-    this.pending.set(phone, set);
-    set.add(Buffer.from(wake).toString('hex'));
-    if (set.size > WAKE_TRACKER_MAX_PER_PHONE) {
-      // Sets also keep insertion order; drop the oldest wake for this phone.
-      const oldest = set.values().next().value;
-      if (oldest !== undefined) set.delete(oldest);
-    }
-    return set.size;
-  }
-
-  clear(phone: string): void {
-    this.pending.delete(phone);
-  }
-}
-
 /** A phone pairs with one Mac, so the title names none: it would tell the user nothing, and tell FCM and APNs a name. */
-export function pushText(count: number): { title: string; body: string } {
-  return {
-    title: 'Orbital',
-    body: count === 1 ? 'A session needs your input' : `${count} sessions need your input`,
-  };
-}
+export const PUSH_TEXT = { title: 'Orbital', body: 'A session needs your input' } as const;
 
-export function wakeHook(store: RelayStore, tracker: WakeTracker, sender: PushSender): WakeHook {
+export function wakeHook(store: RelayStore, sender: PushSender): WakeHook {
   return async (_from, to, wake) => {
     let token: string | null = null;
-    let count = 0;
+    const tag = Buffer.from(wake).toString('hex');
     try {
       const phone = await store.device(to);
       if (!phone?.pushToken) return;
       token = phone.pushToken;
-      count = tracker.add(to, wake);
-      await sender.send(token, { count });
-      log(`push sent to ${short(token)}, count ${count}`);
+      await sender.send(token, { tag });
+      log(`push sent to ${short(token)}, tag ${short(tag)}`);
     } catch (err) {
-      log(`push failed to ${token ? short(token) : '?'}, count ${count}: ${err instanceof Error ? err.message : String(err)}`);
+      log(`push failed to ${token ? short(token) : '?'}, tag ${short(tag)}: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 }
@@ -102,13 +68,12 @@ export class FcmPushSender implements PushSender {
   ) {}
 
   async send(token: string, payload: PushPayload): Promise<void> {
-    const { title, body } = pushText(payload.count);
     const message = JSON.stringify({
       message: {
         token,
-        notification: { title, body },
-        android: { collapse_key: 'needs-input', priority: 'high', notification: { channel_id: 'needs_input' } },
-        apns: { headers: { 'apns-collapse-id': 'needs-input' } },
+        notification: PUSH_TEXT,
+        android: { collapse_key: 'needs-input', priority: 'high', notification: { channel_id: 'needs_input', tag: payload.tag } },
+        apns: { headers: { 'apns-collapse-id': payload.tag } },
       },
     });
     const res = await this.post(message);

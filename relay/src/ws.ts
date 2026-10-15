@@ -15,7 +15,6 @@ import { secretMatches } from './secret.js';
 import { RELAY_VERSION } from './version.js';
 import { Connections, MAX_BUFFERED_BYTES, OfflineQueue, type Conn } from './connections.js';
 import { log, short } from './log.js';
-import type { WakeTracker } from './push.js';
 import type { RelayStore } from './store.js';
 
 export const AUTH_TIMEOUT_MS = 10_000;
@@ -28,7 +27,6 @@ export type WsContext = {
   store: RelayStore;
   connections: Connections;
   queue: OfflineQueue;
-  tracker: WakeTracker;
   onWake: WakeHook;
   now: () => number;
   pingIntervalMs: number;
@@ -108,8 +106,6 @@ function attach(conn: Conn, ctx: WsContext, early: [RawData, boolean][], expectM
   // One socket per device: the predecessor is replaced outright, since a
   // closing handshake would leave it routing frames until the peer answers.
   previous?.socket.terminate();
-  // A phone that came online has seen everything pending for it.
-  ctx.tracker.clear(id);
   log(`device ${short(id)} connected${previous ? ', replacing its previous socket' : ''}`);
 
   send(socket, { type: 'ok', peers: [...peers].filter((p) => ctx.connections.isOnline(p)) });

@@ -4,6 +4,10 @@ All notable changes to the relay image. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-10-15
+### Changed
+- Notifications sent through the relay replace each other per session instead of piling up: the shade holds at most one per session, and each says "A session needs your input" rather than counting.
+
 ## [0.4.0] — 2026-10-08
 ### Changed
 - The relay stores no device names any more: it drops the Mac's and the phones' names and platforms it kept, and passes a phone's name to its Mac sealed, unreadable to the relay.

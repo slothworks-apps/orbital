@@ -5,6 +5,7 @@ status: in-force
 type: adr
 domain: remote
 related:
+  - 2026-10-15-the-phone-is-quiet-while-you-are-at-the-mac-design
   - 2026-10-02-mobile-app-design
   - 2026-10-02-mobile-app-write
   - 2026-09-30-mobile-remote-design
@@ -77,3 +78,6 @@ background" rule governs the system notification alone.
 - When the OS kills the socket, the next transition is reported by the
   relay, generically, and the one in flight at that moment is lost — the
   same gap a desktop has when its window is closed. Opening the app resyncs.
+- Neither path speaks while the user is at the Mac, and the relay's push is
+  tagged per session, so each session holds at most one row in the shade
+  ([[2026-10-15-the-phone-is-quiet-while-you-are-at-the-mac-design]]).

@@ -1,9 +1,19 @@
 import type { FastifyInstance } from 'fastify';
+import type { Presence } from '../remote/presence.js';
 import type { RemoteService } from '../remote/service.js';
 
-/** Settings → Mobile talks to these; the phone never can (they are not allowlisted). */
-export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService): void {
+/** Settings → Mobile and the desktop app talk to these; the phone never can (they are not allowlisted). */
+export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService, presence?: Presence): void {
   app.get('/api/remote', () => remote.status());
+
+  // The desktop app's heartbeat while the user is at the Mac (spec
+  // 2026-10-15-the-phone-is-quiet-while-you-are-at-the-mac-design § 1).
+  app.put('/api/presence', (req, reply) => {
+    const body = (req.body ?? {}) as { atMac?: unknown };
+    if (typeof body.atMac !== 'boolean') return reply.code(400).send({ error: 'atMac must be a boolean' });
+    presence?.report(body.atMac);
+    return reply.code(204).send();
+  });
 
   // "Try again": a failed start does not retry on identical settings by itself.
   app.post('/api/remote/restart', () => {

@@ -4,6 +4,11 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-10-15
+### Changed
+- The phone no longer notifies while you are working at your Mac; it notifies again once the Mac is locked or left alone for a few minutes. Needs a Mac with this update.
+- A session's "needs your input" notification goes away by itself once the session moves on.
+
 ## [0.10.3] — 2026-10-15
 ### Added
 - Filter by multiple tags at once: tap to select only that tag, long-press to add or remove it from the selection.

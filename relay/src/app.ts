@@ -7,7 +7,7 @@ import { Connections, OfflineQueue } from './connections.js';
 import { RateLimiter } from './rateLimit.js';
 import { handleSocket, type WakeHook, type WsContext } from './ws.js';
 import { registerPairingRoutes } from './pairing.js';
-import { LogPushSender, WakeTracker, wakeHook, type PushSender } from './push.js';
+import { LogPushSender, wakeHook, type PushSender } from './push.js';
 import type { RelayStore } from './store.js';
 import { RELAY_VERSION } from './version.js';
 
@@ -37,14 +37,12 @@ declare module 'fastify' {
 
 export async function buildRelay(opts: RelayOptions): Promise<FastifyInstance> {
   const app = Fastify({ trustProxy: opts.trustProxy ?? false });
-  const tracker = new WakeTracker();
   const now = opts.now ?? Date.now;
   const ctx: WsContext = {
     store: opts.store,
     connections: new Connections(),
     queue: new OfflineQueue(),
-    tracker,
-    onWake: opts.onWake ?? wakeHook(opts.store, tracker, opts.push ?? new LogPushSender()),
+    onWake: opts.onWake ?? wakeHook(opts.store, opts.push ?? new LogPushSender()),
     now,
     pingIntervalMs: opts.pingIntervalMs ?? RELAY_PING_INTERVAL_MS,
     secret: opts.secret || null,

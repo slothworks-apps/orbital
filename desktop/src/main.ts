@@ -32,6 +32,7 @@ import {
   parseWindowButtonsVisible,
 } from './lib/mainWindow';
 import { SessionNotifier, parseNotificationSettings } from './lib/notifications';
+import { PRESENCE_IDLE_SECONDS, PRESENCE_POLL_MS, presenceReport } from './lib/presence';
 import { NOTIFICATION_SETTINGS_URL, probeNotificationPermission } from './lib/notificationPermission';
 import { probeHealth, probeVite } from './lib/probe';
 import { startSessionsFeed } from './lib/sessionsFeed';
@@ -1346,7 +1347,46 @@ async function start(): Promise<void> {
   // this line ends in `app.quit()`, where a menu bar item would be a leak.
   createTray();
   startNotifications();
+  startPresence();
   startUpdates();
+}
+
+/** Whether the last report told the server the user is at the Mac. */
+let present = false;
+
+function sendPresence(atMac: boolean): void {
+  present = atMac;
+  void fetch(`http://127.0.0.1:${PORT}/api/presence`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'content-type': 'application/json' },
+    body: JSON.stringify({ atMac }),
+    signal: AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
+  }).catch(() => {
+    /* server still coming up, or gone: the next reading reports again */
+  });
+}
+
+function readPresence(): void {
+  const report = presenceReport(powerMonitor.getSystemIdleState(PRESENCE_IDLE_SECONDS), present);
+  if (report !== null) sendPresence(report);
+}
+
+/**
+ * Tell the server whether the user is at the Mac, so it can keep the phone
+ * quiet (spec 2026-10-15-the-phone-is-quiet-while-you-are-at-the-mac-design
+ * § 1). A heartbeat on every poll while present; leaving is reported at once
+ * when the screen locks or the Mac sleeps, and by the next poll otherwise.
+ */
+function startPresence(): void {
+  readPresence();
+  setInterval(readPresence, PRESENCE_POLL_MS);
+  const leave = () => {
+    if (present) sendPresence(false);
+  };
+  powerMonitor.on('lock-screen', leave);
+  powerMonitor.on('suspend', leave);
+  powerMonitor.on('unlock-screen', readPresence);
+  powerMonitor.on('resume', readPresence);
 }
 
 /**
