@@ -972,7 +972,7 @@ export function Settings({ open, onClose }: SettingsProps) {
               keymap's size instead (canvas Feature - Shortcuts, artboard A). */}
               {section === 'shortcuts' && (
                 <span className="shrink-0 font-mono text-[10.5px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
-                  {bindingCount(settings)} bindings · {scopeCount(settings)} scopes
+                  {bindingCount()} bindings · {scopeCount()} scopes
                 </span>
               )}
             </div>

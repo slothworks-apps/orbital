@@ -171,19 +171,16 @@ describe('keymapGroups', () => {
   it('yields no groups for a query that matches nothing', () => {
     expect(keymapGroups('zzzzzz-no-match')).toEqual([])
   })
-  it('leaves out the keys of an Experimental feature that is switched off', () => {
-    const ids = (settings: Record<string, string>) =>
-      keymapGroups('', settings).flatMap((g) => g.rows.map((r) => r.id))
-    const off = ids({})
-    expect(off).not.toContain('terminal.toggle')
-    expect(off).not.toContain('session.harness')
-    expect(keymapGroups('', {}).map((g) => g.scope)).not.toContain('terminal')
-    expect(scopeCount({})).toBe(SCOPES.length - 1)
-    const on = ids({ terminal_enabled: 'true', harness_enabled: 'true' })
-    expect(on).toContain('terminal.toggle')
-    expect(on).toContain('terminal.new-tab')
-    expect(on).toContain('session.harness')
-    expect(bindingCount({ terminal_enabled: 'true', harness_enabled: 'true' })).toBe(COMMANDS.length)
+  it('lists the keys of a switched-off Labs feature, marked as off', () => {
+    const note = (settings: Record<string, string>, id: string) =>
+      keymapGroups('', settings).flatMap((g) => g.rows).find((r) => r.id === id)?.note
+    expect(note({}, 'terminal.toggle')).toBe('the first press starts a shell · in Labs, off')
+    expect(note({}, 'session.harness')).toBe('opens or closes it · in Labs, off')
+    expect(keymapGroups('', {}).map((g) => g.scope)).toContain('terminal')
+    expect(scopeCount()).toBe(SCOPES.length)
+    expect(bindingCount()).toBe(COMMANDS.length)
+    expect(note({ terminal_enabled: 'true' }, 'terminal.toggle')).toBe('the first press starts a shell')
+    expect(keymapGroups('labs', {}).flatMap((g) => g.rows).length).toBeGreaterThan(0)
   })
 
   it('drops a switched-off feature from the desktop menu', () => {

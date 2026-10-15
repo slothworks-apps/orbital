@@ -16,7 +16,7 @@ import { useOrbital } from '../store/store'
 export function ShortcutsSection() {
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
-  // A switched-off Experimental feature's keys are left out with it.
+  // A switched-off Labs feature's keys are marked as off.
   const settings = useOrbital((s) => s.settings)
   const groups = keymapGroups(query, settings)
   const shown = groups.reduce((sum, group) => sum + group.rows.length, 0)
@@ -44,7 +44,7 @@ export function ShortcutsSection() {
           />
           {query.trim() !== '' && (
             <span className="shrink-0 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
-              {shown}/{bindingCount(settings)}
+              {shown}/{bindingCount()}
             </span>
           )}
         </div>
