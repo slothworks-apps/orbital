@@ -58,6 +58,10 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['GET', '/api/sessions/:id/walkthrough/summary'],
   ['GET', '/api/tags'],
   ['GET', '/api/projects'],
+  // New Session's missing-directory line and its *Create and start* (spec
+  // 2026-10-12-new-session-missing-directory-design § Phone).
+  ['GET', '/api/directory'],
+  ['POST', '/api/directory'],
   ['GET', '/api/models'],
   ['GET', '/api/commands'],
   // The New Session question about a project's `.mcp.json` servers; its

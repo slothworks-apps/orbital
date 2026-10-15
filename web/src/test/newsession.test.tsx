@@ -73,6 +73,7 @@ beforeEach(() => {
   vi.mocked(api.listProjects).mockResolvedValue([])
   vi.mocked(api.previewRule).mockResolvedValue({ tagId: null, ruleId: null })
   vi.mocked(api.getMessages).mockResolvedValue([])
+  vi.mocked(api.directoryState).mockImplementation(async (path) => ({ path, state: 'directory' }))
 })
 
 function chip(name: string) {
@@ -207,6 +208,56 @@ describe('NewSessionDialog', () => {
     expect(screen.queryByText(/auto-matched by rule/i)).not.toBeInTheDocument()
   })
 
+  it('asks before launching into a missing directory, creates it on yes, and launches', async () => {
+    vi.mocked(api.directoryState).mockResolvedValue({ path: '/home/tomin/new', state: 'missing' })
+    vi.mocked(api.createDirectory).mockResolvedValue({ path: '/home/tomin/new' })
+    vi.mocked(api.createSession).mockResolvedValue('new-session-id')
+    resetStore()
+    const onClose = vi.fn()
+
+    render(<NewSessionDialog open onClose={onClose} />)
+    fireEvent.change(screen.getByLabelText(/project directory/i), { target: { value: '/home/tomin/new' } })
+    // The line under the field says so while typing, before anything is pressed.
+    expect(await screen.findByText(/no such folder/i)).toBeInTheDocument()
+    replaceField(screen.getByRole('textbox', { name: /first prompt/i }), 'go')
+
+    fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /create and launch/i }))
+
+    await waitFor(() => expect(api.createSession).toHaveBeenCalled())
+    expect(api.createDirectory).toHaveBeenCalledWith('/home/tomin/new')
+    expect(vi.mocked(api.createDirectory).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(api.createSession).mock.invocationCallOrder[0],
+    )
+    // A folder just made has no .mcp.json to ask about.
+    expect(api.mcpjson).not.toHaveBeenCalled()
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('goes back to the form from the missing-directory question without creating or launching', async () => {
+    vi.mocked(api.directoryState).mockResolvedValue({ path: '/home/tomin/typo', state: 'missing' })
+    resetStore()
+
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText(/project directory/i), { target: { value: '/home/tomin/typo' } })
+    fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /back/i }))
+
+    expect(screen.getByLabelText(/project directory/i)).toHaveValue('/home/tomin/typo')
+    expect(api.createDirectory).not.toHaveBeenCalled()
+    expect(api.createSession).not.toHaveBeenCalled()
+  })
+
+  it('will not launch into a path that names a file', async () => {
+    vi.mocked(api.directoryState).mockResolvedValue({ path: '/home/tomin/notes.txt', state: 'not_a_directory' })
+    resetStore()
+
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText(/project directory/i), { target: { value: '/home/tomin/notes.txt' } })
+    expect(await screen.findByText(/not a folder/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /launch session/i })).toBeDisabled()
+  })
+
   it('launches with the previewed tag id, then selects the new session and closes', async () => {
     vi.mocked(api.previewRule).mockResolvedValue({ tagId: 1, ruleId: 10 })
     vi.mocked(api.createSession).mockResolvedValue('new-session-id')
@@ -227,6 +278,7 @@ describe('NewSessionDialog', () => {
         permissionMode: 'acceptEdits',
         tagId: 1,
         model: undefined,
+        requireDirectory: true,
         // Minted by the browser, not the server, so the subscribe below could
         // happen first. See `docs/fixes/first-turn-can-outrun-the-ws-subscription.md`.
         sessionId: expect.stringMatching(UUID_V4),

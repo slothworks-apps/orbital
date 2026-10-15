@@ -4,6 +4,7 @@ import {
   COMMANDS,
   SCOPES,
   accelerator,
+  bindingCount,
   chordGlyphs,
   chordLabel,
   command,
@@ -13,6 +14,7 @@ import {
   matches,
   menuCommands,
   parseChord,
+  scopeCount,
 } from '../lib/keymap'
 
 /** A forbidden punctuation key per rule 3 — no default chord may use these. */
@@ -57,6 +59,15 @@ describe('matches', () => {
     // Czech layout: the "1" key prints '+' without Shift.
     const e = event({ key: '+', code: 'Digit1', metaKey: true })
     expect(matches('meta+Digit1', e, { isMac: true })).toBe(true)
+  })
+
+  it('matches the backquote chord on either key a Mac ISO keyboard may report', () => {
+    // The terminal's ⌃` on a Czech layout, where the key prints a dead accent.
+    for (const code of ['Backquote', 'IntlBackslash']) {
+      expect(matches('ctrl+Backquote', event({ key: 'Dead', code, ctrlKey: true }), { isMac: true })).toBe(true)
+    }
+    expect(matches('ctrl+Backquote', event({ key: '`', code: 'Quote', ctrlKey: true }), { isMac: true })).toBe(false)
+    expect(chordLabel('ctrl+Backquote')).toBe('⌃`')
   })
 
   it('matches shift+letter arriving as the upper-case key', () => {
@@ -136,10 +147,10 @@ describe('chordGlyphs / chordLabel / accelerator', () => {
 })
 
 describe('keymapGroups', () => {
-  it('yields the six scopes in SCOPES order for an empty query', () => {
+  it('yields every scope in SCOPES order for an empty query', () => {
     const groups = keymapGroups('')
     expect(groups.map((g) => g.scope)).toEqual(SCOPES.map((s) => s.scope))
-    expect(groups).toHaveLength(6)
+    expect(groups).toHaveLength(7)
   })
 
   it('narrows to one group with one row for a label match', () => {
@@ -159,6 +170,25 @@ describe('keymapGroups', () => {
 
   it('yields no groups for a query that matches nothing', () => {
     expect(keymapGroups('zzzzzz-no-match')).toEqual([])
+  })
+  it('leaves out the keys of an Experimental feature that is switched off', () => {
+    const ids = (settings: Record<string, string>) =>
+      keymapGroups('', settings).flatMap((g) => g.rows.map((r) => r.id))
+    const off = ids({})
+    expect(off).not.toContain('terminal.toggle')
+    expect(off).not.toContain('session.harness')
+    expect(keymapGroups('', {}).map((g) => g.scope)).not.toContain('terminal')
+    expect(scopeCount({})).toBe(SCOPES.length - 1)
+    const on = ids({ terminal_enabled: 'true', harness_enabled: 'true' })
+    expect(on).toContain('terminal.toggle')
+    expect(on).toContain('terminal.new-tab')
+    expect(on).toContain('session.harness')
+    expect(bindingCount({ terminal_enabled: 'true', harness_enabled: 'true' })).toBe(COMMANDS.length)
+  })
+
+  it('drops a switched-off feature from the desktop menu', () => {
+    expect(menuCommands({}).map((item) => item.id)).not.toContain('session.harness')
+    expect(menuCommands({ harness_enabled: 'true' }).map((item) => item.id)).toContain('session.harness')
   })
 })
 

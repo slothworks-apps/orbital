@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/index.mjs --external:better-sqlite3 --external:@anthropic-ai/claude-agent-sdk --banner:js=\"import { createRequire as __orbitalCreateRequire } from 'node:module'; const require = __orbitalCreateRequire(import.meta.url);\"",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --target=node22 --outfile=dist/index.mjs --external:better-sqlite3 --external:@anthropic-ai/claude-agent-sdk --external:node-pty --banner:js=\"import { createRequire as __orbitalCreateRequire } from 'node:module'; const require = __orbitalCreateRequire(import.meta.url);\"",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate"
@@ -19,6 +19,7 @@
     "better-sqlite3": "^13.0.3",
     "drizzle-orm": "^0.45.3",
     "fastify": "^5.12.5",
+    "node-pty": "1.2.0-beta.15",
     "ws": "^8.22.0",
     "zod": "^4.6.5"
   },

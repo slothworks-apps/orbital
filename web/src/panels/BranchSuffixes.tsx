@@ -47,8 +47,8 @@ export function LineGroups({ groups }: { groups: LineGroup[] }) {
 const TIP_LABEL = 'text-[9.5px] tracking-[.14em] text-[rgba(160,190,225,.6)]'
 const TIP_RULE = 'border-t border-[rgba(150,205,255,.1)]'
 
-/** 1e: the PR bubble — number, then state · review · checks, then where the click goes. */
-export function PrTooltipContent({ pr }: { pr: BranchPr }) {
+/** 1e's state · review · checks rows; the phone's branch sheet draws the same. */
+export function PrRows({ pr }: { pr: BranchPr }) {
   const row = (label: string, value: string) => (
     <>
       <span className={TIP_LABEL}>{label}</span>
@@ -56,17 +56,24 @@ export function PrTooltipContent({ pr }: { pr: BranchPr }) {
     </>
   )
   return (
+    <span className="grid grid-cols-[58px_minmax(0,1fr)] items-baseline gap-x-2.5 gap-y-1.5 font-mono text-[11px] leading-[1.4]">
+      {row('STATE', prStateText(pr))}
+      {row('REVIEW', prReviewText(pr))}
+      {row('CHECKS', prChecksText(pr))}
+    </span>
+  )
+}
+
+/** 1e: the PR bubble — number, then state · review · checks, then where the click goes. */
+export function PrTooltipContent({ pr }: { pr: BranchPr }) {
+  return (
     <>
       <span className="flex items-baseline gap-2 font-mono">
         <span className="text-[11px] text-text-bright">Pull request #{pr.number}</span>
         <span className="flex-1" />
         <span className="text-[10px] text-[rgba(160,190,225,.6)]">↗ GitHub</span>
       </span>
-      <span className="grid grid-cols-[58px_minmax(0,1fr)] items-baseline gap-x-2.5 gap-y-1.5 font-mono text-[11px] leading-[1.4]">
-        {row('STATE', prStateText(pr))}
-        {row('REVIEW', prReviewText(pr))}
-        {row('CHECKS', prChecksText(pr))}
-      </span>
+      <PrRows pr={pr} />
       <span className={`${TIP_RULE} pt-2 font-mono text-[10px] text-[rgba(160,190,225,.6)] [overflow-wrap:anywhere]`}>
         click opens {prUrlText(pr.url)}
       </span>

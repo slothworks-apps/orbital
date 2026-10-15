@@ -6,9 +6,11 @@ import { useMobile } from '../state'
 import type { MediaItem } from '../../lib/types'
 import { CantShow } from './CantShow'
 import { MediaFoot } from './MediaFoot'
-import { ByteBar, CachedChip, GoneBlock, ReservedBox, StateButton, StateText } from './FileStates'
+import { LOADER_FADE_MS, LOADING_SURFACE, MoonLoader, useLate } from '../../ui/MoonLoader'
+import { FILE_STALL_MS } from '../constants'
+import { CachedChip, GoneBlock, ReservedBox, StateButton, StateText, progressLabel } from './FileStates'
 import { useObjectUrl } from './objectUrl'
-import { useFile, type FileSource } from './useFile'
+import { useFile, type FileSource, type FileView } from './useFile'
 import {
   DOUBLE_TAP_MS, FIT, clampPan, fitSize, releaseGesture, toggleZoom, zoomAt, zoomLabel,
   type Point, type Size, type View,
@@ -58,6 +60,22 @@ export function ImageViewer({
   )
 }
 
+/**
+ * 10e2: no byte for `FILE_STALL_MS` while loading — the moon stops. Only a
+ * path's read reports its bytes; a ref's has nothing to go by.
+ */
+function useStalled(view: FileView, counted: boolean): boolean {
+  const loading = view.phase === 'loading'
+  const received = loading ? view.received : -1
+  const [stalledAt, setStalledAt] = useState<number | null>(null)
+  useEffect(() => {
+    if (!loading || !counted) return
+    const t = setTimeout(() => setStalledAt(received), FILE_STALL_MS)
+    return () => clearTimeout(t)
+  }, [loading, counted, received])
+  return loading && counted && stalledAt === received
+}
+
 function sourceOf(sessionId: string, cwd: string | undefined, item: MessageImage): FileSource {
   return item.kind === 'ref'
     ? { kind: 'ref', ref: item.ref, w: item.image.w, h: item.image.h }
@@ -87,7 +105,7 @@ export function ImagePage({
   media?: { item: MediaItem; onShowInChat: () => void }
 }) {
   const source = useMemo(() => sourceOf(sessionId, cwd, item), [sessionId, cwd, item])
-  const { view, retry, known } = useFile(source)
+  const { view, retry, known, instant } = useFile(source)
   const mac = useMobile((s) => s.macName) ?? 'the Mac'
   const path = item.kind === 'path' ? item.path : null
   const name = path ? basename(path) : 'Image'
@@ -98,6 +116,10 @@ export function ImagePage({
 
   const [natural, setNatural] = useState<Size | null>(null)
   const [loaded, setLoaded] = useState(false)
+  // 10e2: the moon stays under the image until the image is opaque.
+  const [covered, setCovered] = useState(false)
+  const late = useLate()
+  const stalled = useStalled(view, item.kind === 'path')
   // Held by value: the touch listeners below are attached once per image,
   // and a new object every render would re-attach them mid-pinch.
   const iw = known?.w ?? natural?.w ?? null
@@ -220,39 +242,58 @@ export function ImagePage({
     .join(' · ')
   const now = Date.now()
 
+  // Canvas 10e2: the box at the image's aspect on its faint surface, the moon
+  // in it; without w×h, the moon alone. It stays under a fading image.
+  const progress = view.phase === 'loading' && view.total ? view.received / view.total : null
+  const waitingArea = (
+    <div className="absolute inset-0 grid place-items-center">
+      <div
+        className="relative w-full"
+        style={
+          imageSize
+            ? { aspectRatio: `${imageSize.w} / ${imageSize.h}`, maxWidth: `calc(100dvh * ${imageSize.w / imageSize.h})`, background: LOADING_SURFACE }
+            : { height: 60 }
+        }
+      >
+        <MoonLoader size="viewer" progress={progress} stalled={stalled} />
+      </div>
+    </div>
+  )
+
   let area
   if (url) {
     area = (
-      // Canvas 10d: the image fills the stage behind the chrome; a double-tap's
-      // zoom eases over `.3s ease`, a pinch follows the fingers with none.
-      <img
-        src={url}
-        alt=""
-        draggable={false}
-        onLoad={(e) => {
-          setLoaded(true)
-          if (!known) setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
-        }}
-        className="absolute inset-0 h-full w-full object-contain"
-        style={{
-          transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})`,
-          // 10e LOADING: "bytes in → fade .4 s"; the phone's own copy just shows.
-          opacity: loaded || shown?.cached ? 1 : 0,
-          transition: [animate ? 'transform .3s ease' : null, shown?.cached ? null : 'opacity .4s'].filter(Boolean).join(', ') || 'none',
-        }}
-      />
+      <>
+        {!instant && !shown?.cached && !covered && waitingArea}
+        {/* Canvas 10d: the image fills the stage behind the chrome; a double-tap's
+            zoom eases over `.3s ease`, a pinch follows the fingers with none. */}
+        <img
+          src={url}
+          alt=""
+          draggable={false}
+          onLoad={(e) => {
+            setLoaded(true)
+            if (!known) setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
+          }}
+          onTransitionEnd={(e) => {
+            if (e.propertyName === 'opacity' && loaded) setCovered(true)
+          }}
+          className="absolute inset-0 h-full w-full object-contain"
+          style={{
+            transform: `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.scale})`,
+            // 10e2 IMAGE ON TOP: bytes in → fade over the moon; the phone's own copy just shows.
+            opacity: loaded || instant || shown?.cached ? 1 : 0,
+            transition: [animate ? 'transform .3s ease' : null, instant || shown?.cached ? null : `opacity ${LOADER_FADE_MS}ms ease`].filter(Boolean).join(', ') || 'none',
+          }}
+        />
+      </>
     )
   } else if (view.phase === 'loading') {
-    area = (
-      <div className="absolute inset-0 flex flex-col justify-center gap-3">
-        {imageSize && <ReservedBox w={imageSize.w} h={imageSize.h} tone="loading" label={[dims, size !== null ? formatBytes(size) : null].filter(Boolean).join(' · ')} />}
-        <ByteBar received={view.received} total={view.total} mac={mac} />
-      </div>
-    )
+    area = waitingArea
   } else if (outcome?.kind === 'failed') {
     area = (
       <div className="absolute inset-0 flex flex-col justify-center gap-3.5">
-        {imageSize && <ReservedBox w={imageSize.w} h={imageSize.h} tone="quiet" label={dims ?? ''} />}
+        {imageSize && <ReservedBox w={imageSize.w} h={imageSize.h} label={dims ?? ''} />}
         <StateText title="Couldn't load" action={<StateButton onClick={retry}>Retry</StateButton>}>
           {outcome.received > 0 ? `The connection dropped at ${formatBytes(outcome.received)}.` : 'The connection dropped.'}
         </StateText>
@@ -268,7 +309,7 @@ export function ImagePage({
     area = (
       // 10e MAC ASLEEP · NOT CACHED: nothing moves.
       <div className="absolute inset-0 flex flex-col justify-center gap-3.5">
-        {imageSize && <ReservedBox w={imageSize.w} h={imageSize.h} tone="quiet" label={dims ?? ''} />}
+        {imageSize && <ReservedBox w={imageSize.w} h={imageSize.h} label={dims ?? ''} />}
         <StateText title={`Opens when ${mac} wakes`}>Not on this phone yet. Stay here and it loads on its own.</StateText>
       </div>
     )
@@ -279,6 +320,19 @@ export function ImagePage({
       </div>
     )
   }
+
+  // 10e2 BYTES & STALL: the count, or what it waits on, once the moon shows; then the gestures.
+  const hint = url ? (
+    'pinch · double-tap'
+  ) : view.phase === 'loading' ? (
+    <span className="transition-opacity duration-[600ms]" style={{ opacity: late ? 1 : 0 }}>
+      {stalled
+        ? `waiting on ${mac}`
+        : view.total
+          ? progressLabel(view.received, view.total)
+          : `${progressLabel(view.received, null)} so far`}
+    </span>
+  ) : null
 
   return (
     <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-black text-[#e8eef8]">
@@ -303,11 +357,16 @@ export function ImagePage({
           <div className="truncate text-[15px] font-semibold">{name}</div>
           {sub && <div className="mt-0.5 truncate font-mono text-[10.5px] text-[rgba(200,215,235,.7)]">{sub}</div>}
         </div>
-        {url && (
+        {(url || view.phase === 'loading') && (
           <button
             type="button"
+            disabled={!url}
             onClick={() => toggleAt(null, null)}
-            className="h-11 min-w-14 rounded-[12px] border border-[rgba(150,205,255,.2)] bg-[rgba(5,7,13,.6)] px-2.5 font-mono text-[11px] text-[#e8eef8]"
+            // 10e2: dimmed until the image is in.
+            className={[
+              'h-11 min-w-14 rounded-[12px] border border-[rgba(150,205,255,.2)] bg-[rgba(5,7,13,.6)] px-2.5 font-mono text-[11px] text-[#e8eef8] transition-opacity duration-[600ms]',
+              url ? '' : 'opacity-40',
+            ].join(' ')}
           >
             {zoomLabel(zoom.scale)}
           </button>
@@ -317,7 +376,7 @@ export function ImagePage({
       {media ? (
         <MediaFoot
           item={media.item}
-          hint={url ? 'pinch · double-tap' : null}
+          hint={hint}
           above={shown?.cached ? <div><CachedChip asOf={asOfLabel(shown.readAt, now)} /></div> : null}
           onShowInChat={media.onShowInChat}
         />
@@ -343,7 +402,7 @@ export function ImagePage({
           <span className="min-w-0 flex-1 truncate">
             {path ?? 'image'} · {caption}
           </span>
-          {url && <span>pinch · double-tap</span>}
+          {hint}
         </div>
       </div>
       )}

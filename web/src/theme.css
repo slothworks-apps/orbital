@@ -245,6 +245,24 @@ body {
   }
 }
 
+/* The phone's image loading moon (`Feature - Mobile next` 10e2): the dashed
+   orbit turns once a minute, the moon once in eight seconds, both linear.
+   `MoonLoader` sets a negative delay so every loader turns in step. */
+.orbital-moon-orbit {
+  animation: orbital-spin 60s linear infinite;
+}
+
+.orbital-moon {
+  animation: orbital-spin 8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbital-moon-orbit,
+  .orbital-moon {
+    animation: none;
+  }
+}
+
 /* File viewer loading skeleton (canvas 8d-A): a highlight layer sweeping
    across each bar once per 1.4s cycle, staggered 100ms per bar. */
 @keyframes orbital-sweep {
@@ -442,6 +460,39 @@ body {
   height: 0;
   pointer-events: none;
   color: rgba(160, 190, 225, 0.5);
+}
+
+/* An anchored popover opening — a menu, a select's list, the media glance,
+   the mode and model switchers. The composer's completion list draws it
+   (canvas 9e): a fade and the last 4px of travel away from the trigger, over
+   .12s. Below the trigger it settles down; with `data-placement="above"`
+   (set by `usePopupPosition`) it settles up. */
+@keyframes orbital-popover-down {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes orbital-popover-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.orbital-popover-in {
+  animation: orbital-popover-down 0.12s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+
+.orbital-popover-in[data-placement='above'] {
+  animation-name: orbital-popover-up;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbital-popover-in {
+    animation: none;
+  }
 }
 
 /* A tooltip arriving (canvas 4d, drawn in 4a): a fade plus the last few

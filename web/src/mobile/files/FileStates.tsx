@@ -3,8 +3,9 @@ import { formatBytes } from '../../lib/format'
 
 /**
  * Canvas 10e — the viewer's states, all in the same image area and none red
- * (spec 2026-10-05-mobile-next § 0, § 2). The text preview borrows the same
- * blocks for its own loading, couldn't-load, gone and asleep answers.
+ * (spec 2026-10-05-mobile-next § 0, § 2); loading is 10e2's moon
+ * (`ui/MoonLoader.tsx`). The text preview borrows the same blocks for its own
+ * loading, couldn't-load, gone and asleep answers.
  */
 
 /** "116 of 186 KB" when both read in one unit (10e LOADING), else each with its own. */
@@ -16,19 +17,14 @@ export function progressLabel(received: number, total: number | null): string {
 }
 
 /**
- * 10e's reserved box: the image's own aspect, diagonal stripes, its size in
- * mono at the centre. `loading` is 10e LOADING's brighter stripes and label;
- * `quiet` is COULDN'T LOAD's and NOT CACHED's.
+ * 10e's reserved box: the image's own aspect, quiet diagonal stripes, its
+ * size in mono at the centre — COULDN'T LOAD's and NOT CACHED's. Loading has
+ * the moon instead (10e2).
  */
-export function ReservedBox({ w, h, label, tone }: { w: number; h: number; label: string; tone: 'loading' | 'quiet' }) {
+export function ReservedBox({ w, h, label }: { w: number; h: number; label: string }) {
   return (
     <div
-      className={[
-        'grid w-full place-items-center font-mono text-[9.5px]',
-        tone === 'loading'
-          ? 'bg-[repeating-linear-gradient(135deg,rgba(150,205,255,.07)_0_6px,rgba(150,205,255,.02)_6px_12px)] text-[rgba(160,190,225,.65)]'
-          : 'bg-[repeating-linear-gradient(135deg,rgba(150,205,255,.05)_0_6px,rgba(150,205,255,.015)_6px_12px)] text-[rgba(160,190,225,.5)]',
-      ].join(' ')}
+      className="grid w-full place-items-center bg-[repeating-linear-gradient(135deg,rgba(150,205,255,.05)_0_6px,rgba(150,205,255,.015)_6px_12px)] font-mono text-[9.5px] text-[rgba(160,190,225,.5)]"
       style={{ aspectRatio: `${w} / ${h}` }}
     >
       {label}
@@ -36,7 +32,7 @@ export function ReservedBox({ w, h, label, tone }: { w: number; h: number; label
   )
 }
 
-/** 10e LOADING, under the box: the byte bar and its count. No spinner. */
+/** The text and PDF previews' loading: the byte bar and its count. */
 export function ByteBar({ received, total, mac }: { received: number; total: number | null; mac: string }) {
   const share = total ? Math.min(1, received / total) : 0
   return (

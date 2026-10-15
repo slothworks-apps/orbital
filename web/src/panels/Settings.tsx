@@ -35,7 +35,7 @@ import {
 } from '../map/frameSchedule'
 import { api, type ServerHealth, type SessionTip } from '../lib/api'
 import { reportError } from '../lib/errors'
-import { SCOPES, bindingCount, chordLabel, command } from '../lib/keymap'
+import { bindingCount, chordLabel, command, scopeCount } from '../lib/keymap'
 import { notifyDesktopSettingsChanged } from '../lib/desktop'
 import { notificationsAllOff, parseNotificationSettings, type NotificationSettings } from '@orbital/shared/notifications'
 import { notificationRowPatch } from '../lib/notificationsTip'
@@ -53,6 +53,16 @@ import {
   narrateModel,
   walkthroughEnabled,
   harnessEnabled,
+  TERMINAL_ENABLED_KEY,
+  TERMINAL_PLACEMENT_KEY,
+  TERMINAL_CURSOR_KEY,
+  TERMINAL_CURSOR_BLINK_KEY,
+  terminalEnabled,
+  terminalPlacement,
+  terminalCursor,
+  terminalCursorBlink,
+  type TerminalCursor,
+  type TerminalPlacement,
 } from '../lib/experimental'
 import { Panel } from '../ui/Panel'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
@@ -149,6 +159,19 @@ const GH_REASON: Record<Exclude<GhAvailability, 'ready'>, string> = {
   logged_out: 'gh is not logged in',
 }
 
+/** Settings → Experimental → the terminal's placement. The dock first: it is the default (48a). */
+const TERMINAL_PLACEMENT_OPTIONS: Array<{ value: TerminalPlacement; label: string }> = [
+  { value: 'dock', label: 'Dock' },
+  { value: 'side', label: 'Side panel' },
+]
+
+/** The terminal's cursor shape (48f). Block first: it is the default. */
+const TERMINAL_CURSOR_OPTIONS: Array<{ value: TerminalCursor; label: string }> = [
+  { value: 'block', label: 'Block' },
+  { value: 'bar', label: 'Bar' },
+  { value: 'underline', label: 'Underline' },
+]
+
 /** Settings → Appearance → MAP → "State on the map" (canvas 24e / 24a). Dot first: it is the default. */
 const STATE_PILL_OPTIONS: Array<{ value: MapStatePills; label: string }> = [
   { value: 'dot', label: 'Dot' },
@@ -186,6 +209,8 @@ const NAV_ITEMS = [
   { key: 'permissions', label: 'Permissions', disabled: false },
   { key: 'tags', label: 'Tags & rules', disabled: false },
   { key: 'harness', label: 'Harness templates', disabled: false },
+  // Listed only while Experimental → Terminal is on, as Harness is.
+  { key: 'terminal', label: 'Terminal', disabled: false },
   { key: 'appearance', label: 'Appearance', disabled: false },
   // Always listed, not behind Experimental: the section is inert until its
   // switch is on (spec 2026-10-01-settings-mobile-design).
@@ -222,14 +247,15 @@ export function initialSection(
 }
 
 /**
- * The nav as drawn: Experimental stays out until unlocked, Harness until
- * enabled, Updates outside the desktop app.
+ * The nav as drawn: Experimental stays out until unlocked, Harness and
+ * Terminal until enabled, Updates outside the desktop app.
  */
 function visibleNavItems(settings: Record<string, string | undefined>, hasUpdates: boolean) {
   return NAV_ITEMS.filter(
     (item) =>
       (item.key !== 'experimental' || experimentalUnlocked(settings)) &&
       (item.key !== 'harness' || harnessEnabled(settings)) &&
+      (item.key !== 'terminal' || terminalEnabled(settings)) &&
       (item.key !== 'updates' || hasUpdates),
   )
 }
@@ -942,7 +968,7 @@ export function Settings({ open, onClose }: SettingsProps) {
               keymap's size instead (canvas Feature - Shortcuts, artboard A). */}
               {section === 'shortcuts' && (
                 <span className="shrink-0 font-mono text-[10.5px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
-                  {bindingCount()} bindings · {SCOPES.length} scopes
+                  {bindingCount(settings)} bindings · {scopeCount(settings)} scopes
                 </span>
               )}
             </div>
@@ -1356,6 +1382,60 @@ export function Settings({ open, onClose }: SettingsProps) {
                           checked={harnessEnabled(settings)}
                           onChange={(checked) =>
                             void patchAndSet({ [HARNESS_ENABLED_KEY]: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
+                      {/* Spec 2026-10-05-embedded-terminal-design § Behind an
+                          experimental switch: the switch only; while it is on,
+                          the terminal's own settings have their own section. */}
+                      <Row
+                        title="Terminal"
+                        desc="Your own shell in the session's folder, as tabs beside the session. What you run in it is not sent to the agent. Its settings are in Terminal. Turning this off leaves running shells running."
+                      >
+                        <Toggle
+                          aria-label="Terminal"
+                          checked={terminalEnabled(settings)}
+                          onChange={(checked) =>
+                            void patchAndSet({ [TERMINAL_ENABLED_KEY]: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
+                    </>
+                  )}
+
+                  {section === 'terminal' && (
+                    <>
+                      <SectionLabel first>TERMINAL</SectionLabel>
+                      <Row
+                        title="Terminal placement"
+                        desc="A dock under the map, or a panel in the side slot the subagent and harness panels use."
+                      >
+                        <Segmented<TerminalPlacement>
+                          label="Terminal placement"
+                          size="row"
+                          options={TERMINAL_PLACEMENT_OPTIONS}
+                          value={terminalPlacement(settings)}
+                          onChange={(value) => void patchAndSet({ [TERMINAL_PLACEMENT_KEY]: value })}
+                        />
+                      </Row>
+                      <Row title="Terminal cursor" desc="An unfocused cursor is always hollow and never blinks.">
+                        <Segmented<TerminalCursor>
+                          label="Terminal cursor"
+                          size="row"
+                          options={TERMINAL_CURSOR_OPTIONS}
+                          value={terminalCursor(settings)}
+                          onChange={(value) => void patchAndSet({ [TERMINAL_CURSOR_KEY]: value })}
+                        />
+                      </Row>
+                      <Row
+                        title="Blinking cursor"
+                        desc="The standard caret blink, only while the terminal has focus. Off, the cursor stays steady."
+                      >
+                        <Toggle
+                          aria-label="Blinking cursor"
+                          checked={terminalCursorBlink(settings)}
+                          onChange={(checked) =>
+                            void patchAndSet({ [TERMINAL_CURSOR_BLINK_KEY]: checked ? 'true' : 'false' })
                           }
                         />
                       </Row>

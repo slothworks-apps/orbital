@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { bindingCount, keymapGroups, type Row } from '../lib/keymap'
 import { Keycap } from '../ui/Keycap'
+import { useOrbital } from '../store/store'
 
 /**
  * Settings → Shortcuts (spec 2026-09-23-shortcuts-design § 6, canvas
@@ -15,7 +16,9 @@ import { Keycap } from '../ui/Keycap'
 export function ShortcutsSection() {
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
-  const groups = keymapGroups(query)
+  // A switched-off Experimental feature's keys are left out with it.
+  const settings = useOrbital((s) => s.settings)
+  const groups = keymapGroups(query, settings)
   const shown = groups.reduce((sum, group) => sum + group.rows.length, 0)
 
   // The filter is the only control in the pane, so opening the section is
@@ -41,7 +44,7 @@ export function ShortcutsSection() {
           />
           {query.trim() !== '' && (
             <span className="shrink-0 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
-              {shown}/{bindingCount()}
+              {shown}/{bindingCount(settings)}
             </span>
           )}
         </div>

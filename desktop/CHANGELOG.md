@@ -4,9 +4,29 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
-## [0.27.1] — 2026-10-10
+## [0.29.2] — 2026-10-15
 ### Changed
 - Markdown and code highlighting run on newer versions of their libraries; nothing should look different.
+
+## [0.29.1] — 2026-10-15
+### Changed
+- Menus, dropdown lists, the media preview and the mode and model pickers now ease open instead of appearing at once.
+
+## [0.29.0] — 2026-10-12
+### Added
+- New session tells you, as you type, when the project folder doesn't exist, and offers to create it when you launch — instead of starting a session that fails with an unclear error.
+### Changed
+- The terminal's settings have their own Terminal section in Settings; Experimental keeps only the switch that turns it on.
+- The terminal shows and hides with ⌘T instead of ⌃`, which is awkward on a Czech keyboard; a new terminal tab is ⌘⇧T. Changing a session's tag no longer has a shortcut.
+- Settings → Shortcuts and the menu leave out the shortcuts of experimental features that are switched off.
+### Fixed
+- In the side panel, the terminal's tabs, ✕, + and hide buttons respond to clicks again.
+
+## [0.28.0] — 2026-10-10
+### Added
+- An experimental terminal (Settings → Experimental): your own shell in a session's folder, as tabs in a dock under the map or in the side panel. ⌃` shows and hides it; shells keep running when you hide it or switch sessions, and nothing you run there is sent to the agent.
+### Changed
+- A session's context reading (such as 212k / 1M) now sits at the end of its bar, under the state, instead of at the end of the state line.
 
 ## [0.27.0] — 2026-10-09
 ### Changed

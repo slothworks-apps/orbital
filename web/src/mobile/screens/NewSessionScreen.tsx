@@ -21,6 +21,9 @@ import { isMacAsleep, useMobile } from '../state'
 import { FieldLabel, MobileScreen, PrimaryButton, SheetPresence } from '../ui'
 import { ClaudeDirPicker } from './ClaudeDirPicker'
 import { McpjsonSheet } from './McpjsonSheet'
+import { MissingDirectorySheet } from './MissingDirectorySheet'
+import { blocksLaunch, directoryLine, useDirectoryState } from '../../lib/useDirectoryState'
+import { macSupports } from '../version'
 import { undecidedBeforeLaunch, type McpjsonAnswers, type McpjsonDecisions, type McpjsonServer } from '../../lib/mcpjson'
 
 /** 9d: past this many rows the directory list folds to a window, "Show all N" under it. */
@@ -36,7 +39,9 @@ export function NewSessionScreen() {
   const tags = useOrbital((s) => s.tags)
   const sessions = useOrbital((s) => s.sessions)
   const launchSession = useOrbital((s) => s.launchSession)
-  const { asleep, macName } = useMobile(useShallow((s) => ({ asleep: isMacAsleep(s), macName: s.macName })))
+  const { asleep, macName, macVersion } = useMobile(
+    useShallow((s) => ({ asleep: isMacAsleep(s), macName: s.macName, macVersion: s.macVersion })),
+  )
   const goBack = useMobile((s) => s.goBack)
   const openSession = useMobile((s) => s.openSession)
   const now = useNow(true, CLOCK_TICK_MS)
@@ -64,6 +69,15 @@ export function NewSessionScreen() {
    * it is a sheet over this form, which stays as it was underneath.
    */
   const [question, setQuestion] = useState<{ servers: McpjsonServer[]; answers: McpjsonAnswers } | null>(null)
+  /**
+   * Start found the directory missing (spec
+   * 2026-10-12-new-session-missing-directory-design § 2): the path, `~`
+   * expanded, that *Create and start* makes. Set, it is a sheet over the form.
+   */
+  const [missingDir, setMissingDir] = useState<string | null>(null)
+  /** An older Mac has no `/api/directory`; against it Start's `no_such_directory` is all there is. */
+  const checksDir = macSupports('directoryCheck', macVersion)
+  const dirState = useDirectoryState(cwd, checksDir && !asleep)
 
   useEffect(() => {
     let current = true
@@ -112,7 +126,8 @@ export function NewSessionScreen() {
   }
 
   // An upload still in flight holds Start back: the launch sends only what has landed.
-  const canStart = Boolean(cwd.trim() && prompt.trim()) && !pending && !asleep && !attachments.uploading
+  const canStart =
+    Boolean(cwd.trim() && prompt.trim()) && !pending && !asleep && !attachments.uploading && !blocksLaunch(dirState)
 
   /**
    * Start: asks about the project's undecided `.mcp.json` servers first, when
@@ -122,12 +137,38 @@ export function NewSessionScreen() {
     if (!canStart) return
     setPending(true)
     setFailure(null)
+    if (checksDir) {
+      // Asked again rather than read off the line, which may be stale. A
+      // failed ask starts anyway: `requireDirectory` still refuses.
+      const dir = await api.directoryState(cwd.trim()).catch(() => null)
+      if (dir && dir.state !== 'directory') {
+        setPending(false)
+        if (dir.state === 'missing') setMissingDir(dir.path)
+        return
+      }
+    }
     const servers = await undecidedBeforeLaunch(cwd.trim(), claudeDirId ?? undefined)
     if (servers.length > 0) {
       setPending(false)
       setQuestion({ servers, answers: {} })
       return
     }
+    await launch()
+  }
+
+  /** *Create and start*: a directory just made has no `.mcp.json` to ask about. */
+  const createAndStart = async () => {
+    if (!missingDir) return
+    setPending(true)
+    try {
+      await api.createDirectory(missingDir)
+    } catch (err) {
+      setMissingDir(null)
+      setFailure(startFailureLine(err, macName))
+      setPending(false)
+      return
+    }
+    setMissingDir(null)
     await launch()
   }
 
@@ -220,8 +261,11 @@ export function NewSessionScreen() {
   const rows = list.kind === 'rows' ? list.rows : []
   const canExpand = rows.length > COLLAPSED_ROWS
   const hint = !typed ? 'ten most recent' : list.kind === 'use-as-is' ? 'no match · typed path' : `${rows.length} on ${mac}`
+  const dirLine = notFound ? null : directoryLine(dirState, mac)
   const fieldBorder = notFound
     ? 'border-[oklch(70%_.14_25/.7)]'
+    : dirLine
+      ? 'border-[oklch(80%_.12_70/.6)]'
     : typed
       ? 'border-[oklch(85%_.12_205/.55)]'
       : 'border-[rgba(150,205,255,.18)]'
@@ -260,6 +304,15 @@ export function NewSessionScreen() {
                 !
               </span>
               Directory not found on {mac}
+            </p>
+          )}
+          {dirLine && (
+            // Copy and colour provisional until the canvas draws the line.
+            <p className="flex items-center gap-2 px-1 text-[12.5px] text-[oklch(82%_.1_70)]">
+              <span aria-hidden className="font-mono text-[11px]">
+                !
+              </span>
+              {dirLine}
             </p>
           )}
 
@@ -382,6 +435,18 @@ export function NewSessionScreen() {
         />
         </div>
       </div>
+      <SheetPresence>
+        {missingDir && (
+          <MissingDirectorySheet
+            path={missingDir}
+            project={basename(missingDir)}
+            macName={mac}
+            pending={pending}
+            onCreate={() => void createAndStart()}
+            onBack={() => setMissingDir(null)}
+          />
+        )}
+      </SheetPresence>
       <SheetPresence>
         {question && (
           <McpjsonSheet

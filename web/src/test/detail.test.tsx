@@ -1681,16 +1681,6 @@ describe('DetailPanel session shortcuts', () => {
     expect(pinSpy).toHaveBeenCalledWith('a', true)
   })
 
-  it('⌘T opens the tag select', async () => {
-    await renderDetail({ session: makeSession({ id: 'a', tagIds: [1] }) })
-
-    press({ key: 't', code: 'KeyT', metaKey: true })
-
-    const trigger = screen.getByRole('combobox', { name: 'Change tag' })
-    expect(trigger).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByRole('listbox', { name: 'Change tag' })).toBeInTheDocument()
-  })
-
   it('⌘⇧D opens the session in a window of its own when the desktop bridge is there', async () => {
     const detachSession = vi.fn()
     ;(window as { orbitalDesktop?: unknown }).orbitalDesktop = { detachSession }

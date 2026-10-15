@@ -37,6 +37,9 @@ function topLayer(): Layer | undefined {
 
 function handleKeyDown(e: KeyboardEvent): void {
   if (e.key !== 'Escape') return
+  // A surface that takes Escape as input of its own — the terminal, where it
+  // belongs to the program running in it — marks itself `data-keeps-escape`.
+  if (e.target instanceof Element && e.target.closest('[data-keeps-escape]')) return
   const top = topLayer()
   if (!top) return
   // Escape belongs to exactly one layer. Stop it here so it cannot also reach

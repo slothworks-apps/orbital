@@ -85,7 +85,7 @@ bindings below.
 | Session | Clear and start over | ⌘⇧N | same path as the Clear button (respects "Confirm before Clear") |
 | Session | End session | ⌘⌫ | opens the End dialog; typing-guarded |
 | Session | Pin / unpin | ⌘P | toggles the pin |
-| Session | Change tag | ⌘T | opens the tag select in the detail header; arrows / type-ahead pick |
+| Session | Change tag | — | was ⌘T; the chord went to the terminal's toggle (spec 2026-10-05-embedded-terminal-design § Keys) |
 | Session | Switch model | ⌘⇧M | opens the model switcher; no-op where it is not rendered |
 | Session | Open in new window | ⌘⇧D | desktop only, not in a detached window |
 | Composer | Send / newline | ⏎ / ⇧⏎ | unchanged |

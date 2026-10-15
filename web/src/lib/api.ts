@@ -46,6 +46,7 @@ import type {
   SessionDefaults,
 } from './types'
 import { markUnauthorized } from './unauthorized'
+import type { TerminalInfo } from '../terminal/types'
 
 /**
  * What a send answers. `uuid` is the transcript entry the turn is written
@@ -59,6 +60,9 @@ export interface SendResult {
   uuid?: string | null
   rewind?: true
 }
+
+/** What a typed project directory is on the Mac (`GET /api/directory`). */
+export type DirectoryState = 'directory' | 'missing' | 'not_a_directory' | 'not_absolute'
 
 export interface SessionListParams {
   tag?: number
@@ -324,6 +328,30 @@ export const api = {
    */
   async stopTask(id: string, taskId: string): Promise<void> {
     return request<void>('POST', `/api/sessions/${id}/tasks/${encodeURIComponent(taskId)}/stop`)
+  },
+
+  /**
+   * The user's own shells of a session (spec 2026-10-05-embedded-terminal-design
+   * § Routes), running and exited, in the order they were opened.
+   */
+  async listTerminals(sessionId: string): Promise<TerminalInfo[]> {
+    const data = await request<{ terminals: TerminalInfo[] }>('GET', `/api/sessions/${sessionId}/terminals`)
+    return data.terminals
+  },
+
+  /** A new shell in the session's folder. 409 `cwd_missing` when the folder is gone. */
+  async openTerminal(sessionId: string, size?: { cols: number; rows: number }): Promise<TerminalInfo> {
+    return request<TerminalInfo>('POST', `/api/sessions/${sessionId}/terminals`, size ?? {})
+  },
+
+  /** A new shell in an exited terminal's tab, its scrollback kept. 409 while the old one runs. */
+  async restartTerminal(id: string, size?: { cols: number; rows: number }): Promise<TerminalInfo> {
+    return request<TerminalInfo>('POST', `/api/terminals/${id}/restart`, size ?? {})
+  },
+
+  /** Ends the shell, and everything started in it, and forgets the tab. */
+  async closeTerminal(id: string): Promise<void> {
+    await request<{ ok: true }>('DELETE', `/api/terminals/${id}`)
   },
 
   /**
@@ -730,6 +758,19 @@ export const api = {
     if (claudeDirId !== undefined) params.set('claudeDirId', String(claudeDirId))
     const data = await request<{ undecided: McpjsonServer[] }>('GET', `/api/mcpjson?${params}`)
     return data.undecided
+  },
+
+  /**
+   * What a typed project directory is on the Mac, `~` expanded (spec
+   * 2026-10-12-new-session-missing-directory-design § Server).
+   */
+  async directoryState(path: string): Promise<{ path: string; state: DirectoryState }> {
+    return request<{ path: string; state: DirectoryState }>('GET', `/api/directory?${new URLSearchParams({ path })}`)
+  },
+
+  /** Creates a missing project directory and its parents; answers the expanded path. */
+  async createDirectory(path: string): Promise<{ path: string }> {
+    return request<{ path: string }>('POST', '/api/directory', { path })
   },
 
   /**

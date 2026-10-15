@@ -164,7 +164,7 @@ function GlancePopover({
       ref={popupRef}
       role="dialog"
       aria-label="Media"
-      className={['orbital-no-drag fixed z-[60] w-[422px] overflow-hidden', POPUP_SHELL].join(' ')}
+      className={['orbital-no-drag orbital-popover-in fixed z-[60] w-[422px] overflow-hidden', POPUP_SHELL].join(' ')}
     >
       <div className="flex items-center gap-2 border-b border-[rgba(150,205,255,.08)] px-3 py-[9px] font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.6)]">
         <span className="min-w-0 flex-1 truncate">{mediaCountLine(items, hideTool)}</span>

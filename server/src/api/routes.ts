@@ -11,6 +11,7 @@ import { expandHome } from '../paths.js';
 import { NamedPathCache, readFilePreview, readImageFile, readInSandboxes } from '../files/preview.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
 import { completeFilePath } from '../files/complete.js';
+import { createDirectory, directoryState } from '../files/directory.js';
 import { locateOnDisk, mediaItems } from '../media/items.js';
 import { OpenTabsReader } from '../files/openTabs.js';
 import { collectCommands, findCommandFile, type CatalogCommand } from '../commands/catalog.js';
@@ -55,6 +56,8 @@ import type { HarnessService } from '../harness/service.js';
 import { registerHarnessRoutes, type CarryHarness } from './harness.js';
 import { registerStatsRoutes } from './stats.js';
 import { registerMcpRoutes } from './mcp.js';
+import { registerTerminalRoutes } from './terminals.js';
+import type { TerminalStore } from '../terminal/store.js';
 import { recordDecisions, serverFile, undecidedServers, type McpjsonDecisions } from '../mcp/mcpjson.js';
 import { dbFingerprints } from '../mcp/approvals.js';
 import type { McpConfig } from '../mcp/config.js';
@@ -120,6 +123,8 @@ export interface RouteContext {
   /** Every session's background tasks, with the output path each one's
    * output route may read (spec 2026-09-28-background-tasks-design §§ 2, 4). */
   backgroundTasks: BackgroundTaskStore;
+  /** The user's own shells, per session (spec 2026-10-05-embedded-terminal-design). */
+  terminals: TerminalStore;
   /** Every session's recent tool calls — the last 30 per session, fed from
    * tool_use blocks in the runner stream and transcript tails (spec
    * 2026-10-01-map-themes-design § 5). */
@@ -1193,6 +1198,27 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
 
   /**
+   * What a typed project directory is on disk, for the New Session form's
+   * line under its field (spec 2026-10-12-new-session-missing-directory-design).
+   * Expanded like `POST /api/sessions`, so the path checked is the path launched.
+   */
+  app.get('/api/directory', (req, reply) => {
+    const q = req.query as { path?: string };
+    if (!q.path?.trim()) return reply.code(400).send({ error: 'path_required' });
+    return directoryState(q.path);
+  });
+
+  /** Creates a missing project directory, parents included — the form's *Create and start*. */
+  app.post('/api/directory', (req, reply) => {
+    const body = (req.body ?? {}) as { path?: unknown };
+    if (typeof body.path !== 'string' || !body.path.trim()) return reply.code(400).send({ error: 'path_required' });
+    const created = createDirectory(body.path);
+    if (created.ok) return reply.code(201).send({ path: created.path });
+    const status = { not_absolute: 400, not_a_directory: 409, not_permitted: 403 }[created.error];
+    return reply.code(status).send({ error: created.error });
+  });
+
+  /**
    * The servers of a project's `.mcp.json` nobody has decided, for the New
    * Session question (spec 2026-10-08-mcpjson-approval-design § Server). The
    * cwd is hand-typed, so it is expanded like `POST /api/sessions` does.
@@ -1953,6 +1979,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     ctx.harness.sessionEnded(id);
     // Ending the session drops its wait for a limit reset, unfired.
     ctx.limits?.drop(id);
+    // The user's terminals go with the session they belong to. Only here, on
+    // the user's End or Clear: a terminal session the CLI ended keeps them.
+    ctx.terminals.closeSession(id);
     await ctx.runner.stop(id);
     publishRow(id);
     // An ended drafting conversation is gone from everywhere, the map included.
@@ -2484,6 +2513,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   registerStatsRoutes(app, ctx);
   registerMcpRoutes(app, ctx);
+  registerTerminalRoutes(app, ctx);
   carry = registerHarnessRoutes(app, ctx, deliverToSession, readTranscriptMessages, async (opts) => {
     const refused = clientIdRefusal(opts.sessionId);
     if (refused) return { ok: false, ...refused };
