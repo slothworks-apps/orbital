@@ -35,9 +35,13 @@ this checklist points at them and does not restate them.
    parsing and path handling, server routes, security boundaries,
    persistence, pure logic that is hard to eyeball. A test that only pins a
    value or checks React rendered its props is a finding too.
-6. **PR** (PR reviews only). It has a description, its labels match the
-   apps reached and the kind of change (`gh label list`), and the
-   description carries no attribution.
+6. **PR** (PR reviews only). The description follows
+   `.github/pull_request_template.md`: every section is there, "before →
+   after" is filled, Scope has its four lines, and a change the user sees
+   has a design link or a filled prompt. List each placeholder still in
+   place (a demo, a design link) as missing — a reminder, not a fault.
+   Its labels match the apps reached and the kind of change
+   (`gh label list`), and the description carries no attribution.
 
 ## Output
 

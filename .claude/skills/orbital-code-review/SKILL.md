@@ -1,6 +1,6 @@
 ---
 name: orbital-code-review
-description: Review a change in the Orbital repo — the local branch against main, or a GitHub PR by number or URL — by fanning it out to focused review agents (reuse, security, phone, sessions, robustness, ui, performance, ship), then verifying and merging what they find.
+description: Review a change in the Orbital repo — the local branch against main, or a GitHub PR by number or URL — by fanning it out to focused review agents (feature, reuse, security, phone, sessions, robustness, ui, performance, ship), then verifying and merging what they find; the feature review is posted to the PR.
 argument-hint: "[pr-number-or-url]"
 ---
 
@@ -38,6 +38,7 @@ paragraph rather than inventing one.
 
 | Agent | Spawn when |
 |---|---|
+| `review-feature` | the change adds or alters a feature the user sees; not for a fix or a refactor |
 | `review-reuse` | always, unless the change only deletes or moves code |
 | `review-phone` | the change adds or alters a feature, a route, a WS message, or anything in `shared/` |
 | `review-ship` | always |
@@ -74,6 +75,8 @@ Each agent returns findings in this shape, and nothing else:
 ```
 
 `review-ship` returns a checklist instead (see its definition).
+`review-feature` returns a `verdict:` line before its findings; give it the
+PR description and the feature's spec as well.
 `review-phone` also returns its OTA-or-native verdict; pass it to
 `review-ship` only if `review-ship` has not run yet — otherwise reconcile
 the two yourself in step 5.
@@ -106,6 +109,8 @@ they can be referred to.
 
 <the intent paragraph>
 
+**Feature:** <review-feature's verdict, if it ran>
+
 ### Must fix
 1. **path:line** — claim. Scenario.
 
@@ -128,4 +133,29 @@ Agents run: <list>; findings dropped in verification: <count>.
 Leave out an empty group. The proposed bumps are proposals: the decision
 goes through AskUserQuestion, as the root `CLAUDE.md` → Versions says.
 
-Nothing is posted to the PR and nothing is fixed unless the user asks.
+## 7. Post the feature review
+
+When `review-feature` ran and the change has a PR — the one under review,
+or an open PR for the local branch (`gh pr view --json number,url`) — post
+its verified result to that PR as one comment:
+
+```markdown
+## ORBITAL FEATURE REVIEW
+
+**Verdict:** <fits | fits in Labs | questionable — why>
+
+<its verified findings, numbered, plain words; or "No findings.">
+
+<sub>Reviewed at <short SHA of the PR head>. Updated on every run of `/orbital-code-review`.</sub>
+```
+
+Keep one such comment per PR. Find an earlier one by its heading
+(`gh api repos/{owner}/{repo}/issues/<n>/comments`, a body starting with
+`## ORBITAL FEATURE REVIEW`) and edit it
+(`gh api -X PATCH repos/{owner}/{repo}/issues/comments/<id> -f body=…`);
+post a new one (`gh pr comment <n> --body …`) only when there is none.
+Without a PR, say in the report that the feature review will be posted
+once the PR is open and the review runs on it.
+
+Nothing else is posted to the PR, and nothing is fixed unless the user
+asks.

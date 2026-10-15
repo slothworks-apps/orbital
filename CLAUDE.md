@@ -109,14 +109,32 @@ The `commit-msg` hook refuses such a message; the `Attribution` workflow
 checks the same in every PR's commits and description.
 
 Every PR gets a description and labels when it is opened — never
-`--fill` alone, which leaves the body empty. The description says what
-changes for the user and why, the phone decision, and any version bump.
+`--fill` alone, which leaves the body empty. The description follows
+`.github/pull_request_template.md`: what changes for the user, behaviour
+before and after, scope, design, demo, the phone decision and any version
+bump. `gh pr create --body` does not fill the template in, so write the
+body to its sections. Leave a placeholder you cannot fill (a screenshot, a
+design link) in place, so what is missing stays visible.
 Labels: `desktop`, `relay`, `mobile` for each app the change reaches (the
 same mapping as Versions above), `site` for a change that reaches the
 website (a change under `web/src` can reach it too, through its demos),
 `ui` when it changes what the user sees, `ci` for workflows, hooks and
 build scripts, plus one of `bug`, `enhancement` or `documentation`. If no
 existing label fits, ask before creating one (`gh label list` shows them).
+
+After opening a PR that adds or changes a feature the user sees, run
+`/orbital-code-review` on it. Its feature review is posted to the PR as an
+`ORBITAL FEATURE REVIEW` comment, where the maintainer reads it.
+
+### Every feature has a scope answer
+
+`docs/why-orbital.md` → What gets in decides whether a feature belongs in
+Orbital at all. Answer it while designing, not after, in a Scope section
+of the feature's spec: who the feature is for, where it lives (on by
+default, an option beside the old behaviour, Labs, or Experimental), what
+someone already using Orbital notices after updating, and what can be
+set. A feature whose reception is not known yet goes to Labs; work in
+progress goes to Experimental.
 
 ### Every feature has a phone answer
 
