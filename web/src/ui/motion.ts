@@ -14,6 +14,9 @@
  * literal class names — v4 cannot build a class from a runtime value.
  */
 export const MODAL_ENTER_MS = 180
+// Anchored popovers (menus, a select's list, the media glance) open with
+// `.orbital-popover-in` in `theme.css` — a CSS animation on mount, so they
+// need no presence hold; they close at once.
 export const MODAL_EXIT_MS = 140
 
 /** The docked detail panel travels its whole width, so it gets longer than a modal. */

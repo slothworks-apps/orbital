@@ -192,6 +192,7 @@ export function DetailPanel({
   // The body shows Media instead of Transcript (canvas `Feature - Media` 24d)
   // — for the session it was opened on; another session opens on its transcript.
   const galleryOpen = useMedia((s) => id != null && s.gallery === id)
+  const gallery = usePresence(galleryOpen, PANEL_ENTER_MS, PANEL_EXIT_MS)
   useEffect(() => {
     const media = useMedia.getState()
     if (media.gallery !== null && media.gallery !== id) media.setGallery(null)
@@ -1157,11 +1158,29 @@ export function DetailPanel({
         {/* Media takes over the body (canvas `Feature - Media` 24d). The
             transcript stays mounted underneath, invisible rather than gone,
             so going back finds it at the scroll position it was left at. */}
-        <div className={galleryOpen ? 'invisible h-full' : 'h-full'} inert={galleryOpen || undefined}>
+        <div
+          className={[
+            'h-full',
+            // It fades as the gallery comes down over it, and turns invisible only once
+            // the fade is through (`visibility` switches at the end of its transition).
+            'motion-safe:transition-[opacity,visibility] motion-safe:ease-[cubic-bezier(.2,.8,.2,1)]',
+            galleryOpen ? 'invisible opacity-0 motion-safe:duration-[320ms]' : 'opacity-100 motion-safe:duration-[240ms]',
+          ].join(' ')}
+          inert={galleryOpen || undefined}
+        >
           <Transcript sessionId={id} />
         </div>
-        {galleryOpen && (
-          <div className="absolute inset-0">
+        {gallery.mounted && (
+          <div
+            className={[
+              'absolute inset-0',
+              // The gallery comes down from the top over the transcript and goes back up.
+              PANEL_TRANSITION,
+              gallery.state === 'exiting' ? `${PANEL_EXIT_DURATION} ${EXITING}` : PANEL_ENTER_DURATION,
+              gallery.state === 'entered' ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-6',
+            ].join(' ')}
+            inert={gallery.state === 'exiting' || undefined}
+          >
             <MediaGallery sessionId={id} columns={standalone ? 5 : 3} />
           </div>
         )}

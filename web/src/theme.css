@@ -462,6 +462,52 @@ body {
   color: rgba(160, 190, 225, 0.5);
 }
 
+/* An anchored popover opening — a menu, a select's list, the media glance,
+   the mode and model switchers, the harness template popovers. It unrolls
+   out of its trigger: the clip opens from the trigger's edge while the
+   popover travels the last 8px into place, on the app's panel curve. Below
+   the trigger it comes down from the top; with `data-placement="above"`
+   (set by `usePopupPosition`) it rises from the bottom. */
+@keyframes orbital-popover-down {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+    clip-path: inset(0 0 100% 0 round 10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    clip-path: inset(0 0 0 0 round 10px);
+  }
+}
+
+@keyframes orbital-popover-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    clip-path: inset(100% 0 0 0 round 10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    clip-path: inset(0 0 0 0 round 10px);
+  }
+}
+
+.orbital-popover-in {
+  animation: orbital-popover-down 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.orbital-popover-in[data-placement='above'] {
+  animation-name: orbital-popover-up;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbital-popover-in {
+    animation: none;
+  }
+}
+
 /* A tooltip arriving (canvas 4d, drawn in 4a): a fade plus the last few
    pixels of downward travel, so a bubble that waited out its delay reads as
    settling into place rather than blinking on. */

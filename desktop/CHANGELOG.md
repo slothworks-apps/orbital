@@ -4,9 +4,22 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
-## [0.30.0] — 2026-10-13
+## [0.30.0] — 2026-10-15
 ### Added
 - Filter by multiple tags at once: plain click selects only that tag, ⌘-click adds or removes it from the selection.
+
+## [0.29.3] — 2026-10-15
+### Changed
+- Menus, dropdown lists, the media preview and the mode and model pickers slide open from their button more visibly.
+- The media gallery slides down over the transcript when it opens and back up when it closes.
+
+## [0.29.2] — 2026-10-15
+### Changed
+- Markdown and code highlighting run on newer versions of their libraries; nothing should look different.
+
+## [0.29.1] — 2026-10-15
+### Changed
+- Menus, dropdown lists, the media preview and the mode and model pickers now ease open instead of appearing at once.
 
 ## [0.29.0] — 2026-10-12
 ### Added
