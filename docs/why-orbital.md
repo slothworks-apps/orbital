@@ -46,6 +46,37 @@ exist only for sessions Orbital starts, and that is deliberate: full
 terminal compatibility would load Orbital with work that serves the
 sessions it is meant to replace.
 
+## What gets in
+
+Orbital stays small enough for one person to hold in their head. Every
+feature is weighed against that before it is built.
+
+- **Useful to developers in general.** A feature earns its place when most
+  people who run several Claude Code sessions would use it. One person's
+  workflow, however well built, does not get in. Closing a gap with the CLI
+  always qualifies (see "Nothing the CLI can do is missing").
+- **Inside what Orbital is for.** Following several sessions at once, or
+  replacing the CLI. Something outside both needs an ADR that says why.
+- **An update changes nothing you did not choose.** A new feature arrives
+  off, in Labs, or as an option beside the old behaviour. It replaces what
+  users already rely on only when it is plainly better for everyone.
+- **Configurable where people genuinely differ.** Where a choice of form or
+  place is a matter of taste — statistics as a panel or as a button in the
+  session header — it is a setting. A setting for every detail is not.
+- **Every new surface costs attention.** A new tab, panel, header element or
+  map marker is the most expensive way to add something. Extend what exists
+  first.
+
+### Experimental, Labs, and out
+
+- **Experimental** (hidden in Settings) holds work in progress, for the
+  maintainer and testers.
+- **Labs** (visible in Settings, every switch off) holds finished features
+  whose reception is not known yet. Turning one on shows its settings with
+  the rest, or as its own tab when it is large enough.
+- From Labs a feature is either promoted, to the regular settings or on by
+  default, or removed. It does not stay in Labs for good.
+
 ## Calm
 
 A tool that watches several streams of work at once can add pressure or take
