@@ -1,8 +1,11 @@
 /**
- * Features that ship in the DMG but are off unless turned on from a hidden
- * Settings section (adr: walkthrough-sits-behind-an-experimental-switch).
- * The section itself only appears once `EXPERIMENTAL_UNLOCKED_KEY` is set,
- * which the reveal chord toggles while Settings is open.
+ * Features that ship in the DMG but are off until turned on in Settings,
+ * from one of two sections (docs/why-orbital.md → Experimental, Labs, and
+ * out). Labs, always listed, holds finished features to try: Harness and
+ * Terminal. Experimental holds work in progress (adr:
+ * walkthrough-sits-behind-an-experimental-switch) and only appears once
+ * `EXPERIMENTAL_UNLOCKED_KEY` is set, which the reveal chord toggles while
+ * Settings is open.
  */
 
 import type { KeyboardEventLike } from './keymap'
@@ -23,7 +26,8 @@ export const HARNESS_ENABLED_KEY = 'harness_enabled'
 export const ARCHIPELAGO_ENABLED_KEY = 'archipelago_enabled'
 /**
  * The user's own shells beside a session (spec
- * 2026-10-05-embedded-terminal-design § Behind an experimental switch). Off,
+ * 2026-10-05-embedded-terminal-design § Behind an experimental switch; now in
+ * Labs). Off,
  * nothing of the terminal shows; shells already running keep running.
  */
 export const TERMINAL_ENABLED_KEY = 'terminal_enabled'

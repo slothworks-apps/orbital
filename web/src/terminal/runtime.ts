@@ -19,7 +19,7 @@ import {
 import { findTab, useTerminals } from './store'
 import { TERMINAL_GONE_CLOSE_CODE, parseTerminalControl } from './types'
 
-/** The cursor the user picked in Settings → Experimental. */
+/** The cursor the user picked in Settings → Terminal. */
 export interface TerminalLook {
   cursor: TerminalCursor
   blink: boolean

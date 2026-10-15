@@ -22,7 +22,7 @@ export function readHarnessOnce(sessionId: string): void {
 /**
  * The session's harness, read the first time something shows the session:
  * the live one, null for none, undefined while unread or while the
- * experimental switch is off. Only Orbital's own sessions can take one.
+ * Labs switch is off. Only Orbital's own sessions can take one.
  */
 export function useSessionHarness(session: Pick<ApiSession, 'id' | 'source'> | undefined): SessionHarness | null | undefined {
   const enabled = useOrbital((s) => harnessEnabled(s.settings))
