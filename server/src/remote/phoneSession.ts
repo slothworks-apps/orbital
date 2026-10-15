@@ -20,6 +20,7 @@ import {
 import {
   MIN_PHONE_VERSION, PHONE_KNOWS_APP_TOO_OLD, compareVersions, phoneAppVersion,
 } from '@orbital/shared/remote/version';
+import { PRESENCE_TOPIC } from '@orbital/shared/presence';
 import type { Hub } from '../api/hub.js';
 import { ATTACHMENT_MAX_BYTES } from '../api/routes.js';
 import type { ImageStore } from '../images/store.js';
@@ -33,9 +34,10 @@ export const MAX_OPEN_UPLOADS = 4;
  * Hub topics a phone may subscribe to: the ones the web client uses, and
  * nothing else — the same stance `allowedPath` takes on routes, so a topic
  * added later stays Mac-only until it is listed here. `remote` (pairing
- * codes and fingerprints) is deliberately absent.
+ * codes and fingerprints) is deliberately absent. `presence` is the phone's
+ * own: the web client has no use for it.
  */
-export const PHONE_ALLOWED_TOPICS: ReadonlySet<string> = new Set(['sessions', 'errors']);
+export const PHONE_ALLOWED_TOPICS: ReadonlySet<string> = new Set(['sessions', 'errors', PRESENCE_TOPIC]);
 /** Per-id topics, by prefix: `session:<id>`, `subagent:<session>:<agent>`, `task-output:<session>:<task>`. */
 export const PHONE_ALLOWED_TOPIC_PREFIXES: readonly string[] = ['session:', 'subagent:', 'task-output:'];
 
@@ -77,6 +79,8 @@ export type PhoneSessionOptions = {
   /** Sends one body — handshake or ciphertext — to the phone. */
   send: (body: Uint8Array) => void;
   onSeen: (sessionId: string) => void;
+  /** Whether the user is at the Mac, sent when the phone subscribes to `presence`; absent, never. */
+  atMac?: () => boolean;
   onClose: () => void;
   /** Every `hello`'s verdict on the app's version: the refusal, or null for an app new enough. */
   onAppVersion?: (refusal: PhoneTooOld | null) => void;
@@ -235,6 +239,11 @@ export class PhoneSession {
       case 'ws':
         if (!phoneMayWatch(msg.topic)) return;
         this.socket.emit('message', JSON.stringify({ type: msg.type, topic: msg.topic }));
+        // The hub replays nothing on subscribe, so the phone would not know
+        // presence until it next changed.
+        if (msg.type === 'subscribe' && msg.topic === PRESENCE_TOPIC) {
+          this.sendJson({ t: 'ws', frame: { topic: PRESENCE_TOPIC, event: 'state', atMac: this.opts.atMac?.() ?? false } });
+        }
         return;
       case 'http':
         void this.onHttp(msg);

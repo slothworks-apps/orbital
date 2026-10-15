@@ -48,6 +48,7 @@ function makePhone(mac: ReturnType<typeof generateIdentity>, session: () => Phon
 
 function build(opts: {
   inject?: PhoneSession['opts']['inject']; handshake?: boolean; files?: PhoneFileReader; minPhoneVersion?: string;
+  atMac?: () => boolean;
 } = {}) {
   const mac = generateIdentity();
   const hub = new Hub({ heartbeatIntervalMs: 60_000 });
@@ -64,6 +65,7 @@ function build(opts: {
     inject: opts.inject ?? (async () => ({ statusCode: 500, body: '{}' })),
     images, imagesDir: dir, files: opts.files ?? (() => ({ status: 404 })), serverVersion: '0.15.0', macName: 'studio',
     notifications, send: phone.onMacBody, onSeen, onClose, onAppVersion, minPhoneVersion: opts.minPhoneVersion,
+    atMac: opts.atMac,
   });
   // The initiator's half exists from the start; only the responder's waits for `complete`.
   if (opts.handshake !== false) session.receive(phone.hs.message!);
@@ -113,6 +115,16 @@ describe('PhoneSession', () => {
     expect(phone.out.at(-1)).toEqual({ t: 'ws', frame: { topic: 'sessions', event: 'status', sessionId: 's1', status: 'working' } });
     phone.send({ t: 'ws', type: 'unsubscribe', topic: 'sessions' });
     expect(hub.subscriberCount('sessions')).toBe(0);
+  });
+  it('answers a presence subscription with the current state, then forwards changes', () => {
+    let atMac = true;
+    const { phone, hub } = build({ atMac: () => atMac });
+    phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' });
+    phone.send({ t: 'ws', type: 'subscribe', topic: 'presence' });
+    expect(phone.out.at(-1)).toEqual({ t: 'ws', frame: { topic: 'presence', event: 'state', atMac: true } });
+    atMac = false;
+    hub.publish('presence', { event: 'state', atMac: false });
+    expect(phone.out.at(-1)).toEqual({ t: 'ws', frame: { topic: 'presence', event: 'state', atMac: false } });
   });
   it('http goes through inject only when allowed, and answers 403 otherwise', async () => {
     const inject = vi.fn(async (req: { method: string; url: string }) => ({ statusCode: 200, body: JSON.stringify({ url: req.url }) }));
@@ -438,6 +450,23 @@ describe('DeviceWatcher', () => {
     expect(wakes).toHaveLength(3);
     w.stop();
     expect(hub.subscriberCount('sessions')).toBe(0);
+  });
+  it('wakes nothing while the user is at the Mac, and sends nothing muted later', () => {
+    const hub = new Hub({ heartbeatIntervalMs: 60_000 });
+    const wakes: string[] = [];
+    let quiet = true;
+    const w = new DeviceWatcher({ deviceId: 'p1', hub, settings: () => allOn, quiet: () => quiet, onWake: (id) => wakes.push(id) });
+    w.start([{ id: 's1', title: 'one', status: 'working' }]);
+    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    hub.publish('errors', { event: 'error', error: { kind: 'session_failed', sessionId: 's1', message: 'boom' } });
+    expect(wakes).toEqual([]);
+    quiet = false;
+    hub.publish('sessions', { event: 'upsert', session: { id: 's1', title: 'one', status: 'needs_input' } });
+    expect(wakes).toEqual([]);
+    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'working' });
+    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    expect(wakes).toEqual(['s1']);
+    w.stop();
   });
   it('a session failure wakes too', () => {
     const hub = new Hub({ heartbeatIntervalMs: 60_000 });

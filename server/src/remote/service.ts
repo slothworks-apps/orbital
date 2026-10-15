@@ -28,6 +28,7 @@ import type { WorkingTrees } from '../git/workingTrees.js';
 import { PhoneSession, type InjectFn, type PhoneTooOld } from './phoneSession.js';
 import { RelayClient, type RelayClientOptions, type RelayRefusal } from './relayClient.js';
 import { wakeSecret, wakeToken } from './wake.js';
+import type { Presence } from './presence.js';
 
 /** A phone refused at `hello` for an app too old: both versions, and when it was last refused. */
 export type PhoneRefusal = PhoneTooOld & { at: number };
@@ -129,6 +130,8 @@ export type RemoteServiceOptions = {
   settings: { get(key: string): string };
   allSettings: () => Record<string, string>;
   now?: () => number;
+  /** Whether the user is at the Mac; absent, they never are (spec 2026-10-15-the-phone-is-quiet-while-you-are-at-the-mac-design). */
+  presence?: Pick<Presence, 'atMac'>;
   clientFactory?: (opts: RelayClientOptions) => RelayClient;
 };
 
@@ -503,6 +506,7 @@ export class RemoteService {
         },
         send: (body) => client.sendData(encodeFrame({ peer: phonePublicKey, flags: 0, wake: ZERO_WAKE, body })),
         onSeen: (sessionId) => this.watchers.get(from)?.seen(sessionId),
+        atMac: () => this.opts.presence?.atMac ?? false,
         onClose: () => {
           if (this.sessions.get(from) === session) this.sessions.delete(from);
         },
@@ -535,6 +539,7 @@ export class RemoteService {
     const watcher = new DeviceWatcher({
       deviceId: id, hub: this.opts.hub,
       settings: () => this.devices.get(id)?.notifications ?? parseNotificationSettings({}),
+      quiet: () => this.opts.presence?.atMac ?? false,
       // Sent whether or not the phone is connected: the relay forwards to a
       // connected phone (which ignores an empty body) and pushes otherwise.
       onWake: (sessionId) => this.client?.sendData(encodeFrame({

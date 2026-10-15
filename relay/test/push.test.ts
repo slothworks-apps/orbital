@@ -1,65 +1,23 @@
 import { describe, it, expect, vi } from 'vitest';
-import {
-  FcmPushSender, WAKE_TRACKER_MAX_PER_PHONE, WAKE_TRACKER_MAX_PHONES, WakeTracker, pushText, wakeHook,
-} from '../src/push.js';
+import { FcmPushSender, wakeHook } from '../src/push.js';
 import { openRelayStore } from '../src/store.js';
 
-describe('WakeTracker', () => {
-  it('counts distinct wake tokens per phone until cleared', () => {
-    const t = new WakeTracker();
-    const a = new Uint8Array(16).fill(1);
-    const b = new Uint8Array(16).fill(2);
-    expect(t.add('p', a)).toBe(1);
-    expect(t.add('p', a)).toBe(1);
-    expect(t.add('p', b)).toBe(2);
-    expect(t.add('q', a)).toBe(1);
-    t.clear('p');
-    expect(t.add('p', a)).toBe(1);
-  });
-
-  it('caps distinct wakes per phone, dropping the oldest', () => {
-    const t = new WakeTracker();
-    let last = 0;
-    for (let i = 0; i < WAKE_TRACKER_MAX_PER_PHONE + 1; i++) {
-      const wake = new Uint8Array(16).fill(0);
-      new DataView(wake.buffer).setUint32(0, i);
-      last = t.add('p', wake);
-    }
-    expect(last).toBe(WAKE_TRACKER_MAX_PER_PHONE);
-  });
-
-  it('caps the number of phones pending at once, evicting the least recently added', () => {
-    const t = new WakeTracker();
-    for (let i = 0; i < WAKE_TRACKER_MAX_PHONES + 1; i++) {
-      t.add(`phone-${i}`, new Uint8Array(16).fill(1));
-    }
-    expect(t.add('phone-0', new Uint8Array(16).fill(1))).toBe(1);
-  });
-});
-
-describe('pushText', () => {
-  it('names no device and pluralises', () => {
-    expect(pushText(1)).toEqual({ title: 'Orbital', body: 'A session needs your input' });
-    expect(pushText(3)).toEqual({ title: 'Orbital', body: '3 sessions need your input' });
-  });
-});
-
 describe('wakeHook', () => {
-  it('sends to the phone token with the running count, and skips a phone without a token', async () => {
+  it('sends to the phone token tagged with the wake token, and skips a phone without a token', async () => {
     const store = await openRelayStore(':memory:');
     await store.upsertDevice({ id: 'mac', kind: 'mac' });
     await store.upsertDevice({ id: 'phone', kind: 'phone' });
     await store.setPushToken('phone', 'fcm-1');
     await store.upsertDevice({ id: 'mute', kind: 'phone' });
     const sender = { send: vi.fn(async () => {}) };
-    const hook = wakeHook(store, new WakeTracker(), sender);
+    const hook = wakeHook(store, sender);
     await hook('mac', 'phone', new Uint8Array(16).fill(1));
     await hook('mac', 'phone', new Uint8Array(16).fill(2));
     await hook('mac', 'mute', new Uint8Array(16).fill(1));
     await new Promise((r) => setTimeout(r, 0));
     expect(sender.send.mock.calls).toEqual([
-      ['fcm-1', { count: 1 }],
-      ['fcm-1', { count: 2 }],
+      ['fcm-1', { tag: '01'.repeat(16) }],
+      ['fcm-1', { tag: '02'.repeat(16) }],
     ]);
   });
 });
@@ -80,8 +38,8 @@ describe('FcmPushSender', () => {
       fetchImpl as any,
       () => 1_700_000_000_000,
     );
-    await sender.send('fcm-1', { count: 1 });
-    await sender.send('fcm-1', { count: 2 });
+    await sender.send('fcm-1', { tag: 'aa' });
+    await sender.send('fcm-1', { tag: 'bb' });
     expect(calls.map((c) => c.url)).toEqual([
       'https://oauth2.googleapis.com/token',
       'https://fcm.googleapis.com/v1/projects/proj/messages:send',
@@ -90,7 +48,8 @@ describe('FcmPushSender', () => {
     const sent = JSON.parse(calls[1].init.body as string);
     expect(sent.message.token).toBe('fcm-1');
     expect(sent.message.notification).toEqual({ title: 'Orbital', body: 'A session needs your input' });
-    expect(sent.message.android.collapse_key).toBe('needs-input');
+    expect(sent.message.android.notification.tag).toBe('aa');
+    expect(sent.message.apns.headers['apns-collapse-id']).toBe('aa');
     expect((calls[1].init.headers as Record<string, string>).authorization).toBe('Bearer tok');
   });
 
@@ -115,7 +74,7 @@ describe('FcmPushSender', () => {
       fetchImpl as any,
       () => 1_700_000_000_000,
     );
-    await sender.send('fcm-1', { count: 1 });
+    await sender.send('fcm-1', { tag: 'aa' });
     expect(calls.map((c) => c.url)).toEqual([
       'https://oauth2.googleapis.com/token',
       'https://fcm.googleapis.com/v1/projects/proj/messages:send',
@@ -138,6 +97,6 @@ describe('FcmPushSender', () => {
       fetchImpl as any,
       () => 1_700_000_000_000,
     );
-    await expect(sender.send('fcm-1', { count: 1 })).rejects.toThrow('fcm 401');
+    await expect(sender.send('fcm-1', { tag: 'aa' })).rejects.toThrow('fcm 401');
   });
 });

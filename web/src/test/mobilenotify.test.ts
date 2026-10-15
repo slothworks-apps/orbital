@@ -3,38 +3,51 @@ import { DEFAULT_NOTIFICATION_SETTINGS, type SessionNotification } from '@orbita
 import type { ApiSession, PendingDecision } from '../lib/types'
 import { BANNER_MS } from '../mobile/constants'
 import {
-  BANNER_LINE_MAX, bannerLine, channelFor, decideNotification, notificationId, seedNotifications, setRules, useBanner, wireNotifications,
+  BANNER_LINE_MAX, bannerLine, channelFor, decideNotification, notificationId, seedNotifications, setActive, setRules, useBanner,
+  wireNotifications,
 } from '../mobile/notify'
+import { postLocalNotification, removeDeliveredNotification } from '../mobile/platform/localNotify'
 import { initialMobileState, useMobile } from '../mobile/state'
 import { clientRef } from '../mobile/transport/clientRef'
 import { useOrbital } from '../store/store'
 import { FakeClient } from './fakeRemoteClient'
+
+vi.mock('../mobile/platform/localNotify', () => ({
+  postLocalNotification: vi.fn(async () => {}),
+  removeDeliveredNotification: vi.fn(async () => {}),
+}))
 
 const RULES = DEFAULT_NOTIFICATION_SETTINGS
 const ASKS: SessionNotification = { title: 'orbital', body: 'Needs your input', sessionId: 's1' }
 
 describe('decideNotification', () => {
   it('shows only the banner in the foreground, on another screen, with the background rule on', () => {
-    expect(decideNotification(ASKS, { active: true, viewing: 's2', rules: RULES })).toEqual({ banner: true, system: false })
-    expect(decideNotification(ASKS, { active: true, viewing: null, rules: RULES })).toEqual({ banner: true, system: false })
+    expect(decideNotification(ASKS, { active: true, viewing: 's2', rules: RULES, atMac: false })).toEqual({ banner: true, system: false })
+    expect(decideNotification(ASKS, { active: true, viewing: null, rules: RULES, atMac: false })).toEqual({ banner: true, system: false })
   })
 
   it('shows nothing for the session on screen while the rule holds back the system one', () => {
-    expect(decideNotification(ASKS, { active: true, viewing: 's1', rules: RULES })).toEqual({ banner: false, system: false })
+    expect(decideNotification(ASKS, { active: true, viewing: 's1', rules: RULES, atMac: false })).toEqual({ banner: false, system: false })
   })
 
   it('posts the system notification next to the banner in the foreground when the rule is off', () => {
     const rules = { ...RULES, onlyWhenBackground: false }
-    expect(decideNotification(ASKS, { active: true, viewing: 's2', rules })).toEqual({ banner: true, system: true })
+    expect(decideNotification(ASKS, { active: true, viewing: 's2', rules, atMac: false })).toEqual({ banner: true, system: true })
   })
 
   it('posts only the system notification in the background, whatever was on screen', () => {
-    expect(decideNotification(ASKS, { active: false, viewing: 's1', rules: RULES })).toEqual({ banner: false, system: true })
+    expect(decideNotification(ASKS, { active: false, viewing: 's1', rules: RULES, atMac: false })).toEqual({ banner: false, system: true })
+  })
+
+  it('posts nothing to the system while the user is at the Mac, and still banners in the foreground', () => {
+    expect(decideNotification(ASKS, { active: false, viewing: null, rules: RULES, atMac: true })).toEqual({ banner: false, system: false })
+    const rules = { ...RULES, onlyWhenBackground: false }
+    expect(decideNotification(ASKS, { active: true, viewing: 's2', rules, atMac: true })).toEqual({ banner: true, system: false })
   })
 
   it('banners a failure that names no session even when no session is on screen', () => {
     const failed = { title: 'Session', body: 'Session failed: boom', sessionId: null }
-    expect(decideNotification(failed, { active: true, viewing: null, rules: RULES }).banner).toBe(true)
+    expect(decideNotification(failed, { active: true, viewing: null, rules: RULES, atMac: false }).banner).toBe(true)
   })
 })
 
@@ -245,6 +258,49 @@ describe('wireNotifications', () => {
     client.emit({ type: 'hub', frame: status('needs_input') })
     await settled()
     expect(useBanner.getState().current).toBeNull()
+  })
+
+  describe('in the background', () => {
+    beforeEach(() => {
+      setActive(false)
+      vi.mocked(postLocalNotification).mockClear()
+      vi.mocked(removeDeliveredNotification).mockClear()
+    })
+    afterEach(() => setActive(true))
+
+    it('takes a question off the shade once its session moves on', async () => {
+      useOrbital.setState({ sessions: { s1: row() } })
+      open()
+      client.emit({ type: 'hub', frame: status('needs_input') })
+      await settled()
+      expect(postLocalNotification).toHaveBeenCalledTimes(1)
+      client.emit({ type: 'hub', frame: upsert('needs_input') })
+      expect(removeDeliveredNotification).not.toHaveBeenCalled()
+      client.emit({ type: 'hub', frame: status('working') })
+      expect(removeDeliveredNotification).toHaveBeenCalledWith(notificationId('s1'))
+      client.emit({ type: 'hub', frame: status('idle') })
+      expect(removeDeliveredNotification).toHaveBeenCalledTimes(1)
+    })
+
+    it('posts nothing while the Mac says the user is at it, and again once the tunnel drops', async () => {
+      useOrbital.setState({ sessions: { s1: row() } })
+      open()
+      client.emit({ type: 'hub', frame: { topic: 'presence', event: 'state', atMac: true } })
+      client.emit({ type: 'hub', frame: status('needs_input') })
+      await settled()
+      expect(postLocalNotification).not.toHaveBeenCalled()
+      client.emit({ type: 'ready', ready: false })
+      open()
+      client.emit({ type: 'hub', frame: status('working') })
+      client.emit({ type: 'hub', frame: status('needs_input') })
+      await settled()
+      expect(postLocalNotification).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it('subscribes to presence on every tunnel', () => {
+    open()
+    expect(client.subscribe).toHaveBeenCalledWith('presence')
   })
 
   it('shows no banner over the pairing, unpaired or mismatch screens', async () => {

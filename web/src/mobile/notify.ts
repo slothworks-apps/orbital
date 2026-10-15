@@ -2,12 +2,13 @@ import { create } from 'zustand'
 import {
   DEFAULT_NOTIFICATION_SETTINGS, NEEDS_INPUT_BODY, SessionNotifier, type NotificationSettings, type SessionNotification,
 } from '@orbital/shared/notifications'
+import { PRESENCE_TOPIC, presenceFromFrame } from '@orbital/shared/presence'
 import { decisionChipLabel, decisionHeadline, inputSummary } from '../lib/decisionCard'
 import type { ApiSession, PendingDecision } from '../lib/types'
 import { useOrbital } from '../store/store'
 import { BANNER_MS } from './constants'
 import { writeNotificationsCache } from './platform/cache'
-import { postLocalNotification } from './platform/localNotify'
+import { postLocalNotification, removeDeliveredNotification } from './platform/localNotify'
 import { useMobile, type Screen } from './state'
 import { clientRef } from './transport/clientRef'
 
@@ -25,14 +26,18 @@ export type Audience = { banner: boolean; system: boolean }
  * The banner is UI, not a notification (spec § 6): in the foreground it shows
  * for every session but the one on screen, and the background rule governs
  * the system notification alone. A failure that names no session is never
- * the one on screen.
+ * the one on screen. While the user is at the Mac, nothing reaches the
+ * system (spec 2026-10-15-the-phone-is-quiet-while-you-are-at-the-mac-design § 2).
  */
 export function decideNotification(
   n: SessionNotification,
-  ctx: { active: boolean; viewing: string | null; rules: NotificationSettings },
+  ctx: { active: boolean; viewing: string | null; rules: NotificationSettings; atMac: boolean },
 ): Audience {
-  if (!ctx.active) return { banner: false, system: true }
-  return { banner: n.sessionId === null || n.sessionId !== ctx.viewing, system: !ctx.rules.onlyWhenBackground }
+  if (!ctx.active) return { banner: false, system: !ctx.atMac }
+  return {
+    banner: n.sessionId === null || n.sessionId !== ctx.viewing,
+    system: !ctx.rules.onlyWhenBackground && !ctx.atMac,
+  }
 }
 
 /** A channel's sound is fixed once created, so the `sound` rule picks between two (spec § 6.5). */
@@ -117,6 +122,13 @@ let rules: NotificationSettings = DEFAULT_NOTIFICATION_SETTINGS
 let notifier = new SessionNotifier()
 let active = true
 let wired = false
+/** What the Mac last said about the user being at it; false until it says, and again once the tunnel is gone. */
+let atMac = false
+/**
+ * The sessions whose "needs your input" is on the shade: one leaving
+ * `needs_input` takes it off, so the shade shows each session's latest state.
+ */
+const askingOnShade = new Set<string>()
 
 /** The phone's rules, from the cache at boot and from 9f after each save. */
 export function setRules(next: NotificationSettings): void {
@@ -150,9 +162,21 @@ export function wireNotifications(): void {
   if (wired) return
   wired = true
   clientRef.on((event) => {
-    if (event.type === 'ready' && event.ready) renew()
-    else if (event.type === 'hub') {
+    if (event.type === 'ready') {
+      atMac = false
+      if (event.ready) {
+        // An older Mac drops a topic it does not allow, and atMac stays false.
+        clientRef.subscribe(PRESENCE_TOPIC)
+        renew()
+      }
+    } else if (event.type === 'hub') {
+      const presence = presenceFromFrame(event.frame)
+      if (presence !== null) {
+        atMac = presence
+        return
+      }
       remember(event.frame)
+      retireAnswered(event.frame)
       const n = notifier.onEvent(event.frame)
       // After the listeners still to hear this frame (the tunnel socket hands it to the store).
       if (n) queueMicrotask(() => report(n))
@@ -183,6 +207,18 @@ function remember(frame: unknown): void {
     heard.delete(f.sessionId)
     asks.delete(f.sessionId)
   }
+}
+
+/** Takes a session's "needs your input" off the shade once the session has moved on. */
+function retireAnswered(frame: unknown): void {
+  const f = frame as (SessionsFrame & { status?: unknown; session?: { status?: unknown } }) | null
+  if (f?.topic !== 'sessions') return
+  const id = typeof f.sessionId === 'string' ? f.sessionId : typeof f.session?.id === 'string' ? f.session.id : null
+  if (!id || !askingOnShade.has(id)) return
+  const status = f.event === 'status' ? f.status : f.event === 'upsert' ? f.session?.status : undefined
+  if (f.event !== 'remove' && (typeof status !== 'string' || status === 'needs_input')) return
+  askingOnShade.delete(id)
+  void removeDeliveredNotification(notificationId(id))
 }
 
 /**
@@ -235,7 +271,7 @@ function pendingFor(sessionId: string): PendingDecision | undefined {
 
 function report(n: SessionNotification): void {
   const { screen, sessionId } = useMobile.getState()
-  const audience = decideNotification(n, { active, viewing: screen === 'session' ? sessionId : null, rules })
+  const audience = decideNotification(n, { active, viewing: screen === 'session' ? sessionId : null, rules, atMac })
   if (audience.banner && !BANNERLESS.has(screen)) {
     const pending = n.sessionId ? pendingFor(n.sessionId) : undefined
     useBanner.getState().show({
@@ -246,6 +282,10 @@ function report(n: SessionNotification): void {
     })
   }
   if (audience.system) {
+    if (n.sessionId !== null) {
+      if (n.body === NEEDS_INPUT_BODY) askingOnShade.add(n.sessionId)
+      else askingOnShade.delete(n.sessionId)
+    }
     void postLocalNotification({
       id: notificationId(n.sessionId), title: n.title, body: n.body, channelId: channelFor(rules), sound: rules.sound, sessionId: n.sessionId,
     })

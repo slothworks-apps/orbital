@@ -61,6 +61,7 @@ import { ModelCatalog, catalogKeyFor, recordContextWindows } from './models/cata
 import { LIMITS_TOPIC, LimitsService } from './limits/service.js';
 import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
+import { Presence } from './remote/presence.js';
 import { RemoteService } from './remote/service.js';
 import { remoteInjectOptions } from './remote/inject.js';
 import {
@@ -1422,8 +1423,9 @@ export async function buildServer(overrides: {
   // whether or not it is enabled — `start()` is what reads the switch — so the
   // routes always have something to ask. `inject` is how a phone's REST call
   // enters: in-process, same routes, same host guard satisfied by the header.
+  const presence = new Presence({ publish: (topic, payload) => hub.publish(topic, payload) });
   const remote = new RemoteService({
-    db, hub, dataDir, images, imagesDir, transcriptPath, trees,
+    db, hub, dataDir, images, imagesDir, transcriptPath, trees, presence,
     serverVersion: process.env.ORBITAL_VERSION ?? 'dev',
     inject: async (req) => {
       const res = await app.inject(remoteInjectOptions(req, apiToken));
@@ -1434,7 +1436,7 @@ export async function buildServer(overrides: {
   });
   registerRoutes(app, {
     db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, terminals, recentTools, errors,
-    images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, trees,
+    images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees,
     settings: settingsStore,
     mcpFor,
     limits,
@@ -1459,6 +1461,7 @@ export async function buildServer(overrides: {
       console.warn(`[remote] stop failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     limits.dispose();
+    presence.dispose();
     runner.dispose();
     registry.close();
     branchStatus.close();

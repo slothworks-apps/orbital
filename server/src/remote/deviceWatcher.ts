@@ -15,6 +15,12 @@ export type DeviceWatcherOptions = {
   hub: Hub;
   settings: () => NotificationSettings;
   onWake: (sessionId: string) => void;
+  /**
+   * True while the user is at the Mac: nothing wakes the phone then, and
+   * nothing muted is sent later (spec
+   * 2026-10-15-the-phone-is-quiet-while-you-are-at-the-mac-design § 2).
+   */
+  quiet?: () => boolean;
 };
 
 export class DeviceWatcher {
@@ -66,6 +72,7 @@ export class DeviceWatcher {
     this.notifier.setSettings(this.opts.settings());
     const note = this.notifier.onEvent(frame);
     if (!note?.sessionId) return;
+    if (this.opts.quiet?.()) return;
     // A failure is news even while a needs_input wake for the same session
     // is unopened, and it has no "leaving" event to retire a debounce with.
     const debounced = frame.topic !== 'errors';

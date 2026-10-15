@@ -62,6 +62,7 @@ import { recordDecisions, serverFile, undecidedServers, type McpjsonDecisions } 
 import { dbFingerprints } from '../mcp/approvals.js';
 import type { McpConfig } from '../mcp/config.js';
 import { registerRemoteRoutes } from './remoteRoutes.js';
+import type { Presence } from '../remote/presence.js';
 import type { RemoteService } from '../remote/service.js';
 import { buildWalkthrough } from '../walkthrough/spine.js';
 import { readSubagentMessages, subagentDirOf } from '../walkthrough/subagents.js';
@@ -138,6 +139,8 @@ export interface RouteContext {
   harness: HarnessService;
   /** The mobile remote (spec 2026-09-30-mobile-remote-design § 3): its routes, and the settings hook. */
   remote: RemoteService;
+  /** Whether the user is at the Mac, as the desktop app reports it. */
+  presence?: Presence;
   settings: { get(key: string): string; set(key: string, value: string): void };
   /** MCP config through `claude mcp`, and the read of `.claude.json` the edit form needs, for
    * one Claude directory (spec 2026-10-01-mcp-servers-in-the-session-design § Config). */
@@ -423,7 +426,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const { db } = ctx;
   const mcpjsonFingerprints = dbFingerprints(db);
   if (ctx.devTools) registerDevRoutes(app, ctx);
-  registerRemoteRoutes(app, ctx.remote);
+  registerRemoteRoutes(app, ctx.remote, ctx.presence);
   /**
    * One reader for the whole server, because its whole job is to hold a tab
    * list still for a moment across the burst of requests one `@` produces
