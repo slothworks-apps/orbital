@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.29.2] — 2026-10-15
+### Changed
+- Markdown and code highlighting run on newer versions of their libraries; nothing should look different.
+
 ## [0.29.1] — 2026-10-15
 ### Changed
 - Menus, dropdown lists, the media preview and the mode and model pickers now ease open instead of appearing at once.

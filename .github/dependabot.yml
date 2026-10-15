@@ -1,44 +1,38 @@
-# Monthly version updates, grouped so a month brings at most two npm pull
-# requests (minor and patch, and majors) rather than one per package.
-# Security updates are switched on in the repository settings and arrive on
-# their own, outside this schedule.
+# Security updates, plus the Claude Agent SDK. Security updates are switched
+# on in the repository settings and arrive as their own pull requests whenever
+# an advisory hits a dependency. Of the routine version updates only the Agent
+# SDK's are kept, since it tracks the Claude Code CLI Orbital runs; everything
+# else is off (`open-pull-requests-limit: 0`) and upgraded by hand.
 version: 2
 updates:
+  # Security updates read this entry: it has no `target-branch`. Its
+  # `open-pull-requests-limit` stops version updates and does not apply to
+  # security ones, so every npm dependency still gets its security fixes.
   - package-ecosystem: npm
     # The root lockfile covers every workspace.
     directory: /
     schedule:
       interval: monthly
-    open-pull-requests-limit: 5
-    # Orbital runs on Node 24 everywhere (Electron's built-in Node, the relay
-    # image, CI); the types follow that line, not the newest Node.
-    ignore:
-      - dependency-name: '@types/node'
-        update-types: [version-update:semver-major]
-      # TypeScript 7 ships no tsserver and typescript-eslint does not
-      # support it yet; take the next major by hand once they do.
-      - dependency-name: typescript
-        update-types: [version-update:semver-major]
-    groups:
-      minor-and-patch:
-        update-types: [minor, patch]
-      majors:
-        update-types: [major]
+    open-pull-requests-limit: 0
+
+  # The Agent SDK's version updates. Security updates ignore an entry with a
+  # `target-branch`, so the `allow` below cannot narrow them to this package.
+  - package-ecosystem: npm
+    directory: /
+    target-branch: main
+    schedule:
+      interval: weekly
+    allow:
+      - dependency-name: '@anthropic-ai/claude-agent-sdk'
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
-    groups:
-      actions:
-        patterns: ['*']
+    open-pull-requests-limit: 0
 
   - package-ecosystem: docker
     directory: /relay
     schedule:
       interval: monthly
-    # The relay runs on an LTS line of Node. A new major is not LTS when it
-    # comes out, so moving to it is a deliberate change, not a weekly bump.
-    ignore:
-      - dependency-name: node
-        update-types: [version-update:semver-major]
+    open-pull-requests-limit: 0

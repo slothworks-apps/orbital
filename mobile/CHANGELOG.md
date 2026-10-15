@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.10.2] — 2026-10-15
+### Changed
+- Messages are rendered by a newer version of the Markdown library; nothing should look different.
+
 ## [0.10.1] — 2026-10-12
 ### Added
 - Tapping the project and branch in a session's header opens a panel instead of a tooltip: the full branch name, its line changes and its pull request — state, review and checks — with a button that opens the pull request on GitHub.
