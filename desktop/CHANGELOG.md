@@ -4,7 +4,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
-## [0.30.0] — 2026-10-15
+## [0.29.4] — 2026-10-15
 ### Added
 - Filter by multiple tags at once: plain click selects only that tag, ⌘-click adds or removes it from the selection.
 
