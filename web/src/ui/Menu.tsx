@@ -320,7 +320,7 @@ export function MenuButton({
             ref={popupRef}
             // 23c form 4: the shell's inset around the list, and the popup
             // shell Select's listbox wears (`POPUP_SHELL`).
-            className={['orbital-no-drag fixed z-[60] flex max-w-[calc(100vw-16px)] flex-col p-1.5', POPUP_SHELL].join(' ')}
+            className={['orbital-no-drag orbital-popover-in fixed z-[60] flex max-w-[calc(100vw-16px)] flex-col p-1.5', POPUP_SHELL].join(' ')}
             style={widthPx === undefined ? undefined : { width: `${widthPx}px` }}
           >
             <div

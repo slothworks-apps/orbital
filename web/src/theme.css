@@ -462,6 +462,39 @@ body {
   color: rgba(160, 190, 225, 0.5);
 }
 
+/* An anchored popover opening — a menu, a select's list, the media glance,
+   the mode and model switchers. The composer's completion list draws it
+   (canvas 9e): a fade and the last 4px of travel away from the trigger, over
+   .12s. Below the trigger it settles down; with `data-placement="above"`
+   (set by `usePopupPosition`) it settles up. */
+@keyframes orbital-popover-down {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes orbital-popover-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.orbital-popover-in {
+  animation: orbital-popover-down 0.12s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+
+.orbital-popover-in[data-placement='above'] {
+  animation-name: orbital-popover-up;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbital-popover-in {
+    animation: none;
+  }
+}
+
 /* A tooltip arriving (canvas 4d, drawn in 4a): a fade plus the last few
    pixels of downward travel, so a bubble that waited out its delay reads as
    settling into place rather than blinking on. */

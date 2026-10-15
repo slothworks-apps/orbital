@@ -78,7 +78,7 @@ export function Popover({
         data-harness-popover=""
         // 30l / 30m: a flat rgba(10,16,28,.96) fill, a .16 hairline, one soft drop shadow.
         className={[
-          'orbital-no-drag fixed z-[60] flex flex-col overflow-y-auto border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] text-text-bright shadow-[0_24px_60px_rgba(0,0,0,.6)]',
+          'orbital-no-drag orbital-popover-in fixed z-[60] flex flex-col overflow-y-auto border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] text-text-bright shadow-[0_24px_60px_rgba(0,0,0,.6)]',
           radius === 12 ? 'rounded-xl' : 'rounded-[10px]',
           className ?? '',
         ].join(' ')}
