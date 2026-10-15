@@ -3,12 +3,12 @@ import type { RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { useCommand } from '../lib/commands'
 import { shortcutLabel } from '../lib/keymap'
-import { mediaCountLine, mediaTiles, toolMediaCount } from '../lib/media'
+import { mediaCountLine, mediaTiles } from '../lib/media'
 import type { MediaItem } from '../lib/types'
-import { useHideTool, useMedia, useSessionMedia } from '../store/media'
+import { useHiddenSources, useMedia, useSessionMedia } from '../store/media'
 import { useEscapeLayer } from '../ui/escapeLayer'
 import { POPUP_SHELL } from '../ui/usePopupPosition'
-import { HideToolChip, MediaTileButton, OnlyToolHidden } from './MediaParts'
+import { MediaTileButton, NothingShown, SOURCES_LIST_ATTR, SourcesButton } from './MediaParts'
 import { MediaViewer } from './MediaViewer'
 
 /**
@@ -19,8 +19,8 @@ import { MediaViewer } from './MediaViewer'
  * once the first item lands, with no fade, pulse or highlight
  * (`docs/why-orbital.md`, Calm).
  *
- * A press opens the glance popover: the latest tiles, the Hide tool images
- * switch, and Open gallery. While the gallery shows, the readout wears its
+ * A press opens the glance popover: the latest tiles, the Sources filter
+ * (26b B), and Open gallery. While the gallery shows, the readout wears its
  * active chip and a press returns to the transcript.
  */
 
@@ -123,7 +123,7 @@ function GlancePopover({
   onOpenItem: (item: MediaItem) => void
 }) {
   const popupRef = useRef<HTMLDivElement | null>(null)
-  const [hideTool, setHideTool] = useHideTool(sessionId)
+  const [hidden, setHidden] = useHiddenSources(sessionId)
   useEscapeLayer(true, onClose)
 
   // Placed off the panel, not the trigger: 24b spans the panel less its inset.
@@ -150,14 +150,15 @@ function GlancePopover({
       const target = event.target
       if (!(target instanceof Node)) return
       if (triggerRef.current?.contains(target) || popupRef.current?.contains(target)) return
+      // The Sources list hangs outside the popover, portalled; a press in it is not a press away.
+      if (target instanceof Element && target.closest(`[${SOURCES_LIST_ATTR}]`)) return
       onClose()
     }
     document.addEventListener('pointerdown', onPointerDown, true)
     return () => document.removeEventListener('pointerdown', onPointerDown, true)
   }, [onClose, triggerRef])
 
-  const tiles = mediaTiles(items, hideTool).slice(0, GLANCE_TILES)
-  const tool = toolMediaCount(items)
+  const tiles = mediaTiles(items, hidden).slice(0, GLANCE_TILES)
 
   return createPortal(
     <div
@@ -167,17 +168,19 @@ function GlancePopover({
       className={['orbital-no-drag orbital-popover-in fixed z-[60] w-[422px] overflow-hidden', POPUP_SHELL].join(' ')}
     >
       <div className="flex items-center gap-2 border-b border-[rgba(150,205,255,.08)] px-3 py-[9px] font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.6)]">
-        <span className="min-w-0 flex-1 truncate">{mediaCountLine(items, hideTool)}</span>
-        {tool > 0 && <HideToolChip on={hideTool} onToggle={() => setHideTool(!hideTool)} />}
+        <span className="min-w-0 flex-1 truncate">{mediaCountLine(items, hidden)}</span>
+        <span className="tracking-normal">
+          <SourcesButton items={items} hidden={hidden} onChange={setHidden} />
+        </span>
       </div>
-      {tiles.length > 0 || !hideTool || tool === 0 ? (
-        <div className="grid grid-cols-4 gap-[5px] px-3 py-2.5">
+      {tiles.length > 0 ? (
+        <div className="grid grid-cols-4 gap-x-[5px] gap-y-2 px-3 py-2.5">
           {tiles.map((tile) => (
             <MediaTileButton key={tile.key} sessionId={sessionId} tile={tile} variant="glance" onOpen={onOpenItem} />
           ))}
         </div>
       ) : (
-        <OnlyToolHidden hidden={tool} onShow={() => setHideTool(false)} className="h-[118px]" />
+        <NothingShown hidden={items.length} onShowAll={() => setHidden([])} className="h-[118px]" />
       )}
       <button
         type="button"

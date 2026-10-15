@@ -1,9 +1,9 @@
 import { useCallback, useRef, useState } from 'react'
 import type { MessageImage } from '../../lib/fileOpen'
-import { pagingOrder, positionIn } from '../../lib/media'
+import { mediaSourceKey, pagingOrder, positionIn } from '../../lib/media'
 import type { MediaItem } from '../../lib/types'
 import { GoneMark, isGone } from '../../panels/MediaParts'
-import { useHideTool, useMedia } from '../../store/media'
+import { useHiddenSources, useMedia } from '../../store/media'
 import { basename } from '../format'
 import { useMobile } from '../state'
 import { ImagePage } from './ImageViewer'
@@ -15,9 +15,9 @@ import { PdfPage } from './PdfViewer'
  * The phone's viewer paging through a session's media (canvas `Feature -
  * Media` 24g; spec 2026-10-09-session-media-design § Phone, Viewer): 10d's
  * image viewer and the PDF viewer, one item at a time, swipe ↔ moving
- * through the items Hide tool images leaves standing, oldest first. Opened
- * on a tool image the switch hides, it pages through everything: that image
- * was asked for by name.
+ * through the items the Sources filter leaves standing, oldest first. Opened
+ * on an item the filter hides, it pages through everything: that item was
+ * asked for by name.
  *
  * ↩ Show in chat goes back to the session screen, which scrolls to the
  * message (`TranscriptView`'s `jumpTo`, through the media store's `jump`).
@@ -31,9 +31,12 @@ export function MediaPager({
   onBack: () => void
 }) {
   const [currentId, setCurrentId] = useState(startId)
-  const [hideTool] = useHideTool(sessionId)
-  const startHidden = items.find((m) => m.id === startId)?.source === 'tool'
-  const order = pagingOrder(items, hideTool && !startHidden)
+  const [hidden] = useHiddenSources(sessionId)
+  const startHidden = items.some((m) => {
+    const key = m.id === startId ? mediaSourceKey(m) : null
+    return key !== null && hidden.includes(key)
+  })
+  const order = pagingOrder(items, startHidden ? [] : hidden)
   const at = positionIn(order, items, currentId)
   const item = at >= 0 ? order[at] : undefined
 

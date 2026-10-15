@@ -6,7 +6,9 @@
  */
 import { statSync } from 'node:fs';
 import type { MediaItem } from '@orbital/shared/media';
-import { isPdfPath, mediaPathsInReply } from '@orbital/shared/paths';
+import { resolve } from 'node:path';
+import { isImagePath, isPdfPath, isScreenshotTool, mediaPathsInReply, scanPaths, writtenImagePaths } from '@orbital/shared/paths';
+import { expandHome } from '../paths.js';
 import type { ChatMessage, ImageRefEntry } from '../types.js';
 import { readInSandboxes, resolveForSession, type NamedCheck } from '../files/preview.js';
 
@@ -61,36 +63,70 @@ function diskState(location: Extract<MediaLocation, { kind: 'ok' }>, ts: string)
   return !Number.isNaN(named) && location.mtimeMs > named ? 'changed' : 'present';
 }
 
+/** Where a written or named path points, for comparing two spellings of one file. */
+function pathKey(path: string, cwd: string | undefined): string {
+  return resolve(cwd ?? '/', expandHome(path));
+}
+
 /**
- * The session's media, oldest first, from its transcript messages:
+ * The session's media before any file is looked at, oldest first, from its
+ * transcript messages:
  *
  * - `you`: the images of a user row — attached in Orbital or pasted in the CLI.
  * - `tool`: the images of a tool_result, grouped by the tool_use id they answer.
  * - `agent`: the images and PDFs an assistant reply's text names
- *   (`mediaPathsInReply`), each located with `locate`. A path in a tool's
- *   input is never one: a `Read` of an image is already its result's `tool`
- *   item, and a `Write` the agent does not mention is noise.
+ *   (`mediaPathsInReply`).
+ * - `written`: the images a tool call's input writes (`writtenImagePaths`),
+ *   and those a screenshot tool's result text names — spec
+ *   2026-10-13-session-media-more-design § Written images. One the call's own
+ *   result already carried as an image is that `tool` item. A file named or
+ *   written more than once is folded later, across the whole session
+ *   (`withoutRepeatedFiles`).
  *
  * An assistant row carrying an image block has no source in the spec and is
- * left out.
+ * left out. `agent` and `written` items carry no `disk` yet: `locateMedia`
+ * decides it, and whether they stay.
  */
-export function mediaItems(messages: readonly ChatMessage[], locate: LocateMedia): MediaItem[] {
+export function mediaCandidates(messages: readonly ChatMessage[]): MediaItem[] {
   const out: MediaItem[] = [];
   // A tool_result names only the call it answers; the call, earlier in the
   // transcript, carries the tool's name.
   const toolNames = new Map<string, string>();
+  // Each written item's call, and the calls whose result carried an image.
+  const written = new Map<MediaItem, string | undefined>();
+  const imaged = new Set<string>();
+  const writtenItem = (m: ChatMessage, i: number, path: string, tool: string | undefined, call: string | undefined) => {
+    const item: MediaItem = {
+      id: `${m.id}:${i}`,
+      kind: 'image',
+      source: 'written',
+      messageId: m.id,
+      ts: m.timestamp ?? '',
+      path,
+      ...(m.cwd ? { cwd: m.cwd } : {}),
+      ...(tool ? { tool } : {}),
+    };
+    written.set(item, call);
+    out.push(item);
+  };
   for (const m of messages) {
     if (m.role === 'tool_use' && m.toolUseId && m.toolName) toolNames.set(m.toolUseId, m.toolName);
-    if (m.role === 'user' && m.images?.length) {
-      m.images.forEach((image, i) => out.push(refItem(m, i, image, 'you')));
-    } else if (m.role === 'tool_result' && m.images?.length) {
+    if (m.role === 'user') {
+      m.images?.forEach((image, i) => out.push(refItem(m, i, image, 'you')));
+    } else if (m.role === 'tool_result') {
       const tool = m.toolUseId ? toolNames.get(m.toolUseId) : undefined;
-      m.images.forEach((image, i) => out.push(refItem(m, i, image, 'tool', tool)));
+      if (m.images?.length) {
+        if (m.toolUseId) imaged.add(m.toolUseId);
+        m.images.forEach((image, i) => out.push(refItem(m, i, image, 'tool', tool)));
+      } else if (tool && isScreenshotTool(tool) && m.text) {
+        // Saved to a file and said so, with no image in the answer.
+        scanPaths(m.text, isImagePath).forEach((match, i) => writtenItem(m, i, match.path, tool, m.toolUseId));
+      }
+    } else if (m.role === 'tool_use' && m.toolName) {
+      writtenImagePaths(m.toolName, m.toolInput).forEach((path, i) => writtenItem(m, i, path, m.toolName, m.toolUseId));
     } else if (m.role === 'assistant' && m.text) {
       const ts = m.timestamp ?? '';
       mediaPathsInReply(m.text).forEach((path, i) => {
-        const location = locate(path, m.cwd);
-        if (location.kind === 'outside') return;
         out.push({
           id: `${m.id}:${i}`,
           kind: isPdfPath(path) ? 'pdf' : 'image',
@@ -99,10 +135,63 @@ export function mediaItems(messages: readonly ChatMessage[], locate: LocateMedia
           ts,
           path,
           ...(m.cwd ? { cwd: m.cwd } : {}),
-          disk: location.kind === 'not_found' ? 'missing' : diskState(location, ts),
         });
       });
     }
   }
+  if (imaged.size === 0) return out;
+  return out.filter((item) => {
+    const call = written.get(item);
+    return call === undefined || !imaged.has(call);
+  });
+}
+
+/**
+ * One tile per file (spec 2026-10-13-session-media-more-design § Written
+ * images): a written image gives way to any reply naming the same file —
+ * the parent's or a subagent's — and a file written again is the first
+ * write's item. Every item shows the file as it is now, so a second tile
+ * would show the same picture. Paths are compared resolved against the cwd
+ * each was written in. Run over the whole session, after the subagents'
+ * lists are merged in, so neither turns nor transcripts split one file in two.
+ */
+export function withoutRepeatedFiles(items: readonly MediaItem[]): MediaItem[] {
+  const named = new Set<string>();
+  for (const item of items) if (item.source === 'agent' && item.path) named.add(pathKey(item.path, item.cwd));
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (item.source !== 'written' || !item.path) return true;
+    const key = pathKey(item.path, item.cwd);
+    if (named.has(key) || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Candidates with their files looked at: an `agent` item gets its `disk`,
+ * and is left out where the session may not show it; a `written` item stays
+ * only while its file is there to show.
+ */
+export function locateMedia(candidates: readonly MediaItem[], locate: LocateMedia): MediaItem[] {
+  const out: MediaItem[] = [];
+  for (const item of candidates) {
+    if (item.source !== 'agent' && item.source !== 'written') {
+      out.push(item);
+      continue;
+    }
+    const location = locate(item.path ?? '', item.cwd);
+    if (location.kind === 'outside') continue;
+    if (item.source === 'written') {
+      if (location.kind === 'ok') out.push(item);
+      continue;
+    }
+    out.push({ ...item, disk: location.kind === 'not_found' ? 'missing' : diskState(location, item.ts) });
+  }
   return out;
+}
+
+/** The media of one transcript's messages, oldest first: `mediaCandidates`, located, one tile per file. */
+export function mediaItems(messages: readonly ChatMessage[], locate: LocateMedia): MediaItem[] {
+  return withoutRepeatedFiles(locateMedia(mediaCandidates(messages), locate));
 }

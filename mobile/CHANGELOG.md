@@ -4,6 +4,13 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-10-15
+### Added
+- A session's Media also shows its subagents' images and images the agent saved to disk without mentioning them. Needs the Mac update that brings them.
+- Media tiles show the whole image instead of a cropped square, with the file's name or where it came from underneath.
+### Changed
+- A Sources sheet replaces Hide tool images: choose which kinds of images Media shows, and the button says when something is hidden.
+
 ## [0.11.0] — 2026-10-15
 ### Changed
 - The phone no longer notifies while you are working at your Mac; it notifies again once the Mac is locked or left alone for a few minutes. Needs a Mac with this update.

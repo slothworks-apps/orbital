@@ -49,6 +49,16 @@ export interface SubagentInfo {
  */
 export const SUBAGENT_TOOLS = new Set(['Agent', 'Task']);
 
+/** A moon's name: the `Agent` call's description, else its subagent type. */
+export function subagentName(input: unknown): string {
+  const args = (input ?? {}) as Record<string, unknown>;
+  return (
+    (typeof args.description === 'string' && args.description) ||
+    (typeof args.subagent_type === 'string' && args.subagent_type) ||
+    'subagent'
+  );
+}
+
 /** `task_type` of a spawned subagent; background shells and workflows wear other values. */
 const SUBAGENT_TASK_TYPE = 'local_agent';
 
@@ -183,11 +193,7 @@ export class SubagentTracker {
       if (!Array.isArray(content)) continue;
       for (const block of content) {
         if (block.type === 'tool_use' && SUBAGENT_TOOLS.has(String(block.name))) {
-          const input = (block.input ?? {}) as Record<string, unknown>;
-          const name =
-            (typeof input.description === 'string' && input.description) ||
-            (typeof input.subagent_type === 'string' && input.subagent_type) ||
-            'subagent';
+          const name = subagentName(block.input);
           const id = String(block.id);
           // `feed()` is the after-the-fact transcript path (see the class
           // comment) but `SubagentInfo.startedAt` holds everywhere, so it
@@ -224,7 +230,7 @@ export class SubagentTracker {
       const existing = this.agents.get(msg.task_id);
       const agent: SubagentInfo = {
         id: msg.task_id,
-        name: msg.description || msg.subagent_type || 'subagent',
+        name: subagentName(msg),
         state: 'working',
         startedAt: existing?.startedAt ?? Date.now(),
       };

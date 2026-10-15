@@ -1,14 +1,15 @@
 import { useState } from 'react'
-import { mediaCountLine, mediaTiles, toolMediaCount } from '../lib/media'
-import { useHideTool, useMedia } from '../store/media'
+import { mediaCountLine, mediaTiles } from '../lib/media'
+import { useHiddenSources, useMedia } from '../store/media'
 import { useEscapeLayer } from '../ui/escapeLayer'
-import { HideToolChip, MediaTileButton, OnlyToolHidden } from './MediaParts'
+import { MediaTileButton, NothingShown, SourcesButton } from './MediaParts'
 import { MediaViewer } from './MediaViewer'
 
 /**
- * The gallery (canvas `Feature - Media` 24d): the panel body switched from
- * Transcript to Media, with the header and the composer staying where they
- * are. Newest first, square crops, tool runs stacked. ← Transcript, Escape
+ * The gallery (canvas `Feature - Media` 24d, `Feature - Media tiles` 26a):
+ * the panel body switched from Transcript to Media, with the header and the
+ * composer staying where they are. Newest first, whole images with a
+ * caption under each, tool runs stacked, narrowed by Sources. ← Transcript, Escape
  * or ▦ again go back, to the transcript as it was left — the panel keeps it
  * mounted underneath.
  *
@@ -18,18 +19,17 @@ import { MediaViewer } from './MediaViewer'
  */
 export function MediaGallery({ sessionId, columns }: { sessionId: string; columns: 3 | 5 }) {
   const items = useMedia((s) => s.lists[sessionId])
-  const [hideTool, setHideTool] = useHideTool(sessionId)
+  const [hidden, setHidden] = useHiddenSources(sessionId)
   const [viewing, setViewing] = useState<string | null>(null)
   const close = () => useMedia.getState().setGallery(null)
   useEscapeLayer(true, close)
 
   const all = items ?? []
-  const tiles = mediaTiles(all, hideTool)
-  const tool = toolMediaCount(all)
+  const tiles = mediaTiles(all, hidden)
 
   return (
     <div data-media-gallery className="flex h-full flex-col">
-      {/* 24d: the switch row — ← Transcript · the count · the chip. */}
+      {/* 26a: the switch row — ← Transcript · the count · Sources. */}
       <div className="flex items-center gap-2.5 border-b border-[rgba(150,205,255,.08)] px-[22px] py-2.5 font-mono text-[10.5px]">
         <button type="button" onClick={close} className="flex-none whitespace-nowrap text-[#e8eef8]">
           ← Transcript
@@ -38,13 +38,13 @@ export function MediaGallery({ sessionId, columns }: { sessionId: string; column
           ·
         </span>
         <span className="min-w-0 flex-1 truncate text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.6)]">
-          {mediaCountLine(all, hideTool)}
+          {mediaCountLine(all, hidden)}
         </span>
-        {tool > 0 && <HideToolChip on={hideTool} onToggle={() => setHideTool(!hideTool)} />}
+        {all.length > 0 && <SourcesButton items={all} hidden={hidden} onChange={setHidden} />}
       </div>
-      {tiles.length > 0 || !hideTool || tool === 0 ? (
+      {tiles.length > 0 || all.length === 0 ? (
         <div
-          className="grid min-h-0 flex-1 auto-rows-max gap-1.5 overflow-y-auto px-[22px] py-3.5"
+          className="grid min-h-0 flex-1 auto-rows-max gap-x-1.5 gap-y-2.5 overflow-y-auto px-[22px] py-3.5"
           style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
         >
           {tiles.map((tile) => (
@@ -58,7 +58,7 @@ export function MediaGallery({ sessionId, columns }: { sessionId: string; column
           ))}
         </div>
       ) : (
-        <OnlyToolHidden hidden={tool} onShow={() => setHideTool(false)} className="min-h-0 flex-1" />
+        <NothingShown hidden={all.length} onShowAll={() => setHidden([])} className="min-h-0 flex-1" />
       )}
       <MediaViewer
         open={viewing !== null}
