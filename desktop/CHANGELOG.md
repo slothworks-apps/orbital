@@ -4,9 +4,12 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
-## [0.32.0] — 2026-10-13
+## [0.32.0] — 2026-10-15
 ### Added
-- A session's Media also shows the images and PDFs its subagents produced, captioned with the subagent's name, and images the agent saved to disk without mentioning them (Hide tool images hides these too).
+- A session's Media also shows the images and PDFs its subagents produced, and images the agent saved to disk without mentioning them.
+- Media tiles show the whole image instead of a cropped square, with the file's name or where it came from underneath.
+### Changed
+- A Sources filter replaces Hide tool images: choose which kinds of images Media shows — yours, tools', named in a reply, saved by the agent, subagents' — and the button says when something is hidden.
 
 ## [0.30.0] — 2026-10-15
 ### Changed

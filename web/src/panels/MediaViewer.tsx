@@ -3,20 +3,20 @@ import type { Ref } from 'react'
 import { createPortal } from 'react-dom'
 import type { MediaItem } from '../lib/types'
 import type { MediaTarget } from '../lib/media'
-import { isToolMedia, matchMediaItem, mediaClock, mediaSourceLabel, positionIn, stepIndex } from '../lib/media'
+import { isToolFrame, matchMediaItem, mediaClock, mediaSourceKey, mediaSourceLabel, positionIn, stepIndex } from '../lib/media'
 import { useMediaSourceUrl } from '../lib/images'
 import { isPdfPath } from '../lib/pathLinks'
-import { useHideTool, useMedia } from '../store/media'
+import { useHiddenSources, useMedia } from '../store/media'
 import { useOrbital } from '../store/store'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
 import { usePresence } from '../ui/usePresence'
-import { GoneMark, HideToolChip, MediaPicture, isGone, pdfKey } from './MediaParts'
+import { GoneMark, MediaPicture, SourcesButton, isGone, pdfKey } from './MediaParts'
 import { PdfPager, usePdfDocument } from './PdfPages'
 
 /**
  * The maximised view (canvas `Feature - Media` 24e): the 7c lightbox grown
- * into a pager across a session's media. ‹ › and ← → step through what Hide
- * tool images leaves shown, oldest first, wrapping; a filmstrip below, the
+ * into a pager across a session's media. ‹ › and ← → step through what the
+ * Sources filter leaves shown (26b B), oldest first, wrapping; a filmstrip below, the
  * source and time under the item, and Show in transcript. A PDF shows every
  * page: ↑ ↓ or the wheel over the page moves through pages, ← → to the next
  * item.
@@ -116,7 +116,7 @@ function ViewerBody({
   onClose: () => void
 }) {
   const items = useMedia((s) => (sessionId ? s.lists[sessionId] : undefined))
-  const [hideTool, setHideTool] = useHideTool(sessionId ?? '')
+  const [hidden, setHidden] = useHiddenSources(sessionId ?? '')
   const title = useOrbital((s) => (sessionId ? s.sessions[sessionId]?.title : undefined))
   const viewportHeight = useViewportHeight()
   const stageHeight = Math.max(160, Math.min(STAGE_MAX_H_PX, viewportHeight - STAGE_CHROME_H_PX))
@@ -128,15 +128,19 @@ function ViewerBody({
 
   // Where the reader is. Until they page, the item the press stands for —
   // which may only turn up once the list arrives. That item stays reachable
-  // even while the switch hides its kind, until the reader moves off it.
+  // even while the filter hides its source, until the reader moves off it.
   const [selected, setSelected] = useState<string | null>(null)
   const [pinned, setPinned] = useState(true)
   const [page, setPage] = useState(1)
   const currentId = selected ?? targetItemId(items, target)
   const all = useMemo(() => items ?? [], [items])
   const order = useMemo(
-    () => all.filter((item) => !hideTool || !isToolMedia(item) || (pinned && item.id === currentId)),
-    [all, hideTool, pinned, currentId],
+    () =>
+      all.filter((item) => {
+        const key = mediaSourceKey(item)
+        return key === null || !hidden.includes(key) || (pinned && item.id === currentId)
+      }),
+    [all, hidden, pinned, currentId],
   )
   const index = currentId ? positionIn(order, all, currentId) : -1
   const current = index >= 0 ? order[index] : null
@@ -173,10 +177,10 @@ function ViewerBody({
     return () => window.removeEventListener('keydown', onKey)
   }, [exiting, pages])
 
-  const toggleHide = () => {
+  const changeHidden = (next: typeof hidden) => {
     setPinned(false)
     if (current) setSelected(current.id)
-    setHideTool(!hideTool)
+    setHidden(next)
   }
 
   const showInTranscript = () => {
@@ -229,7 +233,7 @@ function ViewerBody({
           style={{ top: STAGE_TOP_PX + stageHeight + 18 }}
         >
           <div className="flex items-center gap-2.5 text-[11.5px] text-[#e8eef8]">
-            {isToolMedia(shown) && current && (
+            {isToolFrame(shown) && current && (
               <span className="rounded-[3px] border border-[rgba(150,205,255,.2)] px-1.5 py-px text-[10px] text-[rgba(200,220,245,.85)]">
                 ⚙ TOOL
               </span>
@@ -273,7 +277,7 @@ function ViewerBody({
           </span>
           <Filmstrip sessionId={sessionId!} order={order} current={current} onPick={go} />
           <span className="w-[150px]">
-            {all.some(isToolMedia) && <HideToolChip on={hideTool} onToggle={toggleHide} />}
+            {all.length > 0 && <SourcesButton items={all} hidden={hidden} onChange={changeHidden} prefer="above" />}
           </span>
         </div>
       )}
@@ -491,14 +495,14 @@ function FilmFrame({
       aria-current={current || undefined}
       onClick={onPick}
       className={[
-        'relative block h-10 w-10 flex-none overflow-hidden rounded-[5px] border bg-[rgba(4,8,16,.6)] p-0',
+        'relative block h-10 w-10 flex-none overflow-hidden rounded-[5px] border bg-[#070b14] p-0',
         current
           ? 'border-[oklch(85%_.12_205_/_.9)] shadow-[0_0_0_2px_oklch(85%_.12_205_/_.2)]'
           : 'border-[rgba(150,205,255,.14)]',
       ].join(' ')}
     >
-      {!isGone(item) && !gone && <MediaPicture sessionId={sessionId} item={item} onGone={() => setGone(true)} />}
-      {isToolMedia(item) && (
+      {!isGone(item) && !gone && <MediaPicture sessionId={sessionId} item={item} fit="contain" onGone={() => setGone(true)} />}
+      {isToolFrame(item) && (
         <span className="absolute bottom-px left-0.5 font-mono text-[8px] text-[rgba(200,220,245,.8)]">⚙</span>
       )}
     </button>

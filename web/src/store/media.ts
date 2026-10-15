@@ -1,14 +1,14 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import { api } from '../lib/api'
-import { messageCarriesMedia } from '../lib/media'
+import { messageCarriesMedia, parseHiddenSources, type MediaSourceKey } from '../lib/media'
 import type { ChatMessage, MediaItem } from '../lib/types'
 import { useOrbital } from './store'
 
 /**
  * A session's media on this client (spec 2026-10-09-session-media-design):
- * the list the server last answered, the per-session Hide tool images
- * switch, which panel body is showing the gallery, and a Show in transcript
+ * the list the server last answered, the per-session Sources filter
+ * (canvas `Feature - Media tiles` 26a), which panel body is showing the gallery, and a Show in transcript
  * on its way to the transcript. Kept out of the main store because nothing
  * else reads it; the phone reads the same store for its gallery.
  *
@@ -20,36 +20,40 @@ import { useOrbital } from './store'
 interface MediaState {
   /** The server's last answer per session, oldest first. Absent until one arrived. */
   lists: Record<string, MediaItem[]>
-  /** Hide tool images, per session — mirrored from `localStorage`. */
-  hideTool: Record<string, boolean>
+  /** The sources the filter turned off, per session — mirrored from `localStorage`, so per device too. */
+  hidden: Record<string, MediaSourceKey[]>
   /** The session whose panel body shows Media instead of Transcript (24d). */
   gallery: string | null
   /** Show in transcript, waiting for the transcript to find the message. */
   jump: { sessionId: string; messageId: string; seq: number } | null
   load(sessionId: string): Promise<void>
-  setHideTool(sessionId: string, hide: boolean): void
+  setHidden(sessionId: string, hidden: MediaSourceKey[]): void
   setGallery(sessionId: string | null): void
   showInTranscript(sessionId: string, messageId: string): void
   /** The transcript is done with `jump` — found and scrolled, or given up. */
   endJump(seq: number): void
 }
 
-const HIDE_TOOL_KEY = (sessionId: string) => `orbital.media.hideTool.${sessionId}`
+const HIDDEN_KEY = (sessionId: string) => `orbital.media.hidden.${sessionId}`
+/** What Hide tool images stored, read once so a session keeps what it hid. */
+const LEGACY_HIDE_TOOL_KEY = (sessionId: string) => `orbital.media.hideTool.${sessionId}`
 
-function readHideTool(sessionId: string): boolean {
+function readHidden(sessionId: string): MediaSourceKey[] {
   try {
-    return globalThis.localStorage?.getItem(HIDE_TOOL_KEY(sessionId)) === '1'
+    const storage = globalThis.localStorage
+    if (!storage) return []
+    return parseHiddenSources(storage.getItem(HIDDEN_KEY(sessionId)), storage.getItem(LEGACY_HIDE_TOOL_KEY(sessionId)) === '1')
   } catch {
-    return false
+    return []
   }
 }
 
-function writeHideTool(sessionId: string, hide: boolean): void {
+function writeHidden(sessionId: string, hidden: MediaSourceKey[]): void {
   try {
-    if (hide) globalThis.localStorage?.setItem(HIDE_TOOL_KEY(sessionId), '1')
-    else globalThis.localStorage?.removeItem(HIDE_TOOL_KEY(sessionId))
+    globalThis.localStorage?.setItem(HIDDEN_KEY(sessionId), JSON.stringify(hidden))
+    globalThis.localStorage?.removeItem(LEGACY_HIDE_TOOL_KEY(sessionId))
   } catch {
-    /* storage off: the switch holds for this window only */
+    /* storage off: the filter holds for this window only */
   }
 }
 
@@ -63,7 +67,7 @@ let jumpSeq = 0
 
 export const useMedia = create<MediaState>((set, get) => ({
   lists: {},
-  hideTool: {},
+  hidden: {},
   gallery: null,
   jump: null,
 
@@ -93,9 +97,9 @@ export const useMedia = create<MediaState>((set, get) => ({
     return entry.done
   },
 
-  setHideTool(sessionId, hide) {
-    writeHideTool(sessionId, hide)
-    set((s) => ({ hideTool: { ...s.hideTool, [sessionId]: hide } }))
+  setHidden(sessionId, hidden) {
+    writeHidden(sessionId, hidden)
+    set((s) => ({ hidden: { ...s.hidden, [sessionId]: hidden } }))
   },
 
   setGallery(gallery) {
@@ -112,11 +116,22 @@ export const useMedia = create<MediaState>((set, get) => ({
   },
 }))
 
-/** The switch for one session, read through from `localStorage` the first time. */
-export function useHideTool(sessionId: string): [boolean, (hide: boolean) => void] {
-  const hide = useMedia((s) => s.hideTool[sessionId] ?? readHideTool(sessionId))
-  const setHideTool = useMedia((s) => s.setHideTool)
-  return [hide, (next: boolean) => setHideTool(sessionId, next)]
+/** What `localStorage` held, read once per session so every reader gets the same array back. */
+const read = new Map<string, MediaSourceKey[]>()
+function storedHidden(sessionId: string): MediaSourceKey[] {
+  let hidden = read.get(sessionId)
+  if (!hidden) {
+    hidden = readHidden(sessionId)
+    read.set(sessionId, hidden)
+  }
+  return hidden
+}
+
+/** The filter for one session, read through from `localStorage` the first time. */
+export function useHiddenSources(sessionId: string): [MediaSourceKey[], (hidden: MediaSourceKey[]) => void] {
+  const hidden = useMedia((s) => s.hidden[sessionId] ?? storedHidden(sessionId))
+  const setHidden = useMedia((s) => s.setHidden)
+  return [hidden, (next: MediaSourceKey[]) => setHidden(sessionId, next)]
 }
 
 /** The last settled message of a transcript — a streamed row counts once it is complete. */

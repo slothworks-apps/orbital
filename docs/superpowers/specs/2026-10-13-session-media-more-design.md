@@ -1,6 +1,6 @@
 ---
 id: 2026-10-13-session-media-more-design
-title: Session media — subagents' images and images written to disk
+title: Session media — subagents' images, images written to disk, whole tiles and a Sources filter
 status: done
 type: spec
 domain: web
@@ -19,7 +19,9 @@ tags:
 
 A follow-up to [[2026-10-09-session-media-design]]. A session's gallery lists
 two more kinds of item: what its subagents produced, and images a tool call
-wrote to disk that no reply ever named.
+wrote to disk that no reply ever named. With them in the grid, a tile shows
+the whole image with a caption, and a **Sources** filter replaces Hide tool
+images (canvas `Feature - Media tiles`, 26a–26e).
 
 ## Why the earlier exclusions are reversed
 
@@ -27,9 +29,8 @@ The first spec left out a subagent's own images (idea [[media-from-subagents]])
 and a `Write` the agent never mentions, which it called "the noisy case". In
 practice the screenshots that matter are often exactly these: a subagent
 driving a browser, or a script saving a frame the agent never talks about. The
-user asked for every screenshot to be in Media. The noise is handled the way
-tool images already are: these items sit under the same **Hide tool images**
-switch.
+user asked for every screenshot to be in Media. The noise is handled by the
+Sources filter: each kind is its own row, and can be turned off.
 
 ## Subagents' items
 
@@ -49,10 +50,10 @@ switch.
   a rewind took away takes its subagent's media with it.
 - The lists are merged by timestamp, each list keeping its own order; the main
   transcript's item goes first on a tie.
-- Hide tool images hides a subagent's `tool` and `written` items, as it does
-  the parent's. Paths a subagent names in its reply stay, as the parent's do.
-  (The idea proposed hiding every subagent item; a named path is the agent
-  choosing to show something, so it is treated the same wherever it comes from.)
+- In the Sources filter every subagent item is under **Subagents**, whatever
+  it is underneath (a screenshot, a named path, a saved file), as the idea
+  proposed: turning Subagents off hides all of a moon's output, and **Tools**
+  stays the parent's own tool frames.
 
 ## Written images
 
@@ -83,7 +84,9 @@ A tool call's input that writes an image is a `written` item:
   - against the call's own result: a screenshot whose result already carried
     the image is that `tool` item.
 - A `Bash` command that only reads an image (`open out/a.png`) is counted too.
-  That is the price of not parsing shell; the switch hides it.
+  That is the price of not parsing shell; turning off Saved by the agent hides it.
+- Scratch folders count like any other path: Playwright's `.playwright-mcp/`
+  is where most of these screenshots land, and they are why this exists.
 
 ## Wire format
 
@@ -110,17 +113,64 @@ into `tool` (which would have lied about it carrying an image store ref and
 stacked it into tool runs). Subagent items use the existing sources, so a
 shipped phone shows them as ordinary items without the subagent's name.
 
-## Caption
+## Tiles
 
-In the maximised view and the phone viewer, following 24e's source line:
+Canvas 26a, 26d. A tile holds the whole image, fitted into its square and
+never cropped or upscaled; the bars are the tile's own near-black. A
+full-page capture becomes a thin strip, which says "very tall page" before it
+is opened.
 
-- a subagent's item: **Subagent · <name>**;
-- a `written` item: **Written by the agent**, with ⚙ TOOL beside it as a
-  tool frame has, since the switch treats it as one.
+One caption line under each tile (`mediaTileCaption`):
 
-Tiles tag a `written` item ⚙ like a tool frame. No new design: the existing
-tag, caption and switch. The switch keeps its label, **Hide tool images**; it
-now also hides written images. Nothing marks an item as new (`why-orbital`).
+- the file name when the item has a path, in brighter ink, cut **from the
+  front** — saved files differ at the end (`…T14-25-41.png`);
+- else where it came from, muted: Attached by you, the tool
+  (`Playwright · browser take screenshot`), Named in a reply, Saved by the
+  agent, or the moon's name;
+- a stack names its tool;
+- a subagent's caption leads with the moon's hollow dot, neutral, never the
+  tag hue.
+
+The tooltip carries the full name, the source and the time. Tags stay: ⚙ on
+the parent's own tool frames (⚙ ×n on a stack), PDF · n, the time top-right
+in the gallery, hidden on a NOT ON DISK tile. A subagent's frames and saved
+images carry no ⚙: their row in the filter is not Tools. The phone's tiles
+are the same, at its size, with the time top-right too.
+
+The source words in the maximised view and the phone viewer follow 26d A:
+**From moon <name>** for a subagent's item, **Saved by the agent · not
+mentioned in a reply** for a `written` one, ⚙ TOOL only beside a parent's
+tool frame.
+
+## Sources filter
+
+Canvas 26a–26c. It replaces Hide tool images. The button says the state:
+**Sources: All** at rest, **Sources: 4 of 5** in the filled chip once
+narrowed, **Sources: none** when it leaves nothing; the count line reads
+`MEDIA · 12 of 19` while filtered.
+
+- Five rows, in order: Attached by you, ⚙ Tools, Named in a reply, Saved by
+  the agent, Subagents. One row for all tools and one for all moons, their
+  names listed under it (26e), so the list never grows with the session.
+- Each row shows its total, so you see what you are hiding. A row with no
+  items cannot be toggled and counts as on, so the button never says
+  narrowed when nothing is hidden.
+- The list stays open while you toggle; Escape or a press outside closes it.
+  On the Mac, hovering a row swaps its count for **only**, and ⌥-click does
+  the same; **Show all** resets. The phone opens the list as a bottom sheet
+  with a checkbox per row and Show all, no only.
+- The same filter in the glance, the gallery, the maximised view and the
+  phone. Paging and the counter see only what is shown; an item opened from
+  the transcript stays reachable while its source is off, until the reader
+  moves off it.
+- When it hides everything: one line, `Nothing from these sources · n
+  hidden`, and Show all — never a blank grid.
+- An item from a hidden source raises the total and nothing else.
+- Kept per session and **per device**, in `localStorage`, as Hide tool images
+  was. A session that had Hide tool images on starts with Tools and Saved by
+  the agent off. Sharing it between the Mac and the phone would need a server
+  setting, a route on the allowlist and a `MAC_FEATURES` gate; left out.
+- A source a newer Mac sends that this client does not know is always shown.
 
 ## Server
 
@@ -146,8 +196,9 @@ already uses. File `stat`s stay per request, as before.
 The phone sees the new items through the same `GET /api/sessions/:id/media`,
 already on the allowlist; no new route, no `file_get` kind, so no
 `MAC_FEATURES` row — against an older Mac the items simply are not in the
-list. The phone's gallery and viewer read `web/src/lib/media`, so Hide tool
-images, the ⚙ tag and the caption behave as on the Mac. A subagent's item
+list. The phone's gallery and viewer read `web/src/lib/media`, so the
+Sources filter, the tiles, the ⚙ tag and the captions behave as on the Mac;
+the filter lives on the phone, not shared with the Mac (§ Sources filter). A subagent's item
 opened from the phone's gallery pages with the rest; Show in chat goes to the
 `Agent` call's row.
 
@@ -165,5 +216,7 @@ in a background task's output.
 - Server: `sessionMedia` merges a subagent's items by time, tags them and
   drops a subagent whose call is off the branch; the route lists a subagent's
   item and a written image from files on disk.
-- Web, pure: written items are hidden and counted with tool images, never
-  stacked into a tool run, and are what a press on their path opens.
+- Web, pure: each item's source row, a subagent's under Subagents; the
+  filter's label and count, a row with no items counting as on; captions;
+  reading the stored filter back, including Hide tool images; written items
+  never stacked into a tool run, and what a press on their path opens.

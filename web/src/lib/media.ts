@@ -4,7 +4,7 @@ import { writtenImagePaths } from '@orbital/shared/paths'
 
 /**
  * The pure half of a session's media (spec 2026-10-09-session-media-design;
- * canvas `Feature - Media` 24b–24h): which items are shown, how the grid
+ * canvas `Feature - Media` 24b–24h, `Feature - Media tiles` 26a–26e): which items are shown, how the grid
  * stacks them and the order the maximised view pages through. No React, no
  * store — the desktop panel and the phone's gallery read the same answers.
  *
@@ -19,20 +19,127 @@ export type MediaTarget =
   | { kind: 'path'; path: string; cwd?: string; messageId?: string }
 
 /**
- * Whether "Hide tool images" hides the item: a tool's image, and an image a
- * tool call wrote that no reply named (spec 2026-10-13-session-media-more-design).
+ * The five rows of the Sources filter (canvas `Feature - Media tiles` 26a,
+ * 26d A), which replaced Hide tool images. A subagent's item is the
+ * subagent's whatever it is underneath — a screenshot it took or a path it
+ * named — so turning Subagents off hides all of a moon's output, and Tools
+ * stays the parent's own tool frames.
  */
-export function isToolMedia(item: Pick<MediaItem, 'source'>): boolean {
-  return item.source === 'tool' || item.source === 'written'
+export type MediaSourceKey = 'you' | 'tool' | 'named' | 'saved' | 'subagent'
+export const MEDIA_SOURCES: readonly MediaSourceKey[] = ['you', 'tool', 'named', 'saved', 'subagent']
+
+/** The row an item is filtered under; null for a source a newer Mac sent that this client does not know, which is always shown. */
+export function mediaSourceKey(item: Pick<MediaItem, 'source' | 'subagent'>): MediaSourceKey | null {
+  if (item.subagent) return 'subagent'
+  switch (item.source) {
+    case 'you':
+      return 'you'
+    case 'tool':
+      return 'tool'
+    case 'agent':
+      return 'named'
+    case 'written':
+      return 'saved'
+    default:
+      return null
+  }
 }
 
-/** The items "Hide tool images" leaves standing — the one switch for popover, gallery and paging (24b). */
-export function visibleMedia(items: readonly MediaItem[], hideTool: boolean): MediaItem[] {
-  return hideTool ? items.filter((item) => !isToolMedia(item)) : items.slice()
+/** Whether the item is a tool's frame — the ones ⚙ marks and a tool run stacks (26d A). */
+export function isToolFrame(item: Pick<MediaItem, 'source' | 'subagent'>): boolean {
+  return item.source === 'tool' && !item.subagent
 }
 
-export function toolMediaCount(items: readonly MediaItem[]): number {
-  return items.reduce((n, item) => n + (isToolMedia(item) ? 1 : 0), 0)
+/** The items the filter leaves standing — the one filter for glance, gallery, paging and the phone (26a). */
+export function visibleMedia(items: readonly MediaItem[], hidden: readonly MediaSourceKey[]): MediaItem[] {
+  if (hidden.length === 0) return items.slice()
+  return items.filter((item) => {
+    const key = mediaSourceKey(item)
+    return key === null || !hidden.includes(key)
+  })
+}
+
+export function sourceCounts(items: readonly MediaItem[]): Record<MediaSourceKey, number> {
+  const counts: Record<MediaSourceKey, number> = { you: 0, tool: 0, named: 0, saved: 0, subagent: 0 }
+  for (const item of items) {
+    const key = mediaSourceKey(item)
+    if (key) counts[key]++
+  }
+  return counts
+}
+
+/**
+ * Whether a row reads as on. A source with no items cannot be toggled (26b
+ * C), so it counts as on whatever was stored for it: the button never says
+ * the gallery is narrowed when nothing is hidden.
+ */
+export function sourceShown(key: MediaSourceKey, hidden: readonly MediaSourceKey[], counts: Record<MediaSourceKey, number>): boolean {
+  return counts[key] === 0 || !hidden.includes(key)
+}
+
+/** What the filter button and the count line say (26b A): the state in words, and how much of the total is shown. */
+export interface SourcesSummary {
+  /** `Sources: All`, `Sources: 4 of 5`, `Sources: none`. */
+  label: string
+  /** Something is hidden: the button wears its active chip and the count reads `12 of 19`. */
+  filtered: boolean
+  shown: number
+  total: number
+}
+
+export function sourcesSummary(items: readonly MediaItem[], hidden: readonly MediaSourceKey[]): SourcesSummary {
+  const counts = sourceCounts(items)
+  const on = MEDIA_SOURCES.filter((key) => sourceShown(key, hidden, counts)).length
+  const shown = visibleMedia(items, hidden).length
+  const filtered = on < MEDIA_SOURCES.length
+  const label =
+    !filtered ? 'Sources: All' : shown === 0 && items.length > 0 ? 'Sources: none' : `Sources: ${on} of ${MEDIA_SOURCES.length}`
+  return { label, filtered, shown, total: items.length }
+}
+
+/** `19`, or `12 of 19` while the filter hides something — the count line's figure (26b A). */
+export function mediaCount(summary: SourcesSummary): string {
+  return summary.filtered ? `${summary.shown} of ${summary.total}` : String(summary.total)
+}
+
+/**
+ * What a row says under its name (26a): the tools and the moons it stands
+ * for, so one row each is enough however many there are (26e).
+ */
+export function sourceDetail(key: MediaSourceKey, items: readonly MediaItem[]): string {
+  if (key === 'saved') return 'not mentioned in a reply'
+  const names = new Set<string>()
+  for (const item of items) {
+    if (mediaSourceKey(item) !== key) continue
+    if (key === 'subagent' && item.subagent) names.add(item.subagent.name)
+    if (key === 'tool' && item.tool) names.add(mediaToolLabel(item.tool).split(' · ')[0])
+  }
+  return [...names].join(', ')
+}
+
+/** The rows' names (26d A). */
+export const SOURCE_LABELS: Record<MediaSourceKey, string> = {
+  you: 'Attached by you',
+  tool: '⚙ Tools',
+  named: 'Named in a reply',
+  saved: 'Saved by the agent',
+  subagent: 'Subagents',
+}
+
+/**
+ * The stored filter, read back: the sources turned off, unknown names
+ * dropped. A session that only ever had Hide tool images on keeps what that
+ * switch hid — tool frames and images saved to disk.
+ */
+export function parseHiddenSources(stored: string | null, legacyHideTool: boolean): MediaSourceKey[] {
+  if (stored === null) return legacyHideTool ? ['tool', 'saved'] : []
+  try {
+    const value: unknown = JSON.parse(stored)
+    if (!Array.isArray(value)) return []
+    return MEDIA_SOURCES.filter((key) => value.includes(key))
+  } catch {
+    return []
+  }
 }
 
 /**
@@ -50,8 +157,8 @@ export interface MediaTile {
 }
 
 /** Newest first, consecutive frames of one tool run stacked into one tile. */
-export function mediaTiles(items: readonly MediaItem[], hideTool: boolean): MediaTile[] {
-  const newest = visibleMedia(items, hideTool).reverse()
+export function mediaTiles(items: readonly MediaItem[], hidden: readonly MediaSourceKey[]): MediaTile[] {
+  const newest = visibleMedia(items, hidden).reverse()
   const tiles: MediaTile[] = []
   for (let i = 0; i < newest.length; i++) {
     const cover = newest[i]
@@ -60,7 +167,8 @@ export function mediaTiles(items: readonly MediaItem[], hideTool: boolean): Medi
       while (
         j + 1 < newest.length &&
         newest[j + 1].source === 'tool' &&
-        newest[j + 1].toolRun === cover.toolRun
+        newest[j + 1].toolRun === cover.toolRun &&
+        newest[j + 1].subagent?.toolUseId === cover.subagent?.toolUseId
       ) {
         j++
       }
@@ -72,13 +180,13 @@ export function mediaTiles(items: readonly MediaItem[], hideTool: boolean): Medi
 }
 
 /** What the maximised view pages through: the shown items, oldest first, every stacked frame its own stop. */
-export function pagingOrder(items: readonly MediaItem[], hideTool: boolean): MediaItem[] {
-  return visibleMedia(items, hideTool)
+export function pagingOrder(items: readonly MediaItem[], hidden: readonly MediaSourceKey[]): MediaItem[] {
+  return visibleMedia(items, hidden)
 }
 
 /**
- * Where `id` sits in `order`. An item the switch has just hidden (the view
- * was on a tool frame when Hide tool images went on) hands over to the next
+ * Where `id` sits in `order`. An item the filter has just hidden (the view
+ * was on a tool frame when Tools went off) hands over to the next
  * shown item after it in time, or the last one when nothing follows — the
  * view never goes blank under the reader. -1 only for an empty order.
  */
@@ -152,31 +260,49 @@ export function mediaToolLabel(tool: string): string {
 }
 
 /**
- * The caption's source line (24e). A subagent's item names the subagent
- * instead of the tool (spec 2026-10-13-session-media-more-design § Caption).
+ * Where an item came from, in the words the maximised view and the phone
+ * viewer put under it (26d A, the 24e column).
  */
 export function mediaSourceLabel(item: MediaItem): string {
-  if (item.subagent) return `Subagent · ${item.subagent.name}`
+  if (item.subagent) return `From moon ${item.subagent.name}`
+  if (item.source === 'written') return 'Saved by the agent · not mentioned in a reply'
+  return shortSourceLabel(item)
+}
+
+/** The same, short enough for a tile's caption (26d A, the caption column). */
+function shortSourceLabel(item: MediaItem): string {
+  if (item.subagent) return item.subagent.name
   switch (item.source) {
     case 'you':
       return 'Attached by you'
     case 'tool':
       return item.tool ? mediaToolLabel(item.tool) : 'Returned by a tool'
     case 'agent':
-      return 'Named by the agent'
+      return 'Named in a reply'
     case 'written':
-      return 'Written by the agent'
+      return 'Saved by the agent'
     default:
       return ''
   }
 }
 
-/** The header of the popover and the gallery: `MEDIA · 14 · 7 tool`, or what the switch hides (24b, 24h). */
-export function mediaCountLine(items: readonly MediaItem[], hideTool: boolean): string {
-  const tool = toolMediaCount(items)
-  const shown = hideTool ? items.length - tool : items.length
-  if (tool === 0) return `MEDIA · ${shown}`
-  return hideTool ? `MEDIA · ${shown} · ${tool} tool hidden` : `MEDIA · ${shown} · ${tool} tool`
+/**
+ * The line under a tile (26d A): the file's name when it has one — what you
+ * would search for — else where it came from, in muted ink. A stack is one
+ * tool call, so it names the tool. `moon` leads a subagent's caption with
+ * the moon's hollow dot.
+ */
+export function mediaTileCaption(tile: MediaTile): { text: string; named: boolean; moon: boolean } {
+  const { cover, count } = tile
+  const name = count === 1 && cover.path ? baseName(cover.path) : ''
+  return name
+    ? { text: name, named: true, moon: Boolean(cover.subagent) }
+    : { text: shortSourceLabel(cover), named: false, moon: Boolean(cover.subagent) }
+}
+
+/** The header of the popover and the gallery: `MEDIA · 19`, or `MEDIA · 12 of 19` while filtered (26b A). */
+export function mediaCountLine(items: readonly MediaItem[], hidden: readonly MediaSourceKey[]): string {
+  return `MEDIA · ${mediaCount(sourcesSummary(items, hidden))}`
 }
 
 export function baseName(path: string): string {
