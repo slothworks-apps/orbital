@@ -235,7 +235,7 @@ export function TileCaption({
         className,
       ].join(' ')}
     >
-      {caption.moon && <span aria-hidden className={['flex-none rounded-full border-[rgba(200,220,245,.7)]', dot].join(' ')} />}
+      {caption.moon && <span aria-hidden className={['block flex-none rounded-full border-[rgba(200,220,245,.7)]', dot].join(' ')} />}
       {caption.named ? (
         // rtl puts the ellipsis at the front; the marks keep the name itself reading left to right.
         <span dir="rtl" className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left">
@@ -392,7 +392,7 @@ function SourcesList({
                 {on && !empty ? '✓' : ''}
               </span>
               {key === 'subagent' && (
-                <span aria-hidden className="h-[7px] w-[7px] flex-none rounded-full border-[1.3px] border-current" />
+                <span aria-hidden className="block h-[7px] w-[7px] flex-none rounded-full border-[1.3px] border-current" />
               )}
               <span className="flex min-w-0 flex-1 flex-col gap-px">
                 <span className="truncate">{SOURCE_LABELS[key]}</span>

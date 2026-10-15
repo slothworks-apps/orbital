@@ -171,19 +171,20 @@ describe('written images', () => {
     ]);
   });
 
-  it('gives way to the same turn\'s reply naming the file, but not to a later turn\'s', () => {
+  it('gives way to a reply naming the file, whatever came between, and is one item however often written', () => {
     const { items } = itemsOf((cwd) => [
       tu('w1', T1, cwd, 'Write', { file_path: join(cwd, 'out/a.png'), content: '' }),
-      tu('b1', T1, cwd, 'Bash', { command: 'open out/a.png' }),
+      // A message sent while the turn runs is a user row between the write and the reply.
+      ask('u1', T1, cwd),
       say('r1', T2, cwd, 'Saved out/a.png'),
+      tu('b1', T2, cwd, 'Bash', { command: 'magick in.svg out/b.png' }),
       ask('u2', T2, cwd),
-      tu('w2', T3, cwd, 'Write', { file_path: join(cwd, 'out/a.png'), content: '' }),
+      tu('w2', T3, cwd, 'Write', { file_path: join(cwd, 'out/b.png'), content: '' }),
       tu('w3', T3, cwd, 'Write', { file_path: join(cwd, 'out/a.png'), content: '' }),
-    ], ['out/a.png']);
+    ], ['out/a.png', 'out/b.png']);
     expect(items.map((i) => [i.source, i.messageId])).toEqual([
       ['agent', 'r1:0'],
-      // Written twice in the second turn: once.
-      ['written', 'w2:0'],
+      ['written', 'b1:0'],
     ]);
   });
 
@@ -228,6 +229,23 @@ describe('sessionMedia', () => {
       ['u2:1:0', 'u2:1', undefined],
     ]);
     expect(items?.[1].subagent).toEqual({ toolUseId: 'toolu_a', name: 'Explore' });
+  });
+
+  it("folds a file a subagent saved into the parent's reply naming it", () => {
+    const saved: MediaItem = { id: 'w:0', kind: 'image', source: 'written', messageId: 'w', ts: T2, path: 'out/shot.png', cwd: '/w', tool: 'Write' };
+    const items = sessionMedia({
+      row: () => row,
+      presentTranscript: () => [
+        ...parent.slice(0, 2),
+        msg({ id: 'r:0', role: 'assistant', text: 'See /w/out/shot.png', cwd: '/w', timestamp: T3 }),
+      ],
+      locate: () => () => ({ kind: 'ok', mtimeMs: 0 }),
+      subagents: () => new Map([['toolu_a', [saved]]]),
+    }, 's');
+    expect(items?.map((i) => [i.source, i.subagent?.name])).toEqual([
+      ['you', undefined],
+      ['agent', undefined],
+    ]);
   });
 
   it('is null for an unknown session', () => {

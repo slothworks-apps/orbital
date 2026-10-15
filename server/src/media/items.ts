@@ -78,10 +78,10 @@ function pathKey(path: string, cwd: string | undefined): string {
  *   (`mediaPathsInReply`).
  * - `written`: the images a tool call's input writes (`writtenImagePaths`),
  *   and those a screenshot tool's result text names — spec
- *   2026-10-13-session-media-more-design § Written images. One the same turn's
- *   replies name is that reply's `agent` item instead; one the call's own
- *   result already carried as an image is that `tool` item; a path written
- *   twice in a turn is one item.
+ *   2026-10-13-session-media-more-design § Written images. One the call's own
+ *   result already carried as an image is that `tool` item. A file named or
+ *   written more than once is folded later, across the whole session
+ *   (`withoutRepeatedFiles`).
  *
  * An assistant row carrying an image block has no source in the spec and is
  * left out. `agent` and `written` items carry no `disk` yet: `locateMedia`
@@ -92,12 +92,9 @@ export function mediaCandidates(messages: readonly ChatMessage[]): MediaItem[] {
   // A tool_result names only the call it answers; the call, earlier in the
   // transcript, carries the tool's name.
   const toolNames = new Map<string, string>();
-  // For the written items' de-duplication: each one's turn, file and call,
-  // the files each turn's replies named, and the calls whose result carried an image.
-  const written = new Map<MediaItem, { turn: number; key: string; call?: string }>();
-  const named = new Set<string>();
+  // Each written item's call, and the calls whose result carried an image.
+  const written = new Map<MediaItem, string | undefined>();
   const imaged = new Set<string>();
-  let turn = 0;
   const writtenItem = (m: ChatMessage, i: number, path: string, tool: string | undefined, call: string | undefined) => {
     const item: MediaItem = {
       id: `${m.id}:${i}`,
@@ -109,13 +106,12 @@ export function mediaCandidates(messages: readonly ChatMessage[]): MediaItem[] {
       ...(m.cwd ? { cwd: m.cwd } : {}),
       ...(tool ? { tool } : {}),
     };
-    written.set(item, { turn, key: pathKey(path, m.cwd), call });
+    written.set(item, call);
     out.push(item);
   };
   for (const m of messages) {
     if (m.role === 'tool_use' && m.toolUseId && m.toolName) toolNames.set(m.toolUseId, m.toolName);
     if (m.role === 'user') {
-      turn += 1;
       m.images?.forEach((image, i) => out.push(refItem(m, i, image, 'you')));
     } else if (m.role === 'tool_result') {
       const tool = m.toolUseId ? toolNames.get(m.toolUseId) : undefined;
@@ -131,7 +127,6 @@ export function mediaCandidates(messages: readonly ChatMessage[]): MediaItem[] {
     } else if (m.role === 'assistant' && m.text) {
       const ts = m.timestamp ?? '';
       mediaPathsInReply(m.text).forEach((path, i) => {
-        named.add(`${turn}\0${pathKey(path, m.cwd)}`);
         out.push({
           id: `${m.id}:${i}`,
           kind: isPdfPath(path) ? 'pdf' : 'image',
@@ -144,14 +139,31 @@ export function mediaCandidates(messages: readonly ChatMessage[]): MediaItem[] {
       });
     }
   }
-  if (written.size === 0) return out;
-  const seen = new Set<string>();
+  if (imaged.size === 0) return out;
   return out.filter((item) => {
-    const w = written.get(item);
-    if (!w) return true;
-    const at = `${w.turn}\0${w.key}`;
-    if (named.has(at) || seen.has(at) || (w.call !== undefined && imaged.has(w.call))) return false;
-    seen.add(at);
+    const call = written.get(item);
+    return call === undefined || !imaged.has(call);
+  });
+}
+
+/**
+ * One tile per file (spec 2026-10-13-session-media-more-design § Written
+ * images): a written image gives way to any reply naming the same file —
+ * the parent's or a subagent's — and a file written again is the first
+ * write's item. Every item shows the file as it is now, so a second tile
+ * would show the same picture. Paths are compared resolved against the cwd
+ * each was written in. Run over the whole session, after the subagents'
+ * lists are merged in, so neither turns nor transcripts split one file in two.
+ */
+export function withoutRepeatedFiles(items: readonly MediaItem[]): MediaItem[] {
+  const named = new Set<string>();
+  for (const item of items) if (item.source === 'agent' && item.path) named.add(pathKey(item.path, item.cwd));
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (item.source !== 'written' || !item.path) return true;
+    const key = pathKey(item.path, item.cwd);
+    if (named.has(key) || seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }
@@ -179,7 +191,7 @@ export function locateMedia(candidates: readonly MediaItem[], locate: LocateMedi
   return out;
 }
 
-/** The media of one transcript's messages, oldest first: `mediaCandidates`, located. */
+/** The media of one transcript's messages, oldest first: `mediaCandidates`, located, one tile per file. */
 export function mediaItems(messages: readonly ChatMessage[], locate: LocateMedia): MediaItem[] {
-  return locateMedia(mediaCandidates(messages), locate);
+  return withoutRepeatedFiles(locateMedia(mediaCandidates(messages), locate));
 }

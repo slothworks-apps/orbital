@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { MediaItem } from '../lib/types'
+import type { ChatMessage } from '../lib/types'
 import {
   matchMediaItem,
+  mediaArrived,
   mediaCountLine,
   mediaSourceKey,
   mediaTileCaption,
@@ -267,5 +269,32 @@ describe('parseHiddenSources', () => {
     expect(parseHiddenSources(null, true)).toEqual(['tool', 'saved'])
     expect(parseHiddenSources(null, false)).toEqual([])
     expect(parseHiddenSources('[]', true)).toEqual([])
+  })
+})
+
+describe('mediaArrived', () => {
+  const call = (id: string, toolName: string, toolInput: unknown): ChatMessage => ({ id, role: 'tool_use', toolName, toolInput, toolUseId: id })
+  const result = (id: string): ChatMessage => ({ id: `${id}-r`, role: 'tool_result', toolUseId: id })
+
+  it('waits for a saving call to finish, since the file is listed only once it is on disk', () => {
+    const write = call('w', 'Write', { file_path: 'out/a.png', content: '' })
+    expect(mediaArrived([write], [write])).toBe(false)
+    expect(mediaArrived([result('w')], [write, result('w')])).toBe(true)
+  })
+
+  it("counts a subagent ending for the images in its own transcript", () => {
+    const agent = call('a', 'Agent', { description: 'audit' })
+    expect(mediaArrived([result('a')], [agent, result('a')])).toBe(true)
+  })
+
+  it('ignores the results of calls that bring nothing', () => {
+    const read = call('r', 'Read', { file_path: 'notes.md' })
+    expect(mediaArrived([result('r')], [read, result('r')])).toBe(false)
+    expect(mediaArrived([result('x')], [result('x')])).toBe(false)
+  })
+
+  it('counts a reply naming an image, and an attached one', () => {
+    expect(mediaArrived([{ id: 'a', role: 'assistant', text: 'Saved out/a.png' }], [])).toBe(true)
+    expect(mediaArrived([{ id: 'u', role: 'user', images: [{ ref: 'r', w: 1, h: 1, bytes: 1 }] }], [])).toBe(true)
   })
 })

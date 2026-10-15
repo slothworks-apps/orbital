@@ -6,11 +6,11 @@
  */
 import type { MediaItem } from '@orbital/shared/media';
 import type { ChatMessage, SessionRow } from '../types.js';
-import { SUBAGENT_TOOLS } from '../transcript/subagents.js';
+import { SUBAGENT_TOOLS, subagentName } from '../transcript/subagents.js';
 import { StampedCache, fileStamp } from '../transcript/stampedCache.js';
 import { readSubagentFile, subagentFiles } from '../walkthrough/subagents.js';
 import type { ImageWriter } from '../transcript/parser.js';
-import { locateMedia, mediaCandidates, type LocateMedia } from './items.js';
+import { locateMedia, mediaCandidates, withoutRepeatedFiles, type LocateMedia } from './items.js';
 
 export interface SessionMediaContext {
   /** The session's row; undefined for an unknown id. */
@@ -54,16 +54,6 @@ export class SubagentMedia {
     }
     return out;
   }
-}
-
-/** The moon's name for an `Agent` call, as `SubagentTracker` gives it. */
-function agentName(input: unknown): string {
-  const args = (input ?? {}) as Record<string, unknown>;
-  return (
-    (typeof args.description === 'string' && args.description) ||
-    (typeof args.subagent_type === 'string' && args.subagent_type) ||
-    'subagent'
-  );
 }
 
 /** A sort key per item: its time, or the one before it in its own list when its own is unreadable. */
@@ -110,7 +100,7 @@ export function sessionMedia(ctx: SessionMediaContext, sessionId: string): Media
   const main = locateMedia(mediaCandidates(messages), locate);
 
   const subagents = ctx.subagents(sessionId, row);
-  if (subagents.size === 0) return main;
+  if (subagents.size === 0) return withoutRepeatedFiles(main);
   const calls = new Map<string, ChatMessage>();
   for (const m of messages) {
     if (m.role === 'tool_use' && m.toolUseId && m.toolName && SUBAGENT_TOOLS.has(m.toolName)) calls.set(m.toolUseId, m);
@@ -119,12 +109,12 @@ export function sessionMedia(ctx: SessionMediaContext, sessionId: string): Media
   for (const [toolUseId, candidates] of subagents) {
     const call = calls.get(toolUseId);
     if (!call) continue;
-    const subagent = { toolUseId, name: agentName(call.toolInput) };
+    const subagent = { toolUseId, name: subagentName(call.toolInput) };
     const items = locateMedia(
       candidates.map((c) => ({ ...c, id: `${toolUseId}/${c.id}`, messageId: call.id, subagent })),
       locate,
     );
     if (items.length) lists.push(items);
   }
-  return mergeByTime(lists);
+  return withoutRepeatedFiles(mergeByTime(lists));
 }

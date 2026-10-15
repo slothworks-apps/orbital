@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import { api } from '../lib/api'
-import { messageCarriesMedia, parseHiddenSources, type MediaSourceKey } from '../lib/media'
+import { mediaArrived, parseHiddenSources, type MediaSourceKey } from '../lib/media'
 import type { ChatMessage, MediaItem } from '../lib/types'
 import { useOrbital } from './store'
 
@@ -147,8 +147,8 @@ function lastSettledId(messages: readonly ChatMessage[] | undefined): string | n
  * Keeps one session's list current for whoever shows it. `watching` is true
  * while the popover or the gallery is open: then every new message asks
  * again, so a file named a moment ago, or one deleted since, shows as it is.
- * Closed, only a message that brings media asks — that is how the header
- * readout appears with the first item. The first mount asks once when no
+ * Closed, only messages that bring media ask (`mediaArrived`) — that is how
+ * the header readout appears with the first item. The first mount asks once when no
  * answer is held yet.
  *
  * New messages are what the transcript already hears over the session's WS
@@ -173,7 +173,7 @@ export function useSessionMedia(sessionId: string | null, watching: boolean): Me
       last = next
       if (!messages) return
       const arrived = messages.slice(from + 1)
-      if (watching || arrived.some(messageCarriesMedia)) void useMedia.getState().load(sessionId)
+      if (watching || mediaArrived(arrived, messages)) void useMedia.getState().load(sessionId)
     })
   }, [sessionId, watching])
 

@@ -160,7 +160,7 @@ function SourcesSheet({
               ].join(' ')}
             >
               {key === 'subagent' && (
-                <span aria-hidden className="h-2 w-2 flex-none rounded-full border-[1.4px] border-current" />
+                <span aria-hidden className="block h-2 w-2 flex-none rounded-full border-[1.4px] border-current" />
               )}
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span>{SOURCE_LABELS[key]}</span>

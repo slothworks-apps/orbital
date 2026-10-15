@@ -1,6 +1,6 @@
 import type { ChatMessage, MediaItem } from './types'
 import { mediaPathsInReply } from './pathLinks'
-import { writtenImagePaths } from '@orbital/shared/paths'
+import { isScreenshotTool, writtenImagePaths } from '@orbital/shared/paths'
 
 /**
  * The pure half of a session's media (spec 2026-10-09-session-media-design;
@@ -230,12 +230,33 @@ export function matchMediaItem(items: readonly MediaItem[], target: MediaTarget)
   return undefined
 }
 
-/** Whether a message brings media with it — the cue to ask the server for the list again. */
-export function messageCarriesMedia(message: ChatMessage): boolean {
-  if (message.partial) return false
-  if (message.images?.length) return true
-  if (message.role === 'tool_use' && message.toolName) return writtenImagePaths(message.toolName, message.toolInput).length > 0
-  return message.role === 'assistant' && Boolean(message.text) && mediaPathsInReply(message.text!).length > 0
+/** The tools that launch a subagent, whose result is the subagent ending (`server/src/transcript/subagents.ts`). */
+const SUBAGENT_TOOLS = new Set(['Agent', 'Task'])
+
+/**
+ * Whether the messages that just arrived bring media with it — the cue to ask
+ * the server for the list again while nothing is watching it. `messages` is
+ * the whole transcript they arrived into, where a result's call is found.
+ *
+ * A tool call that saves an image counts on its result, not on the call: the
+ * file is only on disk once the tool has run, and the server lists a saved
+ * image only while it is. A subagent's images are not in this transcript at
+ * all; its call's result — the subagent ending — stands for them.
+ */
+export function mediaArrived(arrived: readonly ChatMessage[], messages: readonly ChatMessage[]): boolean {
+  return arrived.some((message) => {
+    if (message.partial) return false
+    if (message.images?.length) return true
+    if (message.role === 'assistant') return Boolean(message.text) && mediaPathsInReply(message.text!).length > 0
+    if (message.role !== 'tool_result' || !message.toolUseId) return false
+    const call = messages.find((m) => m.role === 'tool_use' && m.toolUseId === message.toolUseId)
+    if (!call?.toolName) return false
+    return (
+      SUBAGENT_TOOLS.has(call.toolName) ||
+      isScreenshotTool(call.toolName) ||
+      writtenImagePaths(call.toolName, call.toolInput).length > 0
+    )
+  })
 }
 
 /** The house clock reading (`MessageView`'s `clockTime`), or '' for a stamp `Date` cannot read. */

@@ -69,20 +69,27 @@ A tool call's input that writes an image is a `written` item:
   result carries no image (Playwright saving to its output directory says
   where).
 - The detection is `writtenImagePaths` in `@orbital/shared/paths`, so the web
-  can ask for the list again when such a call arrives.
+  can ask for the list again when such a call's **result** arrives — not the
+  call itself, which comes before the file is written (`mediaArrived`). A
+  subagent's images are not in the parent's transcript; the `Agent` call's
+  result, the subagent ending, asks for them. While a subagent is still
+  running and nothing is watching, its images wait for that.
 - Counted only while the file **is on disk now**, resolved against the cwd the
   call was made in (adr [[a-file-link-resolves-against-the-cwd-it-was-written-in]]),
   within the same bounds as `agent` items. A missing file is no item, not a
   NOT ON DISK tile: a `Bash` command naming a path proves nothing about the
   file, so a missing one is not something that was lost. `written` items carry
   no `disk`.
-- De-duplicated:
-  - against an `agent` item naming the same file (same resolved path) in the
-    same turn — between one user row and the next — which stands instead;
-  - against itself: one file written several times in a turn is one item,
-    the first;
+- De-duplicated (`withoutRepeatedFiles`), over the whole session once the
+  subagents' lists are merged in, since every item shows the file as it is
+  now and a second tile would show the same picture:
+  - against an `agent` item naming the same file (same resolved path)
+    anywhere — the parent's or a subagent's — which stands instead;
+  - against itself: one file written several times is one item, the first;
   - against the call's own result: a screenshot whose result already carried
     the image is that `tool` item.
+  Turns are not used: a message sent while a turn runs, or a local command's
+  output, is a user row too, and split a write from the reply naming it.
 - A `Bash` command that only reads an image (`open out/a.png`) is counted too.
   That is the price of not parsing shell; turning off Saved by the agent hides it.
 - Scratch folders count like any other path: Playwright's `.playwright-mcp/`
@@ -111,7 +118,9 @@ does not hide it under Hide tool images. It does not crash and nothing
 vanishes, so the new value goes on the wire as is rather than being folded
 into `tool` (which would have lied about it carrying an image store ref and
 stacked it into tool runs). Subagent items use the existing sources, so a
-shipped phone shows them as ordinary items without the subagent's name.
+shipped phone shows them as ordinary items without the subagent's name — and
+a subagent's screenshots, being `tool` items, go under that phone's Hide tool
+images like the parent's.
 
 ## Tiles
 
@@ -210,11 +219,12 @@ in a background task's output.
 ## Tests
 
 - Server, pure: written detection for `Write`, a screenshot tool and `Bash`;
-  a missing file is no item; de-duplication against the turn's `agent` item,
-  within a turn and against the call's result image; a screenshot's result
-  text.
-- Server: `sessionMedia` merges a subagent's items by time, tags them and
-  drops a subagent whose call is off the branch; the route lists a subagent's
+  a missing file is no item; de-duplication against a reply naming the file
+  across a mid-turn user row, against repeated writes and against the call's
+  result image; a screenshot's result text.
+- Server: `sessionMedia` merges a subagent's items by time, tags them,
+  drops a subagent whose call is off the branch, and folds a file a subagent
+  saved into the parent's reply naming it; the route lists a subagent's
   item and a written image from files on disk.
 - Web, pure: each item's source row, a subagent's under Subagents; the
   filter's label and count, a row with no items counting as on; captions;
