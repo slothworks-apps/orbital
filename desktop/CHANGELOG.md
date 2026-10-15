@@ -10,7 +10,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [0.29.1] — 2026-10-15
 ### Changed
-- Menus, dropdown lists, the media preview and the mode and model pickers now ease open instead of appearing at once.
+- Menus, dropdown lists, the media preview and the mode and model pickers now slide open from their button instead of appearing at once.
 
 ## [0.29.0] — 2026-10-12
 ### Added
