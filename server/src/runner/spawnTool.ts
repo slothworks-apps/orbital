@@ -16,6 +16,8 @@ export interface SpawnInput {
   prompt: string;
   cwd?: string;
   model?: string;
+  /** Another paired Mac's id: the session starts there (spec 2026-10-06-peer-macs-design § 9). */
+  machine?: string;
 }
 
 export interface SpawnResult {
@@ -46,6 +48,7 @@ export function spawnSessionTool(parentId: string, spawn: Spawner) {
       prompt: z.string().min(1).describe('The new session\'s first message — the full task, since it shares no context with this session.'),
       cwd: z.string().optional().describe('Working directory for the new session. Defaults to this session\'s directory.'),
       model: z.string().optional().describe('Model for the new session. Defaults to this session\'s model; pass one only if the user asked for it.'),
+      machine: z.string().optional().describe('Start it on another paired Mac (its id, from orbital_read list_macs) when the user asked for that Mac. Its cwd is a path on that Mac and is required.'),
     },
     async (args) => {
       try {

@@ -36,6 +36,15 @@ tools — `spawn_session`, `list_sessions`, `archive_session`, the harness's
 | stop a turn | `interrupt_session` |
 | retention sweep preview | `retention_preview`; the sweep itself through `update_settings` |
 
+## Other Macs
+
+| feature | how |
+|---|---|
+| the paired Macs and whether each is up | `list_macs` |
+| any operation on another Mac | `machine` on `orbital_read` / `orbital_act`; an operation on a session goes to that session's Mac by itself |
+| start a session on another Mac | `spawn_session` tool with `machine` and a `cwd` on that Mac; `start_session` with `machine` |
+| pair or forget a Mac | not reachable: pairing is the user's |
+
 ## Conversation
 
 | feature | how |

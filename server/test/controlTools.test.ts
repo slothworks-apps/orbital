@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildServer } from '../src/index.js';
 import { CONTROL_OPERATIONS, type ControlOperation } from '../src/control/catalog.js';
-import { controlRequest, controlTools } from '../src/runner/controlTools.js';
+import { controlRequest, controlTools, onMachine } from '../src/runner/controlTools.js';
 import { remoteInjectOptions } from '../src/remote/inject.js';
 import { makeTmpDir } from './tmp.js';
 
@@ -104,5 +104,21 @@ describe('the operation catalog', () => {
       const missing = CONTROL_OPERATIONS.filter((o) => !app.hasRoute({ method: o.method, url: o.path }));
       expect(missing.map((o) => `${o.method} ${o.path}`)).toEqual([]);
     });
+  });
+});
+
+describe('an operation on another Mac', () => {
+  it('names the Mac in the query of a read and in the body of an act', () => {
+    expect(onMachine({ ok: true, method: 'GET', url: '/api/projects' }, 'M')).toEqual({ ok: true, method: 'GET', url: '/api/projects?machine=M' });
+    expect(onMachine({ ok: true, method: 'GET', url: '/api/files?path=a' }, 'M')).toMatchObject({ url: '/api/files?path=a&machine=M' });
+    expect(onMachine({ ok: true, method: 'POST', url: '/api/sessions', payload: { cwd: '/p' } }, 'M'))
+      .toEqual({ ok: true, method: 'POST', url: '/api/sessions', payload: { cwd: '/p', machine: 'M' } });
+  });
+
+  it('leaves this Mac\'s operations and refusals alone', () => {
+    const req = { ok: true as const, method: 'GET', url: '/api/tags' };
+    expect(onMachine(req, undefined)).toBe(req);
+    const refused = { ok: false as const, error: 'unknown operation' };
+    expect(onMachine(refused, 'M')).toBe(refused);
   });
 });

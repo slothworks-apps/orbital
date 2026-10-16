@@ -143,6 +143,8 @@ export interface RouteContext {
   remote: RemoteService;
   /** Whether a session is another Mac's (spec 2026-10-06-peer-macs-design § 8); absent, none is. */
   isPeerSession?: (id: string) => boolean;
+  /** `POST /api/sessions` on a paired Mac, for `spawn_session`'s `machine` (spec 2026-10-06-peer-macs-design § 9). */
+  spawnOnPeer?: (machine: string, body: Record<string, unknown>) => Promise<{ status: number; body: unknown }>;
   /** Whether the user is at the Mac, as the desktop app reports it. */
   presence?: Presence;
   settings: { get(key: string): string; set(key: string, value: string): void };
@@ -1308,6 +1310,20 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       | SessionRow
       | undefined;
     if (!permissionMode || !parent) throw new Error('this session is no longer running');
+    if (input.machine) {
+      // The other Mac checks the directory and keeps the session; this one only asks.
+      if (!input.cwd) throw new Error('cwd is required on another Mac: a path on that Mac');
+      if (!ctx.spawnOnPeer) throw new Error('this Mac is paired with no other Mac');
+      const model = input.model?.trim() || parent.model || undefined;
+      const res = await ctx.spawnOnPeer(input.machine, {
+        cwd: input.cwd, prompt: input.prompt, permissionMode, requireDirectory: true, ...(model ? { model } : {}),
+      });
+      const answer = res.body as { sessionId?: unknown; error?: unknown } | null;
+      if (res.status >= 300 || typeof answer?.sessionId !== 'string') {
+        throw new Error(`the other Mac did not start it: ${typeof answer?.error === 'string' ? answer.error : `HTTP ${res.status}`}`);
+      }
+      return { sessionId: answer.sessionId, cwd: input.cwd };
+    }
     const cwd = input.cwd ? expandHome(input.cwd) : parent.cwd;
     if (!isAbsolute(cwd)) throw new Error(`cwd must be an absolute path: ${input.cwd}`);
     if (!statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
