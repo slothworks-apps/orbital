@@ -3,7 +3,8 @@ import { generateIdentity, deviceId, fromBase64Url, publicKeyOf, type Identity }
 import { startHandshake, type Handshake, type SessionCipher } from '@orbital/shared/remote/handshake';
 import { ZERO_WAKE, decodeFrame, encodeFrame } from '@orbital/shared/remote/frame';
 import {
-  MacMessage, PROTOCOL_VERSION, decodeInner, encodeInner, type Inner, type PhoneMessage,
+  PROTOCOL_VERSION, decodeInner, encodeInner, parseChannelMessage, type AnswerMessage, type AskMessage,
+  type HelloMessage, type Inner,
 } from '@orbital/shared/remote/messages';
 import {
   QrPayload, RelayToDevice, authSignature, pairingProof, relayWsUrl, sealPairingDevice, signRequest,
@@ -16,7 +17,7 @@ export type StoredPair = { relay: string; mac: string };
 
 export class FakePhone {
   readonly control: RelayToDevice[] = [];
-  readonly messages: MacMessage[] = [];
+  readonly messages: (AnswerMessage | HelloMessage)[] = [];
   readonly blobs: Extract<Inner, { kind: 'blob' }>[] = [];
   private ws: WebSocket | null = null;
   private hs: Handshake | null = null;
@@ -75,12 +76,12 @@ export class FakePhone {
     await this.wait((x) => x === 'cipher');
   }
 
-  async hello(app = 'orbital-mobile/test'): Promise<MacMessage> {
+  async hello(app = 'orbital-mobile/test'): Promise<HelloMessage> {
     this.send({ t: 'hello', protocol: PROTOCOL_VERSION, app });
     return this.next('hello');
   }
 
-  send(msg: PhoneMessage): void {
+  send(msg: AskMessage | HelloMessage): void {
     this.sendInner(encodeInner({ kind: 'json', value: msg }));
   }
 
@@ -89,7 +90,9 @@ export class FakePhone {
     this.sendInner(encodeInner(chunk));
   }
 
-  next<T extends MacMessage['t']>(t: T, pred: (m: Extract<MacMessage, { t: T }>) => boolean = () => true): Promise<Extract<MacMessage, { t: T }>> {
+  next<T extends (AnswerMessage | HelloMessage)['t']>(
+    t: T, pred: (m: Extract<AnswerMessage | HelloMessage, { t: T }>) => boolean = () => true,
+  ): Promise<Extract<AnswerMessage | HelloMessage, { t: T }>> {
     const i = this.messages.findIndex((m) => m.t === t && pred(m as any));
     if (i >= 0) return Promise.resolve(this.messages.splice(i, 1)[0] as any);
     return this.wait((x) => typeof x === 'object' && x !== null && (x as any).t === t && pred(x as any));
@@ -150,9 +153,10 @@ export class FakePhone {
       this.offer(inner);
       return;
     }
-    const msg = MacMessage.parse(inner.value);
-    this.messages.push(msg);
-    this.offer(msg);
+    const parsed = parseChannelMessage(inner.value);
+    if (!parsed || parsed.kind === 'ask') throw new Error('expected a hello or an answer');
+    this.messages.push(parsed.msg);
+    this.offer(parsed.msg);
   }
 
   private offer(x: unknown): void {

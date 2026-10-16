@@ -3,7 +3,8 @@ import { deviceId, fromBase64Url, generateIdentity, toBase64Url, type Identity }
 import { FLAG_STATE, FLAG_WAKE, ZERO_WAKE, decodeFrame, encodeFrame } from '../src/remote/frame.js';
 import { HANDSHAKE_BYTES, startHandshake, type SessionCipher } from '../src/remote/handshake.js';
 import {
-  PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, type Inner, type MacMessage, type PhoneMessage,
+  PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, type AnswerMessage, type AskMessage, type HelloMessage,
+  type Inner,
 } from '../src/remote/messages.js';
 import {
   CLOSE_BAD_SECRET, openPairingDevice, verifyAuthSignature, verifyPairingProof, verifyRequest, type RelayToDevice,
@@ -76,10 +77,10 @@ class FakeMac {
     sock.binary(this.frame(handshake.message!));
   }
 
-  read(sock: FakeSocket): PhoneMessage {
+  read(sock: FakeSocket): AskMessage | HelloMessage {
     const inner = this.readInner(sock);
     if (inner.kind !== 'json') throw new Error('expected a JSON message');
-    return inner.value as PhoneMessage;
+    return inner.value as AskMessage | HelloMessage;
   }
 
   /** The next inner the phone sent, a JSON message or a blob chunk. */
@@ -90,7 +91,7 @@ class FakeMac {
     return inner;
   }
 
-  send(sock: FakeSocket, msg: MacMessage): void {
+  send(sock: FakeSocket, msg: AnswerMessage | HelloMessage): void {
     this.sendInner(sock, { kind: 'json', value: msg });
   }
 
@@ -329,8 +330,8 @@ describe('RemoteClient requests', () => {
     connect(s);
     const first = s.client.request('GET', '/api/sessions');
     const second = s.client.request('POST', '/api/sessions/s1/messages', { text: 'hi' });
-    const a = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'http' }>;
-    const b = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'http' }>;
+    const a = s.mac.read(s.sock) as Extract<AskMessage, { t: 'http' }>;
+    const b = s.mac.read(s.sock) as Extract<AskMessage, { t: 'http' }>;
     expect(a).toMatchObject({ method: 'GET', path: '/api/sessions' });
     expect(a).not.toHaveProperty('body');
     expect(b).toMatchObject({ method: 'POST', body: { text: 'hi' } });
@@ -374,8 +375,8 @@ describe('RemoteClient blobs, hub and wake', () => {
     connect(s);
     const blob = s.client.getBlob(REF);
     const page = s.client.request('GET', '/api/sessions');
-    const get = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'blob_get' }>;
-    const http = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'http' }>;
+    const get = s.mac.read(s.sock) as Extract<AskMessage, { t: 'blob_get' }>;
+    const http = s.mac.read(s.sock) as Extract<AskMessage, { t: 'http' }>;
     expect(get).toMatchObject({ t: 'blob_get', ref: REF });
     const bytes = new Uint8Array(150_000).map((_, i) => i % 251);
     const chunks = chunkBlob(get.id, bytes);
@@ -397,7 +398,7 @@ describe('RemoteClient blobs, hub and wake', () => {
     const s = setup();
     connect(s);
     const blob = s.client.getBlob(REF);
-    const get = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'blob_get' }>;
+    const get = s.mac.read(s.sock) as Extract<AskMessage, { t: 'blob_get' }>;
     s.mac.send(s.sock, { t: 'blob_meta', id: get.id, status: 404 });
     await expect(blob).resolves.toEqual({ status: 404, bytes: new Uint8Array(0), mediaType: null });
   });
@@ -406,7 +407,7 @@ describe('RemoteClient blobs, hub and wake', () => {
     const s = setup();
     connect(s);
     const blob = s.client.getBlob(REF);
-    const get = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'blob_get' }>;
+    const get = s.mac.read(s.sock) as Extract<AskMessage, { t: 'blob_get' }>;
     const chunks = chunkBlob(get.id, new Uint8Array(150_000));
     s.mac.send(s.sock, { t: 'blob_meta', id: get.id, status: 200, bytes: 150_000, mediaType: 'image/png' });
     s.mac.sendInner(s.sock, chunks[0]);
@@ -439,7 +440,7 @@ describe('RemoteClient getFile', () => {
     const s = setup();
     connect(s);
     const file = s.client.getFile('s1', PATH, 'image', opts);
-    const get = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'file_get' }>;
+    const get = s.mac.read(s.sock) as Extract<AskMessage, { t: 'file_get' }>;
     return { s, file, get };
   }
 
@@ -464,7 +465,7 @@ describe('RemoteClient getFile', () => {
     s.mac.send(s.sock, { t: 'blob_meta', id: get.id, status: 413, size: 9_000_000 });
     await expect(file).resolves.toEqual({ status: 413, bytes: new Uint8Array(0), mediaType: null, size: 9_000_000, w: null, h: null });
     const second = s.client.getFile('s1', '/tmp/a.bin', 'text');
-    const get2 = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'file_get' }>;
+    const get2 = s.mac.read(s.sock) as Extract<AskMessage, { t: 'file_get' }>;
     s.mac.send(s.sock, { t: 'blob_meta', id: get2.id, status: 415, size: 3, mediaType: 'binary' });
     await expect(second).resolves.toMatchObject({ status: 415, mediaType: 'binary', size: 3 });
   });
@@ -509,7 +510,7 @@ describe('RemoteClient putBlob', () => {
   /** Starts a small put and reads its header and its one chunk off the wire. */
   function startPut(s: ReturnType<typeof setup>) {
     const put = s.client.putBlob(new Uint8Array(10), 'image/jpeg');
-    const header = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'blob_put' }>;
+    const header = s.mac.read(s.sock) as Extract<AskMessage, { t: 'blob_put' }>;
     expect(s.mac.readInner(s.sock)).toMatchObject({ kind: 'blob', id: header.id, seq: 0, last: true });
     return { put, header };
   }
@@ -519,7 +520,7 @@ describe('RemoteClient putBlob', () => {
     connect(s);
     const bytes = new Uint8Array(150_000).map((_, i) => i % 251);
     const put = s.client.putBlob(bytes, 'image/jpeg');
-    const header = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'blob_put' }>;
+    const header = s.mac.read(s.sock) as Extract<AskMessage, { t: 'blob_put' }>;
     expect(header).toEqual({ t: 'blob_put', id: header.id, mediaType: 'image/jpeg', bytes: 150_000 });
     const parts: number[] = [];
     for (let seq = 0; ; seq++) {

@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { generateIdentity, deviceId } from '@orbital/shared/remote/keys';
 import { startHandshake, type SessionCipher } from '@orbital/shared/remote/handshake';
 import {
-  BLOB_CHUNK_BYTES, FILE_PATH_MAX_CHARS, PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, type MacMessage,
+  BLOB_CHUNK_BYTES, FILE_PATH_MAX_CHARS, PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner,
+  type AnswerMessage, type HelloMessage,
 } from '@orbital/shared/remote/messages';
 import { PHONE_KNOWS_APP_TOO_OLD } from '@orbital/shared/remote/version';
 import { Hub } from '../src/api/hub.js';
@@ -24,7 +25,7 @@ function makePhone(mac: ReturnType<typeof generateIdentity>, session: () => Phon
   const me = generateIdentity();
   let hs = startHandshake(me, mac.publicKey, 'initiator');
   let cipher: SessionCipher | null = null;
-  const out: MacMessage[] = [];
+  const out: (AnswerMessage | HelloMessage)[] = [];
   const blobs: { id: number; seq: number; last: boolean; bytes: Uint8Array }[] = [];
   const onMacBody = (body: Uint8Array) => {
     if (!cipher) {
@@ -32,7 +33,7 @@ function makePhone(mac: ReturnType<typeof generateIdentity>, session: () => Phon
       return;
     }
     const inner = decodeInner(cipher.open(body)!)!;
-    if (inner.kind === 'json') out.push(inner.value as MacMessage);
+    if (inner.kind === 'json') out.push(inner.value as AnswerMessage | HelloMessage);
     else blobs.push(inner);
   };
   const send = (value: unknown) => session().receive(cipher!.seal(encodeInner({ kind: 'json', value })));

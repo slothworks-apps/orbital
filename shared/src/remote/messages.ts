@@ -100,8 +100,7 @@ const NO_CONTROL_CHARS = /^[^\u0000-\u001f\u007f]+$/;
 export const FileAs = z.enum(['image', 'text', 'pdf']);
 export type FileAs = z.infer<typeof FileAs>;
 
-export const PhoneMessage = z.discriminatedUnion('t', [
-  z.object({ t: z.literal('hello'), protocol: z.number().int(), app: z.string() }),
+export const AskMessage = z.discriminatedUnion('t', [
   z.object({ t: z.literal('ws'), type: z.enum(['subscribe', 'unsubscribe']), topic: z.string() }),
   z.object({
     t: z.literal('http'), id: z.number().int(), method: HttpMethod, path: z.string(),
@@ -134,15 +133,14 @@ export const PhoneMessage = z.discriminatedUnion('t', [
   z.object({ t: z.literal('notifications_set'), settings: NotificationSettingsSchema }),
   z.object({ t: z.literal('seen'), sessionId: z.string() }),
 ]);
-export type PhoneMessage = z.infer<typeof PhoneMessage>;
+export type AskMessage = z.infer<typeof AskMessage>;
 
 const ImageRefEntry = z.object({
   ref: ImageRef, w: z.number().nullable(), h: z.number().nullable(), bytes: z.number(),
 });
 export type ImageRefEntry = z.infer<typeof ImageRefEntry>;
 
-export const MacMessage = z.discriminatedUnion('t', [
-  z.object({ t: z.literal('hello'), protocol: z.number().int(), server: z.string(), macName: z.string() }),
+export const AnswerMessage = z.discriminatedUnion('t', [
   /**
    * `app_too_old`: the phone app is below the Mac's `MIN_PHONE_VERSION`, sent
    * with it as `needed`. A phone older than `PHONE_KNOWS_APP_TOO_OLD` cannot
@@ -169,4 +167,53 @@ export const MacMessage = z.discriminatedUnion('t', [
   }),
   z.object({ t: z.literal('notifications'), settings: NotificationSettingsSchema }),
 ]);
-export type MacMessage = z.infer<typeof MacMessage>;
+export type AnswerMessage = z.infer<typeof AnswerMessage>;
+
+/**
+ * Every device's greeting, both ways, the initiator's first (spec
+ * 2026-10-16-device-group-design § 5). A shipped phone sends only
+ * `protocol` and `app`; a shipped Mac only `protocol`, `server` and
+ * `macName`, and a shipped phone requires those two of whatever serves it.
+ * `kind` and `capabilities` stay strings: a device from a later release may
+ * name one this one does not know.
+ */
+export const HelloMessage = z.object({
+  t: z.literal('hello'),
+  protocol: z.number().int(),
+  app: z.string().optional(),
+  server: z.string().optional(),
+  macName: z.string().optional(),
+  version: z.string().optional(),
+  kind: z.string().max(20).optional(),
+  os: z.string().max(20).optional(),
+  name: z.string().max(80).optional(),
+  capabilities: z.array(z.string().max(32)).max(32).optional(),
+});
+export type HelloMessage = z.infer<typeof HelloMessage>;
+
+export type ChannelMessage =
+  | { kind: 'hello'; msg: HelloMessage }
+  | { kind: 'ask'; msg: AskMessage }
+  | { kind: 'answer'; msg: AnswerMessage };
+
+/**
+ * One inner JSON message, sorted. `ws` is the one `t` both sides use: a
+ * subscribe names `type` and `topic`, a hub frame carries `frame`, so the
+ * ask is tried first.
+ */
+export function parseChannelMessage(value: unknown): ChannelMessage | null {
+  const t = (value as { t?: unknown } | null)?.t;
+  if (t === 'hello') {
+    const hello = HelloMessage.safeParse(value);
+    return hello.success ? { kind: 'hello', msg: hello.data } : null;
+  }
+  const ask = AskMessage.safeParse(value);
+  if (ask.success) return { kind: 'ask', msg: ask.data };
+  const answer = AnswerMessage.safeParse(value);
+  return answer.success ? { kind: 'answer', msg: answer.data } : null;
+}
+
+/** Whether the peer runs sessions this device may ask about: by its capabilities, else a shipped Mac by its `server`. */
+export function peerServes(hello: HelloMessage): boolean {
+  return hello.capabilities ? hello.capabilities.includes('sessions') : hello.server !== undefined;
+}

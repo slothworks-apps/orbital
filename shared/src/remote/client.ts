@@ -13,8 +13,8 @@ import { concat, deviceId, fromBase64Url, publicKeyOf, type Identity } from './k
 import { ZERO_WAKE, decodeFrame, encodeFrame } from './frame.js';
 import { HANDSHAKE_BYTES, startHandshake, type Handshake, type SessionCipher } from './handshake.js';
 import {
-  MacMessage, PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, type FileAs, type ImageRefEntry, type Inner,
-  type NotificationSettings, type PhoneMessage,
+  PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, parseChannelMessage, type AnswerMessage, type AskMessage,
+  type FileAs, type HelloMessage, type ImageRefEntry, type Inner, type NotificationSettings,
 } from './messages.js';
 import {
   CLOSE_BAD_SECRET, PAIRING_TOKEN_TTL_MS, RELAY_PING_INTERVAL_MS, RelayToDevice, authSignature, pairingProof, relayWsUrl,
@@ -267,7 +267,7 @@ export class RemoteClient {
     return new Promise<TunnelResponse>((resolve, reject) => {
       const timer = setTimeout(() => this.fail(this.requests, id, new TunnelError('timeout')), this.requestTimeoutMs);
       this.requests.set(id, { resolve, reject, timer });
-      const msg: PhoneMessage =
+      const msg: AskMessage =
         body === undefined ? { t: 'http', id, method, path } : { t: 'http', id, method, path, body };
       if (!this.sendJson(msg)) this.fail(this.requests, id, new TunnelError('lost'));
     });
@@ -290,7 +290,7 @@ export class RemoteClient {
   }
 
   /** What `getBlob` and `getFile` share: ask, then `blob_meta` and the chunks (`onMac`, `onChunk`). */
-  private receiveBlob(ask: (id: number) => PhoneMessage, opts: GetFileOptions): Promise<FileResult> {
+  private receiveBlob(ask: (id: number) => AskMessage, opts: GetFileOptions): Promise<FileResult> {
     if (!this.ready) return Promise.reject(new TunnelError('offline'));
     const id = this.nextId++;
     const idleMs = opts.idleTimeoutMs ?? this.requestTimeoutMs;
@@ -601,12 +601,12 @@ export class RemoteClient {
       this.onChunk(inner);
       return;
     }
-    const parsed = MacMessage.safeParse(inner.value);
-    if (!parsed.success) {
+    const parsed = parseChannelMessage(inner.value);
+    if (!parsed || parsed.kind === 'ask') {
       this.dropped++;
       return;
     }
-    this.onMac(parsed.data);
+    this.onMac(parsed.msg);
   }
 
   private completeHandshake(body: Uint8Array): void {
@@ -628,13 +628,15 @@ export class RemoteClient {
     this.sendJson({ t: 'hello', protocol: PROTOCOL_VERSION, app: this.opts.app });
   }
 
-  private onMac(msg: MacMessage): void {
+  private onMac(msg: AnswerMessage | HelloMessage): void {
     switch (msg.t) {
       case 'hello':
         if (this.greeted) return;
         this.greeted = true;
         this.armSilence();
-        this.emit({ type: 'hello', server: msg.server, macName: msg.macName });
+        // A shipped Mac's hello always names both; `HelloMessage` only makes
+        // them optional for a device kind that does not serve.
+        this.emit({ type: 'hello', server: msg.server!, macName: msg.macName! });
         // The Mac dropped the previous connection's subscriptions (parent § 7).
         for (const topic of this.topics) this.sendJson({ t: 'ws', type: 'subscribe', topic });
         this.emit({ type: 'ready', ready: true });
@@ -741,7 +743,7 @@ export class RemoteClient {
     waiter.timer = setTimeout(() => this.fail(this.blobs, id, new TunnelError('timeout')), waiter.idleMs);
   }
 
-  private askNotifications(msg: PhoneMessage): Promise<NotificationSettings> {
+  private askNotifications(msg: AskMessage): Promise<NotificationSettings> {
     if (!this.ready) return Promise.reject(new TunnelError('offline'));
     return new Promise<NotificationSettings>((resolve, reject) => {
       const waiter: Waiter<NotificationSettings> = {
@@ -794,7 +796,7 @@ export class RemoteClient {
     this.silenceTimer = setTimeout(() => this.lose(ws), this.opts.silenceTimeoutMs ?? TUNNEL_SILENCE_TIMEOUT_MS);
   }
 
-  private sendJson(msg: PhoneMessage): boolean {
+  private sendJson(msg: AskMessage | HelloMessage): boolean {
     return this.sendInner({ kind: 'json', value: msg });
   }
 

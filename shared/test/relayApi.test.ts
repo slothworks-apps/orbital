@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { generateIdentity, deviceId, fromBase64Url, toBase64Url } from '../src/remote/keys.js';
 import {
   DeviceToRelay, PAIRING_SECRET_BYTES, PAIR_NAME_MAX_CHARS, PAIR_PLATFORM_MAX_CHARS, QrPayload, RelayToDevice,
-  SEALED_DEVICE_MAX_CHARS, SIGNED_REQUEST_SKEW_MS, authSignature, canonicalJson, openPairingDevice, pairingProof,
-  relayWsUrl, sealPairingDevice, signRequest, verifyAuthSignature, verifyPairingProof, verifyRequest,
+  SEALED_DEVICE_MAX_CHARS, SIGNED_REQUEST_SKEW_MS, authSignature, canonicalJson, encodePairingCode, openPairingDevice,
+  pairingProof, parsePairingCode, relayWsUrl, sealPairingDevice, signRequest, verifyAuthSignature, verifyPairingProof,
+  verifyRequest,
 } from '../src/remote/relayApi.js';
 
 describe('sealed pairing device', () => {
@@ -140,5 +141,29 @@ describe('schemas and urls', () => {
   it('adds paired=1 only when asked', () => {
     expect(relayWsUrl('https://orbital-relay.example', 'm1', { paired: true })).toBe('wss://orbital-relay.example/ws?mac=m1&paired=1');
     expect(relayWsUrl('https://orbital-relay.example', 'm1', { paired: false })).toBe('wss://orbital-relay.example/ws?mac=m1');
+  });
+});
+
+describe('pairing device kind', () => {
+  it('seals and opens a kind, and opens a device sealed without one', () => {
+    const secret = new Uint8Array(16).fill(7);
+    const key = generateIdentity().publicKey;
+    const withKind = sealPairingDevice(secret, key, { name: 'studio', platform: 'macos', kind: 'desktop' });
+    expect(openPairingDevice(secret, key, withKind)).toEqual({ name: 'studio', platform: 'macos', kind: 'desktop' });
+    const without = sealPairingDevice(secret, key, { name: 'Pixel', platform: 'android' });
+    expect(openPairingDevice(secret, key, without)).toEqual({ name: 'Pixel', platform: 'android' });
+  });
+});
+
+describe('pairing code', () => {
+  const mac = deviceId(generateIdentity().publicKey);
+  const qr = JSON.stringify({ v: 1, relay: 'https://r', mac, name: 'studio', token: 't', secret: 's', kind: 'desktop' });
+  it('reads the QR JSON and its one-word form', () => {
+    expect(parsePairingCode(qr)?.kind).toBe('desktop');
+    expect(parsePairingCode(encodePairingCode(qr))?.mac).toBe(mac);
+  });
+  it('refuses anything else', () => {
+    expect(parsePairingCode('hello')).toBeNull();
+    expect(parsePairingCode(JSON.stringify({ v: 1, relay: 'r', mac: 'nope', name: 'n', token: 't', secret: 's' }))).toBeNull();
   });
 });

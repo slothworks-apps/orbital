@@ -14,8 +14,8 @@ import {
   GCM_TAG_BYTES, HANDSHAKE_BYTES, NONCE_BYTES, startHandshake, type Handshake, type SessionCipher,
 } from '@orbital/shared/remote/handshake';
 import {
-  MacMessage, PROTOCOL_VERSION, PhoneMessage, chunkBlob, decodeInner, encodeInner,
-  type NotificationSettings,
+  PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, parseChannelMessage,
+  type AnswerMessage, type AskMessage, type HelloMessage, type NotificationSettings,
 } from '@orbital/shared/remote/messages';
 import {
   MIN_PHONE_VERSION, PHONE_KNOWS_APP_TOO_OLD, compareVersions, phoneAppVersion,
@@ -59,7 +59,7 @@ const IMAGE_CONTENT_TYPES: Record<string, string> = {
 /** A phone app below the Mac's minimum: the version its `hello` named, and the minimum. */
 export type PhoneTooOld = { version: string; needed: string };
 
-type ByeReason = Extract<MacMessage, { t: 'bye' }>['reason'];
+type ByeReason = Extract<AnswerMessage, { t: 'bye' }>['reason'];
 
 export type InjectFn = (req: { method: string; url: string; payload?: unknown }) => Promise<{ statusCode: number; body: string }>;
 
@@ -164,9 +164,9 @@ export class PhoneSession {
       }
       return;
     }
-    const parsed = PhoneMessage.safeParse(inner.value);
-    if (!parsed.success) return;
-    const msg = parsed.data;
+    const parsed = parseChannelMessage(inner.value);
+    if (!parsed || parsed.kind === 'answer') return;
+    const msg = parsed.msg;
     try {
       this.onMessage(msg);
     } catch (err) {
@@ -215,11 +215,13 @@ export class PhoneSession {
     this.opts.onClose();
   }
 
-  private onMessage(msg: PhoneMessage): void {
+  private onMessage(msg: AskMessage | HelloMessage): void {
     if (!this.greeted) {
       if (msg.t !== 'hello') return;
       if (msg.protocol !== PROTOCOL_VERSION) return this.close('protocol');
-      const refusal = this.appTooOld(msg.app);
+      // A shipped phone always names `app`; `HelloMessage` only makes it
+      // optional for a device kind that is never judged against it.
+      const refusal = this.appTooOld(msg.app ?? '');
       this.opts.onAppVersion?.(refusal);
       if (refusal) {
         // A phone from before `app_too_old` would drop the bye as unreadable;
@@ -279,7 +281,7 @@ export class PhoneSession {
     return version !== null && compareVersions(version, needed) < 0 ? { version, needed } : null;
   }
 
-  private async onHttp(msg: Extract<PhoneMessage, { t: 'http' }>): Promise<void> {
+  private async onHttp(msg: Extract<AskMessage, { t: 'http' }>): Promise<void> {
     // `allowedPath` returns the canonical string Fastify will route, or null;
     // the raw `msg.path` is never handed to `inject()` (Task 12 review: the
     // WHATWG parser would otherwise rewrite `\` and `#` into a denied route).
@@ -318,7 +320,7 @@ export class PhoneSession {
    * the whole confinement; this only frames its answer the way `onBlobGet`
    * frames a stored image, so the phone reassembles both alike.
    */
-  private onFileGet(msg: Extract<PhoneMessage, { t: 'file_get' }>): void {
+  private onFileGet(msg: Extract<AskMessage, { t: 'file_get' }>): void {
     const answer = this.opts.files(msg.session, msg.path, msg.as, msg.cwd);
     const meta = {
       ...(answer.mediaType !== undefined ? { mediaType: answer.mediaType } : {}),
@@ -355,7 +357,7 @@ export class PhoneSession {
     this.sendJson({ t: 'blob_put_done', id: chunk.id, entry });
   }
 
-  private sendJson(msg: MacMessage): void {
+  private sendJson(msg: AnswerMessage | HelloMessage): void {
     const plain = encodeInner({ kind: 'json', value: msg });
     // Only a REST answer (a transcript page, a file preview) and a hub frame
     // can be arbitrarily large; everything else the Mac sends is bounded by
