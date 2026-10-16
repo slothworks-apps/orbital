@@ -164,13 +164,21 @@ A link is the relay pair between two members and the channel over it.
   frames travel over it, addressed by the peer's key, as they are today.
 - **One channel per link, used in both directions.** The handshake
   (`remote-identity-is-ed25519-with-ephemeral-session-keys`) needs an
-  initiator and a responder: the member with the lower device id
-  initiates; a phone that does not know groups (§ 9) always initiates, as
-  it does today.
+  initiator and a responder: a phone always initiates, as it does today;
+  a device paired through an older Mac's code, which names no kind,
+  initiates towards that Mac, since the Mac only ever answers; between
+  two other members the lower device id initiates. Whoever initiates, a
+  device answers a handshake that arrives while it has no channel.
+- **Ask ids** are the asker's own: the initiator numbers from 1, the
+  responder from `RESPONDER_FIRST_ID` (2³¹), so a blob chunk always
+  says whether it answers this side's ask or carries the peer's upload.
 - **`hello`** carries `protocol`, `app` and `version`, `kind`, `os`,
-  `name`, and `capabilities`. Both sides send it. The old shapes (the
-  phone's `{ protocol, app }`, the Mac's `{ protocol, server, macName }`)
-  are still read, and mean a device that does not know groups.
+  `name`, and `capabilities`; a device that serves also sends `server`
+  and `macName`, which a shipped phone requires. Both sides send it, the
+  initiator first. The old shapes (the phone's `{ protocol, app }`, the
+  Mac's `{ protocol, server, macName }`) are still read, and mean a
+  device that does not know groups. `PROTOCOL_VERSION` stays 1: a shipped
+  Mac closes any other.
 - **Both halves on each side.** Today the Mac's `PhoneSession` serves a
   phone and the phone's `RemoteClient` asks a Mac. A channel has both: a
   serving half (requests through `inject()` behind the allowlist, hub
