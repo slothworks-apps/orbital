@@ -7,6 +7,7 @@ import { configurePdf } from '../lib/pdf'
 import { configureSocket, getSocket } from '../lib/socket'
 import { configureTranscriptPages, useOrbital, type ErrorsEvent, type SessionsEvent } from '../store/store'
 import { connect, recheckOnForeground } from './connect'
+import { connectOtherMacs } from './otherMacs'
 import { wireCache } from './cacheWriter'
 import { markSummarized, wireEndedFold } from './endedFold'
 import { PHONE_OUTPUT_TAIL_BYTES, PHONE_SUBAGENT_PAGE, TRANSCRIPT_PAGE_SIZE } from './constants'
@@ -110,6 +111,7 @@ export async function boot(): Promise<void> {
   open?.()
   try {
     await connect(pairing)
+    await connectOtherMacs()
   } finally {
     // Whatever connect met: the client keeps the token for the link the next connect builds.
     void registerPush()

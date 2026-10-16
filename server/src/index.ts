@@ -20,7 +20,7 @@ import {
   RETENTION_KEY,
 } from './retention.js';
 import { openDb } from './db/database.js';
-import { compactionFailures, pendingRewinds, sessionColumns, sessions, settings as settingsTable } from './db/schema.js';
+import { compactionFailures, pendingRewinds, sessionColumns, sessions, settings as settingsTable, tags as tagsTable } from './db/schema.js';
 import { indexPaths, indexProjectsSliced, type IndexOwner } from './indexer/indexer.js';
 import { batchSessionIds, watchProjects } from './watcher/projects.js';
 import { LiveRegistries, SessionRegistry, type LiveSession } from './watcher/registry.js';
@@ -64,6 +64,9 @@ import { createImageStore } from './images/store.js';
 import { Presence } from './remote/presence.js';
 import { RemoteService } from './remote/service.js';
 import { remoteInjectOptions } from './remote/inject.js';
+import { PeerService } from './peers/service.js';
+import { registerPeerRoutes } from './peers/routes.js';
+import { macDisplayName } from './remote/identity.js';
 import {
   API_TOKEN_COOKIE,
   loadOrCreateApiToken,
@@ -1434,9 +1437,24 @@ export async function buildServer(overrides: {
     settings: settingsStore,
     allSettings: () => Object.fromEntries(db.select().from(settingsTable).all().map((r) => [r.key, r.value])),
   });
+  // Other Macs' sessions on this map (spec 2026-10-06-peer-macs-design). Its
+  // hooks go in before the routes, so a request for a peer's session never
+  // reaches a local handler.
+  const peers = new PeerService({
+    dataDir, hub,
+    macName: () => macDisplayName(settingsStore.get('remote_mac_name')),
+    localTags: () => db.select().from(tagsTable).all(),
+    offerCode: async () => {
+      const res = await remote.startPairing({ auto: true });
+      return 'qr' in res ? res.qr : null;
+    },
+  });
+  remote.usePeers(peers.readsForPhones());
+  registerPeerRoutes(app, peers, remote, imagesDir);
   registerRoutes(app, {
     db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, terminals, recentTools, errors,
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees,
+    isPeerSession: (id) => peers.linkOf(id) !== null,
     settings: settingsStore,
     mcpFor,
     limits,
@@ -1457,6 +1475,7 @@ export async function buildServer(overrides: {
     return { statusCode: res.statusCode, body: res.body };
   };
   remote.start();
+  peers.start();
   // After the routes, which give it the path into a session: a wait that fell
   // due while the server was down fires now.
   limits.start();
@@ -1464,6 +1483,7 @@ export async function buildServer(overrides: {
     // First, while the db is still open — and guarded, so nothing it throws
     // can skip the runner and the db below and leave close hanging.
     try {
+      peers.stop();
       remote.stop();
     } catch (err) {
       console.warn(`[remote] stop failed: ${err instanceof Error ? err.message : String(err)}`);

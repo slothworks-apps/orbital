@@ -1064,6 +1064,7 @@ vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 const defaultUi: OrbitalUiState = {
   selectedId: null,
   filterTagIds: [],
+  filterMachineIds: [],
   search: '',
   sourceFilter: 'all',
   wsStatus: 'connected',

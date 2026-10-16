@@ -27,6 +27,7 @@ import type {
   OrbitalModel,
   PendingDecision,
   PermissionMode,
+  PeersStatus,
   RemoteStatus,
   SessionSource,
   SessionStatus,
@@ -195,6 +196,7 @@ export interface Toast {
 export interface OrbitalUiState {
   selectedId: string | null
   filterTagIds: number[]
+  filterMachineIds: string[]
   search: string
   sourceFilter: 'all' | SessionSource
   wsStatus: string
@@ -349,6 +351,11 @@ export interface OrbitalState {
    * `pendingPair` set is what puts the pairing dialog up, wherever the user is.
    */
   remote: RemoteStatus | null
+  /**
+   * Peer Macs (spec 2026-10-06-peer-macs-design § 3). Null until `GET /api/peers`
+   * lands; nothing renders until peers state is known.
+   */
+  peers: PeersStatus | null
   /**
    * The question each session is blocked on right now, keyed by session id
    * (spec: 2026-09-20-interactive-decisions-design). A session has at most
@@ -579,6 +586,13 @@ export interface OrbitalActions {
    * waiting on the server's answer knows whether it got one.
    */
   refreshRemote(): Promise<'stored' | 'superseded' | 'failed'>
+  /** Stores peer Macs status the caller just got from the server. */
+  setPeers(status: PeersStatus): void
+  /**
+   * Re-reads `GET /api/peers` on every socket open. The answer is dropped if a
+   * status arrived while it was in flight. Never throws.
+   */
+  refreshPeers(): Promise<'stored' | 'superseded' | 'failed'>
   launchSession(body: {
     cwd: string
     prompt: string
@@ -593,6 +607,8 @@ export interface OrbitalActions {
     claudeDirId?: number
     /** The `.mcp.json` question's answers (`api.createSession`); omitted, undecided servers stay out. */
     mcpjson?: McpjsonDecisions
+    /** Another Mac's id: the session starts there (spec 2026-10-06-peer-macs-design § 3). */
+    machine?: string
   }, images?: readonly SentAttachment[]): Promise<string>
   select(id: string): Promise<void>
   loadOlder(id: string): Promise<ChatMessage[] | null>
@@ -619,6 +635,7 @@ export interface OrbitalActions {
   dismissIdeSelection(sessionId: string, selectionId: string): void
   setComposerDraft(sessionId: string, text: string): void
   setFilterTagIds(filterTagIds: number[]): void
+  setFilterMachineIds(filterMachineIds: string[]): void
   setSearch(search: string): void
   setSourceFilter(sourceFilter: 'all' | SessionSource): void
   /** Pins (or unpins) a session — a pinned session stays on the map once it has ended. */
@@ -1020,6 +1037,7 @@ function sortIdsByLastAtDesc(sessions: Record<string, ApiSession>): string[] {
 const initialUiState: OrbitalUiState = {
   selectedId: null,
   filterTagIds: [],
+  filterMachineIds: [],
   search: '',
   sourceFilter: 'all',
   wsStatus: 'connecting',
@@ -1095,6 +1113,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   errors: [],
   errorsUnseen: 0,
   remote: null,
+  peers: null,
   pendingDecisions: {},
   decisionAnswers: {},
   decisionVerdicts: {},
@@ -1730,6 +1749,23 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }
   },
 
+  setPeers(status) {
+    set({ peers: status })
+  },
+
+  async refreshPeers() {
+    const before = get().peers
+    try {
+      const status = await api.getPeers()
+      if (get().peers !== before) return 'superseded'
+      set({ peers: status })
+      return 'stored'
+    } catch (err) {
+      console.warn('orbital: failed to read the peer Macs status', err)
+      return 'failed'
+    }
+  },
+
   async launchSession(body, images) {
     // The id is minted HERE, not by the server, so that this tab can be
     // listening to `session:<id>` before the request that starts the session
@@ -2134,6 +2170,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   setFilterTagIds(filterTagIds) {
     set((state) => ({ ui: { ...state.ui, filterTagIds } }))
+  },
+
+  setFilterMachineIds(filterMachineIds) {
+    set((state) => ({ ui: { ...state.ui, filterMachineIds } }))
   },
 
   setSearch(search) {
@@ -2981,12 +3021,17 @@ export function matchesSearch(session: ApiSession, query: string): boolean {
  * Whether a session passes both sidebar filters, the tag chip and the search
  * box — the one predicate the sidebar's lists and the map's muting both read.
  */
+/** The machine chip of this Mac's own sessions, which carry no `machine`. */
+export const LOCAL_MACHINE = 'local'
+
 export function matchesSidebarFilters(
   session: ApiSession,
-  ui: Pick<OrbitalUiState, 'filterTagIds' | 'search'>
+  ui: Pick<OrbitalUiState, 'filterTagIds' | 'filterMachineIds' | 'search'>
 ): boolean {
   const tagOk = ui.filterTagIds.length === 0 || session.tagIds.some((id) => ui.filterTagIds.includes(id))
-  return tagOk && matchesSearch(session, ui.search)
+  const machineId = session.machine?.id ?? LOCAL_MACHINE
+  const machineOk = ui.filterMachineIds.length === 0 || ui.filterMachineIds.includes(machineId)
+  return tagOk && machineOk && matchesSearch(session, ui.search)
 }
 
 function newestFirst(sessions: Record<string, ApiSession>): ApiSession[] {
@@ -3442,7 +3487,11 @@ export function mapSessions(state: OrbitalState, nowMs: number): ApiSession[] {
   // means nothing here.
   const origin = state.ui.sourceFilter
   const all = newestFirst(state.sessions)
-  const list = origin === 'all' ? all : all.filter((session) => session.source === origin)
+  const machines = state.ui.filterMachineIds
+  const list = all.filter((session) =>
+    (origin === 'all' || session.source === origin) &&
+    // Another Mac's sessions leave the map with its chip, rather than mute in place.
+    (machines.length === 0 || machines.includes(session.machine?.id ?? LOCAL_MACHINE)))
 
   return list.filter(
     (session) => absorptionFor(session, nowMs, state.leavingSince[session.id]) !== 'gone',

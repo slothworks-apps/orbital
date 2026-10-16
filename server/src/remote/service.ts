@@ -25,10 +25,13 @@ import { DeviceWatcher } from './deviceWatcher.js';
 import { loadOrCreateIdentity, macDisplayName } from './identity.js';
 import { createPhoneFileReader, type PhoneFileReader } from './phoneFiles.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
-import { PhoneSession, type InjectFn, type PhoneTooOld } from './phoneSession.js';
+import { PhoneSession, type InjectFn, type PeerReads, type PhoneTooOld } from './phoneSession.js';
 import { RelayClient, type RelayClientOptions, type RelayRefusal } from './relayClient.js';
 import { wakeSecret, wakeToken } from './wake.js';
 import type { Presence } from './presence.js';
+
+/** The platform a paired Mac names itself with when it pairs as this Mac's client. */
+export const PEER_PLATFORM = 'macos';
 
 /** A phone refused at `hello` for an app too old: both versions, and when it was last refused. */
 export type PhoneRefusal = PhoneTooOld & { at: number };
@@ -46,6 +49,9 @@ export const RELAY_TOO_OLD_RECHECK_MS = 5 * 60_000;
  * (spec 2026-10-06-pairing-code-and-app-lock-design § 1).
  */
 export const PAIR_CODE_ATTEMPTS = 3;
+
+/** How long after a Mac paired as a client its offer to pair the other way is taken. */
+export const PEER_OFFER_WINDOW_MS = 2 * 60_000;
 
 /**
  * What a phone is called whose name did not come sealed with its request:
@@ -144,7 +150,12 @@ export class RemoteService {
   /** `code` is the fingerprint the phone shows; `attemptsLeft` counts down in place, so the object stays the one a confirm in flight compares against. */
   private pendingPair: (NonNullable<RemoteStatus['pendingPair']> & { code: string }) | null = null;
   /** `secret` went into the QR and only there; a `pair_request` must prove it (`verifyPairingProof`). */
-  private pairing: { expiresAt: number; secret: Uint8Array } | null = null;
+  /**
+   * `auto`: the code went to a paired Mac as the second half of a Mac
+   * pairing (spec 2026-10-06-peer-macs-design § 1 step 4), so the request
+   * that redeems it is accepted without a typed code.
+   */
+  private pairing: { expiresAt: number; secret: Uint8Array; auto?: boolean } | null = null;
   private error: string | null = null;
   /** Set when the relay client stopped on a relay below `MIN_RELAY_VERSION`; cleared by the next start. */
   private relayRefusal: RelayTooOld | null = null;
@@ -155,9 +166,13 @@ export class RemoteService {
    * the next hello decides again, and a restart only loses the mark until then.
    */
   private readonly phonesTooOld = new Map<string, PhoneRefusal>();
+  /** When a Mac last paired as this Mac's client: its pairing offer back is taken only shortly after. */
+  private peerPairedAt: number | null = null;
   private readonly now: () => number;
   /** One for every phone, so its named-path cache serves them all. */
   private readonly files: PhoneFileReader;
+  /** Other Macs' images and files, for a phone on one of their sessions (`usePeers`). */
+  private peers: PeerReads | null = null;
 
   constructor(private readonly opts: RemoteServiceOptions) {
     this.devices = new DeviceStore(opts.db);
@@ -167,6 +182,10 @@ export class RemoteService {
       opts.transcriptPath ?? ((id, projectDir) => join(CONFIG.projectsDir, projectDir, `${id}.jsonl`)),
       opts.trees,
     );
+  }
+
+  usePeers(peers: PeerReads): void {
+    this.peers = peers;
   }
 
   private get enabled(): boolean {
@@ -279,6 +298,11 @@ export class RemoteService {
     this.publishStatus();
   }
 
+  /** A Mac paired as this Mac's client moments ago, whose offer to pair the other way is due (spec 2026-10-06-peer-macs-design § 1). */
+  expectsPeerOffer(): boolean {
+    return this.peerPairedAt !== null && this.now() - this.peerPairedAt < PEER_OFFER_WINDOW_MS;
+  }
+
   status(): RemoteStatus {
     this.pairingOpen();
     const online = this.client?.peersOnline ?? new Set<string>();
@@ -335,6 +359,7 @@ export class RemoteService {
 
   /** No code while the relay is too old: a phone could not pair through it anyway. */
   async startPairing(
+    opts: { auto?: boolean } = {},
   ): Promise<{ qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' }> {
     if (this.relayRefusal) return { error: 'relay_too_old' };
     if (!this.enabled || !this.client || !this.identity) return { error: 'disabled' };
@@ -344,7 +369,7 @@ export class RemoteService {
     if (res.relayTooOld) return { error: 'relay_too_old' };
     if (res.status !== 200) return { error: 'relay_error' };
     const secret = new Uint8Array(randomBytes(PAIRING_SECRET_BYTES));
-    this.pairing = { expiresAt: res.body.expiresAt, secret };
+    this.pairing = { expiresAt: res.body.expiresAt, secret, ...(opts.auto ? { auto: true } : {}) };
     this.pendingPair = null;
     const qr: QrPayload = {
       v: 1, relay: this.relayUrl, mac: deviceId(this.identity.publicKey), name: this.macName, token: res.body.token,
@@ -405,6 +430,7 @@ export class RemoteService {
       }
       return { error: 'relay_error' };
     }
+    if (accept && pending.platform === PEER_PLATFORM) this.peerPairedAt = this.now();
     // A stop/start during the post replaced the state; leave the new one be.
     if (this.pendingPair === pending) {
       this.pendingPair = null;
@@ -469,6 +495,10 @@ export class RemoteService {
         phone: msg.phone, name: device?.name || UNKNOWN_PHONE_NAME, platform: device?.platform ?? '',
         code: fingerprint(this.identity.publicKey, phoneKey), attemptsLeft: PAIR_CODE_ATTEMPTS,
       };
+      if (this.pairing.auto && this.pendingPair.platform === PEER_PLATFORM) {
+        void this.confirmPairing(true, msg.phone, this.pendingPair.code);
+        return;
+      }
       this.opts.hub.publish('remote', { event: 'pair_request', ...this.publicPendingPair() });
       this.publishStatus();
       return;
@@ -511,6 +541,8 @@ export class RemoteService {
           if (this.sessions.get(from) === session) this.sessions.delete(from);
         },
         onAppVersion: (refusal) => this.markPhoneVersion(from, refusal),
+        peer: device.platform === PEER_PLATFORM,
+        ...(device.platform !== PEER_PLATFORM && this.peers ? { peers: this.peers } : {}),
       });
       this.sessions.set(from, session);
     }
@@ -533,6 +565,8 @@ export class RemoteService {
 
   private watch(id: string): void {
     if (this.watchers.has(id) || !this.identity) return;
+    // A paired Mac notifies on its own; it takes no pushes from this one.
+    if (this.devices.get(id)?.platform === PEER_PLATFORM) return;
     const secret = wakeSecret(this.identity);
     const phoneKey = publicKeyOf(id);
     if (!phoneKey) return;

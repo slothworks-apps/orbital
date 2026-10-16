@@ -201,6 +201,7 @@ export function DetailPanel({
   // What the switcher offers is the session's own account's catalog.
   const switcherModels = useClaudeDirModels(session?.claudeDirId)
   const tags = useOrbital(useShallow((s) => s.tags))
+  const peers = useOrbital((s) => s.peers)
   const settings = useOrbital(useShallow((s) => s.settings))
   const models = useOrbital(useShallow((s) => s.models))
   const contextWindows = useOrbital(useShallow((s) => s.contextWindows))
@@ -225,7 +226,8 @@ export function DetailPanel({
   // greys, and the composer locks until it ends.
   const compacting = session ? compactingOf(session) : null
   const compactingNow = useNow(compacting !== null)
-  const composerLocked = session?.source === 'web' && session.compacting != null
+  const composerLocked =
+    (session?.source === 'web' && session.compacting != null) || (session?.machine && !session.machine.online)
 
   const [titleDraft, setTitleDraft] = useState('')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -934,6 +936,10 @@ export function DetailPanel({
             >
               ✎
             </span>
+            {/* Machine name label for peer sessions (only shown when peers exist) */}
+            {session?.machine && peers && peers.peers.length > 0 && (
+              <span className="mt-1 text-xs text-[rgba(160,190,225,.6)]">· {session.machine.name}</span>
+            )}
           </div>
           {/* Regenerate the name. It stays attached to the TITLE rather than
               to the session actions above (9a's BEHAVIOUR + RULES) — it is
@@ -1291,19 +1297,22 @@ export function DetailPanel({
             // The placeholder names the question's header chip, so with 2–4
             // stacked you know WHICH one you would be answering (canvas 9c).
             placeholder={
-              composerLocked
-                ? COMPACTING_PLACEHOLDER
-                : openDecisionQuestion
-                ? `Answer ${openDecisionQuestion.header}, or pick an option above…`
-                : openVerdictKind
-                  ? composerPlaceholderFor(openVerdictKind)
-                  : promptPlaceholder
+              session?.machine && !session.machine.online
+                ? `${session.machine.name} is offline`
+                : composerLocked
+                  ? COMPACTING_PLACEHOLDER
+                  : openDecisionQuestion
+                    ? `Answer ${openDecisionQuestion.header}, or pick an option above…`
+                    : openVerdictKind
+                      ? composerPlaceholderFor(openVerdictKind)
+                      : promptPlaceholder
             }
             aria-label="Prompt"
             // Ambient, optional and silent about every kind of absence: no
             // editor, an editor on another project, a socket that dropped —
             // each draws nothing and changes nothing else about the composer.
-            ide={ide}
+            // IDE bridge is disabled for peer sessions (spec 2026-10-06-peer-macs-design § 3).
+            ide={session?.machine ? null : ide}
             ideDismissedId={ideDismissedId}
             onIdeDismiss={(selectionId) => id && dismissIdeSelection(id, selectionId)}
             attachments={attachments}

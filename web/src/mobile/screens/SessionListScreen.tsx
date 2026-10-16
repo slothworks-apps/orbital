@@ -21,12 +21,22 @@ import { WhereLine } from '../where/WhereLine'
 import { PlanetGlyph } from './Glyph'
 import { usePhoneNotificationsTip } from '../NotificationsTip'
 import { PinnedNoticeHost } from '../PinnedNotice'
+import { useOtherMacs } from '../otherMacs'
+import { LOCAL_MACHINE } from '../../store/store'
 
 /** 9a, updated by 10a (spec 2026-10-05-mobile-next-design): the sessions, grouped by what they need from you. */
 export function SessionListScreen() {
-  const sessions = useOrbital(
+  const all = useOrbital(
     useShallow((s) => s.order.map((id) => s.sessions[id]).filter((x): x is ApiSession => x !== undefined)),
   )
+  // One Mac's sessions, or every Mac's (spec 2026-10-06-peer-macs-design § 4).
+  const [machine, setMachine] = useState<string | null>(null)
+  const machines = useMemo(() => machinesOf(all), [all])
+  const sessions = useMemo(
+    () => (machine === null ? all : all.filter((s) => (s.machine?.id ?? LOCAL_MACHINE) === machine)),
+    [all, machine],
+  )
+  const othersAwake = useOtherMacs((s) => s.macs.some((m) => m.online))
   const tags = useOrbital((s) => s.tags)
   const { offline, link, macName, asOf, checkedAt } = useMobile(
     useShallow((s) => ({ offline: isMacAsleep(s), link: s.link, macName: s.macName, asOf: s.asOf, checkedAt: s.checkedAt })),
@@ -74,6 +84,20 @@ export function SessionListScreen() {
           <span aria-hidden className="block h-4 w-4 rounded-full border-[1.5px] border-dashed border-[oklch(85%_.12_205)]" />
         </button>
       </div>
+
+      {machines.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto px-4 pb-1.5 pt-1">
+          {[{ id: LOCAL_MACHINE, name: mac }, ...machines].map((m) => (
+            <Chip
+              key={m.id}
+              active={machine === m.id}
+              onClick={() => setMachine(machine === m.id ? null : m.id)}
+              label={m.name}
+              count={all.filter((s) => s.status !== 'ended' && (s.machine?.id ?? LOCAL_MACHINE) === m.id).length}
+            />
+          ))}
+        </div>
+      )}
 
       {chips.length > 0 && (
         <div className="flex gap-2 overflow-x-auto px-4 pb-2.5 pt-1">
@@ -124,7 +148,7 @@ export function SessionListScreen() {
   // 9a: the one action, pinned under the list; inert while the Mac is asleep.
   const footer = (
     <div className="border-t border-[rgba(150,205,255,.08)] bg-[linear-gradient(180deg,transparent,rgba(5,7,13,.95)_30%)] px-4 pb-1.5 pt-2.5">
-      {offline ? (
+      {offline && !othersAwake ? (
         <div
           aria-disabled="true"
           className="flex h-13 items-center justify-center rounded-[14px] border border-[rgba(150,205,255,.14)] px-4 text-center text-[14px] font-semibold text-[rgba(160,190,225,.6)]"
@@ -437,6 +461,9 @@ function SessionRow({
             >
               {session.title || 'Untitled session'}
             </span>
+            {session.machine && (
+              <span className="shrink-0 font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{session.machine.name}</span>
+            )}
             {session.pinnedAt ? <PinMark ink={PIN_INK} dim={offline} /> : null}
             {isReadOnly(session) && (
               <span className="shrink-0 rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono text-[9px] tracking-[0.12em] text-[rgba(160,190,225,.75)]">
@@ -650,4 +677,11 @@ function EndedRow({
       {session.lastAt !== null && <span className="shrink-0 font-mono text-[11px] text-[rgba(160,190,225,.45)]">{timeAgo(session.lastAt, now)}</span>}
     </button>
   )
+}
+
+/** The other Macs the list holds sessions of, by first appearance; none while every session is the main Mac's. */
+function machinesOf(sessions: readonly ApiSession[]): { id: string; name: string }[] {
+  const seen = new Map<string, string>()
+  for (const s of sessions) if (s.machine && !seen.has(s.machine.id)) seen.set(s.machine.id, s.machine.name)
+  return [...seen].map(([id, name]) => ({ id, name }))
 }

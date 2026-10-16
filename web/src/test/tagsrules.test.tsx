@@ -102,6 +102,7 @@ function makeSession(overrides: Partial<ApiSession> & { id: string }): ApiSessio
 const defaultUi: OrbitalUiState = {
   selectedId: null,
   filterTagIds: [],
+  filterMachineIds: [],
   search: '',
   sourceFilter: 'all',
   wsStatus: 'connected',

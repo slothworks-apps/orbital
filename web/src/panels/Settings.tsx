@@ -95,6 +95,7 @@ import { TagsRulesSection } from './TagsRules'
 import { ShortcutsSection } from './ShortcutsSection'
 import { HarnessTemplatesSection } from './HarnessTemplates'
 import { MobileSection } from './MobileSection'
+import { MacsSection } from './MacsSection'
 import { UpdatesSection } from './UpdatesSection'
 import { useAppUpdate } from '../store/appUpdate'
 import { ClaudeDirsRows } from './ClaudeDirsRows'
@@ -212,6 +213,8 @@ const NAV_ITEMS = [
   // Listed only while Labs → Terminal is on, as Harness is.
   { key: 'terminal', label: 'Terminal', disabled: false },
   { key: 'appearance', label: 'Appearance', disabled: false },
+  // Pairing with your other Macs (spec 2026-10-06-peer-macs-design § 3).
+  { key: 'macs', label: 'Macs', disabled: false },
   // Always listed, not behind Experimental: the section is inert until its
   // switch is on (spec 2026-10-01-settings-mobile-design).
   { key: 'mobile', label: 'Mobile', disabled: false },
@@ -1035,6 +1038,8 @@ export function Settings({ open, onClose }: SettingsProps) {
                   onSaved={() => setSaved(true)}
                   onEditingChange={setHarnessEditing}
                 />
+              ) : section === 'macs' ? (
+                <MacsSection onSaved={() => setSaved(true)} />
               ) : section === 'mobile' ? (
                 <MobileSection patchAndSet={patchAndSet} onSaved={() => setSaved(true)} />
               ) : section === 'shortcuts' ? (

@@ -36,6 +36,7 @@ const defaultTag: Tag = { id: 2, name: 'default', hue: 60, is_default: 1 }
 const defaultUi: OrbitalUiState = {
   selectedId: null,
   filterTagIds: [],
+  filterMachineIds: [],
   search: '',
   sourceFilter: 'all',
   wsStatus: 'connected',
@@ -225,7 +226,7 @@ describe('NewSessionDialog', () => {
     fireEvent.click(await screen.findByRole('button', { name: /create and launch/i }))
 
     await waitFor(() => expect(api.createSession).toHaveBeenCalled())
-    expect(api.createDirectory).toHaveBeenCalledWith('/home/tomin/new')
+    expect(api.createDirectory).toHaveBeenCalledWith('/home/tomin/new', undefined)
     expect(vi.mocked(api.createDirectory).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(api.createSession).mock.invocationCallOrder[0],
     )

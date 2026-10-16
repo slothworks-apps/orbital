@@ -149,3 +149,41 @@ export function allowedPath(method: string, rawPath: string): string | null {
 export function isAllowed(method: string, rawPath: string): boolean {
   return allowedPath(method, rawPath) !== null;
 }
+
+/**
+ * What a paired Mac may call through the tunnel (spec
+ * 2026-10-06-peer-macs-design § 1): every route but pairing, presence, the
+ * dev tools and the IDE bridge, which would act on this Mac's screen. The
+ * same canonical-string check as `allowedPath`; a segment may also carry a
+ * `.` (an image ref), never as the whole segment.
+ */
+const PEER_DENIED_PREFIXES = ['/api/remote', '/api/dev/', '/api/presence', '/api/auth', '/api/peers', '/api/terminals'];
+const PEER_ALLOWED_PEER_ROUTES = new Set(['POST /api/peers/offer']);
+const PEER_SEGMENT = /^[A-Za-z0-9_.~-]+$/;
+
+/**
+ * Settings a paired Mac may not change: the CLI this Mac runs (a path to any
+ * program) and the remote itself (its relay, its switch, its name).
+ */
+export function peerMaySet(key: string): boolean {
+  return key !== 'claude_executable_path' && !key.startsWith('remote_');
+}
+
+export function peerAllowedPath(method: string, rawPath: string): string | null {
+  if (rawPath.includes('\\') || rawPath.includes('#') || hasNonPrintableAscii(rawPath) || /\s/.test(rawPath)) return null;
+  if (!rawPath.startsWith('/api/')) return null;
+  let url: URL;
+  try {
+    url = new URL(rawPath, 'http://localhost');
+  } catch {
+    return null;
+  }
+  if (url.pathname + url.search !== rawPath) return null;
+  const segments = url.pathname.slice(1).split('/');
+  if (segments.some((s) => !PEER_SEGMENT.test(s) || s === '.' || s === '..')) return null;
+  if (PEER_ALLOWED_PEER_ROUTES.has(`${method} ${url.pathname}`)) return rawPath;
+  if (PEER_DENIED_PREFIXES.some((p) => url.pathname === p.replace(/\/$/, '') || url.pathname.startsWith(p))) return null;
+  // The IDE bridge acts on this Mac's screen; a terminal is a shell on it.
+  if (segments[1] === 'sessions' && (segments[3] === 'ide' || segments[3] === 'terminals')) return null;
+  return rawPath;
+}

@@ -24,6 +24,7 @@ import { McpjsonSheet } from './McpjsonSheet'
 import { MissingDirectorySheet } from './MissingDirectorySheet'
 import { blocksLaunch, directoryLine, useDirectoryState } from '../../lib/useDirectoryState'
 import { macSupports } from '../version'
+import { useOtherMacs } from '../otherMacs'
 import { undecidedBeforeLaunch, type McpjsonAnswers, type McpjsonDecisions, type McpjsonServer } from '../../lib/mcpjson'
 
 /** 9d: past this many rows the directory list folds to a window, "Show all N" under it. */
@@ -39,9 +40,15 @@ export function NewSessionScreen() {
   const tags = useOrbital((s) => s.tags)
   const sessions = useOrbital((s) => s.sessions)
   const launchSession = useOrbital((s) => s.launchSession)
-  const { asleep, macName, macVersion } = useMobile(
+  const { asleep: mainAsleep, macName: mainName, macVersion } = useMobile(
     useShallow((s) => ({ asleep: isMacAsleep(s), macName: s.macName, macVersion: s.macVersion })),
   )
+  // Which Mac the session starts on: the main one (null), or another that is up (spec 2026-10-06-peer-macs-design § 4).
+  const otherMacs = useOtherMacs(useShallow((s) => s.macs.filter((m) => m.online)))
+  const [target, setTarget] = useState<string | null>(null)
+  const machine = target ?? undefined
+  const asleep = target === null && mainAsleep
+  const macName = target === null ? mainName : (otherMacs.find((m) => m.mac === target)?.name ?? mainName)
   const goBack = useMobile((s) => s.goBack)
   const openSession = useMobile((s) => s.openSession)
   const now = useNow(true, CLOCK_TICK_MS)
@@ -77,11 +84,11 @@ export function NewSessionScreen() {
   const [missingDir, setMissingDir] = useState<string | null>(null)
   /** An older Mac has no `/api/directory`; against it Start's `no_such_directory` is all there is. */
   const checksDir = macSupports('directoryCheck', macVersion)
-  const dirState = useDirectoryState(cwd, checksDir && !asleep)
+  const dirState = useDirectoryState(cwd, checksDir && !asleep, machine)
 
   useEffect(() => {
     let current = true
-    void Promise.allSettled([api.sessionDefaults(), api.listProjects()]).then(([d, p]) => {
+    void Promise.allSettled([api.sessionDefaults(machine), api.listProjects(machine)]).then(([d, p]) => {
       if (!current) return
       if (p.status === 'fulfilled') setProjects(p.value)
       const read = d.status === 'fulfilled' ? d.value : null
@@ -91,7 +98,7 @@ export function NewSessionScreen() {
     return () => {
       current = false
     }
-  }, [])
+  }, [machine])
 
   const loaded = defaults !== undefined
   const dirs = defaults?.claudeDirs ?? []
@@ -140,14 +147,14 @@ export function NewSessionScreen() {
     if (checksDir) {
       // Asked again rather than read off the line, which may be stale. A
       // failed ask starts anyway: `requireDirectory` still refuses.
-      const dir = await api.directoryState(cwd.trim()).catch(() => null)
+      const dir = await api.directoryState(cwd.trim(), machine).catch(() => null)
       if (dir && dir.state !== 'directory') {
         setPending(false)
         if (dir.state === 'missing') setMissingDir(dir.path)
         return
       }
     }
-    const servers = await undecidedBeforeLaunch(cwd.trim(), claudeDirId ?? undefined)
+    const servers = await undecidedBeforeLaunch(cwd.trim(), claudeDirId ?? undefined, machine)
     if (servers.length > 0) {
       setPending(false)
       setQuestion({ servers, answers: {} })
@@ -161,7 +168,7 @@ export function NewSessionScreen() {
     if (!missingDir) return
     setPending(true)
     try {
-      await api.createDirectory(missingDir)
+      await api.createDirectory(missingDir, machine)
     } catch (err) {
       setMissingDir(null)
       setFailure(startFailureLine(err, macName))
@@ -196,6 +203,7 @@ export function NewSessionScreen() {
           ...(claudeDirId !== null ? { claudeDirId } : {}),
           ...(refs.length > 0 ? { attachments: refs } : {}),
           ...(mcpjson ? { mcpjson } : {}),
+          ...(machine ? { machine } : {}),
         },
         images,
       )
@@ -273,6 +281,32 @@ export function NewSessionScreen() {
   return (
     <MobileScreen header={header} footer={footer}>
       <div className="flex flex-col gap-[18px] px-4 py-3.5">
+        {otherMacs.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <FieldLabel>MAC</FieldLabel>
+            <div className="flex flex-wrap gap-2" role="group" aria-label="Mac">
+              {[{ mac: null, name: mainName ?? 'Your Mac' }, ...otherMacs].map((m) => (
+                <button
+                  key={m.mac ?? 'main'}
+                  type="button"
+                  aria-pressed={target === m.mac}
+                  onClick={() => {
+                    setTarget(m.mac)
+                    setPickedDir(null)
+                  }}
+                  className={[
+                    'h-10 rounded-full border px-4 text-[13.5px] font-semibold',
+                    target === m.mac
+                      ? 'border-[oklch(85%_.12_205/.55)] bg-[oklch(85%_.12_205/.12)] text-text-bright'
+                      : 'border-[rgba(150,205,255,.18)] text-[rgba(200,215,235,.8)]',
+                  ].join(' ')}
+                >
+                  {m.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="flex flex-col gap-2">
           <FieldLabel hint={hint}>DIRECTORY</FieldLabel>
           <div className={['flex h-13 items-center gap-2 rounded-[14px] border bg-[rgba(4,8,16,.6)] pl-3.5 pr-1.5', fieldBorder].join(' ')}>

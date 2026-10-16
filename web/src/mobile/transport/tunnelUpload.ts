@@ -7,22 +7,22 @@ import type { TunnelClient } from './clientRef'
  * § 6.2): the file's bytes go to the Mac as one blob, and its answers map
  * onto the desktop's upload contract, so the chips, refusals and retry are
  * the desktop's. A `TunnelError` rejects as it is — the chip then reads
- * "didn't upload" with retry. The session is irrelevant (the Mac's image
- * store is global) and `signal` is ignored: a blob on its way cannot be
- * recalled.
+ * "didn't upload" with retry. The session picks the Mac when the phone has
+ * several (spec 2026-10-06-peer-macs-design § 4); `signal` is ignored: a
+ * blob on its way cannot be recalled.
  *
  * The phone sends images only. What the Mac would refuse anyway — a file
  * past `ATTACHMENT_MAX_BYTES`, or one whose type is not an image (a pasted
  * file) — is refused here, before its bytes are read or cross the tunnel.
  */
 export function makeTunnelUpload(client: Pick<TunnelClient, 'putBlob'>): UploadLike {
-  return async (_sessionId, file) => {
+  return async (sessionId, file) => {
     if (file.size === 0) return { kind: 'empty' }
     // The phone knows the whole file, so the size is exact.
     if (file.size > ATTACHMENT_MAX_BYTES) return { kind: 'too_large', size: file.size, truncated: false }
     if (!file.type.startsWith('image/')) return { kind: 'not_image', mediaType: file.type }
     const bytes = new Uint8Array(await file.arrayBuffer())
-    const result = await client.putBlob(bytes, file.type)
+    const result = await client.putBlob(bytes, file.type, sessionId)
     switch (result.kind) {
       case 'ok':
         return { kind: 'ok', entry: result.entry }

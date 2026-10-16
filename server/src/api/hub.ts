@@ -18,8 +18,8 @@ export const WS_HEARTBEAT_INTERVAL_MS = 15_000;
 
 export class Hub {
   private topics = new Map<string, Set<Socket>>();
-  private firstCb: ((topic: string) => void) | null = null;
-  private lastCb: ((topic: string) => void) | null = null;
+  private firstCbs: ((topic: string) => void)[] = [];
+  private lastCbs: ((topic: string) => void)[] = [];
   private heartbeatIntervalMs: number;
 
   constructor(opts: HubOptions = {}) {
@@ -27,11 +27,11 @@ export class Hub {
   }
 
   onFirstSubscriber(cb: (topic: string) => void): void {
-    this.firstCb = cb;
+    this.firstCbs.push(cb);
   }
 
   onLastUnsubscriber(cb: (topic: string) => void): void {
-    this.lastCb = cb;
+    this.lastCbs.push(cb);
   }
 
   private subscribe(socket: Socket, topic: string): void {
@@ -42,7 +42,7 @@ export class Hub {
     }
     const wasEmpty = set.size === 0;
     set.add(socket);
-    if (wasEmpty) this.firstCb?.(topic);
+    if (wasEmpty) for (const cb of this.firstCbs) cb(topic);
   }
 
   private unsubscribe(socket: Socket, topic: string): void {
@@ -50,7 +50,7 @@ export class Hub {
     if (!set?.delete(socket)) return;
     if (set.size === 0) {
       this.topics.delete(topic);
-      this.lastCb?.(topic);
+      for (const cb of this.lastCbs) cb(topic);
     }
   }
 

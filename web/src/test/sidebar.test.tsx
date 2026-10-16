@@ -44,6 +44,7 @@ const personalTag: Tag = { id: 2, name: 'personal', hue: 330, is_default: 0 }
 const defaultUi: OrbitalUiState = {
   selectedId: null,
   filterTagIds: [],
+  filterMachineIds: [],
   search: '',
   sourceFilter: 'all',
   wsStatus: 'connected',

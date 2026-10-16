@@ -12,7 +12,7 @@ export const DIRECTORY_CHECK_DEBOUNCE_MS = 350
  * that has moved on. A failed ask is `null` too — the line is a courtesy, and
  * Start asks again anyway.
  */
-export function useDirectoryState(path: string, enabled = true): DirectoryState | null {
+export function useDirectoryState(path: string, enabled = true, machine?: string): DirectoryState | null {
   const typed = path.trim()
   const [answer, setAnswer] = useState<{ path: string; state: DirectoryState } | null>(null)
   useEffect(() => {
@@ -20,7 +20,7 @@ export function useDirectoryState(path: string, enabled = true): DirectoryState 
     let current = true
     const timer = setTimeout(() => {
       api
-        .directoryState(typed)
+        .directoryState(typed, machine)
         .then(({ state }) => {
           if (current) setAnswer({ path: typed, state })
         })
@@ -30,7 +30,7 @@ export function useDirectoryState(path: string, enabled = true): DirectoryState 
       current = false
       clearTimeout(timer)
     }
-  }, [typed, enabled])
+  }, [typed, enabled, machine])
   return enabled && answer?.path === typed ? answer.state : null
 }
 

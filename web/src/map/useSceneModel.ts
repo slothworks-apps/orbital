@@ -34,6 +34,7 @@ export function useSceneModel(): SceneModel {
   const tags = useOrbital((s) => s.tags)
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const filterTagIds = useOrbital((s) => s.ui.filterTagIds)
+  const filterMachineIds = useOrbital((s) => s.ui.filterMachineIds)
   const search = useOrbital((s) => s.ui.search)
   const sourceFilter = useOrbital((s) => s.ui.sourceFilter)
   const settings = useOrbital((s) => s.settings)
@@ -87,6 +88,7 @@ export function useSceneModel(): SceneModel {
           errors: [],
           errorsUnseen: 0,
           remote: null,
+          peers: null,
           pendingDecisions: {},
           decisionAnswers: {},
           decisionVerdicts: {},
@@ -109,6 +111,7 @@ export function useSceneModel(): SceneModel {
           ui: {
             selectedId,
             filterTagIds,
+            filterMachineIds,
             search,
             sourceFilter,
             wsStatus: '',
@@ -130,6 +133,7 @@ export function useSceneModel(): SceneModel {
       leavingSince,
       selectedId,
       filterTagIds,
+      filterMachineIds,
       search,
       sourceFilter,
       nowMs,

@@ -43,6 +43,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const defaultUi: OrbitalUiState = {
   selectedId: null,
   filterTagIds: [],
+  filterMachineIds: [],
   search: '',
   sourceFilter: 'all',
   wsStatus: 'connected',

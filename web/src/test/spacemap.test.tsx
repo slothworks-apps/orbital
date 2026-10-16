@@ -57,6 +57,7 @@ const defaultTag: Tag = { id: 3, name: 'untagged', hue: 0, is_default: 1 }
 const defaultUi: OrbitalUiState = {
   selectedId: null,
   filterTagIds: [],
+  filterMachineIds: [],
   search: '',
   sourceFilter: 'all',
   wsStatus: 'connected',
@@ -80,6 +81,7 @@ function sceneModelAt(state: OrbitalState, nowMs: number = NOW): SceneModel {
 
 function makeState(overrides: Partial<OrbitalState> = {}): OrbitalState {
   return {
+    peers: null,
     sessions: {},
     order: [],
     tags: [workTag, personalTag, defaultTag],

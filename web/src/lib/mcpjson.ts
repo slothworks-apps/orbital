@@ -104,9 +104,9 @@ export function questionIntro(count: number, where: string): string {
  * Behaviour 1), so nothing runs unasked, and the next launch asks again. It
  * is also what a Mac too old to have the route answers a newer phone with.
  */
-export async function undecidedBeforeLaunch(cwd: string, claudeDirId?: number): Promise<McpjsonServer[]> {
+export async function undecidedBeforeLaunch(cwd: string, claudeDirId?: number, machine?: string): Promise<McpjsonServer[]> {
   try {
-    return (await api.mcpjson(cwd, claudeDirId)) ?? []
+    return (await api.mcpjson(cwd, claudeDirId, machine)) ?? []
   } catch (err) {
     console.warn('orbital: could not read the project`s undecided .mcp.json servers', err)
     return []

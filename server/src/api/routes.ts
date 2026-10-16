@@ -141,6 +141,8 @@ export interface RouteContext {
   harness: HarnessService;
   /** The mobile remote (spec 2026-09-30-mobile-remote-design § 3): its routes, and the settings hook. */
   remote: RemoteService;
+  /** Whether a session is another Mac's (spec 2026-10-06-peer-macs-design § 8); absent, none is. */
+  isPeerSession?: (id: string) => boolean;
   /** Whether the user is at the Mac, as the desktop app reports it. */
   presence?: Presence;
   settings: { get(key: string): string; set(key: string, value: string): void };
@@ -1134,7 +1136,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   app.post('/api/sessions/:id/attachments', async (req, reply) => {
     const { id } = req.params as { id: string };
     const row = db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get();
-    if (!row) return reply.code(404).send({ error: 'not_found' });
+    // Another Mac's session keeps its upload here; the images go on with the message.
+    if (!row && !ctx.isPeerSession?.(id)) return reply.code(404).send({ error: 'not_found' });
     return storeAttachment(req, reply);
   });
 

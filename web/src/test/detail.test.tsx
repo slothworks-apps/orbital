@@ -81,6 +81,7 @@ const terminalSession = makeSession({ id: 'b', source: 'terminal', status: 'ende
 const defaultUi: OrbitalUiState = {
   selectedId: null,
   filterTagIds: [],
+  filterMachineIds: [],
   search: '',
   sourceFilter: 'all',
   wsStatus: 'connected',

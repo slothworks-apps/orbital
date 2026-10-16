@@ -87,6 +87,7 @@ const initialSnapshot: OrbitalState = {
   errors: [],
   errorsUnseen: 0,
   remote: null,
+  peers: null,
   pendingDecisions: {},
   decisionAnswers: {},
   decisionVerdicts: {},
@@ -109,6 +110,7 @@ const initialSnapshot: OrbitalState = {
   ui: {
     selectedId: null,
     filterTagIds: [],
+    filterMachineIds: [],
     search: '',
     sourceFilter: 'all',
     wsStatus: 'connecting',
@@ -1216,6 +1218,7 @@ describe('filter/search/dialog setters', () => {
     expect(useOrbital.getState().ui).toEqual({
       selectedId: null,
       filterTagIds: [3],
+      filterMachineIds: [],
       search: 'foo',
       sourceFilter: 'web',
       wsStatus: 'open',
@@ -1367,23 +1370,31 @@ describe('matchesSidebarFilters (pure)', () => {
   const session = makeSession({ id: 'm', title: 'Test', cwd: '/home/test', tagIds: [1, 2] })
 
   it('passes when no tags are selected (empty filterTagIds)', () => {
-    expect(matchesSidebarFilters(session, { filterTagIds: [], search: '' })).toBe(true)
+    expect(matchesSidebarFilters(session, { filterTagIds: [], filterMachineIds: [], search: '' })).toBe(true)
   })
 
   it('passes when session has any of the selected tags (OR semantics)', () => {
-    expect(matchesSidebarFilters(session, { filterTagIds: [1], search: '' })).toBe(true)
-    expect(matchesSidebarFilters(session, { filterTagIds: [2], search: '' })).toBe(true)
-    expect(matchesSidebarFilters(session, { filterTagIds: [1, 3], search: '' })).toBe(true)
+    expect(matchesSidebarFilters(session, { filterTagIds: [1], filterMachineIds: [], search: '' })).toBe(true)
+    expect(matchesSidebarFilters(session, { filterTagIds: [2], filterMachineIds: [], search: '' })).toBe(true)
+    expect(matchesSidebarFilters(session, { filterTagIds: [1, 3], filterMachineIds: [], search: '' })).toBe(true)
   })
 
   it('fails when session has none of the selected tags', () => {
-    expect(matchesSidebarFilters(session, { filterTagIds: [3, 4], search: '' })).toBe(false)
+    expect(matchesSidebarFilters(session, { filterTagIds: [3, 4], filterMachineIds: [], search: '' })).toBe(false)
+  })
+
+  it('keeps a session only when its Mac is chosen, this Mac being `local`', () => {
+    const peer = makeSession({ id: 'p', tagIds: [], machine: { id: 'studio', name: 'studio', online: true } })
+    expect(matchesSidebarFilters(peer, { filterTagIds: [], filterMachineIds: ['local'], search: '' })).toBe(false)
+    expect(matchesSidebarFilters(peer, { filterTagIds: [], filterMachineIds: ['studio'], search: '' })).toBe(true)
+    expect(matchesSidebarFilters(session, { filterTagIds: [], filterMachineIds: ['local'], search: '' })).toBe(true)
+    expect(matchesSidebarFilters(session, { filterTagIds: [], filterMachineIds: ['studio'], search: '' })).toBe(false)
   })
 
   it('combines tag and search filters with AND semantics', () => {
-    expect(matchesSidebarFilters(session, { filterTagIds: [1], search: 'Test' })).toBe(true)
-    expect(matchesSidebarFilters(session, { filterTagIds: [1], search: 'other' })).toBe(false)
-    expect(matchesSidebarFilters(session, { filterTagIds: [3], search: 'Test' })).toBe(false)
+    expect(matchesSidebarFilters(session, { filterTagIds: [1], filterMachineIds: [], search: 'Test' })).toBe(true)
+    expect(matchesSidebarFilters(session, { filterTagIds: [1], filterMachineIds: [], search: 'other' })).toBe(false)
+    expect(matchesSidebarFilters(session, { filterTagIds: [3], filterMachineIds: [], search: 'Test' })).toBe(false)
   })
 })
 

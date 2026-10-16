@@ -25,10 +25,24 @@ import type { Hub } from '../api/hub.js';
 import { ATTACHMENT_MAX_BYTES } from '../api/routes.js';
 import type { ImageStore } from '../images/store.js';
 import { thumbnailOf } from '../images/thumbs.js';
-import { allowedPath } from './allowlist.js';
-import type { PhoneFileReader } from './phoneFiles.js';
+import { allowedPath, peerAllowedPath, peerMaySet } from './allowlist.js';
+import type { PhoneFileAnswer, PhoneFileReader } from './phoneFiles.js';
+import type { FileAs } from '@orbital/shared/remote/messages';
+
+/** Another Mac's images and files, for a phone looking at that Mac's session through this one (spec 2026-10-06-peer-macs-design § 4). */
+export type PeerReads = {
+  owns(sessionId: string): boolean;
+  blob(ref: string): Promise<{ bytes: Uint8Array; mediaType: string | null } | null>;
+  file(session: string, path: string, as: FileAs, cwd?: string): Promise<PhoneFileAnswer>;
+};
 
 export const BLOB_PUT_MAX_BYTES = ATTACHMENT_MAX_BYTES;
+
+/** A paired Mac's settings change touches none of what `peerMaySet` keeps. */
+function peerMayWrite(method: string, path: string, body: unknown): boolean {
+  if (method !== 'PATCH' || path.split('?')[0] !== '/api/settings') return true;
+  return !body || typeof body !== 'object' || Object.keys(body).every(peerMaySet);
+}
 /** Uploads a phone may hold open at once; each buffers in memory until its last chunk. */
 export const MAX_OPEN_UPLOADS = 4;
 /**
@@ -62,7 +76,8 @@ export type PhoneTooOld = { version: string; needed: string };
 
 type ByeReason = Extract<MacMessage, { t: 'bye' }>['reason'];
 
-export type InjectFn = (req: { method: string; url: string; payload?: unknown }) => Promise<{ statusCode: number; body: string }>;
+/** `peer`: the call came from a paired Mac, which is answered for this Mac alone and never forwarded on. */
+export type InjectFn = (req: { method: string; url: string; payload?: unknown; peer?: boolean }) => Promise<{ statusCode: number; body: string }>;
 
 export type PhoneSessionOptions = {
   deviceId: string;
@@ -87,6 +102,10 @@ export type PhoneSessionOptions = {
   onAppVersion?: (refusal: PhoneTooOld | null) => void;
   /** `MIN_PHONE_VERSION` unless a test moves it. */
   minPhoneVersion?: string;
+  /** Reads for another Mac's sessions; never given to a paired Mac's session (no chaining). */
+  peers?: PeerReads;
+  /** The other end is a paired Mac, not a phone: its own allowlist, and only this Mac's sessions (spec 2026-10-06-peer-macs-design § 1, § 2). */
+  peer?: boolean;
 };
 
 type VirtualSocket = EventEmitter & { send(data: string): void };
@@ -120,6 +139,8 @@ export class PhoneSession {
         } catch {
           return; // not JSON: nothing the phone could read
         }
+        // No chaining: a paired Mac hears only this Mac's own sessions.
+        if (this.opts.peer && (frame as { session?: { machine?: unknown } })?.session?.machine !== undefined) return;
         this.sendJson({ t: 'ws', frame });
       },
     });
@@ -285,12 +306,12 @@ export class PhoneSession {
     // `allowedPath` returns the canonical string Fastify will route, or null;
     // the raw `msg.path` is never handed to `inject()` (Task 12 review: the
     // WHATWG parser would otherwise rewrite `\` and `#` into a denied route).
-    const path = allowedPath(msg.method, msg.path);
-    if (path === null) {
+    const path = this.opts.peer ? peerAllowedPath(msg.method, msg.path) : allowedPath(msg.method, msg.path);
+    if (path === null || (this.opts.peer && !peerMayWrite(msg.method, path, msg.body))) {
       return this.sendJson({ t: 'http_res', id: msg.id, status: 403, body: { error: 'not_allowed' } });
     }
     try {
-      const res = await this.opts.inject({ method: msg.method, url: path, payload: msg.body });
+      const res = await this.opts.inject({ method: msg.method, url: path, payload: msg.body, peer: this.opts.peer });
       let body: unknown = res.body;
       try {
         body = JSON.parse(res.body);
@@ -316,7 +337,15 @@ export class PhoneSession {
     try {
       bytes = readFileSync(join(this.opts.imagesDir, ref));
     } catch {
-      return this.sendJson({ t: 'blob_meta', id, status: 404 });
+      if (!this.opts.peers) return this.sendJson({ t: 'blob_meta', id, status: 404 });
+      void this.opts.peers.blob(ref).catch(() => null).then((blob) => {
+        if (!blob) return this.sendJson({ t: 'blob_meta', id, status: 404 });
+        this.sendJson({
+          t: 'blob_meta', id, status: 200, bytes: blob.bytes.length, ...(blob.mediaType ? { mediaType: blob.mediaType } : {}),
+        });
+        for (const chunk of chunkBlob(id, blob.bytes)) this.sendInner(encodeInner(chunk));
+      });
+      return;
     }
     const ext = ref.slice(ref.lastIndexOf('.') + 1);
     this.sendJson({ t: 'blob_meta', id, status: 200, bytes: bytes.length, mediaType: IMAGE_CONTENT_TYPES[ext] });
@@ -329,7 +358,18 @@ export class PhoneSession {
    * frames a stored image, so the phone reassembles both alike.
    */
   private onFileGet(msg: Extract<PhoneMessage, { t: 'file_get' }>): void {
-    const answer = this.opts.files(msg.session, msg.path, msg.as, msg.cwd);
+    const peers = this.opts.peers;
+    if (peers?.owns(msg.session)) {
+      void peers.file(msg.session, msg.path, msg.as, msg.cwd)
+        .catch((): PhoneFileAnswer => ({ status: 404 }))
+        .then((answer) => this.sendFile(msg.id, answer));
+      return;
+    }
+    this.sendFile(msg.id, this.opts.files(msg.session, msg.path, msg.as, msg.cwd));
+  }
+
+  private sendFile(id: number, answer: PhoneFileAnswer): void {
+    const msg = { id };
     const meta = {
       ...(answer.mediaType !== undefined ? { mediaType: answer.mediaType } : {}),
       ...(answer.size !== undefined ? { size: answer.size } : {}),

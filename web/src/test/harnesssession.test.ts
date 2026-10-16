@@ -145,7 +145,7 @@ describe('listableSessions', () => {
   it('leaves a harness drafting conversation out of every list', () => {
     const sessions = { a: session('a', 1), d: session('d', 3, 'harness_draft'), b: session('b', 2) }
     expect(listableSessions({ sessions }).map((s) => s.id)).toEqual(['b', 'a'])
-    const ui = { filterTagIds: [] as const, search: '' }
+    const ui = { filterTagIds: [] as const, filterMachineIds: [] as const, search: '' }
     expect(visibleSessions({ sessions, ui } as unknown as Parameters<typeof visibleSessions>[0]).map((s) => s.id)).toEqual(['b', 'a'])
   })
 })
