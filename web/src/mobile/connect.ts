@@ -1,4 +1,6 @@
+import { Capacitor } from '@capacitor/core'
 import { RemoteClient } from '@orbital/shared/remote/client'
+import { osName } from '@orbital/shared/remote/device'
 import type { Identity } from '@orbital/shared/remote/keys'
 import { loadOrCreateIdentity } from './platform/identity'
 import type { Pairing } from './platform/parse'
@@ -31,6 +33,7 @@ export function newClient(
   // The WebView's own WebSocket; `ws` plays it in the server's end-to-end test.
   return new RemoteClient({
     relayUrl, mac, identity, WebSocketImpl: WebSocket, app: mobileApp(), expectPaired, relaySecret,
+    os: osName(Capacitor.getPlatform()),
   })
 }
 

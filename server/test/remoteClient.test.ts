@@ -64,6 +64,8 @@ async function pairPhone(api: Api, closers: (() => unknown)[]) {
     relayUrl: qr.relay, mac: qr.mac, identity, WebSocketImpl: WebSocket, app: 'orbital-mobile/test',
   });
   closers.push(() => client.stop());
+  let seenHello: RemoteClientEvent | undefined;
+  client.on((e) => { if (e.type === 'hello') seenHello = e; });
   client.start();
   await until(() => client.status === 'online');
   const outcome = client.waitForPairing();
@@ -78,6 +80,7 @@ async function pairPhone(api: Api, closers: (() => unknown)[]) {
   const confirm = api('POST', '/api/remote/pair/confirm', { accept: true, phone: client.id, code });
   expect(await outcome).toBe('paired');
   expect(await hello).toMatchObject({ macName: 'studio' });
+  expect(seenHello).toMatchObject({ kind: 'desktop', capabilities: expect.arrayContaining(['sessions']) });
   expect((await confirm).statusCode).toBe(200);
   return { client, relayUrl: qr.relay, mac: qr.mac, identity };
 }

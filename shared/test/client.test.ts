@@ -10,8 +10,8 @@ import {
   CLOSE_BAD_SECRET, openPairingDevice, verifyAuthSignature, verifyPairingProof, verifyRequest, type RelayToDevice,
 } from '../src/remote/relayApi.js';
 import {
-  CONNECT_TIMEOUT_MS, RECONNECT_DELAY_MS, RECONNECT_MAX_MS, REQUEST_TIMEOUT_MS, RemoteClient, TunnelError,
-  type RemoteClientEvent, type SocketLike,
+  CONNECT_TIMEOUT_MS, RECONNECT_DELAY_MS, RECONNECT_MAX_MS, REQUEST_TIMEOUT_MS, RemoteClient, TUNNEL_SILENCE_TIMEOUT_MS,
+  TunnelError, type RemoteClientEvent, type SocketLike,
 } from '../src/remote/client.js';
 import { MIN_RELAY_VERSION, RELAY_VERSION_HEADER } from '../src/remote/version.js';
 
@@ -110,7 +110,7 @@ function setup(relaySecret?: string) {
   const phone = generateIdentity();
   const client = new RemoteClient({
     relayUrl: 'https://relay.test', mac: mac.id, identity: phone, WebSocketImpl: FakeSocket, app: 'orbital-mobile/test',
-    relaySecret,
+    os: 'android', relaySecret,
   });
   const events: RemoteClientEvent[] = [];
   client.on((e) => events.push(e));
@@ -123,7 +123,9 @@ function connect(s: ReturnType<typeof setup>): void {
   s.sock.control({ type: 'challenge', nonce: 'n1', version: MIN_RELAY_VERSION });
   s.sock.control({ type: 'ok', peers: [s.mac.id] });
   s.mac.answer(s.sock, s.phone.publicKey);
-  expect(s.mac.read(s.sock)).toMatchObject({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'orbital-mobile/test' });
+  expect(s.mac.read(s.sock)).toEqual({
+    t: 'hello', protocol: PROTOCOL_VERSION, app: 'orbital-mobile/test', kind: 'phone', os: 'android', capabilities: [],
+  });
   s.mac.send(s.sock, { t: 'hello', protocol: PROTOCOL_VERSION, server: '0.17.2', macName: 'studio' });
   expect(s.client.ready).toBe(true);
 }
@@ -325,6 +327,22 @@ describe('RemoteClient handshake triggers', () => {
 });
 
 describe('RemoteClient requests', () => {
+  it('old Mac hello: a Mac that names no capabilities serves, and its watchdog runs', async () => {
+    vi.useFakeTimers();
+    const s = setup();
+    // `connect` greets as a shipped Mac does: `server` and `macName`, no `kind`, no `capabilities`.
+    connect(s);
+    const pending = s.client.request('GET', '/api/health');
+    const ask = s.mac.read(s.sock) as Extract<AskMessage, { t: 'http' }>;
+    expect(ask).toMatchObject({ t: 'http', method: 'GET', path: '/api/health' });
+    s.mac.send(s.sock, { t: 'http_res', id: ask.id, status: 200, body: {} });
+    await expect(pending).resolves.toEqual({ status: 200, body: {} });
+    expect(s.sock.closed).toBe(false);
+    vi.advanceTimersByTime(TUNNEL_SILENCE_TIMEOUT_MS + 1);
+    expect(s.sock.closed).toBe(true);
+    expect(s.client.ready).toBe(false);
+  });
+
   it('matches answers by id, whatever their order, and ignores ids it never sent', async () => {
     const s = setup();
     connect(s);
@@ -602,6 +620,9 @@ describe('RemoteClient endings', () => {
     expect(s.events).toContainEqual({ type: 'bye', reason: 'protocol' });
     expect(s.client.ready).toBe(false);
     expect(s.client.status).toBe('online');
+    // The Mac coming back opens a fresh tunnel; the refused one is not taken for a handshake in flight.
+    s.sock.control({ type: 'presence', peer: s.mac.id, online: true });
+    expect(decodeFrame(s.sock.frames.at(-1)!)!.body.length).toBe(HANDSHAKE_BYTES);
   });
 
   it('a listener that throws does not break the client', () => {
@@ -649,7 +670,9 @@ describe('RemoteClient redeem', () => {
     // The name travels sealed for the Mac, never in the clear for the relay.
     expect(sent.payload).not.toHaveProperty('name');
     expect(sent.payload).not.toHaveProperty('platform');
-    expect(openPairingDevice(fromBase64Url(secret), s.phone.publicKey, sent.payload.device)).toEqual({ name: 'phone', platform: 'ios' });
+    expect(openPairingDevice(fromBase64Url(secret), s.phone.publicKey, sent.payload.device)).toEqual({
+      name: 'phone', platform: 'ios', kind: 'phone',
+    });
   });
 
   it('signs the redeem with the relay secret when it has one', async () => {
