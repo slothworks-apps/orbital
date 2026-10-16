@@ -1,7 +1,7 @@
 ---
 id: 2026-10-16-device-channel
 title: Device group, part 1 — one identity, one channel per pair in both directions
-status: active
+status: done
 type: plan
 domain: remote
 related:

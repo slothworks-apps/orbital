@@ -76,6 +76,17 @@ retries it on a timer until the responder's half completes it
 the handshake; the responder answers with its own `hello` once it
 accepts the peer's.
 
+Keys are not yet a channel. The initiator re-arms the same timer once
+its keys are set, and if the peer's `hello` has not arrived when it
+fires, it starts over with a fresh handshake: a peer that kept the keys
+but never greeted (its hello lost, or a refusal sent before it had keys)
+would otherwise leave the initiator keyed and never ready. The timer
+goes with the peer's `hello`, with a `bye`, and with `close`. `keyed`
+says whether a channel holds keys, ready or not; the phone's
+`RemoteClient.beginHandshake` uses it when the Mac comes back online — a
+channel still waiting for the handshake reply is left to retry, one
+with keys (ready or not) is stale and replaced.
+
 `HelloMessage` (`shared/src/remote/messages.ts`) is the same shape both
 ways: `protocol`, and then whatever the sender is willing to say about
 itself — `app`, `version`, `kind`, `os`, `name`, `capabilities` — plus,
@@ -83,6 +94,19 @@ only from a device that serves something, `server` and `macName`. `kind`
 and `capabilities` are read as plain strings, not a closed enum: a device
 from a later release may name a kind or a capability this one does not
 know, and that must not fail parsing.
+
+Parsing a hello is forgiving: only `t` and `protocol` can refuse it,
+since a refused hello leaves the peer unreachable. `name` and `macName`
+are cut to `PAIR_NAME_MAX_CHARS`, `kind` and `os` to
+`HELLO_KIND_MAX_CHARS`; a `capabilities` list is cut to
+`HELLO_CAPABILITIES_MAX`, and a capability longer than
+`HELLO_CAPABILITY_MAX_CHARS` (or not a string) is dropped from it; a
+field of the wrong type is read as absent and leaves no key. A shipped
+device's hello parses exactly as before. What this side sends and keeps
+stays inside the same bounds: `serverHello`
+(`server/src/remote/identity.ts`) cuts the Mac's name, and
+`RemoteService.join` cuts the name a pairing code carries before keeping
+it.
 
 Two fields are required in practice, by the oldest apps still in use,
 even though the schema itself leaves everything but `t` and `protocol`
@@ -164,6 +188,12 @@ between two servers stays up: the heartbeat is traffic as far as the
 watchdog is concerned, same as any other hub frame. A `silent` event
 tells the caller to drop the link the channel rides on — `RemoteService`
 closes the channel and, if it was the initiator, opens a fresh one.
+
+A `bye` from the peer ends the keys inside the channel; on the server,
+`RemoteService` then closes the channel too, so it leaves the map and
+the peer's next handshake (or the next `presence`) builds a fresh one.
+A frame the channel cannot send is dropped, and reported through
+`onSendError`; the server logs it, naming the device.
 
 ## Where each piece lives
 
