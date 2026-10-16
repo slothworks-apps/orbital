@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.33.0] — 2026-10-16
 ### Added
 - A session can now list your other sessions and archive the finished ones when you ask it to tidy up — the same as pressing End. It leaves alone, unless told otherwise, sessions that are working, waiting for you or pinned.
 - A session can now do almost anything you can do in Orbital when you ask it to: start, rename, tag and end sessions, answer their questions, run harnesses, manage tags, rules, MCP servers and settings. Anything that changes Orbital asks for your permission first, like any other tool.

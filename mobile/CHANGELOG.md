@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+
+## [0.14.0] — 2026-10-16
 ### Added
 - Photos and screenshots of any size go to a session: the phone brings them down to the size Claude takes, and converts iPhone HEIC photos.
 ### Changed
