@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DEFAULT_NOTIFICATION_SETTINGS } from '@orbital/shared/notifications';
 import { openDb } from '../src/db/database.js';
 import { DeviceStore } from '../src/remote/devices.js';
 import { IDENTITY_FILE, loadOrCreateIdentity, macDisplayName } from '../src/remote/identity.js';
-import { makeTmpDir } from './tmp.js';
+import { makeTmpDir, openTmpDb } from './tmp.js';
 
 const settings = { needsInput: true, sessionEnded: false, sessionFailed: true, onlyWhenBackground: true, sound: true };
 
@@ -60,8 +61,8 @@ describe('DeviceStore', () => {
     const dir = makeTmpDir('remote');
     const db = openDb(join(dir, 'index.db'));
     const store = new DeviceStore(db);
-    store.add({ id: 'p1', name: 'Pixel', platform: 'android', pairedAt: 10, notifications: settings });
-    expect(store.list()).toEqual([{ id: 'p1', name: 'Pixel', platform: 'android', pairedAt: 10, lastSeenAt: null, notifications: settings }]);
+    store.add({ id: 'p1', name: 'Pixel', platform: 'android', kind: 'phone', pairedAt: 10, notifications: settings });
+    expect(store.list()).toEqual([{ id: 'p1', name: 'Pixel', platform: 'android', kind: 'phone', pairedAt: 10, lastSeenAt: null, notifications: settings }]);
     store.touch('p1', 20);
     expect(store.get('p1')?.lastSeenAt).toBe(20);
     store.setNotifications('p1', { ...settings, sound: false });
@@ -74,7 +75,7 @@ describe('DeviceStore', () => {
     const dir = makeTmpDir('remote');
     const db = openDb(join(dir, 'index.db'));
     const store = new DeviceStore(db);
-    store.add({ id: 'p1', name: 'Pixel', platform: 'android', pairedAt: 10, notifications: settings });
+    store.add({ id: 'p1', name: 'Pixel', platform: 'android', kind: 'phone', pairedAt: 10, notifications: settings });
     db.run(`UPDATE remote_devices SET notifications = 'junk' WHERE id = 'p1'`);
     expect(store.get('p1')?.notifications).toEqual({ needsInput: false, sessionEnded: false, sessionFailed: false, onlyWhenBackground: true, sound: false });
   });
@@ -82,13 +83,20 @@ describe('DeviceStore', () => {
     const dir = makeTmpDir('remote');
     const db = openDb(join(dir, 'index.db'));
     const store = new DeviceStore(db);
-    store.add({ id: 'p1', name: 'Pixel', platform: 'android', pairedAt: 10, notifications: settings });
+    store.add({ id: 'p1', name: 'Pixel', platform: 'android', kind: 'phone', pairedAt: 10, notifications: settings });
     store.setNotifications('p1', { ...settings, sound: false });
     store.touch('p1', 20);
-    store.add({ id: 'p1', name: 'Pixel 9', platform: 'android', pairedAt: 30, notifications: { ...settings, sound: true } });
+    store.add({ id: 'p1', name: 'Pixel 9', platform: 'android', kind: 'phone', pairedAt: 30, notifications: { ...settings, sound: true } });
     const row = store.get('p1');
     expect(row?.name).toBe('Pixel 9');
     expect(row?.notifications).toEqual({ ...settings, sound: false });
     expect(row?.lastSeenAt).toBe(20);
+  });
+  it('stores a kind, and a device added without one reads as null', () => {
+    const store = new DeviceStore(openTmpDb('devices-kind'));
+    store.add({ id: 'p', name: 'Pixel', platform: 'android', kind: 'phone', pairedAt: 1, notifications: DEFAULT_NOTIFICATION_SETTINGS });
+    store.add({ id: 'm', name: 'old studio', platform: '', kind: null, pairedAt: 2, notifications: DEFAULT_NOTIFICATION_SETTINGS });
+    expect(store.get('p')?.kind).toBe('phone');
+    expect(store.get('m')?.kind).toBeNull();
   });
 });

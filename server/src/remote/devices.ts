@@ -5,7 +5,10 @@ import { remoteDevices } from '../db/schema.js';
 import type { OrbitalDb } from '../db/database.js';
 
 export type RemoteDevice = {
-  id: string; name: string; platform: string; pairedAt: number; lastSeenAt: number | null;
+  id: string; name: string; platform: string;
+  /** `desktop`, `headless` or `phone`; null for a Mac paired through a code that named none. */
+  kind: string | null;
+  pairedAt: number; lastSeenAt: number | null;
   notifications: NotificationSettings;
 };
 
@@ -24,7 +27,7 @@ export class DeviceStore {
 
   add(d: Omit<RemoteDevice, 'lastSeenAt'>): void {
     this.db.insert(remoteDevices).values({
-      id: d.id, name: d.name, platform: d.platform, pairedAt: d.pairedAt,
+      id: d.id, name: d.name, platform: d.platform, kind: d.kind, pairedAt: d.pairedAt,
       notifications: JSON.stringify(d.notifications),
     }).onConflictDoUpdate({
       target: remoteDevices.id,
@@ -32,7 +35,7 @@ export class DeviceStore {
       // notification rows are edited only from the phone after pairing, and
       // a revoke removes the row entirely, so a real re-pair always inserts
       // fresh rather than hitting this branch.
-      set: { name: d.name, platform: d.platform, pairedAt: d.pairedAt },
+      set: { name: d.name, platform: d.platform, kind: d.kind, pairedAt: d.pairedAt },
     }).run();
   }
 
@@ -58,7 +61,7 @@ function fromRow(row: typeof remoteDevices.$inferSelect): RemoteDevice {
     // Unreadable JSON reads as the defaults: silent, as a fresh install is.
   }
   return {
-    id: row.id, name: row.name, platform: row.platform, pairedAt: row.pairedAt,
+    id: row.id, name: row.name, platform: row.platform, kind: row.kind, pairedAt: row.pairedAt,
     lastSeenAt: row.lastSeenAt, notifications,
   };
 }

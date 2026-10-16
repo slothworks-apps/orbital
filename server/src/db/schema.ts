@@ -499,6 +499,7 @@ export const remoteDevices = sqliteTable('remote_devices', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   platform: text('platform').notNull(),
+  kind: text('kind'),
   pairedAt: integer('paired_at').notNull(),
   lastSeenAt: integer('last_seen_at'),
   notifications: text('notifications').notNull(),

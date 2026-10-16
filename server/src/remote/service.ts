@@ -95,7 +95,7 @@ export type RemoteStatus = {
    * user types it from the phone and the server compares (spec
    * 2026-10-06-pairing-code-and-app-lock-design § 1).
    */
-  pendingPair: { phone: string; name: string; platform: string; attemptsLeft: number } | null;
+  pendingPair: { phone: string; name: string; platform: string; kind: string; attemptsLeft: number } | null;
   pairing: { expiresAt: number } | null;
   /** Why the last `start` failed; null while it is fine. */
   error: string | null;
@@ -350,7 +350,7 @@ export class RemoteService {
     this.pendingPair = null;
     const qr: QrPayload = {
       v: 1, relay: this.relayUrl, mac: deviceId(this.identity.publicKey), name: this.macName, token: res.body.token,
-      secret: toBase64Url(secret),
+      secret: toBase64Url(secret), kind: serverDeviceKind(),
     };
     if (this.relaySecret) qr.relaySecret = this.relaySecret;
     this.publishStatus();
@@ -389,7 +389,7 @@ export class RemoteService {
     const existed = this.devices.get(pending.phone) !== null;
     if (accept) {
       this.devices.add({
-        id: pending.phone, name: pending.name, platform: pending.platform, pairedAt: this.now(),
+        id: pending.phone, name: pending.name, platform: pending.platform, kind: pending.kind, pairedAt: this.now(),
         notifications: parseNotificationSettings(this.opts.allSettings()),
       });
       this.watch(pending.phone);
@@ -469,6 +469,7 @@ export class RemoteService {
       const device = msg.device === undefined ? null : openPairingDevice(this.pairing.secret, phoneKey, msg.device);
       this.pendingPair = {
         phone: msg.phone, name: device?.name || UNKNOWN_PHONE_NAME, platform: device?.platform ?? '',
+        kind: device?.kind ?? 'phone',
         code: fingerprint(this.identity.publicKey, phoneKey), attemptsLeft: PAIR_CODE_ATTEMPTS,
       };
       this.opts.hub.publish('remote', { event: 'pair_request', ...this.publicPendingPair() });
@@ -538,8 +539,10 @@ export class RemoteService {
     }
   }
 
+  /** Only a phone takes wake pushes: a desktop or headless member reads the map itself. */
   private watch(id: string): void {
     if (this.watchers.has(id) || !this.identity) return;
+    if (this.devices.get(id)?.kind !== 'phone') return;
     const secret = wakeSecret(this.identity);
     const phoneKey = publicKeyOf(id);
     if (!phoneKey) return;

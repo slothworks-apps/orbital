@@ -184,7 +184,7 @@ describe('RemoteService pairing', () => {
     const phone = phoneId();
     fake.emit('control', request(phone));
     const code = codeFor(service, phone);
-    expect(service.status().pendingPair).toEqual({ phone, name: 'iPhone', platform: 'ios', attemptsLeft: PAIR_CODE_ATTEMPTS });
+    expect(service.status().pendingPair).toEqual({ phone, name: 'iPhone', platform: 'ios', kind: 'phone', attemptsLeft: PAIR_CODE_ATTEMPTS });
     expect(JSON.stringify(service.status())).not.toContain(code);
     expect(publish).toHaveBeenCalledWith('remote', expect.objectContaining({ event: 'pair_request', phone }));
     expect(JSON.stringify(publish.mock.calls)).not.toContain(code);
@@ -331,7 +331,7 @@ describe('RemoteService revoke', () => {
   it('removes the device even when the relay revoke fails', async () => {
     const phone = phoneId();
     const { service, fake, devices } = build((d) => d.add({
-      id: phone, name: 'iPhone', platform: 'ios', pairedAt: 1, notifications: parseNotificationSettings({}),
+      id: phone, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}),
     }));
     fake.answers['/pair/revoke'] = { status: 0, body: { error: 'network' } };
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -353,7 +353,7 @@ describe('RemoteService data', () => {
   it('answers a paired phone\'s handshake through the relay', () => {
     const phone = generateIdentity();
     const { fake, service } = build((d) => d.add({
-      id: deviceId(phone.publicKey), name: 'iPhone', platform: 'ios', pairedAt: 1, notifications: parseNotificationSettings({}),
+      id: deviceId(phone.publicKey), name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}),
     }));
     const hs = startHandshake(phone, publicKeyOf(service.status().macId!)!, 'initiator');
     fake.emit('data', encodeFrame({ peer: phone.publicKey, flags: 0, wake: ZERO_WAKE, body: hs.message! }));
@@ -366,7 +366,7 @@ describe('RemoteService data', () => {
     const phone = generateIdentity();
     const id = deviceId(phone.publicKey);
     const { fake, service } = build((d) => d.add({
-      id, name: 'iPhone', platform: 'ios', pairedAt: 1, notifications: parseNotificationSettings({}),
+      id, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}),
     }));
     const macKey = publicKeyOf(service.status().macId!)!;
     const first = startHandshake(phone, macKey, 'initiator');
@@ -381,7 +381,7 @@ describe('RemoteService data', () => {
   it('a needs_input transition sends one empty wake frame, flagged and tokened', async () => {
     const phone = generateIdentity();
     const { fake, hub } = build((d) => d.add({
-      id: deviceId(phone.publicKey), name: 'iPhone', platform: 'ios', pairedAt: 1, notifications: parseNotificationSettings({ notify_needs_input: 'true' }),
+      id: deviceId(phone.publicKey), name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({ notify_needs_input: 'true' }),
     }));
     await tick(); // the watcher starts once its seed fetch answers
     hub.publish('sessions', { event: 'upsert', session: { id: 's1', title: 'one', status: 'working' } });
@@ -488,7 +488,7 @@ describe('RemoteService versions', () => {
     const phone = generateIdentity();
     const id = deviceId(phone.publicKey);
     const { fake, service, advance } = build((d) => d.add({
-      id, name: 'iPhone', platform: 'ios', pairedAt: 1, notifications: parseNotificationSettings({}),
+      id, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}),
     }));
     const macKey = publicKeyOf(service.status().macId!)!;
     /** A fresh connection from the phone: handshake, then a hello naming `version`; answers what the Mac sent back. */
@@ -523,7 +523,7 @@ describe('RemoteService identity', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { devices, service } = build((d) => {
       for (const id of [phoneId(), phoneId()]) {
-        d.add({ id, name: 'iPhone', platform: 'ios', pairedAt: 1, notifications: parseNotificationSettings({}) });
+        d.add({ id, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}) });
       }
     }, { corruptIdentity: true });
     const ours = warn.mock.calls.filter(([line]) => String(line).startsWith('[remote]'));

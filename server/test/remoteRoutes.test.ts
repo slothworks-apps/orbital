@@ -126,7 +126,7 @@ describe('/api/remote', () => {
   it('revoke removes a paired phone with the remote off', async () => {
     const phone = deviceId(generateIdentity().publicKey);
     const app = await server(false, 'http://127.0.0.1:1', (db) => new DeviceStore(db).add({
-      id: phone, name: 'iPhone', platform: 'ios', pairedAt: 1, notifications: parseNotificationSettings({}),
+      id: phone, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}),
     }));
     expect((await app.inject({ method: 'GET', url: '/api/remote' })).json().devices).toHaveLength(1);
     expect((await app.inject({ method: 'DELETE', url: `/api/remote/devices/${phone}` })).statusCode).toBe(200);
