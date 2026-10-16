@@ -53,7 +53,8 @@ export type LinkStatus = 'off' | 'connecting' | 'online';
 export type RemoteClientEvent =
   | { type: 'status'; status: LinkStatus }
   | { type: 'presence'; macOnline: boolean }
-  | { type: 'hello'; server: string; macName: string }
+  /** `kind` and `capabilities` only from a Mac that names them; a shipped one names neither. */
+  | { type: 'hello'; server: string; macName: string; kind?: string; capabilities?: string[] }
   /** True once a cipher exists and the Mac said hello; false when that tunnel is gone. */
   | { type: 'ready'; ready: boolean }
   /** `needed`: the Mac's `MIN_PHONE_VERSION`, with `app_too_old`. */
@@ -471,7 +472,11 @@ export class RemoteClient {
     switch (event.type) {
       case 'hello':
         // A shipped Mac's hello always names both; only a device kind that does not serve leaves them out.
-        this.emit({ type: 'hello', server: event.hello.server ?? '', macName: event.hello.macName ?? '' });
+        this.emit({
+          type: 'hello', server: event.hello.server ?? '', macName: event.hello.macName ?? '',
+          ...(event.hello.kind !== undefined ? { kind: event.hello.kind } : {}),
+          ...(event.hello.capabilities !== undefined ? { capabilities: event.hello.capabilities } : {}),
+        });
         return;
       case 'ready':
         this.emit({ type: 'ready', ready: event.ready });

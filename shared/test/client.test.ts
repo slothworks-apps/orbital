@@ -310,6 +310,22 @@ describe('RemoteClient handshake triggers', () => {
     expect(s.sock.frames).toHaveLength(0);
   });
 
+  it('surfaces the Mac hello, with its kind and capabilities only when it names them', () => {
+    const s = setup();
+    connect(s);
+    expect(s.events).toContainEqual({ type: 'hello', server: '0.17.2', macName: 'studio' });
+    const named = setup();
+    named.sock.control({ type: 'ok', peers: [named.mac.id] });
+    named.mac.answer(named.sock, named.phone.publicKey);
+    named.mac.read(named.sock);
+    named.mac.send(named.sock, {
+      t: 'hello', protocol: PROTOCOL_VERSION, server: '0.30.0', macName: 'studio', kind: 'desktop', capabilities: ['sessions', 'map'],
+    });
+    expect(named.events).toContainEqual({
+      type: 'hello', server: '0.30.0', macName: 'studio', kind: 'desktop', capabilities: ['sessions', 'map'],
+    });
+  });
+
   it('re-sends hello and every subscription after a re-handshake', () => {
     const s = setup();
     connect(s);
