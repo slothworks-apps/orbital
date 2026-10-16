@@ -55,6 +55,18 @@ next frame from that device — the peer's retry, or a fresh handshake
 after the old one went silent — builds a new one rather than being
 refused by a half-dead entry.
 
+That is the no-channel case. A live channel — one that already holds a
+cipher — meets an unexpected handshake differently, in
+`Channel.rehandshake()` (`shared/src/remote/channel.ts`): a frame the
+current cipher cannot open, but the size of a handshake half, means the
+initiator dropped the old session and started over on a new socket
+(the responder kept the channel across that). `rehandshake` completes
+that half as a fresh responder handshake, which only succeeds if it
+verifies against the peer's known identity — so nobody but that peer
+can reset the channel this way. Only once it verifies does the old
+keys and everything tied to them get reset and the new cipher take
+their place; a handshake that does not verify changes nothing.
+
 ## The handshake and `hello`
 
 `Channel.start()` (initiator only) sends the first handshake half and
@@ -80,25 +92,33 @@ optional:
   it — it has always read a Mac's hello that way, and still does.
 - Every hello requires `app` from whatever a shipped Mac judges — the
   Mac's `judgeHello` (`server/src/remote/deviceChannel.ts`) reads a
-  phone's version out of `app` and refuses anything it cannot parse a
-  version from.
+  phone's version out of `app` when it judges the hello at all (below).
 
-`PROTOCOL_VERSION` is unchanged by this work; a shipped device still
-closes any channel that names a different one.
+`PROTOCOL_VERSION` is unchanged by this work.
 
 ### What a responder checks
 
-A responder's `judge` callback (`Channel`'s `judge` option) runs once,
-against the peer's first `hello`, and only there. On the server,
+The protocol check and the `judge` callback both run only on the
+responder side, once, against the peer's first `hello` — an initiator
+never reads the peer's `protocol` at all, and a channel to a peer this
+side initiated towards is never judged. A responder whose peer's
+`hello` names a different `PROTOCOL_VERSION` closes the channel with
+`bye` `protocol` before `judge` even runs. In practice this is a
+shipped Mac answering a phone, since a phone always initiates (above):
+the Mac is the side that enforces the protocol version and judges the
+version in `app`.
+
 `openDeviceChannel` (`server/src/remote/deviceChannel.ts`) wires
 `judgeHello`: a hello whose `kind` is `phone` (or absent, from an old
 phone) is checked against `MIN_PHONE_VERSION`; anything else — another
 Mac, a headless server — is not judged here at all, since its own
-version is the group's concern, not this channel's. A phone below the
-minimum is closed with `bye` `app_too_old` and the version it needs, or
-with `protocol` if it predates knowing that reason
-(`PHONE_KNOWS_APP_TOO_OLD`) and would otherwise drop the `bye` as
-unreadable.
+version is the group's concern, not this channel's. Within that check,
+an `app` `judgeHello` cannot parse a version out of is treated the same
+as a version new enough: not judged, no refusal — only a version it
+*can* parse and read as too low is refused, closed with `bye`
+`app_too_old` and the version it needs, or with `protocol` if it
+predates knowing that reason (`PHONE_KNOWS_APP_TOO_OLD`) and would
+otherwise drop the `bye` as unreadable.
 
 ## Ask ids and the two ranges
 
