@@ -311,6 +311,10 @@ already has, no new plugin or permission.
 1. **The channel**: one identity and one socket per device, both halves
    per channel, the new `hello` (`shared/`, `server/`, the phone's
    transport).
+
+   As built (part 1): `POST /api/remote/join` joins another device
+   without UI; the phone allowlist still governs what any member may
+   call until part 3 (§ 6).
 2. **The group**: the roster, joining through one member, the relay's
    mutual pair, removal, Settings → Devices on the Mac and the phone.
 3. **Federation over channels**: #79's `PeerService` and routing on the
