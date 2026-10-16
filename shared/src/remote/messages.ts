@@ -5,6 +5,7 @@
  * transcript shares (spec 2026-09-30-mobile-remote-design § 3 binary frame).
  */
 import { z } from 'zod';
+import { PAIR_NAME_MAX_CHARS } from './relayApi.js';
 
 export const PROTOCOL_VERSION = 1;
 export const BLOB_CHUNK_BYTES = 65536;
@@ -169,6 +170,16 @@ export const AnswerMessage = z.discriminatedUnion('t', [
 ]);
 export type AnswerMessage = z.infer<typeof AnswerMessage>;
 
+/** The longest `kind` and `os` a hello keeps. */
+export const HELLO_KIND_MAX_CHARS = 20;
+/** The most capabilities a hello keeps, and the longest one it keeps at all. */
+export const HELLO_CAPABILITIES_MAX = 32;
+export const HELLO_CAPABILITY_MAX_CHARS = 32;
+
+/** A cosmetic string: cut to `max` when there is one, absent when it is not a string. */
+const helloText = (max?: number) =>
+  z.string().transform((s) => (max === undefined ? s : s.slice(0, max))).optional().catch(undefined);
+
 /**
  * Every device's greeting, both ways, the initiator's first (spec
  * 2026-10-16-device-group-design § 5). A shipped phone sends only
@@ -176,20 +187,33 @@ export type AnswerMessage = z.infer<typeof AnswerMessage>;
  * `macName`, and a shipped phone requires those two of whatever serves it.
  * `kind` and `capabilities` stay strings: a device from a later release may
  * name one this one does not know.
+ *
+ * Only `t` and `protocol` can refuse a hello: a refused hello leaves the
+ * peer unreachable, and nothing else in it is worth that. Every other field
+ * is cut to its bound, and one of the wrong type is read as absent.
  */
 export const HelloMessage = z.object({
   t: z.literal('hello'),
   protocol: z.number().int(),
-  app: z.string().optional(),
-  server: z.string().optional(),
-  macName: z.string().optional(),
-  version: z.string().optional(),
-  kind: z.string().max(20).optional(),
-  os: z.string().max(20).optional(),
-  name: z.string().max(80).optional(),
-  capabilities: z.array(z.string().max(32)).max(32).optional(),
+  app: helloText(),
+  server: helloText(),
+  macName: helloText(PAIR_NAME_MAX_CHARS),
+  version: helloText(),
+  kind: helloText(HELLO_KIND_MAX_CHARS),
+  os: helloText(HELLO_KIND_MAX_CHARS),
+  name: helloText(PAIR_NAME_MAX_CHARS),
+  capabilities: z.array(z.unknown())
+    .transform((list) => list
+      .filter((c): c is string => typeof c === 'string' && c.length <= HELLO_CAPABILITY_MAX_CHARS)
+      .slice(0, HELLO_CAPABILITIES_MAX))
+    .optional().catch(undefined),
+}).transform((hello) => {
+  // A field read as absent leaves no key behind, as if it had never been sent.
+  const out = { ...hello };
+  for (const key of Object.keys(out) as (keyof typeof out)[]) if (out[key] === undefined) delete out[key];
+  return out;
 });
-export type HelloMessage = z.infer<typeof HelloMessage>;
+export type HelloMessage = z.output<typeof HelloMessage>;
 
 export type ChannelMessage =
   | { kind: 'hello'; msg: HelloMessage }

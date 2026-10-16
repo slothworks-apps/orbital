@@ -438,14 +438,14 @@ export class RemoteClient {
    * Opens a channel to the Mac (parent § 7: on `paired`, on `ok` listing the
    * Mac, on its `presence` online). One handshake at a time: `paired` is
    * followed by a `presence` for the same Mac, and a second half would use up
-   * the first one's reply — a channel that exists but is not ready is that
-   * handshake, retrying on its own. A live tunnel when the Mac reappears is
-   * stale — the Mac's phone sessions died with its relay link — and is
-   * replaced.
+   * the first one's reply — a channel still waiting for that reply is that
+   * handshake, retrying on its own. A channel with keys when the Mac
+   * reappears is stale, whether its hello came or not — the Mac's phone
+   * sessions died with its relay link — and is replaced.
    */
   private beginHandshake(macCameBack = false): void {
     if (!this.ws || this.status !== 'online') return;
-    if (this.channel && !this.channel.ready) return;
+    if (this.channel && !this.channel.keyed) return;
     if (this.channel && !macCameBack) return;
     this.dropTunnel();
     const channel = new Channel({

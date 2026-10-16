@@ -30,7 +30,10 @@ import { RESPONDER_FIRST_ID } from './device.js';
  * JavaScript — so this watchdog runs only while a tunnel is up.
  */
 export const TUNNEL_SILENCE_TIMEOUT_MS = RELAY_PING_INTERVAL_MS * 3;
-/** How long one handshake waits for the Mac's half before a fresh one goes out. */
+/**
+ * How long the initiator waits for the peer's handshake half, and then for
+ * its hello, before a fresh handshake goes out.
+ */
 export const HANDSHAKE_TIMEOUT_MS = 10_000;
 /** How long a `request`, a `getBlob` or `getFile` (per chunk, unless told otherwise) or a notifications call waits for its answer. */
 export const REQUEST_TIMEOUT_MS = 20_000;
@@ -147,6 +150,8 @@ export type ChannelOptions = {
   judge?(hello: HelloMessage): HelloVerdict;
   handshakeTimeoutMs?: number;
   requestTimeoutMs?: number;
+  /** A frame `send` threw on (one past `MAX_FRAME_BYTES`, a socket gone); dropped either way. */
+  onSendError?(err: unknown): void;
   silenceTimeoutMs?: number;
 };
 
@@ -182,6 +187,11 @@ export class Channel {
     return this.cipher !== null && this.peerHello !== null && !this.closed;
   }
 
+  /** Keys are set, whether or not the peer's hello is in yet. */
+  get keyed(): boolean {
+    return this.cipher !== null && !this.closed;
+  }
+
   get peer(): HelloMessage | null {
     return this.peerHello;
   }
@@ -197,8 +207,9 @@ export class Channel {
 
   /**
    * The initiator's half, now and again every `handshakeTimeoutMs` until a
-   * reply completes it; anything tied to a previous handshake is dropped
-   * first. A responder only answers, so this does nothing there.
+   * reply completes it and the peer's hello follows; anything tied to a
+   * previous handshake is dropped first. A responder only answers, so this
+   * does nothing there.
    */
   start(): void {
     if (this.opts.role !== 'initiator' || this.closed) return;
@@ -206,11 +217,8 @@ export class Channel {
     const handshake = startHandshake(this.opts.identity, this.opts.peerKey, 'initiator');
     this.handshake = handshake;
     // Armed before the send: a peer that answers synchronously completes the
-    // handshake inside `send`, and that clears this timer.
-    this.handshakeTimer = setTimeout(() => {
-      this.handshakeTimer = null;
-      if (!this.cipher) this.start();
-    }, this.opts.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS);
+    // handshake inside `send`, and that re-arms this timer.
+    this.armRestart();
     this.opts.send(handshake.message!);
   }
 
@@ -351,9 +359,21 @@ export class Channel {
       this.dropped++;
       return;
     }
-    this.handshakeTimer = this.clear(this.handshakeTimer);
     this.cipher = cipher;
+    // Keys alone are not a channel: a peer that keeps them but never greets
+    // (its hello lost, or a refusal it had no keys to send) would leave this
+    // side keyed and never ready. Armed before the send, as in `start`.
+    this.armRestart();
     this.sendJson(this.ownHello());
+  }
+
+  /** The initiator's retry: a fresh handshake unless the peer's hello is in by then. */
+  private armRestart(): void {
+    this.handshakeTimer = this.clear(this.handshakeTimer);
+    this.handshakeTimer = setTimeout(() => {
+      this.handshakeTimer = null;
+      if (!this.peerHello) this.start();
+    }, this.opts.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS);
   }
 
   /**
@@ -379,6 +399,7 @@ export class Channel {
       if (verdict) return this.close(verdict.reason, verdict.needed);
     }
     this.peerHello = hello;
+    this.handshakeTimer = this.clear(this.handshakeTimer);
     if (this.opts.role === 'responder') this.sendJson(this.ownHello());
     if (this.opts.serve) this.serving(this.opts.serve, (s) => s.open(this.reply, hello));
     this.emit({ type: 'hello', hello });
@@ -607,7 +628,12 @@ export class Channel {
     try {
       this.opts.send(this.cipher.seal(plain));
       return true;
-    } catch {
+    } catch (err) {
+      try {
+        this.opts.onSendError?.(err);
+      } catch {
+        /* the caller's report of a failure is its own problem */
+      }
       return false;
     }
   }

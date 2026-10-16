@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
-  AnswerMessage, AskMessage, BLOB_CHUNK_BYTES, FILE_PATH_MAX_CHARS, HelloMessage, PROTOCOL_VERSION, chunkBlob,
+  AnswerMessage, AskMessage, BLOB_CHUNK_BYTES, FILE_PATH_MAX_CHARS, HELLO_CAPABILITIES_MAX, HELLO_CAPABILITY_MAX_CHARS,
+  HELLO_KIND_MAX_CHARS, HelloMessage, PROTOCOL_VERSION, chunkBlob,
   decodeInner, encodeInner, parseChannelMessage, peerServes,
 } from '../src/remote/messages.js';
+import { PAIR_NAME_MAX_CHARS } from '../src/remote/relayApi.js';
 
 describe('inner codec', () => {
   it('round-trips a json message', () => {
@@ -92,6 +94,39 @@ describe('parseChannelMessage', () => {
   it('keeps a kind and capabilities it does not know', () => {
     const parsed = parseChannelMessage({ t: 'hello', protocol: 1, app: 'x/1', kind: 'tablet', capabilities: ['sessions', 'teleport'] });
     expect(parsed).toEqual({ kind: 'hello', msg: expect.objectContaining({ kind: 'tablet', capabilities: ['sessions', 'teleport'] }) });
+  });
+  it('reads a shipped phone hello and a shipped Mac hello exactly, adding nothing', () => {
+    expect(parseChannelMessage({ t: 'hello', protocol: 1, app: 'orbital-mobile/0.9.0' }))
+      .toStrictEqual({ kind: 'hello', msg: { t: 'hello', protocol: 1, app: 'orbital-mobile/0.9.0' } });
+    expect(parseChannelMessage({ t: 'hello', protocol: 1, server: '0.30.0', macName: 'studio' }))
+      .toStrictEqual({ kind: 'hello', msg: { t: 'hello', protocol: 1, server: '0.30.0', macName: 'studio' } });
+  });
+  it('cuts an over-long name, macName, kind or os instead of refusing the hello', () => {
+    const long = 'n'.repeat(PAIR_NAME_MAX_CHARS + 1);
+    const tall = 'k'.repeat(HELLO_KIND_MAX_CHARS + 5);
+    const parsed = parseChannelMessage({ t: 'hello', protocol: 1, server: '1', macName: long, name: long, kind: tall, os: tall });
+    expect(parsed?.kind).toBe('hello');
+    expect(parsed?.msg).toMatchObject({
+      server: '1', macName: long.slice(0, PAIR_NAME_MAX_CHARS), name: long.slice(0, PAIR_NAME_MAX_CHARS),
+      kind: tall.slice(0, HELLO_KIND_MAX_CHARS), os: tall.slice(0, HELLO_KIND_MAX_CHARS),
+    });
+  });
+  it('cuts an over-long capabilities list and drops a capability that is over long or not a string', () => {
+    const many = Array.from({ length: HELLO_CAPABILITIES_MAX + 3 }, (_, i) => `c${i}`);
+    const parsed = HelloMessage.parse({ t: 'hello', protocol: 1, capabilities: many });
+    expect(parsed.capabilities).toEqual(many.slice(0, HELLO_CAPABILITIES_MAX));
+    const mixed = HelloMessage.parse({
+      t: 'hello', protocol: 1, capabilities: ['sessions', 'x'.repeat(HELLO_CAPABILITY_MAX_CHARS + 1), 7, 'map'],
+    });
+    expect(mixed.capabilities).toEqual(['sessions', 'map']);
+  });
+  it('treats a cosmetic field of the wrong type as absent; only t and protocol refuse', () => {
+    const parsed = HelloMessage.parse({
+      t: 'hello', protocol: 1, app: 3, server: '1', macName: null, version: {}, kind: [], os: 9, name: true, capabilities: 'sessions',
+    });
+    expect(parsed).toStrictEqual({ t: 'hello', protocol: 1, server: '1' });
+    expect(HelloMessage.safeParse({ t: 'hello', protocol: '1', app: 'a' }).success).toBe(false);
+    expect(HelloMessage.safeParse({ t: 'hello', app: 'a' }).success).toBe(false);
   });
   it('tells a subscribe (ask) from a hub frame (answer)', () => {
     expect(parseChannelMessage({ t: 'ws', type: 'subscribe', topic: 'sessions' })?.kind).toBe('ask');

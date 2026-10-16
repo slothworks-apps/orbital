@@ -50,7 +50,10 @@ export function judgeHello(
 
 export function openDeviceChannel(opts: DeviceChannelOptions): Channel {
   return new Channel({
-    identity: opts.identity, peerKey: opts.peerKey, role: opts.role, hello: opts.hello, send: opts.send,
+    identity: opts.identity, peerKey: opts.peerKey, role: opts.role, hello: opts.hello, send: (body) => opts.send(body),
+    onSendError: (err) => {
+      console.warn(`[remote] device ${opts.deviceId}: send failed: ${err instanceof Error ? err.message : String(err)}`);
+    },
     serve: new ServingHalf(opts),
     judge: (hello) => {
       const { verdict, refusal } = judgeHello(hello, opts.minPhoneVersion);

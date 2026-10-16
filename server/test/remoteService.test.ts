@@ -2,10 +2,12 @@ import { describe, it, expect, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { generateIdentity, deviceId, fromBase64Url, publicKeyOf } from '@orbital/shared/remote/keys';
+import { generateIdentity, deviceId, fromBase64Url, publicKeyOf, toBase64Url } from '@orbital/shared/remote/keys';
 import { FLAG_STATE, FLAG_WAKE, WAKE_BYTES, ZERO_WAKE, decodeFrame, encodeFrame } from '@orbital/shared/remote/frame';
 import { startHandshake } from '@orbital/shared/remote/handshake';
-import { PAIRING_SECRET_BYTES, QrPayload, pairingProof, sealPairingDevice } from '@orbital/shared/remote/relayApi';
+import {
+  PAIRING_SECRET_BYTES, PAIR_NAME_MAX_CHARS, QrPayload, pairingProof, sealPairingDevice,
+} from '@orbital/shared/remote/relayApi';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import { PROTOCOL_VERSION, decodeInner, encodeInner } from '@orbital/shared/remote/messages';
 import { MIN_PHONE_VERSION, MIN_RELAY_VERSION } from '@orbital/shared/remote/version';
@@ -305,6 +307,23 @@ describe('RemoteService pairing', () => {
   });
 });
 
+describe('RemoteService join', () => {
+  it('keeps the other device under its name cut to PAIR_NAME_MAX_CHARS', async () => {
+    const { service, fake } = build();
+    const other = deviceId(generateIdentity().publicKey);
+    const long = 'd'.repeat(PAIR_NAME_MAX_CHARS + 30);
+    const qr: QrPayload = {
+      v: 1, relay: 'https://relay.test', mac: other, name: long, token: 'tok',
+      secret: toBase64Url(new Uint8Array(PAIRING_SECRET_BYTES)), kind: 'desktop',
+    };
+    const res = await service.join(JSON.stringify(qr));
+    expect(res).toMatchObject({ device: other });
+    expect(service.status().joining).toEqual({ device: other, name: long.slice(0, PAIR_NAME_MAX_CHARS) });
+    fake.emit('control', { type: 'paired', mac: other });
+    expect(service.status().devices).toEqual([expect.objectContaining({ id: other, name: long.slice(0, PAIR_NAME_MAX_CHARS) })]);
+  });
+});
+
 describe('RemoteService relay status', () => {
   it('counts refused connection attempts and publishes each one, though the relay stays connecting', async () => {
     const { service, hub } = build(undefined, {
@@ -377,6 +396,24 @@ describe('RemoteService data', () => {
     fake.emit('data', encodeFrame({ peer: phone.publicKey, flags: 0, wake: ZERO_WAKE, body: second.message! }));
     expect(fake.sent).toHaveLength(2);
     expect(second.complete(decodeFrame(fake.sent[1])!.body)).not.toBeNull();
+  });
+  it('a peer that says bye takes its channel out of the map, so the next handshake builds a fresh one', () => {
+    const phone = generateIdentity();
+    const id = deviceId(phone.publicKey);
+    const { fake, service } = build((d) => d.add({
+      id, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}),
+    }));
+    const macKey = publicKeyOf(service.status().macId!)!;
+    const hs = startHandshake(phone, macKey, 'initiator');
+    fake.emit('data', encodeFrame({ peer: phone.publicKey, flags: 0, wake: ZERO_WAKE, body: hs.message! }));
+    const cipher = hs.complete(decodeFrame(fake.sent[0])!.body)!;
+    const seal = (value: unknown) => encodeFrame({
+      peer: phone.publicKey, flags: 0, wake: ZERO_WAKE, body: cipher.seal(encodeInner({ kind: 'json', value })),
+    });
+    fake.emit('data', seal({ t: 'hello', protocol: PROTOCOL_VERSION, app: `orbital-mobile/${MIN_PHONE_VERSION}` }));
+    expect(service.channel(id)?.ready).toBe(true);
+    fake.emit('data', seal({ t: 'bye', reason: 'protocol' }));
+    expect(service.channel(id)).toBeNull();
   });
   it('a needs_input transition sends one empty wake frame, flagged and tokened', async () => {
     const phone = generateIdentity();

@@ -303,6 +303,22 @@ describe('RemoteClient handshake triggers', () => {
     expect(s.events).toContainEqual({ type: 'paired' });
   });
 
+  it('replaces a channel that has keys but no hello when the Mac comes back', () => {
+    const s = setup();
+    s.sock.control({ type: 'challenge', nonce: 'n1', version: MIN_RELAY_VERSION });
+    s.sock.control({ type: 'ok', peers: [s.mac.id] });
+    s.mac.answer(s.sock, s.phone.publicKey);
+    expect(s.mac.read(s.sock)).toMatchObject({ t: 'hello' });
+    // The Mac never greets; it drops off the relay and comes back.
+    s.sock.control({ type: 'presence', peer: s.mac.id, online: true });
+    expect(s.sock.frames).toHaveLength(1);
+    expect(decodeFrame(s.sock.frames[0])!.body.length).toBe(HANDSHAKE_BYTES);
+    s.mac.answer(s.sock, s.phone.publicKey);
+    s.mac.read(s.sock);
+    s.mac.send(s.sock, { t: 'hello', protocol: PROTOCOL_VERSION, server: '0.17.2', macName: 'studio' });
+    expect(s.client.ready).toBe(true);
+  });
+
   it('ignores presence of a peer that is not its Mac', () => {
     const s = setup();
     s.sock.control({ type: 'ok', peers: [] });

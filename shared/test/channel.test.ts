@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateIdentity } from '../src/remote/keys.js';
-import { Channel, MAX_INNER_BYTES, TunnelError, type ChannelReply, type ChannelServer } from '../src/remote/channel.js';
+import {
+  Channel, HANDSHAKE_TIMEOUT_MS, MAX_INNER_BYTES, TunnelError, type ChannelReply, type ChannelServer,
+} from '../src/remote/channel.js';
+import { HANDSHAKE_BYTES, startHandshake } from '../src/remote/handshake.js';
 import { RESPONDER_FIRST_ID } from '../src/remote/device.js';
 import type { AskMessage, HelloMessage } from '../src/remote/messages.js';
 
@@ -148,6 +151,45 @@ describe('Channel', () => {
     a.close();
     vi.advanceTimersByTime(250);
     expect(sent.length).toBe(3);
+  });
+
+  it('the initiator starts over when the peer completes the handshake but never says hello', () => {
+    vi.useFakeTimers();
+    const aId = generateIdentity();
+    const bId = generateIdentity();
+    const queue: (() => void)[] = [];
+    let handshakes = 0;
+    const a: Channel = new Channel({
+      identity: aId, peerKey: bId.publicKey, role: 'initiator', hello: desktop('a'), handshakeTimeoutMs: 100,
+      send: (body) => {
+        if (body.length !== HANDSHAKE_BYTES) return;
+        handshakes++;
+        // A peer that answers the handshake and then says nothing: its hello lost, or never sent.
+        const reply = startHandshake(bId, aId.publicKey, 'responder');
+        expect(reply.complete(body)).not.toBeNull();
+        queue.push(() => a.receive(reply.message!));
+      },
+    });
+    a.start();
+    queue.shift()!();
+    expect(handshakes).toBe(1);
+    expect(a.ready).toBe(false);
+    vi.advanceTimersByTime(99);
+    expect(handshakes).toBe(1);
+    vi.advanceTimersByTime(1);
+    expect(handshakes).toBe(2);
+    a.close();
+    vi.advanceTimersByTime(1_000);
+    expect(handshakes).toBe(2);
+  });
+
+  it('a hello that arrives in time stops the initiator from starting over', () => {
+    vi.useFakeTimers();
+    const { a, b, pump } = pair();
+    a.start();
+    pump();
+    vi.advanceTimersByTime(HANDSHAKE_TIMEOUT_MS * 2);
+    expect(a.ready && b.ready).toBe(true);
   });
 
   it('says silent when a serving peer goes quiet', () => {

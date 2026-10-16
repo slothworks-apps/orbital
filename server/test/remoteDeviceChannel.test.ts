@@ -8,6 +8,7 @@ import {
   type AnswerMessage, type HelloMessage,
 } from '@orbital/shared/remote/messages';
 import { PHONE_KNOWS_APP_TOO_OLD } from '@orbital/shared/remote/version';
+import { PAIR_NAME_MAX_CHARS } from '@orbital/shared/remote/relayApi';
 import { MAX_INNER_BYTES, type Channel } from '@orbital/shared/remote/channel';
 import { capabilitiesOf, osName } from '@orbital/shared/remote/device';
 import { Hub } from '../src/api/hub.js';
@@ -295,6 +296,33 @@ describe('device channel, served by this server', () => {
     expect(phone.out).toContainEqual({ t: 'blob_put_done', id: 1, error: 'too_large' });
     phone.sendBlob({ kind: 'blob', id: 2, seq: 0, last: true, bytes: new Uint8Array(9) });
     expect(phone.out).toContainEqual({ t: 'blob_put_done', id: 2, error: 'size_mismatch' });
+  });
+  it('names this server with its name cut to PAIR_NAME_MAX_CHARS, so its hello always parses', () => {
+    const long = 'm'.repeat(PAIR_NAME_MAX_CHARS + 20);
+    const hello = serverHello({ serverVersion: '0.15.0', name: long, kind: 'desktop' });
+    expect(hello.name).toBe(long.slice(0, PAIR_NAME_MAX_CHARS));
+    expect(hello.macName).toBe(long.slice(0, PAIR_NAME_MAX_CHARS));
+  });
+  it('logs a frame it could not send, naming the device, and carries on', () => {
+    const mac = generateIdentity();
+    const phone = makePhone(mac, () => channel);
+    let failing = false;
+    const channel: Channel = openDeviceChannel({
+      deviceId: 'dev1', identity: mac, peerKey: phone.me.publicKey, role: 'responder',
+      hello: serverHello({ serverVersion: '0.15.0', name: 'studio', kind: 'desktop' }), hub: new Hub({ heartbeatIntervalMs: 60_000 }),
+      inject: async () => ({ statusCode: 500, body: '{}' }), images: createImageStore(makeTmpDir('remote')), imagesDir: '',
+      files: () => ({ status: 404 }), notifications: { get: () => allOn, set: () => {} }, onSeen: () => {},
+      send: (body) => {
+        if (failing) throw new Error('socket gone');
+        phone.onMacBody(body);
+      },
+    });
+    channel.receive(phone.hs.message!);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    failing = true;
+    expect(() => phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' })).not.toThrow();
+    expect(warn).toHaveBeenCalledWith('[remote] device dev1: send failed: socket gone');
+    warn.mockRestore();
   });
   it('a throwing hook answers the request instead of throwing out of receive', () => {
     const { phone, images, onSeen } = build();

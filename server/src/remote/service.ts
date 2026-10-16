@@ -13,7 +13,7 @@ import {
 } from '@orbital/shared/remote/keys';
 import { FLAG_STATE, FLAG_WAKE, ZERO_WAKE, decodeFrame, encodeFrame } from '@orbital/shared/remote/frame';
 import {
-  PAIRING_SECRET_BYTES, PAIRING_TOKEN_TTL_MS, openPairingDevice, pairingProof, parsePairingCode, sealPairingDevice,
+  PAIRING_SECRET_BYTES, PAIRING_TOKEN_TTL_MS, PAIR_NAME_MAX_CHARS, openPairingDevice, pairingProof, parsePairingCode, sealPairingDevice,
   verifyPairingProof, type QrPayload, type RelayToDevice,
 } from '@orbital/shared/remote/relayApi';
 import { initiates, osName } from '@orbital/shared/remote/device';
@@ -434,6 +434,9 @@ export class RemoteService {
       this.pairing = null;
     }
     this.publishStatus();
+    // A guard: the relay's `presence` for the new device, sent before it
+    // answered the post, has normally opened the channel already (if this
+    // side is the one that opens it); `open` does nothing then.
     if (accept) this.open(pending.phone);
     return { ok: true };
   }
@@ -462,7 +465,9 @@ export class RemoteService {
         name: this.macName, platform: osName(process.platform), kind: serverDeviceKind(),
       }),
     };
-    this.joining = { device: qr.mac, name: qr.name, kind: qr.kind ?? null, expiresAt: this.now() + PAIRING_TOKEN_TTL_MS };
+    // Cut as a pairing cuts a phone's name: the QR's is whatever that device was called.
+    const name = qr.name.slice(0, PAIR_NAME_MAX_CHARS);
+    this.joining = { device: qr.mac, name, kind: qr.kind ?? null, expiresAt: this.now() + PAIRING_TOKEN_TTL_MS };
     this.publishStatus();
     const res = await this.client.post('/pair/redeem', 'pair.redeem', payload);
     if (res.status !== 200) {
@@ -472,7 +477,7 @@ export class RemoteService {
       return { error: res.status === 409 ? 'peer_offline' : res.status === 404 ? 'bad_code' : 'relay_error' };
     }
     return {
-      device: qr.mac, name: qr.name,
+      device: qr.mac, name,
       code: formatFingerprint(fingerprint(publicKeyOf(qr.mac)!, this.identity.publicKey)),
     };
   }
@@ -521,9 +526,11 @@ export class RemoteService {
       for (const device of this.devices.list()) this.open(device.id);
       return;
     }
-    // The relay sends `paired` before it answers the other side's confirm.
-    // If this side opens the channel, it does so here or at the peer's
-    // `presence` that follows; if the peer does, its `confirmPairing` does.
+    // The relay sends `paired` before it answers the other side's confirm,
+    // and a `presence` for that side right after. If this side opens the
+    // channel, it does so at that `presence` (here, only if the relay already
+    // counted the peer online); if the confirming side does, it opens from
+    // the `presence` the relay sends it for this side.
     if (msg.type === 'paired' && this.joining && msg.mac === this.joining.device) {
       const joined = this.joining;
       this.joining = null;
@@ -622,6 +629,9 @@ export class RemoteService {
     opened.on((event) => {
       // A closed channel is terminal: the next frame from this device builds a fresh one.
       if (event.type === 'closed' && this.channels.get(from) === opened) this.channels.delete(from);
+      // The peer ended these keys; closing takes the channel out of the map, so
+      // its next handshake (or the next `presence`) builds a fresh one.
+      if (event.type === 'bye') opened.close();
       if (event.type === 'silent') {
         // A peer that serves went quiet: drop the channel. A responder's peer
         // opens a new one with its next handshake; an initiator opens it again.
