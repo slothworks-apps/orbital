@@ -2,9 +2,16 @@ import { IMAGE_URL_CACHE_MAX } from '../constants'
 import type { TunnelClient } from './clientRef'
 
 export interface ImageStoreIO {
-  read(ref: string): Promise<Uint8Array | null>
-  write(ref: string, bytes: Uint8Array): Promise<void>
+  read(ref: string, thumb: boolean): Promise<{ bytes: Uint8Array; mediaType: string } | null>
+  write(ref: string, bytes: Uint8Array, thumb: boolean, mediaType: string): Promise<void>
 }
+
+/**
+ * The longest edge a thumbnail is asked at: a transcript thumbnail or a
+ * gallery tile at three device pixels per point (spec
+ * 2026-10-16-image-sizes-design § 2). One of the Mac's `THUMB_EDGES`.
+ */
+export const PHONE_THUMB_EDGE = 1024
 
 const MEDIA_TYPES: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
@@ -38,7 +45,7 @@ export function makeImageResolver(
   toUrl: (bytes: Uint8Array, mediaType: string) => string = blobUrl,
   revoke: (url: string) => void = (url) => URL.revokeObjectURL(url),
   max = IMAGE_URL_CACHE_MAX,
-): (ref: string) => string | Promise<string> {
+): (ref: string, opts?: { thumb?: boolean }) => string | Promise<string> {
   // A Map iterates in insertion order, so re-inserting on a hit keeps the oldest first.
   const urls = new Map<string, string>()
   const inflight = new Map<string, Promise<string>>()
@@ -51,32 +58,35 @@ export function makeImageResolver(
       revoke(stale)
     }
   }
-  return (ref) => {
-    const known = urls.get(ref)
+  return (ref, opts) => {
+    const thumb = opts?.thumb === true
+    // A thumbnail and its image are two entries; the full image, once here, serves the thumbnail too.
+    const key = thumb ? `thumb:${ref}` : ref
+    const known = urls.get(key) ?? (thumb ? urls.get(ref) : undefined)
     if (known) {
-      remember(ref, known)
+      remember(urls.has(key) ? key : ref, known)
       return known
     }
-    const running = inflight.get(ref)
+    const running = inflight.get(key)
     if (running) return running
     const loading = (async () => {
       // A cache read that fails is a miss, not a reason to give up: fall through to the tunnel.
-      let bytes = await io.read(ref).catch(() => null)
-      if (!bytes) {
-        const answer = await client.getBlob(ref)
+      let hit = await io.read(ref, thumb).catch(() => null)
+      if (!hit) {
+        const answer = await client.getBlob(ref, thumb ? { edge: PHONE_THUMB_EDGE } : {})
         if (answer.status !== 200) throw new Error(`image ${answer.status}`)
-        bytes = answer.bytes
+        hit = { bytes: answer.bytes, mediaType: answer.mediaType ?? mediaTypeOf(ref) }
         // A cache write that fails costs a refetch next time, nothing more.
-        await io.write(ref, bytes).catch(() => undefined)
+        await io.write(ref, hit.bytes, thumb, hit.mediaType).catch(() => undefined)
       }
-      const url = toUrl(bytes, mediaTypeOf(ref))
-      remember(ref, url)
+      const url = toUrl(hit.bytes, hit.mediaType)
+      remember(key, url)
       return url
     })()
-    inflight.set(ref, loading)
+    inflight.set(key, loading)
     void loading.then(
-      () => inflight.delete(ref),
-      () => inflight.delete(ref),
+      () => inflight.delete(key),
+      () => inflight.delete(key),
     )
     return loading
   }

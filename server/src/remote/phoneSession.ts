@@ -24,6 +24,7 @@ import { PRESENCE_TOPIC } from '@orbital/shared/presence';
 import type { Hub } from '../api/hub.js';
 import { ATTACHMENT_MAX_BYTES } from '../api/routes.js';
 import type { ImageStore } from '../images/store.js';
+import { thumbnailOf } from '../images/thumbs.js';
 import { allowedPath } from './allowlist.js';
 import type { PhoneFileReader } from './phoneFiles.js';
 
@@ -249,7 +250,8 @@ export class PhoneSession {
         void this.onHttp(msg);
         return;
       case 'blob_get':
-        this.onBlobGet(msg.id, msg.ref);
+        if (msg.edge !== undefined) void this.onThumbGet(msg.id, msg.ref, msg.edge);
+        else this.onBlobGet(msg.id, msg.ref);
         return;
       case 'file_get':
         this.onFileGet(msg);
@@ -299,6 +301,14 @@ export class PhoneSession {
     } catch (err) {
       this.sendJson({ t: 'http_res', id: msg.id, status: 500, body: { error: err instanceof Error ? err.message : String(err) } });
     }
+  }
+
+  /** A thumbnail when one is made, else the image itself (`thumbnailOf`). */
+  private async onThumbGet(id: number, ref: string, edge: number): Promise<void> {
+    const thumb = await thumbnailOf(this.opts.imagesDir, ref, edge).catch(() => null);
+    if (!thumb) return this.onBlobGet(id, ref);
+    this.sendJson({ t: 'blob_meta', id, status: 200, bytes: thumb.bytes.length, mediaType: thumb.mediaType });
+    for (const chunk of chunkBlob(id, thumb.bytes)) this.sendInner(encodeInner(chunk));
   }
 
   private onBlobGet(id: number, ref: string): void {

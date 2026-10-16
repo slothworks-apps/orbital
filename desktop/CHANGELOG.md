@@ -6,6 +6,8 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ### Added
 - A session can now list your other sessions and archive the finished ones when you ask it to tidy up — the same as pressing End. It leaves alone, unless told otherwise, sessions that are working, waiting for you or pinned.
 - A session can now do almost anything you can do in Orbital when you ask it to: start, rename, tag and end sessions, answer their questions, run harnesses, manage tags, rules, MCP servers and settings. Anything that changes Orbital asks for your permission first, like any other tool.
+- Images over 5 MB and iPhone photos (HEIC) go to a session as images: Orbital brings them down to the size Claude takes before they are sent.
+- Your phone loads a session's images faster: the Mac sends it small thumbnails, and the full image only when you open one.
 
 ## [0.32.1] — 2026-10-15
 ### Added

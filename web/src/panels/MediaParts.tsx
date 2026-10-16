@@ -97,7 +97,7 @@ export function MediaPicture({
   /** `contain` shows the whole image, letterboxed — a wide screenshot read whole rather than cropped to its middle. */
   fit?: 'cover' | 'contain'
 }) {
-  const { url } = useMediaSourceUrl(sessionId, item)
+  const { url } = useMediaSourceUrl(sessionId, item, { thumb: true })
   const pdf = usePdfThumbnail(item.kind === 'pdf' ? url : null, url ? pdfKey(url, item) : '')
   const latest = useRef({ onGone, onPages })
   latest.current = { onGone, onPages }
