@@ -4,6 +4,12 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-10-16
+### Added
+- Photos and screenshots of any size go to a session: the phone brings them down to the size Claude takes, and converts iPhone HEIC photos.
+### Changed
+- Images in a transcript and in Media load as small thumbnails, much faster over a slow connection; the full image loads when you open it. Needs the Mac update that brings it.
+
 ## [0.13.0] — 2026-10-15
 ### Added
 - A session's Media also shows its subagents' images and images the agent saved to disk without mentioning them. Needs the Mac update that brings them.

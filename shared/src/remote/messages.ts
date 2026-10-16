@@ -107,7 +107,12 @@ export const PhoneMessage = z.discriminatedUnion('t', [
     t: z.literal('http'), id: z.number().int(), method: HttpMethod, path: z.string(),
     body: z.unknown().optional(),
   }),
-  z.object({ t: z.literal('blob_get'), id: z.number().int(), ref: ImageRef }),
+  /**
+   * `edge`: the longest edge the phone wants, for a thumbnail (spec
+   * 2026-10-16-image-sizes-design § 2). The Mac may answer with the full
+   * image anyway, and an older Mac, which drops the field, always does.
+   */
+  z.object({ t: z.literal('blob_get'), id: z.number().int(), ref: ImageRef, edge: z.number().int().positive().max(4096).optional() }),
   /**
    * A file a session may show, by path (spec 2026-10-05-mobile-next-design
    * § 2), answered like `blob_get`: `blob_meta`, then chunks. The Mac

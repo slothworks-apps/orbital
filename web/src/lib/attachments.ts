@@ -67,12 +67,22 @@ export type Refusal =
   | { kind: 'folder'; name: string }
 
 /**
- * Whether a file rides as an `image` block. Anything else — an `.xlsx`, an
- * image too big for the API — rides by path (spec:
+ * Image types the API does not take but a browser may decode: the composer
+ * converts them on the way up (`fitImage`), as it brings down one too large.
+ */
+export const CONVERTIBLE_IMAGE_TYPES: ReadonlySet<string> = new Set([
+  'image/heic', 'image/heif', 'image/avif', 'image/bmp', 'image/tiff',
+])
+
+/**
+ * Whether a file rides as an `image` block: any image the API takes or the
+ * browser can convert, whatever its size — one past `ATTACHMENT_MAX_BYTES`
+ * is brought down before it goes (spec 2026-10-16-image-sizes-design § 1).
+ * Anything else — an `.xlsx`, an SVG — rides by path (spec
  * 2026-10-01-file-attachments-design § What is an image and what is a file).
  */
 export function isInlineImage(file: File): boolean {
-  return ATTACHMENT_MEDIA_TYPES.has(file.type) && file.size <= ATTACHMENT_MAX_BYTES
+  return ATTACHMENT_MEDIA_TYPES.has(file.type) || CONVERTIBLE_IMAGE_TYPES.has(file.type)
 }
 
 /**
