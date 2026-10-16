@@ -32,7 +32,8 @@ import type { FileAs } from '@orbital/shared/remote/messages';
 /** Another Mac's images and files, for a phone looking at that Mac's session through this one (spec 2026-10-06-peer-macs-design § 4). */
 export type PeerReads = {
   owns(sessionId: string): boolean;
-  blob(ref: string): Promise<{ bytes: Uint8Array; mediaType: string | null } | null>;
+  /** `edge`: a thumbnail, made by the Mac that holds the image. */
+  blob(ref: string, edge?: number): Promise<{ bytes: Uint8Array; mediaType: string | null } | null>;
   file(session: string, path: string, as: FileAs, cwd?: string): Promise<PhoneFileAnswer>;
 };
 
@@ -327,18 +328,18 @@ export class PhoneSession {
   /** A thumbnail when one is made, else the image itself (`thumbnailOf`). */
   private async onThumbGet(id: number, ref: string, edge: number): Promise<void> {
     const thumb = await thumbnailOf(this.opts.imagesDir, ref, edge).catch(() => null);
-    if (!thumb) return this.onBlobGet(id, ref);
+    if (!thumb) return this.onBlobGet(id, ref, edge);
     this.sendJson({ t: 'blob_meta', id, status: 200, bytes: thumb.bytes.length, mediaType: thumb.mediaType });
     for (const chunk of chunkBlob(id, thumb.bytes)) this.sendInner(encodeInner(chunk));
   }
 
-  private onBlobGet(id: number, ref: string): void {
+  private onBlobGet(id: number, ref: string, edge?: number): void {
     let bytes: Buffer;
     try {
       bytes = readFileSync(join(this.opts.imagesDir, ref));
     } catch {
       if (!this.opts.peers) return this.sendJson({ t: 'blob_meta', id, status: 404 });
-      void this.opts.peers.blob(ref).catch(() => null).then((blob) => {
+      void this.opts.peers.blob(ref, edge).catch(() => null).then((blob) => {
         if (!blob) return this.sendJson({ t: 'blob_meta', id, status: 404 });
         this.sendJson({
           t: 'blob_meta', id, status: 200, bytes: blob.bytes.length, ...(blob.mediaType ? { mediaType: blob.mediaType } : {}),

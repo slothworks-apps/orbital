@@ -257,11 +257,11 @@ export class PeerService {
   }
 
   /** A stored image of some peer's session, by ref: asked of every peer that is up. */
-  async blob(ref: string): Promise<BlobResult | null> {
+  async blob(ref: string, edge?: number): Promise<BlobResult | null> {
     for (const link of this.links.values()) {
       if (!link.client.ready) continue;
       try {
-        const res = await link.client.getBlob(ref);
+        const res = await link.client.getBlob(ref, edge !== undefined ? { edge } : {});
         if (res.status === 200) return res;
       } catch {
         /* the next peer */
@@ -283,7 +283,7 @@ export class PeerService {
   readsForPhones(): PeerReads {
     return {
       owns: (id) => this.linkOf(id) !== null,
-      blob: (ref) => this.blob(ref),
+      blob: (ref, edge) => this.blob(ref, edge),
       file: async (session, path, as, cwd) => {
         const link = this.linkOf(session);
         const res = link ? await this.file(link, session, path, as, cwd) : null;

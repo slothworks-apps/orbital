@@ -146,11 +146,11 @@ export class MultiClient implements SwappableClient {
     return res
   }
 
-  async getBlob(ref: string): Promise<BlobResult> {
+  async getBlob(ref: string, opts?: { edge?: number }): Promise<BlobResult> {
     let last: BlobResult | null = null
     for (const client of this.readyClients()) {
       try {
-        const res = await client.getBlob(ref)
+        const res = await client.getBlob(ref, opts)
         if (res.status === 200) return res
         last = res
       } catch {
