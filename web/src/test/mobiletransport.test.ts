@@ -3,7 +3,7 @@ import { TunnelError, type RemoteClientEvent } from '@orbital/shared/remote/clie
 import { ATTACHMENT_MAX_BYTES } from '../lib/attachments'
 import { OrbitalSocket } from '../lib/ws'
 import { ClientRef } from '../mobile/transport/clientRef'
-import { makeImageResolver, mediaTypeOf } from '../mobile/transport/imageResolver'
+import { PHONE_THUMB_EDGE, makeImageResolver, mediaTypeOf } from '../mobile/transport/imageResolver'
 import { makeTunnelFetch } from '../mobile/transport/tunnelFetch'
 import { makeTunnelUpload } from '../mobile/transport/tunnelUpload'
 import { TunnelSocket } from '../mobile/transport/tunnelSocket'
@@ -156,7 +156,7 @@ describe('makeImageResolver', () => {
 
   it('serves a cached image without asking the Mac, then synchronously', async () => {
     const client = new FakeClient()
-    const io = { read: vi.fn(async () => new Uint8Array([1])), write: vi.fn(async () => {}) }
+    const io = { read: vi.fn(async (_ref: string, _thumb: boolean) => ({ bytes: new Uint8Array([1]), mediaType: 'image/png' })), write: vi.fn(async () => {}) }
     const resolve = makeImageResolver(client, io, toUrl)
     await expect(resolve(REF)).resolves.toBe('blob:image/png:1')
     expect(client.getBlob).not.toHaveBeenCalled()
@@ -166,18 +166,18 @@ describe('makeImageResolver', () => {
   it('fetches a missing image once over the tunnel, however often it is asked, and caches it', async () => {
     const client = new FakeClient()
     client.getBlob.mockResolvedValue({ status: 200, bytes: new Uint8Array([1, 2]), mediaType: 'image/png' })
-    const io = { read: vi.fn(async () => null), write: vi.fn(async () => {}) }
+    const io = { read: vi.fn(async (_ref: string, _thumb: boolean) => null), write: vi.fn(async () => {}) }
     const resolve = makeImageResolver(client, io, toUrl)
     const [a, b] = await Promise.all([resolve(REF), resolve(REF)])
     expect(a).toBe('blob:image/png:2')
     expect(b).toBe(a)
     expect(client.getBlob).toHaveBeenCalledTimes(1)
-    expect(io.write).toHaveBeenCalledWith(REF, new Uint8Array([1, 2]))
+    expect(io.write).toHaveBeenCalledWith(REF, new Uint8Array([1, 2]), false, 'image/png')
   })
 
   it('rejects when the Mac has no such image, and asks again next time', async () => {
     const client = new FakeClient()
-    const io = { read: vi.fn(async () => null), write: vi.fn(async () => {}) }
+    const io = { read: vi.fn(async (_ref: string, _thumb: boolean) => null), write: vi.fn(async () => {}) }
     const resolve = makeImageResolver(client, io, toUrl)
     await expect(resolve(REF)).rejects.toThrow('404')
     await expect(resolve(REF)).rejects.toThrow('404')
@@ -187,9 +187,29 @@ describe('makeImageResolver', () => {
   it('falls through to the tunnel when the cache read itself fails', async () => {
     const client = new FakeClient()
     client.getBlob.mockResolvedValue({ status: 200, bytes: new Uint8Array([1]), mediaType: 'image/png' })
-    const io = { read: vi.fn(async () => { throw new Error('disk error') }), write: vi.fn(async () => {}) }
+    const io = { read: vi.fn(async (_ref: string, _thumb: boolean): Promise<null> => { throw new Error('disk error') }), write: vi.fn(async () => {}) }
     const resolve = makeImageResolver(client, io, toUrl)
     await expect(resolve(REF)).resolves.toBe('blob:image/png:1')
+    expect(client.getBlob).toHaveBeenCalledTimes(1)
+  })
+
+  it('asks the Mac for a thumbnail apart from the image, and keeps it under its own key', async () => {
+    const client = new FakeClient()
+    client.getBlob.mockResolvedValue({ status: 200, bytes: new Uint8Array([9]), mediaType: 'image/jpeg' })
+    const io = { read: vi.fn(async (_ref: string, _thumb: boolean) => null), write: vi.fn(async () => {}) }
+    const resolve = makeImageResolver(client, io, toUrl)
+    await expect(resolve(REF, { thumb: true })).resolves.toBe('blob:image/jpeg:1')
+    expect(client.getBlob).toHaveBeenCalledWith(REF, { edge: PHONE_THUMB_EDGE })
+    expect(io.write).toHaveBeenCalledWith(REF, new Uint8Array([9]), true, 'image/jpeg')
+  })
+
+  it('serves a thumbnail from the full image once that is here', async () => {
+    const client = new FakeClient()
+    client.getBlob.mockResolvedValue({ status: 200, bytes: new Uint8Array([1, 2]), mediaType: 'image/png' })
+    const io = { read: vi.fn(async (_ref: string, _thumb: boolean) => null), write: vi.fn(async () => {}) }
+    const resolve = makeImageResolver(client, io, toUrl)
+    const full = await resolve(REF)
+    expect(resolve(REF, { thumb: true })).toBe(full)
     expect(client.getBlob).toHaveBeenCalledTimes(1)
   })
 
@@ -199,7 +219,7 @@ describe('makeImageResolver', () => {
     function setup() {
       let n = 0
       const client = new FakeClient()
-      const io = { read: vi.fn(async () => new Uint8Array([1])), write: vi.fn(async () => {}) }
+      const io = { read: vi.fn(async (_ref: string, _thumb: boolean) => ({ bytes: new Uint8Array([1]), mediaType: 'image/png' })), write: vi.fn(async () => {}) }
       const revoke = vi.fn()
       const counting = (bytes: Uint8Array, type: string) => `blob:${type}:${bytes.length}:${++n}`
       return { client, io, revoke, resolve: makeImageResolver(client, io, counting, revoke, 2) }
@@ -233,7 +253,7 @@ describe('makeImageResolver', () => {
       io.read.mockClear()
       const again = await resolve(ref('a'))
       expect(again).not.toBe(a)
-      expect(io.read).toHaveBeenCalledWith(ref('a'))
+      expect(io.read).toHaveBeenCalledWith(ref('a'), false)
       expect(client.getBlob).not.toHaveBeenCalled()
     })
   })

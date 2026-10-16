@@ -12,14 +12,20 @@ import { isImageRef } from './parse'
  * protocol's own `ImageRef` schema (shared/src/remote/messages.ts) only
  * guards `blob_get`/`blob_put`.
  */
-export async function readCachedImage(ref: string): Promise<Uint8Array | null> {
-  if (!isImageRef(ref)) return null
-  return (await fileCache.get(refKey(ref)))?.bytes ?? null
+/** A thumbnail is kept beside its image, under its own key (spec 2026-10-16-image-sizes-design § 2). */
+function keyOf(ref: string, thumb: boolean): string {
+  return thumb ? `thumb:${refKey(ref)}` : refKey(ref)
 }
 
-export async function writeCachedImage(ref: string, bytes: Uint8Array): Promise<void> {
+export async function readCachedImage(ref: string, thumb = false): Promise<{ bytes: Uint8Array; mediaType: string } | null> {
+  if (!isImageRef(ref)) return null
+  const hit = await fileCache.get(keyOf(ref, thumb))
+  return hit ? { bytes: hit.bytes, mediaType: hit.entry.mediaType ?? mediaTypeOf(ref) } : null
+}
+
+export async function writeCachedImage(ref: string, bytes: Uint8Array, thumb = false, mediaType = mediaTypeOf(ref)): Promise<void> {
   if (!isImageRef(ref)) throw new Error('not an image ref')
-  await fileCache.put(refKey(ref), bytes, { w: null, h: null, mediaType: mediaTypeOf(ref) })
+  await fileCache.put(keyOf(ref, thumb), bytes, { w: null, h: null, mediaType })
 }
 
 /** The same cache as `clearFileCache`; kept so forgetting the Mac reads as it always did. */

@@ -49,8 +49,9 @@ describe('isInlineImage — what rides as an image block', () => {
     expect(isInlineImage(fakeFile('a.png', 'image/png', 4 * MB))).toBe(true)
   })
 
-  it('sends an image over the ceiling by path instead', () => {
-    expect(isInlineImage(fakeFile('capture.png', 'image/png', 13 * MB))).toBe(false)
+  it('keeps an image over the ceiling an image, and one the API does not take but a browser converts', () => {
+    expect(isInlineImage(fakeFile('capture.png', 'image/png', 13 * MB))).toBe(true)
+    expect(isInlineImage(fakeFile('IMG_1.heic', 'image/heic', 3 * MB))).toBe(true)
   })
 
   it('sends anything else by path', () => {
