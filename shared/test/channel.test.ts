@@ -112,16 +112,15 @@ describe('Channel', () => {
     const aId = generateIdentity();
     const bId = generateIdentity();
     const events: string[] = [];
-    let b: Channel;
-    const a = new Channel({
+    const a: Channel = new Channel({
       identity: aId, peerKey: bId.publicKey, role: 'initiator', hello: { app: 'orbital-mobile/0.0.1', kind: 'phone' },
       send: (body) => b.receive(body),
     });
-    a.on((e) => events.push(e.type === 'bye' ? `bye:${e.reason}` : e.type));
-    b = new Channel({
+    const b: Channel = new Channel({
       identity: bId, peerKey: aId.publicKey, role: 'responder', hello: desktop('b'),
       send: (body) => a.receive(body), judge: () => ({ reason: 'app_too_old', needed: '9.0.0' }),
     });
+    a.on((e) => events.push(e.type === 'bye' ? `bye:${e.reason}` : e.type));
     a.start();
     expect(events).toContain('bye:app_too_old');
     expect(b.ready).toBe(false);
