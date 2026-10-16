@@ -368,8 +368,8 @@ export const api = {
    * from (spec 2026-10-02-mobile-app-design § 6.4) — one narrow route, so the
    * phone never needs the whole settings surface.
    */
-  async sessionDefaults(): Promise<SessionDefaults> {
-    return request<SessionDefaults>('GET', '/api/sessions/defaults')
+  async sessionDefaults(machine?: string): Promise<SessionDefaults> {
+    return request<SessionDefaults>('GET', machine === undefined ? '/api/sessions/defaults' : `/api/sessions/defaults?${new URLSearchParams({ machine })}`)
   },
 
   async createSession(body: {
@@ -394,6 +394,7 @@ export const api = {
     /** The answer to the `.mcp.json` question, recorded before the launch. Omitted, the
      * Mac keeps every undecided server out (spec 2026-10-08-mcpjson-approval-design). */
     mcpjson?: McpjsonDecisions
+    machine?: string
   }): Promise<string> {
     const data = await request<{ sessionId: string }>('POST', '/api/sessions', body)
     return data.sessionId
@@ -753,9 +754,10 @@ export const api = {
    * question (spec 2026-10-08-mcpjson-approval-design). Through the relay on
    * the phone.
    */
-  async mcpjson(cwd: string, claudeDirId?: number): Promise<McpjsonServer[]> {
+  async mcpjson(cwd: string, claudeDirId?: number, machine?: string): Promise<McpjsonServer[]> {
     const params = new URLSearchParams({ cwd })
     if (claudeDirId !== undefined) params.set('claudeDirId', String(claudeDirId))
+    if (machine !== undefined) params.set('machine', machine)
     const data = await request<{ undecided: McpjsonServer[] }>('GET', `/api/mcpjson?${params}`)
     return data.undecided
   },
@@ -764,13 +766,15 @@ export const api = {
    * What a typed project directory is on the Mac, `~` expanded (spec
    * 2026-10-12-new-session-missing-directory-design § Server).
    */
-  async directoryState(path: string): Promise<{ path: string; state: DirectoryState }> {
-    return request<{ path: string; state: DirectoryState }>('GET', `/api/directory?${new URLSearchParams({ path })}`)
+  /** `machine`: another Mac's id, to ask that Mac instead (spec 2026-10-06-peer-macs-design § 2). */
+  async directoryState(path: string, machine?: string): Promise<{ path: string; state: DirectoryState }> {
+    const params = new URLSearchParams({ path, ...(machine !== undefined ? { machine } : {}) })
+    return request<{ path: string; state: DirectoryState }>('GET', `/api/directory?${params}`)
   },
 
   /** Creates a missing project directory and its parents; answers the expanded path. */
-  async createDirectory(path: string): Promise<{ path: string }> {
-    return request<{ path: string }>('POST', '/api/directory', { path })
+  async createDirectory(path: string, machine?: string): Promise<{ path: string }> {
+    return request<{ path: string }>('POST', '/api/directory', { path, ...(machine !== undefined ? { machine } : {}) })
   },
 
   /**
@@ -857,10 +861,10 @@ export const api = {
 
   // Projects API
   /** `lastAt` is the newest session's `lastAt` in that directory — the phone's 9d rows read it as its last use. */
-  async listProjects(): Promise<Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>> {
+  async listProjects(machine?: string): Promise<Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>> {
     const data = await request<{
       projects: Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>
-    }>('GET', '/api/projects')
+    }>('GET', machine === undefined ? '/api/projects' : `/api/projects?${new URLSearchParams({ machine })}`)
     return data.projects
   },
 
@@ -1260,6 +1264,48 @@ export const api = {
   async restartRemote(): Promise<RemoteStatus> {
     return request('POST', '/api/remote/restart')
   },
+
+  // Peer Macs — Settings → Devices (spec 2026-10-06-peer-macs-design § 3).
+  // The pairing calls read their refusals as values, like phone pairing.
+
+  /** The status of all paired peer Macs and any pending pairing. */
+  async getPeers(): Promise<{ peers: import('./types').PeerMac[]; pairing: { mac: string; name: string; code: string } | null }> {
+    return request('GET', '/api/peers')
+  },
+
+  /** Generate a pairing code for another Mac to paste. 409 when the remote is off or relay unreachable. */
+  async generatePeerCode(): Promise<
+    { code: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' }
+  > {
+    return remoteCall('POST', '/api/peers/code', undefined, {
+      409: ['disabled', 'offline', 'relay_error', 'relay_too_old'],
+    })
+  },
+
+  /**
+   * Redeem a pairing code from another Mac. Returns the 6-character confirmation code
+   * the user must type on the OTHER Mac. Errors: bad_code (400), already_paired or
+   * relay_unreachable or code_refused (409).
+   */
+  async pairWithPeer(code: string): Promise<
+    { mac: string; name: string; code: string } | { error: 'bad_code' | 'already_paired' | 'relay_unreachable' | 'code_refused' }
+  > {
+    return remoteCall('POST', '/api/peers/pair', { code }, {
+      400: ['bad_code'],
+      409: ['already_paired', 'relay_unreachable', 'code_refused'],
+    })
+  },
+
+  /** `false` when the peer was already gone (404) — the next status drop its row either way. */
+  async forgetPeer(id: string): Promise<boolean> {
+    try {
+      await request('DELETE', `/api/peers/${encodeURIComponent(id)}`)
+      return true
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return false
+      throw err
+    }
+  },
 }
 
 /** What `/api/claude-dirs` refuses a change with. Mirrors `server/src/claudeDirs/service.ts`. */
@@ -1371,4 +1417,6 @@ export type {
   StepStatus,
   StepState,
   StepMode,
+  PeerMac,
+  PeersStatus,
 } from './types'

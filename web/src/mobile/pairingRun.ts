@@ -7,6 +7,8 @@ import { PAIRED_HELLO_WAIT_MS } from './constants'
 import { relayHost } from './format'
 import { fingerprintFor, redeemOutcome } from './pairingFlow'
 import { thisDevice } from './platform/device'
+import { generateIdentity, toBase64Url } from '@orbital/shared/remote/keys'
+import { adoptOtherMac } from './otherMacs'
 import { loadOrCreateIdentity } from './platform/identity'
 import type { Pairing } from './platform/parse'
 import { clearUnpaired, savePairing } from './platform/pairing'
@@ -64,17 +66,36 @@ export async function runPairing(
   qr: QrPayload,
   report: (step: PairingStep) => void,
   cancelled: () => boolean,
+  { other = false }: { other?: boolean } = {},
 ): Promise<void> {
   const held: { client: RemoteClient | null } = { client: null }
   try {
-    await pair(qr, report, cancelled, held)
+    await pair(qr, report, cancelled, held, other)
   } catch (err) {
     // The error only: never the code, whose text carries the pairing secret.
     console.warn('[mobile] pairing failed', err)
     if (cancelled()) return
-    if (held.client && clientRef.client === held.client) clientRef.set(null)
+    if (other) dropPairingClient(true)
+    else if (held.client && clientRef.client === held.client) clientRef.set(null)
     report({ kind: 'scan', error: PAIRING_FAILED })
   }
+}
+
+/**
+ * The link of a pairing for another Mac (spec 2026-10-06-peer-macs-design
+ * § 4), held here rather than in `clientRef`, which the main Mac's link
+ * keeps; adopted once paired.
+ */
+let otherInFlight: RemoteClient | null = null
+
+/** Ends a pairing's link: the main Mac's in `clientRef`, or another Mac's held aside. */
+export function dropPairingClient(other: boolean): void {
+  if (!other) {
+    clientRef.set(null)
+    return
+  }
+  otherInFlight?.stop()
+  otherInFlight = null
 }
 
 async function pair(
@@ -82,15 +103,21 @@ async function pair(
   report: (step: PairingStep) => void,
   cancelled: () => boolean,
   held: { client: RemoteClient | null },
+  other: boolean,
 ): Promise<void> {
   report({ kind: 'connecting' })
-  const identity = await loadOrCreateIdentity()
+  // Another Mac gets a key of its own: the relay holds one socket per device.
+  const identity = other ? generateIdentity() : await loadOrCreateIdentity()
   // Before any client exists: a Cancel during the key load leaves nothing behind.
   if (cancelled()) return
   const fingerprint = fingerprintFor(qr.mac, identity.publicKey)
   const client = newClient(qr.relay, qr.mac, identity, { expectPaired: false, relaySecret: qr.relaySecret })
   held.client = client
-  clientRef.set(client)
+  if (other) {
+    dropPairingClient(true)
+    otherInFlight = client
+  } else clientRef.set(client)
+  const release = () => dropPairingClient(other)
   // A refused secret or a relay too old ends the wait too: the client has
   // stopped, and waiting out the timeout would say "can't reach".
   let refused = false
@@ -108,7 +135,7 @@ async function pair(
   const reached = await online
   if (cancelled()) return
   if (!reached || refused || tooOld) {
-    clientRef.set(null)
+    release()
     const error = tooOld ? relayTooOldMessage(qr.relay, tooOld) : refused ? RELAY_REFUSED_SECRET : RELAY_UNREACHABLE
     report({ kind: 'scan', error })
     return
@@ -123,13 +150,13 @@ async function pair(
   const answer = await client.redeem(qr.token, qr.secret, device.name, device.platform)
   if (cancelled()) return
   if (answer.relayTooOld) {
-    clientRef.set(null)
+    release()
     report({ kind: 'scan', error: relayTooOldMessage(qr.relay, answer.relayTooOld) })
     return
   }
   const verdict = redeemOutcome(answer.status)
   if (verdict !== 'wait') {
-    clientRef.set(null)
+    release()
     report(
       verdict === 'expired'
         ? { kind: 'expired' }
@@ -140,7 +167,7 @@ async function pair(
   const result = await outcome
   if (cancelled()) return
   if (result !== 'paired') {
-    clientRef.set(null)
+    release()
     report({ kind: 'expired' })
     return
   }
@@ -148,6 +175,14 @@ async function pair(
   const pairing: Pairing = { relay: qr.relay, mac: qr.mac, macName: qr.name, fingerprint, pairedAt: Date.now() }
   // Only when the code had one: a code from an open relay stores what it always did.
   if (qr.relaySecret !== undefined) pairing.relaySecret = qr.relaySecret
+  if (other) {
+    otherInFlight = null
+    await adoptOtherMac({ ...pairing, secretKey: toBase64Url(identity.secretKey) }, client)
+    if (!client.ready) await waitFor(client, (e) => e.type === 'hello', PAIRED_HELLO_WAIT_MS)
+    if (cancelled()) return
+    report({ kind: 'paired', macName: qr.name, relayHost: new URL(qr.relay).host, fingerprint })
+    return
+  }
   // The notifications tip becomes due with a pairing (spec
   // 2026-10-08-notifications-off-by-default-design § 5), before the list can show.
   await Promise.all([savePairing(pairing), clearUnpaired(), usePhoneTip.getState().markPending()])

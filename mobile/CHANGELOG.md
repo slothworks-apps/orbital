@@ -3,6 +3,9 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Added
+- Pair the phone with more than one Mac: Settings → Add another Mac. Every Mac's sessions show in one list, each row says which Mac it runs on, chips pick one Mac, and New session asks where to start. A Mac that sleeps takes only its own sessions away.
+- A phone paired with one Mac also sees the sessions of the Macs that Mac is paired with.
 
 ## [0.14.0] — 2026-10-16
 ### Added

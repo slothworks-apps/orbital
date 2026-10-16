@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactNode, Ref } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
+  LOCAL_MACHINE,
   SIDEBAR_DEFAULT_PX,
   clampSidebarWidth,
   parseSidebarWidth,
@@ -27,6 +28,7 @@ import type { ApiSession, SessionSource, Tag } from '../lib/types'
 import { Panel } from '../ui/Panel'
 import { Chip } from '../ui/Chip'
 import { toggleTag } from '../lib/tagFilter'
+import { toggleMachine } from '../lib/machineFilter'
 import { Select } from '../ui/Select'
 import { Logo } from '../ui/Logo'
 import { PinButton } from '../ui/PinButton'
@@ -471,6 +473,9 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
   const detachedIds = useOrbital((s) => s.detachedIds)
 
   const setFilterTagIds = useOrbital((s) => s.setFilterTagIds)
+  const filterMachineIds = useOrbital((s) => s.ui.filterMachineIds)
+  const setFilterMachineIds = useOrbital((s) => s.setFilterMachineIds)
+  const peers = useOrbital(useShallow((s) => s.peers?.peers ?? []))
   const setSearch = useOrbital((s) => s.setSearch)
   const setSourceFilter = useOrbital((s) => s.setSourceFilter)
   const setSidebarCollapsed = useOrbital((s) => s.setSidebarCollapsed)
@@ -789,6 +794,22 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           />
         ))}
       </div>
+
+      {/* One chip per Mac, once another is paired (spec 2026-10-06-peer-macs-design § 3). */}
+      {peers.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 px-3.5 pb-1.5" role="group" aria-label="Filter by Mac">
+          {[{ id: LOCAL_MACHINE, name: 'This Mac', online: true }, ...peers].map((m) => (
+            <Chip
+              key={m.id}
+              label={m.online ? m.name : `${m.name} · offline`}
+              active={filterMachineIds.length === 0 || filterMachineIds.includes(m.id)}
+              onClick={(e) => setFilterMachineIds(
+                e.metaKey || e.ctrlKey || filterMachineIds.length > 0 ? toggleMachine(filterMachineIds, m.id) : [m.id],
+              )}
+            />
+          ))}
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {/* PINNED above ACTIVE (4a). Absent entirely while nothing is

@@ -1,5 +1,8 @@
 import type { InjectOptions } from 'fastify';
 
+/** Marks a call a paired Mac made: answered for this Mac alone, never forwarded to another (no chaining). */
+export const PEER_HEADER = 'x-orbital-peer';
+
 /**
  * How a phone's REST call enters Fastify: in-process, through the same host
  * guard as the browser (satisfied by the header) and the same token guard
@@ -10,12 +13,13 @@ import type { InjectOptions } from 'fastify';
  * exactly what a phone sends.
  */
 export function remoteInjectOptions(
-  req: { method: string; url: string; payload?: unknown },
+  req: { method: string; url: string; payload?: unknown; peer?: boolean },
   apiToken: string | undefined,
 ): InjectOptions {
   const headers: Record<string, string> = { host: '127.0.0.1' };
   if (apiToken !== undefined) headers.authorization = `Bearer ${apiToken}`;
   if (req.payload !== undefined) headers['content-type'] = 'application/json';
+  if (req.peer) headers[PEER_HEADER] = '1';
   return {
     method: req.method as InjectOptions['method'],
     url: req.url,

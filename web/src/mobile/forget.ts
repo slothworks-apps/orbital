@@ -10,6 +10,8 @@ import { clearFileCache } from './files/fileCache'
 import { clearRecentFiles } from './files/recentFiles'
 import { clearHarnessCache } from './harness/harnessCache'
 import { clearPairing, setUnpaired } from './platform/pairing'
+import { clearOtherMacs } from './platform/otherMacs'
+import { useOtherMacs } from './otherMacs'
 import { useMobile } from './state'
 import { clientRef } from './transport/clientRef'
 
@@ -38,7 +40,9 @@ export async function forgetEverything(opts: { unpaired: boolean }): Promise<voi
       console.warn('[mobile] could not clear the push token on the old relay', err)
     }
   }
+  // Every other Mac's link goes with the main one's: they share its client.
   clientRef.set(null)
+  useOtherMacs.setState({ macs: [] })
   clearRecentFiles()
   // Nothing about the old Mac stays on screen or in the shade.
   useBanner.getState().dismiss()
@@ -53,7 +57,7 @@ export async function forgetEverything(opts: { unpaired: boolean }): Promise<voi
   }
   // Independent of each other and of the flag above: one failing clear must not skip the rest.
   const clears = await Promise.allSettled([
-    clearPairing(), forgetIdentity(), clearCaches(), clearImageCache(), clearHarnessCache(), clearFileCache(),
+    clearPairing(), forgetIdentity(), clearOtherMacs(), clearCaches(), clearImageCache(), clearHarnessCache(), clearFileCache(),
   ])
   for (const result of clears) {
     if (result.status === 'rejected') console.warn('[mobile] could not clear everything stored for the Mac', result.reason)

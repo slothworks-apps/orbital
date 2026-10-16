@@ -78,6 +78,8 @@ export interface ApiSession {
   permissionMode: PermissionMode | null
   model: string | null
   resolvedModel: string | null
+  /** Machine this session belongs to. Absent = a session of this Mac. Present = another Mac's session. */
+  machine?: { id: string; name: string; online: boolean }
   /**
    * Context tokens at the end of the session's last turn, or null when it was
    * never measured — the numerator of the map's context arc (spec
@@ -1863,3 +1865,21 @@ export type PairConfirmResult =
   | { ok: true }
   | { error: Exclude<PairConfirmError, 'code_mismatch'> }
   | { error: 'code_mismatch'; attemptsLeft: number }
+
+/** One paired peer Mac. Mirrors `server/src/peers/types.ts`. */
+export interface PeerMac {
+  id: string
+  name: string
+  online: boolean
+  pairedAt: number
+}
+
+/**
+ * The peer Macs status as `GET /api/peers` answers it and the hub's
+ * `peers` topic publishes it. Mirrors `server/src/peers/types.ts`.
+ */
+export interface PeersStatus {
+  peers: PeerMac[]
+  /** A Mac asking to pair; awaits confirmation code typed on its screen. */
+  pairing: { mac: string; name: string; code: string } | null
+}

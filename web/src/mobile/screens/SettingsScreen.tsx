@@ -3,6 +3,7 @@ import { formatFingerprint } from '@orbital/shared/remote/keys'
 import { notificationsAllOff, type NotificationSettings } from '@orbital/shared/notifications'
 import { useOrbital } from '../../store/store'
 import { forgetEverything } from '../forget'
+import { forgetOtherMac, useOtherMacs } from '../otherMacs'
 import { confirmIdentity } from '../lockFlow'
 import { relayHost } from '../format'
 import { setRules as setNotifierRules } from '../notify'
@@ -165,7 +166,8 @@ export function SettingsScreen() {
             Pair a different Mac
           </button>
         </div>
-        <p className="px-1 pt-2 font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.5)]">one Mac per phone · the name is set on the Mac</p>
+        <OtherMacs />
+        <p className="px-1 pt-2 font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.5)]">the name is set on the Mac</p>
 
         <div ref={notificationsGroup} />
         <SectionLabel>NOTIFICATIONS</SectionLabel>
@@ -291,5 +293,61 @@ function SecuritySection() {
       </div>
       <p className="px-1 pt-2 text-[12px] leading-[1.5] text-[rgba(160,190,225,.65)]">Asks again after a minute in the background.</p>
     </>
+  )
+}
+
+/**
+ * The Macs beside the main one (spec 2026-10-06-peer-macs-design § 4): each
+ * with its state and a Forget, and Add another Mac, which opens the scanner
+ * for one more.
+ */
+function OtherMacs() {
+  const macs = useOtherMacs((s) => s.macs)
+  const go = useMobile((s) => s.go)
+  const [forgetting, setForgetting] = useState<string | null>(null)
+  return (
+    <div className={`${CARD} mt-2.5`}>
+      {macs.map((m, i) => (
+        <div key={m.mac} className={['flex min-h-14 items-center gap-3 px-3.5', i > 0 ? 'border-t border-[rgba(150,205,255,.08)]' : ''].join(' ')}>
+          <span
+            aria-hidden
+            className={[
+              'block h-2 w-2 shrink-0 rounded-full',
+              m.online ? 'bg-[oklch(85%_.12_205)] shadow-[0_0_8px_oklch(85%_.12_205)]' : 'border-[1.5px] border-[rgba(200,215,235,.6)]',
+            ].join(' ')}
+          />
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="truncate text-[14.5px] font-semibold">{m.name}</span>
+            <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">{m.online ? 'online' : 'offline'}</span>
+          </span>
+          {forgetting === m.mac ? (
+            <button
+              type="button"
+              onClick={() => {
+                setForgetting(null)
+                void forgetOtherMac(m.mac)
+              }}
+              className="min-h-11 px-2 text-[13.5px] font-semibold text-[var(--state-input)]"
+            >
+              Forget {m.name}
+            </button>
+          ) : (
+            <button type="button" onClick={() => setForgetting(m.mac)} className="min-h-11 px-2 text-[13.5px] text-[rgba(160,190,225,.8)]">
+              Forget
+            </button>
+          )}
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => {
+          useOtherMacs.setState({ adding: true })
+          go('pairing')
+        }}
+        className={['flex min-h-13 w-full items-center px-3.5 text-left text-[14px] font-semibold text-text-bright', macs.length > 0 ? 'border-t border-[rgba(150,205,255,.08)]' : ''].join(' ')}
+      >
+        Add another Mac
+      </button>
+    </div>
   )
 }

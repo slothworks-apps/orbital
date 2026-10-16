@@ -6,11 +6,11 @@ import { useNow } from '../../lib/useNow'
 import { useOrbital } from '../../store/store'
 import { FingerprintBoxes } from '../../ui/FingerprintBoxes'
 import { parseQrText } from '../pairingFlow'
-import { runPairing, type PairingStep } from '../pairingRun'
+import { useOtherMacs } from '../otherMacs'
+import { dropPairingClient, runPairing, type PairingStep } from '../pairingRun'
 import { identityIsDevOnly } from '../platform/identity'
 import { scanQr } from '../platform/scanner'
 import { useMobile } from '../state'
-import { clientRef } from '../transport/clientRef'
 import { LitMark, MobileScreen, PrimaryButton, SecondaryButton } from '../ui'
 
 export const NOT_A_CODE = "That isn't an Orbital pairing code."
@@ -23,6 +23,8 @@ export function PairingScreen() {
   const [pasted, setPasted] = useState('')
   const run = useRef(0)
   const opened = useRef(false)
+  // Read once: the screen pairs the main Mac or another one for its whole life.
+  const [other] = useState(() => useOtherMacs.getState().adding)
 
   const start = useCallback((text: string) => {
     const qr = parseQrText(text)
@@ -37,8 +39,9 @@ export function PairingScreen() {
         if (run.current === id) setStep(next)
       },
       () => run.current !== id,
+      { other },
     )
-  }, [])
+  }, [other])
 
   const scan = useCallback(async () => {
     const result = await scanQr()
@@ -61,26 +64,27 @@ export function PairingScreen() {
   // as Cancel does — unless it already paired: the stored pairing owns that link.
   useEffect(
     () => () => {
-      if (useMobile.getState().pairing) return
+      useOtherMacs.setState({ adding: false })
+      if (!other && useMobile.getState().pairing) return
       run.current++
-      clientRef.set(null)
+      dropPairingClient(other)
     },
-    [],
+    [other],
   )
 
   // Cancel closes the socket and returns to the previous screen, or stays here when there is none.
   const cancel = useCallback(() => {
     run.current++
-    clientRef.set(null)
+    dropPairingClient(other)
     if (useMobile.getState().goBack() === 'exit') setStep({ kind: 'scan', error: null })
-  }, [])
+  }, [other])
 
   const scanAgain = useCallback(() => {
     run.current++
-    clientRef.set(null)
+    dropPairingClient(other)
     setStep({ kind: 'scan', error: null })
     void scan()
-  }, [scan])
+  }, [scan, other])
 
   if (step.kind === 'connecting') {
     return (

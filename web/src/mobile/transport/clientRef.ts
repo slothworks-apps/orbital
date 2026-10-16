@@ -6,8 +6,11 @@ import type { FileAs, NotificationSettings } from '@orbital/shared/remote/messag
 /** What the app calls on a client once it exists; `start`, `redeem` and `waitForPairing` stay with whoever made it. */
 export type SwappableClient = Pick<
   RemoteClient,
-  'ready' | 'on' | 'stop' | 'request' | 'getBlob' | 'getFile' | 'putBlob' | 'subscribe' | 'unsubscribe' | 'getNotifications' | 'setNotifications' | 'seen' | 'recheck' | 'pushToken'
->
+  'ready' | 'on' | 'stop' | 'request' | 'getBlob' | 'getFile' | 'subscribe' | 'unsubscribe' | 'getNotifications' | 'setNotifications' | 'seen' | 'recheck' | 'pushToken'
+> & {
+  /** `sessionId`: the session the image is for, so a phone with several Macs sends it to that one's. */
+  putBlob(bytes: Uint8Array, mediaType: string, sessionId?: string | null): Promise<PutBlobResult>
+}
 
 /** The part the four seams use. */
 export type TunnelClient = Pick<SwappableClient, 'ready' | 'on' | 'request' | 'getBlob' | 'getFile' | 'putBlob' | 'subscribe' | 'unsubscribe'>
@@ -34,21 +37,34 @@ export class ClientRef implements SwappableClient {
 
   /** Stops the previous client; a tunnel that was up reads as gone to every listener. */
   set(client: SwappableClient | null): void {
+    this.swap(client, true)
+  }
+
+  /**
+   * Puts `client` in front without stopping the one it replaces — for a
+   * client that wraps the current one (`MultiClient`, a second Mac paired).
+   */
+  wrap(client: SwappableClient): void {
+    this.swap(client, false)
+  }
+
+  private swap(client: SwappableClient | null, stopPrevious: boolean): void {
     const previous = this.current
     if (previous === client) return
     const wasReady = previous?.ready ?? false
     this.detach?.()
     this.detach = null
     this.current = client
-    previous?.stop()
-    if (wasReady) this.emit({ type: 'ready', ready: false })
+    if (stopPrevious) previous?.stop()
+    if (wasReady && !(client?.ready ?? false)) this.emit({ type: 'ready', ready: false })
     if (client) {
       if (this.token) client.pushToken(this.token)
       this.detach = client.on((event) => this.emit(event))
       // A client handed over already ready (a reconnect that beat the swap)
       // reads as the tunnel coming up now — a listener never sees `ready`
-      // true without first hearing the event that got it there.
-      if (client.ready) this.emit({ type: 'ready', ready: true })
+      // true without first hearing the event that got it there. A wrap of a
+      // ready client changes nothing a listener could see.
+      if (client.ready && !wasReady) this.emit({ type: 'ready', ready: true })
     }
   }
 
@@ -75,8 +91,8 @@ export class ClientRef implements SwappableClient {
     return this.current ? this.current.getFile(session, path, as, opts) : Promise.reject(new TunnelError('offline'))
   }
 
-  putBlob(bytes: Uint8Array, mediaType: string): Promise<PutBlobResult> {
-    return this.current ? this.current.putBlob(bytes, mediaType) : Promise.reject(new TunnelError('offline'))
+  putBlob(bytes: Uint8Array, mediaType: string, sessionId?: string | null): Promise<PutBlobResult> {
+    return this.current ? this.current.putBlob(bytes, mediaType, sessionId) : Promise.reject(new TunnelError('offline'))
   }
 
   subscribe(topic: string): void {

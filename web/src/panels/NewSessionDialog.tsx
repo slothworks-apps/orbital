@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useOrbital } from '../store/store'
+import { LOCAL_MACHINE, useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { command, matches, shortcutLabel } from '../lib/keymap'
 import { reportError } from '../lib/errors'
@@ -160,6 +160,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const select = useOrbital((s) => s.select)
   const selectedSession = useOrbital((s) => (s.ui.selectedId ? (s.sessions[s.ui.selectedId] ?? null) : null))
   const launchSession = useOrbital((s) => s.launchSession)
+  const peers = useOrbital((s) => s.peers)
 
   const [cwd, setCwd] = useState('')
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('acceptEdits')
@@ -197,6 +198,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const [claudeDirPrefilled, setClaudeDirPrefilled] = useState<Omit<ClaudeDirOrigin, 'changed'> & { id: number | null }>(
     { id: null, from: 'default' },
   )
+  /** Which Mac the session starts on: this one, or a paired Mac's id (spec 2026-10-06-peer-macs-design § 3). */
+  const [machineId, setMachineId] = useState<string>(LOCAL_MACHINE)
+  const peerMachine = machineId === LOCAL_MACHINE ? undefined : machineId
   /**
    * The `.mcp.json` question (spec 2026-10-08-mcpjson-approval-design; canvas
    * 47a/47b): the servers Launch found undecided and the answers so far. Set,
@@ -282,7 +286,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         planet: prefill?.from === 'planet' ? selectedSession?.title : undefined,
       })
       api
-        .listProjects()
+        .listProjects(peerMachine)
         .then(setProjects)
         .catch(() => {
           // Recent-dirs chips are a convenience; the cwd input still works without them.
@@ -381,8 +385,15 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   /** Other is selected but no id has validated yet. */
   const awaitingCustomModel = otherActive && model === null
 
-  const dirState = useDirectoryState(cwd, open)
-  const dirLine = directoryLine(dirState, 'this Mac')
+  // The recent-project chips follow the Mac the session will start on.
+  useEffect(() => {
+    if (!open || !peerMachine) return
+    api.listProjects(peerMachine).then(setProjects).catch(() => {})
+  }, [open, peerMachine])
+  const dirState = useDirectoryState(cwd, open, peerMachine)
+  const dirLine = directoryLine(
+    dirState, peerMachine ? (peers?.peers.find((p) => p.id === peerMachine)?.name ?? 'that Mac') : 'this Mac',
+  )
 
   /** The launch itself, with the question's answers when it was asked. */
   const launch = useCallback(async (mcpjson?: McpjsonDecisions) => {
@@ -412,11 +423,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         // not written as a session that never runs.
         requireDirectory: true,
         // Only when the choice was offered: with one directory nothing changes.
-        ...(choosesDir && claudeDirId !== null ? { claudeDirId } : {}),
+        // This Mac's Claude directories mean nothing on another Mac.
+        ...(!peerMachine && choosesDir && claudeDirId !== null ? { claudeDirId } : {}),
         // Omitted rather than sent empty: absent and `[]` mean the same thing to
         // the server, and every existing body assertion stays true.
         ...(refs.length > 0 ? { attachments: refs } : {}),
         ...(mcpjson ? { mcpjson } : {}),
+        ...(peerMachine ? { machine: peerMachine } : {}),
       }, images)
       // A tag is remembered only when it was the user's pick — this launch's,
       // or the previous one's left standing — never a rule's match or the
@@ -440,7 +453,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     } finally {
       setPending(false)
     }
-  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments])
+  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, peerMachine, onClose, select, launchSession, attachments])
 
   /**
    * Launch: asks about the project's undecided `.mcp.json` servers first,
@@ -453,20 +466,22 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     // Asked again rather than read off the line: the field may have changed
     // since its answer, and a folder may have been made meanwhile. A failed
     // ask launches, and `requireDirectory` still refuses a missing directory.
-    const dir = await api.directoryState(cwd.trim()).catch(() => null)
+    const dir = await api.directoryState(cwd.trim(), peerMachine).catch(() => null)
     if (dir && dir.state !== 'directory') {
       setPending(false)
       if (dir.state === 'missing') setMissingDir(dir.path)
       return
     }
-    const servers = await undecidedBeforeLaunch(cwd.trim(), choosesDir && claudeDirId !== null ? claudeDirId : undefined)
+    const servers = await undecidedBeforeLaunch(
+      cwd.trim(), !peerMachine && choosesDir && claudeDirId !== null ? claudeDirId : undefined, peerMachine,
+    )
     if (servers.length > 0) {
       setPending(false)
       setQuestion({ servers, answers: {} })
       return
     }
     await launch()
-  }, [cwd, pending, awaitingCustomModel, choosesDir, claudeDirId, launch])
+  }, [cwd, pending, awaitingCustomModel, choosesDir, claudeDirId, peerMachine, launch])
 
   /**
    * *Create and launch*. A directory just made has no `.mcp.json` to ask
@@ -476,7 +491,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     if (!missingDir || pending) return
     setPending(true)
     try {
-      await api.createDirectory(missingDir)
+      await api.createDirectory(missingDir, peerMachine)
     } catch (err) {
       setPending(false)
       reportError(err, 'Could not create the folder')
@@ -484,7 +499,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     }
     setMissingDir(null)
     await launch()
-  }, [missingDir, pending, launch])
+  }, [missingDir, pending, peerMachine, launch])
 
   const decisions = question ? decisionsOf(question.servers, question.answers) : null
 
@@ -679,7 +694,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                     placeholder="/path/to/project"
                     className="min-w-0 flex-1"
                   />
-                  {canBrowse && (
+                  {/* The native picker browses this Mac's disk only. */}
+                  {canBrowse && !peerMachine && (
                     <Button variant="ghost" size="field" onClick={browse}>
                       Browse…
                     </Button>
@@ -814,6 +830,32 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                   ))}
                 </div>
               </div>
+
+              {/* Only once another Mac is paired. */}
+              {peers && peers.peers.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <FieldLabel>MACHINE</FieldLabel>
+                  <div className="flex flex-wrap gap-1.5" role="group" aria-label="Machine">
+                    <Chip
+                      label="This Mac"
+                      hue={0}
+                      active={machineId === LOCAL_MACHINE}
+                      onClick={() => setMachineId(LOCAL_MACHINE)}
+                    />
+                    {peers.peers
+                      .filter((p) => p.online)
+                      .map((peer) => (
+                        <Chip
+                          key={peer.id}
+                          label={peer.name}
+                          hue={0}
+                          active={machineId === peer.id}
+                          onClick={() => setMachineId(peer.id)}
+                        />
+                      ))}
+                  </div>
+                </div>
+              )}
 
             </div>
 

@@ -83,6 +83,8 @@ export default function App() {
   const applyErrorsEvent = useOrbital((s) => s.applyErrorsEvent)
   const applyRemoteEvent = useOrbital((s) => s.applyRemoteEvent)
   const refreshRemote = useOrbital((s) => s.refreshRemote)
+  const setPeers = useOrbital((s) => s.setPeers)
+  const refreshPeers = useOrbital((s) => s.refreshPeers)
   const setWsStatus = useOrbital((s) => s.setWsStatus)
   const setDialog = useOrbital((s) => s.setDialog)
   const selectedId = useOrbital((s) => s.ui.selectedId)
@@ -246,9 +248,12 @@ export default function App() {
   useEffect(() => {
     return socket.onStatusChange((status) => {
       setWsStatus(status)
-      if (status === 'open') void refreshRemote()
+      if (status === 'open') {
+        void refreshRemote()
+        void refreshPeers()
+      }
     })
-  }, [setWsStatus, refreshRemote])
+  }, [setWsStatus, refreshRemote, refreshPeers])
 
   // `remote` topic — the mobile remote's status, for the app's whole lifetime
   // because a pairing request must reach the user wherever they are (spec
@@ -256,6 +261,11 @@ export default function App() {
   useEffect(() => {
     return socket.subscribe('remote', (msg: RemoteEvent) => applyRemoteEvent(msg))
   }, [applyRemoteEvent])
+
+  // `peers` topic — the peer Macs status, for the app's whole lifetime.
+  useEffect(() => {
+    return socket.subscribe('peers', (msg) => setPeers(msg))
+  }, [setPeers])
 
   // `session:<id>` topic follows the current selection: subscribing to the
   // newly-selected session and unsubscribing the previous one is exactly

@@ -176,6 +176,7 @@ function resetStore() {
     ui: {
       selectedId: null,
       filterTagIds: [],
+      filterMachineIds: [],
       search: '',
       sourceFilter: 'all',
       wsStatus: 'connecting',
