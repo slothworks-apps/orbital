@@ -3,8 +3,11 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.34.0] — 2026-10-16
 ### Added
 - Pair your Macs with each other under Settings → Macs: every Mac's sessions show on one map, and you open, drive and start sessions on another Mac as if they were on this one. A phone paired with one of your Macs sees the other Macs' sessions too.
+- A session can drive your other paired Macs too, when you ask it to: start a session there with a task, read another Mac's sessions and send them messages.
 
 ## [0.33.0] — 2026-10-16
 ### Added

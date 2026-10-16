@@ -78,6 +78,20 @@ export function controlRequest(
   return { ok: true, method: op.method, url, payload: rest };
 }
 
+/**
+ * The request aimed at another Mac (spec 2026-10-06-peer-macs-design § 9):
+ * `machine` in the query of a read or a delete, in the body of the rest,
+ * which is where the server's routing to a paired Mac looks.
+ */
+export function onMachine(req: ControlRequest, machine: string | undefined): ControlRequest {
+  if (!req.ok || !machine) return req;
+  if (req.method === 'GET' || req.method === 'DELETE') {
+    return { ...req, url: `${req.url}${req.url.includes('?') ? '&' : '?'}${new URLSearchParams({ machine })}` };
+  }
+  const body = req.payload && typeof req.payload === 'object' ? req.payload : {};
+  return { ...req, payload: { ...body, machine } };
+}
+
 const OPERATIONS_DESCRIPTION = [
   'List the operations Orbital offers for controlling itself: sessions and their conversations, decisions, models and permission modes, tags and tag rules, settings, harnesses, MCP servers, Claude directories, files, stats, limits and errors.',
   'Each has a name, whether it reads or acts, its params and what it does. Call it before orbital_read or orbital_act, optionally narrowed by area or a search word.',
@@ -129,9 +143,10 @@ function runTool(name: 'orbital_read' | 'orbital_act', description: string, call
     {
       operation: z.string().min(1).describe('The operation\'s name, from orbital_operations.'),
       params: z.record(z.string(), z.unknown()).optional().describe('Its params, by name, as orbital_operations lists them.'),
+      machine: z.string().optional().describe('Another paired Mac\'s id, from list_macs, to run the operation there. Not needed for an operation on a session: it runs on that session\'s Mac.'),
     },
     async (args) => {
-      const req = controlRequest(callerId, args.operation, args.params, kind);
+      const req = onMachine(controlRequest(callerId, args.operation, args.params, kind), args.machine);
       if (!req.ok) return text(req.error, true);
       try {
         const res = await call(req);

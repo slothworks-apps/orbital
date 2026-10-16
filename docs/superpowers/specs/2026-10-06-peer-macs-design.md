@@ -291,7 +291,7 @@ removes only this Mac's client of it; the other Mac lists this one under
 its devices until revoked there), the remote folder chooser
 (`GET /api/dirs`), the machine switch in Settings, and the headless Linux peer (§ 5).
 
-## 9. The orbital MCP on every paired Mac (next)
+## 9. The orbital MCP on every paired Mac
 
 Agreed after the first cut: a session drives every paired Mac through the
 `orbital` MCP server as fully as its own, so one session can spawn,
@@ -306,6 +306,13 @@ read and message sessions on another Mac. Built once
   as `?machine=`, a spawn as the body's `machine`.
 - One more read operation lists the paired Macs and whether each is up
   (`GET /api/peers`), so a session can name one.
+- As built: `list_macs` in the catalog; `onMachine` in
+  `server/src/runner/controlTools.ts` puts `machine` where the routing looks;
+  `spawn_session` with `machine` posts the spawn to that Mac
+  (`spawnOnPeer`), which checks the directory — a `cwd` is then required —
+  and keeps the session. The child takes the parent's permission mode and
+  model; it is not tagged and not recorded as spawned by the parent, which
+  lives on another Mac.
 - The refusals stay as they are on the Mac that runs the operation: the
   peer's own allowlist (§ 1) still keeps pairing and dev routes away, and
   an operation that would stop the calling session's turn is refused only

@@ -1455,6 +1455,10 @@ export async function buildServer(overrides: {
     db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, terminals, recentTools, errors,
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees,
     isPeerSession: (id) => peers.linkOf(id) !== null,
+    spawnOnPeer: async (machine, body) => {
+      const link = peers.link(machine);
+      return link ? peers.request(link, 'POST', '/api/sessions', body) : { status: 404, body: { error: 'no paired Mac has that id' } };
+    },
     settings: settingsStore,
     mcpFor,
     limits,

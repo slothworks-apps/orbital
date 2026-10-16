@@ -14,7 +14,7 @@
 export type ControlArea =
   | 'sessions' | 'conversation' | 'decisions' | 'harness' | 'tags' | 'tag_rules' | 'settings'
   | 'mcp' | 'claude_dirs' | 'models' | 'commands' | 'files' | 'ide' | 'stats' | 'limits'
-  | 'errors' | 'walkthrough' | 'system';
+  | 'errors' | 'walkthrough' | 'system' | 'macs';
 
 export interface ControlOperation {
   name: string;
@@ -35,6 +35,9 @@ const PERMISSION_MODES = 'plan | acceptEdits | auto | bypassPermissions';
 const ID = 'id: string — the session id, from list_sessions';
 
 export const CONTROL_OPERATIONS: readonly ControlOperation[] = [
+  // macs (spec 2026-10-06-peer-macs-design § 9)
+  { name: 'list_macs', area: 'macs', method: 'GET', path: '/api/peers',
+    does: 'The other Macs paired with this one, and whether each is up. Pass one\'s id as `machine` to orbital_read, orbital_act or spawn_session to run there; an operation on another Mac\'s session goes to that Mac by itself.' },
   // sessions
   { name: 'list_sessions', area: 'sessions', method: 'GET', path: '/api/sessions',
     does: 'Sessions on the map, pinned first, then by last activity.',
@@ -50,7 +53,7 @@ export const CONTROL_OPERATIONS: readonly ControlOperation[] = [
     does: 'How many sessions a retention of this many days would delete. Deletes nothing.', params: ['days: string — a positive integer or never'] },
   { name: 'start_session', area: 'sessions', method: 'POST', path: '/api/sessions',
     does: 'Starts a new session (a new planet) with its first message, or resumes one by id.',
-    params: ['cwd: string — absolute or ~', 'prompt: string — the first message', `permissionMode: ${PERMISSION_MODES}`, 'model?: string', 'tagId?: number', 'resume?: string — a session id to resume', 'claudeDirId?: number', 'requireDirectory?: boolean — fail instead of creating a missing cwd'] },
+    params: ['cwd: string — absolute or ~', 'prompt: string — the first message', `permissionMode: ${PERMISSION_MODES}`, 'model?: string', 'tagId?: number', 'resume?: string — a session id to resume', 'claudeDirId?: number', 'requireDirectory?: boolean — fail instead of creating a missing cwd', 'machine?: string — start it on another Mac, from list_macs'] },
   { name: 'create_directory', area: 'sessions', method: 'POST', path: '/api/directory',
     does: 'Creates a project directory and its parents.', params: ['path: string — absolute'] },
   { name: 'rename_session', area: 'sessions', method: 'PATCH', path: '/api/sessions/:id',

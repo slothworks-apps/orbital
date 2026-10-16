@@ -100,6 +100,13 @@ describe('peer Macs through one relay', () => {
     expect(upload.statusCode).toBe(201);
     expect(upload.json().ref).toMatch(/\.png$/);
 
+    // A machine-scoped read names the Mac it is for (what `orbital_read` with `machine` sends).
+    const studioProjects = await laptop.api('GET', `/api/projects?machine=${listed.machine.id}`);
+    expect(studioProjects.statusCode).toBe(200);
+    expect(studioProjects.json()).toEqual((await studio.api('GET', '/api/projects')).json());
+    const listedMacs = (await laptop.api('GET', '/api/peers')).json().peers;
+    expect(listedMacs).toEqual([expect.objectContaining({ name: 'studio', online: true })]);
+
     // A change on the studio reaches the laptop's list.
     expect((await laptop.api('PUT', `/api/sessions/${STUDIO_SESSION}/pinned`, { pinned: true })).statusCode).toBe(200);
     await until(async () => (await studio.api('GET', `/api/sessions/${STUDIO_SESSION}`)).json().session.pinnedAt !== null);
