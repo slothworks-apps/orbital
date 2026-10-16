@@ -470,7 +470,7 @@ export class Channel {
       else this.dropped++;
       return;
     }
-    // A gap or a repeat makes the bytes wrong, not late; the Mac's `PhoneSession` refuses an upload the same way.
+    // A gap or a repeat makes the bytes wrong, not late; the server's `ServingHalf` refuses an upload the same way.
     if (chunk.seq !== waiter.nextSeq) {
       this.fail(this.blobs, chunk.id, new TunnelError('lost'));
       return;

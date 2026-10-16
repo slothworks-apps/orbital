@@ -224,7 +224,7 @@ function retireAnswered(frame: unknown): void {
 /**
  * Seeds the notifier with sessions read some other way than the hub — the
  * cached list when a tunnel opens, the Mac's list once `resync` has read it.
- * The Mac's `PhoneSession` replays nothing on subscribe, so without this a
+ * The Mac's `ServingHalf` replays nothing on subscribe, so without this a
  * fresh notifier would spend each session's first transition learning that
  * the session exists. What the notifier makes of a seed is discarded:
  * anything that changed while the tunnel was down was the push's to report.

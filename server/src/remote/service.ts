@@ -1,7 +1,7 @@
 /**
  * The Mac side of the mobile remote, assembled: identity, the relay
  * connection, pairing, one `DeviceWatcher` per paired phone (alive while the
- * service runs) and one `PhoneSession` per connected phone (alive per
+ * service runs) and one `Channel` per connected device (alive per
  * connection). Off is the default and off means nothing here is constructed
  * (spec 2026-09-30-mobile-remote-design § 3).
  */
@@ -15,6 +15,7 @@ import {
   PAIRING_SECRET_BYTES, openPairingDevice, verifyPairingProof, type QrPayload, type RelayToDevice,
 } from '@orbital/shared/remote/relayApi';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
+import type { Channel } from '@orbital/shared/remote/channel';
 import type { RelayTooOld } from '@orbital/shared/remote/version';
 import type { Hub } from '../api/hub.js';
 import { CONFIG } from '../config.js';
@@ -22,10 +23,11 @@ import type { OrbitalDb } from '../db/database.js';
 import type { ImageStore } from '../images/store.js';
 import { DeviceStore, type RemoteDevice } from './devices.js';
 import { DeviceWatcher } from './deviceWatcher.js';
-import { loadOrCreateIdentity, macDisplayName } from './identity.js';
+import { loadOrCreateIdentity, macDisplayName, serverDeviceKind, serverHello } from './identity.js';
 import { createPhoneFileReader, type PhoneFileReader } from './phoneFiles.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
-import { PhoneSession, type InjectFn, type PhoneTooOld } from './phoneSession.js';
+import { openDeviceChannel, type PhoneTooOld } from './deviceChannel.js';
+import type { InjectFn } from './servingHalf.js';
 import { RelayClient, type RelayClientOptions, type RelayRefusal } from './relayClient.js';
 import { wakeSecret, wakeToken } from './wake.js';
 import type { Presence } from './presence.js';
@@ -140,7 +142,7 @@ export class RemoteService {
   private client: RelayClient | null = null;
   private readonly devices: DeviceStore;
   private readonly watchers = new Map<string, DeviceWatcher>();
-  private readonly sessions = new Map<string, PhoneSession>();
+  private readonly channels = new Map<string, Channel>();
   /** `code` is the fingerprint the phone shows; `attemptsLeft` counts down in place, so the object stays the one a confirm in flight compares against. */
   private pendingPair: (NonNullable<RemoteStatus['pendingPair']> & { code: string }) | null = null;
   /** `secret` went into the QR and only there; a `pair_request` must prove it (`verifyPairingProof`). */
@@ -209,7 +211,7 @@ export class RemoteService {
       this.client = client;
       client.on('status', () => {
         // A new connection means new session keys: every phone re-handshakes.
-        if (client.status !== 'online') this.closeSessions();
+        if (client.status !== 'online') this.closeChannels();
         this.publishStatus();
       });
       client.on('control', (msg: RelayToDevice) => this.onControl(msg));
@@ -251,7 +253,7 @@ export class RemoteService {
   private teardown(): void {
     if (this.relayRecheck) clearTimeout(this.relayRecheck);
     this.relayRecheck = null;
-    this.closeSessions();
+    this.closeChannels();
     for (const w of this.watchers.values()) w.stop();
     this.watchers.clear();
     const client = this.client;
@@ -272,7 +274,7 @@ export class RemoteService {
 
   /**
    * The Mac's name changed. `macName` is read fresh for every pairing code and
-   * every new phone session, so nothing restarts; the status is published so
+   * every new device channel, so nothing restarts; the status is published so
    * every window shows the new name.
    */
   nameChanged(): void {
@@ -397,8 +399,8 @@ export class RemoteService {
       // The relay never paired it: undo what was added above. A device that
       // was already paired before this confirm is not ours to remove.
       if (accept && !existed) {
-        this.sessions.get(pending.phone)?.close();
-        this.sessions.delete(pending.phone);
+        this.channels.get(pending.phone)?.close();
+        this.channels.delete(pending.phone);
         this.watchers.get(pending.phone)?.stop();
         this.watchers.delete(pending.phone);
         this.devices.remove(pending.phone);
@@ -421,8 +423,8 @@ export class RemoteService {
    */
   async revoke(id: string): Promise<boolean> {
     if (!this.devices.get(id)) return false;
-    this.sessions.get(id)?.close('revoked');
-    this.sessions.delete(id);
+    this.channels.get(id)?.close('revoked');
+    this.channels.delete(id);
     this.watchers.get(id)?.stop();
     this.watchers.delete(id);
     this.devices.remove(id);
@@ -479,8 +481,8 @@ export class RemoteService {
       // relay ever saying `offline`, and it handshakes afresh. The relay
       // sends this presence before any frame from the new socket, so the
       // new handshake meets no stale cipher.
-      this.sessions.get(msg.peer)?.close();
-      this.sessions.delete(msg.peer);
+      this.channels.get(msg.peer)?.close();
+      this.channels.delete(msg.peer);
       if (msg.online) this.devices.touch(msg.peer, this.now());
       this.publishStatus();
     }
@@ -492,29 +494,34 @@ export class RemoteService {
     const from = deviceId(frame.peer);
     const device = this.devices.get(from);
     if (!device || frame.body.length === 0) return;
-    let session = this.sessions.get(from);
-    if (!session) {
-      const phonePublicKey = new Uint8Array(frame.peer);
+    let channel = this.channels.get(from);
+    if (!channel) {
+      const peerKey = new Uint8Array(frame.peer);
       const client = this.client;
-      session = new PhoneSession({
-        deviceId: from, identity: this.identity, phonePublicKey, hub: this.opts.hub,
-        inject: this.opts.inject, images: this.opts.images, imagesDir: this.opts.imagesDir, files: this.files,
-        serverVersion: this.opts.serverVersion, macName: this.macName,
+      const opened = openDeviceChannel({
+        deviceId: from, identity: this.identity, peerKey, role: 'responder',
+        hello: serverHello({ serverVersion: this.opts.serverVersion, name: this.macName, kind: serverDeviceKind() }),
+        hub: this.opts.hub, inject: this.opts.inject, images: this.opts.images, imagesDir: this.opts.imagesDir,
+        files: this.files,
         notifications: {
           get: () => this.devices.get(from)?.notifications ?? device.notifications,
           set: (s) => this.devices.setNotifications(from, s),
         },
-        send: (body) => client.sendData(encodeFrame({ peer: phonePublicKey, flags: 0, wake: ZERO_WAKE, body })),
+        send: (body) => client.sendData(encodeFrame({ peer: peerKey, flags: 0, wake: ZERO_WAKE, body })),
         onSeen: (sessionId) => this.watchers.get(from)?.seen(sessionId),
         atMac: () => this.opts.presence?.atMac ?? false,
-        onClose: () => {
-          if (this.sessions.get(from) === session) this.sessions.delete(from);
-        },
         onAppVersion: (refusal) => this.markPhoneVersion(from, refusal),
       });
-      this.sessions.set(from, session);
+      opened.on((event) => {
+        // A closed channel is terminal: the next frame from this device builds a fresh one.
+        if (event.type === 'closed' && this.channels.get(from) === opened) this.channels.delete(from);
+        // A peer that serves went quiet: drop the channel; its next handshake opens a new one.
+        if (event.type === 'silent') opened.close();
+      });
+      this.channels.set(from, opened);
+      channel = opened;
     }
-    session.receive(frame.body);
+    channel.receive(frame.body);
   }
 
   /**
@@ -564,9 +571,9 @@ export class RemoteService {
     this.watchers.set(id, watcher);
   }
 
-  private closeSessions(): void {
-    for (const s of this.sessions.values()) s.close();
-    this.sessions.clear();
+  private closeChannels(): void {
+    for (const c of this.channels.values()) c.close();
+    this.channels.clear();
   }
 
   private publishStatus(): void {

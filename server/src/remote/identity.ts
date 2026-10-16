@@ -13,6 +13,9 @@ import { join } from 'node:path';
 import {
   fromBase64Url, generateIdentity, identityFromSecret, SECRET_KEY_BYTES, toBase64Url, type Identity,
 } from '@orbital/shared/remote/keys';
+import type { DeviceKind } from '@orbital/shared/remote/device';
+import { capabilitiesOf, osName } from '@orbital/shared/remote/device';
+import type { OwnHello } from '@orbital/shared/remote/channel';
 
 export const IDENTITY_FILE = 'remote-identity.json';
 
@@ -83,4 +86,21 @@ export function macDisplayName(stored: string, host: string = hostname()): strin
   const name = stored.trim();
   if (name) return name;
   return host.replace(/\.local$/i, '');
+}
+
+/** A server started with `ORBITAL_HEADLESS=1` is a headless member (spec 2026-10-16-device-group-design § 11). */
+export function serverDeviceKind(env: NodeJS.ProcessEnv = process.env): DeviceKind {
+  return env.ORBITAL_HEADLESS === '1' ? 'headless' : 'desktop';
+}
+
+/**
+ * This server's hello. `server` and `macName` are what a shipped phone
+ * requires of whatever serves it; the rest names this device to one that
+ * knows groups.
+ */
+export function serverHello(o: { serverVersion: string; name: string; kind: DeviceKind }): OwnHello {
+  return {
+    app: `orbital-${o.kind}/${o.serverVersion}`, server: o.serverVersion, macName: o.name, version: o.serverVersion,
+    kind: o.kind, os: osName(process.platform), name: o.name, capabilities: capabilitiesOf(o.kind),
+  };
 }
