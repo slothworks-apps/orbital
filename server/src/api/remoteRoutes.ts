@@ -27,6 +27,15 @@ export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService
     return res;
   });
 
+  // This server joins another device by its code (spec 2026-10-16-device-group-design § 3).
+  app.post('/api/remote/join', async (req, reply) => {
+    const { code } = (req.body ?? {}) as { code?: unknown };
+    if (typeof code !== 'string') return reply.code(400).send({ error: 'code must be a string' });
+    const res = await remote.join(code);
+    if ('error' in res) return reply.code(res.error === 'bad_code' ? 400 : 409).send(res);
+    return res;
+  });
+
   app.post('/api/remote/pair/confirm', async (req, reply) => {
     const body = (req.body ?? {}) as { accept?: unknown; phone?: unknown; code?: unknown };
     if (typeof body.accept !== 'boolean') return reply.code(400).send({ error: 'accept must be a boolean' });

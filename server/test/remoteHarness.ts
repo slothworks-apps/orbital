@@ -9,6 +9,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildRelay } from '@orbital/relay/app';
 import { openRelayStore } from '@orbital/relay/store';
 import { buildServer } from '../src/index.js';
+import type { RemoteService } from '../src/remote/service.js';
 import { openDb } from '../src/db/database.js';
 import { settings as settingsTable } from '../src/db/schema.js';
 import { fingerprint, publicKeyOf } from '@orbital/shared/remote/keys';
@@ -36,26 +37,35 @@ export type MacAndRelay = {
   /** The server's data dir: `index.db`, the identity, `images/`, and `claude/` as its `~/.claude`. */
   dir: string;
   api: (method: InjectMethod, url: string, payload?: unknown) => Promise<{ statusCode: number; json(): any }>;
+  /** The server's remote service, for what no route shows (a device's channel). */
+  remote: RemoteService;
 };
 
 /**
  * Online before it resolves. `settings` and `beforeBoot` run before
  * `buildServer`, which is when the remote reads its settings and the indexer
- * first scans `claude/projects`.
+ * first scans `claude/projects`. With `relayUrl` no relay is built: the
+ * server joins the one already running there, as a second Mac would.
  */
 export async function startMacAndRelay(
   closers: (() => unknown)[],
-  opts: { settings?: [string, string][]; beforeBoot?: (dir: string) => void; apiToken?: string } = {},
+  opts: {
+    settings?: [string, string][]; beforeBoot?: (dir: string) => void; apiToken?: string;
+    relayUrl?: string; name?: string;
+  } = {},
 ): Promise<MacAndRelay> {
-  const relay = await buildRelay({ store: await openRelayStore(':memory:') });
-  const relayUrl = await listen(relay);
-  closers.push(() => relay.close());
+  let relayUrl = opts.relayUrl;
+  if (relayUrl === undefined) {
+    const relay = await buildRelay({ store: await openRelayStore(':memory:') });
+    relayUrl = await listen(relay);
+    closers.push(() => relay.close());
+  }
 
   const dir = makeTmpDir('e2e');
   const dbPath = join(dir, 'index.db');
   const db = openDb(dbPath);
   const seeded: [string, string][] = [
-    ['remote_enabled', 'true'], ['remote_relay_url', relayUrl], ['remote_mac_name', 'studio'], ...(opts.settings ?? []),
+    ['remote_enabled', 'true'], ['remote_relay_url', relayUrl], ['remote_mac_name', opts.name ?? 'studio'], ...(opts.settings ?? []),
   ];
   for (const [key, value] of seeded) {
     db.insert(settingsTable).values({ key, value }).onConflictDoUpdate({ target: settingsTable.key, set: { value } }).run();
@@ -63,13 +73,16 @@ export async function startMacAndRelay(
   // Seeded before boot so the remote starts enabled; the server opens its own handle.
   db.$client.close();
   opts.beforeBoot?.(dir);
-  const app = await buildServer({ dbPath, claudeDir: join(dir, 'claude'), dataDir: dir, apiToken: opts.apiToken });
+  let remote: RemoteService | null = null;
+  const app = await buildServer({
+    dbPath, claudeDir: join(dir, 'claude'), dataDir: dir, apiToken: opts.apiToken, exposeRemote: (r) => { remote = r; },
+  });
   closers.push(() => app.close());
   const headers = opts.apiToken === undefined ? undefined : { authorization: `Bearer ${opts.apiToken}` };
   const api: MacAndRelay['api'] = (method, url, payload) => app.inject({ method, url, payload: payload as any, headers });
 
   await until(async () => (await api('GET', '/api/remote')).json().relay === 'online');
-  return { relayUrl, app, dir, api };
+  return { relayUrl, app, dir, api, remote: remote! };
 }
 
 /** The code a phone shows for its pairing request: what the user types on the Mac. */

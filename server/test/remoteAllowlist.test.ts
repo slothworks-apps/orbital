@@ -174,4 +174,7 @@ describe('remote allowlist', () => {
       }
     });
   });
+  it('a phone cannot make the Mac join another device', () => {
+    expect(isAllowed('POST', '/api/remote/join')).toBe(false);
+  });
 });

@@ -8,12 +8,16 @@
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import {
-  deviceId, fingerprint, normalizePairingCode, publicKeyOf, toBase64Url, type Identity,
+  deviceId, fingerprint, formatFingerprint, fromBase64Url, normalizePairingCode, publicKeyOf, toBase64Url,
+  type Identity,
 } from '@orbital/shared/remote/keys';
 import { FLAG_STATE, FLAG_WAKE, ZERO_WAKE, decodeFrame, encodeFrame } from '@orbital/shared/remote/frame';
 import {
-  PAIRING_SECRET_BYTES, openPairingDevice, verifyPairingProof, type QrPayload, type RelayToDevice,
+  PAIRING_SECRET_BYTES, PAIRING_TOKEN_TTL_MS, openPairingDevice, pairingProof, parsePairingCode, sealPairingDevice,
+  verifyPairingProof, type QrPayload, type RelayToDevice,
 } from '@orbital/shared/remote/relayApi';
+import { initiates, osName } from '@orbital/shared/remote/device';
+import type { Role } from '@orbital/shared/remote/handshake';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import type { Channel } from '@orbital/shared/remote/channel';
 import type { RelayTooOld } from '@orbital/shared/remote/version';
@@ -68,6 +72,16 @@ export type PairConfirmResult =
   | { error: 'no_pending' | 'code_rejected' | 'relay_error' }
   | { error: 'code_mismatch'; attemptsLeft: number };
 
+/**
+ * The answer to joining another device by its code: that device and the
+ * code the user types on it, or why not. `peer_offline`: the device that
+ * showed the code is not on the relay. `other_relay`: the code names a
+ * relay this server is not on.
+ */
+export type JoinResult =
+  | { device: string; name: string; code: string }
+  | { error: 'bad_code' | 'disabled' | 'offline' | 'already_paired' | 'other_relay' | 'peer_offline' | 'relay_error' | 'relay_too_old' };
+
 export type RemoteStatus = {
   enabled: boolean;
   /**
@@ -97,6 +111,8 @@ export type RemoteStatus = {
    */
   pendingPair: { phone: string; name: string; platform: string; kind: string; attemptsLeft: number } | null;
   pairing: { expiresAt: number } | null;
+  /** A device whose code this server redeemed and which has not confirmed yet. */
+  joining: { device: string; name: string } | null;
   /** Why the last `start` failed; null while it is fine. */
   error: string | null;
 };
@@ -147,6 +163,8 @@ export class RemoteService {
   private pendingPair: (NonNullable<RemoteStatus['pendingPair']> & { code: string }) | null = null;
   /** `secret` went into the QR and only there; a `pair_request` must prove it (`verifyPairingProof`). */
   private pairing: { expiresAt: number; secret: Uint8Array } | null = null;
+  /** A device whose code this server redeemed, until it confirms or refuses (`paired`, `rejected`). */
+  private joining: { device: string; name: string; kind: string | null; expiresAt: number } | null = null;
   private error: string | null = null;
   /** Set when the relay client stopped on a relay below `MIN_RELAY_VERSION`; cleared by the next start. */
   private relayRefusal: RelayTooOld | null = null;
@@ -264,6 +282,7 @@ export class RemoteService {
     this.identity = null;
     this.pendingPair = null;
     this.pairing = null;
+    this.joining = null;
   }
 
   /** Re-reads every setting: a toggle or a relay URL change applies now. */
@@ -297,6 +316,8 @@ export class RemoteService {
       })),
       pendingPair: this.publicPendingPair(),
       pairing: this.pairing ? { expiresAt: this.pairing.expiresAt } : null,
+      joining: this.joining && this.joining.expiresAt > this.now()
+        ? { device: this.joining.device, name: this.joining.name } : null,
       error: this.error,
     };
   }
@@ -413,7 +434,52 @@ export class RemoteService {
       this.pairing = null;
     }
     this.publishStatus();
+    if (accept) this.open(pending.phone);
     return { ok: true };
+  }
+
+  /**
+   * Redeems another device's pairing code, as a phone does (spec
+   * 2026-10-16-device-group-design § 3): the answer is the code the user
+   * types on that device. The pair exists once it confirms (`paired`).
+   */
+  async join(code: string): Promise<JoinResult> {
+    const qr = parsePairingCode(code);
+    if (!qr) return { error: 'bad_code' };
+    if (this.relayRefusal) return { error: 'relay_too_old' };
+    if (!this.enabled || !this.client || !this.identity) return { error: 'disabled' };
+    if (this.client.status !== 'online') return { error: 'offline' };
+    const self = deviceId(this.identity.publicKey);
+    if (qr.mac === self) return { error: 'bad_code' };
+    if (this.devices.get(qr.mac)) return { error: 'already_paired' };
+    // One relay per group (§ 4), and this server's socket is on its own.
+    if (qr.relay.replace(/\/+$/, '') !== this.relayUrl.replace(/\/+$/, '')) return { error: 'other_relay' };
+    const secret = fromBase64Url(qr.secret);
+    const payload = {
+      token: qr.token,
+      proof: pairingProof(secret, this.identity.publicKey),
+      device: sealPairingDevice(secret, this.identity.publicKey, {
+        name: this.macName, platform: osName(process.platform), kind: serverDeviceKind(),
+      }),
+    };
+    this.joining = { device: qr.mac, name: qr.name, kind: qr.kind ?? null, expiresAt: this.now() + PAIRING_TOKEN_TTL_MS };
+    this.publishStatus();
+    const res = await this.client.post('/pair/redeem', 'pair.redeem', payload);
+    if (res.status !== 200) {
+      this.joining = null;
+      this.publishStatus();
+      if (res.relayTooOld) return { error: 'relay_too_old' };
+      return { error: res.status === 409 ? 'peer_offline' : res.status === 404 ? 'bad_code' : 'relay_error' };
+    }
+    return {
+      device: qr.mac, name: qr.name,
+      code: formatFingerprint(fingerprint(publicKeyOf(qr.mac)!, this.identity.publicKey)),
+    };
+  }
+
+  /** The channel to a paired device, while one is open. */
+  channel(id: string): Channel | null {
+    return this.channels.get(id) ?? null;
   }
 
   /**
@@ -451,6 +517,29 @@ export class RemoteService {
   }
 
   private onControl(msg: RelayToDevice): void {
+    if (msg.type === 'ok') {
+      for (const device of this.devices.list()) this.open(device.id);
+      return;
+    }
+    // The relay sends `paired` before it answers the other side's confirm.
+    // If this side opens the channel, it does so here or at the peer's
+    // `presence` that follows; if the peer does, its `confirmPairing` does.
+    if (msg.type === 'paired' && this.joining && msg.mac === this.joining.device) {
+      const joined = this.joining;
+      this.joining = null;
+      this.devices.add({
+        id: joined.device, name: joined.name, platform: '', kind: joined.kind, pairedAt: this.now(),
+        notifications: parseNotificationSettings(this.opts.allSettings()),
+      });
+      this.publishStatus();
+      this.open(joined.device);
+      return;
+    }
+    if (msg.type === 'rejected' && this.joining && msg.mac === this.joining.device) {
+      this.joining = null;
+      this.publishStatus();
+      return;
+    }
     if (msg.type === 'pair_request' && this.identity) {
       // Only while the user has a code on screen, and only the first phone
       // to redeem it: a second request must not swap the code the
@@ -486,6 +575,7 @@ export class RemoteService {
       this.channels.delete(msg.peer);
       if (msg.online) this.devices.touch(msg.peer, this.now());
       this.publishStatus();
+      if (msg.online) this.open(msg.peer);
     }
   }
 
@@ -495,34 +585,52 @@ export class RemoteService {
     const from = deviceId(frame.peer);
     const device = this.devices.get(from);
     if (!device || frame.body.length === 0) return;
-    let channel = this.channels.get(from);
-    if (!channel) {
-      const peerKey = new Uint8Array(frame.peer);
-      const client = this.client;
-      const opened = openDeviceChannel({
-        deviceId: from, identity: this.identity, peerKey, role: 'responder',
-        hello: serverHello({ serverVersion: this.opts.serverVersion, name: this.macName, kind: serverDeviceKind() }),
-        hub: this.opts.hub, inject: this.opts.inject, images: this.opts.images, imagesDir: this.opts.imagesDir,
-        files: this.files,
-        notifications: {
-          get: () => this.devices.get(from)?.notifications ?? device.notifications,
-          set: (s) => this.devices.setNotifications(from, s),
-        },
-        send: (body) => client.sendData(encodeFrame({ peer: peerKey, flags: 0, wake: ZERO_WAKE, body })),
-        onSeen: (sessionId) => this.watchers.get(from)?.seen(sessionId),
-        atMac: () => this.opts.presence?.atMac ?? false,
-        onAppVersion: (refusal) => this.markPhoneVersion(from, refusal),
-      });
-      opened.on((event) => {
-        // A closed channel is terminal: the next frame from this device builds a fresh one.
-        if (event.type === 'closed' && this.channels.get(from) === opened) this.channels.delete(from);
-        // A peer that serves went quiet: drop the channel; its next handshake opens a new one.
-        if (event.type === 'silent') opened.close();
-      });
-      this.channels.set(from, opened);
-      channel = opened;
-    }
+    const channel = this.channels.get(from) ?? this.makeChannel(device, 'responder');
     channel.receive(frame.body);
+  }
+
+  /** Opens the channel to `id` when this server is the side that opens it (§ 5) and the peer is online. */
+  private open(id: string): void {
+    const device = this.devices.get(id);
+    if (!device || !this.identity || !this.client || this.client.status !== 'online') return;
+    if (!this.client.peersOnline.has(id) || this.channels.has(id)) return;
+    const self = { id: deviceId(this.identity.publicKey), kind: serverDeviceKind() };
+    if (!initiates(self, { id, kind: device.kind })) return;
+    this.makeChannel(device, 'initiator').start();
+  }
+
+  /** A channel to a paired device, mapped until it closes; the caller starts it or feeds it. */
+  private makeChannel(device: RemoteDevice, role: Role): Channel {
+    const identity = this.identity!;
+    const client = this.client!;
+    const from = device.id;
+    const peerKey = publicKeyOf(from)!;
+    const opened = openDeviceChannel({
+      deviceId: from, identity, peerKey, role,
+      hello: serverHello({ serverVersion: this.opts.serverVersion, name: this.macName, kind: serverDeviceKind() }),
+      hub: this.opts.hub, inject: this.opts.inject, images: this.opts.images, imagesDir: this.opts.imagesDir,
+      files: this.files,
+      notifications: {
+        get: () => this.devices.get(from)?.notifications ?? device.notifications,
+        set: (s) => this.devices.setNotifications(from, s),
+      },
+      send: (body) => client.sendData(encodeFrame({ peer: peerKey, flags: 0, wake: ZERO_WAKE, body })),
+      onSeen: (sessionId) => this.watchers.get(from)?.seen(sessionId),
+      atMac: () => this.opts.presence?.atMac ?? false,
+      onAppVersion: (refusal) => this.markPhoneVersion(from, refusal),
+    });
+    opened.on((event) => {
+      // A closed channel is terminal: the next frame from this device builds a fresh one.
+      if (event.type === 'closed' && this.channels.get(from) === opened) this.channels.delete(from);
+      if (event.type === 'silent') {
+        // A peer that serves went quiet: drop the channel. A responder's peer
+        // opens a new one with its next handshake; an initiator opens it again.
+        opened.close();
+        if (role === 'initiator') this.open(from);
+      }
+    });
+    this.channels.set(from, opened);
+    return opened;
   }
 
   /**

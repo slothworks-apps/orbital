@@ -259,6 +259,8 @@ export async function buildServer(overrides: {
   terminals?: TerminalStoreOptions;
   /** The full index pass, in slices. Tests wrap it to hold the boot pass back. */
   indexProjectsSliced?: typeof indexProjectsSliced;
+  /** Tests reach the remote service directly; nothing in the app uses it. */
+  exposeRemote?: (remote: RemoteService) => void;
 } = {}): Promise<FastifyInstance> {
   const apiToken = overrides.apiToken;
   if (apiToken === undefined && !process.env.VITEST) {
@@ -1434,6 +1436,7 @@ export async function buildServer(overrides: {
     settings: settingsStore,
     allSettings: () => Object.fromEntries(db.select().from(settingsTable).all().map((r) => [r.key, r.value])),
   });
+  overrides.exposeRemote?.(remote);
   registerRoutes(app, {
     db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, terminals, recentTools, errors,
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees,
