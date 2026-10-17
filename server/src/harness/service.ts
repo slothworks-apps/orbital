@@ -18,6 +18,7 @@ import {
 } from '../db/schema.js';
 import type { SessionTools } from '../runner/runner.js';
 import { ORBITAL_MCP_SERVER as HARNESS_MCP_SERVER } from '../runner/spawnTool.js';
+import { cleanTitle, truncateTitle } from '../transcript/parser.js';
 import type { ChatMessage } from '../types.js';
 import {
   activeIndex, advanceMessage, approve, checklistLines, decideTurnEnd, goBack, initialState, kickoffMessage,
@@ -897,6 +898,16 @@ export class HarnessService {
     const at = this.now();
     this.deps.db.insert(harnessMessages).values({ uuid, sessionId, kind, stepIndex: step, at }).onConflictDoNothing().run();
     this.deps.publishMessage?.(sessionId, { uuid, kind, step, text, at });
+    // The indexer may have named the session after this message before it
+    // was known as the harness's: the harness's name stands in instead, and
+    // the next index pass looks for the user's first message.
+    const name = this.get(sessionId)?.name;
+    if (name) {
+      this.deps.db.update(sessions)
+        .set({ title: name, indexedMtime: 0 })
+        .where(and(eq(sessions.id, sessionId), eq(sessions.titleSource, 'derived'), eq(sessions.title, truncateTitle(cleanTitle(text)))))
+        .run();
+    }
   }
 
   /**

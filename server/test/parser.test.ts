@@ -564,3 +564,15 @@ describe('isMeta entries are the harness, not the human', () => {
     expect(meta.lastAt).toBe(Date.parse(prompt.timestamp));
   });
 });
+
+describe('extractMeta skip', () => {
+  it('passes over the entries it is told to skip when naming the session', () => {
+    const entries = [
+      { type: 'user', uuid: 'k1', message: { role: 'user', content: 'This session follows the Orbital harness "Feature".' } },
+      { type: 'user', uuid: 'u1', message: { role: 'user', content: 'Fix the gate pill' } },
+    ];
+    const meta = extractMeta(entries as any, new Set(['k1']));
+    expect(meta.title).toBe('Fix the gate pill');
+    expect(meta.messageCount).toBe(2);
+  });
+});
