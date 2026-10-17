@@ -18,14 +18,19 @@ type PendingPair = NonNullable<RemoteStatus['pendingPair']>
  * logic.js). An unrecognised kind reads as `desktop`, the fallback
  * `KindGlyph` itself draws.
  */
-const KIND_TILE: Record<'desktop' | 'headless' | 'phone', { word: string; note: string }> = {
+const KIND_TILE = {
   desktop: { word: 'DESKTOP', note: 'A computer with Orbital open on it.' },
-  headless: { word: 'HEADLESS', note: 'No screen of its own. It runs sessions for the group.' },
+  headless: { word: 'HEADLESS SERVER', note: 'No screen of its own. It runs sessions for the group.' },
   phone: { word: 'PHONE', note: 'Reads and drives sessions; runs none of its own.' },
+} satisfies Record<string, { word: string; note: string }>
+
+/** A lookup rather than a cast: only a key `KIND_TILE` actually has narrows `kind`. */
+function isTiledKind(kind: string): kind is keyof typeof KIND_TILE {
+  return kind in KIND_TILE
 }
 
 function kindTile(kind: string): { word: string; note: string } {
-  return KIND_TILE[kind as 'desktop' | 'headless' | 'phone'] ?? KIND_TILE.desktop
+  return isTiledKind(kind) ? KIND_TILE[kind] : KIND_TILE.desktop
 }
 
 /**
@@ -151,12 +156,39 @@ export function PairConfirmDialog() {
   const kindOsPhrase = request ? (os === '' ? kindWord(request.kind) : `${kindWord(request.kind)}, ${os}`) : ''
   const sentence = request ? `${request.name} (${kindOsPhrase}) wants to join` : ''
   const tile = request ? kindTile(request.kind) : null
+  // Canvas 50c "KIND, THREE TIMES": the glyph at 3×, the kind word, its
+  // meaning — above the sentence (the dialog's title), which names the kind
+  // again. `cDone`'s checkmark takes the same slot above "<name> joined".
+  const kindTileNode =
+    request && tile ? (
+      <div className="flex w-full items-center gap-4 rounded-xl border border-[rgba(150,205,255,.26)] bg-[rgba(4,8,16,.6)] px-[18px] py-3.5 text-left">
+        <span className="grid h-[60px] w-[60px] shrink-0 place-items-center rounded-xl border border-[rgba(150,205,255,.2)] text-text-bright">
+          <KindGlyph kind={request.kind} scale={3} />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-[5px]">
+          <span className="font-mono text-base tracking-[0.2em] text-text-bright">{tile.word}</span>
+          <span className="text-[12.5px] leading-[1.45] text-[rgba(160,190,225,.78)]">{tile.note}</span>
+        </span>
+      </div>
+    ) : null
 
   return (
     <Dialog
       open={pending !== null || joined !== null}
       variant="card"
       eyebrow={joined ? undefined : eyebrow}
+      beforeTitle={
+        joined ? (
+          <span
+            aria-hidden
+            className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-full border-2 border-accent text-xl text-accent"
+          >
+            ✓
+          </span>
+        ) : (
+          kindTileNode
+        )
+      }
       title={joined ? `${joined.name} joined` : sentence}
       // Esc is a rejection while a request is open; the joined screen has
       // nothing left to reject, so it only dismisses.
@@ -164,30 +196,20 @@ export function PairConfirmDialog() {
     >
       {joined ? (
         <>
-          <span
-            aria-hidden
-            className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-full border-2 border-accent text-xl text-accent"
-          >
-            ✓
-          </span>
           <p className="text-[13px] leading-[1.55] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
             The other devices link to it on their own. It appears under Devices → In this group.
           </p>
+          {/* No canvas 50c button (its only control is the demo's RESET DEMO);
+              styled as the pending state's primary action, as 50i's phone
+              sheet has its own "Done". */}
+          <Button variant="primary" size="wide" className="w-full" onClick={() => setJoined(null)}>
+            Done
+          </Button>
         </>
       ) : (
         request &&
         tile && (
           <>
-            {/* Canvas 50c "KIND, THREE TIMES": the glyph at 3×, the kind word, its meaning — the kind named again in the sentence above (the dialog's title). */}
-            <div className="flex w-full items-center gap-4 rounded-xl border border-[rgba(150,205,255,.26)] bg-[rgba(4,8,16,.6)] px-[18px] py-3.5 text-left">
-              <span className="grid h-[60px] w-[60px] shrink-0 place-items-center rounded-xl border border-[rgba(150,205,255,.2)] text-text-bright">
-                <KindGlyph kind={request.kind} scale={3} />
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col gap-[5px]">
-                <span className="font-mono text-base tracking-[0.2em] text-text-bright">{tile.word}</span>
-                <span className="text-[12.5px] leading-[1.45] text-[rgba(160,190,225,.78)]">{tile.note}</span>
-              </span>
-            </div>
             <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
               Once in, it sees and drives every session on every device in this group.
             </p>

@@ -57,7 +57,7 @@ describe('PairConfirmDialog', () => {
     useOrbital.setState({ remote: remote(headlessPending) })
     render(<PairConfirmDialog />)
     expect(screen.getByText('build-box (headless, Linux) wants to join')).toBeInTheDocument()
-    expect(screen.getByText('HEADLESS')).toBeInTheDocument()
+    expect(screen.getByText('HEADLESS SERVER')).toBeInTheDocument()
   })
 
   it("a shipped phone's request (kind read as phone) names it too", () => {
@@ -78,6 +78,16 @@ describe('PairConfirmDialog', () => {
     await userEvent.click(accept())
     expect(api.confirmPairing).toHaveBeenCalledWith(true, 'p1', 'K7FQ2M')
     expect(await screen.findByText('Pixel 8 joined')).toBeInTheDocument()
+  })
+
+  it('the joined screen closes on Done', async () => {
+    vi.mocked(api.confirmPairing).mockResolvedValue({ ok: true })
+    render(<PairConfirmDialog />)
+    await userEvent.type(field(), 'K7FQ2M')
+    await userEvent.click(accept())
+    await screen.findByText('Pixel 8 joined')
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    await waitFor(() => expect(screen.queryByText('Pixel 8 joined')).not.toBeInTheDocument())
   })
 
   it('takes a pasted code with its dash', async () => {
