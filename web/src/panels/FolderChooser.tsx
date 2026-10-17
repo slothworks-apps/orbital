@@ -112,7 +112,7 @@ export function FolderChooser({ machine, name, kind, start, recents, onChoose, o
 
       <div className="grid h-[238px] grid-cols-[230px_minmax(0,1fr)]">
         <div className="flex flex-col gap-0.5 overflow-y-auto border-r border-[rgba(150,205,255,.1)] px-1.5 py-2 [scrollbar-color:rgba(150,205,255,.25)_transparent] [scrollbar-width:thin]">
-          <div className="px-2 pb-1.5 pt-0.5 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.55)]">
+          <div className="shrink-0 px-2 pb-1.5 pt-0.5 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.55)]">
             RECENT PROJECTS ON {name.toUpperCase()}
           </div>
           {recents.map(({ cwd, lastAt }) => (
@@ -138,11 +138,11 @@ export function FolderChooser({ machine, name, kind, start, recents, onChoose, o
         </div>
 
         <div className="flex flex-col gap-px overflow-auto px-1.5 py-2 [scrollbar-color:rgba(150,205,255,.25)_transparent] [scrollbar-width:thin]">
-          <div className="truncate px-2 pb-1.5 pt-0.5 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.55)]">
+          <div className="shrink-0 truncate px-2 pb-1.5 pt-0.5 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.55)]">
             FOLDERS IN {listing?.path ?? ''}
           </div>
           {error ? (
-            <div className="px-2 py-2.5 text-[12px] text-[rgba(160,190,225,.6)]">{error}</div>
+            <div className="shrink-0 px-2 py-2.5 text-[12px] text-[rgba(160,190,225,.6)]">{error}</div>
           ) : (
             listing && (
               <>
@@ -165,7 +165,7 @@ export function FolderChooser({ machine, name, kind, start, recents, onChoose, o
                   </button>
                 ))}
                 {listing.dirs.length === 0 && (
-                  <div className="px-2 py-2.5 text-[12px] text-[rgba(160,190,225,.6)]">
+                  <div className="shrink-0 px-2 py-2.5 text-[12px] text-[rgba(160,190,225,.6)]">
                     No folders in here. Choose it, or go back up.
                   </div>
                 )}
