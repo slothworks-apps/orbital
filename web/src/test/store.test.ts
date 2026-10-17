@@ -21,6 +21,7 @@ import {
   matchesSearch,
   matchesSidebarFilters,
   mapSessions,
+  historyPageOffset,
   statusCounts,
   recordedFailureFor,
   parsePlanetScale,
@@ -1329,6 +1330,16 @@ describe('the device filter (pure, canvas 50e)', () => {
   it('hides nothing once the hidden device no longer has a chip (remote off)', () => {
     const off: OrbitalState = { ...state(['build']), remote: null }
     expect(mapSessions(off, NOW).map((s) => s.id)).toEqual(['away', 'local'])
+  })
+
+  // The server pages this device's own sessions under the tag filter and the
+  // search; a member's arrive whole, and the chips are the client's alone.
+  it("historyPageOffset counts what the server paged: local sessions under the filters, whatever chips are off", () => {
+    const other = makeSession({ id: 'other', lastAt: 50, title: 'unrelated' })
+    const base = { ...state(['self']), sessions: { local, away, other } }
+    expect(historyPageOffset(base)).toBe(2)
+    expect(historyPageOffset({ ...base, ui: { ...base.ui, search: 'unrelated' } })).toBe(1)
+    expect(historyPageOffset({ ...base, ui: { ...base.ui, hiddenDeviceIds: [] } })).toBe(2)
   })
 })
 

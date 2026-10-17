@@ -10,16 +10,21 @@ export interface KindGlyphProps {
   /** An unrecognised kind reads as `desktop` — the group's own default. */
   kind: string
   scale?: 1 | 3
+  /**
+   * No tooltip of its own: inside something that has one (a device chip's
+   * `name · kind · state`), the glyph's bare kind would hide it.
+   */
+  untitled?: boolean
 }
 
-export function KindGlyph({ kind, scale = 1 }: KindGlyphProps) {
+export function KindGlyph({ kind, scale = 1, untitled = false }: KindGlyphProps) {
   const isHeadless = kind === 'headless'
   const isPhone = kind === 'phone'
   const isDesktop = !isHeadless && !isPhone
 
   return (
     <span
-      title={kind}
+      title={untitled ? undefined : kind}
       style={{
         display: 'grid',
         placeItems: 'center',

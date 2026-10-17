@@ -3037,6 +3037,19 @@ export function visibleSessions(
 }
 
 /**
+ * HISTORY's paging offset: how many sessions the server has sent under the
+ * current tag filter and search. The server pages this device's own sessions
+ * only (a member's arrive whole with the first page) and knows nothing of the
+ * device chips, so the count is of local, listable sessions passing the tag
+ * filter and the search, whatever chips are off.
+ */
+export function historyPageOffset(state: Pick<OrbitalState, 'sessions' | 'ui'>): number {
+  return Object.values(state.sessions).filter(
+    (s) => !s.machine && isListable(s) && matchesSidebarFilters(s, state.ui),
+  ).length
+}
+
+/**
  * Every session a list may show, newest first: all but a harness drafting
  * conversation, which is listed nowhere — not in the sidebar, history,
  * search or the example-session picker (`isListable`). The map still draws

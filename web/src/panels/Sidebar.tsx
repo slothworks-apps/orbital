@@ -6,7 +6,7 @@ import {
   clampSidebarWidth,
   parseSidebarWidth,
   useOrbital,
-  matchesSidebarFilters,
+  historyPageOffset,
   visibleSessions,
 } from '../store/store'
 import { api } from '../lib/api'
@@ -39,7 +39,6 @@ import { ClaudeDirMark, useClaudeDirMark } from '../ui/ClaudeDirMark'
 import { sessionViewTransitionName } from '../lib/viewTransition'
 import { timeAgo, shortenPath } from '../lib/format'
 import { KindGlyph } from '../ui/KindGlyph'
-import { isListable } from '../lib/harnessSession'
 import {
   asOfLabel, deviceChips, devicesOn, kindWord, namesShown, showDeviceRow, toggleDevice,
 } from '../lib/devices'
@@ -660,13 +659,8 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
     setExhausted(false)
   }, [filterTagIds, search])
 
-  // The server pages this device's own sessions only (a member's come whole
-  // with the first page), and knows nothing of the device chips: the offset
-  // counts what it has sent, local sessions under the tag filter and search,
-  // whatever chips are off.
-  const pagedCount = useOrbital(
-    (s) => Object.values(s.sessions).filter((x) => !x.machine && isListable(x) && matchesSidebarFilters(x, s.ui)).length,
-  )
+  // What the server has sent so far, counted the way it pages (`historyPageOffset`).
+  const pagedCount = useOrbital(historyPageOffset)
 
   const loadMore = useCallback(async () => {
     if (loadingRef.current) return
@@ -840,7 +834,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
             <Chip
               key={chip.id}
               label={chip.label}
-              glyph={<KindGlyph kind={chip.kind} />}
+              glyph={<KindGlyph kind={chip.kind} untitled />}
               note={chip.update ? 'update' : undefined}
               dimmed={chip.offline}
               title={deviceChipTitle(chip)}
