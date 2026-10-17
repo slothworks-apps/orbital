@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEVICE_HEADER } from '../src/remote/inject.js';
 import { RETENTION_KEY, RETENTION_NEVER } from '../src/retention.js';
@@ -9,7 +9,7 @@ import { pairingCode, startMacAndRelay, until, type MacAndRelay } from './remote
 
 const SESSION_ID = 's-federated';
 
-describe('federation: two linked servers', () => {
+describe('federation: linked servers', () => {
   const closers: (() => unknown)[] = [];
   afterEach(async () => {
     for (const c of closers.splice(0).reverse()) await c();
@@ -103,7 +103,7 @@ describe('federation: two linked servers', () => {
   async function threeLinked() {
     const a = await startMacAndRelay(closers, { name: 'studio' });
     const b = await startMacAndRelay(closers, {
-      relayUrl: a.relayUrl, name: 'laptop',
+      relayUrl: a.relayUrl, name: 'laptop', queryFn: fakeQueryFn(),
       settings: [[RETENTION_KEY, RETENTION_NEVER]],
       beforeBoot: (d) => {
         mkdirSync(join(d, 'claude', 'projects', 'p'), { recursive: true });
@@ -155,13 +155,19 @@ describe('federation: two linked servers', () => {
     const notForwarded = await a.app.inject({ method: 'GET', url: `/api/sessions/${SESSION_ID}`, headers: { [DEVICE_HEADER]: idC } });
     expect(notForwarded.statusCode).toBe(404);
 
-    // A spawn naming C starts on C.
+    // A spawn naming C starts on C, under C's own tag of the same name.
+    await a.api('POST', '/api/tags', { name: 'green', hue: 0 });
+    const ops = (await a.api('POST', '/api/tags', { name: 'ops', hue: 0 })).json().id as number;
     const minted = randomUUID();
     const spawn = await a.api('POST', '/api/sessions', {
-      machine: idC, sessionId: minted, cwd: c.dir, prompt: 'go', permissionMode: 'acceptEdits',
+      machine: idC, sessionId: minted, cwd: c.dir, prompt: 'go', permissionMode: 'acceptEdits', tagId: ops,
     });
     expect([spawn.statusCode, spawn.json()]).toEqual([201, { sessionId: minted }]);
-    expect((await c.api('GET', `/api/sessions/${minted}`)).statusCode).toBe(200);
+    const onC = await c.api('GET', `/api/sessions/${minted}`);
+    expect(onC.statusCode).toBe(200);
+    const opsC = ((await c.api('GET', '/api/tags')).json().tags as { id: number; name: string }[]).find((t) => t.name === 'ops')!;
+    expect(opsC.id).not.toBe(ops);
+    expect(onC.json().session.tagIds).toEqual([opsC.id]);
     expect((await a.app.inject({ method: 'GET', url: `/api/sessions/${minted}`, headers: { [DEVICE_HEADER]: idC } })).statusCode).toBe(404);
 
     // This device by name is the local route; a device nobody knows is 404.
@@ -191,6 +197,37 @@ describe('federation: two linked servers', () => {
     expect(image.headers['cache-control']).toContain('immutable');
     expect(image.rawPayload.equals(png)).toBe(true);
     expect((await a.app.inject({ method: 'GET', url: `/api/images/${'cd'.repeat(32)}.png` })).statusCode).toBe(404);
+
+    // The composer of B's session: the upload is stored here, and the message carries it to B's store.
+    const shot = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      (() => {
+        const ihdr = Buffer.alloc(25);
+        ihdr.writeUInt32BE(13, 0);
+        ihdr.write('IHDR', 4);
+        ihdr.writeUInt32BE(32, 8);
+        ihdr.writeUInt32BE(16, 12);
+        return ihdr;
+      })(),
+    ]);
+    const boundary = '----orbitaltestboundary';
+    const uploaded = await a.app.inject({
+      method: 'POST', url: `/api/sessions/${SESSION_ID}/attachments`,
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: Buffer.concat([
+        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="shot.png"\r\nContent-Type: image/png\r\n\r\n`),
+        shot, Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]),
+    });
+    expect(uploaded.statusCode).toBe(201);
+    const shotRef = uploaded.json().ref as string;
+    expect(existsSync(join(b.dir, 'images', shotRef))).toBe(false);
+    const sent = await a.api('POST', `/api/sessions/${SESSION_ID}/messages`, { text: 'look', attachments: [shotRef] });
+    expect(sent.statusCode).toBeLessThan(300);
+    expect(existsSync(join(b.dir, 'images', shotRef))).toBe(true);
+    // A forwarded list is the member's alone: nothing merged into it.
+    const fromB = (await a.api('GET', `/api/sessions?machine=${idB}`)).json().sessions as any[];
+    expect(fromB.filter((x) => x.id === SESSION_ID)).toHaveLength(1);
 
     // B goes away: a request for its session is 409, not a hang and not A's 404.
     b.remote.stop();

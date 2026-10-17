@@ -22,6 +22,8 @@ const TAGS_PATH = /^\/api\/sessions\/[^/]+\/tags$/;
 export function registerFederationRoutes(
   app: FastifyInstance, federation: FederationService, selfId: () => string | null, imagesDir: string,
 ): void {
+  /** Requests the preHandler answered with a member's reply. */
+  const forwarded = new WeakSet<FastifyRequest>();
   app.addHook('preHandler', async (req, reply) => {
     if (req.headers[DEVICE_HEADER] !== undefined) return;
     const [path, search = ''] = req.url.split('?', 2);
@@ -43,7 +45,7 @@ export function registerFederationRoutes(
     let link = sessionId ? federation.linkOf(sessionId) : null;
     if (!link) {
       const machine = query.get('machine') ?? machineOfBody(req);
-      if (machine === null) return;
+      if (!machine) return;
       if (machine === selfId()) {
         // This device: the local route answers, as if no machine were named.
         delete (req.query as Record<string, unknown> | undefined)?.machine;
@@ -54,7 +56,9 @@ export function registerFederationRoutes(
       if (!link) return reply.code(404).send({ error: 'unknown_device' });
     }
 
-    if (path === '/api/files/image' && sessionId) {
+    if (path === '/api/files/image') {
+      // Without a session the local route answers what is missing.
+      if (!sessionId) return;
       if (!link.channel?.ready) return reply.code(409).send({ error: 'member_offline' });
       const filePath = query.get('path') ?? '';
       const file = await federation.file(
@@ -98,12 +102,15 @@ export function registerFederationRoutes(
     const res = req.method === 'PUT' && sessionId && TAGS_PATH.test(path) && Array.isArray(tagIds)
       ? await federation.setTags(link, sessionId, tagIds.filter((id): id is number => typeof id === 'number'))
       : await federation.request(link, req.method as HttpMethod, url, body);
+    forwarded.add(req);
     return send(reply, res.status, res.body);
   });
 
   // The list every client starts from carries every member's sessions too, on its first page.
   app.addHook('preSerialization', async (req, _reply, payload) => {
-    if (req.method !== 'GET' || req.routeOptions.url !== '/api/sessions' || req.headers[DEVICE_HEADER] !== undefined) {
+    // A list a member answered (`?machine=`) is that member's alone.
+    if (req.method !== 'GET' || req.routeOptions.url !== '/api/sessions' || req.headers[DEVICE_HEADER] !== undefined
+      || forwarded.has(req)) {
       return payload;
     }
     const q = req.query as Record<string, string>;

@@ -143,6 +143,8 @@ export interface RouteContext {
   remote: RemoteService;
   /** Whether the user is at the Mac, as the desktop app reports it. */
   presence?: Presence;
+  /** Whether a session is another group member's: its composer's uploads are stored here, then sent on. */
+  foreign?: (sessionId: string) => boolean;
   settings: { get(key: string): string; set(key: string, value: string): void };
   /** MCP config through `claude mcp`, and the read of `.claude.json` the edit form needs, for
    * one Claude directory (spec 2026-10-01-mcp-servers-in-the-session-design § Config). */
@@ -1134,7 +1136,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   app.post('/api/sessions/:id/attachments', async (req, reply) => {
     const { id } = req.params as { id: string };
     const row = db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get();
-    if (!row) return reply.code(404).send({ error: 'not_found' });
+    if (!row && !ctx.foreign?.(id)) return reply.code(404).send({ error: 'not_found' });
     return storeAttachment(req, reply);
   });
 

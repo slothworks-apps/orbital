@@ -1458,6 +1458,7 @@ export async function buildServer(overrides: {
   registerRoutes(app, {
     db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, terminals, recentTools, errors,
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees,
+    foreign: (id) => federated.linkOf(id) !== null,
     settings: settingsStore,
     mcpFor,
     limits,
