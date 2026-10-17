@@ -235,7 +235,11 @@ export function DetailPanel({
   const members = useOrbital((s) => s.remote?.group?.members)
   const hiddenDeviceIds = useOrbital((s) => s.ui.hiddenDeviceIds)
   const foreign = session?.machine !== undefined
-  const deviceNow = useNow(foreign && session?.machine?.online === false, 60_000)
+  const deviceOffline =
+    foreign &&
+    (session?.machine?.online === false ||
+      members?.find((m) => m.id === session?.machine?.id)?.state === 'offline')
+  const deviceNow = useNow(deviceOffline, 60_000)
   const lock: DeviceLock | null = session ? deviceLock(session, members, deviceNow) : null
   const showDevicePill =
     session !== undefined && (foreign || namesShown(deviceChips(members), hiddenDeviceIds ?? []))

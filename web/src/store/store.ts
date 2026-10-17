@@ -2394,7 +2394,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   async openInIde(path, line) {
     const id = get().ui.selectedId
-    if (!id) return false
+    // Another device's session has no editor here to open a path in.
+    if (!id || !ideHere(get().sessions[id])) return false
     try {
       return await api.ideOpenFile(id, path, line ?? null)
     } catch {

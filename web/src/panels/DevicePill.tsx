@@ -43,8 +43,6 @@ export function DevicePill({
 
   return (
     <div
-      role="button"
-      aria-label={`Device · ${words}`}
       data-device-pill
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
