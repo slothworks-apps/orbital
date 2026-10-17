@@ -4,7 +4,9 @@ import {
 } from '@orbital/shared/remote/tunnel'
 import type { Channel } from '@orbital/shared/remote/channel'
 import type { GroupClient, GroupClientEvent, PeerInfo } from '@orbital/shared/remote/groupClient'
-import { peerServes, type FileAs, type HelloMessage, type NotificationSettings } from '@orbital/shared/remote/messages'
+import {
+  NotificationSettingsSchema, peerServes, type FileAs, type HelloMessage, type NotificationSettings,
+} from '@orbital/shared/remote/messages'
 import { RESERVED_SEGMENTS } from '@orbital/shared/remote/segments'
 import { PRESENCE_TOPIC, presenceFromFrame } from '@orbital/shared/presence'
 import type { MachineRef } from '../../lib/types'
@@ -139,6 +141,8 @@ export class GroupFederation implements SwappableClient {
   private lastMembers = ''
   /** The rules the user chose on this phone, sent to every member as it comes up; null before any choice. */
   private chosen: NotificationSettings | null
+  /** The first member's rules are being read to become the phone's (`adopt`). */
+  private adopting = false
   private readonly onNotifications: (settings: NotificationSettings) => void
 
   // Plain fields, not parameter properties: `erasableSyntaxOnly`.
@@ -413,7 +417,7 @@ export class GroupFederation implements SwappableClient {
         }
         return
       case 'unpaired_all':
-        this.emit({ type: 'unpaired', ...(event.unreachable === true ? { unreachable: true } : {}) })
+        this.emit({ type: 'unpaired' })
         return
       case 'relay_error':
         this.emit({ type: 'relay_error', code: event.code })
@@ -492,14 +496,46 @@ export class GroupFederation implements SwappableClient {
     }
   }
 
-  /** A member that came up gets the phone's rules: it may have missed a change, or never had them. */
+  /**
+   * A member that came up gets the phone's rules: it may have missed a
+   * change, or never had them. With none chosen yet (a phone from before
+   * groups), the first member's become the phone's (`adopt`).
+   */
   private sendChosen(source: Source): void {
     const chosen = this.chosen
     const channel = this.channelOf(source.id)
-    if (!chosen || !channel) return
+    if (!channel) return
+    if (!chosen) {
+      this.adopt(source, channel)
+      return
+    }
     channel.setNotifications(chosen).catch(() => {
       // Sent again the next time it comes up.
     })
+  }
+
+  /**
+   * Once: the rules `source` reports are taken as the phone's choice — what
+   * the user chose against their one Mac before groups — stored, and sent to
+   * every other member up now; a member that comes up later gets them then.
+   */
+  private adopt(source: Source, channel: PeerChannel): void {
+    if (this.adopting) return
+    this.adopting = true
+    channel.getNotifications().then(
+      (reported) => {
+        this.adopting = false
+        const rules = NotificationSettingsSchema.safeParse(reported)
+        // A choice made meanwhile wins; an answer that does not read is asked again at the next member up.
+        if (this.chosen || !rules.success) return
+        this.chosen = rules.data
+        this.onNotifications(rules.data)
+        for (const [other] of this.readySources()) if (other !== source) this.sendChosen(other)
+      },
+      () => {
+        this.adopting = false
+      },
+    )
   }
 
   /** A peer no longer paired: its sessions leave the list. */

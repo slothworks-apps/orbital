@@ -122,9 +122,9 @@ export interface MobileState {
   mismatch: Mismatch | null
   unpaired: boolean
   /**
-   * 9h came because no device of the group could reach this phone any more
-   * (`unpaired` with `unreachable`), not because one was heard removing it.
-   * For this launch only: a later one shows 9h's usual words.
+   * No device of the group can reach this phone right now
+   * (`GroupClient.unreachable`): the session list says so and offers to
+   * pair again. Not 9h: nothing says this phone was removed.
    */
   unreachable: boolean
   pairing: Pairing | null
@@ -254,10 +254,7 @@ export function pairGoneFor(event: TunnelEvent, pairing: Pairing | null): boolea
 /** What one client event changes (spec § 5: offline, 9h, 9i). Pure; `useMobile.apply` writes it. */
 export function reduce(state: MobileState, event: TunnelEvent, now: number): Partial<MobileState> {
   if (pairGoneFor(event, state.pairing)) {
-    return {
-      screen: 'unpaired', unpaired: true, unreachable: event.type === 'unpaired' && event.unreachable === true,
-      sessionId: null, pushed: [], pairing: null, ready: false,
-    }
+    return { screen: 'unpaired', unpaired: true, sessionId: null, pushed: [], pairing: null, ready: false }
   }
   switch (event.type) {
     case 'status':

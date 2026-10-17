@@ -196,7 +196,7 @@ describe('GroupClient', () => {
     expect(FakeSocket.all).toHaveLength(2);
   });
 
-  it('no pair at the relay and none formed within ALONE_GRACE_MS: unpaired_all, unreachable', () => {
+  it('no pair at the relay and none formed within ALONE_GRACE_MS: unreachable, and nothing forgotten', () => {
     vi.useFakeTimers();
     const b = idOf();
     const s = setup((storage) => {
@@ -206,16 +206,24 @@ describe('GroupClient', () => {
     online(s.sock(), { peers: [], pairs: [] });
     expect(s.events.map((e) => e.type)).toContain('pairs_lost');
     vi.advanceTimersByTime(ALONE_GRACE_MS - 1);
-    expect(s.events.some((e) => e.type === 'unpaired_all')).toBe(false);
+    expect(s.client.unreachable).toBe(false);
     vi.advanceTimersByTime(1);
-    expect(s.events.filter((e) => e.type === 'unpaired_all')).toEqual([{ type: 'unpaired_all', unreachable: true }]);
-    // Said once.
+    expect(s.client.unreachable).toBe(true);
+    expect(s.events.filter((e) => e.type === 'unreachable')).toEqual([{ type: 'unreachable', unreachable: true }]);
+    // A relay reset while every member sleeps: the phone keeps its group and its key.
+    expect(s.events.some((e) => e.type === 'unpaired_all')).toBe(false);
+    expect(s.client.members().map((m) => m.id)).toContain(b);
+    // Said once while it lasts.
     s.sock().control({ type: 'ok', peers: [], pairs: [] });
     vi.advanceTimersByTime(ALONE_GRACE_MS);
-    expect(s.events.filter((e) => e.type === 'unpaired_all')).toHaveLength(1);
+    expect(s.events.filter((e) => e.type === 'unreachable')).toHaveLength(1);
+    // A pair forming clears it.
+    s.sock().control({ type: 'linked', peer: b });
+    expect(s.client.unreachable).toBe(false);
+    expect(s.events.filter((e) => e.type === 'unreachable').at(-1)).toEqual({ type: 'unreachable', unreachable: false });
   });
 
-  it('a pair that forms within ALONE_GRACE_MS (a relay that lost its pairs) keeps the phone in its group', () => {
+  it('a pair that forms within ALONE_GRACE_MS (a relay that lost its pairs) keeps the phone reachable', () => {
     vi.useFakeTimers();
     const b = idOf();
     const s = setup((storage) => grouped(storage, b));
@@ -223,7 +231,7 @@ describe('GroupClient', () => {
     vi.advanceTimersByTime(ALONE_GRACE_MS / 2);
     s.sock().control({ type: 'linked', peer: b });
     vi.advanceTimersByTime(ALONE_GRACE_MS);
-    expect(s.events.some((e) => e.type === 'unpaired_all')).toBe(false);
+    expect(s.events.some((e) => e.type === 'unreachable')).toBe(false);
     expect(s.client.peers().map((p) => p.id)).toEqual([b]);
   });
 
@@ -234,7 +242,7 @@ describe('GroupClient', () => {
     const alone = setup();
     online(alone.sock(), { peers: [], pairs: [] });
     vi.advanceTimersByTime(ALONE_GRACE_MS * 2);
-    expect([...old.events, ...alone.events].some((e) => e.type === 'unpaired_all')).toBe(false);
+    expect([...old.events, ...alone.events].some((e) => e.type === 'unreachable' || e.type === 'unpaired_all')).toBe(false);
   });
 
   it('a relay too old to answer the web view: members pair by hand, and no code is shown', async () => {

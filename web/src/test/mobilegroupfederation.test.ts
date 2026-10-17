@@ -43,7 +43,8 @@ function fakeChannel(h: HelloMessage, data: { tags: { id: number; name: string; 
     getBlob: vi.fn(async (_ref: string) => ({ status: 404, bytes: new Uint8Array(0), mediaType: null as string | null })),
     getFile: vi.fn(),
     putBlob: vi.fn(async () => ({ kind: 'ok' as const, entry: { ref: 'r.png', w: 1, h: 1, bytes: 1 } })),
-    getNotifications: vi.fn(),
+    // A member that reports nothing readable: the phone adopts no rules from it.
+    getNotifications: vi.fn(async (): Promise<unknown> => undefined),
     setNotifications: vi.fn(async (s: unknown) => s),
     seen: vi.fn(),
     subscribe: vi.fn((t: string) => {
@@ -352,6 +353,31 @@ describe('GroupFederation', () => {
     expect(stored).toHaveBeenCalledWith({ ...chosen, sound: true })
   })
 
+  it('a phone with no rules of its own adopts the first member\'s, once, and sends them to every other member', async () => {
+    const rules = { needsInput: true, sessionEnded: true, sessionFailed: false, onlyWhenBackground: true, sound: true }
+    const group = new FakeGroup()
+    const studio = fakeChannel(hello('studio'), { tags: [], sessions: [] })
+    const laptop = fakeChannel(hello('laptop'), { tags: [], sessions: [] })
+    studio.getNotifications.mockResolvedValue(rules)
+    laptop.getNotifications.mockResolvedValue({ ...rules, sound: false })
+    group.add(STUDIO, 'studio', studio)
+    group.add(LAPTOP, 'laptop', laptop)
+    laptop.ready = false
+    const stored = vi.fn()
+    const fed = new GroupFederation(group, { onNotifications: stored })
+    await settle()
+    expect(stored).toHaveBeenCalledWith(rules)
+    expect(studio.setNotifications).not.toHaveBeenCalled()
+    // A member that links later gets the adopted rules, and is not asked for its own.
+    laptop.ready = true
+    group.emit({ type: 'peer', peer: LAPTOP })
+    await settle()
+    expect(laptop.setNotifications).toHaveBeenCalledWith(rules)
+    expect(laptop.getNotifications).not.toHaveBeenCalled()
+    expect(stored).toHaveBeenCalledTimes(1)
+    expect(fed.ready).toBe(true)
+  })
+
   it('marks what a member that comes back relists, and what one that goes keeps, as replay', async () => {
     const { group, laptop, frames } = await setup()
     const upsertsOf = (id: string) => frames().filter((f) => f.event === 'upsert' && (f.session as Listed).id === id)
@@ -377,12 +403,6 @@ describe('GroupFederation', () => {
     group.down(LAPTOP)
     group.emit({ type: 'hub', peer: STUDIO, frame: { topic: 'sessions', event: 'upsert', session: session('l1') } })
     expect(fed.ownerOf('l1')).toBe(STUDIO)
-  })
-
-  it('passes on that no member could reach this phone any more', async () => {
-    const { group, events } = await setup()
-    group.emit({ type: 'unpaired_all', unreachable: true })
-    expect(events.at(-1)).toEqual({ type: 'unpaired', unreachable: true })
   })
 
   it('takes a member that is no longer paired out of the list', async () => {

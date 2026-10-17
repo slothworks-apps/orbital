@@ -10,6 +10,7 @@ import { KindGlyph } from '../../ui/KindGlyph'
 import { devicesOn, namesShown, showDeviceRow, toggleDevice } from '../../lib/devices'
 import { asleepCards, onDevices, phoneChips, useDeviceFilter, type AsleepCard, type PhoneChip } from '../deviceList'
 import { recheckMac } from '../connect'
+import { forgetGroupHere } from '../forget'
 import { CLOCK_TICK_MS, RETRY_WINDOW_MS } from '../constants'
 import { agoLabel, asOfLabel, basename, checkedLabel } from '../format'
 import {
@@ -39,6 +40,7 @@ export function SessionListScreen() {
   )
   const hiddenDevices = useDeviceFilter((s) => s.hidden)
   const setHiddenDevices = useDeviceFilter((s) => s.setHidden)
+  const unreachable = useMobile((s) => s.unreachable)
   const openSession = useMobile((s) => s.openSession)
   const openSubagent = useMobile((s) => s.openSubagent)
   const openTask = useMobile((s) => s.openTask)
@@ -187,6 +189,7 @@ export function SessionListScreen() {
   return (
     <MobileScreen header={header} footer={footer} divider={false} glow>
       <div className="pb-3">
+        {unreachable && <UnreachableCard />}
         {cards.map((card) => (
           <AsleepDeviceCard key={card.id} card={card} checking={checking} onRetry={() => void retry()} />
         ))}
@@ -434,6 +437,41 @@ function AsleepDeviceCard({ card, checking, onRetry }: { card: AsleepCard; check
         className="grid h-11 shrink-0 place-items-center rounded-[12px] border border-[rgba(150,205,255,.2)] px-3.5 text-[13px] font-semibold text-text-bright disabled:opacity-40"
       >
         Retry
+      </button>
+    </section>
+  )
+}
+
+/**
+ * No device of the group can reach this phone right now
+ * (`GroupClient.unreachable`): its members may all be asleep, or it was
+ * removed while away and nobody can tell it. Nothing is forgotten until the
+ * user says so: "Pair again" forgets the group here, key kept, as "Forget
+ * this group on this phone" does. Drawn as the asleep card is; provisional copy.
+ */
+function UnreachableCard() {
+  const [busy, setBusy] = useState(false)
+  const pairAgain = async () => {
+    setBusy(true)
+    try {
+      await forgetGroupHere()
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <section className="mx-3 mb-2 flex items-center gap-3 rounded-[14px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.82)] py-1.5 pl-4 pr-1.5">
+      <span aria-hidden className="box-border block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-[rgba(200,215,235,.6)]" />
+      <span className="min-w-0 flex-1 py-1 text-[13.5px] font-semibold leading-[1.35]">
+        No device in your group can reach this phone right now.
+      </span>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void pairAgain()}
+        className="grid h-11 shrink-0 place-items-center rounded-[12px] border border-[rgba(150,205,255,.2)] px-3.5 text-[13px] font-semibold text-text-bright disabled:opacity-40"
+      >
+        Pair again
       </button>
     </section>
   )

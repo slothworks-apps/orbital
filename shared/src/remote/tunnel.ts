@@ -28,11 +28,7 @@ export type TunnelEvent =
   /** The Mac confirmed; its name is the QR's, the relay knows none. */
   | { type: 'paired' }
   | { type: 'rejected' }
-  /**
-   * The pair is gone. `unreachable`: no device was heard removing this
-   * phone — none of its group could reach it any more (`ALONE_GRACE_MS`).
-   */
-  | { type: 'unpaired'; unreachable?: boolean }
+  | { type: 'unpaired' }
   | { type: 'relay_error'; code: string }
   /**
    * The relay is below `MIN_RELAY_VERSION` (at connect, or in a redeem's

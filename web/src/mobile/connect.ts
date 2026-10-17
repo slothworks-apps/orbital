@@ -89,6 +89,7 @@ export function newGroup(
   group.on((event) => {
     if (!live()) return
     if (event.type === 'group') useMobile.setState(groupState(group))
+    if (event.type === 'unreachable') useMobile.setState({ unreachable: event.unreachable })
     // A new pair: the relay has a row for it now, and the token can go to it.
     if (event.type === 'joined') void registerPush()
     // Only a refusal changes anything there; every other event would only wake the subscribers.
@@ -111,8 +112,8 @@ export function refreshGroupState(): void {
 }
 
 /** What the state shows of the group: its members, a device asking to join, this phone's open code. */
-export function groupState(group: GroupClient): Pick<MobileState, 'members' | 'pendingPair' | 'ownCode'> {
-  return { members: group.members(), pendingPair: group.pendingPair, ownCode: group.pairing }
+export function groupState(group: GroupClient): Pick<MobileState, 'members' | 'pendingPair' | 'ownCode' | 'unreachable'> {
+  return { members: group.members(), pendingPair: group.pendingPair, ownCode: group.pairing, unreachable: group.unreachable }
 }
 
 /**
