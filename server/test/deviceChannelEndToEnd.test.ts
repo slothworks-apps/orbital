@@ -121,7 +121,7 @@ describe('two servers, one channel', () => {
   }, 20_000);
 
   it('a device paired with one member links with the others without a ceremony', async () => {
-    const { a, b, idA, idB } = await joined();                           // A ↔ B
+    const { a, b, idA } = await joined();                                // A ↔ B
     const c = await startMacAndRelay(closers, { relayUrl: a.relayUrl, name: 'vps' });
     const qr = (await b.api('POST', '/api/remote/pair')).json().qr;     // C joins through B
     const join = await c.api('POST', '/api/remote/join', { code: qr });
@@ -135,7 +135,6 @@ describe('two servers, one channel', () => {
       const members = (await s.api('GET', '/api/remote')).json().group.members;
       expect(members.filter((m: any) => m.linked || m.self)).toHaveLength(3);
     }
-    void idB;
   }, 30_000);
 
   it('phone is listed, not linked: no mutual pair is asked for it', async () => {

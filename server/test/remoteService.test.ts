@@ -351,7 +351,7 @@ describe('RemoteService mutual pairs', () => {
     expect(asked(fake)).toEqual([server, server]);
   });
 
-  it('a relay without the route marks the member pair-by-hand until the next ok; any other failure is asked again', async () => {
+  it('a relay without the route marks the member pair-by-hand until the next ok; a relay error is asked again, a refusal is not', async () => {
     const { service, fake, db, settings } = build();
     const [server] = withMembers(db, {});
     const member = () => service.status().group.members.find((m) => m.id === server);
@@ -364,11 +364,19 @@ describe('RemoteService mutual pairs', () => {
     await tick();
     expect(member()).toMatchObject({ pairByHand: false });
     expect(asked(fake)).toHaveLength(2);
-    // A roster change asks again what failed.
+    // A roster change asks again what failed on the relay's side.
     settings.remote_mac_name = 'renamed';
     service.nameChanged();
     await tick();
     expect(asked(fake)).toHaveLength(3);
+    // A refusal waits for the next relay `ok`, whatever the roster does.
+    fake.answers['/pair/mutual'] = { status: 429, body: {} };
+    fake.emit('control', ok);
+    await tick();
+    settings.remote_mac_name = 'renamed again';
+    service.nameChanged();
+    await tick();
+    expect(asked(fake)).toHaveLength(4);
   });
 
   it('a linked member the roster holds live becomes a paired device once; any other id is ignored', async () => {
@@ -387,6 +395,21 @@ describe('RemoteService mutual pairs', () => {
       expect.objectContaining({ id: server, name: 'vps', platform: 'linux', kind: 'desktop' }),
     ]);
     expect(service.status().group.members.find((m) => m.id === server)).toMatchObject({ linked: true });
+  });
+
+  it('a linked phone another member paired is ignored and watched for nothing', async () => {
+    const { service, fake, db, hub } = build();
+    const [phone] = withMembers(db, { kind: 'phone', links: false });
+    const published = vi.spyOn(hub, 'publish');
+    fake.emit('control', { type: 'linked', peer: phone });
+    await tick();
+    expect(service.status().devices).toEqual([]);
+    expect(published).not.toHaveBeenCalled();
+    published.mockRestore();
+    // No watcher: a session needing input sends this phone no wake.
+    hub.publish('sessions', { event: 'upsert', session: { id: 's1', title: 'one', status: 'working' } });
+    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    expect(fake.sent).toEqual([]);
   });
 });
 

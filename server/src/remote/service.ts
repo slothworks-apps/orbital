@@ -760,8 +760,9 @@ export class RemoteService {
           this.publishStatus();
           return;
         }
-        // Asked again at the next roster change or relay `ok`.
-        asked.delete(id);
+        // A refusal (a bad id, a rate limit) waits for the next relay `ok`;
+        // a network failure or a relay error is asked again at the next roster change.
+        if (res.status === 0 || res.status >= 500) asked.delete(id);
         console.warn(`[remote] relay mutual pair with ${id.slice(0, 8)} failed: ${res.status}`);
       });
     }
@@ -769,14 +770,15 @@ export class RemoteService {
 
   /**
    * The relay paired this device with `peer`. Only a member the roster holds
-   * live becomes a paired device — never one on the relay's word alone. Both
+   * live, and that links, becomes a paired device — never one on the relay's word alone. Both
    * the control and the post's answer can say so; the second changes nothing.
    */
   private onLinked(peer: string): void {
     const entry = this.roster.entry(peer);
     if (!this.identity || peer === this.selfId) return;
-    if (!entry || !isLive(entry)) {
-      console.warn(`[remote] ignored a link with ${peer.slice(0, 8)}: no live member of the group`);
+    // A member that does not link (a phone) is never asked for, so a `linked` for one is not ours.
+    if (!entry || !isLive(entry) || !entry.links) {
+      console.warn(`[remote] ignored a link with ${peer.slice(0, 8)}: no live member of the group that links`);
       return;
     }
     if (!this.devices.get(peer)) {
