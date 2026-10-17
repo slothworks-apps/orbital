@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type {
   ApiSession,
   ChatMessage,
+  GroupMember,
+  RemoteStatus,
   ErrorRecord,
   PendingQuestionDecision,
   PendingVerdictDecision,
@@ -19,6 +21,7 @@ import {
   matchesSearch,
   matchesSidebarFilters,
   mapSessions,
+  historyPageOffset,
   statusCounts,
   recordedFailureFor,
   parsePlanetScale,
@@ -627,6 +630,46 @@ describe('sendPrompt', () => {
       message: 'session is live in a terminal',
     })
     // The optimistic message remains in the transcript despite the failed send.
+    expect(useOrbital.getState().transcripts.s1).toHaveLength(1)
+  })
+
+  it("takes a turn refused as member_offline back into the draft and locks the device's sessions, with no toast", async () => {
+    const machine = { id: 'build', name: 'build-box', kind: 'headless', os: 'linux', online: true, asOf: null }
+    useOrbital.setState({
+      sessions: {
+        s1: makeSession({ id: 's1', machine }),
+        s2: makeSession({ id: 's2', machine }),
+        s3: makeSession({ id: 's3' }),
+      },
+    })
+    vi.mocked(api.sendMessage).mockRejectedValueOnce(new ApiError('{"error":"member_offline"}', 409))
+
+    await useOrbital.getState().sendPrompt('s1', 'hello')
+
+    const state = useOrbital.getState()
+    expect(state.toast).toBeNull()
+    expect(state.transcripts.s1).toEqual([])
+    expect(state.composerDrafts.s1).toBe('hello')
+    expect(state.sessions.s1.machine?.online).toBe(false)
+    expect(state.sessions.s2.machine?.online).toBe(false)
+    expect(state.sessions.s3.machine).toBeUndefined()
+  })
+})
+
+describe('select on an offline device', () => {
+  it('marks the history as not kept here on member_offline, and clears that once it reads', async () => {
+    const machine = { id: 'build', name: 'build-box', kind: 'headless', os: 'linux', online: true, asOf: null }
+    useOrbital.setState({ sessions: { s1: makeSession({ id: 's1', machine }) } })
+    vi.mocked(api.getMessages).mockRejectedValueOnce(new ApiError('{"error":"member_offline"}', 409))
+
+    await useOrbital.getState().select('s1')
+    expect(useOrbital.getState().historyUnkept?.s1).toBe(true)
+    expect(useOrbital.getState().sessions.s1.machine?.online).toBe(false)
+    expect(useOrbital.getState().toast).toBeNull()
+
+    vi.mocked(api.getMessages).mockResolvedValueOnce([{ id: 'm1', role: 'user', text: 'hi' }])
+    await useOrbital.getState().select('s1')
+    expect(useOrbital.getState().historyUnkept?.s1).toBeUndefined()
     expect(useOrbital.getState().transcripts.s1).toHaveLength(1)
   })
 })
@@ -1279,6 +1322,64 @@ describe('visibleSessions (pure)', () => {
       ui: { ...initialSnapshot.ui, filterTagIds: [1], search: 'gamma' },
     }
     expect(visibleSessions(state).map((s) => s.id)).toEqual(['s3'])
+  })
+})
+
+describe('the device filter (pure, canvas 50e)', () => {
+  const member = (patch: Partial<GroupMember>): GroupMember => ({
+    id: 'x', kind: 'desktop', name: 'x', os: 'macos', links: true, epoch: 1, addedBy: 'me', addedAt: 0,
+    describedAt: 0, self: false, linked: true, online: true, pairByHand: false, state: 'online', seenAt: null,
+    tooOld: false, ...patch,
+  })
+  const remote = {
+    group: {
+      relayLocked: false,
+      members: [
+        member({ id: 'me', name: 'studio', self: true, state: 'self' }),
+        member({ id: 'build', name: 'build-box', kind: 'headless' }),
+      ],
+    },
+  } as unknown as RemoteStatus
+  const machine = { id: 'build', name: 'build-box', kind: 'headless', os: 'linux', online: true, asOf: null }
+  const local = makeSession({ id: 'local', lastAt: 100 })
+  const away = makeSession({ id: 'away', lastAt: 200, machine })
+  const state = (hiddenDeviceIds: string[]): OrbitalState => ({
+    ...initialSnapshot,
+    remote,
+    sessions: { local, away },
+    ui: { ...initialSnapshot.ui, hiddenDeviceIds },
+  })
+
+  it('keeps every device with every chip on, sorted with the local ones by lastAt', () => {
+    expect(visibleSessions(state([])).map((s) => s.id)).toEqual(['away', 'local'])
+    expect(mapSessions(state([]), NOW).map((s) => s.id)).toEqual(['away', 'local'])
+  })
+
+  it('drops a hidden device from the sidebar lists and the map, and keeps the rest', () => {
+    expect(visibleSessions(state(['build'])).map((s) => s.id)).toEqual(['local'])
+    expect(mapSessions(state(['build']), NOW).map((s) => s.id)).toEqual(['local'])
+    expect(visibleSessions(state(['self'])).map((s) => s.id)).toEqual(['away'])
+    expect(mapSessions(state(['self']), NOW).map((s) => s.id)).toEqual(['away'])
+  })
+
+  it('matchesSidebarFilters drops a session of a hidden device', () => {
+    expect(matchesSidebarFilters(away, initialSnapshot.ui, ['build'])).toBe(false)
+    expect(matchesSidebarFilters(local, initialSnapshot.ui, ['build'])).toBe(true)
+  })
+
+  it('hides nothing once the hidden device no longer has a chip (remote off)', () => {
+    const off: OrbitalState = { ...state(['build']), remote: null }
+    expect(mapSessions(off, NOW).map((s) => s.id)).toEqual(['away', 'local'])
+  })
+
+  // The server pages this device's own sessions under the tag filter and the
+  // search; a member's arrive whole, and the chips are the client's alone.
+  it("historyPageOffset counts what the server paged: local sessions under the filters, whatever chips are off", () => {
+    const other = makeSession({ id: 'other', lastAt: 50, title: 'unrelated' })
+    const base = { ...state(['self']), sessions: { local, away, other } }
+    expect(historyPageOffset(base)).toBe(2)
+    expect(historyPageOffset({ ...base, ui: { ...base.ui, search: 'unrelated' } })).toBe(1)
+    expect(historyPageOffset({ ...base, ui: { ...base.ui, hiddenDeviceIds: [] } })).toBe(2)
   })
 })
 
@@ -2613,7 +2714,8 @@ describe('applySessionEvent: delta', () => {
 describe('refreshRemote', () => {
   const remoteStatus = (macName: string) => ({
     enabled: true, relay: 'online' as const, relayTooOld: null, relayAttempts: 0, relayUrl: 'https://r.example', macId: 'm',
-    macName, devices: [], pendingPair: null, pairing: null, error: null,
+    macName, devices: [], pendingPair: null, pairing: null, joining: null, error: null,
+    group: { members: [], relayLocked: false },
   })
 
   it('stores the answer when nothing newer arrived meanwhile', async () => {

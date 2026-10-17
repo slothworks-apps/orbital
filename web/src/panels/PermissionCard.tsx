@@ -90,6 +90,8 @@ export interface PermissionCardProps {
   toolUse: ChatMessage
   /** Present once the tool ran (or was refused) — the settled card's source. */
   toolResult?: ChatMessage
+  /** The session's device cannot be reached now: a waiting request is drawn `locked`, readable and inert. */
+  offline?: boolean
 }
 
 /** The decision a card renders from when there is no pending one: the transcript's own. */
@@ -103,7 +105,7 @@ function fromTranscript(toolUse: ChatMessage): PendingVerdictDecision {
   }
 }
 
-export function PermissionCard({ sessionId, toolUse, toolResult }: PermissionCardProps) {
+export function PermissionCard({ sessionId, toolUse, toolResult, offline = false }: PermissionCardProps) {
   const decisionId = toolUse.toolUseId ?? toolUse.id
   const pending = useOrbital((s) => s.pendingDecisions[sessionId])
   const sentVerdict = useOrbital((s) => s.decisionVerdicts[decisionId])
@@ -118,9 +120,11 @@ export function PermissionCard({ sessionId, toolUse, toolResult }: PermissionCar
 
   const watchedTerminal = session ? isReadOnly(session) : false
   const mode: 'interactive' | 'terminal' | 'settled' | 'locked' = isPending
-    ? watchedTerminal
-      ? 'terminal'
-      : 'interactive'
+    ? offline
+      ? 'locked'
+      : watchedTerminal
+        ? 'terminal'
+        : 'interactive'
     : // What this tab already sent beats waiting for the round trip — the card
       // flips on the click, like the question card's answered form.
       sentVerdict !== undefined || toolResult !== undefined

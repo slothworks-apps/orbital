@@ -362,6 +362,12 @@ export interface TranscriptViewProps {
    */
   readOnly?: boolean
   /**
+   * The session's device cannot be reached now (the phone: asleep, or
+   * refusing this app): a waiting permission or question is drawn inert,
+   * since an answer could not reach it.
+   */
+  offline?: boolean
+  /**
    * What the compaction marks need to know about the session they sit in
    * (spec 2026-09-28-context-compaction-design § The permanent mark). Absent
    * — the subagent panel — they draw with a neutral hue and no actions.
@@ -674,6 +680,7 @@ export function TranscriptView({
   footer,
   footerKey,
   readOnly = false,
+  offline = false,
   subagents,
   onOpenSubagent,
   backgroundTasks,
@@ -1115,13 +1122,14 @@ export function TranscriptView({
             sessionId={sessionId}
             toolUse={group.item.toolUse}
             toolResult={group.item.toolResult}
-            readOnly={readOnly}
+            readOnly={readOnly || offline}
           />
         ) : group.kind === 'decision' ? (
           <PermissionCard
             sessionId={sessionId}
             toolUse={group.item.toolUse}
             toolResult={group.item.toolResult}
+            offline={offline}
           />
         ) : group.kind === 'tools' ? (
           group.items.length === 1 ? (

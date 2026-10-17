@@ -1,4 +1,4 @@
-import type { RemoteClientEvent } from '@orbital/shared/remote/client'
+import type { TunnelEvent } from '@orbital/shared/remote/tunnel'
 import type { TunnelClient } from './clientRef'
 
 /**
@@ -58,7 +58,7 @@ export class TunnelSocket {
     queueMicrotask(() => this.onclose?.())
   }
 
-  private onEvent(event: RemoteClientEvent): void {
+  private onEvent(event: TunnelEvent): void {
     if (event.type === 'ready') {
       if (event.ready) this.open()
       else this.shut()

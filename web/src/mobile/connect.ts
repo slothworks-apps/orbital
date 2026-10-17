@@ -1,10 +1,18 @@
-import { RemoteClient } from '@orbital/shared/remote/client'
+import { osName } from '@orbital/shared/remote/device'
+import { GroupClient, MemoryGroupStorage } from '@orbital/shared/remote/groupClient'
 import type { Identity } from '@orbital/shared/remote/keys'
+import { thisDevice } from './platform/device'
+import { saveGroup } from './platform/group'
 import { loadOrCreateIdentity } from './platform/identity'
-import type { Pairing } from './platform/parse'
+import type { GroupRecord } from './platform/parse'
+import { PersistQueue } from './platform/persistQueue'
+import { registerPush } from './platform/push'
 import { RETRY_WINDOW_MS } from './constants'
-import { isMacAsleep, useMobile } from './state'
+import { asleepDevices } from './deviceList'
+import { isMacAsleep, useMobile, type MobileState } from './state'
 import { clientRef } from './transport/clientRef'
+import { GroupFederation } from './transport/groupFederation'
+import { groupRef, type GroupHandle } from './transport/groupRef'
 
 /**
  * What `hello` calls this app: the shell's version (mobile/package.json).
@@ -16,22 +24,96 @@ export function mobileApp(): string {
 }
 
 /**
- * `expectPaired` is true only for a client built from a stored pairing: the
- * relay then says when that pair is gone. A client built while pairing passes
- * false, since no pair exists yet and the relay would say so. `relaySecret`
- * is the relay's shared secret from the code, sent on every connect; none
- * for an open relay.
+ * The phone's group client on `record`'s relay, with the federation over it,
+ * not yet started nor held. `persist` false is a join in progress: nothing is
+ * stored until it pairs (`GroupHandle.persist`). Its events reach the app's
+ * state only while it is the one `groupRef` holds.
  */
-export function newClient(
-  relayUrl: string,
-  mac: string,
+export function newGroup(
+  record: GroupRecord,
   identity: Identity,
-  { expectPaired, relaySecret }: { expectPaired: boolean; relaySecret?: string },
-): RemoteClient {
-  // The WebView's own WebSocket; `ws` plays it in the server's end-to-end test.
-  return new RemoteClient({
-    relayUrl, mac, identity, WebSocketImpl: WebSocket, app: mobileApp(), expectPaired, relaySecret,
+  device: { name: string; platform: string },
+  { persist }: { persist: boolean },
+): GroupHandle {
+  const storage = MemoryGroupStorage.fromJSON(record.group)
+  const queue = new PersistQueue<GroupRecord>((value) => saveGroup(value, identity.publicKey))
+  let persisting = persist
+  let notifications = record.notifications
+  const snapshot = (): GroupRecord => ({
+    relay: record.relay, ...(record.relaySecret !== undefined ? { relaySecret: record.relaySecret } : {}), group: storage.toJSON(),
+    ...(notifications !== undefined ? { notifications } : {}),
   })
+  // The last relay request's status: the ceremony reads a busy relay (429) as any other failure.
+  let lastStatus: number | null = null
+  const group = new GroupClient({
+    // The WebView's own WebSocket.
+    relayUrl: record.relay, relaySecret: record.relaySecret, identity, WebSocketImpl: WebSocket,
+    fetchImpl: async (input, init) => {
+      const res = await fetch(input, init)
+      lastStatus = res.status
+      return res
+    },
+    app: mobileApp(), os: osName(device.platform), name: device.name, storage,
+    onStored: () => {
+      if (persisting) queue.push(snapshot())
+    },
+    log: (message) => console.info(`[group] ${message}`),
+  })
+  const federation = new GroupFederation(group, {
+    notifications: notifications ?? null,
+    onNotifications: (chosen) => {
+      notifications = chosen
+      if (persisting) queue.push(snapshot())
+    },
+  })
+  const handle: GroupHandle = {
+    group, federation,
+    relayBusy: () => lastStatus === 429,
+    persist: async () => {
+      persisting = true
+      queue.push(snapshot())
+      await queue.idle()
+      const failed = queue.lastError
+      if (failed) throw failed instanceof Error ? failed : new Error('could not store the device group')
+    },
+    close: async () => {
+      persisting = false
+      queue.close()
+      await queue.idle()
+    },
+  }
+  const live = () => groupRef.current === handle
+  federation.onMembers(() => {
+    if (live()) useMobile.getState().setDevices(federation.sources())
+  })
+  group.on((event) => {
+    if (!live()) return
+    if (event.type === 'group') useMobile.setState(groupState(group))
+    if (event.type === 'unreachable') useMobile.setState({ unreachable: event.unreachable })
+    // A new pair: the relay has a row for it now, and the token can go to it.
+    if (event.type === 'joined') void registerPush()
+    // Only a refusal changes anything there; every other event would only wake the subscribers.
+    if (event.type === 'bye' && event.reason !== 'revoked') useMobile.getState().applyGroup(event)
+  })
+  return handle
+}
+
+/** Holds `handle` as the app's group: `clientRef` carries its federation, the state shows its devices. */
+export function holdGroup(handle: GroupHandle): void {
+  groupRef.set(handle)
+  useMobile.getState().setDevices(handle.federation.sources())
+  useMobile.setState(groupState(handle.group))
+}
+
+/** Reads the group into the state again: the ceremony drops a code that ran out without a word. */
+export function refreshGroupState(): void {
+  const handle = groupRef.current
+  if (handle) useMobile.setState(groupState(handle.group))
+}
+
+/** What the state shows of the group: its members, a device asking to join, this phone's open code. */
+export function groupState(group: GroupClient): Pick<MobileState, 'members' | 'pendingPair' | 'ownCode' | 'unreachable'> {
+  return { members: group.members(), pendingPair: group.pendingPair, ownCode: group.pairing, unreachable: group.unreachable }
 }
 
 /**
@@ -49,7 +131,7 @@ let recheckToken = 0
  */
 export async function recheckMac(windowMs: number): Promise<boolean> {
   const token = ++recheckToken
-  useMobile.setState((s) => ({ rechecking: { asleep: isMacAsleep(s) } }))
+  useMobile.setState((s) => ({ rechecking: { asleep: isMacAsleep(s), asleepIds: asleepDevices(s) } }))
   try {
     const online = await clientRef.recheck(windowMs)
     // A superseded call never writes; nor does one outlived by forgetEverything.
@@ -76,11 +158,11 @@ export async function recheckOnForeground(): Promise<void> {
   await recheckMac(RETRY_WINDOW_MS)
 }
 
-/** The paired Mac's link, started and live behind `clientRef`. */
-export async function connect(pairing: Pairing): Promise<RemoteClient> {
-  const identity = await loadOrCreateIdentity()
-  const client = newClient(pairing.relay, pairing.mac, identity, { expectPaired: true, relaySecret: pairing.relaySecret })
-  clientRef.set(client)
-  client.start()
-  return client
+/** The stored group, started and live behind `clientRef`. */
+export async function connect(record: GroupRecord): Promise<GroupClient> {
+  const [identity, device] = await Promise.all([loadOrCreateIdentity(), thisDevice()])
+  const handle = newGroup(record, identity, device, { persist: true })
+  holdGroup(handle)
+  handle.group.start()
+  return handle.group
 }

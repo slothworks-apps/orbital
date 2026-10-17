@@ -6,6 +6,7 @@ import { isReadOnly } from '../../lib/types'
 import { reportError } from '../../lib/errors'
 import { useDocumentHidden, useWindowFocused } from '../../lib/useWindowFocused'
 import { useSceneModel } from '../useSceneModel'
+import { withoutDeviceOff } from '../sceneModel'
 import { applyPan, bodyZoomFactor, clampZoom, fitViewTo, screenToWorld, zoomAt, zoomFromWheel, type CameraState } from '../camera'
 import { frameCap, parseMapFps } from '../frameSchedule'
 import { HOLE_DROP_RADIUS } from '../simulation'
@@ -29,7 +30,9 @@ type Gesture =
  * to the store, the camera and the pointer, the way `SpaceMap` wires planets.
  */
 export function ArchipelagoMap() {
-  const model = useSceneModel()
+  // Archipelago draws no fade for a device chip turned off: those islands leave.
+  const fullModel = useSceneModel()
+  const model = useMemo(() => withoutDeviceOff(fullModel), [fullModel])
   const settings = useOrbital((s) => s.settings)
   const urlRestored = useOrbital((s) => s.ui.urlRestored)
   const detachedIds = useOrbital((s) => s.detachedIds)

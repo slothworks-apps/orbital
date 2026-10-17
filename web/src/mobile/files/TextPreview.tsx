@@ -3,7 +3,7 @@ import { copyToClipboard } from '../../lib/clipboard'
 import { formatBytes } from '../../lib/format'
 import { PHONE_TEXT_PREVIEW_MAX_BYTES } from '../constants'
 import { asOfLabel, basename } from '../format'
-import { useMobile } from '../state'
+import { useSessionDeviceName } from '../useDevice'
 import { CantShow } from './CantShow'
 import { ByteBar, GoneBlock, StateButton, StateText } from './FileStates'
 import { useFile } from './useFile'
@@ -37,7 +37,7 @@ export function TextPreview({
 }) {
   const source = useMemo(() => ({ kind: 'path' as const, sessionId, path, as: 'text' as const, cwd }), [sessionId, path, cwd])
   const { view, retry } = useFile(source)
-  const mac = useMobile((s) => s.macName) ?? 'the Mac'
+  const mac = useSessionDeviceName(sessionId) ?? 'the Mac'
   const [wrap, setWrap] = useState(true)
   const target = useRef<HTMLDivElement>(null)
 

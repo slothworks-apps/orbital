@@ -499,11 +499,54 @@ export const remoteDevices = sqliteTable('remote_devices', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   platform: text('platform').notNull(),
+  kind: text('kind'),
   pairedAt: integer('paired_at').notNull(),
   lastSeenAt: integer('last_seen_at'),
   notifications: text('notifications').notNull(),
 });
 export type RemoteDeviceRow = typeof remoteDevices.$inferSelect;
+
+/**
+ * The group's roster as this device knows it (spec
+ * 2026-10-16-device-group-design § 2), linked or not, removed members
+ * included: a removal has to outlive the device it removed. `remote_devices`
+ * holds only the devices this one has a relay pair with.
+ */
+export const groupMembers = sqliteTable('group_members', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(),
+  name: text('name').notNull(),
+  os: text('os').notNull(),
+  links: integer('links', { mode: 'boolean' }).notNull(),
+  epoch: integer('epoch').notNull(),
+  addedBy: text('added_by').notNull(),
+  addedAt: integer('added_at').notNull(),
+  describedAt: integer('described_at').notNull(),
+  removedBy: text('removed_by'),
+  removedAt: integer('removed_at'),
+});
+
+/**
+ * Pairs this device revoked while the relay could not be told: each is
+ * posted to `/pair/revoke` at the next relay `ok`, and goes once the relay
+ * answers it.
+ */
+export const pendingRevokes = sqliteTable('pending_revokes', {
+  id: text('id').primaryKey(),
+});
+
+/**
+ * The last sessions and tags each group member showed this device, as the
+ * member sent them, so a member that is offline at a restart is still on
+ * the map, dimmed. `seen_at`: when the member was last heard from.
+ */
+export const memberSnapshots = sqliteTable('member_snapshots', {
+  memberId: text('member_id').primaryKey(),
+  sessions: text('sessions').notNull(),
+  tags: text('tags').notNull(),
+  seenAt: integer('seen_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
 
 /**
  * Every failure Orbital caught, from either side of the wire. See

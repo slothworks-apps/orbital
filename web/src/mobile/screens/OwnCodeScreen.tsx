@@ -1,0 +1,157 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { StartPairingResult } from '@orbital/shared/remote/ceremony'
+import { copyToClipboard } from '../../lib/clipboard'
+import { oneWordCode } from '../../lib/devices'
+import { useNow } from '../../lib/useNow'
+import { ownCodeLeft } from '../devices'
+import { LEAVE_OFFLINE } from '../forget'
+import { useMobile } from '../state'
+import { groupRef } from '../transport/groupRef'
+import { MobileScreen, PrimaryButton, SecondaryButton } from '../ui'
+
+/** What showing a code came to, short of a code. */
+function codeError(error: Extract<StartPairingResult, { error: string }>['error']): string {
+  if (error === 'offline') return LEAVE_OFFLINE
+  if (error === 'relay_too_old') return 'The relay needs an update before this phone can show a code.'
+  return "The relay didn't answer. Try again."
+}
+
+/** How long Copy reads "Copied" after a copy. */
+const COPIED_MS = 1_500
+
+/**
+ * This phone's code (canvas 50i "Phone own code"): one word the device being
+ * added pastes. Asked for on open; one device per code, so once it is used
+ * or runs out the screen offers a new one. The request that follows arrives
+ * as the join request sheet, wherever the user is by then.
+ */
+export function OwnCodeScreen() {
+  const goBack = useMobile((s) => s.goBack)
+  const go = useMobile((s) => s.go)
+  const open = useMobile((s) => s.ownCode)
+  const [code, setCode] = useState<{ word: string; expiresAt: number } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const asked = useRef(false)
+  const now = useNow(code !== null)
+
+  const ask = useCallback(async () => {
+    const group = groupRef.current?.group
+    setError(null)
+    if (!group) {
+      setError(LEAVE_OFFLINE)
+      return
+    }
+    setBusy(true)
+    try {
+      const res = await group.startPairing()
+      if ('error' in res) setError(codeError(res.error))
+      else setCode({ word: oneWordCode(res.qr), expiresAt: res.expiresAt })
+    } finally {
+      setBusy(false)
+    }
+  }, [])
+
+  // Once per visit, not again on StrictMode's second mount.
+  useEffect(() => {
+    if (asked.current) return
+    asked.current = true
+    void ask()
+  }, [ask])
+
+  // A device confirmed (or three wrong codes rejected it): the code is spent, whatever its clock says.
+  const spent = code !== null && open?.expiresAt !== code.expiresAt
+  const left = code ? ownCodeLeft(spent ? now : code.expiresAt, now) : null
+
+  const copy = async () => {
+    if (!code) return
+    if (await copyToClipboard(code.word)) {
+      setCopied(true)
+      setTimeout(() => setCopied(false), COPIED_MS)
+    }
+  }
+  // The system share sheet where the WebView has one; Copy otherwise.
+  const share = async () => {
+    if (!code) return
+    if (typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ text: code.word })
+        return
+      } catch (err) {
+        // Dismissed by the user: nothing more to do.
+        if (err instanceof DOMException && err.name === 'AbortError') return
+      }
+    }
+    await copy()
+  }
+
+  const header = (
+    <div className="flex h-13 items-center gap-1 px-1.5">
+      <button
+        type="button"
+        aria-label="Back"
+        onClick={() => goBack()}
+        className="grid h-11 w-11 place-items-center text-[28px] leading-none text-[rgba(220,235,255,.85)]"
+      >
+        ‹
+      </button>
+      <h1 className="flex-1 text-[17px] font-bold">Add a device</h1>
+    </div>
+  )
+  const footer = (
+    <div className="px-4 pb-1.5 pt-2.5">
+      <SecondaryButton onClick={() => go('pairing')}>Scan a code instead</SecondaryButton>
+    </div>
+  )
+
+  return (
+    <MobileScreen header={header} footer={footer}>
+      <div className="flex flex-col gap-4 px-5 pt-6">
+        <div className="font-mono text-[10px] tracking-[0.2em] text-[oklch(85%_.12_205/.85)]">THIS PHONE&apos;S CODE</div>
+        <h2 className="text-[22px] font-bold leading-[1.25] tracking-[-0.01em] [text-wrap:balance]">
+          Paste it on the device you&apos;re adding
+        </h2>
+        <div className="min-h-[85px] select-all break-all rounded-[14px] border border-[rgba(150,205,255,.2)] bg-[rgba(4,8,16,.6)] p-4 font-mono text-[17px] leading-[1.5] tracking-[0.04em] text-text-bright">
+          {code && !left?.expired ? code.word : ''}
+        </div>
+        {left?.expired || (!code && error) ? (
+          <PrimaryButton disabled={busy} onClick={() => void ask()}>
+            New code
+          </PrimaryButton>
+        ) : (
+          <div className="grid grid-cols-2 gap-2.5">
+            <SecondaryButton disabled={!code} onClick={() => void copy()}>
+              {copied ? 'Copied' : 'Copy'}
+            </SecondaryButton>
+            <SecondaryButton disabled={!code} onClick={() => void share()}>
+              Share…
+            </SecondaryButton>
+          </div>
+        )}
+        {error && (
+          <p role="alert" className="text-[13px] text-[rgba(200,214,235,.85)]">
+            {error}
+          </p>
+        )}
+        <p className="text-[13.5px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+          On a desktop: Settings → Devices → <span className="font-semibold text-text-bright">Have another device&apos;s code?</span>
+        </p>
+        {left && (
+          <div className="flex flex-col gap-[7px]">
+            <div aria-hidden className="h-[3px] overflow-hidden rounded-full bg-[rgba(150,205,255,.12)]">
+              <div
+                className="h-full bg-[oklch(85%_.12_205/.7)] transition-[width] duration-1000 ease-linear"
+                style={{ width: `${left.fraction * 100}%` }}
+              />
+            </div>
+            <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{left.line}</span>
+          </div>
+        )}
+        <p className="font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.5)]">
+          no QR here — nothing in the group scans one but a phone
+        </p>
+      </div>
+    </MobileScreen>
+  )
+}

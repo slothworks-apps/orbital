@@ -8,6 +8,8 @@ import { agentSlotOpen, placementIn, runTerminalChord, toggleTerminalFromKey } f
 import { parseTerminalChord } from './keys'
 import { parseDockHeight, sideSlotWidth } from './layout'
 import { useTerminals } from './store'
+import { LOCAL_DEVICE, deviceOf } from '../lib/devices'
+import type { ApiSession } from '../lib/types'
 
 /** Main's terminal chords are heard once per page, whichever window mounts first. */
 let listeningForChords = false
@@ -29,7 +31,8 @@ export function useTerminalPlacement(sessionId: string | null): {
   /** The side panel is in the slot: shown, in the side placement, and no agent's panel took the slot. */
   sideOnScreen: boolean
 } {
-  const enabled = useOrbital((s) => terminalEnabled(s.settings))
+  // A session of another device has its folder there: no shell here opens in it.
+  const enabled = useOrbital((s) => terminalEnabled(s.settings) && !onOtherDevice(s, sessionId))
   const placement = useOrbital((s) => placementIn(s.settings))
   const agentOpen = useOrbital(agentSlotOpen)
   const shown = useTerminals(
@@ -38,6 +41,12 @@ export function useTerminalPlacement(sessionId: string | null): {
   const on = enabled && shown
   const sideOnScreen = on && placement === 'side' && !agentOpen
   return { enabled, placement, shown: on, onScreen: placement === 'side' ? sideOnScreen : on, sideOnScreen }
+}
+
+/** The session runs on another device of the group. */
+function onOtherDevice(s: { sessions: Record<string, ApiSession> }, sessionId: string | null): boolean {
+  const session = sessionId === null ? undefined : s.sessions[sessionId]
+  return session !== undefined && deviceOf(session) !== LOCAL_DEVICE
 }
 
 /**
@@ -55,7 +64,7 @@ export function useTerminalPlacement(sessionId: string | null): {
  * and are there again when it is turned back on.
  */
 export function useTerminalHost(sessionId: string | null, opts: { mainWindow: boolean }): void {
-  const enabled = useOrbital((s) => terminalEnabled(s.settings))
+  const enabled = useOrbital((s) => terminalEnabled(s.settings) && !onOtherDevice(s, sessionId))
   const cursor = useOrbital((s) => terminalCursor(s.settings))
   const blink = useOrbital((s) => terminalCursorBlink(s.settings))
   const tabIds = useTerminals(useShallow((s) => (sessionId ? (s.tabs[sessionId] ?? []).map((t) => t.id) : [])))

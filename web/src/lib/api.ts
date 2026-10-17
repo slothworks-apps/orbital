@@ -7,6 +7,7 @@ import type {
   ChatMessage,
   CommandContent,
   CompletionKey,
+  DirListing,
   FileEntry,
   ImageRefEntry,
   MediaItem,
@@ -40,6 +41,7 @@ import type {
   SessionHarness,
   HarnessEvent,
   HarnessOptions,
+  JoinAnswer,
   PairConfirmError,
   PairConfirmResult,
   RemoteStatus,
@@ -237,6 +239,7 @@ function applyCompletionKey(url: URL, key: CompletionKey): void {
   else {
     url.searchParams.set('cwd', key.cwd)
     if (key.claudeDir !== undefined) url.searchParams.set('claudeDir', String(key.claudeDir))
+    if (key.machine !== undefined) url.searchParams.set('machine', key.machine)
   }
 }
 
@@ -368,8 +371,12 @@ export const api = {
    * from (spec 2026-10-02-mobile-app-design § 6.4) — one narrow route, so the
    * phone never needs the whole settings surface.
    */
-  async sessionDefaults(): Promise<SessionDefaults> {
-    return request<SessionDefaults>('GET', '/api/sessions/defaults')
+  /** `machine`: that member's defaults (the phone's New session on a chosen device); its Claude directory ids are its own. */
+  async sessionDefaults(machine?: string): Promise<SessionDefaults> {
+    return request<SessionDefaults>(
+      'GET',
+      machine === undefined ? '/api/sessions/defaults' : `/api/sessions/defaults?${new URLSearchParams({ machine })}`,
+    )
   },
 
   async createSession(body: {
@@ -394,6 +401,8 @@ export const api = {
     /** The answer to the `.mcp.json` question, recorded before the launch. Omitted, the
      * Mac keeps every undecided server out (spec 2026-10-08-mcpjson-approval-design). */
     mcpjson?: McpjsonDecisions
+    /** The member the session runs on (device federation); omitted, this device. */
+    machine?: string
   }): Promise<string> {
     const data = await request<{ sessionId: string }>('POST', '/api/sessions', body)
     return data.sessionId
@@ -471,6 +480,7 @@ export const api = {
       return { kind: 'not_image', mediaType: parsed.mediaType ?? 'unknown' }
     }
     if (response.status === 400 && parsed.error === 'empty_file') return { kind: 'empty' }
+    if (response.status === 422 && parsed.error === 'attachment_not_on_device') return { kind: 'not_on_device' }
 
     throw new ApiError(text || response.statusText, response.status, url)
   },
@@ -659,8 +669,12 @@ export const api = {
   },
 
   // Tags API
-  async listTags(): Promise<Tag[]> {
-    const data = await request<{ tags: Tag[] }>('GET', '/api/tags')
+  /** This device's tags, or `machine`'s — with that device's own ids. */
+  async listTags(machine?: string): Promise<Tag[]> {
+    const data = await request<{ tags: Tag[] }>(
+      'GET',
+      machine ? `/api/tags?machine=${encodeURIComponent(machine)}` : '/api/tags',
+    )
     return data.tags
   },
 
@@ -717,6 +731,8 @@ export const api = {
     cwd: string
     title: string
     permissionMode: string | null
+    /** Another device of the group, whose rules answer; its tag and rule ids are its own. */
+    machine?: string
   }): Promise<{ tagId: number | null; ruleId: number | null }> {
     return request<{ tagId: number | null; ruleId: number | null }>(
       'POST',
@@ -753,24 +769,40 @@ export const api = {
    * question (spec 2026-10-08-mcpjson-approval-design). Through the relay on
    * the phone.
    */
-  async mcpjson(cwd: string, claudeDirId?: number): Promise<McpjsonServer[]> {
+  async mcpjson(cwd: string, claudeDirId?: number, machine?: string): Promise<McpjsonServer[]> {
     const params = new URLSearchParams({ cwd })
     if (claudeDirId !== undefined) params.set('claudeDirId', String(claudeDirId))
+    if (machine !== undefined) params.set('machine', machine)
     const data = await request<{ undecided: McpjsonServer[] }>('GET', `/api/mcpjson?${params}`)
     return data.undecided
   },
 
   /**
    * What a typed project directory is on the Mac, `~` expanded (spec
-   * 2026-10-12-new-session-missing-directory-design § Server).
+   * 2026-10-12-new-session-missing-directory-design § Server); on the member
+   * `machine` names, when it names one.
    */
-  async directoryState(path: string): Promise<{ path: string; state: DirectoryState }> {
-    return request<{ path: string; state: DirectoryState }>('GET', `/api/directory?${new URLSearchParams({ path })}`)
+  async directoryState(path: string, machine?: string): Promise<{ path: string; state: DirectoryState }> {
+    const params = new URLSearchParams({ path })
+    if (machine !== undefined) params.set('machine', machine)
+    return request<{ path: string; state: DirectoryState }>('GET', `/api/directory?${params}`)
+  },
+
+  /**
+   * One level of a device's folders: no path is home. `machine` names the
+   * member whose folders they are; absent, this device's.
+   */
+  async listDirs(path?: string, machine?: string): Promise<DirListing> {
+    const params = new URLSearchParams()
+    if (path !== undefined) params.set('path', path)
+    if (machine !== undefined) params.set('machine', machine)
+    const query = params.toString()
+    return request<DirListing>('GET', query ? `/api/dirs?${query}` : '/api/dirs')
   },
 
   /** Creates a missing project directory and its parents; answers the expanded path. */
-  async createDirectory(path: string): Promise<{ path: string }> {
-    return request<{ path: string }>('POST', '/api/directory', { path })
+  async createDirectory(path: string, machine?: string): Promise<{ path: string }> {
+    return request<{ path: string }>('POST', '/api/directory', machine === undefined ? { path } : { path, machine })
   },
 
   /**
@@ -778,8 +810,10 @@ export const api = {
    * question's *View file*: there is no session to read it through yet, so
    * the Mac reads the one file `.mcp.json` names for `server`.
    */
-  async mcpjsonFile(cwd: string, server: string): Promise<FilePreview> {
-    return readPreview(`/api/mcpjson/file?${new URLSearchParams({ cwd, server })}`)
+  async mcpjsonFile(cwd: string, server: string, machine?: string): Promise<FilePreview> {
+    const params = new URLSearchParams({ cwd, server })
+    if (machine !== undefined) params.set('machine', machine)
+    return readPreview(`/api/mcpjson/file?${params}`)
   },
 
   // IDE bridge — the two calls that talk back to the editor (spec:
@@ -856,20 +890,30 @@ export const api = {
   },
 
   // Projects API
-  /** `lastAt` is the newest session's `lastAt` in that directory — the phone's 9d rows read it as its last use. */
-  async listProjects(): Promise<Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>> {
+  /**
+   * `lastAt` is the newest session's `lastAt` in that directory — the phone's
+   * 9d rows read it as its last use. `machine` asks that member for its own.
+   */
+  async listProjects(machine?: string): Promise<Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>> {
     const data = await request<{
       projects: Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>
-    }>('GET', '/api/projects')
+    }>('GET', machine === undefined ? '/api/projects' : `/api/projects?${new URLSearchParams({ machine })}`)
     return data.projects
   },
 
   // Models API
   /** One Claude directory's catalog (each account has its own models); the default directory's without one. */
-  async listModels(claudeDir?: number): Promise<{ models: OrbitalModel[]; contextWindows: Record<string, number> }> {
+  async listModels(
+    claudeDir?: number,
+    machine?: string,
+  ): Promise<{ models: OrbitalModel[]; contextWindows: Record<string, number> }> {
+    const params = new URLSearchParams()
+    if (claudeDir !== undefined) params.set('claudeDir', String(claudeDir))
+    if (machine !== undefined) params.set('machine', machine)
+    const query = params.toString()
     const data = await request<{ models: OrbitalModel[]; contextWindows?: Record<string, number> }>(
       'GET',
-      claudeDir === undefined ? '/api/models' : `/api/models?claudeDir=${claudeDir}`
+      query ? `/api/models?${query}` : '/api/models',
     )
     return { models: data.models, contextWindows: data.contextWindows ?? {} }
   },
@@ -1224,6 +1268,43 @@ export const api = {
   },
 
   /**
+   * Redeems another device's code, as a phone does (spec
+   * 2026-10-16-device-group-design § 3): the answer is the code the user
+   * types on that device, `ok: false` carrying why not. Every HTTP answer
+   * maps to a value — 200 to `ok: true`, 400/409's named refusals to their
+   * `error`, and anything this route never names itself (a network failure,
+   * a status outside its contract) to `relay_error`, like the rest of the
+   * remote surface's refusals.
+   */
+  async joinGroup(code: string): Promise<JoinAnswer> {
+    try {
+      const res = await remoteCall<{ device: string; name: string; code: string }, JoinErrorCode>(
+        'POST',
+        '/api/remote/join',
+        { code },
+        JOIN_REFUSALS,
+      )
+      return ('error' in res ? { ok: false, ...res } : { ok: true, ...res }) as JoinAnswer
+    } catch {
+      return { ok: false, error: 'relay_error' }
+    }
+  },
+
+  /**
+   * Stops waiting for the device being joined; the relay's request expires
+   * with the code regardless, so a 404 (nothing to cancel) is not an error
+   * worth surfacing.
+   */
+  async cancelJoin(): Promise<void> {
+    try {
+      await request<{ ok: true }>('DELETE', '/api/remote/join')
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return
+      throw err
+    }
+  },
+
+  /**
    * The answer to the pending request. `phone` is the request the dialog
    * showed; the server refuses any other (409 `mismatch`). An accept carries
    * the `code` the user typed from the phone, which the server compares: a
@@ -1256,10 +1337,34 @@ export const api = {
     }
   },
 
+  /**
+   * This device leaves its group (spec 2026-10-16-device-group-design § 4).
+   * `offline`: the relay must be online for the others to hear of it.
+   */
+  async leaveGroup(): Promise<{ ok: true } | { ok: false; error: 'offline' | 'failed' }> {
+    const res = await remoteCall<{ ok: true }, 'offline' | 'failed'>(
+      'POST',
+      '/api/remote/leave',
+      undefined,
+      { 409: ['offline'], 500: ['failed'] },
+    )
+    return 'error' in res ? { ok: false, error: res.error } : res
+  },
+
   /** "Try again": stops the remote and starts it with the same settings. */
   async restartRemote(): Promise<RemoteStatus> {
     return request('POST', '/api/remote/restart')
   },
+}
+
+/** The refusals `POST /api/remote/join` answers with instead of `{ device, name, code }`. */
+type JoinErrorCode =
+  | 'bad_code' | 'disabled' | 'offline' | 'already_paired' | 'in_group' | 'relay_error' | 'relay_too_old'
+  | 'other_relay' | 'peer_offline'
+
+const JOIN_REFUSALS: Partial<Record<number, readonly JoinErrorCode[]>> = {
+  400: ['bad_code'],
+  409: ['disabled', 'offline', 'already_paired', 'in_group', 'relay_error', 'relay_too_old', 'other_relay', 'peer_offline'],
 }
 
 /** What `/api/claude-dirs` refuses a change with. Mirrors `server/src/claudeDirs/service.ts`. */
@@ -1341,6 +1446,7 @@ export type {
   ImageProvenance,
   ImageRefEntry,
   CompletionKey,
+  DirListing,
   ErrorKind,
   FileCompletionEntry,
   SlashCommand,

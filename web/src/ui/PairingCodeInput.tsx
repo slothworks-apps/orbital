@@ -22,11 +22,23 @@ const BOX_BORDER: Record<BoxState, string> = {
   empty: 'border-[rgba(150,205,255,.14)]',
 }
 
-function CodeBox({ char, state }: { char: string; state: BoxState }) {
+/**
+ * Each size's box, the dash between the groups and the gap. `md` is the
+ * desktop's (canvas 9o, 50c); `sm` the phone's join request sheet (canvas
+ * 50i: 42×56 boxes, mono 28px, a 7px gap and an 8px dash).
+ */
+const SIZES = {
+  md: { box: 'h-[60px] w-11 text-[30px]', dash: 'w-2.5', row: 'gap-2' },
+  sm: { box: 'h-14 w-[42px] text-[28px]', dash: 'w-2', row: 'gap-[7px]' },
+} as const
+
+type Size = keyof typeof SIZES
+
+function CodeBox({ char, state, size }: { char: string; state: BoxState; size: Size }) {
   return (
     <span
       data-state={state}
-      className={`grid h-[60px] w-11 place-items-center rounded-[10px] border bg-[rgba(4,8,16,.6)] font-mono text-[30px] text-text-bright ${BOX_BORDER[state]}`}
+      className={`grid place-items-center rounded-[10px] border bg-[rgba(4,8,16,.6)] font-mono text-text-bright ${SIZES[size].box} ${BOX_BORDER[state]}`}
     >
       {char}
     </span>
@@ -40,6 +52,7 @@ export interface PairingCodeInputProps {
   onSubmit?: () => void
   disabled?: boolean
   autoFocus?: boolean
+  size?: Size
 }
 
 /**
@@ -48,19 +61,20 @@ export interface PairingCodeInputProps {
  * typing, Backspace and paste behave as in any field; the boxes only draw
  * its value. Typing fills left to right and the next box carries the accent.
  */
-export function PairingCodeInput({ value, onChange, onSubmit, disabled, autoFocus }: PairingCodeInputProps) {
+export function PairingCodeInput({ value, onChange, onSubmit, disabled, autoFocus, size = 'md' }: PairingCodeInputProps) {
   const chars = value.split('')
   const box = (i: number) => (
     <CodeBox
       key={i}
       char={chars[i] ?? ''}
+      size={size}
       state={i < chars.length ? 'filled' : i === chars.length ? 'next' : 'empty'}
     />
   )
   return (
-    <label className="relative flex cursor-text items-center gap-2">
+    <label className={`relative flex cursor-text items-center ${SIZES[size].row}`}>
       {[0, 1, 2].map(box)}
-      <span aria-hidden className="block h-[2px] w-2.5 bg-[rgba(160,190,225,.4)]" />
+      <span aria-hidden className={`block h-[2px] bg-[rgba(160,190,225,.4)] ${SIZES[size].dash}`} />
       {[3, 4, 5].map(box)}
       <input
         type="text"

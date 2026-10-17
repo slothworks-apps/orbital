@@ -38,7 +38,7 @@ export function ClaudeDirsRows({
   /** The section is on screen: the list is read on each visit. */
   active: boolean
   /** Settings' own PATCH, so the default lands in the store the same way every setting does. */
-  makeDefault: (patch: Record<string, string>) => Promise<void>
+  makeDefault: (patch: Record<string, string>) => Promise<unknown>
   onSaved: () => void
 }) {
   /** Null until the read lands, and after a failed one: nothing is drawn rather than a guess. */

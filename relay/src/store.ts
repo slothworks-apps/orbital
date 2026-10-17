@@ -1,6 +1,7 @@
 /**
  * What the relay remembers: who exists, who is paired with whom, which
- * pairing tokens are open, and where to push. Nothing about sessions — that
+ * pairing tokens are open, which halves of a mutual pair wait for the other,
+ * and where to push. Nothing about sessions — that
  * is the whole point (spec 2026-09-30-mobile-remote-design § 2), and no
  * device names either (spec 2026-10-08-relay-knows-no-names-design). A pair's
  * existence is also cached on each live connection (`Conn.peers`, ws.ts), so
@@ -8,6 +9,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { sql } from 'kysely';
+import { MUTUAL_PAIR_TTL_MS } from '@orbital/shared/remote/relayApi';
 import { asNumber, openRelayDb, type RelayDb } from './db.js';
 
 export type DeviceKind = 'mac' | 'phone';
@@ -15,18 +17,35 @@ export type DeviceRow = { id: string; kind: DeviceKind; pushToken: string | null
 
 export interface RelayStore {
   upsertDevice(d: { id: string; kind: DeviceKind }): Promise<void>;
+  /** Adds the device if the relay has never met it; one it knows keeps its kind. */
+  ensureDevice(d: { id: string; kind: DeviceKind }): Promise<void>;
   device(id: string): Promise<DeviceRow | null>;
   touch(id: string, now: number): Promise<void>;
   setPushToken(id: string, token: string | null): Promise<void>;
   createPairingToken(mac: string, expiresAt: number): Promise<string>;
+  /** The Mac of an open, unexpired token, without touching it; null otherwise. */
+  peekPairingToken(token: string, now: number): Promise<{ mac: string } | null>;
   /** Open and unexpired → pending for this phone; anything else → null. */
   redeemPairingToken(token: string, phone: string, now: number): Promise<{ mac: string } | null>;
   /** True while this phone's request to this Mac waits for the Mac's answer. */
   pending(mac: string, phone: string): Promise<boolean>;
   confirmPair(mac: string, phone: string, now: number): Promise<boolean>;
   rejectPair(mac: string, phone: string): Promise<void>;
-  /** True when a pair was actually deleted. */
-  revokePair(mac: string, phone: string): Promise<boolean>;
+  /**
+   * True when a pair was actually deleted. Either side of the pair may
+   * revoke it, so the two are matched in either order. Any mutual half
+   * between the two goes too, paired or not, so a half signed before the
+   * revoke cannot complete a pair after it.
+   */
+  revokePair(a: string, b: string): Promise<boolean>;
+  /**
+   * `from` wants a pair with `to`. `linked` once `to` has said the same
+   * (the pair is stored, lower id in `mac`) or the two were already paired;
+   * not while only this half is in. `created` only for the one call that
+   * stored the pair, so the pair is announced once even when both halves
+   * arrive together. Expired halves go first.
+   */
+  offerMutual(from: string, to: string, now: number): Promise<{ linked: boolean; created: boolean }>;
   isPaired(a: string, b: string): Promise<boolean>;
   /** Every device paired with this one, whichever side it is. */
   peersOf(id: string): Promise<string[]>;
@@ -44,6 +63,13 @@ export class KyselyRelayStore implements RelayStore {
     await this.db.insertInto('devices')
       .values({ id: d.id, kind: d.kind })
       .onConflict((oc) => oc.column('id').doUpdateSet({ kind: d.kind }))
+      .execute();
+  }
+
+  async ensureDevice(d: { id: string; kind: DeviceKind }): Promise<void> {
+    await this.db.insertInto('devices')
+      .values({ id: d.id, kind: d.kind })
+      .onConflict((oc) => oc.column('id').doNothing())
       .execute();
   }
 
@@ -69,6 +95,13 @@ export class KyselyRelayStore implements RelayStore {
     const token = randomBytes(24).toString('base64url');
     await this.db.insertInto('pairing_tokens').values({ token, mac, expires_at: expiresAt, state: 'open' }).execute();
     return token;
+  }
+
+  async peekPairingToken(token: string, now: number) {
+    const open = await this.db.selectFrom('pairing_tokens').select('mac')
+      .where('token', '=', token).where('state', '=', 'open').where('expires_at', '>=', now)
+      .executeTakeFirst();
+    return open ? { mac: open.mac } : null;
   }
 
   async redeemPairingToken(token: string, phone: string, now: number) {
@@ -106,11 +139,48 @@ export class KyselyRelayStore implements RelayStore {
       .where('mac', '=', mac).where('phone', '=', phone).where('state', '=', 'pending').execute();
   }
 
-  async revokePair(mac: string, phone: string): Promise<boolean> {
+  async revokePair(a: string, b: string): Promise<boolean> {
+    await this.deleteHalves(a, b);
     const result = await this.db.deleteFrom('pairs')
-      .where('mac', '=', mac).where('phone', '=', phone)
+      .where((eb) => eb.or([
+        eb.and([eb('mac', '=', a), eb('phone', '=', b)]),
+        eb.and([eb('mac', '=', b), eb('phone', '=', a)]),
+      ]))
       .executeTakeFirst();
-    return result.numDeletedRows === 1n;
+    return result.numDeletedRows > 0n;
+  }
+
+  async offerMutual(from: string, to: string, now: number): Promise<{ linked: boolean; created: boolean }> {
+    await this.db.deleteFrom('mutual_halves').where('expires_at', '<', now).execute();
+    if (await this.isPaired(from, to)) return { linked: true, created: false };
+    // This half goes in before the other is looked for: two halves arriving
+    // together then both see each other, rather than both missing it.
+    const expiresAt = now + MUTUAL_PAIR_TTL_MS;
+    await this.db.insertInto('mutual_halves').values({ from_id: from, to_id: to, expires_at: expiresAt })
+      .onConflict((oc) => oc.columns(['from_id', 'to_id']).doUpdateSet({ expires_at: expiresAt }))
+      .execute();
+    const other = await this.db.selectFrom('mutual_halves').select('to_id')
+      .where('from_id', '=', to).where('to_id', '=', from).executeTakeFirst();
+    if (!other) {
+      // The other call may have linked the two and cleared both halves in
+      // between; this half then lands after the clearing and must not stay.
+      if (!(await this.isPaired(from, to))) return { linked: false, created: false };
+      await this.deleteHalves(from, to);
+      return { linked: true, created: false };
+    }
+    const [mac, phone] = from < to ? [from, to] : [to, from];
+    const inserted = await this.db.insertInto('pairs').values({ mac, phone, created_at: now })
+      .onConflict((oc) => oc.columns(['mac', 'phone']).doNothing()).executeTakeFirst();
+    await this.deleteHalves(from, to);
+    return { linked: true, created: (inserted.numInsertedOrUpdatedRows ?? 0n) > 0n };
+  }
+
+  private async deleteHalves(a: string, b: string): Promise<void> {
+    await this.db.deleteFrom('mutual_halves')
+      .where((eb) => eb.or([
+        eb.and([eb('from_id', '=', a), eb('to_id', '=', b)]),
+        eb.and([eb('from_id', '=', b), eb('to_id', '=', a)]),
+      ])).execute();
   }
 
   async isPaired(a: string, b: string): Promise<boolean> {
@@ -139,10 +209,12 @@ export class KyselyRelayStore implements RelayStore {
     // confirmation when the code expires, so nobody can confirm it any more.
     await this.db.deleteFrom('pairing_tokens')
       .where('expires_at', '<', now).where('state', 'in', ['open', 'pending', 'rejected']).execute();
+    await this.db.deleteFrom('mutual_halves').where('expires_at', '<', now).execute();
   }
 
   async clearForTests(): Promise<void> {
     await this.db.deleteFrom('pairing_tokens').execute();
+    await this.db.deleteFrom('mutual_halves').execute();
     await this.db.deleteFrom('pairs').execute();
     await this.db.deleteFrom('devices').execute();
   }

@@ -65,6 +65,10 @@ export const ATTACHMENT_TYPES_LINE = `any file · images up to ${CEILING} go inl
 export type Refusal =
   | { kind: 'too_large'; name: string; size: number }
   | { kind: 'folder'; name: string }
+  /** Refused by the server: the session runs on another device, and only an image reaches it. */
+  | { kind: 'not_on_device'; name: string }
+
+const NOT_ON_DEVICE_TAIL = '— only images can be sent to a session on another device.'
 
 /**
  * Image types the API does not take but a browser may decode: the composer
@@ -91,8 +95,16 @@ export function isInlineImage(file: File): boolean {
  * folder is as good as a file. Without one, a folder cannot be uploaded and a
  * file past the route's ceiling would only be refused by it.
  */
-export function precheckFile(file: File, opts: { hasPath: boolean; folder: boolean }): Refusal | null {
-  if (opts.hasPath || isInlineImage(file)) return null
+export function precheckFile(
+  file: File,
+  opts: { hasPath: boolean; folder: boolean; foreign?: boolean },
+): Refusal | null {
+  if (isInlineImage(file)) return null
+  // A session of another device reads no path of this one, so nothing but an
+  // inline image reaches it — the server refuses the rest anyway (422
+  // `attachment_not_on_device`), and this says so before the upload.
+  if (opts.foreign) return { kind: 'not_on_device', name: file.name }
+  if (opts.hasPath) return null
   if (opts.folder) return { kind: 'folder', name: file.name }
   if (file.size > FILE_ATTACHMENT_MAX_BYTES) {
     return { kind: 'too_large', name: file.name, size: file.size }
@@ -121,6 +133,7 @@ export function refusalNotice(refusals: readonly Refusal[]): RefusalNotice | nul
 
   if (refusals.length === 1) {
     const only = refusals[0]
+    if (only.kind === 'not_on_device') return { label: "CAN'T ATTACH", fact: only.name, tail: NOT_ON_DEVICE_TAIL }
     return only.kind === 'too_large'
       ? {
           label: 'TOO LARGE TO ATTACH',
@@ -133,6 +146,7 @@ export function refusalNotice(refusals: readonly Refusal[]): RefusalNotice | nul
   const fact = `${refusals.length} files`
   const kinds = new Set(refusals.map((r) => r.kind))
   if (kinds.size === 1) {
+    if (refusals[0].kind === 'not_on_device') return { label: "CAN'T ATTACH", fact, tail: NOT_ON_DEVICE_TAIL }
     return refusals[0].kind === 'too_large'
       ? { label: 'TOO LARGE TO ATTACH', fact, tail: `over the ${FILE_CEILING} ceiling.` }
       : { label: "CAN'T ATTACH", fact: `${refusals.length} folders`, tail: '— folders need the desktop app.' }

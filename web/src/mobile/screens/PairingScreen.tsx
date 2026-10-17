@@ -4,18 +4,19 @@ import { PAIRING_TOKEN_TTL_MS } from '@orbital/shared/remote/relayApi'
 import { codeLeft } from '../../lib/remote'
 import { useNow } from '../../lib/useNow'
 import { useOrbital } from '../../store/store'
+import { kindOs } from '../../lib/devices'
 import { FingerprintBoxes } from '../../ui/FingerprintBoxes'
+import { KindGlyph } from '../../ui/KindGlyph'
 import { parseQrText } from '../pairingFlow'
-import { runPairing, type PairingStep } from '../pairingRun'
+import { cancelPairing, runPairing, type ErrorCard, type PairingStep } from '../pairingRun'
 import { identityIsDevOnly } from '../platform/identity'
 import { scanQr } from '../platform/scanner'
 import { useMobile } from '../state'
-import { clientRef } from '../transport/clientRef'
 import { LitMark, MobileScreen, PrimaryButton, SecondaryButton } from '../ui'
 
 export const NOT_A_CODE = "That isn't an Orbital pairing code."
 
-/** 9e (spec § 5): scan, type the code on the Mac, paired. */
+/** 9e (spec § 5, canvas 50i): scan a desktop's code, type the phone's code on that device, paired. */
 export function PairingScreen() {
   const [step, setStep] = useState<PairingStep>({ kind: 'scan', error: null })
   // `installing`: Scan stays, with a note; `unsupported`: the paste field is the way in.
@@ -23,8 +24,11 @@ export function PairingScreen() {
   const [pasted, setPasted] = useState('')
   const run = useRef(0)
   const opened = useRef(false)
+  /** The code last started, for Try again on a device that was offline (50d C). */
+  const lastCode = useRef<string | null>(null)
 
   const start = useCallback((text: string) => {
+    lastCode.current = text
     const qr = parseQrText(text)
     if (!qr) {
       setStep({ kind: 'scan', error: NOT_A_CODE })
@@ -58,12 +62,12 @@ export function PairingScreen() {
   }, [scan])
 
   // Leaving the screen any other way (the hardware back button) ends the run
-  // as Cancel does — unless it already paired: the stored pairing owns that link.
+  // as Cancel does. A phone in a group (or one that just joined) keeps its
+  // group: `cancelPairing` only stops a join still waiting.
   useEffect(
     () => () => {
-      if (useMobile.getState().pairing) return
       run.current++
-      clientRef.set(null)
+      cancelPairing()
     },
     [],
   )
@@ -71,13 +75,13 @@ export function PairingScreen() {
   // Cancel closes the socket and returns to the previous screen, or stays here when there is none.
   const cancel = useCallback(() => {
     run.current++
-    clientRef.set(null)
+    cancelPairing()
     if (useMobile.getState().goBack() === 'exit') setStep({ kind: 'scan', error: null })
   }, [])
 
   const scanAgain = useCallback(() => {
     run.current++
-    clientRef.set(null)
+    cancelPairing()
     setStep({ kind: 'scan', error: null })
     void scan()
   }, [scan])
@@ -91,12 +95,29 @@ export function PairingScreen() {
   }
   if (step.kind === 'confirm') return <ConfirmStep step={step} onCancel={cancel} />
   if (step.kind === 'paired') return <PairedStep step={step} />
+  if (step.kind === 'offline') {
+    return (
+      <OfflineStep
+        step={step}
+        onTryAgain={() => {
+          if (lastCode.current) start(lastCode.current)
+        }}
+        onScanAgain={scanAgain}
+        onCancel={cancel}
+      />
+    )
+  }
   if (step.kind === 'expired') {
+    // Canvas 50d D; a device that said no reads as the desktop's rejected card.
+    const card: ErrorCard = step.rejected
+      ? { title: 'Request rejected', body: `${step.name} didn't let this phone in. Make a new code on ${step.name} and scan it again.` }
+      : { title: 'Code expired', body: `Codes last two minutes. Make a new one on ${step.name} and scan it again.` }
     return (
       <Step
-        title="Code expired · scan again"
+        title={card.title}
         footer={
           <div className="flex flex-col gap-3">
+            <ErrorCardView error={card.body} />
             <PrimaryButton onClick={scanAgain}>Scan again</PrimaryButton>
             <SecondaryButton onClick={cancel}>Cancel</SecondaryButton>
           </div>
@@ -109,7 +130,17 @@ export function PairingScreen() {
 
   const showPaste = scanner === 'unsupported' || __MOBILE_DEV__
   return (
-    <Step label="STEP 1 OF 2" title="Scan the code on your Mac" footer={<SecondaryButton onClick={cancel}>Cancel</SecondaryButton>}>
+    <Step
+      label="STEP 1 OF 2"
+      title="Scan the code on a desktop"
+      footer={
+        // Canvas 50i: a refusal is a card above Cancel, in 50d's words.
+        <div className="flex flex-col gap-3">
+          {step.error && <ErrorCardView error={step.error} />}
+          <SecondaryButton onClick={cancel}>Cancel</SecondaryButton>
+        </div>
+      }
+    >
       {/* 9e draws the camera here. The system scanner opens over the app instead, so this
           frame is where it comes back from: a tap opens it again. */}
       {scanner !== 'unsupported' && <ScanFrame onScan={() => void scan()} />}
@@ -117,10 +148,11 @@ export function PairingScreen() {
         <p className="text-center text-[13px] text-[rgba(160,190,225,.65)]">Scanner is installing — try again in a moment</p>
       )}
       <p className="text-center text-[14px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
-        On the Mac: Orbital → Settings → <span className="font-semibold text-text-bright">Mobile</span> → Pair a phone.
+        On a desktop: Orbital → Settings → <span className="font-semibold text-text-bright">Devices</span>.
       </p>
       <p className="max-w-[270px] text-center font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.55)]">
-        no account · the code carries the relay address and the Mac&apos;s public key
+        an older Orbital shows it under Settings → Mobile · no account · the code carries the relay address and the
+        device&apos;s public key
       </p>
       {showPaste && (
         <form
@@ -153,11 +185,6 @@ export function PairingScreen() {
           </SecondaryButton>
         </form>
       )}
-      {step.error && (
-        <p role="alert" className="text-center text-[13px] text-[var(--state-interrupted)]">
-          {step.error}
-        </p>
-      )}
       {identityIsDevOnly() && (
         <p className="font-mono text-[10.5px] text-text-muted">dev only · this browser keeps the phone&apos;s key unprotected</p>
       )}
@@ -181,6 +208,64 @@ function ScanFrame({ onScan }: { onScan: () => void }) {
       <span aria-hidden className={`${corner} bottom-10 left-10 rounded-bl-[10px] border-b-[3px] border-l-[3px]`} />
       <span aria-hidden className={`${corner} bottom-10 right-10 rounded-br-[10px] border-b-[3px] border-r-[3px]`} />
     </button>
+  )
+}
+
+/**
+ * The device that showed the code is not on the relay (canvas 50d C): its
+ * code stays good while it lasts, and Try again redeems it once more. Once
+ * it runs out, 50d D's words and Scan again.
+ */
+function OfflineStep({
+  step,
+  onTryAgain,
+  onScanAgain,
+  onCancel,
+}: {
+  step: Extract<PairingStep, { kind: 'offline' }>
+  onTryAgain: () => void
+  onScanAgain: () => void
+  onCancel: () => void
+}) {
+  const now = useNow(step.expiresAt !== null)
+  const left = step.expiresAt !== null ? codeLeft(step.expiresAt, now) : null
+  const expired = left?.expired ?? false
+  const body = expired
+    ? `Codes last two minutes. Make a new one on ${step.name} and scan it again.`
+    : left
+      ? `Its code is good for another ${left.label} — try again once ${step.name} is online.`
+      : `Try again once ${step.name} is online.`
+  return (
+    <Step
+      title={expired ? 'Code expired' : `${step.name} is offline`}
+      footer={
+        <div className="flex flex-col gap-3">
+          <ErrorCardView error={body} />
+          {expired ? (
+            <PrimaryButton onClick={onScanAgain}>Scan again</PrimaryButton>
+          ) : (
+            <PrimaryButton onClick={onTryAgain}>Try again</PrimaryButton>
+          )}
+          <SecondaryButton onClick={onCancel}>Cancel</SecondaryButton>
+        </div>
+      }
+    >
+      {null}
+    </Step>
+  )
+}
+
+/** A refusal above Cancel (canvas 50i): a 50d card, or its body alone when it is one line. */
+function ErrorCardView({ error }: { error: string | ErrorCard }) {
+  const card = typeof error === 'string' ? { title: null, body: error } : error
+  return (
+    <div
+      role="alert"
+      className="flex flex-col gap-1.5 rounded-[14px] border border-[rgba(150,205,255,.14)] bg-[rgba(10,16,28,.7)] px-3.5 py-3 text-left"
+    >
+      {card.title && <span className="text-[14px] font-semibold text-text-bright">{card.title}</span>}
+      <span className="text-[13px] leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">{card.body}</span>
+    </div>
   )
 }
 
@@ -237,18 +322,24 @@ function ConfirmStep({
   const now = useNow(true)
   const left = Math.max(0, step.expiresAt - now)
   return (
-    <Step label="STEP 2 OF 2" title="Confirm on your Mac" glow="confirm" footer={<SecondaryButton onClick={onCancel}>Cancel pairing</SecondaryButton>}>
-      <div className="flex max-w-full items-center gap-2.5 rounded-[12px] border border-[rgba(150,205,255,.14)] bg-[rgba(10,16,28,.7)] px-3.5 py-2.5 font-mono text-[12px] text-[rgba(200,220,245,.8)]">
-        <span aria-hidden className="block h-[7px] w-[7px] shrink-0 rounded-full bg-[oklch(85%_.12_205)]" />
+    <Step
+      label="STEP 2 OF 2"
+      title={`Type ${formatFingerprint(step.fingerprint)} on ${step.macName}`}
+      glow="confirm"
+      footer={<SecondaryButton onClick={onCancel}>Cancel</SecondaryButton>}
+    >
+      {/* Canvas 50i: the device by its glyph, name, kind and (once known) OS. The code carries no OS. */}
+      <div className="flex max-w-full items-center gap-2.5 rounded-[12px] border border-[rgba(150,205,255,.14)] bg-[rgba(10,16,28,.7)] px-3.5 py-2.5 font-mono text-[12px] text-[rgba(200,220,245,.85)]">
+        <KindGlyph kind={step.deviceKind} untitled />
         <span className="truncate">{step.macName}</span>
-        <span className="shrink-0 text-[rgba(160,190,225,.5)]">· reached via relay</span>
+        <span className="shrink-0 text-[rgba(160,190,225,.5)]">· {kindOs(step.deviceKind, '')}</span>
       </div>
       <div className="mt-[22px]">
         <FingerprintBoxes value={step.fingerprint} />
       </div>
-      {/* canvas 9e step 2: the Mac asks for the code (spec 2026-10-06-pairing-code-and-app-lock-design § 1). */}
+      {/* The device asks for the code (spec 2026-10-06-pairing-code-and-app-lock-design § 1). */}
       <p className="max-w-[300px] text-center text-[14px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
-        Type this code on your Mac
+        {step.macName} is asking for these six characters now.
       </p>
       <div className="mt-3.5 flex w-60 flex-col items-center gap-2">
         {/* Drains over PAIRING_TOKEN_TTL_MS, the code's whole life. */}

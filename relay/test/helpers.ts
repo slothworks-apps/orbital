@@ -15,6 +15,8 @@ export type Device = {
   id: string;
   /** The online peers the relay listed in `ok`. */
   peers: string[];
+  /** Every device it holds a pair with, online or not, as `ok` named them. */
+  pairs?: string[];
   control: Control[];
   data: Uint8Array[];
   next(type: Control['type']): Promise<Control>;
@@ -61,7 +63,7 @@ export async function connectDevice(
   ws.send(JSON.stringify({ type: 'auth', pub: deviceId(identity.publicKey), sig: authSignature(identity, challenge.nonce), secret }));
   const ok = await next('ok');
   if (ok.type !== 'ok') throw new Error('expected ok');
-  return { ws, id: deviceId(identity.publicKey), peers: ok.peers, control, data, next, nextData };
+  return { ws, id: deviceId(identity.publicKey), peers: ok.peers, pairs: ok.pairs, control, data, next, nextData };
 }
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

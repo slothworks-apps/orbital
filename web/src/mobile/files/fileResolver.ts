@@ -1,4 +1,4 @@
-import { TunnelError, type FileResult } from '@orbital/shared/remote/client'
+import { TunnelError, type FileResult } from '@orbital/shared/remote/tunnel'
 import type { FileAs } from '@orbital/shared/remote/messages'
 import { FILE_IDLE_TIMEOUT_MS } from '../constants'
 import type { TunnelClient } from '../transport/clientRef'

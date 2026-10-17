@@ -1,10 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { formatFingerprint } from '@orbital/shared/remote/keys'
 import { notificationsAllOff, type NotificationSettings } from '@orbital/shared/notifications'
-import { useOrbital } from '../../store/store'
-import { forgetEverything } from '../forget'
 import { confirmIdentity } from '../lockFlow'
-import { relayHost } from '../format'
 import { setRules as setNotifierRules } from '../notify'
 import { usePhoneTip } from '../phoneTip'
 import { askForNotifications } from '../platform/push'
@@ -14,7 +10,8 @@ import { useMobile } from '../state'
 import { DiagnosticsSetting } from '../update/DiagnosticsSetting'
 import { usePhoneUpdate } from '../update/state'
 import { clientRef } from '../transport/clientRef'
-import { CARD, MobileScreen, PrimaryButton, SecondaryButton, SectionLabel, SheetPresence, Toggle } from '../ui'
+import { CARD, MobileScreen, SectionLabel, Toggle } from '../ui'
+import { DevicesSection } from './DevicesSection'
 
 /**
  * The desktop's five rows, in its order (Settings → Notifications). Three
@@ -51,20 +48,13 @@ export const NOTIFICATION_ROWS: readonly { key: keyof NotificationSettings; labe
   },
 ]
 
-/** 9f (spec § 5): the Mac, this phone's notification rules, the app lock, the relay. */
+/** 9f (spec § 5): the group's devices (canvas 50i), this phone's notification rules, the app lock. */
 export function SettingsScreen() {
-  const pairing = useMobile((s) => s.pairing)
   const shell = usePhoneUpdate((s) => s.shell)
-  const macName = useMobile((s) => s.macName)
-  const macOnline = useMobile((s) => s.macOnline)
   const ready = useMobile((s) => s.ready)
   const goBack = useMobile((s) => s.goBack)
-  const live = useOrbital((s) => Object.values(s.sessions).filter((x) => x.status !== 'ended').length)
   const [rules, setRules] = useState<NotificationSettings | null>(null)
   const [saving, setSaving] = useState(false)
-  const [confirming, setConfirming] = useState(false)
-  const [relayOpen, setRelayOpen] = useState(false)
-  const name = macName ?? pairing?.macName ?? 'Your Mac'
   const notificationsGroup = useRef<HTMLDivElement>(null)
 
   // Opened from the notifications tip: scrolled to this group, with no
@@ -117,12 +107,6 @@ export function SettingsScreen() {
     }
   }
 
-  const replace = async () => {
-    setConfirming(false)
-    // Forget the pairing, the identity and the cache; the scanner comes next.
-    await forgetEverything({ unpaired: false })
-  }
-
   const header = (
     <div className="flex h-13 items-center gap-1 px-1.5">
       <button
@@ -140,32 +124,7 @@ export function SettingsScreen() {
   return (
     <MobileScreen header={header}>
       <div className="flex flex-col px-4 pb-4 pt-1.5">
-        <SectionLabel first>MAC</SectionLabel>
-        <div className={CARD}>
-          <div className="flex min-h-16 items-center gap-3 px-3.5">
-            <span
-              aria-hidden
-              className={[
-                'block h-2 w-2 shrink-0 rounded-full',
-                macOnline ? 'bg-[oklch(85%_.12_205)] shadow-[0_0_8px_oklch(85%_.12_205)]' : 'border-[1.5px] border-[rgba(200,215,235,.6)]',
-              ].join(' ')}
-            />
-            <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span className="truncate text-[14.5px] font-semibold">{name}</span>
-              <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
-                {macOnline ? 'online' : 'offline'} · {live} live {live === 1 ? 'session' : 'sessions'}
-              </span>
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setConfirming(true)}
-            className="flex min-h-13 w-full items-center border-t border-[rgba(150,205,255,.08)] px-3.5 text-left text-[14px] font-semibold text-text-bright"
-          >
-            Pair a different Mac
-          </button>
-        </div>
-        <p className="px-1 pt-2 font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.5)]">one Mac per phone · the name is set on the Mac</p>
+        <DevicesSection />
 
         <div ref={notificationsGroup} />
         <SectionLabel>NOTIFICATIONS</SectionLabel>
@@ -200,59 +159,11 @@ export function SettingsScreen() {
         <SectionLabel>ADVANCED</SectionLabel>
         {/* Provisional place, until Claude Design gives it one. */}
         <DiagnosticsSetting />
-        <div className={[CARD, 'mt-2'].join(' ')}>
-          <button
-            type="button"
-            aria-expanded={relayOpen}
-            onClick={() => setRelayOpen(!relayOpen)}
-            className="flex min-h-13 w-full items-center gap-2.5 px-3.5 text-left"
-          >
-            <span aria-hidden className="text-[9px] text-[rgba(160,190,225,.6)]">
-              {relayOpen ? '▾' : '▸'}
-            </span>
-            <span className="flex-1 text-[14px] font-semibold">Relay</span>
-            <span className="min-w-0 truncate font-mono text-[11px] text-[rgba(160,190,225,.6)]">{pairing ? relayHost(pairing.relay) : '—'}</span>
-          </button>
-          {relayOpen && (
-            <p className="px-3.5 pb-3.5 text-[11.5px] leading-[1.45] text-[rgba(160,190,225,.6)]">
-              Must match the relay set on the Mac. The relay only sees encrypted bytes.
-            </p>
-          )}
-        </div>
-
-        {/* Canvas `Feature - Phone update`: the app's version and the shell's on one line, the fingerprint on its own. */}
+        {/* Canvas `Feature - Phone update`: the app's version and the shell's on one line; 50i's note on names. */}
         <footer className="px-1 pt-[18px] font-mono text-[10px] leading-[1.7] text-[rgba(160,190,225,.6)]">
-          <p>{shell ? `${__MOBILE_VERSION__} · shell ${shell}` : __MOBILE_VERSION__}</p>
-          {pairing && <p>fingerprint {formatFingerprint(pairing.fingerprint)}</p>}
+          <p>{shell ? `${__MOBILE_VERSION__} · shell ${shell}` : __MOBILE_VERSION__} · each device names itself</p>
         </footer>
       </div>
-
-      <SheetPresence>
-        {confirming && (
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Replace ${name}?`}
-            onClick={() => setConfirming(false)}
-            className="orbital-sheet-backdrop fixed inset-0 z-20 flex items-end bg-[rgba(2,3,8,.62)]"
-          >
-            <div
-              onClick={(event) => event.stopPropagation()}
-              className="orbital-sheet-panel flex w-full flex-col gap-3 rounded-t-[26px] border-t border-[rgba(150,205,255,.18)] bg-[rgba(10,16,28,.98)] px-4 pb-[calc(30px+env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-20px_60px_rgba(0,0,0,.5)]"
-            >
-              <span aria-hidden className="mx-auto mb-1.5 block h-1 w-9 rounded-full bg-[rgba(232,238,248,.25)]" />
-              <h2 className="text-[18px] font-bold">Replace {name}?</h2>
-              <p className="text-[14px] leading-[1.5] text-[rgba(200,214,235,.85)]">
-                This phone forgets {name} and its key, then opens the scanner. Sessions on the Mac keep running.
-              </p>
-              <div className="mt-1.5 flex flex-col gap-3">
-                <PrimaryButton onClick={() => void replace()}>Forget and scan</PrimaryButton>
-                <SecondaryButton onClick={() => setConfirming(false)}>Cancel</SecondaryButton>
-              </div>
-            </div>
-          </div>
-        )}
-      </SheetPresence>
     </MobileScreen>
   )
 }

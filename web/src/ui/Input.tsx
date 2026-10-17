@@ -27,16 +27,20 @@ const textAreaSizeClasses: Record<FieldSize, string> = {
 // web/CLAUDE.md), so the winner would be arbitrary.
 const fieldClass = (
   font: 'sans' | 'mono',
-  variant: 'field' | 'inline',
+  variant: 'field' | 'inline' | 'bare',
   size: FieldSize,
   sizes: Record<FieldSize, string>,
   invalid: boolean,
   className?: string,
 ) =>
   [
-    'w-full text-text-bright placeholder:text-text-muted focus:outline-none focus:ring-1',
-    invalid ? 'focus:ring-red-400/70' : 'focus:ring-text-soft',
-    variant === 'field'
+    'w-full text-text-bright placeholder:text-text-muted focus:outline-none',
+    variant === 'bare' ? '' : `focus:ring-1 ${invalid ? 'focus:ring-red-400/70' : 'focus:ring-text-soft'}`,
+    variant === 'bare'
+      ? // Bare variant: no box at all — the caller's frame draws the edge
+        // (canvas 50a's device name over a dashed underline), 14px semibold.
+        'border-0 bg-transparent p-0 text-[14px] font-semibold'
+      : variant === 'field'
       ? `border ${invalid ? 'border-red-400/60' : 'border-panel-border'} ${sizes[size]}`
       : // Inline variant: borderless until focused — for editing a value in
         // place (e.g. DetailPanel's title) rather than a standalone field.
@@ -51,8 +55,11 @@ const fieldClass = (
 
 export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'> {
   font?: 'sans' | 'mono'
-  /** 'field' (default) is the standard bordered input; 'inline' is for editing a value in place (borderless until focused). */
-  variant?: 'field' | 'inline'
+  /**
+   * 'field' (default) is the standard bordered input; 'inline' is for editing a value in place (borderless until
+   * focused); 'bare' has no box of its own, for a field whose frame is drawn around it.
+   */
+  variant?: 'field' | 'inline' | 'bare'
   /** Field geometry: 'md' (default, app-wide), 'sm' (settings rows, canvas 1h), 'lg' (dialog fields, canvas 1d). */
   size?: FieldSize
   /** Marks the value as failing validation: red border + `aria-invalid`. Pair with `title` to say what's wrong. */

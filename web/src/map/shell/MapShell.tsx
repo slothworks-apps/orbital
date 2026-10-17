@@ -102,13 +102,14 @@ export function MapShell(props: {
 
   const { model } = props
   // Split like `SpaceMap`'s readout: only a parked question is NEEDS INPUT,
-  // an interrupted one says so, the rest finished. Muted planets are left out.
+  // an interrupted one says so, the rest finished. Muted planets are left out,
+  // and so are those of a device whose chip is off.
   const aggregateSegments = useMemo(() => {
     const { working, needs_input: needsInput, idle, ended } = model.counts
     let asking = 0
     let interrupted = 0
     for (const p of model.planets) {
-      if (p.muted || p.session.status !== 'needs_input') continue
+      if (p.muted || p.deviceOff || p.session.status !== 'needs_input') continue
       const key = sessionStateKey(p.session)
       if (key === 'needs_input') asking++
       else if (key === 'interrupted') interrupted++

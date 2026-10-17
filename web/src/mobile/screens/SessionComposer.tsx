@@ -11,7 +11,8 @@ import {
   reopenHint,
 } from '../composer'
 import { pickPhoto, type PhotoSource } from '../platform/photo'
-import { isMacAsleep, useMobile } from '../state'
+import { useMobile } from '../state'
+import { useSessionAsleep, useSessionDeviceName, useSessionReady, useSessionRefusedLine } from '../useDevice'
 
 /** The error line's word when the camera permission was refused (spec § 6.2). */
 const CAMERA_DENIED = "Orbital can't use the camera — allow it in Android settings."
@@ -26,8 +27,10 @@ const CAMERA_DENIED = "Orbital can't use the camera — allow it in Android sett
  */
 export function SessionComposer({ id }: { id: string }) {
   const session = useOrbital((s) => s.sessions[id])
-  const offline = useMobile(isMacAsleep)
-  const macName = useMobile((s) => s.macName)
+  // Its own device asleep or too old; the others' sessions take answers as usual (canvas 50j).
+  const offline = useSessionAsleep(id)
+  const refused = useSessionRefusedLine(id)
+  const macName = useSessionDeviceName(id)
   const mode = footerMode({ offline, macName, readOnly: session ? isReadOnly(session) : true })
 
   if (mode.kind === 'asleep') {
@@ -37,7 +40,7 @@ export function SessionComposer({ id }: { id: string }) {
       <div className="border-t border-[rgba(150,205,255,.1)] bg-[rgba(6,10,20,.94)] px-3 pb-1 pt-2.5">
         <div className="flex items-center gap-2.5 rounded-[10px] border border-dashed border-[rgba(150,205,255,.22)] px-3 py-3 text-[13px] text-text-muted">
           <LockIcon />
-          <span className="min-w-0 truncate">{mode.macName} is asleep — read only</span>
+          <span className="min-w-0 truncate">{refused ?? `${mode.macName} is asleep — read only`}</span>
         </div>
         <Controls inert />
       </div>
@@ -74,8 +77,8 @@ function LiveComposer({ id }: { id: string }) {
   const pending = useOrbital((s) => s.pendingDecisions[id])
   const answers = useOrbital((s) => (pending?.kind === 'question' ? s.decisionAnswers[pending.id] : undefined))
   const limitWait = useOrbital((s) => s.sessions[id]?.limitWait ?? null)
-  const ready = useMobile((s) => s.ready)
-  const macName = useMobile((s) => s.macName)
+  const ready = useSessionReady(id)
+  const macName = useSessionDeviceName(id)
   // A gate's Reopen, asked from the card (canvas 10b, third phone).
   const intent = useMobile((s) => (s.composerIntent?.sessionId === id ? s.composerIntent : null))
   const clearComposerIntent = useMobile((s) => s.clearComposerIntent)

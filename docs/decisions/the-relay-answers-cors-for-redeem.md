@@ -5,6 +5,7 @@ status: in-force
 type: adr
 domain: remote
 related:
+  - 2026-10-16-device-group-design
   - 2026-10-02-mobile-app-design
   - 2026-10-02-mobile-app-read
   - run-the-relay
@@ -47,3 +48,12 @@ process, not a browser.
   on a device but not in the desktop browser the spec relies on for layout
   work and the fidelity pass; and a redeem message over the relay's
   WebSocket, which would change the relay protocol for one request.
+
+## Amended 2026-10-17: every pair request the phone sends
+
+Once the phone is a member of a device group
+([[2026-10-16-device-group-design]]) it posts `/pair/token` (showing its
+own code), `/pair/confirm`, `/pair/mutual` and `/pair/revoke` itself, from
+the same WebView. They get the same CORS answer as `/pair/redeem`, and for
+the same reason it is safe: each is signed by the key it names, and what
+it may change is limited to that key's own pairs.

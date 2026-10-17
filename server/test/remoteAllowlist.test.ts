@@ -20,41 +20,78 @@ describe('remote allowlist', () => {
       // The Claude directory a catalog is read for rides the query string.
       ['GET', '/api/models?claudeDir=2'], ['GET', '/api/commands?cwd=/w/x&claudeDir=2'],
       ['GET', '/api/mcpjson?cwd=/w/x&claudeDirId=2'],
+      // The `.mcp.json` question's *View file*, read where the session would run.
+      ['GET', '/api/mcpjson/file?cwd=/w/x&server=a'],
     ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(true);
   });
-  it('denies the file system, the editor, settings, errors, rules and dev routes', () => {
+  it('allows what a desktop drives a session with, and what a federated Settings needs', () => {
     for (const [m, p] of [
-      ['GET', '/api/files?path=/etc/passwd'], ['GET', '/api/files/complete'], ['GET', '/api/files/image'], ['GET', '/api/commands/content'],
-      ['GET', '/api/mcpjson/file?cwd=/w/x&server=a'],
+      ['POST', '/api/sessions/abc/retitle'], ['POST', '/api/sessions/abc/walkthrough/narrate'],
+      ['POST', '/api/sessions/abc/harness'], ['PATCH', '/api/sessions/abc/harness'], ['DELETE', '/api/sessions/abc/harness'],
+      ['POST', '/api/sessions/abc/harness/carry'], ['GET', '/api/sessions/abc/harness/steps/1/diff'],
+      ['DELETE', '/api/sessions/abc/rewind'],
+      ['GET', '/api/sessions/abc/mcp'], ['POST', '/api/sessions/abc/mcp'], ['POST', '/api/sessions/abc/mcp/restart'],
+      ['PUT', '/api/sessions/abc/mcp/github'], ['DELETE', '/api/sessions/abc/mcp/github'],
+      ['GET', '/api/sessions/abc/mcp/github/config'], ['POST', '/api/sessions/abc/mcp/github/login'],
+      ['GET', '/api/stats/sessions/abc?claudeDir=1'],
+      ['GET', '/api/files?session=abc&path=src%2Fa.ts'], ['GET', '/api/files/complete?cwd=/w/x&prefix=sr'],
+      ['GET', '/api/commands/content?cwd=/w/x&name=review'],
+      ['GET', '/api/dirs'], ['GET', '/api/dirs?path=%2FUsers%2Fx'],
+      ['GET', '/api/settings'], ['PATCH', '/api/settings'],
+      ['POST', '/api/tags'], ['PATCH', '/api/tags/1'], ['DELETE', '/api/tags/1'],
+      ['GET', '/api/tag-rules'], ['POST', '/api/tag-rules'], ['POST', '/api/tag-rules/preview'],
+      ['PATCH', '/api/tag-rules/2'], ['DELETE', '/api/tag-rules/2'],
+      ['GET', '/api/harness/templates'], ['POST', '/api/harness/templates'], ['POST', '/api/harness/templates/draft'],
+      ['PUT', '/api/harness/templates/3'], ['DELETE', '/api/harness/templates/3'],
+      ['POST', '/api/harness/templates/3/duplicate'], ['GET', '/api/harness/projects'],
+      ['GET', '/api/harness/interview'], ['POST', '/api/harness/interview'],
+      ['GET', '/api/limits'], ['POST', '/api/limits/refresh'], ['GET', '/api/stats/overview'], ['GET', '/api/claude-dirs'],
+    ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(true);
+  });
+  it('denies what acts on that machine\'s screen, the dev tools, auth, remote, presence, terminals and binary reads', () => {
+    for (const [m, p] of [
+      ['GET', '/api/files/image'], ['GET', '/api/files/image?session=abc&path=a.png'], ['GET', '/api/images/abc.png'],
       ['GET', '/api/sessions/abc/ide/open-files'], ['POST', '/api/sessions/abc/ide/open-file'],
-      ['GET', '/api/settings'], ['PATCH', '/api/settings'], ['PATCH', '/api/settings/'],
-      ['GET', '/api/errors'], ['POST', '/api/errors'], ['GET', '/api/tag-rules'], ['POST', '/api/tag-rules/preview'],
-      ['POST', '/api/tags'], ['DELETE', '/api/tags/1'], ['POST', '/api/dev/sessions/abc/simulate-compaction'],
-      ['POST', '/api/attachments'], ['POST', '/api/sessions/abc/attachments'], ['GET', '/api/images/abc.png'],
-      ['POST', '/api/sessions/abc/retitle'],
-      ['POST', '/api/sessions/abc/walkthrough/narrate'], ['POST', '/api/models/validate'],
+      ['GET', '/api/sessions/abc/ide/diagnostics'],
+      ['PATCH', '/api/settings/'],
+      ['GET', '/api/errors'], ['POST', '/api/errors'], ['POST', '/api/dev/sessions/abc/simulate-compaction'],
+      ['POST', '/api/attachments'], ['POST', '/api/sessions/abc/attachments'],
+      ['POST', '/api/models/validate'],
       ['POST', '/api/branch-status/refresh'], ['GET', '/api/sessions/retention-preview'],
-      ['GET', '/api/claude-dirs'], ['POST', '/api/claude-dirs'], ['PATCH', '/api/claude-dirs/2'], ['DELETE', '/api/claude-dirs/2'],
+      ['POST', '/api/claude-dirs'], ['PATCH', '/api/claude-dirs/2'], ['DELETE', '/api/claude-dirs/2'],
+      ['GET', '/api/auth'], ['PUT', '/api/presence'],
       ['GET', '/api/remote'], ['POST', '/api/remote/pair'], ['DELETE', '/api/remote/devices/x'],
+      ['POST', '/api/remote/leave'], ['POST', '/api/remote/restart'], ['POST', '/api/remote/pair/confirm'],
+      ['GET', '/api/sessions/abc/terminals'], ['POST', '/api/sessions/abc/terminals'],
+      ['POST', '/api/terminals/t1/restart'], ['DELETE', '/api/terminals/t1'],
       ['GET', '/ws'], ['GET', '/'], ['GET', '/index.html'],
       // `defaults` is a literal, never an id: no other method or shape reaches it.
       ['GET', '/api/sessions/defaults/'], ['GET', '/api/sessions/defaults/x'], ['POST', '/api/sessions/defaults'],
       ['PATCH', '/api/sessions/defaults'],
+      // Nor are the new literals a parameter: each reaches its own route, for its one method.
+      ['PUT', '/api/sessions/abc/mcp/restart'], ['DELETE', '/api/sessions/abc/mcp/restart'],
+      ['GET', '/api/sessions/abc/mcp/restart/config'],
+      ['PATCH', '/api/tag-rules/preview'], ['DELETE', '/api/tag-rules/preview'],
+      ['PUT', '/api/harness/templates/draft'], ['DELETE', '/api/harness/templates/draft'],
+      ['POST', '/api/harness/templates/draft/duplicate'],
+      ['GET', '/api/sessions/count/mcp'], ['GET', '/api/stats/sessions/defaults'],
+      // Traversal and canonical-string tricks toward the never-on routes.
+      ['GET', '/api/sessions/abc/mcp/..%2Fide/config'], ['GET', '/api/sessions/abc/mcp/%2e%2e/config'],
+      ['GET', '/api/files/../files/image'], ['GET', '/api/files\\image'], ['GET', '/api/dirs/../images/a.png'],
+      ['PATCH', '/api/settings#'], ['GET', '/api/stats/sessions/../../remote'],
     ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(false);
   });
-  describe('harness gate, rewind and limit wait', () => {
+  describe('harness gate and limit wait', () => {
     const added: ReadonlyArray<readonly [string, string]> = [
-      ['GET', '/api/sessions/abc/harness'],
       ['POST', '/api/sessions/abc/harness/steps/3/approve'],
       ['POST', '/api/sessions/abc/harness/steps/3/reopen'],
       ['POST', '/api/sessions/abc/harness/steps/3/go-back'],
       ['POST', '/api/sessions/abc/harness/steps/3/decide-myself'],
-      ['POST', '/api/sessions/abc/rewind'],
       ['POST', '/api/sessions/abc/limit-wait/cancel'],
       ['POST', '/api/sessions/abc/limit-wait/undo'],
     ];
 
-    it('allows each new route for its one method only', () => {
+    it('allows each route for its one method only', () => {
       for (const [method, path] of added) {
         for (const m of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']) {
           expect(isAllowed(m, path), `${m} ${path}`).toBe(m === method);
@@ -64,17 +101,11 @@ describe('remote allowlist', () => {
 
     it('keeps the neighbours denied', () => {
       for (const [m, p] of [
-        ['DELETE', '/api/sessions/abc/rewind'],
-        ['POST', '/api/sessions/abc/harness'],
-        ['PATCH', '/api/sessions/abc/harness'],
-        ['DELETE', '/api/sessions/abc/harness'],
-        ['POST', '/api/sessions/abc/harness/carry'],
-        ['GET', '/api/sessions/abc/harness/steps/1/diff'],
-        ['GET', '/api/harness/templates'],
-        ['GET', '/api/files'],
+        ['GET', '/api/sessions/abc/rewind'],
+        ['PUT', '/api/sessions/abc/harness'],
+        ['GET', '/api/sessions/abc/harness/carry'],
+        ['POST', '/api/sessions/abc/harness/steps/1/diff'],
         ['GET', '/api/files/image'],
-        ['GET', '/api/limits'],
-        ['POST', '/api/limits/refresh'],
       ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(false);
     });
 
@@ -113,12 +144,10 @@ describe('remote allowlist', () => {
       const app = Fastify();
       const routes: ReadonlyArray<readonly [string, string]> = [
         ...ALLOWED_ROUTES,
-        ['GET', '/api/files'],
-        ['GET', '/api/files/complete'],
-        ['PATCH', '/api/settings'],
-        ['DELETE', '/api/sessions/:id/rewind'],
-        ['POST', '/api/sessions/:id/harness'],
-        ['GET', '/api/sessions/:id/harness/steps/:index/diff'],
+        ['GET', '/api/files/image'],
+        ['GET', '/api/images/:ref'],
+        ['GET', '/api/sessions/:id/terminals'],
+        ['GET', '/api/sessions/:id/ide/diagnostics'],
         ['POST', '/api/sessions/:id/ide/open-file'],
         ['POST', '/api/remote/pair'],
         ['GET', '/api/sessions/retention-preview'],
@@ -173,5 +202,8 @@ describe('remote allowlist', () => {
         await app.close();
       }
     });
+  });
+  it('a member cannot make this device join another', () => {
+    expect(isAllowed('POST', '/api/remote/join')).toBe(false);
   });
 });

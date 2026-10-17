@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cpSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
 import { eq, sql } from 'drizzle-orm';
@@ -463,5 +463,43 @@ describe('notifications off by default', () => {
     const db = openDb(dbPath);
     expect(read(db).notify_tip).toBe('ended');
     db.$client.close();
+  });
+});
+
+// Spec 2026-10-16-device-group-design § 1: a Mac from before kinds could only
+// ever pair with a phone, so a row left over from that era could not be
+// anything else.
+describe('device kind migration', () => {
+  it('0028 marks every phone paired before kinds as a phone', () => {
+    const dir = makeTmpDir('db-0028');
+    const dbPath = join(dir, 'index.db');
+    // The migrations as they stood before 0028: copy the folder, drop 0028 and
+    // everything the real folder has gained since (the migrator orders purely
+    // by each entry's "when" against the single newest one already applied,
+    // so leaving a later migration in place here would make it look newer
+    // than 0028 and mask it on the real re-migration below).
+    const before = join(dir, 'drizzle');
+    cpSync(join(import.meta.dirname, '..', 'drizzle'), before, { recursive: true });
+    const journalPath = join(before, 'meta', '_journal.json');
+    const journal = JSON.parse(readFileSync(journalPath, 'utf8'));
+    const cutoffIdx = journal.entries.find((e: { tag: string }) => e.tag === '0028_device_kind').idx;
+    const dropped = journal.entries.filter((e: { idx: number }) => e.idx >= cutoffIdx);
+    journal.entries = journal.entries.filter((e: { idx: number }) => e.idx < cutoffIdx);
+    writeFileSync(journalPath, JSON.stringify(journal));
+    for (const e of dropped) {
+      rmSync(join(before, `${e.tag}.sql`));
+      rmSync(join(before, 'meta', `${String(e.idx).padStart(4, '0')}_snapshot.json`));
+    }
+
+    const old = openDb(dbPath, before);
+    old.$client.prepare(
+      `INSERT INTO remote_devices (id, name, platform, paired_at, notifications) VALUES ('p', 'Pixel', 'android', 1, '{}')`,
+    ).run();
+    old.$client.close();
+
+    const now = openDb(dbPath);
+    const row = now.$client.prepare(`SELECT kind FROM remote_devices WHERE id = 'p'`).get() as { kind: string | null };
+    expect(row.kind).toBe('phone');
+    now.$client.close();
   });
 });

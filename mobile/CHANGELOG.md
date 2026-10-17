@@ -4,6 +4,13 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-10-17
+### Added
+- The phone joins your group of devices: it reaches every desktop and server in the group on its own, so a sleeping Mac takes away only its own sessions. Pairing with one device links the phone with the rest. Needs the Mac update that brings device groups; with an older Mac the phone works as before.
+- The session list shows a chip per device to show or hide its sessions, names each session's device, and says which device is asleep.
+- Settings → Devices lists every device in the group: add one by showing this phone's code, remove one, or leave the group.
+- New session asks which device the session runs on.
+
 ## [0.14.0] — 2026-10-16
 ### Added
 - Photos and screenshots of any size go to a session: the phone brings them down to the size Claude takes, and converts iPhone HEIC photos.

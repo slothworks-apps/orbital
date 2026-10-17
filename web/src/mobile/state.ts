@@ -1,16 +1,20 @@
 import { create } from 'zustand'
-import type { LinkStatus, RemoteClientEvent } from '@orbital/shared/remote/client'
+import type { PendingPair } from '@orbital/shared/remote/ceremony'
+import type { LinkStatus, TunnelEvent } from '@orbital/shared/remote/tunnel'
+import type { MemberRow } from '@orbital/shared/remote/group'
+import type { GroupClientEvent } from '@orbital/shared/remote/groupClient'
+import { MIN_SERVER_VERSION, isSupportedServer } from '@orbital/shared/remote/version'
 import type { EndedSummary } from '../lib/api'
 import type { LockLabel } from './platform/deviceLock'
 import type { Pairing } from './platform/parse'
 import { lockOnBackground, lockOnReturn, type AppLock } from './lock'
-import { MIN_SERVER_VERSION, isSupportedServer } from './version'
+import type { FederatedSource } from './transport/groupFederation'
 
 /** Navigation is in-memory state, not URLs (spec § 5). */
 export type Screen = BaseScreen | PushedScreen
 
 /** The screens that stand on their own. */
-export type BaseScreen = 'pairing' | 'list' | 'session' | 'settings' | 'new' | 'unpaired' | 'mismatch'
+export type BaseScreen = 'pairing' | 'list' | 'session' | 'settings' | 'code' | 'new' | 'unpaired' | 'mismatch'
 
 /**
  * What can be pushed over a session (spec 2026-10-05-mobile-next § 3, § 2):
@@ -64,6 +68,13 @@ export function isPushedScreen(screen: Screen): screen is PushedScreen {
 export type Mismatch = { cause: 'mac' | 'relay' | 'app'; theirs: string | null; needed: string | null }
 
 /**
+ * A device whose sessions the phone shows (`GroupFederation.sources()`).
+ * `refused`: why it will not talk to this app — it refused it (`bye`), or
+ * it is older than `MIN_SERVER_VERSION`; the rest of the group still works.
+ */
+export type DeviceView = FederatedSource & { refused: Mismatch | null }
+
+/**
  * Relay `error` codes that mean this phone's pair no longer exists (spec
  * § 4); anything else is not about the pair. `bad_secret` is the client's
  * word for a relay secret the relay refused: the relay was re-keyed, and only
@@ -94,8 +105,9 @@ export interface MobileState {
    * Set while a Retry or a foreground check is in flight, holding what
    * `isMacAsleep` answered when it began: the check rebuilds the relay link,
    * and the drop it makes on the way must not flash the offline card.
+   * `asleepIds`: the devices `deviceAsleep` called asleep then.
    */
-  rechecking: { asleep: boolean } | null
+  rechecking: { asleep: boolean; asleepIds?: string[] } | null
   /** When the Mac's session list was last read over the tunnel (9e's "N live sessions are waiting."). */
   listedAt: number | null
   /**
@@ -109,10 +121,29 @@ export interface MobileState {
   /** What 9i explains; null while every part is new enough. */
   mismatch: Mismatch | null
   unpaired: boolean
+  /**
+   * No device of the group can reach this phone right now
+   * (`GroupClient.unreachable`): the session list says so and offers to
+   * pair again. Not 9h: nothing says this phone was removed.
+   */
+  unreachable: boolean
   pairing: Pairing | null
   macName: string | null
-  /** The Mac's Orbital version from its last hello — what `macSupports` reads. */
+  /**
+   * The Orbital version of the device the app means when it means one (the
+   * federation's default member, from its hello); `defaultSupports` reads it.
+   */
   macVersion: string | null
+  /** Every device whose sessions the phone shows, as the federation sees it. */
+  devices: DeviceView[]
+  /** Devices that refused this app (`bye app_too_old`/`protocol`), until they are up again. */
+  refusals: Record<string, Mismatch>
+  /** The group's roster as Settings → Devices lists it. */
+  members: MemberRow[]
+  /** A device that redeemed this phone's code and waits for the user's code (canvas 50i's join request). */
+  pendingPair: PendingPair | null
+  /** This phone's code while one is open (`GroupClient.startPairing`): when it stops working. */
+  ownCode: { expiresAt: number } | null
   /**
    * The open composer's standing intent and the session it belongs to;
    * `seq` grows with every request, so asking twice focuses twice. Cleared
@@ -146,7 +177,8 @@ export interface MobileState {
 export const initialMobileState: MobileState = {
   screen: 'pairing', previous: null, sessionId: null, pushed: [], link: 'off', macOnline: false, ready: false,
   asOf: null, checkedAt: null, rechecking: null, listedAt: null, endedSummary: null, endedLoaded: false,
-  mismatch: null, unpaired: false, pairing: null, macName: null, macVersion: null, composerIntent: null,
+  mismatch: null, unpaired: false, unreachable: false, pairing: null, macName: null, macVersion: null, devices: [], refusals: {},
+  members: [], pendingPair: null, ownCode: null, composerIntent: null,
   screenLock: false, lock: 'open', appLock: true, lockLabel: 'screen lock', backgroundedAt: null, authenticating: false,
 }
 
@@ -161,13 +193,14 @@ export function isMacAsleep(state: Pick<MobileState, 'link' | 'macOnline' | 'rec
   return state.link === 'online' && !state.macOnline
 }
 
-/** The pair is over, by the Mac's hand or the relay's word (spec § 4). */
-export function isPairGone(event: RemoteClientEvent): boolean {
-  return (
-    (event.type === 'bye' && event.reason === 'revoked') ||
-    event.type === 'unpaired' ||
-    (event.type === 'relay_error' && UNPAIRED_RELAY_ERRORS.has(event.code))
-  )
+/**
+ * This phone is out of its group, by the group's hand or the relay's word
+ * (spec § 4). One member's `bye revoked` is not: that member is dropped
+ * and the phone stays in its group, which says so (`unpaired`) once it
+ * holds no group for the phone.
+ */
+export function isPairGone(event: TunnelEvent): boolean {
+  return event.type === 'unpaired' || (event.type === 'relay_error' && UNPAIRED_RELAY_ERRORS.has(event.code))
 }
 
 /**
@@ -213,13 +246,13 @@ export function returnToForeground(state: MobileState, now: number): Partial<Mob
  * pair only when one is stored: mid-pairing there is none to lose, and the
  * pairing run reports the refusal on its own screen instead of 9h.
  */
-export function pairGoneFor(event: RemoteClientEvent, pairing: Pairing | null): boolean {
+export function pairGoneFor(event: TunnelEvent, pairing: Pairing | null): boolean {
   if (event.type === 'relay_error' && event.code === 'bad_secret' && pairing === null) return false
   return isPairGone(event)
 }
 
 /** What one client event changes (spec § 5: offline, 9h, 9i). Pure; `useMobile.apply` writes it. */
-export function reduce(state: MobileState, event: RemoteClientEvent, now: number): Partial<MobileState> {
+export function reduce(state: MobileState, event: TunnelEvent, now: number): Partial<MobileState> {
   if (pairGoneFor(event, state.pairing)) {
     return { screen: 'unpaired', unpaired: true, sessionId: null, pushed: [], pairing: null, ready: false }
   }
@@ -237,27 +270,12 @@ export function reduce(state: MobileState, event: RemoteClientEvent, now: number
     case 'hub':
       return { asOf: now }
     case 'hello':
-      if (!isSupportedServer(event.server)) {
-        return {
-          screen: 'mismatch', macName: event.macName, macVersion: event.server,
-          mismatch: { cause: 'mac', theirs: event.server, needed: MIN_SERVER_VERSION },
-        }
-      }
-      return { macName: event.macName, macVersion: event.server, ...leaveMismatch(state) }
+      // The default member's: the name and version shown where one device is meant. Whether a
+      // device is too old is each device's own (`applyDevices`).
+      return { macName: event.macName, macVersion: event.server }
     case 'bye':
-      if (event.reason === 'app_too_old') {
-        // The Mac sends its minimum with this reason; a bye without one (`needed` null) still names the cause.
-        return { screen: 'mismatch', mismatch: { cause: 'app', theirs: null, needed: event.needed ?? null } }
-      }
-      // The Mac refused our protocol version; it says no more than that.
-      return {
-        screen: 'mismatch',
-        mismatch: {
-          cause: 'mac',
-          theirs: state.mismatch?.cause === 'mac' ? state.mismatch.theirs : null,
-          needed: MIN_SERVER_VERSION,
-        },
-      }
+      // One member's refusal; `reduceGroup` hears it with the member's id.
+      return {}
     case 'relay_too_old':
       // Mid-pairing there is no app behind 9i to block: the pairing run reports it on 9e.
       if (state.pairing === null) return {}
@@ -265,6 +283,59 @@ export function reduce(state: MobileState, event: RemoteClientEvent, now: number
     default:
       return {}
   }
+}
+
+/** What a device refusing this app means for it, `version` its last known one. */
+function refusalOf(reason: 'app_too_old' | 'protocol', needed: string | undefined, version: string | null): Mismatch {
+  // The device sends its minimum with `app_too_old`; without one (`needed` null) it still names the cause.
+  if (reason === 'app_too_old') return { cause: 'app', theirs: null, needed: needed ?? null }
+  // A refused protocol says no more than that.
+  return { cause: 'mac', theirs: version, needed: MIN_SERVER_VERSION }
+}
+
+/**
+ * What one group event changes beyond what the federation passes on: a
+ * device refusing this app marks that device, and 9i comes only when every
+ * device refuses (`applyDevices`). `pairs_lost` and one member's `bye
+ * revoked` change nothing: the group pairs again, or drops that member.
+ */
+export function reduceGroup(state: MobileState, event: GroupClientEvent): Partial<MobileState> {
+  if (event.type !== 'bye' || event.reason === 'revoked') return {}
+  const version = state.devices.find((d) => d.id === event.peer)?.version ?? null
+  const refusals = { ...state.refusals, [event.peer]: refusalOf(event.reason, event.needed, version) }
+  return withDevices(state, state.devices, refusals)
+}
+
+/** The federation's sources now (its `onMembers`): the devices, and 9i when every one of them refuses. */
+export function applyDevices(state: MobileState, sources: FederatedSource[]): Partial<MobileState> {
+  // A device up again has taken this app, and one gone from the group refuses nothing: either refusal is over.
+  const refusals = Object.fromEntries(
+    Object.entries(state.refusals).filter(([id]) => sources.some((s) => s.id === id && !s.ready)),
+  )
+  return withDevices(state, sources, refusals)
+}
+
+function withDevices(state: MobileState, sources: FederatedSource[], refusals: Record<string, Mismatch>): Partial<MobileState> {
+  const devices: DeviceView[] = sources.map((s) => ({
+    ...s,
+    refused: refusals[s.id] ?? (s.version !== null && !isSupportedServer(s.version)
+      ? { cause: 'mac', theirs: s.version, needed: MIN_SERVER_VERSION }
+      : null),
+  }))
+  const next: Partial<MobileState> = { devices, refusals }
+  const ids = new Set([...devices.map((d) => d.id), ...Object.keys(refusals)])
+  const refusalOfId = (id: string) => refusals[id] ?? devices.find((d) => d.id === id)?.refused ?? null
+  const all = [...ids].map(refusalOfId)
+  if (ids.size > 0 && all.every((r) => r !== null)) {
+    // A relay too old stands in front of every device; its 9i stays.
+    if (state.mismatch?.cause === 'relay') return next
+    // The app too old is the one thing the user can fix for every device at once.
+    const shown = all.find((r) => r?.cause === 'app') ?? all[0] ?? null
+    const named = devices.find((d) => refusalOfId(d.id) === shown)?.name
+    if (shown) return { ...next, screen: 'mismatch', mismatch: shown, ...(named ? { macName: named } : {}) }
+  }
+  if (state.mismatch && state.mismatch.cause !== 'relay') return { ...next, ...leaveMismatch(state) }
+  return next
 }
 
 /** Off 9i to the list, once what it explained no longer holds. */
@@ -289,6 +360,8 @@ export function back(state: MobileState): Partial<MobileState> | 'exit' {
     case 'settings':
     case 'new':
       return { screen: 'list' }
+    case 'code':
+      return { screen: 'settings' }
     case 'pairing':
       // Paired already (back on "Paired with", or while it waits for hello): the list, not where pairing began.
       if (state.pairing) return { screen: 'list', previous: null }
@@ -332,7 +405,11 @@ export function pushedTop<K extends PushedScreen>(state: Pick<MobileState, 'push
 }
 
 interface MobileActions {
-  apply(event: RemoteClientEvent): void
+  apply(event: TunnelEvent): void
+  /** A group event the federation does not pass on (`reduceGroup`). */
+  applyGroup(event: GroupClientEvent): void
+  /** The federation's sources changed (`applyDevices`). */
+  setDevices(sources: FederatedSource[]): void
   go(screen: BaseScreen): void
   openSession(id: string): void
   openSubagent(ref: { sessionId: string; toolUseId: string }): void
@@ -351,6 +428,8 @@ interface MobileActions {
 export const useMobile = create<MobileState & MobileActions>()((set, get) => ({
   ...initialMobileState,
   apply: (event) => set(reduce(get(), event, Date.now())),
+  applyGroup: (event) => set(reduceGroup(get(), event)),
+  setDevices: (sources) => set(applyDevices(get(), sources)),
   go: (screen) => set((s) => ({ screen, previous: s.screen, pushed: [] })),
   openSession: (id) =>
     set((s) => ({

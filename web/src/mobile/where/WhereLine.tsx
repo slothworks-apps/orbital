@@ -3,9 +3,9 @@ import type { ApiSession } from '../../lib/types'
 import { treesCompactText, treesCountText, treesHeadText, whereFormOf } from '../../lib/whereForm'
 import { FullTextTip } from '../FullTextTip'
 import { basename } from '../format'
-import { COUNT_MARK_GAP_PX, MARK_GAP_PX, charPxOf, fitWhere } from './fit'
+import { COUNT_MARK_GAP_PX, GAP_PX, MARK_GAP_PX, charPxOf, fitWhere } from './fit'
 import { TreeMark } from './marks'
-import { useMobile } from '../state'
+import { useSessionDeviceName } from '../useDevice'
 import { SheetPresence } from '../ui'
 import { BranchSheet } from './BranchSheet'
 import { TreesSheet } from './TreesSheet'
@@ -63,6 +63,7 @@ export function WhereLine({
   dotColor,
   variant,
   dim = false,
+  device,
 }: {
   session: ApiSession
   /** The tag's colour, or the neutral one. */
@@ -70,11 +71,13 @@ export function WhereLine({
   variant: 'list' | 'header'
   /** The list row's asleep ink. */
   dim?: boolean
+  /** The device the session runs on, leading the line after the dot while two or more devices show (canvas 50j). */
+  device?: string
 }) {
   const [ref, width] = useWidth()
   const [open, setOpen] = useState(false)
   const [branchOpen, setBranchOpen] = useState(false)
-  const mac = useMobile((s) => s.macName) ?? 'the Mac'
+  const mac = useSessionDeviceName(session.id) ?? 'the Mac'
   const v = VARIANTS[variant]
   const header = variant === 'header'
   const git = session.git ?? null
@@ -88,7 +91,8 @@ export function WhereLine({
     branch,
     inWorktree,
     form,
-    availPx: width,
+    // The device's name and its separator take their share before the rest is fitted.
+    availPx: width === null || !device ? width : width - (device.length + 1) * charPxOf(v.fontPx) - 2 * GAP_PX,
     charPx: charPxOf(v.fontPx),
     caretPx: header ? CARET_PX : 0,
   })
@@ -113,6 +117,12 @@ export function WhereLine({
   const place = (
     <>
       <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dotColor }} />
+      {device && (
+        <>
+          <span className="min-w-0 shrink truncate text-[rgba(200,220,245,.85)]">{device}</span>
+          {sep}
+        </>
+      )}
       <span className="shrink-0">{fit.project}</span>
       {fit.branch && (
         <>

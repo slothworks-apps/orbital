@@ -9,6 +9,10 @@ import type { FastifyInstance } from 'fastify';
 import { buildRelay } from '@orbital/relay/app';
 import { openRelayStore } from '@orbital/relay/store';
 import { buildServer } from '../src/index.js';
+import type { QueryFn } from '../src/runner/runner.js';
+import type { RemoteService } from '../src/remote/service.js';
+import type { FederationService } from '../src/federation/service.js';
+import type { Hub } from '../src/api/hub.js';
 import { openDb } from '../src/db/database.js';
 import { settings as settingsTable } from '../src/db/schema.js';
 import { fingerprint, publicKeyOf } from '@orbital/shared/remote/keys';
@@ -28,34 +32,50 @@ export async function until(cond: () => Promise<boolean> | boolean, ms = 5000): 
   }
 }
 
-export type InjectMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
+export type InjectMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export type MacAndRelay = {
   relayUrl: string;
   app: FastifyInstance;
   /** The server's data dir: `index.db`, the identity, `images/`, and `claude/` as its `~/.claude`. */
   dir: string;
-  api: (method: InjectMethod, url: string, payload?: unknown) => Promise<{ statusCode: number; json(): any }>;
+  api: (method: InjectMethod, url: string, payload?: unknown) => Promise<{ statusCode: number; headers: Record<string, unknown>; json(): any }>;
+  /** The server's remote service, for what no route shows (a device's channel). */
+  remote: RemoteService;
+  /** The server's federation: the other members' sessions in its hub. */
+  federation: FederationService;
+  /** The server's hub, as a local window sees it. */
+  hub: Hub;
 };
 
 /**
  * Online before it resolves. `settings` and `beforeBoot` run before
  * `buildServer`, which is when the remote reads its settings and the indexer
- * first scans `claude/projects`.
+ * first scans `claude/projects`. With `relayUrl` no relay is built: the
+ * server joins the one already running there, as a second Mac would. With
+ * `dir` the server boots on that data dir, as the same Mac restarted.
  */
 export async function startMacAndRelay(
   closers: (() => unknown)[],
-  opts: { settings?: [string, string][]; beforeBoot?: (dir: string) => void; apiToken?: string } = {},
+  opts: {
+    settings?: [string, string][]; beforeBoot?: (dir: string) => void; apiToken?: string;
+    relayUrl?: string; name?: string; dir?: string;
+    /** The runner's SDK seam, for a test that starts a session. */
+    queryFn?: QueryFn;
+  } = {},
 ): Promise<MacAndRelay> {
-  const relay = await buildRelay({ store: await openRelayStore(':memory:') });
-  const relayUrl = await listen(relay);
-  closers.push(() => relay.close());
+  let relayUrl = opts.relayUrl;
+  if (relayUrl === undefined) {
+    const relay = await buildRelay({ store: await openRelayStore(':memory:') });
+    relayUrl = await listen(relay);
+    closers.push(() => relay.close());
+  }
 
-  const dir = makeTmpDir('e2e');
+  const dir = opts.dir ?? makeTmpDir('e2e');
   const dbPath = join(dir, 'index.db');
   const db = openDb(dbPath);
   const seeded: [string, string][] = [
-    ['remote_enabled', 'true'], ['remote_relay_url', relayUrl], ['remote_mac_name', 'studio'], ...(opts.settings ?? []),
+    ['remote_enabled', 'true'], ['remote_relay_url', relayUrl], ['remote_mac_name', opts.name ?? 'studio'], ...(opts.settings ?? []),
   ];
   for (const [key, value] of seeded) {
     db.insert(settingsTable).values({ key, value }).onConflictDoUpdate({ target: settingsTable.key, set: { value } }).run();
@@ -63,13 +83,19 @@ export async function startMacAndRelay(
   // Seeded before boot so the remote starts enabled; the server opens its own handle.
   db.$client.close();
   opts.beforeBoot?.(dir);
-  const app = await buildServer({ dbPath, claudeDir: join(dir, 'claude'), dataDir: dir, apiToken: opts.apiToken });
+  let remote: RemoteService | null = null;
+  let federation: FederationService | null = null;
+  let hub: Hub | null = null;
+  const app = await buildServer({
+    dbPath, claudeDir: join(dir, 'claude'), dataDir: dir, apiToken: opts.apiToken, queryFn: opts.queryFn, exposeRemote: (r) => { remote = r; },
+    exposeFederation: (f) => { federation = f; }, exposeHub: (h) => { hub = h; },
+  });
   closers.push(() => app.close());
   const headers = opts.apiToken === undefined ? undefined : { authorization: `Bearer ${opts.apiToken}` };
   const api: MacAndRelay['api'] = (method, url, payload) => app.inject({ method, url, payload: payload as any, headers });
 
   await until(async () => (await api('GET', '/api/remote')).json().relay === 'online');
-  return { relayUrl, app, dir, api };
+  return { relayUrl, app, dir, api, remote: remote!, federation: federation!, hub: hub! };
 }
 
 /** The code a phone shows for its pairing request: what the user types on the Mac. */

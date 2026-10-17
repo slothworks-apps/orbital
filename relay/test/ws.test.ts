@@ -165,6 +165,16 @@ describe('relay websocket', () => {
     expect(offline).toEqual({ type: 'presence', peer: p.id, online: false });
   });
 
+  it('ok names every pair, an offline one too', async () => {
+    const { base, mac, phone } = await relay();
+    const m = await connectDevice(base, mac);
+    expect(m.peers).toEqual([]);
+    expect(m.pairs).toEqual([deviceId(phone.publicKey)]);
+    const p = await connectDevice(base, phone);
+    expect(p.peers).toEqual([m.id]);
+    expect(p.pairs).toEqual([m.id]);
+  });
+
   it('queues empty-body state frames for an offline phone, drops the rest, drains on connect', async () => {
     const { base, mac, phone } = await relay();
     const m = await connectDevice(base, mac);

@@ -1,33 +1,55 @@
 /**
- * The four signed endpoints of pairing (spec 2026-09-30-mobile-remote-design
+ * The signed endpoints of pairing (spec 2026-09-30-mobile-remote-design
  * § 2 Pairing endpoints). Every request is verified against the identity it
- * claims; the Mac's confirmation is the step that makes a pair exist.
+ * claims. A pair exists once the Mac confirms a redeemed token, or once two
+ * devices have each signed a mutual half naming the other (ADR
+ * the-relay-pairs-two-devices-that-both-sign).
  */
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import {
   PAIRING_TOKEN_TTL_MS, SEALED_DEVICE_MAX_CHARS, verifyRequest, type RelayAction,
 } from '@orbital/shared/remote/relayApi';
+import { publicKeyOf } from '@orbital/shared/remote/keys';
 import { RELAY_VERSION_HEADER } from '@orbital/shared/remote/version';
 import { log, short } from './log.js';
 import { secretMatches } from './secret.js';
 import type { WsContext } from './ws.js';
 
 /**
- * The phone redeems from a WebView whose page is https://localhost (and from
- * a desktop browser while its layout is worked on), so `/pair/redeem` is a
- * cross-origin JSON POST: the browser asks first, and reads the answer only
- * when it carries an allow-origin. Any origin may: the request is signed,
- * the token single-use, and no cookie is involved. Only redeem — the other
- * three routes are the Mac's, which is not a browser (ADR
+ * Once the phone is a device-group member it sends every signed pair route
+ * itself, from the same WebView whose page is https://localhost (and from a
+ * desktop browser while its layout is worked on): `/pair/redeem`,
+ * `/pair/token` (showing its own code), `/pair/confirm`, `/pair/mutual` and
+ * `/pair/revoke`. Each is a cross-origin JSON POST: the browser asks first,
+ * and reads the answer only when it carries an allow-origin. Any origin may,
+ * for all five: each request is signed by the key it names, and what it can
+ * change is limited to that key's own pairs (ADR
  * the-relay-answers-cors-for-redeem).
  */
-const REDEEM_CORS = {
+const PAIR_CORS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'POST',
   'access-control-allow-headers': 'content-type',
   'access-control-max-age': '600',
 };
+
+/** The preflight every signed pair route answers the same way. */
+function registerPairCorsPreflight(app: FastifyInstance, path: string): void {
+  app.options(path, (_req, reply) => {
+    void reply.code(204).headers(PAIR_CORS).send();
+  });
+}
+
+/**
+ * The allow-origin and version header every signed pair route's answer
+ * carries, refusals included, so the phone can tell an expired token or a
+ * bad peer from an unreachable relay, and checks the relay's version.
+ */
+function sendPairCors(reply: FastifyReply): void {
+  void reply.header('access-control-allow-origin', PAIR_CORS['access-control-allow-origin']);
+  void reply.header('access-control-expose-headers', RELAY_VERSION_HEADER);
+}
 
 /**
  * The relay knows no device names (spec 2026-10-08-relay-knows-no-names-design).
@@ -40,13 +62,18 @@ const RedeemPayload = z.object({
   token: z.string(), proof: z.string().max(64), device: z.string().max(SEALED_DEVICE_MAX_CHARS).optional(),
 });
 const ConfirmPayload = z.object({ phone: z.string(), accept: z.boolean() });
+// Either side of a pair may revoke it; `phone` names the other side, whichever it is.
 const RevokePayload = z.object({ phone: z.string() });
+const MutualPayload = z.object({ peer: z.string() });
 
 export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): void {
   /**
    * Verifies, rate-limits, checks the relay secret, parses, and answers the error itself; returns
    * null then. The signature comes first so unsigned junk never counts
    * against an IP's limit — only a request someone signed can use it up.
+   * A mutual pair or a revoke draws on `mutualLimiter` instead, and on the
+   * guessing budget only with a wrong secret: past that budget it is refused
+   * like a connect, so the secret cannot be guessed faster through it.
    */
   function signed<T extends z.ZodTypeAny>(
     body: unknown, action: RelayAction, schema: T, ip: string, reply: FastifyReply,
@@ -56,11 +83,13 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
       void reply.code(401).send({ error: v.reason });
       return null;
     }
-    if (ctx.limiter.hit(ip)) {
+    const own = action === 'pair.mutual' || action === 'pair.revoke';
+    if (own ? ctx.mutualLimiter.hit(ip) || (ctx.secret !== null && ctx.limiter.spent(ip)) : ctx.limiter.hit(ip)) {
       void reply.code(429).send({ error: 'rate_limited' });
       return null;
     }
     if (ctx.secret !== null && !secretMatches(ctx.secret, v.secret ?? undefined)) {
+      if (own) ctx.limiter.hit(ip);
       log(`pairing ${action} refused for ${short(v.id)}: bad secret`);
       void reply.code(401).send({ error: 'bad_secret' });
       return null;
@@ -73,10 +102,16 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
     return { id: v.id, payload: parsed.data };
   }
 
+  for (const path of ['/pair/redeem', '/pair/token', '/pair/confirm', '/pair/mutual', '/pair/revoke']) {
+    registerPairCorsPreflight(app, path);
+  }
+
   app.post('/pair/token', async (req, reply) => {
+    sendPairCors(reply);
     const s = signed(req.body, 'pair.token', TokenPayload, req.ip, reply);
     if (!s) return;
-    await ctx.store.upsertDevice({ id: s.id, kind: 'mac' });
+    // A phone that showed its own code earlier stays a phone; only a device the relay has never met becomes a mac.
+    await ctx.store.ensureDevice({ id: s.id, kind: 'mac' });
     await ctx.store.pruneExpiredTokens(ctx.now());
     const expiresAt = ctx.now() + PAIRING_TOKEN_TTL_MS;
     const token = await ctx.store.createPairingToken(s.id, expiresAt);
@@ -84,27 +119,23 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
     return { token, expiresAt };
   });
 
-  app.options('/pair/redeem', (_req, reply) => {
-    void reply.code(204).headers(REDEEM_CORS).send();
-  });
-
   app.post('/pair/redeem', async (req, reply) => {
-    void reply.header('access-control-allow-origin', REDEEM_CORS['access-control-allow-origin']);
-    // A WebView reads only the headers CORS names: the phone checks the relay's version in this answer.
-    void reply.header('access-control-expose-headers', RELAY_VERSION_HEADER);
+    sendPairCors(reply);
     const s = signed(req.body, 'pair.redeem', RedeemPayload, req.ip, reply);
     if (!s) return;
     const { token, proof, device } = s.payload;
-    const peek = await ctx.store.redeemPairingToken(token, s.id, ctx.now());
-    if (!peek) return reply.code(404).send({ error: 'token_invalid' });
+    const open = await ctx.store.peekPairingToken(token, ctx.now());
+    if (!open) return reply.code(404).send({ error: 'token_invalid' });
     // The Mac has to be online to show its confirmation (9o). The token is
-    // consumed either way: the 409 tells the phone to wake the Mac and scan a
-    // fresh code, which is what 9e's "scan again" does.
-    if (!ctx.connections.isOnline(peek.mac)) {
-      await ctx.store.rejectPair(peek.mac, s.id);
-      log(`pairing rejected: mac ${short(peek.mac)} offline for phone ${short(s.id)}`);
+    // left open: once the Mac is back the same code is redeemed again, while
+    // it lasts (canvas 50d C).
+    if (!ctx.connections.isOnline(open.mac)) {
+      log(`pairing refused: mac ${short(open.mac)} offline for phone ${short(s.id)}`);
       return reply.code(409).send({ error: 'mac_offline' });
     }
+    // Consumed only now, when it is passed on; a second redeem racing this one loses here.
+    const peek = await ctx.store.redeemPairingToken(token, s.id, ctx.now());
+    if (!peek) return reply.code(404).send({ error: 'token_invalid' });
     await ctx.store.upsertDevice({ id: s.id, kind: 'phone' });
     // The sealed device passes straight through and is never stored. The
     // empty `name` and `platform` are for a Mac whose schema requires them.
@@ -116,6 +147,7 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
   });
 
   app.post('/pair/confirm', async (req, reply) => {
+    sendPairCors(reply);
     const s = signed(req.body, 'pair.confirm', ConfirmPayload, req.ip, reply);
     if (!s) return;
     const { phone, accept } = s.payload;
@@ -140,7 +172,33 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
     return { ok: true };
   });
 
+  // Two devices of one group pair without a code: each signs that it wants
+  // the other, and the pair exists once both have (ADR
+  // the-relay-pairs-two-devices-that-both-sign). Neither half says why.
+  app.post('/pair/mutual', async (req, reply) => {
+    sendPairCors(reply);
+    const s = signed(req.body, 'pair.mutual', MutualPayload, req.ip, reply);
+    if (!s) return;
+    const peer = s.payload.peer;
+    if (!publicKeyOf(peer) || peer === s.id) return reply.code(400).send({ error: 'bad_peer' });
+    // A phone that signs one stays a phone; only a device the relay has never met gets a row.
+    await ctx.store.ensureDevice({ id: s.id, kind: 'mac' });
+    const outcome = await ctx.store.offerMutual(s.id, peer, ctx.now());
+    if (outcome.created) {
+      ctx.connections.get(s.id)?.peers.add(peer);
+      ctx.connections.get(peer)?.peers.add(s.id);
+      ctx.connections.pairsChanged();
+      for (const [one, other] of [[s.id, peer], [peer, s.id]] as const) {
+        ctx.connections.sendControl(one, { type: 'linked', peer: other });
+        ctx.connections.sendControl(one, { type: 'presence', peer: other, online: ctx.connections.isOnline(other) });
+      }
+      log(`mutual pair: ${short(s.id)} and ${short(peer)}`);
+    }
+    return { linked: outcome.linked };
+  });
+
   app.post('/pair/revoke', async (req, reply) => {
+    sendPairCors(reply);
     const s = signed(req.body, 'pair.revoke', RevokePayload, req.ip, reply);
     if (!s) return;
     // Only act if a pair actually existed: otherwise any signed caller could
@@ -152,10 +210,11 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
     ctx.connections.get(s.payload.phone)?.peers.delete(s.id);
     ctx.connections.pairsChanged();
     // A revoked phone must not receive queued state frames from the Mac on
-    // its next connect.
-    ctx.queue.drain(s.payload.phone);
+    // its next connect. The queue is kept per recipient, not per sender, so
+    // it goes only when the revoked device has no pair left whose frames it holds.
+    if ((await ctx.store.peersOf(s.payload.phone)).length === 0) ctx.queue.drain(s.payload.phone);
     ctx.connections.sendControl(s.payload.phone, { type: 'unpaired', mac: s.id });
-    log(`pair revoked: mac ${short(s.id)}, phone ${short(s.payload.phone)}`);
+    log(`pair revoked by ${short(s.id)}: ${short(s.id)} and ${short(s.payload.phone)}`);
     return { ok: true };
   });
 }

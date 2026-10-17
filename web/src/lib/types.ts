@@ -67,6 +67,20 @@ export interface RecentTool {
   at: number
 }
 
+/**
+ * The member of the device group a session runs on. Mirrors `MachineRef` in
+ * `server/src/federation/service.ts`. `asOf`: when this device last heard
+ * from that member while it is offline (epoch ms), else null.
+ */
+export interface MachineRef {
+  id: string
+  name: string
+  kind: string
+  os: string
+  online: boolean
+  asOf: number | null
+}
+
 export interface ApiSession {
   id: string
   cwd: string
@@ -144,6 +158,11 @@ export interface ApiSession {
    * other only what runs. An older Mac sends every agent in the list too.
    */
   subagents: Subagent[]
+  /**
+   * The other member of the device group this session runs on; absent for a
+   * session of this device (`deviceOf` in `lib/devices.ts`).
+   */
+  machine?: MachineRef
   /**
    * How many subagents the session has had, ended included, however many
    * `subagents` holds. Absent from an older Mac: fall back to
@@ -872,6 +891,8 @@ export type AttachmentUpload =
   | { kind: 'too_large'; size: number; truncated: boolean }
   | { kind: 'not_image'; mediaType: string }
   | { kind: 'empty' }
+  /** The session runs on another device of the group, which only an image reaches. */
+  | { kind: 'not_on_device' }
 
 /** One model as every Orbital surface consumes it. Duplicated from the
  * server's `server/src/models/catalog.ts` — this repo has no shared types
@@ -1239,7 +1260,8 @@ export type FilePreview =
  * A session, or the New session dialog's directory plus the Claude directory
  * it would run under — whose user and plugin commands the catalog lists.
  */
-export type CompletionKey = { session: string } | { cwd: string; claudeDir?: number }
+/** `machine`: the member the completions are read on (New session on another device); absent, this one. */
+export type CompletionKey = { session: string } | { cwd: string; claudeDir?: number; machine?: string }
 
 /** Where a slash command comes from — the popup's right-hand badge (canvas 9b). */
 export type CommandSource = 'user' | 'project' | 'plugin' | `plugin:${string}` | 'built-in'
@@ -1818,11 +1840,54 @@ export interface RemoteDevice {
   id: string
   name: string
   platform: string
+  /** `desktop`, `headless` or `phone`; null for a Mac paired through a code that named none. */
+  kind: string | null
   pairedAt: number
   lastSeenAt: number | null
   online: boolean
   /** The Mac refused this phone's app as too old when it last connected: its version, the minimum, and when (epoch ms). */
   needsUpdate: { version: string; needed: string; at: number } | null
+}
+
+/**
+ * How Settings shows a group member. `self`: this device. `online`/`offline`:
+ * a member paired here, or a member that does not link (a phone paired with
+ * another member), by the relay's presence. `linking`: a member that links
+ * and is not paired here yet; `notLinked`: one the relay cannot pair, so
+ * only a pairing code links the two. Mirrors `MemberState` in
+ * `server/src/remote/service.ts`.
+ */
+export type MemberState = 'self' | 'online' | 'offline' | 'linking' | 'notLinked'
+
+/**
+ * One member of the device group (spec 2026-10-16-device-group-design § 2),
+ * as the status lists it — removed members are dropped before the wire.
+ * Mirrors a roster entry (`RosterEntry` in `shared/src/remote/roster.ts`)
+ * plus the facts `RemoteStatus.group` adds: `self` is this device; `linked`
+ * is paired with this device directly; `online` is on the relay as this
+ * device sees it; `pairByHand` is a relay with no mutual pairing, so only a
+ * pairing code links the two; `state` is how Settings shows it; `seenAt` is
+ * when a member paired here was last on the relay, null for any other.
+ */
+export interface GroupMember {
+  id: string
+  kind: string
+  name: string
+  os: string
+  /** The device links with other members: its hello named the `group` capability. */
+  links: boolean
+  epoch: number
+  addedBy: string
+  addedAt: number
+  describedAt: number
+  self: boolean
+  linked: boolean
+  online: boolean
+  pairByHand: boolean
+  state: MemberState
+  seenAt: number | null
+  /** A member too old to take part in the group: not a phone, and its last hello named no `group` capability. */
+  tooOld: boolean
 }
 
 /**
@@ -1846,10 +1911,22 @@ export interface RemoteStatus {
    * before the server rejects it. The code itself stays on the server: the
    * user types it from the phone (spec 2026-10-06-pairing-code-and-app-lock-design § 1).
    */
-  pendingPair: { phone: string; name: string; platform: string; attemptsLeft: number } | null
+  pendingPair: { phone: string; name: string; platform: string; kind: string; attemptsLeft: number } | null
   pairing: { expiresAt: number } | null
+  /**
+   * A device whose code this server redeemed and which has not confirmed
+   * yet: `code` is what the user types on it, `expiresAt` when its code
+   * stops working, `kind` its kind as its code named it — null from a code
+   * without one (spec 2026-10-16-device-group-design § 3).
+   */
+  joining: { device: string; name: string; kind: string | null; code: string; expiresAt: number } | null
   /** Why the last start failed; null while it is fine. */
   error: string | null
+  /**
+   * The device group's live members and whether the relay URL is locked
+   * because another member is live (spec 2026-10-16-device-group-design § 2, § 4).
+   */
+  group: { members: GroupMember[]; relayLocked: boolean }
 }
 
 /** The refusals `POST /api/remote/pair/confirm` answers with instead of `{ ok: true }`. */
@@ -1863,3 +1940,32 @@ export type PairConfirmResult =
   | { ok: true }
   | { error: Exclude<PairConfirmError, 'code_mismatch'> }
   | { error: 'code_mismatch'; attemptsLeft: number }
+
+/**
+ * The answer to `api.joinGroup` — mirrors `JoinResult` in
+ * `server/src/remote/service.ts` (spec 2026-10-16-device-group-design § 3),
+ * with `ok` added so a caller can narrow without checking for `error`'s
+ * absence. `in_group`: this device is in a group already and leaves it first.
+ * `peer_offline`: the device that showed the code is not on the relay;
+ * `expiresAt` is the code's, when it says. `other_relay`: the code names a
+ * relay this server is not on, `relay`. A refusal this server never names
+ * itself (a network failure, an unexpected status) reads as `relay_error`,
+ * like the rest of the remote surface's refusals.
+ */
+export type JoinAnswer =
+  | { ok: true; device: string; name: string; code: string }
+  | { ok: false; error: 'bad_code' | 'disabled' | 'offline' | 'already_paired' | 'in_group' | 'relay_error' | 'relay_too_old' }
+  | { ok: false; error: 'other_relay'; relay: string }
+  | { ok: false; error: 'peer_offline'; expiresAt?: number }
+
+/** One level of a device's folders, for the folder chooser (`GET /api/dirs`). */
+export interface DirListing {
+  /** The absolute path listed. */
+  path: string
+  /** Null at `/`. */
+  parent: string | null
+  /** Sub-directories only, hidden ones left out, sorted case-insensitively. */
+  dirs: { name: string; hasChildren: boolean }[]
+  /** True when the server cut the list at its cap. */
+  truncated: boolean
+}

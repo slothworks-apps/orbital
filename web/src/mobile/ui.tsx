@@ -258,6 +258,13 @@ const SHEET_VARIANTS = {
       'flex max-h-[calc(100%-92px)] flex-col rounded-t-[24px] border-t border-[rgba(150,205,255,.2)] bg-[linear-gradient(180deg,rgba(16,22,38,.97),rgba(8,12,22,.99))] shadow-[0_-20px_60px_rgba(0,0,0,.6),inset_0_1px_0_rgba(255,255,255,.07)]',
     handle: 'h-5 shrink-0',
   },
+  /** Canvas 50i: a device's sheet, the join request and the confirms of Settings → Devices. */
+  device: {
+    backdrop: 'bg-[rgba(2,3,8,.62)]',
+    panel:
+      'rounded-t-[26px] border-t border-[rgba(150,205,255,.18)] bg-[rgba(10,16,28,.98)] px-4 shadow-[0_-20px_60px_rgba(0,0,0,.5)]',
+    handle: 'h-5',
+  },
 } as const
 
 export function BottomSheet({

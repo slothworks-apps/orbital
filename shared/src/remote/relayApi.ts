@@ -49,7 +49,13 @@ export function canonicalJson(value: unknown): string {
 export type SignedRequest<T = unknown> = { pub: string; ts: number; payload: T; sig: string; secret?: string };
 
 /** The `action` strings the relay's pairing routes accept (see the table above). */
-export type RelayAction = 'pair.token' | 'pair.redeem' | 'pair.confirm' | 'pair.revoke';
+export type RelayAction = 'pair.token' | 'pair.redeem' | 'pair.confirm' | 'pair.revoke' | 'pair.mutual';
+
+/**
+ * How long the relay keeps one device's half of a mutual pair waiting for
+ * the other's.
+ */
+export const MUTUAL_PAIR_TTL_MS = 7 * 24 * 60 * 60_000;
 
 function signedBytes(action: string, ts: number, payload: unknown): Uint8Array {
   return new TextEncoder().encode(`orbital-relay\n${action}\n${ts}\n${canonicalJson(payload)}`);
@@ -109,7 +115,9 @@ export function verifyAuthSignature(publicKey: Uint8Array, nonce: string, sig: s
 export const RelayToDevice = z.discriminatedUnion('type', [
   // `version`: the relay's own (`relay/package.json`); a relay from before it announced one sends none.
   z.object({ type: z.literal('challenge'), nonce: z.string(), version: z.string().optional() }),
-  z.object({ type: z.literal('ok'), peers: z.array(z.string()) }),
+  // `peers`: the paired devices online now. `pairs`: every device this one holds a pair with, online or not;
+  // absent from a relay from before it named them.
+  z.object({ type: z.literal('ok'), peers: z.array(z.string()), pairs: z.array(z.string()).optional() }),
   z.object({ type: z.literal('presence'), peer: z.string(), online: z.boolean() }),
   // `device`: the phone's name and platform, sealed (`sealPairingDevice`); absent from a phone that predates it.
   // `name` and `platform` are always empty from a relay that knows no names, and kept only for a Mac that requires them.
@@ -122,6 +130,8 @@ export const RelayToDevice = z.discriminatedUnion('type', [
   z.object({ type: z.literal('rejected'), mac: z.string() }),
   z.object({ type: z.literal('unpaired'), mac: z.string() }),
   z.object({ type: z.literal('error'), code: z.string() }),
+  // Both devices signed `/pair/mutual` for each other: the pair exists. Sent only to a device that signed one.
+  z.object({ type: z.literal('linked'), peer: z.string() }),
 ]);
 export type RelayToDevice = z.infer<typeof RelayToDevice>;
 
@@ -131,6 +141,10 @@ export const DeviceToRelay = z.discriminatedUnion('type', [
   z.object({ type: z.literal('push_token'), token: z.string() }),
 ]);
 export type DeviceToRelay = z.infer<typeof DeviceToRelay>;
+
+/** The longest phone name and platform a pairing carries; longer ones are cut, not refused. */
+export const PAIR_NAME_MAX_CHARS = 80;
+export const PAIR_PLATFORM_MAX_CHARS = 20;
 
 /**
  * What the Mac encodes into the pairing QR (9e). `secret` never reaches the
@@ -142,6 +156,10 @@ export type DeviceToRelay = z.infer<typeof DeviceToRelay>;
 export const QrPayload = z.object({
   v: z.literal(1), relay: z.string(), mac: z.string(), name: z.string(), token: z.string(), secret: z.string(),
   relaySecret: z.string().optional(),
+  /** The kind of the device that shows the code; absent from a Mac from before kinds. */
+  kind: z.string().max(PAIR_PLATFORM_MAX_CHARS).optional(),
+  /** When the code stops working, by the relay's clock (epoch ms); absent from a device from before it said so. */
+  expiresAt: z.number().int().nonnegative().optional(),
 });
 export type QrPayload = z.infer<typeof QrPayload>;
 
@@ -167,9 +185,6 @@ export function verifyPairingProof(secret: Uint8Array, phonePublicKey: Uint8Arra
   return diff === 0;
 }
 
-/** The longest phone name and platform a pairing carries; longer ones are cut, not refused. */
-export const PAIR_NAME_MAX_CHARS = 80;
-export const PAIR_PLATFORM_MAX_CHARS = 20;
 /**
  * The longest sealed device (`sealPairingDevice`) the relay takes, in
  * base64url characters: room for the longest name and platform even when
@@ -181,10 +196,12 @@ export const PAIRING_DEVICE_INFO = new TextEncoder().encode('orbital-pairing-dev
 const SEALED_DEVICE_NONCE_BYTES = 24;
 const SEALED_DEVICE_TAG_BYTES = 16;
 
-/** What the phone tells the Mac about itself at pairing, for the confirmation (9o) and the paired list. */
-export type PairingDevice = { name: string; platform: string };
+/** What a device tells the one whose code it redeems, for the confirmation and the paired list. `kind`: absent from a phone that predates kinds. */
+export type PairingDevice = { name: string; platform: string; kind?: string };
 const PairingDeviceSchema = z.object({
-  name: z.string().max(PAIR_NAME_MAX_CHARS), platform: z.string().max(PAIR_PLATFORM_MAX_CHARS),
+  name: z.string().max(PAIR_NAME_MAX_CHARS),
+  platform: z.string().max(PAIR_PLATFORM_MAX_CHARS),
+  kind: z.string().max(PAIR_PLATFORM_MAX_CHARS).optional(),
 });
 
 function pairingDeviceKey(secret: Uint8Array): Uint8Array {
@@ -201,6 +218,7 @@ function pairingDeviceKey(secret: Uint8Array): Uint8Array {
 export function sealPairingDevice(secret: Uint8Array, phonePublicKey: Uint8Array, device: PairingDevice): string {
   const plain = new TextEncoder().encode(JSON.stringify({
     name: device.name.slice(0, PAIR_NAME_MAX_CHARS), platform: device.platform.slice(0, PAIR_PLATFORM_MAX_CHARS),
+    ...(device.kind !== undefined ? { kind: device.kind.slice(0, PAIR_PLATFORM_MAX_CHARS) } : {}),
   }));
   const nonce = randomBytes(SEALED_DEVICE_NONCE_BYTES);
   const sealed = xchacha20poly1305(pairingDeviceKey(secret), nonce, phonePublicKey).encrypt(plain);
@@ -240,4 +258,33 @@ export function relayWsUrl(httpUrl: string, mac: string, opts: { paired?: boolea
   url.searchParams.set('mac', mac);
   if (opts.paired) url.searchParams.set('paired', '1');
   return url.toString();
+}
+
+/**
+ * A pairing code as a device pastes it: the QR's JSON as is, or as one
+ * base64url word (`encodePairingCode`). Null for anything else, a `mac`
+ * that is not a device id included.
+ */
+export function parsePairingCode(code: string): QrPayload | null {
+  const text = code.trim();
+  const candidates = [text];
+  try {
+    candidates.push(new TextDecoder().decode(fromBase64Url(text)));
+  } catch {
+    /* not base64url */
+  }
+  for (const candidate of candidates) {
+    try {
+      const parsed = QrPayload.safeParse(JSON.parse(candidate));
+      if (parsed.success && publicKeyOf(parsed.data.mac)) return parsed.data;
+    } catch {
+      /* the next form */
+    }
+  }
+  return null;
+}
+
+/** The QR's JSON as one word to copy. */
+export function encodePairingCode(qrJson: string): string {
+  return toBase64Url(new TextEncoder().encode(qrJson));
 }

@@ -1,6 +1,6 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { Presence } from '../remote/presence.js';
-import type { RemoteService } from '../remote/service.js';
+import type { RemoteService, RemoveResult } from '../remote/service.js';
 
 /** Settings → Mobile and the desktop app talk to these; the phone never can (they are not allowlisted). */
 export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService, presence?: Presence): void {
@@ -27,6 +27,21 @@ export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService
     return res;
   });
 
+  // This server joins another device by its code (spec 2026-10-16-device-group-design § 3).
+  app.post('/api/remote/join', async (req, reply) => {
+    const { code } = (req.body ?? {}) as { code?: unknown };
+    if (typeof code !== 'string') return reply.code(400).send({ error: 'code must be a string' });
+    const res = await remote.join(code);
+    if ('error' in res) return reply.code(res.error === 'bad_code' ? 400 : 409).send(res);
+    return res;
+  });
+
+  // Stops waiting for the device being joined; the relay's request expires with the code.
+  app.delete('/api/remote/join', (_req, reply) => {
+    if (!remote.cancelJoin()) return reply.code(404).send({ error: 'not_joining' });
+    return { ok: true };
+  });
+
   app.post('/api/remote/pair/confirm', async (req, reply) => {
     const body = (req.body ?? {}) as { accept?: unknown; phone?: unknown; code?: unknown };
     if (typeof body.accept !== 'boolean') return reply.code(400).send({ error: 'accept must be a boolean' });
@@ -48,9 +63,18 @@ export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService
     }
   });
 
+  // This device's own id is leaving the group, refused as `leave` is.
   app.delete('/api/remote/devices/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    if (!(await remote.revoke(id))) return reply.code(404).send({ error: 'not_found' });
-    return { ok: true };
+    return removed(reply, await remote.remove(id));
   });
+
+  // This device leaves its group (spec 2026-10-16-device-group-design § 4).
+  app.post('/api/remote/leave', async (_req, reply) => removed(reply, await remote.leave()));
+}
+
+/** A removal's answer: 404 for no such device, 409 for leaving while offline, 500 for a roster that could not be written. */
+function removed(reply: FastifyReply, res: RemoveResult) {
+  if (!('error' in res)) return res;
+  return reply.code(res.error === 'not_found' ? 404 : res.error === 'offline' ? 409 : 500).send(res);
 }

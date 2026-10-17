@@ -4,7 +4,7 @@ import { useNow } from '../../lib/useNow'
 import { useOrbital } from '../../store/store'
 import { CLOCK_TICK_MS } from '../constants'
 import { limitNoticeKey, phoneLimitNotice, QUEUED_NOTE } from '../limits/limitCopy'
-import { useMobile } from '../state'
+import { useSessionDeviceName } from '../useDevice'
 import type { SlotKeyProps, SlotProps } from './slot'
 
 /** The bubbles' hue when the session has no tag — the desktop notice's own fallback. */
@@ -21,7 +21,7 @@ const UNTAGGED_HUE = 205
  */
 export function LimitNotice({ session, offline }: SlotProps) {
   const wait = session.limitWait
-  const macName = useMobile((s) => s.macName)
+  const macName = useSessionDeviceName(session.id)
   const hue = useOrbital((s) => s.tags.find((t) => t.id === session.tagIds[0])?.hue ?? UNTAGGED_HUE)
   const now = useNow(wait != null, CLOCK_TICK_MS)
   const [busy, setBusy] = useState(false)

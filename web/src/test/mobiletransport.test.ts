@@ -307,11 +307,11 @@ describe('makeTunnelUpload', () => {
     Object.assign(new File([bytes], name, { type }), { arrayBuffer: async () => bytes.slice().buffer })
   const photo = () => fileOf(new Uint8Array([1, 2, 3]), 'IMG_090507.jpg', 'image/jpeg')
 
-  it("hands the file's bytes and media type to putBlob and answers ok with the entry", async () => {
+  it("hands the file's bytes, media type and session to putBlob and answers ok with the entry", async () => {
     const client = new FakeClient()
     client.putBlob.mockResolvedValueOnce({ kind: 'ok', entry: ENTRY })
     await expect(makeTunnelUpload(client)('s1', photo())).resolves.toEqual({ kind: 'ok', entry: ENTRY })
-    expect(client.putBlob).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), 'image/jpeg')
+    expect(client.putBlob).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), 'image/jpeg', 's1')
   })
 
   it("answers too_large with the file's size, which is exact", async () => {

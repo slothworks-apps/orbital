@@ -3,14 +3,15 @@ import { deviceId, fromBase64Url, generateIdentity, toBase64Url, type Identity }
 import { FLAG_STATE, FLAG_WAKE, ZERO_WAKE, decodeFrame, encodeFrame } from '../src/remote/frame.js';
 import { HANDSHAKE_BYTES, startHandshake, type SessionCipher } from '../src/remote/handshake.js';
 import {
-  PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, type Inner, type MacMessage, type PhoneMessage,
+  PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, type AnswerMessage, type AskMessage, type HelloMessage,
+  type Inner,
 } from '../src/remote/messages.js';
 import {
   CLOSE_BAD_SECRET, openPairingDevice, verifyAuthSignature, verifyPairingProof, verifyRequest, type RelayToDevice,
 } from '../src/remote/relayApi.js';
 import {
-  CONNECT_TIMEOUT_MS, RECONNECT_DELAY_MS, RECONNECT_MAX_MS, REQUEST_TIMEOUT_MS, RemoteClient, TunnelError,
-  type RemoteClientEvent, type SocketLike,
+  CONNECT_TIMEOUT_MS, RECONNECT_DELAY_MS, RECONNECT_MAX_MS, REQUEST_TIMEOUT_MS, RemoteClient, TUNNEL_SILENCE_TIMEOUT_MS,
+  TunnelError, type RemoteClientEvent, type SocketLike,
 } from '../src/remote/client.js';
 import { MIN_RELAY_VERSION, RELAY_VERSION_HEADER } from '../src/remote/version.js';
 
@@ -76,10 +77,10 @@ class FakeMac {
     sock.binary(this.frame(handshake.message!));
   }
 
-  read(sock: FakeSocket): PhoneMessage {
+  read(sock: FakeSocket): AskMessage | HelloMessage {
     const inner = this.readInner(sock);
     if (inner.kind !== 'json') throw new Error('expected a JSON message');
-    return inner.value as PhoneMessage;
+    return inner.value as AskMessage | HelloMessage;
   }
 
   /** The next inner the phone sent, a JSON message or a blob chunk. */
@@ -90,7 +91,7 @@ class FakeMac {
     return inner;
   }
 
-  send(sock: FakeSocket, msg: MacMessage): void {
+  send(sock: FakeSocket, msg: AnswerMessage | HelloMessage): void {
     this.sendInner(sock, { kind: 'json', value: msg });
   }
 
@@ -109,7 +110,7 @@ function setup(relaySecret?: string) {
   const phone = generateIdentity();
   const client = new RemoteClient({
     relayUrl: 'https://relay.test', mac: mac.id, identity: phone, WebSocketImpl: FakeSocket, app: 'orbital-mobile/test',
-    relaySecret,
+    os: 'android', relaySecret,
   });
   const events: RemoteClientEvent[] = [];
   client.on((e) => events.push(e));
@@ -122,7 +123,9 @@ function connect(s: ReturnType<typeof setup>): void {
   s.sock.control({ type: 'challenge', nonce: 'n1', version: MIN_RELAY_VERSION });
   s.sock.control({ type: 'ok', peers: [s.mac.id] });
   s.mac.answer(s.sock, s.phone.publicKey);
-  expect(s.mac.read(s.sock)).toMatchObject({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'orbital-mobile/test' });
+  expect(s.mac.read(s.sock)).toEqual({
+    t: 'hello', protocol: PROTOCOL_VERSION, app: 'orbital-mobile/test', kind: 'phone', os: 'android', capabilities: [],
+  });
   s.mac.send(s.sock, { t: 'hello', protocol: PROTOCOL_VERSION, server: '0.17.2', macName: 'studio' });
   expect(s.client.ready).toBe(true);
 }
@@ -300,11 +303,43 @@ describe('RemoteClient handshake triggers', () => {
     expect(s.events).toContainEqual({ type: 'paired' });
   });
 
+  it('replaces a channel that has keys but no hello when the Mac comes back', () => {
+    const s = setup();
+    s.sock.control({ type: 'challenge', nonce: 'n1', version: MIN_RELAY_VERSION });
+    s.sock.control({ type: 'ok', peers: [s.mac.id] });
+    s.mac.answer(s.sock, s.phone.publicKey);
+    expect(s.mac.read(s.sock)).toMatchObject({ t: 'hello' });
+    // The Mac never greets; it drops off the relay and comes back.
+    s.sock.control({ type: 'presence', peer: s.mac.id, online: true });
+    expect(s.sock.frames).toHaveLength(1);
+    expect(decodeFrame(s.sock.frames[0])!.body.length).toBe(HANDSHAKE_BYTES);
+    s.mac.answer(s.sock, s.phone.publicKey);
+    s.mac.read(s.sock);
+    s.mac.send(s.sock, { t: 'hello', protocol: PROTOCOL_VERSION, server: '0.17.2', macName: 'studio' });
+    expect(s.client.ready).toBe(true);
+  });
+
   it('ignores presence of a peer that is not its Mac', () => {
     const s = setup();
     s.sock.control({ type: 'ok', peers: [] });
     s.sock.control({ type: 'presence', peer: deviceId(generateIdentity().publicKey), online: true });
     expect(s.sock.frames).toHaveLength(0);
+  });
+
+  it('surfaces the Mac hello, with its kind and capabilities only when it names them', () => {
+    const s = setup();
+    connect(s);
+    expect(s.events).toContainEqual({ type: 'hello', server: '0.17.2', macName: 'studio' });
+    const named = setup();
+    named.sock.control({ type: 'ok', peers: [named.mac.id] });
+    named.mac.answer(named.sock, named.phone.publicKey);
+    named.mac.read(named.sock);
+    named.mac.send(named.sock, {
+      t: 'hello', protocol: PROTOCOL_VERSION, server: '0.30.0', macName: 'studio', kind: 'desktop', capabilities: ['sessions', 'map'],
+    });
+    expect(named.events).toContainEqual({
+      type: 'hello', server: '0.30.0', macName: 'studio', kind: 'desktop', capabilities: ['sessions', 'map'],
+    });
   });
 
   it('re-sends hello and every subscription after a re-handshake', () => {
@@ -324,13 +359,29 @@ describe('RemoteClient handshake triggers', () => {
 });
 
 describe('RemoteClient requests', () => {
+  it('old Mac hello: a Mac that names no capabilities serves, and its watchdog runs', async () => {
+    vi.useFakeTimers();
+    const s = setup();
+    // `connect` greets as a shipped Mac does: `server` and `macName`, no `kind`, no `capabilities`.
+    connect(s);
+    const pending = s.client.request('GET', '/api/health');
+    const ask = s.mac.read(s.sock) as Extract<AskMessage, { t: 'http' }>;
+    expect(ask).toMatchObject({ t: 'http', method: 'GET', path: '/api/health' });
+    s.mac.send(s.sock, { t: 'http_res', id: ask.id, status: 200, body: {} });
+    await expect(pending).resolves.toEqual({ status: 200, body: {} });
+    expect(s.sock.closed).toBe(false);
+    vi.advanceTimersByTime(TUNNEL_SILENCE_TIMEOUT_MS + 1);
+    expect(s.sock.closed).toBe(true);
+    expect(s.client.ready).toBe(false);
+  });
+
   it('matches answers by id, whatever their order, and ignores ids it never sent', async () => {
     const s = setup();
     connect(s);
     const first = s.client.request('GET', '/api/sessions');
     const second = s.client.request('POST', '/api/sessions/s1/messages', { text: 'hi' });
-    const a = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'http' }>;
-    const b = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'http' }>;
+    const a = s.mac.read(s.sock) as Extract<AskMessage, { t: 'http' }>;
+    const b = s.mac.read(s.sock) as Extract<AskMessage, { t: 'http' }>;
     expect(a).toMatchObject({ method: 'GET', path: '/api/sessions' });
     expect(a).not.toHaveProperty('body');
     expect(b).toMatchObject({ method: 'POST', body: { text: 'hi' } });
@@ -374,8 +425,8 @@ describe('RemoteClient blobs, hub and wake', () => {
     connect(s);
     const blob = s.client.getBlob(REF);
     const page = s.client.request('GET', '/api/sessions');
-    const get = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'blob_get' }>;
-    const http = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'http' }>;
+    const get = s.mac.read(s.sock) as Extract<AskMessage, { t: 'blob_get' }>;
+    const http = s.mac.read(s.sock) as Extract<AskMessage, { t: 'http' }>;
     expect(get).toMatchObject({ t: 'blob_get', ref: REF });
     const bytes = new Uint8Array(150_000).map((_, i) => i % 251);
     const chunks = chunkBlob(get.id, bytes);
@@ -397,7 +448,7 @@ describe('RemoteClient blobs, hub and wake', () => {
     const s = setup();
     connect(s);
     const blob = s.client.getBlob(REF);
-    const get = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'blob_get' }>;
+    const get = s.mac.read(s.sock) as Extract<AskMessage, { t: 'blob_get' }>;
     s.mac.send(s.sock, { t: 'blob_meta', id: get.id, status: 404 });
     await expect(blob).resolves.toEqual({ status: 404, bytes: new Uint8Array(0), mediaType: null });
   });
@@ -406,7 +457,7 @@ describe('RemoteClient blobs, hub and wake', () => {
     const s = setup();
     connect(s);
     const blob = s.client.getBlob(REF);
-    const get = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'blob_get' }>;
+    const get = s.mac.read(s.sock) as Extract<AskMessage, { t: 'blob_get' }>;
     const chunks = chunkBlob(get.id, new Uint8Array(150_000));
     s.mac.send(s.sock, { t: 'blob_meta', id: get.id, status: 200, bytes: 150_000, mediaType: 'image/png' });
     s.mac.sendInner(s.sock, chunks[0]);
@@ -439,7 +490,7 @@ describe('RemoteClient getFile', () => {
     const s = setup();
     connect(s);
     const file = s.client.getFile('s1', PATH, 'image', opts);
-    const get = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'file_get' }>;
+    const get = s.mac.read(s.sock) as Extract<AskMessage, { t: 'file_get' }>;
     return { s, file, get };
   }
 
@@ -464,7 +515,7 @@ describe('RemoteClient getFile', () => {
     s.mac.send(s.sock, { t: 'blob_meta', id: get.id, status: 413, size: 9_000_000 });
     await expect(file).resolves.toEqual({ status: 413, bytes: new Uint8Array(0), mediaType: null, size: 9_000_000, w: null, h: null });
     const second = s.client.getFile('s1', '/tmp/a.bin', 'text');
-    const get2 = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'file_get' }>;
+    const get2 = s.mac.read(s.sock) as Extract<AskMessage, { t: 'file_get' }>;
     s.mac.send(s.sock, { t: 'blob_meta', id: get2.id, status: 415, size: 3, mediaType: 'binary' });
     await expect(second).resolves.toMatchObject({ status: 415, mediaType: 'binary', size: 3 });
   });
@@ -509,7 +560,7 @@ describe('RemoteClient putBlob', () => {
   /** Starts a small put and reads its header and its one chunk off the wire. */
   function startPut(s: ReturnType<typeof setup>) {
     const put = s.client.putBlob(new Uint8Array(10), 'image/jpeg');
-    const header = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'blob_put' }>;
+    const header = s.mac.read(s.sock) as Extract<AskMessage, { t: 'blob_put' }>;
     expect(s.mac.readInner(s.sock)).toMatchObject({ kind: 'blob', id: header.id, seq: 0, last: true });
     return { put, header };
   }
@@ -519,7 +570,7 @@ describe('RemoteClient putBlob', () => {
     connect(s);
     const bytes = new Uint8Array(150_000).map((_, i) => i % 251);
     const put = s.client.putBlob(bytes, 'image/jpeg');
-    const header = s.mac.read(s.sock) as Extract<PhoneMessage, { t: 'blob_put' }>;
+    const header = s.mac.read(s.sock) as Extract<AskMessage, { t: 'blob_put' }>;
     expect(header).toEqual({ t: 'blob_put', id: header.id, mediaType: 'image/jpeg', bytes: 150_000 });
     const parts: number[] = [];
     for (let seq = 0; ; seq++) {
@@ -601,6 +652,9 @@ describe('RemoteClient endings', () => {
     expect(s.events).toContainEqual({ type: 'bye', reason: 'protocol' });
     expect(s.client.ready).toBe(false);
     expect(s.client.status).toBe('online');
+    // The Mac coming back opens a fresh tunnel; the refused one is not taken for a handshake in flight.
+    s.sock.control({ type: 'presence', peer: s.mac.id, online: true });
+    expect(decodeFrame(s.sock.frames.at(-1)!)!.body.length).toBe(HANDSHAKE_BYTES);
   });
 
   it('a listener that throws does not break the client', () => {
@@ -648,7 +702,9 @@ describe('RemoteClient redeem', () => {
     // The name travels sealed for the Mac, never in the clear for the relay.
     expect(sent.payload).not.toHaveProperty('name');
     expect(sent.payload).not.toHaveProperty('platform');
-    expect(openPairingDevice(fromBase64Url(secret), s.phone.publicKey, sent.payload.device)).toEqual({ name: 'phone', platform: 'ios' });
+    expect(openPairingDevice(fromBase64Url(secret), s.phone.publicKey, sent.payload.device)).toEqual({
+      name: 'phone', platform: 'ios', kind: 'phone',
+    });
   });
 
   it('signs the redeem with the relay secret when it has one', async () => {

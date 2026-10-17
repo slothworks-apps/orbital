@@ -5,6 +5,7 @@ import { useNow } from '../../lib/useNow'
 import { CLOCK_TICK_MS } from '../constants'
 import { Glyph } from '../screens/Glyph'
 import { useMobile } from '../state'
+import { useSessionAsOf } from '../useDevice'
 import { headerState, type HeaderStateKind } from '../stateWords'
 import type { SlotProps } from './slot'
 
@@ -25,7 +26,7 @@ const NEUTRAL_INK: Record<Exclude<HeaderStateKind, 'plain' | 'gate'>, string> = 
  * 10k; `why-orbital`).
  */
 export function StateLine({ session, offline }: SlotProps) {
-  const asOf = useMobile((s) => s.asOf)
+  const asOf = useSessionAsOf(session.id)
   const reopenedStep = useMobile((s) =>
     s.composerIntent?.sessionId === session.id && s.composerIntent.intent.kind === 'reopen'
       ? s.composerIntent.intent.step

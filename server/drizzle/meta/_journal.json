@@ -197,6 +197,34 @@
       "when": 1791478315571,
       "tag": "0027_notifications_off_by_default",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1792156789336,
+      "tag": "0028_device_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1792221379213,
+      "tag": "0029_group_roster",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1792227178673,
+      "tag": "0030_pending_revokes",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1792250479797,
+      "tag": "0031_member_snapshots",
+      "breakpoints": true
     }
   ]
 }

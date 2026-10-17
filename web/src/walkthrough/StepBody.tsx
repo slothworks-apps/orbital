@@ -2,6 +2,7 @@ import { useMemo, type ReactNode } from 'react'
 import { api } from '../lib/api'
 import { changeCounts, describeFileChange } from '../lib/fileEdit'
 import { formatDuration } from '../lib/format'
+import { ideHere } from '../lib/devices'
 import type { ApiSession, FateKind, StepCall, Walkthrough, WalkthroughStep } from '../lib/types'
 import { ChangeView } from '../panels/DiffView'
 import { callCounts, callsOf, foldedLine, intentFor, pathOf } from './derive'
@@ -190,6 +191,7 @@ function FileBlock({ id, session, call, inset = false, children }: { id: string;
   const counts = change ? changeCounts(change) : null
   const path = pathOf(call)
   const created = change?.kind === 'write' && change.outcome === 'created'
+  const ide = ideHere(session)
 
   return (
     <div
@@ -217,7 +219,8 @@ function FileBlock({ id, session, call, inset = false, children }: { id: string;
         {failed && <Tag dashed>NOT APPLIED</Tag>}
         <span className="flex-1" />
         <Counts counts={counts} />
-        {session.ide && path && (
+        {/* `ideHere`: another device's session has no editor on this one. */}
+        {ide && path && (
           <button
             type="button"
             // Silence is the contract for everything IDE (adr
@@ -226,7 +229,7 @@ function FileBlock({ id, session, call, inset = false, children }: { id: string;
             onClick={() => void api.ideOpenFile(id, path, null).catch(() => false)}
             className="shrink-0 border-b border-dashed border-[rgba(150,205,255,.25)] text-[10px] text-[rgba(160,190,225,.55)]"
           >
-            open in {session.ide.ideName} ↗
+            open in {ide.ideName} ↗
           </button>
         )}
       </div>
