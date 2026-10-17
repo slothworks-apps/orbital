@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { formatFingerprint } from '@orbital/shared/remote/keys'
 import { notificationsAllOff, type NotificationSettings } from '@orbital/shared/notifications'
 import { useOrbital } from '../../store/store'
-import { forgetEverything } from '../forget'
+import { LEAVE_FAILED, LEAVE_OFFLINE, leaveGroup } from '../forget'
 import { confirmIdentity } from '../lockFlow'
 import { relayHost } from '../format'
 import { setRules as setNotifierRules } from '../notify'
@@ -63,6 +63,7 @@ export function SettingsScreen() {
   const [rules, setRules] = useState<NotificationSettings | null>(null)
   const [saving, setSaving] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [leaveError, setLeaveError] = useState<string | null>(null)
   const [relayOpen, setRelayOpen] = useState(false)
   const name = macName ?? pairing?.macName ?? 'Your Mac'
   const notificationsGroup = useRef<HTMLDivElement>(null)
@@ -118,9 +119,18 @@ export function SettingsScreen() {
   }
 
   const replace = async () => {
+    setLeaveError(null)
+    // Leave the group and forget it and the cache; the scanner comes next. Refused offline: the sheet says so.
+    const left = await leaveGroup()
+    if ('error' in left) {
+      setLeaveError(left.error === 'offline' ? LEAVE_OFFLINE : LEAVE_FAILED)
+      return
+    }
     setConfirming(false)
-    // Forget the pairing, the identity and the cache; the scanner comes next.
-    await forgetEverything({ unpaired: false })
+  }
+  const closeConfirm = () => {
+    setConfirming(false)
+    setLeaveError(null)
   }
 
   const header = (
@@ -233,7 +243,7 @@ export function SettingsScreen() {
             role="dialog"
             aria-modal="true"
             aria-label={`Replace ${name}?`}
-            onClick={() => setConfirming(false)}
+            onClick={closeConfirm}
             className="orbital-sheet-backdrop fixed inset-0 z-20 flex items-end bg-[rgba(2,3,8,.62)]"
           >
             <div
@@ -245,9 +255,14 @@ export function SettingsScreen() {
               <p className="text-[14px] leading-[1.5] text-[rgba(200,214,235,.85)]">
                 This phone forgets {name} and its key, then opens the scanner. Sessions on the Mac keep running.
               </p>
+              {leaveError && (
+                <p role="alert" className="text-[13px] text-[var(--state-interrupted)]">
+                  {leaveError}
+                </p>
+              )}
               <div className="mt-1.5 flex flex-col gap-3">
                 <PrimaryButton onClick={() => void replace()}>Forget and scan</PrimaryButton>
-                <SecondaryButton onClick={() => setConfirming(false)}>Cancel</SecondaryButton>
+                <SecondaryButton onClick={closeConfirm}>Cancel</SecondaryButton>
               </div>
             </div>
           </div>

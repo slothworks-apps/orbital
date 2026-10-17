@@ -6,11 +6,10 @@ import { useNow } from '../../lib/useNow'
 import { useOrbital } from '../../store/store'
 import { FingerprintBoxes } from '../../ui/FingerprintBoxes'
 import { parseQrText } from '../pairingFlow'
-import { runPairing, type PairingStep } from '../pairingRun'
+import { cancelPairing, runPairing, type PairingStep } from '../pairingRun'
 import { identityIsDevOnly } from '../platform/identity'
 import { scanQr } from '../platform/scanner'
 import { useMobile } from '../state'
-import { clientRef } from '../transport/clientRef'
 import { LitMark, MobileScreen, PrimaryButton, SecondaryButton } from '../ui'
 
 export const NOT_A_CODE = "That isn't an Orbital pairing code."
@@ -63,7 +62,7 @@ export function PairingScreen() {
     () => () => {
       if (useMobile.getState().pairing) return
       run.current++
-      clientRef.set(null)
+      cancelPairing()
     },
     [],
   )
@@ -71,13 +70,13 @@ export function PairingScreen() {
   // Cancel closes the socket and returns to the previous screen, or stays here when there is none.
   const cancel = useCallback(() => {
     run.current++
-    clientRef.set(null)
+    cancelPairing()
     if (useMobile.getState().goBack() === 'exit') setStep({ kind: 'scan', error: null })
   }, [])
 
   const scanAgain = useCallback(() => {
     run.current++
-    clientRef.set(null)
+    cancelPairing()
     setStep({ kind: 'scan', error: null })
     void scan()
   }, [scan])

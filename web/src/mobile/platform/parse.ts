@@ -1,7 +1,9 @@
 import {
-  SECRET_KEY_BYTES, fromBase64Url, identityFromSecret, publicKeyOf, toBase64Url, type Identity,
+  SECRET_KEY_BYTES, deviceId, fingerprint, fromBase64Url, identityFromSecret, publicKeyOf, toBase64Url, type Identity,
 } from '@orbital/shared/remote/keys'
+import { MemoryGroupStorage, type StoredGroup } from '@orbital/shared/remote/groupClient'
 import { NotificationSettingsSchema, type NotificationSettings } from '@orbital/shared/remote/messages'
+import { isLive } from '@orbital/shared/remote/roster'
 import type { ApiSession, ChatMessage, Tag } from '../../lib/types'
 
 /**
@@ -87,6 +89,73 @@ export function parsePairing(raw: string | null): Pairing | null {
   }
   // Anything but a string reads as no secret: the relay then refuses it, and 9h asks for a new code.
   if (typeof p.relaySecret === 'string') pairing.relaySecret = p.relaySecret
+  return pairing
+}
+
+/**
+ * The phone's device group as stored (`orbital.group`): the one relay every
+ * member is on, its secret, and what `GroupClient` keeps (spec
+ * 2026-10-16-device-group-design § 12).
+ */
+export interface GroupRecord {
+  relay: string
+  relaySecret?: string
+  group: StoredGroup
+}
+
+/**
+ * A stored group, or null when it does not read. The group's own parts are
+ * read as `MemoryGroupStorage.fromJSON` reads them: a row that does not read
+ * is left out, never the whole group.
+ */
+export function parseGroupRecord(raw: string | null): GroupRecord | null {
+  const data = parseJson(raw)
+  if (!data || typeof data !== 'object') return null
+  const g = data as Record<string, unknown>
+  if (typeof g.relay !== 'string' || !isHttpUrl(g.relay)) return null
+  if (!g.group || typeof g.group !== 'object') return null
+  const record: GroupRecord = { relay: g.relay, group: MemoryGroupStorage.fromJSON(g.group).toJSON() }
+  if (typeof g.relaySecret === 'string') record.relaySecret = g.relaySecret
+  return record
+}
+
+/**
+ * A phone paired with one Mac before groups: a group whose one paired
+ * device is that Mac, on the same relay with the same secret. The roster
+ * starts empty; the phone adds itself, and a Mac that keeps one sends its own.
+ */
+export function migratePairing(pairing: Pairing): GroupRecord {
+  const record: GroupRecord = {
+    relay: pairing.relay,
+    group: {
+      roster: [],
+      paired: [{ id: pairing.mac, name: pairing.macName, kind: null, platform: '', pairedAt: pairing.pairedAt, lastSeenAt: null }],
+      pendingRevokes: [],
+    },
+  }
+  if (pairing.relaySecret !== undefined) record.relaySecret = pairing.relaySecret
+  return record
+}
+
+/**
+ * What the rest of the app reads as "this phone is in a group" (`Pairing`):
+ * the relay and the first paired device. With no pair left (the relay lost
+ * them and the members pair again) the first other live member stands in,
+ * so the phone stays in its group. Null when there is neither.
+ */
+export function pairingFromGroup(record: GroupRecord, phoneKey: Uint8Array): Pairing | null {
+  const self = deviceId(phoneKey)
+  const first = record.group.paired.at(0)
+  const entry = record.group.roster.find((e) => isLive(e) && e.id !== self)
+  const member = first
+    ? { id: first.id, name: first.name, at: first.pairedAt }
+    : entry ? { id: entry.id, name: entry.name, at: entry.addedAt } : null
+  const key = member ? publicKeyOf(member.id) : null
+  if (!member || !key) return null
+  const pairing: Pairing = {
+    relay: record.relay, mac: member.id, macName: member.name, fingerprint: fingerprint(key, phoneKey), pairedAt: member.at,
+  }
+  if (record.relaySecret !== undefined) pairing.relaySecret = record.relaySecret
   return pairing
 }
 

@@ -23,7 +23,7 @@ import { ClaudeDirPicker } from './ClaudeDirPicker'
 import { McpjsonSheet } from './McpjsonSheet'
 import { MissingDirectorySheet } from './MissingDirectorySheet'
 import { blocksLaunch, directoryLine, useDirectoryState } from '../../lib/useDirectoryState'
-import { macSupports } from '../version'
+import { defaultSupports } from '../version'
 import { undecidedBeforeLaunch, type McpjsonAnswers, type McpjsonDecisions, type McpjsonServer } from '../../lib/mcpjson'
 
 /** 9d: past this many rows the directory list folds to a window, "Show all N" under it. */
@@ -75,8 +75,11 @@ export function NewSessionScreen() {
    * expanded, that *Create and start* makes. Set, it is a sheet over the form.
    */
   const [missingDir, setMissingDir] = useState<string | null>(null)
-  /** An older Mac has no `/api/directory`; against it Start's `no_such_directory` is all there is. */
-  const checksDir = macSupports('directoryCheck', macVersion)
+  /**
+   * An older Mac has no `/api/directory`; against it Start's `no_such_directory` is all there is.
+   * The session starts on the default member, so its version decides.
+   */
+  const checksDir = defaultSupports('directoryCheck', macVersion)
   const dirState = useDirectoryState(cwd, checksDir && !asleep)
 
   useEffect(() => {

@@ -9,16 +9,41 @@ import { clearDeliveredNotifications } from './platform/localNotify'
 import { clearFileCache } from './files/fileCache'
 import { clearRecentFiles } from './files/recentFiles'
 import { clearHarnessCache } from './harness/harnessCache'
+import { clearGroup } from './platform/group'
 import { clearPairing, setUnpaired } from './platform/pairing'
 import { useMobile } from './state'
 import { clientRef } from './transport/clientRef'
+import { groupRef } from './transport/groupRef'
+
+/** Why the phone could not leave its group: the relay is not reached, or the group could not be written. */
+export type LeaveResult = { ok: true } | { error: 'offline' | 'failed' }
+
+/** 9f's "Pair a different Mac" when it cannot leave: the other devices must hear of it, through the relay. Provisional copy. */
+export const LEAVE_OFFLINE = "Can't reach the relay. Try again when this phone is online."
+export const LEAVE_FAILED = "Couldn't leave the group on this phone. Try again."
 
 /**
- * Everything this phone knows about its Mac goes: the link, the pairing,
- * the identity, the caches (spec § 4). `unpaired` is the Mac's doing — a
- * revoke reached us — and 9h then shows on every launch until a new
- * pairing. Without it the user chose "Pair a different Mac" (9f), and the
- * scanner comes next.
+ * "Pair a different Mac" (9f): the phone leaves its group — every member
+ * hears of it and its pairs go at the relay — then forgets everything as
+ * `forgetEverything` does, but keeps its key: the key is its id, and a new
+ * group can take it. Refused while the relay is not online.
+ */
+export async function leaveGroup(): Promise<LeaveResult> {
+  const handle = groupRef.current
+  if (handle) {
+    const left = await handle.group.leave()
+    if ('error' in left) return { error: left.error === 'offline' ? 'offline' : 'failed' }
+  }
+  await forgetEverything({ unpaired: false })
+  return { ok: true }
+}
+
+/**
+ * Everything this phone knows about its group goes: the link, the stored
+ * group and pairing, the caches (spec § 4). `unpaired` is the group's doing
+ * — it removed this phone — and 9h then shows on every launch until a new
+ * pairing; the key goes too, as before groups. Without it the user left
+ * (`leaveGroup`), the key stays, and the scanner comes next.
  */
 export async function forgetEverything(opts: { unpaired: boolean }): Promise<void> {
   const { macName, pairing } = useMobile.getState()
@@ -38,7 +63,15 @@ export async function forgetEverything(opts: { unpaired: boolean }): Promise<voi
       console.warn('[mobile] could not clear the push token on the old relay', err)
     }
   }
+  // Nothing more is written for the group: a write still waiting would put it back after the clear.
+  const handle = groupRef.current
+  groupRef.set(null)
   clientRef.set(null)
+  try {
+    await handle?.close()
+  } catch (err) {
+    console.warn('[mobile] could not stop storing the group', err)
+  }
   clearRecentFiles()
   // Nothing about the old Mac stays on screen or in the shade.
   useBanner.getState().dismiss()
@@ -53,7 +86,8 @@ export async function forgetEverything(opts: { unpaired: boolean }): Promise<voi
   }
   // Independent of each other and of the flag above: one failing clear must not skip the rest.
   const clears = await Promise.allSettled([
-    clearPairing(), forgetIdentity(), clearCaches(), clearImageCache(), clearHarnessCache(), clearFileCache(),
+    clearGroup(), clearPairing(), ...(opts.unpaired ? [forgetIdentity()] : []),
+    clearCaches(), clearImageCache(), clearHarnessCache(), clearFileCache(),
   ])
   for (const result of clears) {
     if (result.status === 'rejected') console.warn('[mobile] could not clear everything stored for the Mac', result.reason)
@@ -72,6 +106,7 @@ export async function forgetEverything(opts: { unpaired: boolean }): Promise<voi
     pairing: null, link: 'off', macOnline: false, ready: false,
     asOf: null, checkedAt: null, rechecking: null, listedAt: null, endedSummary: null, endedLoaded: false,
     sessionId: null, pushed: [], composerIntent: null, mismatch: null, previous: null,
+    devices: [], refusals: {}, members: [], macVersion: null,
     unpaired: opts.unpaired,
     macName: opts.unpaired ? name : null,
     screen: opts.unpaired ? 'unpaired' : 'pairing',
