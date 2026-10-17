@@ -170,4 +170,16 @@ describe('RelayLink', () => {
     const down = setup({ fetchImpl: () => Promise.reject(new Error('offline')) });
     expect(await down.link.post('/pair/mutual', 'pair.mutual', {})).toEqual({ status: 0, body: { error: 'network' } });
   });
+
+  it('post answered by a relay too old: relayTooOld, relay_too_old, and the link stops', async () => {
+    const s = setup({
+      fetchImpl: async () => new Response('{"ok":true}', { status: 200, headers: { [RELAY_VERSION_HEADER]: '0.0.1' } }),
+    });
+    online(s, { peers: [] });
+    const res = await s.link.post('/pair/mutual', 'pair.mutual', { peer: 'x' });
+    expect(res.relayTooOld).toMatchObject({ relayVersion: '0.0.1' });
+    expect(s.events).toContainEqual(expect.objectContaining({ type: 'relay_too_old', relayVersion: '0.0.1' }));
+    expect(s.link.status).toBe('off');
+    expect(s.sock().closed).toBe(true);
+  });
 });

@@ -91,7 +91,9 @@ type Timer = ReturnType<typeof setTimeout>;
 export class RelayLink {
   status: LinkStatus = 'off';
   /** Paired devices the relay says are online: from `ok`, kept by `presence`; empty while the socket is down. */
-  readonly peersOnline = new Set<string>();
+  get peersOnline(): ReadonlySet<string> {
+    return this.online;
+  }
   /**
    * Every device the relay holds a pair with, online or not: from `ok`, kept
    * by `paired`, `linked` and `unpaired`. Null until an `ok` named them,
@@ -100,6 +102,7 @@ export class RelayLink {
   pairs: ReadonlySet<string> | null = null;
   /** Controls and frames dropped as unreadable since construction. */
   dropped = 0;
+  private readonly online = new Set<string>();
   private ws: SocketLike | null = null;
   private stopped = true;
   /** Stopped because the relay is too old (`relay_too_old`); `recheck` may knock again, since a relay gets updated. */
@@ -286,7 +289,7 @@ export class RelayLink {
       /* a socket that never opened may refuse to close */
     }
     this.connectTimer = this.clear(this.connectTimer);
-    this.peersOnline.clear();
+    this.online.clear();
     if (!reconnect || this.stopped) return;
     const base = this.opts.reconnectDelayMs ?? RECONNECT_DELAY_MS;
     const delay = Math.min(base * 2 ** this.attempt++, RECONNECT_MAX_MS);
@@ -323,8 +326,8 @@ export class RelayLink {
       case 'ok':
         this.connectTimer = this.clear(this.connectTimer);
         this.attempt = 0;
-        this.peersOnline.clear();
-        for (const peer of msg.peers) this.peersOnline.add(peer);
+        this.online.clear();
+        for (const peer of msg.peers) this.online.add(peer);
         if (msg.pairs) this.pairs = new Set(msg.pairs);
         // Heard before the status turns `online`, so whoever waits for
         // `online` (a recheck) finds `peersOnline` and the caller's own
@@ -335,8 +338,8 @@ export class RelayLink {
         this.emit({ type: 'status', status: 'online' });
         return;
       case 'presence':
-        if (msg.online) this.peersOnline.add(msg.peer);
-        else this.peersOnline.delete(msg.peer);
+        if (msg.online) this.online.add(msg.peer);
+        else this.online.delete(msg.peer);
         this.emit(msg);
         return;
       case 'paired':
