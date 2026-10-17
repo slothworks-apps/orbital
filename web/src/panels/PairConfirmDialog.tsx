@@ -3,24 +3,54 @@ import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { codeLeft } from '../lib/remote'
+import { kindWord, osLabel } from '../lib/devices'
 import { useNow } from '../lib/useNow'
 import type { RemoteStatus } from '../lib/types'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
+import { KindGlyph } from '../ui/KindGlyph'
 import { PAIRING_CODE_LENGTH, PairingCodeInput } from '../ui/PairingCodeInput'
 
 type PendingPair = NonNullable<RemoteStatus['pendingPair']>
 
 /**
- * A phone asking to pair (spec 2026-10-01-settings-mobile-design § 4; canvas
- * 9o). The app's, not the Settings dialog's: up whenever the status carries
- * `pendingPair`, wherever the user is. It closes when the status stops
- * carrying the request, never on its own clock, and nothing in it accepts on
- * its own.
+ * The kind tile's word and meaning line (canvas 50c `cK.word`/`cK.note` in
+ * logic.js). An unrecognised kind reads as `desktop`, the fallback
+ * `KindGlyph` itself draws.
+ */
+const KIND_TILE: Record<'desktop' | 'headless' | 'phone', { word: string; note: string }> = {
+  desktop: { word: 'DESKTOP', note: 'A computer with Orbital open on it.' },
+  headless: { word: 'HEADLESS', note: 'No screen of its own. It runs sessions for the group.' },
+  phone: { word: 'PHONE', note: 'Reads and drives sessions; runs none of its own.' },
+}
+
+function kindTile(kind: string): { word: string; note: string } {
+  return KIND_TILE[kind as 'desktop' | 'headless' | 'phone'] ?? KIND_TILE.desktop
+}
+
+/**
+ * Where to find the code this dialog asks for, by kind (canvas 50c
+ * `cK.where`): a desktop or a phone shows it on its own screen, same as this
+ * device's own Add a device step; a headless member has no screen, so its
+ * code is printed where `orbital devices add` ran (spec
+ * 2026-10-16-device-group-design § 3).
+ */
+function whereLine(kind: string, name: string): string {
+  return kind === 'headless' ? `Type the code ${name} printed in its terminal.` : `Type the code shown on ${name}.`
+}
+
+/**
+ * A device asking to join through this one (spec
+ * 2026-10-16-device-group-design § 3, canvas 50c). Up whenever the status
+ * carries `pendingPair`, wherever the user is. It closes when the status
+ * stops carrying the request, never on its own clock, and nothing in it
+ * accepts on its own. Names the device's kind three times — the tile, its
+ * word, and the sentence — so a server can't be mistaken for a phone (canvas
+ * 50c "KIND, THREE TIMES").
  *
- * The user types the code the phone shows and the server compares it (spec
- * 2026-10-06-pairing-code-and-app-lock-design § 1): only the phone that sent
- * this request shows the code it expects.
+ * The user types the code the joining device shows and the server compares
+ * it (spec 2026-10-06-pairing-code-and-app-lock-design § 1): only the device
+ * that sent this request shows the code it expects.
  */
 export function PairConfirmDialog() {
   const remote = useOrbital((s) => s.remote)
@@ -37,6 +67,8 @@ export function PairConfirmDialog() {
   const [code, setCode] = useState('')
   /** Set by a wrong code: how many more the server takes before it rejects. */
   const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null)
+  /** Set by Accept's success: the joined screen (canvas 50c `cDone`) replaces the code form until a new request. */
+  const [joined, setJoined] = useState<{ name: string } | null>(null)
   const complete = code.length === PAIRING_CODE_LENGTH
 
   // A different request (or none) starts empty, without the last one's failure.
@@ -44,6 +76,14 @@ export function PairConfirmDialog() {
     setRelayFailed(false)
     setCode('')
     setAttemptsLeft(null)
+  }, [pending?.phone])
+
+  // A new request replaces a stale joined screen; our own success clears
+  // `pending` too, and must not wipe the screen it just set — so this keys
+  // on the request's identity, not its every field.
+  useEffect(() => {
+    if (pending) setJoined(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending?.phone])
 
   // The server publishes nothing when the code runs out; it clears the request
@@ -75,7 +115,9 @@ export function PairConfirmDialog() {
     try {
       const res = accept ? await api.confirmPairing(true, phone, code) : await api.confirmPairing(false, phone)
       if ('ok' in res) {
-        useOrbital.setState({ toast: { kind: 'info', message: accept ? `Paired with ${name}` : 'Request rejected' } })
+        // Accept gets its own screen (canvas 50c `cDone`); Reject keeps the toast.
+        if (accept) setJoined({ name })
+        else useOrbital.setState({ toast: { kind: 'info', message: 'Request rejected' } })
       } else if (res.error === 'relay_error') {
         setRelayFailed(true)
       } else if (res.error === 'code_mismatch') {
@@ -99,45 +141,76 @@ export function PairConfirmDialog() {
   }
 
   const eyebrow = pairing
-    ? `PAIRING REQUEST · EXPIRES IN ${codeLeft(pairing.expiresAt, now).label}`
-    : 'PAIRING REQUEST'
+    ? `JOIN REQUEST · EXPIRES IN ${codeLeft(pairing.expiresAt, now).label}`
+    : 'JOIN REQUEST'
+
+  // The sentence names the kind a second time, in its own short form — not
+  // the tile's fallback-to-desktop word, the same as `kindWord`/`kindOs`
+  // pass an unrecognised kind through verbatim (canvas 50c `cK.short`).
+  const os = request ? osLabel(request.platform) : ''
+  const kindOsPhrase = request ? (os === '' ? kindWord(request.kind) : `${kindWord(request.kind)}, ${os}`) : ''
+  const sentence = request ? `${request.name} (${kindOsPhrase}) wants to join` : ''
+  const tile = request ? kindTile(request.kind) : null
 
   return (
     <Dialog
-      open={pending !== null}
+      open={pending !== null || joined !== null}
       variant="card"
-      eyebrow={eyebrow}
-      title="A phone wants to pair"
-      // Esc is a rejection, never a dismissal that leaves the request hanging.
-      onClose={() => void answer(false)}
+      eyebrow={joined ? undefined : eyebrow}
+      title={joined ? `${joined.name} joined` : sentence}
+      // Esc is a rejection while a request is open; the joined screen has
+      // nothing left to reject, so it only dismisses.
+      onClose={() => (joined ? setJoined(null) : void answer(false))}
     >
-      {request && (
+      {joined ? (
         <>
-          {/* Canvas 9o: the device in a hairline chip, name bright, the rest muted. */}
-          <div className="flex items-center gap-2 rounded-[10px] border border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.6)] px-3 py-2 font-mono text-xs text-text-bright">
-            {request.name}
-            {/* No platform for a phone whose name did not come sealed (the server's UNKNOWN_PHONE_NAME). */}
-            <span className="text-[rgba(160,190,225,.55)]">{request.platform && `· ${request.platform} `}· via relay</span>
-          </div>
-          <p className="text-[13.5px] leading-[1.55] text-[rgba(200,214,235,.88)]">Type the code shown on the phone.</p>
-          {/* Never disabled while an answer is in flight: that would drop the
-              focus, and after a wrong code the user types straight on. */}
-          <PairingCodeInput value={code} onChange={setCode} onSubmit={() => void answer(true)} autoFocus />
-          <div className="min-h-[18px] font-mono text-[11px] text-[rgba(160,190,225,.7)]">
-            {relayFailed
-              ? "The relay didn't answer. Try again."
-              : attemptsLeft !== null &&
-                `That code didn’t match · ${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} left`}
-          </div>
-          <div className="flex w-full gap-2.5">
-            <Button variant="ghost" size="wide" disabled={busy} onClick={() => void answer(false)}>
-              Reject
-            </Button>
-            <Button variant="primary" size="wide" disabled={busy || !complete} onClick={() => void answer(true)}>
-              Accept
-            </Button>
-          </div>
+          <span
+            aria-hidden
+            className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-full border-2 border-accent text-xl text-accent"
+          >
+            ✓
+          </span>
+          <p className="text-[13px] leading-[1.55] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+            The other devices link to it on their own. It appears under Devices → In this group.
+          </p>
         </>
+      ) : (
+        request &&
+        tile && (
+          <>
+            {/* Canvas 50c "KIND, THREE TIMES": the glyph at 3×, the kind word, its meaning — the kind named again in the sentence above (the dialog's title). */}
+            <div className="flex w-full items-center gap-4 rounded-xl border border-[rgba(150,205,255,.26)] bg-[rgba(4,8,16,.6)] px-[18px] py-3.5 text-left">
+              <span className="grid h-[60px] w-[60px] shrink-0 place-items-center rounded-xl border border-[rgba(150,205,255,.2)] text-text-bright">
+                <KindGlyph kind={request.kind} scale={3} />
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col gap-[5px]">
+                <span className="font-mono text-base tracking-[0.2em] text-text-bright">{tile.word}</span>
+                <span className="text-[12.5px] leading-[1.45] text-[rgba(160,190,225,.78)]">{tile.note}</span>
+              </span>
+            </div>
+            <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
+              Once in, it sees and drives every session on every device in this group.
+            </p>
+            <p className="text-[13.5px] leading-[1.55] text-text-bright">{whereLine(request.kind, request.name)}</p>
+            {/* Never disabled while an answer is in flight: that would drop the
+                focus, and after a wrong code the user types straight on. */}
+            <PairingCodeInput value={code} onChange={setCode} onSubmit={() => void answer(true)} autoFocus />
+            <div className="min-h-[18px] font-mono text-[11px] text-[rgba(160,190,225,.7)]">
+              {relayFailed
+                ? "The relay didn't answer. Try again."
+                : attemptsLeft !== null &&
+                  `That code didn’t match · ${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} left`}
+            </div>
+            <div className="flex w-full gap-2.5">
+              <Button variant="ghost" size="wide" disabled={busy} onClick={() => void answer(false)}>
+                Reject
+              </Button>
+              <Button variant="primary" size="wide" disabled={busy || !complete} onClick={() => void answer(true)}>
+                Accept
+              </Button>
+            </div>
+          </>
+        )
       )}
     </Dialog>
   )
