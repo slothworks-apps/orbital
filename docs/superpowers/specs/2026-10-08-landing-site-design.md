@@ -83,7 +83,9 @@ Real paths, not hash routes. The privacy link in the footer goes to
   page.
 - Each page has its own `<title>`, meta description, `canonical`, Open Graph
   and Twitter card tags. The Open Graph image is a static 1200×630 PNG in the
-  repository.
+  repository: the name and the claim over a few planets in the state colours,
+  drawn in the design canvas rather than cut from a demo, whose labels cannot
+  be read at the size a link preview shows it.
 - `sitemap.xml` (the two real pages only) and `robots.txt`.
 - JSON-LD `SoftwareApplication` on `/`: name, description, operating system
   macOS, category DeveloperApplication, price 0, download URL as above.
@@ -99,10 +101,14 @@ app's real components running on demo data:
 
 | where | demo | what it shows |
 |---|---|---|
-| hero | map | the Planets map, demo sessions moving through their states |
-| 01 · The map | map | the same map, framed to show the four states of the legend |
-| 02 · Driving a session | session | the session panel: chat, a permission card, a diff |
+| 01 · The map | map | the Planets map, demo sessions moving through their states, with quieter ones around them |
+| 02 · Driving a session | session | the session panel, tall and narrow as it sits beside the map: chat, a permission card, a diff |
 | 03 · The phone | phone | two phone screens in a device outline: answering a session that needs input, starting a new session |
+
+The hero has no demo: its first screen is the name, the claim and the
+download buttons, and the map follows in 01. An earlier hero carried the map
+too, and 01 showed it again framed on its four states; the map's fit takes in
+every planet and the History, so the two read as one picture shown twice.
 
 Only the Planets theme is shown. Archipelago is experimental and not
 presented.

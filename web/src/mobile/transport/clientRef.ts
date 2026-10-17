@@ -67,8 +67,8 @@ export class ClientRef implements SwappableClient {
     return this.current ? this.current.request(method, path, body) : Promise.reject(new TunnelError('offline'))
   }
 
-  getBlob(ref: string): Promise<BlobResult> {
-    return this.current ? this.current.getBlob(ref) : Promise.reject(new TunnelError('offline'))
+  getBlob(ref: string, opts?: { edge?: number }): Promise<BlobResult> {
+    return this.current ? this.current.getBlob(ref, opts) : Promise.reject(new TunnelError('offline'))
   }
 
   getFile(session: string, path: string, as: FileAs, opts?: GetFileOptions): Promise<FileResult> {

@@ -174,7 +174,7 @@ export const INFRA = session({
   messageCount: 11,
 })
 
-/** Quieter planets the hero adds around the four, so the map reads as a day's work. */
+/** Quieter planets around the four, so the map reads as a day's work. */
 export const QUIET: ApiSession[] = [
   session({
     id: 'invoices',

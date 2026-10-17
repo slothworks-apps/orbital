@@ -273,8 +273,10 @@ export class RemoteClient {
     });
   }
 
-  getBlob(ref: string): Promise<BlobResult> {
-    return this.receiveBlob((id) => ({ t: 'blob_get', id, ref }), {})
+  /** `edge`: a thumbnail of at most this many pixels on its longest side, when the Mac makes one. */
+  getBlob(ref: string, opts: { edge?: number } = {}): Promise<BlobResult> {
+    const edge = opts.edge !== undefined ? { edge: opts.edge } : {};
+    return this.receiveBlob((id) => ({ t: 'blob_get', id, ref, ...edge }), {})
       .then(({ status, bytes, mediaType }) => ({ status, bytes, mediaType }));
   }
 

@@ -21,7 +21,8 @@ interface Viewport {
  */
 export const DEMO_VIEWPORTS: Record<DemoName, Viewport> = {
   map: { width: 1440, height: 900, aspect: '16 / 10' },
-  session: { width: 960, height: 600, aspect: '16 / 10' },
+  // The panel as it sits beside the map: tall and narrow.
+  session: { width: 450, height: 800, aspect: '9 / 16' },
   // The aspect is the device's, bezel included; the height is the screen's
   // inside that bezel (DemoFrame), so the posters fill it without cropping.
   phone: { width: 390, height: 872, aspect: '9 / 19.5' },
@@ -47,17 +48,11 @@ interface DemoFrameSpec {
 }
 
 export const DEMO_FRAMES = {
-  'map-hero': {
+  map: {
     demo: 'map',
-    src: '/demo/map/?scene=hero',
+    src: '/demo/map/',
     title: 'Live demo of the Orbital map',
     alt: 'The Orbital map: Claude Code sessions drawn as planets, one working, one waiting for your input, one done, and one with its subagents circling it as moons.',
-  },
-  'map-states': {
-    demo: 'map',
-    src: '/demo/map/?scene=states',
-    title: 'Live demo of the Orbital map and its session states',
-    alt: 'The Orbital map with a session in each state: needs input, done, working, and waiting for its subagents.',
   },
   session: {
     demo: 'session',
