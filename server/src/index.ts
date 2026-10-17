@@ -64,6 +64,7 @@ import { createImageStore } from './images/store.js';
 import { Presence } from './remote/presence.js';
 import { RemoteService } from './remote/service.js';
 import { FederationService } from './federation/service.js';
+import { MemberSnapshotStore } from './federation/store.js';
 import { remoteInjectOptions } from './remote/inject.js';
 import {
   API_TOKEN_COOKIE,
@@ -1441,10 +1442,13 @@ export async function buildServer(overrides: {
     settings: settingsStore,
     allSettings: () => Object.fromEntries(db.select().from(settingsTable).all().map((r) => [r.key, r.value])),
     foreign: (id) => federation !== null && federation.linkOf(id) !== null,
+    groupPresence: () => federation !== null && federation.presentElsewhere(),
   });
   overrides.exposeRemote?.(remote);
   // Every other member's sessions in this hub (spec 2026-10-16-device-group-design § 7).
-  const federated = new FederationService({ hub, remote, localTags: () => db.select().from(tagsTable).all() });
+  const federated = new FederationService({
+    hub, remote, localTags: () => db.select().from(tagsTable).all(), snapshots: new MemberSnapshotStore(db),
+  });
   federation = federated;
   overrides.exposeFederation?.(federated);
   registerRoutes(app, {

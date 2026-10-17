@@ -74,5 +74,12 @@ describe('federation: two linked servers', () => {
     const aboutB = phone.messages.filter((m: any) => m.t === 'ws' && m.frame?.topic === 'sessions'
       && (m.frame.session?.id === SESSION_ID || m.frame.sessionId === SESSION_ID));
     expect(aboutB).toEqual([]);
+
+    // A restarts while B is still away: B's session is still listed, offline as of the same moment.
+    const asOf = federated()!.machine.asOf as number;
+    await a.app.close();
+    const again = await startMacAndRelay(closers, { relayUrl: a.relayUrl, name: 'studio', dir: a.dir });
+    const kept = again.federation.sessions().find((s) => s.id === SESSION_ID) as { machine?: any } | undefined;
+    expect(kept?.machine).toEqual({ id: idB, name: 'laptop', kind: 'desktop', os: expect.any(String), online: false, asOf });
   }, 30_000);
 });

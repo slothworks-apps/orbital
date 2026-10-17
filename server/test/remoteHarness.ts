@@ -48,13 +48,14 @@ export type MacAndRelay = {
  * Online before it resolves. `settings` and `beforeBoot` run before
  * `buildServer`, which is when the remote reads its settings and the indexer
  * first scans `claude/projects`. With `relayUrl` no relay is built: the
- * server joins the one already running there, as a second Mac would.
+ * server joins the one already running there, as a second Mac would. With
+ * `dir` the server boots on that data dir, as the same Mac restarted.
  */
 export async function startMacAndRelay(
   closers: (() => unknown)[],
   opts: {
     settings?: [string, string][]; beforeBoot?: (dir: string) => void; apiToken?: string;
-    relayUrl?: string; name?: string;
+    relayUrl?: string; name?: string; dir?: string;
   } = {},
 ): Promise<MacAndRelay> {
   let relayUrl = opts.relayUrl;
@@ -64,7 +65,7 @@ export async function startMacAndRelay(
     closers.push(() => relay.close());
   }
 
-  const dir = makeTmpDir('e2e');
+  const dir = opts.dir ?? makeTmpDir('e2e');
   const dbPath = join(dir, 'index.db');
   const db = openDb(dbPath);
   const seeded: [string, string][] = [

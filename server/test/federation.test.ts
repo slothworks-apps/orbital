@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { TunnelError, type Channel, type ChannelEvent, type TunnelResponse } from '@orbital/shared/remote/channel';
 import { capabilitiesOf } from '@orbital/shared/remote/device';
@@ -7,8 +7,9 @@ import { isLive, type RosterEntry } from '@orbital/shared/remote/roster';
 import { Hub } from '../src/api/hub.js';
 import { createImageStore } from '../src/images/store.js';
 import { ServingHalf } from '../src/remote/servingHalf.js';
-import { makeTmpDir } from './tmp.js';
-import { FederationService, type FederationOptions } from '../src/federation/service.js';
+import { makeTmpDir, openTmpDb } from './tmp.js';
+import { FederationService, SNAPSHOT_WRITE_MS, type FederationOptions } from '../src/federation/service.js';
+import { MemberSnapshotStore } from '../src/federation/store.js';
 
 const SELF = 'self';
 const B = 'member-b';
@@ -264,7 +265,7 @@ describe('FederationService', () => {
     b.greet(desktopHello);
     await flush();
     const win = localSocket(hub, ['session:s1', 'subagent:s1:a1', 'session:spawned', 'presence', 'session:elsewhere']);
-    expect([...b.subs].sort()).toEqual(['session:s1', 'sessions', 'subagent:s1:a1']);
+    expect([...b.subs].sort()).toEqual(['presence', 'session:s1', 'sessions', 'subagent:s1:a1']);
     // The window opened before B's list carried the id.
     b.hub({ topic: 'sessions', event: 'upsert', session: { id: 'spawned', status: 'working' } });
     expect(b.subs.has('session:spawned')).toBe(true);
@@ -321,6 +322,7 @@ describe('FederationService', () => {
     expect(peer.filter((m: any) => m.frame?.topic === 'sessions')).toEqual([]);
     // The dropped member's channel is not left streaming.
     expect(b.subs.has('sessions')).toBe(false);
+    expect(b.subs.has('presence')).toBe(false);
     serving.reset();
   });
 
@@ -336,5 +338,132 @@ describe('FederationService', () => {
     expect(win.frames()).toEqual([]);
     expect(federation.sessions()).toEqual([]);
     expect(b.subs.has('session:s1')).toBe(false);
+  });
+});
+
+describe('FederationService snapshots', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('a member that went offline is still listed after a restart, offline as of when it was last heard from', async () => {
+    const store = new MemberSnapshotStore(openTmpDb('federation'));
+    const first = setup(undefined, { snapshots: store });
+    const b = memberB();
+    first.remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    first.setNow(5000);
+    b.down();
+    // Written at once, not after the gathering delay.
+    expect(store.load()).toEqual([
+      { memberId: B, sessions: [{ id: 's1', status: 'working', tagIds: [7, 8] }], tags: expect.arrayContaining([{ id: 7, name: 'work', hue: 10 }]), seenAt: 5000 },
+    ]);
+    first.federation.stop();
+
+    const second = setup(undefined, { snapshots: store });
+    second.setNow(99_000);
+    expect(second.federation.sessions()).toEqual([
+      { id: 's1', status: 'working', tagIds: [3], machine: { ...machineB, online: false, asOf: 5000 } },
+    ]);
+    expect(second.federation.linkOf('s1')?.id).toBe(B);
+    // Its channel comes up: the seed replaces what was kept.
+    const again = memberB();
+    second.remote.open(B, again);
+    again.greet(desktopHello);
+    await flush();
+    expect(second.federation.sessions()).toEqual([
+      { id: 's1', status: 'working', tagIds: [3], machine: { ...machineB, online: true, asOf: null } },
+    ]);
+  });
+
+  it('drops at start the snapshot of a member no longer in the group, of a phone and of this device', () => {
+    const store = new MemberSnapshotStore(openTmpDb('federation'));
+    for (const id of ['gone', 'removed', 'phone-p', SELF, B]) store.save(id, [{ id: `s-${id}` }], [], 1);
+    const { federation } = setup(
+      [entry(SELF), entry(B), entry('removed', { removedAt: 2, removedBy: SELF }), entry('phone-p', { kind: 'phone', links: false })],
+      { snapshots: store },
+    );
+    expect(store.load().map((s) => s.memberId)).toEqual([B]);
+    expect(federation.sessions().map((s) => s.id)).toEqual([`s-${B}`]);
+  });
+
+  it('keeps nothing and drops nothing while the roster holds no self', () => {
+    const store = new MemberSnapshotStore(openTmpDb('federation'));
+    store.save(B, [{ id: 's1' }], [], 1);
+    const { federation } = setup([], { snapshots: store });
+    expect(federation.sessions()).toEqual([]);
+    expect(store.load()).toHaveLength(1);
+  });
+
+  it('gathers a member\'s changes into one write, keeps the newest seed-limit sessions, and flushes at stop', async () => {
+    vi.useFakeTimers();
+    const saves: { sessions: { id: string }[]; seenAt: number }[] = [];
+    const snapshots = { load: () => [], remove: () => {}, save: (_id: string, sessions: { id: string }[], _tags: unknown, seenAt: number) => { saves.push({ sessions, seenAt }); } };
+    const { remote, federation, setNow } = setup(undefined, { snapshots });
+    const b = memberB();
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await vi.advanceTimersByTimeAsync(0);
+    for (let i = 0; i < 205; i++) b.hub({ topic: 'sessions', event: 'upsert', session: { id: `n${i}`, lastAt: i } });
+    b.hub({ topic: 'sessions', event: 'status', sessionId: 'n0', status: 'needs_input' });
+    setNow(7000);
+    await vi.advanceTimersByTimeAsync(SNAPSHOT_WRITE_MS - 1);
+    expect(saves).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(saves).toHaveLength(1);
+    // Up: heard from now.
+    expect(saves[0].seenAt).toBe(7000);
+    // The seed's limit, the oldest by `lastAt` dropped (s1 has none).
+    expect(saves[0].sessions).toHaveLength(200);
+    expect(saves[0].sessions.some((s) => s.id === 's1' || s.id === 'n0')).toBe(false);
+    expect(saves[0].sessions.some((s) => s.id === 'n204')).toBe(true);
+    b.hub({ topic: 'sessions', event: 'remove', sessionId: 'n204' });
+    federation.stop();
+    expect(saves).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(SNAPSHOT_WRITE_MS * 2);
+    expect(saves).toHaveLength(2);
+  });
+
+  it('a member removed from the group takes its snapshot along', async () => {
+    const store = new MemberSnapshotStore(openTmpDb('federation'));
+    const { remote } = setup(undefined, { snapshots: store });
+    const b = memberB();
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    b.down();
+    expect(store.load()).toHaveLength(1);
+    remote.members = [entry(SELF)];
+    remote.published();
+    expect(store.load()).toEqual([]);
+  });
+});
+
+describe('FederationService presence', () => {
+  it('the user at a member keeps the phone quiet here, until that member\'s channel is down', async () => {
+    const { remote, federation } = setup();
+    const b = memberB();
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    expect(b.subs.has('presence')).toBe(true);
+    expect(federation.presentElsewhere()).toBe(false);
+    b.hub({ topic: 'presence', event: 'state', atMac: true });
+    expect(federation.presentElsewhere()).toBe(true);
+    b.hub({ topic: 'presence', event: 'state', atMac: false });
+    expect(federation.presentElsewhere()).toBe(false);
+    b.hub({ topic: 'presence', event: 'state', atMac: true });
+    b.down();
+    expect(federation.presentElsewhere()).toBe(false);
+  });
+
+  it('a member without the presence capability is not asked for it', async () => {
+    const { remote, federation } = setup();
+    const b = memberB();
+    remote.open(B, b);
+    b.greet({ ...desktopHello, kind: 'headless', capabilities: capabilitiesOf('headless') });
+    await flush();
+    expect(b.subs.has('sessions')).toBe(true);
+    expect(b.subs.has('presence')).toBe(false);
+    expect(federation.presentElsewhere()).toBe(false);
   });
 });

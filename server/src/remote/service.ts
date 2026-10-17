@@ -208,6 +208,12 @@ export type RemoteServiceOptions = {
   now?: () => number;
   /** Whether the user is at the Mac; absent, they never are (spec 2026-10-15-the-phone-is-quiet-while-you-are-at-the-mac-design). */
   presence?: Pick<Presence, 'atMac'>;
+  /**
+   * Whether the user is at another member of the group that has `presence`:
+   * the phone keeps quiet then too (spec 2026-10-16-device-group-design § 10).
+   * Absent, never.
+   */
+  groupPresence?: () => boolean;
   clientFactory?: (opts: RelayClientOptions) => RelayClient;
   /**
    * Whether a session is another member's, federated into this hub: a
@@ -1317,7 +1323,7 @@ export class RemoteService {
     const watcher = new DeviceWatcher({
       deviceId: id, hub: this.opts.hub,
       settings: () => this.devices.get(id)?.notifications ?? parseNotificationSettings({}),
-      quiet: () => this.opts.presence?.atMac ?? false,
+      quiet: () => (this.opts.presence?.atMac ?? false) || (this.opts.groupPresence?.() ?? false),
       ...(this.opts.foreign ? { foreign: this.opts.foreign } : {}),
       // Sent whether or not the phone is connected: the relay forwards to a
       // connected phone (which ignores an empty body) and pushes otherwise.

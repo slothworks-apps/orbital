@@ -9,7 +9,7 @@
  * device is never taken in, and nothing here is passed on to another member
  * (no chaining: `ServingHalf` withholds what this holds).
  */
-import { PRESENCE_TOPIC } from '@orbital/shared/presence';
+import { PRESENCE_TOPIC, presenceFromFrame } from '@orbital/shared/presence';
 import {
   TunnelError, type BlobResult, type Channel, type FileResult, type HttpMethod, type TunnelResponse,
 } from '@orbital/shared/remote/channel';
@@ -19,9 +19,16 @@ import type { Hub } from '../api/hub.js';
 import { memberTooOld } from '../remote/memberGate.js';
 import type { RemoteService } from '../remote/service.js';
 import { sessionOfTopic } from '../remote/servingHalf.js';
+import type { MemberSnapshotStore } from './store.js';
 
 /** How many sessions are asked of a member at once; one channel frame has to carry the answer. */
 const SEED_LIMITS = [200, 80, 30];
+
+/**
+ * How long a member's changes gather before its snapshot is written: a
+ * status change per session must not mean a write per frame.
+ */
+export const SNAPSHOT_WRITE_MS = 5000;
 
 /**
  * Which device a session runs on; absent on a session of this device.
@@ -46,6 +53,8 @@ export type MemberLink = {
   entry: RosterEntry;
   /** This channel's ready spell has been engaged and seeded; cleared when it ends. */
   seeded: boolean;
+  /** The user is at this member, by its own `presence`; false while its channel is not ready. */
+  present: boolean;
 };
 
 export type FederationOptions = {
@@ -53,6 +62,8 @@ export type FederationOptions = {
   remote: Pick<RemoteService, 'onChannel' | 'onStatus' | 'peerHello' | 'liveMembers' | 'channel'> & { selfId(): string | null };
   /** This server's tags: a member's tags are matched to them by name. */
   localTags: () => Tag[];
+  /** Where each member's last sessions are kept across restarts; absent, they are not. */
+  snapshots?: Pick<MemberSnapshotStore, 'load' | 'save' | 'remove'>;
   now?: () => number;
 };
 
@@ -67,6 +78,8 @@ export class FederationService {
   private readonly channels = new Map<string, { channel: Channel; off: () => void }>();
   /** Per-session topics some local window holds, whoever's session they are about. */
   private readonly localTopics = new Set<string>();
+  /** A snapshot write waiting out `SNAPSHOT_WRITE_MS`, per member. */
+  private readonly pendingWrites = new Map<string, ReturnType<typeof setTimeout>>();
   private offs: (() => void)[] = [];
   private running = false;
   private hubHooked = false;
@@ -85,6 +98,7 @@ export class FederationService {
       this.opts.hub.onFirstSubscriber((topic) => this.followTopic(topic, true));
       this.opts.hub.onLastUnsubscriber((topic) => this.followTopic(topic, false));
     }
+    this.restore();
     this.offs = [
       this.opts.remote.onChannel((id, channel) => this.attach(id, channel)),
       this.opts.remote.onStatus(() => this.rosterChanged()),
@@ -97,6 +111,10 @@ export class FederationService {
   }
 
   stop(): void {
+    // A member up until now was heard from now; one with changes waiting has them kept.
+    for (const link of this.links.values()) {
+      if (link.channel?.ready || this.pendingWrites.has(link.id)) this.writeSnapshot(link);
+    }
     this.running = false;
     for (const off of this.offs) off();
     this.offs = [];
@@ -113,6 +131,12 @@ export class FederationService {
 
   link(memberId: string): MemberLink | null {
     return this.links.get(memberId) ?? null;
+  }
+
+  /** Whether the user is at some other member that has `presence`: the phone keeps quiet then too (spec § 10). */
+  presentElsewhere(): boolean {
+    for (const link of this.links.values()) if (link.present && link.channel?.ready) return true;
+    return false;
   }
 
   /** Every member's sessions as this device shows them. */
@@ -161,6 +185,7 @@ export class FederationService {
     const madeId = (made.body as { id?: unknown } | null)?.id;
     if (made.status !== 201 || typeof madeId !== 'number') return null;
     link.tags.set(madeId, { id: madeId, name: tag.name, hue: tag.hue });
+    this.scheduleSnapshot(link);
     return madeId;
   }
 
@@ -254,20 +279,24 @@ export class FederationService {
   private engage(id: string, channel: Channel, entry?: RosterEntry): void {
     const member = entry ?? this.opts.remote.liveMembers().find((e) => e.id === id);
     const existing = this.links.get(id);
-    if (!member || !this.federates(member, channel.peer ?? this.opts.remote.peerHello(id))) {
+    const hello = channel.peer ?? this.opts.remote.peerHello(id);
+    if (!member || !this.federates(member, hello)) {
       if (existing) this.drop(existing);
       return;
     }
     const link: MemberLink = existing ?? {
-      id, sessions: new Map(), tags: new Map(), channel: null, seenAt: null, entry: member, seeded: false,
+      id, sessions: new Map(), tags: new Map(), channel: null, seenAt: null, entry: member, seeded: false, present: false,
     };
     this.links.set(id, link);
     link.entry = member;
     if (link.channel !== channel) {
       link.channel = channel;
       link.seeded = false;
+      link.present = false;
     }
     channel.subscribe('sessions');
+    // The member answers at once with where the user is, and again at every change.
+    if (hello?.capabilities?.includes('presence')) channel.subscribe(PRESENCE_TOPIC);
     for (const topic of this.localTopics) {
       const session = sessionOfTopic(topic);
       if (session !== null && link.sessions.has(session)) channel.subscribe(topic);
@@ -278,13 +307,16 @@ export class FederationService {
     }
   }
 
-  /** The member's channel went down: its sessions stay, shown offline as of now. */
+  /** The member's channel went down: its sessions stay, shown offline as of now, and kept so. */
   private offline(id: string, channel: Channel): void {
     const link = this.links.get(id);
-    if (!link || link.channel !== channel || !link.seeded) return;
+    if (!link || link.channel !== channel) return;
+    link.present = false;
+    if (!link.seeded) return;
     link.seeded = false;
     link.seenAt = this.now();
     this.republish(link);
+    this.writeSnapshot(link);
   }
 
   /** Whether `link` still rides `channel`, up: an answer that arrives after is dropped. */
@@ -318,6 +350,7 @@ export class FederationService {
       }
       link.seenAt = null;
       this.republish(link);
+      this.scheduleSnapshot(link);
       return;
     }
   }
@@ -344,9 +377,13 @@ export class FederationService {
   private drop(link: MemberLink): void {
     for (const id of link.sessions.keys()) this.opts.hub.publish('sessions', { event: 'remove', sessionId: id });
     this.links.delete(link.id);
+    clearTimeout(this.pendingWrites.get(link.id));
+    this.pendingWrites.delete(link.id);
+    this.removeSnapshot(link.id);
     const channel = link.channel;
     if (!channel) return;
     channel.unsubscribe('sessions');
+    channel.unsubscribe(PRESENCE_TOPIC);
     for (const topic of this.localTopics) {
       const session = sessionOfTopic(topic);
       if (session !== null && link.sessions.has(session)) channel.unsubscribe(topic);
@@ -357,8 +394,12 @@ export class FederationService {
     const frame = raw as { topic?: unknown; event?: unknown; [key: string]: unknown } | null;
     if (!frame || typeof frame.topic !== 'string') return;
     const { topic, ...rest } = frame;
-    // The member's presence is its own; nothing here shows it as this device's.
-    if (topic === PRESENCE_TOPIC) return;
+    // The member's presence is its own: kept for the phone's quiet, never shown as this device's.
+    if (topic === PRESENCE_TOPIC) {
+      const atMember = presenceFromFrame(frame);
+      if (atMember !== null) link.present = atMember;
+      return;
+    }
     if (topic !== 'sessions') {
       // Only a topic about one of this member's own sessions: it speaks for nothing else here.
       const session = sessionOfTopic(topic);
@@ -374,18 +415,21 @@ export class FederationService {
       link.sessions.set(session.id, session);
       if (!known) this.followSession(link, session.id);
       this.opts.hub.publish('sessions', { event: 'upsert', session: this.localize(link, session) });
+      this.scheduleSnapshot(link);
     } else if (frame.event === 'remove') {
       const id = frame.sessionId;
       // Published while still known as foreign, so no channel passes it on.
       if (typeof id !== 'string' || !link.sessions.has(id)) return;
       this.opts.hub.publish('sessions', { event: 'remove', sessionId: id });
       link.sessions.delete(id);
+      this.scheduleSnapshot(link);
     } else if (frame.event === 'status') {
       const id = frame.sessionId;
       const session = typeof id === 'string' ? link.sessions.get(id) : undefined;
       if (!session) return;
       if (typeof frame.status === 'string') session.status = frame.status;
       this.opts.hub.publish('sessions', rest);
+      this.scheduleSnapshot(link);
     }
   }
 
@@ -415,6 +459,78 @@ export class FederationService {
       if (this.links.has(entry.id)) continue;
       const channel = this.channels.get(entry.id)?.channel;
       if (channel?.ready) this.engage(entry.id, channel, entry);
+    }
+  }
+
+  /**
+   * The members kept from before a restart, offline as of when they were
+   * last heard from, until their channels come up. A snapshot of a member
+   * no longer in the group goes.
+   */
+  private restore(): void {
+    const store = this.opts.snapshots;
+    if (!store) return;
+    const live = new Map(this.opts.remote.liveMembers().map((e) => [e.id, e]));
+    // A roster that could not be read (or holds no self yet) says nothing about who left.
+    const self = this.opts.remote.selfId();
+    if (self === null || !live.has(self)) return;
+    for (const snap of store.load()) {
+      const entry = live.get(snap.memberId);
+      if (!entry || entry.kind === 'phone' || entry.id === self) {
+        this.removeSnapshot(snap.memberId);
+        continue;
+      }
+      if (this.links.has(entry.id)) continue;
+      const link: MemberLink = {
+        id: entry.id,
+        sessions: new Map(snap.sessions.filter((s) => !carriesMachine(s)).map((s) => [s.id, s])),
+        tags: new Map(snap.tags.map((t) => [t.id, t])),
+        channel: null, seenAt: snap.seenAt, entry, seeded: false, present: false,
+      };
+      this.links.set(link.id, link);
+      this.republish(link);
+    }
+  }
+
+  /** Gathers a member's changes into one write, `SNAPSHOT_WRITE_MS` after the first. */
+  private scheduleSnapshot(link: MemberLink): void {
+    if (!this.opts.snapshots || this.pendingWrites.has(link.id)) return;
+    const timer = setTimeout(() => {
+      this.pendingWrites.delete(link.id);
+      if (this.links.get(link.id) === link) this.writeSnapshot(link);
+    }, SNAPSHOT_WRITE_MS);
+    timer.unref?.();
+    this.pendingWrites.set(link.id, timer);
+  }
+
+  /**
+   * Writes a member's snapshot now. `seen_at` is now while the member is up.
+   * At most the sessions a seed asks for are kept, the newest by `lastAt`.
+   */
+  private writeSnapshot(link: MemberLink): void {
+    clearTimeout(this.pendingWrites.get(link.id));
+    this.pendingWrites.delete(link.id);
+    const store = this.opts.snapshots;
+    if (!store) return;
+    let sessions = [...link.sessions.values()];
+    const limit = SEED_LIMITS[0];
+    if (sessions.length > limit) {
+      const at = (s: Session) => (typeof s.lastAt === 'number' ? s.lastAt : 0);
+      sessions = sessions.sort((a, b) => at(b) - at(a)).slice(0, limit);
+    }
+    const seenAt = link.channel?.ready ? this.now() : (link.seenAt ?? this.now());
+    try {
+      store.save(link.id, sessions, [...link.tags.values()], seenAt);
+    } catch (err) {
+      console.warn(`[federation] could not keep ${link.id}'s sessions: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private removeSnapshot(memberId: string): void {
+    try {
+      this.opts.snapshots?.remove(memberId);
+    } catch (err) {
+      console.warn(`[federation] could not forget ${memberId}'s sessions: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

@@ -54,7 +54,10 @@ let qrSecret: Uint8Array = new Uint8Array(PAIRING_SECRET_BYTES);
 
 function build(
   seed?: (devices: DeviceStore) => void,
-  opts: { corruptIdentity?: boolean; clientFactory?: RemoteServiceOptions['clientFactory']; relayUrl?: string } = {},
+  opts: {
+    corruptIdentity?: boolean; clientFactory?: RemoteServiceOptions['clientFactory']; relayUrl?: string;
+    groupPresence?: RemoteServiceOptions['groupPresence'];
+  } = {},
 ) {
   const dir = makeTmpDir('remote-svc');
   const db = openDb(join(dir, 'index.db'));
@@ -77,6 +80,7 @@ function build(
     allSettings: () => settings,
     now: () => now,
     clientFactory: opts.clientFactory ?? (() => fake as unknown as RelayClient),
+    ...(opts.groupPresence ? { groupPresence: opts.groupPresence } : {}),
   });
   const startPairing = service.startPairing.bind(service);
   service.startPairing = async () => {
@@ -938,6 +942,22 @@ describe('RemoteService data', () => {
     expect(frame.wake).toHaveLength(WAKE_BYTES);
     expect(frame.wake.some((b) => b !== 0)).toBe(true);
     expect(frame.body).toHaveLength(0);
+  });
+
+  it('no wake while the user is at another member of the group', async () => {
+    const phone = generateIdentity();
+    let elsewhere = true;
+    const { fake, hub } = build((d) => d.add({
+      id: deviceId(phone.publicKey), name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({ notify_needs_input: 'true' }),
+    }), { groupPresence: () => elsewhere });
+    await tick();
+    hub.publish('sessions', { event: 'upsert', session: { id: 's1', title: 'one', status: 'working' } });
+    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    expect(fake.sent).toHaveLength(0);
+    elsewhere = false;
+    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'working' });
+    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    expect(fake.sent).toHaveLength(1);
   });
 });
 

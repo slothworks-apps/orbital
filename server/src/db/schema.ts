@@ -536,6 +536,19 @@ export const pendingRevokes = sqliteTable('pending_revokes', {
 });
 
 /**
+ * The last sessions and tags each group member showed this device, as the
+ * member sent them, so a member that is offline at a restart is still on
+ * the map, dimmed. `seen_at`: when the member was last heard from.
+ */
+export const memberSnapshots = sqliteTable('member_snapshots', {
+  memberId: text('member_id').primaryKey(),
+  sessions: text('sessions').notNull(),
+  tags: text('tags').notNull(),
+  seenAt: integer('seen_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
+
+/**
  * Every failure Orbital caught, from either side of the wire. See
  * `docs/superpowers/specs/2026-09-17-error-surface-design.md`.
  *
