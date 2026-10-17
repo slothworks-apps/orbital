@@ -123,9 +123,10 @@ export type RemoteStatus = {
   /**
    * The group's roster (spec 2026-10-16-device-group-design § 2), removed
    * entries included. `self`: this device; `linked`: paired with this device
-   * directly; `online`: on the relay as this device sees it.
+   * directly; `online`: on the relay as this device sees it; `pairByHand`:
+   * the relay has no `/pair/mutual`, so only a pairing code links the two.
    */
-  group: { members: (RosterEntry & { self: boolean; linked: boolean; online: boolean })[] };
+  group: { members: (RosterEntry & { self: boolean; linked: boolean; online: boolean; pairByHand: boolean })[] };
 };
 
 /**
@@ -187,6 +188,13 @@ export class RemoteService {
    * the next hello decides again, and a restart only loses the mark until then.
    */
   private readonly phonesTooOld = new Map<string, PhoneRefusal>();
+  /**
+   * Members a mutual pair was asked for on this relay connection, and those
+   * the relay could not pair (a relay from before `/pair/mutual`). Both are
+   * replaced at every relay `ok`, so a reconnect, or an updated relay, asks again.
+   */
+  private mutualAsked = new Set<string>();
+  private pairByHand = new Set<string>();
   private readonly now: () => number;
   /** One for every phone, so its named-path cache serves them all. */
   private readonly files: PhoneFileReader;
@@ -356,7 +364,7 @@ export class RemoteService {
       const self = this.selfId;
       const linked = new Set(this.devices.list().map((d) => d.id));
       return this.roster.list().map((e) => ({
-        ...e, self: e.id === self, linked: linked.has(e.id), online: online.has(e.id),
+        ...e, self: e.id === self, linked: linked.has(e.id), online: online.has(e.id), pairByHand: this.pairByHand.has(e.id),
       }));
     } catch (err) {
       console.warn(`[remote] could not list the roster: ${err instanceof Error ? err.message : String(err)}`);
@@ -571,6 +579,15 @@ export class RemoteService {
   private onControl(msg: RelayToDevice): void {
     if (msg.type === 'ok') {
       for (const device of this.devices.list()) this.open(device.id);
+      const hadByHand = this.pairByHand.size > 0;
+      this.mutualAsked = new Set();
+      this.pairByHand = new Set();
+      if (hadByHand) this.publishStatus();
+      this.tryRoster('link the group', () => this.link());
+      return;
+    }
+    if (msg.type === 'linked') {
+      this.tryRoster('add a linked member', () => this.onLinked(msg.peer));
       return;
     }
     // The relay sends `paired` before it answers the other side's confirm,
@@ -712,7 +729,65 @@ export class RemoteService {
     for (const [id, channel] of this.channels) {
       if (id !== from) channel.sendGroup({ t: 'roster_digest', digest });
     }
+    this.link();
     return true;
+  }
+
+  /**
+   * Asks the relay for a mutual pair with every live member that links and
+   * is not paired with this device yet, each once per relay connection (ADR
+   * the-relay-pairs-two-devices-that-both-sign). The pair forms when the
+   * member asks too; the relay then says `linked`, and so may this answer.
+   */
+  private link(): void {
+    const self = this.selfId;
+    const client = this.client;
+    if (self === null || !client || client.status !== 'online') return;
+    const asked = this.mutualAsked;
+    for (const e of this.roster.list()) {
+      if (!isLive(e) || !e.links || e.id === self || asked.has(e.id) || this.devices.get(e.id)) continue;
+      const id = e.id;
+      asked.add(id);
+      void client.post<{ linked?: boolean }>('/pair/mutual', 'pair.mutual', { peer: id }).then((res) => {
+        // A relay `ok` in between started a new connection's asking; this answer is the old one's.
+        if (this.client !== client || this.mutualAsked !== asked) return;
+        if (res.status === 200) {
+          if (res.body.linked === true) this.tryRoster('add a linked member', () => this.onLinked(id));
+          return;
+        }
+        if (res.status === 404) {
+          this.pairByHand.add(id);
+          this.publishStatus();
+          return;
+        }
+        // Asked again at the next roster change or relay `ok`.
+        asked.delete(id);
+        console.warn(`[remote] relay mutual pair with ${id.slice(0, 8)} failed: ${res.status}`);
+      });
+    }
+  }
+
+  /**
+   * The relay paired this device with `peer`. Only a member the roster holds
+   * live becomes a paired device — never one on the relay's word alone. Both
+   * the control and the post's answer can say so; the second changes nothing.
+   */
+  private onLinked(peer: string): void {
+    const entry = this.roster.entry(peer);
+    if (!this.identity || peer === this.selfId) return;
+    if (!entry || !isLive(entry)) {
+      console.warn(`[remote] ignored a link with ${peer.slice(0, 8)}: no live member of the group`);
+      return;
+    }
+    if (!this.devices.get(peer)) {
+      this.devices.add({
+        id: peer, name: entry.name, platform: entry.os, kind: entry.kind, pairedAt: this.now(),
+        notifications: parseNotificationSettings(this.opts.allSettings()),
+      });
+      this.watch(peer);
+      this.publishStatus();
+    }
+    this.open(peer);
   }
 
   /**

@@ -1,11 +1,15 @@
-import { describe, expect, it, afterEach } from 'vitest';
+import { describe, expect, it, afterEach, vi } from 'vitest';
 import { formatFingerprint, publicKeyOf } from '@orbital/shared/remote/keys';
 import { FakePhone } from './remoteFakePhone.js';
-import { pairingCode, startMacAndRelay, until } from './remoteHarness.js';
+import { RelayClient } from '../src/remote/relayClient.js';
+import { pairingCode, startMacAndRelay, until, type MacAndRelay } from './remoteHarness.js';
 
 describe('two servers, one channel', () => {
   const closers: (() => unknown)[] = [];
-  afterEach(async () => { for (const c of closers.splice(0).reverse()) await c(); });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    for (const c of closers.splice(0).reverse()) await c();
+  });
 
   async function joined() {
     const a = await startMacAndRelay(closers, { name: 'studio' });
@@ -85,21 +89,27 @@ describe('two servers, one channel', () => {
     expect(a.remote.rosterDigest()).toBe(b.remote.rosterDigest());
   }, 20_000);
 
-  it('a phone paired with a member is listed, not linked with others', async () => {
-    const { a, b, idA } = await joined();
-    const pair = await a.api('POST', '/api/remote/pair');
+  /** A FakePhone paired with `mac` through its code, said hello: the sequence a real phone follows. */
+  async function pairPhone(mac: MacAndRelay, macId: string): Promise<FakePhone> {
+    const pair = await mac.api('POST', '/api/remote/pair');
     const phone = new FakePhone();
     closers.push(() => phone.close());
     await phone.connect(pair.json().qr);
     expect((await phone.redeem()).status).toBe(200);
-    await until(async () => (await a.api('GET', '/api/remote')).json().pendingPair !== null);
-    const code = pairingCode(idA, phone.identity.publicKey);
-    // The relay tells the phone `paired` before it answers A's confirm, and the phone handshakes then.
-    const confirm = a.api('POST', '/api/remote/pair/confirm', { accept: true, phone: phone.id, code });
+    await until(async () => (await mac.api('GET', '/api/remote')).json().pendingPair !== null);
+    const code = pairingCode(macId, phone.identity.publicKey);
+    // The relay tells the phone `paired` before it answers the Mac's confirm, and the phone handshakes then.
+    const confirm = mac.api('POST', '/api/remote/pair/confirm', { accept: true, phone: phone.id, code });
     expect(await phone.nextControl('paired')).toMatchObject({ type: 'paired' });
     await phone.handshake();
     expect((await confirm).statusCode).toBe(200);
-    expect(await phone.hello()).toMatchObject({ t: 'hello', macName: 'studio' });
+    expect(await phone.hello()).toMatchObject({ t: 'hello' });
+    return phone;
+  }
+
+  it('a phone paired with a member is listed, not linked with others', async () => {
+    const { a, b, idA } = await joined();
+    const phone = await pairPhone(a, idA);
     expect((await membersOf(a)).find((m: any) => m.id === phone.id)).toMatchObject({
       kind: 'phone', name: 'Pixel', os: 'android', links: false, linked: true, self: false,
     });
@@ -108,6 +118,40 @@ describe('two servers, one channel', () => {
       kind: 'phone', links: false, linked: false, online: false,
     });
     await until(() => a.remote.rosterDigest() === b.remote.rosterDigest());
+  }, 20_000);
+
+  it('a device paired with one member links with the others without a ceremony', async () => {
+    const { a, b, idA, idB } = await joined();                           // A ↔ B
+    const c = await startMacAndRelay(closers, { relayUrl: a.relayUrl, name: 'vps' });
+    const qr = (await b.api('POST', '/api/remote/pair')).json().qr;     // C joins through B
+    const join = await c.api('POST', '/api/remote/join', { code: qr });
+    await until(async () => (await b.api('GET', '/api/remote')).json().pendingPair !== null);
+    const idC = (await c.api('GET', '/api/remote')).json().macId;
+    await b.api('POST', '/api/remote/pair/confirm', { accept: true, phone: idC, code: join.json().code });
+    await until(() => a.remote.channel(idC)?.ready === true && c.remote.channel(idA)?.ready === true, 15_000);
+    expect((await a.remote.channel(idC)!.request('GET', '/api/health')).status).toBe(200);
+    expect((await c.remote.channel(idA)!.request('GET', '/api/health')).status).toBe(200);
+    for (const s of [a, b, c]) {
+      const members = (await s.api('GET', '/api/remote')).json().group.members;
+      expect(members.filter((m: any) => m.linked || m.self)).toHaveLength(3);
+    }
+    void idB;
+  }, 30_000);
+
+  it('phone is listed, not linked: no mutual pair is asked for it', async () => {
+    const posts = vi.spyOn(RelayClient.prototype, 'post');
+    const { a, b, idA } = await joined();
+    const phone = await pairPhone(a, idA);
+    await until(async () => (await membersOf(b)).some((m: any) => m.id === phone.id)
+      && a.remote.rosterDigest() === b.remote.rosterDigest());
+    // Long enough for a mutual pair, had one been asked for, to have formed and opened a channel.
+    await new Promise((r) => setTimeout(r, 1000));
+    expect((await membersOf(b)).find((m: any) => m.id === phone.id)).toMatchObject({
+      kind: 'phone', links: false, linked: false, pairByHand: false,
+    });
+    expect(b.remote.channel(phone.id)).toBeNull();
+    const asked = posts.mock.calls.filter(([path]) => path === '/pair/mutual').map(([, , payload]) => (payload as any).peer);
+    expect(asked).not.toContain(phone.id);
   }, 20_000);
 
   it('refuses a code from another relay and a code that is not one', async () => {

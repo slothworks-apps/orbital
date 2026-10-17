@@ -11,10 +11,12 @@ import {
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import { PROTOCOL_VERSION, decodeInner, encodeInner } from '@orbital/shared/remote/messages';
 import { MIN_PHONE_VERSION, MIN_RELAY_VERSION } from '@orbital/shared/remote/version';
+import type { RosterEntry } from '@orbital/shared/remote/roster';
 import { Hub } from '../src/api/hub.js';
-import { openDb } from '../src/db/database.js';
+import { openDb, type OrbitalDb } from '../src/db/database.js';
 import { createImageStore } from '../src/images/store.js';
 import { DeviceStore } from '../src/remote/devices.js';
+import { RosterStore } from '../src/remote/rosterStore.js';
 import { IDENTITY_FILE } from '../src/remote/identity.js';
 import { RelayClient } from '../src/remote/relayClient.js';
 import {
@@ -83,7 +85,7 @@ function build(
     return res;
   };
   service.start();
-  return { service, fake, hub, devices, settings, advance: (ms: number) => { now += ms; } };
+  return { service, fake, hub, db, devices, settings, advance: (ms: number) => { now += ms; } };
 }
 
 const phoneId = () => deviceId(generateIdentity().publicKey);
@@ -319,6 +321,72 @@ describe('RemoteService pairing', () => {
     const again = startHandshake(phone, publicKeyOf(service.status().macId!)!, 'initiator');
     fake.emit('data', encodeFrame({ peer: phone.publicKey, flags: 0, wake: ZERO_WAKE, body: again.message! }));
     expect(fake.sent).toHaveLength(1);
+  });
+});
+
+describe('RemoteService mutual pairs', () => {
+  /** Members written straight into the store, beside the service's own self entry: no link is asked yet. */
+  function withMembers(db: OrbitalDb, ...entries: Partial<RosterEntry>[]) {
+    const store = new RosterStore(db);
+    const added = entries.map((e): RosterEntry => ({
+      id: phoneId(), kind: 'desktop', name: 'peer', os: 'linux', links: true, epoch: 1,
+      addedBy: 'x', addedAt: NOW, describedAt: NOW, ...e,
+    }));
+    store.replace([...store.list(), ...added]);
+    return added.map((e) => e.id);
+  }
+  const ok = { type: 'ok', peers: [] };
+  const asked = (fake: FakeClient) => fake.posts.filter((p) => p.path === '/pair/mutual').map((p) => (p.payload as { peer: string }).peer);
+
+  it('asks once per relay connection for each live member that links and is not paired yet', async () => {
+    const { fake, db, devices } = build();
+    const paired = phoneId();
+    devices.add({ id: paired, name: 'p', platform: 'linux', kind: 'desktop', pairedAt: NOW, notifications: parseNotificationSettings({}) });
+    const [server] = withMembers(db, {}, { kind: 'phone', links: false }, { removedBy: 'x', removedAt: NOW }, { id: paired });
+    fake.emit('control', ok);
+    await tick();
+    expect(asked(fake)).toEqual([server]);
+    fake.emit('control', ok);
+    await tick();
+    expect(asked(fake)).toEqual([server, server]);
+  });
+
+  it('a relay without the route marks the member pair-by-hand until the next ok; any other failure is asked again', async () => {
+    const { service, fake, db, settings } = build();
+    const [server] = withMembers(db, {});
+    const member = () => service.status().group.members.find((m) => m.id === server);
+    fake.answers['/pair/mutual'] = { status: 404, body: {} };
+    fake.emit('control', ok);
+    await tick();
+    expect(member()).toMatchObject({ pairByHand: true });
+    fake.answers['/pair/mutual'] = { status: 500, body: {} };
+    fake.emit('control', ok);
+    await tick();
+    expect(member()).toMatchObject({ pairByHand: false });
+    expect(asked(fake)).toHaveLength(2);
+    // A roster change asks again what failed.
+    settings.remote_mac_name = 'renamed';
+    service.nameChanged();
+    await tick();
+    expect(asked(fake)).toHaveLength(3);
+  });
+
+  it('a linked member the roster holds live becomes a paired device once; any other id is ignored', async () => {
+    const { service, fake, db } = build();
+    const [server] = withMembers(db, { name: 'vps', os: 'linux' });
+    const [removed] = withMembers(db, { removedBy: 'x', removedAt: NOW });
+    fake.emit('control', { type: 'linked', peer: phoneId() });
+    fake.emit('control', { type: 'linked', peer: removed });
+    expect(service.status().devices).toEqual([]);
+    // Both the post's answer and the control say so; the device is added once.
+    fake.answers['/pair/mutual'] = { status: 200, body: { linked: true } };
+    fake.emit('control', ok);
+    await tick();
+    fake.emit('control', { type: 'linked', peer: server });
+    expect(service.status().devices).toEqual([
+      expect.objectContaining({ id: server, name: 'vps', platform: 'linux', kind: 'desktop' }),
+    ]);
+    expect(service.status().group.members.find((m) => m.id === server)).toMatchObject({ linked: true });
   });
 });
 
