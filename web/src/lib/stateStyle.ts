@@ -54,6 +54,12 @@ export const stateBorder = (color: string, share: 'chip' | 'map' | 'map-rest'): 
   return `color-mix(in oklch, ${color} ${alpha}, transparent)`
 }
 
+/**
+ * A state word's ink while its session's device is offline: what it last said
+ * is not live, so the word drops to the muted ink (canvas 50e/50f `MUT`).
+ */
+export const OFFLINE_STATE_INK = 'rgba(160,190,225,.6)'
+
 export type DotShape = 'solid' | 'hollow' | 'none'
 /** `breathe` is `orbital-breathe` (2.4s, to .45); `pulse` is `orbital-pulse` (1.6s, to .3). */
 export type DotMotion = 'breathe' | 'pulse' | 'steady'

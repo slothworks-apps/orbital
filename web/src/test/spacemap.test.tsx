@@ -2,7 +2,15 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, it, expect, vi } 
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { ApiSession, OrbitalModel, Subagent, Tag } from '../lib/types'
 import { PLANET_SCALE_MAX, PLANET_SCALE_MIN, useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
-import { buildSceneModel, contextFillFor, MOON_EXTENT_RADIUS, type SceneModel } from '../map/sceneModel'
+import {
+  buildSceneModel,
+  contextFillFor,
+  deskCardMeta,
+  MOON_EXTENT_RADIUS,
+  planetSecondLine,
+  withoutDeviceOff,
+  type SceneModel,
+} from '../map/sceneModel'
 import { useSceneModel } from '../map/useSceneModel'
 import {
   applyPan,
@@ -443,6 +451,95 @@ describe('buildSceneModel model family', () => {
       })
     )
     expect(model.planets[0].modelFamily).toBeNull()
+  })
+})
+
+describe('label lines for another device (canvas 50e, 50h)', () => {
+  it('planetSecondLine: family, then the device name, then the age', () => {
+    expect(planetSecondLine('Opus', 'build-box', null)).toBe('OPUS · build-box')
+    expect(planetSecondLine('Sonnet', 'air-m3', 'as of 2 h')).toBe('SONNET · air-m3 · as of 2 h')
+    expect(planetSecondLine('Opus', null, 'as of 2 h')).toBe('OPUS · as of 2 h')
+    // The model line off: the device name alone.
+    expect(planetSecondLine(null, 'build-box', null)).toBe('build-box')
+    expect(planetSecondLine('Opus', null, null)).toBe('OPUS')
+    expect(planetSecondLine(null, null, null)).toBeNull()
+  })
+
+  it('deskCardMeta: the device name leads, the age closes', () => {
+    expect(deskCardMeta('hotfix/checkout-5xx', 'Opus', 'build-box', null)).toBe('build-box · hotfix/checkout-5xx · Opus')
+    expect(deskCardMeta('astro-migration', 'Sonnet', 'air-m3', 'as of 2 h')).toBe('air-m3 · astro-migration · Sonnet · as of 2 h')
+    // One chip on: exactly as shipped.
+    expect(deskCardMeta('main', 'Sonnet', null, null)).toBe('main · Sonnet')
+    expect(deskCardMeta(undefined, null, null, null)).toBeNull()
+  })
+})
+
+describe('buildSceneModel for another device (canvas 50e)', () => {
+  const HOUR = 3_600_000
+  const online = { id: 'build', name: 'build-box', kind: 'headless', os: 'linux', online: true, asOf: null }
+  const offline = { id: 'air', name: 'air-m3', kind: 'desktop', os: 'macos', online: false, asOf: NOW - 2 * HOUR }
+  const sessions = [
+    makeSession({ id: 'here', tagIds: [1], model: 'opus[1m]' }),
+    makeSession({ id: 'there', tagIds: [1], model: 'sonnet', machine: online, status: 'working' }),
+    makeSession({ id: 'away', tagIds: [2], model: 'sonnet', machine: offline, status: 'working',
+      subagents: [makeSubagent({ id: 'm1' })] }),
+  ]
+  const state = withSessions(sessions, { models: MODELS, settings: { map_show_model: 'true' } })
+  const planet = (model: SceneModel, id: string) => model.planets.find((p) => p.session.id === id)!
+
+  it('names every planet by its device while names show, this device by its own name', () => {
+    const model = buildSceneModel(state, NOW, [], 'studio')
+    expect(planet(model, 'here').secondLine).toBe('OPUS · studio')
+    expect(planet(model, 'there').secondLine).toBe('SONNET · build-box')
+    expect(planet(model, 'away').secondLine).toBe('SONNET · air-m3 · as of 2 h')
+    expect(planet(model, 'away').deviceName).toBe('air-m3')
+  })
+
+  it('names nothing while names do not show, but still dates an offline device', () => {
+    const model = buildSceneModel(state, NOW, [], null)
+    expect(planet(model, 'here').secondLine).toBe('OPUS')
+    expect(planet(model, 'there').secondLine).toBe('SONNET')
+    expect(planet(model, 'away').secondLine).toBe('SONNET · as of 2 h')
+    expect(planet(model, 'there').deviceName).toBeNull()
+  })
+
+  it('the device name stands alone with the model line off', () => {
+    const off = { ...state, settings: { map_show_model: 'false' } }
+    expect(planet(buildSceneModel(off, NOW, [], 'studio'), 'there').secondLine).toBe('build-box')
+  })
+
+  it('holds an offline device\'s planet and moons still, and only those', () => {
+    const model = buildSceneModel(state, NOW, [], null)
+    expect(planet(model, 'away').offline).toBe(true)
+    expect(planet(model, 'there').offline).toBe(false)
+    expect(planet(model, 'here').offline).toBe(false)
+    expect(model.moons.map((m) => [m.sessionId, m.offline])).toEqual([['away', true]])
+  })
+
+  it('a chip turned off keeps its planets in the layout, marked, and moves nothing else', () => {
+    const all = buildSceneModel(state, NOW, [], 'studio')
+    const hidden = buildSceneModel(state, NOW, ['air'], 'studio')
+    expect(hidden.planets.map((p) => [p.session.id, p.x, p.y])).toEqual(all.planets.map((p) => [p.session.id, p.x, p.y]))
+    expect(hidden.planets.filter((p) => p.deviceOff).map((p) => p.session.id)).toEqual(['away'])
+    expect(hidden.moons.map((m) => m.deviceOff)).toEqual([true])
+  })
+
+  it('counts and labels only what is on; a cluster left with nothing on keeps an empty label', () => {
+    const hidden = buildSceneModel(state, NOW, ['air'], 'studio')
+    expect(hidden.counts.working).toBe(1)
+    const work = hidden.labels.find((l) => l.tagId === 1)!
+    const personal = hidden.labels.find((l) => l.tagId === 2)!
+    expect([work.text, work.empty]).toEqual(['WORK · 2', false])
+    expect([personal.text, personal.empty]).toEqual(['PERSONAL · 0', true])
+  })
+
+  it('withoutDeviceOff drops the hidden bodies, their moons and their empty labels', () => {
+    const model = withoutDeviceOff(buildSceneModel(state, NOW, ['air'], 'studio'))
+    expect(model.planets.map((p) => p.session.id).sort()).toEqual(['here', 'there'])
+    expect(model.moons).toEqual([])
+    expect(model.labels.map((l) => l.tagId)).toEqual([1])
+    const none = buildSceneModel(state, NOW, [], 'studio')
+    expect(withoutDeviceOff(none)).toBe(none)
   })
 })
 

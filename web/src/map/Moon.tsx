@@ -31,7 +31,9 @@ import {
   blendMoon,
   createMoonBlend,
   advancePointTween,
+  deviceOpacity,
   mutedOpacity,
+  DEVICE_FADE_MS,
   STATE_TRANSITION_MS,
   useFadeTween,
   useHueTween,
@@ -464,6 +466,16 @@ export interface MoonProps {
    * grey, on the same tween as the planet's.
    */
   muted?: boolean
+  /**
+   * The parent's device is offline: the moon holds still on its orbit, at
+   * `OFFLINE_OPACITY`, as its planet does (canvas 50e).
+   */
+  still?: boolean
+  /**
+   * The parent's device chip is off: the moon fades out with its planet and
+   * takes its control with it.
+   */
+  deviceOff?: boolean
 }
 
 /** Circle outline used for the orbit trail, the materializing shell and its expanding ring. */
@@ -577,6 +589,8 @@ function MoonBody({
   active = false,
   onOpen,
   muted = false,
+  still = false,
+  deviceOff = false,
 }: MoonProps) {
   const { openable, effectiveState } = moonInteraction(subagent, Boolean(onOpen && sessionId))
 
@@ -585,6 +599,9 @@ function MoonBody({
   // 0 unmuted, 1 muted — the same tween the parent planet runs, so the two
   // fade together.
   const muteFade = useFadeTween(muted, STATE_TRANSITION_MS, STATE_TRANSITION_MS)
+  // The parent planet's device fades, on the same tweens (`Planet`).
+  const deviceFade = useFadeTween(!deviceOff, DEVICE_FADE_MS, DEVICE_FADE_MS)
+  const offlineFade = useFadeTween(still, DEVICE_FADE_MS, DEVICE_FADE_MS)
   const materials = useMoonMaterials()
   const hasGlowTexture = glowTexture() !== null
 
@@ -680,7 +697,7 @@ function MoonBody({
     const b = blendRef.current
     // The search mute: the whole moon down by `mutedOpacity`, its hue toward
     // the ended grey — the same pair the parent planet applies.
-    const mute = mutedOpacity(muteFade.value)
+    const mute = mutedOpacity(muteFade.value) * deviceOpacity(deviceFade.value, offlineFade.value)
     const hueC = setOklchTagColor(hueColor.current, hueTween.value).lerp(GREY_COLOR, muteFade.value)
     const solid = 1 - b.materializing
     // Canvas 11e Hover: "white rim, brighter core, one outer halo ring" — the
@@ -736,8 +753,9 @@ function MoonBody({
 
   useFrameOnRender()
 
-  // Always moving: a moon orbits for as long as it is on the map, whatever
-  // its state, so a map with any moon draws at the cap.
+  // Always moving while it orbits: a moon circles for as long as it is on the
+  // map, whatever its state, so a map with any moon draws at the cap — unless
+  // its device is offline or its chip off.
   useMapFrame((state, delta) => {
     if (parentBody) {
       // The sim owns the parent's motion — the moon rides it 1:1, so a
@@ -749,7 +767,12 @@ function MoonBody({
       parentGroupRef.current.position.set(parentMove.x.value, parentMove.y.value, 0)
     }
 
+    // Faded out with its device chip: not drawn at all.
+    const shown = deviceFade.value > 0.001
+    // An offline device's moon holds still: none of the motion below runs.
+    const ambient = !still && shown
     if (parentGroupRef.current) {
+      parentGroupRef.current.visible = shown
       // Counter-zoom, same factor as the parent planet's — written on the
       // parent-anchored group so the trail, the orbit radius and the moon's
       // body inflate together as one system ("celý systém měsíce" per the
@@ -773,11 +796,12 @@ function MoonBody({
       }
     }
 
-    if (advanceTween(radiusTween, delta) && trailGroupRef.current) {
+    const radiusMoved = advanceTween(radiusTween, delta)
+    if (radiusMoved && trailGroupRef.current) {
       trailGroupRef.current.scale.setScalar(radiusTween.value / orbitRadius)
     }
     const radius = radiusTween.value
-    angle.current += (ORBIT_ANGULAR_SPEED / Math.max(radius, 0.01)) * delta
+    if (ambient) angle.current += (ORBIT_ANGULAR_SPEED / Math.max(radius, 0.01)) * delta
     const localX = radius * Math.cos(angle.current)
     const localY = radius * Math.sin(angle.current)
     if (bodyGroupRef.current) {
@@ -792,20 +816,23 @@ function MoonBody({
     const b = blendRef.current
     if (mixMoved) blendMoon(mix.weights, b)
     const muteMoved = advanceTween(muteFade, delta)
-    if (mixMoved || hueMoved || muteMoved || !settled.current) applyState()
-    settled.current = !(mixMoved || hueMoved || muteMoved)
-    const mute = mutedOpacity(muteFade.value)
+    const deviceMoved = advanceTween(deviceFade, delta)
+    const offlineMoved = advanceTween(offlineFade, delta)
+    const fadeMoved = muteMoved || deviceMoved || offlineMoved
+    if (mixMoved || hueMoved || fadeMoved || !settled.current) applyState()
+    settled.current = !(mixMoved || hueMoved || fadeMoved)
+    const mute = mutedOpacity(muteFade.value) * deviceOpacity(deviceFade.value, offlineFade.value)
 
-    if (b.tickSpin > 0 && tickGroupRef.current) {
+    if (ambient && b.tickSpin > 0 && tickGroupRef.current) {
       tickGroupRef.current.rotation.z += b.tickSpin * delta
     }
 
-    corePhase.current += b.corePulseSec > 0 ? delta / b.corePulseSec : 0
-    const blink = b.corePulse > 0 ? 1 - BLINK_DEPTH * b.corePulse * oscillate(corePhase.current, 1) : 1
+    if (ambient) corePhase.current += b.corePulseSec > 0 ? delta / b.corePulseSec : 0
+    const blink = ambient && b.corePulse > 0 ? 1 - BLINK_DEPTH * b.corePulse * oscillate(corePhase.current, 1) : 1
     materials.core.opacity = b.coreOpacity * blink * b.dim * mute
     materials.core.visible = materials.core.opacity > 0.001 && b.coreRadius > 0
 
-    if (b.ripple > 0.001) {
+    if (ambient && b.ripple > 0.001) {
       rippleElapsed.current = (rippleElapsed.current + delta) % MOON_RIPPLE_DURATION_SEC
       const progress = easeOut(rippleElapsed.current / MOON_RIPPLE_DURATION_SEC)
       if (rippleRef.current) rippleRef.current.scale.setScalar(1 + progress * (MOON_RIPPLE_MAX_SCALE - 1))
@@ -820,7 +847,7 @@ function MoonBody({
     // its expanding ring keep their own animation and are scaled in and out by
     // `b.materializing` against the solid disc.
     if (b.materializing > 0.001) {
-      matElapsed.current += delta
+      if (ambient) matElapsed.current += delta
       // `orb-mat 1.8s ease-in-out`: opacity .3 ↔ .95, scale .85 ↔ 1.
       const breath = oscillate(matElapsed.current, MAT_SHELL_SEC)
       const shellOpacity = MAT_SHELL_MIN_OPACITY + (MAT_SHELL_MAX_OPACITY - MAT_SHELL_MIN_OPACITY) * breath
@@ -847,7 +874,8 @@ function MoonBody({
       if (shellLineRef.current) shellLineRef.current.visible = false
       if (matRingRef.current) matRingRef.current.visible = false
     }
-    return true
+    // Orbiting, it never settles; held still or faded out, only its tweens move.
+    return ambient || mixMoved || hueMoved || fadeMoved || radiusMoved
   })
 
   return (
@@ -931,7 +959,7 @@ function MoonBody({
             `center` puts the control's own centre on the moon's; its SIZE
             comes from `scale`, because `<Html>` is CSS px and the moon is
             not — see `Moon`'s "INTERACTIVITY" doc. */}
-        {openable && (
+        {openable && !deviceOff && (
           <Html center zIndexRange={[6, 0]} style={{ pointerEvents: 'none' }}>
             <MoonControl
               subagent={subagent}

@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MAP_LEAVE_GRACE_MS, hiddenDevices, useOrbital } from '../store/store'
 import { buildSceneModel, reuseContextFills, type SceneModel } from './sceneModel'
+import { deviceChips, namesShown } from '../lib/devices'
+
+/** How often an offline member's `as of` age is re-read. */
+const AS_OF_TICK_MS = 60_000
 
 /**
  * `<SpaceMap>`'s scene-model subscription. Deliberately NOT
@@ -46,6 +50,16 @@ export function useSceneModel(): SceneModel {
   // the map should not rebuild for a presence change that hides nothing.
   const hiddenKey = useOrbital((s) => hiddenDevices(s).join('\n'))
   const hidden = useMemo(() => (hiddenKey === '' ? [] : hiddenKey.split('\n')), [hiddenKey])
+  // This device's name while labels carry device names (`namesShown`), null
+  // while they do not — a string, so the selector settles like `hiddenKey`.
+  const selfName = useOrbital((s) => {
+    const chips = deviceChips(s.remote?.group?.members)
+    return namesShown(chips, s.ui.hiddenDeviceIds ?? []) ? chips[0].name : null
+  })
+  // Whether any session runs on an offline member: its `as of 2 h` ages.
+  const anyOffline = useOrbital((s) =>
+    Object.values(s.sessions).some((x) => x.machine !== undefined && !x.machine.online),
+  )
 
   // The one impure input, kept in one place. Seeded on mount and re-read
   // once a leaving body's grace has run out, so its fade ends with it off the
@@ -58,6 +72,14 @@ export function useSceneModel(): SceneModel {
     const timer = setTimeout(() => setNowMs(Date.now()), MAP_LEAVE_GRACE_MS)
     return () => clearTimeout(timer)
   }, [leavingSince])
+
+  // An offline member's age (`as of 2 h`) is read off `nowMs`, so the clock
+  // is re-read each minute while there is one to show.
+  useEffect(() => {
+    if (!anyOffline) return
+    const timer = setInterval(() => setNowMs(Date.now()), AS_OF_TICK_MS)
+    return () => clearInterval(timer)
+  }, [anyOffline])
 
   // The model this hook returned last, so an unchanged planet keeps its
   // prop identities across a rebuild (`reuseContextFills`) and its memoised
@@ -124,6 +146,7 @@ export function useSceneModel(): SceneModel {
         },
         nowMs,
         hidden,
+        selfName,
       ), previous.current),
     [
       sessions,
@@ -140,6 +163,7 @@ export function useSceneModel(): SceneModel {
       sourceFilter,
       nowMs,
       hidden,
+      selfName,
     ]
   )
   useEffect(() => {

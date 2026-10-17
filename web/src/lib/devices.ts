@@ -266,3 +266,14 @@ export function asOfLabel(machine: MachineRef | undefined, now: number): string 
   const ago = timeAgo(machine.asOf, now)
   return `as of ${ago.replace(/^(\d+)([mhd])$/, '$1 $2')}`
 }
+
+/**
+ * A request about another device's session refused because that device is
+ * offline (409 `member_offline`, spec § 8). A drop on History that meets it
+ * reports nothing: the card or planet stays, and the drop works once the
+ * device is back.
+ */
+export function isMemberOffline(err: unknown): boolean {
+  if (!(err instanceof Error) || (err as { status?: unknown }).status !== 409) return false
+  return err.message.includes('member_offline')
+}

@@ -22,7 +22,7 @@ import { useViewportWidth } from '../lib/useViewportWidth'
 import { awaitedCount, awaitedWork, gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
 import { compactingLabelOpacity, compactingOf, formatElapsed } from '../lib/compaction'
 import { useNow } from '../lib/useNow'
-import { stateColor, stateDot, stateWord } from '../lib/stateStyle'
+import { OFFLINE_STATE_INK, stateColor, stateDot, stateWord } from '../lib/stateStyle'
 import { StateDot } from '../ui/StateDot'
 import type { ApiSession, SessionSource, Tag } from '../lib/types'
 import { Panel } from '../ui/Panel'
@@ -276,12 +276,18 @@ function IconButton({
  *
  * The row's leading tag dot keeps the tag hue — a row can wear an amber tag
  * dot and an amber INPUT, and the word's text and dot keep them apart.
+ *
+ * A session whose device is offline is not live, whatever it last said: the
+ * word drops to the muted ink and its dot holds still (canvas 50e
+ * `live = WORKING && !off`).
  */
 function RowStatus({ session }: { session: ApiSession }) {
   const compacting = compactingOf(session)
   const now = useNow(compacting !== null)
   const key = sessionStateKey(session)
-  const color = stateColor(key)
+  const still = onOfflineDevice(session)
+  const color = still ? OFFLINE_STATE_INK : stateColor(key)
+  const dot = stateDot(key, 'label', gateWaits(session))
   // A compaction takes the label once it has run three seconds (26e): `COMPACT
   // 0:14`, the compacting grey, no dot. Shorter ones never show here at all.
   if (compacting && compactingLabelOpacity(now - compacting.startedAt) > 0) {
@@ -312,7 +318,7 @@ function RowStatus({ session }: { session: ApiSession }) {
       className="flex shrink-0 items-center gap-[5px] font-mono text-[9.5px] uppercase tracking-[0.08em]"
       style={{ color }}
     >
-      <StateDot dot={stateDot(key, 'label', gateWaits(session))} color={color} solidPx={5} hollowPx={6} />
+      <StateDot dot={still ? { ...dot, motion: 'steady' } : dot} color={color} solidPx={5} hollowPx={6} />
       {stateWord(key, awaitedCount(awaitedWork(session)), true)}
     </span>
   )

@@ -3,8 +3,9 @@ import { deviceId, generateIdentity, toBase64Url } from '@orbital/shared/remote/
 import { parsePairingCode } from '@orbital/shared/remote/relayApi'
 import {
   LOCAL_DEVICE, addedByLine, asOfLabel, deviceChips, deviceOf, deviceRows, devicesOn, kindOs, memberStateWords,
-  namesShown, oneWordCode, osLabel, showDeviceRow, toggleDevice,
+  isMemberOffline, namesShown, oneWordCode, osLabel, showDeviceRow, toggleDevice,
 } from '../lib/devices'
+import { ApiError } from '../lib/api'
 import type { GroupMember, MachineRef } from '../lib/types'
 
 const NOW = Date.now()
@@ -248,5 +249,15 @@ describe('asOfLabel', () => {
     expect(asOfLabel(machine({ online: true, asOf: null }), NOW)).toBeNull()
     expect(asOfLabel(undefined, NOW)).toBeNull()
     expect(asOfLabel(machine({ asOf: null }), NOW)).toBeNull()
+  })
+})
+
+describe('isMemberOffline', () => {
+  it('reads a 409 member_offline, and nothing else', () => {
+    expect(isMemberOffline(new ApiError('{"error":"member_offline"}', 409))).toBe(true)
+    expect(isMemberOffline(new ApiError('{"error":"busy"}', 409))).toBe(false)
+    expect(isMemberOffline(new ApiError('{"error":"member_offline"}', 500))).toBe(false)
+    expect(isMemberOffline(new Error('member_offline'))).toBe(false)
+    expect(isMemberOffline('member_offline')).toBe(false)
   })
 })

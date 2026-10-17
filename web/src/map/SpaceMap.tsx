@@ -22,6 +22,7 @@ import { isReadOnly, sessionStateKey, type SessionStateKey } from '../lib/types'
 import { stateColor, stateDot } from '../lib/stateStyle'
 import { StateDot } from '../ui/StateDot'
 import { reportError } from '../lib/errors'
+import { isMemberOffline } from '../lib/devices'
 import { useViewportWidth } from '../lib/useViewportWidth'
 import { EndDialog } from '../panels/EndDialog'
 import { mapTopInset, useWindowChromeEnv } from '../lib/windowChrome'
@@ -58,6 +59,7 @@ import {
 } from './simulation'
 import {
   BODY_MOVE_MS,
+  DEVICE_FADE_MS,
   advancePointTween,
   advanceTween,
   createPointTween,
@@ -219,6 +221,10 @@ function ClusterLabel({
             textTransform: 'uppercase',
             color: `oklch(80% .13 ${label.hue} / .45)`,
             whiteSpace: 'nowrap',
+            // A cluster left with only bodies whose device chip is off fades
+            // with them (canvas 50e `transition:opacity .5s ease`).
+            opacity: label.empty ? 0 : 1,
+            transition: `opacity ${DEVICE_FADE_MS}ms ease`,
           }}
         >
           {label.text}
@@ -631,8 +637,11 @@ export function SpaceMap() {
     (id: string) => trashSession(id, { undo: false }),
     [trashSession]
   )
+  // The bodies on their way off the map: leaving it, or faded out with their
+  // device chip (which keeps them in the simulation, so nothing reflows).
+  // Neither anchors a cluster label nor is framed by a fit.
   const leavingIds = useMemo(
-    () => new Set(model.planets.filter((p) => p.leaving).map((p) => p.session.id)),
+    () => new Set(model.planets.filter((p) => p.leaving || p.deviceOff).map((p) => p.session.id)),
     [model]
   )
 
@@ -907,9 +916,10 @@ export function SpaceMap() {
           dragSimBody(sim, bodyDrag.id, null)
           if (drop === 'armed' && trash === 'end') {
             holeFlashRef.current = TRASH_FLASH_SEC
-            trashSession(bodyDrag.id, { undo: true }).catch((err: unknown) =>
-              reportError(err, 'Failed to end the session')
-            )
+            trashSession(bodyDrag.id, { undo: true }).catch((err: unknown) => {
+              // An offline device's session stays put, and says nothing more.
+              if (!isMemberOffline(err)) reportError(err, 'Failed to end the session')
+            })
           } else if (drop === 'armed' && trash === 'confirm') setConfirmEndId(bodyDrag.id)
           else if (rehome) void setTagAnchor(rehome.tagId, { x: rehome.x, y: rehome.y })
           if (reduced) settleSimulation(simRef.current)
@@ -1041,7 +1051,7 @@ export function SpaceMap() {
    * see, and hauling the camera there would take the rest of the map away
    * from them for no reason.
    */
-  const followed = model.planets.find((p) => p.selected && !p.leaving)
+  const followed = model.planets.find((p) => p.selected && !p.leaving && !p.deviceOff)
   const followedId = followed?.session.id
   const followedX = followed?.x
   const followedY = followed?.y
@@ -1092,11 +1102,12 @@ export function SpaceMap() {
     // INPUT" over three planets all saying DONE is the very mismatch the
     // pills were fixed to stop telling.
     // Muted planets are left out, as `statusCounts` leaves them out: the
-    // readout counts what matches the sidebar filters, not what holds its place.
+    // readout counts what matches the sidebar filters, not what holds its
+    // place. So are those of a device whose chip is off.
     let asking = 0
     let interrupted = 0
     for (const p of model.planets) {
-      if (p.muted || p.session.status !== 'needs_input') continue
+      if (p.muted || p.deviceOff || p.session.status !== 'needs_input') continue
       const key = sessionStateKey(p.session)
       if (key === 'needs_input') asking++
       else if (key === 'interrupted') interrupted++
@@ -1160,7 +1171,9 @@ export function SpaceMap() {
               selected={planet.selected}
               hidden={planet.leaving}
               muted={planet.muted}
-              modelFamily={planet.modelFamily}
+              secondLine={planet.secondLine}
+              still={planet.offline}
+              deviceOff={planet.deviceOff}
               labelTitlePx={labelFont.title}
               labelFamilyPx={labelFont.family}
               contextFill={planet.contextFill}
@@ -1193,6 +1206,8 @@ export function SpaceMap() {
               active={`${moon.sessionId}:${moon.subagent.id}` === activePanelKey}
               onOpen={handleOpenSubagent}
               muted={moon.muted}
+              still={moon.offline}
+              deviceOff={moon.deviceOff}
             />
           ))}
 
