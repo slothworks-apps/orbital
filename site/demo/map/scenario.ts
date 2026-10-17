@@ -47,18 +47,7 @@ export const MAP_BEATS: Beat[] = [
 
 export const MAP_DURATIONS = MAP_BEATS.map((beat) => beat.ticks)
 
-export type MapScene = 'hero' | 'states'
-
-/**
- * `?scene=hero` (the default) shows the whole cluster: the four sessions and
- * quieter ones around them. `?scene=states` shows only the four, so the fit
- * the map does on load frames the four states of the legend close up.
- */
-export function parseScene(search: string): MapScene {
-  return new URLSearchParams(search).get('scene') === 'states' ? 'states' : 'hero'
-}
-
-export function sessionsFor(scene: MapScene, beat: number): ApiSession[] {
-  const moving = MAP_BEATS[beat].sessions
-  return scene === 'hero' ? [...moving, ...QUIET] : moving
+/** The four sessions of a beat and the quieter ones around them, so the map reads as a day's work. */
+export function sessionsFor(beat: number): ApiSession[] {
+  return [...MAP_BEATS[beat].sessions, ...QUIET]
 }

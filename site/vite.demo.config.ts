@@ -23,12 +23,13 @@ const mobileVersion = (
 export default defineConfig({
   plugins: webConfig.plugins,
   // The phone demo runs `web/src/mobile`, which reads the globals the phone's
-  // build defines (`web/src/mobile/env.d.ts`). A demo is no dev build and
-  // never registers for push.
+  // build defines (`web/src/mobile/env.d.ts`). A demo is no dev build,
+  // never registers for push and never updates itself over the air.
   define: {
     __MOBILE_DEV__: 'false',
     __MOBILE_VERSION__: JSON.stringify(mobileVersion),
     __MOBILE_PUSH__: JSON.stringify({ android: false, ios: false }),
+    __MOBILE_BEAM__: JSON.stringify({ url: '', appId: '' }),
   },
   resolve: {
     // As in `vite.mobile.config.ts`: the push plugin's web half imports the
