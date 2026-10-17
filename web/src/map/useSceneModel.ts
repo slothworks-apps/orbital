@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MAP_LEAVE_GRACE_MS, hiddenDevices, useOrbital } from '../store/store'
-import { buildSceneModel, reuseContextFills, type SceneModel } from './sceneModel'
-import { deviceChips, namesShown } from '../lib/devices'
+import { buildSceneModel, reuseContextFills, type DeviceNames, type SceneModel } from './sceneModel'
+import { deviceChips, namesShown, showDeviceRow } from '../lib/devices'
 
 /** How often an offline member's `as of` age is re-read. */
 const AS_OF_TICK_MS = 60_000
@@ -50,15 +50,22 @@ export function useSceneModel(): SceneModel {
   // the map should not rebuild for a presence change that hides nothing.
   const hiddenKey = useOrbital((s) => hiddenDevices(s).join('\n'))
   const hidden = useMemo(() => (hiddenKey === '' ? [] : hiddenKey.split('\n')), [hiddenKey])
-  // This device's name while labels carry device names (`namesShown`), null
-  // while they do not — a string, so the selector settles like `hiddenKey`.
-  const selfName = useOrbital((s) => {
+  // While the chip row shows: this device's name, and whether labels carry
+  // names now (`namesShown`) — as one string, so the selector settles like
+  // `hiddenKey`. Empty while the row does not show.
+  const namesKey = useOrbital((s) => {
     const chips = deviceChips(s.remote?.group?.members)
-    return namesShown(chips, s.ui.hiddenDeviceIds ?? []) ? chips[0].name : null
+    if (!showDeviceRow(chips)) return ''
+    return `${namesShown(chips, s.ui.hiddenDeviceIds ?? []) ? 1 : 0}${chips[0].name}`
   })
+  const names = useMemo<DeviceNames | null>(
+    () => (namesKey === '' ? null : { self: namesKey.slice(1), shown: namesKey[0] === '1' }),
+    [namesKey],
+  )
   // Whether any session runs on an offline member: its `as of 2 h` ages.
-  const anyOffline = useOrbital((s) =>
-    Object.values(s.sessions).some((x) => x.machine !== undefined && !x.machine.online),
+  const anyOffline = useMemo(
+    () => Object.values(sessions).some((x) => x.machine !== undefined && !x.machine.online),
+    [sessions],
   )
 
   // The one impure input, kept in one place. Seeded on mount and re-read
@@ -146,7 +153,7 @@ export function useSceneModel(): SceneModel {
         },
         nowMs,
         hidden,
-        selfName,
+        names,
       ), previous.current),
     [
       sessions,
@@ -163,7 +170,7 @@ export function useSceneModel(): SceneModel {
       sourceFilter,
       nowMs,
       hidden,
-      selfName,
+      names,
     ]
   )
   useEffect(() => {

@@ -555,9 +555,9 @@ const DeskCard = memo(function DeskCard({
   const tools = s.recentTools ?? []
   const last = tools.length ? tools[tools.length - 1] : null
   // An offline device's card holds its last state: the clock stops, and with
-  // it the tool strip's drift (canvas 50h).
+  // it the tool strip's drift (canvas 50h). A folded card needs no clock.
   const now = useNow(
-    !planet.offline && (key === 'working' || key === 'waiting' || Boolean(planet.compactingSince)),
+    !planet.offline && !planet.deviceOff && (key === 'working' || key === 'waiting' || Boolean(planet.compactingSince)),
   )
   const recent = tools.filter((t) => now - t.at < STRIP_WINDOW_MS)
   const fill = planet.contextFill
@@ -804,13 +804,15 @@ function useFold(ref: React.RefObject<HTMLElement | null>, folded: boolean) {
     }
     const open = { height: `${el.offsetHeight}px`, opacity: getComputedStyle(el).opacity, marginBottom: '0px' }
     const shut = { height: '0px', opacity: '0', marginBottom: `-${CARD_GAP_PX}px` }
+    // Restored to what it was, not cleared: a leaving card holds its own.
+    const overflow = el.style.overflow
     el.style.overflow = 'hidden'
     const animation = el.animate(folded ? [open, shut] : [shut, open], {
       duration: CARD_FOLD_MS,
       easing: 'ease-out',
     })
     const settle = () => {
-      el.style.overflow = ''
+      el.style.overflow = overflow
       el.style.display = folded ? 'none' : ''
     }
     animation.onfinish = settle

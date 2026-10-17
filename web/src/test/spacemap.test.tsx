@@ -28,6 +28,7 @@ import {
   type FitBody,
 } from '../map/camera'
 import { PLANET_BASE_RADIUS } from '../map/layout'
+import { planetOutline } from '../map/simulation'
 import { installKeyListener } from '../lib/commands'
 import { CONTEXT_GAUGE_OUTER, moonVisuals } from '../map/visuals'
 
@@ -486,9 +487,29 @@ describe('buildSceneModel for another device (canvas 50e)', () => {
   ]
   const state = withSessions(sessions, { models: MODELS, settings: { map_show_model: 'true' } })
   const planet = (model: SceneModel, id: string) => model.planets.find((p) => p.session.id === id)!
+  /** The chip row shows; labels carry names, or (one chip on) do not. */
+  const SHOWN = { self: 'studio', shown: true }
+  const UNSHOWN = { self: 'studio', shown: false }
+
+  it('measures the layout with the names whether they are drawn or not, so toggling them moves nothing', () => {
+    const drawn = buildSceneModel(state, NOW, [], SHOWN)
+    const hiddenNames = buildSceneModel(state, NOW, ['build'], UNSHOWN)
+    for (const id of ['here', 'there', 'away']) {
+      expect(planet(hiddenNames, id).outlineLine).toBe(planet(drawn, id).outlineLine)
+      const outline = (m: SceneModel) => {
+        const p = planet(m, id)
+        return planetOutline({ ...p, secondLine: p.outlineLine, gauged: false }, 1, { title: 11, family: 9.5 }, 'dot')
+      }
+      expect(outline(hiddenNames)).toEqual(outline(drawn))
+    }
+    expect(planet(drawn, 'here').outlineLine).toBe('OPUS · studio')
+    expect(planet(hiddenNames, 'here').secondLine).toBe('OPUS')
+    // Without the row (one device) nothing is named, drawn or measured.
+    expect(planet(buildSceneModel(state, NOW, [], null), 'here').outlineLine).toBe('OPUS')
+  })
 
   it('names every planet by its device while names show, this device by its own name', () => {
-    const model = buildSceneModel(state, NOW, [], 'studio')
+    const model = buildSceneModel(state, NOW, [], SHOWN)
     expect(planet(model, 'here').secondLine).toBe('OPUS · studio')
     expect(planet(model, 'there').secondLine).toBe('SONNET · build-box')
     expect(planet(model, 'away').secondLine).toBe('SONNET · air-m3 · as of 2 h')
@@ -496,7 +517,7 @@ describe('buildSceneModel for another device (canvas 50e)', () => {
   })
 
   it('names nothing while names do not show, but still dates an offline device', () => {
-    const model = buildSceneModel(state, NOW, [], null)
+    const model = buildSceneModel(state, NOW, [], UNSHOWN)
     expect(planet(model, 'here').secondLine).toBe('OPUS')
     expect(planet(model, 'there').secondLine).toBe('SONNET')
     expect(planet(model, 'away').secondLine).toBe('SONNET · as of 2 h')
@@ -505,11 +526,11 @@ describe('buildSceneModel for another device (canvas 50e)', () => {
 
   it('the device name stands alone with the model line off', () => {
     const off = { ...state, settings: { map_show_model: 'false' } }
-    expect(planet(buildSceneModel(off, NOW, [], 'studio'), 'there').secondLine).toBe('build-box')
+    expect(planet(buildSceneModel(off, NOW, [], SHOWN), 'there').secondLine).toBe('build-box')
   })
 
   it('holds an offline device\'s planet and moons still, and only those', () => {
-    const model = buildSceneModel(state, NOW, [], null)
+    const model = buildSceneModel(state, NOW, [], UNSHOWN)
     expect(planet(model, 'away').offline).toBe(true)
     expect(planet(model, 'there').offline).toBe(false)
     expect(planet(model, 'here').offline).toBe(false)
@@ -517,15 +538,15 @@ describe('buildSceneModel for another device (canvas 50e)', () => {
   })
 
   it('a chip turned off keeps its planets in the layout, marked, and moves nothing else', () => {
-    const all = buildSceneModel(state, NOW, [], 'studio')
-    const hidden = buildSceneModel(state, NOW, ['air'], 'studio')
+    const all = buildSceneModel(state, NOW, [], SHOWN)
+    const hidden = buildSceneModel(state, NOW, ['air'], SHOWN)
     expect(hidden.planets.map((p) => [p.session.id, p.x, p.y])).toEqual(all.planets.map((p) => [p.session.id, p.x, p.y]))
     expect(hidden.planets.filter((p) => p.deviceOff).map((p) => p.session.id)).toEqual(['away'])
     expect(hidden.moons.map((m) => m.deviceOff)).toEqual([true])
   })
 
   it('counts and labels only what is on; a cluster left with nothing on keeps an empty label', () => {
-    const hidden = buildSceneModel(state, NOW, ['air'], 'studio')
+    const hidden = buildSceneModel(state, NOW, ['air'], SHOWN)
     expect(hidden.counts.working).toBe(1)
     const work = hidden.labels.find((l) => l.tagId === 1)!
     const personal = hidden.labels.find((l) => l.tagId === 2)!
@@ -534,11 +555,11 @@ describe('buildSceneModel for another device (canvas 50e)', () => {
   })
 
   it('withoutDeviceOff drops the hidden bodies, their moons and their empty labels', () => {
-    const model = withoutDeviceOff(buildSceneModel(state, NOW, ['air'], 'studio'))
+    const model = withoutDeviceOff(buildSceneModel(state, NOW, ['air'], SHOWN))
     expect(model.planets.map((p) => p.session.id).sort()).toEqual(['here', 'there'])
     expect(model.moons).toEqual([])
     expect(model.labels.map((l) => l.tagId)).toEqual([1])
-    const none = buildSceneModel(state, NOW, [], 'studio')
+    const none = buildSceneModel(state, NOW, [], SHOWN)
     expect(withoutDeviceOff(none)).toBe(none)
   })
 })

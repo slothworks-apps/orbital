@@ -675,7 +675,14 @@ export function SpaceMap() {
         // What the planet draws around itself, sized by the same Appearance
         // settings `Planet` is drawn with below, so the springs keep
         // neighbours clear of the actual label and pill.
-        outline: planetOutline({ ...p, gauged: p.contextFill !== null }, planetScale, font, pillMode),
+        // Measured with the device name whenever the chip row shows, so names
+        // coming and going as chips toggle move no body (`outlineLine`).
+        outline: planetOutline(
+          { ...p, secondLine: p.outlineLine, gauged: p.contextFill !== null },
+          planetScale,
+          font,
+          pillMode,
+        ),
         trash: trashDropFor(p.session.source, p.session.status),
       })),
       anchors: model.anchors.map(({ tagId, x, y }) => ({ tagId, x, y })),

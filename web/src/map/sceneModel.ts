@@ -130,6 +130,13 @@ export interface ScenePlanet {
    */
   secondLine: string | null
   /**
+   * The second line the layout measures (`planetOutline`): `secondLine` with
+   * the device name in it whenever the chip row shows, drawn or not. Names
+   * come and go as chips are turned on and off; measuring them always keeps
+   * the bodies where they are when they do (canvas 50e: nothing reflows).
+   */
+  outlineLine: string | null
+  /**
    * The session's device is offline: the planet keeps its place and its last
    * state, at half opacity and without motion (canvas 50e).
    */
@@ -304,6 +311,15 @@ function withStableSessionOrder(clusters: Cluster[]): Cluster[] {
 }
 
 /**
+ * The device names a scene draws, while the chip row shows (`showDeviceRow`):
+ * this device's own name, and whether labels carry names now (`namesShown`).
+ */
+export interface DeviceNames {
+  self: string
+  shown: boolean
+}
+
+/**
  * A planet's second label line (canvas 50e `p(dev, model)`): the family in
  * capitals, then the device name while names show, then `as of 2 h` while
  * the device is offline. With the model line off the device name stands
@@ -357,9 +373,8 @@ export function deskCardMeta(
  * Date.now, no Math.random, no mutation of `state`. The clock arrives as
  * `nowMs` precisely to keep that true; `useSceneModel` is what reads a real
  * clock and re-reads it on a slow tick. `hidden` (the devices whose chip is
- * off, `hiddenDevices`) and `selfName` (this device's name while names show
- * on labels, `namesShown`; null while they do not) are passed in for the
- * same reason.
+ * off, `hiddenDevices`) and `names` (`DeviceNames`, null while the chip row
+ * does not show) are passed in for the same reason.
  *
  * A hidden device's sessions stay in the layout, marked `deviceOff`, so
  * turning a chip off moves nothing else (canvas 50e); the counts and the
@@ -369,7 +384,7 @@ export function buildSceneModel(
   state: OrbitalState,
   nowMs: number,
   hidden: readonly string[] = hiddenDevices(state),
-  selfName: string | null = null,
+  names: DeviceNames | null = null,
 ): SceneModel {
   const sessions = mapSessions(state, nowMs, [])
   const clusters = clusterSessions(sessions, state.tags)
@@ -425,7 +440,8 @@ export function buildSceneModel(
       })
 
       const modelFamily = showModel ? (matchModel(session, state.models)?.family ?? null) : null
-      const deviceName = selfName === null ? null : (session.machine?.name ?? selfName)
+      const rowName = names === null ? null : (session.machine?.name ?? names.self)
+      const deviceName = names?.shown ? rowName : null
       const asOf = asOfLabel(session.machine, nowMs)
       planets.push({
         session,
@@ -442,6 +458,7 @@ export function buildSceneModel(
         deviceName,
         asOf,
         secondLine: planetSecondLine(modelFamily, deviceName, asOf),
+        outlineLine: planetSecondLine(modelFamily, rowName, asOf),
         offline,
         deviceOff,
         contextFill,
