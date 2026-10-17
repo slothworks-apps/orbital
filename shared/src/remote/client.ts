@@ -149,8 +149,9 @@ export class RemoteClient {
     return this.channel ? this.channel.request(method, path, body) : Promise.reject(new TunnelError('offline'));
   }
 
-  getBlob(ref: string): Promise<BlobResult> {
-    return this.channel ? this.channel.getBlob(ref) : Promise.reject(new TunnelError('offline'));
+  /** `edge`: a thumbnail of at most this many pixels on its longest side, when the Mac makes one. */
+  getBlob(ref: string, opts: { edge?: number } = {}): Promise<BlobResult> {
+    return this.channel ? this.channel.getBlob(ref, opts) : Promise.reject(new TunnelError('offline'));
   }
 
   /** A file a session may show, by path; `Channel.getFile` says how it answers. */

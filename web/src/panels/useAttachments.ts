@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '../lib/api'
+import { fitImage } from '../lib/imageFit'
 import { desktopPathFor } from '../lib/desktop'
 import {
   MAX_ATTACHMENTS,
@@ -214,8 +215,13 @@ export function useAttachments(
         })
       }
 
-      entry.run = api
-        .uploadAttachment(sessionId, entry.file, { signal: controller.signal })
+      // An image is brought down to what the API takes first; one the browser
+      // cannot decode fails like an upload the server refused.
+      entry.run = (chip.kind === 'image' ? fitImage(entry.file) : Promise.resolve(entry.file))
+        .then((file) => {
+          if (!file) throw new Error('the image could not be brought down to size')
+          return api.uploadAttachment(sessionId, file, { signal: controller.signal })
+        })
         .then((result) => {
           if (controller.signal.aborted) return
           if (result.kind === 'not_on_device') {

@@ -10,7 +10,8 @@ export interface SwappableClient {
   on(listener: (event: TunnelEvent) => void): () => void
   stop(): void
   request(method: HttpMethod, path: string, body?: unknown): Promise<TunnelResponse>
-  getBlob(ref: string): Promise<BlobResult>
+  /** `edge`: a thumbnail of at most this many pixels on its longest side, when the device makes one. */
+  getBlob(ref: string, opts?: { edge?: number }): Promise<BlobResult>
   getFile(session: string, path: string, as: FileAs, opts?: GetFileOptions): Promise<FileResult>
   /** `sessionId`: the session the image is for, so a client over several devices puts it where that session runs. */
   putBlob(bytes: Uint8Array, mediaType: string, sessionId?: string | null): Promise<PutBlobResult>
@@ -82,8 +83,8 @@ export class ClientRef implements SwappableClient {
     return this.current ? this.current.request(method, path, body) : Promise.reject(new TunnelError('offline'))
   }
 
-  getBlob(ref: string): Promise<BlobResult> {
-    return this.current ? this.current.getBlob(ref) : Promise.reject(new TunnelError('offline'))
+  getBlob(ref: string, opts?: { edge?: number }): Promise<BlobResult> {
+    return this.current ? this.current.getBlob(ref, opts) : Promise.reject(new TunnelError('offline'))
   }
 
   getFile(session: string, path: string, as: FileAs, opts?: GetFileOptions): Promise<FileResult> {

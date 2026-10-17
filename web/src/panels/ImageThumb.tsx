@@ -78,7 +78,7 @@ export function ImageThumb({ image, variant, source, widthCapPx, messageId }: Im
   const [missing, setMissing] = useState(false)
   const [open, setOpen] = useState(false)
   const box = boxFor(image, variant, widthCapPx)
-  const { url, failed, async: fadeIn, retry } = useImageUrl(image.ref)
+  const { url, failed, async: fadeIn, retry } = useImageUrl(image.ref, { thumb: true })
   const [loaded, setLoaded] = useState(false)
   // 10e2: the moon stays under the image until the image is opaque.
   const [covered, setCovered] = useState(false)

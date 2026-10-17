@@ -49,9 +49,10 @@ export interface Command {
   /** A pointer gesture drawn as a dashed cap, e.g. '⌥-click'. */
   gesture?: string
   /**
-   * The Experimental switch the command belongs to. While it is off the
-   * command is left out of the Shortcuts pane and the menu: a shortcut for
-   * a feature the user cannot see is noise.
+   * The Labs switch the command belongs to. While it is off the command is
+   * left out of the menu, where it would do nothing, but stays in the
+   * Shortcuts pane marked as off, so the feature can be found. Experimental
+   * features get no command at all: they show nowhere outside their switch.
    */
   feature?: 'harness' | 'terminal'
 }
@@ -697,11 +698,14 @@ function commandCaps(cmd: Command): string[][] {
   return [chordGlyphs(cmd.chords[0])]
 }
 
-function commandRow(cmd: Command): Row {
+/** Appended to the note of a command whose Labs feature is switched off. */
+const LABS_OFF_NOTE = 'in Labs, off'
+
+function commandRow(cmd: Command, settings?: Settings): Row {
   return {
     id: cmd.id,
     label: cmd.label,
-    note: cmd.note,
+    note: available(cmd, settings) ? cmd.note : [cmd.note, LABS_OFF_NOTE].filter(Boolean).join(' · '),
     caps: commandCaps(cmd),
     muted: !cmd.display && cmd.chords.length > 1 ? chordGlyphs(cmd.chords[1]) : undefined,
     gesture: cmd.gesture,
@@ -714,13 +718,17 @@ function rowHaystack(row: Row): string {
   return [row.label, row.note ?? '', capsText].join(' ').toLowerCase()
 }
 
-/** The pane's data (§ 6): `SCOPES` order, filtered by `query`; scopes with no matching row drop out. */
+/**
+ * The pane's data (§ 6): `SCOPES` order, filtered by `query`; scopes with no
+ * matching row drop out. Every command is listed, a switched-off Labs one
+ * with a note saying so.
+ */
 export function keymapGroups(query = '', settings?: Settings): Group[] {
   const q = query.trim().toLowerCase()
   const groups: Group[] = []
   for (const { scope, title, when } of SCOPES) {
-    const rows = COMMANDS.filter((cmd) => cmd.scope === scope && available(cmd, settings))
-      .map(commandRow)
+    const rows = COMMANDS.filter((cmd) => cmd.scope === scope)
+      .map((cmd) => commandRow(cmd, settings))
       .filter((row) => q === '' || rowHaystack(row).includes(q))
     if (rows.length > 0) groups.push({ scope, title, when, rows })
   }
@@ -728,13 +736,13 @@ export function keymapGroups(query = '', settings?: Settings): Group[] {
 }
 
 /** The pane header's `{N} bindings` count. */
-export function bindingCount(settings?: Settings): number {
-  return COMMANDS.filter((cmd) => available(cmd, settings)).length
+export function bindingCount(): number {
+  return COMMANDS.length
 }
 
 /** The scopes with a binding to show — the pane header's `{N} scopes`. */
-export function scopeCount(settings?: Settings): number {
-  return SCOPES.filter(({ scope }) => COMMANDS.some((cmd) => cmd.scope === scope && available(cmd, settings))).length
+export function scopeCount(): number {
+  return SCOPES.filter(({ scope }) => COMMANDS.some((cmd) => cmd.scope === scope)).length
 }
 
 /** The command by id — throws on an unknown one, so a typo fails loudly in tests rather than silently at runtime. */

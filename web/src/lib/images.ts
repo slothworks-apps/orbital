@@ -6,7 +6,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
  * with a blob URL from its file cache, fetched over the tunnel when missing,
  * and memoizes per ref so asking twice never fetches twice.
  */
-export type ImageResolver = (ref: string) => string | Promise<string>
+export type ImageResolver = (ref: string, opts?: ImageOptions) => string | Promise<string>
+
+/**
+ * `thumb`: drawn small — a transcript thumbnail, a gallery tile. A platform
+ * that pays for every byte (the phone) may answer with a smaller image
+ * (spec 2026-10-16-image-sizes-design § 2); the web serves the one image.
+ */
+export type ImageOptions = { thumb?: boolean }
 
 /**
  * Where the bytes of a file a session's text names come from — an image or a
@@ -46,8 +53,8 @@ export function configureImages(opts: {
   canShowPath = opts.canShowPath ?? (() => true)
 }
 
-export function resolveImage(ref: string): string | Promise<string> {
-  return resolver(ref)
+export function resolveImage(ref: string, opts?: ImageOptions): string | Promise<string> {
+  return resolver(ref, opts)
 }
 
 /** Whether named files can be shown here at all — see `configureImages`. */
@@ -119,8 +126,9 @@ function useResolvedUrl(key: string, resolve: () => string | Promise<string>): I
   return { url: mine ? settled.url : null, failed: mine && settled.failed, async: true, retry }
 }
 
-export function useImageUrl(ref: string): ImageUrl {
-  return useResolvedUrl(ref, () => resolveImage(ref))
+export function useImageUrl(ref: string, opts?: ImageOptions): ImageUrl {
+  const thumb = opts?.thumb === true
+  return useResolvedUrl(thumb ? `thumb\n${ref}` : ref, () => resolveImage(ref, { thumb }))
 }
 
 /** Where a media item's bytes live: the image store, or a file a reply named. */
@@ -131,8 +139,9 @@ export interface MediaSource {
 }
 
 /** The URL of a media item's bytes, whichever of the two places they live in. */
-export function useMediaSourceUrl(sessionId: string, source: MediaSource): ImageUrl {
+export function useMediaSourceUrl(sessionId: string, source: MediaSource, opts?: ImageOptions): ImageUrl {
   const { ref, path, cwd } = source
-  const key = ref !== undefined ? `ref\n${ref}` : `file\n${sessionId}\n${cwd ?? ''}\n${path ?? ''}`
-  return useResolvedUrl(key, () => (ref !== undefined ? resolveImage(ref) : resolveFile(sessionId, path ?? '', cwd)))
+  const thumb = opts?.thumb === true
+  const key = ref !== undefined ? `${thumb ? 'thumb' : 'ref'}\n${ref}` : `file\n${sessionId}\n${cwd ?? ''}\n${path ?? ''}`
+  return useResolvedUrl(key, () => (ref !== undefined ? resolveImage(ref, { thumb }) : resolveFile(sessionId, path ?? '', cwd)))
 }

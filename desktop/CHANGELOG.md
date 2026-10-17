@@ -9,6 +9,18 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - New session can start a session on another device, with that device's recent projects and a browser for its folders.
 - A device that is offline keeps its sessions on the map, dimmed and still, with what it last sent still readable.
 
+## [0.33.0] — 2026-10-16
+### Added
+- A session can now list your other sessions and archive the finished ones when you ask it to tidy up — the same as pressing End. It leaves alone, unless told otherwise, sessions that are working, waiting for you or pinned.
+- A session can now do almost anything you can do in Orbital when you ask it to: start, rename, tag and end sessions, answer their questions, run harnesses, manage tags, rules, MCP servers and settings. Anything that changes Orbital asks for your permission first, like any other tool.
+- Images over 5 MB and iPhone photos (HEIC) go to a session as images: Orbital brings them down to the size Claude takes before they are sent.
+- Your phone loads a session's images faster: the Mac sends it small thumbnails, and the full image only when you open one.
+
+## [0.32.1] — 2026-10-15
+### Added
+- Settings has a new Labs section with features you can try, each off until you turn it on. Harness and Terminal now live there.
+- Settings → Shortcuts lists the shortcuts of Labs features even while they are off, marked as off, so you can find them.
+
 ## [0.32.0] — 2026-10-15
 ### Added
 - A session's Media also shows the images and PDFs its subagents produced, and images the agent saved to disk without mentioning them.

@@ -49,8 +49,9 @@ describe('isInlineImage — what rides as an image block', () => {
     expect(isInlineImage(fakeFile('a.png', 'image/png', 4 * MB))).toBe(true)
   })
 
-  it('sends an image over the ceiling by path instead', () => {
-    expect(isInlineImage(fakeFile('capture.png', 'image/png', 13 * MB))).toBe(false)
+  it('keeps an image over the ceiling an image, and one the API does not take but a browser converts', () => {
+    expect(isInlineImage(fakeFile('capture.png', 'image/png', 13 * MB))).toBe(true)
+    expect(isInlineImage(fakeFile('IMG_1.heic', 'image/heic', 3 * MB))).toBe(true)
   })
 
   it('sends anything else by path', () => {
@@ -94,11 +95,8 @@ describe('precheckFile — refuse before uploading', () => {
       kind: 'not_on_device',
       name: 'report.xlsx',
     })
-    // An image too big to ride inline would ride by path: refused too.
-    expect(precheckFile(fakeFile('huge.png', 'image/png', 40 * MB), { ...foreign, hasPath: false })).toEqual({
-      kind: 'not_on_device',
-      name: 'huge.png',
-    })
+    // An image of any size is brought down and rides inline, so it reaches another device too.
+    expect(precheckFile(fakeFile('huge.png', 'image/png', 40 * MB), { ...foreign, hasPath: false })).toBeNull()
     expect(precheckFile(fakeFile('src', '', 0), { ...foreign, folder: true })).toEqual({
       kind: 'not_on_device',
       name: 'src',

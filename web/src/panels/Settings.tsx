@@ -159,7 +159,7 @@ const GH_REASON: Record<Exclude<GhAvailability, 'ready'>, string> = {
   logged_out: 'gh is not logged in',
 }
 
-/** Settings → Experimental → the terminal's placement. The dock first: it is the default (48a). */
+/** Settings → Terminal → the terminal's placement. The dock first: it is the default (48a). */
 const TERMINAL_PLACEMENT_OPTIONS: Array<{ value: TerminalPlacement; label: string }> = [
   { value: 'dock', label: 'Dock' },
   { value: 'side', label: 'Side panel' },
@@ -209,7 +209,7 @@ const NAV_ITEMS = [
   { key: 'permissions', label: 'Permissions', disabled: false },
   { key: 'tags', label: 'Tags & rules', disabled: false },
   { key: 'harness', label: 'Harness templates', disabled: false },
-  // Listed only while Experimental → Terminal is on, as Harness is.
+  // Listed only while Labs → Terminal is on, as Harness is.
   { key: 'terminal', label: 'Terminal', disabled: false },
   { key: 'appearance', label: 'Appearance', disabled: false },
   // Always listed, not behind Experimental: the section is inert until its
@@ -220,7 +220,11 @@ const NAV_ITEMS = [
   // The desktop app's own updates (canvas `Feature - App update`): listed
   // only where the update bridge is, so never in a browser or on the phone.
   { key: 'updates', label: 'Updates', disabled: false },
-  // Listed only once the reveal chord has unlocked it (`lib/experimental`).
+  // Finished features to try, each off until turned on (docs/why-orbital.md
+  // → Experimental, Labs, and out). Always listed.
+  { key: 'labs', label: 'Labs', disabled: false },
+  // Work in progress, listed only once the reveal chord has unlocked it
+  // (`lib/experimental`).
   { key: 'experimental', label: 'Experimental', disabled: false },
 ] as const
 
@@ -975,7 +979,7 @@ export function Settings({ open, onClose }: SettingsProps) {
               keymap's size instead (canvas Feature - Shortcuts, artboard A). */}
               {section === 'shortcuts' && (
                 <span className="shrink-0 font-mono text-[10.5px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
-                  {bindingCount(settings)} bindings · {scopeCount(settings)} scopes
+                  {bindingCount()} bindings · {scopeCount()} scopes
                 </span>
               )}
             </div>
@@ -1324,6 +1328,44 @@ export function Settings({ open, onClose }: SettingsProps) {
                     </>
                   )}
 
+                  {section === 'labs' && (
+                    <>
+                      {/* The lead note of Notifications (canvas `Feature - Notifications off` 1c). */}
+                      <p className="pb-2.5 pt-3.5 text-[13px] leading-[1.5] text-[rgba(160,190,225,.8)]">
+                        Finished features you can try. Each stays off until you turn it on, and any of
+                        them may still change, move into the regular settings, or be removed.
+                      </p>
+                      <SectionLabel first>FEATURES</SectionLabel>
+                      <Row
+                        title="Harness"
+                        desc="Automated checklists that guide a session through a multi-step task. The session runs steps automatically until it needs your approval or answer."
+                      >
+                        <Toggle
+                          aria-label="Harness"
+                          checked={harnessEnabled(settings)}
+                          onChange={(checked) =>
+                            void patchAndSet({ [HARNESS_ENABLED_KEY]: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
+                      {/* Spec 2026-10-05-embedded-terminal-design § Behind an
+                          experimental switch: the switch only; while it is on,
+                          the terminal's own settings have their own section. */}
+                      <Row
+                        title="Terminal"
+                        desc="Your own shell in the session's folder, as tabs beside the session. What you run in it is not sent to the agent. Its settings are in Terminal. Turning this off leaves running shells running."
+                      >
+                        <Toggle
+                          aria-label="Terminal"
+                          checked={terminalEnabled(settings)}
+                          onChange={(checked) =>
+                            void patchAndSet({ [TERMINAL_ENABLED_KEY]: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
+                    </>
+                  )}
+
                   {section === 'experimental' && (
                     <>
                       <SectionLabel first>FEATURES</SectionLabel>
@@ -1377,33 +1419,6 @@ export function Settings({ open, onClose }: SettingsProps) {
                             void patchAndSet({
                               [NARRATE_COMMENTARY_KEY]: checked ? 'true' : 'false',
                             })
-                          }
-                        />
-                      </Row>
-                      <Row
-                        title="Harness"
-                        desc="Automated checklists that guide a session through a multi-step task. The session runs steps automatically until it needs your approval or answer."
-                      >
-                        <Toggle
-                          aria-label="Harness"
-                          checked={harnessEnabled(settings)}
-                          onChange={(checked) =>
-                            void patchAndSet({ [HARNESS_ENABLED_KEY]: checked ? 'true' : 'false' })
-                          }
-                        />
-                      </Row>
-                      {/* Spec 2026-10-05-embedded-terminal-design § Behind an
-                          experimental switch: the switch only; while it is on,
-                          the terminal's own settings have their own section. */}
-                      <Row
-                        title="Terminal"
-                        desc="Your own shell in the session's folder, as tabs beside the session. What you run in it is not sent to the agent. Its settings are in Terminal. Turning this off leaves running shells running."
-                      >
-                        <Toggle
-                          aria-label="Terminal"
-                          checked={terminalEnabled(settings)}
-                          onChange={(checked) =>
-                            void patchAndSet({ [TERMINAL_ENABLED_KEY]: checked ? 'true' : 'false' })
                           }
                         />
                       </Row>

@@ -25,7 +25,7 @@ principles in full.
 
 ## Screenshot
 
-![Orbital map view](site/public/demo-images/map-hero.webp)
+![Orbital map view](site/public/demo-images/map.webp)
 
 ## Prerequisites
 

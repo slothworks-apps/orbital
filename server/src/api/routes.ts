@@ -34,6 +34,7 @@ import {
   type Runner,
   type SimulatedCompactionOutcome,
 } from '../runner/runner.js';
+import type { ArchiveOutcome, ListedSession } from '../runner/sessionsTools.js';
 import { mergeCompactionFailures, type CompactionFailureRecord } from '../transcript/compaction.js';
 import { RETENTION_KEY } from '../retention.js';
 import type { LiveSessions } from '../watcher/registry.js';
@@ -1354,6 +1355,63 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       claudeDirId: launchDirOf(parent.claude_dir_id),
     });
     return { sessionId, cwd };
+  };
+
+  /**
+   * The back end of `list_sessions` and `archive_session` (spec
+   * 2026-10-12-a-session-archives-sessions-design). Archiving is the user's
+   * End, through the same `endSession`; what it refuses without `force` is
+   * what the trash would ask about first.
+   */
+  ctx.runner.sessionKeeper = {
+    list: (callerId, input) => {
+      const limit = Math.min(input.limit ?? 50, 200);
+      const under = input.cwd ? expandHome(input.cwd).replace(/\/+$/, '') : null;
+      if (under !== null && !isAbsolute(under)) throw new Error(`cwd must be an absolute path: ${input.cwd}`);
+      const rows = (db.select(sessionColumns).from(sessions)
+        .where(inArray(sessions.claudeDirId, configuredDirIds()))
+        .orderBy(desc(sessions.lastAt))
+        .all() as SessionRow[])
+        .filter((r) => r.purpose !== 'harness_draft')
+        .filter((r) => under === null || r.cwd === under || r.cwd.startsWith(`${under}/`));
+      const listed: ListedSession[] = [];
+      for (const row of rows) {
+        if (listed.length >= limit) break;
+        const status = statusOf(ctx, row);
+        if (status === 'ended' && !input.includeArchived) continue;
+        listed.push({
+          id: row.id, title: row.title, cwd: row.cwd, source: row.source, status,
+          alive: ctx.runner.status(row.id) !== undefined || ctx.registry.get(row.id) !== undefined,
+          pinned: row.pinned_at !== null,
+          lastAt: row.last_at === null ? null : new Date(row.last_at).toISOString(),
+          archivedAt: row.ended_at === null ? null : new Date(row.ended_at).toISOString(),
+          self: row.id === callerId,
+        });
+      }
+      return listed;
+    },
+    archive: async (callerId, ids, force) => {
+      const outcomes: ArchiveOutcome[] = [];
+      for (const id of new Set(ids)) {
+        const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow | undefined;
+        const refuse = (reason: string) => outcomes.push({ id, result: 'refused', reason });
+        if (!row) { outcomes.push({ id, result: 'not_found' }); continue; }
+        // Ending itself would stop the very turn that is waiting on this call.
+        if (id === callerId) { refuse('this is the calling session'); continue; }
+        const status = statusOf(ctx, row);
+        if (status === 'ended' && row.pinned_at === null) { outcomes.push({ id, result: 'already_archived' }); continue; }
+        // A terminal session ends when its CLI exits; no stamp here stops it.
+        if (row.source !== 'web' && status !== 'ended') { refuse('a terminal session that is still running'); continue; }
+        if (!force && row.pinned_at !== null) { refuse('pinned by the user; pass force to archive it anyway'); continue; }
+        if (!force && (status === 'working' || status === 'needs_input')) {
+          refuse(`${status === 'working' ? 'working' : 'waiting for the user\'s input'}; pass force to archive it anyway`);
+          continue;
+        }
+        await endSession(id, { unpin: true });
+        outcomes.push({ id, result: 'archived' });
+      }
+      return outcomes;
+    },
   };
 
   /**

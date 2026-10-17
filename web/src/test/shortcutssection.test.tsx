@@ -17,7 +17,7 @@ describe('Settings → Shortcuts', () => {
     fireEvent.change(screen.getByLabelText('Filter shortcuts'), { target: { value: 'fit' } })
     expect(groupTitles()).toEqual(['MAP'])
     expect(screen.getAllByTestId('shortcut-row')).toHaveLength(1)
-    expect(screen.getByText(`1/${bindingCount({})}`)).toBeInTheDocument()
+    expect(screen.getByText(`1/${bindingCount()}`)).toBeInTheDocument()
   })
 
   it('shows the empty state when nothing matches', () => {

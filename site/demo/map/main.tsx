@@ -13,7 +13,7 @@ import { MESSAGES, MODELS, SETTINGS, TAGS } from '../fake/fixtures'
 import { announceReady, capDevicePixelRatio, installFakeServer } from '../fake/install'
 import { isPosterRun } from '../page'
 import { MapDemo } from './MapDemo'
-import { MAP_DURATIONS, TICK_MS, parseScene, sessionsFor } from './scenario'
+import { MAP_DURATIONS, TICK_MS, sessionsFor } from './scenario'
 
 /**
  * The cap on the map canvas's pixel ratio. The website draws this page at its
@@ -24,8 +24,7 @@ const MAX_DPR = 1.5
 
 capDevicePixelRatio(MAX_DPR)
 
-const scene = parseScene(window.location.search)
-const opening = sessionsFor(scene, 0)
+const opening = sessionsFor(0)
 const server = installFakeServer({
   sessions: opening,
   tags: TAGS,
@@ -92,7 +91,7 @@ if (!isPosterRun()) {
     durations: MAP_DURATIONS,
     tickMs: TICK_MS,
     onBeat: (beat) => {
-      const next = sessionsFor(scene, beat)
+      const next = sessionsFor(beat)
       for (const s of next) {
         if (shown.get(s.id) !== s) server.upsert({ ...s, lastAt: Date.now() })
       }

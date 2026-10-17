@@ -286,7 +286,7 @@ export class GroupFederation implements SwappableClient {
   }
 
   /** Asked of every source that is up at once; the first that has it answers. */
-  getBlob(ref: string): Promise<BlobResult> {
+  getBlob(ref: string, opts: { edge?: number } = {}): Promise<BlobResult> {
     const ready = this.readySources()
     if (ready.length === 0) return Promise.reject(new TunnelError('offline'))
     return new Promise((resolve, reject) => {
@@ -294,7 +294,7 @@ export class GroupFederation implements SwappableClient {
       let last: BlobResult | null = null
       let failure: Error | null = null
       for (const [source, channel] of ready) {
-        channel.getBlob(ref).then(
+        channel.getBlob(ref, opts).then(
           (res) => {
             if (res.status !== 200) {
               last = res
