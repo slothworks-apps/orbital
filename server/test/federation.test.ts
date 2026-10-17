@@ -438,6 +438,53 @@ describe('FederationService snapshots', () => {
   });
 });
 
+describe('FederationService alone in its group', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('a device left in a group of one forgets every member: removes published first, every snapshot row gone', async () => {
+    const store = new MemberSnapshotStore(openTmpDb('federation'));
+    const { hub, remote, federation } = setup(undefined, { snapshots: store });
+    const window = localSocket(hub, ['sessions']);
+    const b = memberB();
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    b.down();
+    // A row no link holds, as one left from before: it goes too.
+    store.save('stale', [{ id: 'old' }], [], 1);
+    expect(store.load()).toHaveLength(2);
+    remote.members = [entry(SELF), entry('phone-p', { kind: 'phone', links: false })];
+    remote.published();
+    expect(federation.sessions()).toEqual([]);
+    expect(store.load()).toEqual([]);
+    expect(window.frames()).toContainEqual({ topic: 'sessions', event: 'remove', sessionId: 's1' });
+  });
+
+  it('a tag made on a member after stop does not hold up the next link\'s write', async () => {
+    vi.useFakeTimers();
+    const saves: string[] = [];
+    const snapshots = { load: () => [], remove: () => {}, save: (id: string) => { saves.push(id); } };
+    const { remote, federation } = setup(undefined, { snapshots, localTags: () => [{ id: 4, name: 'new' }] });
+    let made!: (res: TunnelResponse) => void;
+    const seedAnswer = memberB().answer;
+    const b = new FakeChannel((method, path, body) => (method === 'POST' && path === '/api/tags'
+      ? new Promise<TunnelResponse>((r) => { made = r; })
+      : seedAnswer(method, path, body)));
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await vi.advanceTimersByTimeAsync(0);
+    const tag = federation.peerTagId(federation.link(B)!, 4);
+    federation.stop();
+    saves.length = 0;
+    made({ status: 201, body: { id: 9 } });
+    await tag;
+    // Up again: the new link's seed is written after the gathering delay.
+    federation.start();
+    await vi.advanceTimersByTimeAsync(SNAPSHOT_WRITE_MS);
+    expect(saves).toEqual([B]);
+  });
+});
+
 describe('FederationService presence', () => {
   it('the user at a member keeps the phone quiet here, until that member\'s channel is down', async () => {
     const { remote, federation } = setup();

@@ -83,6 +83,8 @@ export class FederationService {
   private offs: (() => void)[] = [];
   private running = false;
   private hubHooked = false;
+  /** Every snapshot row went when this device was last found alone in its group. */
+  private cleared = false;
   private readonly now: () => number;
 
   constructor(private readonly opts: FederationOptions) {
@@ -445,6 +447,11 @@ export class FederationService {
     // A roster that could not be read (or holds no self yet) says nothing about who left.
     const self = this.opts.remote.selfId();
     if (self === null || !live.has(self)) return;
+    if ([...live.values()].every((e) => e.id === self || e.kind === 'phone')) {
+      this.alone();
+      return;
+    }
+    this.cleared = false;
     for (const link of [...this.links.values()]) {
       const entry = live.get(link.id);
       if (!entry || entry.kind === 'phone') {
@@ -459,6 +466,21 @@ export class FederationService {
       if (this.links.has(entry.id)) continue;
       const channel = this.channels.get(entry.id)?.channel;
       if (channel?.ready) this.engage(entry.id, channel, entry);
+    }
+  }
+
+  /**
+   * This device is in a group of one (it left, or was removed): no other
+   * member's sessions stay, in memory or on disk. Once per spell alone.
+   */
+  private alone(): void {
+    for (const link of [...this.links.values()]) this.drop(link);
+    if (this.cleared) return;
+    this.cleared = true;
+    try {
+      for (const snap of this.opts.snapshots?.load() ?? []) this.removeSnapshot(snap.memberId);
+    } catch (err) {
+      console.warn(`[federation] could not read the kept sessions: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -494,6 +516,8 @@ export class FederationService {
 
   /** Gathers a member's changes into one write, `SNAPSHOT_WRITE_MS` after the first. */
   private scheduleSnapshot(link: MemberLink): void {
+    // A change that lands after `stop()` or a drop (a tag made late) must not hold up a fresh link's write.
+    if (!this.running || this.links.get(link.id) !== link) return;
     if (!this.opts.snapshots || this.pendingWrites.has(link.id)) return;
     const timer = setTimeout(() => {
       this.pendingWrites.delete(link.id);
