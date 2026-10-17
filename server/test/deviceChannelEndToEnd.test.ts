@@ -45,6 +45,16 @@ describe('two servers, one channel', () => {
     expect(devicesB).toEqual([expect.objectContaining({ id: idA, name: 'studio', kind: 'desktop' })]);
   }, 20_000);
 
+  it('a member\'s ask reaches the route marked as a member\'s: settings save, remote_ ones are refused', async () => {
+    const { a, b, idA } = await joined();
+    const toA = b.remote.channel(idA)!;
+    expect((await toA.request('PATCH', '/api/settings', { theme: 'desk' })).status).toBe(200);
+    const refused = await toA.request('PATCH', '/api/settings', { remote_enabled: 'false' });
+    expect([refused.status, refused.body]).toEqual([403, { error: 'not_allowed' }]);
+    const settingsA = (await a.api('GET', '/api/settings')).json();
+    expect(settingsA).toMatchObject({ theme: 'desk', remote_enabled: 'true' });
+  }, 20_000);
+
   it('B restarts: the channel comes back and asks work again', async () => {
     const { a, b, idA, idB } = await joined();
     await b.api('POST', '/api/remote/restart');

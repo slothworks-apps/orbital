@@ -11,7 +11,7 @@ import { expandHome } from '../paths.js';
 import { NamedPathCache, readFilePreview, readImageFile, readInSandboxes } from '../files/preview.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
 import { completeFilePath } from '../files/complete.js';
-import { createDirectory, directoryState } from '../files/directory.js';
+import { createDirectory, directoryState, listDirs } from '../files/directory.js';
 import { locateOnDisk } from '../media/items.js';
 import { SubagentMedia, sessionMedia, type SessionMediaContext } from '../media/sessionMedia.js';
 import { OpenTabsReader } from '../files/openTabs.js';
@@ -63,6 +63,7 @@ import { recordDecisions, serverFile, undecidedServers, type McpjsonDecisions } 
 import { dbFingerprints } from '../mcp/approvals.js';
 import type { McpConfig } from '../mcp/config.js';
 import { registerRemoteRoutes } from './remoteRoutes.js';
+import { DEVICE_HEADER } from '../remote/inject.js';
 import type { Presence } from '../remote/presence.js';
 import type { RemoteService } from '../remote/service.js';
 import { buildWalkthrough } from '../walkthrough/spine.js';
@@ -1220,6 +1221,18 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const q = req.query as { path?: string };
     if (!q.path?.trim()) return reply.code(400).send({ error: 'path_required' });
     return directoryState(q.path);
+  });
+
+  /**
+   * One level of this device's folders, for the folder chooser another
+   * device opens on it (canvas 50g). No path is home.
+   */
+  app.get('/api/dirs', (req, reply) => {
+    const q = req.query as { path?: string };
+    const listed = listDirs(q.path);
+    if (listed.ok) return listed.listing;
+    const status = { not_absolute: 400, not_found: 404, unreadable: 403 }[listed.error];
+    return reply.code(status).send({ error: listed.error });
   });
 
   /** Creates a missing project directory, parents included — the form's *Create and start*. */
@@ -2457,6 +2470,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // stay, and moving a whole group is not built yet (idea move-a-group-to-another-relay).
     const relayChange = ['remote_relay_url', 'remote_relay_secret']
       .some((k) => k in patch && ctx.settings.get(k) !== String(patch[k]));
+    // The relay and the remote switch are the group's, not one member's to
+    // change on another (spec 2026-10-16-device-group-design § 6).
+    if (req.headers[DEVICE_HEADER] !== undefined && Object.keys(patch).some((k) => k.startsWith('remote_'))) {
+      return reply.code(403).send({ error: 'not_allowed' });
+    }
     if (relayChange && ctx.remote.inGroup()) return reply.code(409).send({ error: 'in_group' });
     let branchSettings = false;
     let remoteRestart = false;

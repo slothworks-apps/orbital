@@ -1933,3 +1933,15 @@ export type JoinAnswer =
   | { ok: false; error: 'bad_code' | 'disabled' | 'offline' | 'already_paired' | 'in_group' | 'relay_error' | 'relay_too_old' }
   | { ok: false; error: 'other_relay'; relay: string }
   | { ok: false; error: 'peer_offline'; expiresAt?: number }
+
+/** One level of a device's folders, for the folder chooser (`GET /api/dirs`). */
+export interface DirListing {
+  /** The absolute path listed. */
+  path: string
+  /** Null at `/`. */
+  parent: string | null
+  /** Sub-directories only, hidden ones left out, sorted case-insensitively. */
+  dirs: { name: string; hasChildren: boolean }[]
+  /** True when the server cut the list at its cap. */
+  truncated: boolean
+}

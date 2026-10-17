@@ -3,11 +3,12 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { eq } from 'drizzle-orm';
 import { EventEmitter } from 'node:events';
-import { appendFileSync, copyFileSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, copyFileSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
 import { FILE_COMPLETE_MAX } from '../src/files/complete.js';
+import { DIRS_MAX } from '../src/files/directory.js';
 import { OUTPUT_TAIL_BYTES } from '../src/files/taskOutput.js';
 import { ATTACHMENT_MAX_BYTES, FILE_ATTACHMENT_MAX_BYTES } from '../src/api/routes.js';
 import type { OrbitalDb } from '../src/db/database.js';
@@ -4227,5 +4228,99 @@ describe('/api/directory', () => {
       const res = await post(path);
       expect([res.statusCode, res.json()], path).toEqual([409, { error: 'not_a_directory' }]);
     }
+  });
+});
+
+describe('GET /api/dirs', () => {
+  const list = async (app: FastifyInstance, path?: string) => {
+    const res = await app.inject({ method: 'GET', url: path === undefined ? '/api/dirs' : `/api/dirs?${new URLSearchParams({ path })}` });
+    return { status: res.statusCode, body: res.json() };
+  };
+
+  it('lists home with no path, and ~ as home', async () => {
+    const { app } = makeApp();
+    const home = makeTmpDir('dirshome');
+    mkdirSync(join(home, 'Projects'));
+    vi.stubEnv('HOME', home);
+    try {
+      for (const path of [undefined, '', '~']) {
+        expect(await list(app, path), String(path)).toEqual({
+          status: 200,
+          body: { path: home, parent: join(home, '..'), dirs: [{ name: 'Projects', hasChildren: false }], truncated: false },
+        });
+      }
+      expect((await list(app, '~/Projects')).body.path).toBe(join(home, 'Projects'));
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('answers sub-directories only, hidden ones left out, sorted without case, with hasChildren', async () => {
+    const { app } = makeApp();
+    const dir = makeTmpDir('dirs');
+    mkdirSync(join(dir, 'beta', 'inner'), { recursive: true });
+    mkdirSync(join(dir, 'Alpha', '.hidden'), { recursive: true });
+    writeFileSync(join(dir, 'Alpha', 'file.txt'), 'x');
+    mkdirSync(join(dir, '.git'));
+    mkdirSync(join(dir, 'gamma'));
+    writeFileSync(join(dir, 'notes.md'), 'x');
+    symlinkSync(join(dir, 'beta'), join(dir, 'linked'));
+    symlinkSync(join(dir, 'notes.md'), join(dir, 'filelink'));
+    symlinkSync(join(dir, 'gone'), join(dir, 'dangling'));
+    const { status, body } = await list(app, dir);
+    expect(status).toBe(200);
+    expect(body).toEqual({
+      path: dir,
+      parent: join(dir, '..'),
+      dirs: [
+        { name: 'Alpha', hasChildren: false },
+        { name: 'beta', hasChildren: true },
+        { name: 'gamma', hasChildren: false },
+        { name: 'linked', hasChildren: true },
+      ],
+      truncated: false,
+    });
+  });
+
+  it('answers the resolved path, and no parent at /', async () => {
+    const { app } = makeApp();
+    const dir = makeTmpDir('dirs');
+    mkdirSync(join(dir, 'a'));
+    expect((await list(app, `${dir}/a/..`)).body.path).toBe(dir);
+    const root = await list(app, '/');
+    expect(root.status).toBe(200);
+    expect([root.body.path, root.body.parent]).toEqual(['/', null]);
+  });
+
+  it('refuses a relative path, a missing one and a file', async () => {
+    const { app } = makeApp();
+    const dir = makeTmpDir('dirs');
+    writeFileSync(join(dir, 'f.txt'), 'x');
+    expect(await list(app, 'relative/dir')).toEqual({ status: 400, body: { error: 'not_absolute' } });
+    expect(await list(app, join(dir, 'nope'))).toEqual({ status: 404, body: { error: 'not_found' } });
+    expect(await list(app, join(dir, 'f.txt'))).toEqual({ status: 404, body: { error: 'not_found' } });
+  });
+
+  it.skipIf(process.getuid?.() === 0)('answers 403 for a directory it cannot read, and false for a child it cannot', async () => {
+    const { app } = makeApp();
+    const dir = makeTmpDir('dirs');
+    mkdirSync(join(dir, 'locked', 'inner'), { recursive: true });
+    chmodSync(join(dir, 'locked'), 0o000);
+    try {
+      expect((await list(app, dir)).body.dirs).toEqual([{ name: 'locked', hasChildren: false }]);
+      expect(await list(app, join(dir, 'locked'))).toEqual({ status: 403, body: { error: 'unreadable' } });
+    } finally {
+      chmodSync(join(dir, 'locked'), 0o755);
+    }
+  });
+
+  it('cuts the list at DIRS_MAX and says so', async () => {
+    const { app } = makeApp();
+    const dir = makeTmpDir('dirs');
+    const names = Array.from({ length: DIRS_MAX + 1 }, (_, i) => `d${String(i).padStart(4, '0')}`);
+    for (const name of names) mkdirSync(join(dir, name));
+    const { body } = await list(app, dir);
+    expect(body.truncated).toBe(true);
+    expect(body.dirs.map((d: { name: string }) => d.name)).toEqual(names.slice(0, DIRS_MAX));
   });
 });

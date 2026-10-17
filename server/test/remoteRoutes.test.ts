@@ -8,7 +8,7 @@ import { DeviceStore } from '../src/remote/devices.js';
 import { RosterStore } from '../src/remote/rosterStore.js';
 import { RemoteService } from '../src/remote/service.js';
 import { Hub } from '../src/api/hub.js';
-import { remoteInjectOptions } from '../src/remote/inject.js';
+import { DEVICE_HEADER, remoteInjectOptions } from '../src/remote/inject.js';
 import { generateIdentity, deviceId, toBase64Url } from '@orbital/shared/remote/keys';
 import { PAIRING_SECRET_BYTES } from '@orbital/shared/remote/relayApi';
 import type { RosterEntry } from '@orbital/shared/remote/roster';
@@ -245,6 +245,26 @@ describe('/api/remote', () => {
       await app.close();
     }
   });
+  it('a member may not change this device\'s remote_ settings; every other key, and a local request, go through', async () => {
+    const app = await server(false);
+    const patch = (payload: Record<string, string>, device?: string) =>
+      app.inject(remoteInjectOptions({ method: 'PATCH', url: '/api/settings', payload, device }, undefined));
+    const settings = async () => (await app.inject({ method: 'GET', url: '/api/settings' })).json();
+    try {
+      for (const payload of [{ remote_relay_url: 'http://127.0.0.1:2' }, { remote_enabled: 'true' }, { theme: 'desk', remote_mac_name: 'x' }] as Record<string, string>[]) {
+        const res = await patch(payload, 'member-id');
+        expect([res.statusCode, res.json()], JSON.stringify(payload)).toEqual([403, { error: 'not_allowed' }]);
+      }
+      expect(await settings()).toMatchObject({ remote_relay_url: 'http://127.0.0.1:1', remote_enabled: 'false' });
+      expect((await settings()).theme).toBeUndefined();
+      expect((await patch({ theme: 'desk' }, 'member-id')).statusCode).toBe(200);
+      expect((await settings()).theme).toBe('desk');
+      expect((await patch({ remote_mac_name: 'Studio' })).statusCode).toBe(200);
+      expect((await settings()).remote_mac_name).toBe('Studio');
+    } finally {
+      await app.close();
+    }
+  });
   it('a phone\'s body-less POST reaches its route instead of failing on an empty JSON body', async () => {
     const app = await server(false);
     const res = await app.inject(remoteInjectOptions({ method: 'POST', url: '/api/sessions/nope/interrupt' }, undefined));
@@ -261,5 +281,9 @@ describe('remoteInjectOptions', () => {
     });
     expect(remoteInjectOptions({ method: 'POST', url: '/api/sessions/s/message', payload: { text: 'hi' } }, undefined).headers)
       .toEqual({ host: '127.0.0.1', 'content-type': 'application/json' });
+  });
+  it('names the asking member in DEVICE_HEADER, and only when there is one', () => {
+    expect(remoteInjectOptions({ method: 'GET', url: '/api/sessions', device: 'dev1' }, undefined).headers)
+      .toEqual({ host: '127.0.0.1', [DEVICE_HEADER]: 'dev1' });
   });
 });

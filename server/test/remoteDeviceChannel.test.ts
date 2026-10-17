@@ -160,10 +160,11 @@ describe('device channel, served by this server', () => {
     const { phone } = build({ inject });
     phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' });
     phone.send({ t: 'http', id: 1, method: 'GET', path: '/api/sessions?limit=2' });
-    phone.send({ t: 'http', id: 2, method: 'GET', path: '/api/files?path=/etc/passwd' });
+    phone.send({ t: 'http', id: 2, method: 'GET', path: '/api/files/image?path=/etc/passwd' });
     await new Promise((r) => setTimeout(r, 0));
     expect(inject).toHaveBeenCalledTimes(1);
-    expect(inject.mock.calls[0][0]).toMatchObject({ method: 'GET', url: '/api/sessions?limit=2' });
+    // The asking device rides along, for `DEVICE_HEADER`.
+    expect(inject.mock.calls[0][0]).toMatchObject({ method: 'GET', url: '/api/sessions?limit=2', device: deviceId(phone.me.publicKey) });
     expect(phone.out).toContainEqual({ t: 'http_res', id: 1, status: 200, body: { url: '/api/sessions?limit=2' } });
     expect(phone.out).toContainEqual({ t: 'http_res', id: 2, status: 403, body: { error: 'not_allowed' } });
   });

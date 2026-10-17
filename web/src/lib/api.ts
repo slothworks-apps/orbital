@@ -7,6 +7,7 @@ import type {
   ChatMessage,
   CommandContent,
   CompletionKey,
+  DirListing,
   FileEntry,
   ImageRefEntry,
   MediaItem,
@@ -769,6 +770,18 @@ export const api = {
     return request<{ path: string; state: DirectoryState }>('GET', `/api/directory?${new URLSearchParams({ path })}`)
   },
 
+  /**
+   * One level of a device's folders: no path is home. `machine` names the
+   * member whose folders they are; absent, this device's.
+   */
+  async listDirs(path?: string, machine?: string): Promise<DirListing> {
+    const params = new URLSearchParams()
+    if (path !== undefined) params.set('path', path)
+    if (machine !== undefined) params.set('machine', machine)
+    const query = params.toString()
+    return request<DirListing>('GET', query ? `/api/dirs?${query}` : '/api/dirs')
+  },
+
   /** Creates a missing project directory and its parents; answers the expanded path. */
   async createDirectory(path: string): Promise<{ path: string }> {
     return request<{ path: string }>('POST', '/api/directory', { path })
@@ -1403,6 +1416,7 @@ export type {
   ImageProvenance,
   ImageRefEntry,
   CompletionKey,
+  DirListing,
   ErrorKind,
   FileCompletionEntry,
   SlashCommand,

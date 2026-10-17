@@ -24,25 +24,26 @@ export const BLOB_PUT_MAX_BYTES = ATTACHMENT_MAX_BYTES;
 /** Uploads a phone may hold open at once; each buffers in memory until its last chunk. */
 export const MAX_OPEN_UPLOADS = 4;
 /**
- * Hub topics a phone may subscribe to: the ones the web client uses, and
- * nothing else — the same stance `allowedPath` takes on routes, so a topic
- * added later stays Mac-only until it is listed here. `remote` (pairing
- * codes and fingerprints) is deliberately absent. `presence` is the phone's
- * own: the web client has no use for it.
+ * Hub topics another member may subscribe to: the ones the web client uses,
+ * and nothing else — the same stance `allowedPath` takes on routes, so a
+ * topic added later stays this device's own until it is listed here.
+ * `remote` (pairing codes and fingerprints) is deliberately absent.
+ * `presence` is the phone's: the web client has no use for it.
  */
-export const PHONE_ALLOWED_TOPICS: ReadonlySet<string> = new Set(['sessions', 'errors', PRESENCE_TOPIC]);
+export const MEMBER_ALLOWED_TOPICS: ReadonlySet<string> = new Set(['sessions', 'errors', PRESENCE_TOPIC]);
 /** Per-id topics, by prefix: `session:<id>`, `subagent:<session>:<agent>`, `task-output:<session>:<task>`. */
-export const PHONE_ALLOWED_TOPIC_PREFIXES: readonly string[] = ['session:', 'subagent:', 'task-output:'];
+export const MEMBER_ALLOWED_TOPIC_PREFIXES: readonly string[] = ['session:', 'subagent:', 'task-output:'];
 
-export function phoneMayWatch(topic: string): boolean {
-  return PHONE_ALLOWED_TOPICS.has(topic) || PHONE_ALLOWED_TOPIC_PREFIXES.some((p) => topic.startsWith(p) && topic.length > p.length);
+export function memberMayWatch(topic: string): boolean {
+  return MEMBER_ALLOWED_TOPICS.has(topic) || MEMBER_ALLOWED_TOPIC_PREFIXES.some((p) => topic.startsWith(p) && topic.length > p.length);
 }
 
 const IMAGE_CONTENT_TYPES: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
 };
 
-export type InjectFn = (req: { method: string; url: string; payload?: unknown }) => Promise<{ statusCode: number; body: string }>;
+/** `device`, when given, is the id of the member that asked: it rides as `DEVICE_HEADER`. */
+export type InjectFn = (req: { method: string; url: string; payload?: unknown; device?: string }) => Promise<{ statusCode: number; body: string }>;
 
 export type ServingHalfOptions = {
   deviceId: string;
@@ -139,7 +140,7 @@ export class ServingHalf implements ChannelServer {
     if (!socket) return;
     switch (msg.t) {
       case 'ws':
-        if (!phoneMayWatch(msg.topic)) return;
+        if (!memberMayWatch(msg.topic)) return;
         socket.emit('message', JSON.stringify({ type: msg.type, topic: msg.topic }));
         // The hub replays nothing on subscribe, so the phone would not know
         // presence until it next changed.
@@ -187,7 +188,7 @@ export class ServingHalf implements ChannelServer {
       return this.answer({ t: 'http_res', id: msg.id, status: 403, body: { error: 'not_allowed' } });
     }
     try {
-      const res = await this.opts.inject({ method: msg.method, url: path, payload: msg.body });
+      const res = await this.opts.inject({ method: msg.method, url: path, payload: msg.body, device: this.opts.deviceId });
       let body: unknown = res.body;
       try {
         body = JSON.parse(res.body);

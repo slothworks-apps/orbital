@@ -119,7 +119,7 @@ describe('the phone client against a real relay and a real Mac', () => {
     expect(await upsert).toMatchObject({ topic: 'sessions', event: 'upsert' });
 
     // A route the allowlist does not name.
-    expect((await client.request('GET', '/api/settings')).status).toBe(403);
+    expect((await client.request('GET', '/api/remote')).status).toBe(403);
 
     // An image the Mac's store holds, fetched as a blob.
     const png = new Uint8Array(70_000).fill(7);

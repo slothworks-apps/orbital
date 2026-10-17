@@ -53,7 +53,7 @@ describe('mobile remote, end to end', () => {
     expect(recorded.statusCode).toBe(200);
     const errorFrame = await phone.next('ws', (m) => (m.frame as any)?.topic === 'errors');
     expect(errorFrame.frame).toMatchObject({ topic: 'errors', event: 'error', error: { message: 'e2e boom' } });
-    phone.send({ t: 'http', id: 2, method: 'GET', path: '/api/files?path=/etc/passwd' });
+    phone.send({ t: 'http', id: 2, method: 'GET', path: '/api/files/image?path=/etc/passwd' });
     expect(await phone.next('http_res', (m) => m.id === 2)).toMatchObject({ status: 403 });
 
     // An image up, then the same image down.
