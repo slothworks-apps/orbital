@@ -323,12 +323,22 @@ already has, no new plugin or permission.
    `remote_devices` holds only the devices this one has a relay pair
    with. `POST /pair/mutual` and the `linked` control are as designed
    (§ 4); a relay that answers 404 (it predates the route) lists the
-   other device `pairByHand` until the next relay `ok`. Known limit: a
-   device removed while it is offline learns of its removal only when it
-   next talks to a member that already knows — the relay's `unpaired`
-   reaches only a device it can push to right then, so it is not queued
-   for one that is absent (`docs/domains/device-group.md` → Known
-   limits).
+   other device `pairByHand` until the next relay `ok`. `/pair/mutual`
+   and `/pair/revoke` draw on a per-IP budget of their own at the relay,
+   so linking never locks a connect out; a rate-limited ask is retried
+   on a timer. A removal made while the relay is offline is kept and its
+   revoke posted at the next relay `ok`; every `ok` also asks again for
+   the members paired here, so a pair the relay lost forms again. Removing
+   this device's own id is leaving, refused offline. A leaving member
+   marks the phones it paired removed, since their pairs go with it.
+   Known limits: a device removed while it is offline learns of its
+   removal only when it next talks to a member that already knows; a
+   departed member that a sleeping peer missed stays live and unlinked
+   there until someone removes it by hand — the relay's `unpaired` never
+   changes the roster; removed entries are never pruned, so
+   `ROSTER_MAX_ENTRIES` bounds a group's lifetime; and a device's `kind`
+   and whether it links are its own word, so pairing anything by code
+   trusts it group-wide (`docs/domains/device-group.md` → Known limits).
 3. **Federation over channels**: #79's `PeerService` and routing on the
    channel, the phone's merge, device chips and names, capabilities.
 4. **The headless server** (§ 11), with its runbook.

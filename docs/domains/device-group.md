@@ -97,9 +97,12 @@ other members carry (`kind: 'phone'`, `links: false`).
 - **Its own entry.** Each `RemoteService` adds itself to its own roster
   the first time it starts with none (`addSelf`): `kind` from
   `serverDeviceKind()`, `name` from the Mac name, `os` from the running
-  platform, `links: true`. If its name changes while it already has a
-  live entry, it re-describes itself (`describeMember`); a rename made
-  while the remote was off is picked up the next time the remote starts.
+  platform, `links: true` — each cut to the bound the roster schema reads
+  it within (`PAIR_NAME_MAX_CHARS`, `ROSTER_KIND_MAX_CHARS`), since one
+  entry past a bound makes every other member refuse the whole roster.
+  If its name changes while it already has a live entry, it re-describes
+  itself (`describeMember`); a rename made while the remote was off is
+  picked up the next time the remote starts.
 - **A newcomer, at pairing.** Confirming an incoming pair, or finishing
   a join through another member, adds the new device with `links:
   false` and whatever the pairing ceremony knew about it (`addPaired`).
@@ -122,9 +125,13 @@ took effect and on every relay `ok` (a fresh relay connection). For
 every live roster entry that links, is not this device itself, and has
 no `remote_devices` row yet, it asks the relay once per connection
 (`mutualAsked`, cleared on the next `ok`) with a signed `POST
-/pair/mutual { peer }`. The relay forms the pair only once the other
-side has asked for the same pair, so the first member to ask simply
-waits — nothing happens on this side until the relay answers `{ linked:
+/pair/mutual { peer }`. At a relay `ok` it asks for the members that do
+have a row too: the relay answers `{ linked: true }` while it still
+holds the pair, and otherwise keeps the half until the other side asks —
+so a pair the relay lost while this side kept its row (the other side
+revoked it while this one was away) forms again. The relay forms the
+pair only once the other side has asked for the same pair, so the first
+member to ask simply waits — nothing happens on this side until the relay answers `{ linked:
 true }` or sends the `linked` control once the other half arrives.
 
 What happens to the answer:
@@ -141,8 +148,11 @@ What happens to the answer:
 - **404** (the relay predates `/pair/mutual`) marks the id `pairByHand`
   in memory until the next relay `ok` clears it, and is shown as such in
   the status.
-- **400 or 429** (a bad request, rate-limited) is left asked until the
-  next relay `ok` starts the asking over.
+- **400** (a bad request) is left asked until the next relay `ok`
+  starts the asking over.
+- **429** (rate-limited) is asked again after `MUTUAL_RETRY_MS`, or at
+  the next relay `ok` if that comes first; the timer is cleared by an
+  `ok` and by any stop, so a stopped remote asks nothing.
 - **A network failure or a 5xx** un-marks the id as asked, so the very
   next roster change tries it again.
 
@@ -165,10 +175,17 @@ write actually removed (one that was live, or unknown, just before):
   `bye revoked`; its watcher stops, its `remote_devices` row goes, and
   its relay pair is revoked (`POST /pair/revoke`) — posted even when
   there was no row, so a mutual half still waiting at the relay for this
-  device goes too.
-- **Removing this device itself** (`leaveGroup`) — including by
-  `leave()`, which is exactly `remove(self)` — tells every open channel
-  the roster (not `removed`: that message means "you were removed", and
+  device goes too. Every revoke is written to `pending_revokes` first and
+  leaves it only once the relay answers 200 or 404 (no such pair); one
+  the relay could not be told — offline, a network failure, a 5xx — is
+  posted again at every relay `ok`. A device paired afresh (a ceremony
+  or a `linked`) drops a revoke still waiting for it.
+- **Removing this device itself** (`leaveGroup`) — by `leave()`, and by
+  `remove()` given this device's own id, which is `leave()` with its
+  refusal while offline — first marks removed, in the roster it is about
+  to send, every live `phone` entry this device has a `remote_devices`
+  row for (those pairs go in this same leave, and no other member can
+  reach such a phone); then tells every open channel the roster (not `removed`: that message means "you were removed", and
   this device was not) and closes it with `bye revoked`; revokes every
   paired device's relay pair, and separately revokes any live, linking
   member this device was never paired with but might have a mutual half
@@ -177,7 +194,9 @@ write actually removed (one that was live, or unknown, just before):
   one. `leave()` itself only runs while the relay is online: offline,
   nothing reaches anyone else and the group-of-one write would
   overwrite the removal before it ever spread, so it answers `{ error:
-  'offline' }` instead.
+  'offline' }` instead (409 from both `POST /api/remote/leave` and
+  `DELETE /api/remote/devices/<own id>`). A roster write that fails
+  answers `{ error: 'failed' }` (500), never `ok`.
 - **Learning of its own removal from a peer**: a `removed` group
   message means "you were removed" — the sender is a member that
   already knows — and is handled as `leaveGroup` above.
@@ -208,6 +227,15 @@ queued offline frames are drained only once it has no pair left at all
 (`peersOf(id).length === 0`), since the queue is kept per recipient, not
 per sender.
 
+`/pair/mutual` and `/pair/revoke` draw on a per-IP budget of their own
+(`MUTUAL_RATE_LIMIT_PER_MIN` in `relay/src/rateLimit.ts`), not on the
+one a WebSocket connect checks (`PAIR_RATE_LIMIT_PER_MIN`): every member
+asks for every other at each connection, and that must never lock a
+device behind the same address out of connecting. A wrong relay secret
+on either route still counts against the guessing budget, and past it
+they are refused like a connect, so the secret is not guessed faster
+through them.
+
 ## Known limits
 
 - **A peer that is asleep when another member leaves, or that receives
@@ -217,13 +245,15 @@ per sender.
   message or an already-removed entry — never by the relay's `unpaired`
   alone, so the relay cannot make a member disappear from anyone's
   roster on its own.
-- **A removal applied while the relay is offline** revokes nothing at
-  the relay later: `revokeAtRelay` is a best-effort call made at the
-  time of removal, with no retry once the relay comes back. The other
-  members still learn of the removal once a channel reopens and the
-  roster converges; only the relay-side pair (and, if the removed device
-  is a phone, its push token) can be left stale until that device's own
-  pair is separately revoked.
+- **Removed entries are never pruned.** A removal has to outlive the
+  device it removed, so the roster only ever grows: `ROSTER_MAX_ENTRIES`
+  is a limit on how many devices a group can ever have held, not on how
+  many it holds now.
+- **A device's own word is trusted group-wide.** The `kind` sealed at
+  pairing and `links` from its hello are what the device says about
+  itself; nothing checks them. Pairing anything by code with one member
+  makes it a member that every other member links with, if it says it
+  links.
 - **After this device's identity file is unreadable and regenerated**,
   its old self entry in the roster is left live: the old key, and the
   id derived from it, is simply gone, so nothing can mark that entry
@@ -237,8 +267,10 @@ per sender.
   it is just not always the newest one a human would pick.
 - **Leaving drops every phone paired with that device.** `leaveGroup`
   revokes every paired device's relay pair, phones included, with no
-  separate warning that a phone loses its only route to that Mac. The
-  UI that should warn about this before someone leaves is part of 2b,
+  separate warning that a phone loses its only route to that Mac; the
+  leaver marks those phones removed in the roster it sends, so the
+  others do not keep them as live members no one can reach. The UI that
+  should warn about this before someone leaves is part of 2b,
   not built yet.
 
 ## Storage
@@ -250,6 +282,9 @@ per sender.
   `remote_devices`; as built, `remote_devices` holds only the devices
   this one actually has a relay pair with — a paired device is a
   subset of the roster, not the same table.
+- On a Mac or a server: `pending_revokes` (migration
+  `0030_pending_revokes`), one row per revoke the relay has not answered
+  yet, read and written through `PendingRevokes` in the same file.
 - On the relay: `mutual_halves` (migration `0003_mutual_halves`), one
   row per half still waiting; a formed pair lives in `pairs`, same table
   a phone pair already used.
@@ -266,5 +301,7 @@ per sender.
 | `pair.mutual`, the `linked` control, `MUTUAL_PAIR_TTL_MS` | `shared/src/remote/relayApi.ts` |
 | the relay's mutual-pair table and route | `relay/migrations/0003_mutual_halves.ts`, `relay/src/store.ts` (`offerMutual`, `revokePair`), `relay/src/pairing.ts` (`POST /pair/mutual`) |
 | the roster table and its store on a Mac or a server | `server/src/db/schema.ts` (`groupMembers`), `server/src/remote/rosterStore.ts` |
+| revokes waiting for the relay | `server/src/db/schema.ts` (`pendingRevokes`), `server/src/remote/rosterStore.ts` (`PendingRevokes`) |
+| the relay's budgets | `relay/src/rateLimit.ts`, `relay/src/pairing.ts` (`signed`) |
 | the self entry, pairing, sync, linking, removal, leaving | `server/src/remote/service.ts` (`addSelf`, `addPaired`, `onPeerHello`, `setRoster`, `applyRemovals`, `link`, `onLinked`, `remove`, `leave`, `leaveGroup`, `dropMember`) |
 | the status the UI (part 2b) will read | `server/src/remote/service.ts` (`RemoteStatus.group`, `listMembers`) |
