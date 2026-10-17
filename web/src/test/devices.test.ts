@@ -68,9 +68,20 @@ describe('kindOs', () => {
 })
 
 describe('addedByLine', () => {
+  const self = member({ id: 'self-id', name: 'studio-mbp', self: true, addedBy: 'someone-else' })
   const build = member({ id: 'build-id', name: 'build-box', self: false })
 
-  it('names the adder from the roster when it is known', () => {
+  it('reads "started the group" for the member no one added', () => {
+    const m = member({ id: 'air-id', addedBy: 'air-id' })
+    expect(addedByLine(m, [m])).toBe('started the group')
+  })
+
+  it('names the adder "this device" when it is the self entry in members', () => {
+    const m = member({ id: 'air-id', addedBy: 'self-id' })
+    expect(addedByLine(m, [self, m])).toBe('added by this device')
+  })
+
+  it('names the adder from the roster when it is some other live member', () => {
     const m = member({ id: 'air-id', addedBy: 'build-id' })
     expect(addedByLine(m, [build, m])).toBe('added by build-box')
   })
@@ -78,11 +89,6 @@ describe('addedByLine', () => {
   it('falls back to the first 8 characters of an adder no longer in the group', () => {
     const m = member({ id: 'air-id', addedBy: 'deadbeef12345678' })
     expect(addedByLine(m, [m])).toBe('added by deadbeef')
-  })
-
-  it('is null for the device that started the group', () => {
-    const m = member({ id: 'self-id', self: true, addedBy: 'self-id' })
-    expect(addedByLine(m, [m])).toBeNull()
   })
 })
 

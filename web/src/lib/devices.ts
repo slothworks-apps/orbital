@@ -48,14 +48,17 @@ export function memberStateWords(m: GroupMember, now: number): string {
 }
 
 /**
- * `added by <name>` using the adder's roster name, read off `members`
- * (which the removed ones have already left, as the status lists them). An
- * adder no longer in the group is named by the first 8 characters of its id
- * — the same cut the log lines use. Null for the device that started the
- * group: it was not added by anyone else to say.
+ * The row's second line (canvas 50k `devRow`): `started the group` for the
+ * one member no one added (`addedBy` names itself); otherwise `added by
+ * <name>`, `this device` when the adder is the device reading the list
+ * (found by the `self` entry in `members`, there being exactly one), its
+ * roster name when the adder is some other live member, or the first 8
+ * characters of its id when the adder has since left the group.
  */
-export function addedByLine(m: GroupMember, members: GroupMember[]): string | null {
-  if (m.self && m.addedBy === m.id) return null
+export function addedByLine(m: GroupMember, members: GroupMember[]): string {
+  if (m.addedBy === m.id) return 'started the group'
+  const selfId = members.find((x) => x.self)?.id
+  if (m.addedBy === selfId) return 'added by this device'
   const adder = members.find((x) => x.id === m.addedBy)
   return `added by ${adder ? adder.name : m.addedBy.slice(0, 8)}`
 }
