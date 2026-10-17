@@ -33,6 +33,9 @@ export async function leaveGroup(): Promise<LeaveResult> {
   if (handle) {
     const left = await handle.group.leave()
     if ('error' in left) return { error: left.error === 'offline' ? 'offline' : 'failed' }
+  } else {
+    // No group running (its connect failed): the members go on listing this phone until they remove it.
+    console.warn('[mobile] leaving with no group running; the other devices are not told')
   }
   await forgetEverything({ unpaired: false })
   return { ok: true }
@@ -65,8 +68,8 @@ export async function forgetEverything(opts: { unpaired: boolean }): Promise<voi
   }
   // Nothing more is written for the group: a write still waiting would put it back after the clear.
   const handle = groupRef.current
+  // Whatever client is held goes with it: `groupRef.set` clears `clientRef` too.
   groupRef.set(null)
-  clientRef.set(null)
   try {
     await handle?.close()
   } catch (err) {

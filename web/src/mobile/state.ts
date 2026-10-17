@@ -296,9 +296,9 @@ export function reduceGroup(state: MobileState, event: GroupClientEvent): Partia
 
 /** The federation's sources now (its `onMembers`): the devices, and 9i when every one of them refuses. */
 export function applyDevices(state: MobileState, sources: FederatedSource[]): Partial<MobileState> {
-  // A device up again has taken this app: its refusal is over.
+  // A device up again has taken this app, and one gone from the group refuses nothing: either refusal is over.
   const refusals = Object.fromEntries(
-    Object.entries(state.refusals).filter(([id]) => !sources.some((s) => s.id === id && s.ready)),
+    Object.entries(state.refusals).filter(([id]) => sources.some((s) => s.id === id && !s.ready)),
   )
   return withDevices(state, sources, refusals)
 }

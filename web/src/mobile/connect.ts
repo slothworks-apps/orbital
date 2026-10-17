@@ -74,7 +74,8 @@ export function newGroup(
     if (event.type === 'group') useMobile.setState({ members: group.members() })
     // A new pair: the relay has a row for it now, and the token can go to it.
     if (event.type === 'joined') void registerPush()
-    useMobile.getState().applyGroup(event)
+    // Only a refusal changes anything there; every other event would only wake the subscribers.
+    if (event.type === 'bye' && event.reason !== 'revoked') useMobile.getState().applyGroup(event)
   })
   return handle
 }

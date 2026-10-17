@@ -138,6 +138,25 @@ export function migratePairing(pairing: Pairing): GroupRecord {
 }
 
 /**
+ * Which stored group to boot into. Every bundle since groups writes
+ * `orbital.pairing` beside `orbital.group`, and a bundle from before them
+ * knows only the pairing: after an over-the-air rollback that forgot its
+ * Mac or paired another, the group left behind is stale. So the pairing is
+ * the truth where the two disagree: no pairing, no group (`stale`: drop
+ * it); a pairing for a device the group does not hold, a group migrated
+ * afresh from it.
+ */
+export function reconcileGroup(record: GroupRecord | null, pairing: Pairing | null): { record: GroupRecord | null; stale: boolean } {
+  if (!pairing) return { record: null, stale: record !== null }
+  if (!record) return { record: migratePairing(pairing), stale: false }
+  const holds = record.relay === pairing.relay && (
+    record.group.paired.some((d) => d.id === pairing.mac) ||
+    record.group.roster.some((e) => isLive(e) && e.id === pairing.mac)
+  )
+  return holds ? { record, stale: false } : { record: migratePairing(pairing), stale: true }
+}
+
+/**
  * What the rest of the app reads as "this phone is in a group" (`Pairing`):
  * the relay and the first paired device. With no pair left (the relay lost
  * them and the members pair again) the first other live member stands in,

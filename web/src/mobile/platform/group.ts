@@ -1,21 +1,22 @@
 import { Preferences } from '@capacitor/preferences'
 import { loadPairing, savePairing } from './pairing'
-import { migratePairing, pairingFromGroup, parseGroupRecord, type GroupRecord } from './parse'
+import { pairingFromGroup, parseGroupRecord, reconcileGroup, type GroupRecord } from './parse'
 
 /** The phone's device group (`GroupRecord`). `PAIRING_KEY` is kept beside it while the phone is in a group. */
 export const GROUP_KEY = 'orbital.group'
 
 /**
- * The stored group; a phone paired with one Mac before groups gets that
- * Mac as its group (`migratePairing`). Null when there is neither, or
- * neither reads.
+ * The stored group, checked against the pairing beside it
+ * (`reconcileGroup`): a phone paired with one Mac before groups gets that
+ * Mac as its group, and a group the pairing no longer agrees with is
+ * dropped. Null when the phone is in no group.
  */
 export async function loadGroup(): Promise<GroupRecord | null> {
-  const { value } = await Preferences.get({ key: GROUP_KEY })
-  const record = parseGroupRecord(value)
-  if (record) return record
-  const pairing = await loadPairing()
-  return pairing ? migratePairing(pairing) : null
+  const [{ value }, pairing] = await Promise.all([Preferences.get({ key: GROUP_KEY }), loadPairing()])
+  const { record, stale } = reconcileGroup(parseGroupRecord(value), pairing)
+  // A group migrated afresh is written over at its first store; one with no pairing goes now.
+  if (stale && !record) await clearGroup()
+  return record
 }
 
 /**

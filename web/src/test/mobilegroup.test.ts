@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { deviceId, fingerprint, generateIdentity } from '@orbital/shared/remote/keys'
 import type { RosterEntry } from '@orbital/shared/remote/roster'
-import { migratePairing, pairingFromGroup, parseGroupRecord, type Pairing } from '../mobile/platform/parse'
+import { migratePairing, pairingFromGroup, parseGroupRecord, reconcileGroup, type Pairing } from '../mobile/platform/parse'
 import { PersistQueue } from '../mobile/platform/persistQueue'
 import { useMobile, type DeviceView } from '../mobile/state'
 import { MAC_FEATURES, deviceSupports, sessionSupports } from '../mobile/version'
@@ -59,6 +59,36 @@ describe('the stored group', () => {
     expect(pairingFromGroup(lost, phone.publicKey)?.mac).toBe(lost.group.roster[2].id)
     // Only itself, or only removed members: not in a group.
     expect(pairingFromGroup({ ...record, group: { roster: [entry(self)], paired: [], pendingRevokes: [] } }, phone.publicKey)).toBeNull()
+  })
+})
+
+describe('reconcileGroup', () => {
+  const other = deviceId(generateIdentity().publicKey)
+  const group = { ...migratePairing(PAIRING), group: { ...migratePairing(PAIRING).group, roster: [entry(other)] } }
+
+  it('boots the group when the pairing beside it agrees, by a paired device or a live member', () => {
+    expect(reconcileGroup(group, PAIRING)).toEqual({ record: group, stale: false })
+    // Pairs lost and forming again: the pairing names a member the roster still holds.
+    const lost = { ...group, group: { ...group.group, paired: [] } }
+    expect(reconcileGroup(lost, { ...PAIRING, mac: other })).toEqual({ record: lost, stale: false })
+  })
+
+  it('migrates a phone from before groups', () => {
+    expect(reconcileGroup(null, PAIRING)).toEqual({ record: migratePairing(PAIRING), stale: false })
+    expect(reconcileGroup(null, null)).toEqual({ record: null, stale: false })
+  })
+
+  it('drops a group with no pairing beside it: an older bundle forgot the Mac', () => {
+    expect(reconcileGroup(group, null)).toEqual({ record: null, stale: true })
+  })
+
+  it('starts afresh from a pairing for a device the group does not hold: an older bundle paired another', () => {
+    const fresh: Pairing = { ...PAIRING, mac: deviceId(generateIdentity().publicKey), macName: 'laptop' }
+    expect(reconcileGroup(group, fresh)).toEqual({ record: migratePairing(fresh), stale: true })
+    // A removed member is not held either, nor a device on another relay.
+    const removed = { ...group, group: { ...group.group, paired: [], roster: [entry(other, { removedAt: 9, removedBy: other })] } }
+    expect(reconcileGroup(removed, { ...PAIRING, mac: other }).stale).toBe(true)
+    expect(reconcileGroup(group, { ...PAIRING, relay: 'https://other.test' }).stale).toBe(true)
   })
 })
 

@@ -108,6 +108,8 @@ export async function runPairing(
     console.warn('[mobile] pairing failed', err)
     if (cancelled()) return
     if (held.handle && groupRef.current === held.handle) groupRef.set(null)
+    // A phone in a group keeps it, and stops waiting for the device it was joining.
+    else if (!held.handle) groupRef.current?.group.cancelJoin()
     report({ kind: 'scan', error: PAIRING_FAILED })
   }
 }
