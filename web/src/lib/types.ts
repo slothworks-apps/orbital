@@ -872,6 +872,8 @@ export type AttachmentUpload =
   | { kind: 'too_large'; size: number; truncated: boolean }
   | { kind: 'not_image'; mediaType: string }
   | { kind: 'empty' }
+  /** The session runs on another device of the group, which only an image reaches. */
+  | { kind: 'not_on_device' }
 
 /** One model as every Orbital surface consumes it. Duplicated from the
  * server's `server/src/models/catalog.ts` — this repo has no shared types

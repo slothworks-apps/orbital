@@ -18,7 +18,7 @@ import type { RosterEntry } from '@orbital/shared/remote/roster';
 import type { Hub } from '../api/hub.js';
 import { memberTooOld } from '../remote/memberGate.js';
 import type { RemoteService } from '../remote/service.js';
-import { sessionOfTopic } from '../remote/servingHalf.js';
+import { carriesMachine, sessionOfTopic } from '../remote/servingHalf.js';
 import type { MemberSnapshotStore } from './store.js';
 
 /** How many sessions are asked of a member at once; one channel frame has to carry the answer. */
@@ -67,17 +67,19 @@ export type FederationOptions = {
   now?: () => number;
 };
 
-/** A session another device passed on as some third device's: not ours to show. */
-function carriesMachine(session: { machine?: unknown }): boolean {
-  return session.machine !== undefined && session.machine !== null;
-}
-
 export class FederationService {
   private readonly links = new Map<string, MemberLink>();
   /** The newest channel to each member and how to stop listening to it. */
   private readonly channels = new Map<string, { channel: Channel; off: () => void }>();
   /** Per-session topics some local window holds, whoever's session they are about. */
   private readonly localTopics = new Set<string>();
+  /**
+   * Sessions being spawned on a member from here, by id, to that member's id:
+   * its frames about them are taken in before its list carries them.
+   */
+  private readonly expected = new Map<string, string>();
+  /** This device's tag ids by name; null until read again after a tag changed. */
+  private localTagMap: Map<string, number> | null = null;
   /** A snapshot write waiting out `SNAPSHOT_WRITE_MS`, per member. */
   private readonly pendingWrites = new Map<string, ReturnType<typeof setTimeout>>();
   private offs: (() => void)[] = [];
@@ -107,7 +109,10 @@ export class FederationService {
     ];
     for (const entry of this.opts.remote.liveMembers()) {
       const channel = this.opts.remote.channel(entry.id);
-      if (channel) this.attach(entry.id, channel);
+      if (!channel) continue;
+      this.attach(entry.id, channel);
+      // Up already: no hello or ready is coming to engage it.
+      if (channel.ready) this.engage(entry.id, channel, entry);
     }
     this.rosterChanged();
   }
@@ -123,12 +128,40 @@ export class FederationService {
     for (const { off } of this.channels.values()) off();
     this.channels.clear();
     this.links.clear();
+    this.expected.clear();
   }
 
   /** The member a session belongs to; null for this device's own and for one nobody knows. */
   linkOf(sessionId: string): MemberLink | null {
     for (const link of this.links.values()) if (link.sessions.has(sessionId)) return link;
-    return null;
+    const expected = this.expected.get(sessionId);
+    return expected === undefined ? null : this.links.get(expected) ?? null;
+  }
+
+  /**
+   * A spawn of `sessionId` on `link` is about to go out. The windows here
+   * subscribed to its topics before it exists (the browser mints the id), so
+   * the member is asked for them first: the channel is ordered, and the
+   * spawn's first frames would otherwise be gone before its list names it.
+   */
+  expect(link: MemberLink, sessionId: string): void {
+    if (this.linkOf(sessionId) !== null) return;
+    this.expected.set(sessionId, link.id);
+    this.followSession(link, sessionId);
+  }
+
+  /** The spawn `expect` announced did not happen: the member's topics for it are given back. */
+  unexpect(link: MemberLink, sessionId: string): void {
+    if (this.expected.get(sessionId) !== link.id) return;
+    this.expected.delete(sessionId);
+    for (const topic of this.localTopics) {
+      if (sessionOfTopic(topic) === sessionId) link.channel?.unsubscribe(topic);
+    }
+  }
+
+  /** This device's tags changed: the next session shown reads them again. */
+  tagsChanged(): void {
+    this.localTagMap = null;
   }
 
   link(memberId: string): MemberLink | null {
@@ -143,8 +176,12 @@ export class FederationService {
 
   /** Every member's sessions as this device shows them. */
   sessions(): Session[] {
-    const local = this.localTagIds();
-    return [...this.links.values()].flatMap((l) => [...l.sessions.values()].map((s) => this.localize(l, s, local)));
+    return [...this.links.values()].flatMap((l) => [...l.sessions.values()].map((s) => this.localize(l, s)));
+  }
+
+  /** A list the member answered, as this device shows it: a third device's sessions left out. */
+  localizeList(link: MemberLink, list: Session[]): Session[] {
+    return list.filter((s) => s && typeof s.id === 'string' && !carriesMachine(s)).map((s) => this.localize(link, s));
   }
 
   async request(link: MemberLink, method: HttpMethod, path: string, body?: unknown): Promise<TunnelResponse> {
@@ -213,19 +250,18 @@ export class FederationService {
     return out;
   }
 
-  /** A stored image of some member's session, by ref: asked of every member that is up. */
+  /** A stored image of some member's session, by ref: asked of every member that is up at once, the first to hold it answers. */
   async blob(ref: string): Promise<BlobResult | null> {
-    for (const link of this.links.values()) {
+    const asks = [...this.links.values()].flatMap((link) => {
       const channel = link.channel;
-      if (!channel?.ready) continue;
-      try {
-        const res = await channel.getBlob(ref);
-        if (res.status === 200) return res;
-      } catch {
-        /* the next member */
-      }
+      if (!channel?.ready) return [];
+      return [channel.getBlob(ref).then((res) => (res.status === 200 ? res : Promise.reject(new Error('not held'))))];
+    });
+    try {
+      return await Promise.any(asks);
+    } catch {
+      return null;
     }
-    return null;
   }
 
   async file(link: MemberLink, sessionId: string, path: string, as: FileAs, cwd?: string): Promise<FileResult | null> {
@@ -301,7 +337,7 @@ export class FederationService {
     if (hello?.capabilities?.includes('presence')) channel.subscribe(PRESENCE_TOPIC);
     for (const topic of this.localTopics) {
       const session = sessionOfTopic(topic);
-      if (session !== null && link.sessions.has(session)) channel.subscribe(topic);
+      if (session !== null && this.owns(link, session)) channel.subscribe(topic);
     }
     if (channel.ready && !link.seeded) {
       link.seeded = true;
@@ -348,6 +384,7 @@ export class FederationService {
       link.sessions.clear();
       for (const [id, s] of fresh) {
         link.sessions.set(id, s);
+        this.expected.delete(id);
         if (!before.has(id)) this.followSession(link, id);
       }
       link.seenAt = null;
@@ -365,10 +402,14 @@ export class FederationService {
   }
 
   private republish(link: MemberLink): void {
-    const local = this.localTagIds();
     for (const s of link.sessions.values()) {
-      this.opts.hub.publish('sessions', { event: 'upsert', session: this.localize(link, s, local) });
+      this.opts.hub.publish('sessions', { event: 'upsert', session: this.localize(link, s) });
     }
+  }
+
+  /** Whether `sessionId` is the member's: listed by it, or being spawned on it from here. */
+  private owns(link: MemberLink, sessionId: string): boolean {
+    return link.sessions.has(sessionId) || this.expected.get(sessionId) === link.id;
   }
 
   /**
@@ -379,6 +420,8 @@ export class FederationService {
   private drop(link: MemberLink): void {
     for (const id of link.sessions.keys()) this.opts.hub.publish('sessions', { event: 'remove', sessionId: id });
     this.links.delete(link.id);
+    const expected = [...this.expected].filter(([, member]) => member === link.id).map(([id]) => id);
+    for (const id of expected) this.expected.delete(id);
     clearTimeout(this.pendingWrites.get(link.id));
     this.pendingWrites.delete(link.id);
     this.removeSnapshot(link.id);
@@ -388,7 +431,7 @@ export class FederationService {
     channel.unsubscribe(PRESENCE_TOPIC);
     for (const topic of this.localTopics) {
       const session = sessionOfTopic(topic);
-      if (session !== null && link.sessions.has(session)) channel.unsubscribe(topic);
+      if (session !== null && (link.sessions.has(session) || expected.includes(session))) channel.unsubscribe(topic);
     }
   }
 
@@ -405,7 +448,7 @@ export class FederationService {
     if (topic !== 'sessions') {
       // Only a topic about one of this member's own sessions: it speaks for nothing else here.
       const session = sessionOfTopic(topic);
-      if (session === null || !link.sessions.has(session)) return;
+      if (session === null || !this.owns(link, session)) return;
       if (this.opts.hub.subscriberCount(topic) > 0) this.opts.hub.publish(topic, rest);
       return;
     }
@@ -415,6 +458,7 @@ export class FederationService {
       if (!session || typeof session !== 'object' || typeof session.id !== 'string' || carriesMachine(session)) return;
       const known = link.sessions.has(session.id);
       link.sessions.set(session.id, session);
+      this.expected.delete(session.id);
       if (!known) this.followSession(link, session.id);
       this.opts.hub.publish('sessions', { event: 'upsert', session: this.localize(link, session) });
       this.scheduleSnapshot(link);
@@ -569,8 +613,10 @@ export class FederationService {
     else link.channel.unsubscribe(topic);
   }
 
+  /** Read once and kept until `tagsChanged`: a member's frames must not each cost a query. */
   private localTagIds(): Map<string, number> {
-    return new Map(this.opts.localTags().map((t) => [t.name, t.id]));
+    this.localTagMap ??= new Map(this.opts.localTags().map((t) => [t.name, t.id]));
+    return this.localTagMap;
   }
 
   private machine(link: MemberLink): MachineRef {
@@ -582,7 +628,8 @@ export class FederationService {
   }
 
   /** A member's session as this device shows it: its machine named, its tags this device's of the same name. */
-  private localize(link: MemberLink, session: Session, local = this.localTagIds()): Session {
+  private localize(link: MemberLink, session: Session): Session {
+    const local = this.localTagIds();
     const tagIds = (session.tagIds ?? [])
       .map((id) => local.get(link.tags.get(id)?.name ?? ''))
       .filter((id): id is number => id !== undefined);

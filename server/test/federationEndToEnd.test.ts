@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { randomUUID } from 'node:crypto';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { createHash, randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEVICE_HEADER } from '../src/remote/inject.js';
@@ -8,6 +9,26 @@ import { FakePhone } from './remoteFakePhone.js';
 import { pairingCode, startMacAndRelay, until, type MacAndRelay } from './remoteHarness.js';
 
 const SESSION_ID = 's-federated';
+
+/** A local window on a server's hub: every frame it got on `topic`. */
+function watch(s: MacAndRelay, topic: string): () => any[] {
+  const socket = Object.assign(new EventEmitter(), { send: vi.fn() });
+  s.hub.handleSocket(socket);
+  socket.emit('message', JSON.stringify({ type: 'subscribe', topic }));
+  return () => socket.send.mock.calls.map(([data]) => JSON.parse(data as string)).filter((f) => f.topic === topic);
+}
+
+/** One multipart upload of `bytes` named `name`, as the composer sends it. */
+function multipart(name: string, type: string, bytes: Buffer) {
+  const boundary = '----orbitaltestboundary';
+  return {
+    headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+    payload: Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: ${type}\r\n\r\n`),
+      bytes, Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]),
+  };
+}
 
 describe('federation: linked servers', () => {
   const closers: (() => unknown)[] = [];
@@ -159,16 +180,43 @@ describe('federation: linked servers', () => {
     await a.api('POST', '/api/tags', { name: 'green', hue: 0 });
     const ops = (await a.api('POST', '/api/tags', { name: 'ops', hue: 0 })).json().id as number;
     const minted = randomUUID();
+    // The windows subscribe before the spawn, as the browser does with the id it minted.
+    const onAFrames = watch(a, `session:${minted}`);
+    const onCFrames = watch(c, `session:${minted}`);
     const spawn = await a.api('POST', '/api/sessions', {
       machine: idC, sessionId: minted, cwd: c.dir, prompt: 'go', permissionMode: 'acceptEdits', tagId: ops,
     });
     expect([spawn.statusCode, spawn.json()]).toEqual([201, { sessionId: minted }]);
+    // The spawn's first frames on C reach A's window too, none lost before C's list named the session.
+    await until(() => onCFrames().length > 0 && onAFrames().length >= onCFrames().length, 10_000);
+    expect(onAFrames()[0]).toEqual(onCFrames()[0]);
+    // A spawn C refuses leaves nothing expected of it.
+    const refused = 'not-a-minted-id';
+    expect((await a.api('POST', '/api/sessions', { machine: idC, sessionId: refused, cwd: c.dir, prompt: 'go', permissionMode: 'acceptEdits' })).statusCode)
+      .toBe(400);
+    expect(a.federation.linkOf(refused)).toBeNull();
     const onC = await c.api('GET', `/api/sessions/${minted}`);
     expect(onC.statusCode).toBe(200);
     const opsC = ((await c.api('GET', '/api/tags')).json().tags as { id: number; name: string }[]).find((t) => t.name === 'ops')!;
     expect(opsC.id).not.toBe(ops);
     expect(onC.json().session.tagIds).toEqual([opsC.id]);
     expect((await a.app.inject({ method: 'GET', url: `/api/sessions/${minted}`, headers: { [DEVICE_HEADER]: idC } })).statusCode).toBe(404);
+
+    // A request over a channel that names another device is refused, never answered here or passed on.
+    const misrouted = await a.app.inject({
+      method: 'POST', url: '/api/sessions', headers: { [DEVICE_HEADER]: idC },
+      payload: { machine: idB, sessionId: randomUUID(), cwd: a.dir, prompt: 'go', permissionMode: 'acceptEdits' },
+    });
+    expect([misrouted.statusCode, misrouted.json()]).toEqual([400, { error: 'not_forwarded' }]);
+    expect((await a.app.inject({ method: 'GET', url: `/api/dirs?machine=${idB}`, headers: { [DEVICE_HEADER]: idC } })).statusCode).toBe(400);
+
+    // The harness start view of B's session offers B's templates, not A's.
+    const steps = [{ id: 'one', title: 'One', instructions: 'Do it.', mode: 'auto', doneWhen: 'done' }];
+    expect((await b.api('POST', '/api/harness/templates', { name: 'on-b', tags: [], inputs: [], steps })).statusCode).toBe(201);
+    expect((await a.api('POST', '/api/harness/templates', { name: 'on-a', tags: [], inputs: [], steps })).statusCode).toBe(201);
+    const offered = await a.api('GET', `/api/harness/templates?sessionId=${SESSION_ID}`);
+    expect(offered.statusCode).toBe(200);
+    expect((offered.json().templates as { name: string }[]).map((t) => t.name)).toEqual(['on-b']);
 
     // This device by name is the local route; a device nobody knows is 404.
     const self = await a.api('GET', `/api/sessions/count?machine=${idA}`);
@@ -187,16 +235,23 @@ describe('federation: linked servers', () => {
     expect((await b.api('GET', `/api/sessions/${SESSION_ID}`)).json().session.tagIds).toEqual([redB.id]);
 
     // An image only B holds is served by A.
-    const ref = `${'ab'.repeat(32)}.png`;
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+    const ref = `${createHash('sha256').update(png).digest('hex')}.png`;
     mkdirSync(join(b.dir, 'images'), { recursive: true });
     writeFileSync(join(b.dir, 'images', ref), png);
     const image = await a.app.inject({ method: 'GET', url: `/api/images/${ref}` });
     expect(image.statusCode).toBe(200);
     expect(image.headers['content-type']).toBe('image/png');
+    expect(image.headers['x-content-type-options']).toBe('nosniff');
     expect(image.headers['cache-control']).toContain('immutable');
     expect(image.rawPayload.equals(png)).toBe(true);
     expect((await a.app.inject({ method: 'GET', url: `/api/images/${'cd'.repeat(32)}.png` })).statusCode).toBe(404);
+    // Bytes that are not the ref's are not served as it, nor cached.
+    const forged = `${'ef'.repeat(32)}.png`;
+    writeFileSync(join(b.dir, 'images', forged), png);
+    const wrong = await a.app.inject({ method: 'GET', url: `/api/images/${forged}` });
+    expect(wrong.statusCode).toBe(404);
+    expect(wrong.headers['cache-control'] ?? '').not.toContain('immutable');
 
     // The composer of B's session: the upload is stored here, and the message carries it to B's store.
     const shot = Buffer.concat([
@@ -210,24 +265,36 @@ describe('federation: linked servers', () => {
         return ihdr;
       })(),
     ]);
-    const boundary = '----orbitaltestboundary';
     const uploaded = await a.app.inject({
-      method: 'POST', url: `/api/sessions/${SESSION_ID}/attachments`,
-      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
-      payload: Buffer.concat([
-        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="shot.png"\r\nContent-Type: image/png\r\n\r\n`),
-        shot, Buffer.from(`\r\n--${boundary}--\r\n`),
-      ]),
+      method: 'POST', url: `/api/sessions/${SESSION_ID}/attachments`, ...multipart('shot.png', 'image/png', shot),
     });
     expect(uploaded.statusCode).toBe(201);
+    // A file that is not an image would be a path on A that B cannot open: refused.
+    const sheet = Buffer.from('a,b\n1,2\n');
+    const notImage = await a.app.inject({
+      method: 'POST', url: `/api/sessions/${SESSION_ID}/attachments`, ...multipart('sheet.csv', 'text/csv', sheet),
+    });
+    expect([notImage.statusCode, notImage.json()]).toEqual([422, { error: 'attachment_not_on_device' }]);
+    const forSpawn = await a.app.inject({ method: 'POST', url: `/api/attachments?machine=${idB}`, ...multipart('sheet.csv', 'text/csv', sheet) });
+    expect(forSpawn.statusCode).toBe(422);
+    const forSelf = await a.app.inject({ method: 'POST', url: `/api/attachments?machine=${idA}`, ...multipart('sheet.csv', 'text/csv', sheet) });
+    expect([forSelf.statusCode, forSelf.json().kind]).toEqual([201, 'file']);
     const shotRef = uploaded.json().ref as string;
     expect(existsSync(join(b.dir, 'images', shotRef))).toBe(false);
     const sent = await a.api('POST', `/api/sessions/${SESSION_ID}/messages`, { text: 'look', attachments: [shotRef] });
     expect(sent.statusCode).toBeLessThan(300);
     expect(existsSync(join(b.dir, 'images', shotRef))).toBe(true);
-    // A forwarded list is the member's alone: nothing merged into it.
+    // A forwarded list is the member's alone, shown as A shows B's sessions; A by name is A's own alone.
     const fromB = (await a.api('GET', `/api/sessions?machine=${idB}`)).json().sessions as any[];
-    expect(fromB.filter((x) => x.id === SESSION_ID)).toHaveLength(1);
+    expect(fromB.map((x) => x.id)).toEqual([SESSION_ID]);
+    expect(fromB[0].machine).toMatchObject({ id: idB, online: true });
+    expect(fromB[0].tagIds).toEqual([red]);
+    const fromA = (await a.api('GET', `/api/sessions?machine=${idA}`)).json().sessions as any[];
+    expect(fromA.some((x) => x.machine !== undefined)).toBe(false);
+
+    // A settings change with no body is refused, not a crash.
+    expect((await a.app.inject({ method: 'PATCH', url: '/api/settings' })).statusCode).toBe(400);
+    expect((await a.api('PATCH', '/api/settings', [1])).statusCode).toBe(400);
 
     // B goes away: a request for its session is 409, not a hang and not A's 404.
     b.remote.stop();

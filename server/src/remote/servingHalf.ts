@@ -15,7 +15,7 @@ import {
 } from '@orbital/shared/remote/messages';
 import { PRESENCE_TOPIC } from '@orbital/shared/presence';
 import type { Hub } from '../api/hub.js';
-import { ATTACHMENT_MAX_BYTES } from '../api/routes.js';
+import { ATTACHMENT_MAX_BYTES, IMAGE_CONTENT_TYPES } from '../api/routes.js';
 import type { ImageStore } from '../images/store.js';
 import { allowedPath } from './allowlist.js';
 import type { PhoneFileReader } from './phoneFiles.js';
@@ -44,9 +44,10 @@ export function sessionOfTopic(topic: string): string | null {
   return m ? m[1] : null;
 }
 
-const IMAGE_CONTENT_TYPES: Record<string, string> = {
-  png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
-};
+/** A session another device passed on as some third device's: it carries the `machine` it runs on. */
+export function carriesMachine(session: { machine?: unknown }): boolean {
+  return session.machine !== undefined && session.machine !== null;
+}
 
 /** `device`, when given, is the id of the member that asked: it rides as `DEVICE_HEADER`. */
 export type InjectFn = (req: { method: string; url: string; payload?: unknown; device?: string }) => Promise<{ statusCode: number; body: string }>;
@@ -152,7 +153,7 @@ export class ServingHalf implements ChannelServer {
     const f = frame as { topic?: unknown; sessionId?: unknown; session?: { machine?: unknown } | null } | null;
     if (!f || typeof f.topic !== 'string') return false;
     if (f.topic === 'sessions') {
-      if (f.session && typeof f.session === 'object' && f.session.machine != null) return true;
+      if (f.session && typeof f.session === 'object' && carriesMachine(f.session)) return true;
       return typeof f.sessionId === 'string' && this.isForeign(f.sessionId);
     }
     const session = sessionOfTopic(f.topic);

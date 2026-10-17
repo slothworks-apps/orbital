@@ -266,6 +266,8 @@ export async function buildServer(overrides: {
   exposeRemote?: (remote: RemoteService) => void;
   /** Tests reach the federation directly, as they do the remote. */
   exposeFederation?: (federation: FederationService) => void;
+  /** Tests listen on the hub as a local window would. */
+  exposeHub?: (hub: Hub) => void;
 } = {}): Promise<FastifyInstance> {
   const apiToken = overrides.apiToken;
   if (apiToken === undefined && !process.env.VITEST) {
@@ -1431,8 +1433,8 @@ export async function buildServer(overrides: {
   // routes always have something to ask. `inject` is how a phone's REST call
   // enters: in-process, same routes, same host guard satisfied by the header.
   const presence = new Presence({ publish: (topic, payload) => hub.publish(topic, payload) });
-  // Set right below; a channel, the only caller, cannot exist before `remote.start()`.
-  let federation: FederationService | null = null;
+  // `federation` is built right below; a channel, the only caller, cannot exist before `remote.start()`.
+  const foreign = (id: string): boolean => federation.linkOf(id) !== null;
   const remote = new RemoteService({
     db, hub, dataDir, images, imagesDir, transcriptPath, trees, presence,
     serverVersion: process.env.ORBITAL_VERSION ?? 'dev',
@@ -1442,23 +1444,23 @@ export async function buildServer(overrides: {
     },
     settings: settingsStore,
     allSettings: () => Object.fromEntries(db.select().from(settingsTable).all().map((r) => [r.key, r.value])),
-    foreign: (id) => federation !== null && federation.linkOf(id) !== null,
-    groupPresence: () => federation !== null && federation.presentElsewhere(),
+    foreign,
+    groupPresence: (): boolean => federation.presentElsewhere(),
   });
   overrides.exposeRemote?.(remote);
   // Every other member's sessions in this hub (spec 2026-10-16-device-group-design § 7).
-  const federated = new FederationService({
+  const federation: FederationService = new FederationService({
     hub, remote, localTags: () => db.select().from(tagsTable).all(), snapshots: new MemberSnapshotStore(db),
   });
-  federation = federated;
-  overrides.exposeFederation?.(federated);
+  overrides.exposeFederation?.(federation);
+  overrides.exposeHub?.(hub);
   // Before the routes: a request for a member's session must never reach a
   // local handler, which would answer it as an unknown session of this device.
-  registerFederationRoutes(app, federated, () => remote.selfId(), imagesDir);
+  registerFederationRoutes(app, federation, () => remote.selfId(), imagesDir);
   registerRoutes(app, {
     db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, terminals, recentTools, errors,
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees,
-    foreign: (id) => federated.linkOf(id) !== null,
+    foreign,
     settings: settingsStore,
     mcpFor,
     limits,
@@ -1471,7 +1473,7 @@ export async function buildServer(overrides: {
     },
   });
   remote.start();
-  federated.start();
+  federation.start();
   // After the routes, which give it the path into a session: a wait that fell
   // due while the server was down fires now.
   limits.start();
@@ -1479,7 +1481,7 @@ export async function buildServer(overrides: {
     // First, while the db is still open — and guarded, so nothing it throws
     // can skip the runner and the db below and leave close hanging.
     try {
-      federated.stop();
+      federation.stop();
     } catch (err) {
       console.warn(`[federation] stop failed: ${err instanceof Error ? err.message : String(err)}`);
     }

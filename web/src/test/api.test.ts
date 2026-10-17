@@ -784,6 +784,13 @@ describe('Attachments API', () => {
     })
   })
 
+  it('reads a 422 attachment_not_on_device as its own state, not a throw', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'attachment_not_on_device' }), { status: 422 })
+    )
+    await expect(api.uploadAttachment('s1', png())).resolves.toEqual({ kind: 'not_on_device' })
+  })
+
   it('reads a 400 empty_file as its own state', async () => {
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ error: 'empty_file' }), { status: 400 })

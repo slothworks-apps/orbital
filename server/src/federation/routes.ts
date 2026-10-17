@@ -7,6 +7,7 @@
  * came over a channel (`DEVICE_HEADER`) is never forwarded and never gets
  * another member's sessions merged in: no chaining.
  */
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -18,38 +19,51 @@ import type { FederationService, Session } from './service.js';
 
 const IMAGE_PATH = /^\/api\/images\/([^/]+)$/;
 const TAGS_PATH = /^\/api\/sessions\/[^/]+\/tags$/;
+/** The routes that change this device's tags, as Fastify names them. */
+const TAG_ROUTES: ReadonlySet<string> = new Set(['/api/tags', '/api/tags/:id']);
 
 export function registerFederationRoutes(
   app: FastifyInstance, federation: FederationService, selfId: () => string | null, imagesDir: string,
 ): void {
-  /** Requests the preHandler answered with a member's reply. */
-  const forwarded = new WeakSet<FastifyRequest>();
+  /** Requests answered with one device's list alone: a member's reply, or this device's own by name. */
+  const unmerged = new WeakSet<FastifyRequest>();
   app.addHook('preHandler', async (req, reply) => {
-    if (req.headers[DEVICE_HEADER] !== undefined) return;
     const [path, search = ''] = req.url.split('?', 2);
     const query = new URLSearchParams(search);
+    if (req.headers[DEVICE_HEADER] !== undefined) {
+      // Never forwarded (no chaining): a request that names another device is refused, not answered here.
+      const machine = query.get('machine') ?? machineOfBody(req);
+      if (machine !== null && machine !== selfId()) return reply.code(400).send({ error: 'not_forwarded' });
+      return;
+    }
 
     // An image of a member's session: its store, not this one, holds the bytes.
     const image = IMAGE_PATH.exec(path);
     if (image && req.method === 'GET') {
       const ref = image[1];
-      if (!IMAGE_REF_RE.test(ref) || existsSync(join(imagesDir, ref))) return;
+      const m = IMAGE_REF_RE.exec(ref);
+      if (!m || existsSync(join(imagesDir, ref))) return;
       const blob = await federation.blob(ref);
-      if (!blob) return;
-      if (blob.mediaType) reply.header('content-type', blob.mediaType);
+      // Content-addressed: bytes that are not the ref's are not served, and never cached as it.
+      if (!blob || createHash('sha256').update(blob.bytes).digest('hex') !== ref.slice(0, ref.indexOf('.'))) return;
+      // The type is the ref's, never the member's word: a member's answer must not become a page on this origin.
+      reply.header('content-type', IMAGE_CONTENT_TYPES[m[1]]);
+      reply.header('x-content-type-options', 'nosniff');
       reply.header('cache-control', 'public, max-age=31536000, immutable');
       return reply.send(Buffer.from(blob.bytes));
     }
 
-    const sessionId = sessionOf(path) ?? query.get('session');
+    // `sessionId` is the harness start view's name for the same thing.
+    const sessionId = sessionOf(path) ?? query.get('session') ?? query.get('sessionId');
     let link = sessionId ? federation.linkOf(sessionId) : null;
     if (!link) {
       const machine = query.get('machine') ?? machineOfBody(req);
       if (!machine) return;
       if (machine === selfId()) {
-        // This device: the local route answers, as if no machine were named.
+        // This device: the local route answers, as if no machine were named, and a list is its own alone.
         delete (req.query as Record<string, unknown> | undefined)?.machine;
         if (isObject(req.body)) delete req.body.machine;
+        unmerged.add(req);
         return;
       }
       link = federation.link(machine);
@@ -98,19 +112,35 @@ export function registerFederationRoutes(
       const { tagId: _tagId, ...others } = body;
       body = memberTag === null ? others : { ...others, tagId: memberTag };
     }
+    // A spawn whose id the browser minted: its windows' topics are asked of the member before the spawn goes.
+    const spawned = req.method === 'POST' && path === '/api/sessions' && isObject(body) && typeof body.sessionId === 'string'
+      ? body.sessionId : null;
+    if (spawned !== null) federation.expect(link, spawned);
     const tagIds = isObject(body) ? body.tagIds : undefined;
     const res = req.method === 'PUT' && sessionId && TAGS_PATH.test(path) && Array.isArray(tagIds)
       ? await federation.setTags(link, sessionId, tagIds.filter((id): id is number => typeof id === 'number'))
       : await federation.request(link, req.method as HttpMethod, url, body);
-    forwarded.add(req);
+    if (spawned !== null && res.status >= 300) federation.unexpect(link, spawned);
+    unmerged.add(req);
+    // A member's list, as this device shows its sessions.
+    const list = isObject(res.body) ? res.body.sessions : undefined;
+    if (req.method === 'GET' && path === '/api/sessions' && res.status === 200 && Array.isArray(list)) {
+      return send(reply, res.status, { ...(res.body as object), sessions: federation.localizeList(link, list) });
+    }
     return send(reply, res.status, res.body);
+  });
+
+  // A tag made, renamed or deleted here, by this device's window or a member's ask: names map anew.
+  app.addHook('onResponse', (req, _reply, done) => {
+    if (req.method !== 'GET' && TAG_ROUTES.has(req.routeOptions.url ?? '')) federation.tagsChanged();
+    done();
   });
 
   // The list every client starts from carries every member's sessions too, on its first page.
   app.addHook('preSerialization', async (req, _reply, payload) => {
-    // A list a member answered (`?machine=`) is that member's alone.
+    // A list asked of one device (`?machine=`) is that device's alone.
     if (req.method !== 'GET' || req.routeOptions.url !== '/api/sessions' || req.headers[DEVICE_HEADER] !== undefined
-      || forwarded.has(req)) {
+      || unmerged.has(req)) {
       return payload;
     }
     const q = req.query as Record<string, string>;

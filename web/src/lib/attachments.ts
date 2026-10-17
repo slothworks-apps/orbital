@@ -65,6 +65,10 @@ export const ATTACHMENT_TYPES_LINE = `any file · images up to ${CEILING} go inl
 export type Refusal =
   | { kind: 'too_large'; name: string; size: number }
   | { kind: 'folder'; name: string }
+  /** Refused by the server: the session runs on another device, and only an image reaches it. */
+  | { kind: 'not_on_device'; name: string }
+
+const NOT_ON_DEVICE_TAIL = '— only images can be sent to a session on another device.'
 
 /**
  * Whether a file rides as an `image` block. Anything else — an `.xlsx`, an
@@ -111,6 +115,7 @@ export function refusalNotice(refusals: readonly Refusal[]): RefusalNotice | nul
 
   if (refusals.length === 1) {
     const only = refusals[0]
+    if (only.kind === 'not_on_device') return { label: "CAN'T ATTACH", fact: only.name, tail: NOT_ON_DEVICE_TAIL }
     return only.kind === 'too_large'
       ? {
           label: 'TOO LARGE TO ATTACH',
@@ -123,6 +128,7 @@ export function refusalNotice(refusals: readonly Refusal[]): RefusalNotice | nul
   const fact = `${refusals.length} files`
   const kinds = new Set(refusals.map((r) => r.kind))
   if (kinds.size === 1) {
+    if (refusals[0].kind === 'not_on_device') return { label: "CAN'T ATTACH", fact, tail: NOT_ON_DEVICE_TAIL }
     return refusals[0].kind === 'too_large'
       ? { label: 'TOO LARGE TO ATTACH', fact, tail: `over the ${FILE_CEILING} ceiling.` }
       : { label: "CAN'T ATTACH", fact: `${refusals.length} folders`, tail: '— folders need the desktop app.' }

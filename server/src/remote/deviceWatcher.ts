@@ -9,6 +9,7 @@
 import { EventEmitter } from 'node:events';
 import { SessionNotifier, type NotificationSettings } from '@orbital/shared/notifications';
 import type { Hub } from '../api/hub.js';
+import { carriesMachine } from './servingHalf.js';
 
 export type DeviceWatcherOptions = {
   deviceId: string;
@@ -64,7 +65,7 @@ export class DeviceWatcher {
     if (frame.topic !== 'sessions') return false;
     const session = frame.session && typeof frame.session === 'object'
       ? (frame.session as { id?: unknown; machine?: unknown }) : undefined;
-    if (session && session.machine !== undefined && session.machine !== null) return true;
+    if (session && carriesMachine(session)) return true;
     const id = typeof frame.sessionId === 'string' ? frame.sessionId : typeof session?.id === 'string' ? session.id : null;
     return id !== null && (this.opts.foreign?.(id) ?? false);
   }

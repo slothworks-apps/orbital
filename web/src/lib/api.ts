@@ -473,6 +473,7 @@ export const api = {
       return { kind: 'not_image', mediaType: parsed.mediaType ?? 'unknown' }
     }
     if (response.status === 400 && parsed.error === 'empty_file') return { kind: 'empty' }
+    if (response.status === 422 && parsed.error === 'attachment_not_on_device') return { kind: 'not_on_device' }
 
     throw new ApiError(text || response.statusText, response.status, url)
   },

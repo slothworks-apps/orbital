@@ -165,6 +165,23 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
     if (entry) entry.ticker = undefined
   }, [])
 
+  const showRefusal = useCallback((refusals: Refusal[]) => {
+    const notice = refusalNotice(refusals)
+    for (const timer of refusalTimers.current) clearTimeout(timer)
+    refusalTimers.current = []
+    if (!notice) return
+    // A second refusal rewrites the line and restarts the clock; it never
+    // stacks (canvas 9e refusal line).
+    setRefusal({ ...notice, exiting: false })
+    refusalTimers.current = [
+      setTimeout(
+        () => setRefusal((current) => (current ? { ...current, exiting: true } : null)),
+        REFUSAL_HOLD_MS,
+      ),
+      setTimeout(() => setRefusal(null), REFUSAL_HOLD_MS + REFUSAL_OUT_MS),
+    ]
+  }, [])
+
   /**
    * Runs (or re-runs) one chip's upload. `isRetry` only decides whether a
    * failure counts against the retry budget — the first failure is not a failed
@@ -194,6 +211,12 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
         .uploadAttachment(sessionId, entry.file, { signal: controller.signal })
         .then((result) => {
           if (controller.signal.aborted) return
+          if (result.kind === 'not_on_device') {
+            // Not a disagreement a retry could settle: the line says why.
+            fail()
+            showRefusal([{ kind: 'not_on_device', name: chip.name }])
+            return
+          }
           if (result.kind !== 'ok') {
             // A 413/415/400 here is the server disagreeing with the client
             // pre-check (a mislabelled file, a ceiling that has moved). That is
@@ -220,7 +243,7 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
           entry.run = undefined
         })
     },
-    [patch, sessionId, stopTicker],
+    [patch, sessionId, showRefusal, stopTicker],
   )
 
   /** Releases everything one chip holds: its upload, its ticker, its preview. */
@@ -234,23 +257,6 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
     },
     [],
   )
-
-  const showRefusal = useCallback((refusals: Refusal[]) => {
-    const notice = refusalNotice(refusals)
-    for (const timer of refusalTimers.current) clearTimeout(timer)
-    refusalTimers.current = []
-    if (!notice) return
-    // A second refusal rewrites the line and restarts the clock; it never
-    // stacks (canvas 9e refusal line).
-    setRefusal({ ...notice, exiting: false })
-    refusalTimers.current = [
-      setTimeout(
-        () => setRefusal((current) => (current ? { ...current, exiting: true } : null)),
-        REFUSAL_HOLD_MS,
-      ),
-      setTimeout(() => setRefusal(null), REFUSAL_HOLD_MS + REFUSAL_OUT_MS),
-    ]
-  }, [])
 
   const accept = useCallback(
     (

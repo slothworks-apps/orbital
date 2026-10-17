@@ -781,7 +781,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   // honest — a ref's bytes can be pruned, never replaced.
   app.get('/api/images/:ref', (req, reply) => {
     const { ref } = req.params as { ref: string };
-    const match = /^[a-f0-9]{64}\.(png|jpg|gif|webp)$/.exec(ref);
+    const match = IMAGE_REF_RE.exec(ref);
     if (!match) return reply.code(404).send({ error: 'not found' });
     let bytes;
     try {
@@ -1088,8 +1088,12 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * Everything else — an `.xlsx`, an image too big for the API — goes into the
    * file store and answers a `FileEntry`, whose path the composer puts in the
    * turn's text (spec: 2026-10-01-file-attachments-design).
+   *
+   * `elsewhere`: the upload is for a session on another group member. Only an
+   * image reaches it (its store takes the bytes with the message); a path
+   * into this device's file store would name nothing there, so it is refused.
    */
-  async function storeAttachment(req: FastifyRequest, reply: FastifyReply) {
+  async function storeAttachment(req: FastifyRequest, reply: FastifyReply, elsewhere = false) {
     // Read past the ceiling but not without limit: the 413 names the size it
     // measured, and `truncated` says when even the wall was hit, so the size
     // in the body is never read as exact.
@@ -1111,6 +1115,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       const entry = ctx.images.putBytes(part.mimetype, bytes);
       if (entry) return reply.code(201).send(entry);
     }
+    if (elsewhere) return reply.code(422).send({ error: 'attachment_not_on_device' });
     const entry = ctx.files.putBytes(part.filename, bytes);
     if (!entry) return reply.code(400).send({ error: 'empty_file' });
     return reply.code(201).send(entry);
@@ -1131,13 +1136,18 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * ([[api-token-guards-the-local-port]]), the same umbrella that covers
    * `?cwd=` on `/api/commands` and `/api/files/complete`.
    */
-  app.post('/api/attachments', storeAttachment);
+  app.post('/api/attachments', async (req, reply) => {
+    // A spawn on another member names it; this device's own name was taken off by the federation's preHandler.
+    const { machine } = req.query as { machine?: unknown };
+    return storeAttachment(req, reply, typeof machine === 'string' && machine !== ctx.remote.selfId());
+  });
 
   app.post('/api/sessions/:id/attachments', async (req, reply) => {
     const { id } = req.params as { id: string };
     const row = db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get();
-    if (!row && !ctx.foreign?.(id)) return reply.code(404).send({ error: 'not_found' });
-    return storeAttachment(req, reply);
+    const elsewhere = !row && (ctx.foreign?.(id) ?? false);
+    if (!row && !elsewhere) return reply.code(404).send({ error: 'not_found' });
+    return storeAttachment(req, reply, elsewhere);
   });
 
   app.post('/api/sessions', async (req, reply) => {
@@ -2468,6 +2478,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return Object.fromEntries(rows.filter((r) => !member || !r.key.startsWith('remote_')).map((r) => [r.key, r.value]));
   });
   app.patch('/api/settings', (req, reply) => {
+    if (typeof req.body !== 'object' || req.body === null || Array.isArray(req.body)) {
+      return reply.code(400).send({ error: 'invalid_body' });
+    }
     // The default must name a configured directory; nothing is saved when it does not.
     const patch = req.body as Record<string, string>;
     if (DEFAULT_CLAUDE_DIR_KEY in patch && ctx.claudeDirs.resolveId(patch[DEFAULT_CLAUDE_DIR_KEY]) === null) {

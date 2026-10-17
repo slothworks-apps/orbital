@@ -12,6 +12,7 @@ import { buildServer } from '../src/index.js';
 import type { QueryFn } from '../src/runner/runner.js';
 import type { RemoteService } from '../src/remote/service.js';
 import type { FederationService } from '../src/federation/service.js';
+import type { Hub } from '../src/api/hub.js';
 import { openDb } from '../src/db/database.js';
 import { settings as settingsTable } from '../src/db/schema.js';
 import { fingerprint, publicKeyOf } from '@orbital/shared/remote/keys';
@@ -43,6 +44,8 @@ export type MacAndRelay = {
   remote: RemoteService;
   /** The server's federation: the other members' sessions in its hub. */
   federation: FederationService;
+  /** The server's hub, as a local window sees it. */
+  hub: Hub;
 };
 
 /**
@@ -82,16 +85,17 @@ export async function startMacAndRelay(
   opts.beforeBoot?.(dir);
   let remote: RemoteService | null = null;
   let federation: FederationService | null = null;
+  let hub: Hub | null = null;
   const app = await buildServer({
     dbPath, claudeDir: join(dir, 'claude'), dataDir: dir, apiToken: opts.apiToken, queryFn: opts.queryFn, exposeRemote: (r) => { remote = r; },
-    exposeFederation: (f) => { federation = f; },
+    exposeFederation: (f) => { federation = f; }, exposeHub: (h) => { hub = h; },
   });
   closers.push(() => app.close());
   const headers = opts.apiToken === undefined ? undefined : { authorization: `Bearer ${opts.apiToken}` };
   const api: MacAndRelay['api'] = (method, url, payload) => app.inject({ method, url, payload: payload as any, headers });
 
   await until(async () => (await api('GET', '/api/remote')).json().relay === 'online');
-  return { relayUrl, app, dir, api, remote: remote!, federation: federation! };
+  return { relayUrl, app, dir, api, remote: remote!, federation: federation!, hub: hub! };
 }
 
 /** The code a phone shows for its pairing request: what the user types on the Mac. */

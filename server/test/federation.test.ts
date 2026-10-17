@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { TunnelError, type Channel, type ChannelEvent, type TunnelResponse } from '@orbital/shared/remote/channel';
+import { TunnelError, type BlobResult, type Channel, type ChannelEvent, type TunnelResponse } from '@orbital/shared/remote/channel';
 import { capabilitiesOf } from '@orbital/shared/remote/device';
 import { PROTOCOL_VERSION, type HelloMessage } from '@orbital/shared/remote/messages';
 import { isLive, type RosterEntry } from '@orbital/shared/remote/roster';
@@ -31,6 +31,8 @@ class FakeChannel {
   peer: HelloMessage | null = null;
   readonly subs = new Set<string>();
   readonly asked: string[] = [];
+  /** How this member answers a `blob_get`; by default it holds nothing. */
+  blob: (ref: string) => Promise<BlobResult> = async () => ({ status: 404, bytes: new Uint8Array(), mediaType: null });
   private readonly listeners = new Set<(e: ChannelEvent) => void>();
 
   constructor(public answer: (method: string, path: string, body?: unknown) => TunnelResponse | Promise<TunnelResponse>) {}
@@ -42,6 +44,8 @@ class FakeChannel {
 
   subscribe(topic: string): void { this.subs.add(topic); }
   unsubscribe(topic: string): void { this.subs.delete(topic); }
+
+  getBlob(ref: string): Promise<BlobResult> { return this.blob(ref); }
 
   async request(method: string, path: string, body?: unknown): Promise<TunnelResponse> {
     this.asked.push(`${method} ${path}`);
@@ -326,6 +330,68 @@ describe('FederationService', () => {
     serving.reset();
   });
 
+  it('a spawn on a member from here: its topics are asked of the member first, and its frames taken in before its list names it', async () => {
+    const { hub, remote, federation } = setup();
+    const b = memberB();
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    const win = localSocket(hub, ['session:minted', 'subagent:minted:a1']);
+    expect(b.subs.has('session:minted')).toBe(false);
+    federation.expect(federation.link(B)!, 'minted');
+    expect(b.subs.has('session:minted')).toBe(true);
+    expect(b.subs.has('subagent:minted:a1')).toBe(true);
+    expect(federation.linkOf('minted')?.id).toBe(B);
+    b.hub({ topic: 'session:minted', event: 'status', status: 'working' });
+    expect(win.frames()).toEqual([{ topic: 'session:minted', event: 'status', status: 'working' }]);
+    // The list names it: one owner, by the list.
+    b.hub({ topic: 'sessions', event: 'upsert', session: { id: 'minted', status: 'working' } });
+    expect(federation.linkOf('minted')?.id).toBe(B);
+    // A spawn the member refused gives its topics back and is nobody's.
+    const waiting = localSocket(hub, ['session:refused']);
+    federation.expect(federation.link(B)!, 'refused');
+    federation.unexpect(federation.link(B)!, 'refused');
+    expect(b.subs.has('session:refused')).toBe(false);
+    expect(federation.linkOf('refused')).toBeNull();
+    b.hub({ topic: 'session:refused', event: 'status', status: 'working' });
+    expect(waiting.frames()).toEqual([]);
+  });
+
+  it('an image is asked of every member that is up at once; the first that holds it answers', async () => {
+    const C = 'member-c';
+    const { remote, federation } = setup([entry(SELF), entry(B), entry(C)]);
+    const b = memberB();
+    const c = memberB();
+    remote.open(B, b);
+    remote.open(C, c);
+    b.greet(desktopHello);
+    c.greet(desktopHello);
+    await flush();
+    // B never answers; C holds the image.
+    b.blob = () => new Promise(() => {});
+    const held: BlobResult = { status: 200, bytes: new Uint8Array([1, 2]), mediaType: 'image/png' };
+    c.blob = async () => held;
+    expect(await federation.blob('r.png')).toBe(held);
+    c.blob = async () => ({ status: 404, bytes: new Uint8Array(), mediaType: null });
+    b.blob = async () => { throw new TunnelError('timeout'); };
+    expect(await federation.blob('r.png')).toBeNull();
+  });
+
+  it('reads this device\'s tags once, not per frame, and again after they change', async () => {
+    const localTags = vi.fn(() => [{ id: 3, name: 'work', hue: 10 }]);
+    const { remote, federation } = setup(undefined, { localTags });
+    const b = memberB();
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    const reads = localTags.mock.calls.length;
+    for (let i = 0; i < 5; i++) b.hub({ topic: 'sessions', event: 'upsert', session: { id: 's1', status: 'working', tagIds: [7] } });
+    expect(localTags.mock.calls.length).toBe(reads);
+    localTags.mockReturnValue([{ id: 4, name: 'work', hue: 10 }]);
+    federation.tagsChanged();
+    expect(federation.sessions()[0].tagIds).toEqual([4]);
+  });
+
   it('stop forgets every member and listens no more', async () => {
     const { hub, remote, federation } = setup();
     const b = memberB();
@@ -373,6 +439,22 @@ describe('FederationService snapshots', () => {
     expect(second.federation.sessions()).toEqual([
       { id: 's1', status: 'working', tagIds: [3], machine: { ...machineB, online: true, asOf: null } },
     ]);
+  });
+
+  it('a start engages a member kept from before whose channel is up already', async () => {
+    const store = new MemberSnapshotStore(openTmpDb('federation'));
+    const { remote, federation } = setup(undefined, { snapshots: store });
+    const b = memberB();
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    // Kept at stop; the start restores B from it, and no hello or ready is coming.
+    federation.stop();
+    b.subs.clear();
+    federation.start();
+    await flush();
+    expect(b.subs.has('sessions')).toBe(true);
+    expect(federation.sessions()[0].machine).toMatchObject({ online: true, asOf: null });
   });
 
   it('drops at start the snapshot of a member no longer in the group, of a phone and of this device', () => {
