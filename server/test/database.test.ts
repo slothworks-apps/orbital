@@ -473,14 +473,23 @@ describe('device kind migration', () => {
   it('0028 marks every phone paired before kinds as a phone', () => {
     const dir = makeTmpDir('db-0028');
     const dbPath = join(dir, 'index.db');
-    // The migrations as they stood before 0028: copy the folder, drop 0028 and its journal entry.
+    // The migrations as they stood before 0028: copy the folder, drop 0028 and
+    // everything the real folder has gained since (the migrator orders purely
+    // by each entry's "when" against the single newest one already applied,
+    // so leaving a later migration in place here would make it look newer
+    // than 0028 and mask it on the real re-migration below).
     const before = join(dir, 'drizzle');
     cpSync(join(import.meta.dirname, '..', 'drizzle'), before, { recursive: true });
-    for (const f of ['0028_device_kind.sql', 'meta/0028_snapshot.json']) rmSync(join(before, f));
     const journalPath = join(before, 'meta', '_journal.json');
     const journal = JSON.parse(readFileSync(journalPath, 'utf8'));
-    journal.entries = journal.entries.filter((e: { tag: string }) => e.tag !== '0028_device_kind');
+    const cutoffIdx = journal.entries.find((e: { tag: string }) => e.tag === '0028_device_kind').idx;
+    const dropped = journal.entries.filter((e: { idx: number }) => e.idx >= cutoffIdx);
+    journal.entries = journal.entries.filter((e: { idx: number }) => e.idx < cutoffIdx);
     writeFileSync(journalPath, JSON.stringify(journal));
+    for (const e of dropped) {
+      rmSync(join(before, `${e.tag}.sql`));
+      rmSync(join(before, 'meta', `${String(e.idx).padStart(4, '0')}_snapshot.json`));
+    }
 
     const old = openDb(dbPath, before);
     old.$client.prepare(
