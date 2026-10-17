@@ -10,27 +10,37 @@ import type { OrbitalModel } from './types'
  * store's catalog is the default directory's, so it answers for the default,
  * for a single directory and while another directory's read is out; a failed
  * read leaves it too, and the server still checks the model at launch.
+ *
+ * `machine` names another device of the group (New session launching
+ * there, canvas 50g): its default directory's catalog is read instead, its
+ * own account deciding what it offers; this device's stands in until it lands.
  */
-export function useClaudeDirModels(claudeDirId: number | null | undefined, enabled = true): OrbitalModel[] {
+export function useClaudeDirModels(
+  claudeDirId: number | null | undefined,
+  enabled = true,
+  machine?: string,
+): OrbitalModel[] {
   const catalog = useOrbital(useShallow((s) => s.models))
   const several = useOrbital((s) => s.claudeDirs.length >= 2)
   const defaultDir = useOrbital((s) => s.defaultClaudeDir)
-  const [own, setOwn] = useState<{ dir: number; models: OrbitalModel[] } | null>(null)
-  const dir = enabled && several && claudeDirId != null && claudeDirId !== defaultDir ? claudeDirId : null
+  const [own, setOwn] = useState<{ key: string; models: OrbitalModel[] } | null>(null)
+  const dir = !machine && several && claudeDirId != null && claudeDirId !== defaultDir ? claudeDirId : null
+  /** Which catalog is read, or null for the store's own. */
+  const key = !enabled ? null : machine ? `m:${machine}` : dir !== null ? `d:${dir}` : null
 
   useEffect(() => {
-    if (dir === null || own?.dir === dir) return
+    if (key === null || own?.key === key) return
     let live = true
     api
-      .listModels(dir)
+      .listModels(dir ?? undefined, machine)
       .then((r) => {
-        if (live && r) setOwn({ dir, models: r.models })
+        if (live && r) setOwn({ key, models: r.models })
       })
       .catch(() => {})
     return () => {
       live = false
     }
-  }, [dir, own?.dir])
+  }, [key, dir, machine, own?.key])
 
-  return dir !== null && own?.dir === dir ? own.models : catalog
+  return key !== null && own?.key === key ? own.models : catalog
 }

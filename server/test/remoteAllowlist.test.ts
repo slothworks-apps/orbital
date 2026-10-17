@@ -20,6 +20,8 @@ describe('remote allowlist', () => {
       // The Claude directory a catalog is read for rides the query string.
       ['GET', '/api/models?claudeDir=2'], ['GET', '/api/commands?cwd=/w/x&claudeDir=2'],
       ['GET', '/api/mcpjson?cwd=/w/x&claudeDirId=2'],
+      // The `.mcp.json` question's *View file*, read where the session would run.
+      ['GET', '/api/mcpjson/file?cwd=/w/x&server=a'],
     ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(true);
   });
   it('allows what a desktop drives a session with, and what a federated Settings needs', () => {
@@ -49,7 +51,6 @@ describe('remote allowlist', () => {
   it('denies what acts on that machine\'s screen, the dev tools, auth, remote, presence, terminals and binary reads', () => {
     for (const [m, p] of [
       ['GET', '/api/files/image'], ['GET', '/api/files/image?session=abc&path=a.png'], ['GET', '/api/images/abc.png'],
-      ['GET', '/api/mcpjson/file?cwd=/w/x&server=a'],
       ['GET', '/api/sessions/abc/ide/open-files'], ['POST', '/api/sessions/abc/ide/open-file'],
       ['GET', '/api/sessions/abc/ide/diagnostics'],
       ['PATCH', '/api/settings/'],

@@ -239,6 +239,7 @@ function applyCompletionKey(url: URL, key: CompletionKey): void {
   else {
     url.searchParams.set('cwd', key.cwd)
     if (key.claudeDir !== undefined) url.searchParams.set('claudeDir', String(key.claudeDir))
+    if (key.machine !== undefined) url.searchParams.set('machine', key.machine)
   }
 }
 
@@ -799,8 +800,10 @@ export const api = {
    * question's *View file*: there is no session to read it through yet, so
    * the Mac reads the one file `.mcp.json` names for `server`.
    */
-  async mcpjsonFile(cwd: string, server: string): Promise<FilePreview> {
-    return readPreview(`/api/mcpjson/file?${new URLSearchParams({ cwd, server })}`)
+  async mcpjsonFile(cwd: string, server: string, machine?: string): Promise<FilePreview> {
+    const params = new URLSearchParams({ cwd, server })
+    if (machine !== undefined) params.set('machine', machine)
+    return readPreview(`/api/mcpjson/file?${params}`)
   },
 
   // IDE bridge — the two calls that talk back to the editor (spec:
@@ -890,10 +893,17 @@ export const api = {
 
   // Models API
   /** One Claude directory's catalog (each account has its own models); the default directory's without one. */
-  async listModels(claudeDir?: number): Promise<{ models: OrbitalModel[]; contextWindows: Record<string, number> }> {
+  async listModels(
+    claudeDir?: number,
+    machine?: string,
+  ): Promise<{ models: OrbitalModel[]; contextWindows: Record<string, number> }> {
+    const params = new URLSearchParams()
+    if (claudeDir !== undefined) params.set('claudeDir', String(claudeDir))
+    if (machine !== undefined) params.set('machine', machine)
+    const query = params.toString()
     const data = await request<{ models: OrbitalModel[]; contextWindows?: Record<string, number> }>(
       'GET',
-      claudeDir === undefined ? '/api/models' : `/api/models?claudeDir=${claudeDir}`
+      query ? `/api/models?${query}` : '/api/models',
     )
     return { models: data.models, contextWindows: data.contextWindows ?? {} }
   },

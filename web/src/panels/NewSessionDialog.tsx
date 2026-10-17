@@ -186,6 +186,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const lastClaudeDir = useOrbital((s) => s.lastClaudeDir)
   const select = useOrbital((s) => s.select)
   const selectedSession = useOrbital((s) => (s.ui.selectedId ? (s.sessions[s.ui.selectedId] ?? null) : null))
+  /** The selected planet when it runs here: another device's Claude directory ids mean nothing on this one. */
+  const localPlanet = selectedSession && !selectedSession.machine ? selectedSession : null
   const launchSession = useOrbital((s) => s.launchSession)
   const members = useOrbital((s) => s.remote?.group?.members)
 
@@ -248,7 +250,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   // Canvas 50g: the DEVICE field shows only once a second device can host
   // sessions; with one device the dialog is exactly as it was.
   const deviceRow = showDeviceRow(deviceChips(members))
-  const options = useMemo(() => deviceOptions(members, Date.now()), [members])
+  // Re-read on each open too, so `seen 2h ago` is not as old as the roster.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const options = useMemo(() => deviceOptions(members, Date.now()), [members, open])
   const remote = device !== LOCAL_DEVICE
   /** The `machine` every request about the new session names; absent for this device. */
   const machine = remote ? device : undefined
@@ -265,7 +269,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     changed: claudeDirId !== claudeDirPrefilled.id,
   }
   /** The chosen directory's catalog: each account has its own models. */
-  const models = useClaudeDirModels(claudeDirId, open)
+  const models = useClaudeDirModels(claudeDirId, open, machine)
 
   const canBrowse = canChooseDirectory()
   /** Only the last request's projects land: switching device twice quickly must not show the first's. */
@@ -355,7 +359,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setViewing(null)
       const prefill = claudeDirPrefill({
         dirs: claudeDirs,
-        planet: selectedSession?.claudeDirId,
+        planet: localPlanet?.claudeDirId,
         last: lastClaudeDir,
         fallback: defaultClaudeDir,
       })
@@ -363,11 +367,11 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setClaudeDirPrefilled({
         id: prefill?.id ?? null,
         from: prefill?.from ?? 'default',
-        planet: prefill?.from === 'planet' ? selectedSession?.title : undefined,
+        planet: prefill?.from === 'planet' ? localPlanet?.title : undefined,
       })
       setProjects([])
       // Another device without a planet to start from opens on its most recent directory.
-      loadProjects(startDevice, startCwd ? false : { fallback: '' })
+      loadProjects(startDevice, startDevice !== LOCAL_DEVICE && !startCwd ? { fallback: '' } : false)
     }
     // Closing drops the chips and aborts whatever was still uploading — a
     // dialog that was dismissed is not a turn that will be sent. The chips a
@@ -388,7 +392,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     if (!open || claudeDirId !== null || claudeDirs.length === 0) return
     const prefill = claudeDirPrefill({
       dirs: claudeDirs,
-      planet: selectedSession?.claudeDirId,
+      planet: localPlanet?.claudeDirId,
       last: lastClaudeDir,
       fallback: defaultClaudeDir,
     })
@@ -397,9 +401,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     setClaudeDirPrefilled({
       id: prefill.id,
       from: prefill.from,
-      planet: prefill.from === 'planet' ? selectedSession?.title : undefined,
+      planet: prefill.from === 'planet' ? localPlanet?.title : undefined,
     })
-  }, [open, claudeDirId, claudeDirs, selectedSession, lastClaudeDir, defaultClaudeDir])
+  }, [open, claudeDirId, claudeDirs, localPlanet, lastClaudeDir, defaultClaudeDir])
 
   // Preselection, in the order 4b describes: this project's last model when
   // the toggle allows it, otherwise the Settings default, otherwise the first
@@ -997,7 +1001,13 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               <Composer
                 id="new-session-prompt"
                 aria-label="First prompt"
-                sessionKey={choosesDir && claudeDirId !== null ? { cwd: cwd.trim(), claudeDir: claudeDirId } : { cwd: cwd.trim() }}
+                sessionKey={
+                  machine
+                    ? { cwd: cwd.trim(), machine }
+                    : choosesDir && claudeDirId !== null
+                      ? { cwd: cwd.trim(), claudeDir: claudeDirId }
+                      : { cwd: cwd.trim() }
+                }
                 value={prompt}
                 onChange={setPrompt}
                 enter="newline"
@@ -1031,7 +1041,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
           />
         )}
       </Dialog>
-      <ProjectFileViewer cwd={cwd.trim()} server={viewing} onClose={() => setViewing(null)} />
+      <ProjectFileViewer cwd={cwd.trim()} server={viewing} onClose={() => setViewing(null)} machine={machine} />
     </>
   )
 }

@@ -110,6 +110,9 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   // The New Session question about a project's `.mcp.json` servers; its
   // answers ride `POST /api/sessions` (spec 2026-10-08-mcpjson-approval-design).
   ['GET', '/api/mcpjson'],
+  // The question's *View file*: the one project file `.mcp.json` names, read
+  // on the device the session would run on.
+  ['GET', '/api/mcpjson/file'],
   // A federated Settings (spec 2026-10-16-device-group-design § 6). The
   // `remote_` keys stay this device's own: `PATCH /api/settings` refuses
   // them from a member.

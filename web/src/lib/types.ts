@@ -1260,7 +1260,8 @@ export type FilePreview =
  * A session, or the New session dialog's directory plus the Claude directory
  * it would run under — whose user and plugin commands the catalog lists.
  */
-export type CompletionKey = { session: string } | { cwd: string; claudeDir?: number }
+/** `machine`: the member the completions are read on (New session on another device); absent, this one. */
+export type CompletionKey = { session: string } | { cwd: string; claudeDir?: number; machine?: string }
 
 /** Where a slash command comes from — the popup's right-hand badge (canvas 9b). */
 export type CommandSource = 'user' | 'project' | 'plugin' | `plugin:${string}` | 'built-in'
