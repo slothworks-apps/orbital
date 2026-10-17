@@ -1,7 +1,7 @@
 ---
 id: 2026-10-17-device-group-settings
 title: Device group, part 2b — Settings → Devices on the desktop
-status: active
+status: done
 type: plan
 domain: remote
 related:

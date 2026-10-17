@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Settings → Mobile is now Settings → Devices: pair another Mac or a server by code, see every device in your group, remove one or leave.
 
 ## [0.32.0] — 2026-10-15
 ### Added
