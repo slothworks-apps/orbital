@@ -538,7 +538,24 @@ describe('RemoteService join and the group', () => {
     expect(service.status().joining).toBeNull();
   });
 
-  it('a phone paired here makes a group too; a removed member does not', async () => {
+  it('a phone paired here makes no group: the relay stays open and a join goes ahead', async () => {
+    const { service, devices, db } = build();
+    const [phone] = withMembers(db, { kind: 'phone', links: false });
+    devices.add({ id: phone, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: NOW, notifications: parseNotificationSettings({}) });
+    expect(service.inGroup()).toBe(false);
+    expect(service.status().group.relayLocked).toBe(false);
+    expect(await service.join(codeFrom())).toMatchObject({ code: expect.any(String) });
+  });
+
+  it('a member that links makes a group even when it is paired here', async () => {
+    const { service, devices, db } = build();
+    const [desktop] = withMembers(db, {});
+    devices.add({ id: desktop, name: 'studio', platform: 'linux', kind: 'desktop', pairedAt: NOW, notifications: parseNotificationSettings({}) });
+    expect(service.status().group.relayLocked).toBe(true);
+    expect(await service.join(codeFrom())).toEqual({ error: 'in_group' });
+  });
+
+  it('a phone paired with another member makes a group; a removed member does not', async () => {
     const { service, db } = build();
     const [phone] = withMembers(db, { kind: 'phone', links: false });
     expect(await service.join(codeFrom())).toEqual({ error: 'in_group' });

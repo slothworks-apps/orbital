@@ -41,9 +41,14 @@ import { RelayClient, type RelayClientOptions, type RelayRefusal } from './relay
 import { wakeSecret, wakeToken } from './wake.js';
 import type { Presence } from './presence.js';
 
-/** Whether `entries` holds a live member other than `self`: this device is in a group of two or more. */
-function hasOtherLiveMember(entries: RosterEntry[], self: string | null): boolean {
-  return entries.some((e) => isLive(e) && e.id !== self);
+/**
+ * Whether `entries` holds a live member other than `self` that makes a
+ * group: one that links, or one this device is not paired with (`paired`
+ * holds the ids with a `remote_devices` row). A phone paired here makes no
+ * group — a Mac with only its phones keeps today's relay change and joins.
+ */
+function hasOtherGroupMember(entries: RosterEntry[], self: string | null, paired: Set<string>): boolean {
+  return entries.some((e) => isLive(e) && e.id !== self && (e.links || !paired.has(e.id)));
 }
 
 /** A phone refused at `hello` for an app too old: both versions, and when it was last refused. */
@@ -157,7 +162,7 @@ export type RemoteStatus = {
    * sees it; `pairByHand`: the relay has no `/pair/mutual`, so only a
    * pairing code links the two; `state`: how Settings shows it; `seenAt`:
    * when a member paired here was last on the relay, null for any other.
-   * `relayLocked`: another member is live, so the relay URL cannot change.
+   * `relayLocked`: this device is in a group (`inGroup`), so the relay URL and secret cannot change.
    */
   group: {
     members: (RosterEntry & {
@@ -426,7 +431,8 @@ export class RemoteService {
     try {
       const self = this.ownId();
       const rows = new Map(this.devices.list().map((d) => [d.id, d]));
-      const members = this.roster.list().filter(isLive).map((e) => {
+      const roster = this.roster.list();
+      const members = roster.filter(isLive).map((e) => {
         const row = rows.get(e.id);
         const pairByHand = this.pairByHand.has(e.id);
         const state: MemberState = e.id === self ? 'self'
@@ -437,7 +443,7 @@ export class RemoteService {
           state, seenAt: row?.lastSeenAt ?? null,
         };
       });
-      return { members, relayLocked: hasOtherLiveMember(this.roster.list(), self) };
+      return { members, relayLocked: hasOtherGroupMember(roster, self, new Set(rows.keys())) };
     } catch (err) {
       console.warn(`[remote] could not list the roster: ${err instanceof Error ? err.message : String(err)}`);
       return { members: [], relayLocked: false };
@@ -445,13 +451,13 @@ export class RemoteService {
   }
 
   /**
-   * Whether this device is in a group of two or more: another member is
-   * live. It cannot join another group then, nor move to another relay. As
-   * the status, a roster that cannot be read reads as a group of one.
+   * Whether this device is in a group of two or more (`hasOtherGroupMember`):
+   * it cannot join another group then, nor move to another relay. As the
+   * status, a roster that cannot be read reads as a group of one.
    */
   inGroup(): boolean {
     try {
-      return hasOtherLiveMember(this.roster.list(), this.ownId());
+      return hasOtherGroupMember(this.roster.list(), this.ownId(), new Set(this.devices.list().map((d) => d.id)));
     } catch (err) {
       console.warn(`[remote] could not read the roster: ${err instanceof Error ? err.message : String(err)}`);
       return false;

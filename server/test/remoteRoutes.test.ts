@@ -202,6 +202,36 @@ describe('/api/remote', () => {
     expect((await alone.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_url: 'http://127.0.0.1:2' } })).statusCode).toBe(200);
     await alone.close();
   });
+  it('the relay secret is refused like the URL while another member is live', async () => {
+    const grouped = await server(true, 'http://127.0.0.1:1', (db) => withMember(db));
+    const refused = await grouped.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_secret: 'other' } });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toEqual({ error: 'in_group' });
+    await grouped.close();
+  });
+  it('a Mac whose only other device is a phone paired with it changes its relay URL and secret, and joins', async () => {
+    const phone = deviceId(generateIdentity().publicKey);
+    const app = await server(true, 'http://127.0.0.1:1', (db) => {
+      new DeviceStore(db).add({
+        id: phone, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}),
+      });
+      new RosterStore(db).replace([{
+        id: phone, kind: 'phone', name: 'iPhone', os: 'ios', links: false, epoch: 1, addedBy: 'x', addedAt: 1, describedAt: 1,
+      }]);
+    });
+    try {
+      expect((await app.inject({ method: 'GET', url: '/api/remote' })).json().group.relayLocked).toBe(false);
+      const code = JSON.stringify({
+        v: 1, relay: 'http://127.0.0.1:1', mac: deviceId(generateIdentity().publicKey), name: 'studio', token: 't',
+        secret: toBase64Url(new Uint8Array(PAIRING_SECRET_BYTES)),
+      });
+      expect((await app.inject({ method: 'POST', url: '/api/remote/join', payload: { code } })).json()).not.toEqual({ error: 'in_group' });
+      expect((await app.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_secret: 'other' } })).statusCode).toBe(200);
+      expect((await app.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_url: 'http://127.0.0.1:2' } })).statusCode).toBe(200);
+    } finally {
+      await app.close();
+    }
+  });
   it('a roster that cannot be read leaves the relay URL unlocked, as the status does', async () => {
     const app = await server(true, 'http://127.0.0.1:1', (db) => withMember(db));
     const list = vi.spyOn(RosterStore.prototype, 'list').mockImplementation(() => { throw new Error('no such table'); });
