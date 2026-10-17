@@ -6,6 +6,9 @@ All notable changes to the relay image. Format: [Keep a Changelog](https://keepa
 ### Added
 - Devices of one Orbital group pair with each other without a code, once both ask for it. Pairing and unpairing within a group has a request limit of its own, so a busy group never locks a device out of connecting.
 - A device that connects is told every device it is paired with, not only those online, so a phone can tell when the last of its pairs is gone.
+- Every pairing request from a phone gets the answer a web view needs, so a phone can show its own code, confirm a device and link with its group.
+### Fixed
+- A pairing code used while the device that showed it is offline is no longer used up: it works again once that device is back, until it expires.
 
 ## [0.5.0] — 2026-10-15
 ### Changed
