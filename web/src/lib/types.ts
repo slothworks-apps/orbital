@@ -1864,6 +1864,8 @@ export interface GroupMember {
   pairByHand: boolean
   state: MemberState
   seenAt: number | null
+  /** A member too old to take part in the group: not a phone, and its last hello named no `group` capability. */
+  tooOld: boolean
 }
 
 /**

@@ -20,7 +20,7 @@ import {
   RETENTION_KEY,
 } from './retention.js';
 import { openDb } from './db/database.js';
-import { compactionFailures, pendingRewinds, sessionColumns, sessions, settings as settingsTable } from './db/schema.js';
+import { compactionFailures, pendingRewinds, sessionColumns, sessions, settings as settingsTable, tags as tagsTable } from './db/schema.js';
 import { indexPaths, indexProjectsSliced, type IndexOwner } from './indexer/indexer.js';
 import { batchSessionIds, watchProjects } from './watcher/projects.js';
 import { LiveRegistries, SessionRegistry, type LiveSession } from './watcher/registry.js';
@@ -63,6 +63,7 @@ import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
 import { Presence } from './remote/presence.js';
 import { RemoteService } from './remote/service.js';
+import { FederationService } from './federation/service.js';
 import { remoteInjectOptions } from './remote/inject.js';
 import {
   API_TOKEN_COOKIE,
@@ -261,6 +262,8 @@ export async function buildServer(overrides: {
   indexProjectsSliced?: typeof indexProjectsSliced;
   /** Tests reach the remote service directly; nothing in the app uses it. */
   exposeRemote?: (remote: RemoteService) => void;
+  /** Tests reach the federation directly, as they do the remote. */
+  exposeFederation?: (federation: FederationService) => void;
 } = {}): Promise<FastifyInstance> {
   const apiToken = overrides.apiToken;
   if (apiToken === undefined && !process.env.VITEST) {
@@ -1426,6 +1429,8 @@ export async function buildServer(overrides: {
   // routes always have something to ask. `inject` is how a phone's REST call
   // enters: in-process, same routes, same host guard satisfied by the header.
   const presence = new Presence({ publish: (topic, payload) => hub.publish(topic, payload) });
+  // Set right below; a channel, the only caller, cannot exist before `remote.start()`.
+  let federation: FederationService | null = null;
   const remote = new RemoteService({
     db, hub, dataDir, images, imagesDir, transcriptPath, trees, presence,
     serverVersion: process.env.ORBITAL_VERSION ?? 'dev',
@@ -1435,8 +1440,13 @@ export async function buildServer(overrides: {
     },
     settings: settingsStore,
     allSettings: () => Object.fromEntries(db.select().from(settingsTable).all().map((r) => [r.key, r.value])),
+    foreign: (id) => federation !== null && federation.linkOf(id) !== null,
   });
   overrides.exposeRemote?.(remote);
+  // Every other member's sessions in this hub (spec 2026-10-16-device-group-design § 7).
+  const federated = new FederationService({ hub, remote, localTags: () => db.select().from(tagsTable).all() });
+  federation = federated;
+  overrides.exposeFederation?.(federated);
   registerRoutes(app, {
     db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, terminals, recentTools, errors,
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees,
@@ -1452,12 +1462,18 @@ export async function buildServer(overrides: {
     },
   });
   remote.start();
+  federated.start();
   // After the routes, which give it the path into a session: a wait that fell
   // due while the server was down fires now.
   limits.start();
   app.addHook('onClose', (_instance, done) => {
     // First, while the db is still open — and guarded, so nothing it throws
     // can skip the runner and the db below and leave close hanging.
+    try {
+      federated.stop();
+    } catch (err) {
+      console.warn(`[federation] stop failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
     try {
       remote.stop();
     } catch (err) {

@@ -18,20 +18,32 @@ export const WS_HEARTBEAT_INTERVAL_MS = 15_000;
 
 export class Hub {
   private topics = new Map<string, Set<Socket>>();
-  private firstCb: ((topic: string) => void) | null = null;
-  private lastCb: ((topic: string) => void) | null = null;
+  private readonly firstCbs: ((topic: string) => void)[] = [];
+  private readonly lastCbs: ((topic: string) => void)[] = [];
   private heartbeatIntervalMs: number;
 
   constructor(opts: HubOptions = {}) {
     this.heartbeatIntervalMs = opts.heartbeatIntervalMs ?? WS_HEARTBEAT_INTERVAL_MS;
   }
 
+  /** Adds a listener; every one registered is called, in order. */
   onFirstSubscriber(cb: (topic: string) => void): void {
-    this.firstCb = cb;
+    this.firstCbs.push(cb);
   }
 
   onLastUnsubscriber(cb: (topic: string) => void): void {
-    this.lastCb = cb;
+    this.lastCbs.push(cb);
+  }
+
+  /** One listener throwing must not keep the topic from the others. */
+  private notify(cbs: ((topic: string) => void)[], topic: string): void {
+    for (const cb of cbs) {
+      try {
+        cb(topic);
+      } catch (err) {
+        console.warn(`[hub] a subscriber hook failed on ${topic}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
 
   private subscribe(socket: Socket, topic: string): void {
@@ -42,7 +54,7 @@ export class Hub {
     }
     const wasEmpty = set.size === 0;
     set.add(socket);
-    if (wasEmpty) this.firstCb?.(topic);
+    if (wasEmpty) this.notify(this.firstCbs, topic);
   }
 
   private unsubscribe(socket: Socket, topic: string): void {
@@ -50,7 +62,7 @@ export class Hub {
     if (!set?.delete(socket)) return;
     if (set.size === 0) {
       this.topics.delete(topic);
-      this.lastCb?.(topic);
+      this.notify(this.lastCbs, topic);
     }
   }
 

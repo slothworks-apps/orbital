@@ -20,7 +20,7 @@ function member(patch: Partial<GroupMember>): GroupMember {
   return {
     id: 'm', kind: 'desktop', name: 'm', os: 'macos', links: true,
     epoch: 1, addedBy: 'self', addedAt: NOW, describedAt: NOW,
-    self: false, linked: true, online: true, pairByHand: false, state: 'online', seenAt: null,
+    self: false, linked: true, online: true, pairByHand: false, state: 'online', seenAt: null, tooOld: false,
     ...patch,
   }
 }

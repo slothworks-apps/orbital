@@ -38,6 +38,12 @@ export function memberMayWatch(topic: string): boolean {
   return MEMBER_ALLOWED_TOPICS.has(topic) || MEMBER_ALLOWED_TOPIC_PREFIXES.some((p) => topic.startsWith(p) && topic.length > p.length);
 }
 
+/** The session a per-session topic is about: `session:<id>`, `subagent:<id>:…`, `task-output:<id>:…`. */
+export function sessionOfTopic(topic: string): string | null {
+  const m = /^(?:session|subagent|task-output):([^:]+)/.exec(topic);
+  return m ? m[1] : null;
+}
+
 const IMAGE_CONTENT_TYPES: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
 };
@@ -57,6 +63,11 @@ export type ServingHalfOptions = {
   onSeen(sessionId: string): void;
   /** Whether the user is at the Mac, sent when the phone subscribes to `presence`; absent, never. */
   atMac?: () => boolean;
+  /**
+   * Whether a session is another member's, federated into this hub: never
+   * passed on to the peer (no chaining, spec 2026-10-16-device-group-design § 7).
+   */
+  foreign?: (sessionId: string) => boolean;
 };
 
 type VirtualSocket = EventEmitter & { send(data: string): void };
@@ -129,18 +140,38 @@ export class ServingHalf implements ChannelServer {
         } catch {
           return; // not JSON: nothing the asker could read
         }
+        if (this.withheld(frame)) return;
         this.answer({ t: 'ws', frame });
       },
     });
     return socket;
   }
 
+  /** A frame about another member's session, which this device only shows: it stays here. */
+  private withheld(frame: unknown): boolean {
+    const f = frame as { topic?: unknown; sessionId?: unknown; session?: { machine?: unknown } | null } | null;
+    if (!f || typeof f.topic !== 'string') return false;
+    if (f.topic === 'sessions') {
+      if (f.session && typeof f.session === 'object' && f.session.machine != null) return true;
+      return typeof f.sessionId === 'string' && this.isForeign(f.sessionId);
+    }
+    const session = sessionOfTopic(f.topic);
+    return session !== null && this.isForeign(session);
+  }
+
+  private isForeign(sessionId: string): boolean {
+    return this.opts.foreign?.(sessionId) ?? false;
+  }
+
   private onAsk(msg: AskMessage): void {
     const socket = this.socket;
     if (!socket) return;
     switch (msg.t) {
-      case 'ws':
+      case 'ws': {
         if (!memberMayWatch(msg.topic)) return;
+        // Another member's session is that member's to serve, over its own channel.
+        const session = sessionOfTopic(msg.topic);
+        if (msg.type === 'subscribe' && session !== null && this.isForeign(session)) return;
         socket.emit('message', JSON.stringify({ type: msg.type, topic: msg.topic }));
         // The hub replays nothing on subscribe, so the phone would not know
         // presence until it next changed.
@@ -148,6 +179,7 @@ export class ServingHalf implements ChannelServer {
           this.answer({ t: 'ws', frame: { topic: PRESENCE_TOPIC, event: 'state', atMac: this.opts.atMac?.() ?? false } });
         }
         return;
+      }
       case 'http':
         void this.onHttp(msg);
         return;

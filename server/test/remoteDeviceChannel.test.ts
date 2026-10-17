@@ -61,7 +61,7 @@ function makePhone(mac: ReturnType<typeof generateIdentity>, session: () => Chan
 
 function build(opts: {
   inject?: InjectFn; handshake?: boolean; files?: PhoneFileReader; minPhoneVersion?: string;
-  atMac?: () => boolean;
+  atMac?: () => boolean; foreign?: (sessionId: string) => boolean;
 } = {}) {
   const mac = generateIdentity();
   const hub = new Hub({ heartbeatIntervalMs: 60_000 });
@@ -79,7 +79,7 @@ function build(opts: {
     inject: opts.inject ?? (async () => ({ statusCode: 500, body: '{}' })),
     images, imagesDir: dir, files: opts.files ?? (() => ({ status: 404 })),
     notifications, send: phone.onMacBody, onSeen, onAppVersion, minPhoneVersion: opts.minPhoneVersion,
-    atMac: opts.atMac,
+    atMac: opts.atMac, foreign: opts.foreign,
   });
   session.on((e) => { if (e.type === 'closed') onClose(); });
   // The initiator's half exists from the start; only the responder's waits for `complete`.
@@ -179,6 +179,21 @@ describe('device channel, served by this server', () => {
       phone.send({ t: 'ws', type: 'subscribe', topic });
       expect(hub.subscriberCount(topic)).toBe(1);
     }
+  });
+  it('never passes on another member\'s session: no upsert with a machine, no frame or subscription about a foreign id', () => {
+    const { phone, hub } = build({ foreign: (id) => id === 'theirs' });
+    phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' });
+    phone.send({ t: 'ws', type: 'subscribe', topic: 'sessions' });
+    phone.send({ t: 'ws', type: 'subscribe', topic: 'session:theirs' });
+    phone.send({ t: 'ws', type: 'subscribe', topic: 'subagent:theirs:a1' });
+    expect(hub.subscriberCount('session:theirs')).toBe(0);
+    expect(hub.subscriberCount('subagent:theirs:a1')).toBe(0);
+    hub.publish('sessions', { event: 'upsert', session: { id: 'theirs', machine: { id: 'b' } } });
+    hub.publish('sessions', { event: 'status', sessionId: 'theirs', status: 'working' });
+    hub.publish('sessions', { event: 'remove', sessionId: 'theirs' });
+    expect(phone.out).toEqual([macHello]);
+    hub.publish('sessions', { event: 'status', sessionId: 'mine', status: 'working' });
+    expect(phone.out.at(-1)).toEqual({ t: 'ws', frame: { topic: 'sessions', event: 'status', sessionId: 'mine', status: 'working' } });
   });
   it('a hub frame too large for one relay frame becomes a dropped notice naming the message', () => {
     const { phone, hub } = build();
@@ -507,6 +522,22 @@ describe('DeviceWatcher', () => {
     expect(wakes).toHaveLength(3);
     w.stop();
     expect(hub.subscriberCount('sessions')).toBe(0);
+  });
+  it('wakes nobody for another member\'s session: that member wakes the phone for its own', () => {
+    const hub = new Hub({ heartbeatIntervalMs: 60_000 });
+    const wakes: string[] = [];
+    const w = new DeviceWatcher({ deviceId: 'p1', hub, settings: () => allOn, onWake: (id) => wakes.push(id) });
+    const machine = { id: 'b', name: 'laptop', kind: 'desktop', os: 'macos', online: true, asOf: null };
+    w.start([{ id: 'seeded', status: 'working', machine }]);
+    hub.publish('sessions', { event: 'upsert', session: { id: 'theirs', status: 'working', machine } });
+    hub.publish('sessions', { event: 'status', sessionId: 'theirs', status: 'needs_input' });
+    hub.publish('sessions', { event: 'upsert', session: { id: 'theirs', status: 'needs_input', machine } });
+    hub.publish('sessions', { event: 'status', sessionId: 'seeded', status: 'needs_input' });
+    expect(wakes).toEqual([]);
+    hub.publish('sessions', { event: 'upsert', session: { id: 'mine', status: 'working' } });
+    hub.publish('sessions', { event: 'status', sessionId: 'mine', status: 'needs_input' });
+    expect(wakes).toEqual(['mine']);
+    w.stop();
   });
   it('wakes nothing while the user is at the Mac, and sends nothing muted later', () => {
     const hub = new Hub({ heartbeatIntervalMs: 60_000 });

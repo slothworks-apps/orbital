@@ -26,6 +26,11 @@ export type DeviceWatcherOptions = {
 export class DeviceWatcher {
   private readonly notifier = new SessionNotifier();
   private readonly pending = new Set<string>();
+  /**
+   * Sessions seen only as another member's (carrying `machine`): that member
+   * wakes the phone for its own (spec 2026-10-16-device-group-design § 10).
+   */
+  private readonly foreign = new Set<string>();
   private socket: (EventEmitter & { send(data: string): void }) | null = null;
 
   constructor(private readonly opts: DeviceWatcherOptions) {}
@@ -34,7 +39,10 @@ export class DeviceWatcher {
   start(initialSessions: unknown[]): void {
     // A second subscriber would wake the phone twice for every event.
     if (this.socket) return;
-    for (const session of initialSessions) this.notifier.onEvent({ topic: 'sessions', event: 'upsert', session });
+    for (const session of initialSessions) {
+      if (this.isForeign({ topic: 'sessions', event: 'upsert', session })) continue;
+      this.notifier.onEvent({ topic: 'sessions', event: 'upsert', session });
+    }
     const socket = Object.assign(new EventEmitter(), { send: (data: string) => this.onFrame(data) });
     this.socket = socket;
     this.opts.hub.handleSocket(socket);
@@ -51,6 +59,25 @@ export class DeviceWatcher {
     this.socket = null;
   }
 
+  /** Whether a `sessions` frame is about another member's session; remembers which ids are. */
+  private isForeign(frame: Record<string, unknown>): boolean {
+    if (frame.topic !== 'sessions') return false;
+    const session = frame.session && typeof frame.session === 'object'
+      ? (frame.session as { id?: string | number | null; machine?: unknown }) : undefined;
+    if (session) {
+      const id = String(session.id ?? '');
+      if (session.machine != null) {
+        this.foreign.add(id);
+        return true;
+      }
+      this.foreign.delete(id);
+      return false;
+    }
+    if (typeof frame.sessionId !== 'string' || !this.foreign.has(frame.sessionId)) return false;
+    if (frame.event === 'remove') this.foreign.delete(frame.sessionId);
+    return true;
+  }
+
   private onFrame(data: string): void {
     let frame: Record<string, unknown>;
     try {
@@ -58,6 +85,7 @@ export class DeviceWatcher {
     } catch {
       return;
     }
+    if (this.isForeign(frame)) return;
     // A session leaving needs_input retires its debounce, whichever way it went.
     if (frame.topic === 'sessions') {
       const session = frame.session && typeof frame.session === 'object'

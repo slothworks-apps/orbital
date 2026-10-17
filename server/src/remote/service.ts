@@ -40,6 +40,7 @@ import type { InjectFn } from './servingHalf.js';
 import { RelayClient, type RelayClientOptions, type RelayRefusal } from './relayClient.js';
 import { wakeSecret, wakeToken } from './wake.js';
 import type { Presence } from './presence.js';
+import { memberTooOld } from './memberGate.js';
 
 /**
  * Whether `entries` holds a live member other than `self` that makes a
@@ -162,11 +163,13 @@ export type RemoteStatus = {
    * sees it; `pairByHand`: the relay has no `/pair/mutual`, so only a
    * pairing code links the two; `state`: how Settings shows it; `seenAt`:
    * when a member paired here was last on the relay, null for any other.
+   * `tooOld`: a member too old to take part in the group (`memberTooOld`), by its last hello.
    * `relayLocked`: this device is in a group (`inGroup`), so the relay URL and secret cannot change.
    */
   group: {
     members: (RosterEntry & {
       self: boolean; linked: boolean; online: boolean; pairByHand: boolean; state: MemberState; seenAt: number | null;
+      tooOld: boolean;
     })[];
     relayLocked: boolean;
   };
@@ -206,6 +209,12 @@ export type RemoteServiceOptions = {
   /** Whether the user is at the Mac; absent, they never are (spec 2026-10-15-the-phone-is-quiet-while-you-are-at-the-mac-design). */
   presence?: Pick<Presence, 'atMac'>;
   clientFactory?: (opts: RelayClientOptions) => RelayClient;
+  /**
+   * Whether a session is another member's, federated into this hub: a
+   * channel never passes one on (no chaining, spec
+   * 2026-10-16-device-group-design § 7). Absent, none is.
+   */
+  foreign?: (sessionId: string) => boolean;
 };
 
 export class RemoteService {
@@ -255,6 +264,14 @@ export class RemoteService {
   private readonly now: () => number;
   /** One for every phone, so its named-path cache serves them all. */
   private readonly files: PhoneFileReader;
+  /**
+   * The last hello of every device, kept after its channel closes so a
+   * member's capabilities are known while it is offline; gone when the
+   * device leaves the group or is forgotten.
+   */
+  private readonly hellos = new Map<string, HelloMessage>();
+  private readonly channelListeners = new Set<(id: string, channel: Channel) => void>();
+  private readonly statusListeners = new Set<() => void>();
 
   constructor(private readonly opts: RemoteServiceOptions) {
     this.devices = new DeviceStore(opts.db);
@@ -379,14 +396,46 @@ export class RemoteService {
    * every window shows the new name.
    */
   nameChanged(): void {
-    const self = this.selfId;
+    const self = this.runningId;
     const described = self !== null
       && this.setRoster(describeMember(this.roster.list(), self, { name: this.selfAbout().name }, this.now()));
     if (!described) this.publishStatus();
   }
 
+  /** This device's id, known whether or not the remote runs; null when it never had one. */
+  selfId(): string | null {
+    return this.ownId();
+  }
+
+  /** The roster's live members, this device included; none when the roster cannot be read. */
+  liveMembers(): RosterEntry[] {
+    try {
+      return this.roster.list().filter(isLive);
+    } catch (err) {
+      console.warn(`[remote] could not read the roster: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
+  }
+
+  /** The last hello `id` sent this device, on any channel since it started; null before one. */
+  peerHello(id: string): HelloMessage | null {
+    return this.hellos.get(id) ?? null;
+  }
+
+  /** Called with every channel as it is made, before it starts or is fed. */
+  onChannel(listener: (id: string, channel: Channel) => void): () => void {
+    this.channelListeners.add(listener);
+    return () => { this.channelListeners.delete(listener); };
+  }
+
+  /** Called after every status publish: a roster change, a device added or removed, presence. */
+  onStatus(listener: () => void): () => void {
+    this.statusListeners.add(listener);
+    return () => { this.statusListeners.delete(listener); };
+  }
+
   /** This device's id while the remote runs; null while it is off. */
-  private get selfId(): string | null {
+  private get runningId(): string | null {
     return this.identity ? deviceId(this.identity.publicKey) : null;
   }
 
@@ -441,6 +490,7 @@ export class RemoteService {
         return {
           ...e, self: e.id === self, linked: row !== undefined, online: online.has(e.id), pairByHand,
           state, seenAt: row?.lastSeenAt ?? null,
+          tooOld: e.id !== self && memberTooOld(e.kind, this.hellos.get(e.id) ?? null),
         };
       });
       return { members, relayLocked: hasOtherGroupMember(roster, self, new Set(rows.keys())) };
@@ -715,7 +765,7 @@ export class RemoteService {
    * the roster could not be written.
    */
   async leave(): Promise<RemoveResult> {
-    const self = this.selfId;
+    const self = this.runningId;
     if (self === null || !this.client || this.client.status !== 'online') return { error: 'offline' };
     try {
       this.setRoster(removeMember(this.roster.list(), self, self, this.now()));
@@ -729,7 +779,7 @@ export class RemoteService {
 
   /** This device's id, read once from the data dir while the remote is off; null when it never had one. */
   private ownId(): string | null {
-    if (this.selfId !== null) this.knownId = this.selfId;
+    if (this.runningId !== null) this.knownId = this.runningId;
     if (this.knownId === undefined) {
       const identity = readIdentity(this.opts.dataDir);
       this.knownId = identity ? deviceId(identity.publicKey) : null;
@@ -752,6 +802,7 @@ export class RemoteService {
     this.watchers.delete(id);
     this.devices.remove(id);
     this.phonesTooOld.delete(id);
+    this.hellos.delete(id);
     this.revokeAtRelay(id);
   }
 
@@ -788,6 +839,7 @@ export class RemoteService {
     this.watchers.clear();
     for (const d of paired) this.devices.remove(d.id);
     this.phonesTooOld.clear();
+    this.hellos.clear();
     this.setRoster(addMember(entries.filter((e) => e.id === self), {
       id: self, ...this.selfAbout(), addedBy: self, addedAt: now, describedAt: now,
     }));
@@ -823,6 +875,7 @@ export class RemoteService {
     const all = this.devices.list();
     if (all.length === 0) return;
     for (const d of all) this.devices.remove(d.id);
+    this.hellos.clear();
     console.warn(`[remote] the Mac's identity was regenerated; removed ${all.length} paired phone(s), which must pair again`);
   }
 
@@ -854,6 +907,7 @@ export class RemoteService {
       this.watchers.delete(msg.mac);
       this.devices.remove(msg.mac);
       this.phonesTooOld.delete(msg.mac);
+      this.hellos.delete(msg.mac);
       this.publishStatus();
       return;
     }
@@ -970,6 +1024,7 @@ export class RemoteService {
       onSeen: (sessionId) => this.watchers.get(from)?.seen(sessionId),
       atMac: () => this.opts.presence?.atMac ?? false,
       onAppVersion: (refusal) => this.markPhoneVersion(from, refusal),
+      ...(this.opts.foreign ? { foreign: this.opts.foreign } : {}),
     });
     opened.on((event) => {
       // A closed channel is terminal: the next frame from this device builds a fresh one.
@@ -983,12 +1038,22 @@ export class RemoteService {
         opened.close();
         if (role === 'initiator') this.open(from);
       }
-      if (event.type === 'hello') this.tryRoster('describe a peer', () => this.onPeerHello(from, opened, event.hello));
+      if (event.type === 'hello') {
+        this.hellos.set(from, event.hello);
+        this.tryRoster('describe a peer', () => this.onPeerHello(from, opened, event.hello));
+      }
       // Each side sends its digest as the channel opens; a difference is answered with the roster.
       if (event.type === 'ready' && event.ready && opened.groups) opened.sendGroup({ t: 'roster_digest', digest: this.roster.digest() });
       if (event.type === 'group') this.onGroup(from, opened, event.msg);
     });
     this.channels.set(from, opened);
+    for (const listener of [...this.channelListeners]) {
+      try {
+        listener(from, opened);
+      } catch (err) {
+        console.warn(`[remote] a channel listener failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
     return opened;
   }
 
@@ -1040,7 +1105,7 @@ export class RemoteService {
    * `linked` while it holds the pair, and otherwise waits for the other half.
    */
   private link(paired = false): void {
-    const self = this.selfId;
+    const self = this.runningId;
     const client = this.client;
     if (self === null || !client || client.status !== 'online') return;
     const asked = this.mutualAsked;
@@ -1096,7 +1161,7 @@ export class RemoteService {
    */
   private onLinked(peer: string): void {
     const entry = this.roster.entry(peer);
-    if (!this.identity || peer === this.selfId) return;
+    if (!this.identity || peer === this.runningId) return;
     // A removed member asked before its removal reached the relay: the pair goes again.
     if (entry && !isLive(entry)) {
       console.warn(`[remote] revoked a link with ${peer.slice(0, 8)}: removed from the group`);
@@ -1126,7 +1191,7 @@ export class RemoteService {
    * the remote was off reached no roster.
    */
   private addSelf(): void {
-    const self = this.selfId!;
+    const self = this.runningId!;
     const known = this.roster.entry(self);
     const now = this.now();
     const about = this.selfAbout();
@@ -1168,7 +1233,7 @@ export class RemoteService {
    * hello, which can arrive before the pairing finishes here.
    */
   private addPaired(device: Pick<RosterEntry, 'id' | 'kind' | 'name' | 'os'>): void {
-    const self = this.selfId;
+    const self = this.runningId;
     if (self === null) return;
     const known = this.roster.entry(device.id);
     if (known && isLive(known)) return;
@@ -1184,7 +1249,7 @@ export class RemoteService {
    * no entry yet and gets one here.
    */
   private onPeerHello(from: string, channel: Channel, hello: HelloMessage): void {
-    const self = this.selfId;
+    const self = this.runningId;
     if (self === null) return;
     const name = hello.name ?? hello.macName;
     const patch = {
@@ -1223,7 +1288,7 @@ export class RemoteService {
       return;
     }
     // A member says this device was removed; its roster says so too, and the removal comes with it.
-    const self = this.selfId;
+    const self = this.runningId;
     if (self !== null) this.tryRoster('leave the group', () => this.setRoster(removeMember(this.roster.list(), self, from, this.now()), from));
   }
 
@@ -1283,5 +1348,12 @@ export class RemoteService {
 
   private publishStatus(): void {
     this.opts.hub.publish('remote', { event: 'status', ...this.status() });
+    for (const listener of [...this.statusListeners]) {
+      try {
+        listener();
+      } catch (err) {
+        console.warn(`[remote] a status listener failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
 }

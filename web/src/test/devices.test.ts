@@ -10,7 +10,7 @@ function member(patch: Partial<GroupMember> = {}): GroupMember {
   return {
     id: 'self-id', kind: 'desktop', name: 'studio-mbp', os: 'macos', links: true,
     epoch: 1, addedBy: 'self-id', addedAt: NOW, describedAt: NOW,
-    self: false, linked: true, online: true, pairByHand: false, state: 'online', seenAt: null,
+    self: false, linked: true, online: true, pairByHand: false, state: 'online', seenAt: null, tooOld: false,
     ...patch,
   }
 }
