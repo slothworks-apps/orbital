@@ -130,14 +130,14 @@ true }` or sends the `linked` control once the other half arrives.
 What happens to the answer:
 
 - **`{ linked: true }`**, from the post's own answer or from the `linked`
-  control, is handled identically by `onLinked`: only when the roster
-  still holds a live entry for that peer that links does it become a
-  paired device (a `remote_devices` row, `publishStatus`, a channel
-  opened to it). A `linked` for an entry the roster does not hold live —
-  or does not hold at all — is ignored and logged; the roster, never the
-  relay's word alone, decides who is linked. A `linked` for an entry
-  that was removed in the meantime revokes that pair back out
-  (`revokeAtRelay`) instead of linking it.
+  control, is handled identically by `onLinked`, which reads the roster
+  for that peer and has exactly three outcomes: an entry that is removed
+  revokes that pair straight back out (`revokeAtRelay`) — the pair asked
+  for before the removal reached the relay is undone, not kept; no entry
+  at all, or a live entry that does not link, is ignored and logged — the
+  relay's word alone never makes a device a member; only a live entry
+  that links becomes a paired device (a `remote_devices` row if there was
+  none yet, `publishStatus`, a channel opened to it).
 - **404** (the relay predates `/pair/mutual`) marks the id `pairByHand`
   in memory until the next relay `ok` clears it, and is shown as such in
   the status.
