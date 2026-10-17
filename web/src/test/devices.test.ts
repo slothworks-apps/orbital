@@ -35,8 +35,10 @@ describe('memberStateWords', () => {
 
   it('reads a time old enough to be a date without "ago"', () => {
     const longAgo = NOW - 90 * 24 * 60 * 60_000
+    // Same Intl call as `timeAgo` in format.ts, so this holds under any locale.
+    const expectedDate = new Date(longAgo).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
     const words = memberStateWords(member({ state: 'offline', seenAt: longAgo }), NOW)
-    expect(words).toMatch(/^offline · seen \S+ \d+$/)
+    expect(words).toBe(`offline · seen ${expectedDate}`)
     expect(words).not.toMatch(/ago$/)
   })
 
