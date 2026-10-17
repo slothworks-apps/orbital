@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { deviceId, generateIdentity, toBase64Url } from '@orbital/shared/remote/keys'
 import { parsePairingCode } from '@orbital/shared/remote/relayApi'
-import { addedByLine, deviceRows, kindOs, memberStateWords, oneWordCode, osLabel } from '../lib/devices'
-import type { GroupMember } from '../lib/types'
+import {
+  LOCAL_DEVICE, addedByLine, asOfLabel, deviceChips, deviceOf, deviceRows, devicesOn, kindOs, memberStateWords,
+  namesShown, oneWordCode, osLabel, showDeviceRow, toggleDevice,
+} from '../lib/devices'
+import type { GroupMember, MachineRef } from '../lib/types'
 
 const NOW = Date.now()
 
@@ -52,6 +55,12 @@ describe('memberStateWords', () => {
 
   it('reads notLinked as pair by hand', () => {
     expect(memberStateWords(member({ state: 'notLinked' }), NOW)).toBe('not linked — pair by hand')
+  })
+
+  it('reads a too-old Orbital as what to do about it, whatever its presence', () => {
+    expect(memberStateWords(member({ name: 'gpu-01', state: 'online', tooOld: true }), NOW)).toBe('update Orbital on gpu-01')
+    expect(memberStateWords(member({ name: 'gpu-01', state: 'offline', seenAt: NOW, tooOld: true }), NOW))
+      .toBe('update Orbital on gpu-01')
   })
 })
 
@@ -153,5 +162,91 @@ describe('deviceRows', () => {
       needsUpdate: null,
     }], NOW)
     expect(rows[0].words).toBe('offline · seen just now')
+  })
+})
+
+describe('device chips (canvas 50e)', () => {
+  const self = member({ id: 'me', name: 'studio-mbp', self: true, state: 'self' })
+  const roster = [
+    self,
+    member({ id: 'build', name: 'build-box', kind: 'headless', os: 'linux', state: 'online' }),
+    member({ id: 'phone', name: 'pixel', kind: 'phone', os: 'android', state: 'online' }),
+    member({ id: 'air', name: 'air-m3', state: 'offline', seenAt: NOW }),
+    member({ id: 'new', name: 'new-box', kind: 'headless', state: 'linking' }),
+    member({ id: 'hand', name: 'hand-box', kind: 'headless', state: 'notLinked' }),
+    member({ id: 'gpu', name: 'gpu-01', kind: 'headless', state: 'linking', tooOld: true }),
+  ]
+
+  it('gives this device first, then linked non-phones and too-old ones in roster order', () => {
+    const chips = deviceChips(roster)
+    expect(chips.map((c) => c.id)).toEqual([LOCAL_DEVICE, 'build', 'air', 'gpu'])
+    expect(chips[0]).toMatchObject({ label: 'This device', name: 'studio-mbp', offline: false, update: false })
+    expect(chips.find((c) => c.id === 'air')).toMatchObject({ label: 'air-m3', offline: true, update: false })
+    expect(chips.find((c) => c.id === 'gpu')).toMatchObject({ offline: false, update: true })
+  })
+
+  it('is just this device with the remote off, and the row stays hidden', () => {
+    expect(deviceChips(undefined).map((c) => c.id)).toEqual([LOCAL_DEVICE])
+    expect(showDeviceRow(deviceChips(undefined))).toBe(false)
+    expect(showDeviceRow(deviceChips([self, roster[2]]))).toBe(false)
+    expect(showDeviceRow(deviceChips(roster))).toBe(true)
+  })
+
+  it('reads a session without a machine as this device', () => {
+    expect(deviceOf({})).toBe(LOCAL_DEVICE)
+    expect(deviceOf({ machine: { id: 'build', name: 'build-box', kind: 'headless', os: 'linux', online: true, asOf: null } }))
+      .toBe('build')
+  })
+
+  const chips = deviceChips(roster)
+
+  it('devicesOn ignores hidden ids no chip names any more', () => {
+    expect(devicesOn(chips, ['gone', 'air'])).toEqual([LOCAL_DEVICE, 'build', 'gpu'])
+  })
+
+  it('devicesOn never leaves none on: the one left on disappearing turns them all back on', () => {
+    const two = deviceChips([self, roster[1]])
+    // `build` was the one on; it stops linking and loses its chip.
+    expect(devicesOn(deviceChips([self]), [LOCAL_DEVICE])).toEqual([LOCAL_DEVICE])
+    expect(devicesOn(two, [LOCAL_DEVICE, 'build'])).toEqual([LOCAL_DEVICE, 'build'])
+  })
+
+  it('toggleDevice turns a chip off and back on', () => {
+    const off = toggleDevice([], 'build', chips)
+    expect(off).toEqual(['build'])
+    expect(toggleDevice(off, 'build', chips)).toEqual([])
+  })
+
+  it('toggleDevice refuses to turn off the last chip on', () => {
+    const hidden = [LOCAL_DEVICE, 'build', 'air']
+    expect(toggleDevice(hidden, 'gpu', chips)).toBe(hidden)
+  })
+
+  it('toggleDevice keeps a stale id, so a member that drops out keeps its choice', () => {
+    expect(toggleDevice(['gone'], 'build', chips)).toEqual(['gone', 'build'])
+  })
+
+  it('namesShown needs the row and two chips on', () => {
+    expect(namesShown(chips, [])).toBe(true)
+    expect(namesShown(chips, ['build', 'air'])).toBe(true)
+    expect(namesShown(chips, ['build', 'air', 'gpu'])).toBe(false)
+    expect(namesShown(deviceChips([self]), [])).toBe(false)
+  })
+})
+
+describe('asOfLabel', () => {
+  const machine = (patch: Partial<MachineRef>): MachineRef => ({
+    id: 'air', name: 'air-m3', kind: 'desktop', os: 'macos', online: false, asOf: NOW - 2 * 60 * 60_000, ...patch,
+  })
+
+  it('dates an offline machine the way the canvas spells it', () => {
+    expect(asOfLabel(machine({}), NOW)).toBe('as of 2 h')
+    expect(asOfLabel(machine({ asOf: NOW - 5 * 60_000 }), NOW)).toBe('as of 5 m')
+  })
+
+  it('is null online, for this device and with nothing to date it by', () => {
+    expect(asOfLabel(machine({ online: true, asOf: null }), NOW)).toBeNull()
+    expect(asOfLabel(undefined, NOW)).toBeNull()
+    expect(asOfLabel(machine({ asOf: null }), NOW)).toBeNull()
   })
 })

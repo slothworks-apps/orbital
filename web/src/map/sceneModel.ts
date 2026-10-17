@@ -8,6 +8,7 @@ import {
   absorptionFor,
   mapSessions,
   matchesSidebarFilters,
+  hiddenDevices,
   parseContextThresholds,
   parsePlanetScale,
   PLANET_SCALE_MAX,
@@ -289,15 +290,20 @@ function withStableSessionOrder(clusters: Cluster[]): Cluster[] {
  * Pure: same `state` and `nowMs` in, same model out, every time — no
  * Date.now, no Math.random, no mutation of `state`. The clock arrives as
  * `nowMs` precisely to keep that true; `useSceneModel` is what reads a real
- * clock and re-reads it on a slow tick.
+ * clock and re-reads it on a slow tick. `hidden` (the devices whose chip is
+ * off, `hiddenDevices`) is passed in for the same reason.
  */
-export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel {
-  const sessions = mapSessions(state, nowMs)
+export function buildSceneModel(
+  state: OrbitalState,
+  nowMs: number,
+  hidden: readonly string[] = hiddenDevices(state),
+): SceneModel {
+  const sessions = mapSessions(state, nowMs, hidden)
   const clusters = clusterSessions(sessions, state.tags)
   const stable = withStableSessionOrder(clusters)
   const positions = layoutClusters(stable)
   const anchorByTag = clusterAnchors(stable)
-  const counts = statusCounts(state, nowMs)
+  const counts = statusCounts(state, nowMs, hidden)
   const selectedId = state.ui.selectedId
   const isLeaving = (session: ApiSession) =>
     absorptionFor(session, nowMs, state.leavingSince[session.id]) === 'leaving'

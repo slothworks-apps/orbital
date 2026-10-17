@@ -67,6 +67,20 @@ export interface RecentTool {
   at: number
 }
 
+/**
+ * The member of the device group a session runs on. Mirrors `MachineRef` in
+ * `server/src/federation/service.ts`. `asOf`: when this device last heard
+ * from that member while it is offline (epoch ms), else null.
+ */
+export interface MachineRef {
+  id: string
+  name: string
+  kind: string
+  os: string
+  online: boolean
+  asOf: number | null
+}
+
 export interface ApiSession {
   id: string
   cwd: string
@@ -144,6 +158,11 @@ export interface ApiSession {
    * other only what runs. An older Mac sends every agent in the list too.
    */
   subagents: Subagent[]
+  /**
+   * The other member of the device group this session runs on; absent for a
+   * session of this device (`deviceOf` in `lib/devices.ts`).
+   */
+  machine?: MachineRef
   /**
    * How many subagents the session has had, ended included, however many
    * `subagents` holds. Absent from an older Mac: fall back to

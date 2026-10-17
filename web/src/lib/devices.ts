@@ -1,12 +1,13 @@
 /**
  * Settings → Devices' pure derivations (spec 2026-10-16-device-group-design):
  * a member's state wording, its kind and OS, who added it, and the one-word
- * form of a pairing code (canvas 50k).
+ * form of a pairing code (canvas 50k); and the map's and sidebar's device
+ * chips and filter (canvas 50e).
  */
 import { encodePairingCode } from '@orbital/shared/remote/relayApi'
 import { timeAgo } from './format'
 import { codeLeft } from './remote'
-import type { GroupMember, MemberState, RemoteDevice } from './types'
+import type { ApiSession, GroupMember, MachineRef, MemberState, RemoteDevice } from './types'
 
 /**
  * The three known device kinds read as is; an unrecognised one passes
@@ -50,6 +51,9 @@ function offlineWords(seenAt: number | null, now: number): string {
  * `seenAt` (a member never paired here) reads bare, with nothing to date it by.
  */
 export function memberStateWords(m: GroupMember, now: number): string {
+  // An Orbital too old to federate says what to do about it, whatever its
+  // presence (canvas 50e/50g, logic.js `stText` → `update`).
+  if (m.tooOld) return `update Orbital on ${m.name}`
   switch (m.state) {
     case 'self': return 'this device'
     case 'online': return 'online'
@@ -162,4 +166,103 @@ export function deviceRows(members: GroupMember[], devices: RemoteDevice[], now:
 /** The versions and the time behind `needs an update` (as Settings → Mobile said it, canvas 11c). */
 export function needsUpdateLine(needsUpdate: NonNullable<RemoteDevice['needsUpdate']>, now: number): string {
   return `app ${needsUpdate.version} · this device needs ≥ ${needsUpdate.needed} · refused · ${timeAgo(needsUpdate.at, now)}`
+}
+
+/** The device id of this device's own sessions: one with no `machine` runs here. */
+export const LOCAL_DEVICE = 'self'
+
+/** The device a session runs on: a member's id, or `LOCAL_DEVICE`. */
+export function deviceOf(session: Pick<ApiSession, 'machine'>): string {
+  return session.machine?.id ?? LOCAL_DEVICE
+}
+
+/** One device chip above the tag chips (canvas 50e, logic.js `devChips`). */
+export interface DeviceChip {
+  /** `LOCAL_DEVICE` for this device, a member's id otherwise. */
+  id: string
+  /** What the chip reads: `This device`, or the member's name. */
+  label: string
+  name: string
+  kind: string
+  /** The member is offline: the chip (and its sessions) at half opacity. */
+  offline: boolean
+  /** Its Orbital is too old to federate: a mono `update` after the label. */
+  update: boolean
+}
+
+/**
+ * Who gets a chip (canvas 50e WHO GETS A CHIP): this device first, then every
+ * member that can host sessions here, in roster order — linked (online or
+ * offline), or too old to federate (its chip says `update`). Phones host
+ * none; a member still linking, or not linked, gets its chip once linked.
+ * With the remote off there are no members, and only this device.
+ */
+export function deviceChips(members: GroupMember[] | undefined): DeviceChip[] {
+  const list = members ?? []
+  const self = list.find((m) => m.self)
+  const chips: DeviceChip[] = [{
+    id: LOCAL_DEVICE, label: 'This device', name: self?.name ?? '', kind: self?.kind ?? 'desktop',
+    offline: false, update: false,
+  }]
+  for (const m of list) {
+    if (m.self || m.kind === 'phone') continue
+    if (!m.tooOld && m.state !== 'online' && m.state !== 'offline') continue
+    chips.push({
+      id: m.id, label: m.name, name: m.name, kind: m.kind,
+      offline: m.state === 'offline', update: m.tooOld,
+    })
+  }
+  return chips
+}
+
+/** The chip row appears only once a second device can host sessions (canvas 50e). */
+export function showDeviceRow(chips: DeviceChip[]): boolean {
+  return chips.length >= 2
+}
+
+/**
+ * The ids of the chips that are on. A hidden id that names no chip any more
+ * is ignored. Never none: should the one chip left on disappear (its member
+ * stops linking), every chip reads on again rather than hiding everything
+ * behind a row that may no longer even show.
+ */
+export function devicesOn(chips: DeviceChip[], hidden: string[]): string[] {
+  const on = chips.filter((c) => !hidden.includes(c.id)).map((c) => c.id)
+  return on.length > 0 ? on : chips.map((c) => c.id)
+}
+
+/**
+ * The hidden ids after clicking chip `id`: off if it was on, on if it was
+ * off. The last chip on cannot be turned off (canvas 50e), so that click
+ * returns `hidden` unchanged. Stale ids (no chip any more) are kept: a member
+ * that drops out of the roster for a moment keeps its choice when it returns.
+ */
+export function toggleDevice(hidden: string[], id: string, chips: DeviceChip[]): string[] {
+  const on = devicesOn(chips, hidden)
+  if (!on.includes(id)) return hidden.filter((h) => h !== id)
+  if (on.length <= 1) return hidden
+  // Ids `devicesOn` read as on despite `hidden` (its never-none fallback) are
+  // on now for real, so only `id` goes off.
+  return [...hidden.filter((h) => !on.includes(h)), id]
+}
+
+/**
+ * Whether labels carry the device name (canvas 50e NAMES ON LABELS): only
+ * while the row shows and two or more chips are on — with one on, the user
+ * already chose the device.
+ */
+export function namesShown(chips: DeviceChip[], hidden: string[]): boolean {
+  return showDeviceRow(chips) && devicesOn(chips, hidden).length >= 2
+}
+
+/**
+ * `as of 2 h`: how old an offline member's sessions are (canvas 50e), read
+ * by the sidebar rows, the planets and the Desk cards. Null while the member
+ * is online, for this device's own sessions, and with no `asOf` to date it.
+ * `timeAgo`'s `2h` gets a space before its unit, the way the canvas spells it.
+ */
+export function asOfLabel(machine: MachineRef | undefined, now: number): string | null {
+  if (!machine || machine.online || machine.asOf === null) return null
+  const ago = timeAgo(machine.asOf, now)
+  return `as of ${ago.replace(/^(\d+)([mhd])$/, '$1 $2')}`
 }

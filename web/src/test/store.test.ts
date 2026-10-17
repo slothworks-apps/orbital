@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import type {
   ApiSession,
   ChatMessage,
+  GroupMember,
+  RemoteStatus,
   ErrorRecord,
   PendingQuestionDecision,
   PendingVerdictDecision,
@@ -1279,6 +1281,54 @@ describe('visibleSessions (pure)', () => {
       ui: { ...initialSnapshot.ui, filterTagIds: [1], search: 'gamma' },
     }
     expect(visibleSessions(state).map((s) => s.id)).toEqual(['s3'])
+  })
+})
+
+describe('the device filter (pure, canvas 50e)', () => {
+  const member = (patch: Partial<GroupMember>): GroupMember => ({
+    id: 'x', kind: 'desktop', name: 'x', os: 'macos', links: true, epoch: 1, addedBy: 'me', addedAt: 0,
+    describedAt: 0, self: false, linked: true, online: true, pairByHand: false, state: 'online', seenAt: null,
+    tooOld: false, ...patch,
+  })
+  const remote = {
+    group: {
+      relayLocked: false,
+      members: [
+        member({ id: 'me', name: 'studio', self: true, state: 'self' }),
+        member({ id: 'build', name: 'build-box', kind: 'headless' }),
+      ],
+    },
+  } as unknown as RemoteStatus
+  const machine = { id: 'build', name: 'build-box', kind: 'headless', os: 'linux', online: true, asOf: null }
+  const local = makeSession({ id: 'local', lastAt: 100 })
+  const away = makeSession({ id: 'away', lastAt: 200, machine })
+  const state = (hiddenDeviceIds: string[]): OrbitalState => ({
+    ...initialSnapshot,
+    remote,
+    sessions: { local, away },
+    ui: { ...initialSnapshot.ui, hiddenDeviceIds },
+  })
+
+  it('keeps every device with every chip on, sorted with the local ones by lastAt', () => {
+    expect(visibleSessions(state([])).map((s) => s.id)).toEqual(['away', 'local'])
+    expect(mapSessions(state([]), NOW).map((s) => s.id)).toEqual(['away', 'local'])
+  })
+
+  it('drops a hidden device from the sidebar lists and the map, and keeps the rest', () => {
+    expect(visibleSessions(state(['build'])).map((s) => s.id)).toEqual(['local'])
+    expect(mapSessions(state(['build']), NOW).map((s) => s.id)).toEqual(['local'])
+    expect(visibleSessions(state(['self'])).map((s) => s.id)).toEqual(['away'])
+    expect(mapSessions(state(['self']), NOW).map((s) => s.id)).toEqual(['away'])
+  })
+
+  it('matchesSidebarFilters drops a session of a hidden device', () => {
+    expect(matchesSidebarFilters(away, initialSnapshot.ui, ['build'])).toBe(false)
+    expect(matchesSidebarFilters(local, initialSnapshot.ui, ['build'])).toBe(true)
+  })
+
+  it('hides nothing once the hidden device no longer has a chip (remote off)', () => {
+    const off: OrbitalState = { ...state(['build']), remote: null }
+    expect(mapSessions(off, NOW).map((s) => s.id)).toEqual(['away', 'local'])
   })
 })
 

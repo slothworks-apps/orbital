@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MAP_LEAVE_GRACE_MS, useOrbital } from '../store/store'
+import { MAP_LEAVE_GRACE_MS, hiddenDevices, useOrbital } from '../store/store'
 import { buildSceneModel, reuseContextFills, type SceneModel } from './sceneModel'
 
 /**
@@ -41,6 +41,11 @@ export function useSceneModel(): SceneModel {
   const contextWindows = useOrbital((s) => s.contextWindows)
   const sessionsTotal = useOrbital((s) => s.sessionsTotal)
   const leavingSince = useOrbital((s) => s.leavingSince)
+  // The devices whose chip is off, as one string so the selector settles:
+  // the `remote` status they derive from is replaced on every publish, and
+  // the map should not rebuild for a presence change that hides nothing.
+  const hiddenKey = useOrbital((s) => hiddenDevices(s).join('\n'))
+  const hidden = useMemo(() => (hiddenKey === '' ? [] : hiddenKey.split('\n')), [hiddenKey])
 
   // The one impure input, kept in one place. Seeded on mount and re-read
   // once a leaving body's grace has run out, so its fade ends with it off the
@@ -117,7 +122,8 @@ export function useSceneModel(): SceneModel {
             fileViewer: null,
           },
         },
-        nowMs
+        nowMs,
+        hidden,
       ), previous.current),
     [
       sessions,
@@ -133,6 +139,7 @@ export function useSceneModel(): SceneModel {
       search,
       sourceFilter,
       nowMs,
+      hidden,
     ]
   )
   useEffect(() => {
