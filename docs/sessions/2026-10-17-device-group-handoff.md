@@ -1,6 +1,6 @@
 ---
 id: 2026-10-17-device-group-handoff
-title: "Device group — handoff after parts 1, 2a and 2b (next: part 3, federation and the phone as a member)"
+title: "Device group — handoff after parts 1–3 (next: part 4, the headless server)"
 type: session
 status: active
 domain: remote
@@ -31,97 +31,79 @@ carry it.
 ## Where the work is
 
 - **Branch** `feat/device-group-spec`, **worktree**
-  `.claude/worktrees/device-group` (created from local `main` at
-  `3e130ece`). Nothing pushed, no PR yet.
-- **`main` has moved since.** Merge it in before opening a PR;
-  `web/src/panels/Settings.tsx` `NAV_ITEMS` conflicts with the Labs
-  section (#91).
-- **PR #79** (peer Macs) and **#93** (MCP on every Mac, stacked on it) are
-  still open. This work replaces #79; close it once part 3 lands, and
-  rebuild #93 on top of part 3. Take from #79: the `preHandler` routing,
-  the tag mapping by name, `MultiClient`'s merge on the phone
-  (branch `feat/peer-macs-spec`).
+  `.claude/worktrees/device-group`. Parts 1–3 are done, merged with
+  `origin/main` and shipped in one PR with desktop 0.34.0, relay 0.6.0
+  and phone 0.15.0. The relay must be deployed before the Mac and the
+  phone: the phone reads a relay below `RELAY_PHONE_GROUP_VERSION` as
+  one without the group routes.
+- **PR #79** (peer Macs) is replaced by this work: close it. **#93** (MCP
+  on every Mac) is rebuilt on part 3 as part 5.
 - Run the server suite with the session's `ORBITAL_*` variables unset;
   four tests fail otherwise (`env | grep ORBITAL`, then `env -u …`).
 
 ## What is done
 
-| part | what | plan |
+| part | what | where it is described |
 |---|---|---|
-| 1 | One identity and one end-to-end `Channel` per pair, both directions; the phone's client and the server's serving half run on it; a server can join another device (`POST /api/remote/join`) | `2026-10-16-device-channel` (done) |
-| 2a | The roster (`group_members`), sync over channels, `POST /pair/mutual` at the relay, linking every member, removal everywhere, leaving | `2026-10-17-device-group-roster` (done) |
-| 2b | Settings → Devices on the desktop (canvas 50a–50d, 50k): members, add by code, join another group, the join confirmation naming the kind, leave | `2026-10-17-device-group-settings` (done) |
+| 1 | One identity and one channel per pair, both directions | `docs/domains/device-channel.md` |
+| 2a | The roster, `/pair/mutual`, linking, removal, leaving | `docs/domains/device-group.md` |
+| 2b | Settings → Devices on the desktop (50a–50d, 50k) | spec § 14 |
+| 3a | Federation in the server: one member allowlist, every member's sessions in the hub, requests through their channels, snapshots, a read cache, presence across the group | `docs/domains/device-federation.md` |
+| 3b | The desktop UI: chips, offline, the detail panel's pill and lock, New session on another device with a folder chooser (50e–50h) | spec § 14 |
+| 3c | The phone as a member: `GroupMember`, `PairingCeremony` and `RelayLink` in `shared/`, `GroupClient`, `GroupFederation`, Settings → Devices, the code, the join sheet, chips and asleep per device, the device picker (50i, 50j) | `docs/domains/phone-in-the-group.md` |
 
-How it works today: `docs/domains/device-channel.md`,
-`docs/domains/device-group.md`. The spec's § 14 carries an "As built"
-note per part. Open small edges: `docs/fixes/device-group-linking-edges.md`.
-
-Shipped devices are untouched: `PROTOCOL_VERSION` stays 1, the server's
-hello still carries `server`/`macName`, every hello carries `app`, the
-phone names no `group` capability, group messages and `linked` reach only
-devices that ask for them.
+Plans 1, 2a and 2b are in `docs/superpowers/plans/` (done); part 3 ran
+without plan documents, from task briefs. Open edges:
+`docs/fixes/device-group-linking-edges.md` (after 2a) and
+`docs/fixes/device-group-federation-edges.md` (after 3).
 
 ## Decisions taken along the way (not all in ADRs)
 
-- Groups do not merge: a device in a group cannot join another until it
-  leaves (design 50 SCOPE). Pairing by hand inside one's own group is
-  allowed.
-- "In a group" counts only members that link or are not paired here: a
-  desktop with only its own phones keeps today's relay change and may join
-  a desktop's group.
-- The relay is fixed while in a group; moving a group to another relay is
-  `ideas/move-a-group-to-another-relay`.
-- The roster never changes on the relay's word alone (the relay cannot
-  remove members); a departed member a sleeping peer missed stays until
-  removed by hand.
+- Groups do not merge; pairing by hand inside one's own group is allowed.
+- "In a group" counts only members that link or are not paired here.
+- The relay is fixed while in a group (`ideas/move-a-group-to-another-relay`).
+- The roster never changes on the relay's word alone.
 - The pairing code is drawn only on a click.
-- A leaving device sends its roster with its own entry removed, never
-  `removed` (which means "you were removed").
-- No version gate between servers yet, so no "update Orbital on <name>"
-  for a server member.
+- A leaving device sends its roster with its own entry removed.
+- A request a channel injects carries `x-orbital-device`; it only ever
+  restricts (never forwarded, no `remote_*` settings).
+- "Too old" between members is a non-phone whose hello names no
+  `group` (a Mac from before groups); it is not federated.
+- Device chips live in the sidebar in both themes (the Desk has a
+  sidebar; 50h's HUD chips are not built).
+- A joiner writes the device it joined with `describedAt: 0`, so that
+  device's own roster entry always wins.
+- A phone no member can reach is shown so (a card with Pair again),
+  never wiped automatically.
 
 ## For the maintainer to confirm in Claude Design
 
-- Wording the canvas does not have, written by the implementers: the
-  "Request rejected" card body; the one-line join errors (already paired,
-  relay offline, relay too old, relay error); "paired with <name>" for
-  another member's phone; "Show code".
-- 50a's Relay description ("every online member moves with it")
-  contradicts the lock; the canvas should say the relay is fixed in a
-  group.
+- From part 2b: the "Request rejected" card body; the one-line join
+  errors; "paired with <name>"; "Show code"; 50a's Relay description
+  ("every online member moves with it") against the lock.
+- 50h draws device chips in the Desk HUD, assuming no sidebar; they are
+  built in the sidebar.
+- 50f's too-old state promises "Reading still works"; a Mac too old for
+  groups is not federated, so there is nothing to read.
+- 50i draws this phone's code as a short word; the code is the QR's JSON
+  as one long word.
+- Wording the canvas does not have, written by the implementers:
+  desktop — "Nothing from <name> is kept here yet.", "Only images can be
+  sent to a session on another device.", the folder chooser's two error
+  lines, the device pill in a detached window; phone — "No device in
+  your group can reach this phone right now.", "<name> needs a newer app
+  on this phone — read only", "update Orbital on <name> — read only",
+  "New session · needs a device awake", "Choose a device", the leave
+  confirm and "Forget this group on this phone", the device-offline card
+  on joining, "The relay needs an update before this phone can show a
+  code.".
 
-## Next: part 3 — federation over channels and the phone as a member
+## Next
 
-Spec § 6–8, § 10, § 12; design 50e–50j. Write its plan first; it likely
-splits into:
-
-1. **One allowlist for every member** (§ 6, ADR
-   `every-member-reaches-one-literal-allowlist`): today a member reaches
-   the phone list.
-2. **Federation in the server**: #79's `PeerService` on channels —
-   subscribe to every member's `sessions`, republish with `machine`,
-   forward requests for another member's session through its channel, tag
-   mapping by name, no chaining. A version/capability gate between
-   members (§ 8), which also gives the "update" state.
-3. **Desktop UI**: device chips on the map and sidebar (50e), another
-   device's session in the detail panel (50f), the device picker and the
-   remote folder chooser in New session (50g, needs `GET /api/dirs`), the
-   Desk theme (50h).
-4. **The phone as a member**: one relay socket carrying a channel per
-   member (`RemoteClient` split into the socket and N `Channel`s), the
-   `group` capability and roster on the phone, its Settings → Devices,
-   own code and the join confirmation as a sheet (50i), the list with
-   device chips, "asleep" per device and the device picker (50j). Gate it
-   in `MAC_FEATURES` against older desktops (`mobile/CLAUDE.md`).
-5. **Notifications across the group** (§ 10): presence over channels, so
-   the phone stays quiet while the user is at any member.
-
-Then part 4 (the headless server, § 11, with `orbital devices …` and a
-runbook) and part 5 (#93 rebuilt on part 3).
-
-**Versions:** parts 1–3 ship together. When they do, ask about desktop
-minor, relay minor (the relay change is in part 2a) and phone app minor
-(no native change expected).
+- **Part 4, the headless server** (spec § 11): `ORBITAL_HEADLESS=1`,
+  kind `headless`, `orbital devices add|join|list|rename|remove`, the
+  Linux fixes, a systemd unit and a runbook.
+- **Part 5, the orbital MCP on every member** (#93 rebuilt on part 3).
 
 ## How the work was run
 
