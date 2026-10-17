@@ -346,6 +346,15 @@ already has, no new plugin or permission.
    `ROSTER_MAX_ENTRIES` bounds a group's lifetime; and a device's `kind`
    and whether it links are its own word, so pairing anything by code
    trusts it group-wide (`docs/domains/device-group.md` → Known limits).
+   As built (part 2b, desktop UI): Settings → Devices replaces Settings →
+   Mobile (canvas 50a–50d, 50k). The pairing code is drawn only on a
+   click (spec 2026-10-01). "In a group" — the relay and secret locked,
+   a join from another group's device refused — counts only members that
+   link or are not paired here: a desktop whose only other devices are its
+   own phones keeps today's relay change and may join a desktop's group. A
+   phone paired with another member reads "paired with <name>" (the relay
+   reports presence only to a device's own pairs). The phone screens (50i,
+   50j) are part 3.
 3. **Federation over channels**: #79's `PeerService` and routing on the
    channel, the phone's merge, device chips and names, capabilities.
 4. **The headless server** (§ 11), with its runbook.
