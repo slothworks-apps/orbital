@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect, afterEach } from 'vitest';
-import { generateIdentity, deviceId } from '@orbital/shared/remote/keys';
+import { generateIdentity, deviceId, publicKeyOf } from '@orbital/shared/remote/keys';
+import { FLAG_STATE, decodeFrame, encodeFrame } from '@orbital/shared/remote/frame';
 import {
   MUTUAL_PAIR_TTL_MS, PAIRING_TOKEN_TTL_MS, SEALED_DEVICE_MAX_CHARS, signRequest,
 } from '@orbital/shared/remote/relayApi';
@@ -218,6 +219,37 @@ describe('pairing', () => {
     const res = await r.post('/pair/revoke', signRequest(r.phone, 'pair.revoke', { phone: a }, r.now()));
     expect(res.statusCode).toBe(200);
     expect(await r.store.isPaired(a, b.id)).toBe(false);
+  });
+
+  it('a half signed before a revoke cannot complete a pair after it', async () => {
+    const r = await relay();
+    const a = deviceId(r.mac.publicKey);
+    const c = deviceId(r.phone.publicKey);
+    await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: c }, r.now()));
+    const revoked = await r.post('/pair/revoke', signRequest(r.mac, 'pair.revoke', { phone: c }, r.now()));
+    expect(revoked.statusCode).toBe(404);
+    expect(revoked.json()).toEqual({ error: 'not_paired' });
+    const res = await r.post('/pair/mutual', signRequest(r.phone, 'pair.mutual', { peer: a }, r.now()));
+    expect(res.json()).toEqual({ linked: false });
+    expect(await r.store.isPaired(a, c)).toBe(false);
+  });
+
+  it('a revoke keeps the frames another pair queued for the revoked device', async () => {
+    const r = await relay();
+    const third = generateIdentity();
+    const x = deviceId(r.phone.publicKey);
+    const a = deviceId(r.mac.publicKey);
+    const b = await connectDevice(r.base, third);
+    for (const [one, other] of [[r.mac, x], [third, x], [r.phone, a], [r.phone, b.id]] as const) {
+      await r.post('/pair/mutual', signRequest(one, 'pair.mutual', { peer: other }, r.now()));
+    }
+    await b.next('linked');
+    const wake = new Uint8Array(16).fill(7);
+    b.ws.send(encodeFrame({ peer: publicKeyOf(x)!, flags: FLAG_STATE, wake, body: new Uint8Array() }));
+    await sleep(50);
+    expect((await r.post('/pair/revoke', signRequest(r.mac, 'pair.revoke', { phone: x }, r.now()))).statusCode).toBe(200);
+    const p = await connectDevice(r.base, r.phone);
+    expect(decodeFrame(await p.nextData())!.wake).toEqual(wake);
   });
 
   it('rejects an unsigned or wrongly signed request', async () => {

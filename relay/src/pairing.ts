@@ -153,10 +153,10 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
     if (!s) return;
     const peer = s.payload.peer;
     if (!publicKeyOf(peer) || peer === s.id) return reply.code(400).send({ error: 'bad_peer' });
-    await ctx.store.upsertDevice({ id: s.id, kind: 'mac' });
-    const already = await ctx.store.isPaired(s.id, peer);
+    // A phone that signs one stays a phone; only a device the relay has never met gets a row.
+    await ctx.store.ensureDevice({ id: s.id, kind: 'mac' });
     const outcome = await ctx.store.offerMutual(s.id, peer, ctx.now());
-    if (outcome === 'linked' && !already) {
+    if (outcome.created) {
       ctx.connections.get(s.id)?.peers.add(peer);
       ctx.connections.get(peer)?.peers.add(s.id);
       ctx.connections.pairsChanged();
@@ -166,7 +166,7 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
       }
       log(`mutual pair: ${short(s.id)} and ${short(peer)}`);
     }
-    return { linked: outcome === 'linked' };
+    return { linked: outcome.linked };
   });
 
   app.post('/pair/revoke', async (req, reply) => {
@@ -181,10 +181,11 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
     ctx.connections.get(s.payload.phone)?.peers.delete(s.id);
     ctx.connections.pairsChanged();
     // A revoked phone must not receive queued state frames from the Mac on
-    // its next connect.
-    ctx.queue.drain(s.payload.phone);
+    // its next connect. The queue is kept per recipient, not per sender, so
+    // it goes only when the revoked device has no pair left whose frames it holds.
+    if ((await ctx.store.peersOf(s.payload.phone)).length === 0) ctx.queue.drain(s.payload.phone);
     ctx.connections.sendControl(s.payload.phone, { type: 'unpaired', mac: s.id });
-    log(`pair revoked: mac ${short(s.id)}, phone ${short(s.payload.phone)}`);
+    log(`pair revoked by ${short(s.id)}: ${short(s.id)} and ${short(s.payload.phone)}`);
     return { ok: true };
   });
 }
