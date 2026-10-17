@@ -23,7 +23,9 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'pill-quiet'
     | 'quiet'
     | 'hairline'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'check'
+    | 'outline'
+    | 'ink'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'check' | 'member' | 'beside-field'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -92,6 +94,10 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   quiet: 'bg-transparent text-[rgba(200,220,245,.8)] font-medium hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright',
   // 1d's Open System Settings: the quiet hairline, bright ink, no fill.
   hairline: 'bg-transparent text-text-bright font-semibold border border-[rgba(150,205,255,.14)] hover:bg-[rgba(150,205,255,.08)]',
+  // Canvas 50a's Remove, Leave…, Copy and Join: a brighter hairline than `hairline`, bright ink.
+  outline: 'bg-transparent text-text-bright font-semibold border border-[rgba(150,205,255,.2)] hover:bg-[rgba(150,205,255,.08)]',
+  // Canvas 50a's confirming Remove and Leave: filled with the bright ink, dark text, no hue.
+  ink: 'bg-text-bright text-space font-semibold hover:bg-text-soft',
 }
 
 // `lg` is the dialog footer button (1d: 9px/18px at 13px); `sm` is 1b's
@@ -122,6 +128,10 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   'notice-link': 'px-[11px] py-[7px] text-[13px]',
   // `Feature - App update`'s Check now in Settings › Updates: 6px/12px at 12.5px.
   check: 'px-3 py-1.5 text-[12.5px]',
+  // Canvas 50a's row actions (Remove, Cancel, Leave…): 32px tall, 14px sides, 12.5px.
+  member: 'h-8 px-3.5 text-[12.5px]',
+  // Canvas 50a's Copy, Join and New code beside a field: 31px tall, 12px sides, 12px.
+  'beside-field': 'h-[31px] px-3 text-xs',
 }
 
 export function Button({

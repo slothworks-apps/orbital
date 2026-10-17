@@ -120,7 +120,7 @@ then `mobile/scripts/pair-emulator.sh 4848`. It reverses the relay port into
 the emulator, opens a code, types it into the focused paste field and
 accepts the request on the Mac; it reads the server's token from
 `ORBITAL_DATA_DIR` (default `/tmp/orbital-mobile-dev`). A real device pairs the same way through
-`adb reverse`, or by scanning the code in Settings → Mobile.
+`adb reverse`, or by scanning the code in Settings → Devices.
 
 To see the other states from the same stack:
 
