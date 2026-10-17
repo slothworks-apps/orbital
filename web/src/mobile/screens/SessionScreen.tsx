@@ -209,6 +209,8 @@ function SessionView({ id }: { id: string }) {
         exhausted={exhausted}
         // An Orbital session's cards answer; a terminal session's say where to (§ 6.3).
         readOnly={session ? isReadOnly(session) : true}
+        // Its device asleep or refusing this app: a waiting card cannot be answered from here.
+        offline={offline}
         subagents={session?.subagents ?? NO_SUBAGENTS}
         onOpenSubagent={handleOpenSubagent}
         backgroundTasks={session?.backgroundTasks ?? NO_TASKS}

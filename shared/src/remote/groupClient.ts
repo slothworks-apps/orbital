@@ -530,7 +530,9 @@ export class GroupClient {
     const pairs = this.link.pairs;
     const alone = pairs !== null && pairs.size === 0 && this.grouped() && ![...this.channels.values()].some((c) => c.ready);
     if (!alone) {
-      this.clearAlone();
+      // The relay names a pair: a member reaches this phone again, and the card goes.
+      if (pairs !== null && pairs.size > 0) this.reached();
+      else this.clearAlone();
       return;
     }
     if (this.aloneTimer || this.alone) return;

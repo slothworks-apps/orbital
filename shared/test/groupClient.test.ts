@@ -223,6 +223,19 @@ describe('GroupClient', () => {
     expect(s.events.filter((e) => e.type === 'unreachable').at(-1)).toEqual({ type: 'unreachable', unreachable: false });
   });
 
+  it('an ok that names a pair again clears unreachable', () => {
+    vi.useFakeTimers();
+    const b = idOf();
+    const s = setup((storage) => grouped(storage, b));
+    online(s.sock(), { peers: [], pairs: [] });
+    vi.advanceTimersByTime(ALONE_GRACE_MS);
+    expect(s.client.unreachable).toBe(true);
+    // A reconnect to a relay that holds the pair again (formed while this socket was down).
+    s.sock().control({ type: 'ok', peers: [], pairs: [b] });
+    expect(s.client.unreachable).toBe(false);
+    expect(s.events.filter((e) => e.type === 'unreachable').at(-1)).toEqual({ type: 'unreachable', unreachable: false });
+  });
+
   it('a pair that forms within ALONE_GRACE_MS (a relay that lost its pairs) keeps the phone reachable', () => {
     vi.useFakeTimers();
     const b = idOf();
