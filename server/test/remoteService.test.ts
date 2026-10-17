@@ -20,7 +20,7 @@ import { RosterStore } from '../src/remote/rosterStore.js';
 import { IDENTITY_FILE } from '../src/remote/identity.js';
 import { RelayClient } from '../src/remote/relayClient.js';
 import {
-  BAD_SECRET_ERROR, NO_RELAY_URL_ERROR, PAIR_CODE_ATTEMPTS, RELAY_TOO_OLD_RECHECK_MS, RemoteService, UNKNOWN_PHONE_NAME,
+  BAD_SECRET_ERROR, MUTUAL_RETRY_MS, NO_RELAY_URL_ERROR, PAIR_CODE_ATTEMPTS, RELAY_TOO_OLD_RECHECK_MS, RemoteService, UNKNOWN_PHONE_NAME,
   type RemoteServiceOptions,
 } from '../src/remote/service.js';
 import { pairingCode, wrongCode } from './remoteHarness.js';
@@ -111,6 +111,37 @@ describe('RemoteService roster', () => {
     settings.remote_enabled = 'true';
     service.settingsChanged();
     expect(self()).toMatchObject({ name: 'renamed', epoch: 1 });
+  });
+
+  it('a roster that cannot be written here is still answered with this side\'s own', () => {
+    const peer = generateIdentity();
+    const id = deviceId(peer.publicKey);
+    const { fake, service } = build((d) => d.add({
+      id, name: 'vps', platform: 'linux', kind: 'desktop', pairedAt: 1, notifications: parseNotificationSettings({}),
+    }));
+    const hs = startHandshake(peer, publicKeyOf(service.status().macId!)!, 'initiator');
+    fake.emit('data', encodeFrame({ peer: peer.publicKey, flags: 0, wake: ZERO_WAKE, body: hs.message! }));
+    const cipher = hs.complete(decodeFrame(fake.sent[0])!.body)!;
+    const seal = (value: unknown) => encodeFrame({
+      peer: peer.publicKey, flags: 0, wake: ZERO_WAKE, body: cipher.seal(encodeInner({ kind: 'json', value })),
+    });
+    const received = (from: number) => fake.sent.slice(from).map((f) => {
+      const inner = decodeInner(cipher.open(decodeFrame(f)!.body)!);
+      return inner?.kind === 'json' ? inner.value as { t: string } : null;
+    });
+    fake.emit('data', seal({ t: 'hello', protocol: PROTOCOL_VERSION, kind: 'desktop', name: 'vps', capabilities: ['group'] }));
+    expect(service.channel(id)?.groups).toBe(true);
+    const replace = vi.spyOn(RosterStore.prototype, 'replace').mockImplementation(() => { throw new Error('disk full'); });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const from = fake.sent.length;
+    try {
+      fake.emit('data', seal({ t: 'roster', entries: [] }));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not merge a roster'));
+    } finally {
+      replace.mockRestore();
+      warn.mockRestore();
+    }
+    expect(received(from)).toEqual([expect.objectContaining({ t: 'roster' })]);
   });
 });
 
@@ -339,17 +370,70 @@ describe('RemoteService mutual pairs', () => {
   const ok = { type: 'ok', peers: [] };
   const asked = (fake: FakeClient) => fake.posts.filter((p) => p.path === '/pair/mutual').map((p) => (p.payload as { peer: string }).peer);
 
-  it('asks once per relay connection for each live member that links and is not paired yet', async () => {
-    const { fake, db, devices } = build();
+  it('asks once per relay connection for each live member that links, paired here or not', async () => {
+    const { service, fake, db, devices, settings } = build();
     const paired = phoneId();
     devices.add({ id: paired, name: 'p', platform: 'linux', kind: 'desktop', pairedAt: NOW, notifications: parseNotificationSettings({}) });
     const [server] = withMembers(db, {}, { kind: 'phone', links: false }, { removedBy: 'x', removedAt: NOW }, { id: paired });
     fake.emit('control', ok);
     await tick();
-    expect(asked(fake)).toEqual([server]);
+    expect(asked(fake).sort()).toEqual([paired, server].sort());
+    fake.emit('control', ok);
+    await tick();
+    expect(asked(fake).sort()).toEqual([paired, paired, server, server].sort());
+    // Between two connections a roster change asks only for whom is not paired and not asked yet.
+    fake.answers['/pair/mutual'] = { status: 500, body: {} };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fake.emit('control', ok);
+    await tick();
+    settings.remote_mac_name = 'renamed';
+    service.nameChanged();
+    await tick();
+    warn.mockRestore();
+    expect(asked(fake).filter((id) => id === paired)).toHaveLength(3);
+    expect(asked(fake).filter((id) => id === server)).toHaveLength(4);
+  });
+
+  it('a paired member whose pair the relay lost is asked again at the next ok, and linked again', async () => {
+    const { service, fake, db, devices } = build();
+    const [server] = withMembers(db, {});
+    fake.answers['/pair/mutual'] = { status: 200, body: { linked: true } };
+    fake.emit('control', ok);
+    await tick();
+    expect(devices.get(server)).not.toBeNull();
+    // The relay lost the pair (the other side revoked it while this one was away): this row stays.
+    fake.answers['/pair/mutual'] = { status: 200, body: { linked: false } };
     fake.emit('control', ok);
     await tick();
     expect(asked(fake)).toEqual([server, server]);
+    // The other side's half arrives: the relay says `linked`, and the row is the same one.
+    fake.emit('control', { type: 'linked', peer: server });
+    expect(service.status().devices.map((d) => d.id)).toEqual([server]);
+  });
+
+  it('a rate-limited ask is asked again after MUTUAL_RETRY_MS; a stopped remote asks nothing', async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { service, fake, db } = build();
+      const [server] = withMembers(db, {});
+      fake.answers['/pair/mutual'] = { status: 429, body: {} };
+      fake.emit('control', ok);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(asked(fake)).toEqual([server]);
+      await vi.advanceTimersByTimeAsync(MUTUAL_RETRY_MS - 1);
+      expect(asked(fake)).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(asked(fake)).toEqual([server, server]);
+      // Limited again, then the remote stops: the retry goes with it.
+      service.stop();
+      await vi.advanceTimersByTimeAsync(MUTUAL_RETRY_MS * 2);
+      expect(asked(fake)).toHaveLength(2);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('a relay without the route marks the member pair-by-hand until the next ok; a relay error is asked again, a refusal is not', async () => {
@@ -458,6 +542,7 @@ describe('RemoteService relay status', () => {
 });
 
 describe('RemoteService remove', () => {
+  const ok = { type: 'ok', peers: [] };
   const revoked = (fake: FakeClient) => fake.posts.filter((p) => p.path === '/pair/revoke').map((p) => (p.payload as { phone: string }).phone);
 
   it('removes a phone paired before the roster: its entry is written, marked removed, and the device goes even when the relay revoke fails', async () => {
@@ -467,7 +552,7 @@ describe('RemoteService remove', () => {
     }));
     fake.answers['/pair/revoke'] = { status: 0, body: { error: 'network' } };
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    expect(await service.remove(phone)).toBe(true);
+    expect(await service.remove(phone)).toEqual({ ok: true });
     warn.mockRestore();
     expect(devices.get(phone)).toBeNull();
     expect(fake.posts.map((p) => p.path)).toEqual(['/pair/revoke']);
@@ -479,7 +564,7 @@ describe('RemoteService remove', () => {
   it('a live member with no pair here is removed and still revoked at the relay, which drops a waiting half', async () => {
     const { service, fake, db } = build();
     const [member] = withMembers(db, {});
-    expect(await service.remove(member)).toBe(true);
+    expect(await service.remove(member)).toEqual({ ok: true });
     expect(revoked(fake)).toEqual([member]);
     expect(service.status().group.members.find((m) => m.id === member)?.removedAt).toBe(NOW);
   });
@@ -487,8 +572,8 @@ describe('RemoteService remove', () => {
   it('is false for an id neither in the roster nor paired, and for a member already removed', async () => {
     const { service, fake, db } = build();
     const [removed] = withMembers(db, { removedBy: 'x', removedAt: NOW });
-    expect(await service.remove(phoneId())).toBe(false);
-    expect(await service.remove(removed)).toBe(false);
+    expect(await service.remove(phoneId())).toEqual({ error: 'not_found' });
+    expect(await service.remove(removed)).toEqual({ error: 'not_found' });
     expect(revoked(fake)).toEqual([]);
   });
 
@@ -523,6 +608,88 @@ describe('RemoteService remove', () => {
     expect(service.rosterDigest()).toBe(before);
     expect(devices.get(phone)).not.toBeNull();
     expect(fake.posts).toEqual([]);
+  });
+
+  it('removing this device\'s own id is leaving: refused while the relay is not online, with the remote on or off', async () => {
+    const phone = phoneId();
+    const { service, fake, db, devices, settings } = build((d) => d.add({
+      id: phone, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}),
+    }));
+    withMembers(db, {});
+    const self = service.status().macId!;
+    const before = service.rosterDigest();
+    fake.status = 'connecting';
+    expect(await service.remove(self)).toEqual({ error: 'offline' });
+    settings.remote_enabled = 'false';
+    service.settingsChanged();
+    expect(await service.remove(self)).toEqual({ error: 'offline' });
+    expect(service.rosterDigest()).toBe(before);
+    expect(devices.get(phone)).not.toBeNull();
+    expect(fake.posts).toEqual([]);
+  });
+
+  it('removing this device\'s own id online leaves the group, as leave does', async () => {
+    const { service, fake, db } = build();
+    const [member] = withMembers(db, {});
+    const self = service.status().macId!;
+    expect(await service.remove(self)).toEqual({ ok: true });
+    expect(revoked(fake)).toEqual([member]);
+    expect(service.status().group.members).toEqual([expect.objectContaining({ id: self, epoch: 2 })]);
+  });
+
+  it('leave answers failed when the roster cannot be written', async () => {
+    const { service } = build();
+    const replace = vi.spyOn(RosterStore.prototype, 'replace').mockImplementation(() => { throw new Error('disk full'); });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(await service.leave()).toEqual({ error: 'failed' });
+    } finally {
+      replace.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  it('a removal made while the relay is offline is revoked at the next ok, until the relay answers it', async () => {
+    const { service, fake, db, settings } = build();
+    const [member] = withMembers(db, {});
+    settings.remote_enabled = 'false';
+    service.settingsChanged();
+    expect(await service.remove(member)).toEqual({ ok: true });
+    settings.remote_enabled = 'true';
+    service.settingsChanged();
+    expect(revoked(fake)).toEqual([]);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    fake.answers['/pair/revoke'] = { status: 500, body: {} };
+    fake.emit('control', ok);
+    await tick();
+    warn.mockRestore();
+    expect(revoked(fake)).toEqual([member]);
+    // Not answered: still waiting. A 404 answers it — the relay had no such pair.
+    fake.answers['/pair/revoke'] = { status: 404, body: {} };
+    fake.emit('control', ok);
+    await tick();
+    expect(revoked(fake)).toEqual([member, member]);
+    fake.emit('control', ok);
+    await tick();
+    expect(revoked(fake)).toEqual([member, member]);
+  });
+
+  it('a device paired afresh drops a revoke still waiting for it', async () => {
+    const { service, fake, db, settings } = build();
+    const [member] = withMembers(db, {});
+    settings.remote_enabled = 'false';
+    service.settingsChanged();
+    await service.remove(member);
+    settings.remote_enabled = 'true';
+    service.settingsChanged();
+    // Paired again through a ceremony, at the next epoch, before the relay heard of the removal.
+    const store = new RosterStore(db);
+    store.replace(store.list().map((e) => (e.id === member
+      ? { id: e.id, kind: e.kind, name: e.name, os: e.os, links: true, epoch: 2, addedBy: 'x', addedAt: NOW, describedAt: NOW } : e)));
+    fake.emit('control', { type: 'linked', peer: member });
+    fake.emit('control', ok);
+    await tick();
+    expect(revoked(fake)).toEqual([]);
   });
 
   it('the relay saying unpaired drops that paired device and leaves the roster to the group', () => {

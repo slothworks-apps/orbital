@@ -22,7 +22,7 @@ import { parseNotificationSettings } from '@orbital/shared/notifications';
 import type { Channel } from '@orbital/shared/remote/channel';
 import type { GroupMessage, HelloMessage } from '@orbital/shared/remote/messages';
 import {
-  addMember, describeMember, isLive, mergeRosters, removeMember, rosterDigest, type RosterEntry,
+  ROSTER_KIND_MAX_CHARS, addMember, describeMember, isLive, mergeRosters, removeMember, rosterDigest, type RosterEntry,
 } from '@orbital/shared/remote/roster';
 import type { RelayTooOld } from '@orbital/shared/remote/version';
 import type { Hub } from '../api/hub.js';
@@ -33,7 +33,7 @@ import { DeviceStore, type RemoteDevice } from './devices.js';
 import { DeviceWatcher } from './deviceWatcher.js';
 import { loadOrCreateIdentity, macDisplayName, readIdentity, serverDeviceKind, serverHello } from './identity.js';
 import { createPhoneFileReader, type PhoneFileReader } from './phoneFiles.js';
-import { RosterStore } from './rosterStore.js';
+import { PendingRevokes, RosterStore } from './rosterStore.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
 import { openDeviceChannel, type PhoneTooOld } from './deviceChannel.js';
 import type { InjectFn } from './servingHalf.js';
@@ -50,6 +50,12 @@ export type PhoneRefusal = PhoneTooOld & { at: number };
  * so the Mac comes back on its own (canvas 11b); "Try again" checks at once.
  */
 export const RELAY_TOO_OLD_RECHECK_MS = 5 * 60_000;
+
+/**
+ * How long a mutual pair the relay refused for its rate limit waits before it
+ * is asked again, rather than only at the next relay `ok`.
+ */
+export const MUTUAL_RETRY_MS = 60_000;
 
 /**
  * Wrong pairing codes a request may be sent before it is rejected as if the
@@ -83,6 +89,9 @@ export type PairConfirmResult =
  * showed the code is not on the relay. `other_relay`: the code names a
  * relay this server is not on.
  */
+/** The answer to removing a device: `offline` when it is this device itself and the relay is not online (`leave`). */
+export type RemoveResult = { ok: true } | { error: 'not_found' | 'offline' | 'failed' };
+
 export type JoinResult =
   | { device: string; name: string; code: string }
   | { error: 'bad_code' | 'disabled' | 'offline' | 'already_paired' | 'other_relay' | 'peer_offline' | 'relay_error' | 'relay_too_old' };
@@ -195,6 +204,11 @@ export class RemoteService {
    */
   private mutualAsked = new Set<string>();
   private pairByHand = new Set<string>();
+  /** Members the relay refused a mutual pair for its rate limit, asked again when `mutualRetry` fires. */
+  private rateLimited = new Set<string>();
+  /** The ask again `MUTUAL_RETRY_MS` after a rate limit; cleared by the next relay `ok` and by any stop. */
+  private mutualRetry: NodeJS.Timeout | null = null;
+  private readonly pendingRevokes: PendingRevokes;
   /** Revokes posted to the relay and not answered yet; a removal waits for them before it answers. */
   private readonly revoking = new Set<Promise<void>>();
   /** `ownId`'s answer once known; undefined until then. */
@@ -206,6 +220,7 @@ export class RemoteService {
   constructor(private readonly opts: RemoteServiceOptions) {
     this.devices = new DeviceStore(opts.db);
     this.roster = new RosterStore(opts.db);
+    this.pendingRevokes = new PendingRevokes(opts.db);
     this.now = opts.now ?? Date.now;
     this.files = createPhoneFileReader(
       opts.db,
@@ -297,6 +312,7 @@ export class RemoteService {
   private teardown(): void {
     if (this.relayRecheck) clearTimeout(this.relayRecheck);
     this.relayRecheck = null;
+    this.clearMutualRetry();
     this.closeChannels();
     for (const w of this.watchers.values()) w.stop();
     this.watchers.clear();
@@ -325,7 +341,7 @@ export class RemoteService {
   nameChanged(): void {
     const self = this.selfId;
     const described = self !== null
-      && this.setRoster(describeMember(this.roster.list(), self, { name: this.macName }, this.now()));
+      && this.setRoster(describeMember(this.roster.list(), self, { name: this.selfAbout().name }, this.now()));
     if (!described) this.publishStatus();
   }
 
@@ -482,6 +498,8 @@ export class RemoteService {
       }
       return { error: 'relay_error' };
     }
+    // Paired afresh: a revoke still waiting from an earlier removal must not undo it.
+    if (accept) this.pendingRevokes.remove(pending.phone);
     // A stop/start during the post replaced the state; leave the new one be.
     if (this.pendingPair === pending) {
       this.pendingPair = null;
@@ -552,13 +570,15 @@ export class RemoteService {
    * the removal is applied here at once, remote on or off. A device paired
    * before the roster existed gets its entry first. Telling the relay is
    * best effort on top — a device it still thinks is paired can reach
-   * nothing here. False when `id` is neither a live member nor paired.
+   * nothing here. `not_found` when `id` is neither a live member nor
+   * paired. This device's own id is `leave`, with its refusal while offline.
    */
-  async remove(id: string): Promise<boolean> {
+  async remove(id: string): Promise<RemoveResult> {
+    const self = this.ownId();
+    if (self !== null && id === self) return this.leave();
     const known = this.roster.entry(id);
     const device = this.devices.get(id);
-    if (!(known && isLive(known)) && !device) return false;
-    const self = this.ownId();
+    if (!(known && isLive(known)) && !device) return { error: 'not_found' };
     if (self !== null) {
       this.tryRoster('remove a member', () => {
         const now = this.now();
@@ -578,19 +598,26 @@ export class RemoteService {
       this.publishStatus();
     }
     await Promise.all([...this.revoking]);
-    return true;
+    return { ok: true };
   }
 
   /**
    * This device leaves its group: removing it, from itself. Only while the
    * relay is online: the others hear of it over the channels and the pairs
    * go at the relay, and offline neither happens — the group of one written
-   * next would overwrite the removal before it ever spread.
+   * next would overwrite the removal before it ever spread. `failed` when
+   * the roster could not be written.
    */
-  async leave(): Promise<{ ok: true } | { error: 'offline' }> {
+  async leave(): Promise<RemoveResult> {
     const self = this.selfId;
     if (self === null || !this.client || this.client.status !== 'online') return { error: 'offline' };
-    await this.remove(self);
+    try {
+      this.setRoster(removeMember(this.roster.list(), self, self, this.now()));
+    } catch (err) {
+      console.warn(`[remote] could not leave the group: ${err instanceof Error ? err.message : String(err)}`);
+      return { error: 'failed' };
+    }
+    await Promise.all([...this.revoking]);
     return { ok: true };
   }
 
@@ -631,13 +658,21 @@ export class RemoteService {
    * does not reach.
    */
   private leaveGroup(self: string): void {
-    const entries = this.roster.list();
+    const paired = this.devices.list();
+    // A phone paired here loses that pair below, and no other member can reach it: the roster
+    // the others get says it is gone too. Not written here — the group of one replaces it.
+    const now = this.now();
+    let entries = this.roster.list();
+    for (const e of entries) {
+      if (e.kind === 'phone' && isLive(e) && !e.links && paired.some((d) => d.id === e.id)) {
+        entries = removeMember(entries, e.id, self, now);
+      }
+    }
     for (const channel of this.channels.values()) {
       channel.sendGroup({ t: 'roster', entries });
       channel.close('revoked');
     }
     this.channels.clear();
-    const paired = this.devices.list();
     for (const d of paired) this.revokeAtRelay(d.id);
     // A member that links but is not paired here may have a mutual half waiting at the relay.
     for (const e of entries) {
@@ -647,18 +682,26 @@ export class RemoteService {
     this.watchers.clear();
     for (const d of paired) this.devices.remove(d.id);
     this.phonesTooOld.clear();
-    const now = this.now();
     this.setRoster(addMember(entries.filter((e) => e.id === self), {
       id: self, ...this.selfAbout(), addedBy: self, addedAt: now, describedAt: now,
     }));
   }
 
-  /** Best effort: the device is gone here whatever the relay answers; 404 is a pair the relay no longer had. */
+  /**
+   * The device is gone here whatever the relay answers. The revoke is kept
+   * in `pending_revokes` until the relay answers it — 404 is a pair the
+   * relay no longer had — and posted again at every relay `ok` until then.
+   */
   private revokeAtRelay(id: string): void {
+    this.pendingRevokes.add(id);
     const client = this.client;
     if (!client || client.status !== 'online') return;
     const done = client.post('/pair/revoke', 'pair.revoke', { phone: id }).then((res) => {
-      if (res.status !== 200 && res.status !== 404) console.warn(`[remote] relay revoke of ${id.slice(0, 8)} failed: ${res.status}`);
+      if (res.status === 200 || res.status === 404) {
+        this.tryRoster('forget a revoke the relay answered', () => this.pendingRevokes.remove(id));
+      } else {
+        console.warn(`[remote] relay revoke of ${id.slice(0, 8)} failed: ${res.status}`);
+      }
     });
     this.revoking.add(done);
     void done.finally(() => this.revoking.delete(done));
@@ -683,8 +726,13 @@ export class RemoteService {
       const hadByHand = this.pairByHand.size > 0;
       this.mutualAsked = new Set();
       this.pairByHand = new Set();
+      this.clearMutualRetry();
       if (hadByHand) this.publishStatus();
-      this.tryRoster('link the group', () => this.link());
+      this.tryRoster('revoke what the relay was not told', () => {
+        for (const id of this.pendingRevokes.list()) this.revokeAtRelay(id);
+      });
+      // Paired members too: a pair the relay lost while this side kept its row forms again.
+      this.tryRoster('link the group', () => this.link(true));
       return;
     }
     if (msg.type === 'linked') {
@@ -715,6 +763,8 @@ export class RemoteService {
         id: joined.device, name: joined.name, platform: '', kind: joined.kind, pairedAt: this.now(),
         notifications: parseNotificationSettings(this.opts.allSettings()),
       });
+      // Paired afresh: a revoke still waiting from an earlier removal must not undo it.
+      this.pendingRevokes.remove(joined.device);
       // A code without a kind came from a Mac from before kinds. Its OS is
       // not known until its hello.
       this.tryRoster('add a paired device', () => this.addPaired({
@@ -873,14 +923,16 @@ export class RemoteService {
    * is not paired with this device yet, each once per relay connection (ADR
    * the-relay-pairs-two-devices-that-both-sign). The pair forms when the
    * member asks too; the relay then says `linked`, and so may this answer.
+   * `paired` asks for the members paired here as well: the relay answers
+   * `linked` while it holds the pair, and otherwise waits for the other half.
    */
-  private link(): void {
+  private link(paired = false): void {
     const self = this.selfId;
     const client = this.client;
     if (self === null || !client || client.status !== 'online') return;
     const asked = this.mutualAsked;
     for (const e of this.roster.list()) {
-      if (!isLive(e) || !e.links || e.id === self || asked.has(e.id) || this.devices.get(e.id)) continue;
+      if (!isLive(e) || !e.links || e.id === self || asked.has(e.id) || (!paired && this.devices.get(e.id))) continue;
       const id = e.id;
       asked.add(id);
       void client.post<{ linked?: boolean }>('/pair/mutual', 'pair.mutual', { peer: id }).then((res) => {
@@ -895,12 +947,33 @@ export class RemoteService {
           this.publishStatus();
           return;
         }
-        // A refusal (a bad id, a rate limit) waits for the next relay `ok`;
-        // a network failure or a relay error is asked again at the next roster change.
+        // A refusal (a bad id) waits for the next relay `ok`, a rate limit
+        // `MUTUAL_RETRY_MS` at most; a network failure or a relay error is
+        // asked again at the next roster change.
         if (res.status === 0 || res.status >= 500) asked.delete(id);
+        if (res.status === 429) this.retryMutual(id);
         console.warn(`[remote] relay mutual pair with ${id.slice(0, 8)} failed: ${res.status}`);
       });
     }
+  }
+
+  /** One timer for every rate-limited member: they are asked again together. */
+  private retryMutual(id: string): void {
+    this.rateLimited.add(id);
+    if (this.mutualRetry) return;
+    this.mutualRetry = setTimeout(() => {
+      this.mutualRetry = null;
+      for (const limited of this.rateLimited) this.mutualAsked.delete(limited);
+      this.rateLimited = new Set();
+      this.tryRoster('link the group', () => this.link());
+    }, MUTUAL_RETRY_MS);
+    this.mutualRetry.unref?.();
+  }
+
+  private clearMutualRetry(): void {
+    if (this.mutualRetry) clearTimeout(this.mutualRetry);
+    this.mutualRetry = null;
+    this.rateLimited = new Set();
   }
 
   /**
@@ -927,6 +1000,7 @@ export class RemoteService {
         id: peer, name: entry.name, platform: entry.os, kind: entry.kind, pairedAt: this.now(),
         notifications: parseNotificationSettings(this.opts.allSettings()),
       });
+      this.pendingRevokes.remove(peer);
       this.watch(peer);
       this.publishStatus();
     }
@@ -950,9 +1024,16 @@ export class RemoteService {
     }
   }
 
-  /** What this device says about itself in the roster. */
+  /**
+   * What this device says about itself in the roster, cut to the bounds a
+   * roster entry is read within: an entry past them would refuse the whole
+   * roster on every other member.
+   */
   private selfAbout(): Pick<RosterEntry, 'kind' | 'name' | 'os' | 'links'> {
-    return { kind: serverDeviceKind(), name: this.macName, os: osName(process.platform), links: true };
+    return {
+      kind: serverDeviceKind(), name: this.macName.slice(0, PAIR_NAME_MAX_CHARS),
+      os: osName(process.platform).slice(0, ROSTER_KIND_MAX_CHARS), links: true,
+    };
   }
 
   /**
@@ -1015,13 +1096,17 @@ export class RemoteService {
 
   private onGroup(from: string, channel: Channel, msg: GroupMessage): void {
     if (msg.t === 'roster_digest') {
-      if (msg.digest !== this.roster.digest()) channel.sendGroup({ t: 'roster', entries: this.roster.list() });
+      this.tryRoster('answer a roster digest', () => {
+        if (msg.digest !== this.roster.digest()) channel.sendGroup({ t: 'roster', entries: this.roster.list() });
+      });
       return;
     }
     if (msg.t === 'roster') {
-      this.setRoster(mergeRosters(this.roster.list(), msg.entries), from);
+      this.tryRoster('merge a roster', () => this.setRoster(mergeRosters(this.roster.list(), msg.entries), from));
       // The sender may still lack what only this side knew.
-      if (this.roster.digest() !== rosterDigest(msg.entries)) channel.sendGroup({ t: 'roster', entries: this.roster.list() });
+      this.tryRoster('answer a roster', () => {
+        if (this.roster.digest() !== rosterDigest(msg.entries)) channel.sendGroup({ t: 'roster', entries: this.roster.list() });
+      });
       return;
     }
     // A member says this device was removed; its roster says so too, and the removal comes with it.

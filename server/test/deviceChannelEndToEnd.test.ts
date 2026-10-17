@@ -1,5 +1,6 @@
 import { describe, expect, it, afterEach, vi } from 'vitest';
 import { formatFingerprint, publicKeyOf } from '@orbital/shared/remote/keys';
+import { PAIR_NAME_MAX_CHARS } from '@orbital/shared/remote/relayApi';
 import { FakePhone } from './remoteFakePhone.js';
 import { RelayClient } from '../src/remote/relayClient.js';
 import { pairingCode, startMacAndRelay, until, type MacAndRelay } from './remoteHarness.js';
@@ -87,6 +88,15 @@ describe('two servers, one channel', () => {
     expect(ma.find((m: any) => m.id === idA)).toMatchObject({ self: true, name: 'studio' });
     expect(ma.find((m: any) => m.id === idB)).toMatchObject({ self: false, name: 'laptop', linked: true, links: true });
     expect(a.remote.rosterDigest()).toBe(b.remote.rosterDigest());
+  }, 20_000);
+
+  it('a Mac renamed past the roster\'s bound still converges with its peer', async () => {
+    const { a, b, idA } = await joined();
+    await until(() => a.remote.rosterDigest() === b.remote.rosterDigest());
+    // Its own description is the newest, so no peer's cut copy of its hello can win over it.
+    await a.api('PATCH', '/api/settings', { remote_mac_name: 's'.repeat(PAIR_NAME_MAX_CHARS + 40) });
+    await until(async () => (await membersOf(b)).find((m: any) => m.id === idA).name === 's'.repeat(PAIR_NAME_MAX_CHARS)
+      && a.remote.rosterDigest() === b.remote.rosterDigest(), 10_000);
   }, 20_000);
 
   /** A FakePhone paired with `mac` through its code, said hello: the sequence a real phone follows. */
@@ -197,6 +207,15 @@ describe('two servers, one channel', () => {
       return m?.removedAt !== undefined && !m.linked && (await aloneIn(b));
     }, 15_000);
     expect(a.remote.channel(idB)).toBeNull();
+  }, 30_000);
+
+  it('a member that leaves takes its phones out of the group: the others list them removed', async () => {
+    const { a, b, idA } = await joined();
+    const phone = await pairPhone(a, idA);
+    await until(async () => (await membersOf(b)).some((m: any) => m.id === phone.id));
+    expect((await a.api('POST', '/api/remote/leave')).json()).toEqual({ ok: true });
+    await until(async () => (await membersOf(b)).find((m: any) => m.id === phone.id)?.removedAt !== undefined, 15_000);
+    expect((await membersOf(b)).find((m: any) => m.id === phone.id)).toMatchObject({ removedBy: idA });
   }, 30_000);
 
   it('a device that left pairs again through the ceremony, at an epoch above its removal', async () => {

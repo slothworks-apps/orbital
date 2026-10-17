@@ -211,6 +211,13 @@
       "when": 1792221379213,
       "tag": "0029_group_roster",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1792227178673,
+      "tag": "0030_pending_revokes",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  addMember, describeMember, isLive, mergeRosters, removeMember, rosterDigest, type RosterEntry,
+  ROSTER_KIND_MAX_CHARS, RosterEntrySchema, addMember, describeMember, isLive, mergeRosters, removeMember, rosterDigest,
+  type RosterEntry,
 } from '../src/remote/roster.js';
+import { PAIR_NAME_MAX_CHARS } from '../src/remote/relayApi.js';
 
 const base = { kind: 'desktop', name: 'studio', os: 'macos', links: true, addedBy: 'A', addedAt: 1, describedAt: 1 };
 const entry = (id: string, over: Partial<RosterEntry> = {}): RosterEntry => ({ ...base, id, epoch: 1, ...over });
@@ -54,5 +56,16 @@ describe('rosterDigest', () => {
     const reordered = Object.fromEntries(Object.entries(one).reverse()) as RosterEntry;
     expect(rosterDigest([one])).toBe(rosterDigest([reordered]));
     expect(rosterDigest([one])).not.toBe(rosterDigest([entry('A', { links: false })]));
+  });
+});
+
+describe('RosterEntrySchema', () => {
+  it('holds a name, kind and os up to their bounds and no further, and an epoch only while it is a safe integer', () => {
+    const at = (over: Partial<RosterEntry>) => RosterEntrySchema.safeParse(entry('A', over)).success;
+    expect(at({ name: 'n'.repeat(PAIR_NAME_MAX_CHARS), kind: 'k'.repeat(ROSTER_KIND_MAX_CHARS), os: 'o'.repeat(ROSTER_KIND_MAX_CHARS) })).toBe(true);
+    expect(at({ name: 'n'.repeat(PAIR_NAME_MAX_CHARS + 1) })).toBe(false);
+    expect(at({ os: 'o'.repeat(ROSTER_KIND_MAX_CHARS + 1) })).toBe(false);
+    expect(at({ epoch: Number.MAX_SAFE_INTEGER })).toBe(true);
+    expect(at({ epoch: Number.MAX_SAFE_INTEGER + 1 })).toBe(false);
   });
 });

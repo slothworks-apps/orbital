@@ -142,6 +142,15 @@ describe('/api/remote', () => {
       await app.close();
     }
   });
+  it('removing this device\'s own id is refused like leave while the relay is not online, and changes nothing', async () => {
+    const app = await server(true);
+    const before = (await app.inject({ method: 'GET', url: '/api/remote' })).json();
+    const res = await app.inject({ method: 'DELETE', url: `/api/remote/devices/${before.macId}` });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: 'offline' });
+    expect((await app.inject({ method: 'GET', url: '/api/remote' })).json().group).toEqual(before.group);
+    await app.close();
+  });
   it('a phone\'s body-less POST reaches its route instead of failing on an empty JSON body', async () => {
     const app = await server(false);
     const res = await app.inject(remoteInjectOptions({ method: 'POST', url: '/api/sessions/nope/interrupt' }, undefined));

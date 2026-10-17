@@ -527,6 +527,15 @@ export const groupMembers = sqliteTable('group_members', {
 });
 
 /**
+ * Pairs this device revoked while the relay could not be told: each is
+ * posted to `/pair/revoke` at the next relay `ok`, and goes once the relay
+ * answers it.
+ */
+export const pendingRevokes = sqliteTable('pending_revokes', {
+  id: text('id').primaryKey(),
+});
+
+/**
  * Every failure Orbital caught, from either side of the wire. See
  * `docs/superpowers/specs/2026-09-17-error-surface-design.md`.
  *

@@ -8,18 +8,27 @@
 import { z } from 'zod';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
+import { PAIR_NAME_MAX_CHARS, PAIR_PLATFORM_MAX_CHARS } from './relayApi.js';
 
 /** The most members a roster carries; one channel frame holds them with room to spare. */
 export const ROSTER_MAX_ENTRIES = 256;
 
+/**
+ * The longest `kind` and `os` an entry carries: what a pairing cuts a
+ * platform to, and a hello its `kind` and `os` (`HELLO_KIND_MAX_CHARS`).
+ * A name is bound by `PAIR_NAME_MAX_CHARS`, as a pairing and a hello cut it.
+ * One entry past a bound refuses the whole roster, so every writer cuts first.
+ */
+export const ROSTER_KIND_MAX_CHARS = PAIR_PLATFORM_MAX_CHARS;
+
 export const RosterEntrySchema = z.object({
   id: z.string().max(64),
-  kind: z.string().max(20),
-  name: z.string().max(80),
-  os: z.string().max(20),
+  kind: z.string().max(ROSTER_KIND_MAX_CHARS),
+  name: z.string().max(PAIR_NAME_MAX_CHARS),
+  os: z.string().max(ROSTER_KIND_MAX_CHARS),
   /** The device links with other members: its hello named the `group` capability. */
   links: z.boolean(),
-  epoch: z.number().int().nonnegative(),
+  epoch: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   addedBy: z.string().max(64),
   addedAt: z.number(),
   describedAt: z.number(),

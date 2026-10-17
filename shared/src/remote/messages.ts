@@ -6,7 +6,7 @@
  */
 import { z } from 'zod';
 import { PAIR_NAME_MAX_CHARS } from './relayApi.js';
-import { RosterSchema } from './roster.js';
+import { ROSTER_KIND_MAX_CHARS, RosterSchema } from './roster.js';
 
 export const PROTOCOL_VERSION = 1;
 export const BLOB_CHUNK_BYTES = 65536;
@@ -183,8 +183,8 @@ export const GroupMessage = z.discriminatedUnion('t', [
 ]);
 export type GroupMessage = z.infer<typeof GroupMessage>;
 
-/** The longest `kind` and `os` a hello keeps. */
-export const HELLO_KIND_MAX_CHARS = 20;
+/** The longest `kind` and `os` a hello keeps: what a roster entry holds. */
+export const HELLO_KIND_MAX_CHARS = ROSTER_KIND_MAX_CHARS;
 /** The most capabilities a hello keeps, and the longest one it keeps at all. */
 export const HELLO_CAPABILITIES_MAX = 32;
 export const HELLO_CAPABILITY_MAX_CHARS = 32;
