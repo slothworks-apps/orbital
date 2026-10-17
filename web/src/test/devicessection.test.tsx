@@ -324,9 +324,8 @@ describe('DevicesSection — joining another device\'s group', () => {
     expect(screen.getByLabelText('Code K7FQ2M')).toBeInTheDocument()
     expect(screen.getByText('· desktop')).toBeInTheDocument()
     expect(screen.getByText('waiting · code expires in 1:00')).toBeInTheDocument()
-    // The box stays above the card: this device's code and the field (canvas 50b).
-    expect(screen.getByRole('button', { name: 'Show code' })).toBeInTheDocument()
-    expect(screen.getByLabelText("Another device's code")).toBeInTheDocument()
+    // The card takes the add box's place (canvas 50b).
+    expect(screen.queryByLabelText("Another device's code")).not.toBeInTheDocument()
     expect(screen.getByText(/^Paste a code from any device in your group/)).toBeInTheDocument()
     tick(15_000)
     expect(screen.getByText('waiting · code expires in 0:45')).toBeInTheDocument()

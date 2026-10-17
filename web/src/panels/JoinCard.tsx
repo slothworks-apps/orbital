@@ -189,7 +189,7 @@ function useJoin(remote: RemoteStatus) {
 
 type Join = ReturnType<typeof useJoin>
 
-/** Card D and the rejected request (canvas 50d D). */
+/** The cards of canvas 50d B–D and the rejected request. */
 const CARD = 'flex flex-col gap-2.5 rounded-[12px] border border-[rgba(150,205,255,.16)] bg-[rgba(6,10,20,.6)] p-4'
 const CARD_TITLE = 'text-[14px] font-semibold text-text-bright'
 const CARD_BODY = 'text-[12.5px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]'
@@ -197,10 +197,9 @@ const CARD_BODY = 'text-[12.5px] leading-[1.5] text-[rgba(160,190,225,.72)] [tex
 const HOST = 'font-mono text-[11.5px] text-text-bright'
 
 /**
- * The join part of ADD A DEVICE: the field and Join inside the box `idle`
- * draws, with cards B and C under the field they answer (50d); below the
- * box, the JOINING card while the status has a join (50b), or card D or the
- * rejected request once it ended.
+ * The join box of ADD A DEVICE: the field and Join while nothing is under
+ * way (`idle` draws the box around it), the JOINING card while the status
+ * has a join (50b), and the card a refusal or the join's end calls for (50d).
  * `onUseRelay` moves this device to the code's relay, the way the Relay
  * field does.
  */
@@ -219,7 +218,7 @@ export function JoinArea({
   // Card C's code running out turns it to D, as the joining card does.
   const offlineRanOut = outcome?.kind === 'offline' && outcome.expiresAt !== null && now >= outcome.expiresAt
 
-  /** The card under the box (canvas 50b): the join under way, or how it ended. */
+  /** The card in the box's place (canvas 50b): the join under way, or how it ended. */
   let below: ReactNode = null
   if (join.joining) {
     below = <JoiningCard joining={join.joining} remote={remote} now={now} onCancel={join.cancel} />
@@ -242,7 +241,7 @@ export function JoinArea({
     )
   }
 
-  /** What cards B and C say under the field they answer (canvas 50d B, C). */
+  /** What cards B and C say under the field (canvas 50d B, C). */
   let message: ReactNode = null
   // Once this device is on the code's relay, card B has said what it had to.
   if (outcome?.kind === 'otherRelay' && !sameRelay(outcome.relay, remote.relayUrl)) {
@@ -301,23 +300,19 @@ export function JoinArea({
     )
   }
 
+  // The join under way or its end takes the box's place (canvas 50b).
+  if (below) return below
   const field = <JoinField join={join} />
-  return (
-    <>
-      {/* The box stays, this device's code and the field in it (canvas 50b). */}
-      {idle(
-        message ? (
-          <div className="flex flex-col gap-2.5">
-            {field}
-            {message}
-          </div>
-        ) : (
-          field
-        ),
-      )}
-      {below && <div className="mt-3.5 flex flex-col">{below}</div>}
-    </>
-  )
+  // Cards B and C: the field on top, what it came to under it (canvas 50d).
+  if (message) {
+    return (
+      <div className={CARD}>
+        {field}
+        {message}
+      </div>
+    )
+  }
+  return idle(field)
 }
 
 /** "Have another device's code?" (canvas 50a): the field, Join, and a refusal's one line under them. */
