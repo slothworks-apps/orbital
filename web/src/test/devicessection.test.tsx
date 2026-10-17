@@ -458,6 +458,23 @@ describe('DevicesSection — joining another device\'s group', () => {
     expect(screen.getByText(/^Checked 2m ago\./)).toBeInTheDocument()
   })
 
+  it('a join run out and lingering in the status never comes back over a later refusal', async () => {
+    renderWith(status([], { joining: joining() }))
+    tick(60_000)
+    fireEvent.click(screen.getByRole('button', { name: 'Paste a new code' }))
+    // The server publishes nothing for this refusal: the store still holds the old join.
+    vi.mocked(api.joinGroup).mockResolvedValue({ ok: false, error: 'already_paired' })
+    await paste(codeFor({ name: 'air-m3', expiresAt: T0 + 180_000 }))
+    expect(screen.getByText('This device is already paired with air-m3.')).toBeInTheDocument()
+    expect(screen.queryByText(/^Type /)).not.toBeInTheDocument()
+    tick(5_000)
+    expect(screen.queryByText('Code expired')).not.toBeInTheDocument()
+    // Any later status drops the run-out join: still no card for it.
+    publish(status([]))
+    expect(screen.queryByText('Code expired')).not.toBeInTheDocument()
+    expect(screen.getByText('This device is already paired with air-m3.')).toBeInTheDocument()
+  })
+
   it('the countdown reaching zero first turns the card to expired, and the status clearing later keeps it', () => {
     renderWith(status([], { joining: joining() }))
     tick(60_000)

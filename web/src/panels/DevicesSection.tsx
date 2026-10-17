@@ -880,12 +880,13 @@ function RelaySettings({
     else setSecretDraft(savedSecret)
   }
 
-  function commit(key: RelaySetting, typed: string) {
+  /** Commits a typed value; true when it saved or asked, so something is now under way for it. */
+  function commit(key: RelaySetting, typed: string): boolean {
     if (locked) {
       resetDraft(key)
-      return
+      return false
     }
-    if (key === 'remote_relay_url' && typed.trim() === proposedUrl.current) return
+    if (key === 'remote_relay_url' && typed.trim() === proposedUrl.current) return false
     const decision =
       key === 'remote_relay_url'
         ? relayUrlCommit(savedUrl, typed, pairedCount)
@@ -893,15 +894,16 @@ function RelaySettings({
     switch (decision) {
       case 'none':
         resetDraft(key)
-        return
+        return false
       case 'unknown':
         // The draft stays in the field; the next commit decides.
-        return
+        return false
       case 'save':
         void patchAndSet({ [key]: typed.trim() })
-        return
+        return true
       case 'ask':
         setAsking({ key, value: typed.trim(), count: pairedCount ?? 0 })
+        return true
     }
   }
 
@@ -942,8 +944,8 @@ function RelaySettings({
     if (!proposed) return
     setUrlDraft(proposed.url)
     proposedUrl.current = null
-    commit('remote_relay_url', proposed.url)
-    proposedUrl.current = proposed.url.trim()
+    // Only a proposal that saved or asked has a blur left to swallow; one that changed nothing leaves the field free.
+    if (commit('remote_relay_url', proposed.url)) proposedUrl.current = proposed.url.trim()
     onProposedDone()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proposed])

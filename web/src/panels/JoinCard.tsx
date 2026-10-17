@@ -88,17 +88,22 @@ function useJoin(remote: RemoteStatus) {
   // While a Join is in flight the server publishes its `joining` before it
   // posts the code to the relay and clears it again if the relay refuses:
   // that is not a join under way yet, and the answer settles what to show.
-  const waiting = joining !== null && key !== ended && !busy
+  // A join whose code ran out is never one under way: the server does not
+  // publish its end, so it can linger in the status long after.
+  const waiting = joining !== null && joining.expiresAt > Date.now() && key !== ended && !busy
   // Ticks while a countdown is on screen, and while card C's "checked …" ages.
   const now = useNow(waiting || outcome?.kind === 'offline')
 
-  // The join's code ran out by the clock before the status cleared it.
+  // The waiting join's code runs out by the clock: card D, once, for that join.
   useEffect(() => {
-    if (joining && waiting && now >= joining.expiresAt) {
-      setEnded(key)
+    if (!waiting || !joining) return
+    const timer = setTimeout(() => {
+      setEnded(joinKey(joining))
       setOutcome({ kind: 'expired', name: joining.name })
-    }
-  }, [joining, waiting, now, key])
+    }, joining.expiresAt - Date.now())
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waiting, key])
 
   // The status moved from one join to none (or to another).
   if (joinKey(prev) !== key) {
@@ -110,8 +115,10 @@ function useJoin(remote: RemoteStatus) {
     }
     if (!busy && prev && joinKey(prev) !== ended) {
       setEnded(joinKey(prev))
-      if (Date.now() >= prev.expiresAt) setOutcome({ kind: 'expired', name: prev.name })
-      else if (remote.group.members.some((m) => m.id === prev.device)) setOutcome(null)
+      // A join whose code ran out had its end drawn by the clock, if it was on screen at all.
+      if (Date.now() >= prev.expiresAt) {
+        /* nothing more */
+      } else if (remote.group.members.some((m) => m.id === prev.device)) setOutcome(null)
       // Only a relay that is still up can have carried a rejection.
       else if (!joining && remote.enabled && remote.relay === 'online') setOutcome({ kind: 'rejected', name: prev.name })
     }
