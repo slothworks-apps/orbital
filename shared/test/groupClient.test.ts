@@ -69,7 +69,7 @@ class Peer {
   }
 }
 
-function setup(seed: (storage: MemoryGroupStorage) => void = () => {}, opts: { silenceTimeoutMs?: number; handshakeTimeoutMs?: number } = {}) {
+function setup(seed: (storage: MemoryGroupStorage) => void = () => {}, opts: { silenceTimeoutMs?: number; handshakeTimeoutMs?: number; now?: () => number } = {}) {
   FakeSocket.all = [];
   const identity = generateIdentity();
   const storage = new MemoryGroupStorage();
@@ -162,6 +162,39 @@ describe('GroupClient', () => {
     expect(s.events.filter((e) => e.type === 'unpaired_all')).toHaveLength(1);
   });
 
+  it('a relay that lost every pair of a phone still in its group: pairs_lost, not unpaired_all', () => {
+    const [a, b] = [idOf(), idOf()];
+    const s = setup((storage) => {
+      pairWith(storage, a);
+      pairWith(storage, b);
+      // B links: the group is intact, and its members pair again through /pair/mutual.
+      storage.roster.replace([{
+        id: b, kind: 'desktop', name: 'vps', os: 'linux', links: true, epoch: 1, addedBy: b, addedAt: 1, describedAt: 1,
+      }]);
+    });
+    online(s.sock(), { peers: [], pairs: [] });
+    expect(s.client.peers()).toEqual([]);
+    expect(s.events.map((e) => e.type)).toContain('pairs_lost');
+    expect(s.events.some((e) => e.type === 'unpaired_all')).toBe(false);
+  });
+
+  it('a pair added after the last ok is not dropped by the next ok; the one after decides', () => {
+    let now = 100;
+    const [a, c] = [idOf(), idOf()];
+    const s = setup((storage) => pairWith(storage, a), { now: () => now });
+    online(s.sock(), { peers: [], pairs: [a] });
+    // A confirm writes its row before the relay records the pair; the socket reconnects in between.
+    now = 150;
+    s.storage.paired.add({ id: c, name: 'vps', platform: 'linux', kind: 'headless', pairedAt: now });
+    now = 200;
+    s.sock().control({ type: 'ok', peers: [], pairs: [a] });
+    expect(s.client.peers().map((p) => p.id).sort()).toEqual([a, c].sort());
+    now = 300;
+    s.sock().control({ type: 'ok', peers: [], pairs: [a] });
+    expect(s.client.peers().map((p) => p.id)).toEqual([a]);
+    expect(s.events.some((e) => e.type === 'unpaired_all')).toBe(false);
+  });
+
   it('a relay without pairs: the socket anchors on the first paired device, and unpaired drops that pair', () => {
     const [a, b] = [idOf(), idOf()];
     const s = setup((storage) => {
@@ -214,5 +247,8 @@ describe('MemoryGroupStorage', () => {
     });
     expect(mixed.paired.list().map((d) => d.id)).toEqual([id]);
     expect(mixed.pendingRevokes.list()).toEqual([id]);
+    // A row stored without when it was last seen keeps its pair.
+    const older = MemoryGroupStorage.fromJSON({ paired: [{ id, name: 'studio', platform: 'darwin', kind: 'desktop', pairedAt: 1 }] });
+    expect(older.paired.get(id)).toMatchObject({ id, lastSeenAt: null });
   });
 });

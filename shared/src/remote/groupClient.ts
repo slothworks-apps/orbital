@@ -69,10 +69,17 @@ export type GroupClientEvent =
   | { type: 'joined'; peer: string }
   | { type: 'join_failed'; peer: string; reason: 'rejected' }
   /**
-   * Every pair this phone held is gone, by the relay's word or because the
-   * group removed this phone — not by its own `remove` or `leave`.
+   * Every pair this phone held is gone and the roster holds no group for it
+   * any more: the group removed it, or the relay dropped the pairs of a phone
+   * with no other member that links (one Mac from before groups). Never for
+   * its own `remove` or `leave`.
    */
   | { type: 'unpaired_all' }
+  /**
+   * The relay dropped every pair while the roster still lists members that
+   * link: they pair again through `/pair/mutual`, so this phone was not removed.
+   */
+  | { type: 'pairs_lost' }
   | { type: 'relay_error'; code: string }
   /** The relay is below `MIN_RELAY_VERSION`: the link has stopped; `recheck` or `start` tries again. */
   | ({ type: 'relay_too_old' } & RelayTooOld);
@@ -121,9 +128,17 @@ export class GroupClient {
   private deliberate = false;
   /** The group removed this phone and took its pairs: `unpaired_all` at the next change. */
   private removedFromGroup = false;
+  /**
+   * When the last relay `ok` was handled (the client's start before one). A
+   * row added since may be missing from the next `ok.pairs` only because the
+   * relay recorded it after it read them (a confirm in flight), so that `ok`
+   * leaves it be; the one after decides.
+   */
+  private lastOkAt: number;
 
   constructor(opts: GroupClientOptions) {
     this.opts = opts;
+    this.lastOkAt = this.now();
     this.storage = persisting(opts.storage, () => this.stored());
     const paired = this.storage.paired.list();
     // The first paired device anchors the socket: with an old relay (no `ok.pairs`),
@@ -327,13 +342,17 @@ export class GroupClient {
           this.group.relayOk();
         }
         return;
-      case 'ok':
-        // A relay that names every pair: a paired row it no longer holds is gone.
+      case 'ok': {
+        // A relay that names every pair: a paired row it no longer holds is
+        // gone, unless it was added after the previous `ok` (`lastOkAt`).
+        const since = this.lastOkAt;
+        this.lastOkAt = this.now();
         if (event.pairs) {
           const held = new Set(event.pairs);
-          this.unpaired(this.storage.paired.list().map((d) => d.id).filter((id) => !held.has(id)));
+          this.unpaired(this.storage.paired.list().filter((d) => !held.has(d.id) && d.pairedAt < since).map((d) => d.id));
         }
         return;
+      }
       case 'presence':
         if (!this.storage.paired.get(event.peer)) return;
         // Online: a channel with keys is stale, the peer's sessions died with its socket.
@@ -461,7 +480,11 @@ export class GroupClient {
     for (const id of [...this.channels.keys()]) this.drop(id);
   }
 
-  /** Pairs the relay no longer holds: their channels and rows go. Every one gone: `unpaired_all`. */
+  /**
+   * Pairs the relay no longer holds: their channels and rows go. Every one
+   * gone: `unpaired_all` when the roster holds no group for this phone,
+   * `pairs_lost` when it does.
+   */
   private unpaired(ids: string[]): void {
     const had = this.storage.paired.list().length > 0;
     let changed = false;
@@ -474,7 +497,7 @@ export class GroupClient {
     }
     if (!changed) return;
     this.changed();
-    if (had && this.storage.paired.list().length === 0) this.emit({ type: 'unpaired_all' });
+    if (had && this.storage.paired.list().length === 0) this.emit({ type: this.grouped() ? 'pairs_lost' : 'unpaired_all' });
   }
 
   /** A member dropped by the group, after it was told so. */
@@ -500,9 +523,24 @@ export class GroupClient {
 
   private changed(): void {
     this.emit({ type: 'group' });
-    if (this.removedFromGroup && this.storage.paired.list().length === 0) {
+    if (this.removedFromGroup && this.storage.paired.list().length === 0 && !this.grouped()) {
       this.removedFromGroup = false;
       this.emit({ type: 'unpaired_all' });
+    }
+  }
+
+  /**
+   * Whether the roster still makes this phone part of a group: its own entry
+   * live and another live member that links. Unlike `inGroup`, a paired
+   * device that does not link counts for nothing here.
+   */
+  private grouped(): boolean {
+    try {
+      const entries = this.storage.roster.list();
+      const own = entries.find((e) => e.id === this.id);
+      return (own === undefined || isLive(own)) && entries.some((e) => e.id !== this.id && isLive(e) && e.links);
+    } catch {
+      return false;
     }
   }
 
@@ -597,7 +635,7 @@ export type StoredGroup = { roster: RosterEntry[]; paired: PairedDevice[]; pendi
 
 const PairedRow = z.object({
   id: z.string(), name: z.string(), platform: z.string(), kind: z.string().nullable(), pairedAt: z.number(),
-  lastSeenAt: z.number().nullable(),
+  lastSeenAt: z.number().nullable().default(null),
 });
 
 /**
