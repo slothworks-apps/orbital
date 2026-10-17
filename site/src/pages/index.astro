@@ -46,12 +46,12 @@ const states = [
 
 const sessionRows = [
   { label: 'CHAT', text: 'Talk to the session the way you would in the terminal.' },
+  { label: 'PERMISSIONS', text: 'Approve or deny each request, with the full command or diff in front of you.' },
+  { label: 'DIFFS', text: 'Every edit shown as a diff, next to the message that made it.' },
   {
     label: 'TERMINAL',
     text: 'Sessions you started in the terminal show up too, read-only. Once one ends, pick it up in Orbital and keep going.',
   },
-  { label: 'PERMISSIONS', text: 'Approve or deny each request, with the full command in front of you.' },
-  { label: 'DIFFS', text: 'Every edit shown as a diff, next to the message that made it.' },
   { label: 'THE RECORD', text: 'Everything the agent did, in order: messages, tool calls, files.' },
 ]
 
@@ -149,8 +149,8 @@ const phones = [
       <h1><span>Orbital</span></h1>
       <p class="tagline">See <span class="em">all your Claude Code sessions</span> at once.</p>
       <p class="hero-lede">
-        What is working, what needs your input and what is done, in one place. Open any session and keep going, from
-        your Mac or your phone.
+        Every session you run is a planet on one map: working, waiting for your input or done. Open any of them and keep
+        going, from your Mac or your phone.
       </p>
       <div class="hero-actions">
         <a href={RELEASES_URL} class="hero-btn primary" target="_blank" rel="noopener">
@@ -166,10 +166,6 @@ const phones = [
           <span class="mono hero-btn-note">{testers ? 'GOOGLE PLAY · INVITE ONLY' : 'GOOGLE PLAY'}</span>
         </a>
       </div>
-      <div class="hero-demo">
-        <DemoFrame id="map-hero" eager />
-        <DemoCaption text="Live demo · click a planet to open it" center />
-      </div>
     </section>
 
     <section id="map" class="section tour">
@@ -181,27 +177,29 @@ const phones = [
           switching terminals. Planets is the default theme; Desk is there if you prefer something plainer.
         </p>
       </div>
-      <div class="states-demo">
-        <DemoFrame id="map-states" />
-        <DemoCaption text="Live demo · click a planet to open it" />
-      </div>
-      <div class="states">
-        {
-          states.map((state) => (
-            <div class="state">
-              <div class="mono state-name">
-                <span class:list={['dot', state.dot]} />
-                {state.name}
+      <div class="map-body">
+        <div class="map-demo">
+          <DemoFrame id="map" />
+          <DemoCaption text="Live demo · click a planet to open it" />
+        </div>
+        <div class="states">
+          {
+            states.map((state) => (
+              <div class="state">
+                <div class="mono state-name">
+                  <span class:list={['dot', state.dot]} />
+                  {state.name}
+                </div>
+                <p>{state.text}</p>
               </div>
-              <p>{state.text}</p>
+            ))
+          }
+          <div class="state">
+            <div class="mono state-name">
+              <span class="dot waiting"></span><span class="waiting-name">WAITING FOR AGENTS</span>
             </div>
-          ))
-        }
-        <div class="state">
-          <div class="mono state-name">
-            <span class="dot waiting"></span><span class="waiting-name">WAITING FOR AGENTS</span>
+            <p>It is waiting on its subagents, which circle it until they are done.</p>
           </div>
-          <p>It is waiting on its subagents, which circle it until they are done.</p>
         </div>
       </div>
     </section>
@@ -625,8 +623,20 @@ const phones = [
     flex: 1 1 340px;
     max-width: 30em;
   }
+  .map-body {
+    margin-top: 48px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 40px 64px;
+  }
+  .map-demo {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
   .states {
-    margin-top: 40px;
+    flex: 1 1 360px;
+    min-width: 0;
     display: flex;
     flex-wrap: wrap;
     gap: 32px 40px;
@@ -682,11 +692,12 @@ const phones = [
   .session-layout {
     display: flex;
     flex-wrap: wrap;
-    gap: 48px clamp(40px, 6cqw, 88px);
+    justify-content: center;
+    gap: 56px clamp(40px, 6cqw, 88px);
     align-items: center;
   }
   .session-layout .column {
-    flex: 1 1 340px;
+    flex: 1 1 400px;
     min-width: 0;
   }
   .phone-layout {
@@ -699,15 +710,9 @@ const phones = [
     flex: 1 1 340px;
     min-width: 0;
   }
-  .hero-demo {
-    position: relative;
-    margin: clamp(56px, 7cqw, 88px) auto 0;
-  }
-  .states-demo {
-    margin-top: 48px;
-  }
+  /* Tall and narrow, as the panel sits beside the map in the app. */
   .session-demo {
-    flex: 1.3 1 460px;
+    flex: 0 1 clamp(280px, 34cqw, 400px);
     min-width: 0;
   }
   .phones-demo {

@@ -3,8 +3,8 @@
  * Takes the website's demo posters from the demos themselves (site/CLAUDE.md,
  * "The demo images are screenshots, committed"): each demo is opened at its
  * virtual viewport with `?poster=1`, which holds its scenario on the first
- * beat, and its still is written to `public/demo-images/<id>.webp`. The hero
- * map also gives the page's link preview, `public/og.png`.
+ * beat, and its still is written to `public/demo-images/<id>.webp`. The map
+ * also gives the page's link preview, `public/og.png`.
  *
  * It builds nothing: run `npm run build:demo` first, so `public/demo` holds
  * the demos as they are now. It serves `public/` itself, on a free local
@@ -29,9 +29,9 @@ const OUT = join(PUBLIC, 'demo-images')
 
 /** The demos' still frames: where each is, the size it lays out at, how wide its image is written. */
 const SHOTS = [
-  { id: 'map-hero', path: '/demo/map/?scene=hero', viewport: { width: 1440, height: 900 }, scale: 2, outWidth: 1440 },
-  { id: 'map-states', path: '/demo/map/?scene=states', viewport: { width: 1440, height: 900 }, scale: 2, outWidth: 1440 },
-  { id: 'session', path: '/demo/session/', viewport: { width: 960, height: 600 }, scale: 2, outWidth: 1440 },
+  { id: 'map', path: '/demo/map/', viewport: { width: 1440, height: 900 }, scale: 2, outWidth: 1440 },
+  // Tall and narrow, as the panel sits beside the map: twice its width, like a phone.
+  { id: 'session', path: '/demo/session/', viewport: { width: 450, height: 800 }, scale: 2, outWidth: 900 },
   // A phone frame is narrow on the page but drawn on dense screens: twice its width.
   { id: 'phone-answer', path: '/demo/phone/?screen=answer', viewport: { width: 390, height: 872 }, scale: 2, outWidth: 780 },
   { id: 'phone-new', path: '/demo/phone/?screen=new', viewport: { width: 390, height: 872 }, scale: 2, outWidth: 780 },
@@ -39,8 +39,8 @@ const SHOTS = [
 
 const WEBP_QUALITY = 0.8
 
-/** The link preview: the size the Open Graph cards are drawn at, cut from the hero's still. */
-const OG = { from: 'map-hero', width: 1200, height: 630 }
+/** The link preview: the size the Open Graph cards are drawn at, cut from the map's still. */
+const OG = { from: 'map', width: 1200, height: 630 }
 
 /**
  * How long a demo is left after it says it is ready: the map's planets ease
@@ -160,9 +160,9 @@ async function main() {
       await context.close()
     }
 
-    const hero = stills.get(OG.from)
-    if (hero) {
-      const og = await encode(encoder, hero, { width: OG.width, height: OG.height, type: 'image/png' })
+    const still = stills.get(OG.from)
+    if (still) {
+      const og = await encode(encoder, still, { width: OG.width, height: OG.height, type: 'image/png' })
       await writeFile(join(PUBLIC, 'og.png'), og)
       console.log(`og.png  ${(og.length / 1024).toFixed(0)} KB`)
     }
