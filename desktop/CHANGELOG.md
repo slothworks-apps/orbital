@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.34.0] — 2026-10-17
 ### Added
 - Settings → Mobile is now Settings → Devices: pair another desktop or a server by code, see every device in your group, remove one or leave.
 - The sessions of your other devices show on the map and in the sidebar, with a chip per device to show or hide each; open one and drive it as if it ran here.

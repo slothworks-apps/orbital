@@ -3,6 +3,8 @@
 All notable changes to the relay image. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `relay/package.json`.
 
 ## [Unreleased]
+
+## [0.6.0] — 2026-10-17
 ### Added
 - Devices of one Orbital group pair with each other without a code, once both ask for it. Pairing and unpairing within a group has a request limit of its own, so a busy group never locks a device out of connecting.
 - A device that connects is told every device it is paired with, not only those online, so a phone can tell when the last of its pairs is gone.
