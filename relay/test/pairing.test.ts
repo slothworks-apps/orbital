@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect, afterEach } from 'vitest';
 import { generateIdentity, deviceId } from '@orbital/shared/remote/keys';
-import { PAIRING_TOKEN_TTL_MS, SEALED_DEVICE_MAX_CHARS, signRequest } from '@orbital/shared/remote/relayApi';
+import {
+  MUTUAL_PAIR_TTL_MS, PAIRING_TOKEN_TTL_MS, SEALED_DEVICE_MAX_CHARS, signRequest,
+} from '@orbital/shared/remote/relayApi';
 import { RELAY_VERSION_HEADER } from '@orbital/shared/remote/version';
 import { buildRelay } from '../src/app.js';
 import { PAIR_RATE_LIMIT_PER_MIN } from '../src/rateLimit.js';
@@ -157,6 +159,65 @@ describe('pairing', () => {
     expect(b.control.some((msg) => msg.type === 'unpaired')).toBe(false);
     // a's pair is untouched by the failed revoke of an unrelated phone.
     expect(await r.store.isPaired(m.id, a.id)).toBe(true);
+  });
+
+  it('one half: a device that names another forms no pair on its own', async () => {
+    const r = await relay();
+    const a = await connectDevice(r.base, r.mac);
+    const res = await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: deviceId(r.phone.publicKey) }, r.now()));
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ linked: false });
+    expect(await r.store.isPaired(a.id, deviceId(r.phone.publicKey))).toBe(false);
+  });
+
+  it('both halves: the pair forms, both hear linked and presence', async () => {
+    const r = await relay();
+    const a = await connectDevice(r.base, r.mac);
+    const b = await connectDevice(r.base, r.phone);
+    await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: b.id }, r.now()));
+    const res = await r.post('/pair/mutual', signRequest(r.phone, 'pair.mutual', { peer: a.id }, r.now()));
+    expect(res.json()).toEqual({ linked: true });
+    expect(await a.next('linked')).toEqual({ type: 'linked', peer: b.id });
+    expect(await b.next('linked')).toEqual({ type: 'linked', peer: a.id });
+    expect(await a.next('presence')).toEqual({ type: 'presence', peer: b.id, online: true });
+    expect(await r.store.isPaired(a.id, b.id)).toBe(true);
+  });
+
+  it('a half older than MUTUAL_PAIR_TTL_MS is gone', async () => {
+    const r = await relay();
+    const a = deviceId(r.mac.publicKey);
+    const b = deviceId(r.phone.publicKey);
+    await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: b }, r.now()));
+    r.tick(MUTUAL_PAIR_TTL_MS + 1);
+    const res = await r.post('/pair/mutual', signRequest(r.phone, 'pair.mutual', { peer: a }, r.now()));
+    expect(res.json()).toEqual({ linked: false });
+  });
+
+  it('asking again once paired answers linked and changes nothing', async () => {
+    const r = await relay();
+    const a = deviceId(r.mac.publicKey);
+    const b = deviceId(r.phone.publicKey);
+    await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: b }, r.now()));
+    await r.post('/pair/mutual', signRequest(r.phone, 'pair.mutual', { peer: a }, r.now()));
+    const again = await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: b }, r.now()));
+    expect(again.json()).toEqual({ linked: true });
+  });
+
+  it('refuses a peer that is not a device id, or the signer itself', async () => {
+    const r = await relay();
+    expect((await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: 'nope' }, r.now()))).statusCode).toBe(400);
+    expect((await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: deviceId(r.mac.publicKey) }, r.now()))).statusCode).toBe(400);
+  });
+
+  it('either side of a mutual pair may revoke it', async () => {
+    const r = await relay();
+    const a = deviceId(r.mac.publicKey);
+    const b = await connectDevice(r.base, r.phone);
+    await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: b.id }, r.now()));
+    await r.post('/pair/mutual', signRequest(r.phone, 'pair.mutual', { peer: a }, r.now()));
+    const res = await r.post('/pair/revoke', signRequest(r.phone, 'pair.revoke', { phone: a }, r.now()));
+    expect(res.statusCode).toBe(200);
+    expect(await r.store.isPaired(a, b.id)).toBe(false);
   });
 
   it('rejects an unsigned or wrongly signed request', async () => {

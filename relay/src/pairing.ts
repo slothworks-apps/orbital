@@ -1,13 +1,16 @@
 /**
- * The four signed endpoints of pairing (spec 2026-09-30-mobile-remote-design
+ * The signed endpoints of pairing (spec 2026-09-30-mobile-remote-design
  * § 2 Pairing endpoints). Every request is verified against the identity it
- * claims; the Mac's confirmation is the step that makes a pair exist.
+ * claims. A pair exists once the Mac confirms a redeemed token, or once two
+ * devices have each signed a mutual half naming the other (ADR
+ * the-relay-pairs-two-devices-that-both-sign).
  */
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import {
   PAIRING_TOKEN_TTL_MS, SEALED_DEVICE_MAX_CHARS, verifyRequest, type RelayAction,
 } from '@orbital/shared/remote/relayApi';
+import { publicKeyOf } from '@orbital/shared/remote/keys';
 import { RELAY_VERSION_HEADER } from '@orbital/shared/remote/version';
 import { log, short } from './log.js';
 import { secretMatches } from './secret.js';
@@ -40,7 +43,9 @@ const RedeemPayload = z.object({
   token: z.string(), proof: z.string().max(64), device: z.string().max(SEALED_DEVICE_MAX_CHARS).optional(),
 });
 const ConfirmPayload = z.object({ phone: z.string(), accept: z.boolean() });
+// Either side of a pair may revoke it; `phone` names the other side, whichever it is.
 const RevokePayload = z.object({ phone: z.string() });
+const MutualPayload = z.object({ peer: z.string() });
 
 export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): void {
   /**
@@ -138,6 +143,30 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
       log(`pairing rejected: mac ${short(s.id)}, phone ${short(phone)}`);
     }
     return { ok: true };
+  });
+
+  // Two devices of one group pair without a code: each signs that it wants
+  // the other, and the pair exists once both have (ADR
+  // the-relay-pairs-two-devices-that-both-sign). Neither half says why.
+  app.post('/pair/mutual', async (req, reply) => {
+    const s = signed(req.body, 'pair.mutual', MutualPayload, req.ip, reply);
+    if (!s) return;
+    const peer = s.payload.peer;
+    if (!publicKeyOf(peer) || peer === s.id) return reply.code(400).send({ error: 'bad_peer' });
+    await ctx.store.upsertDevice({ id: s.id, kind: 'mac' });
+    const already = await ctx.store.isPaired(s.id, peer);
+    const outcome = await ctx.store.offerMutual(s.id, peer, ctx.now());
+    if (outcome === 'linked' && !already) {
+      ctx.connections.get(s.id)?.peers.add(peer);
+      ctx.connections.get(peer)?.peers.add(s.id);
+      ctx.connections.pairsChanged();
+      for (const [one, other] of [[s.id, peer], [peer, s.id]] as const) {
+        ctx.connections.sendControl(one, { type: 'linked', peer: other });
+        ctx.connections.sendControl(one, { type: 'presence', peer: other, online: ctx.connections.isOnline(other) });
+      }
+      log(`mutual pair: ${short(s.id)} and ${short(peer)}`);
+    }
+    return { linked: outcome === 'linked' };
   });
 
   app.post('/pair/revoke', async (req, reply) => {

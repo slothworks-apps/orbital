@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { PAIRING_TOKEN_TTL_MS } from '@orbital/shared/remote/relayApi';
+import { MUTUAL_PAIR_TTL_MS, PAIRING_TOKEN_TTL_MS } from '@orbital/shared/remote/relayApi';
 import Database from 'better-sqlite3';
 import { Kysely, SqliteDialect } from 'kysely';
 import { Migrator } from 'kysely/migration';
@@ -57,6 +57,29 @@ describe.each(backends)('RelayStore (%s)', (_name, open) => {
     expect(await store.peersOf('phone1')).toEqual([]);
     expect(await store.revokePair('mac1', 'phone1')).toBe(false);
     expect(await store.revokePair('mac1', 'never-paired')).toBe(false);
+  });
+  it('a mutual pair forms once both halves are in, lower id as mac; a half expires', async () => {
+    expect(await store.offerMutual('zed', 'amy', 1000)).toBe('waiting');
+    expect(await store.isPaired('amy', 'zed')).toBe(false);
+    expect(await store.offerMutual('zed', 'amy', 1000)).toBe('waiting');
+    expect(await store.offerMutual('amy', 'zed', 2000)).toBe('linked');
+    expect(await store.phonesOf('amy')).toEqual(['zed']);
+    expect(await store.phonesOf('zed')).toEqual([]);
+    expect(await store.offerMutual('zed', 'amy', 3000)).toBe('linked');
+
+    expect(await store.offerMutual('bob', 'cat', 1000)).toBe('waiting');
+    expect(await store.offerMutual('cat', 'bob', 1000 + MUTUAL_PAIR_TTL_MS + 1)).toBe('waiting');
+    expect(await store.isPaired('bob', 'cat')).toBe(false);
+  });
+  it('revoke removes a pair named in either order', async () => {
+    await store.offerMutual('amy', 'zed', 1);
+    await store.offerMutual('zed', 'amy', 1);
+    expect(await store.revokePair('zed', 'amy')).toBe(true);
+    expect(await store.isPaired('amy', 'zed')).toBe(false);
+    await store.offerMutual('amy', 'zed', 2);
+    await store.offerMutual('zed', 'amy', 2);
+    expect(await store.revokePair('amy', 'zed')).toBe(true);
+    expect(await store.revokePair('amy', 'zed')).toBe(false);
   });
   it('devices keep a kind, a push token and a last-seen stamp, which a second upsert leaves alone', async () => {
     await store.upsertDevice({ id: 'phone1', kind: 'phone' });

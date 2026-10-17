@@ -1,6 +1,7 @@
 /**
  * What the relay remembers: who exists, who is paired with whom, which
- * pairing tokens are open, and where to push. Nothing about sessions — that
+ * pairing tokens are open, which halves of a mutual pair wait for the other,
+ * and where to push. Nothing about sessions — that
  * is the whole point (spec 2026-09-30-mobile-remote-design § 2), and no
  * device names either (spec 2026-10-08-relay-knows-no-names-design). A pair's
  * existence is also cached on each live connection (`Conn.peers`, ws.ts), so
@@ -8,6 +9,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { sql } from 'kysely';
+import { MUTUAL_PAIR_TTL_MS } from '@orbital/shared/remote/relayApi';
 import { asNumber, openRelayDb, type RelayDb } from './db.js';
 
 export type DeviceKind = 'mac' | 'phone';
@@ -25,8 +27,17 @@ export interface RelayStore {
   pending(mac: string, phone: string): Promise<boolean>;
   confirmPair(mac: string, phone: string, now: number): Promise<boolean>;
   rejectPair(mac: string, phone: string): Promise<void>;
-  /** True when a pair was actually deleted. */
-  revokePair(mac: string, phone: string): Promise<boolean>;
+  /**
+   * True when a pair was actually deleted. Either side of the pair may
+   * revoke it, so the two are matched in either order.
+   */
+  revokePair(a: string, b: string): Promise<boolean>;
+  /**
+   * `from` wants a pair with `to`. `'linked'` once `to` has said the same
+   * (the pair is stored, lower id in `mac`) or the two were already paired;
+   * `'waiting'` while only this half is in. Expired halves go first.
+   */
+  offerMutual(from: string, to: string, now: number): Promise<'linked' | 'waiting'>;
   isPaired(a: string, b: string): Promise<boolean>;
   /** Every device paired with this one, whichever side it is. */
   peersOf(id: string): Promise<string[]>;
@@ -106,11 +117,37 @@ export class KyselyRelayStore implements RelayStore {
       .where('mac', '=', mac).where('phone', '=', phone).where('state', '=', 'pending').execute();
   }
 
-  async revokePair(mac: string, phone: string): Promise<boolean> {
+  async revokePair(a: string, b: string): Promise<boolean> {
     const result = await this.db.deleteFrom('pairs')
-      .where('mac', '=', mac).where('phone', '=', phone)
+      .where((eb) => eb.or([
+        eb.and([eb('mac', '=', a), eb('phone', '=', b)]),
+        eb.and([eb('mac', '=', b), eb('phone', '=', a)]),
+      ]))
       .executeTakeFirst();
-    return result.numDeletedRows === 1n;
+    return result.numDeletedRows > 0n;
+  }
+
+  async offerMutual(from: string, to: string, now: number): Promise<'linked' | 'waiting'> {
+    await this.db.deleteFrom('mutual_halves').where('expires_at', '<', now).execute();
+    if (await this.isPaired(from, to)) return 'linked';
+    const other = await this.db.selectFrom('mutual_halves').select('to_id')
+      .where('from_id', '=', to).where('to_id', '=', from).executeTakeFirst();
+    if (!other) {
+      const expiresAt = now + MUTUAL_PAIR_TTL_MS;
+      await this.db.insertInto('mutual_halves').values({ from_id: from, to_id: to, expires_at: expiresAt })
+        .onConflict((oc) => oc.columns(['from_id', 'to_id']).doUpdateSet({ expires_at: expiresAt }))
+        .execute();
+      return 'waiting';
+    }
+    const [mac, phone] = from < to ? [from, to] : [to, from];
+    await this.db.insertInto('pairs').values({ mac, phone, created_at: now })
+      .onConflict((oc) => oc.columns(['mac', 'phone']).doNothing()).execute();
+    await this.db.deleteFrom('mutual_halves')
+      .where((eb) => eb.or([
+        eb.and([eb('from_id', '=', from), eb('to_id', '=', to)]),
+        eb.and([eb('from_id', '=', to), eb('to_id', '=', from)]),
+      ])).execute();
+    return 'linked';
   }
 
   async isPaired(a: string, b: string): Promise<boolean> {
@@ -143,6 +180,7 @@ export class KyselyRelayStore implements RelayStore {
 
   async clearForTests(): Promise<void> {
     await this.db.deleteFrom('pairing_tokens').execute();
+    await this.db.deleteFrom('mutual_halves').execute();
     await this.db.deleteFrom('pairs').execute();
     await this.db.deleteFrom('devices').execute();
   }

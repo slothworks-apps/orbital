@@ -13,6 +13,7 @@ import { dirname } from 'node:path';
 import pg from 'pg';
 import { migration as m0001 } from '../migrations/0001_initial.js';
 import { migration as m0002 } from '../migrations/0002_no_names.js';
+import { migration as m0003 } from '../migrations/0003_mutual_halves.js';
 
 export interface DevicesTable {
   id: string;
@@ -32,10 +33,17 @@ export interface PairingTokensTable {
   phone: string | null;
   state: 'open' | 'pending' | 'confirmed' | 'rejected';
 }
+/** One device's half of a mutual pair, waiting for the other's. */
+export interface MutualHalvesTable {
+  from_id: string;
+  to_id: string;
+  expires_at: number | string;
+}
 export interface RelayDatabase {
   devices: DevicesTable;
   pairs: PairsTable;
   pairing_tokens: PairingTokensTable;
+  mutual_halves: MutualHalvesTable;
 }
 
 export type RelayDb = Kysely<RelayDatabase>;
@@ -44,6 +52,7 @@ export type RelayDb = Kysely<RelayDatabase>;
 const MIGRATIONS: Record<string, Migration> = {
   '0001_initial': m0001,
   '0002_no_names': m0002,
+  '0003_mutual_halves': m0003,
 };
 
 const provider: MigrationProvider = { getMigrations: () => Promise.resolve(MIGRATIONS) };

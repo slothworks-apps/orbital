@@ -3,6 +3,8 @@
 All notable changes to the relay image. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `relay/package.json`.
 
 ## [Unreleased]
+### Added
+- Devices of one Orbital group pair with each other without a code, once both ask for it.
 
 ## [0.5.0] — 2026-10-15
 ### Changed
