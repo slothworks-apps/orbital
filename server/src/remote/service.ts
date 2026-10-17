@@ -476,7 +476,9 @@ export class RemoteService {
       this.pairing = null;
     }
     if (accept) {
-      this.addPaired({ id: pending.phone, kind: pending.kind, name: pending.name, os: osName(pending.platform) });
+      this.tryRoster('add a paired device', () => this.addPaired({
+        id: pending.phone, kind: pending.kind, name: pending.name, os: osName(pending.platform),
+      }));
     }
     this.publishStatus();
     // A guard: the relay's `presence` for the new device, sent before it
@@ -585,7 +587,9 @@ export class RemoteService {
       });
       // A code without a kind came from a Mac from before kinds. Its OS is
       // not known until its hello.
-      this.addPaired({ id: joined.device, kind: joined.kind ?? 'desktop', name: joined.name, os: '' });
+      this.tryRoster('add a paired device', () => this.addPaired({
+        id: joined.device, kind: joined.kind ?? 'desktop', name: joined.name, os: '',
+      }));
       this.publishStatus();
       this.open(joined.device);
       return;
@@ -686,7 +690,7 @@ export class RemoteService {
         opened.close();
         if (role === 'initiator') this.open(from);
       }
-      if (event.type === 'hello') this.onPeerHello(from, opened, event.hello);
+      if (event.type === 'hello') this.tryRoster('describe a peer', () => this.onPeerHello(from, opened, event.hello));
       // Each side sends its digest as the channel opens; a difference is answered with the roster.
       if (event.type === 'ready' && event.ready && opened.groups) opened.sendGroup({ t: 'roster_digest', digest: this.roster.digest() });
       if (event.type === 'group') this.onGroup(from, opened, event.msg);
@@ -711,15 +715,34 @@ export class RemoteService {
     return true;
   }
 
-  /** This device, once, as the first member of its own group; a removed entry for it stays removed. */
+  /**
+   * This device, once, as the first member of its own group; a removed entry
+   * for it stays removed. A live one is described afresh: a rename made while
+   * the remote was off reached no roster.
+   */
   private addSelf(): void {
     const self = this.selfId!;
-    if (this.roster.entry(self)) return;
+    const known = this.roster.entry(self);
     const now = this.now();
-    this.setRoster(addMember(this.roster.list(), {
-      id: self, kind: serverDeviceKind(), name: this.macName, os: osName(process.platform), links: true,
-      addedBy: self, addedAt: now, describedAt: now,
-    }));
+    const about = { kind: serverDeviceKind(), name: this.macName, os: osName(process.platform), links: true };
+    if (!known) {
+      this.setRoster(addMember(this.roster.list(), { id: self, ...about, addedBy: self, addedAt: now, describedAt: now }));
+    } else if (isLive(known)) {
+      this.setRoster(describeMember(this.roster.list(), self, about, now));
+    }
+  }
+
+  /**
+   * A roster write on the way to something else — a confirm already
+   * accepted, a hello inside the channel — that must not fail it: the
+   * roster catches up at the next exchange.
+   */
+  private tryRoster(what: string, write: () => void): void {
+    try {
+      write();
+    } catch (err) {
+      console.warn(`[remote] could not ${what}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /**

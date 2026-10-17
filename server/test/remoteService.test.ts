@@ -97,6 +97,21 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 const codeFor = (service: RemoteService, phone: string) =>
   pairingCode(service.status().macId!, publicKeyOf(phone)!);
 
+describe('RemoteService roster', () => {
+  it('a rename made while the remote is off reaches the self entry at the next start', () => {
+    const { service, settings } = build();
+    const self = () => service.status().group.members.find((m) => m.self);
+    expect(self()).toMatchObject({ links: true });
+    settings.remote_enabled = 'false';
+    service.settingsChanged();
+    settings.remote_mac_name = 'renamed';
+    service.nameChanged();
+    settings.remote_enabled = 'true';
+    service.settingsChanged();
+    expect(self()).toMatchObject({ name: 'renamed', epoch: 1 });
+  });
+});
+
 describe('RemoteService pairing', () => {
   it('gives the relay no name with a pairing code; the QR alone carries it', async () => {
     const { service, fake } = build();
