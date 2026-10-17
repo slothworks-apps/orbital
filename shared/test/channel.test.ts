@@ -134,6 +134,23 @@ describe('Channel', () => {
     expect(a.sendGroup({ t: 'removed' })).toBe(false);
   });
 
+  it('does not emit a group event from a sender whose own hello never named the capability', () => {
+    // a.groups is a's view of b (who does name it), so a's own sendGroup
+    // still goes out; the guard this test is after is on the receiving
+    // side, b's view of a (who does not name it).
+    const { a, b, pump } = pair({ capabilities: ['sessions'], bHello: { capabilities: ['sessions', 'group'] } });
+    const got: unknown[] = [];
+    b.on((e) => { if (e.type === 'group') got.push(e.msg); });
+    a.start();
+    pump();
+    expect(a.groups).toBe(true);
+    expect(b.groups).toBe(false);
+    expect(a.sendGroup({ t: 'removed' })).toBe(true);
+    pump();
+    expect(got).toEqual([]);
+    expect(b.dropped).toBe(1);
+  });
+
   it('a judge refusal closes the responder with bye before it greets', () => {
     const aId = generateIdentity();
     const bId = generateIdentity();

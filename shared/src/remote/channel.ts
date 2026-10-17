@@ -254,7 +254,10 @@ export class Channel {
     // A `bye` comes before any hello when the responder refuses one.
     if (parsed.kind === 'answer') return this.onAnswer(parsed.msg);
     if (parsed.kind === 'group') {
-      if (this.peerHello) this.emit({ type: 'group', msg: parsed.msg });
+      // `groups`, checked here, is this side's view of the sender's hello:
+      // a peer that never named the capability does not get to say otherwise.
+      if (this.groups) this.emit({ type: 'group', msg: parsed.msg });
+      else this.dropped++;
       return;
     }
     if (this.peerHello && this.opts.serve) this.serving(this.opts.serve, (s) => s.ask(parsed.msg));
