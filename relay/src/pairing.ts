@@ -17,20 +17,39 @@ import { secretMatches } from './secret.js';
 import type { WsContext } from './ws.js';
 
 /**
- * The phone redeems from a WebView whose page is https://localhost (and from
- * a desktop browser while its layout is worked on), so `/pair/redeem` is a
- * cross-origin JSON POST: the browser asks first, and reads the answer only
- * when it carries an allow-origin. Any origin may: the request is signed,
- * the token single-use, and no cookie is involved. Only redeem — the other
- * three routes are the Mac's, which is not a browser (ADR
+ * Once the phone is a device-group member it sends every signed pair route
+ * itself, from the same WebView whose page is https://localhost (and from a
+ * desktop browser while its layout is worked on): `/pair/redeem`,
+ * `/pair/token` (showing its own code), `/pair/confirm`, `/pair/mutual` and
+ * `/pair/revoke`. Each is a cross-origin JSON POST: the browser asks first,
+ * and reads the answer only when it carries an allow-origin. Any origin may,
+ * for all five: each request is signed by the key it names, and what it can
+ * change is limited to that key's own pairs (ADR
  * the-relay-answers-cors-for-redeem).
  */
-const REDEEM_CORS = {
+const PAIR_CORS = {
   'access-control-allow-origin': '*',
   'access-control-allow-methods': 'POST',
   'access-control-allow-headers': 'content-type',
   'access-control-max-age': '600',
 };
+
+/** The preflight every signed pair route answers the same way. */
+function registerPairCorsPreflight(app: FastifyInstance, path: string): void {
+  app.options(path, (_req, reply) => {
+    void reply.code(204).headers(PAIR_CORS).send();
+  });
+}
+
+/**
+ * The allow-origin and version header every signed pair route's answer
+ * carries, refusals included, so the phone can tell an expired token or a
+ * bad peer from an unreachable relay, and checks the relay's version.
+ */
+function sendPairCors(reply: FastifyReply): void {
+  void reply.header('access-control-allow-origin', PAIR_CORS['access-control-allow-origin']);
+  void reply.header('access-control-expose-headers', RELAY_VERSION_HEADER);
+}
 
 /**
  * The relay knows no device names (spec 2026-10-08-relay-knows-no-names-design).
@@ -83,10 +102,16 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
     return { id: v.id, payload: parsed.data };
   }
 
+  for (const path of ['/pair/redeem', '/pair/token', '/pair/confirm', '/pair/mutual', '/pair/revoke']) {
+    registerPairCorsPreflight(app, path);
+  }
+
   app.post('/pair/token', async (req, reply) => {
+    sendPairCors(reply);
     const s = signed(req.body, 'pair.token', TokenPayload, req.ip, reply);
     if (!s) return;
-    await ctx.store.upsertDevice({ id: s.id, kind: 'mac' });
+    // A phone that showed its own code earlier stays a phone; only a device the relay has never met becomes a mac.
+    await ctx.store.ensureDevice({ id: s.id, kind: 'mac' });
     await ctx.store.pruneExpiredTokens(ctx.now());
     const expiresAt = ctx.now() + PAIRING_TOKEN_TTL_MS;
     const token = await ctx.store.createPairingToken(s.id, expiresAt);
@@ -94,14 +119,8 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
     return { token, expiresAt };
   });
 
-  app.options('/pair/redeem', (_req, reply) => {
-    void reply.code(204).headers(REDEEM_CORS).send();
-  });
-
   app.post('/pair/redeem', async (req, reply) => {
-    void reply.header('access-control-allow-origin', REDEEM_CORS['access-control-allow-origin']);
-    // A WebView reads only the headers CORS names: the phone checks the relay's version in this answer.
-    void reply.header('access-control-expose-headers', RELAY_VERSION_HEADER);
+    sendPairCors(reply);
     const s = signed(req.body, 'pair.redeem', RedeemPayload, req.ip, reply);
     if (!s) return;
     const { token, proof, device } = s.payload;
@@ -126,6 +145,7 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
   });
 
   app.post('/pair/confirm', async (req, reply) => {
+    sendPairCors(reply);
     const s = signed(req.body, 'pair.confirm', ConfirmPayload, req.ip, reply);
     if (!s) return;
     const { phone, accept } = s.payload;
@@ -154,6 +174,7 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
   // the other, and the pair exists once both have (ADR
   // the-relay-pairs-two-devices-that-both-sign). Neither half says why.
   app.post('/pair/mutual', async (req, reply) => {
+    sendPairCors(reply);
     const s = signed(req.body, 'pair.mutual', MutualPayload, req.ip, reply);
     if (!s) return;
     const peer = s.payload.peer;
@@ -175,6 +196,7 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
   });
 
   app.post('/pair/revoke', async (req, reply) => {
+    sendPairCors(reply);
     const s = signed(req.body, 'pair.revoke', RevokePayload, req.ip, reply);
     if (!s) return;
     // Only act if a pair actually existed: otherwise any signed caller could

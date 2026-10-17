@@ -71,28 +71,55 @@ describe('pairing', () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it('lets a WebView redeem across origins, and only redeem', async () => {
+  it('lets a WebView call every signed pair route across origins', async () => {
     const r = await relay();
-    const preflight = await r.app.inject({
-      method: 'OPTIONS', url: '/pair/redeem',
-      headers: { origin: 'https://localhost', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type' },
-    });
-    expect(preflight.statusCode).toBe(204);
-    expect(preflight.headers['access-control-allow-origin']).toBe('*');
-    expect(preflight.headers['access-control-allow-methods']).toBe('POST');
-    expect(preflight.headers['access-control-allow-headers']).toBe('content-type');
+    for (const path of ['/pair/redeem', '/pair/token', '/pair/confirm', '/pair/mutual', '/pair/revoke']) {
+      const preflight = await r.app.inject({
+        method: 'OPTIONS', url: path,
+        headers: { origin: 'https://localhost', 'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type' },
+      });
+      expect(preflight.statusCode).toBe(204);
+      expect(preflight.headers['access-control-allow-origin']).toBe('*');
+      expect(preflight.headers['access-control-allow-methods']).toBe('POST');
+      expect(preflight.headers['access-control-allow-headers']).toBe('content-type');
+    }
     // A refusal must be readable too, or the phone sees a network error where it should say "code expired".
     const refused = await r.post('/pair/redeem', signRequest(r.phone, 'pair.redeem', { token: 'nope', name: 'P', platform: 'android', proof: 'p' }, r.now()));
     expect(refused.statusCode).toBe(404);
     expect(refused.headers['access-control-allow-origin']).toBe('*');
-    // The phone checks the relay's version in the redeem's answer, which a WebView reads only when CORS exposes it.
+    // The phone checks the relay's version in each answer, which a WebView reads only when CORS exposes it.
     expect(refused.headers[RELAY_VERSION_HEADER]).toBe(RELAY_PACKAGE_VERSION);
     expect(refused.headers['access-control-expose-headers']).toBe(RELAY_VERSION_HEADER);
-    // The Mac's routes stay closed to browsers.
     const minted = await r.post('/pair/token', signRequest(r.mac, 'pair.token', { name: 'studio' }, r.now()));
-    expect(minted.headers['access-control-allow-origin']).toBeUndefined();
+    expect(minted.statusCode).toBe(200);
+    expect(minted.headers['access-control-allow-origin']).toBe('*');
     expect(minted.headers[RELAY_VERSION_HEADER]).toBe(RELAY_PACKAGE_VERSION);
-    expect((await r.app.inject({ method: 'OPTIONS', url: '/pair/confirm' })).statusCode).toBe(404);
+    const bogusConfirm = await r.post('/pair/confirm', signRequest(r.mac, 'pair.confirm', { phone: deviceId(r.phone.publicKey), accept: true }, r.now()));
+    expect(bogusConfirm.headers['access-control-allow-origin']).toBe('*');
+    const bogusMutual = await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: deviceId(r.phone.publicKey) }, r.now()));
+    expect(bogusMutual.headers['access-control-allow-origin']).toBe('*');
+    const bogusRevoke = await r.post('/pair/revoke', signRequest(r.mac, 'pair.revoke', { phone: deviceId(r.phone.publicKey) }, r.now()));
+    expect(bogusRevoke.headers['access-control-allow-origin']).toBe('*');
+  });
+
+  it('a device the relay already knows as a phone keeps that kind after it shows its own code', async () => {
+    const r = await relay();
+    await connectDevice(r.base, r.mac);
+    // The phone redeems first, which records it as a phone.
+    const minted = await r.post('/pair/token', signRequest(r.mac, 'pair.token', {}, r.now()));
+    const { token } = minted.json();
+    await r.post('/pair/redeem', signRequest(r.phone, 'pair.redeem', { token, proof: 'p' }, r.now()));
+    expect((await r.store.device(deviceId(r.phone.publicKey)))?.kind).toBe('phone');
+    // The same device then shows its own code, minting a token through /pair/token.
+    const ownToken = await r.post('/pair/token', signRequest(r.phone, 'pair.token', {}, r.now()));
+    expect(ownToken.statusCode).toBe(200);
+    expect((await r.store.device(deviceId(r.phone.publicKey)))?.kind).toBe('phone');
+  });
+
+  it('a device the relay has never met is recorded as a mac by /pair/token, as before', async () => {
+    const r = await relay();
+    await r.post('/pair/token', signRequest(r.mac, 'pair.token', {}, r.now()));
+    expect((await r.store.device(deviceId(r.mac.publicKey)))?.kind).toBe('mac');
   });
 
   it('a token redeems once and not after its ttl', async () => {
