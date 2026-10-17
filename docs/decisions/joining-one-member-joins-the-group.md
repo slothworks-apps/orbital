@@ -29,8 +29,10 @@ without asking again. Every member shows who added it.
 The roster is kept by every member and merged: per device the higher
 epoch wins, and within one epoch a removal wins. A device can be removed
 from any member; it comes back only through a new ceremony, which starts
-the next epoch. A device already in a group of two or more cannot join
-another; it leaves its group first. One person's devices form one group,
+the next epoch. A device already in a group of two or more cannot join a
+device of another group; it leaves its group first. A ceremony between
+two members of the same group (pairing by hand, on a relay that cannot
+pair them) is not refused. One person's devices form one group,
 and merging two at a ceremony would surprise more than it helps: the
 devices of one side would suddenly link with every device of the other.
 

@@ -241,15 +241,21 @@ through them.
 
 `RemoteService.join(code)` refuses with `in_group` while the roster holds
 any live member other than this device (`inGroup`) — a phone paired
-here counts — before anything is sent to the relay: groups do not merge,
-a device leaves its group before it joins another (ADR
-`joining-one-member-joins-the-group`). `other_relay` names the code's
+here counts — and the code's device is not itself a live member, before
+anything is sent to the relay: groups do not merge, a device leaves its
+group before it joins another (ADR `joining-one-member-joins-the-group`),
+while a code from a member of its own group is pairing by hand.
+A roster that cannot be read counts as a group of one, as in the status. `other_relay` names the code's
 relay, `peer_offline` the code's `expiresAt` when the code carries one
 (`QrPayload.expiresAt`, which `startPairing` copies from the relay's
 answer). While a join waits, `status.joining` carries the formatted code
 to type on the other device and the code's expiry, so a reload keeps the
 waiting card; `cancelJoin` (`DELETE /api/remote/join`) drops it here and
-leaves the relay's request to expire.
+leaves the relay's request to expire. The cancelled join is remembered
+until the code's expiry (`cancelledJoin`); a `paired` for that device in
+that window is revoked at the relay and the device is never added. The
+joining's expiry is the code's, never more than `PAIRING_TOKEN_TTL_MS`
+from now.
 
 `status.group.members` lists only live members — removed entries stay in
 the store — each with a `state`: `self`; `online`/`offline` by the
@@ -262,6 +268,11 @@ that links and is not paired here yet; `notLinked` for one marked
 `in_group` (idea `move-a-group-to-another-relay`).
 
 ## Known limits
+
+- **A join cancelled after the other member confirmed it**: the joiner
+  revokes the pair the relay made, but the member that confirmed has
+  already written the joiner into its roster, and is left listing it as
+  an unlinked member until someone removes it.
 
 - **A peer that is asleep when another member leaves, or that receives
   the relay's `unpaired` before the leaver's roster message** keeps the

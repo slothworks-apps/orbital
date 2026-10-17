@@ -171,6 +171,8 @@ describe('pairing code', () => {
     expect(parsePairingCode(encodePairingCode(withExpiry))?.expiresAt).toBe(123_456);
     expect(parsePairingCode(qr)).not.toBeNull();
     expect(parsePairingCode(qr)?.expiresAt).toBeUndefined();
+    expect(parsePairingCode(JSON.stringify({ ...JSON.parse(qr), expiresAt: -1 }))).toBeNull();
+    expect(parsePairingCode(JSON.stringify({ ...JSON.parse(qr), expiresAt: 1.5 }))).toBeNull();
   });
   it('refuses anything else', () => {
     expect(parsePairingCode('hello')).toBeNull();

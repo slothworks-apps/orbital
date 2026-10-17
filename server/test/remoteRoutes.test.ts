@@ -202,6 +202,19 @@ describe('/api/remote', () => {
     expect((await alone.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_url: 'http://127.0.0.1:2' } })).statusCode).toBe(200);
     await alone.close();
   });
+  it('a roster that cannot be read leaves the relay URL unlocked, as the status does', async () => {
+    const app = await server(true, 'http://127.0.0.1:1', (db) => withMember(db));
+    const list = vi.spyOn(RosterStore.prototype, 'list').mockImplementation(() => { throw new Error('no such table'); });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const res = await app.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_url: 'http://127.0.0.1:2' } });
+      expect(res.statusCode).toBe(200);
+    } finally {
+      list.mockRestore();
+      warn.mockRestore();
+      await app.close();
+    }
+  });
   it('a phone\'s body-less POST reaches its route instead of failing on an empty JSON body', async () => {
     const app = await server(false);
     const res = await app.inject(remoteInjectOptions({ method: 'POST', url: '/api/sessions/nope/interrupt' }, undefined));

@@ -132,9 +132,10 @@ Every member keeps the whole roster and they converge on it.
    says once, in Settings → Devices, "*vps* added by *studio*".
 
 **Two groups meet.** A device already in a group of two or more cannot
-join another; it leaves first (design 50, decided 2026-10-17). The
-roster's merge still converges if two groups ever meet, but no ceremony
-starts it.
+join a device of another group; it leaves first (design 50, decided
+2026-10-17). A code from a member of its own group is still taken: that
+is "pair by hand" (§ 4). The roster's merge still converges if two
+groups ever meet, but no ceremony starts it.
 
 ## 4. Links
 

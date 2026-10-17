@@ -41,6 +41,11 @@ import { RelayClient, type RelayClientOptions, type RelayRefusal } from './relay
 import { wakeSecret, wakeToken } from './wake.js';
 import type { Presence } from './presence.js';
 
+/** Whether `entries` holds a live member other than `self`: this device is in a group of two or more. */
+function hasOtherLiveMember(entries: RosterEntry[], self: string | null): boolean {
+  return entries.some((e) => isLive(e) && e.id !== self);
+}
+
 /** A phone refused at `hello` for an app too old: both versions, and when it was last refused. */
 export type PhoneRefusal = PhoneTooOld & { at: number };
 
@@ -210,6 +215,11 @@ export class RemoteService {
   private pairing: { expiresAt: number; secret: Uint8Array } | null = null;
   /** A device whose code this server redeemed, until it confirms or refuses (`paired`, `rejected`). */
   private joining: { device: string; name: string; kind: string | null; code: string; expiresAt: number } | null = null;
+  /**
+   * A join the user cancelled, until its code expires: the other device may
+   * still confirm it, and the pair the relay then makes is revoked here.
+   */
+  private cancelledJoin: { device: string; expiresAt: number } | null = null;
   private error: string | null = null;
   /** Set when the relay client stopped on a relay below `MIN_RELAY_VERSION`; cleared by the next start. */
   private relayRefusal: RelayTooOld | null = null;
@@ -348,6 +358,7 @@ export class RemoteService {
     this.pendingPair = null;
     this.pairing = null;
     this.joining = null;
+    this.cancelledJoin = null;
   }
 
   /** Re-reads every setting: a toggle or a relay URL change applies now. */
@@ -424,7 +435,7 @@ export class RemoteService {
           state, seenAt: row?.lastSeenAt ?? null,
         };
       });
-      return { members, relayLocked: members.some((m) => !m.self) };
+      return { members, relayLocked: hasOtherLiveMember(this.roster.list(), self) };
     } catch (err) {
       console.warn(`[remote] could not list the roster: ${err instanceof Error ? err.message : String(err)}`);
       return { members: [], relayLocked: false };
@@ -433,11 +444,16 @@ export class RemoteService {
 
   /**
    * Whether this device is in a group of two or more: another member is
-   * live. It cannot join another group then, nor move to another relay.
+   * live. It cannot join another group then, nor move to another relay. As
+   * the status, a roster that cannot be read reads as a group of one.
    */
   inGroup(): boolean {
-    const self = this.ownId();
-    return this.roster.list().some((e) => isLive(e) && e.id !== self);
+    try {
+      return hasOtherLiveMember(this.roster.list(), this.ownId());
+    } catch (err) {
+      console.warn(`[remote] could not read the roster: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    }
   }
 
   /** The request as the status shows it: everything but the code. */
@@ -575,8 +591,9 @@ export class RemoteService {
     const qr = parsePairingCode(code);
     if (!qr) return { error: 'bad_code' };
     if (this.relayRefusal) return { error: 'relay_too_old' };
-    // Groups do not merge (§ 3): a device in one leaves it before it joins another.
-    if (this.inGroup()) return { error: 'in_group' };
+    // Groups do not merge (§ 3): a device in one leaves it before it joins
+    // another group. A code from a member of its own group is pairing by hand.
+    if (this.inGroup() && !this.isLiveMember(qr.mac)) return { error: 'in_group' };
     if (!this.enabled || !this.client || !this.identity) return { error: 'disabled' };
     if (this.client.status !== 'online') return { error: 'offline' };
     const self = deviceId(this.identity.publicKey);
@@ -595,11 +612,15 @@ export class RemoteService {
     // Cut as a pairing cuts a phone's name: the QR's is whatever that device was called.
     const name = qr.name.slice(0, PAIR_NAME_MAX_CHARS);
     const typed = formatFingerprint(fingerprint(publicKeyOf(qr.mac)!, this.identity.publicKey));
-    // A code from before it carried its expiry is good for as long as any code is.
+    // No code lives longer than `PAIRING_TOKEN_TTL_MS`, whatever it says;
+    // one from before it carried its expiry is good for that long.
+    const longest = this.now() + PAIRING_TOKEN_TTL_MS;
     const joining = {
-      device: qr.mac, name, kind: qr.kind ?? null, code: typed, expiresAt: qr.expiresAt ?? this.now() + PAIRING_TOKEN_TTL_MS,
+      device: qr.mac, name, kind: qr.kind ?? null, code: typed, expiresAt: Math.min(qr.expiresAt ?? longest, longest),
     };
     this.joining = joining;
+    // Joining that device again: its confirm is wanted now.
+    if (this.cancelledJoin?.device === qr.mac) this.cancelledJoin = null;
     this.publishStatus();
     const res = await this.client.post('/pair/redeem', 'pair.redeem', payload);
     if (res.status !== 200) {
@@ -615,14 +636,25 @@ export class RemoteService {
 
   /**
    * Stops waiting for the device being joined; false when none was. The
-   * relay is not told: the request it holds expires with the code, and a
-   * later `paired` for it no longer matches anything here.
+   * relay is not told: the request it holds expires with the code. If the
+   * other device confirms it before then, the pair is revoked (`cancelledJoin`).
    */
   cancelJoin(): boolean {
     if (!this.joining) return false;
+    this.cancelledJoin = { device: this.joining.device, expiresAt: this.joining.expiresAt };
     this.joining = null;
     this.publishStatus();
     return true;
+  }
+
+  /** A roster that cannot be read holds no one, as `inGroup` reads it. */
+  private isLiveMember(id: string): boolean {
+    try {
+      const entry = this.roster.entry(id);
+      return entry !== null && isLive(entry);
+    } catch {
+      return false;
+    }
   }
 
   /** The channel to a paired device, while one is open. */
@@ -838,6 +870,13 @@ export class RemoteService {
       }));
       this.publishStatus();
       this.open(joined.device);
+      return;
+    }
+    // Confirmed on the other device after the user cancelled here: the pair goes again, the device is never added.
+    if (msg.type === 'paired' && this.cancelledJoin && msg.mac === this.cancelledJoin.device) {
+      const cancelled = this.cancelledJoin;
+      this.cancelledJoin = null;
+      if (cancelled.expiresAt > this.now()) this.tryRoster('revoke a cancelled join', () => this.revokeAtRelay(cancelled.device));
       return;
     }
     if (msg.type === 'rejected' && this.joining && msg.mac === this.joining.device) {

@@ -6,7 +6,7 @@ import { generateIdentity, deviceId, fromBase64Url, publicKeyOf, toBase64Url } f
 import { FLAG_STATE, FLAG_WAKE, WAKE_BYTES, ZERO_WAKE, decodeFrame, encodeFrame } from '@orbital/shared/remote/frame';
 import { startHandshake } from '@orbital/shared/remote/handshake';
 import {
-  PAIRING_SECRET_BYTES, PAIR_NAME_MAX_CHARS, QrPayload, pairingProof, sealPairingDevice,
+  PAIRING_SECRET_BYTES, PAIRING_TOKEN_TTL_MS, PAIR_NAME_MAX_CHARS, QrPayload, pairingProof, sealPairingDevice,
 } from '@orbital/shared/remote/relayApi';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import { PROTOCOL_VERSION, decodeInner, encodeInner } from '@orbital/shared/remote/messages';
@@ -544,6 +544,45 @@ describe('RemoteService join and the group', () => {
     expect(await service.join(codeFrom())).toEqual({ error: 'in_group' });
     new RosterStore(db).replace(new RosterStore(db).list().map((e) => (e.id === phone ? { ...e, removedBy: 'x', removedAt: NOW } : e)));
     expect(await service.join(codeFrom())).toMatchObject({ code: expect.any(String) });
+  });
+
+  it('a member of this device\'s own group may still be paired by hand; a stranger\'s code is refused', async () => {
+    const { service, fake, db } = build();
+    const [member] = withMembers(db, {});
+    expect(await service.join(codeFrom())).toEqual({ error: 'in_group' });
+    expect(await service.join(codeFrom({ mac: member }))).toMatchObject({ device: member, code: expect.any(String) });
+    expect(redeems(fake)).toHaveLength(1);
+  });
+
+  it('no code waits longer than PAIRING_TOKEN_TTL_MS, whatever it says', async () => {
+    const { service } = build();
+    await service.join(codeFrom({ expiresAt: NOW + PAIRING_TOKEN_TTL_MS * 10 }));
+    expect(service.status().joining?.expiresAt).toBe(NOW + PAIRING_TOKEN_TTL_MS);
+    service.cancelJoin();
+    await service.join(codeFrom({ expiresAt: undefined }));
+    expect(service.status().joining?.expiresAt).toBe(NOW + PAIRING_TOKEN_TTL_MS);
+  });
+
+  it('a join confirmed on the other device after it was cancelled here is revoked, and the device never added', async () => {
+    const { service, fake, db, devices, advance } = build();
+    const revoked = () => fake.posts.filter((p) => p.path === '/pair/revoke').map((p) => (p.payload as { phone: string }).phone);
+    const first = await service.join(codeFrom());
+    if (!('device' in first)) throw new Error('join failed');
+    service.cancelJoin();
+    fake.emit('control', { type: 'paired', mac: first.device });
+    await tick();
+    expect(revoked()).toEqual([first.device]);
+    expect(devices.get(first.device)).toBeNull();
+    expect(new RosterStore(db).entry(first.device)).toBeNull();
+    // Once the code has expired, nothing is left to revoke.
+    const second = await service.join(codeFrom());
+    if (!('device' in second)) throw new Error('join failed');
+    service.cancelJoin();
+    advance(90_000);
+    fake.emit('control', { type: 'paired', mac: second.device });
+    await tick();
+    expect(revoked()).toEqual([first.device]);
+    expect(devices.get(second.device)).toBeNull();
   });
 
   it('names the code relay when it is another one, and the code expiry when the member is offline', async () => {
