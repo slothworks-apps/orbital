@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { GroupMember, RemoteStatus } from '../lib/types'
 
@@ -118,13 +118,63 @@ describe('DevicesSection', () => {
       member({ id: 'n1', name: 'mini-office', state: 'notLinked', pairByHand: true, linked: false }),
       member({ id: 'l1', name: 'rpi-lab', kind: 'headless', state: 'linking', linked: false }),
     ]))
-    await waitFor(() => expect(api.startPairing).toHaveBeenCalledTimes(1))
+    // No code until one is asked for.
+    expect(api.startPairing).not.toHaveBeenCalled()
     const linking = screen.getByText('rpi-lab').closest('[data-member]') as HTMLElement
     expect(within(linking).getByText('linking…')).toBeInTheDocument()
 
     const notLinked = screen.getByText('mini-office').closest('[data-member]') as HTMLElement
     await userEvent.click(within(notLinked).getByRole('button', { name: 'not linked — pair by hand' }))
-    await waitFor(() => expect(api.startPairing).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(api.startPairing).toHaveBeenCalledTimes(1))
     expect(screen.getByText('ADD A DEVICE · FOR MINI-OFFICE')).toBeInTheDocument()
+  })
+
+  it('draws a code only once Show code is clicked', async () => {
+    renderWith(status([]))
+    expect(api.startPairing).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'Show code' }))
+    expect(api.startPairing).toHaveBeenCalledTimes(1)
+  })
+
+  it('a phone refused as too old reads needs an update, even while the relay counts it online', () => {
+    const phone = member({ id: 'p1', name: 'Pixel 8', kind: 'phone', os: 'android', links: false, state: 'online' })
+    renderWith(status([phone], {
+      devices: [{
+        id: 'p1', name: 'Pixel 8', platform: 'android', kind: 'phone', pairedAt: NOW, lastSeenAt: NOW, online: true,
+        needsUpdate: { version: '0.3.0', needed: '0.4.0', at: NOW },
+      }],
+    }))
+    const row = screen.getByText('Pixel 8').closest('[data-member]') as HTMLElement
+    expect(within(row).getByText('needs an update')).toBeInTheDocument()
+    expect(within(row).queryByText('online')).not.toBeInTheDocument()
+    expect(within(row).getByText(/app 0\.3\.0 · this device needs ≥ 0\.4\.0 · refused · now/)).toBeInTheDocument()
+  })
+
+  it('lists a phone paired before the roster existed, and removes it', async () => {
+    renderWith(status([], {
+      devices: [{
+        id: 'old', name: 'Galaxy', platform: 'android', kind: null, pairedAt: NOW, lastSeenAt: null, online: false,
+        needsUpdate: null,
+      }],
+    }))
+    expect(screen.queryByText('Just this device')).not.toBeInTheDocument()
+    const row = screen.getByText('Galaxy').closest('[data-member]') as HTMLElement
+    expect(within(row).getByText('phone · Android')).toBeInTheDocument()
+    expect(within(row).getByText('offline')).toBeInTheDocument()
+    await userEvent.click(within(row).getByRole('button', { name: 'Remove' }))
+    await userEvent.click(within(row).getAllByRole('button', { name: 'Remove' }).at(-1)!)
+    expect(api.removeDevice).toHaveBeenCalledWith('old')
+  })
+
+  it('the Leave refusal goes once the relay is back', async () => {
+    vi.mocked(api.leaveGroup).mockResolvedValue({ ok: false, error: 'offline' })
+    const others = [member({ id: 'b1', name: 'build-box' })]
+    renderWith(status(others, { relay: 'connecting' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Leave…' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Leave' }))
+    const words = 'Connect to the relay to leave — the others have to hear it.'
+    expect(await screen.findByText(words)).toBeInTheDocument()
+    act(() => useOrbital.getState().setRemote(status(others)))
+    expect(screen.queryByText(words)).not.toBeInTheDocument()
   })
 })

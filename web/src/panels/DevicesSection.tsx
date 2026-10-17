@@ -9,9 +9,9 @@ import {
   RELAY_CHECK_WINDOW_MS, codeLeft, relayCheckSettled, relayLine, relaySecretCommit, relayUrlCommit, relayHostname,
   statusDuringCheck, type RelayLineKind,
 } from '../lib/remote'
-import { addedByLine, kindOs, memberStateWords, oneWordCode } from '../lib/devices'
+import { deviceRows, kindOs, needsUpdateLine, oneWordCode, type DeviceRow, type RowState } from '../lib/devices'
 import { useNow } from '../lib/useNow'
-import type { GroupMember, MemberState, RemoteStatus } from '../lib/types'
+import type { GroupMember, RemoteStatus } from '../lib/types'
 import { Toggle } from '../ui/Checkbox'
 import { Button } from '../ui/Button'
 import { Dialog } from '../ui/Dialog'
@@ -46,13 +46,16 @@ const HOLLOW: CSSProperties = { border: '1.3px solid rgba(200,215,235,.6)' }
 /**
  * A member's state dot (canvas 50a ROWS, 50k MEMBER STATE): accent while
  * online, every other state neutral — a hollow ring offline, a dashed one
- * while linking, a faint one while not linked. Nothing moves.
+ * while linking, a faint one while not linked; an ink dot while too old.
+ * Nothing moves.
  */
-const MEMBER_DOT: Record<Exclude<MemberState, 'self'>, CSSProperties> = {
+const MEMBER_DOT: Record<RowState, CSSProperties> = {
   online: { background: 'var(--color-accent)' },
   offline: HOLLOW,
   linking: { border: '1.3px dashed rgba(200,215,235,.6)' },
   notLinked: { border: '1.3px solid rgba(200,215,235,.32)' },
+  // The ink dot: its Orbital is too old (50a ROWS, logic.js `update`).
+  update: { background: 'rgba(232,238,248,.85)' },
 }
 
 function Dot({ style, className = '' }: { style?: CSSProperties; className?: string }) {
@@ -180,17 +183,17 @@ interface PairingCode {
 
 /**
  * The add-a-device code (canvas 50a ADD A DEVICE): one code from
- * `api.startPairing`, drawn once when the relay is first online here and
- * again only on a click — New code or Pair by hand. Nothing renews it by
+ * `api.startPairing`, drawn only on a click — Show code, New code or Pair by
+ * hand — since each code opens a window in which a device can ask to pair
+ * (spec 2026-10-01-settings-mobile-design, "Decisions"). Nothing renews it by
  * itself. A code the status drops before its time was used, and is forgotten.
  */
-function usePairingCode(remote: RemoteStatus | null, online: boolean): PairingCode {
+function usePairingCode(remote: RemoteStatus | null): PairingCode {
   const [code, setCode] = useState<PairingCode['code']>(null)
   const [busy, setBusy] = useState(false)
   // Ticks only while the code is open; stopped once it ran out or was used.
   const [ticking, setTicking] = useState(false)
   const now = useNow(ticking)
-  const drawn = useRef(false)
 
   async function newCode() {
     if (busy) return
@@ -218,13 +221,6 @@ function usePairingCode(remote: RemoteStatus | null, online: boolean): PairingCo
       setBusy(false)
     }
   }
-
-  useEffect(() => {
-    if (!online || drawn.current) return
-    drawn.current = true
-    void newCode()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online])
 
   const live = code !== null && remote?.pairing?.expiresAt === code.expiresAt
   // Timed out by the clock: the server clears an expired code only inside its
@@ -272,16 +268,18 @@ export function DevicesSection({
 
   const line = enabled && remote ? relayLine(remote) : null
   const online = line?.kind === 'online' && remote?.relay === 'online'
-  const pairing = usePairingCode(liveRemote, online)
+  const pairing = usePairingCode(liveRemote)
 
   const members = liveRemote?.group.members ?? []
   const self = members.find((m) => m.self) ?? null
   const others = members.filter((m) => !m.self)
+  const now = useNow(true, SEEN_TICK_MS)
+  const rows = deviceRows(members, liveRemote?.devices ?? [], now)
   const relayLocked = liveRemote?.group.relayLocked ?? false
   // Only while that member still waits on a hand pairing: once it links, the box is everyone's again.
   const pairTarget = others.find((m) => m.id === pairFor && m.state === 'notLinked') ?? null
 
-  function pairByHand(m: GroupMember) {
+  function pairByHand(m: DeviceRow) {
     setPairFor(m.id)
     void pairing.newCode()
   }
@@ -358,11 +356,11 @@ export function DevicesSection({
               networkName={liveRemote.macName}
             />
             <div className="flex items-baseline gap-2.5 pb-2 pt-5">
-              <span className={KICKER}>IN THIS GROUP · {others.length}</span>
+              <span className={KICKER}>IN THIS GROUP · {rows.length}</span>
               <span className="flex-1" />
               <span className={ASIDE}>ANY MEMBER CAN REMOVE ANY DEVICE</span>
             </div>
-            {others.length === 0 ? (
+            {rows.length === 0 ? (
               <div className="flex items-center gap-3.5 rounded-[12px] border border-dashed border-[rgba(150,205,255,.16)] px-4 py-[18px]">
                 <span className="flex flex-col gap-[3px]">
                   <span className="text-[13.5px] font-semibold text-text-bright">Just this device</span>
@@ -372,7 +370,7 @@ export function DevicesSection({
                 </span>
               </div>
             ) : (
-              <Members members={members} others={others} onPairByHand={pairByHand} onSaved={onSaved} />
+              <Members rows={rows} now={now} onPairByHand={pairByHand} onSaved={onSaved} />
             )}
           </div>
           <div className={`flex min-w-0 flex-col ${enabled ? '' : 'pointer-events-none'}`}>
@@ -380,15 +378,20 @@ export function DevicesSection({
               {pairTarget ? `ADD A DEVICE · FOR ${pairTarget.name.toUpperCase()}` : 'ADD A DEVICE'}
             </div>
             <div className={`${CARD} flex flex-col gap-3.5 p-4`}>
-              {online ? (
-                <CodeArea pairing={pairing} />
-              ) : (
-                <RelayWait kind={line?.kind ?? 'off'} remote={remote} check={check} />
+              {/* A relay too old has its card above; a code would point at a relay that refuses it. */}
+              {remote?.relay !== 'too_old' && (
+                <>
+                  {online ? (
+                    <CodeArea pairing={pairing} />
+                  ) : (
+                    <RelayWait kind={line?.kind ?? 'off'} remote={remote} check={check} />
+                  )}
+                  <div className="h-px bg-[rgba(150,205,255,.1)]" />
+                </>
               )}
-              <div className="h-px bg-[rgba(150,205,255,.1)]" />
               <JoinField onJoin={joinWithCode} />
             </div>
-            {others.length > 0 && <Leave count={others.length} />}
+            {others.length > 0 && <Leave count={others.length} relayOnline={online} />}
           </div>
         </div>
       )}
@@ -464,8 +467,9 @@ function CodeArea({ pairing }: { pairing: PairingCode }) {
               {expired && (
                 <span className="font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.7)]">CODE EXPIRED</span>
               )}
+              {/* No code until asked for: each one opens a window in which a device can ask to pair. */}
               <Button variant="primary" size="beside-field" disabled={pairing.busy} onClick={() => void pairing.newCode()}>
-                New code
+                {expired ? 'New code' : 'Show code'}
               </Button>
             </div>
           )}
@@ -611,19 +615,18 @@ function ThisDevice({
  * member that keeps the relay locked.
  */
 function Members({
-  members,
-  others,
+  rows,
+  now,
   onPairByHand,
   onSaved,
 }: {
-  members: GroupMember[]
-  others: GroupMember[]
-  onPairByHand: (m: GroupMember) => void
+  rows: DeviceRow[]
+  now: number
+  onPairByHand: (m: DeviceRow) => void
   onSaved: () => void
 }) {
   const [asking, setAsking] = useState<string | null>(null)
   const [removing, setRemoving] = useState(false)
-  const now = useNow(true, SEEN_TICK_MS)
 
   async function remove(id: string) {
     if (removing) return
@@ -641,9 +644,8 @@ function Members({
 
   return (
     <div className={`${CARD} overflow-hidden`}>
-      {others.map((m, i) => {
-        const state = m.state === 'self' ? 'online' : m.state
-        const words = memberStateWords(m, now)
+      {rows.map((m, i) => {
+        const { state, words } = m
         const nameInk = state === 'offline' ? 'text-[rgba(232,238,248,.62)]' : 'text-text-bright'
         return (
           <div
@@ -659,8 +661,13 @@ function Members({
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className={`truncate text-[13.5px] font-semibold ${nameInk}`}>{m.name}</span>
                   <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{kindOs(m.kind, m.os)}</span>
+                  {m.needsUpdate && (
+                    <span className="font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+                      {needsUpdateLine(m.needsUpdate, now)}
+                    </span>
+                  )}
                   <span title={longDate(m.addedAt)} className="font-mono text-[10px] text-[rgba(160,190,225,.42)]">
-                    {addedByLine(m, members)}
+                    {m.added}
                   </span>
                 </span>
                 <span
@@ -711,12 +718,17 @@ function Members({
 /**
  * Leave this group (canvas 50a), only while another member exists. It asks
  * in place; a relay that cannot carry the leave answers `offline`, said in the
- * same place, and nothing else changes.
+ * same place, and nothing else changes until the relay is back.
  */
-function Leave({ count }: { count: number }) {
+function Leave({ count, relayOnline }: { count: number; relayOnline: boolean }) {
   const [asking, setAsking] = useState(false)
   const [busy, setBusy] = useState(false)
   const [offline, setOffline] = useState(false)
+
+  // The refusal was about the relay; once it is back, Leave can be asked again.
+  useEffect(() => {
+    if (relayOnline) setOffline(false)
+  }, [relayOnline])
 
   async function leave() {
     if (busy) return

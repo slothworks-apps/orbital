@@ -6,7 +6,7 @@
 import { encodePairingCode } from '@orbital/shared/remote/relayApi'
 import { timeAgo } from './format'
 import { codeLeft } from './remote'
-import type { GroupMember } from './types'
+import type { GroupMember, MemberState, RemoteDevice } from './types'
 
 /**
  * The three known device kinds read as is; an unrecognised one passes
@@ -72,4 +72,64 @@ export function oneWordCode(qrJson: string): string {
 export function codeTimeLeft(expiresAt: number, now: number): { label: string; expired: boolean } {
   const { label, expired } = codeLeft(expiresAt, now)
   return { label, expired }
+}
+
+/** A row's state in IN THIS GROUP: a member's, or `update` for a phone refused as too old (canvas 50a ROWS). */
+export type RowState = Exclude<MemberState, 'self'> | 'update'
+
+/** One row of Settings → Devices' IN THIS GROUP (canvas 50a). */
+export interface DeviceRow {
+  id: string
+  name: string
+  kind: string
+  os: string
+  state: RowState
+  /** The words beside the state dot. */
+  words: string
+  /** The quiet second line: who added it. */
+  added: string
+  addedAt: number
+  /** What the refusal said, while `state` is `update`. */
+  needsUpdate: RemoteDevice['needsUpdate']
+}
+
+/**
+ * The rows under IN THIS GROUP: every member but this device, then every
+ * paired device the roster does not list yet (a phone paired before the
+ * roster existed; this device paired it, and the relay's presence says
+ * whether it is online). A paired device this server refused as too old
+ * reads `needs an update` whatever its presence says — the relay may still
+ * count it online.
+ */
+export function deviceRows(members: GroupMember[], devices: RemoteDevice[], now: number): DeviceRow[] {
+  const paired = new Map(devices.map((d) => [d.id, d]))
+  const listed = new Set(members.map((m) => m.id))
+  const fromRoster = members.filter((m) => !m.self).map((m): DeviceRow => {
+    const needsUpdate = paired.get(m.id)?.needsUpdate ?? null
+    return {
+      id: m.id, name: m.name, kind: m.kind, os: m.os,
+      state: needsUpdate ? 'update' : m.state === 'self' ? 'online' : m.state,
+      words: needsUpdate ? 'needs an update' : memberStateWords(m, now),
+      added: addedByLine(m, members),
+      addedAt: m.addedAt,
+      needsUpdate,
+    }
+  })
+  const unlisted = devices.filter((d) => !listed.has(d.id)).map((d): DeviceRow => {
+    const offline = d.lastSeenAt === null ? 'offline' : `offline · seen ${timeAgo(d.lastSeenAt, now)} ago`
+    return {
+      id: d.id, name: d.name, kind: d.kind ?? 'phone', os: d.platform,
+      state: d.needsUpdate ? 'update' : d.online ? 'online' : 'offline',
+      words: d.needsUpdate ? 'needs an update' : d.online ? 'online' : offline,
+      added: 'added by this device',
+      addedAt: d.pairedAt,
+      needsUpdate: d.needsUpdate,
+    }
+  })
+  return [...fromRoster, ...unlisted]
+}
+
+/** The versions and the time behind `needs an update` (as Settings → Mobile said it, canvas 11c). */
+export function needsUpdateLine(needsUpdate: NonNullable<RemoteDevice['needsUpdate']>, now: number): string {
+  return `app ${needsUpdate.version} · this device needs ≥ ${needsUpdate.needed} · refused · ${timeAgo(needsUpdate.at, now)}`
 }
