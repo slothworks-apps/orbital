@@ -4,7 +4,7 @@ All notable changes to the relay image. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 ### Added
-- Devices of one Orbital group pair with each other without a code, once both ask for it.
+- Devices of one Orbital group pair with each other without a code, once both ask for it. Pairing and unpairing within a group has a request limit of its own, so a busy group never locks a device out of connecting.
 
 ## [0.5.0] — 2026-10-15
 ### Changed

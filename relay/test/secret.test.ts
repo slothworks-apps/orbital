@@ -4,7 +4,7 @@ import { deviceId, generateIdentity, type Identity } from '@orbital/shared/remot
 import { CLOSE_BAD_SECRET, authSignature, signRequest } from '@orbital/shared/remote/relayApi';
 import { buildRelay } from '../src/app.js';
 import { readSecret } from '../src/config.js';
-import { PAIR_RATE_LIMIT_PER_MIN } from '../src/rateLimit.js';
+import { MUTUAL_RATE_LIMIT_PER_MIN, PAIR_RATE_LIMIT_PER_MIN } from '../src/rateLimit.js';
 import { CLOSE_RATE_LIMITED } from '../src/ws.js';
 import { secretMatches } from '../src/secret.js';
 import { openRelayStore } from '../src/store.js';
@@ -70,6 +70,35 @@ describe('relay secret', () => {
     expect(token.statusCode).toBe(429);
     clock += 60_000;
     expect(await authenticate(base, mac, SECRET)).toBe('ok');
+  });
+
+  it('gives mutual pairs and revokes a budget of their own, which never refuses a connect', async () => {
+    const r = await relay(SECRET);
+    const peer = deviceId(r.phone.publicKey);
+    const mutual = () => r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer }, Date.now(), SECRET));
+    const revoke = () => r.post('/pair/revoke', signRequest(r.mac, 'pair.revoke', { phone: peer }, Date.now(), SECRET));
+    for (let i = 0; i < MUTUAL_RATE_LIMIT_PER_MIN / 2; i++) {
+      expect((await mutual()).statusCode).toBe(200);
+      // No pair formed, only a half: the revoke drops it and answers that no pair was there.
+      expect((await revoke()).statusCode).toBe(404);
+    }
+    const limited = await mutual();
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json()).toEqual({ error: 'rate_limited' });
+    expect((await revoke()).statusCode).toBe(429);
+    // The connect and the other pairing routes draw on the other budget, untouched.
+    expect(await authenticate(r.base, r.mac, SECRET)).toBe('ok');
+    expect((await r.post('/pair/token', signRequest(r.mac, 'pair.token', {}, Date.now(), SECRET))).statusCode).toBe(200);
+  });
+
+  it('counts a wrong secret on a mutual pair against the budget a connect checks', async () => {
+    const r = await relay(SECRET);
+    const peer = deviceId(r.phone.publicKey);
+    const mutual = (secret: string) => r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer }, Date.now(), secret));
+    for (let i = 0; i < PAIR_RATE_LIMIT_PER_MIN; i++) expect((await mutual(`guess${i}`)).statusCode).toBe(401);
+    // Past that budget the right secret learns nothing either.
+    expect((await mutual(SECRET)).statusCode).toBe(429);
+    expect(await authenticate(r.base, r.mac, SECRET)).toBe(CLOSE_RATE_LIMITED);
   });
 
   it('answers a pairing token request without the secret with 401 bad_secret', async () => {

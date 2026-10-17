@@ -52,6 +52,9 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
    * Verifies, rate-limits, checks the relay secret, parses, and answers the error itself; returns
    * null then. The signature comes first so unsigned junk never counts
    * against an IP's limit — only a request someone signed can use it up.
+   * A mutual pair or a revoke draws on `mutualLimiter` instead, and on the
+   * guessing budget only with a wrong secret: past that budget it is refused
+   * like a connect, so the secret cannot be guessed faster through it.
    */
   function signed<T extends z.ZodTypeAny>(
     body: unknown, action: RelayAction, schema: T, ip: string, reply: FastifyReply,
@@ -61,11 +64,13 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
       void reply.code(401).send({ error: v.reason });
       return null;
     }
-    if (ctx.limiter.hit(ip)) {
+    const own = action === 'pair.mutual' || action === 'pair.revoke';
+    if (own ? ctx.mutualLimiter.hit(ip) || (ctx.secret !== null && ctx.limiter.spent(ip)) : ctx.limiter.hit(ip)) {
       void reply.code(429).send({ error: 'rate_limited' });
       return null;
     }
     if (ctx.secret !== null && !secretMatches(ctx.secret, v.secret ?? undefined)) {
+      if (own) ctx.limiter.hit(ip);
       log(`pairing ${action} refused for ${short(v.id)}: bad secret`);
       void reply.code(401).send({ error: 'bad_secret' });
       return null;

@@ -34,6 +34,8 @@ export type WsContext = {
   secret: string | null;
   /** The per-IP budget pairing and a refused secret share. */
   limiter: RateLimiter;
+  /** The per-IP budget of `/pair/mutual` and `/pair/revoke` (`MUTUAL_RATE_LIMIT_PER_MIN`); a connect never checks it. */
+  mutualLimiter: RateLimiter;
 };
 
 /**
@@ -78,9 +80,9 @@ export function handleSocket(socket: WebSocket, ctx: WsContext, expectMac: strin
     void (async () => {
       // A device the relay has never met may still connect — a phone has to
       // be online to hear `paired` — but gets no row for it: any key can
-      // sign a challenge, so only `/pair/redeem` (a phone) and `/pair/token`
-      // (a Mac) create one. Until then it has no peers, and `touch` and a
-      // push token update nothing.
+      // sign a challenge, so only `/pair/redeem` (a phone), `/pair/token`
+      // (a Mac) and `/pair/mutual` (a group member) create one. Until then it
+      // has no peers, and `touch` and a push token update nothing.
       //
       // A pair created or revoked while this device is not yet in
       // `connections` cannot edit its `peers`, so the read is repeated until
