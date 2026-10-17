@@ -23,6 +23,8 @@ export interface RelayStore {
   touch(id: string, now: number): Promise<void>;
   setPushToken(id: string, token: string | null): Promise<void>;
   createPairingToken(mac: string, expiresAt: number): Promise<string>;
+  /** The Mac of an open, unexpired token, without touching it; null otherwise. */
+  peekPairingToken(token: string, now: number): Promise<{ mac: string } | null>;
   /** Open and unexpired → pending for this phone; anything else → null. */
   redeemPairingToken(token: string, phone: string, now: number): Promise<{ mac: string } | null>;
   /** True while this phone's request to this Mac waits for the Mac's answer. */
@@ -93,6 +95,13 @@ export class KyselyRelayStore implements RelayStore {
     const token = randomBytes(24).toString('base64url');
     await this.db.insertInto('pairing_tokens').values({ token, mac, expires_at: expiresAt, state: 'open' }).execute();
     return token;
+  }
+
+  async peekPairingToken(token: string, now: number) {
+    const open = await this.db.selectFrom('pairing_tokens').select('mac')
+      .where('token', '=', token).where('state', '=', 'open').where('expires_at', '>=', now)
+      .executeTakeFirst();
+    return open ? { mac: open.mac } : null;
   }
 
   async redeemPairingToken(token: string, phone: string, now: number) {

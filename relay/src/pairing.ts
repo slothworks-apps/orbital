@@ -124,16 +124,18 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
     const s = signed(req.body, 'pair.redeem', RedeemPayload, req.ip, reply);
     if (!s) return;
     const { token, proof, device } = s.payload;
-    const peek = await ctx.store.redeemPairingToken(token, s.id, ctx.now());
-    if (!peek) return reply.code(404).send({ error: 'token_invalid' });
+    const open = await ctx.store.peekPairingToken(token, ctx.now());
+    if (!open) return reply.code(404).send({ error: 'token_invalid' });
     // The Mac has to be online to show its confirmation (9o). The token is
-    // consumed either way: the 409 tells the phone to wake the Mac and scan a
-    // fresh code, which is what 9e's "scan again" does.
-    if (!ctx.connections.isOnline(peek.mac)) {
-      await ctx.store.rejectPair(peek.mac, s.id);
-      log(`pairing rejected: mac ${short(peek.mac)} offline for phone ${short(s.id)}`);
+    // left open: once the Mac is back the same code is redeemed again, while
+    // it lasts (canvas 50d C).
+    if (!ctx.connections.isOnline(open.mac)) {
+      log(`pairing refused: mac ${short(open.mac)} offline for phone ${short(s.id)}`);
       return reply.code(409).send({ error: 'mac_offline' });
     }
+    // Consumed only now, when it is passed on; a second redeem racing this one loses here.
+    const peek = await ctx.store.redeemPairingToken(token, s.id, ctx.now());
+    if (!peek) return reply.code(404).send({ error: 'token_invalid' });
     await ctx.store.upsertDevice({ id: s.id, kind: 'phone' });
     // The sealed device passes straight through and is never stored. The
     // empty `name` and `platform` are for a Mac whose schema requires them.

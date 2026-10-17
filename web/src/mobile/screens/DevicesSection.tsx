@@ -3,7 +3,7 @@ import { osName } from '@orbital/shared/remote/device'
 import { kindOs, type RowState } from '../../lib/devices'
 import { useNow } from '../../lib/useNow'
 import { KindGlyph } from '../../ui/KindGlyph'
-import { phoneRows, type PhoneRow } from '../devices'
+import { phoneRows, removalLeavesAlone, type PhoneRow } from '../devices'
 import { forgetGroupHere, LEAVE_FAILED, LEAVE_OFFLINE, leaveGroup } from '../forget'
 import { relayHost } from '../format'
 import { thisDevice } from '../platform/device'
@@ -192,6 +192,7 @@ export function DevicesSection() {
         {sheet && (
           <DeviceSheet
             row={sheet}
+            alone={removalLeavesAlone(members, devices, sheet.id)}
             onClose={() => setOpen(null)}
             onPairByHand={() => {
               setOpen(null)
@@ -212,8 +213,16 @@ function removeError(error: 'not_found' | 'offline' | 'failed'): string {
   return "Couldn't remove it on this phone. Try again."
 }
 
-/** A member's sheet (canvas 50i `pS`): its state and who added it, Pair by hand, and Remove — the one confirm. */
-function DeviceSheet({ row, onClose, onPairByHand }: { row: PhoneRow; onClose: () => void; onPairByHand: () => void }) {
+/**
+ * A member's sheet (canvas 50i `pS`): its state and who added it, Pair by
+ * hand, and Remove — the one confirm. `alone`: it is the last device this
+ * phone reaches, so removing it is leaving the group (`leaveGroup`): the
+ * phone forgets the group and opens the scanner, and its pairs go at the
+ * relay before it does.
+ */
+function DeviceSheet({
+  row, alone, onClose, onPairByHand,
+}: { row: PhoneRow; alone: boolean; onClose: () => void; onPairByHand: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -223,6 +232,11 @@ function DeviceSheet({ row, onClose, onPairByHand }: { row: PhoneRow; onClose: (
     setBusy(true)
     setError(null)
     try {
+      if (alone) {
+        const left = await leaveGroup()
+        if ('error' in left) setError(left.error === 'offline' ? LEAVE_OFFLINE : LEAVE_FAILED)
+        return
+      }
       const res = await group.remove(row.id)
       if ('error' in res) setError(removeError(res.error))
       else onClose()
@@ -236,7 +250,7 @@ function DeviceSheet({ row, onClose, onPairByHand }: { row: PhoneRow; onClose: (
       <div className="flex flex-col gap-3 pb-2">
         <div className="flex items-center gap-3.5 pt-1.5">
           <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[12px] border border-[rgba(150,205,255,.2)] text-text-bright">
-            <KindGlyph kind={row.kind} scale={3} untitled />
+            <KindGlyph kind={row.kind} scale={2} untitled />
           </span>
           <span className="flex min-w-0 flex-col gap-[3px]">
             <span className="truncate text-[18px] font-bold">{row.name}</span>
@@ -256,7 +270,9 @@ function DeviceSheet({ row, onClose, onPairByHand }: { row: PhoneRow; onClose: (
         </dl>
         {row.notLinked && <PrimaryButton variant="sheet" onClick={onPairByHand}>Pair by hand</PrimaryButton>}
         <p className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
-          Removing {row.name} drops it out of every device in the group now; it has to join again.
+          {alone
+            ? `${row.name} is the last device this phone reaches. Removing it leaves the group: this phone forgets it and opens the scanner.`
+            : `Removing ${row.name} drops it out of every device in the group now; it has to join again.`}
         </p>
         {error && (
           <p role="alert" className="text-[13px] text-[rgba(200,214,235,.85)]">
@@ -318,11 +334,17 @@ function LeaveSheet({ onClose }: { onClose: () => void }) {
           </PrimaryButton>
           {refused === 'offline' && (
             <>
-              <SecondaryButton disabled={busy} onClick={() => void forgetGroupHere()}>
+              <SecondaryButton
+                disabled={busy}
+                onClick={() => {
+                  setBusy(true)
+                  void forgetGroupHere()
+                }}
+              >
                 Forget this group on this phone
               </SecondaryButton>
               <p className="px-1 text-[12px] leading-[1.5] text-[rgba(160,190,225,.65)]">
-                The other devices keep listing this phone until someone removes it there.
+                The other devices keep listing this phone, and may still notify it, until someone removes it there.
               </p>
             </>
           )}

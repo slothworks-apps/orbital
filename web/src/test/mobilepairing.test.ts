@@ -309,10 +309,11 @@ describe('joinRefused', () => {
     })
   })
 
-  it('reads a used-up code as expired, and the device gone as offline with a new code needed', () => {
+  it('reads a used-up code as expired, and the device gone as offline with its code still counting down', () => {
     expect(joinRefused({ error: 'bad_code' }, qr, ours, null, false)).toEqual({ kind: 'expired', name: 'studio', rejected: false })
-    const offline = joinRefused({ error: 'peer_offline', expiresAt: 1 }, qr, ours, null, false)
-    expect(offline.kind === 'scan' && typeof offline.error === 'object' && offline.error?.title).toBe('studio is offline')
+    expect(joinRefused({ error: 'peer_offline', expiresAt: 5 }, qr, ours, null, false)).toEqual({ kind: 'offline', name: 'studio', expiresAt: 5 })
+    expect(joinRefused({ error: 'peer_offline' }, { ...qr, expiresAt: 7 }, ours, null, false)).toEqual({ kind: 'offline', name: 'studio', expiresAt: 7 })
+    expect(joinRefused({ error: 'peer_offline' }, qr, ours, null, false)).toEqual({ kind: 'offline', name: 'studio', expiresAt: null })
   })
 
   it('says which device the phone is paired with already, and that a phone in a group leaves it first', () => {

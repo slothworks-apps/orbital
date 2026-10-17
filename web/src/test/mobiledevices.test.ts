@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { MemberRow } from '@orbital/shared/remote/group'
 import { joinSentence } from '../lib/joinRequest'
-import { ownCodeLeft, phoneRows } from '../mobile/devices'
+import { ownCodeLeft, phoneRows, removalLeavesAlone } from '../mobile/devices'
 import type { DeviceView } from '../mobile/state'
 
 const NOW = Date.UTC(2026, 9, 17, 12)
@@ -82,5 +82,31 @@ describe('joinSentence', () => {
     expect(joinSentence({ name: 'imac-home', kind: 'desktop', platform: 'darwin' })).toBe('imac-home (desktop, macOS) wants to join')
     expect(joinSentence({ name: 'Pixel', kind: 'phone', platform: 'android' })).toBe('Pixel (phone, Android) wants to join')
     expect(joinSentence({ name: 'box', kind: 'headless', platform: '' })).toBe('box (headless) wants to join')
+  })
+})
+
+describe('removalLeavesAlone', () => {
+  const self = member({ id: 'phone', name: 'Pixel 8', kind: 'phone', os: 'android', self: true, state: 'self' })
+  const studio = member({ id: 'studio', name: 'studio-mbp' })
+
+  it('is a leave when the device removed is the last one this phone reaches', () => {
+    expect(removalLeavesAlone([self, studio], [source({ id: 'studio', name: 'studio-mbp' })], 'studio')).toBe(true)
+  })
+
+  it('is not while another member links, or this phone is paired with it', () => {
+    const air = member({ id: 'air', name: 'air-m3', linked: false, state: 'linking' })
+    expect(removalLeavesAlone([self, studio, air], [], 'studio')).toBe(false)
+    const paired = member({ id: 'old', name: 'old-mac', links: false, linked: true })
+    expect(removalLeavesAlone([self, studio, paired], [], 'studio')).toBe(false)
+  })
+
+  it('counts a member that neither links nor is paired here as nobody to reach', () => {
+    const ghost = member({ id: 'ghost', name: 'ghost', links: false, linked: false })
+    expect(removalLeavesAlone([self, studio, ghost], [], 'studio')).toBe(true)
+  })
+
+  it('counts a paired Mac from before groups, which the roster does not list', () => {
+    expect(removalLeavesAlone([self, studio], [source({ id: 'old', name: 'old-mac' })], 'studio')).toBe(false)
+    expect(removalLeavesAlone([self], [source({ id: 'old', name: 'old-mac' })], 'old')).toBe(true)
   })
 })

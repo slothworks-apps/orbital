@@ -66,3 +66,14 @@ export function ownCodeLeft(expiresAt: number, now: number): { line: string; fra
     expired: left.expired,
   }
 }
+
+/**
+ * Whether removing `id` leaves this phone with no device to reach: no other
+ * member that links or that it is paired with, and no other paired device.
+ * A group of one shows nothing on a phone, so that removal is a leave.
+ */
+export function removalLeavesAlone(members: MemberRow[], devices: DeviceView[], id: string): boolean {
+  const others = members.some((m) => !m.self && m.id !== id && (m.links || m.linked))
+  const unlisted = devices.some((d) => d.id !== id && !members.some((m) => m.id === d.id))
+  return !others && !unlisted
+}

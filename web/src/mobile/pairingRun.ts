@@ -23,7 +23,9 @@ export type ErrorCard = { title: string; body: string }
  * `error`: one line, or a 50d card. `confirm` names the device whose code
  * was scanned and its kind (canvas 50i: "Type K7F-Q2M on studio-mbp").
  * `expired`: the code ran out or was used up, or (`rejected`) the device
- * said no; `name` is that device.
+ * said no; `name` is that device. `offline`: the device that showed the
+ * code is not on the relay; the code stays good until `expiresAt` (null:
+ * the code did not say), and the same code can be tried again.
  */
 export type PairingStep =
   | { kind: 'scan'; error: string | ErrorCard | null }
@@ -31,6 +33,7 @@ export type PairingStep =
   | { kind: 'confirm'; macName: string; deviceKind: string; fingerprint: string; expiresAt: number }
   | { kind: 'paired'; macName: string; relayHost: string; fingerprint: string }
   | { kind: 'expired'; name: string; rejected: boolean }
+  | { kind: 'offline'; name: string; expiresAt: number | null }
 
 export const RELAY_UNREACHABLE = "Can't reach the relay in this code."
 export const RELAY_BUSY = 'The relay is busy. Try again in a minute.'
@@ -142,14 +145,8 @@ export function joinRefused(
       // An unknown, used or expired code.
       return { kind: 'expired', name: qr.name, rejected: false }
     case 'peer_offline':
-      // The relay uses the code up when the device that showed it is gone (50d C, as the relay does it).
-      return {
-        kind: 'scan',
-        error: {
-          title: `${qr.name} is offline`,
-          body: `Its code is used up. Once ${qr.name} is awake, make a new one there and scan it again.`,
-        },
-      }
+      // 50d C: the relay leaves the code open, so it is tried again once the device is back.
+      return { kind: 'offline', name: qr.name, expiresAt: answer.expiresAt ?? qr.expiresAt ?? null }
     case 'relay_too_old':
       return { kind: 'scan', error: relayTooOldMessage(qr.relay, tooOld ?? { relayVersion: null, needed: MIN_RELAY_VERSION }) }
     case 'in_group':

@@ -143,6 +143,20 @@ describe('pairing', () => {
     expect(res.json()).toEqual({ error: 'mac_offline' });
   });
 
+  it('a 409 leaves the code good: redeemed again once the Mac is online, while it lasts', async () => {
+    const r = await relay();
+    const { token } = (await r.post('/pair/token', signRequest(r.mac, 'pair.token', {}, r.now()))).json();
+    const redeem = () => r.post('/pair/redeem', signRequest(r.phone, 'pair.redeem', { token, proof: 'p' }, r.now()));
+    expect((await redeem()).statusCode).toBe(409);
+    const m = await connectDevice(r.base, r.mac);
+    const res = await redeem();
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ mac: m.id });
+    expect(await m.next('pair_request')).toMatchObject({ type: 'pair_request', phone: deviceId(r.phone.publicKey) });
+    // Passed on, it is used up.
+    expect((await redeem()).statusCode).toBe(404);
+  });
+
   it('confirm pairs and tells the phone; reject tells the phone; revoke unpairs', async () => {
     const r = await relay();
     const m = await connectDevice(r.base, r.mac);

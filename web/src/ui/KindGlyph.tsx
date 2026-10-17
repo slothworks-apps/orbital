@@ -2,14 +2,15 @@
  * The device-kind glyph — screen, rack or handset, told by shape alone, pure
  * CSS in `currentColor` so it takes the ink of whatever holds it (canvas 50k
  * "KIND GLYPHS", component `Device Glyph`). 12 × 11 px at `scale={1}`; `scale={3}`
- * is the join confirmation's and the phone's device sheet's size, drawn with
- * `zoom` the way the canvas does rather than a transform, so the box still
- * reserves its own (now 3×) space.
+ * is the desktop's join confirmation's size, 2 and 2.6 the phone's (50i). Drawn
+ * with `zoom` the way the canvas does rather than a transform, so the box
+ * still reserves its own scaled space.
  */
 export interface KindGlyphProps {
   /** An unrecognised kind reads as `desktop` — the group's own default. */
   kind: string
-  scale?: 1 | 3
+  /** 2 and 2.6 are the phone's device sheet and join request tile (canvas 50i). */
+  scale?: 1 | 2 | 2.6 | 3
   /**
    * No tooltip of its own: inside something that has one (a device chip's
    * `name · kind · state`), the glyph's bare kind would hide it.

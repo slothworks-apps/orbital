@@ -104,7 +104,7 @@ function RequestSheet({
         {/* Canvas 50c "KIND, THREE TIMES": the glyph, the kind word and its meaning, then the sentence. */}
         <div className="flex w-full items-center gap-3.5 rounded-[14px] border border-[rgba(150,205,255,.26)] bg-[rgba(4,8,16,.6)] px-3.5 py-3 text-left">
           <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[12px] border border-[rgba(150,205,255,.2)] text-text-bright">
-            <KindGlyph kind={request.kind} scale={3} untitled />
+            <KindGlyph kind={request.kind} scale={2.6} untitled />
           </span>
           <span className="flex min-w-0 flex-col gap-1">
             <span className="font-mono text-[15px] tracking-[0.2em]">{tile.word}</span>
@@ -116,7 +116,7 @@ function RequestSheet({
           Once in, it sees and drives every session on every device in this group.
         </p>
         {/* Never disabled while an answer is in flight: after a wrong code the user types straight on. */}
-        <PairingCodeInput value={code} onChange={setCode} onSubmit={() => void answer(true)} />
+        <PairingCodeInput size="sm" value={code} onChange={setCode} onSubmit={() => void answer(true)} />
         <div className="min-h-[18px] font-mono text-[11px] text-[rgba(160,190,225,.75)]">{line}</div>
         <div className="grid w-full grid-cols-2 gap-2.5">
           <SecondaryButton disabled={busy} onClick={() => void answer(false)}>

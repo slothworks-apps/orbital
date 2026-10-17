@@ -24,8 +24,11 @@ export function PairingScreen() {
   const [pasted, setPasted] = useState('')
   const run = useRef(0)
   const opened = useRef(false)
+  /** The code last started, for Try again on a device that was offline (50d C). */
+  const lastCode = useRef<string | null>(null)
 
   const start = useCallback((text: string) => {
+    lastCode.current = text
     const qr = parseQrText(text)
     if (!qr) {
       setStep({ kind: 'scan', error: NOT_A_CODE })
@@ -92,6 +95,18 @@ export function PairingScreen() {
   }
   if (step.kind === 'confirm') return <ConfirmStep step={step} onCancel={cancel} />
   if (step.kind === 'paired') return <PairedStep step={step} />
+  if (step.kind === 'offline') {
+    return (
+      <OfflineStep
+        step={step}
+        onTryAgain={() => {
+          if (lastCode.current) start(lastCode.current)
+        }}
+        onScanAgain={scanAgain}
+        onCancel={cancel}
+      />
+    )
+  }
   if (step.kind === 'expired') {
     // Canvas 50d D; a device that said no reads as the desktop's rejected card.
     const card: ErrorCard = step.rejected
@@ -193,6 +208,50 @@ function ScanFrame({ onScan }: { onScan: () => void }) {
       <span aria-hidden className={`${corner} bottom-10 left-10 rounded-bl-[10px] border-b-[3px] border-l-[3px]`} />
       <span aria-hidden className={`${corner} bottom-10 right-10 rounded-br-[10px] border-b-[3px] border-r-[3px]`} />
     </button>
+  )
+}
+
+/**
+ * The device that showed the code is not on the relay (canvas 50d C): its
+ * code stays good while it lasts, and Try again redeems it once more. Once
+ * it runs out, 50d D's words and Scan again.
+ */
+function OfflineStep({
+  step,
+  onTryAgain,
+  onScanAgain,
+  onCancel,
+}: {
+  step: Extract<PairingStep, { kind: 'offline' }>
+  onTryAgain: () => void
+  onScanAgain: () => void
+  onCancel: () => void
+}) {
+  const now = useNow(step.expiresAt !== null)
+  const left = step.expiresAt !== null ? codeLeft(step.expiresAt, now) : null
+  const expired = left?.expired ?? false
+  const body = expired
+    ? `Codes last two minutes. Make a new one on ${step.name} and scan it again.`
+    : left
+      ? `Its code is good for another ${left.label} — try again once ${step.name} is online.`
+      : `Try again once ${step.name} is online.`
+  return (
+    <Step
+      title={expired ? 'Code expired' : `${step.name} is offline`}
+      footer={
+        <div className="flex flex-col gap-3">
+          <ErrorCardView error={body} />
+          {expired ? (
+            <PrimaryButton onClick={onScanAgain}>Scan again</PrimaryButton>
+          ) : (
+            <PrimaryButton onClick={onTryAgain}>Try again</PrimaryButton>
+          )}
+          <SecondaryButton onClick={onCancel}>Cancel</SecondaryButton>
+        </div>
+      }
+    >
+      {null}
+    </Step>
   )
 }
 
