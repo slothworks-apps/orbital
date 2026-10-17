@@ -371,6 +371,22 @@ already has, no new plugin or permission.
    built. An offline member's sessions are kept in `member_snapshots`
    and survive a restart. Presence reaches every member over the
    channels' `presence` topic.
+
+   As built (part 3b, the desktop): device chips in the sidebar in both
+   themes (the Desk has a sidebar; 50h's HUD chips are not built), names
+   on planet labels, sidebar rows and Desk cards with two or more chips
+   on, an offline device's planets and cards dimmed and still with their
+   age, the detail panel's device pill and RUNS ON card, the composer
+   replaced by the reason while the device is offline, New session's
+   device picker and a folder chooser over `GET /api/dirs`.
+
+   As built (part 3c, the phone): `docs/domains/phone-in-the-group.md`.
+   The member logic (`GroupMember`), the pairing ceremonies
+   (`PairingCeremony`) and the phone's socket (`RelayLink`) moved to
+   `shared/`, so the server and the phone run the same code. The relay's
+   `ok` names every pair; every signed pair route answers CORS; a code
+   tried while its device is offline stays good. A phone that no member
+   can reach is shown so, not wiped.
 4. **The headless server** (§ 11), with its runbook.
 5. **The orbital MCP on every member** (#93), on top of 3.
 
