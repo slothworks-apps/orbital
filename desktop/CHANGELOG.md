@@ -5,6 +5,9 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ## [Unreleased]
 ### Added
 - Settings → Mobile is now Settings → Devices: pair another desktop or a server by code, see every device in your group, remove one or leave.
+- The sessions of your other devices show on the map and in the sidebar, with a chip per device to show or hide each; open one and drive it as if it ran here.
+- New session can start a session on another device, with that device's recent projects and a browser for its folders.
+- A device that is offline keeps its sessions on the map, dimmed and still, with what it last sent still readable.
 
 ## [0.32.0] — 2026-10-15
 ### Added
