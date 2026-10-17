@@ -211,7 +211,10 @@ A link is the relay pair between two members and the channel over it.
 - **Settings no member may change on another:** the `remote_*` settings
   (the relay is the group's, and set on a device only while it is alone,
   § 4). Everything else may be changed, as on the device itself
-  ([[the-phone-may-do-what-the-mac-may]]).
+  ([[the-phone-may-do-what-the-mac-may]]) — `claude_executable_path` and
+  the Claude directories included: a member that can start a session
+  with `bypassPermissions` already runs whatever it likes there, so
+  holding these back would protect nothing.
 - Topics are checked the same way, by one list for every member.
 
 ## 7. What each device shows
@@ -357,6 +360,17 @@ already has, no new plugin or permission.
    50j) are part 3.
 3. **Federation over channels**: #79's `PeerService` and routing on the
    channel, the phone's merge, device chips and names, capabilities.
+
+   As built (part 3a, the server): `docs/domains/device-federation.md`.
+   The member allowlist adds what the desktop's detail panel and New
+   session dialog call, and federated Settings' routes; a request a
+   channel injects carries `x-orbital-device` and may not change a
+   `remote_*` setting. "Too old" (§ 8) is a non-phone whose hello names
+   no `group` — a Mac from before groups paired by its code; it is not
+   federated, so the canvas's "reading still works" for it is not
+   built. An offline member's sessions are kept in `member_snapshots`
+   and survive a restart. Presence reaches every member over the
+   channels' `presence` topic.
 4. **The headless server** (§ 11), with its runbook.
 5. **The orbital MCP on every member** (#93), on top of 3.
 
