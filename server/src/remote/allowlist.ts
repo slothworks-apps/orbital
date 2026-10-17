@@ -142,7 +142,7 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
  * server, a rule, a template — is ever named one of these, so a parameter
  * that spells one is a request aimed at the literal route.
  */
-const RESERVED_SEGMENTS = new Set(['retention-preview', 'count', 'defaults', 'restart', 'preview', 'draft']);
+export const RESERVED_SEGMENTS: ReadonlySet<string> = new Set(['retention-preview', 'count', 'defaults', 'restart', 'preview', 'draft']);
 
 /** A segment restricted to this alphabet can't spell `.`, `..`, a `%`-escape, or be empty. */
 const SAFE_SEGMENT = /^[A-Za-z0-9_-]+$/;

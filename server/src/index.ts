@@ -63,6 +63,7 @@ import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
 import { Presence } from './remote/presence.js';
 import { RemoteService } from './remote/service.js';
+import { registerFederationRoutes } from './federation/routes.js';
 import { FederationService } from './federation/service.js';
 import { MemberSnapshotStore } from './federation/store.js';
 import { remoteInjectOptions } from './remote/inject.js';
@@ -1451,6 +1452,9 @@ export async function buildServer(overrides: {
   });
   federation = federated;
   overrides.exposeFederation?.(federated);
+  // Before the routes: a request for a member's session must never reach a
+  // local handler, which would answer it as an unknown session of this device.
+  registerFederationRoutes(app, federated, () => remote.selfId(), imagesDir);
   registerRoutes(app, {
     db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, terminals, recentTools, errors,
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees,

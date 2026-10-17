@@ -9,6 +9,7 @@ import type { FastifyInstance } from 'fastify';
 import { buildRelay } from '@orbital/relay/app';
 import { openRelayStore } from '@orbital/relay/store';
 import { buildServer } from '../src/index.js';
+import type { QueryFn } from '../src/runner/runner.js';
 import type { RemoteService } from '../src/remote/service.js';
 import type { FederationService } from '../src/federation/service.js';
 import { openDb } from '../src/db/database.js';
@@ -56,6 +57,8 @@ export async function startMacAndRelay(
   opts: {
     settings?: [string, string][]; beforeBoot?: (dir: string) => void; apiToken?: string;
     relayUrl?: string; name?: string; dir?: string;
+    /** The runner's SDK seam, for a test that starts a session. */
+    queryFn?: QueryFn;
   } = {},
 ): Promise<MacAndRelay> {
   let relayUrl = opts.relayUrl;
@@ -80,7 +83,7 @@ export async function startMacAndRelay(
   let remote: RemoteService | null = null;
   let federation: FederationService | null = null;
   const app = await buildServer({
-    dbPath, claudeDir: join(dir, 'claude'), dataDir: dir, apiToken: opts.apiToken, exposeRemote: (r) => { remote = r; },
+    dbPath, claudeDir: join(dir, 'claude'), dataDir: dir, apiToken: opts.apiToken, queryFn: opts.queryFn, exposeRemote: (r) => { remote = r; },
     exposeFederation: (f) => { federation = f; },
   });
   closers.push(() => app.close());

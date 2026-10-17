@@ -293,7 +293,7 @@ const ERROR_KINDS = new Set<string>([
 ]);
 
 /** Served type per stored extension (the store writes `jpg`, never `jpeg`). */
-const IMAGE_CONTENT_TYPES: Record<string, string> = {
+export const IMAGE_CONTENT_TYPES: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
   gif: 'image/gif',
@@ -327,7 +327,7 @@ const MODEL_ID_MAX_LENGTH = 100;
  * is named by the client, so it is held to exactly this — nothing else can
  * traverse, and nothing else could have been written by the store.
  */
-const IMAGE_REF_RE = /^[a-f0-9]{64}\.(png|jpg|gif|webp)$/;
+export const IMAGE_REF_RE = /^[a-f0-9]{64}\.(png|jpg|gif|webp)$/;
 
 /**
  * The ceiling on one composer attachment.
