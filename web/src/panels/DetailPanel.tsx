@@ -67,7 +67,10 @@ import { ModelSwitcher } from './ModelSwitcher'
 import { SessionStatsRow } from './SessionStatsRow'
 import { HarnessPill } from './HarnessPill'
 import { DevicePill } from './DevicePill'
-import { deviceChips, deviceLock, ideHere, namesShown, stateAsOf, type DeviceLock } from '../lib/devices'
+import {
+  AS_OF_TICK_MS, deviceChips, deviceLock, ideHere, localClaudeDirId, machineOffline, namesShown, stateAsOf,
+  type DeviceLock,
+} from '../lib/devices'
 import { harnessUnfinished } from '../lib/harnessSession'
 import { SubagentChip } from './SubagentChip'
 import { TaskChip } from './TaskChip'
@@ -199,9 +202,10 @@ export function DetailPanel({
     const media = useMedia.getState()
     if (media.gallery !== null && media.gallery !== id) media.setGallery(null)
   }, [id])
-  const claudeDirMark = useClaudeDirMark(session?.claudeDirId)
-  // What the switcher offers is the session's own account's catalog.
-  const switcherModels = useClaudeDirModels(session?.claudeDirId)
+  const claudeDirMark = useClaudeDirMark(localClaudeDirId(session))
+  // What the switcher offers is the session's own account's catalog — read
+  // from the device it runs on, whose directory ids are its own.
+  const switcherModels = useClaudeDirModels(session?.claudeDirId, true, session?.machine?.id)
   const tags = useOrbital(useShallow((s) => s.tags))
   const settings = useOrbital(useShallow((s) => s.settings))
   const models = useOrbital(useShallow((s) => s.models))
@@ -232,17 +236,22 @@ export function DetailPanel({
   // Another device of the group (canvas 50f): its pill on the panel's edge,
   // and the lock in the composer's place while it cannot be driven. The
   // clock ticks by the minute only while there is an age to count.
-  const members = useOrbital((s) => s.remote?.group?.members)
-  const hiddenDeviceIds = useOrbital((s) => s.ui.hiddenDeviceIds)
+  // Each read off the roster settles to a boolean or a string pair: `remote`
+  // is replaced on every status publish, a paired phone's presence included.
   const foreign = session?.machine !== undefined
-  const deviceOffline =
-    foreign &&
-    (session?.machine?.online === false ||
-      members?.find((m) => m.id === session?.machine?.id)?.state === 'offline')
-  const deviceNow = useNow(deviceOffline, 60_000)
-  const lock: DeviceLock | null = session ? deviceLock(session, members, deviceNow) : null
-  const showDevicePill =
-    session !== undefined && (foreign || namesShown(deviceChips(members), hiddenDeviceIds ?? []))
+  const deviceOffline = useOrbital((s) => {
+    const x = id ? s.sessions[id] : undefined
+    return x ? machineOffline(x, s.remote?.group?.members) : false
+  })
+  const deviceNow = useNow(deviceOffline, AS_OF_TICK_MS)
+  const lock: DeviceLock | null = useOrbital(
+    useShallow((s) => {
+      const x = id ? s.sessions[id] : undefined
+      return x ? deviceLock(x, s.remote?.group?.members, deviceNow) : null
+    }),
+  )
+  const namesOn = useOrbital((s) => namesShown(deviceChips(s.remote?.group?.members), s.ui.hiddenDeviceIds ?? []))
+  const showDevicePill = session !== undefined && (foreign || namesOn)
   // Nothing of it was kept here while it was up: once it is back, read it.
   const historyUnkept = useOrbital((s) => (selectedId ? Boolean(s.historyUnkept?.[selectedId]) : false))
   const machineOnline = session?.machine?.online ?? true
@@ -1028,11 +1037,14 @@ export function DetailPanel({
                   defaultValue={settings.default_model ?? null}
                   hidden={hidden}
                   disabledReason={
-                    isTerminalLive ? 'Live in a terminal — Orbital does not own this session' : undefined
+                    isTerminalLive
+                      ? 'Live in a terminal — Orbital does not own this session'
+                      : // A device that cannot be driven would refuse the switch.
+                        (lock?.title ?? undefined)
                   }
                 />
               )}
-              <ModeSwitcher session={session} disabled={isTerminalLive} />
+              <ModeSwitcher session={session} disabled={isTerminalLive || lock !== null} />
             </div>
 
             {/* Row 4 — status (canvas `Feature - Detail header` 9d): the state

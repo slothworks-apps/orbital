@@ -10,6 +10,7 @@ import {
   stateBorder,
   stateColor,
   stateDot,
+  stillDot,
   type MapStatePills,
 } from '../lib/stateStyle'
 import { StateDot } from '../ui/StateDot'
@@ -92,6 +93,7 @@ import { useFrameOnRender, useMapFrame } from './FrameBudget'
 import type { ContextFill } from './sceneModel'
 import { DetachGlyph } from '../ui/UtilityButton'
 import { useClaudeDirMark } from '../ui/ClaudeDirMark'
+import { localClaudeDirId } from '../lib/devices'
 import {
   COMPACTED_CAPTION_MS,
   COMPACTING_SWITCH_MS,
@@ -561,7 +563,7 @@ export interface PlanetProps {
    * its last state at `OFFLINE_OPACITY` and holds still — no spin, no blink,
    * no breath, no ripple — and its pill's word drops to the muted ink.
    */
-  still?: boolean
+  offline?: boolean
   /**
    * The session's device chip is off (`ScenePlanet.deviceOff`): the planet
    * fades out where it stands, opacity only, and is not drawn once it has.
@@ -1040,12 +1042,12 @@ function StatePill({
   initialOpacity,
   onClick,
   gate = false,
-  still = false,
+  offline = false,
 }: {
   stateKey: SessionStateKey
   label: string
   /** The device is offline: the word in the muted ink and the dot held steady (canvas 50e). */
-  still?: boolean
+  offline?: boolean
   /** A harness gate waits (`gateWaits`): the 24a shell, NEEDS YOUR OK, a steady dot (canvas 30i). */
   gate?: boolean
   mode: MapStatePills
@@ -1058,12 +1060,9 @@ function StatePill({
   onClick?: () => void
 }) {
   const [discHovered, setDiscHovered] = useState(false)
-  const color = still ? OFFLINE_STATE_INK : stateColor(stateKey)
+  const color = offline ? OFFLINE_STATE_INK : stateColor(stateKey)
   /** The state's dot on this surface, held steady while the device is offline. */
-  const dotFor = (surface: 'label' | 'dot') => {
-    const dot = stateDot(stateKey, surface, gate)
-    return still ? { ...dot, motion: 'steady' as const } : dot
-  }
+  const dotFor = (surface: 'label' | 'dot') => stillDot(stateDot(stateKey, surface, gate), offline)
   const dotMode = mode === 'dot'
   const open = !dotMode || expanded || discHovered
   const stop = (event: { stopPropagation: () => void }) => event.stopPropagation()
@@ -1478,7 +1477,7 @@ function PlanetBody({
   hidden = false,
   muted = false,
   secondLine = null,
-  still = false,
+  offline = false,
   deviceOff = false,
   labelTitlePx = 11,
   labelFamilyPx = 9.5,
@@ -1535,9 +1534,9 @@ function PlanetBody({
   // 1 while the device chip is on, 0 once it is off; and 1 while the device
   // is offline. Both fold into the whole-planet opacity (`deviceOpacity`).
   const deviceFade = useFadeTween(!deviceOff, DEVICE_FADE_MS, DEVICE_FADE_MS)
-  const offlineFade = useFadeTween(still, DEVICE_FADE_MS, DEVICE_FADE_MS)
+  const offlineFade = useFadeTween(offline, DEVICE_FADE_MS, DEVICE_FADE_MS)
   /** The whole-planet opacity the device contributes, right now. */
-  const deviceNow = () => deviceOpacity(deviceFade.value, offlineFade.value)
+  const deviceAlpha = () => deviceOpacity(deviceFade.value, offlineFade.value)
   const materials = usePlanetMaterials()
 
   // Textures are process-wide singletons; null only where no 2D canvas exists
@@ -1750,7 +1749,7 @@ function PlanetBody({
   /** The directory marks on the resting label and the hover overlay; the frame loop shows them by zoom. */
   const mapMarkRef = useRef<HTMLSpanElement | null>(null)
   const overlayMarkRef = useRef<HTMLSpanElement | null>(null)
-  const dirMark = useClaudeDirMark(session.claudeDirId)
+  const dirMark = useClaudeDirMark(localClaudeDirId(session))
   const camera = useThree((s) => s.camera)
   /** At mount only — after that the frame loop writes it, as the zoom moves. */
   const markDisplay = camera.zoom >= MAP_MARK_MIN_ZOOM ? undefined : 'none'
@@ -1794,7 +1793,7 @@ function PlanetBody({
     // The whole-planet multiplier: the ENDED suppression times the search
     // mute times the device's fades. Every opacity below takes it, so all of
     // them reach every layer.
-    const fade = endedHideTransform(hideFade.value).opacity * mutedOpacity(muteFade.value) * deviceNow()
+    const fade = endedHideTransform(hideFade.value).opacity * mutedOpacity(muteFade.value) * deviceAlpha()
     const b = blendRef.current
     // Desaturated toward the ended grey by the mute weight, here where the
     // hue is resolved, so every layer that wears the hue greys with it.
@@ -1907,7 +1906,7 @@ function PlanetBody({
     let moving = mixMoved || hueMoved || hideMoved || fadeMoved || compactMoved
     // An offline device's planet holds still (canvas 50e): none of the
     // ambient motion below runs, and each part rests at its full value.
-    const ambient = !still
+    const ambient = !offline
 
     if (simBody) {
       // The simulation owns the position outright — walks and drags both
@@ -1946,7 +1945,7 @@ function PlanetBody({
     // The whole-planet opacity every per-frame write below multiplies in: the
     // ENDED suppression times the search mute, the same product `applyState`
     // writes. The mute never touches the scale — a muted planet holds its size.
-    const whole = hide.opacity * mutedOpacity(muteFade.value) * deviceNow()
+    const whole = hide.opacity * mutedOpacity(muteFade.value) * deviceAlpha()
     // Both pills are plain DOM, and both are written before the early return
     // below, or a planet on its way out would leave one hanging at full
     // strength. Written on EVERY frame they are mounted — not from
@@ -2299,11 +2298,11 @@ function PlanetBody({
           gate={gateWaits(session)}
           mode={statePills}
           expanded={labelHovered && !hidden}
-          still={still}
+          offline={offline}
           onClick={onPillClick ? () => onPillClick(session.id) : undefined}
           innerRef={badgeRef}
           clearsGauge={gaugeMounted && shownFill !== null}
-          initialOpacity={pillFade.value * endedHideTransform(hideFade.value).opacity * mutedOpacity(muteFade.value) * deviceNow()}
+          initialOpacity={pillFade.value * endedHideTransform(hideFade.value).opacity * mutedOpacity(muteFade.value) * deviceAlpha()}
         />
       )}
 
@@ -2311,7 +2310,7 @@ function PlanetBody({
         <DetachedBadge
           innerRef={detachedBadgeRef}
           flashing={detachFlash}
-          initialOpacity={detachedFade.value * endedHideTransform(hideFade.value).opacity * mutedOpacity(muteFade.value) * deviceNow()}
+          initialOpacity={detachedFade.value * endedHideTransform(hideFade.value).opacity * mutedOpacity(muteFade.value) * deviceAlpha()}
         />
       )}
 
@@ -2327,7 +2326,7 @@ function PlanetBody({
         <CompactFailedBadge
           percent={Math.round(shownFill.fraction * 100)}
           innerRef={failedBadgeRef}
-          initialOpacity={failedFade.value * endedHideTransform(hideFade.value).opacity * mutedOpacity(muteFade.value) * deviceNow()}
+          initialOpacity={failedFade.value * endedHideTransform(hideFade.value).opacity * mutedOpacity(muteFade.value) * deviceAlpha()}
           onClick={() => onCompactFailedClick?.(session.id)}
         />
       )}
@@ -2388,7 +2387,7 @@ function PlanetBody({
                 opacity:
                   hideFade.value *
                   mutedOpacity(muteFade.value) *
-                  deviceNow() *
+                  deviceAlpha() *
                   selectionLabelOpacity(reticleFade.value),
               }}
             >

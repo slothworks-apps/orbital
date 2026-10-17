@@ -723,7 +723,7 @@ export function planetOutline(
       | 'limitWait'
     >
     scale: number
-    /** The second label line as drawn (`ScenePlanet.secondLine`), or null. */
+    /** The second label line as measured (`ScenePlanet.outlineLine`, not the line drawn), or null. */
     secondLine: string | null
     /** The context gauge moves the label and the pill further out (`Planet`'s `clearsGauge`). */
     gauged: boolean

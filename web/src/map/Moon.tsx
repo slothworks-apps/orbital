@@ -470,7 +470,7 @@ export interface MoonProps {
    * The parent's device is offline: the moon holds still on its orbit, at
    * `OFFLINE_OPACITY`, as its planet does (canvas 50e).
    */
-  still?: boolean
+  offline?: boolean
   /**
    * The parent's device chip is off: the moon fades out with its planet and
    * takes its control with it.
@@ -589,7 +589,7 @@ function MoonBody({
   active = false,
   onOpen,
   muted = false,
-  still = false,
+  offline = false,
   deviceOff = false,
 }: MoonProps) {
   const { openable, effectiveState } = moonInteraction(subagent, Boolean(onOpen && sessionId))
@@ -601,7 +601,7 @@ function MoonBody({
   const muteFade = useFadeTween(muted, STATE_TRANSITION_MS, STATE_TRANSITION_MS)
   // The parent planet's device fades, on the same tweens (`Planet`).
   const deviceFade = useFadeTween(!deviceOff, DEVICE_FADE_MS, DEVICE_FADE_MS)
-  const offlineFade = useFadeTween(still, DEVICE_FADE_MS, DEVICE_FADE_MS)
+  const offlineFade = useFadeTween(offline, DEVICE_FADE_MS, DEVICE_FADE_MS)
   const materials = useMoonMaterials()
   const hasGlowTexture = glowTexture() !== null
 
@@ -770,7 +770,7 @@ function MoonBody({
     // Faded out with its device chip: not drawn at all.
     const shown = deviceFade.value > 0.001
     // An offline device's moon holds still: none of the motion below runs.
-    const ambient = !still && shown
+    const ambient = !offline && shown
     if (parentGroupRef.current) {
       parentGroupRef.current.visible = shown
       // Counter-zoom, same factor as the parent planet's — written on the

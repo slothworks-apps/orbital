@@ -1,5 +1,5 @@
 import type { SessionStateKey } from '../lib/types'
-import { OFFLINE_STATE_INK, stateBorder, stateColor, stateDot, stateWord } from '../lib/stateStyle'
+import { OFFLINE_STATE_INK, stateBorder, stateColor, stateDot, stateWord, stillDot } from '../lib/stateStyle'
 import { StateDot } from './StateDot'
 import type { SubagentTaskState } from '../lib/subagentPanel'
 
@@ -201,7 +201,7 @@ export function Badge(props: BadgeProps) {
         style={{ color: tone.ink, borderColor: tone.border }}
       >
         <StateDot
-          dot={asOf ? { ...stateDot(state, 'chip', gate), motion: 'steady' } : stateDot(state, 'chip', gate)}
+          dot={stillDot(stateDot(state, 'chip', gate), Boolean(asOf))}
           color={tone.dot}
           solidPx={6}
           hollowPx={7}

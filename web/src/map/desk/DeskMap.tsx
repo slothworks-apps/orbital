@@ -18,7 +18,7 @@ import {
   type SessionStateKey,
   type Subagent,
 } from '../../lib/types'
-import { stateColor, stateDot } from '../../lib/stateStyle'
+import { stateColor, stateDot, stillDot } from '../../lib/stateStyle'
 import { decisionHeadline } from '../../lib/decisionCard'
 import { contextLevelOklch, oklchCss, CONTEXT_CRITICAL_OKLCH } from '../../lib/usage'
 import { reportError } from '../../lib/errors'
@@ -661,7 +661,7 @@ const DeskCard = memo(function DeskCard({
                   colour={colour}
                   mode={statePills}
                   gate={gateWaits(s)}
-                  still={planet.offline}
+                  offline={planet.offline}
                 />
               )}
             </div>
@@ -831,7 +831,7 @@ function Pill({
   colour,
   mode,
   gate,
-  still,
+  offline,
 }: {
   sessionKey: SessionStateKey
   label: string
@@ -839,14 +839,13 @@ function Pill({
   mode: 'dot' | 'label'
   gate: boolean
   /** The device is offline: the dot holds steady, nothing breathes or pulses. */
-  still: boolean
+  offline: boolean
 }) {
   const borderColour = `color-mix(in oklch, ${colour} 40%, transparent)`
   // WORKING and IDLE have no dot on the map's surfaces; on a card they get a
   // steady one (41b: solid for working, hollow for idle) — nothing pulses.
   const dotFor = (surface: 'label' | 'dot') => {
-    const live = stateDot(sessionKey, surface, gate)
-    const d = still ? { ...live, motion: 'steady' as const } : live
+    const d = stillDot(stateDot(sessionKey, surface, gate), offline)
     if (d.shape !== 'none' || (sessionKey !== 'working' && sessionKey !== 'idle')) return d
     return {
       shape: sessionKey === 'working' ? ('solid' as const) : ('hollow' as const),

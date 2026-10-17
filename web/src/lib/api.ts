@@ -665,8 +665,12 @@ export const api = {
   },
 
   // Tags API
-  async listTags(): Promise<Tag[]> {
-    const data = await request<{ tags: Tag[] }>('GET', '/api/tags')
+  /** This device's tags, or `machine`'s — with that device's own ids. */
+  async listTags(machine?: string): Promise<Tag[]> {
+    const data = await request<{ tags: Tag[] }>(
+      'GET',
+      machine ? `/api/tags?machine=${encodeURIComponent(machine)}` : '/api/tags',
+    )
     return data.tags
   },
 
@@ -723,6 +727,8 @@ export const api = {
     cwd: string
     title: string
     permissionMode: string | null
+    /** Another device of the group, whose rules answer; its tag and rule ids are its own. */
+    machine?: string
   }): Promise<{ tagId: number | null; ruleId: number | null }> {
     return request<{ tagId: number | null; ruleId: number | null }>(
       'POST',

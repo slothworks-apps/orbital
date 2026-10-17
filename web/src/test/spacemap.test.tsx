@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { ApiSession, OrbitalModel, Subagent, Tag } from '../lib/types'
 import { PLANET_SCALE_MAX, PLANET_SCALE_MIN, useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 import {
+  agesOnMap,
   buildSceneModel,
   contextFillFor,
   deskCardMeta,
@@ -506,6 +507,35 @@ describe('buildSceneModel for another device (canvas 50e)', () => {
     expect(planet(hiddenNames, 'here').secondLine).toBe('OPUS')
     // Without the row (one device) nothing is named, drawn or measured.
     expect(planet(buildSceneModel(state, NOW, [], null), 'here').outlineLine).toBe('OPUS')
+  })
+
+  it('measures an offline planet as if it were online, and the same as its age ticks', () => {
+    const outline = (m: SceneModel) => {
+      const p = planet(m, 'away')
+      return planetOutline({ ...p, secondLine: p.outlineLine, gauged: false }, 1, { title: 11, family: 9.5 }, 'dot')
+    }
+    const back = withSessions(
+      sessions.map((s) => (s.id === 'away' ? { ...s, machine: { ...offline, online: true, asOf: null } } : s)),
+      { models: MODELS, settings: { map_show_model: 'true' } },
+    )
+    for (const names of [SHOWN, UNSHOWN, null]) {
+      const down = buildSceneModel(state, NOW, [], names)
+      // 59 m → 1 h a minute later: a longer age, the same outline.
+      const later = buildSceneModel(state, NOW + 2 * HOUR, [], names)
+      const up = buildSceneModel(back, NOW, [], names)
+      expect(planet(down, 'away').outlineLine).toBe(planet(up, 'away').outlineLine)
+      expect(planet(later, 'away').outlineLine).toBe(planet(down, 'away').outlineLine)
+      expect(outline(down)).toEqual(outline(up))
+      expect(outline(later)).toEqual(outline(down))
+    }
+  })
+
+  it('ticks the age only while the map draws an offline planet whose chip is on', () => {
+    expect(agesOnMap(buildSceneModel(state, NOW, [], SHOWN))).toBe(true)
+    // Its chip off: the planet is not drawn, so its age needs no clock.
+    expect(agesOnMap(buildSceneModel(state, NOW, ['air'], SHOWN))).toBe(false)
+    const allUp = withSessions(sessions.filter((s) => s.id !== 'away'), { models: MODELS })
+    expect(agesOnMap(buildSceneModel(allUp, NOW, [], null))).toBe(false)
   })
 
   it('names every planet by its device while names show, this device by its own name', () => {

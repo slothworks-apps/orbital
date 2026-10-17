@@ -4,7 +4,7 @@ import { compactingOf } from '../lib/compaction'
 import { contextFractionFor, contextLevel, type ContextLevel } from '../lib/usage'
 import { CONTEXT_GAUGE_OUTER, MOON_TICK_LENGTH, MOON_TICK_RADIUS, moonVisuals } from './visuals'
 import type { OrbitalState } from '../store/store'
-import { asOfLabel, deviceOf } from '../lib/devices'
+import { asOfLabel, deviceOf, machineOffline } from '../lib/devices'
 import {
   absorptionFor,
   mapSessions,
@@ -131,9 +131,11 @@ export interface ScenePlanet {
   secondLine: string | null
   /**
    * The second line the layout measures (`planetOutline`): `secondLine` with
-   * the device name in it whenever the chip row shows, drawn or not. Names
-   * come and go as chips are turned on and off; measuring them always keeps
-   * the bodies where they are when they do (canvas 50e: nothing reflows).
+   * the device name in it whenever the chip row shows, drawn or not, and
+   * without the age. Names come and go as chips are turned on and off, the
+   * age as a device drops and as the clock ticks; measuring the one always
+   * and the other never keeps the bodies where they are (canvas 50e:
+   * nothing reflows).
    */
   outlineLine: string | null
   /**
@@ -350,6 +352,15 @@ export function deskCardMeta(
 }
 
 /**
+ * Whether the scene draws an age that counts (`as of 2 h`): a planet of an
+ * offline device whose chip is on. One behind a chip that is off is not
+ * drawn, so its age needs no clock.
+ */
+export function agesOnMap(model: Pick<SceneModel, 'planets'>): boolean {
+  return model.planets.some((p) => p.offline && !p.deviceOff && p.asOf !== null)
+}
+
+/**
  * Builds the render model for the space map: the map's sessions
  * (`mapSessions` — the tag filter and search do not narrow them, they only
  * mute planets) laid out into clusters, their moons, cluster labels
@@ -412,7 +423,7 @@ export function buildSceneModel(
       // function's own doc).
       const subagents = session.subagents.filter((a) => a.state !== 'ended')
       const muted = !matchesSidebarFilters(session, state.ui)
-      const offline = session.machine !== undefined && !session.machine.online
+      const offline = machineOffline(session)
       const deviceOff = isDeviceOff(session)
 
       // Moons first: the planet's footprint is the outermost shell they
@@ -458,7 +469,8 @@ export function buildSceneModel(
         deviceName,
         asOf,
         secondLine: planetSecondLine(modelFamily, deviceName, asOf),
-        outlineLine: planetSecondLine(modelFamily, rowName, asOf),
+        // No age: going offline and the minute tick must not move a body.
+        outlineLine: planetSecondLine(modelFamily, rowName, null),
         offline,
         deviceOff,
         contextFill,

@@ -3524,7 +3524,10 @@ export function mapTheme(settings: Record<string, string>): MapTheme {
 
 /**
  * What the space map draws: every session minus the ones the origin filter
- * excludes, minus a device chip's turned off (`hiddenDevices`), minus every session that has left the map (`absorptionFor`). The
+ * excludes, minus the sessions of every device whose chip is off (`hidden`,
+ * `hiddenDevices` by default), minus every session that has left the map
+ * (`absorptionFor`). `buildSceneModel` passes no hidden devices: it keeps
+ * theirs in the layout and marks them `deviceOff` instead. The
  * sidebar's tag filter and search are deliberately NOT applied: narrowing
  * must not reflow the layout, so a non-matching session stays on the map and
  * `buildSceneModel` mutes it (ADR `search-mutes-planets-instead-of-hiding-them`).

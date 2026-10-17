@@ -44,7 +44,9 @@ import {
 import { McpjsonIntro, McpjsonRows } from './McpjsonQuestion'
 import { ProjectFileViewer } from './FileViewer'
 import { FolderChooser } from './FolderChooser'
-import { LOCAL_DEVICE, deviceChips, deviceOf, deviceOptions, openingDevice, showDeviceRow } from '../lib/devices'
+import {
+  LOCAL_DEVICE, deviceChips, deviceOf, deviceOptions, localTagOf, openingDevice, showDeviceRow,
+} from '../lib/devices'
 import { Select } from '../ui/Select'
 import { KindGlyph } from '../ui/KindGlyph'
 
@@ -189,7 +191,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   /** The selected planet when it runs here: another device's Claude directory ids mean nothing on this one. */
   const localPlanet = selectedSession && !selectedSession.machine ? selectedSession : null
   const launchSession = useOrbital((s) => s.launchSession)
-  const members = useOrbital((s) => s.remote?.group?.members)
+  // The roster only while the dialog is open: `remote` is replaced on every
+  // status publish, and a closed dialog has no picker to keep current.
+  const members = useOrbital((s) => (open ? s.remote?.group?.members : undefined))
 
   const [cwd, setCwd] = useState('')
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('acceptEdits')
@@ -268,8 +272,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     planet: claudeDirPrefilled.planet,
     changed: claudeDirId !== claudeDirPrefilled.id,
   }
-  /** The chosen directory's catalog: each account has its own models. */
-  const models = useClaudeDirModels(claudeDirId, open, machine)
+  /** The chosen directory's catalog: each account has its own models; another device's default one's there. */
+  const models = useClaudeDirModels(remote ? null : claudeDirId, open, machine)
 
   const canBrowse = canChooseDirectory()
   /** Only the last request's projects land: switching device twice quickly must not show the first's. */
@@ -301,6 +305,11 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setChooserOpen(false)
       setProjects([])
       setCwd('')
+      // A model picked by hand was picked from the last device's catalog; the
+      // next one's may not have it. Dropping the override re-runs the
+      // preselection below, which sets the model and Other again — now and
+      // once the device's own catalog lands.
+      setModelOverridden(false)
       loadProjects(id, { fallback: id === LOCAL_DEVICE ? lastLaunch(settings).cwd : '' })
     },
     [loadProjects, settings],
@@ -442,10 +451,19 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setMatchedRuleId(null)
       return
     }
+    let live = true
     const timer = setTimeout(() => {
-      api
-        .previewRule({ cwd, title: '', permissionMode })
+      // Another device's rules decide its sessions' tags: its answer names its
+      // own tag, read here as this device's tag of the same name, and its own
+      // rule, which this device's list does not hold.
+      const preview = machine
+        ? Promise.all([api.previewRule({ cwd, title: '', permissionMode, machine }), api.listTags(machine)]).then(
+            ([answer, theirs]) => ({ tagId: localTagOf(answer.tagId, theirs, tags), ruleId: null }),
+          )
+        : api.previewRule({ cwd, title: '', permissionMode })
+      preview
         .then(({ tagId: matched, ruleId }) => {
+          if (!live) return
           setMatchedTagId(matched)
           setMatchedRuleId(ruleId)
           if (manualOverride) return
@@ -455,8 +473,11 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
           // Preview is best-effort; leave whatever tag selection stands.
         })
     }, PREVIEW_DEBOUNCE_MS)
-    return () => clearTimeout(timer)
-  }, [open, cwd, permissionMode, manualOverride, rememberedTag])
+    return () => {
+      live = false
+      clearTimeout(timer)
+    }
+  }, [open, cwd, permissionMode, manualOverride, rememberedTag, machine, tags])
 
   function handleSelectTag(id: number) {
     setManualOverride(true)
@@ -823,7 +844,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                     </Button>
                   ) : (
                     canBrowse && (
-                      <Button variant="ghost" size="field" title="Opens the system folder dialog" onClick={browse}>
+                      <Button variant="ghost" size="field" onClick={browse}>
                         Browse…
                       </Button>
                     )

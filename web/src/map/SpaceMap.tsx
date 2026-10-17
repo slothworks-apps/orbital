@@ -1179,7 +1179,7 @@ export function SpaceMap() {
               hidden={planet.leaving}
               muted={planet.muted}
               secondLine={planet.secondLine}
-              still={planet.offline}
+              offline={planet.offline}
               deviceOff={planet.deviceOff}
               labelTitlePx={labelFont.title}
               labelFamilyPx={labelFont.family}
@@ -1213,7 +1213,7 @@ export function SpaceMap() {
               active={`${moon.sessionId}:${moon.subagent.id}` === activePanelKey}
               onOpen={handleOpenSubagent}
               muted={moon.muted}
-              still={moon.offline}
+              offline={moon.offline}
               deviceOff={moon.deviceOff}
             />
           ))}

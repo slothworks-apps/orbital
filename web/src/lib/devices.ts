@@ -7,7 +7,7 @@
 import { encodePairingCode } from '@orbital/shared/remote/relayApi'
 import { timeAgo } from './format'
 import { codeLeft } from './remote'
-import type { ApiSession, GroupMember, IdeContext, MachineRef, MemberState, RemoteDevice } from './types'
+import type { ApiSession, GroupMember, IdeContext, MachineRef, MemberState, RemoteDevice, Tag } from './types'
 
 /**
  * The three known device kinds read as is; an unrecognised one passes
@@ -176,6 +176,32 @@ export function deviceOf(session: Pick<ApiSession, 'machine'>): string {
   return session.machine?.id ?? LOCAL_DEVICE
 }
 
+/**
+ * Whether a session runs on a member of the group that is offline now: by
+ * the session's own `machine`, and — when `members` is passed — by the
+ * roster too. Never for this device's own sessions.
+ */
+export function machineOffline(
+  session: Pick<ApiSession, 'machine'>,
+  members?: GroupMember[],
+): boolean {
+  if (!session.machine) return false
+  return !session.machine.online || memberOf(session, members)?.state === 'offline'
+}
+
+/** How often an offline member's `as of` age is re-read, wherever it shows. */
+export const AS_OF_TICK_MS = 60_000
+
+/** `timeAgo` with a space before its unit, the way the canvas spells an age (`2 h`, `3 d`); `now` and dates as they are. */
+export function spacedAgo(ts: number, now: number): string {
+  return timeAgo(ts, now).replace(/^(\d+)([mhd])$/, '$1 $2')
+}
+
+/** The kind of the device a session runs on: the roster's, else the session's own `machine`'s, else a desktop. */
+export function deviceKind(session: Pick<ApiSession, 'machine'>, members: GroupMember[] | undefined): string {
+  return memberOf(session, members)?.kind ?? session.machine?.kind ?? 'desktop'
+}
+
 /** One device chip above the tag chips (canvas 50e, logic.js `devChips`). */
 export interface DeviceChip {
   /** `LOCAL_DEVICE` for this device, a member's id otherwise. */
@@ -213,6 +239,20 @@ export function deviceChips(members: GroupMember[] | undefined): DeviceChip[] {
     })
   }
   return chips
+}
+
+/**
+ * `deviceChips` as one string, for a store selector that should settle: the
+ * roster is a new array on every `remote` publish, the chips it gives mostly
+ * the same. `chipsOfKey` reads it back.
+ */
+export function deviceChipsKey(members: GroupMember[] | undefined): string {
+  return JSON.stringify(deviceChips(members))
+}
+
+/** The chips a `deviceChipsKey` string holds. */
+export function chipsOfKey(key: string): DeviceChip[] {
+  return JSON.parse(key) as DeviceChip[]
 }
 
 /** The chip row appears only once a second device can host sessions (canvas 50e). */
@@ -263,8 +303,7 @@ export function namesShown(chips: DeviceChip[], hidden: string[]): boolean {
  */
 export function asOfLabel(machine: MachineRef | undefined, now: number): string | null {
   if (!machine || machine.online || machine.asOf === null) return null
-  const ago = timeAgo(machine.asOf, now)
-  return `as of ${ago.replace(/^(\d+)([mhd])$/, '$1 $2')}`
+  return `as of ${spacedAgo(machine.asOf, now)}`
 }
 
 /**
@@ -284,11 +323,10 @@ export function isMemberOffline(err: unknown): boolean {
  * minute, `12 min ago`, `2 h ago`, `3 d ago`, then the date alone.
  */
 export function agoWords(ts: number, now: number): string {
-  const ago = timeAgo(ts, now)
+  const ago = spacedAgo(ts, now)
   if (ago === 'now') return 'just now'
-  const m = /^(\d+)([mhd])$/.exec(ago)
-  if (!m) return ago
-  return `${m[1]} ${m[2] === 'm' ? 'min' : m[2]} ago`
+  if (!/^\d+ [mhd]$/.test(ago)) return ago
+  return `${ago.replace(/ m$/, ' min')} ago`
 }
 
 /** The roster entry of the device a session runs on: this device's own for a local session. */
@@ -337,7 +375,7 @@ export function deviceLock(
   if (member?.tooOld) {
     return { title: `Update Orbital on ${name}`, body: 'Its Orbital is too old to be driven from here. Reading still works.' }
   }
-  if (machine.online && member?.state !== 'offline') return null
+  if (!machineOffline(session, members)) return null
   const seen = member?.seenAt ?? machine.asOf
   const back = `Everything it sent is here to read; the composer opens again when ${name} is back.`
   return {
@@ -370,12 +408,11 @@ export function runsOn(
   const member = memberOf(session, members)
   const machine = session.machine
   const name = member?.name ?? machine?.name ?? ''
-  const kind = member?.kind ?? machine?.kind ?? 'desktop'
+  const kind = deviceKind(session, members)
   const os = member?.os ?? machine?.os ?? ''
   if (!machine) return { name, kind, os, dot: 'live', words: 'this device' }
   if (member?.tooOld) return { name, kind, os, dot: 'update', words: `update Orbital on ${name}` }
-  const offline = !machine.online || member?.state === 'offline'
-  if (offline) {
+  if (machineOffline(session, members)) {
     const seen = member?.seenAt ?? machine.asOf
     return { name, kind, os, dot: 'offline', words: seen === null ? 'offline' : `offline · seen ${agoWords(seen, now)}` }
   }
@@ -388,7 +425,7 @@ export function pillWords(session: Pick<ApiSession, 'machine'>, members: GroupMe
   const name = member?.name ?? session.machine?.name ?? ''
   if (!session.machine) return name
   if (member?.tooOld) return `${name} · update`
-  return !session.machine.online || member?.state === 'offline' ? `${name} · offline` : name
+  return machineOffline(session, members) ? `${name} · offline` : name
 }
 
 /**
@@ -404,7 +441,7 @@ export function withMachineOffline<S extends Pick<ApiSession, 'machine'>>(
 ): Record<string, S> {
   let next: Record<string, S> | null = null
   for (const [id, s] of Object.entries(sessions)) {
-    if (s.machine?.id !== machineId || !s.machine.online) continue
+    if (s.machine?.id !== machineId || machineOffline(s)) continue
     next ??= { ...sessions }
     next[id] = { ...s, machine: { ...s.machine, online: false, asOf: s.machine.asOf ?? now } }
   }
@@ -422,16 +459,51 @@ export function ideHere(session: Pick<ApiSession, 'machine' | 'ide'> | undefined
 }
 
 /**
+ * Another device's tag id as this device's tag of the same name — how a
+ * session's tags cross between devices (spec § 7) — or null when this device
+ * has no tag by that name, or there was no tag.
+ */
+export function localTagOf(
+  theirId: number | null,
+  theirTags: Pick<Tag, 'id' | 'name'>[],
+  ourTags: Pick<Tag, 'id' | 'name'>[],
+): number | null {
+  if (theirId === null) return null
+  const name = theirTags.find((t) => t.id === theirId)?.name
+  return name === undefined ? null : (ourTags.find((t) => t.name === name)?.id ?? null)
+}
+
+/**
+ * The Claude directory a session's mark is read from on this device: none
+ * for another device's session, whose directory ids are that device's own
+ * and would name one of this device's directories by accident.
+ */
+export function localClaudeDirId(
+  session: Pick<ApiSession, 'machine' | 'claudeDirId'> | undefined,
+): number | null {
+  if (!session || session.machine) return null
+  return session.claudeDirId ?? null
+}
+
+/**
  * The session a request was about, read off its url the way the server
- * routes it (`/api/sessions/:id…`, else `?session=`): what a refusal that
+ * routes it (`/api/sessions/:id…` or `/api/stats/sessions/:id`, else
+ * `?session=`, else the harness's `?sessionId=`): what a refusal that
  * reached `reportError` names, so the lock can show on the right session.
  */
 export function sessionOfUrl(url: string | undefined): string | null {
   if (!url) return null
   const [path, query = ''] = url.split('?', 2)
-  const inPath = /^\/api\/sessions\/([^/]+)/.exec(path)
-  if (inPath) return decodeURIComponent(inPath[1])
-  return new URLSearchParams(query).get('session')
+  const inPath = /^\/api\/(?:stats\/)?sessions\/([^/]+)/.exec(path)
+  if (inPath) {
+    try {
+      return decodeURIComponent(inPath[1])
+    } catch {
+      return null
+    }
+  }
+  const params = new URLSearchParams(query)
+  return params.get('session') ?? params.get('sessionId')
 }
 
 /** One row of New session's DEVICE field (canvas 50g, logic.js `opts`). */
@@ -524,5 +596,5 @@ export function childPath(parent: string, name: string): string {
  */
 export function recentAge(lastAt: number | null, now: number): string {
   if (lastAt === null) return ''
-  return timeAgo(lastAt, now).replace(/^(\d+)([mhd])$/, '$1 $2')
+  return spacedAgo(lastAt, now)
 }

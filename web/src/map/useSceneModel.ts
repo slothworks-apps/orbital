@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MAP_LEAVE_GRACE_MS, hiddenDevices, useOrbital } from '../store/store'
-import { buildSceneModel, reuseContextFills, type DeviceNames, type SceneModel } from './sceneModel'
-import { deviceChips, namesShown, showDeviceRow } from '../lib/devices'
-
-/** How often an offline member's `as of` age is re-read. */
-const AS_OF_TICK_MS = 60_000
+import { agesOnMap, buildSceneModel, reuseContextFills, type DeviceNames, type SceneModel } from './sceneModel'
+import { AS_OF_TICK_MS, deviceChips, namesShown, showDeviceRow } from '../lib/devices'
 
 /**
  * `<SpaceMap>`'s scene-model subscription. Deliberately NOT
@@ -62,12 +59,6 @@ export function useSceneModel(): SceneModel {
     () => (namesKey === '' ? null : { self: namesKey.slice(1), shown: namesKey[0] === '1' }),
     [namesKey],
   )
-  // Whether any session runs on an offline member: its `as of 2 h` ages.
-  const anyOffline = useMemo(
-    () => Object.values(sessions).some((x) => x.machine !== undefined && !x.machine.online),
-    [sessions],
-  )
-
   // The one impure input, kept in one place. Seeded on mount and re-read
   // once a leaving body's grace has run out, so its fade ends with it off the
   // map without the model itself reading a clock. Rescheduled on every new
@@ -79,14 +70,6 @@ export function useSceneModel(): SceneModel {
     const timer = setTimeout(() => setNowMs(Date.now()), MAP_LEAVE_GRACE_MS)
     return () => clearTimeout(timer)
   }, [leavingSince])
-
-  // An offline member's age (`as of 2 h`) is read off `nowMs`, so the clock
-  // is re-read each minute while there is one to show.
-  useEffect(() => {
-    if (!anyOffline) return
-    const timer = setInterval(() => setNowMs(Date.now()), AS_OF_TICK_MS)
-    return () => clearInterval(timer)
-  }, [anyOffline])
 
   // The model this hook returned last, so an unchanged planet keeps its
   // prop identities across a rebuild (`reuseContextFills`) and its memoised
@@ -176,5 +159,14 @@ export function useSceneModel(): SceneModel {
   useEffect(() => {
     previous.current = model
   }, [model])
+
+  // An offline member's age (`as of 2 h`) is read off `nowMs`, so the clock
+  // is re-read each minute while the map draws one.
+  const agesShown = agesOnMap(model)
+  useEffect(() => {
+    if (!agesShown) return
+    const timer = setInterval(() => setNowMs(Date.now()), AS_OF_TICK_MS)
+    return () => clearInterval(timer)
+  }, [agesShown])
   return model
 }

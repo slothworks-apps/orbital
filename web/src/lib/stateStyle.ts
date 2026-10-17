@@ -119,6 +119,9 @@ const DOTS: Record<StateSurface, Record<SessionStateKey, StateDot>> = {
 export const stateDot = (key: SessionStateKey, surface: StateSurface, gate = false): StateDot =>
   gate && key === 'needs_input' ? { shape: 'solid', motion: 'steady' } : DOTS[surface][key]
 
+/** A state's dot held steady while `still` (the session's device is offline, canvas 50e): its shape kept, nothing breathes or pulses. */
+export const stillDot = (dot: StateDot, still: boolean): StateDot => (still ? { ...dot, motion: 'steady' } : dot)
+
 /** The CSS class that animates a dot, or none for a steady one. */
 export const dotMotionClass = (motion: DotMotion): string | undefined =>
   motion === 'breathe' ? 'orbital-breathe' : motion === 'pulse' ? 'orbital-pulse' : undefined

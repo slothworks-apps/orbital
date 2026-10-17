@@ -22,7 +22,7 @@ import { useViewportWidth } from '../lib/useViewportWidth'
 import { awaitedCount, awaitedWork, gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
 import { compactingLabelOpacity, compactingOf, formatElapsed } from '../lib/compaction'
 import { useNow } from '../lib/useNow'
-import { OFFLINE_STATE_INK, stateColor, stateDot, stateWord } from '../lib/stateStyle'
+import { OFFLINE_STATE_INK, stateColor, stateDot, stateWord, stillDot } from '../lib/stateStyle'
 import { StateDot } from '../ui/StateDot'
 import type { ApiSession, SessionSource, Tag } from '../lib/types'
 import { Panel } from '../ui/Panel'
@@ -40,7 +40,8 @@ import { sessionViewTransitionName } from '../lib/viewTransition'
 import { timeAgo, shortenPath } from '../lib/format'
 import { KindGlyph } from '../ui/KindGlyph'
 import {
-  asOfLabel, deviceChips, devicesOn, kindWord, namesShown, showDeviceRow, toggleDevice,
+  AS_OF_TICK_MS, asOfLabel, chipsOfKey, deviceChipsKey, devicesOn, kindWord, localClaudeDirId, machineOffline, namesShown,
+  showDeviceRow, toggleDevice,
 } from '../lib/devices'
 import type { DeviceChip } from '../lib/devices'
 
@@ -115,13 +116,13 @@ function RowDot({
   hue,
   status,
   size = 7,
-  still = false,
+  offline = false,
 }: {
   hue: number | undefined
   status: ApiSession['status']
   size?: 7 | 8
   /** Its device is offline: what it last said is not live, so the busy disc loses its glow (canvas 50e `live = WORKING && !off`). */
-  still?: boolean
+  offline?: boolean
 }) {
   const color = hue !== undefined ? tagColor(hue) : 'rgba(160,190,225,.6)'
   const box = { width: `${size}px`, height: `${size}px` }
@@ -138,7 +139,7 @@ function RowDot({
     <span
       aria-hidden
       className="shrink-0 rounded-full"
-      style={{ ...box, background: color, boxShadow: still ? 'none' : `0 0 8px ${color}` }}
+      style={{ ...box, background: color, boxShadow: offline ? 'none' : `0 0 8px ${color}` }}
     />
   )
 }
@@ -284,8 +285,8 @@ function RowStatus({ session }: { session: ApiSession }) {
   const compacting = compactingOf(session)
   const now = useNow(compacting !== null)
   const key = sessionStateKey(session)
-  const still = onOfflineDevice(session)
-  const color = still ? OFFLINE_STATE_INK : stateColor(key)
+  const offline = machineOffline(session)
+  const color = offline ? OFFLINE_STATE_INK : stateColor(key)
   const dot = stateDot(key, 'label', gateWaits(session))
   // A compaction takes the label once it has run three seconds (26e): `COMPACT
   // 0:14`, the compacting grey, no dot. Shorter ones never show here at all.
@@ -317,15 +318,10 @@ function RowStatus({ session }: { session: ApiSession }) {
       className="flex shrink-0 items-center gap-[5px] font-mono text-[9.5px] uppercase tracking-[0.08em]"
       style={{ color }}
     >
-      <StateDot dot={still ? { ...dot, motion: 'steady' } : dot} color={color} solidPx={5} hollowPx={6} />
+      <StateDot dot={stillDot(dot, offline)} color={color} solidPx={5} hollowPx={6} />
       {stateWord(key, awaitedCount(awaitedWork(session)), true)}
     </span>
   )
-}
-
-/** Whether a session runs on a member of the device group that is offline now. */
-function onOfflineDevice(session: ApiSession): boolean {
-  return session.machine !== undefined && !session.machine.online
 }
 
 function SessionRow({
@@ -354,10 +350,10 @@ function SessionRow({
 }) {
   const hue = rowHue(session, tags)
   const pinned = session.pinnedAt != null
-  const dirMark = useClaudeDirMark(session.claudeDirId)
-  const offline = onOfflineDevice(session)
+  const dirMark = useClaudeDirMark(localClaudeDirId(session))
+  const offline = machineOffline(session)
   // Re-read each minute while it shows an age, so `as of 2 h` keeps counting.
-  const now = useNow(offline, 60_000)
+  const now = useNow(offline, AS_OF_TICK_MS)
   // Canvas 50e: `build-box · ~/oncall/runbooks · as of 2 h`.
   const meta = [deviceName, shortenPath(session.cwd), asOfLabel(session.machine, now)]
     .filter((part): part is string => Boolean(part))
@@ -398,7 +394,7 @@ function SessionRow({
           history ? 'py-2' : 'py-[9px]',
         ].join(' ')}
       >
-        <RowDot hue={hue} status={session.status} still={offline} />
+        <RowDot hue={hue} status={session.status} offline={offline} />
         <span className="min-w-0 flex-1">
           {/* 3b: the badge shares the name's line, so it reads as a property
               of the session rather than of its status — and the name is what
@@ -525,10 +521,13 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
   // The device chips (canvas 50e): a row of them only once a second device
   // can host sessions, and the device's name on every row while two or more
   // are on. With one device none of this shows.
-  const members = useOrbital((s) => s.remote?.group?.members)
+  // The chips as one string, so the selector settles: `remote` is replaced on
+  // every status publish (a paired phone's presence included), and the list
+  // should not re-render for one that changes no chip.
+  const chipsKey = useOrbital((s) => deviceChipsKey(s.remote?.group?.members))
   const hiddenDeviceIds = useOrbital((s) => s.ui.hiddenDeviceIds ?? NONE_HIDDEN)
   const setHiddenDeviceIds = useOrbital((s) => s.setHiddenDeviceIds)
-  const chips = useMemo(() => deviceChips(members), [members])
+  const chips = useMemo(() => chipsOfKey(chipsKey), [chipsKey])
   const showNames = namesShown(chips, hiddenDeviceIds)
   const deviceNameOf = (session: ApiSession): string | null =>
     showNames ? (session.machine?.name ?? chips[0].name) : null
@@ -749,7 +748,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         />
         <span aria-hidden className="h-px w-5 bg-panel-border" />
         {active.slice(0, 8).map((s) => (
-          <RowDot key={s.id} hue={rowHue(s, tags)} status={s.status} size={8} still={onOfflineDevice(s)} />
+          <RowDot key={s.id} hue={rowHue(s, tags)} status={s.status} size={8} offline={machineOffline(s)} />
         ))}
         {/* Rail settings button (1a): 30px, and the only icon button here that
             is not one of `IconButton`'s 28px text glyphs. 11d's stats glyph

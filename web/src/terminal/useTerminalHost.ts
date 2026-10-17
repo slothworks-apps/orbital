@@ -8,6 +8,8 @@ import { agentSlotOpen, placementIn, runTerminalChord, toggleTerminalFromKey } f
 import { parseTerminalChord } from './keys'
 import { parseDockHeight, sideSlotWidth } from './layout'
 import { useTerminals } from './store'
+import { LOCAL_DEVICE, deviceOf } from '../lib/devices'
+import type { ApiSession } from '../lib/types'
 
 /** Main's terminal chords are heard once per page, whichever window mounts first. */
 let listeningForChords = false
@@ -41,9 +43,10 @@ export function useTerminalPlacement(sessionId: string | null): {
   return { enabled, placement, shown: on, onScreen: placement === 'side' ? sideOnScreen : on, sideOnScreen }
 }
 
-/** The session runs on another device of the group (it carries a `machine`). */
-function onOtherDevice(s: { sessions: Record<string, { machine?: unknown }> }, sessionId: string | null): boolean {
-  return sessionId !== null && s.sessions[sessionId]?.machine !== undefined
+/** The session runs on another device of the group. */
+function onOtherDevice(s: { sessions: Record<string, ApiSession> }, sessionId: string | null): boolean {
+  const session = sessionId === null ? undefined : s.sessions[sessionId]
+  return session !== undefined && deviceOf(session) !== LOCAL_DEVICE
 }
 
 /**

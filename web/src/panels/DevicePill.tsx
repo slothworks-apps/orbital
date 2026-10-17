@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useOrbital } from '../store/store'
-import { kindOs, memberOf, pillWords, runsOn, type RunsOn } from '../lib/devices'
+import { deviceKind, kindOs, pillWords, runsOn, type RunsOn } from '../lib/devices'
 import { KindGlyph } from '../ui/KindGlyph'
 import type { ApiSession } from '../lib/types'
 
@@ -34,12 +34,15 @@ export function DevicePill({
   hue: number
   placement: 'edge' | 'inline'
 }) {
-  const members = useOrbital((s) => s.remote?.group?.members)
   const [hovered, setHovered] = useState(false)
+  // The pill's words and glyph as strings, so they settle: `remote` is
+  // replaced on every status publish. The roster itself only while the card
+  // is open.
+  const words = useOrbital((s) => pillWords(session, s.remote?.group?.members))
+  const kind = useOrbital((s) => deviceKind(session, s.remote?.group?.members))
+  const members = useOrbital((s) => (hovered ? s.remote?.group?.members : undefined))
   // Read when the card opens: its `seen 12 min ago` needs no ticking clock.
   const card = hovered ? runsOn(session, members, Date.now()) : null
-  const words = pillWords(session, members)
-  const kind = memberOf(session, members)?.kind ?? session.machine?.kind ?? 'desktop'
 
   return (
     <div

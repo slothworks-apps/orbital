@@ -6,6 +6,7 @@ import {
   isMemberOffline, namesShown, oneWordCode, osLabel, showDeviceRow, toggleDevice,
   agoWords, deviceLock, ideHere, pillWords, runsOn, sessionOfUrl, stateAsOf, withMachineOffline,
   childPath, crumbsOf, deviceOptions, openingDevice, recentAge,
+  chipsOfKey, deviceChipsKey, localClaudeDirId, localTagOf, machineOffline,
 } from '../lib/devices'
 import { ApiError } from '../lib/api'
 import type { GroupMember, IdeContext, MachineRef } from '../lib/types'
@@ -388,6 +389,10 @@ describe('another device in the detail panel (canvas 50f)', () => {
       expect(sessionOfUrl('/api/sessions/abc%3A1/interrupt')).toBe('abc:1')
       expect(sessionOfUrl('/api/sessions/abc')).toBe('abc')
       expect(sessionOfUrl('/api/files/preview?session=xyz&path=a')).toBe('xyz')
+      // The stats row and the harness's start view, as the server reads them.
+      expect(sessionOfUrl('/api/stats/sessions/abc')).toBe('abc')
+      expect(sessionOfUrl('/api/harness/templates?sessionId=h1')).toBe('h1')
+      expect(sessionOfUrl('/api/sessions/%E0%A4%A')).toBeNull()
       expect(sessionOfUrl('/api/settings')).toBeNull()
       expect(sessionOfUrl(undefined)).toBeNull()
     })
@@ -500,5 +505,53 @@ describe('recentAge', () => {
     expect(recentAge(NOW - 2 * 60 * 60_000, NOW)).toBe('2 h')
     expect(recentAge(NOW - 3 * 24 * 60 * 60_000, NOW)).toBe('3 d')
     expect(recentAge(null, NOW)).toBe('')
+  })
+})
+
+describe('machineOffline', () => {
+  const up: MachineRef = { id: 'air', name: 'air-m3', kind: 'desktop', os: 'macos', online: true, asOf: null }
+  it('reads the session, and the roster only when it is passed', () => {
+    expect(machineOffline({})).toBe(false)
+    expect(machineOffline({ machine: up })).toBe(false)
+    expect(machineOffline({ machine: { ...up, online: false, asOf: NOW } })).toBe(true)
+    const roster = [member({ id: 'air', state: 'offline' })]
+    expect(machineOffline({ machine: up }, roster)).toBe(true)
+    // This device's own session, whatever the roster says.
+    expect(machineOffline({}, [member({ self: true, state: 'offline' })])).toBe(false)
+  })
+})
+
+describe('deviceChipsKey', () => {
+  it('reads back the chips, and is the same string for a new roster with the same chips', () => {
+    const roster = () => [
+      member({ id: 'me', self: true, state: 'self', name: 'studio' }),
+      member({ id: 'build', name: 'build-box', kind: 'headless' }),
+    ]
+    expect(chipsOfKey(deviceChipsKey(roster()))).toEqual(deviceChips(roster()))
+    expect(deviceChipsKey(roster())).toBe(deviceChipsKey([...roster(), member({ id: 'p', kind: 'phone' })]))
+    expect(deviceChipsKey(roster())).not.toBe(deviceChipsKey([roster()[0], member({ id: 'build', state: 'offline' })]))
+  })
+})
+
+describe('localTagOf', () => {
+  const theirs = [{ id: 7, name: 'oncall' }, { id: 8, name: 'theirs-only' }]
+  const ours = [{ id: 2, name: 'oncall' }, { id: 7, name: 'other' }]
+  it("names this device's tag of the same name, never the same id", () => {
+    expect(localTagOf(7, theirs, ours)).toBe(2)
+    expect(localTagOf(8, theirs, ours)).toBeNull()
+    expect(localTagOf(99, theirs, ours)).toBeNull()
+    expect(localTagOf(null, theirs, ours)).toBeNull()
+  })
+})
+
+describe('localClaudeDirId', () => {
+  it("reads no directory of another device's session against this one's", () => {
+    expect(localClaudeDirId({ claudeDirId: 2 })).toBe(2)
+    expect(localClaudeDirId({})).toBeNull()
+    expect(localClaudeDirId({
+      claudeDirId: 2,
+      machine: { id: 'b', name: 'b', kind: 'headless', os: 'linux', online: true, asOf: null },
+    })).toBeNull()
+    expect(localClaudeDirId(undefined)).toBeNull()
   })
 })
