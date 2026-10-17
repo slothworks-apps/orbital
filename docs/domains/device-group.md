@@ -239,12 +239,18 @@ through them.
 
 ## Joining, and what the status shows
 
-`RemoteService.join(code)` refuses with `in_group` while the roster holds
-any live member other than this device (`inGroup`) — a phone paired
-here counts — and the code's device is not itself a live member, before
+`RemoteService.join(code)` refuses with `in_group` while this device is
+in a group (`inGroup`) and the code's device is not itself a live member,
+before
 anything is sent to the relay: groups do not merge, a device leaves its
 group before it joins another (ADR `joining-one-member-joins-the-group`),
 while a code from a member of its own group is pairing by hand.
+"In a group" (`hasOtherGroupMember`) means the roster holds a live member,
+other than this device, that links or that is not paired here (no
+`remote_devices` row). A phone paired here makes no group: a Mac whose
+only other devices are its own phones changes its relay and joins as it
+did before the group existed. A phone another member paired does count —
+this device is in that member's group.
 A roster that cannot be read counts as a group of one, as in the status. `other_relay` names the code's
 relay, `peer_offline` the code's `expiresAt` when the code carries one
 (`QrPayload.expiresAt`, which `startPairing` copies from the relay's
@@ -264,15 +270,26 @@ relay's presence for a member paired here (with `seenAt` from its
 paired with another member, never "not linked"); `linking` for a member
 that links and is not paired here yet; `notLinked` for one marked
 `pairByHand`. `status.group.relayLocked` is `inGroup`: while it holds,
-`PATCH /api/settings` refuses a changed `remote_relay_url` with 409
-`in_group` (idea `move-a-group-to-another-relay`).
+`PATCH /api/settings` refuses a changed `remote_relay_url` or
+`remote_relay_secret` with 409 `in_group` (idea
+`move-a-group-to-another-relay`). Settings → Devices shows a phone that
+is not paired here (another member paired it) as `paired with <adder>`,
+with no presence dot: this device has no pair with it, so the relay's
+presence says nothing about it here.
 
 ## Known limits
 
 - **A join cancelled after the other member confirmed it**: the joiner
   revokes the pair the relay made, but the member that confirmed has
-  already written the joiner into its roster, and is left listing it as
-  an unlinked member until someone removes it.
+  already written the joiner into its roster, and is left with a ghost
+  until someone removes it: the member lists it as `offline` or
+  `linking…`, its relay is locked (the ghost is a live member it is not
+  paired with), and its joins are refused with `in_group`. Removing the
+  ghost from Settings → Devices clears all three.
+- **No "update Orbital on <name>" for a server member.** There is no
+  version gate between two servers yet, so a desktop or server member too
+  old for this one is never shown as needing an update; only a phone is
+  (`needs an update`).
 
 - **A peer that is asleep when another member leaves, or that receives
   the relay's `unpaired` before the leaver's roster message** keeps the

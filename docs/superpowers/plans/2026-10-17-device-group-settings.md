@@ -249,6 +249,6 @@ Behaviour (values and wording from `50c.html`, `50d.html` A):
 **Files:**
 - Modify: `desktop/CHANGELOG.md`
 
-- [ ] **Step 1:** `desktop/CHANGELOG.md` under `## [Unreleased]`: "Settings → Mobile is now Settings → Devices: pair another Mac or a server by code, see every device in your group, remove one or leave." (one line, plain).
+- [ ] **Step 1:** `desktop/CHANGELOG.md` under `## [Unreleased]`: "Settings → Mobile is now Settings → Devices: pair another desktop or a server by code, see every device in your group, remove one or leave." (one line, plain).
 - [ ] **Step 2 (controller, not a subagent):** fidelity pass against artboards 50a–50d in a real browser (memory: fidelity-pass-recipe — built web on :4848 via `ORBITAL_STATIC_DIR`, Playwright, a local relay), two servers paired so the group has members in every state; fix drift through the implementer of the task that owns it.
 - [ ] **Step 3:** set this plan's status to `done`; `bunx @slothworks/atlas validate`; commit.

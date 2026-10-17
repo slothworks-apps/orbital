@@ -165,9 +165,12 @@ each phone pairs again by scanning a fresh code, which carries the new
 secret. A phone built before 2026-10-03 does not know the refusal and shows
 the Mac as offline instead; update it.
 
-While a device is in a group with others, its relay URL and secret are
-read-only (one relay serves the whole group): remove the other devices, or
-leave the group, before changing either.
+Rotating the secret on a device in a group — one with another desktop or
+server, or with a phone another member paired — means removing the other
+devices, or leaving the group, first: while it is in one, its relay URL
+and secret are read-only (one relay serves the whole group). A device on
+its own, or with only phones paired with it, changes them as before: the
+confirm removes those phones, and each pairs again with a fresh code.
 
 Deleting the relay's database unpairs every phone from every Mac: locally
 that is `relay/data/relay.db`; on Dokploy, whatever file or Postgres

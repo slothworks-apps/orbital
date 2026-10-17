@@ -38,6 +38,14 @@ blocks parts 1–3 shipping together; fix them before or with part 3.
   control is not wrapped in `tryRoster`.
 - **A non-retriable 4xx on a pending revoke** keeps it pending and re-posts
   it at every `ok`.
+- **A join cancelled after the other member confirmed it** leaves a ghost
+  on that member: listed as offline or `linking…`, it locks the member's
+  relay and makes it refuse joins with `in_group` until someone removes
+  it by hand. The confirming member could drop an entry whose relay pair
+  the joiner revoked before it ever linked.
+- **No "update Orbital on <name>" for a server member.** Only a phone is
+  version-gated; there is no gate between two servers yet, so Settings →
+  Devices cannot show a desktop or server member as too old.
 - **A regenerated identity** leaves the old self entry live in the roster:
   the old id is not known once the identity file is quarantined. Part 2b's
   UI must let a person remove it.
