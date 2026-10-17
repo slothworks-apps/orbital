@@ -60,6 +60,18 @@ type Source = {
 /** How many sessions a source that comes up is asked for; one channel frame has to carry the answer. */
 const RELIST_LIMITS = [80, 30]
 
+/** How long a request about a session no member has listed yet waits for the lists in flight. */
+const RELIST_WAIT_MS = 3_000
+
+/**
+ * Where a session's owner was looked for: found; on no member (with one
+ * member's own answer to pass on); or not knowable now, because a member
+ * that may hold it is not up.
+ */
+type Lookup = { source: Source } | { missing: TunnelResponse } | { offline: true }
+
+const NOT_FOUND: TunnelResponse = { status: 404, body: { error: 'not_found' } }
+
 /** The session a per-session topic is about: `session:<id>`, `subagent:<id>:…`, `task-output:<id>:…`. */
 export function sessionOfTopic(topic: string): string | null {
   const m = /^(?:session|subagent|task-output):([^:]+)/.exec(topic)
@@ -106,6 +118,10 @@ export class GroupFederation implements SwappableClient {
   /** The source the last new session started on: the default while it is ready. */
   private lastSpawn: string | null = null
   private peerInfo = new Map<string, PeerInfo>()
+  /** Relists running: a lookup of an unknown session waits for them first. */
+  private readonly relisting = new Set<Promise<void>>()
+  /** Lookups running, by session: two requests about one session ask the members once. */
+  private readonly lookups = new Map<string, Promise<Lookup>>()
   private readonly listeners = new Set<(event: RemoteClientEvent) => void>()
   private readonly memberListeners = new Set<() => void>()
   private wasReady = false
@@ -180,13 +196,16 @@ export class GroupFederation implements SwappableClient {
     const url = new URL(path, 'http://phone')
     if (method === 'GET' && url.pathname === '/api/sessions') return this.list(url)
     if (method === 'GET' && url.pathname === '/api/tags') return this.listTags()
+    if (method === 'GET' && url.pathname === '/api/sessions/count') return this.count(url)
     const tagPath = /^\/api\/tags\/(\d+)$/.exec(url.pathname)
     if (tagPath && (method === 'PATCH' || method === 'DELETE')) return this.changeTag(method, Number(tagPath[1]), body)
 
-    const target = this.targetOf(url, body)
-    if (target === 'unknown') return { status: 404, body: { error: 'unknown_device' } }
-    const channel = target ? this.channelOf(target.id) : null
-    if (!target || !channel) throw new TunnelError('offline')
+    const routed = await this.targetOf(url, body)
+    if ('missing' in routed) return routed.missing
+    if ('offline' in routed) throw new TunnelError('offline')
+    const target = routed.source
+    const channel = this.channelOf(target.id)
+    if (!channel) throw new TunnelError('offline')
 
     let sent = body
     let sentPath = path
@@ -216,6 +235,8 @@ export class GroupFederation implements SwappableClient {
       if (res.status < 300) {
         this.lastSpawn = target.id
         if (typeof answer?.sessionId === 'string') this.expect(target, answer.sessionId)
+        // The default member may have changed: topics that follow it move.
+        this.syncTopics()
       } else if (minted !== null) {
         this.unexpect(target, minted)
       }
@@ -224,6 +245,21 @@ export class GroupFederation implements SwappableClient {
       && typeof sent.name === 'string' && typeof answer?.id === 'number') {
       target.tags.set(answer.id, { ...sent, id: answer.id, name: sent.name })
       return { status: res.status, body: { ...answer, id: this.localTagId(sent.name) } }
+    }
+    if (res.status < 300 && method === 'GET' && url.pathname === '/api/tag-rules' && answer && Array.isArray(answer.rules)) {
+      await this.readTags(target)
+      const rules = answer.rules.flatMap((rule) => {
+        if (!isObject(rule) || typeof rule.tag_id !== 'number') return [rule]
+        const local = this.fromTheirTag(target, rule.tag_id)
+        // A rule whose tag the phone cannot name is left out rather than shown with another tag's id.
+        return local === null ? [] : [{ ...rule, tag_id: local }]
+      })
+      return { status: res.status, body: { ...answer, rules } }
+    }
+    if (res.status < 300 && method === 'POST' && url.pathname === '/api/tag-rules/preview' && answer
+      && typeof answer.tagId === 'number') {
+      await this.readTags(target)
+      return { status: res.status, body: { ...answer, tagId: this.fromTheirTag(target, answer.tagId) } }
     }
     if (answer && isSession(answer.session) && !carriesMachine(answer.session)) {
       this.own(target, answer.session)
@@ -262,14 +298,26 @@ export class GroupFederation implements SwappableClient {
     })
   }
 
-  getFile(session: string, path: string, as: FileAs, opts?: GetFileOptions): Promise<FileResult> {
-    const channel = this.channelFor(session)
-    return channel ? channel.getFile(session, path, as, opts) : Promise.reject(new TunnelError('offline'))
+  async getFile(session: string, path: string, as: FileAs, opts?: GetFileOptions): Promise<FileResult> {
+    const found = await this.ownerLookup(session)
+    if ('missing' in found) return { status: 404, bytes: new Uint8Array(0), mediaType: null, size: null, w: null, h: null }
+    const channel = 'source' in found ? this.channelOf(found.source.id) : null
+    if (!channel) throw new TunnelError('offline')
+    return channel.getFile(session, path, as, opts)
   }
 
-  /** Into the store of the member the session runs on; before a session exists, the default member's. */
+  /**
+   * Into the store of the member the session runs on; before a session
+   * exists (none, or one no member holds yet), the default member's — a
+   * store names an image by its hash, and a turn carries it on (`carry`).
+   */
   async putBlob(bytes: Uint8Array, mediaType: string, sessionId?: string | null): Promise<PutBlobResult> {
-    const source = this.sourceFor(sessionId ?? null)
+    let source: Source | null = this.defaultSource()
+    if (sessionId) {
+      const found = await this.ownerLookup(sessionId)
+      if ('offline' in found) throw new TunnelError('offline')
+      if ('source' in found) source = found.source
+    }
     const channel = source ? this.channelOf(source.id) : null
     if (!source || !channel) throw new TunnelError('offline')
     const res = await channel.putBlob(bytes, mediaType)
@@ -314,7 +362,12 @@ export class GroupFederation implements SwappableClient {
   }
 
   seen(sessionId: string): void {
-    this.channelFor(sessionId)?.seen(sessionId)
+    void this.ownerLookup(sessionId).then(
+      (found) => {
+        if ('source' in found) this.channelOf(found.source.id)?.seen(sessionId)
+      },
+      () => undefined,
+    )
   }
 
   private onGroup(event: GroupClientEvent): void {
@@ -376,7 +429,12 @@ export class GroupFederation implements SwappableClient {
       source.ready = ready
       if (ready) {
         source.asOf = null
-        void this.relist(source)
+        const run = this.relist(source)
+        this.relisting.add(run)
+        const done = () => {
+          this.relisting.delete(run)
+        }
+        run.then(done, done)
       } else {
         source.asOf = this.now()
         source.atMac = false
@@ -575,6 +633,24 @@ export class GroupFederation implements SwappableClient {
     return { status: 200, body: { ...first, sessions, ...(ended ? { ended } : {}) } }
   }
 
+  /** The total of every member that is up. */
+  private async count(url: URL): Promise<TunnelResponse> {
+    const ready = this.readySources()
+    if (ready.length === 0) throw new TunnelError('offline')
+    const answers = await Promise.allSettled(ready.map(([, channel]) => channel.request('GET', url.pathname + url.search)))
+    let total: number | null = null
+    let fallback: TunnelResponse | null = null
+    for (const answer of answers) {
+      if (answer.status === 'rejected') continue
+      const n = isObject(answer.value.body) ? answer.value.body.total : undefined
+      if (answer.value.status === 200 && typeof n === 'number') total = (total ?? 0) + n
+      else fallback ??= answer.value
+    }
+    if (total !== null) return { status: 200, body: { total } }
+    if (fallback) return fallback
+    throw (answers[0] as PromiseRejectedResult).reason
+  }
+
   /** Every source's tags, one per name, with the phone's ids. */
   private async listTags(): Promise<TunnelResponse> {
     const ready = this.readySources()
@@ -603,6 +679,8 @@ export class GroupFederation implements SwappableClient {
     const answers = await Promise.allSettled(asks)
     const ok = answers.find((r): r is PromiseFulfilledResult<TunnelResponse> => r.status === 'fulfilled' && r.value.status < 300)
     const renamed = isObject(body) && typeof body.name === 'string' ? body.name : null
+    // A rename onto a name the phone already has, or one that failed on some member, leaves the tag
+    // split under two local ids until the names agree again; nothing is lost, it lists twice.
     if (ok && renamed !== null && !this.tagIds.has(renamed)) {
       this.tagIds.delete(name)
       this.tagIds.set(renamed, localId)
@@ -677,6 +755,12 @@ export class GroupFederation implements SwappableClient {
     return out
   }
 
+  /** A source's tag id as the phone's; null for one it has not named. */
+  private fromTheirTag(source: Source, id: number): number | null {
+    const tag = source.tags.get(id)
+    return tag ? this.localTagId(tag.name) : null
+  }
+
   private tagNamed(name: string): Tag | null {
     for (const source of this.sourcesById.values()) {
       for (const tag of source.tags.values()) if (tag.name === name) return tag
@@ -695,6 +779,15 @@ export class GroupFederation implements SwappableClient {
       const [theirs] = await this.ensureTheirTags(source, [out.tagId])
       const { tagId: _tagId, ...rest } = out
       out = theirs === undefined ? rest : { ...rest, tagId: theirs }
+    }
+    if (method === 'POST' && pathname === '/api/tag-rules' && typeof out.tagId === 'number') {
+      // A tag the member could not be given: an id it has none of, refused there, never another tag's.
+      const [theirs] = await this.ensureTheirTags(source, [out.tagId])
+      out = { ...out, tagId: theirs ?? -1 }
+    }
+    if (method === 'PATCH' && /^\/api\/tag-rules\/[^/]+$/.test(pathname) && typeof out.tag_id === 'number') {
+      const [theirs] = await this.ensureTheirTags(source, [out.tag_id])
+      out = { ...out, tag_id: theirs ?? -1 }
     }
     if (Array.isArray(out.attachments)) await this.carry(source, out.attachments.filter(isString))
     return out
@@ -726,24 +819,89 @@ export class GroupFederation implements SwappableClient {
     this.blobHomes.set(ref, homes)
   }
 
-  /** Where a request goes: its session's owner, else its `machine`, else the default member. */
-  private targetOf(url: URL, body: unknown): Source | 'unknown' | null {
+  /**
+   * Where a request goes: its session's owner; else its `machine`; else,
+   * for a session no member has listed yet, the member that has it; else
+   * (no session) the default member. A session's request never goes to the
+   * default: another member would answer "not found" for it.
+   */
+  private async targetOf(url: URL, body: unknown): Promise<Lookup> {
     const session = sessionOfRequest(url)
-    const owner = session !== null ? this.owners.get(session) : undefined
-    if (owner !== undefined) return this.sourcesById.get(owner) ?? null
+    const known = session !== null ? this.knownOwner(session) : null
+    if (known) return known
     const machine = url.searchParams.get('machine') ?? (isObject(body) && typeof body.machine === 'string' ? body.machine : null)
-    if (machine !== null) return this.sourcesById.get(machine) ?? 'unknown'
-    return this.defaultSource()
+    if (machine !== null) {
+      const named = this.sourcesById.get(machine)
+      return named ? { source: named } : { missing: { status: 404, body: { error: 'unknown_device' } } }
+    }
+    if (session !== null) return this.ownerLookup(session)
+    const fallback = this.defaultSource()
+    return fallback ? { source: fallback } : { offline: true }
   }
 
-  private sourceFor(sessionId: string | null): Source | null {
-    const owner = sessionId !== null ? this.owners.get(sessionId) : undefined
-    return owner !== undefined ? this.sourcesById.get(owner) ?? null : this.defaultSource()
+  private knownOwner(sessionId: string): Lookup | null {
+    const owner = this.owners.get(sessionId)
+    if (owner === undefined) return null
+    const source = this.sourcesById.get(owner)
+    return source ? { source } : { offline: true }
   }
 
-  private channelFor(sessionId: string): PeerChannel | null {
-    const source = this.sourceFor(sessionId)
-    return source ? this.channelOf(source.id) : null
+  private ownerLookup(sessionId: string): Promise<Lookup> {
+    const known = this.knownOwner(sessionId)
+    if (known) return Promise.resolve(known)
+    const running = this.lookups.get(sessionId)
+    if (running) return running
+    const lookup = this.lookUp(sessionId).finally(() => this.lookups.delete(sessionId))
+    this.lookups.set(sessionId, lookup)
+    return lookup
+  }
+
+  /**
+   * A session no member has listed yet (a push tap right after launch, one
+   * past `RELIST_LIMITS`): the lists in flight first, for at most
+   * `RELIST_WAIT_MS`, then every member that is up is asked for it. The one
+   * that has it owns it. Nobody: a member's 404 when every member answered,
+   * else offline — the one that is not up may hold it.
+   */
+  private async lookUp(sessionId: string): Promise<Lookup> {
+    if (this.relisting.size > 0) {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      await Promise.race([
+        Promise.allSettled([...this.relisting]),
+        new Promise((resolve) => {
+          timer = setTimeout(resolve, RELIST_WAIT_MS)
+        }),
+      ])
+      clearTimeout(timer)
+      const known = this.knownOwner(sessionId)
+      if (known) return known
+    }
+    const ready = this.readySources()
+    const path = `/api/sessions/${encodeURIComponent(sessionId)}`
+    const answers = await Promise.allSettled(ready.map(([, channel]) => channel.request('GET', path)))
+    let missing: TunnelResponse | null = null
+    let unanswered = false
+    for (const [i, answer] of answers.entries()) {
+      if (answer.status === 'rejected') {
+        unanswered = true
+        continue
+      }
+      const body = isObject(answer.value.body) ? answer.value.body : null
+      if (answer.value.status === 200 && body && isSession(body.session) && !carriesMachine(body.session)) {
+        // A frame that named its owner while this asked wins.
+        const known = this.knownOwner(sessionId)
+        if (known) return known
+        const [source] = ready[i]
+        this.own(source, body.session)
+        this.syncTopics()
+        return { source }
+      }
+      // A 200 for a session passed on as a third device's is not this member's either.
+      missing ??= answer.value.status === 200 ? NOT_FOUND : answer.value
+    }
+    const asleep = [...this.sourcesById.values()].some((s) => !this.channelOf(s.id))
+    if (unanswered || asleep || !missing) return { offline: true }
+    return { missing }
   }
 
   /** The member the last new session started on, while it is up; else the first that is. */

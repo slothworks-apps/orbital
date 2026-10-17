@@ -4,7 +4,7 @@ import type { GroupClientEvent, PeerInfo } from '@orbital/shared/remote/groupCli
 import type { HelloMessage } from '@orbital/shared/remote/messages'
 import { GroupFederation, sessionOfRequest, type FederatedGroup } from '../mobile/transport/groupFederation'
 
-type Answer = (method: string, path: string, body?: unknown) => TunnelResponse | undefined
+type Answer = (method: string, path: string, body?: unknown) => TunnelResponse | Promise<TunnelResponse> | undefined
 
 const STUDIO = 'S'.repeat(43)
 const LAPTOP = 'L'.repeat(43)
@@ -27,6 +27,11 @@ function fakeChannel(h: HelloMessage, data: { tags: { id: number; name: string; 
       const own = answer(method, path, body)
       if (own) return own
       if (method === 'GET' && path === '/api/tags') return { status: 200, body: { tags: data.tags } }
+      const one = method === 'GET' ? /^\/api\/sessions\/([^/?]+)$/.exec(path) : null
+      if (one) {
+        const found = data.sessions.find((x) => (x as { id: string }).id === one[1])
+        return found ? { status: 200, body: { session: found } } : { status: 404, body: { error: 'session_not_found' } }
+      }
       if (method === 'GET' && path.startsWith('/api/sessions?')) return { status: 200, body: { sessions: data.sessions } }
       if (method === 'POST' && path === '/api/tags') {
         const made = { id: nextTag++, name: (body as { name: string }).name }
@@ -98,7 +103,7 @@ function session(id: string, extra: Record<string, unknown> = {}) {
 
 type Listed = { id: string; tagIds: number[]; machine?: { id: string; name: string; online: boolean; asOf: number | null } }
 
-async function setup() {
+async function setup(opts: { laptopAnswer?: Answer; laptopOld?: unknown[]; settle?: boolean } = {}) {
   const group = new FakeGroup()
   const studio = fakeChannel(hello('studio'), {
     tags: [{ id: 7, name: 'orbital', hue: 200 }],
@@ -108,14 +113,14 @@ async function setup() {
   const laptop = fakeChannel(hello('laptop'), {
     tags: [{ id: 1, name: 'orbital', hue: 200 }, { id: 2, name: 'work', hue: 40 }],
     sessions: [session('l1', { tagIds: [1, 2] })],
-  })
+  }, opts.laptopAnswer)
   group.add(STUDIO, 'studio', studio)
   group.add(LAPTOP, 'laptop', laptop)
   let now = 1000
   const fed = new GroupFederation(group, { now: () => now })
   const events: RemoteClientEvent[] = []
   fed.on((e) => events.push(e))
-  await settle()
+  if (opts.settle !== false) await settle()
   const frames = () => events.flatMap((e) => (e.type === 'hub' ? [e.frame as Record<string, unknown>] : []))
   return { group, studio, laptop, fed, events, frames, setNow: (n: number) => (now = n) }
 }
@@ -181,9 +186,9 @@ describe('GroupFederation', () => {
     expect(laptop.request).toHaveBeenLastCalledWith('GET', '/api/projects', undefined)
     await fed.request('POST', '/api/dirs', { path: '/p', machine: LAPTOP })
     expect(laptop.request).toHaveBeenLastCalledWith('POST', '/api/dirs', { path: '/p' })
-    // `count` is a literal sibling, not a session: the default member, the first that is up.
-    await fed.request('GET', '/api/sessions/count')
-    expect(studio.request).toHaveBeenLastCalledWith('GET', '/api/sessions/count', undefined)
+    // `defaults` is a literal sibling, not a session: the default member, the first that is up.
+    await fed.request('GET', '/api/sessions/defaults')
+    expect(studio.request).toHaveBeenLastCalledWith('GET', '/api/sessions/defaults', undefined)
     await expect(fed.request('GET', '/api/projects?machine=nobody')).resolves.toMatchObject({ status: 404 })
   })
 
@@ -331,6 +336,101 @@ describe('GroupFederation', () => {
     group.channels.delete(LAPTOP)
     group.emit({ type: 'group' })
     expect(frames().at(-1)).toEqual({ topic: 'sessions', event: 'remove', sessionId: 'l1' })
+  })
+})
+
+describe('GroupFederation, a session no member has listed yet', () => {
+  /** The laptop holds `old` (past what a relist reads): it answers for it, the studio does not. */
+  const old = (method: string, path: string) =>
+    method === 'GET' && path === '/api/sessions/old' ? { status: 200, body: { session: session('old') } } : undefined
+
+  it('waits for a list in flight, then goes to the member that listed it', async () => {
+    let release: (res: TunnelResponse) => void = () => {}
+    const pending = new Promise<TunnelResponse>((resolve) => {
+      release = resolve
+    })
+    const { fed, studio, laptop } = await setup({
+      settle: false,
+      laptopAnswer: (method, path) => (method === 'GET' && path.startsWith('/api/sessions?') ? pending : undefined),
+    })
+    const asked = fed.request('GET', '/api/sessions/l1/messages')
+    await settle()
+    expect(laptop.request.mock.calls.map(([, p]) => p)).not.toContain('/api/sessions/l1/messages')
+    release({ status: 200, body: { sessions: [session('l1')] } })
+    await asked
+    expect(laptop.request).toHaveBeenLastCalledWith('GET', '/api/sessions/l1/messages', undefined)
+    expect(studio.request.mock.calls.map(([, p]) => p)).not.toContain('/api/sessions/l1/messages')
+  })
+
+  it('asks every member that is up, and the one that has it owns it', async () => {
+    const { fed, studio, laptop } = await setup({ laptopAnswer: old })
+    await fed.request('GET', '/api/sessions/old/messages')
+    expect(fed.ownerOf('old')).toBe(LAPTOP)
+    expect(laptop.request).toHaveBeenLastCalledWith('GET', '/api/sessions/old/messages', undefined)
+    expect(studio.request.mock.calls.map(([, p]) => p)).toContain('/api/sessions/old')
+    expect(studio.request.mock.calls.map(([, p]) => p)).not.toContain('/api/sessions/old/messages')
+    const seen = laptop.seen
+    fed.seen('old')
+    await settle()
+    expect(seen).toHaveBeenCalledWith('old')
+  })
+
+  it('never sends it to the default member: offline while another member is down', async () => {
+    const { fed, group, studio } = await setup()
+    group.down(LAPTOP)
+    await expect(fed.request('GET', '/api/sessions/zz/messages')).rejects.toEqual(new TunnelError('offline'))
+    expect(studio.request.mock.calls.map(([, p]) => p)).toContain('/api/sessions/zz')
+    expect(studio.request.mock.calls.map(([, p]) => p)).not.toContain('/api/sessions/zz/messages')
+  })
+
+  it('answers a member\'s 404 when every member answered and none has it', async () => {
+    const { fed, studio, laptop } = await setup()
+    await expect(fed.request('GET', '/api/sessions/gone/messages')).resolves.toEqual({ status: 404, body: { error: 'session_not_found' } })
+    for (const channel of [studio, laptop]) expect(channel.request.mock.calls.map(([, p]) => p)).not.toContain('/api/sessions/gone/messages')
+    await expect(fed.getFile('gone', 'a.png', 'image')).resolves.toMatchObject({ status: 404 })
+  })
+
+  it('answers offline when a member that may hold it is not up', async () => {
+    const group = new FakeGroup()
+    const studio = fakeChannel(hello('studio'), { tags: [], sessions: [] })
+    group.add(STUDIO, 'studio', studio)
+    group.add(LAPTOP, 'laptop', null)
+    const fed = new GroupFederation(group)
+    await settle()
+    await expect(fed.request('GET', '/api/sessions/l9')).rejects.toEqual(new TunnelError('offline'))
+    await expect(fed.getFile('l9', 'a.png', 'image')).rejects.toEqual(new TunnelError('offline'))
+    expect(studio.getFile).not.toHaveBeenCalled()
+  })
+})
+
+describe('GroupFederation, group-wide answers', () => {
+  it('sums the session count of every member that is up', async () => {
+    const total = (n: number): Answer => (_method, path) => (path.startsWith('/api/sessions/count') ? { status: 200, body: { total: n } } : undefined)
+    const group = new FakeGroup()
+    group.add(STUDIO, 'studio', fakeChannel(hello('studio'), { tags: [], sessions: [] }, total(3)))
+    group.add(LAPTOP, 'laptop', fakeChannel(hello('laptop'), { tags: [], sessions: [] }, total(4)))
+    const fed = new GroupFederation(group)
+    await expect(fed.request('GET', '/api/sessions/count')).resolves.toEqual({ status: 200, body: { total: 7 } })
+  })
+
+  it('maps tag rules\' tags between the default member and the phone', async () => {
+    const rules: Answer = (method, path) =>
+      method === 'GET' && path === '/api/tag-rules'
+        ? { status: 200, body: { rules: [{ id: 1, tag_id: 7, pattern: 'a' }, { id: 2, tag_id: 55, pattern: 'b' }] } }
+        : undefined
+    const group = new FakeGroup()
+    const studio = fakeChannel(hello('studio'), { tags: [{ id: 7, name: 'orbital', hue: 200 }], sessions: [] }, rules)
+    const laptop = fakeChannel(hello('laptop'), { tags: [{ id: 1, name: 'orbital' }, { id: 2, name: 'work', hue: 40 }], sessions: [] })
+    group.add(STUDIO, 'studio', studio)
+    group.add(LAPTOP, 'laptop', laptop)
+    const fed = new GroupFederation(group)
+    await settle()
+    const tags = await localTags(fed)
+    const res = await fed.request('GET', '/api/tag-rules')
+    // The rule whose tag the studio does not name is left out.
+    expect((res.body as { rules: unknown[] }).rules).toEqual([{ id: 1, tag_id: tags.get('orbital'), pattern: 'a' }])
+    await fed.request('POST', '/api/tag-rules', { tagId: tags.get('work'), condition: 'path_matches', pattern: 'x' })
+    expect(studio.request).toHaveBeenLastCalledWith('POST', '/api/tag-rules', { tagId: 90, condition: 'path_matches', pattern: 'x' })
   })
 })
 
