@@ -229,8 +229,9 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    * 2026-10-08-builds-for-testers-design § Download: asked first, or
    * automatic). Off: the desktop app asks before it downloads a new version.
    * Read by the desktop's main process (`desktop/src/lib/updates.ts`
-   * `AUTO_DOWNLOAD_KEY`) as `=== 'true'`. The phone never sees it: the
-   * remote allowlist denies `/api/settings`.
+   * `AUTO_DOWNLOAD_KEY`) as `=== 'true'`. Another member reads and may
+   * change it over its channel like any setting but the `remote_` ones;
+   * only the desktop app acts on it.
    */
   update_auto_download: 'false',
 };

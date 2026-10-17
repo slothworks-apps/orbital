@@ -76,7 +76,8 @@ export function listDirs(raw: string | undefined, home: string = homedir()): Lis
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'EACCES' || code === 'EPERM') return { ok: false, error: 'unreadable' };
-    if (code === 'ENOENT' || code === 'ENOTDIR') return { ok: false, error: 'not_found' };
+    // A path `statSync` refuses outright (a NUL byte) names no folder either.
+    if (code === 'ENOENT' || code === 'ENOTDIR' || code === 'ERR_INVALID_ARG_VALUE') return { ok: false, error: 'not_found' };
     throw err;
   }
   const names = entries
@@ -94,10 +95,13 @@ export function listDirs(raw: string | undefined, home: string = homedir()): Lis
   };
 }
 
-/** A directory, or a symlink that points at one. */
+/**
+ * A directory, or a symlink that points at one. An entry of no known type
+ * (`DT_UNKNOWN`, on some network and FUSE filesystems) is asked of `statSync`.
+ */
 function isDirEntry(parent: string, e: Dirent): boolean {
   if (e.isDirectory()) return true;
-  if (!e.isSymbolicLink()) return false;
+  if (e.isFile()) return false;
   try {
     return statSync(join(parent, e.name), { throwIfNoEntry: false })?.isDirectory() ?? false;
   } catch {

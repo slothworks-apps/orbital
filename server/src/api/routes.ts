@@ -1228,7 +1228,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * device opens on it (canvas 50g). No path is home.
    */
   app.get('/api/dirs', (req, reply) => {
-    const q = req.query as { path?: string };
+    const q = req.query as { path?: unknown };
+    // `?path=a&path=b` arrives as an array.
+    if (q.path !== undefined && typeof q.path !== 'string') return reply.code(400).send({ error: 'bad_path' });
     const listed = listDirs(q.path);
     if (listed.ok) return listed.listing;
     const status = { not_absolute: 400, not_found: 404, unreadable: 403 }[listed.error];
@@ -2456,9 +2458,12 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   const NOTIFICATION_ROW_KEYS: ReadonlySet<string> = new Set(Object.values(NOTIFICATION_SETTING_KEYS));
 
-  app.get('/api/settings', () => {
+  app.get('/api/settings', (req) => {
     const rows = db.select().from(settingsTable).all();
-    return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    // A member may not change the `remote_` keys (PATCH below), and the relay
+    // secret has no business travelling to another device.
+    const member = req.headers[DEVICE_HEADER] !== undefined;
+    return Object.fromEntries(rows.filter((r) => !member || !r.key.startsWith('remote_')).map((r) => [r.key, r.value]));
   });
   app.patch('/api/settings', (req, reply) => {
     // The default must name a configured directory; nothing is saved when it does not.

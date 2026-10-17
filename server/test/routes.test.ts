@@ -43,6 +43,7 @@ import { TerminalStore } from '../src/terminal/store.js';
 import { RecentToolsStore } from '../src/transcript/recentTools.js';
 import { createImageStore, type ImageStore } from '../src/images/store.js';
 import { RemoteService } from '../src/remote/service.js';
+import { DEVICE_HEADER } from '../src/remote/inject.js';
 import { createFileStore } from '../src/files/store.js';
 import { ErrorLog } from '../src/errors/log.js';
 import { Narrator, type NarrateQueryFn } from '../src/walkthrough/narrator.js';
@@ -1089,6 +1090,15 @@ describe('REST routes', () => {
     });
     const after = await app.inject({ method: 'GET', url: '/api/settings' });
     expect(after.json().confirm_before_clear).toBe('false');
+  });
+
+  it('GET /api/settings leaves every remote_ key out for a member', async () => {
+    await app.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_secret: 's3cret', theme: 'desk' } });
+    const own = (await app.inject({ method: 'GET', url: '/api/settings' })).json();
+    expect(own).toMatchObject({ remote_relay_secret: 's3cret', theme: 'desk' });
+    const member = (await app.inject({ method: 'GET', url: '/api/settings', headers: { [DEVICE_HEADER]: 'peer' } })).json();
+    expect(member.theme).toBe('desk');
+    expect(Object.keys(member).filter((k) => k.startsWith('remote_'))).toEqual([]);
   });
 
   it('seeds Download updates automatically off, and saves it', async () => {
@@ -4299,6 +4309,13 @@ describe('GET /api/dirs', () => {
     expect(await list(app, 'relative/dir')).toEqual({ status: 400, body: { error: 'not_absolute' } });
     expect(await list(app, join(dir, 'nope'))).toEqual({ status: 404, body: { error: 'not_found' } });
     expect(await list(app, join(dir, 'f.txt'))).toEqual({ status: 404, body: { error: 'not_found' } });
+  });
+
+  it('refuses a path given twice with 400, and one statSync rejects with 404', async () => {
+    const { app } = makeApp();
+    const twice = await app.inject({ method: 'GET', url: '/api/dirs?path=%2Fa&path=%2Fb' });
+    expect([twice.statusCode, twice.json()]).toEqual([400, { error: 'bad_path' }]);
+    expect(await list(app, '/tmp/a\0b')).toEqual({ status: 404, body: { error: 'not_found' } });
   });
 
   it.skipIf(process.getuid?.() === 0)('answers 403 for a directory it cannot read, and false for a child it cannot', async () => {
