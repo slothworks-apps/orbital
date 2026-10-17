@@ -85,8 +85,16 @@ export function isInlineImage(file: File): boolean {
  * folder is as good as a file. Without one, a folder cannot be uploaded and a
  * file past the route's ceiling would only be refused by it.
  */
-export function precheckFile(file: File, opts: { hasPath: boolean; folder: boolean }): Refusal | null {
-  if (opts.hasPath || isInlineImage(file)) return null
+export function precheckFile(
+  file: File,
+  opts: { hasPath: boolean; folder: boolean; foreign?: boolean },
+): Refusal | null {
+  if (isInlineImage(file)) return null
+  // A session of another device reads no path of this one, so nothing but an
+  // inline image reaches it — the server refuses the rest anyway (422
+  // `attachment_not_on_device`), and this says so before the upload.
+  if (opts.foreign) return { kind: 'not_on_device', name: file.name }
+  if (opts.hasPath) return null
   if (opts.folder) return { kind: 'folder', name: file.name }
   if (file.size > FILE_ATTACHMENT_MAX_BYTES) {
     return { kind: 'too_large', name: file.name, size: file.size }

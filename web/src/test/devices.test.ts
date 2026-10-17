@@ -4,9 +4,10 @@ import { parsePairingCode } from '@orbital/shared/remote/relayApi'
 import {
   LOCAL_DEVICE, addedByLine, asOfLabel, deviceChips, deviceOf, deviceRows, devicesOn, kindOs, memberStateWords,
   isMemberOffline, namesShown, oneWordCode, osLabel, showDeviceRow, toggleDevice,
+  agoWords, deviceLock, ideHere, pillWords, runsOn, sessionOfUrl, stateAsOf, withMachineOffline,
 } from '../lib/devices'
 import { ApiError } from '../lib/api'
-import type { GroupMember, MachineRef } from '../lib/types'
+import type { GroupMember, IdeContext, MachineRef } from '../lib/types'
 
 const NOW = Date.now()
 
@@ -259,5 +260,144 @@ describe('isMemberOffline', () => {
     expect(isMemberOffline(new ApiError('{"error":"member_offline"}', 500))).toBe(false)
     expect(isMemberOffline(new Error('member_offline'))).toBe(false)
     expect(isMemberOffline('member_offline')).toBe(false)
+  })
+})
+
+describe('another device in the detail panel (canvas 50f)', () => {
+  const MIN = 60_000
+  const machine = (patch: Partial<MachineRef> = {}): MachineRef => ({
+    id: 'build', name: 'build-box', kind: 'headless', os: 'linux', online: true, asOf: null, ...patch,
+  })
+  const self = member({ id: 'self-id', self: true, state: 'self' })
+  const build = (patch: Partial<GroupMember> = {}) =>
+    member({ id: 'build', name: 'build-box', kind: 'headless', os: 'linux', addedBy: 'self-id', ...patch })
+
+  describe('agoWords', () => {
+    it('spells the age the way the panel prints it', () => {
+      expect(agoWords(NOW - 10_000, NOW)).toBe('just now')
+      expect(agoWords(NOW - 12 * MIN, NOW)).toBe('12 min ago')
+      expect(agoWords(NOW - 2 * 60 * MIN, NOW)).toBe('2 h ago')
+      expect(agoWords(NOW - 3 * 24 * 60 * MIN, NOW)).toBe('3 d ago')
+    })
+  })
+
+  describe('deviceLock', () => {
+    it('never locks a session of this device', () => {
+      expect(deviceLock({}, [self, build({ state: 'offline' })], NOW)).toBeNull()
+    })
+
+    it('does not lock a member that is up', () => {
+      expect(deviceLock({ machine: machine() }, [self, build()], NOW)).toBeNull()
+      expect(deviceLock({ machine: machine() }, undefined, NOW)).toBeNull()
+    })
+
+    it('locks an offline member with when it was last seen', () => {
+      const lock = deviceLock(
+        { machine: machine({ online: false, asOf: NOW - 30 * MIN }) },
+        [self, build({ state: 'offline', seenAt: NOW - 12 * MIN })],
+        NOW,
+      )
+      expect(lock).toEqual({
+        title: 'build-box is offline',
+        body: 'Last seen 12 min ago. Everything it sent is here to read; the composer opens again when build-box is back.',
+      })
+    })
+
+    it('dates by the session when the roster does not list the member, and leaves the date out with none', () => {
+      expect(deviceLock({ machine: machine({ online: false, asOf: NOW - 5 * MIN }) }, [self], NOW)?.body)
+        .toMatch(/^Last seen 5 min ago\. /)
+      expect(deviceLock({ machine: machine({ online: false }) }, [self], NOW)?.body)
+        .toBe('Everything it sent is here to read; the composer opens again when build-box is back.')
+    })
+
+    it('locks once the roster has the member offline, before the session says so', () => {
+      expect(deviceLock({ machine: machine() }, [self, build({ state: 'offline' })], NOW)?.title)
+        .toBe('build-box is offline')
+    })
+
+    it('asks for an update on a member too old to be driven, whatever its presence', () => {
+      expect(deviceLock({ machine: machine() }, [self, build({ tooOld: true })], NOW)).toEqual({
+        title: 'Update Orbital on build-box',
+        body: 'Its Orbital is too old to be driven from here. Reading still works.',
+      })
+    })
+  })
+
+  describe('runsOn and pillWords', () => {
+    it('reads an online member with who added it', () => {
+      const card = runsOn({ machine: machine() }, [self, build()], NOW)
+      expect(card).toEqual({
+        name: 'build-box', kind: 'headless', os: 'linux', dot: 'live', words: 'online · added by this device',
+      })
+      expect(pillWords({ machine: machine() }, [self, build()])).toBe('build-box')
+    })
+
+    it('reads an offline member with when it was seen', () => {
+      const s = { machine: machine({ online: false, asOf: NOW - 12 * MIN }) }
+      expect(runsOn(s, [self], NOW)).toMatchObject({ dot: 'offline', words: 'offline · seen 12 min ago' })
+      expect(pillWords(s, [self])).toBe('build-box · offline')
+    })
+
+    it('reads a member too old as needing an update', () => {
+      const members = [self, build({ tooOld: true })]
+      expect(runsOn({ machine: machine() }, members, NOW)).toMatchObject({
+        dot: 'update', words: 'update Orbital on build-box',
+      })
+      expect(pillWords({ machine: machine() }, members)).toBe('build-box · update')
+    })
+
+    it("names this device's own pill by its roster entry", () => {
+      expect(runsOn({}, [self], NOW)).toMatchObject({ name: 'studio-mbp', dot: 'live', words: 'this device' })
+      expect(pillWords({}, [self])).toBe('studio-mbp')
+    })
+  })
+
+  describe('stateAsOf', () => {
+    it('dates an offline device and nothing else', () => {
+      expect(stateAsOf(machine({ online: false, asOf: NOW - 12 * MIN }), NOW)).toBe('AS OF 12 MIN AGO')
+      expect(stateAsOf(machine(), NOW)).toBeNull()
+      expect(stateAsOf(undefined, NOW)).toBeNull()
+      expect(stateAsOf(machine({ online: false }), NOW)).toBeNull()
+    })
+  })
+
+  describe('withMachineOffline', () => {
+    it("marks only that device's sessions offline, keeping a date they had", () => {
+      const sessions: Record<string, { machine?: MachineRef }> = {
+        a: { machine: machine() },
+        b: { machine: machine({ online: false, asOf: NOW - MIN }) },
+        c: { machine: machine({ id: 'air' }) },
+        d: {},
+      }
+      const next = withMachineOffline(sessions, 'build', NOW)
+      expect(next.a.machine).toMatchObject({ online: false, asOf: NOW })
+      expect(next.b).toBe(sessions.b)
+      expect(next.c).toBe(sessions.c)
+      expect(next.d).toBe(sessions.d)
+    })
+
+    it('returns the same object when nothing changes', () => {
+      const sessions: Record<string, { machine?: MachineRef }> = { d: {} }
+      expect(withMachineOffline(sessions, 'build', NOW)).toBe(sessions)
+    })
+  })
+
+  describe('sessionOfUrl', () => {
+    it('reads the session the way the server routes it', () => {
+      expect(sessionOfUrl('/api/sessions/abc%3A1/interrupt')).toBe('abc:1')
+      expect(sessionOfUrl('/api/sessions/abc')).toBe('abc')
+      expect(sessionOfUrl('/api/files/preview?session=xyz&path=a')).toBe('xyz')
+      expect(sessionOfUrl('/api/settings')).toBeNull()
+      expect(sessionOfUrl(undefined)).toBeNull()
+    })
+  })
+
+  describe('ideHere', () => {
+    it("drops the editor of another device's session", () => {
+      const ide = { ideName: 'VS Code' } as IdeContext
+      expect(ideHere({ ide })).toBe(ide)
+      expect(ideHere({ ide, machine: machine() })).toBeNull()
+      expect(ideHere(undefined)).toBeNull()
+    })
   })
 })

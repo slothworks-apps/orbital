@@ -17,6 +17,7 @@ import type {
   IdeDiagnosticSeverity,
 } from '../lib/types'
 import { workingDirOf } from '../lib/types'
+import { ideHere } from '../lib/devices'
 import { Code, Pre } from './MessageView'
 import { IDE_MODIFIER_LABEL } from './PathButton'
 
@@ -318,7 +319,7 @@ export function FileViewer({ session }: FileViewerProps) {
       onClose={closeFile}
       read={read}
       ideSessionId={session.id}
-      ideName={session.ide?.ideName ?? null}
+      ideName={ideHere(session)?.ideName ?? null}
       outside={(cwd) => (
         <>
           Orbital reads inside{' '}

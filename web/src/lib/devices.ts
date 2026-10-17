@@ -7,7 +7,7 @@
 import { encodePairingCode } from '@orbital/shared/remote/relayApi'
 import { timeAgo } from './format'
 import { codeLeft } from './remote'
-import type { ApiSession, GroupMember, MachineRef, MemberState, RemoteDevice } from './types'
+import type { ApiSession, GroupMember, IdeContext, MachineRef, MemberState, RemoteDevice } from './types'
 
 /**
  * The three known device kinds read as is; an unrecognised one passes
@@ -276,4 +276,160 @@ export function asOfLabel(machine: MachineRef | undefined, now: number): string 
 export function isMemberOffline(err: unknown): boolean {
   if (!(err instanceof Error) || (err as { status?: unknown }).status !== 409) return false
   return err.message.includes('member_offline')
+}
+
+/**
+ * How long ago, in the words the detail panel prints it (canvas 50f `Last
+ * seen 12 min ago`, `AS OF 12 MIN AGO`): `just now` inside the first
+ * minute, `12 min ago`, `2 h ago`, `3 d ago`, then the date alone.
+ */
+export function agoWords(ts: number, now: number): string {
+  const ago = timeAgo(ts, now)
+  if (ago === 'now') return 'just now'
+  const m = /^(\d+)([mhd])$/.exec(ago)
+  if (!m) return ago
+  return `${m[1]} ${m[2] === 'm' ? 'min' : m[2]} ago`
+}
+
+/** The roster entry of the device a session runs on: this device's own for a local session. */
+export function memberOf(
+  session: Pick<ApiSession, 'machine'>,
+  members: GroupMember[] | undefined,
+): GroupMember | undefined {
+  const list = members ?? []
+  return session.machine ? list.find((m) => m.id === session.machine?.id) : list.find((m) => m.self)
+}
+
+/**
+ * The detail header's state line keeps its last value while the device is
+ * offline, dated (canvas 50f `fState`: `WORKING · AS OF 12 MIN AGO`): the
+ * `AS OF …` half, or null for a device that is up, this device's own
+ * session, and an offline one with nothing to date it by.
+ */
+export function stateAsOf(machine: MachineRef | undefined, now: number): string | null {
+  if (!machine || machine.online || machine.asOf === null) return null
+  return `AS OF ${agoWords(machine.asOf, now).toUpperCase()}`
+}
+
+/** What replaces the composer of a session that cannot be driven from here (canvas 50f `fLockTitle`, `fLockBody`). */
+export interface DeviceLock {
+  title: string
+  body: string
+}
+
+/**
+ * Whether the composer of a session gives way to the reason it cannot be
+ * driven (canvas 50f C): null for this device's sessions and for a member
+ * that is up; the update texts for a member too old to federate (its
+ * versions are not known here, so they are left out of the canvas's
+ * sentence); the offline texts, dated by when it was last seen, for one
+ * that is down — by the session's own `machine` or by the roster.
+ */
+export function deviceLock(
+  session: Pick<ApiSession, 'machine'>,
+  members: GroupMember[] | undefined,
+  now: number,
+): DeviceLock | null {
+  const machine = session.machine
+  if (!machine) return null
+  const member = memberOf(session, members)
+  const name = member?.name ?? machine.name
+  if (member?.tooOld) {
+    return { title: `Update Orbital on ${name}`, body: 'Its Orbital is too old to be driven from here. Reading still works.' }
+  }
+  if (machine.online && member?.state !== 'offline') return null
+  const seen = member?.seenAt ?? machine.asOf
+  const back = `Everything it sent is here to read; the composer opens again when ${name} is back.`
+  return {
+    title: `${name} is offline`,
+    body: seen === null ? back : `Last seen ${agoWords(seen, now)}. ${back}`,
+  }
+}
+
+/** The RUNS ON card's state line and its dot (canvas 50f `fbState`, `fbDot`). */
+export interface RunsOn {
+  name: string
+  kind: string
+  os: string
+  /** `live`: the accent dot; `offline`: a hollow ring; `update`: a solid light dot. */
+  dot: 'live' | 'offline' | 'update'
+  words: string
+}
+
+/**
+ * What the device pill's hover card says (canvas 50f RUNS ON): the device's
+ * name, kind and OS, and its state — `online · added by <who>`, `offline ·
+ * seen 12 min ago`, `update Orbital on <name>`, or `this device`. A member
+ * the roster does not list (yet) is read off the session's own `machine`.
+ */
+export function runsOn(
+  session: Pick<ApiSession, 'machine'>,
+  members: GroupMember[] | undefined,
+  now: number,
+): RunsOn {
+  const member = memberOf(session, members)
+  const machine = session.machine
+  const name = member?.name ?? machine?.name ?? ''
+  const kind = member?.kind ?? machine?.kind ?? 'desktop'
+  const os = member?.os ?? machine?.os ?? ''
+  if (!machine) return { name, kind, os, dot: 'live', words: 'this device' }
+  if (member?.tooOld) return { name, kind, os, dot: 'update', words: `update Orbital on ${name}` }
+  const offline = !machine.online || member?.state === 'offline'
+  if (offline) {
+    const seen = member?.seenAt ?? machine.asOf
+    return { name, kind, os, dot: 'offline', words: seen === null ? 'offline' : `offline · seen ${agoWords(seen, now)}` }
+  }
+  return { name, kind, os, dot: 'live', words: member ? `online · ${addedByLine(member, members ?? [])}` : 'online' }
+}
+
+/** The device pill's words (canvas 50f `fTag`): the name, and why it cannot be driven when it cannot. */
+export function pillWords(session: Pick<ApiSession, 'machine'>, members: GroupMember[] | undefined): string {
+  const member = memberOf(session, members)
+  const name = member?.name ?? session.machine?.name ?? ''
+  if (!session.machine) return name
+  if (member?.tooOld) return `${name} · update`
+  return !session.machine.online || member?.state === 'offline' ? `${name} · offline` : name
+}
+
+/**
+ * Every session of `machineId` marked offline, as the server will republish
+ * them: a request about one of them was refused with `member_offline` while
+ * this tab still held the member as up. `asOf` keeps a date it already had,
+ * else takes `now`. The same object when no session runs there.
+ */
+export function withMachineOffline<S extends Pick<ApiSession, 'machine'>>(
+  sessions: Record<string, S>,
+  machineId: string,
+  now: number,
+): Record<string, S> {
+  let next: Record<string, S> | null = null
+  for (const [id, s] of Object.entries(sessions)) {
+    if (s.machine?.id !== machineId || !s.machine.online) continue
+    next ??= { ...sessions }
+    next[id] = { ...s, machine: { ...s.machine, online: false, asOf: s.machine.asOf ?? now } }
+  }
+  return next ?? sessions
+}
+
+/**
+ * The editor a session's composer and file paths may talk to: none for
+ * another device's session, whose files are on that device (canvas 50f B:
+ * no editor button and no IDE in the composer).
+ */
+export function ideHere(session: Pick<ApiSession, 'machine' | 'ide'> | undefined): IdeContext | null {
+  if (!session || session.machine) return null
+  return session.ide ?? null
+}
+
+/**
+ * The session a request was about, read off its url the way the server
+ * routes it (`/api/sessions/:id…`, else `?session=`): what a refusal that
+ * reached `reportError` names, so the lock can show on the right session.
+ */
+export function sessionOfUrl(url: string | undefined): string | null {
+  if (!url) return null
+  const [path, query = ''] = url.split('?', 2)
+  const inPath = /^\/api\/sessions\/([^/]+)/.exec(path)
+  if (inPath) return decodeURIComponent(inPath[1])
+  return new URLSearchParams(query).get('session')
 }

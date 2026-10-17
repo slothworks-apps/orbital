@@ -110,6 +110,10 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
   )
 
   const [exhausted, setExhausted] = useState(false)
+  // The device's name while its history could not be read (`historyUnkept`).
+  const unkeptFrom = useOrbital((s) =>
+    s.historyUnkept?.[sessionId] ? (s.sessions[sessionId]?.machine?.name ?? null) : null,
+  )
 
   // Context compaction (spec 2026-09-28-context-compaction-design): what the
   // marks draw against, and the live block while one runs.
@@ -224,6 +228,19 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
         : undefined,
     [jump],
   )
+
+  // An offline device whose history was never read while it was up: one
+  // quiet line where the transcript would be, never an error.
+  if (unkeptFrom !== null && messages.length === 0) {
+    return (
+      <div
+        data-history-unkept
+        className="flex h-full items-center justify-center px-[22px] text-center font-mono text-[11px] text-[rgba(160,190,225,.55)]"
+      >
+        Nothing from {unkeptFrom} is kept here yet.
+      </div>
+    )
+  }
 
   return (
     // Reply thumbnails read named files through this session (24f A).

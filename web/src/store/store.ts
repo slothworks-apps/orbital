@@ -17,7 +17,7 @@ import type { ContextThresholds } from '../lib/usage'
 import type { MapStatePills } from '../lib/stateStyle'
 import type { LinesMode } from '../lib/branchStatus'
 import { archipelagoEnabled } from '../lib/experimental'
-import { deviceChips, deviceOf, devicesOn } from '../lib/devices'
+import { deviceChips, deviceOf, devicesOn, ideHere, isMemberOffline, withMachineOffline } from '../lib/devices'
 import type {
   ApiSession,
   AttachmentSource,
@@ -317,6 +317,13 @@ export interface OrbitalState {
    * `select()` only ever fetches once per session regardless of how many
    * live messages have already arrived over the WS for that session. */
   historyLoaded: Record<string, boolean>
+  /**
+   * Sessions of an offline member whose history this device has no copy of:
+   * their first read answered 409 `member_offline` (spec 2026-10-16
+   * § 8). The transcript says so in one quiet line instead of staying blank.
+   * Optional, as absent and empty mean the same.
+   */
+  historyUnkept?: Record<string, true>
   /** Sessions that transitioned `working` -> `idle` on the `session:<id>`
    * topic without an intervening `turn_result` — the "SDK process crash"
    * error state from the spec (`docs/superpowers/specs/2026-09-15-orbital-design.md`
@@ -619,6 +626,13 @@ export interface OrbitalActions {
    * (spec 2026-09-23-permission-and-plan-decisions-design § Answering).
    */
   resolveDecision(sessionId: string, verdict: { approved: boolean; message?: string }): void
+  /**
+   * A request about `sessionId` was refused because its device is offline
+   * (409 `member_offline`): every session of that device reads offline from
+   * here — the composer gives way to the lock — until the server republishes
+   * them. True when `err` was that refusal, so the caller shows no error.
+   */
+  refusedOffline(sessionId: string, err: unknown): boolean
   /**
    * Drops the editor selection from THIS session's composer (the lip's ×).
    * `selectionId` is what the lip was standing over; a later selection has a
@@ -1860,8 +1874,18 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           historyLoaded: { ...state.historyLoaded, [id]: true },
         }
       })
-    } catch {
-      // Leave historyLoaded unset so a future select() can retry.
+      set((state) => {
+        if (!state.historyUnkept?.[id]) return {}
+        const { [id]: _unkept, ...historyUnkept } = state.historyUnkept
+        return { historyUnkept }
+      })
+    } catch (err) {
+      // Leave historyLoaded unset so a future select() can retry. An offline
+      // device with no copy kept here locks the composer and says so in the
+      // transcript, never in a toast.
+      if (get().refusedOffline(id, err)) {
+        set((state) => ({ historyUnkept: { ...state.historyUnkept, [id]: true } }))
+      }
     }
   },
 
@@ -1950,7 +1974,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // a new turn, and nothing rides on it. Nor on a slash command, which the
     // CLI runs only when it opens the turn.
     const session = get().sessions[id]
-    const selection = session?.ide?.selection ?? null
+    const selection = ideHere(session)?.selection ?? null
     const cwd = session?.cwd ?? ''
     const outgoing = isSlashCommand(text)
       ? text
@@ -2027,6 +2051,19 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           return { rewindSending }
         })
       }
+      // The device went offline before this tab heard: the turn did not go
+      // out, so it comes back off the transcript and into the draft, and the
+      // composer gives way to the lock.
+      if (get().refusedOffline(id, err)) {
+        set((state) => ({
+          transcripts: {
+            ...state.transcripts,
+            [id]: (state.transcripts[id] ?? []).filter((m) => m.id !== optimisticMessage.id),
+          },
+        }))
+        if (text && !get().composerDrafts[id]) get().setComposerDraft(id, text)
+        return
+      }
       if (err instanceof ApiError && err.status === 409) {
         set({
           toast: {
@@ -2087,6 +2124,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         else delete decisionAnswers[decision.id]
         return { decisionAnswers }
       })
+      if (get().refusedOffline(sessionId, err)) return
       const message = err instanceof Error ? err.message : 'Failed to send the answer'
       set({ toast: { kind: 'error', message } })
     })
@@ -2124,9 +2162,22 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         delete decisionVerdicts[decision.id]
         return { decisionVerdicts }
       })
+      if (get().refusedOffline(sessionId, err)) return
       const message = err instanceof Error ? err.message : 'Failed to send the answer'
       set({ toast: { kind: 'error', message } })
     })
+  },
+
+  refusedOffline(sessionId, err) {
+    if (!isMemberOffline(err)) return false
+    const machineId = get().sessions[sessionId]?.machine?.id
+    if (machineId) {
+      set((state) => {
+        const sessions = withMachineOffline(state.sessions, machineId, Date.now())
+        return sessions === state.sessions ? {} : { sessions }
+      })
+    }
+    return true
   },
 
   dismissIdeSelection(sessionId, selectionId) {

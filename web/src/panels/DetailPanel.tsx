@@ -66,6 +66,8 @@ import { useMcpUi } from '../store/mcp'
 import { ModelSwitcher } from './ModelSwitcher'
 import { SessionStatsRow } from './SessionStatsRow'
 import { HarnessPill } from './HarnessPill'
+import { DevicePill } from './DevicePill'
+import { deviceChips, deviceLock, ideHere, namesShown, stateAsOf, type DeviceLock } from '../lib/devices'
 import { harnessUnfinished } from '../lib/harnessSession'
 import { SubagentChip } from './SubagentChip'
 import { TaskChip } from './TaskChip'
@@ -209,7 +211,7 @@ export function DetailPanel({
   const sendPrompt = useOrbital((s) => s.sendPrompt)
   /** The editor on this session's workspace, and this session's own × (spec
    * 2026-09-23-ide-bridge-design § The slot and the lip). */
-  const ide = useOrbital((s) => (id ? (s.sessions[id]?.ide ?? null) : null))
+  const ide = useOrbital((s) => (id ? ideHere(s.sessions[id]) : null))
   const ideDismissedId = useOrbital((s) => (id ? s.ideDismissed[id] : undefined))
   const dismissIdeSelection = useOrbital((s) => s.dismissIdeSelection)
   const setSessionPinned = useOrbital((s) => s.setSessionPinned)
@@ -226,6 +228,23 @@ export function DetailPanel({
   const compacting = session ? compactingOf(session) : null
   const compactingNow = useNow(compacting !== null)
   const composerLocked = session?.source === 'web' && session.compacting != null
+
+  // Another device of the group (canvas 50f): its pill on the panel's edge,
+  // and the lock in the composer's place while it cannot be driven. The
+  // clock ticks by the minute only while there is an age to count.
+  const members = useOrbital((s) => s.remote?.group?.members)
+  const hiddenDeviceIds = useOrbital((s) => s.ui.hiddenDeviceIds)
+  const foreign = session?.machine !== undefined
+  const deviceNow = useNow(foreign && session?.machine?.online === false, 60_000)
+  const lock: DeviceLock | null = session ? deviceLock(session, members, deviceNow) : null
+  const showDevicePill =
+    session !== undefined && (foreign || namesShown(deviceChips(members), hiddenDeviceIds ?? []))
+  // Nothing of it was kept here while it was up: once it is back, read it.
+  const historyUnkept = useOrbital((s) => (selectedId ? Boolean(s.historyUnkept?.[selectedId]) : false))
+  const machineOnline = session?.machine?.online ?? true
+  useEffect(() => {
+    if (selectedId && historyUnkept && machineOnline) void useOrbital.getState().select(selectedId)
+  }, [selectedId, historyUnkept, machineOnline])
 
   const [titleDraft, setTitleDraft] = useState('')
   const [isEditingTitle, setIsEditingTitle] = useState(false)
@@ -270,7 +289,8 @@ export function DetailPanel({
   // TARGET is the whole panel: "a 418 px well is too small a thing to aim at
   // while holding a file" (canvas 9c-1). The empty-string key is the render
   // before a session is selected, on which nothing can be dropped anyway.
-  const attachments = useAttachments(id ?? '')
+  // Another device's session reads no path of this one: images only.
+  const attachments = useAttachments(id ?? '', { foreign })
   const { armed: dropArmed, ref: dropTargetRef } = useImageDrop((files, folders) =>
     attachments.accept(files, 'file', folders),
   )
@@ -438,7 +458,7 @@ export function DetailPanel({
   useCommand(
     'session.interrupt',
     () => setDialog('stop'),
-    shown?.status === 'working' && !isReadOnly(shown)
+    shown?.status === 'working' && !isReadOnly(shown) && lock === null
   )
   // Clear and End are Orbital's own, as the strip draws them (`UtilityStrip`).
   useCommand('session.clear', () => handleClearClick(), shown?.source === 'web')
@@ -600,7 +620,7 @@ export function DetailPanel({
     const text = draft.trim()
     const sessionId = id
     if (!sessionId) return
-    if (composerLocked) return
+    if (composerLocked || lock) return
     if (!text && !attachments.armed) return
     // `/rewind` is Orbital's, never the agent's: sent, it opens pick mode
     // (spec 2026-09-29-rewind-design § Behaviour 1). While a rewind is
@@ -788,6 +808,12 @@ export function DetailPanel({
     {/* The harness's drawer handle (canvas `Feature - Harness` 30a-d): on the
         panel's right edge, outside its clipping shell. A detached window's
         edge is the window's own, so there the pill keeps inside it. */}
+    {/* The device it runs on (canvas 50f), on the panel's top edge, outside
+        its clipping shell like the harness pill. A detached window draws it
+        in its title bar instead. */}
+    {session && showDevicePill && !standalone && (
+      <DevicePill session={session} hue={headerHue ?? ACCENT_HUE} placement="edge" />
+    )}
     {session && (
       <HarnessPill
         session={session}
@@ -858,6 +884,9 @@ export function DetailPanel({
           ].join(' ')}
           style={standalone ? { paddingLeft: WINDOW_STRIP_INSET_PX } : undefined}
         >
+          {session && showDevicePill && standalone && (
+            <DevicePill session={session} hue={headerHue ?? ACCENT_HUE} placement="inline" />
+          )}
           {/* No `gap` on the row: the strip spaces its own buttons, because
               it animates those spaces when it folds (23d). */}
           <UtilityStrip
@@ -1028,6 +1057,8 @@ export function DetailPanel({
                   // two — it hears `decision_pending` directly.
                   state={stateKey}
                   gate={gateWaits(session)}
+                  // Canvas 50f: an offline device's state keeps its last value, dated.
+                  asOf={stateAsOf(session.machine, deviceNow)}
                 />
               )}
               {/* Subagent list spec § 1: the chip is as tall as the badge,
@@ -1217,6 +1248,25 @@ export function DetailPanel({
         {isTerminalLive ? (
           <div className="rounded-[10px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.6)] px-3 py-3 text-center font-mono text-[11.5px] text-text-muted">
             runs in terminal — read-only
+          </div>
+        ) : lock ? (
+          // Canvas 50f C: the reason in the composer's place — never a
+          // disabled field to type into.
+          <div
+            data-device-lock
+            aria-disabled="true"
+            className="flex items-start gap-3 rounded-[10px] border border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.4)] px-3.5 py-[13px]"
+          >
+            <span
+              aria-hidden
+              className="mt-[5px] box-border block size-2 flex-none rounded-full border-[1.3px] border-solid border-[rgba(200,215,235,.6)]"
+            />
+            <span className="flex flex-1 flex-col gap-1">
+              <span className="text-[13.5px] font-semibold text-text-bright">{lock.title}</span>
+              <span className="text-[12.5px] leading-normal text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+                {lock.body}
+              </span>
+            </span>
           </div>
         ) : (
           // The well, its editor and its completion popup are

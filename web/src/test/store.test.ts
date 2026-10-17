@@ -632,6 +632,46 @@ describe('sendPrompt', () => {
     // The optimistic message remains in the transcript despite the failed send.
     expect(useOrbital.getState().transcripts.s1).toHaveLength(1)
   })
+
+  it("takes a turn refused as member_offline back into the draft and locks the device's sessions, with no toast", async () => {
+    const machine = { id: 'build', name: 'build-box', kind: 'headless', os: 'linux', online: true, asOf: null }
+    useOrbital.setState({
+      sessions: {
+        s1: makeSession({ id: 's1', machine }),
+        s2: makeSession({ id: 's2', machine }),
+        s3: makeSession({ id: 's3' }),
+      },
+    })
+    vi.mocked(api.sendMessage).mockRejectedValueOnce(new ApiError('{"error":"member_offline"}', 409))
+
+    await useOrbital.getState().sendPrompt('s1', 'hello')
+
+    const state = useOrbital.getState()
+    expect(state.toast).toBeNull()
+    expect(state.transcripts.s1).toEqual([])
+    expect(state.composerDrafts.s1).toBe('hello')
+    expect(state.sessions.s1.machine?.online).toBe(false)
+    expect(state.sessions.s2.machine?.online).toBe(false)
+    expect(state.sessions.s3.machine).toBeUndefined()
+  })
+})
+
+describe('select on an offline device', () => {
+  it('marks the history as not kept here on member_offline, and clears that once it reads', async () => {
+    const machine = { id: 'build', name: 'build-box', kind: 'headless', os: 'linux', online: true, asOf: null }
+    useOrbital.setState({ sessions: { s1: makeSession({ id: 's1', machine }) } })
+    vi.mocked(api.getMessages).mockRejectedValueOnce(new ApiError('{"error":"member_offline"}', 409))
+
+    await useOrbital.getState().select('s1')
+    expect(useOrbital.getState().historyUnkept?.s1).toBe(true)
+    expect(useOrbital.getState().sessions.s1.machine?.online).toBe(false)
+    expect(useOrbital.getState().toast).toBeNull()
+
+    vi.mocked(api.getMessages).mockResolvedValueOnce([{ id: 'm1', role: 'user', text: 'hi' }])
+    await useOrbital.getState().select('s1')
+    expect(useOrbital.getState().historyUnkept?.s1).toBeUndefined()
+    expect(useOrbital.getState().transcripts.s1).toHaveLength(1)
+  })
 })
 
 // ---------------------------------------------------------------------------

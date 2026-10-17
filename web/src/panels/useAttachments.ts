@@ -136,7 +136,14 @@ let chipCounter = 0
  * which is NOT the same thing: nothing can be dropped on a panel that is not
  * there, and an empty id must not quietly become a valid sessionless upload.
  */
-export function useAttachments(sessionId: string | null): AttachmentsHandle {
+export function useAttachments(
+  sessionId: string | null,
+  opts: {
+    /** The session runs on another device of the group: only inline images can reach it (`precheckFile`). */
+    foreign?: boolean
+  } = {},
+): AttachmentsHandle {
+  const foreign = opts.foreign ?? false
   const [items, setItems] = useState<readonly Attachment[]>([])
   const [refusal, setRefusal] = useState<(RefusalNotice & { exiting: boolean }) | null>(null)
 
@@ -273,6 +280,7 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
         const refused = precheckFile(file, {
           hasPath: path !== null,
           folder: folders?.has(file.name) ?? false,
+          foreign,
         })
         if (refused) refusals.push(refused)
         else keepers.push({ file, path })
@@ -319,7 +327,7 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
       }
       showRefusal(refusals)
     },
-    [showRefusal, startUpload, sync],
+    [foreign, showRefusal, startUpload, sync],
   )
 
   const remove = useCallback(

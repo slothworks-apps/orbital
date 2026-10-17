@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { useOrbital } from '../store/store'
 import { fileOpenHandlers, useFileCwd, useFileMessage, useLongPress, useMessageId } from '../lib/fileOpen'
 import { isMediaPath } from '../lib/pathLinks'
+import { ideHere } from '../lib/devices'
 import { MediaViewer } from './MediaViewer'
 
 /**
@@ -96,11 +97,12 @@ const VARIANT_CLASSES: Record<PathButtonVariant, string> = {
  * strings compare equal and nothing re-renders.
  */
 function useSelectedIde(): { ideName: string | null; workspaceRoot: string | null } {
+  // `ideHere`: another device's session has no editor here to send a path to.
   const ideName = useOrbital((s) =>
-    s.ui.selectedId ? (s.sessions[s.ui.selectedId]?.ide?.ideName ?? null) : null
+    s.ui.selectedId ? (ideHere(s.sessions[s.ui.selectedId])?.ideName ?? null) : null
   )
   const workspaceRoot = useOrbital((s) =>
-    s.ui.selectedId ? (s.sessions[s.ui.selectedId]?.ide?.workspaceRoot ?? null) : null
+    s.ui.selectedId ? (ideHere(s.sessions[s.ui.selectedId])?.workspaceRoot ?? null) : null
   )
   return { ideName, workspaceRoot }
 }
