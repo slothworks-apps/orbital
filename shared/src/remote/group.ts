@@ -11,6 +11,7 @@ import type { Channel } from './channel.js';
 import { osName } from './device.js';
 import type { GroupMessage, HelloMessage } from './messages.js';
 import type { RelayAction } from './relayApi.js';
+import type { LinkStatus } from './relayLink.js';
 import {
   addMember, describeMember, isLive, mergeRosters, removeMember, rosterDigest, type RosterEntry,
 } from './roster.js';
@@ -80,7 +81,7 @@ export interface GroupStorage {
  * `post` never rejects: a relay that cannot be reached answers status 0.
  */
 export interface GroupRelay {
-  readonly status: string;
+  readonly status: LinkStatus;
   post<T>(path: string, action: RelayAction, payload: unknown): Promise<{ status: number; body: T }>;
 }
 
@@ -119,8 +120,9 @@ export interface GroupHost {
 /**
  * Whether `entries` holds a live member other than `self` that makes a
  * group: one that links, or one this device is not paired with (`paired`
- * holds the ids with a `remote_devices` row). A phone paired here makes no
- * group — a Mac with only its phones keeps today's relay change and joins.
+ * holds the ids of every pair this device holds). A device paired here that
+ * does not link (a shipped phone) makes no group: a device with only such
+ * pairs keeps today's relay change and joins.
  */
 function hasOtherGroupMember(entries: RosterEntry[], self: string | null, paired: Set<string>): boolean {
   return entries.some((e) => isLive(e) && e.id !== self && (e.links || !paired.has(e.id)));
