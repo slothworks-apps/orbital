@@ -5,17 +5,10 @@
  * connection). Off is the default and off means nothing here is constructed
  * (spec 2026-09-30-mobile-remote-design § 3).
  */
-import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import {
-  deviceId, fingerprint, formatFingerprint, fromBase64Url, normalizePairingCode, publicKeyOf, toBase64Url,
-  type Identity,
-} from '@orbital/shared/remote/keys';
+import { deviceId, publicKeyOf, type Identity } from '@orbital/shared/remote/keys';
 import { FLAG_STATE, FLAG_WAKE, ZERO_WAKE, decodeFrame, encodeFrame } from '@orbital/shared/remote/frame';
-import {
-  PAIRING_SECRET_BYTES, PAIRING_TOKEN_TTL_MS, PAIR_NAME_MAX_CHARS, openPairingDevice, pairingProof, parsePairingCode, sealPairingDevice,
-  verifyPairingProof, type QrPayload, type RelayToDevice,
-} from '@orbital/shared/remote/relayApi';
+import { PAIR_NAME_MAX_CHARS, type RelayToDevice } from '@orbital/shared/remote/relayApi';
 import { initiates, osName } from '@orbital/shared/remote/device';
 import type { Role } from '@orbital/shared/remote/handshake';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
@@ -25,6 +18,9 @@ import { ROSTER_KIND_MAX_CHARS, isLive, type RosterEntry } from '@orbital/shared
 import {
   GroupMember, type GroupStorage, type MemberState, type RemoveResult, type SelfAbout,
 } from '@orbital/shared/remote/group';
+import {
+  PairingCeremony, type JoinResult, type PairConfirmResult, type StartPairingResult,
+} from '@orbital/shared/remote/ceremony';
 import type { RelayTooOld } from '@orbital/shared/remote/version';
 import type { Hub } from '../api/hub.js';
 import { CONFIG } from '../config.js';
@@ -55,44 +51,9 @@ export const RELAY_TOO_OLD_RECHECK_MS = 5 * 60_000;
 
 export { MUTUAL_RETRY_MS, type MemberState, type RemoveResult } from '@orbital/shared/remote/group';
 
-/**
- * Wrong pairing codes a request may be sent before it is rejected as if the
- * user had pressed Reject: enough for a typo, too few to guess 30 bits
- * (spec 2026-10-06-pairing-code-and-app-lock-design § 1).
- */
-export const PAIR_CODE_ATTEMPTS = 3;
-
-/**
- * What a phone is called whose name did not come sealed with its request:
- * a phone from before sealed devices, or a blob that does not open. It never
- * blocks the pairing — the code typed here is what authenticates (spec
- * 2026-10-08-relay-knows-no-names-design § 3).
- */
-export const UNKNOWN_PHONE_NAME = 'Unknown phone';
-
-/**
- * The answer to a pairing request. `no_pending`: nothing to answer, or a
- * different phone than the one asked about. `code_mismatch`: a wrong code,
- * the request still waits. `code_rejected`: the last wrong code, the request
- * was rejected. `relay_error`: the relay did not take the answer.
- */
-export type PairConfirmResult =
-  | { ok: true }
-  | { error: 'no_pending' | 'code_rejected' | 'relay_error' }
-  | { error: 'code_mismatch'; attemptsLeft: number };
-
-/**
- * The answer to joining another device by its code: that device and the
- * code the user types on it, or why not. `in_group`: this device is in a
- * group already and leaves it first. `peer_offline`: the device that showed
- * the code is not on the relay; `expiresAt` is the code's, when it says.
- * `other_relay`: the code names a relay this server is not on, `relay`.
- */
-export type JoinResult =
-  | { device: string; name: string; code: string }
-  | { error: 'bad_code' | 'disabled' | 'offline' | 'already_paired' | 'in_group' | 'relay_error' | 'relay_too_old' }
-  | { error: 'other_relay'; relay: string }
-  | { error: 'peer_offline'; expiresAt?: number };
+export {
+  PAIR_CODE_ATTEMPTS, UNKNOWN_PHONE_NAME, type JoinResult, type PairConfirmResult,
+} from '@orbital/shared/remote/ceremony';
 
 export type RemoteStatus = {
   enabled: boolean;
@@ -206,17 +167,12 @@ export class RemoteService {
   private readonly roster: RosterStore;
   private readonly watchers = new Map<string, DeviceWatcher>();
   private readonly channels = new Map<string, Channel>();
-  /** `code` is the fingerprint the phone shows; `attemptsLeft` counts down in place, so the object stays the one a confirm in flight compares against. */
-  private pendingPair: (NonNullable<RemoteStatus['pendingPair']> & { code: string }) | null = null;
-  /** `secret` went into the QR and only there; a `pair_request` must prove it (`verifyPairingProof`). */
-  private pairing: { expiresAt: number; secret: Uint8Array } | null = null;
-  /** A device whose code this server redeemed, until it confirms or refuses (`paired`, `rejected`). */
-  private joining: { device: string; name: string; kind: string | null; code: string; expiresAt: number } | null = null;
   /**
-   * A join the user cancelled, until its code expires: the other device may
-   * still confirm it, and the pair the relay then makes is revoked here.
+   * The pairing ceremonies: a code shown here and the device that redeemed
+   * it, and a code of another device redeemed here. One for the service's
+   * life; a stop forgets what was in progress (`reset`).
    */
-  private cancelledJoin: { device: string; expiresAt: number } | null = null;
+  private readonly ceremony: PairingCeremony;
   private error: string | null = null;
   /** Set when the relay client stopped on a relay below `MIN_RELAY_VERSION`; cleared by the next start. */
   private relayRefusal: RelayTooOld | null = null;
@@ -264,6 +220,37 @@ export class RemoteService {
       paired: (id) => this.watch(id),
       forget: (id) => this.forget(id),
       forgetAll: () => this.forgetAll(),
+      changed: () => this.publishStatus(),
+      now: () => this.now(),
+      log: (message) => console.warn(`[remote] ${message}`),
+    });
+    this.ceremony = new PairingCeremony({
+      enabled: () => this.enabled,
+      identity: () => this.identity,
+      relay: () => this.client,
+      relayTooOld: () => this.relayRefusal !== null,
+      relayUrl: () => this.relayUrl,
+      relaySecret: () => this.relaySecret,
+      self: () => ({ name: this.macName, platform: osName(process.platform), kind: serverDeviceKind() }),
+      inGroup: () => this.group.inGroup(),
+      isLiveMember: (id) => this.group.isLiveMember(id),
+      paired: {
+        get: (id) => this.devices.get(id),
+        add: (d) => this.devices.add({ ...d, notifications: parseNotificationSettings(this.opts.allSettings()) }),
+        remove: (id) => this.devices.remove(id),
+      },
+      pendingRevokes: this.pendingRevokes,
+      addPaired: (device) => this.group.addPaired(device),
+      revokeCancelled: (id) => this.group.tryRoster('revoke a cancelled join', () => this.group.revokeAtRelay(id)),
+      watch: (id) => this.watch(id),
+      abandon: (id) => {
+        this.channels.get(id)?.close();
+        this.channels.delete(id);
+        this.watchers.get(id)?.stop();
+        this.watchers.delete(id);
+      },
+      open: (id) => this.open(id),
+      announce: (pending) => this.opts.hub.publish('remote', { event: 'pair_request', ...pending }),
       changed: () => this.publishStatus(),
       now: () => this.now(),
       log: (message) => console.warn(`[remote] ${message}`),
@@ -368,10 +355,7 @@ export class RemoteService {
     client?.removeAllListeners();
     client?.stop();
     this.identity = null;
-    this.pendingPair = null;
-    this.pairing = null;
-    this.joining = null;
-    this.cancelledJoin = null;
+    this.ceremony.reset();
   }
 
   /** Re-reads every setting: a toggle or a relay URL change applies now. */
@@ -437,7 +421,7 @@ export class RemoteService {
   }
 
   status(): RemoteStatus {
-    this.pairingOpen();
+    const ceremony = this.ceremony.state();
     const online = this.client?.peersOnline ?? new Set<string>();
     return {
       enabled: this.enabled,
@@ -450,13 +434,9 @@ export class RemoteService {
       devices: this.listDevices().map((d) => ({
         ...d, online: online.has(d.id), needsUpdate: this.phonesTooOld.get(d.id) ?? null,
       })),
-      pendingPair: this.publicPendingPair(),
-      pairing: this.pairing ? { expiresAt: this.pairing.expiresAt } : null,
-      joining: this.joining && this.joining.expiresAt > this.now()
-        ? {
-          device: this.joining.device, name: this.joining.name, kind: this.joining.kind, code: this.joining.code,
-          expiresAt: this.joining.expiresAt,
-        } : null,
+      pendingPair: ceremony.pendingPair,
+      pairing: ceremony.pairing,
+      joining: ceremony.joining,
       error: this.error,
       group: this.listGroup(online),
     };
@@ -480,13 +460,6 @@ export class RemoteService {
     return this.group.inGroup();
   }
 
-  /** The request as the status shows it: everything but the code. */
-  private publicPendingPair(): RemoteStatus['pendingPair'] {
-    if (!this.pendingPair) return null;
-    const { code: _code, ...shown } = this.pendingPair;
-    return shown;
-  }
-
   /**
    * `status()` runs inside `stop()`, which runs inside the server's close
    * hook: a database that is already gone (or a table a stale migration set
@@ -501,172 +474,24 @@ export class RemoteService {
     }
   }
 
-  /**
-   * Also clears an expired code and the request made with it: neither may
-   * outlive the code — the relay prunes the pending row past its expiry, so
-   * a confirm would only fail there.
-   */
-  private pairingOpen(): boolean {
-    if (this.pairing && this.pairing.expiresAt <= this.now()) {
-      this.pairing = null;
-      this.pendingPair = null;
-    }
-    return this.pairing !== null;
+  /** See `PairingCeremony.start`. */
+  startPairing(): Promise<StartPairingResult> {
+    return this.ceremony.start();
   }
 
-  /** No code while the relay is too old: a phone could not pair through it anyway. */
-  async startPairing(
-  ): Promise<{ qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' }> {
-    if (this.relayRefusal) return { error: 'relay_too_old' };
-    if (!this.enabled || !this.client || !this.identity) return { error: 'disabled' };
-    if (this.client.status !== 'online') return { error: 'offline' };
-    // No name: the relay knows none. The phone reads it from the QR.
-    const res = await this.client.post<{ token: string; expiresAt: number }>('/pair/token', 'pair.token', {});
-    if (res.relayTooOld) return { error: 'relay_too_old' };
-    if (res.status !== 200) return { error: 'relay_error' };
-    const secret = new Uint8Array(randomBytes(PAIRING_SECRET_BYTES));
-    this.pairing = { expiresAt: res.body.expiresAt, secret };
-    this.pendingPair = null;
-    const qr: QrPayload = {
-      v: 1, relay: this.relayUrl, mac: deviceId(this.identity.publicKey), name: this.macName, token: res.body.token,
-      secret: toBase64Url(secret), kind: serverDeviceKind(), expiresAt: res.body.expiresAt,
-    };
-    if (this.relaySecret) qr.relaySecret = this.relaySecret;
-    this.publishStatus();
-    return { qr: JSON.stringify(qr), expiresAt: res.body.expiresAt };
+  /** See `PairingCeremony.confirm`. */
+  confirmPairing(accept: boolean, phone: string, code?: string): Promise<PairConfirmResult> {
+    return this.ceremony.confirm(accept, phone, code);
   }
 
-  /**
-   * `phone` is the request the user actually looked at, so a confirm never
-   * applies to any other phone. An accept carries the `code` the user typed
-   * from the phone; only that phone can show the code this request expects.
-   * A wrong one tells the relay nothing until it is the last
-   * (`PAIR_CODE_ATTEMPTS`): then the request is rejected, as Reject would.
-   */
-  async confirmPairing(accept: boolean, phone: string, code?: string): Promise<PairConfirmResult> {
-    const pending = this.pairingOpen() ? this.pendingPair : null;
-    if (!pending || pending.phone !== phone || !this.client) return { error: 'no_pending' };
-    if (accept && normalizePairingCode(code ?? '') !== pending.code) {
-      pending.attemptsLeft -= 1;
-      if (pending.attemptsLeft > 0) {
-        this.publishStatus();
-        return { error: 'code_mismatch', attemptsLeft: pending.attemptsLeft };
-      }
-      // The request is over here whatever the relay answers: the device was
-      // never added, and a phone the relay still holds as pending is dropped
-      // there when the code expires.
-      this.pendingPair = null;
-      this.pairing = null;
-      this.publishStatus();
-      const res = await this.client.post('/pair/confirm', 'pair.confirm', { phone: pending.phone, accept: false });
-      if (res.status !== 200) console.warn(`[remote] relay reject of ${pending.phone.slice(0, 8)} after wrong codes failed: ${res.status}`);
-      return { error: 'code_rejected' };
-    }
-    // The relay tells the phone `paired` before it answers this post, and a
-    // phone handshakes the moment it hears that — so the device must exist
-    // here first, or its handshake frame is dropped as from a stranger.
-    const existed = this.devices.get(pending.phone) !== null;
-    if (accept) {
-      this.devices.add({
-        id: pending.phone, name: pending.name, platform: pending.platform, kind: pending.kind, pairedAt: this.now(),
-        notifications: parseNotificationSettings(this.opts.allSettings()),
-      });
-      this.watch(pending.phone);
-    }
-    const res = await this.client.post('/pair/confirm', 'pair.confirm', { phone: pending.phone, accept });
-    if (res.status !== 200) {
-      // The relay never paired it: undo what was added above. A device that
-      // was already paired before this confirm is not ours to remove.
-      if (accept && !existed) {
-        this.channels.get(pending.phone)?.close();
-        this.channels.delete(pending.phone);
-        this.watchers.get(pending.phone)?.stop();
-        this.watchers.delete(pending.phone);
-        this.devices.remove(pending.phone);
-      }
-      return { error: 'relay_error' };
-    }
-    // Paired afresh: a revoke still waiting from an earlier removal must not undo it.
-    if (accept) this.pendingRevokes.remove(pending.phone);
-    // A stop/start during the post replaced the state; leave the new one be.
-    if (this.pendingPair === pending) {
-      this.pendingPair = null;
-      this.pairing = null;
-    }
-    if (accept) {
-      this.group.addPaired({ id: pending.phone, kind: pending.kind, name: pending.name, os: osName(pending.platform) });
-    }
-    this.publishStatus();
-    // A guard: the relay's `presence` for the new device, sent before it
-    // answered the post, has normally opened the channel already (if this
-    // side is the one that opens it); `open` does nothing then.
-    if (accept) this.open(pending.phone);
-    return { ok: true };
+  /** See `PairingCeremony.join`. */
+  join(code: string): Promise<JoinResult> {
+    return this.ceremony.join(code);
   }
 
-  /**
-   * Redeems another device's pairing code, as a phone does (spec
-   * 2026-10-16-device-group-design § 3): the answer is the code the user
-   * types on that device. The pair exists once it confirms (`paired`).
-   */
-  async join(code: string): Promise<JoinResult> {
-    const qr = parsePairingCode(code);
-    if (!qr) return { error: 'bad_code' };
-    if (this.relayRefusal) return { error: 'relay_too_old' };
-    // Groups do not merge (§ 3): a device in one leaves it before it joins
-    // another group. A code from a member of its own group is pairing by hand.
-    if (this.inGroup() && !this.group.isLiveMember(qr.mac)) return { error: 'in_group' };
-    if (!this.enabled || !this.client || !this.identity) return { error: 'disabled' };
-    if (this.client.status !== 'online') return { error: 'offline' };
-    const self = deviceId(this.identity.publicKey);
-    if (qr.mac === self) return { error: 'bad_code' };
-    if (this.devices.get(qr.mac)) return { error: 'already_paired' };
-    // One relay per group (§ 4), and this server's socket is on its own.
-    if (qr.relay.replace(/\/+$/, '') !== this.relayUrl.replace(/\/+$/, '')) return { error: 'other_relay', relay: qr.relay };
-    const secret = fromBase64Url(qr.secret);
-    const payload = {
-      token: qr.token,
-      proof: pairingProof(secret, this.identity.publicKey),
-      device: sealPairingDevice(secret, this.identity.publicKey, {
-        name: this.macName, platform: osName(process.platform), kind: serverDeviceKind(),
-      }),
-    };
-    // Cut as a pairing cuts a phone's name: the QR's is whatever that device was called.
-    const name = qr.name.slice(0, PAIR_NAME_MAX_CHARS);
-    const typed = formatFingerprint(fingerprint(publicKeyOf(qr.mac)!, this.identity.publicKey));
-    // No code lives longer than `PAIRING_TOKEN_TTL_MS`, whatever it says;
-    // one from before it carried its expiry is good for that long.
-    const longest = this.now() + PAIRING_TOKEN_TTL_MS;
-    const joining = {
-      device: qr.mac, name, kind: qr.kind ?? null, code: typed, expiresAt: Math.min(qr.expiresAt ?? longest, longest),
-    };
-    this.joining = joining;
-    // Joining that device again: its confirm is wanted now.
-    if (this.cancelledJoin?.device === qr.mac) this.cancelledJoin = null;
-    this.publishStatus();
-    const res = await this.client.post('/pair/redeem', 'pair.redeem', payload);
-    if (res.status !== 200) {
-      // A cancel, or a stop/start, during the post replaced the state; leave the new one be.
-      if (this.joining === joining) this.joining = null;
-      this.publishStatus();
-      if (res.relayTooOld) return { error: 'relay_too_old' };
-      if (res.status === 409) return qr.expiresAt === undefined ? { error: 'peer_offline' } : { error: 'peer_offline', expiresAt: qr.expiresAt };
-      return { error: res.status === 404 ? 'bad_code' : 'relay_error' };
-    }
-    return { device: qr.mac, name, code: typed };
-  }
-
-  /**
-   * Stops waiting for the device being joined; false when none was. The
-   * relay is not told: the request it holds expires with the code. If the
-   * other device confirms it before then, the pair is revoked (`cancelledJoin`).
-   */
+  /** See `PairingCeremony.cancelJoin`. */
   cancelJoin(): boolean {
-    if (!this.joining) return false;
-    this.cancelledJoin = { device: this.joining.device, expiresAt: this.joining.expiresAt };
-    this.joining = null;
-    this.publishStatus();
-    return true;
+    return this.ceremony.cancelJoin();
   }
 
   /** The channel to a paired device, while one is open. */
@@ -769,62 +594,11 @@ export class RemoteService {
       this.publishStatus();
       return;
     }
-    // The relay sends `paired` before it answers the other side's confirm,
-    // and a `presence` for that side right after. If this side opens the
-    // channel, it does so at that `presence` (here, only if the relay already
-    // counted the peer online); if the confirming side does, it opens from
-    // the `presence` the relay sends it for this side.
-    if (msg.type === 'paired' && this.joining && msg.mac === this.joining.device) {
-      const joined = this.joining;
-      this.joining = null;
-      this.devices.add({
-        id: joined.device, name: joined.name, platform: '', kind: joined.kind, pairedAt: this.now(),
-        notifications: parseNotificationSettings(this.opts.allSettings()),
-      });
-      // Paired afresh: a revoke still waiting from an earlier removal must not undo it.
-      this.pendingRevokes.remove(joined.device);
-      // A code without a kind came from a Mac from before kinds. Its OS is
-      // not known until its hello.
-      this.group.addPaired({ id: joined.device, kind: joined.kind ?? 'desktop', name: joined.name, os: '' });
-      this.publishStatus();
-      this.open(joined.device);
-      return;
-    }
-    // Confirmed on the other device after the user cancelled here: the pair goes again, the device is never added.
-    if (msg.type === 'paired' && this.cancelledJoin && msg.mac === this.cancelledJoin.device) {
-      const cancelled = this.cancelledJoin;
-      this.cancelledJoin = null;
-      if (cancelled.expiresAt > this.now()) this.group.tryRoster('revoke a cancelled join', () => this.group.revokeAtRelay(cancelled.device));
-      return;
-    }
-    if (msg.type === 'rejected' && this.joining && msg.mac === this.joining.device) {
-      this.joining = null;
-      this.publishStatus();
-      return;
-    }
-    if (msg.type === 'pair_request' && this.identity) {
-      // Only while the user has a code on screen, and only the first phone
-      // to redeem it: a second request must not swap the code the
-      // user is typing from their phone.
-      if (!this.pairingOpen() || !this.pairing || this.pendingPair) return;
-      const phoneKey = publicKeyOf(msg.phone);
-      if (!phoneKey) return;
-      // The relay could otherwise substitute a key of its own whose 30-bit
-      // fingerprint it ground to match; only the phone that scanned the QR
-      // holds the secret the proof is made with.
-      if (!verifyPairingProof(this.pairing.secret, phoneKey, msg.proof)) {
-        console.warn(`[remote] ignored a pairing request from ${msg.phone.slice(0, 8)}: its proof does not match this code`);
-        return;
-      }
-      // Only what the phone sealed with this code's secret: a plain name came from the relay.
-      const device = msg.device === undefined ? null : openPairingDevice(this.pairing.secret, phoneKey, msg.device);
-      this.pendingPair = {
-        phone: msg.phone, name: device?.name || UNKNOWN_PHONE_NAME, platform: device?.platform ?? '',
-        kind: device?.kind ?? 'phone',
-        code: fingerprint(this.identity.publicKey, phoneKey), attemptsLeft: PAIR_CODE_ATTEMPTS,
-      };
-      this.opts.hub.publish('remote', { event: 'pair_request', ...this.publicPendingPair() });
-      this.publishStatus();
+    // A pairing this device is in; any other `paired` or `rejected` is not for it.
+    if (msg.type === 'paired' && this.ceremony.onPaired(msg.mac)) return;
+    if (msg.type === 'rejected' && this.ceremony.onRejected(msg.mac)) return;
+    if (msg.type === 'pair_request') {
+      this.ceremony.onPairRequest(msg);
       return;
     }
     if (msg.type === 'presence') {
