@@ -154,7 +154,12 @@ export class PairingCeremony {
    */
   private cancelledJoin: { device: string; expiresAt: number } | null = null;
 
-  constructor(private readonly host: CeremonyHost) {}
+  private readonly host: CeremonyHost;
+
+  // Plain fields, not parameter properties: the web app compiles this with `erasableSyntaxOnly`.
+  constructor(host: CeremonyHost) {
+    this.host = host;
+  }
 
   /** Forgets every ceremony in progress: the remote stopped. */
   reset(): void {

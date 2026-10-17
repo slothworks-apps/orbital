@@ -6,8 +6,11 @@ import type { FileAs, NotificationSettings } from '@orbital/shared/remote/messag
 /** What the app calls on a client once it exists; `start`, `redeem` and `waitForPairing` stay with whoever made it. */
 export type SwappableClient = Pick<
   RemoteClient,
-  'ready' | 'on' | 'stop' | 'request' | 'getBlob' | 'getFile' | 'putBlob' | 'subscribe' | 'unsubscribe' | 'getNotifications' | 'setNotifications' | 'seen' | 'recheck' | 'pushToken'
->
+  'ready' | 'on' | 'stop' | 'request' | 'getBlob' | 'getFile' | 'subscribe' | 'unsubscribe' | 'getNotifications' | 'setNotifications' | 'seen' | 'recheck' | 'pushToken'
+> & {
+  /** `sessionId`: the session the image is for, so a client over several devices puts it where that session runs. */
+  putBlob(bytes: Uint8Array, mediaType: string, sessionId?: string | null): Promise<PutBlobResult>
+}
 
 /** The part the four seams use. */
 export type TunnelClient = Pick<SwappableClient, 'ready' | 'on' | 'request' | 'getBlob' | 'getFile' | 'putBlob' | 'subscribe' | 'unsubscribe'>
@@ -75,8 +78,8 @@ export class ClientRef implements SwappableClient {
     return this.current ? this.current.getFile(session, path, as, opts) : Promise.reject(new TunnelError('offline'))
   }
 
-  putBlob(bytes: Uint8Array, mediaType: string): Promise<PutBlobResult> {
-    return this.current ? this.current.putBlob(bytes, mediaType) : Promise.reject(new TunnelError('offline'))
+  putBlob(bytes: Uint8Array, mediaType: string, sessionId?: string | null): Promise<PutBlobResult> {
+    return this.current ? this.current.putBlob(bytes, mediaType, sessionId) : Promise.reject(new TunnelError('offline'))
   }
 
   subscribe(topic: string): void {

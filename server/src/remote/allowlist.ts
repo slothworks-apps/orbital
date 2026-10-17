@@ -1,3 +1,5 @@
+import { RESERVED_SEGMENTS } from '@orbital/shared/remote/segments';
+
 /**
  * What another member of the group — a phone, a desktop, a headless server —
  * may call on this device through its channel. One literal list for every
@@ -133,16 +135,8 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['GET', '/api/claude-dirs'],
 ];
 
-/**
- * Literal route segments that would otherwise match a `:param` template.
- * Every literal sibling of a parameter belongs here, whether a member may
- * call it (`count`, `defaults`, `restart`, `preview`, `draft` — each passes
- * through its own literal template, for its one method only) or not
- * (`retention-preview`). Nothing a parameter names — a session, an MCP
- * server, a rule, a template — is ever named one of these, so a parameter
- * that spells one is a request aimed at the literal route.
- */
-export const RESERVED_SEGMENTS: ReadonlySet<string> = new Set(['retention-preview', 'count', 'defaults', 'restart', 'preview', 'draft']);
+/** Literal siblings of a `:param` segment; shared, since the phone routes by session too. */
+export { RESERVED_SEGMENTS };
 
 /** A segment restricted to this alphabet can't spell `.`, `..`, a `%`-escape, or be empty. */
 const SAFE_SEGMENT = /^[A-Za-z0-9_-]+$/;

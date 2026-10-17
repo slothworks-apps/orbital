@@ -28,7 +28,7 @@ export class FakeClient implements SwappableClient {
     }),
   )
   readonly putBlob = vi.fn(
-    async (_bytes: Uint8Array, _mediaType: string): Promise<PutBlobResult> => ({ kind: 'not_image' }),
+    async (_bytes: Uint8Array, _mediaType: string, _sessionId?: string | null): Promise<PutBlobResult> => ({ kind: 'not_image' }),
   )
   readonly subscribe = vi.fn((_topic: string) => {})
   readonly unsubscribe = vi.fn((_topic: string) => {})

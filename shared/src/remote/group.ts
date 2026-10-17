@@ -143,7 +143,14 @@ export class GroupMember {
   /** Revokes posted to the relay and not answered yet; a removal waits for them before it answers. */
   private readonly revoking = new Set<Promise<void>>();
 
-  constructor(private readonly storage: GroupStorage, private readonly host: GroupHost) {}
+  private readonly storage: GroupStorage;
+  private readonly host: GroupHost;
+
+  // Plain fields, not parameter properties: the web app compiles this with `erasableSyntaxOnly`.
+  constructor(storage: GroupStorage, host: GroupHost) {
+    this.storage = storage;
+    this.host = host;
+  }
 
   private get runningId(): string | null {
     return this.host.selfId();
