@@ -23,7 +23,8 @@ vi.mock('../mobile/platform/pairing', () => ({ clearUnpaired: io.clearUnpaired }
 
 import { parseQrText, redeemOutcome } from '../mobile/pairingFlow'
 import {
-  IN_GROUP, PAIRING_FAILED, RELAY_REFUSED_SECRET, relayTooOldMessage, runPairing, type PairingStep,
+  IN_GROUP, PAIRING_FAILED, RELAY_BUSY, RELAY_REFUSED_SECRET, RELAY_UNREACHABLE, alreadyPaired, joinRefused,
+  relayTooOldMessage, runPairing, type PairingStep,
 } from '../mobile/pairingRun'
 import { initialMobileState, useMobile } from '../mobile/state'
 import { clientRef } from '../mobile/transport/clientRef'
@@ -114,7 +115,9 @@ function fakeGroup(onStart: GroupClientEvent = { type: 'status', status: 'online
     ready: true, on: listeners<RemoteClientEvent>().on, sources: () => [], pushToken: vi.fn(),
     stop: vi.fn(() => group.stop()),
   }
-  const handle = { group, federation, persist: vi.fn(async () => {}), close: vi.fn(async () => {}) }
+  const handle = {
+    group, federation, persist: vi.fn(async () => {}), close: vi.fn(async () => {}), relayBusy: vi.fn(() => false),
+  }
   return { group, handle: handle as unknown as GroupHandle & { persist: typeof handle.persist }, emit: events.emit }
 }
 
@@ -173,7 +176,7 @@ describe('runPairing', () => {
     expect(useMobile.getState().pairing?.relaySecret).toBe('s3cret')
   })
 
-  it('a device that rejects the join reads as an expired code, and the client goes', async () => {
+  it('a device that rejects the join says so, and the client goes', async () => {
     const { group, handle, emit } = fakeGroup()
     io.newGroup.mockReturnValue(handle)
     io.loadOrCreateIdentity.mockResolvedValue(phone)
@@ -181,7 +184,7 @@ describe('runPairing', () => {
     await vi.waitFor(() => expect(group.join).toHaveBeenCalled())
     emit({ type: 'join_failed', peer: mac, reason: 'rejected' })
     await done
-    expect(steps.at(-1)).toEqual({ kind: 'expired' })
+    expect(steps.at(-1)).toEqual({ kind: 'expired', name: 'studio', rejected: true })
     expect(handle.persist).not.toHaveBeenCalled()
     expect(clientRef.client).toBeNull()
     expect(group.stop).toHaveBeenCalled()
@@ -282,5 +285,38 @@ describe('runPairing', () => {
     expect(steps.at(-1)).toEqual({ kind: 'scan', error: PAIRING_FAILED })
     expect(clientRef.client).toBeNull()
     expect(group.stop).toHaveBeenCalled()
+  })
+})
+
+describe('joinRefused', () => {
+  const ours = 'https://relay.orbital.dev'
+
+  it('tells a busy relay from one that cannot be reached', () => {
+    expect(joinRefused({ error: 'relay_error' }, qr, ours, null, true)).toEqual({ kind: 'scan', error: RELAY_BUSY })
+    expect(joinRefused({ error: 'relay_error' }, qr, ours, null, false)).toEqual({ kind: 'scan', error: RELAY_UNREACHABLE })
+    // Offline is this phone's own link, whatever the relay last said.
+    expect(joinRefused({ error: 'offline' }, qr, ours, null, true)).toEqual({ kind: 'scan', error: RELAY_UNREACHABLE })
+  })
+
+  it('names both relays when the code is for another one', () => {
+    const step = joinRefused({ error: 'other_relay', relay: 'https://relay.lab.internal/' }, qr, ours, null, false)
+    expect(step).toEqual({
+      kind: 'scan',
+      error: {
+        title: 'studio uses another relay',
+        body: "It's on relay.lab.internal; this phone is on relay.orbital.dev. Both need the same one.",
+      },
+    })
+  })
+
+  it('reads a used-up code as expired, and the device gone as offline with a new code needed', () => {
+    expect(joinRefused({ error: 'bad_code' }, qr, ours, null, false)).toEqual({ kind: 'expired', name: 'studio', rejected: false })
+    const offline = joinRefused({ error: 'peer_offline', expiresAt: 1 }, qr, ours, null, false)
+    expect(offline.kind === 'scan' && typeof offline.error === 'object' && offline.error?.title).toBe('studio is offline')
+  })
+
+  it('says which device the phone is paired with already, and that a phone in a group leaves it first', () => {
+    expect(joinRefused({ error: 'already_paired' }, qr, ours, null, false)).toEqual({ kind: 'scan', error: alreadyPaired('studio') })
+    expect(joinRefused({ error: 'in_group' }, qr, ours, null, false)).toEqual({ kind: 'scan', error: IN_GROUP })
   })
 })

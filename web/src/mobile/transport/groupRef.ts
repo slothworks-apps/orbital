@@ -6,6 +6,8 @@ import type { GroupFederation } from './groupFederation'
 export interface GroupHandle {
   group: GroupClient
   federation: GroupFederation
+  /** The relay's last answer was 429: a refusal the ceremony reads as `relay_error` is the relay being busy. */
+  relayBusy(): boolean
   /** Writes the group after every change from now on, and once now (a join that just paired); resolves once written, rejects when the write failed. */
   persist(): Promise<void>
   /** Writes nothing more, and resolves once a write that runs is done: before the stored group goes. */

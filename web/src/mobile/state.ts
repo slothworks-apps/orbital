@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { PendingPair } from '@orbital/shared/remote/ceremony'
 import type { LinkStatus, RemoteClientEvent } from '@orbital/shared/remote/client'
 import type { MemberRow } from '@orbital/shared/remote/group'
 import type { GroupClientEvent } from '@orbital/shared/remote/groupClient'
@@ -13,7 +14,7 @@ import type { FederatedSource } from './transport/groupFederation'
 export type Screen = BaseScreen | PushedScreen
 
 /** The screens that stand on their own. */
-export type BaseScreen = 'pairing' | 'list' | 'session' | 'settings' | 'new' | 'unpaired' | 'mismatch'
+export type BaseScreen = 'pairing' | 'list' | 'session' | 'settings' | 'code' | 'new' | 'unpaired' | 'mismatch'
 
 /**
  * What can be pushed over a session (spec 2026-10-05-mobile-next § 3, § 2):
@@ -132,6 +133,10 @@ export interface MobileState {
   refusals: Record<string, Mismatch>
   /** The group's roster as Settings → Devices lists it. */
   members: MemberRow[]
+  /** A device that redeemed this phone's code and waits for the user's code (canvas 50i's join request). */
+  pendingPair: PendingPair | null
+  /** This phone's code while one is open (`GroupClient.startPairing`): when it stops working. */
+  ownCode: { expiresAt: number } | null
   /**
    * The open composer's standing intent and the session it belongs to;
    * `seq` grows with every request, so asking twice focuses twice. Cleared
@@ -166,7 +171,7 @@ export const initialMobileState: MobileState = {
   screen: 'pairing', previous: null, sessionId: null, pushed: [], link: 'off', macOnline: false, ready: false,
   asOf: null, checkedAt: null, rechecking: null, listedAt: null, endedSummary: null, endedLoaded: false,
   mismatch: null, unpaired: false, pairing: null, macName: null, macVersion: null, devices: [], refusals: {}, members: [],
-  composerIntent: null,
+  pendingPair: null, ownCode: null, composerIntent: null,
   screenLock: false, lock: 'open', appLock: true, lockLabel: 'screen lock', backgroundedAt: null, authenticating: false,
 }
 
@@ -348,6 +353,8 @@ export function back(state: MobileState): Partial<MobileState> | 'exit' {
     case 'settings':
     case 'new':
       return { screen: 'list' }
+    case 'code':
+      return { screen: 'settings' }
     case 'pairing':
       // Paired already (back on "Paired with", or while it waits for hello): the list, not where pairing began.
       if (state.pairing) return { screen: 'list', previous: null }

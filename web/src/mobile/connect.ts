@@ -8,7 +8,7 @@ import type { GroupRecord } from './platform/parse'
 import { PersistQueue } from './platform/persistQueue'
 import { registerPush } from './platform/push'
 import { RETRY_WINDOW_MS } from './constants'
-import { isMacAsleep, useMobile } from './state'
+import { isMacAsleep, useMobile, type MobileState } from './state'
 import { clientRef } from './transport/clientRef'
 import { GroupFederation } from './transport/groupFederation'
 import { groupRef, type GroupHandle } from './transport/groupRef'
@@ -40,9 +40,16 @@ export function newGroup(
   const snapshot = (): GroupRecord => ({
     relay: record.relay, ...(record.relaySecret !== undefined ? { relaySecret: record.relaySecret } : {}), group: storage.toJSON(),
   })
+  // The last relay request's status: the ceremony reads a busy relay (429) as any other failure.
+  let lastStatus: number | null = null
   const group = new GroupClient({
     // The WebView's own WebSocket.
     relayUrl: record.relay, relaySecret: record.relaySecret, identity, WebSocketImpl: WebSocket,
+    fetchImpl: async (input, init) => {
+      const res = await fetch(input, init)
+      lastStatus = res.status
+      return res
+    },
     app: mobileApp(), os: osName(device.platform), name: device.name, storage,
     onStored: () => {
       if (persisting) queue.push(snapshot())
@@ -52,6 +59,7 @@ export function newGroup(
   const federation = new GroupFederation(group)
   const handle: GroupHandle = {
     group, federation,
+    relayBusy: () => lastStatus === 429,
     persist: async () => {
       persisting = true
       queue.push(snapshot())
@@ -71,7 +79,7 @@ export function newGroup(
   })
   group.on((event) => {
     if (!live()) return
-    if (event.type === 'group') useMobile.setState({ members: group.members() })
+    if (event.type === 'group') useMobile.setState(groupState(group))
     // A new pair: the relay has a row for it now, and the token can go to it.
     if (event.type === 'joined') void registerPush()
     // Only a refusal changes anything there; every other event would only wake the subscribers.
@@ -84,7 +92,18 @@ export function newGroup(
 export function holdGroup(handle: GroupHandle): void {
   groupRef.set(handle)
   useMobile.getState().setDevices(handle.federation.sources())
-  useMobile.setState({ members: handle.group.members() })
+  useMobile.setState(groupState(handle.group))
+}
+
+/** Reads the group into the state again: the ceremony drops a code that ran out without a word. */
+export function refreshGroupState(): void {
+  const handle = groupRef.current
+  if (handle) useMobile.setState(groupState(handle.group))
+}
+
+/** What the state shows of the group: its members, a device asking to join, this phone's open code. */
+export function groupState(group: GroupClient): Pick<MobileState, 'members' | 'pendingPair' | 'ownCode'> {
+  return { members: group.members(), pendingPair: group.pendingPair, ownCode: group.pairing }
 }
 
 /**

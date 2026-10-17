@@ -3,7 +3,7 @@ import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { codeLeft } from '../lib/remote'
-import { kindWord, osLabel } from '../lib/devices'
+import { attemptsLine, joinSentence, kindTile, whereLine } from '../lib/joinRequest'
 import { useNow } from '../lib/useNow'
 import type { RemoteStatus } from '../lib/types'
 import { Dialog } from '../ui/Dialog'
@@ -12,37 +12,6 @@ import { KindGlyph } from '../ui/KindGlyph'
 import { PAIRING_CODE_LENGTH, PairingCodeInput } from '../ui/PairingCodeInput'
 
 type PendingPair = NonNullable<RemoteStatus['pendingPair']>
-
-/**
- * The kind tile's word and meaning line (canvas 50c `cK.word`/`cK.note` in
- * logic.js). An unrecognised kind reads as `desktop`, the fallback
- * `KindGlyph` itself draws.
- */
-const KIND_TILE = {
-  desktop: { word: 'DESKTOP', note: 'A computer with Orbital open on it.' },
-  headless: { word: 'HEADLESS SERVER', note: 'No screen of its own. It runs sessions for the group.' },
-  phone: { word: 'PHONE', note: 'Reads and drives sessions; runs none of its own.' },
-} satisfies Record<string, { word: string; note: string }>
-
-/** A lookup rather than a cast: only a key `KIND_TILE` actually has narrows `kind`. */
-function isTiledKind(kind: string): kind is keyof typeof KIND_TILE {
-  return kind in KIND_TILE
-}
-
-function kindTile(kind: string): { word: string; note: string } {
-  return isTiledKind(kind) ? KIND_TILE[kind] : KIND_TILE.desktop
-}
-
-/**
- * Where to find the code this dialog asks for, by kind (canvas 50c
- * `cK.where`): a desktop or a phone shows it on its own screen, same as this
- * device's own Add a device step; a headless member has no screen, so its
- * code is printed where `orbital devices add` ran (spec
- * 2026-10-16-device-group-design § 3).
- */
-function whereLine(kind: string, name: string): string {
-  return kind === 'headless' ? `Type the code ${name} printed in its terminal.` : `Type the code shown on ${name}.`
-}
 
 /**
  * A device asking to join through this one (spec
@@ -149,12 +118,8 @@ export function PairConfirmDialog() {
     ? `JOIN REQUEST · EXPIRES IN ${codeLeft(pairing.expiresAt, now).label}`
     : 'JOIN REQUEST'
 
-  // The sentence names the kind a second time, in its own short form — not
-  // the tile's fallback-to-desktop word, the same as `kindWord`/`kindOs`
-  // pass an unrecognised kind through verbatim (canvas 50c `cK.short`).
-  const os = request ? osLabel(request.platform) : ''
-  const kindOsPhrase = request ? (os === '' ? kindWord(request.kind) : `${kindWord(request.kind)}, ${os}`) : ''
-  const sentence = request ? `${request.name} (${kindOsPhrase}) wants to join` : ''
+  // The sentence names the kind a second time (`joinSentence`).
+  const sentence = request ? joinSentence(request) : ''
   const tile = request ? kindTile(request.kind) : null
   // Canvas 50c "KIND, THREE TIMES": the glyph at 3×, the kind word, its
   // meaning — above the sentence (the dialog's title), which names the kind
@@ -224,8 +189,7 @@ export function PairConfirmDialog() {
             <div className="min-h-[18px] font-mono text-[11px] text-[rgba(160,190,225,.7)]">
               {relayFailed
                 ? "The relay didn't answer. Try again."
-                : attemptsLeft !== null &&
-                  `That code didn’t match · ${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} left`}
+                : attemptsLeft !== null && attemptsLine(attemptsLeft)}
             </div>
             <div className="flex w-full gap-2.5">
               <Button variant="ghost" size="wide" disabled={busy} onClick={() => void answer(false)}>

@@ -16,12 +16,21 @@ import { usePhoneTip } from './phoneTip'
 import { useMobile } from './state'
 import { groupRef, type GroupHandle } from './transport/groupRef'
 
+/** A refusal told as canvas 50d tells it: a card with a title over its explanation. */
+export type ErrorCard = { title: string; body: string }
+
+/**
+ * `error`: one line, or a 50d card. `confirm` names the device whose code
+ * was scanned and its kind (canvas 50i: "Type K7F-Q2M on studio-mbp").
+ * `expired`: the code ran out or was used up, or (`rejected`) the device
+ * said no; `name` is that device.
+ */
 export type PairingStep =
-  | { kind: 'scan'; error: string | null }
+  | { kind: 'scan'; error: string | ErrorCard | null }
   | { kind: 'connecting' }
-  | { kind: 'confirm'; macName: string; fingerprint: string; expiresAt: number }
+  | { kind: 'confirm'; macName: string; deviceKind: string; fingerprint: string; expiresAt: number }
   | { kind: 'paired'; macName: string; relayHost: string; fingerprint: string }
-  | { kind: 'expired' }
+  | { kind: 'expired'; name: string; rejected: boolean }
 
 export const RELAY_UNREACHABLE = "Can't reach the relay in this code."
 export const RELAY_BUSY = 'The relay is busy. Try again in a minute.'
@@ -40,8 +49,10 @@ export function relayTooOldMessage(relayUrl: string, tooOld: RelayTooOld): strin
 export const PAIRING_FAILED = "Couldn't pair on this phone. Try again."
 /** A code from a device of another group while this phone is in one: groups do not merge. Provisional copy. */
 export const IN_GROUP = 'This phone is in a group already. Leave it first.'
-/** A code naming another relay than the one this phone's group is on. Provisional copy. */
-export const OTHER_RELAY = "This code is for another relay than this phone's group."
+/** A code from a device this phone is paired with already. */
+export function alreadyPaired(name: string): string {
+  return `This phone is already paired with ${name}.`
+}
 
 /** Resolves true on the first event `match` takes, false once `ms` pass. */
 function waitFor<E>(on: (listener: (event: E) => void) => () => void, match: (event: E) => boolean, ms: number): Promise<boolean> {
@@ -114,22 +125,50 @@ export async function runPairing(
   }
 }
 
-/** What 9e says to a join the relay or the group did not take. */
-function joinRefused(answer: Exclude<JoinResult, { device: string }>, qr: QrPayload, tooOld: RelayTooOld | null): PairingStep {
+/**
+ * What 9e says to a join the relay or the group did not take, in canvas
+ * 50d's words where it has them. `busy`: the relay's last answer was 429,
+ * which the ceremony reads as `relay_error`.
+ */
+export function joinRefused(
+  answer: Exclude<JoinResult, { device: string }>,
+  qr: QrPayload,
+  ourRelay: string,
+  tooOld: RelayTooOld | null,
+  busy: boolean,
+): PairingStep {
   switch (answer.error) {
     case 'bad_code':
+      // An unknown, used or expired code.
+      return { kind: 'expired', name: qr.name, rejected: false }
     case 'peer_offline':
-      // An unknown, used or expired code, or the device that showed it gone (which uses it up).
-      return { kind: 'expired' }
+      // The relay uses the code up when the device that showed it is gone (50d C, as the relay does it).
+      return {
+        kind: 'scan',
+        error: {
+          title: `${qr.name} is offline`,
+          body: `Its code is used up. Once ${qr.name} is awake, make a new one there and scan it again.`,
+        },
+      }
     case 'relay_too_old':
       return { kind: 'scan', error: relayTooOldMessage(qr.relay, tooOld ?? { relayVersion: null, needed: MIN_RELAY_VERSION }) }
     case 'in_group':
       return { kind: 'scan', error: IN_GROUP }
     case 'other_relay':
-      return { kind: 'scan', error: OTHER_RELAY }
+      // 50d B: a phone moves relays only by leaving its group, so no switch is offered.
+      return {
+        kind: 'scan',
+        error: {
+          title: `${qr.name} uses another relay`,
+          body: `It's on ${relayHost(answer.relay)}; this phone is on ${relayHost(ourRelay)}. Both need the same one.`,
+        },
+      }
+    case 'already_paired':
+      return { kind: 'scan', error: alreadyPaired(qr.name) }
     case 'offline':
-    case 'relay_error':
       return { kind: 'scan', error: RELAY_UNREACHABLE }
+    case 'relay_error':
+      return { kind: 'scan', error: busy ? RELAY_BUSY : RELAY_UNREACHABLE }
     default:
       return { kind: 'scan', error: PAIRING_FAILED }
   }
@@ -193,19 +232,24 @@ async function pair(
       }
     }
 
-    report({ kind: 'confirm', macName: qr.name, fingerprint, expiresAt: Date.now() + PAIRING_TOKEN_TTL_MS })
+    report({
+      kind: 'confirm', macName: qr.name, deviceKind: qr.kind ?? 'desktop', fingerprint,
+      expiresAt: Math.min(qr.expiresAt ?? Infinity, Date.now() + PAIRING_TOKEN_TTL_MS),
+    })
     // Listening before the join goes out: the device's answer must not slip past.
     const outcome = waitForJoin(group, qr.mac, PAIRING_TOKEN_TTL_MS)
     const answer = await group.join(JSON.stringify(qr))
     if (cancelled()) return
     if ('error' in answer) {
-      fail(joinRefused(answer, qr, tooOld ?? group.relayTooOld))
+      // A phone in a group joins on its own relay; a fresh client is on the code's.
+      const ours = current ? useMobile.getState().pairing?.relay ?? qr.relay : qr.relay
+      fail(joinRefused(answer, qr, ours, tooOld ?? group.relayTooOld, handle.relayBusy()))
       return
     }
     const result = await outcome
     if (cancelled()) return
     if (result !== 'joined') {
-      fail({ kind: 'expired' })
+      fail({ kind: 'expired', name: qr.name, rejected: result === 'rejected' })
       return
     }
 
