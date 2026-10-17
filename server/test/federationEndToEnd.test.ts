@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import { createHash, randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { AS_OF_HEADER } from '../src/federation/routes.js';
 import { DEVICE_HEADER } from '../src/remote/inject.js';
 import { RETENTION_KEY, RETENTION_NEVER } from '../src/retention.js';
 import { FakePhone } from './remoteFakePhone.js';
@@ -86,10 +87,24 @@ describe('federation: linked servers', () => {
     // B takes in nothing of A's: A has no sessions, and B's own are not federated back to it.
     expect(b.federation.sessions()).toEqual([]);
 
+    // B's messages read on A while B is up: B's answer, as it gave it.
+    const messagesUrl = `/api/sessions/${SESSION_ID}/messages`;
+    const live = await a.api('GET', messagesUrl);
+    expect(live.statusCode).toBe(200);
+    expect(live.headers[AS_OF_HEADER]).toBeUndefined();
+    expect(live.json()).toEqual((await b.api('GET', messagesUrl)).json());
+
     // B goes off the relay: A keeps its session, offline as of when it last heard.
     b.remote.stop();
     await until(() => federated()?.machine?.online === false, 10_000);
     expect(federated()!.machine.asOf).toEqual(expect.any(Number));
+
+    // B's messages stay readable on A, marked as a copy; what A never read is not there.
+    const copy = await a.api('GET', messagesUrl);
+    expect(copy.statusCode).toBe(200);
+    expect(Number(copy.headers[AS_OF_HEADER])).toBeGreaterThan(0);
+    expect(copy.json()).toEqual(live.json());
+    expect((await a.api('GET', `/api/sessions/${SESSION_ID}/media`)).statusCode).toBe(409);
 
     // Everything A published about B's session is in the phone's queue before this answer.
     phone.send({ t: 'http', id: 2, method: 'GET', path: '/api/health' });
@@ -296,10 +311,10 @@ describe('federation: linked servers', () => {
     expect((await a.app.inject({ method: 'PATCH', url: '/api/settings' })).statusCode).toBe(400);
     expect((await a.api('PATCH', '/api/settings', [1])).statusCode).toBe(400);
 
-    // B goes away: a request for its session is 409, not a hang and not A's 404.
+    // B goes away: a request for its session that A holds no copy of is 409, not a hang and not A's 404.
     b.remote.stop();
     await until(() => a.federation.linkOf(SESSION_ID)?.channel?.ready !== true, 10_000);
-    const offline = await a.api('GET', `/api/sessions/${SESSION_ID}/messages`);
+    const offline = await a.api('GET', `/api/sessions/${SESSION_ID}/messages?limit=1`);
     expect([offline.statusCode, offline.json()]).toEqual([409, { error: 'member_offline' }]);
   }, 60_000);
 

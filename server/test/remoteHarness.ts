@@ -39,7 +39,7 @@ export type MacAndRelay = {
   app: FastifyInstance;
   /** The server's data dir: `index.db`, the identity, `images/`, and `claude/` as its `~/.claude`. */
   dir: string;
-  api: (method: InjectMethod, url: string, payload?: unknown) => Promise<{ statusCode: number; json(): any }>;
+  api: (method: InjectMethod, url: string, payload?: unknown) => Promise<{ statusCode: number; headers: Record<string, unknown>; json(): any }>;
   /** The server's remote service, for what no route shows (a device's channel). */
   remote: RemoteService;
   /** The server's federation: the other members' sessions in its hub. */

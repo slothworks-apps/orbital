@@ -19,6 +19,7 @@ import type { Hub } from '../api/hub.js';
 import { memberTooOld } from '../remote/memberGate.js';
 import type { RemoteService } from '../remote/service.js';
 import { carriesMachine, sessionOfTopic } from '../remote/servingHalf.js';
+import { ReadCache } from './readCache.js';
 import type { MemberSnapshotStore } from './store.js';
 
 /** How many sessions are asked of a member at once; one channel frame has to carry the answer. */
@@ -64,8 +65,13 @@ export type FederationOptions = {
   localTags: () => Tag[];
   /** Where each member's last sessions are kept across restarts; absent, they are not. */
   snapshots?: Pick<MemberSnapshotStore, 'load' | 'save' | 'remove'>;
+  /** Where reads of a member's sessions are kept for while it is offline; a default-sized one when absent. */
+  readCache?: ReadCache;
   now?: () => number;
 };
+
+/** A member's answer; `asOf` when it is a kept copy, answered while the member is offline. */
+export type ReadResponse = TunnelResponse & { asOf?: number };
 
 export class FederationService {
   private readonly links = new Map<string, MemberLink>();
@@ -87,10 +93,12 @@ export class FederationService {
   private hubHooked = false;
   /** Every snapshot row went when this device was last found alone in its group. */
   private cleared = false;
+  private readonly readCache: ReadCache;
   private readonly now: () => number;
 
   constructor(private readonly opts: FederationOptions) {
     this.now = opts.now ?? Date.now;
+    this.readCache = opts.readCache ?? new ReadCache();
   }
 
   start(): void {
@@ -129,6 +137,7 @@ export class FederationService {
     this.channels.clear();
     this.links.clear();
     this.expected.clear();
+    this.readCache.clear();
   }
 
   /** The member a session belongs to; null for this device's own and for one nobody knows. */
@@ -185,24 +194,52 @@ export class FederationService {
   }
 
   async request(link: MemberLink, method: HttpMethod, path: string, body?: unknown): Promise<TunnelResponse> {
+    return this.localizeAnswer(link, await this.ask(link, method, path, body));
+  }
+
+  /**
+   * A GET about the member's session `sessionId`. A 200 is kept; while the
+   * member is offline, the kept answer to the same `path` is given instead,
+   * with when it was kept.
+   */
+  async read(link: MemberLink, sessionId: string, path: string): Promise<ReadResponse> {
+    if (!link.channel?.ready) {
+      const kept = this.readCache.get(link.id, path);
+      // Localized now: the copy names the member as it is, offline.
+      if (kept) return { ...this.localizeAnswer(link, { status: 200, body: kept.body }), asOf: kept.at };
+    }
+    const res = await this.ask(link, 'GET', path);
+    // Not kept when the member or the session left while the answer was on its way.
+    if (res.status === 200 && this.links.get(link.id) === link && this.owns(link, sessionId)) {
+      this.readCache.put(link.id, sessionId, path, res.body, this.now());
+    }
+    return this.localizeAnswer(link, res);
+  }
+
+  /** The member's answer as it came; 409 while it is offline, 502 when the channel failed. */
+  private async ask(link: MemberLink, method: HttpMethod, path: string, body?: unknown): Promise<TunnelResponse> {
     const channel = link.channel;
     if (!channel?.ready) return { status: 409, body: { error: 'member_offline' } };
     try {
-      const res = await channel.request(method, path, body);
-      const payload = res.body as { session?: Session } | null;
-      if (payload && typeof payload === 'object' && payload.session && typeof payload.session.id === 'string') {
-        // A third device's session, as the member shows it: not ours to pass on as the member's.
-        if (carriesMachine(payload.session)) {
-          const { session: _chained, ...rest } = payload;
-          return { status: res.status, body: rest };
-        }
-        return { status: res.status, body: { ...payload, session: this.localize(link, payload.session) } };
-      }
-      return res;
+      return await channel.request(method, path, body);
     } catch (err) {
       if (err instanceof TunnelError) return { status: 502, body: { error: 'member_unreachable' } };
       throw err;
     }
+  }
+
+  /** A session in a member's answer, as this device shows it. */
+  private localizeAnswer(link: MemberLink, res: TunnelResponse): TunnelResponse {
+    const payload = res.body as { session?: Session } | null;
+    if (payload && typeof payload === 'object' && payload.session && typeof payload.session.id === 'string') {
+      // A third device's session, as the member shows it: not ours to pass on as the member's.
+      if (carriesMachine(payload.session)) {
+        const { session: _chained, ...rest } = payload;
+        return { status: res.status, body: rest };
+      }
+      return { status: res.status, body: { ...payload, session: this.localize(link, payload.session) } };
+    }
+    return res;
   }
 
   /** `PUT /api/sessions/:id/tags` on a member: this device's tag ids become the member's, by name. */
@@ -378,7 +415,9 @@ export class FederationService {
         .filter((s) => s && typeof s.id === 'string' && !carriesMachine(s))
         .map((s) => [s.id, s]));
       for (const id of link.sessions.keys()) {
-        if (!fresh.has(id)) this.opts.hub.publish('sessions', { event: 'remove', sessionId: id });
+        if (fresh.has(id)) continue;
+        this.opts.hub.publish('sessions', { event: 'remove', sessionId: id });
+        this.readCache.dropSession(link.id, id);
       }
       const before = new Set(link.sessions.keys());
       link.sessions.clear();
@@ -420,6 +459,7 @@ export class FederationService {
   private drop(link: MemberLink): void {
     for (const id of link.sessions.keys()) this.opts.hub.publish('sessions', { event: 'remove', sessionId: id });
     this.links.delete(link.id);
+    this.readCache.dropMember(link.id);
     const expected = [...this.expected].filter(([, member]) => member === link.id).map(([id]) => id);
     for (const id of expected) this.expected.delete(id);
     clearTimeout(this.pendingWrites.get(link.id));
@@ -468,6 +508,7 @@ export class FederationService {
       if (typeof id !== 'string' || !link.sessions.has(id)) return;
       this.opts.hub.publish('sessions', { event: 'remove', sessionId: id });
       link.sessions.delete(id);
+      this.readCache.dropSession(link.id, id);
       this.scheduleSnapshot(link);
     } else if (frame.event === 'status') {
       const id = frame.sessionId;

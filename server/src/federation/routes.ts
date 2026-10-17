@@ -15,7 +15,10 @@ import type { HttpMethod } from '@orbital/shared/remote/channel';
 import { IMAGE_CONTENT_TYPES, IMAGE_REF_RE } from '../api/routes.js';
 import { RESERVED_SEGMENTS } from '../remote/allowlist.js';
 import { DEVICE_HEADER } from '../remote/inject.js';
-import type { FederationService, Session } from './service.js';
+import type { FederationService, ReadResponse, Session } from './service.js';
+
+/** On a member's answer that is a kept copy: when it was kept, in ms since the epoch. */
+export const AS_OF_HEADER = 'x-orbital-as-of';
 
 const IMAGE_PATH = /^\/api\/images\/([^/]+)$/;
 const TAGS_PATH = /^\/api\/sessions\/[^/]+\/tags$/;
@@ -117,10 +120,14 @@ export function registerFederationRoutes(
       ? body.sessionId : null;
     if (spawned !== null) federation.expect(link, spawned);
     const tagIds = isObject(body) ? body.tagIds : undefined;
-    const res = req.method === 'PUT' && sessionId && TAGS_PATH.test(path) && Array.isArray(tagIds)
+    // A read of a member's session is kept, and answered from what was kept while the member is offline.
+    const res: ReadResponse = req.method === 'PUT' && sessionId && TAGS_PATH.test(path) && Array.isArray(tagIds)
       ? await federation.setTags(link, sessionId, tagIds.filter((id): id is number => typeof id === 'number'))
-      : await federation.request(link, req.method as HttpMethod, url, body);
+      : req.method === 'GET' && sessionId
+        ? await federation.read(link, sessionId, url)
+        : await federation.request(link, req.method as HttpMethod, url, body);
     if (spawned !== null && res.status >= 300) federation.unexpect(link, spawned);
+    if (res.asOf !== undefined) reply.header(AS_OF_HEADER, String(res.asOf));
     unmerged.add(req);
     // A member's list, as this device shows its sessions.
     const list = isObject(res.body) ? res.body.sessions : undefined;

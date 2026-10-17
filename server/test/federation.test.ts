@@ -10,6 +10,7 @@ import { ServingHalf } from '../src/remote/servingHalf.js';
 import { makeTmpDir, openTmpDb } from './tmp.js';
 import { FederationService, SNAPSHOT_WRITE_MS, type FederationOptions } from '../src/federation/service.js';
 import { MemberSnapshotStore } from '../src/federation/store.js';
+import { ReadCache } from '../src/federation/readCache.js';
 
 const SELF = 'self';
 const B = 'member-b';
@@ -594,5 +595,106 @@ describe('FederationService presence', () => {
     expect(b.subs.has('sessions')).toBe(true);
     expect(b.subs.has('presence')).toBe(false);
     expect(federation.presentElsewhere()).toBe(false);
+  });
+});
+
+describe('FederationService read cache', () => {
+  /** B up and seeded, answering every read of s1 with `body`. */
+  async function readable(opts: Partial<FederationOptions> = {}) {
+    const ctx = setup(undefined, opts);
+    const b = memberB();
+    const seed = b.answer;
+    let body: unknown = { messages: ['hi'] };
+    b.answer = (method, path, reqBody) => (path.startsWith('/api/sessions/') ? { status: 200, body } : seed(method, path, reqBody));
+    ctx.remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    return { ...ctx, b, link: ctx.federation.link(B)!, answerWith: (next: unknown) => { body = next; } };
+  }
+
+  it('a read answered while the member was up is answered from the copy once it is offline, with when it was kept', async () => {
+    const { federation, b, link, setNow } = await readable();
+    setNow(5000);
+    expect(await federation.read(link, 's1', '/api/sessions/s1/messages?limit=50')).toEqual({ status: 200, body: { messages: ['hi'] } });
+    b.down();
+    setNow(9000);
+    expect(await federation.read(link, 's1', '/api/sessions/s1/messages?limit=50'))
+      .toEqual({ status: 200, body: { messages: ['hi'] }, asOf: 5000 });
+    // Another url of the same session was never read: no copy.
+    expect(await federation.read(link, 's1', '/api/sessions/s1/messages?limit=10'))
+      .toEqual({ status: 409, body: { error: 'member_offline' } });
+  });
+
+  it('a kept session names its member as it is now: offline', async () => {
+    const { federation, b, link, answerWith } = await readable();
+    answerWith({ session: { id: 's1', tagIds: [7] } });
+    await federation.read(link, 's1', '/api/sessions/s1');
+    b.down();
+    const res = await federation.read(link, 's1', '/api/sessions/s1');
+    expect((res.body as any).session.machine).toEqual({ ...machineB, online: false, asOf: 1000 });
+    expect((res.body as any).session.tagIds).toEqual([3]);
+  });
+
+  it('keeps no answer but a 200, and none of a session the member no longer lists', async () => {
+    const { federation, b, link } = await readable();
+    b.answer = () => ({ status: 404, body: { error: 'not_found' } });
+    await federation.read(link, 's1', '/api/sessions/s1');
+    b.answer = () => ({ status: 200, body: { session: { id: 'gone' } } });
+    await federation.read(link, 'gone', '/api/sessions/gone');
+    b.down();
+    expect((await federation.read(link, 's1', '/api/sessions/s1')).status).toBe(409);
+    expect((await federation.read(link, 'gone', '/api/sessions/gone')).status).toBe(409);
+  });
+
+  it('a session the member removed, and a member removed from the group, take their copies along', async () => {
+    const readCache = new ReadCache();
+    const { federation, remote, b, link } = await readable({ readCache });
+    b.hub({ topic: 'sessions', event: 'upsert', session: { id: 's2', status: 'working' } });
+    await federation.read(link, 's1', '/api/sessions/s1/messages');
+    await federation.read(link, 's2', '/api/sessions/s2/messages');
+    b.hub({ topic: 'sessions', event: 'remove', sessionId: 's2' });
+    expect(readCache.get(B, '/api/sessions/s2/messages')).toBeNull();
+    expect(readCache.get(B, '/api/sessions/s1/messages')).not.toBeNull();
+    remote.members = [entry(SELF), entry(B, { removedAt: 2, removedBy: SELF }), entry('member-c')];
+    remote.published();
+    expect(federation.link(B)).toBeNull();
+    expect(readCache.get(B, '/api/sessions/s1/messages')).toBeNull();
+    expect(readCache.size()).toBe(0);
+  });
+});
+
+describe('ReadCache', () => {
+  const sized = (n: number) => 'x'.repeat(n - 2); // its JSON carries two quotes
+
+  it('keeps at most its bytes, the least recently used out first', () => {
+    const cache = new ReadCache(300, 200);
+    cache.put('m', 's', '/a', sized(100), 1);
+    cache.put('m', 's', '/b', sized(100), 2);
+    cache.put('m', 's', '/c', sized(100), 3);
+    // /a used now: /b is the oldest.
+    expect(cache.get('m', '/a')).toEqual({ body: sized(100), at: 1 });
+    cache.put('m', 's', '/d', sized(100), 4);
+    expect(cache.get('m', '/b')).toBeNull();
+    expect(cache.get('m', '/a')).not.toBeNull();
+    expect(cache.size()).toBe(300);
+    // A new answer to a kept url replaces it, not adds to it.
+    cache.put('m', 's', '/a', sized(50), 5);
+    expect(cache.size()).toBe(250);
+    expect(cache.get('m', '/c')).not.toBeNull();
+  });
+
+  it('does not keep an answer bigger than an entry may be, and drops the older copy of its url', () => {
+    const cache = new ReadCache(1000, 200);
+    cache.put('m', 's', '/a', sized(100), 1);
+    cache.put('m', 's', '/a', sized(201), 2);
+    expect(cache.get('m', '/a')).toBeNull();
+    expect(cache.size()).toBe(0);
+  });
+
+  it('a copy is the answer as it was kept, whatever is done to what it gave', () => {
+    const cache = new ReadCache();
+    cache.put('m', 's', '/a', { list: [1] }, 1);
+    (cache.get('m', '/a')!.body as { list: number[] }).list.push(2);
+    expect(cache.get('m', '/a')!.body).toEqual({ list: [1] });
   });
 });
