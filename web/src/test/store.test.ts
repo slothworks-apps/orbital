@@ -2613,7 +2613,8 @@ describe('applySessionEvent: delta', () => {
 describe('refreshRemote', () => {
   const remoteStatus = (macName: string) => ({
     enabled: true, relay: 'online' as const, relayTooOld: null, relayAttempts: 0, relayUrl: 'https://r.example', macId: 'm',
-    macName, devices: [], pendingPair: null, pairing: null, error: null,
+    macName, devices: [], pendingPair: null, pairing: null, joining: null, error: null,
+    group: { members: [], relayLocked: false },
   })
 
   it('stores the answer when nothing newer arrived meanwhile', async () => {

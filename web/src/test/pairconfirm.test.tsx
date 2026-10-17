@@ -17,9 +17,11 @@ function remote(attemptsLeft = 3): RemoteStatus {
   return {
     enabled: true, relay: 'online', relayTooOld: null, relayAttempts: 0, relayUrl: 'https://relay.test',
     macId: 'mac', macName: 'studio', devices: [],
-    pendingPair: { phone: 'p1', name: 'Pixel 8', platform: 'android', attemptsLeft },
+    pendingPair: { phone: 'p1', name: 'Pixel 8', platform: 'android', kind: 'phone', attemptsLeft },
     pairing: { expiresAt: Date.now() + 100_000 },
+    joining: null,
     error: null,
+    group: { members: [], relayLocked: false },
   }
 }
 

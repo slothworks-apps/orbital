@@ -40,6 +40,7 @@ import type {
   SessionHarness,
   HarnessEvent,
   HarnessOptions,
+  JoinAnswer,
   PairConfirmError,
   PairConfirmResult,
   RemoteStatus,
@@ -1224,6 +1225,43 @@ export const api = {
   },
 
   /**
+   * Redeems another device's code, as a phone does (spec
+   * 2026-10-16-device-group-design § 3): the answer is the code the user
+   * types on that device, `ok: false` carrying why not. Every HTTP answer
+   * maps to a value — 200 to `ok: true`, 400/409's named refusals to their
+   * `error`, and anything this route never names itself (a network failure,
+   * a status outside its contract) to `relay_error`, like the rest of the
+   * remote surface's refusals.
+   */
+  async joinGroup(code: string): Promise<JoinAnswer> {
+    try {
+      const res = await remoteCall<{ device: string; name: string; code: string }, JoinErrorCode>(
+        'POST',
+        '/api/remote/join',
+        { code },
+        JOIN_REFUSALS,
+      )
+      return ('error' in res ? { ok: false, ...res } : { ok: true, ...res }) as JoinAnswer
+    } catch {
+      return { ok: false, error: 'relay_error' }
+    }
+  },
+
+  /**
+   * Stops waiting for the device being joined; the relay's request expires
+   * with the code regardless, so a 404 (nothing to cancel) is not an error
+   * worth surfacing.
+   */
+  async cancelJoin(): Promise<void> {
+    try {
+      await request<{ ok: true }>('DELETE', '/api/remote/join')
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return
+      throw err
+    }
+  },
+
+  /**
    * The answer to the pending request. `phone` is the request the dialog
    * showed; the server refuses any other (409 `mismatch`). An accept carries
    * the `code` the user typed from the phone, which the server compares: a
@@ -1256,10 +1294,34 @@ export const api = {
     }
   },
 
+  /**
+   * This device leaves its group (spec 2026-10-16-device-group-design § 4).
+   * `offline`: the relay must be online for the others to hear of it.
+   */
+  async leaveGroup(): Promise<{ ok: true } | { ok: false; error: 'offline' | 'failed' }> {
+    const res = await remoteCall<{ ok: true }, 'offline' | 'failed'>(
+      'POST',
+      '/api/remote/leave',
+      undefined,
+      { 409: ['offline'], 500: ['failed'] },
+    )
+    return 'error' in res ? { ok: false, error: res.error } : res
+  },
+
   /** "Try again": stops the remote and starts it with the same settings. */
   async restartRemote(): Promise<RemoteStatus> {
     return request('POST', '/api/remote/restart')
   },
+}
+
+/** The refusals `POST /api/remote/join` answers with instead of `{ device, name, code }`. */
+type JoinErrorCode =
+  | 'bad_code' | 'disabled' | 'offline' | 'already_paired' | 'in_group' | 'relay_error' | 'relay_too_old'
+  | 'other_relay' | 'peer_offline'
+
+const JOIN_REFUSALS: Partial<Record<number, readonly JoinErrorCode[]>> = {
+  400: ['bad_code'],
+  409: ['disabled', 'offline', 'already_paired', 'in_group', 'relay_error', 'relay_too_old', 'other_relay', 'peer_offline'],
 }
 
 /** What `/api/claude-dirs` refuses a change with. Mirrors `server/src/claudeDirs/service.ts`. */

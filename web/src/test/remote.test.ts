@@ -24,7 +24,9 @@ function status(patch: Partial<RemoteStatus> = {}): RemoteStatus {
     devices: [],
     pendingPair: null,
     pairing: null,
+    joining: null,
     error: null,
+    group: { members: [], relayLocked: false },
     ...patch,
   }
 }
