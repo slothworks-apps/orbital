@@ -115,7 +115,9 @@ export function verifyAuthSignature(publicKey: Uint8Array, nonce: string, sig: s
 export const RelayToDevice = z.discriminatedUnion('type', [
   // `version`: the relay's own (`relay/package.json`); a relay from before it announced one sends none.
   z.object({ type: z.literal('challenge'), nonce: z.string(), version: z.string().optional() }),
-  z.object({ type: z.literal('ok'), peers: z.array(z.string()) }),
+  // `peers`: the paired devices online now. `pairs`: every device this one holds a pair with, online or not;
+  // absent from a relay from before it named them.
+  z.object({ type: z.literal('ok'), peers: z.array(z.string()), pairs: z.array(z.string()).optional() }),
   z.object({ type: z.literal('presence'), peer: z.string(), online: z.boolean() }),
   // `device`: the phone's name and platform, sealed (`sealPairingDevice`); absent from a phone that predates it.
   // `name` and `platform` are always empty from a relay that knows no names, and kept only for a Mac that requires them.

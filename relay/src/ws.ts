@@ -110,7 +110,9 @@ function attach(conn: Conn, ctx: WsContext, early: [RawData, boolean][], expectM
   previous?.socket.terminate();
   log(`device ${short(id)} connected${previous ? ', replacing its previous socket' : ''}`);
 
-  send(socket, { type: 'ok', peers: [...peers].filter((p) => ctx.connections.isOnline(p)) });
+  // `pairs` names every pair, asleep or not: a device in a group learns from
+  // it whom it may open a channel to once they wake (a relay from before it sent none).
+  send(socket, { type: 'ok', peers: [...peers].filter((p) => ctx.connections.isOnline(p)), pairs: [...peers] });
   // A device that expects a pair the relay no longer holds would otherwise
   // read its Mac as asleep forever: `ok` lists only online peers, and the
   // `unpaired` sent at revoke time went to a socket that did not exist.
