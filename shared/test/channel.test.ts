@@ -7,9 +7,9 @@ import { HANDSHAKE_BYTES, startHandshake } from '../src/remote/handshake.js';
 import { RESPONDER_FIRST_ID } from '../src/remote/device.js';
 import type { AskMessage, HelloMessage } from '../src/remote/messages.js';
 
-const desktop = (name: string) => ({
+const desktop = (name: string, capabilities: string[] = ['sessions']) => ({
   app: `orbital-desktop/1.0.0`, server: '1.0.0', macName: name, version: '1.0.0', kind: 'desktop', os: 'macos', name,
-  capabilities: ['sessions'],
+  capabilities,
 });
 
 /** A serving half that answers `GET /echo` with its own name, and keeps every upload. */
@@ -41,20 +41,26 @@ function echoServer(name: string) {
   return server;
 }
 
-/** Two channels wired back to back through a queue, as the relay would carry their frames. */
-function pair(opts: { aServes?: boolean; bServes?: boolean; bHello?: Partial<HelloMessage> } = {}) {
+/**
+ * Two channels wired back to back through a queue, as the relay would carry
+ * their frames. Both hellos name `['sessions', 'group']` by default; `bHello`
+ * overrides b's alone (its `capabilities`, say, to test a peer that does not
+ * name the group capability).
+ */
+function pair(opts: { aServes?: boolean; bServes?: boolean; capabilities?: string[]; bHello?: Partial<HelloMessage> } = {}) {
   const aId = generateIdentity();
   const bId = generateIdentity();
+  const capabilities = opts.capabilities ?? ['sessions', 'group'];
   const queue: (() => void)[] = [];
   const pump = () => { while (queue.length) queue.shift()!(); };
   const aServer = echoServer('a');
   const bServer = echoServer('b');
   const a: Channel = new Channel({
-    identity: aId, peerKey: bId.publicKey, role: 'initiator', hello: desktop('a'),
+    identity: aId, peerKey: bId.publicKey, role: 'initiator', hello: desktop('a', capabilities),
     send: (body) => queue.push(() => b.receive(body)), serve: opts.aServes === false ? undefined : aServer,
   });
   const b: Channel = new Channel({
-    identity: bId, peerKey: aId.publicKey, role: 'responder', hello: { ...desktop('b'), ...opts.bHello },
+    identity: bId, peerKey: aId.publicKey, role: 'responder', hello: { ...desktop('b', capabilities), ...opts.bHello },
     send: (body) => queue.push(() => a.receive(body)), serve: opts.bServes === false ? undefined : bServer,
   });
   return { a, b, pump, aServer, bServer, aId, bId };
@@ -106,6 +112,26 @@ describe('Channel', () => {
     a.start();
     pump();
     await expect(a.request('GET', '/x')).rejects.toEqual(new TunnelError('offline'));
+  });
+
+  it('carries group messages only between members that name the group capability', () => {
+    const { a, b, pump } = pair(); // both hellos with ['sessions', 'group']
+    const got: unknown[] = [];
+    b.on((e) => { if (e.type === 'group') got.push(e.msg); });
+    a.start();
+    pump();
+    expect(a.groups && b.groups).toBe(true);
+    expect(a.sendGroup({ t: 'roster_digest', digest: 'ab' })).toBe(true);
+    pump();
+    expect(got).toEqual([{ t: 'roster_digest', digest: 'ab' }]);
+  });
+
+  it('does not send group messages to a peer that does not name the capability', () => {
+    const { a, pump } = pair({ bHello: { capabilities: ['sessions'] } });
+    a.start();
+    pump();
+    expect(a.groups).toBe(false);
+    expect(a.sendGroup({ t: 'removed' })).toBe(false);
   });
 
   it('a judge refusal closes the responder with bye before it greets', () => {

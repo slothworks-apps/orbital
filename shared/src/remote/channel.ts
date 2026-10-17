@@ -17,8 +17,8 @@ import {
 } from './handshake.js';
 import {
   PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, parseChannelMessage, peerServes,
-  type AnswerMessage, type AskMessage, type FileAs, type HelloMessage, type ImageRefEntry, type Inner,
-  type NotificationSettings,
+  type AnswerMessage, type AskMessage, type FileAs, type GroupMessage, type HelloMessage, type ImageRefEntry,
+  type Inner, type NotificationSettings,
 } from './messages.js';
 import { RELAY_PING_INTERVAL_MS } from './relayApi.js';
 import { RESPONDER_FIRST_ID } from './device.js';
@@ -135,7 +135,9 @@ export type ChannelEvent =
   | { type: 'bye'; reason: ByeReason; needed?: string }
   /** A serving peer said nothing for `silenceTimeoutMs`: the caller drops the link it rides on. */
   | { type: 'silent' }
-  | { type: 'closed' };
+  | { type: 'closed' }
+  /** A roster message from the peer; only after its hello, and only when it named `group`. */
+  | { type: 'group'; msg: GroupMessage };
 
 export type ChannelOptions = {
   identity: Identity;
@@ -200,6 +202,11 @@ export class Channel {
     return this.peerHello !== null && peerServes(this.peerHello);
   }
 
+  /** The peer's hello named the `group` capability: it takes roster messages. */
+  get groups(): boolean {
+    return this.peerHello?.capabilities?.includes('group') === true;
+  }
+
   on(listener: (event: ChannelEvent) => void): () => void {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
@@ -246,6 +253,10 @@ export class Channel {
     if (parsed.kind === 'hello') return this.onHello(parsed.msg);
     // A `bye` comes before any hello when the responder refuses one.
     if (parsed.kind === 'answer') return this.onAnswer(parsed.msg);
+    if (parsed.kind === 'group') {
+      if (this.peerHello) this.emit({ type: 'group', msg: parsed.msg });
+      return;
+    }
     if (this.peerHello && this.opts.serve) this.serving(this.opts.serve, (s) => s.ask(parsed.msg));
   }
 
@@ -320,6 +331,12 @@ export class Channel {
 
   seen(sessionId: string): void {
     if (this.ready && this.serves) this.sendJson({ t: 'seen', sessionId });
+  }
+
+  /** A roster message to a peer that takes them; false (nothing sent) otherwise. */
+  sendGroup(msg: GroupMessage): boolean {
+    if (!this.ready || !this.groups) return false;
+    return this.sendJson(msg);
   }
 
   subscribe(topic: string): void {
@@ -596,7 +613,7 @@ export class Channel {
     this.silenceTimer = setTimeout(() => this.emit({ type: 'silent' }), this.opts.silenceTimeoutMs ?? TUNNEL_SILENCE_TIMEOUT_MS);
   }
 
-  private sendJson(msg: HelloMessage | AskMessage | AnswerMessage): boolean {
+  private sendJson(msg: HelloMessage | AskMessage | AnswerMessage | GroupMessage): boolean {
     const plain = encodeInner({ kind: 'json', value: msg });
     if (plain.length <= MAX_INNER_BYTES) return this.sendPlain(plain);
     // Only a REST answer (a transcript page, a file preview) and a hub frame

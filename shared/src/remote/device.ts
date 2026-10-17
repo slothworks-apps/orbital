@@ -4,7 +4,7 @@
  */
 
 export type DeviceKind = 'desktop' | 'headless' | 'phone';
-export type Capability = 'sessions' | 'map' | 'ide' | 'folderPicker' | 'presence';
+export type Capability = 'sessions' | 'map' | 'ide' | 'folderPicker' | 'presence' | 'group';
 
 /**
  * The first ask id of a channel's responder. The initiator numbers from 1;
@@ -13,10 +13,16 @@ export type Capability = 'sessions' | 'map' | 'ide' | 'folderPicker' | 'presence
  */
 export const RESPONDER_FIRST_ID = 2 ** 31;
 
+/**
+ * What a kind of device can be asked about or sent, named in its hello
+ * (spec 2026-10-16-device-group-design § 1, § 2). `group` is the roster
+ * itself: a device that serves anything carries it, so a shipped phone
+ * (always `[]`) never takes a group message (`Channel.groups`).
+ */
 export function capabilitiesOf(kind: DeviceKind): Capability[] {
   if (kind === 'phone') return [];
-  if (kind === 'headless') return ['sessions'];
-  return ['sessions', 'map', 'ide', 'folderPicker', 'presence'];
+  if (kind === 'headless') return ['sessions', 'group'];
+  return ['sessions', 'map', 'ide', 'folderPicker', 'presence', 'group'];
 }
 
 /**

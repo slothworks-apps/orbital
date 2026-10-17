@@ -6,6 +6,7 @@
  */
 import { z } from 'zod';
 import { PAIR_NAME_MAX_CHARS } from './relayApi.js';
+import { RosterSchema } from './roster.js';
 
 export const PROTOCOL_VERSION = 1;
 export const BLOB_CHUNK_BYTES = 65536;
@@ -170,6 +171,18 @@ export const AnswerMessage = z.discriminatedUnion('t', [
 ]);
 export type AnswerMessage = z.infer<typeof AnswerMessage>;
 
+/**
+ * The group's own messages (spec 2026-10-16-device-group-design § 2, § 4),
+ * sent only to a peer whose hello named the `group` capability: a shipped
+ * device never sees one. They change the group, so no route carries them.
+ */
+export const GroupMessage = z.discriminatedUnion('t', [
+  z.object({ t: z.literal('roster_digest'), digest: z.string().max(128) }),
+  z.object({ t: z.literal('roster'), entries: RosterSchema }),
+  z.object({ t: z.literal('removed') }),
+]);
+export type GroupMessage = z.infer<typeof GroupMessage>;
+
 /** The longest `kind` and `os` a hello keeps. */
 export const HELLO_KIND_MAX_CHARS = 20;
 /** The most capabilities a hello keeps, and the longest one it keeps at all. */
@@ -218,7 +231,8 @@ export type HelloMessage = z.output<typeof HelloMessage>;
 export type ChannelMessage =
   | { kind: 'hello'; msg: HelloMessage }
   | { kind: 'ask'; msg: AskMessage }
-  | { kind: 'answer'; msg: AnswerMessage };
+  | { kind: 'answer'; msg: AnswerMessage }
+  | { kind: 'group'; msg: GroupMessage };
 
 /**
  * One inner JSON message, sorted. `ws` is the one `t` both sides use: a
@@ -234,7 +248,9 @@ export function parseChannelMessage(value: unknown): ChannelMessage | null {
   const ask = AskMessage.safeParse(value);
   if (ask.success) return { kind: 'ask', msg: ask.data };
   const answer = AnswerMessage.safeParse(value);
-  return answer.success ? { kind: 'answer', msg: answer.data } : null;
+  if (answer.success) return { kind: 'answer', msg: answer.data };
+  const group = GroupMessage.safeParse(value);
+  return group.success ? { kind: 'group', msg: group.data } : null;
 }
 
 /** Whether the peer runs sessions this device may ask about: by its capabilities, else a shipped Mac by its `server`. */

@@ -125,6 +125,9 @@ describe('schemas and urls', () => {
     expect(DeviceToRelay.safeParse({ type: 'push_token', token: 't' }).success).toBe(true);
     expect(DeviceToRelay.safeParse({ type: 'auth' }).success).toBe(false);
   });
+  it('reads a linked control', () => {
+    expect(RelayToDevice.parse({ type: 'linked', peer: 'x' })).toEqual({ type: 'linked', peer: 'x' });
+  });
   it('QR payload is versioned', () => {
     expect(QrPayload.safeParse({ v: 1, relay: 'https://r', mac: 'm', name: 'studio', token: 't', secret: 's' }).success).toBe(true);
     expect(QrPayload.safeParse({ v: 2, relay: 'https://r', mac: 'm', name: 'studio', token: 't', secret: 's' }).success).toBe(false);

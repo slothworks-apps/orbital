@@ -24,10 +24,11 @@ describe('initiates', () => {
 });
 
 describe('capabilitiesOf', () => {
-  it('a phone serves nothing and a headless server only sessions', () => {
+  it('a phone serves nothing, and only a desktop or headless names the group capability', () => {
     expect(capabilitiesOf('phone')).toEqual([]);
-    expect(capabilitiesOf('headless')).toEqual(['sessions']);
+    expect(capabilitiesOf('headless')).toEqual(['sessions', 'group']);
     expect(capabilitiesOf('desktop')).toContain('sessions');
+    expect(capabilitiesOf('desktop')).toContain('group');
   });
 });
 

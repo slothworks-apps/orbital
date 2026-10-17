@@ -49,7 +49,13 @@ export function canonicalJson(value: unknown): string {
 export type SignedRequest<T = unknown> = { pub: string; ts: number; payload: T; sig: string; secret?: string };
 
 /** The `action` strings the relay's pairing routes accept (see the table above). */
-export type RelayAction = 'pair.token' | 'pair.redeem' | 'pair.confirm' | 'pair.revoke';
+export type RelayAction = 'pair.token' | 'pair.redeem' | 'pair.confirm' | 'pair.revoke' | 'pair.mutual';
+
+/**
+ * How long the relay keeps one device's half of a mutual pair waiting for
+ * the other's.
+ */
+export const MUTUAL_PAIR_TTL_MS = 7 * 24 * 60 * 60_000;
 
 function signedBytes(action: string, ts: number, payload: unknown): Uint8Array {
   return new TextEncoder().encode(`orbital-relay\n${action}\n${ts}\n${canonicalJson(payload)}`);
@@ -122,6 +128,8 @@ export const RelayToDevice = z.discriminatedUnion('type', [
   z.object({ type: z.literal('rejected'), mac: z.string() }),
   z.object({ type: z.literal('unpaired'), mac: z.string() }),
   z.object({ type: z.literal('error'), code: z.string() }),
+  // Both devices signed `/pair/mutual` for each other: the pair exists. Sent only to a device that signed one.
+  z.object({ type: z.literal('linked'), peer: z.string() }),
 ]);
 export type RelayToDevice = z.infer<typeof RelayToDevice>;
 

@@ -5,6 +5,7 @@ import {
   decodeInner, encodeInner, parseChannelMessage, peerServes,
 } from '../src/remote/messages.js';
 import { PAIR_NAME_MAX_CHARS } from '../src/remote/relayApi.js';
+import { ROSTER_MAX_ENTRIES } from '../src/remote/roster.js';
 
 describe('inner codec', () => {
   it('round-trips a json message', () => {
@@ -137,6 +138,13 @@ describe('parseChannelMessage', () => {
     expect(parseChannelMessage({ t: 'http_res', id: 1, status: 200, body: {} })?.kind).toBe('answer');
     expect(parseChannelMessage({ t: 'bye', reason: 'revoked' })?.kind).toBe('answer');
     expect(parseChannelMessage({ t: 'nonsense' })).toBeNull();
+  });
+  it('reads group messages, and refuses a roster over its bound', () => {
+    expect(parseChannelMessage({ t: 'roster_digest', digest: 'ab' })?.kind).toBe('group');
+    expect(parseChannelMessage({ t: 'removed' })?.kind).toBe('group');
+    const one = { id: 'A', kind: 'desktop', name: 'a', os: 'macos', links: true, epoch: 1, addedBy: 'A', addedAt: 1, describedAt: 1 };
+    expect(parseChannelMessage({ t: 'roster', entries: [one] })?.kind).toBe('group');
+    expect(parseChannelMessage({ t: 'roster', entries: new Array(ROSTER_MAX_ENTRIES + 1).fill(one) })).toBeNull();
   });
 });
 

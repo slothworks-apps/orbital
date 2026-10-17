@@ -431,6 +431,8 @@ export class RemoteClient {
         return;
       case 'pair_request':
         return; // the Mac's message; a phone never gets one
+      case 'linked':
+        return; // the phone ignores it; the server handles it (Task 6)
     }
   }
 

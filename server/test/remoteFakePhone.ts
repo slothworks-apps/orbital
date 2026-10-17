@@ -154,7 +154,8 @@ export class FakePhone {
       return;
     }
     const parsed = parseChannelMessage(inner.value);
-    if (!parsed || parsed.kind === 'ask') throw new Error('expected a hello or an answer');
+    // A fake phone names no capabilities, so it never gets a group message either.
+    if (!parsed || parsed.kind === 'ask' || parsed.kind === 'group') throw new Error('expected a hello or an answer');
     this.messages.push(parsed.msg);
     this.offer(parsed.msg);
   }
