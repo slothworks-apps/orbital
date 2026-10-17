@@ -3,8 +3,9 @@
  * Takes the website's demo posters from the demos themselves (site/CLAUDE.md,
  * "The demo images are screenshots, committed"): each demo is opened at its
  * virtual viewport with `?poster=1`, which holds its scenario on the first
- * beat, and its still is written to `public/demo-images/<id>.webp`. The map
- * also gives the page's link preview, `public/og.png`.
+ * beat, and its still is written to `public/demo-images/<id>.webp`. The
+ * page's link preview, `public/og.png`, is not one of them: it is drawn in
+ * the design canvas and committed as it is.
  *
  * It builds nothing: run `npm run build:demo` first, so `public/demo` holds
  * the demos as they are now. It serves `public/` itself, on a free local
@@ -38,9 +39,6 @@ const SHOTS = [
 ]
 
 const WEBP_QUALITY = 0.8
-
-/** The link preview: the size the Open Graph cards are drawn at, cut from the map's still. */
-const OG = { from: 'map', width: 1200, height: 630 }
 
 /**
  * How long a demo is left after it says it is ready: the map's planets ease
@@ -87,27 +85,23 @@ function serve(root) {
 
 /**
  * Re-encodes a PNG in the browser, which already has the encoders: scaled to
- * `width` (and to `height`, cropped from the centre, when given), as
- * `type` at `quality`.
+ * `width`, as `type` at `quality`.
  */
-async function encode(page, png, { width, height, type, quality }) {
+async function encode(page, png, { width, type, quality }) {
   const dataUrl = await page.evaluate(
-    async ({ base64, width, height, type, quality }) => {
+    async ({ base64, width, type, quality }) => {
       const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
       const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }))
-      const scale = height ? Math.max(width / bitmap.width, height / bitmap.height) : width / bitmap.width
-      const outHeight = height ?? Math.round(bitmap.height * scale)
+      const height = Math.round(bitmap.height * (width / bitmap.width))
       const canvas = document.createElement('canvas')
       canvas.width = width
-      canvas.height = outHeight
+      canvas.height = height
       const ctx = canvas.getContext('2d')
       ctx.imageSmoothingQuality = 'high'
-      const drawnWidth = bitmap.width * scale
-      const drawnHeight = bitmap.height * scale
-      ctx.drawImage(bitmap, (width - drawnWidth) / 2, (outHeight - drawnHeight) / 2, drawnWidth, drawnHeight)
+      ctx.drawImage(bitmap, 0, 0, width, height)
       return canvas.toDataURL(type, quality)
     },
-    { base64: png.toString('base64'), width, height, type, quality },
+    { base64: png.toString('base64'), width, type, quality },
   )
   if (!dataUrl.startsWith(`data:${type};`)) throw new Error(`the browser could not encode ${type}`)
   return Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64')
@@ -123,7 +117,6 @@ async function main() {
   const origin = `http://127.0.0.1:${server.address().port}`
   const browser = await chromium.launch()
   const encoder = await browser.newPage()
-  const stills = new Map()
   let failed = false
 
   try {
@@ -153,18 +146,10 @@ async function main() {
       }
       await page.waitForTimeout(shot.id.startsWith('map') ? SETTLE_MS.map : SETTLE_MS.other)
       const png = await page.screenshot({ type: 'png' })
-      stills.set(shot.id, png)
       const webp = await encode(encoder, png, { width: shot.outWidth, type: 'image/webp', quality: WEBP_QUALITY })
       await writeFile(join(OUT, `${shot.id}.webp`), webp)
       console.log(`${shot.id}.webp  ${(webp.length / 1024).toFixed(0)} KB`)
       await context.close()
-    }
-
-    const still = stills.get(OG.from)
-    if (still) {
-      const og = await encode(encoder, still, { width: OG.width, height: OG.height, type: 'image/png' })
-      await writeFile(join(PUBLIC, 'og.png'), og)
-      console.log(`og.png  ${(og.length / 1024).toFixed(0)} KB`)
     }
   } finally {
     await browser.close()

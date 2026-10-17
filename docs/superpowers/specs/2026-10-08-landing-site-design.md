@@ -83,7 +83,9 @@ Real paths, not hash routes. The privacy link in the footer goes to
   page.
 - Each page has its own `<title>`, meta description, `canonical`, Open Graph
   and Twitter card tags. The Open Graph image is a static 1200×630 PNG in the
-  repository.
+  repository: the name and the claim over a few planets in the state colours,
+  drawn in the design canvas rather than cut from a demo, whose labels cannot
+  be read at the size a link preview shows it.
 - `sitemap.xml` (the two real pages only) and `robots.txt`.
 - JSON-LD `SoftwareApplication` on `/`: name, description, operating system
   macOS, category DeveloperApplication, price 0, download URL as above.
