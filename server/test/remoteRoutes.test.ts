@@ -133,6 +133,15 @@ describe('/api/remote', () => {
     expect((await app.inject({ method: 'GET', url: '/api/remote' })).json().devices).toEqual([]);
     await app.close();
   });
+  it('leave answers ok, with the remote on or off', async () => {
+    for (const enabled of [false, true]) {
+      const app = await server(enabled);
+      const res = await app.inject({ method: 'POST', url: '/api/remote/leave' });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ ok: true });
+      await app.close();
+    }
+  });
   it('a phone\'s body-less POST reaches its route instead of failing on an empty JSON body', async () => {
     const app = await server(false);
     const res = await app.inject(remoteInjectOptions({ method: 'POST', url: '/api/sessions/nope/interrupt' }, undefined));

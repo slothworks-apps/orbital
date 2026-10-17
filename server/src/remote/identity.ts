@@ -40,6 +40,12 @@ export function loadOrCreateIdentity(dataDir: string): { identity: Identity; reg
   return { identity, regenerated };
 }
 
+/** The identity already in the data dir, without making one; null when there is none that reads. */
+export function readIdentity(dataDir: string): Identity | null {
+  const path = join(dataDir, IDENTITY_FILE);
+  return existsSync(path) ? tryReadIdentity(path) : null;
+}
+
 /** Null for anything that is not a complete, valid secret key — an empty
  * read, broken JSON, a missing field or the wrong number of bytes. */
 function tryReadIdentity(path: string): Identity | null {

@@ -59,7 +59,13 @@ export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService
 
   app.delete('/api/remote/devices/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    if (!(await remote.revoke(id))) return reply.code(404).send({ error: 'not_found' });
+    if (!(await remote.remove(id))) return reply.code(404).send({ error: 'not_found' });
+    return { ok: true };
+  });
+
+  // This device leaves its group (spec 2026-10-16-device-group-design § 4).
+  app.post('/api/remote/leave', async () => {
+    await remote.leave();
     return { ok: true };
   });
 }

@@ -29,7 +29,7 @@ export async function until(cond: () => Promise<boolean> | boolean, ms = 5000): 
   }
 }
 
-export type InjectMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
+export type InjectMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export type MacAndRelay = {
   relayUrl: string;

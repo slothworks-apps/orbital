@@ -324,17 +324,18 @@ describe('RemoteService pairing', () => {
   });
 });
 
+/** Members written straight into the store, beside the service's own self entry: no link is asked yet. */
+function withMembers(db: OrbitalDb, ...entries: Partial<RosterEntry>[]) {
+  const store = new RosterStore(db);
+  const added = entries.map((e): RosterEntry => ({
+    id: phoneId(), kind: 'desktop', name: 'peer', os: 'linux', links: true, epoch: 1,
+    addedBy: 'x', addedAt: NOW, describedAt: NOW, ...e,
+  }));
+  store.replace([...store.list(), ...added]);
+  return added.map((e) => e.id);
+}
+
 describe('RemoteService mutual pairs', () => {
-  /** Members written straight into the store, beside the service's own self entry: no link is asked yet. */
-  function withMembers(db: OrbitalDb, ...entries: Partial<RosterEntry>[]) {
-    const store = new RosterStore(db);
-    const added = entries.map((e): RosterEntry => ({
-      id: phoneId(), kind: 'desktop', name: 'peer', os: 'linux', links: true, epoch: 1,
-      addedBy: 'x', addedAt: NOW, describedAt: NOW, ...e,
-    }));
-    store.replace([...store.list(), ...added]);
-    return added.map((e) => e.id);
-  }
   const ok = { type: 'ok', peers: [] };
   const asked = (fake: FakeClient) => fake.posts.filter((p) => p.path === '/pair/mutual').map((p) => (p.payload as { peer: string }).peer);
 
@@ -383,9 +384,13 @@ describe('RemoteService mutual pairs', () => {
     const { service, fake, db } = build();
     const [server] = withMembers(db, { name: 'vps', os: 'linux' });
     const [removed] = withMembers(db, { removedBy: 'x', removedAt: NOW });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     fake.emit('control', { type: 'linked', peer: phoneId() });
     fake.emit('control', { type: 'linked', peer: removed });
+    warn.mockRestore();
     expect(service.status().devices).toEqual([]);
+    // A removed member is not left half linked: its pair goes at once. An unknown id is only ignored.
+    expect(fake.posts.filter((p) => p.path === '/pair/revoke').map((p) => p.payload)).toEqual([{ phone: removed }]);
     // Both the post's answer and the control say so; the device is added once.
     fake.answers['/pair/mutual'] = { status: 200, body: { linked: true } };
     fake.emit('control', ok);
@@ -452,18 +457,70 @@ describe('RemoteService relay status', () => {
   });
 });
 
-describe('RemoteService revoke', () => {
-  it('removes the device even when the relay revoke fails', async () => {
+describe('RemoteService remove', () => {
+  const revoked = (fake: FakeClient) => fake.posts.filter((p) => p.path === '/pair/revoke').map((p) => (p.payload as { phone: string }).phone);
+
+  it('removes a phone paired before the roster: its entry is written, marked removed, and the device goes even when the relay revoke fails', async () => {
     const phone = phoneId();
     const { service, fake, devices } = build((d) => d.add({
       id: phone, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}),
     }));
     fake.answers['/pair/revoke'] = { status: 0, body: { error: 'network' } };
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    expect(await service.revoke(phone)).toBe(true);
+    expect(await service.remove(phone)).toBe(true);
     warn.mockRestore();
     expect(devices.get(phone)).toBeNull();
     expect(fake.posts.map((p) => p.path)).toEqual(['/pair/revoke']);
+    expect(service.status().group.members.find((m) => m.id === phone)).toMatchObject({
+      kind: 'phone', name: 'iPhone', os: 'ios', removedBy: service.status().macId, removedAt: NOW, linked: false,
+    });
+  });
+
+  it('a live member with no pair here is removed and still revoked at the relay, which drops a waiting half', async () => {
+    const { service, fake, db } = build();
+    const [member] = withMembers(db, {});
+    expect(await service.remove(member)).toBe(true);
+    expect(revoked(fake)).toEqual([member]);
+    expect(service.status().group.members.find((m) => m.id === member)?.removedAt).toBe(NOW);
+  });
+
+  it('is false for an id neither in the roster nor paired, and for a member already removed', async () => {
+    const { service, fake, db } = build();
+    const [removed] = withMembers(db, { removedBy: 'x', removedAt: NOW });
+    expect(await service.remove(phoneId())).toBe(false);
+    expect(await service.remove(removed)).toBe(false);
+    expect(revoked(fake)).toEqual([]);
+  });
+
+  it('leave revokes every pair, forgets every device and member, and starts a group of one at the next epoch', async () => {
+    const paired = [phoneId(), phoneId()];
+    const { service, fake, db, devices } = build((d) => {
+      for (const id of paired) {
+        d.add({ id, name: 'p', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}) });
+      }
+    });
+    withMembers(db, { id: paired[0], kind: 'phone', links: false }, {});
+    const self = service.status().macId!;
+    await service.leave();
+    expect(revoked(fake).sort()).toEqual([...paired].sort());
+    expect(devices.list()).toEqual([]);
+    expect(service.status().group.members).toEqual([
+      expect.objectContaining({ id: self, self: true, epoch: 2, addedBy: self }),
+    ]);
+    expect(service.status().group.members[0].removedAt).toBeUndefined();
+  });
+
+  it('the relay saying unpaired drops that paired device and leaves the roster to the group', () => {
+    const phone = phoneId();
+    const { service, fake, devices, db } = build((d) => d.add({
+      id: phone, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}),
+    }));
+    withMembers(db, { id: phone, kind: 'phone', links: false });
+    const before = service.rosterDigest();
+    fake.emit('control', { type: 'unpaired', mac: phone });
+    expect(devices.get(phone)).toBeNull();
+    expect(service.rosterDigest()).toBe(before);
+    expect(revoked(fake)).toEqual([]);
   });
 });
 

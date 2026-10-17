@@ -36,6 +36,7 @@ describe('remote allowlist', () => {
       ['POST', '/api/branch-status/refresh'], ['GET', '/api/sessions/retention-preview'],
       ['GET', '/api/claude-dirs'], ['POST', '/api/claude-dirs'], ['PATCH', '/api/claude-dirs/2'], ['DELETE', '/api/claude-dirs/2'],
       ['GET', '/api/remote'], ['POST', '/api/remote/pair'], ['DELETE', '/api/remote/devices/x'],
+      ['POST', '/api/remote/leave'],
       ['GET', '/ws'], ['GET', '/'], ['GET', '/index.html'],
       // `defaults` is a literal, never an id: no other method or shape reaches it.
       ['GET', '/api/sessions/defaults/'], ['GET', '/api/sessions/defaults/x'], ['POST', '/api/sessions/defaults'],
