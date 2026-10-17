@@ -15,6 +15,7 @@ related:
   - the-relay-pairs-two-devices-that-both-sign
   - every-member-reaches-one-literal-allowlist
   - a-headless-orbital-is-a-full-member
+  - move-a-group-to-another-relay
 tags:
   - remote
   - relay
@@ -73,7 +74,8 @@ member (the person already consented once, on two of their own devices).
   phone already paired as a member. A phone already paired keeps working
   without pairing again.
 - **Can be set:** which devices are in the group (add, rename this
-  device, remove any); the device filter chips on the map and the phone.
+  device, remove any); the device filter chips on the map and the phone;
+  the relay, only while the device is alone (§ 4).
 
 ## 1. Members
 
@@ -129,10 +131,10 @@ Every member keeps the whole roster and they converge on it.
    link with it (§ 4); nothing more is asked of the user. Every member
    says once, in Settings → Devices, "*vps* added by *studio*".
 
-**Two groups meet.** When the new device is already in a group of its
-own (two or more), the ceremony merges the two rosters: the person
-consented on one device of each. Two groups on different relays cannot
-merge; the ceremony refuses with "*vps* uses another relay".
+**Two groups meet.** A device already in a group of two or more cannot
+join another; it leaves first (design 50, decided 2026-10-17). The
+roster's merge still converges if two groups ever meet, but no ceremony
+starts it.
 
 ## 4. Links
 
@@ -157,6 +159,10 @@ A link is the relay pair between two members and the channel over it.
   its push token for every member it leaves, as "Pair a different Mac"
   does today.
 - **Leaving** is removing this device, from this device.
+- **The relay** is the group's: the relay field is editable only while
+  the device is alone, and read-only while another member is live.
+  Moving a whole group to another relay is not built yet
+  ([[move-a-group-to-another-relay]]).
 
 ## 5. The channel
 
@@ -202,8 +208,8 @@ A link is the relay pair between two members and the channel over it.
   route), and the terminals (a pty is not an HTTP request; see
   `ideas/`).
 - **Settings no member may change on another:** the `remote_*` settings
-  (the relay is the group's, changed for the whole group from Settings →
-  Devices). Everything else may be changed, as on the device itself
+  (the relay is the group's, and set on a device only while it is alone,
+  § 4). Everything else may be changed, as on the device itself
   ([[the-phone-may-do-what-the-mac-may]]).
 - Topics are checked the same way, by one list for every member.
 

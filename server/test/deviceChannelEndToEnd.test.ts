@@ -23,11 +23,14 @@ describe('two servers, one channel', () => {
     expect(statusA.pendingPair).toMatchObject({ name: 'laptop', kind: 'desktop' });
     const statusB = (await b.api('GET', '/api/remote')).json();
     expect(join.json().code).toBe(formatFingerprint(pairingCode(statusA.macId, publicKeyOf(statusB.macId)!)));
+    // A reload while waiting keeps the code to type.
+    expect(statusB.joining).toMatchObject({ device: statusA.macId, code: join.json().code });
     const confirm = await a.api('POST', '/api/remote/pair/confirm', {
       accept: true, phone: statusB.macId, code: join.json().code,
     });
     expect(confirm.statusCode).toBe(200);
     await until(() => a.remote.channel(statusB.macId)?.ready === true && b.remote.channel(statusA.macId)?.ready === true);
+    expect((await b.api('GET', '/api/remote')).json().joining).toBeNull();
     return { a, b, idA: statusA.macId as string, idB: statusB.macId as string };
   }
 
@@ -75,6 +78,10 @@ describe('two servers, one channel', () => {
 
   const membersOf = async (s: { api: (m: 'GET', u: string) => Promise<{ json(): any }> }) =>
     (await s.api('GET', '/api/remote')).json().group.members;
+  /** A member as the store holds it: the status lists only live ones. */
+  const entryIn = (s: MacAndRelay, id: string) => s.remote.rosterEntries().find((e) => e.id === id);
+  const pairedWith = async (s: MacAndRelay, id: string) =>
+    (await s.api('GET', '/api/remote')).json().devices.some((d: any) => d.id === id);
 
   it('pairing writes both into one roster, and the rosters converge', async () => {
     const { a, b, idA, idB } = await joined();
@@ -159,8 +166,8 @@ describe('two servers, one channel', () => {
     expect((await a.api('DELETE', `/api/remote/devices/${idC}`)).statusCode).toBe(200);
     await until(async () => {
       for (const s of [a, b]) {
-        const m = (await membersOf(s)).find((x: any) => x.id === idC);
-        if (!m || m.removedAt === undefined || m.linked) return false;
+        if (entryIn(s, idC)?.removedAt === undefined || (await pairedWith(s, idC))) return false;
+        if ((await membersOf(s)).some((x: any) => x.id === idC)) return false;
       }
       return b.remote.channel(idC) === null && a.remote.channel(idC) === null;
     }, 15_000);
@@ -193,9 +200,7 @@ describe('two servers, one channel', () => {
     expect((await b.api('GET', '/api/remote')).json().devices.some((d: any) => d.id === idC)).toBe(true);
     await b.api('PATCH', '/api/settings', { remote_enabled: 'true' });
     await until(async () => {
-      const status = (await b.api('GET', '/api/remote')).json();
-      const m = status.group.members.find((x: any) => x.id === idC);
-      return m?.removedAt !== undefined && !status.devices.some((d: any) => d.id === idC);
+      return entryIn(b, idC)?.removedAt !== undefined && !(await pairedWith(b, idC));
     }, 15_000);
   }, 45_000);
 
@@ -203,8 +208,7 @@ describe('two servers, one channel', () => {
     const { a, b, idB } = await joined();
     expect((await b.api('POST', '/api/remote/leave')).json()).toEqual({ ok: true });
     await until(async () => {
-      const m = (await membersOf(a)).find((x: any) => x.id === idB);
-      return m?.removedAt !== undefined && !m.linked && (await aloneIn(b));
+      return entryIn(a, idB)?.removedAt !== undefined && !(await pairedWith(a, idB)) && (await aloneIn(b));
     }, 15_000);
     expect(a.remote.channel(idB)).toBeNull();
   }, 30_000);
@@ -214,15 +218,15 @@ describe('two servers, one channel', () => {
     const phone = await pairPhone(a, idA);
     await until(async () => (await membersOf(b)).some((m: any) => m.id === phone.id));
     expect((await a.api('POST', '/api/remote/leave')).json()).toEqual({ ok: true });
-    await until(async () => (await membersOf(b)).find((m: any) => m.id === phone.id)?.removedAt !== undefined, 15_000);
-    expect((await membersOf(b)).find((m: any) => m.id === phone.id)).toMatchObject({ removedBy: idA });
+    await until(() => entryIn(b, phone.id)?.removedAt !== undefined, 15_000);
+    expect(entryIn(b, phone.id)).toMatchObject({ removedBy: idA });
   }, 30_000);
 
   it('a device that left pairs again through the ceremony, at an epoch above its removal', async () => {
     const { a, b, idA, idB } = await joined();
     await b.api('POST', '/api/remote/leave');
-    await until(async () => (await membersOf(a)).find((x: any) => x.id === idB)?.removedAt !== undefined && (await aloneIn(b)), 15_000);
-    const removedEpoch = (await membersOf(a)).find((x: any) => x.id === idB).epoch;
+    await until(async () => entryIn(a, idB)?.removedAt !== undefined && (await aloneIn(b)), 15_000);
+    const removedEpoch = entryIn(a, idB)!.epoch;
     const qr = (await a.api('POST', '/api/remote/pair')).json().qr;
     const join = await b.api('POST', '/api/remote/join', { code: qr });
     expect(join.statusCode).toBe(200);
@@ -231,7 +235,7 @@ describe('two servers, one channel', () => {
     await until(async () => {
       const m = (await membersOf(a)).find((x: any) => x.id === idB);
       return a.remote.channel(idB)?.ready === true && b.remote.channel(idA)?.ready === true
-        && m?.removedAt === undefined && m.linked && a.remote.rosterDigest() === b.remote.rosterDigest();
+        && m !== undefined && m.linked && a.remote.rosterDigest() === b.remote.rosterDigest();
     }, 15_000);
     expect((await membersOf(a)).find((x: any) => x.id === idB).epoch).toBeGreaterThan(removedEpoch);
     expect((await membersOf(b)).find((x: any) => x.id === idA)).toMatchObject({ linked: true });
@@ -257,7 +261,7 @@ describe('two servers, one channel', () => {
     const a = await startMacAndRelay(closers);
     const b = await startMacAndRelay(closers);
     const qr = (await a.api('POST', '/api/remote/pair')).json().qr;
-    expect((await b.api('POST', '/api/remote/join', { code: qr })).json()).toEqual({ error: 'other_relay' });
+    expect((await b.api('POST', '/api/remote/join', { code: qr })).json()).toEqual({ error: 'other_relay', relay: a.relayUrl });
     expect((await b.api('POST', '/api/remote/join', { code: 'nonsense' })).statusCode).toBe(400);
   });
 });

@@ -165,6 +165,13 @@ describe('pairing code', () => {
     expect(parsePairingCode(qr)?.kind).toBe('desktop');
     expect(parsePairingCode(encodePairingCode(qr))?.mac).toBe(mac);
   });
+  it('keeps the code\'s expiry, and reads a code from before it carried one', () => {
+    const withExpiry = JSON.stringify({ ...JSON.parse(qr), expiresAt: 123_456 });
+    expect(parsePairingCode(withExpiry)?.expiresAt).toBe(123_456);
+    expect(parsePairingCode(encodePairingCode(withExpiry))?.expiresAt).toBe(123_456);
+    expect(parsePairingCode(qr)).not.toBeNull();
+    expect(parsePairingCode(qr)?.expiresAt).toBeUndefined();
+  });
   it('refuses anything else', () => {
     expect(parsePairingCode('hello')).toBeNull();
     expect(parsePairingCode(JSON.stringify({ v: 1, relay: 'r', mac: 'nope', name: 'n', token: 't', secret: 's' }))).toBeNull();

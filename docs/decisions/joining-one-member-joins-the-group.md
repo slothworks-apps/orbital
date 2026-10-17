@@ -29,8 +29,10 @@ without asking again. Every member shows who added it.
 The roster is kept by every member and merged: per device the higher
 epoch wins, and within one epoch a removal wins. A device can be removed
 from any member; it comes back only through a new ceremony, which starts
-the next epoch. When a ceremony joins two devices that each already have
-a group, the rosters merge.
+the next epoch. A device already in a group of two or more cannot join
+another; it leaves its group first. One person's devices form one group,
+and merging two at a ceremony would surprise more than it helps: the
+devices of one side would suddenly link with every device of the other.
 
 ## Ruled out
 
@@ -39,6 +41,9 @@ a group, the rosters merge.
 - **Confirming every introduction on every member.** The person already
   confirmed on two of their own devices; the rest would be dialogs to
   dismiss, and a server would wait on a terminal nobody watches.
+- **Merging two groups at a ceremony.** Each side consented on one
+  device, but the merge reaches every device of both; leaving first
+  makes the move explicit (decided 2026-10-17).
 - **The roster in the relay.** The relay would hold membership, which it
   does not need to route frames, and would have to change its pairing
   model.

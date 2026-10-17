@@ -10,6 +10,7 @@ related:
   - joining-one-member-joins-the-group
   - the-relay-pairs-two-devices-that-both-sign
   - a-device-has-one-identity-and-one-channel-per-pair
+  - move-a-group-to-another-relay
 tags:
   - remote
   - relay
@@ -236,6 +237,30 @@ on either route still counts against the guessing budget, and past it
 they are refused like a connect, so the secret is not guessed faster
 through them.
 
+## Joining, and what the status shows
+
+`RemoteService.join(code)` refuses with `in_group` while the roster holds
+any live member other than this device (`inGroup`) — a phone paired
+here counts — before anything is sent to the relay: groups do not merge,
+a device leaves its group before it joins another (ADR
+`joining-one-member-joins-the-group`). `other_relay` names the code's
+relay, `peer_offline` the code's `expiresAt` when the code carries one
+(`QrPayload.expiresAt`, which `startPairing` copies from the relay's
+answer). While a join waits, `status.joining` carries the formatted code
+to type on the other device and the code's expiry, so a reload keeps the
+waiting card; `cancelJoin` (`DELETE /api/remote/join`) drops it here and
+leaves the relay's request to expire.
+
+`status.group.members` lists only live members — removed entries stay in
+the store — each with a `state`: `self`; `online`/`offline` by the
+relay's presence for a member paired here (with `seenAt` from its
+`remote_devices` row) and for a member that does not link (a phone
+paired with another member, never "not linked"); `linking` for a member
+that links and is not paired here yet; `notLinked` for one marked
+`pairByHand`. `status.group.relayLocked` is `inGroup`: while it holds,
+`PATCH /api/settings` refuses a changed `remote_relay_url` with 409
+`in_group` (idea `move-a-group-to-another-relay`).
+
 ## Known limits
 
 - **A peer that is asleep when another member leaves, or that receives
@@ -304,4 +329,4 @@ through them.
 | revokes waiting for the relay | `server/src/db/schema.ts` (`pendingRevokes`), `server/src/remote/rosterStore.ts` (`PendingRevokes`) |
 | the relay's budgets | `relay/src/rateLimit.ts`, `relay/src/pairing.ts` (`signed`) |
 | the self entry, pairing, sync, linking, removal, leaving | `server/src/remote/service.ts` (`addSelf`, `addPaired`, `onPeerHello`, `setRoster`, `applyRemovals`, `link`, `onLinked`, `remove`, `leave`, `leaveGroup`, `dropMember`) |
-| the status the UI (part 2b) will read | `server/src/remote/service.ts` (`RemoteStatus.group`, `listMembers`) |
+| the status the UI (part 2b) reads, joining and its refusals | `server/src/remote/service.ts` (`RemoteStatus.group`, `listGroup`, `inGroup`, `join`, `cancelJoin`); the relay URL lock in `server/src/api/routes.ts` (`PATCH /api/settings`) |

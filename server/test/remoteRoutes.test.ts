@@ -5,10 +5,13 @@ import { openDb } from '../src/db/database.js';
 import { settings as settingsTable } from '../src/db/schema.js';
 import type { OrbitalDb } from '../src/db/database.js';
 import { DeviceStore } from '../src/remote/devices.js';
+import { RosterStore } from '../src/remote/rosterStore.js';
 import { RemoteService } from '../src/remote/service.js';
 import { Hub } from '../src/api/hub.js';
 import { remoteInjectOptions } from '../src/remote/inject.js';
-import { generateIdentity, deviceId } from '@orbital/shared/remote/keys';
+import { generateIdentity, deviceId, toBase64Url } from '@orbital/shared/remote/keys';
+import { PAIRING_SECRET_BYTES } from '@orbital/shared/remote/relayApi';
+import type { RosterEntry } from '@orbital/shared/remote/roster';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import { makeTmpDir } from './tmp.js';
 
@@ -23,6 +26,15 @@ async function server(enabled: boolean, relayUrl = 'http://127.0.0.1:1', seed?: 
   seed?.(db);
   db.$client.close();
   return buildServer({ dbPath, claudeDir: join(dir, 'claude'), dataDir: dir });
+}
+
+/** Another live member in the roster: this device is in a group. */
+function withMember(db: OrbitalDb): void {
+  const entry: RosterEntry = {
+    id: deviceId(generateIdentity().publicKey), kind: 'desktop', name: 'peer', os: 'linux', links: true, epoch: 1,
+    addedBy: 'x', addedAt: 1, describedAt: 1,
+  };
+  new RosterStore(db).replace([entry]);
 }
 
 describe('/api/remote', () => {
@@ -150,6 +162,45 @@ describe('/api/remote', () => {
     expect(res.json()).toEqual({ error: 'offline' });
     expect((await app.inject({ method: 'GET', url: '/api/remote' })).json().group).toEqual(before.group);
     await app.close();
+  });
+  it('join is refused with in_group while another member is live', async () => {
+    const app = await server(true, 'http://127.0.0.1:1', (db) => withMember(db));
+    const code = JSON.stringify({
+      v: 1, relay: 'http://127.0.0.1:1', mac: deviceId(generateIdentity().publicKey), name: 'studio', token: 't',
+      secret: toBase64Url(new Uint8Array(PAIRING_SECRET_BYTES)),
+    });
+    const res = await app.inject({ method: 'POST', url: '/api/remote/join', payload: { code } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: 'in_group' });
+    await app.close();
+  });
+  it('cancelling a join answers ok while one waits, and 404 when none does', async () => {
+    const app = await server(true);
+    const cancel = vi.spyOn(RemoteService.prototype, 'cancelJoin').mockReturnValueOnce(true);
+    try {
+      const first = await app.inject({ method: 'DELETE', url: '/api/remote/join' });
+      expect(first.statusCode).toBe(200);
+      expect(first.json()).toEqual({ ok: true });
+      cancel.mockRestore();
+      expect((await app.inject({ method: 'DELETE', url: '/api/remote/join' })).statusCode).toBe(404);
+    } finally {
+      cancel.mockRestore();
+      await app.close();
+    }
+  });
+  it('the relay URL is refused while another member is live, and saved while this device is alone', async () => {
+    const grouped = await server(true, 'http://127.0.0.1:1', (db) => withMember(db));
+    expect((await grouped.inject({ method: 'GET', url: '/api/remote' })).json().group.relayLocked).toBe(true);
+    const refused = await grouped.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_url: 'http://127.0.0.1:2' } });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toEqual({ error: 'in_group' });
+    expect((await grouped.inject({ method: 'GET', url: '/api/settings' })).json().remote_relay_url).toBe('http://127.0.0.1:1');
+    // Every other setting saves as before.
+    expect((await grouped.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_mac_name: 'Studio' } })).statusCode).toBe(200);
+    await grouped.close();
+    const alone = await server(true);
+    expect((await alone.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_url: 'http://127.0.0.1:2' } })).statusCode).toBe(200);
+    await alone.close();
   });
   it('a phone\'s body-less POST reaches its route instead of failing on an empty JSON body', async () => {
     const app = await server(false);

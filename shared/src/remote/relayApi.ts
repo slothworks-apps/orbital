@@ -156,6 +156,8 @@ export const QrPayload = z.object({
   relaySecret: z.string().optional(),
   /** The kind of the device that shows the code; absent from a Mac from before kinds. */
   kind: z.string().max(PAIR_PLATFORM_MAX_CHARS).optional(),
+  /** When the code stops working, by the relay's clock (epoch ms); absent from a device from before it said so. */
+  expiresAt: z.number().optional(),
 });
 export type QrPayload = z.infer<typeof QrPayload>;
 

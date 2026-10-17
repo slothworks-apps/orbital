@@ -513,9 +513,112 @@ describe('RemoteService join', () => {
     };
     const res = await service.join(JSON.stringify(qr));
     expect(res).toMatchObject({ device: other });
-    expect(service.status().joining).toEqual({ device: other, name: long.slice(0, PAIR_NAME_MAX_CHARS) });
+    expect(service.status().joining).toMatchObject({ device: other, name: long.slice(0, PAIR_NAME_MAX_CHARS) });
     fake.emit('control', { type: 'paired', mac: other });
     expect(service.status().devices).toEqual([expect.objectContaining({ id: other, name: long.slice(0, PAIR_NAME_MAX_CHARS) })]);
+  });
+});
+
+describe('RemoteService join and the group', () => {
+  const redeems = (fake: FakeClient) => fake.posts.filter((p) => p.path === '/pair/redeem');
+  /** A code another device shows, on this service's relay unless named otherwise. */
+  const codeFrom = (over: Partial<QrPayload> = {}) => {
+    const qr: QrPayload = {
+      v: 1, relay: 'https://relay.test', mac: phoneId(), name: 'studio', token: 'tok',
+      secret: toBase64Url(new Uint8Array(PAIRING_SECRET_BYTES)), kind: 'desktop', expiresAt: NOW + 90_000, ...over,
+    };
+    return JSON.stringify(qr);
+  };
+
+  it('refuses to join another group while this device is in one', async () => {
+    const { service, fake, db } = build();
+    withMembers(db, {});
+    expect(await service.join(codeFrom())).toEqual({ error: 'in_group' });
+    expect(redeems(fake)).toHaveLength(0);
+    expect(service.status().joining).toBeNull();
+  });
+
+  it('a phone paired here makes a group too; a removed member does not', async () => {
+    const { service, db } = build();
+    const [phone] = withMembers(db, { kind: 'phone', links: false });
+    expect(await service.join(codeFrom())).toEqual({ error: 'in_group' });
+    new RosterStore(db).replace(new RosterStore(db).list().map((e) => (e.id === phone ? { ...e, removedBy: 'x', removedAt: NOW } : e)));
+    expect(await service.join(codeFrom())).toMatchObject({ code: expect.any(String) });
+  });
+
+  it('names the code relay when it is another one, and the code expiry when the member is offline', async () => {
+    const { service, fake } = build();
+    expect(await service.join(codeFrom({ relay: 'https://relay.lab.internal' })))
+      .toEqual({ error: 'other_relay', relay: 'https://relay.lab.internal' });
+    expect(redeems(fake)).toHaveLength(0);
+    fake.answers['/pair/redeem'] = { status: 409, body: {} };
+    expect(await service.join(codeFrom())).toEqual({ error: 'peer_offline', expiresAt: NOW + 90_000 });
+    // A code from before it carried its expiry.
+    expect(await service.join(codeFrom({ expiresAt: undefined }))).toEqual({ error: 'peer_offline' });
+    expect(service.status().joining).toBeNull();
+  });
+
+  it('the waiting join carries the code to type and the code\'s expiry', async () => {
+    const { service } = build();
+    const code = codeFrom();
+    const res = await service.join(code);
+    if (!('code' in res)) throw new Error('join failed');
+    expect(service.status().joining).toEqual({ device: res.device, name: 'studio', code: res.code, expiresAt: NOW + 90_000 });
+  });
+
+  it('cancels a join', async () => {
+    const { service, hub } = build();
+    await service.join(codeFrom());
+    expect(service.status().joining).not.toBeNull();
+    const published = vi.spyOn(hub, 'publish');
+    expect(service.cancelJoin()).toBe(true);
+    expect(service.status().joining).toBeNull();
+    expect(published).toHaveBeenCalledWith('remote', expect.objectContaining({ event: 'status', joining: null }));
+    published.mockRestore();
+    expect(service.cancelJoin()).toBe(false);
+  });
+
+  it('derives each member display state', async () => {
+    const { service, fake, db, devices } = build();
+    const add = (id: string) => devices.add({
+      id, name: 'm', platform: 'linux', kind: 'desktop', pairedAt: NOW, notifications: parseNotificationSettings({}),
+    });
+    const [byHand] = withMembers(db, {});
+    // The relay has no `/pair/mutual`: the member asked at this `ok` can only be paired by hand.
+    fake.answers['/pair/mutual'] = { status: 404, body: {} };
+    fake.emit('control', { type: 'ok', peers: [] });
+    await tick();
+    const [rowOnline, rowOffline, linking, phoneOnline, phoneOffline, removed] = withMembers(
+      db, {}, {}, {}, { kind: 'phone', links: false }, { kind: 'phone', links: false }, { removedBy: 'x', removedAt: NOW },
+    );
+    add(rowOnline);
+    add(rowOffline);
+    devices.touch(rowOffline, NOW - 5_000);
+    fake.peersOnline.add(rowOnline);
+    fake.peersOnline.add(phoneOnline);
+    const { members, relayLocked } = service.status().group;
+    const states = Object.fromEntries(members.map((m) => [m.id, { state: m.state, seenAt: m.seenAt }]));
+    expect(states).toEqual({
+      [service.status().macId!]: { state: 'self', seenAt: null },
+      [byHand]: { state: 'notLinked', seenAt: null },
+      [rowOnline]: { state: 'online', seenAt: null },
+      [rowOffline]: { state: 'offline', seenAt: NOW - 5_000 },
+      [linking]: { state: 'linking', seenAt: null },
+      [phoneOnline]: { state: 'online', seenAt: null },
+      [phoneOffline]: { state: 'offline', seenAt: null },
+    });
+    expect(members.some((m) => m.id === removed)).toBe(false);
+    expect(relayLocked).toBe(true);
+  });
+
+  it('the relay is locked only while another member is live', () => {
+    const { service, db } = build();
+    expect(service.status().group.relayLocked).toBe(false);
+    const [other] = withMembers(db, { removedBy: 'x', removedAt: NOW });
+    expect(other).toBeDefined();
+    expect(service.status().group.relayLocked).toBe(false);
+    withMembers(db, {});
+    expect(service.status().group.relayLocked).toBe(true);
   });
 });
 
@@ -547,7 +650,7 @@ describe('RemoteService remove', () => {
 
   it('removes a phone paired before the roster: its entry is written, marked removed, and the device goes even when the relay revoke fails', async () => {
     const phone = phoneId();
-    const { service, fake, devices } = build((d) => d.add({
+    const { service, fake, db, devices } = build((d) => d.add({
       id: phone, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}),
     }));
     fake.answers['/pair/revoke'] = { status: 0, body: { error: 'network' } };
@@ -556,9 +659,11 @@ describe('RemoteService remove', () => {
     warn.mockRestore();
     expect(devices.get(phone)).toBeNull();
     expect(fake.posts.map((p) => p.path)).toEqual(['/pair/revoke']);
-    expect(service.status().group.members.find((m) => m.id === phone)).toMatchObject({
-      kind: 'phone', name: 'iPhone', os: 'ios', removedBy: service.status().macId, removedAt: NOW, linked: false,
+    // The store keeps the removed entry; the status lists only live members.
+    expect(new RosterStore(db).entry(phone)).toMatchObject({
+      kind: 'phone', name: 'iPhone', os: 'ios', removedBy: service.status().macId, removedAt: NOW,
     });
+    expect(service.status().group.members.some((m) => m.id === phone)).toBe(false);
   });
 
   it('a live member with no pair here is removed and still revoked at the relay, which drops a waiting half', async () => {
@@ -566,7 +671,7 @@ describe('RemoteService remove', () => {
     const [member] = withMembers(db, {});
     expect(await service.remove(member)).toEqual({ ok: true });
     expect(revoked(fake)).toEqual([member]);
-    expect(service.status().group.members.find((m) => m.id === member)?.removedAt).toBe(NOW);
+    expect(new RosterStore(db).entry(member)?.removedAt).toBe(NOW);
   });
 
   it('is false for an id neither in the roster nor paired, and for a member already removed', async () => {

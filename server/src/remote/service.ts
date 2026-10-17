@@ -83,18 +83,30 @@ export type PairConfirmResult =
   | { error: 'no_pending' | 'code_rejected' | 'relay_error' }
   | { error: 'code_mismatch'; attemptsLeft: number };
 
-/**
- * The answer to joining another device by its code: that device and the
- * code the user types on it, or why not. `peer_offline`: the device that
- * showed the code is not on the relay. `other_relay`: the code names a
- * relay this server is not on.
- */
 /** The answer to removing a device: `offline` when it is this device itself and the relay is not online (`leave`). */
 export type RemoveResult = { ok: true } | { error: 'not_found' | 'offline' | 'failed' };
 
+/**
+ * The answer to joining another device by its code: that device and the
+ * code the user types on it, or why not. `in_group`: this device is in a
+ * group already and leaves it first. `peer_offline`: the device that showed
+ * the code is not on the relay; `expiresAt` is the code's, when it says.
+ * `other_relay`: the code names a relay this server is not on, `relay`.
+ */
 export type JoinResult =
   | { device: string; name: string; code: string }
-  | { error: 'bad_code' | 'disabled' | 'offline' | 'already_paired' | 'other_relay' | 'peer_offline' | 'relay_error' | 'relay_too_old' };
+  | { error: 'bad_code' | 'disabled' | 'offline' | 'already_paired' | 'in_group' | 'relay_error' | 'relay_too_old' }
+  | { error: 'other_relay'; relay: string }
+  | { error: 'peer_offline'; expiresAt?: number };
+
+/**
+ * How Settings shows a member. `self`: this device. `online`/`offline`: a
+ * member paired here, or a member that does not link (a phone paired with
+ * another member), by the relay's presence. `linking`: a member that links
+ * and is not paired here yet; `notLinked`: one the relay cannot pair
+ * (`pairByHand`), so only a pairing code links the two.
+ */
+export type MemberState = 'self' | 'online' | 'offline' | 'linking' | 'notLinked';
 
 export type RemoteStatus = {
   enabled: boolean;
@@ -125,17 +137,28 @@ export type RemoteStatus = {
    */
   pendingPair: { phone: string; name: string; platform: string; kind: string; attemptsLeft: number } | null;
   pairing: { expiresAt: number } | null;
-  /** A device whose code this server redeemed and which has not confirmed yet. */
-  joining: { device: string; name: string } | null;
+  /**
+   * A device whose code this server redeemed and which has not confirmed
+   * yet: `code` is what the user types on it, `expiresAt` when its code stops working.
+   */
+  joining: { device: string; name: string; code: string; expiresAt: number } | null;
   /** Why the last `start` failed; null while it is fine. */
   error: string | null;
   /**
-   * The group's roster (spec 2026-10-16-device-group-design § 2), removed
-   * entries included. `self`: this device; `linked`: paired with this device
-   * directly; `online`: on the relay as this device sees it; `pairByHand`:
-   * the relay has no `/pair/mutual`, so only a pairing code links the two.
+   * The group's live members (spec 2026-10-16-device-group-design § 2); the
+   * removed ones stay in the store only. `self`: this device; `linked`:
+   * paired with this device directly; `online`: on the relay as this device
+   * sees it; `pairByHand`: the relay has no `/pair/mutual`, so only a
+   * pairing code links the two; `state`: how Settings shows it; `seenAt`:
+   * when a member paired here was last on the relay, null for any other.
+   * `relayLocked`: another member is live, so the relay URL cannot change.
    */
-  group: { members: (RosterEntry & { self: boolean; linked: boolean; online: boolean; pairByHand: boolean })[] };
+  group: {
+    members: (RosterEntry & {
+      self: boolean; linked: boolean; online: boolean; pairByHand: boolean; state: MemberState; seenAt: number | null;
+    })[];
+    relayLocked: boolean;
+  };
 };
 
 /**
@@ -186,7 +209,7 @@ export class RemoteService {
   /** `secret` went into the QR and only there; a `pair_request` must prove it (`verifyPairingProof`). */
   private pairing: { expiresAt: number; secret: Uint8Array } | null = null;
   /** A device whose code this server redeemed, until it confirms or refuses (`paired`, `rejected`). */
-  private joining: { device: string; name: string; kind: string | null; expiresAt: number } | null = null;
+  private joining: { device: string; name: string; kind: string | null; code: string; expiresAt: number } | null = null;
   private error: string | null = null;
   /** Set when the relay client stopped on a relay below `MIN_RELAY_VERSION`; cleared by the next start. */
   private relayRefusal: RelayTooOld | null = null;
@@ -355,6 +378,11 @@ export class RemoteService {
     return this.roster.digest();
   }
 
+  /** The whole roster, removed entries included, for tests: the status lists only live members. */
+  rosterEntries(): RosterEntry[] {
+    return this.roster.list();
+  }
+
   status(): RemoteStatus {
     this.pairingOpen();
     const online = this.client?.peersOnline ?? new Set<string>();
@@ -372,24 +400,44 @@ export class RemoteService {
       pendingPair: this.publicPendingPair(),
       pairing: this.pairing ? { expiresAt: this.pairing.expiresAt } : null,
       joining: this.joining && this.joining.expiresAt > this.now()
-        ? { device: this.joining.device, name: this.joining.name } : null,
+        ? {
+          device: this.joining.device, name: this.joining.name, code: this.joining.code, expiresAt: this.joining.expiresAt,
+        } : null,
       error: this.error,
-      group: { members: this.listMembers(online) },
+      group: this.listGroup(online),
     };
   }
 
   /** As `listDevices`: a database already gone reads as an empty roster. */
-  private listMembers(online: Set<string>): RemoteStatus['group']['members'] {
+  private listGroup(online: Set<string>): RemoteStatus['group'] {
     try {
-      const self = this.selfId;
-      const linked = new Set(this.devices.list().map((d) => d.id));
-      return this.roster.list().map((e) => ({
-        ...e, self: e.id === self, linked: linked.has(e.id), online: online.has(e.id), pairByHand: this.pairByHand.has(e.id),
-      }));
+      const self = this.ownId();
+      const rows = new Map(this.devices.list().map((d) => [d.id, d]));
+      const members = this.roster.list().filter(isLive).map((e) => {
+        const row = rows.get(e.id);
+        const pairByHand = this.pairByHand.has(e.id);
+        const state: MemberState = e.id === self ? 'self'
+          : row || !e.links ? (online.has(e.id) ? 'online' : 'offline')
+            : pairByHand ? 'notLinked' : 'linking';
+        return {
+          ...e, self: e.id === self, linked: row !== undefined, online: online.has(e.id), pairByHand,
+          state, seenAt: row?.lastSeenAt ?? null,
+        };
+      });
+      return { members, relayLocked: members.some((m) => !m.self) };
     } catch (err) {
       console.warn(`[remote] could not list the roster: ${err instanceof Error ? err.message : String(err)}`);
-      return [];
+      return { members: [], relayLocked: false };
     }
+  }
+
+  /**
+   * Whether this device is in a group of two or more: another member is
+   * live. It cannot join another group then, nor move to another relay.
+   */
+  inGroup(): boolean {
+    const self = this.ownId();
+    return this.roster.list().some((e) => isLive(e) && e.id !== self);
   }
 
   /** The request as the status shows it: everything but the code. */
@@ -441,7 +489,7 @@ export class RemoteService {
     this.pendingPair = null;
     const qr: QrPayload = {
       v: 1, relay: this.relayUrl, mac: deviceId(this.identity.publicKey), name: this.macName, token: res.body.token,
-      secret: toBase64Url(secret), kind: serverDeviceKind(),
+      secret: toBase64Url(secret), kind: serverDeviceKind(), expiresAt: res.body.expiresAt,
     };
     if (this.relaySecret) qr.relaySecret = this.relaySecret;
     this.publishStatus();
@@ -527,13 +575,15 @@ export class RemoteService {
     const qr = parsePairingCode(code);
     if (!qr) return { error: 'bad_code' };
     if (this.relayRefusal) return { error: 'relay_too_old' };
+    // Groups do not merge (§ 3): a device in one leaves it before it joins another.
+    if (this.inGroup()) return { error: 'in_group' };
     if (!this.enabled || !this.client || !this.identity) return { error: 'disabled' };
     if (this.client.status !== 'online') return { error: 'offline' };
     const self = deviceId(this.identity.publicKey);
     if (qr.mac === self) return { error: 'bad_code' };
     if (this.devices.get(qr.mac)) return { error: 'already_paired' };
     // One relay per group (§ 4), and this server's socket is on its own.
-    if (qr.relay.replace(/\/+$/, '') !== this.relayUrl.replace(/\/+$/, '')) return { error: 'other_relay' };
+    if (qr.relay.replace(/\/+$/, '') !== this.relayUrl.replace(/\/+$/, '')) return { error: 'other_relay', relay: qr.relay };
     const secret = fromBase64Url(qr.secret);
     const payload = {
       token: qr.token,
@@ -544,19 +594,35 @@ export class RemoteService {
     };
     // Cut as a pairing cuts a phone's name: the QR's is whatever that device was called.
     const name = qr.name.slice(0, PAIR_NAME_MAX_CHARS);
-    this.joining = { device: qr.mac, name, kind: qr.kind ?? null, expiresAt: this.now() + PAIRING_TOKEN_TTL_MS };
+    const typed = formatFingerprint(fingerprint(publicKeyOf(qr.mac)!, this.identity.publicKey));
+    // A code from before it carried its expiry is good for as long as any code is.
+    const joining = {
+      device: qr.mac, name, kind: qr.kind ?? null, code: typed, expiresAt: qr.expiresAt ?? this.now() + PAIRING_TOKEN_TTL_MS,
+    };
+    this.joining = joining;
     this.publishStatus();
     const res = await this.client.post('/pair/redeem', 'pair.redeem', payload);
     if (res.status !== 200) {
-      this.joining = null;
+      // A cancel, or a stop/start, during the post replaced the state; leave the new one be.
+      if (this.joining === joining) this.joining = null;
       this.publishStatus();
       if (res.relayTooOld) return { error: 'relay_too_old' };
-      return { error: res.status === 409 ? 'peer_offline' : res.status === 404 ? 'bad_code' : 'relay_error' };
+      if (res.status === 409) return qr.expiresAt === undefined ? { error: 'peer_offline' } : { error: 'peer_offline', expiresAt: qr.expiresAt };
+      return { error: res.status === 404 ? 'bad_code' : 'relay_error' };
     }
-    return {
-      device: qr.mac, name,
-      code: formatFingerprint(fingerprint(publicKeyOf(qr.mac)!, this.identity.publicKey)),
-    };
+    return { device: qr.mac, name, code: typed };
+  }
+
+  /**
+   * Stops waiting for the device being joined; false when none was. The
+   * relay is not told: the request it holds expires with the code, and a
+   * later `paired` for it no longer matches anything here.
+   */
+  cancelJoin(): boolean {
+    if (!this.joining) return false;
+    this.joining = null;
+    this.publishStatus();
+    return true;
   }
 
   /** The channel to a paired device, while one is open. */

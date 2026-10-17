@@ -2453,6 +2453,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (DEFAULT_CLAUDE_DIR_KEY in patch && ctx.claudeDirs.resolveId(patch[DEFAULT_CLAUDE_DIR_KEY]) === null) {
       return reply.code(400).send({ error: 'unknown_claude_dir' });
     }
+    // One relay per group: while another member is live the URL stays, and
+    // moving a whole group is not built yet (idea move-a-group-to-another-relay).
+    if ('remote_relay_url' in patch && ctx.settings.get('remote_relay_url') !== String(patch.remote_relay_url) && ctx.remote.inGroup()) {
+      return reply.code(409).send({ error: 'in_group' });
+    }
     let branchSettings = false;
     let remoteRestart = false;
     let remoteName = false;

@@ -36,6 +36,12 @@ export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService
     return res;
   });
 
+  // Stops waiting for the device being joined; the relay's request expires with the code.
+  app.delete('/api/remote/join', (_req, reply) => {
+    if (!remote.cancelJoin()) return reply.code(404).send({ error: 'not_joining' });
+    return { ok: true };
+  });
+
   app.post('/api/remote/pair/confirm', async (req, reply) => {
     const body = (req.body ?? {}) as { accept?: unknown; phone?: unknown; code?: unknown };
     if (typeof body.accept !== 'boolean') return reply.code(400).send({ error: 'accept must be a boolean' });
