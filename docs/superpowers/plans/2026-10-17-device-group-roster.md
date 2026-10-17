@@ -1,7 +1,7 @@
 ---
 id: 2026-10-17-device-group-roster
 title: Device group, part 2a — the roster, mutual pairing and removal (no UI)
-status: active
+status: done
 type: plan
 domain: remote
 related:

@@ -7,6 +7,7 @@ domain: remote
 related:
   - 2026-10-16-device-group-design
   - a-device-has-one-identity-and-one-channel-per-pair
+  - device-group
 tags:
   - remote
   - relay
@@ -210,3 +211,27 @@ A frame the channel cannot send is dropped, and reported through
 The phone still keeps one channel, to one Mac, in this part; a socket
 carrying several channels — one per group member — is part 3 of the
 device group work.
+
+## The `group` capability and group messages
+
+Part 2a (`docs/domains/device-group.md`) adds one capability, `group`:
+a device names it in its `hello` when it keeps a roster and links with
+other members — a Mac or a headless server. The phone's capabilities
+stay `[]` here, so it never names `group`.
+
+A channel carries three group messages — `roster_digest`, `roster`,
+`removed` (`GroupMessage` in `shared/src/remote/messages.ts`) — as plain
+JSON frames, the same way a `hello` is, not as an ask: they change the
+group rather than asking or answering anything, so no allowlist entry
+could reach them even if one tried. `Channel.groups` is this side's read
+of the peer's hello: did it name `group`. `Channel.sendGroup(msg)`
+sends only when the channel is ready and `groups` is true, and
+`receive()` only emits a channel's `group` event once the peer's hello
+has arrived and named it — the check runs on both the sending side and
+the receiving side, so a channel to a device that never mentions
+`group` (any shipped device, or the phone) carries none of these
+messages in either direction, by construction.
+
+What is actually built on `group` and these messages — the roster
+itself, the merge, linking through the relay, removal and leaving — is
+`docs/domains/device-group.md`.

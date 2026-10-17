@@ -317,6 +317,18 @@ already has, no new plugin or permission.
    call until part 3 (§ 6).
 2. **The group**: the roster, joining through one member, the relay's
    mutual pair, removal, Settings → Devices on the Mac and the phone.
+
+   As built (part 2a, no UI yet): the roster lives in its own table,
+   `group_members`, not in `remote_devices` (§ 2 Storage) —
+   `remote_devices` holds only the devices this one has a relay pair
+   with. `POST /pair/mutual` and the `linked` control are as designed
+   (§ 4); a relay that answers 404 (it predates the route) lists the
+   other device `pairByHand` until the next relay `ok`. Known limit: a
+   device removed while it is offline learns of its removal only when it
+   next talks to a member that already knows — the relay's `unpaired`
+   reaches only a device it can push to right then, so it is not queued
+   for one that is absent (`docs/domains/device-group.md` → Known
+   limits).
 3. **Federation over channels**: #79's `PeerService` and routing on the
    channel, the phone's merge, device chips and names, capabilities.
 4. **The headless server** (§ 11), with its runbook.
