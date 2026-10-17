@@ -5,7 +5,7 @@ import { FullTextTip } from '../FullTextTip'
 import { basename } from '../format'
 import { COUNT_MARK_GAP_PX, GAP_PX, MARK_GAP_PX, charPxOf, fitWhere } from './fit'
 import { TreeMark } from './marks'
-import { useMobile } from '../state'
+import { useSessionDeviceName } from '../useDevice'
 import { SheetPresence } from '../ui'
 import { BranchSheet } from './BranchSheet'
 import { TreesSheet } from './TreesSheet'
@@ -77,7 +77,7 @@ export function WhereLine({
   const [ref, width] = useWidth()
   const [open, setOpen] = useState(false)
   const [branchOpen, setBranchOpen] = useState(false)
-  const mac = useMobile((s) => s.macName) ?? 'the Mac'
+  const mac = useSessionDeviceName(session.id) ?? 'the Mac'
   const v = VARIANTS[variant]
   const header = variant === 'header'
   const git = session.git ?? null

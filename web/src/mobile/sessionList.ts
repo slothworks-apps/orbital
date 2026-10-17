@@ -122,18 +122,19 @@ export interface EndedHeading {
  * Mac that sent every session — it is the group as held. Before that, the
  * Mac's summary of the fold its list left out, plus the ended sessions held
  * that the summary does not count (`countedBySummary`): the ones that ended
- * while the phone watched. The summary is not per tag, so under a tag filter
- * the count is not known until the fold is read.
+ * while the phone watched. The summary is not per tag or per device, so
+ * under a filter (`filtered`: a tag chip on, a device chip off) the count is
+ * not known until the fold is read.
  */
 export function endedHeading(
   group: readonly ApiSession[],
   fold: { summary: EndedSummary | null; loaded: boolean },
   countedBySummary: (id: string) => boolean,
-  tagFiltered: boolean,
+  filtered: boolean,
 ): EndedHeading | null {
   const { summary, loaded } = fold
   if (loaded || !summary) return group.length === 0 ? null : { count: group.length, latest: latestActivity(group) }
-  if (tagFiltered) return group.length === 0 && summary.count === 0 ? null : { count: null, latest: null }
+  if (filtered) return group.length === 0 && summary.count === 0 ? null : { count: null, latest: null }
   const extra = group.filter((s) => !countedBySummary(s.id))
   const count = summary.count + extra.length
   if (count === 0) return null

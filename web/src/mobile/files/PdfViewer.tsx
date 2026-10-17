@@ -3,7 +3,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { formatBytes } from '../../lib/format'
 import { PdfPageCanvas, usePdfDocument } from '../../panels/PdfPages'
 import { asOfLabel, basename } from '../format'
-import { useMobile } from '../state'
+import { useSessionDeviceName } from '../useDevice'
 import { CantShow } from './CantShow'
 import { ByteBar, CachedChip, GoneBlock, StateButton, StateText } from './FileStates'
 import { useSwipe } from './MediaFoot'
@@ -43,7 +43,7 @@ export function PdfPage({
 }) {
   const source = useMemo(() => ({ kind: 'path' as const, sessionId, path, as: 'pdf' as const, cwd }), [sessionId, path, cwd])
   const { view, retry } = useFile(source)
-  const mac = useMobile((s) => s.macName) ?? 'the Mac'
+  const mac = useSessionDeviceName(sessionId) ?? 'the Mac'
   const outcome = view.phase === 'done' ? view.outcome : null
   const shown = outcome?.kind === 'ready' ? outcome : outcome?.kind === 'gone' ? outcome.copy : null
   const url = useObjectUrl(shown)

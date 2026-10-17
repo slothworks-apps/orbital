@@ -41,6 +41,35 @@ export function sessionAsleep(state: DeviceState & Pick<MobileState, 'macOnline'
   return deviceAsleep(state, deviceId)
 }
 
+/**
+ * The words that stand in for answering a session whose device refused this
+ * app — its Orbital too old for it, or this app too old for it — else null.
+ * Its sessions are read only, as an asleep device's are, until it is
+ * updated; a device the phone does not know refused nothing.
+ */
+export function sessionRefusedLine(state: Pick<MobileState, 'devices'>, deviceId: string | null): string | null {
+  const device = deviceId === null ? undefined : state.devices.find((d) => d.id === deviceId)
+  if (!device?.refused) return null
+  return device.refused.cause === 'mac'
+    ? `update Orbital on ${device.name} — read only`
+    : `${device.name} needs a newer app on this phone — read only`
+}
+
+/** Whether a session is read only on the phone now: its device asleep, or refusing this app (the slot `offline`). */
+export function sessionOffline(state: DeviceState & Pick<MobileState, 'macOnline'>, deviceId: string | null): boolean {
+  return sessionAsleep(state, deviceId) || sessionRefusedLine(state, deviceId) !== null
+}
+
+/**
+ * When a session's device last sent anything, while it is away: that
+ * device's own date, even none; the group's only for a session whose device
+ * the phone does not know, as before there was a group.
+ */
+export function sessionAsOf(state: Pick<MobileState, 'devices' | 'asOf'>, deviceId: string | null): number | null {
+  const device = deviceId === null ? undefined : state.devices.find((d) => d.id === deviceId)
+  return device ? device.asOf : state.asOf
+}
+
 /** Whether requests about a session go through now: its device's channel is up; with the device unknown, any. */
 export function sessionReady(state: Pick<MobileState, 'ready' | 'devices'>, deviceId: string | null): boolean {
   const device = deviceId === null ? undefined : state.devices.find((d) => d.id === deviceId)
@@ -140,6 +169,19 @@ export function phoneDeviceOptions(state: DeviceState, members: readonly MemberR
 export function phoneOpeningDevice(options: DeviceOption[], remembered: string | null): string | null {
   const id = openingDevice(options, remembered)
   return options.some((o) => o.id === id) ? id : (options[0]?.id ?? null)
+}
+
+/**
+ * Whether New session may hold its opening device for good: the remembered
+ * device can take a session, or no device is still coming up and one can.
+ * Until then the opening device is derived afresh, so a phone just woken
+ * does not settle on whichever device linked first (or on an inert one).
+ */
+export function openingSettles(state: DeviceState, options: DeviceOption[], remembered: string | null): boolean {
+  if (options.some((o) => o.id === remembered && !o.inert)) return true
+  if (state.link !== 'online') return false
+  const linking = state.devices.some((d) => !d.ready && d.refused === null && !deviceAsleep(state, d.id))
+  return !linking && options.some((o) => !o.inert)
 }
 
 /**

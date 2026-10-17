@@ -12,7 +12,7 @@ import {
 } from '../composer'
 import { pickPhoto, type PhotoSource } from '../platform/photo'
 import { useMobile } from '../state'
-import { useSessionAsleep, useSessionDeviceName, useSessionReady } from '../useDevice'
+import { useSessionAsleep, useSessionDeviceName, useSessionReady, useSessionRefusedLine } from '../useDevice'
 
 /** The error line's word when the camera permission was refused (spec § 6.2). */
 const CAMERA_DENIED = "Orbital can't use the camera — allow it in Android settings."
@@ -27,8 +27,9 @@ const CAMERA_DENIED = "Orbital can't use the camera — allow it in Android sett
  */
 export function SessionComposer({ id }: { id: string }) {
   const session = useOrbital((s) => s.sessions[id])
-  // Its own device asleep; the others' sessions take answers as usual (canvas 50j).
+  // Its own device asleep or too old; the others' sessions take answers as usual (canvas 50j).
   const offline = useSessionAsleep(id)
+  const refused = useSessionRefusedLine(id)
   const macName = useSessionDeviceName(id)
   const mode = footerMode({ offline, macName, readOnly: session ? isReadOnly(session) : true })
 
@@ -39,7 +40,7 @@ export function SessionComposer({ id }: { id: string }) {
       <div className="border-t border-[rgba(150,205,255,.1)] bg-[rgba(6,10,20,.94)] px-3 pb-1 pt-2.5">
         <div className="flex items-center gap-2.5 rounded-[10px] border border-dashed border-[rgba(150,205,255,.22)] px-3 py-3 text-[13px] text-text-muted">
           <LockIcon />
-          <span className="min-w-0 truncate">{mode.macName} is asleep — read only</span>
+          <span className="min-w-0 truncate">{refused ?? `${mode.macName} is asleep — read only`}</span>
         </div>
         <Controls inert />
       </div>

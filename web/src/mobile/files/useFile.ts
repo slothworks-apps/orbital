@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FileAs } from '@orbital/shared/remote/messages'
-import { useMobile } from '../state'
+import { useSessionReady } from '../useDevice'
 import { clientRef } from '../transport/clientRef'
 import { fileCache, pathKey, refKey } from './fileCache'
 import { readCopy, readPath, readRef, revalidated, type FileOutcome, type ReadyOutcome } from './fileResolver'
@@ -54,7 +54,8 @@ export function useFile(source: FileSource): {
     key, attempt, view: LOADING, instant: false,
   })
   const [known, setKnown] = useState<{ key: string; w: number; h: number } | null>(null)
-  const ready = useMobile((s) => s.ready)
+  // A path waits for the device of its session: that one coming up retries it, not any other.
+  const ready = useSessionReady(source.kind === 'path' ? source.sessionId : null)
 
   useEffect(() => {
     let live = true

@@ -68,7 +68,9 @@ export function SessionListScreen() {
   // In a group every row keeps its own device's state, even with every device asleep (canvas 50j).
   const listOffline = offline && !several
   const held = useMemo(() => groupSessions(shown, tagIds), [shown, tagIds])
-  const heading = endedHeading(held.find((g) => g.key === 'ended')?.sessions ?? [], endedFold, countedBySummary, tagIds.length > 0)
+  // The fold's unread count is the whole group's: with a device chip off as with a tag chip on, it is not shown.
+  const filtered = tagIds.length > 0 || (several && on.length < deviceChips.length)
+  const heading = endedHeading(held.find((g) => g.key === 'ended')?.sessions ?? [], endedFold, countedBySummary, filtered)
   // The fold is drawn from the Mac's count even before a single ended row is held.
   const groups = heading && !held.some((g) => g.key === 'ended') ? [...held, { key: 'ended' as const, sessions: [] }] : held
   const chips = useMemo(() => tagChips(shown, tags), [shown, tags])
@@ -215,7 +217,7 @@ export function SessionListScreen() {
                     <span className="ml-auto tracking-[0.04em] text-[rgba(160,190,225,.45)]">latest {agoLabel(latest, now)}</span>
                   )}
                 </button>
-                {endedOpen && group.sessions.map((s) => <EndedRow key={s.id} session={s} tag={tagById.get(s.tagIds[0])} now={now} onOpen={openSession} />)}
+                {endedOpen && group.sessions.map((s) => <EndedRow key={s.id} session={s} tag={tagById.get(s.tagIds[0])} device={withNames ? s.machine?.name : undefined} now={now} onOpen={openSession} />)}
               </section>
             )
           }
@@ -224,7 +226,7 @@ export function SessionListScreen() {
             return (
               <section key="pinned" className="mt-1.5">
                 {group.sessions.map((s) => (
-                  <EndedRow key={s.id} session={s} tag={tagById.get(s.tagIds[0])} now={now} onOpen={openSession} pinned />
+                  <EndedRow key={s.id} session={s} tag={tagById.get(s.tagIds[0])} device={withNames ? s.machine?.name : undefined} now={now} onOpen={openSession} pinned />
                 ))}
               </section>
             )
@@ -720,12 +722,15 @@ function Moon({ color, running, small = false }: { color: string; running: boole
 function EndedRow({
   session,
   tag,
+  device,
   now,
   onOpen,
   pinned = false,
 }: {
   session: ApiSession
   tag: Tag | undefined
+  /** The device it ran on, leading the folder while two or more devices show (as the live rows). */
+  device?: string
   now: number
   onOpen: (id: string) => void
   pinned?: boolean
@@ -750,6 +755,7 @@ function EndedRow({
         <span className="flex items-center gap-1.5 font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
           <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full opacity-70" style={{ background: tag ? tagColor(tag.hue) : 'var(--state-neutral)' }} />
           <span className="truncate">
+            {device && `${device} · `}
             {basename(session.cwd)}
             {pinned && ' · ended, pinned'}
           </span>

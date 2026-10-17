@@ -3,8 +3,8 @@ import type { MemberRow } from '@orbital/shared/remote/group'
 import { LOCAL_DEVICE, devicesOn, namesShown, openingDevice, toggleDevice, type DeviceOption } from '../lib/devices'
 import type { ApiSession, MachineRef } from '../lib/types'
 import {
-  asleepCards, asleepDevices, deviceAsleep, onDevices, phoneChips, phoneDeviceOptions, phoneOpeningDevice, sessionAsleep,
-  sessionReady,
+  asleepCards, asleepDevices, deviceAsleep, onDevices, openingSettles, phoneChips, phoneDeviceOptions, phoneOpeningDevice,
+  sessionAsOf, sessionAsleep, sessionOffline, sessionReady, sessionRefusedLine,
 } from '../mobile/deviceList'
 import { launchRequest } from '../mobile/newSession'
 import type { DeviceView, MobileState } from '../mobile/state'
@@ -79,6 +79,39 @@ describe('deviceAsleep', () => {
     expect(sessionReady(s, 'studio')).toBe(true)
     expect(sessionReady(s, 'air')).toBe(false)
     expect(sessionReady({ ...s, ready: false }, null)).toBe(false)
+  })
+})
+
+describe('a session whose device refuses this app', () => {
+  const phoneTooOld = source({ id: 'new', name: 'new-mbp', ready: false, refused: { cause: 'app', theirs: null, needed: null } })
+
+  it("is read only, as an asleep device's, with words that say why", () => {
+    const s = state([studio, gpu, phoneTooOld])
+    expect(sessionOffline(s, 'gpu')).toBe(true)
+    expect(sessionRefusedLine(s, 'gpu')).toBe('update Orbital on gpu-01 — read only')
+    expect(sessionOffline(s, 'new')).toBe(true)
+    expect(sessionRefusedLine(s, 'new')).toContain('new-mbp')
+  })
+
+  it('leaves every other session as it was', () => {
+    const s = state([studio, air, gpu])
+    expect(sessionOffline(s, 'studio')).toBe(false)
+    expect(sessionRefusedLine(s, 'studio')).toBeNull()
+    expect(sessionOffline(s, 'air')).toBe(true)
+    expect(sessionRefusedLine(s, 'air')).toBeNull()
+    expect(sessionRefusedLine(s, 'gone')).toBeNull()
+    expect(sessionRefusedLine(s, null)).toBeNull()
+  })
+})
+
+describe('sessionAsOf', () => {
+  it("dates a session by its own device, even one with no date, and by the group's only when the device is unknown", () => {
+    const dateless = source({ id: 'old', name: 'old', online: false, ready: false, asOf: null })
+    const s = { devices: [studio, air, dateless], asOf: NOW - 60_000 }
+    expect(sessionAsOf(s, 'air')).toBe(NOW - 2 * HOUR)
+    expect(sessionAsOf(s, 'old')).toBeNull()
+    expect(sessionAsOf(s, 'gone')).toBe(NOW - 60_000)
+    expect(sessionAsOf(s, null)).toBe(NOW - 60_000)
   })
 })
 
@@ -165,6 +198,28 @@ describe('the device New session opens on', () => {
   it('is the first listed when none is awake, and none with no devices', () => {
     expect(phoneOpeningDevice([opt('air', true), opt('gpu', true)], null)).toBe('air')
     expect(phoneOpeningDevice([], 'air')).toBeNull()
+  })
+
+  it('settles once the remembered device can take a session, or once nothing is still linking', () => {
+    const linking = source({ id: 'linking', name: 'linking', ready: false })
+    const all = [studio, linking, air]
+    const options = phoneDeviceOptions(state(all), [], NOW)
+    // The remembered device up: settled, whatever else still links.
+    expect(openingSettles(state(all), options, 'studio')).toBe(true)
+    // Another device up, but the remembered one may be the one still linking.
+    expect(openingSettles(state(all), options, 'linking')).toBe(false)
+    expect(openingSettles(state(all), options, null)).toBe(false)
+    // Nothing links any more: the first that can take a session holds.
+    const settled = [studio, air]
+    expect(openingSettles(state(settled), phoneDeviceOptions(state(settled), [], NOW), 'air')).toBe(true)
+  })
+
+  it('does not settle while the relay link comes up, or with no device able to take a session', () => {
+    const all = [studio, air]
+    const options = phoneDeviceOptions(state(all, { link: 'connecting' }), [], NOW)
+    expect(openingSettles(state(all, { link: 'connecting' }), options, null)).toBe(false)
+    const asleep = [air]
+    expect(openingSettles(state(asleep), phoneDeviceOptions(state(asleep), [], NOW), null)).toBe(false)
   })
 
   it('keeps the desktop on this device when nothing else applies', () => {

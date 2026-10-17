@@ -18,7 +18,7 @@ import {
   filterDirectories, launchRequest, noSuchDirectory, prefillClaudeDir, preselectMode, preselectModel, startFailureLine,
   type DirectoryRow,
 } from '../newSession'
-import { deviceAsleep, phoneDeviceOptions, phoneOpeningDevice, rememberDevice, rememberedDevice } from '../deviceList'
+import { deviceAsleep, openingSettles, phoneDeviceOptions, phoneOpeningDevice, rememberDevice, rememberedDevice } from '../deviceList'
 import { isMacAsleep, useMobile } from '../state'
 import { BottomSheet, FieldLabel, MobileScreen, PrimaryButton, SecondaryButton, SheetPresence } from '../ui'
 import { ClaudeDirPicker } from './ClaudeDirPicker'
@@ -32,6 +32,8 @@ import { undecidedBeforeLaunch, type McpjsonAnswers, type McpjsonDecisions, type
 const COLLAPSED_ROWS = 3
 /** The folded window's height: three and a half rows, so the cut reads as "more below". */
 const COLLAPSED_LIST_PX = 196
+/** The device sheet's ages are in minutes at the finest. */
+const MINUTE_MS = 60_000
 
 /**
  * 9d (spec § 6.4): a session started from the phone. Directory, mode, model
@@ -53,19 +55,23 @@ export function NewSessionScreen() {
 
   // Canvas 50j DEVICE PICKER: with two or more devices that host sessions,
   // the session runs on the one chosen here; with one, the screen is 9d's.
+  // The sheet's "seen 2 h ago" says minutes at the finest: the options follow the minute, not each tick.
+  const minute = Math.floor(now / MINUTE_MS) * MINUTE_MS
   const options = useMemo(
-    () => phoneDeviceOptions({ link, rechecking, devices }, members, now),
-    [link, rechecking, devices, members, now],
+    () => phoneDeviceOptions({ link, rechecking, devices }, members, minute),
+    [link, rechecking, devices, members, minute],
   )
   const several = devices.length >= 2
-  const opening = phoneOpeningDevice(options, rememberedDevice())
-  /** Chosen in the sheet; until then the opening device, which follows the devices as they come up. */
+  const [remembered] = useState(rememberedDevice)
+  const opening = phoneOpeningDevice(options, remembered)
+  const settles = openingSettles({ link, rechecking, devices }, options, remembered)
+  /** Chosen in the sheet, or held once settled; until then the opening device, which follows the devices as they come up. */
   const [pickedDevice, setPickedDevice] = useState<string | null>(null)
   const [deviceSheet, setDeviceSheet] = useState(false)
-  // Held once known, so a device waking or sleeping meanwhile does not move the form under the user.
+  // Held once settled, so a device waking or sleeping meanwhile does not move the form under the user.
   useEffect(() => {
-    if (pickedDevice === null && opening !== null) setPickedDevice(opening)
-  }, [pickedDevice, opening])
+    if (pickedDevice === null && opening !== null && settles) setPickedDevice(opening)
+  }, [pickedDevice, opening, settles])
   /** The device every request about the new session names: the federation routes by it. */
   const machine = pickedDevice ?? opening
   const chosen = options.find((o) => o.id === machine)
@@ -81,7 +87,9 @@ export function NewSessionScreen() {
   const [defaults, setDefaults] = useState<SessionDefaults | null | undefined>(undefined)
   const [projects, setProjects] = useState<DirectoryRow[]>([])
   const [cwd, setCwd] = useState('')
-  const [mode, setMode] = useState<PermissionMode>('acceptEdits')
+  /** A permission mode picked by hand: kept across a change of device, unlike its directory and model. */
+  const [pickedMode, setPickedMode] = useState<PermissionMode | null>(null)
+  const mode = pickedMode ?? (defaults ? preselectMode(defaults) : 'acceptEdits')
   /** A model picked by hand; until then the preselection follows the directory. */
   const [pickedModel, setPickedModel] = useState<string | null>(null)
   /** A Claude directory picked by hand; until then the Mac's prefill (`prefillClaudeDir`). */
@@ -124,9 +132,7 @@ export function NewSessionScreen() {
     void Promise.allSettled([api.sessionDefaults(machine ?? undefined), api.listProjects(machine ?? undefined)]).then(([d, p]) => {
       if (!current) return
       if (p.status === 'fulfilled') setProjects(p.value)
-      const read = d.status === 'fulfilled' ? d.value : null
-      if (read) setMode(preselectMode(read))
-      setDefaults(read)
+      setDefaults(d.status === 'fulfilled' ? d.value : null)
     })
     return () => {
       current = false
@@ -456,7 +462,7 @@ export function NewSessionScreen() {
             )}
             <div className="flex flex-col gap-1.5">
               <FieldLabel>PERMISSION MODE</FieldLabel>
-              <ModeCards value={mode} onChange={setMode} touch />
+              <ModeCards value={mode} onChange={setPickedMode} touch />
             </div>
             <div className="flex flex-col gap-1.5">
               <FieldLabel>MODEL</FieldLabel>
