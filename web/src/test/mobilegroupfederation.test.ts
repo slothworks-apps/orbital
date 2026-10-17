@@ -330,6 +330,61 @@ describe('GroupFederation', () => {
     expect(events.at(-1)).toEqual({ type: 'unpaired' })
   })
 
+  it('sends the phone\'s notification rules to a member that comes up later, and the stored ones to each', async () => {
+    const { fed, group, studio, laptop } = await setup()
+    const chosen = { needsInput: true, sessionEnded: false, sessionFailed: true, onlyWhenBackground: false, sound: false }
+    group.down(LAPTOP)
+    await fed.setNotifications(chosen)
+    expect(studio.setNotifications).toHaveBeenCalledWith(chosen)
+    expect(laptop.setNotifications).not.toHaveBeenCalled()
+    laptop.ready = true
+    group.emit({ type: 'peer', peer: LAPTOP })
+    expect(laptop.setNotifications).toHaveBeenCalledWith(chosen)
+
+    // A choice stored with the group reaches every member as it first comes up, and a new one is stored.
+    const again = new FakeGroup()
+    const box = fakeChannel(hello('box'), { tags: [], sessions: [] })
+    again.add(BOX, 'box', box)
+    const stored = vi.fn()
+    const restored = new GroupFederation(again, { notifications: chosen, onNotifications: stored })
+    expect(box.setNotifications).toHaveBeenCalledWith(chosen)
+    await restored.setNotifications({ ...chosen, sound: true })
+    expect(stored).toHaveBeenCalledWith({ ...chosen, sound: true })
+  })
+
+  it('marks what a member that comes back relists, and what one that goes keeps, as replay', async () => {
+    const { group, laptop, frames } = await setup()
+    const upsertsOf = (id: string) => frames().filter((f) => f.event === 'upsert' && (f.session as Listed).id === id)
+    group.down(LAPTOP)
+    expect(upsertsOf('l1').at(-1)).toMatchObject({ replay: true })
+    const before = upsertsOf('l1').length
+    laptop.ready = true
+    group.emit({ type: 'peer', peer: LAPTOP })
+    await settle()
+    expect(upsertsOf('l1').slice(before)).toEqual([expect.objectContaining({ replay: true })])
+    // What it says live is news.
+    group.emit({ type: 'hub', peer: LAPTOP, frame: { topic: 'sessions', event: 'upsert', session: session('l1', { status: 'working' }) } })
+    expect(upsertsOf('l1').at(-1)?.replay).toBeUndefined()
+  })
+
+  it('keeps a session with the member that listed it first while that member is up', async () => {
+    const { fed, group, frames } = await setup()
+    const count = frames().length
+    group.emit({ type: 'hub', peer: STUDIO, frame: { topic: 'sessions', event: 'upsert', session: session('l1') } })
+    expect(frames()).toHaveLength(count)
+    expect(fed.ownerOf('l1')).toBe(LAPTOP)
+    // Once the laptop is down, another member may hold it.
+    group.down(LAPTOP)
+    group.emit({ type: 'hub', peer: STUDIO, frame: { topic: 'sessions', event: 'upsert', session: session('l1') } })
+    expect(fed.ownerOf('l1')).toBe(STUDIO)
+  })
+
+  it('passes on that no member could reach this phone any more', async () => {
+    const { group, events } = await setup()
+    group.emit({ type: 'unpaired_all', unreachable: true })
+    expect(events.at(-1)).toEqual({ type: 'unpaired', unreachable: true })
+  })
+
   it('takes a member that is no longer paired out of the list', async () => {
     const { group, frames } = await setup()
     group.infos.splice(group.infos.findIndex((p) => p.id === LAPTOP), 1)

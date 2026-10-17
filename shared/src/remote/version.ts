@@ -24,6 +24,15 @@ export const MIN_RELAY_VERSION = '0.4.0';
  */
 export const MIN_SERVER_VERSION = '0.20.6';
 
+/**
+ * The first relay a phone can be a group member through: it answers the
+ * phone's web view on `/pair/token`, `/pair/confirm`, `/pair/mutual` and
+ * `/pair/revoke` (CORS), and names every pair in `ok.pairs`. Not a minimum:
+ * an older relay still carries the phone, which then pairs by hand (by
+ * scanning another device's code) and cannot show a code of its own.
+ */
+export const RELAY_PHONE_GROUP_VERSION = '0.6.0';
+
 /** The oldest phone app the Mac talks to; compared with `hello.app`. */
 export const MIN_PHONE_VERSION = '0.1.0';
 
@@ -84,6 +93,15 @@ export function relayTooOld(announced: string | null | undefined): RelayTooOld |
   const relayVersion = announced?.trim() || null;
   const judged = relayVersion ?? RELAY_VERSION_BEFORE_ANNOUNCING;
   return compareVersions(judged, MIN_RELAY_VERSION) < 0 ? { relayVersion, needed: MIN_RELAY_VERSION } : null;
+}
+
+/**
+ * Whether a relay that announced `announced` (absent: it announced
+ * nothing, so it is older) is older than `RELAY_PHONE_GROUP_VERSION`.
+ */
+export function relayBeforePhoneGroups(announced: string | null | undefined): boolean {
+  const judged = announced?.trim() || RELAY_VERSION_BEFORE_ANNOUNCING;
+  return compareVersions(judged, RELAY_PHONE_GROUP_VERSION) < 0;
 }
 
 /**

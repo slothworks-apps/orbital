@@ -38,8 +38,10 @@ export function newGroup(
   const storage = MemoryGroupStorage.fromJSON(record.group)
   const queue = new PersistQueue<GroupRecord>((value) => saveGroup(value, identity.publicKey))
   let persisting = persist
+  let notifications = record.notifications
   const snapshot = (): GroupRecord => ({
     relay: record.relay, ...(record.relaySecret !== undefined ? { relaySecret: record.relaySecret } : {}), group: storage.toJSON(),
+    ...(notifications !== undefined ? { notifications } : {}),
   })
   // The last relay request's status: the ceremony reads a busy relay (429) as any other failure.
   let lastStatus: number | null = null
@@ -57,7 +59,13 @@ export function newGroup(
     },
     log: (message) => console.info(`[group] ${message}`),
   })
-  const federation = new GroupFederation(group)
+  const federation = new GroupFederation(group, {
+    notifications: notifications ?? null,
+    onNotifications: (chosen) => {
+      notifications = chosen
+      if (persisting) queue.push(snapshot())
+    },
+  })
   const handle: GroupHandle = {
     group, federation,
     relayBusy: () => lastStatus === 429,

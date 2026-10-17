@@ -1,31 +1,43 @@
 import {
-  TunnelError, type BlobResult, type FileResult, type GetFileOptions, type HttpMethod, type PutBlobResult, type RemoteClient, type RemoteClientEvent, type TunnelResponse,
-} from '@orbital/shared/remote/client'
+  TunnelError, type BlobResult, type FileResult, type GetFileOptions, type HttpMethod, type PutBlobResult, type TunnelEvent, type TunnelResponse,
+} from '@orbital/shared/remote/tunnel'
 import type { FileAs, NotificationSettings } from '@orbital/shared/remote/messages'
 
-/** What the app calls on a client once it exists; `start`, `redeem` and `waitForPairing` stay with whoever made it. */
-export type SwappableClient = Pick<
-  RemoteClient,
-  'ready' | 'on' | 'stop' | 'request' | 'getBlob' | 'getFile' | 'subscribe' | 'unsubscribe' | 'getNotifications' | 'setNotifications' | 'seen' | 'recheck' | 'pushToken'
-> & {
+/** What the app calls on a client once it exists; starting it stays with whoever made it. */
+export interface SwappableClient {
+  /** Some device's channel is up and its hello in: requests go through. */
+  readonly ready: boolean
+  on(listener: (event: TunnelEvent) => void): () => void
+  stop(): void
+  request(method: HttpMethod, path: string, body?: unknown): Promise<TunnelResponse>
+  getBlob(ref: string): Promise<BlobResult>
+  getFile(session: string, path: string, as: FileAs, opts?: GetFileOptions): Promise<FileResult>
   /** `sessionId`: the session the image is for, so a client over several devices puts it where that session runs. */
   putBlob(bytes: Uint8Array, mediaType: string, sessionId?: string | null): Promise<PutBlobResult>
+  subscribe(topic: string): void
+  unsubscribe(topic: string): void
+  getNotifications(): Promise<NotificationSettings>
+  setNotifications(settings: NotificationSettings): Promise<NotificationSettings>
+  seen(sessionId: string): void
+  /** One bounded presence check; whether a device is online after it. */
+  recheck(windowMs: number): Promise<boolean>
+  pushToken(token: string): void
 }
 
 /** The part the four seams use. */
 export type TunnelClient = Pick<SwappableClient, 'ready' | 'on' | 'request' | 'getBlob' | 'getFile' | 'putBlob' | 'subscribe' | 'unsubscribe'>
 
 /**
- * The one client the app talks to, swappable: pairing a different Mac
- * replaces the `RemoteClient` underneath, and the seams configured once at
- * boot (`tunnelFetch`, `TunnelSocket`, the image resolver, `tunnelUpload`) keep working
- * because they hold this, not the client.
+ * The one client the app talks to, swappable: a new group (joining, or
+ * pairing again after 9h) replaces the federation underneath, and the seams
+ * configured once at boot (`tunnelFetch`, `TunnelSocket`, the image resolver,
+ * `tunnelUpload`) keep working because they hold this, not the client.
  */
 export class ClientRef implements SwappableClient {
   private current: SwappableClient | null = null
   private detach: (() => void) | null = null
   private token: string | null = null
-  private readonly listeners = new Set<(event: RemoteClientEvent) => void>()
+  private readonly listeners = new Set<(event: TunnelEvent) => void>()
 
   get client(): SwappableClient | null {
     return this.current
@@ -55,7 +67,7 @@ export class ClientRef implements SwappableClient {
     }
   }
 
-  on(listener: (event: RemoteClientEvent) => void): () => void {
+  on(listener: (event: TunnelEvent) => void): () => void {
     this.listeners.add(listener)
     return () => {
       this.listeners.delete(listener)
@@ -112,7 +124,7 @@ export class ClientRef implements SwappableClient {
     return this.current ? this.current.recheck(windowMs) : Promise.resolve(false)
   }
 
-  private emit(event: RemoteClientEvent): void {
+  private emit(event: TunnelEvent): void {
     for (const listener of [...this.listeners]) {
       try {
         listener(event)

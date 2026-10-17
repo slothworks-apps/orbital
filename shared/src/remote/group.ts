@@ -23,6 +23,13 @@ import {
 export const MUTUAL_RETRY_MS = 60_000;
 
 /**
+ * The `describedAt` of an entry written for a device this one joined
+ * (`GroupMember.addPaired`): earlier than any real description, so the
+ * entry that device keeps for itself wins the merge.
+ */
+export const PLACEHOLDER_DESCRIBED_AT = 0;
+
+/**
  * How Settings shows a member. `self`: this device. `online`/`offline`: a
  * member paired here, or a member that does not link (a phone paired with
  * another member), by the relay's presence. `linking`: a member that links
@@ -82,7 +89,8 @@ export interface GroupStorage {
  */
 export interface GroupRelay {
   readonly status: LinkStatus;
-  post<T>(path: string, action: RelayAction, payload: unknown): Promise<{ status: number; body: T }>;
+  /** `unsupported`: a relay too old to answer this device on that route at all (`RelayPostResult`). */
+  post<T>(path: string, action: RelayAction, payload: unknown): Promise<{ status: number; body: T; unsupported?: boolean }>;
 }
 
 /** What the group needs of a channel. */
@@ -426,7 +434,8 @@ export class GroupMember {
           if (res.body.linked === true) this.relayLinked(id);
           return;
         }
-        if (res.status === 404) {
+        // A relay from before `/pair/mutual`, or one that never answers this device there.
+        if (res.status === 404 || res.unsupported === true) {
           this.pairByHand.add(id);
           this.host.changed();
           return;
@@ -513,8 +522,14 @@ export class GroupMember {
    * A device this one just paired with, at the next epoch. A live entry is
    * kept: the device is a member already, perhaps written by its first
    * hello, which can arrive before the pairing finishes here.
+   *
+   * `joined`: this device redeemed that device's code, so that device is the
+   * existing member and its own roster holds the real entry for it. What is
+   * written here is only a placeholder until that roster arrives: added by
+   * itself, described at `PLACEHOLDER_DESCRIBED_AT`, so the merge prefers
+   * the real entry (same epoch, later `describedAt`).
    */
-  addPaired(device: Pick<RosterEntry, 'id' | 'kind' | 'name' | 'os'>): void {
+  addPaired(device: Pick<RosterEntry, 'id' | 'kind' | 'name' | 'os'>, joined = false): void {
     this.tryRoster('add a paired device', () => {
       const self = this.runningId;
       if (self === null) return;
@@ -522,7 +537,10 @@ export class GroupMember {
       if (known && isLive(known)) return;
       const now = this.host.now();
       this.setRoster(addMember(this.storage.roster.list(), {
-        ...device, links: false, addedBy: self, addedAt: now, describedAt: now,
+        ...device, links: false,
+        ...(joined
+          ? { addedBy: device.id, addedAt: now, describedAt: PLACEHOLDER_DESCRIBED_AT }
+          : { addedBy: self, addedAt: now, describedAt: now }),
       }));
     });
   }
@@ -551,7 +569,9 @@ export class GroupMember {
       const now = this.host.now();
       // `from` is skipped: the channel's own `ready` follows with the digest.
       if (known) {
-        if (isLive(known)) this.setRoster(describeMember(this.storage.roster.list(), from, patch, now), from);
+        // A placeholder stays one: its hello must not make it win over the device's own entry.
+        const at = known.describedAt === PLACEHOLDER_DESCRIBED_AT ? PLACEHOLDER_DESCRIBED_AT : now;
+        if (isLive(known)) this.setRoster(describeMember(this.storage.roster.list(), from, patch, at), from);
         return;
       }
       const device = this.storage.paired.get(from);

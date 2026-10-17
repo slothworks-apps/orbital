@@ -94,7 +94,10 @@ export type CeremonyState = {
  */
 export interface CeremonyRelay {
   readonly status: LinkStatus;
-  post<T>(path: string, action: RelayAction, payload: unknown): Promise<{ status: number; body: T; relayTooOld?: RelayTooOld }>;
+  /** `unsupported`: see `RelayPostResult`. */
+  post<T>(path: string, action: RelayAction, payload: unknown): Promise<{
+    status: number; body: T; relayTooOld?: RelayTooOld; unsupported?: boolean;
+  }>;
 }
 
 /** This device as its code names it and as it seals itself into a redeem. */
@@ -123,8 +126,8 @@ export interface CeremonyHost {
   paired: Pick<GroupStorage['paired'], 'get' | 'add' | 'remove'>;
   /** Pairs revoked here and not yet answered by the relay (`GroupStorage['pendingRevokes']`). */
   pendingRevokes: { remove(id: string): void };
-  /** A device was paired here: into the roster (`GroupMember.addPaired`). */
-  addPaired(device: { id: string; kind: string; name: string; os: string }): void;
+  /** A device was paired here: into the roster (`GroupMember.addPaired`); `joined` when this device redeemed its code. */
+  addPaired(device: { id: string; kind: string; name: string; os: string }, joined?: boolean): void;
   /** A pair the user cancelled was confirmed by the other device: revoke it at the relay. */
   revokeCancelled(id: string): void;
   /** The adder paired a device: the host's own setup for a new pair (a phone's watcher). */
@@ -212,7 +215,8 @@ export class PairingCeremony {
     if (client.status !== 'online') return { error: 'offline' };
     // No name: the relay knows none. The phone reads it from the QR.
     const res = await client.post<{ token: string; expiresAt: number }>('/pair/token', 'pair.token', {});
-    if (res.relayTooOld) return { error: 'relay_too_old' };
+    // A relay that gives this device no answer on `/pair/token` cannot show its code either.
+    if (res.relayTooOld || res.unsupported) return { error: 'relay_too_old' };
     if (res.status !== 200) return { error: 'relay_error' };
     const secret = randomBytes(PAIRING_SECRET_BYTES);
     this.pairing = { expiresAt: res.body.expiresAt, secret };
@@ -406,7 +410,7 @@ export class PairingCeremony {
       this.host.pendingRevokes.remove(joined.device);
       // A code without a kind came from a Mac from before kinds. Its OS is
       // not known until its hello.
-      this.host.addPaired({ id: joined.device, kind: joined.kind ?? 'desktop', name: joined.name, os: '' });
+      this.host.addPaired({ id: joined.device, kind: joined.kind ?? 'desktop', name: joined.name, os: '' }, true);
       this.host.changed();
       this.host.open(joined.device);
       return true;

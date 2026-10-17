@@ -1,4 +1,4 @@
-import { CONNECT_TIMEOUT_MS, type RemoteClientEvent } from '@orbital/shared/remote/client'
+import { CONNECT_TIMEOUT_MS, type TunnelEvent } from '@orbital/shared/remote/tunnel'
 import type { JoinResult } from '@orbital/shared/remote/ceremony'
 import type { GroupClient, GroupClientEvent } from '@orbital/shared/remote/groupClient'
 import { PAIRING_TOKEN_TTL_MS, type QrPayload } from '@orbital/shared/remote/relayApi'
@@ -260,7 +260,7 @@ async function pair(
     if (!current) useMobile.setState({ pairing, unpaired: false, macName: qr.name })
     // The channel follows the pair within moments; "Paired with" waits for it, bounded, and shows either way.
     if (!federation.ready) {
-      await waitFor<RemoteClientEvent>((listener) => federation.on(listener), (e) => e.type === 'ready' && e.ready, PAIRED_HELLO_WAIT_MS)
+      await waitFor<TunnelEvent>((listener) => federation.on(listener), (e) => e.type === 'ready' && e.ready, PAIRED_HELLO_WAIT_MS)
     }
     if (cancelled()) return
     report({ kind: 'paired', macName: qr.name, relayHost: new URL(qr.relay).host, fingerprint })

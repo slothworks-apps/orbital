@@ -250,6 +250,20 @@ describe('wireNotifications', () => {
     expect(useBanner.getState().current).toBeNull()
   })
 
+  it('a member that comes back relists as a seed: no notification for what changed while it was away', async () => {
+    open()
+    client.emit({ type: 'hub', frame: upsert('working') })
+    // The federation's relist of a member back from away: the session started asking meanwhile.
+    client.emit({ type: 'hub', frame: { ...upsert('needs_input'), replay: true } })
+    await settled()
+    expect(useBanner.getState().current).toBeNull()
+    // What it says live afterwards is news.
+    client.emit({ type: 'hub', frame: status('working') })
+    client.emit({ type: 'hub', frame: status('needs_input') })
+    await settled()
+    expect(useBanner.getState().current).toMatchObject({ sessionId: 's1', needsInput: true })
+  })
+
   it('a seed never overrides what the hub said since the tunnel opened', async () => {
     open()
     client.emit({ type: 'hub', frame: upsert('needs_input') })

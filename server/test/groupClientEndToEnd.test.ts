@@ -111,6 +111,13 @@ describe('the phone as a member', () => {
     });
     expect(phone.client.peers().map((p) => p.id).sort()).toEqual([idA, idB].sort());
     expect(phone.client.inGroup()).toBe(true);
+    // B and then the phone joined A by its code: neither says it added A, every member says who did.
+    await until(() => phone.client.members().find((m) => m.id === idA)?.addedBy === idA);
+    for (const roster of [a.remote.rosterEntries(), b.remote.rosterEntries(), phone.client.members()]) {
+      expect(roster.find((e) => e.id === idA)?.addedBy).toBe(idA);
+      expect(roster.find((e) => e.id === idB)?.addedBy).toBe(idA);
+      expect(roster.find((e) => e.id === phone.client.id)?.addedBy).toBe(idA);
+    }
   }, 30_000);
 
   it('adds a server by its own code; the server then links with the phone\'s other members', async () => {

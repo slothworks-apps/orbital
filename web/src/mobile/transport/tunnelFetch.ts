@@ -1,4 +1,4 @@
-import { TunnelError, type HttpMethod } from '@orbital/shared/remote/client'
+import { TunnelError, type HttpMethod } from '@orbital/shared/remote/tunnel'
 import type { TunnelClient } from './clientRef'
 
 const METHODS: ReadonlySet<string> = new Set<HttpMethod>(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])

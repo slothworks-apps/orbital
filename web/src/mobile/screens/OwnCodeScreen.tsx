@@ -12,7 +12,7 @@ import { MobileScreen, PrimaryButton, SecondaryButton } from '../ui'
 /** What showing a code came to, short of a code. */
 function codeError(error: Extract<StartPairingResult, { error: string }>['error']): string {
   if (error === 'offline') return LEAVE_OFFLINE
-  if (error === 'relay_too_old') return 'The relay needs an update first.'
+  if (error === 'relay_too_old') return 'The relay needs an update before this phone can show a code.'
   return "The relay didn't answer. Try again."
 }
 

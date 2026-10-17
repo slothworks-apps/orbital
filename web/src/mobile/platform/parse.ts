@@ -101,6 +101,8 @@ export interface GroupRecord {
   relay: string
   relaySecret?: string
   group: StoredGroup
+  /** The notification rules the user chose on this phone: every member is sent them (`GroupFederation`). */
+  notifications?: NotificationSettings
 }
 
 /**
@@ -116,6 +118,8 @@ export function parseGroupRecord(raw: string | null): GroupRecord | null {
   if (!g.group || typeof g.group !== 'object') return null
   const record: GroupRecord = { relay: g.relay, group: MemoryGroupStorage.fromJSON(g.group).toJSON() }
   if (typeof g.relaySecret === 'string') record.relaySecret = g.relaySecret
+  const notifications = acceptNotifications(g.notifications)
+  if (notifications) record.notifications = notifications
   return record
 }
 

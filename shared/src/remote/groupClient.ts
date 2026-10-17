@@ -14,7 +14,7 @@
  * own problem.
  */
 import { z } from 'zod';
-import { Channel, type ByeReason, type ChannelEvent, type OwnHello } from './channel.js';
+import { Channel, TUNNEL_SILENCE_TIMEOUT_MS, type ByeReason, type ChannelEvent, type OwnHello } from './channel.js';
 import {
   PairingCeremony, type CeremonyState, type JoinResult, type PairConfirmResult, type PendingPair,
   type StartPairingResult,
@@ -29,6 +29,14 @@ import { PAIR_NAME_MAX_CHARS } from './relayApi.js';
 import { RelayLink, type LinkStatus, type RelayLinkEvent, type SocketConstructor } from './relayLink.js';
 import { ROSTER_KIND_MAX_CHARS, RosterSchema, isLive, rosterDigest, type RosterEntry } from './roster.js';
 import type { RelayTooOld } from './version.js';
+
+/**
+ * How long a phone in a group stays with no pair at the relay and no
+ * channel up, after it asked every live member for a mutual pair, before it
+ * takes itself as out of its group (`unpaired_all`). Long enough for members
+ * that are up to answer, and for a relay that lost its pairs to form them again.
+ */
+export const ALONE_GRACE_MS = 2 * 60_000;
 
 /**
  * What the group phone names in its hello. `group` makes the other members
@@ -71,13 +79,16 @@ export type GroupClientEvent =
   /**
    * Every pair this phone held is gone and the roster holds no group for it
    * any more: the group removed it, or the relay dropped the pairs of a phone
-   * with no other member that links (one Mac from before groups). Never for
-   * its own `remove` or `leave`.
+   * with no other member that links (one Mac from before groups). Also when
+   * the relay holds no pair for it and none formed within `ALONE_GRACE_MS`:
+   * no member can reach it to say so, so it most likely was removed while
+   * away (`unreachable`). Never for its own `remove` or `leave`.
    */
-  | { type: 'unpaired_all' }
+  | { type: 'unpaired_all'; unreachable?: boolean }
   /**
    * The relay dropped every pair while the roster still lists members that
-   * link: they pair again through `/pair/mutual`, so this phone was not removed.
+   * link: they may pair again through `/pair/mutual`. If none does within
+   * `ALONE_GRACE_MS`, `unpaired_all` follows.
    */
   | { type: 'pairs_lost' }
   | { type: 'relay_error'; code: string }
@@ -135,6 +146,14 @@ export class GroupClient {
    * leaves it be; the one after decides.
    */
   private lastOkAt: number;
+  /** When a frame last came from each peer: one quiet channel among others that talk is that peer's silence, not the socket's. */
+  private readonly heardAt = new Map<string, number>();
+  /** Runs while the relay holds no pair for a phone in a group (`ALONE_GRACE_MS`). */
+  private aloneTimer: ReturnType<typeof setTimeout> | null = null;
+  /** `unpaired_all` for being alone was said; not again until a pair forms. */
+  private aloneReported = false;
+  /** The device the link's socket URL names now (`RelayLinkOptions.anchor`); null: this phone's own id. */
+  private anchor: string | null;
 
   constructor(opts: GroupClientOptions) {
     this.opts = opts;
@@ -143,6 +162,8 @@ export class GroupClient {
     const paired = this.storage.paired.list();
     // The first paired device anchors the socket: with an old relay (no `ok.pairs`),
     // its `unpaired` on connect is how a phone revoked while away learns it.
+    // A new first device takes over at the next connect (`reanchor`).
+    this.anchor = paired[0]?.id ?? null;
     this.link = new RelayLink({
       relayUrl: opts.relayUrl, identity: opts.identity, WebSocketImpl: opts.WebSocketImpl, relaySecret: opts.relaySecret,
       ...(paired.length > 0 ? { anchor: paired[0].id, expectPaired: true } : {}),
@@ -176,7 +197,7 @@ export class GroupClient {
       isLiveMember: (id) => this.group.isLiveMember(id),
       paired: this.storage.paired,
       pendingRevokes: this.storage.pendingRevokes,
-      addPaired: (device) => this.group.addPaired(device),
+      addPaired: (device, joined) => this.group.addPaired(device, joined),
       revokeCancelled: (id) => this.group.tryRoster('revoke a cancelled join', () => this.group.revokeAtRelay(id)),
       watch: () => {},
       abandon: (id) => this.drop(id),
@@ -233,6 +254,7 @@ export class GroupClient {
   }
 
   stop(): void {
+    this.clearAlone();
     this.group.stop();
     this.ceremony.reset();
     // The link's `off` closes every channel.
@@ -339,7 +361,9 @@ export class GroupClient {
         // `online` follows `ok` at once: the relay's view is fresh, and the group may post now.
         if (event.status === 'online') {
           for (const d of this.storage.paired.list()) this.open(d.id);
+          // Every live member was asked for a mutual pair here: the grace for being alone starts after.
           this.group.relayOk();
+          this.watchAlone();
         }
         return;
       case 'ok': {
@@ -361,6 +385,7 @@ export class GroupClient {
         this.emit({ type: 'peer', peer: event.peer });
         return;
       case 'paired':
+        this.pairFormed();
         // The device whose code this phone redeemed; a cancelled join is revoked and never added.
         if (this.ceremony.onPaired(event.mac) && this.storage.paired.get(event.mac)) {
           this.emit({ type: 'joined', peer: event.mac });
@@ -373,6 +398,7 @@ export class GroupClient {
         this.ceremony.onPairRequest(event);
         return;
       case 'linked':
+        this.pairFormed();
         this.group.relayLinked(event.peer);
         return;
       case 'unpaired':
@@ -388,13 +414,17 @@ export class GroupClient {
         return;
       case 'frame': {
         const channel = this.channels.get(event.peer);
-        if (channel) channel.receive(event.body);
-        else this.ownDropped++;
+        if (channel) {
+          this.heardAt.set(event.peer, this.now());
+          channel.receive(event.body);
+        } else this.ownDropped++;
         return;
       }
       case 'wake':
-        if (this.storage.paired.get(event.peer)) this.emit({ type: 'wake', peer: event.peer, flags: event.flags });
-        else this.ownDropped++;
+        if (this.storage.paired.get(event.peer)) {
+          this.heardAt.set(event.peer, this.now());
+          this.emit({ type: 'wake', peer: event.peer, flags: event.flags });
+        } else this.ownDropped++;
         return;
     }
   }
@@ -455,15 +485,67 @@ export class GroupClient {
         this.emit({ type: 'bye', peer: id, reason: event.reason, ...(event.needed !== undefined ? { needed: event.needed } : {}) });
         return;
       case 'silent':
-        // That peer went quiet, not the socket: only its channel starts over.
         this.drop(id);
-        this.open(id);
+        // Another peer spoke within the window: the socket carries frames, so only that peer
+        // went quiet and its channel starts over. Otherwise the socket is likely half-open
+        // (a network handover, a NAT timeout) and only a new one helps: every channel re-handshakes.
+        if (this.heardFromOthers(id)) this.open(id);
+        else this.link.reconnect();
         return;
       case 'closed':
         this.channels.delete(id);
         this.emit({ type: 'peer', peer: id });
         return;
     }
+  }
+
+  private heardFromOthers(id: string): boolean {
+    const since = this.now() - (this.opts.silenceTimeoutMs ?? TUNNEL_SILENCE_TIMEOUT_MS);
+    return [...this.heardAt].some(([peer, at]) => peer !== id && at > since);
+  }
+
+  /**
+   * Starts the wait for being alone when the relay named no pair at all for
+   * this phone, the roster still puts it in a group and no channel is up;
+   * ends it otherwise. A relay that names no pairs (an old one) never starts it.
+   */
+  private watchAlone(): void {
+    const pairs = this.link.pairs;
+    const alone = pairs !== null && pairs.size === 0 && this.grouped() && ![...this.channels.values()].some((c) => c.ready);
+    if (!alone) {
+      this.clearAlone();
+      return;
+    }
+    if (this.aloneTimer || this.aloneReported) return;
+    this.aloneTimer = setTimeout(() => {
+      this.aloneTimer = null;
+      // A socket down now says nothing new: the next `ok` looks again.
+      if (this.link.status !== 'online') return;
+      const pairs = this.link.pairs;
+      if (pairs === null || pairs.size > 0 || !this.grouped() || [...this.channels.values()].some((c) => c.ready)) return;
+      this.aloneReported = true;
+      this.log('no pair formed with any member: out of the group');
+      this.emit({ type: 'unpaired_all', unreachable: true });
+    }, ALONE_GRACE_MS);
+  }
+
+  /** A pair formed (a relay that lost its pairs forms them again): this phone is not alone. */
+  private pairFormed(): void {
+    this.aloneReported = false;
+    this.clearAlone();
+  }
+
+  private clearAlone(): void {
+    if (this.aloneTimer) clearTimeout(this.aloneTimer);
+    this.aloneTimer = null;
+  }
+
+  /** The first paired device anchors the next socket; none left, this phone's own id. */
+  private reanchor(): void {
+    const first = this.storage.paired.list()[0]?.id ?? null;
+    if (first === this.anchor) return;
+    this.anchor = first;
+    this.link.setAnchor(first, true);
   }
 
   /** Ends one channel (not the relay link): everything waiting on it fails with `lost`. */
@@ -492,6 +574,7 @@ export class GroupClient {
       if (!this.storage.paired.get(id)) continue;
       this.drop(id);
       this.hellos.delete(id);
+      this.heardAt.delete(id);
       this.storage.paired.remove(id);
       changed = true;
     }
@@ -519,6 +602,7 @@ export class GroupClient {
       this.emit({ type: 'peer', peer: id });
     }
     this.hellos.clear();
+    this.heardAt.clear();
   }
 
   private changed(): void {
@@ -566,6 +650,7 @@ export class GroupClient {
   }
 
   private stored(): void {
+    this.reanchor();
     try {
       this.opts.onStored?.();
     } catch (err) {

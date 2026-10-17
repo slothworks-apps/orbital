@@ -15,7 +15,7 @@ const entry = (id: string, over: Partial<RosterEntry> = {}): RosterEntry => ({
   ...over,
 });
 
-type Answer = { status: number; body: unknown };
+type Answer = { status: number; body: unknown; unsupported?: boolean };
 
 /** A relay connection that records what is posted and answers from `answers`. */
 function fakeRelay(answers: Record<string, Answer> = {}) {
@@ -115,6 +115,19 @@ describe('GroupMember linking', () => {
     expect(g.group.members(new Set()).find((m) => m.id === MAC)).toMatchObject({ pairByHand: true, state: 'notLinked' });
     r.answers['/pair/mutual'] = { status: 200, body: {} };
     g.group.relayOk();
+    expect(g.group.members(new Set()).find((m) => m.id === MAC)).toMatchObject({ pairByHand: false, state: 'linking' });
+  });
+
+  it('a relay that never answers this device on /pair/mutual (unsupported) is read as one without it', async () => {
+    const r = fakeRelay({ '/pair/mutual': { status: 0, body: { error: 'network' }, unsupported: true } });
+    const g = build({ relay: r });
+    g.group.setRoster([entry(SELF), entry(MAC)]);
+    await flush();
+    expect(g.group.members(new Set()).find((m) => m.id === MAC)).toMatchObject({ pairByHand: true, state: 'notLinked' });
+    // A plain network failure is asked again instead.
+    r.answers['/pair/mutual'] = { status: 0, body: { error: 'network' } };
+    g.group.relayOk();
+    await flush();
     expect(g.group.members(new Set()).find((m) => m.id === MAC)).toMatchObject({ pairByHand: false, state: 'linking' });
   });
 
@@ -281,5 +294,29 @@ describe('GroupMember members', () => {
       paired: [{ id: PHONE, name: 'Phone', platform: 'ios', kind: 'phone', pairedAt: 1, lastSeenAt: null }],
     });
     expect(g.group.inGroup()).toBe(false);
+  });
+});
+
+describe('GroupMember joining', () => {
+  const OTHER = 'O'.repeat(43);
+
+  it("the joiner's entry for the device it joined loses to that device's own, hello or not", () => {
+    const g = build();
+    g.group.addPaired({ id: MAC, kind: 'desktop', name: 'studio', os: '' }, true);
+    const { channel } = fakeChannel();
+    // Its hello arrives before its roster: the placeholder stays one.
+    g.group.onPeerHello(MAC, channel, {
+      t: 'hello', protocol: 1, app: 'orbital', server: '1', name: 'studio', os: 'macos', capabilities: ['group'],
+    });
+    // The joined device was added by another member, before the joiner heard of it.
+    const real = entry(MAC, { name: 'studio', addedBy: OTHER, addedAt: 50, describedAt: 60 });
+    g.group.onGroup(MAC, channel, { t: 'roster', entries: [entry(OTHER, { addedBy: OTHER }), real] });
+    expect(g.roster().find((e) => e.id === MAC)).toEqual(real);
+  });
+
+  it('the adder writes the newcomer as added by itself, as before', () => {
+    const g = build();
+    g.group.addPaired({ id: PHONE, kind: 'phone', name: 'Pixel', os: 'android' });
+    expect(g.roster().find((e) => e.id === PHONE)).toMatchObject({ addedBy: SELF, describedAt: NOW });
   });
 });

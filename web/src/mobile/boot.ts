@@ -1,5 +1,5 @@
 import { App } from '@capacitor/app'
-import type { RemoteClientEvent } from '@orbital/shared/remote/client'
+import type { TunnelEvent } from '@orbital/shared/remote/tunnel'
 import { configureApi } from '../lib/api'
 import { configureImages } from '../lib/images'
 import { isPdfPath } from '../lib/pathLinks'
@@ -140,7 +140,7 @@ async function groupPairing(record: GroupRecord): Promise<Pairing | null> {
   }
 }
 
-function onClientEvent(event: RemoteClientEvent): void {
+function onClientEvent(event: TunnelEvent): void {
   // Read before `apply`, which clears the pairing when the pair is gone.
   const gone = pairGoneFor(event, useMobile.getState().pairing)
   useMobile.getState().apply(event)

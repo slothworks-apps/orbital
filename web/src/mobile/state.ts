@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { PendingPair } from '@orbital/shared/remote/ceremony'
-import type { LinkStatus, RemoteClientEvent } from '@orbital/shared/remote/client'
+import type { LinkStatus, TunnelEvent } from '@orbital/shared/remote/tunnel'
 import type { MemberRow } from '@orbital/shared/remote/group'
 import type { GroupClientEvent } from '@orbital/shared/remote/groupClient'
 import { MIN_SERVER_VERSION, isSupportedServer } from '@orbital/shared/remote/version'
@@ -121,6 +121,12 @@ export interface MobileState {
   /** What 9i explains; null while every part is new enough. */
   mismatch: Mismatch | null
   unpaired: boolean
+  /**
+   * 9h came because no device of the group could reach this phone any more
+   * (`unpaired` with `unreachable`), not because one was heard removing it.
+   * For this launch only: a later one shows 9h's usual words.
+   */
+  unreachable: boolean
   pairing: Pairing | null
   macName: string | null
   /**
@@ -171,8 +177,8 @@ export interface MobileState {
 export const initialMobileState: MobileState = {
   screen: 'pairing', previous: null, sessionId: null, pushed: [], link: 'off', macOnline: false, ready: false,
   asOf: null, checkedAt: null, rechecking: null, listedAt: null, endedSummary: null, endedLoaded: false,
-  mismatch: null, unpaired: false, pairing: null, macName: null, macVersion: null, devices: [], refusals: {}, members: [],
-  pendingPair: null, ownCode: null, composerIntent: null,
+  mismatch: null, unpaired: false, unreachable: false, pairing: null, macName: null, macVersion: null, devices: [], refusals: {},
+  members: [], pendingPair: null, ownCode: null, composerIntent: null,
   screenLock: false, lock: 'open', appLock: true, lockLabel: 'screen lock', backgroundedAt: null, authenticating: false,
 }
 
@@ -193,7 +199,7 @@ export function isMacAsleep(state: Pick<MobileState, 'link' | 'macOnline' | 'rec
  * and the phone stays in its group, which says so (`unpaired`) once it
  * holds no group for the phone.
  */
-export function isPairGone(event: RemoteClientEvent): boolean {
+export function isPairGone(event: TunnelEvent): boolean {
   return event.type === 'unpaired' || (event.type === 'relay_error' && UNPAIRED_RELAY_ERRORS.has(event.code))
 }
 
@@ -240,15 +246,18 @@ export function returnToForeground(state: MobileState, now: number): Partial<Mob
  * pair only when one is stored: mid-pairing there is none to lose, and the
  * pairing run reports the refusal on its own screen instead of 9h.
  */
-export function pairGoneFor(event: RemoteClientEvent, pairing: Pairing | null): boolean {
+export function pairGoneFor(event: TunnelEvent, pairing: Pairing | null): boolean {
   if (event.type === 'relay_error' && event.code === 'bad_secret' && pairing === null) return false
   return isPairGone(event)
 }
 
 /** What one client event changes (spec § 5: offline, 9h, 9i). Pure; `useMobile.apply` writes it. */
-export function reduce(state: MobileState, event: RemoteClientEvent, now: number): Partial<MobileState> {
+export function reduce(state: MobileState, event: TunnelEvent, now: number): Partial<MobileState> {
   if (pairGoneFor(event, state.pairing)) {
-    return { screen: 'unpaired', unpaired: true, sessionId: null, pushed: [], pairing: null, ready: false }
+    return {
+      screen: 'unpaired', unpaired: true, unreachable: event.type === 'unpaired' && event.unreachable === true,
+      sessionId: null, pushed: [], pairing: null, ready: false,
+    }
   }
   switch (event.type) {
     case 'status':
@@ -399,7 +408,7 @@ export function pushedTop<K extends PushedScreen>(state: Pick<MobileState, 'push
 }
 
 interface MobileActions {
-  apply(event: RemoteClientEvent): void
+  apply(event: TunnelEvent): void
   /** A group event the federation does not pass on (`reduceGroup`). */
   applyGroup(event: GroupClientEvent): void
   /** The federation's sources changed (`applyDevices`). */

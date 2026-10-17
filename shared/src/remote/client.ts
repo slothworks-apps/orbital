@@ -11,15 +11,21 @@
  *
  * Nothing here throws into a caller's event loop: a bad frame is dropped and
  * counted (`dropped`), a listener that throws is its own problem.
+ *
+ * The app no longer runs this: a phone is a group member (`GroupClient`).
+ * It stays as a stand-in for a shipped phone in the server's tests — an
+ * approximation, since it runs on today's `RelayLink`, not the shipped
+ * socket code. The types the app uses live in tunnel.ts.
  */
 import { deviceId, fromBase64Url, publicKeyOf, type Identity } from './keys.js';
 import type { FileAs, NotificationSettings } from './messages.js';
 import { PAIRING_TOKEN_TTL_MS, pairingProof, sealPairingDevice } from './relayApi.js';
+import type { TunnelEvent } from './tunnel.js';
 import type { RelayTooOld } from './version.js';
 import { RelayLink, type LinkStatus, type RelayLinkEvent, type SocketConstructor } from './relayLink.js';
 import { capabilitiesOf } from './device.js';
 import {
-  Channel, TunnelError, type BlobResult, type ByeReason, type ChannelEvent, type FileResult, type GetFileOptions,
+  Channel, TunnelError, type BlobResult, type ChannelEvent, type FileResult, type GetFileOptions,
   type HttpMethod, type PutBlobResult, type TunnelResponse,
 } from './channel.js';
 
@@ -31,30 +37,8 @@ export type {
 export { RECONNECT_DELAY_MS, RECONNECT_MAX_MS, CONNECT_TIMEOUT_MS } from './relayLink.js';
 export type { SocketLike, SocketConstructor, LinkStatus } from './relayLink.js';
 
-export type RemoteClientEvent =
-  | { type: 'status'; status: LinkStatus }
-  | { type: 'presence'; macOnline: boolean }
-  /** `kind` and `capabilities` only from a Mac that names them; a shipped one names neither. */
-  | { type: 'hello'; server: string; macName: string; kind?: string; capabilities?: string[] }
-  /** True once a cipher exists and the Mac said hello; false when that tunnel is gone. */
-  | { type: 'ready'; ready: boolean }
-  /** `needed`: the Mac's `MIN_PHONE_VERSION`, with `app_too_old`. */
-  | { type: 'bye'; reason: ByeReason; needed?: string }
-  /** The Mac confirmed; its name is the QR's, the relay knows none. */
-  | { type: 'paired' }
-  | { type: 'rejected' }
-  | { type: 'unpaired' }
-  | { type: 'relay_error'; code: string }
-  /**
-   * The relay is below `MIN_RELAY_VERSION` (at connect, or in a redeem's
-   * answer): the client has stopped, and only `recheck` or `start` tries
-   * that relay again.
-   */
-  | ({ type: 'relay_too_old' } & RelayTooOld)
-  /** A hub frame, verbatim — `dropped` ones included (parent § 7). */
-  | { type: 'hub'; frame: unknown }
-  /** A frame with an empty body: its header flags, and nothing else (parent § 7). */
-  | { type: 'wake'; flags: number };
+/** What the client emits: the app's `TunnelEvent`. */
+export type RemoteClientEvent = TunnelEvent;
 
 export type RemoteClientOptions = {
   relayUrl: string;

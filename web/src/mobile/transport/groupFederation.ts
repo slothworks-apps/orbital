@@ -1,7 +1,7 @@
 import {
   TunnelError, type BlobResult, type FileResult, type GetFileOptions, type HttpMethod, type PutBlobResult,
-  type RemoteClientEvent, type TunnelResponse,
-} from '@orbital/shared/remote/client'
+  type TunnelEvent, type TunnelResponse,
+} from '@orbital/shared/remote/tunnel'
 import type { Channel } from '@orbital/shared/remote/channel'
 import type { GroupClient, GroupClientEvent, PeerInfo } from '@orbital/shared/remote/groupClient'
 import { peerServes, type FileAs, type HelloMessage, type NotificationSettings } from '@orbital/shared/remote/messages'
@@ -10,6 +10,14 @@ import { PRESENCE_TOPIC, presenceFromFrame } from '@orbital/shared/presence'
 import type { MachineRef } from '../../lib/types'
 import type { SwappableClient } from './clientRef'
 import { mediaTypeOf } from './imageResolver'
+
+export type FederationOptions = {
+  now?: () => number
+  /** The rules the user last chose on this phone (stored with the group). */
+  notifications?: NotificationSettings | null
+  /** A new choice was made: store it. */
+  onNotifications?: (settings: NotificationSettings) => void
+}
 
 /** What the federation needs of the group: its peers, their channels, and what it delegates. */
 export type FederatedGroup = Pick<GroupClient, 'on' | 'peers' | 'channel' | 'stop' | 'recheck' | 'pushToken'>
@@ -122,18 +130,23 @@ export class GroupFederation implements SwappableClient {
   private readonly relisting = new Set<Promise<void>>()
   /** Lookups running, by session: two requests about one session ask the members once. */
   private readonly lookups = new Map<string, Promise<Lookup>>()
-  private readonly listeners = new Set<(event: RemoteClientEvent) => void>()
+  private readonly listeners = new Set<(event: TunnelEvent) => void>()
   private readonly memberListeners = new Set<() => void>()
   private wasReady = false
   private wasOnline = false
   private wasAtMac = false
   private lastHello = ''
   private lastMembers = ''
+  /** The rules the user chose on this phone, sent to every member as it comes up; null before any choice. */
+  private chosen: NotificationSettings | null
+  private readonly onNotifications: (settings: NotificationSettings) => void
 
   // Plain fields, not parameter properties: `erasableSyntaxOnly`.
-  constructor(group: FederatedGroup, opts: { now?: () => number } = {}) {
+  constructor(group: FederatedGroup, opts: FederationOptions = {}) {
     this.group = group
     this.now = opts.now ?? Date.now
+    this.chosen = opts.notifications ?? null
+    this.onNotifications = opts.onNotifications ?? (() => {})
     group.on((event) => this.onGroup(event))
     this.refresh()
   }
@@ -159,7 +172,7 @@ export class GroupFederation implements SwappableClient {
     return this.owners.get(sessionId) ?? null
   }
 
-  on(listener: (event: RemoteClientEvent) => void): () => void {
+  on(listener: (event: TunnelEvent) => void): () => void {
     this.listeners.add(listener)
     return () => {
       this.listeners.delete(listener)
@@ -348,10 +361,15 @@ export class GroupFederation implements SwappableClient {
     return channel ? channel.getNotifications() : Promise.reject(new TunnelError('offline'))
   }
 
-  /** The phone's choice holds for every member: each pushes for its own sessions. */
+  /**
+   * The phone's choice holds for every member: each pushes for its own
+   * sessions. Members that are up get it now, the others as they come up.
+   */
   async setNotifications(settings: NotificationSettings): Promise<NotificationSettings> {
     const ready = this.readySources()
     if (ready.length === 0) throw new TunnelError('offline')
+    this.chosen = settings
+    this.onNotifications(settings)
     const fallback = this.defaultSource()
     const results = await Promise.allSettled(ready.map(([, channel]) => channel.setNotifications(settings)))
     const fromDefault = results[ready.findIndex(([s]) => s === fallback)]
@@ -395,7 +413,7 @@ export class GroupFederation implements SwappableClient {
         }
         return
       case 'unpaired_all':
-        this.emit({ type: 'unpaired' })
+        this.emit({ type: 'unpaired', ...(event.unreachable === true ? { unreachable: true } : {}) })
         return
       case 'relay_error':
         this.emit({ type: 'relay_error', code: event.code })
@@ -429,6 +447,7 @@ export class GroupFederation implements SwappableClient {
       source.ready = ready
       if (ready) {
         source.asOf = null
+        this.sendChosen(source)
         const run = this.relist(source)
         this.relisting.add(run)
         const done = () => {
@@ -438,7 +457,11 @@ export class GroupFederation implements SwappableClient {
       } else {
         source.asOf = this.now()
         source.atMac = false
-        for (const s of source.sessions.values()) this.emitHub({ topic: 'sessions', event: 'upsert', session: this.localize(source, s) })
+        // Now offline, nothing new: `replay` tells the notifier so.
+        for (const s of source.sessions.values()) {
+          if (this.owners.get(s.id) !== source.id) continue
+          this.emitHub({ topic: 'sessions', event: 'upsert', session: this.localize(source, s), replay: true })
+        }
       }
     }
     for (const source of [...this.sourcesById.values()]) if (!current.has(source.id)) this.dropSource(source)
@@ -467,6 +490,16 @@ export class GroupFederation implements SwappableClient {
         }
       }
     }
+  }
+
+  /** A member that came up gets the phone's rules: it may have missed a change, or never had them. */
+  private sendChosen(source: Source): void {
+    const chosen = this.chosen
+    const channel = this.channelOf(source.id)
+    if (!chosen || !channel) return
+    channel.setNotifications(chosen).catch(() => {
+      // Sent again the next time it comes up.
+    })
   }
 
   /** A peer no longer paired: its sessions leave the list. */
@@ -503,6 +536,7 @@ export class GroupFederation implements SwappableClient {
     if (frame.event === 'upsert') {
       // A session passed on as a third device's: the phone has it from that device, or not at all.
       if (!isSession(frame.session) || carriesMachine(frame.session)) return
+      if (!this.mayOwn(source, frame.session.id)) return
       if (this.own(source, frame.session)) this.syncTopics()
       this.emitHub({ ...frame, session: this.localize(source, frame.session) })
       return
@@ -550,9 +584,12 @@ export class GroupFederation implements SwappableClient {
           this.emitHub({ topic: 'sessions', event: 'remove', sessionId: id })
         }
       }
+      // What a member that came back lists happened while it was away, and it pushed
+      // a wake for what mattered: `replay` folds it into the notifier as a seed.
       for (const s of fresh) {
+        if (!this.mayOwn(source, s.id)) continue
         this.own(source, s)
-        this.emitHub({ topic: 'sessions', event: 'upsert', session: this.localize(source, s) })
+        this.emitHub({ topic: 'sessions', event: 'upsert', session: this.localize(source, s), replay: true })
       }
       this.syncTopics()
       return
@@ -609,7 +646,7 @@ export class GroupFederation implements SwappableClient {
         continue
       }
       first ??= page
-      const own = ownSessions(page.sessions)
+      const own = ownSessions(page.sessions).filter((s) => this.mayOwn(source, s.id))
       for (const s of own) touched = this.own(source, s) || touched
       sessions.push(...own.map((s) => this.localize(source, s)))
       if (isEnded(page.ended)) {
@@ -929,8 +966,20 @@ export class GroupFederation implements SwappableClient {
     return this.group.channel(id)?.peer ?? this.peerInfo.get(id)?.hello ?? null
   }
 
+  /**
+   * Whether `source` may hold the session: the first member that listed it
+   * keeps it until it removes it or is not up any more. Ids do not collide
+   * on their own; this keeps a member from taking over another's session,
+   * and with it what the phone sends that session.
+   */
+  private mayOwn(source: Source, id: string): boolean {
+    const owner = this.owners.get(id)
+    return owner === undefined || owner === source.id || this.channelOf(owner) === null
+  }
+
   /** Records `source` as the session's owner; true when that is news, so per-session topics move. */
   private own(source: Source, session: Session): boolean {
+    if (!this.mayOwn(source, session.id)) return false
     source.sessions.set(session.id, session)
     if (this.owners.get(session.id) === source.id) return false
     this.owners.set(session.id, source.id)
@@ -1034,7 +1083,7 @@ export class GroupFederation implements SwappableClient {
     this.emit({ type: 'hub', frame })
   }
 
-  private emit(event: RemoteClientEvent): void {
+  private emit(event: TunnelEvent): void {
     for (const listener of [...this.listeners]) {
       try {
         listener(event)

@@ -33,6 +33,13 @@ describe('the stored group', () => {
     expect(record).toEqual({ relay: PAIRING.relay, group: { roster: [], paired: migratePairing(PAIRING).group.paired, pendingRevokes: [mac] } })
   })
 
+  it('keeps the notification rules chosen on the phone, and drops ones that do not read', () => {
+    const notifications = { needsInput: true, sessionEnded: false, sessionFailed: true, onlyWhenBackground: true, sound: false }
+    const record = { ...migratePairing(PAIRING), notifications }
+    expect(parseGroupRecord(JSON.stringify(record))).toEqual(record)
+    expect(parseGroupRecord(JSON.stringify({ ...record, notifications: { sound: 'loud' } }))).toEqual(migratePairing(PAIRING))
+  })
+
   it("turns a phone's one Mac into a group of it, on the same relay with the same secret", () => {
     expect(migratePairing(PAIRING)).toEqual({
       relay: PAIRING.relay, relaySecret: 's',

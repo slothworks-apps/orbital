@@ -1,11 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deviceId, generateIdentity, type Identity } from '../src/remote/keys.js';
 import { ZERO_WAKE, decodeFrame, encodeFrame } from '../src/remote/frame.js';
 import { Channel } from '../src/remote/channel.js';
 import type { RelayToDevice } from '../src/remote/relayApi.js';
 import type { SocketLike } from '../src/remote/relayLink.js';
-import { MIN_RELAY_VERSION } from '../src/remote/version.js';
-import { GroupClient, MemoryGroupStorage, type GroupClientEvent } from '../src/remote/groupClient.js';
+import { RELAY_PHONE_GROUP_VERSION } from '../src/remote/version.js';
+import { ALONE_GRACE_MS, GroupClient, MemoryGroupStorage, type GroupClientEvent } from '../src/remote/groupClient.js';
 
 /** The relay socket the test plays: frames the phone sends go to `route`, a microtask later. */
 class FakeSocket implements SocketLike {
@@ -69,7 +69,12 @@ class Peer {
   }
 }
 
-function setup(seed: (storage: MemoryGroupStorage) => void = () => {}, opts: { silenceTimeoutMs?: number; handshakeTimeoutMs?: number; now?: () => number } = {}) {
+type SetupOpts = {
+  silenceTimeoutMs?: number; handshakeTimeoutMs?: number; reconnectDelayMs?: number; now?: () => number;
+  fetchImpl?: (input: string, init: RequestInit) => Promise<Response>;
+};
+
+function setup(seed: (storage: MemoryGroupStorage) => void = () => {}, opts: SetupOpts = {}) {
   FakeSocket.all = [];
   const identity = generateIdentity();
   const storage = new MemoryGroupStorage();
@@ -89,8 +94,8 @@ function setup(seed: (storage: MemoryGroupStorage) => void = () => {}, opts: { s
   return { identity, storage, client, events, sock, stored: () => stored };
 }
 
-function online(sock: FakeSocket, ok: { peers: string[]; pairs?: string[] }): void {
-  sock.control({ type: 'challenge', nonce: 'n', version: MIN_RELAY_VERSION });
+function online(sock: FakeSocket, ok: { peers: string[]; pairs?: string[] }, version = RELAY_PHONE_GROUP_VERSION): void {
+  sock.control({ type: 'challenge', nonce: 'n', version });
   sock.control({ type: 'ok', ...ok });
 }
 
@@ -110,7 +115,15 @@ const until = async (cond: () => boolean, ms = 2000): Promise<void> => {
 
 afterEach(() => {
   FakeSocket.route = () => {};
+  vi.useRealTimers();
 });
+
+/** A member that links, in the roster of a phone that is in its group. */
+function grouped(storage: MemoryGroupStorage, id: string): void {
+  storage.roster.replace([{
+    id, kind: 'desktop', name: 'vps', os: 'linux', links: true, epoch: 1, addedBy: id, addedAt: 1, describedAt: 1,
+  }]);
+}
 
 describe('GroupClient', () => {
   it('adds itself to its roster as a phone that links', () => {
@@ -138,13 +151,118 @@ describe('GroupClient', () => {
     const first = s.client.channel(a.id);
     const toB = s.client.channel(b.id);
     expect(s.client.peers().map((p) => [p.id, p.online, p.ready])).toEqual([[a.id, true, true], [b.id, true, true]]);
-    // A goes quiet: its channel is dropped and opened again; the socket and B's channel stay.
-    a.hears = false;
-    await until(() => s.client.channel(a.id) !== first);
-    a.hears = true;
-    await until(() => s.client.channel(a.id)?.ready === true);
+    // A goes quiet while B still talks (its wakes): A's channel is dropped and opened again; the socket and B's channel stay.
+    const talking = setInterval(() => {
+      s.sock().binary(encodeFrame({ peer: b.identity.publicKey, flags: 0, wake: ZERO_WAKE, body: new Uint8Array(0) }));
+    }, 20);
+    try {
+      a.hears = false;
+      await until(() => s.client.channel(a.id) !== first);
+      a.hears = true;
+      await until(() => s.client.channel(a.id)?.ready === true);
+    } finally {
+      clearInterval(talking);
+    }
     expect(FakeSocket.all).toHaveLength(1);
     expect(s.client.channel(b.id)).toBe(toB);
+  });
+
+  it('every channel silent: the socket is rebuilt and every channel handshakes again on the new one', async () => {
+    const s = setup(() => {}, { silenceTimeoutMs: 150, handshakeTimeoutMs: 100, reconnectDelayMs: 10 });
+    const a = new Peer(s.identity, s.sock, true);
+    const b = new Peer(s.identity, s.sock, true);
+    const peers = [a, b];
+    pairWith(s.storage, a.id);
+    pairWith(s.storage, b.id, 'vps');
+    FakeSocket.route = (bytes) => {
+      const frame = decodeFrame(bytes);
+      if (!frame) return;
+      peers.find((p) => p.id === deviceId(frame.peer))?.receive(frame.body);
+    };
+    online(s.sock(), { peers: [a.id, b.id], pairs: [a.id, b.id] });
+    await until(() => s.client.channel(a.id)?.ready === true && s.client.channel(b.id)?.ready === true);
+    const first = s.sock();
+    // A half-open socket: nothing gets through either way.
+    a.hears = false;
+    b.hears = false;
+    await until(() => FakeSocket.all.length === 2);
+    expect(first.closed).toBe(true);
+    a.hears = true;
+    b.hears = true;
+    a.channel = null;
+    b.channel = null;
+    online(s.sock(), { peers: [a.id, b.id], pairs: [a.id, b.id] });
+    await until(() => s.client.channel(a.id)?.ready === true && s.client.channel(b.id)?.ready === true);
+    expect(FakeSocket.all).toHaveLength(2);
+  });
+
+  it('no pair at the relay and none formed within ALONE_GRACE_MS: unpaired_all, unreachable', () => {
+    vi.useFakeTimers();
+    const b = idOf();
+    const s = setup((storage) => {
+      pairWith(storage, b);
+      grouped(storage, b);
+    });
+    online(s.sock(), { peers: [], pairs: [] });
+    expect(s.events.map((e) => e.type)).toContain('pairs_lost');
+    vi.advanceTimersByTime(ALONE_GRACE_MS - 1);
+    expect(s.events.some((e) => e.type === 'unpaired_all')).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(s.events.filter((e) => e.type === 'unpaired_all')).toEqual([{ type: 'unpaired_all', unreachable: true }]);
+    // Said once.
+    s.sock().control({ type: 'ok', peers: [], pairs: [] });
+    vi.advanceTimersByTime(ALONE_GRACE_MS);
+    expect(s.events.filter((e) => e.type === 'unpaired_all')).toHaveLength(1);
+  });
+
+  it('a pair that forms within ALONE_GRACE_MS (a relay that lost its pairs) keeps the phone in its group', () => {
+    vi.useFakeTimers();
+    const b = idOf();
+    const s = setup((storage) => grouped(storage, b));
+    online(s.sock(), { peers: [], pairs: [] });
+    vi.advanceTimersByTime(ALONE_GRACE_MS / 2);
+    s.sock().control({ type: 'linked', peer: b });
+    vi.advanceTimersByTime(ALONE_GRACE_MS);
+    expect(s.events.some((e) => e.type === 'unpaired_all')).toBe(false);
+    expect(s.client.peers().map((p) => p.id)).toEqual([b]);
+  });
+
+  it('a relay that names no pairs, or a phone in no group, never waits to be alone', () => {
+    vi.useFakeTimers();
+    const old = setup((storage) => grouped(storage, idOf()));
+    online(old.sock(), { peers: [] });
+    const alone = setup();
+    online(alone.sock(), { peers: [], pairs: [] });
+    vi.advanceTimersByTime(ALONE_GRACE_MS * 2);
+    expect([...old.events, ...alone.events].some((e) => e.type === 'unpaired_all')).toBe(false);
+  });
+
+  it('a relay too old to answer the web view: members pair by hand, and no code is shown', async () => {
+    const b = idOf();
+    // A web view's CORS failure: fetch throws.
+    const s = setup((storage) => grouped(storage, b), { fetchImpl: () => Promise.reject(new TypeError('Failed to fetch')) });
+    online(s.sock(), { peers: [] }, '0.5.0');
+    await until(() => s.client.members().find((m) => m.id === b)?.state === 'notLinked');
+    expect(await s.client.startPairing()).toEqual({ error: 'relay_too_old' });
+    // The same failure on a relay new enough is the network's: asked again, no code.
+    const fresh = setup((storage) => grouped(storage, b), { fetchImpl: () => Promise.reject(new TypeError('Failed to fetch')) });
+    online(fresh.sock(), { peers: [] });
+    expect(await fresh.client.startPairing()).toEqual({ error: 'relay_error' });
+    expect(fresh.client.members().find((m) => m.id === b)?.state).toBe('linking');
+  });
+
+  it('the socket anchors on the first paired device there is; a new one takes over at the next connect', () => {
+    const [a, b] = [idOf(), idOf()];
+    const s = setup((storage) => {
+      pairWith(storage, a);
+      pairWith(storage, b);
+    });
+    online(s.sock(), { peers: [] });
+    s.sock().control({ type: 'unpaired', mac: a });
+    s.client.stop();
+    s.client.start();
+    const url = new URL(s.sock().url);
+    expect([url.searchParams.get('mac'), url.searchParams.get('paired')]).toEqual([b, '1']);
   });
 
   it('ok naming every pair drops a pair the relay no longer holds; none left is unpaired_all, once', () => {

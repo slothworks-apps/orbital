@@ -236,11 +236,11 @@ export class RemoteService {
       isLiveMember: (id) => this.group.isLiveMember(id),
       paired: {
         get: (id) => this.devices.get(id),
-        add: (d) => this.devices.add({ ...d, notifications: parseNotificationSettings(this.opts.allSettings()) }),
+        add: (d) => this.addDevice(d),
         remove: (id) => this.devices.remove(id),
       },
       pendingRevokes: this.pendingRevokes,
-      addPaired: (device) => this.group.addPaired(device),
+      addPaired: (device, joined) => this.group.addPaired(device, joined),
       revokeCancelled: (id) => this.group.tryRoster('revoke a cancelled join', () => this.group.revokeAtRelay(id)),
       watch: (id) => this.watch(id),
       abandon: (id) => {
@@ -543,7 +543,7 @@ export class RemoteService {
     this.hellos.clear();
   }
 
-  /** The device rows as the group reads and writes them; a pair it adds gets the default notifications. */
+  /** The device rows as the group reads and writes them. */
   private groupStorage(): GroupStorage {
     return {
       roster: this.roster,
@@ -551,10 +551,19 @@ export class RemoteService {
       paired: {
         list: () => this.devices.list(),
         get: (id) => this.devices.get(id),
-        add: (d) => this.devices.add({ ...d, notifications: parseNotificationSettings(this.opts.allSettings()) }),
+        add: (d) => this.addDevice(d),
         remove: (id) => this.devices.remove(id),
       },
     };
+  }
+
+  /**
+   * A new pair, from a code or a mutual pair, starts with this server's own
+   * notification settings. That is not a phone's choice: a phone in a group
+   * sends its own to every member once their channel is up.
+   */
+  private addDevice(d: Parameters<GroupStorage['paired']['add']>[0]): void {
+    this.devices.add({ ...d, notifications: parseNotificationSettings(this.opts.allSettings()) });
   }
 
   /**

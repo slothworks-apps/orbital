@@ -178,10 +178,18 @@ export function wireNotifications(): void {
       remember(event.frame)
       retireAnswered(event.frame)
       const n = notifier.onEvent(event.frame)
+      // A replay (a member that came back relists, one that went keeps its last) is folded
+      // in as a seed is: what changed while that member was away was its push's to report.
+      if (isReplay(event.frame)) return
       // After the listeners still to hear this frame (the tunnel socket hands it to the store).
       if (n) queueMicrotask(() => report(n))
     }
   })
+}
+
+/** A frame the federation marks as something already known, not news (`GroupFederation`). */
+function isReplay(frame: unknown): boolean {
+  return typeof frame === 'object' && frame !== null && (frame as { replay?: unknown }).replay === true
 }
 
 type SessionsFrame = {

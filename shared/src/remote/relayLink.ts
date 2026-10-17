@@ -15,7 +15,9 @@ import { ZERO_WAKE, decodeFrame, encodeFrame } from './frame.js';
 import {
   CLOSE_BAD_SECRET, RelayToDevice, authSignature, relayWsUrl, signRequest, type DeviceToRelay, type RelayAction,
 } from './relayApi.js';
-import { RELAY_VERSION_HEADER, relayAnswerTooOld, relayTooOld, type RelayTooOld } from './version.js';
+import {
+  RELAY_VERSION_HEADER, relayAnswerTooOld, relayBeforePhoneGroups, relayTooOld, type RelayTooOld,
+} from './version.js';
 
 /** First reconnect delay; it doubles per failed attempt up to `RECONNECT_MAX_MS` — the Mac's `RelayClient` shape. */
 export const RECONNECT_DELAY_MS = 3_000;
@@ -84,7 +86,13 @@ export type RelayLinkOptions = {
   connectTimeoutMs?: number;
 };
 
-export type RelayPostResult<T> = { status: number; body: T; relayTooOld?: RelayTooOld };
+/**
+ * `unsupported`: the request never left the web view (status 0) while the
+ * socket is up, to a relay older than `RELAY_PHONE_GROUP_VERSION` — one that
+ * gives the phone's web view no answer on that route (no CORS), so asking
+ * again will not help.
+ */
+export type RelayPostResult<T> = { status: number; body: T; relayTooOld?: RelayTooOld; unsupported?: boolean };
 
 type Timer = ReturnType<typeof setTimeout>;
 
@@ -102,6 +110,8 @@ export class RelayLink {
   pairs: ReadonlySet<string> | null = null;
   /** Controls and frames dropped as unreadable since construction. */
   dropped = 0;
+  /** What the relay announced in its last `challenge`; null before one, and from a relay that announces none. */
+  relayVersion: string | null = null;
   private readonly online = new Set<string>();
   private ws: SocketLike | null = null;
   private stopped = true;
@@ -113,7 +123,7 @@ export class RelayLink {
   private token: string | null = null;
   /** Starts as `opts.expectPaired`; turns true on `paired` from the anchor, so every later connect asks the relay to confirm the pair. */
   private expectPaired: boolean;
-  private readonly anchor: string;
+  private anchor: string;
   private readonly listeners = new Set<(event: RelayLinkEvent) => void>();
   private readonly opts: RelayLinkOptions;
 
@@ -175,6 +185,16 @@ export class RelayLink {
     });
   }
 
+  /**
+   * A new anchor (`RelayLinkOptions.anchor`, null: this device's own id) and
+   * whether this device holds a pair with it, for the next connect; the
+   * socket up now keeps its own.
+   */
+  setAnchor(anchor: string | null, expectPaired: boolean): void {
+    this.anchor = anchor ?? this.id;
+    this.expectPaired = anchor !== null && expectPaired;
+  }
+
   /** The socket looks open but a channel on it heard nothing: drop it and connect again, with the usual backoff. */
   reconnect(): void {
     this.lose(this.ws);
@@ -228,7 +248,9 @@ export class RelayLink {
       }
       return { status: res.status, body };
     } catch {
-      return { status: 0, body: { error: 'network' } as T };
+      // The socket says the relay is there: an old relay refused the web view, not the network.
+      const unsupported = this.status === 'online' && relayBeforePhoneGroups(this.relayVersion);
+      return { status: 0, body: { error: 'network' } as T, ...(unsupported ? { unsupported } : {}) };
     }
   }
 
@@ -311,6 +333,7 @@ export class RelayLink {
     }
     switch (msg.type) {
       case 'challenge': {
+        this.relayVersion = msg.version?.trim() || null;
         // An auth would only open a link the relay may not be able to carry.
         const tooOld = relayTooOld(msg.version);
         if (tooOld) {
