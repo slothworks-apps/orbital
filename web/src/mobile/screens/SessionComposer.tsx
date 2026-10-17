@@ -11,7 +11,8 @@ import {
   reopenHint,
 } from '../composer'
 import { pickPhoto, type PhotoSource } from '../platform/photo'
-import { isMacAsleep, useMobile } from '../state'
+import { useMobile } from '../state'
+import { useSessionAsleep, useSessionDeviceName, useSessionReady } from '../useDevice'
 
 /** The error line's word when the camera permission was refused (spec § 6.2). */
 const CAMERA_DENIED = "Orbital can't use the camera — allow it in Android settings."
@@ -26,8 +27,9 @@ const CAMERA_DENIED = "Orbital can't use the camera — allow it in Android sett
  */
 export function SessionComposer({ id }: { id: string }) {
   const session = useOrbital((s) => s.sessions[id])
-  const offline = useMobile(isMacAsleep)
-  const macName = useMobile((s) => s.macName)
+  // Its own device asleep; the others' sessions take answers as usual (canvas 50j).
+  const offline = useSessionAsleep(id)
+  const macName = useSessionDeviceName(id)
   const mode = footerMode({ offline, macName, readOnly: session ? isReadOnly(session) : true })
 
   if (mode.kind === 'asleep') {
@@ -74,8 +76,8 @@ function LiveComposer({ id }: { id: string }) {
   const pending = useOrbital((s) => s.pendingDecisions[id])
   const answers = useOrbital((s) => (pending?.kind === 'question' ? s.decisionAnswers[pending.id] : undefined))
   const limitWait = useOrbital((s) => s.sessions[id]?.limitWait ?? null)
-  const ready = useMobile((s) => s.ready)
-  const macName = useMobile((s) => s.macName)
+  const ready = useSessionReady(id)
+  const macName = useSessionDeviceName(id)
   // A gate's Reopen, asked from the card (canvas 10b, third phone).
   const intent = useMobile((s) => (s.composerIntent?.sessionId === id ? s.composerIntent : null))
   const clearComposerIntent = useMobile((s) => s.clearComposerIntent)

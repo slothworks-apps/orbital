@@ -553,13 +553,16 @@ export function deviceOptions(members: GroupMember[] | undefined, now: number): 
  * The device New session opens on (canvas 50g: "Defaults to the device of
  * the last session you launched"): the selected planet's device when the
  * dialog opens from one (its directory comes along), else the remembered
- * one — each only while it can take a session; this device otherwise.
+ * one — each only while it can take a session; else the first that can —
+ * this device on a desktop, whose option leads and is never inert; the
+ * first awake one on the phone, which lists no option of its own (canvas
+ * 50j). `LOCAL_DEVICE` when none can.
  */
 export function openingDevice(options: DeviceOption[], remembered: string | null, planet?: string): string {
   for (const id of [planet, remembered]) {
     if (id && options.some((o) => o.id === id && !o.inert)) return id
   }
-  return LOCAL_DEVICE
+  return options.find((o) => !o.inert)?.id ?? LOCAL_DEVICE
 }
 
 /** A step of the folder chooser's breadcrumbs (canvas 50g `gCrumbs`). */

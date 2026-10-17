@@ -20,7 +20,7 @@ import { treesCompactText, treesCountText, type WhereForm } from '../../lib/wher
 
 /** 2h: the tag dot before the project, and the gap after it. */
 const DOT_PX = 6
-const GAP_PX = 6
+export const GAP_PX = 6
 /** 2h: the tree mark a worktree session draws instead of ⎇, and its gap to the branch. */
 export const TREE_MARK_PX = 13
 export const MARK_GAP_PX = 5

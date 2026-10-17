@@ -371,8 +371,12 @@ export const api = {
    * from (spec 2026-10-02-mobile-app-design § 6.4) — one narrow route, so the
    * phone never needs the whole settings surface.
    */
-  async sessionDefaults(): Promise<SessionDefaults> {
-    return request<SessionDefaults>('GET', '/api/sessions/defaults')
+  /** `machine`: that member's defaults (the phone's New session on a chosen device); its Claude directory ids are its own. */
+  async sessionDefaults(machine?: string): Promise<SessionDefaults> {
+    return request<SessionDefaults>(
+      'GET',
+      machine === undefined ? '/api/sessions/defaults' : `/api/sessions/defaults?${new URLSearchParams({ machine })}`,
+    )
   },
 
   async createSession(body: {

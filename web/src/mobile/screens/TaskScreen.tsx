@@ -6,7 +6,8 @@ import { isReadOnly, type BackgroundTask } from '../../lib/types'
 import { useNow } from '../../lib/useNow'
 import { useOrbital } from '../../store/store'
 import { PHONE_OUTPUT_LINES } from '../constants'
-import { isMacAsleep, pushedTop, useMobile } from '../state'
+import { pushedTop, useMobile } from '../state'
+import { useSessionAsOf, useSessionAsleep } from '../useDevice'
 import { INK, elapsedLabel } from '../subagents/model'
 import { StopTaskSheet, stoppedHereKey, useStoppedHere } from '../subagents/StopTaskSheet'
 import { appendedLines, followPill, taskView } from '../subagents/tasks'
@@ -36,8 +37,8 @@ function TaskView({ sessionId, taskId }: { sessionId: string; taskId: string }) 
   const stopTask = useOrbital((s) => s.stopTask)
   const stoppedHere = useStoppedHere((s) => s.keys[stoppedHereKey(sessionId, taskId)] === true)
   const markStopped = useStoppedHere((s) => s.mark)
-  const offline = useMobile(isMacAsleep)
-  const asOf = useMobile((s) => s.asOf)
+  const offline = useSessionAsleep(sessionId)
+  const asOf = useSessionAsOf(sessionId)
   const goBack = useMobile((s) => s.goBack)
   const openFile = useMobile((s) => s.openFile)
   const [confirming, setConfirming] = useState(false)

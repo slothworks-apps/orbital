@@ -105,8 +105,9 @@ export interface MobileState {
    * Set while a Retry or a foreground check is in flight, holding what
    * `isMacAsleep` answered when it began: the check rebuilds the relay link,
    * and the drop it makes on the way must not flash the offline card.
+   * `asleepIds`: the devices `deviceAsleep` called asleep then.
    */
-  rechecking: { asleep: boolean } | null
+  rechecking: { asleep: boolean; asleepIds?: string[] } | null
   /** When the Mac's session list was last read over the tunnel (9e's "N live sessions are waiting."). */
   listedAt: number | null
   /**

@@ -8,6 +8,7 @@ import type { GroupRecord } from './platform/parse'
 import { PersistQueue } from './platform/persistQueue'
 import { registerPush } from './platform/push'
 import { RETRY_WINDOW_MS } from './constants'
+import { asleepDevices } from './deviceList'
 import { isMacAsleep, useMobile, type MobileState } from './state'
 import { clientRef } from './transport/clientRef'
 import { GroupFederation } from './transport/groupFederation'
@@ -121,7 +122,7 @@ let recheckToken = 0
  */
 export async function recheckMac(windowMs: number): Promise<boolean> {
   const token = ++recheckToken
-  useMobile.setState((s) => ({ rechecking: { asleep: isMacAsleep(s) } }))
+  useMobile.setState((s) => ({ rechecking: { asleep: isMacAsleep(s), asleepIds: asleepDevices(s) } }))
   try {
     const online = await clientRef.recheck(windowMs)
     // A superseded call never writes; nor does one outlived by forgetEverything.

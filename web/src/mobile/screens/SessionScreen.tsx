@@ -44,7 +44,9 @@ import { SessionMenuButton } from '../session/SessionMenuButton'
 import { StateLine } from '../session/StateLine'
 import { usePhoneToolRow } from '../session/TranscriptChip'
 import { TranscriptTail, useTranscriptTailKey } from '../session/TranscriptTail'
-import { isMacAsleep, keepsSelection, useMobile } from '../state'
+import { keepsSelection, useMobile } from '../state'
+import { sessionReady } from '../deviceList'
+import { useSessionAsleep, useSessionReady } from '../useDevice'
 import { clientRef } from '../transport/clientRef'
 import { MobileScreen } from '../ui'
 import { WhereLine } from '../where/WhereLine'
@@ -69,8 +71,9 @@ function SessionView({ id }: { id: string }) {
   const select = useOrbital((s) => s.select)
   const loadOlder = useOrbital((s) => s.loadOlder)
   const applySessionEvent = useOrbital((s) => s.applySessionEvent)
-  const ready = useMobile((s) => s.ready)
-  const offline = useMobile(isMacAsleep)
+  const ready = useSessionReady(id)
+  // Its own device asleep: every other device's sessions work as usual (canvas 50j).
+  const offline = useSessionAsleep(id)
   const goBack = useMobile((s) => s.goBack)
   const openSubagent = useMobile((s) => s.openSubagent)
   const openTask = useMobile((s) => s.openTask)
@@ -82,7 +85,8 @@ function SessionView({ id }: { id: string }) {
   useEffect(() => {
     let live = true
     void (async () => {
-      if (!useMobile.getState().ready) {
+      const deviceId = useOrbital.getState().sessions[id]?.machine?.id ?? null
+      if (!sessionReady(useMobile.getState(), deviceId)) {
         const cached = await readTranscriptCache(id)
         if (live && cached && !useOrbital.getState().historyLoaded[id]) {
           useOrbital.setState((s) => ({

@@ -1,4 +1,6 @@
 import { ApiError } from '../lib/api'
+import { promptWithFiles } from '../lib/attachedFiles'
+import type { McpjsonDecisions } from '../lib/mcpjson'
 import { modelByAnyId } from '../lib/models'
 import { claudeDirPrefill, type ClaudeDirPrefillSource } from '../lib/claudeDirs'
 import type { OrbitalModel, PermissionMode, SessionDefaults } from '../lib/types'
@@ -120,5 +122,42 @@ export function noSuchDirectory(err: unknown): boolean {
     return typeof body === 'object' && body !== null && (body as { error?: unknown }).error === 'no_such_directory'
   } catch {
     return false
+  }
+}
+
+/** What Start sends (`launchSession`'s body), from what the form holds. */
+export interface LaunchInput {
+  cwd: string
+  prompt: string
+  /** Paths of the attached files that landed, which the prompt names. */
+  files: string[]
+  mode: PermissionMode
+  model: string | null
+  /** Only when the choice was offered; the device remembers it for the next prefill. */
+  claudeDirId: number | null
+  /** Refs of the attached images that landed. */
+  refs: string[]
+  mcpjson?: McpjsonDecisions
+  /** The device chosen in DEVICE (canvas 50j); null before any device is known, which leaves it to the default. */
+  machine: string | null
+}
+
+/**
+ * The body of `POST /api/sessions` from the phone: the directory checked
+ * first (`requireDirectory`), and `machine` naming the device it runs on —
+ * the federation routes by it and strips it before the device sees it, so a
+ * device from before groups gets the body it always did.
+ */
+export function launchRequest(input: LaunchInput) {
+  return {
+    cwd: input.cwd.trim(),
+    prompt: promptWithFiles(input.prompt, input.files),
+    permissionMode: input.mode,
+    model: input.model ?? undefined,
+    requireDirectory: true,
+    ...(input.claudeDirId !== null ? { claudeDirId: input.claudeDirId } : {}),
+    ...(input.refs.length > 0 ? { attachments: input.refs } : {}),
+    ...(input.mcpjson ? { mcpjson: input.mcpjson } : {}),
+    ...(input.machine !== null ? { machine: input.machine } : {}),
   }
 }

@@ -6,6 +6,9 @@ import { isReadOnly, tagColor, type ApiSession, type Tag } from '../../lib/types
 import { useNow } from '../../lib/useNow'
 import { ClaudeDirMark, useClaudeDirMark } from '../../ui/ClaudeDirMark'
 import { useOrbital } from '../../store/store'
+import { KindGlyph } from '../../ui/KindGlyph'
+import { devicesOn, namesShown, showDeviceRow, toggleDevice } from '../../lib/devices'
+import { asleepCards, onDevices, phoneChips, useDeviceFilter, type AsleepCard, type PhoneChip } from '../deviceList'
 import { recheckMac } from '../connect'
 import { CLOCK_TICK_MS, RETRY_WINDOW_MS } from '../constants'
 import { agoLabel, asOfLabel, basename, checkedLabel } from '../format'
@@ -28,9 +31,14 @@ export function SessionListScreen() {
     useShallow((s) => s.order.map((id) => s.sessions[id]).filter((x): x is ApiSession => x !== undefined)),
   )
   const tags = useOrbital((s) => s.tags)
-  const { offline, link, macName, asOf, checkedAt } = useMobile(
-    useShallow((s) => ({ offline: isMacAsleep(s), link: s.link, macName: s.macName, asOf: s.asOf, checkedAt: s.checkedAt })),
+  const { offline, link, macName, asOf, checkedAt, devices, rechecking } = useMobile(
+    useShallow((s) => ({
+      offline: isMacAsleep(s), link: s.link, macName: s.macName, asOf: s.asOf, checkedAt: s.checkedAt,
+      devices: s.devices, rechecking: s.rechecking,
+    })),
   )
+  const hiddenDevices = useDeviceFilter((s) => s.hidden)
+  const setHiddenDevices = useDeviceFilter((s) => s.setHidden)
   const openSession = useMobile((s) => s.openSession)
   const openSubagent = useMobile((s) => s.openSubagent)
   const openTask = useMobile((s) => s.openTask)
@@ -46,13 +54,26 @@ export function SessionListScreen() {
   const endedFold = useMobile(useShallow((s) => ({ summary: s.endedSummary, loaded: s.endedLoaded })))
 
   const mac = macName ?? 'Your Mac'
-  const held = useMemo(() => groupSessions(sessions, tagIds), [sessions, tagIds])
+  // Canvas 50j: a chip per device that hosts sessions, once there are two;
+  // with one, the list is 9a's, the Mac named in the header.
+  const deviceChips = useMemo(() => phoneChips({ link, rechecking, devices }, sessions), [link, rechecking, devices, sessions])
+  const several = showDeviceRow(deviceChips)
+  const on = useMemo(() => devicesOn(deviceChips, hiddenDevices), [deviceChips, hiddenDevices])
+  const withNames = namesShown(deviceChips, hiddenDevices)
+  const shown = useMemo(() => (several ? onDevices(sessions, deviceChips, on) : sessions), [several, sessions, deviceChips, on])
+  const asleepIds = useMemo(() => new Set(deviceChips.filter((c) => c.offline).map((c) => c.id)), [deviceChips])
+  const cards = several ? asleepCards({ link, rechecking, devices }, deviceChips, on, now) : []
+  /** In a group, a session's device asleep: its row dimmed and still, dated by when the device last sent. */
+  const rowAsleep = (s: ApiSession) => several && s.machine !== undefined && asleepIds.has(s.machine.id)
+  // In a group every row keeps its own device's state, even with every device asleep (canvas 50j).
+  const listOffline = offline && !several
+  const held = useMemo(() => groupSessions(shown, tagIds), [shown, tagIds])
   const heading = endedHeading(held.find((g) => g.key === 'ended')?.sessions ?? [], endedFold, countedBySummary, tagIds.length > 0)
   // The fold is drawn from the Mac's count even before a single ended row is held.
   const groups = heading && !held.some((g) => g.key === 'ended') ? [...held, { key: 'ended' as const, sessions: [] }] : held
-  const chips = useMemo(() => tagChips(sessions, tags), [sessions, tags])
+  const chips = useMemo(() => tagChips(shown, tags), [shown, tags])
   const tagById = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags])
-  const liveCount = useMemo(() => sessions.filter((s) => s.status !== 'ended').length, [sessions])
+  const liveCount = useMemo(() => shown.filter((s) => s.status !== 'ended').length, [shown])
 
   // One bounded presence check, never a loop (spec § 5, RETRY_WINDOW_MS).
   const retry = async () => {
@@ -66,17 +87,36 @@ export function SessionListScreen() {
       <div className="flex h-13 items-center gap-2.5 pl-5 pr-2">
         <OrbitalMark />
         <span className="text-[13px] font-bold tracking-[0.22em]">ORBITAL</span>
+        {/* Canvas 50j: in a group the header names no one Mac; the chips say who is up. */}
         <span className="flex h-11 min-w-0 flex-1 items-center justify-end gap-[7px] px-2.5 font-mono text-[11.5px] text-[rgba(220,235,255,.85)]">
-          <MacDot state={offline ? 'asleep' : link === 'online' ? 'online' : 'connecting'} />
-          <span className={['truncate', offline ? 'text-[rgba(200,215,235,.65)]' : ''].join(' ')}>{mac}</span>
+          {!several && (
+            <>
+              <MacDot state={offline ? 'asleep' : link === 'online' ? 'online' : 'connecting'} />
+              <span className={['truncate', offline ? 'text-[rgba(200,215,235,.65)]' : ''].join(' ')}>{mac}</span>
+            </>
+          )}
         </span>
         <button type="button" aria-label="Settings" onClick={() => go('settings')} className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px]">
           <span aria-hidden className="block h-4 w-4 rounded-full border-[1.5px] border-dashed border-[oklch(85%_.12_205)]" />
         </button>
       </div>
 
+      {several && (
+        // Canvas 50j CHIP ROW PER DEVICE: above the tag chips; the last chip on stays on.
+        <div className={['flex gap-2 overflow-x-auto px-4 pt-1 [scrollbar-width:none]', chips.length > 0 ? '' : 'pb-2.5'].join(' ')}>
+          {deviceChips.map((chip) => (
+            <DeviceChipButton
+              key={chip.id}
+              chip={chip}
+              on={on.includes(chip.id)}
+              onClick={() => setHiddenDevices(toggleDevice(hiddenDevices, chip.id, deviceChips))}
+            />
+          ))}
+        </div>
+      )}
+
       {chips.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto px-4 pb-2.5 pt-1">
+        <div className={['flex gap-2 overflow-x-auto px-4 pb-2.5', several ? 'pt-2' : 'pt-1'].join(' ')}>
           <Chip active={tagIds.length === 0} onClick={() => setTagIds([])} label="All" count={liveCount} />
           {chips.map(({ tag, live }) => (
             <Chip
@@ -92,7 +132,7 @@ export function SessionListScreen() {
         </div>
       )}
 
-      {offline && (
+      {offline && !several && (
         <section className="mx-3 mb-2.5 mt-0.5 flex items-start gap-3 rounded-[16px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.82)] py-3 pl-4 pr-3">
           <span aria-hidden className="mt-1 block h-3 w-3 shrink-0 rounded-full border-[1.5px] border-[rgba(200,215,235,.6)]" />
           <span className="flex min-w-0 flex-1 flex-col gap-1">
@@ -129,7 +169,7 @@ export function SessionListScreen() {
           aria-disabled="true"
           className="flex h-13 items-center justify-center rounded-[14px] border border-[rgba(150,205,255,.14)] px-4 text-center text-[14px] font-semibold text-[rgba(160,190,225,.6)]"
         >
-          New session · needs {mac} awake
+          {several ? 'New session · needs a device awake' : `New session · needs ${mac} awake`}
         </div>
       ) : (
         <PrimaryButton onClick={() => go('new')}>
@@ -145,6 +185,9 @@ export function SessionListScreen() {
   return (
     <MobileScreen header={header} footer={footer} divider={false} glow>
       <div className="pb-3">
+        {cards.map((card) => (
+          <AsleepDeviceCard key={card.id} card={card} checking={checking} onRetry={() => void retry()} />
+        ))}
         {groups.map((group) => {
           if (group.key === 'ended') {
             const latest = heading?.latest ?? null
@@ -192,8 +235,10 @@ export function SessionListScreen() {
               session={s}
               tag={tagById.get(s.tagIds[0])}
               group={group.key}
-              offline={offline}
-              mac={mac}
+              offline={listOffline}
+              asleep={rowAsleep(s)}
+              device={withNames ? s.machine?.name : undefined}
+              mac={s.machine?.name || mac}
               now={now}
               onOpen={openSession}
               onOpenSubagent={openSubagent}
@@ -203,7 +248,7 @@ export function SessionListScreen() {
           const label = (
             <>
               {GROUP_LABEL[group.key]} · {group.sessions.length}
-              {offline && <span className="tracking-[0.06em] text-[rgba(160,190,225,.45)]"> · last known</span>}
+              {listOffline && <span className="tracking-[0.06em] text-[rgba(160,190,225,.45)]"> · last known</span>}
             </>
           )
           if (group.key === 'input') {
@@ -212,17 +257,17 @@ export function SessionListScreen() {
                 key="input"
                 className={[
                   'mx-3 mb-1.5 overflow-hidden rounded-[18px] border',
-                  offline
+                  listOffline
                     ? 'border-[rgba(255,187,123,.28)] bg-[rgba(255,187,123,.04)]'
                     : 'border-[rgba(255,187,123,.42)] bg-[linear-gradient(180deg,rgba(255,187,123,.09),rgba(255,187,123,.02))] shadow-[0_0_30px_rgba(255,187,123,.06)]',
                 ].join(' ')}
               >
                 <div className="flex items-center gap-2 px-4 pb-0.5 pt-3 font-mono text-[10.5px] tracking-[0.16em] text-[var(--state-input)]">
-                  <span aria-hidden className={['block h-1.5 w-1.5 rounded-full bg-[var(--state-input)]', offline ? '' : 'orbital-breathe'].join(' ')} />
+                  <span aria-hidden className={['block h-1.5 w-1.5 rounded-full bg-[var(--state-input)]', listOffline ? '' : 'orbital-breathe'].join(' ')} />
                   {label}
                 </div>
                 {rows}
-                {offline && (
+                {listOffline && (
                   <p className="pb-3 pl-[70px] pr-4 text-[12px] leading-[1.4] text-[rgba(160,190,225,.6)]">
                     Readable, gates and cards included; answering waits for the Mac.
                   </p>
@@ -344,6 +389,54 @@ function Chip({
   )
 }
 
+/**
+ * A device's chip (canvas 50j `jChips`): glyph, name, `update` for an
+ * Orbital too old for this app, and how many sessions it holds; half
+ * opacity while the device is asleep.
+ */
+function DeviceChipButton({ chip, on, onClick }: { chip: PhoneChip; on: boolean; onClick: () => void }) {
+  const state = chip.update ? 'update' : chip.offline ? 'asleep' : 'online'
+  return (
+    <button
+      type="button"
+      aria-pressed={on}
+      title={`${chip.name} · ${chip.kind} · ${state}`}
+      onClick={onClick}
+      className={[
+        'flex h-9 shrink-0 items-center gap-[7px] rounded-full border px-3 text-[13px] font-semibold',
+        on ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright' : 'border-[rgba(150,205,255,.14)] text-[rgba(160,190,225,.6)]',
+        chip.offline ? 'opacity-50' : '',
+      ].join(' ')}
+    >
+      <KindGlyph kind={chip.kind} untitled />
+      <span>{chip.label}</span>
+      {chip.update && <span className="font-mono text-[10px] font-normal text-[rgba(160,190,225,.75)]">update</span>}
+      <span className="font-mono text-[10.5px] font-normal text-[rgba(160,190,225,.6)]">{chip.count}</span>
+    </button>
+  )
+}
+
+/** One asleep device in a group (canvas 50j ASLEEP, PER DEVICE): its rows stay below, dimmed. */
+function AsleepDeviceCard({ card, checking, onRetry }: { card: AsleepCard; checking: boolean; onRetry: () => void }) {
+  return (
+    <section className="mx-3 mb-2 flex items-center gap-3 rounded-[14px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.82)] py-1.5 pl-4 pr-1.5">
+      <span aria-hidden className="box-border block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-[rgba(200,215,235,.6)]" />
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate text-[13.5px] font-semibold">{card.name} is asleep</span>
+        <span className="truncate font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{card.line}</span>
+      </span>
+      <button
+        type="button"
+        disabled={checking}
+        onClick={onRetry}
+        className="grid h-11 shrink-0 place-items-center rounded-[12px] border border-[rgba(150,205,255,.2)] px-3.5 text-[13px] font-semibold text-text-bright disabled:opacity-40"
+      >
+        Retry
+      </button>
+    </section>
+  )
+}
+
 /** Canvas 10a's pin mark after a title: a ring on a stem. */
 function PinMark({ ink, dim = false }: { ink: string; dim?: boolean }) {
   return (
@@ -363,6 +456,8 @@ function SessionRow({
   tag,
   group,
   offline,
+  asleep,
+  device,
   mac,
   now,
   onOpen,
@@ -372,7 +467,16 @@ function SessionRow({
   session: ApiSession
   tag: Tag | undefined
   group: GroupKey
+  /** Every device asleep: 9a's asleep list. */
   offline: boolean
+  /**
+   * In a group, this session's device asleep while others are not (canvas
+   * 50j): the row as it was, dimmed and still, its time an `as of`.
+   */
+  asleep: boolean
+  /** The device leading the second line, while two or more chips are on. */
+  device: string | undefined
+  /** The device the session runs on, as the limit line names it. */
   mac: string
   now: number
   onOpen: (id: string) => void
@@ -383,12 +487,16 @@ function SessionRow({
   const input = group === 'input'
   const reason = input ? inputReason(session) : null
   const dirMark = useClaudeDirMark(session.claudeDirId)
-  const waitLine = group === 'limit' ? limitLine(session, offline, mac, now) : null
+  const waitLine = group === 'limit' ? limitLine(session, offline || asleep, mac, now) : null
   const idle = group === 'idle'
   // A gate carries no elapsed time (10a); asleep, NEEDS INPUT shows none either (9a). The limit
   // row shows its last activity like every other row (spec § 8, Decision 9).
+  // Its device asleep in a group: when it last sent, as 50j dates it (`as of 2h`).
+  const asOf = asleep ? (session.machine?.asOf ?? null) : null
   const time =
-    session.lastAt === null || (input && (offline || isGateRow(session)))
+    asOf !== null
+      ? `as of ${timeAgo(asOf, now)}`
+      : session.lastAt === null || (input && (offline || isGateRow(session)))
       ? null
       : idle
         ? agoLabel(session.lastAt, now)
@@ -404,7 +512,7 @@ function SessionRow({
   // Expanded, the row lists what runs; the finished ones live behind the session's header chip.
   const tasks = tasksForRow(session.backgroundTasks).filter((task) => task.state === 'running')
   return (
-    <div className={input ? '' : 'mx-3 border-b border-[rgba(150,205,255,.06)]'}>
+    <div className={[input ? '' : 'mx-3 border-b border-[rgba(150,205,255,.06)]', asleep ? 'opacity-[.55]' : ''].join(' ')}>
       <button
         type="button"
         onClick={() => onOpen(session.id)}
@@ -420,7 +528,7 @@ function SessionRow({
                 : 'min-h-15 p-2',
         ].join(' ')}
       >
-        <PlanetGlyph session={session} offline={offline} />
+        <PlanetGlyph session={session} offline={offline || asleep} />
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex min-w-0 items-center gap-[7px]">
             <span
@@ -451,10 +559,10 @@ function SessionRow({
             (dirMark ? (
               <span className="flex min-w-0 items-center gap-1.5">
                 <ClaudeDirMark mono={dirMark.mono} size="phone" />
-                <WhereLine session={session} dotColor={moonColor} variant="list" dim={offline} />
+                <WhereLine session={session} dotColor={moonColor} variant="list" dim={offline} device={device} />
               </span>
             ) : (
-              <WhereLine session={session} dotColor={moonColor} variant="list" dim={offline} />
+              <WhereLine session={session} dotColor={moonColor} variant="list" dim={offline} device={device} />
             ))}
           {asleepCounts !== null && <span className="font-mono text-[11px] text-[rgba(160,190,225,.6)]">{asleepCounts}</span>}
           {reason && (
@@ -479,7 +587,7 @@ function SessionRow({
           </span>
         )}
       </button>
-      {hasMoons && !offline && (
+      {hasMoons && !offline && !asleep && (
         <>
           {/* Canvas 10a: the collapsed summary, tasks after a ·. */}
           <button
