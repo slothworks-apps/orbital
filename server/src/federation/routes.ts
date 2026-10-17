@@ -121,12 +121,17 @@ export function registerFederationRoutes(
     if (spawned !== null) federation.expect(link, spawned);
     const tagIds = isObject(body) ? body.tagIds : undefined;
     // A read of a member's session is kept, and answered from what was kept while the member is offline.
-    const res: ReadResponse = req.method === 'PUT' && sessionId && TAGS_PATH.test(path) && Array.isArray(tagIds)
-      ? await federation.setTags(link, sessionId, tagIds.filter((id): id is number => typeof id === 'number'))
-      : req.method === 'GET' && sessionId
-        ? await federation.read(link, sessionId, url)
-        : await federation.request(link, req.method as HttpMethod, url, body);
-    if (spawned !== null && res.status >= 300) federation.unexpect(link, spawned);
+    let res: ReadResponse | null = null;
+    try {
+      res = req.method === 'PUT' && sessionId && TAGS_PATH.test(path) && Array.isArray(tagIds)
+        ? await federation.setTags(link, sessionId, tagIds.filter((id): id is number => typeof id === 'number'))
+        : req.method === 'GET' && sessionId
+          ? await federation.read(link, sessionId, url)
+          : await federation.request(link, req.method as HttpMethod, url, body);
+    } finally {
+      // A spawn that failed, by answer or by a throw, leaves no id expected of the member.
+      if (spawned !== null && (res === null || res.status >= 300)) federation.unexpect(link, spawned);
+    }
     if (res.asOf !== undefined) reply.header(AS_OF_HEADER, String(res.asOf));
     unmerged.add(req);
     // A member's list, as this device shows its sessions.

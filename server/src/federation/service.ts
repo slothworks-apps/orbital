@@ -63,6 +63,8 @@ export type FederationOptions = {
   remote: Pick<RemoteService, 'onChannel' | 'onStatus' | 'peerHello' | 'liveMembers' | 'channel'> & { selfId(): string | null };
   /** This server's tags: a member's tags are matched to them by name. */
   localTags: () => Tag[];
+  /** Whether `id` is a session of this device: such an id is never expected of a member. */
+  localSession?: (id: string) => boolean;
   /** Where each member's last sessions are kept across restarts; absent, they are not. */
   snapshots?: Pick<MemberSnapshotStore, 'load' | 'save' | 'remove'>;
   /** Where reads of a member's sessions are kept for while it is offline; a default-sized one when absent. */
@@ -154,7 +156,8 @@ export class FederationService {
    * spawn's first frames would otherwise be gone before its list names it.
    */
   expect(link: MemberLink, sessionId: string): void {
-    if (this.linkOf(sessionId) !== null) return;
+    // This device's own session must not be taken for the member's: its topics would go there.
+    if (this.linkOf(sessionId) !== null || this.opts.localSession?.(sessionId)) return;
     this.expected.set(sessionId, link.id);
     this.followSession(link, sessionId);
   }

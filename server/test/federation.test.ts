@@ -358,6 +358,21 @@ describe('FederationService', () => {
     expect(waiting.frames()).toEqual([]);
   });
 
+  it('an id of this device\'s own session is never expected of a member', async () => {
+    const { hub, remote, federation } = setup(undefined, { localSession: (id) => id === 'mine' });
+    const b = memberB();
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    const win = localSocket(hub, ['session:mine']);
+    federation.expect(federation.link(B)!, 'mine');
+    expect(federation.linkOf('mine')).toBeNull();
+    expect(b.subs.has('session:mine')).toBe(false);
+    // B's word about it is not taken in as this device's.
+    b.hub({ topic: 'session:mine', event: 'status', status: 'working' });
+    expect(win.frames()).toEqual([]);
+  });
+
   it('an image is asked of every member that is up at once; the first that holds it answers', async () => {
     const C = 'member-c';
     const { remote, federation } = setup([entry(SELF), entry(B), entry(C)]);

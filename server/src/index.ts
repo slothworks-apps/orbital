@@ -1451,6 +1451,7 @@ export async function buildServer(overrides: {
   // Every other member's sessions in this hub (spec 2026-10-16-device-group-design § 7).
   const federation: FederationService = new FederationService({
     hub, remote, localTags: () => db.select().from(tagsTable).all(), snapshots: new MemberSnapshotStore(db),
+    localSession: (id) => db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get() !== undefined,
   });
   overrides.exposeFederation?.(federation);
   overrides.exposeHub?.(hub);
