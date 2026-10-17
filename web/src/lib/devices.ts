@@ -433,3 +433,96 @@ export function sessionOfUrl(url: string | undefined): string | null {
   if (inPath) return decodeURIComponent(inPath[1])
   return new URLSearchParams(query).get('session')
 }
+
+/** One row of New session's DEVICE field (canvas 50g, logic.js `opts`). */
+export interface DeviceOption {
+  /** `LOCAL_DEVICE` for this device, a member's id otherwise. */
+  id: string
+  /** `This device`, or the member's name. */
+  label: string
+  /** The member's own name; this device's name for `LOCAL_DEVICE`. */
+  name: string
+  kind: string
+  /** `<own name> · desktop · macOS` for this device, `headless · Linux` for one that can host, else the reason it cannot. */
+  sub: string
+  /** Listed but inert: offline, too old, still linking, or not linked. */
+  inert: boolean
+}
+
+/**
+ * The devices a new session can be started on (canvas 50g DEVICE FIRST):
+ * this device first, then every other member in roster order but phones
+ * (`PHONES DRIVE SESSIONS · THEY DON'T RUN THEM`). Only an online member
+ * whose Orbital federates can take one; the rest are listed, inert, with
+ * the reason as their sub-line (`memberStateWords`).
+ */
+export function deviceOptions(members: GroupMember[] | undefined, now: number): DeviceOption[] {
+  const list = members ?? []
+  const self = list.find((m) => m.self)
+  const selfKindOs = kindOs(self?.kind ?? 'desktop', self?.os ?? '')
+  const options: DeviceOption[] = [{
+    id: LOCAL_DEVICE, label: 'This device', name: self?.name ?? '', kind: self?.kind ?? 'desktop',
+    sub: self?.name ? `${self.name} · ${selfKindOs}` : selfKindOs,
+    inert: false,
+  }]
+  for (const m of list) {
+    if (m.self || m.kind === 'phone') continue
+    const inert = m.tooOld || m.state !== 'online'
+    options.push({
+      id: m.id, label: m.name, name: m.name, kind: m.kind,
+      sub: inert ? memberStateWords(m, now) : kindOs(m.kind, m.os),
+      inert,
+    })
+  }
+  return options
+}
+
+/**
+ * The device New session opens on (canvas 50g: "Defaults to the device of
+ * the last session you launched"): the selected planet's device when the
+ * dialog opens from one (its directory comes along), else the remembered
+ * one — each only while it can take a session; this device otherwise.
+ */
+export function openingDevice(options: DeviceOption[], remembered: string | null, planet?: string): string {
+  for (const id of [planet, remembered]) {
+    if (id && options.some((o) => o.id === id && !o.inert)) return id
+  }
+  return LOCAL_DEVICE
+}
+
+/** A step of the folder chooser's breadcrumbs (canvas 50g `gCrumbs`). */
+export interface Crumb {
+  label: string
+  path: string
+}
+
+/**
+ * The breadcrumbs of a path, root first: `/home/me` → `/`, `home`, `me`,
+ * each carrying the path it goes up to. Repeated and trailing slashes read
+ * as one. A path that is not absolute starts at its first segment.
+ */
+export function crumbsOf(path: string): Crumb[] {
+  const absolute = path.startsWith('/')
+  const segments = path.split('/').filter(Boolean)
+  const crumbs: Crumb[] = absolute ? [{ label: '/', path: '/' }] : []
+  segments.forEach((segment, i) => {
+    const joined = segments.slice(0, i + 1).join('/')
+    crumbs.push({ label: segment, path: absolute ? `/${joined}` : joined })
+  })
+  return crumbs
+}
+
+/** A folder inside `parent`, as the chooser walks into it. */
+export function childPath(parent: string, name: string): string {
+  return parent.endsWith('/') ? `${parent}${name}` : `${parent}/${name}`
+}
+
+/**
+ * How long ago a recent project was used, as the chooser's left column
+ * spells it (canvas 50g: `2 h`, `3 d`): `timeAgo` with a space before its
+ * unit; nothing when the project has no date.
+ */
+export function recentAge(lastAt: number | null, now: number): string {
+  if (lastAt === null) return ''
+  return timeAgo(lastAt, now).replace(/^(\d+)([mhd])$/, '$1 $2')
+}

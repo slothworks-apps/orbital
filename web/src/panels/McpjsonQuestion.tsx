@@ -15,12 +15,16 @@ import {
  * header, the footer and the launch; these are the intro and the rows.
  */
 
-/** 47a/47b: the line under the header, naming `.mcp.json` in mono. */
-export function McpjsonIntro({ count }: { count: number }) {
+/**
+ * 47a/47b: the line under the header, naming `.mcp.json` in mono. `where`
+ * is the device the programs would run on: another device's name when the
+ * session is launched there (canvas 50g).
+ */
+export function McpjsonIntro({ count, where = 'this Mac' }: { count: number; where?: string }) {
   return (
     <p className="text-[13px] leading-[1.55] text-pretty text-[rgba(200,214,235,.88)]">
       Its <span className="font-mono text-[12px] text-[#dfeeff]">.mcp.json</span>
-      {questionIntro(count, 'this Mac')}
+      {questionIntro(count, where)}
     </p>
   )
 }

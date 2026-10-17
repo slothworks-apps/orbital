@@ -4,6 +4,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?:
     | 'primary'
     | 'primary-flat'
+    | 'primary-plain'
     | 'ghost'
     | 'danger'
     | 'warning'
@@ -26,7 +27,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'hairline'
     | 'outline'
     | 'ink'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'check' | 'member' | 'beside-field' | 'over-code'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'check' | 'member' | 'beside-field' | 'over-code' | 'chooser'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -42,6 +43,8 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   primary: 'bg-accent text-space-deep font-bold shadow-[0_0_24px_rgba(89,228,243,.4)] hover:bg-text-soft',
   // Canvas 50a's Show code / New code over the QR: the primary's fill and ink, flat — no bloom, 600 weight.
   'primary-flat': 'bg-accent text-space-deep font-semibold hover:bg-text-soft',
+  // Canvas 50g's Choose this folder: the primary's fill, ink and 700 weight, with no bloom.
+  'primary-plain': 'bg-accent text-space-deep font-bold hover:bg-text-soft',
   warning: 'bg-warning text-[#1a1000] font-bold shadow-[0_0_24px_rgba(255,187,123,.4)] hover:brightness-110',
   ghost: 'bg-transparent text-text-soft font-semibold border border-[rgba(150,205,255,.18)] hover:bg-white/5',
   'accent-outline': 'bg-transparent text-accent font-semibold border border-accent/45 hover:bg-accent/10',
@@ -137,6 +140,9 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   'beside-field': 'h-[31px] px-3 text-xs',
   // Canvas 50a's Show code / New code over the QR: 30px tall, 12px sides, 12px.
   'over-code': 'h-[30px] px-3 text-xs',
+  // Canvas 50g's folder chooser footer (Cancel, Choose this folder): 7px/14px
+  // at 12.5px. 50g gives the hairlined Cancel 13px sides; one size is kept for both.
+  chooser: 'px-3.5 py-[7px] text-[12.5px]',
 }
 
 export function Button({

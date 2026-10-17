@@ -225,7 +225,7 @@ describe('NewSessionDialog', () => {
     fireEvent.click(await screen.findByRole('button', { name: /create and launch/i }))
 
     await waitFor(() => expect(api.createSession).toHaveBeenCalled())
-    expect(api.createDirectory).toHaveBeenCalledWith('/home/tomin/new')
+    expect(api.createDirectory).toHaveBeenCalledWith('/home/tomin/new', undefined)
     expect(vi.mocked(api.createDirectory).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(api.createSession).mock.invocationCallOrder[0],
     )

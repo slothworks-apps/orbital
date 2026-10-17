@@ -10,19 +10,21 @@ export const DIRECTORY_CHECK_DEBOUNCE_MS = 350
  * `null` until the server has answered for the path as it reads now: an
  * answer for an earlier spelling is dropped rather than shown against a field
  * that has moved on. A failed ask is `null` too — the line is a courtesy, and
- * Start asks again anyway.
+ * Start asks again anyway. `machine` asks another device of the group
+ * about its own folders (canvas 50g); an answer for another device is
+ * dropped the same way.
  */
-export function useDirectoryState(path: string, enabled = true): DirectoryState | null {
+export function useDirectoryState(path: string, enabled = true, machine?: string): DirectoryState | null {
   const typed = path.trim()
-  const [answer, setAnswer] = useState<{ path: string; state: DirectoryState } | null>(null)
+  const [answer, setAnswer] = useState<{ path: string; machine?: string; state: DirectoryState } | null>(null)
   useEffect(() => {
     if (!enabled || !typed) return
     let current = true
     const timer = setTimeout(() => {
       api
-        .directoryState(typed)
+        .directoryState(typed, machine)
         .then(({ state }) => {
-          if (current) setAnswer({ path: typed, state })
+          if (current) setAnswer({ path: typed, machine, state })
         })
         .catch(() => {})
     }, DIRECTORY_CHECK_DEBOUNCE_MS)
@@ -30,8 +32,8 @@ export function useDirectoryState(path: string, enabled = true): DirectoryState 
       current = false
       clearTimeout(timer)
     }
-  }, [typed, enabled])
-  return enabled && answer?.path === typed ? answer.state : null
+  }, [typed, enabled, machine])
+  return enabled && answer?.path === typed && answer.machine === machine ? answer.state : null
 }
 
 /** The line under the field for a directory that is not one yet; `null` says nothing. */

@@ -56,6 +56,15 @@ describe('launchSession', () => {
     expect(vi.mocked(api.createSession).mock.calls[0][0].sessionId).toBe(id)
   })
 
+  /** Canvas 50g: a session launched on another device names it, so the server forwards the spawn there. */
+  it('sends the chosen device with the request', async () => {
+    vi.mocked(api.createSession).mockImplementation(async (body) => body.sessionId!)
+
+    await useOrbital.getState().launchSession({ ...LAUNCH, machine: 'build-box-id' })
+
+    expect(vi.mocked(api.createSession).mock.calls[0][0]).toMatchObject({ cwd: '/w', machine: 'build-box-id' })
+  })
+
   /** The whole point. A subscribe after the response is the bug. */
   it('subscribes to the session topic before the request goes out', async () => {
     vi.mocked(api.createSession).mockImplementation(async (body) => body.sessionId!)

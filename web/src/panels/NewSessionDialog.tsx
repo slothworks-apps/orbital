@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
@@ -43,6 +43,10 @@ import {
 } from '../lib/mcpjson'
 import { McpjsonIntro, McpjsonRows } from './McpjsonQuestion'
 import { ProjectFileViewer } from './FileViewer'
+import { FolderChooser } from './FolderChooser'
+import { LOCAL_DEVICE, deviceChips, deviceOf, deviceOptions, openingDevice, showDeviceRow } from '../lib/devices'
+import { Select } from '../ui/Select'
+import { KindGlyph } from '../ui/KindGlyph'
 
 export interface NewSessionDialogProps {
   open: boolean
@@ -52,6 +56,29 @@ export interface NewSessionDialogProps {
 /** Delay before firing `previewRule` after cwd/mode settle — avoids a
  * request per keystroke while typing a path. */
 const PREVIEW_DEBOUNCE_MS = 300
+
+/**
+ * The device the last launch from this dialog went to (canvas 50g: the
+ * DEVICE field defaults to it). Kept in this browser rather than in the
+ * settings table: a device id means something only to the device reading it.
+ */
+const LAST_DEVICE_KEY = 'orbital.newSession.device'
+
+function rememberedDevice(): string | null {
+  try {
+    return globalThis.localStorage?.getItem(LAST_DEVICE_KEY) ?? null
+  } catch {
+    return null
+  }
+}
+
+function rememberDevice(id: string) {
+  try {
+    globalThis.localStorage?.setItem(LAST_DEVICE_KEY, id)
+  } catch {
+    // A lost default costs the next open its device, nothing else.
+  }
+}
 
 /**
  * What the dialog opens with: the previous launch's choices, read back from
@@ -160,6 +187,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const select = useOrbital((s) => s.select)
   const selectedSession = useOrbital((s) => (s.ui.selectedId ? (s.sessions[s.ui.selectedId] ?? null) : null))
   const launchSession = useOrbital((s) => s.launchSession)
+  const members = useOrbital((s) => s.remote?.group?.members)
 
   const [cwd, setCwd] = useState('')
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('acceptEdits')
@@ -178,7 +206,11 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const [otherActive, setOtherActive] = useState(false)
   /** A remembered custom id the field starts from, already trusted. */
   const [customInitial, setCustomInitial] = useState<string | null>(null)
-  const [projects, setProjects] = useState<Array<{ cwd: string; lastModel: string | null }>>([])
+  const [projects, setProjects] = useState<Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>>([])
+  /** Where the session runs (canvas 50g): `LOCAL_DEVICE` or a member's id. */
+  const [device, setDevice] = useState<string>(LOCAL_DEVICE)
+  /** The folder chooser of another device is open over the fields (50g). */
+  const [chooserOpen, setChooserOpen] = useState(false)
   const [pending, setPending] = useState(false)
   /**
    * The tag the dialog opened with and the directory it belongs to: the
@@ -213,7 +245,18 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const [missingDir, setMissingDir] = useState<string | null>(null)
   /** The project file a question row's *View file* opened (canvas 2d). */
   const [viewing, setViewing] = useState<{ name: string; file: string } | null>(null)
-  const choosesDir = claudeDirs.length >= 2
+  // Canvas 50g: the DEVICE field shows only once a second device can host
+  // sessions; with one device the dialog is exactly as it was.
+  const deviceRow = showDeviceRow(deviceChips(members))
+  const options = useMemo(() => deviceOptions(members, Date.now()), [members])
+  const remote = device !== LOCAL_DEVICE
+  /** The `machine` every request about the new session names; absent for this device. */
+  const machine = remote ? device : undefined
+  const deviceName = options.find((o) => o.id === device)?.name ?? device
+  const showDevice = deviceRow || remote
+  // Another device's Claude directories are its own: ids from here mean
+  // nothing there, so the choice is offered for this device only.
+  const choosesDir = claudeDirs.length >= 2 && !remote
   const claudeDirMonograms = useClaudeDirMonograms()
   const claudeDirName = claudeDirs.find((d) => d.id === claudeDirId)?.name ?? null
   const claudeDirOrigin: ClaudeDirOrigin = {
@@ -225,6 +268,39 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const models = useClaudeDirModels(claudeDirId, open)
 
   const canBrowse = canChooseDirectory()
+  /** Only the last request's projects land: switching device twice quickly must not show the first's. */
+  const projectsTicket = useRef(0)
+  /**
+   * The chosen device's recent directories (canvas 50g RECENT PER DEVICE).
+   * `fill` puts the most recent one into an empty field, or `fallback` when
+   * the device has none.
+   */
+  const loadProjects = useCallback((id: string, fill: false | { fallback: string }) => {
+    const ticket = ++projectsTicket.current
+    api
+      .listProjects(id === LOCAL_DEVICE ? undefined : id)
+      .then((list) => {
+        if (ticket !== projectsTicket.current) return
+        setProjects(list)
+        if (fill) setCwd((typed) => (typed.trim() ? typed : (list[0]?.cwd ?? fill.fallback)))
+      })
+      .catch(() => {
+        // Recent-dirs chips are a convenience; the cwd input still works without them.
+        if (ticket === projectsTicket.current && fill) setCwd((typed) => (typed.trim() ? typed : fill.fallback))
+      })
+  }, [])
+
+  /** Switching device swaps the recent directories and resets the field to that device's last one (50g). */
+  const switchDevice = useCallback(
+    (id: string) => {
+      setDevice(id)
+      setChooserOpen(false)
+      setProjects([])
+      setCwd('')
+      loadProjects(id, { fallback: id === LOCAL_DEVICE ? lastLaunch(settings).cwd : '' })
+    },
+    [loadProjects, settings],
+  )
   const browse = useCallback(() => {
     chooseDirectory(cwd)
       .then((dir) => {
@@ -252,8 +328,16 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const wasOpenRef = useRef(false)
   useEffect(() => {
     if (open && !wasOpenRef.current) {
-      const opening = openingLaunch(settings, selectedSession, tags)
-      setCwd(opening.cwd)
+      const planetDevice = selectedSession?.cwd ? deviceOf(selectedSession) : undefined
+      const startDevice = deviceRow ? openingDevice(options, rememberedDevice(), planetDevice) : LOCAL_DEVICE
+      // The selected planet lends its directory only on its own device; the
+      // last launch's directory is this device's.
+      const planet = planetDevice === startDevice ? selectedSession : null
+      const opening = openingLaunch(settings, planet, tags)
+      const startCwd = planet || startDevice === LOCAL_DEVICE ? opening.cwd : ''
+      setDevice(startDevice)
+      setChooserOpen(false)
+      setCwd(startCwd)
       setPermissionMode(opening.permissionMode)
       setPrompt('')
       setRememberedTag(opening.tag)
@@ -281,12 +365,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         from: prefill?.from ?? 'default',
         planet: prefill?.from === 'planet' ? selectedSession?.title : undefined,
       })
-      api
-        .listProjects()
-        .then(setProjects)
-        .catch(() => {
-          // Recent-dirs chips are a convenience; the cwd input still works without them.
-        })
+      setProjects([])
+      // Another device without a planet to start from opens on its most recent directory.
+      loadProjects(startDevice, startCwd ? false : { fallback: '' })
     }
     // Closing drops the chips and aborts whatever was still uploading — a
     // dialog that was dismissed is not a turn that will be sent. The chips a
@@ -381,8 +462,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   /** Other is selected but no id has validated yet. */
   const awaitingCustomModel = otherActive && model === null
 
-  const dirState = useDirectoryState(cwd, open)
-  const dirLine = directoryLine(dirState, 'this Mac')
+  const dirState = useDirectoryState(cwd, open, machine)
+  const dirLine = directoryLine(dirState, remote ? deviceName : 'this Mac')
 
   /** The launch itself, with the question's answers when it was asked. */
   const launch = useCallback(async (mcpjson?: McpjsonDecisions) => {
@@ -417,6 +498,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         // the server, and every existing body assertion stays true.
         ...(refs.length > 0 ? { attachments: refs } : {}),
         ...(mcpjson ? { mcpjson } : {}),
+        ...(machine ? { machine } : {}),
       }, images)
       // A tag is remembered only when it was the user's pick — this launch's,
       // or the previous one's left standing — never a rule's match or the
@@ -425,11 +507,18 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         tagId != null &&
         (manualOverride ||
           (rememberedTag?.pickedByHand && rememberedTag.cwd === cwd.trim() && rememberedTag.tagId === tagId))
-      rememberLaunch({
-        new_session_last_cwd: cwd.trim(),
-        new_session_last_mode: permissionMode,
-        new_session_last_tag: pickedTag ? String(tagId) : '',
-      })
+      // The directory and its tag are this device's to remember: another
+      // device's path would prefill a field that asks this one.
+      rememberLaunch(
+        remote
+          ? { new_session_last_mode: permissionMode }
+          : {
+              new_session_last_cwd: cwd.trim(),
+              new_session_last_mode: permissionMode,
+              new_session_last_tag: pickedTag ? String(tagId) : '',
+            },
+      )
+      if (showDevice) rememberDevice(device)
       // The server stores the directory choice itself (the phone cannot write
       // settings); the store only learns it for the next open.
       if (choosesDir && claudeDirId !== null) useOrbital.setState({ lastClaudeDir: claudeDirId })
@@ -440,7 +529,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     } finally {
       setPending(false)
     }
-  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments])
+  }, [cwd, prompt, permissionMode, tagId, manualOverride, rememberedTag, model, choosesDir, claudeDirId, onClose, select, launchSession, attachments, machine, remote, showDevice, device])
 
   /**
    * Launch: asks about the project's undecided `.mcp.json` servers first,
@@ -450,23 +539,28 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const handleLaunch = useCallback(async () => {
     if (!cwd.trim() || pending || awaitingCustomModel) return
     setPending(true)
+    setChooserOpen(false)
     // Asked again rather than read off the line: the field may have changed
     // since its answer, and a folder may have been made meanwhile. A failed
     // ask launches, and `requireDirectory` still refuses a missing directory.
-    const dir = await api.directoryState(cwd.trim()).catch(() => null)
+    const dir = await api.directoryState(cwd.trim(), machine).catch(() => null)
     if (dir && dir.state !== 'directory') {
       setPending(false)
       if (dir.state === 'missing') setMissingDir(dir.path)
       return
     }
-    const servers = await undecidedBeforeLaunch(cwd.trim(), choosesDir && claudeDirId !== null ? claudeDirId : undefined)
+    const servers = await undecidedBeforeLaunch(
+      cwd.trim(),
+      choosesDir && claudeDirId !== null ? claudeDirId : undefined,
+      machine,
+    )
     if (servers.length > 0) {
       setPending(false)
       setQuestion({ servers, answers: {} })
       return
     }
     await launch()
-  }, [cwd, pending, awaitingCustomModel, choosesDir, claudeDirId, launch])
+  }, [cwd, pending, awaitingCustomModel, choosesDir, claudeDirId, launch, machine])
 
   /**
    * *Create and launch*. A directory just made has no `.mcp.json` to ask
@@ -476,7 +570,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     if (!missingDir || pending) return
     setPending(true)
     try {
-      await api.createDirectory(missingDir)
+      await api.createDirectory(missingDir, machine)
     } catch (err) {
       setPending(false)
       reportError(err, 'Could not create the folder')
@@ -484,7 +578,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
     }
     setMissingDir(null)
     await launch()
-  }, [missingDir, pending, launch])
+  }, [missingDir, pending, launch, machine])
 
   const decisions = question ? decisionsOf(question.servers, question.answers) : null
 
@@ -542,7 +636,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         onClose: backToForm,
         headerAction: undefined,
         headerMeta: question.servers.length > 1 ? `${question.servers.length} servers` : undefined,
-        lead: <McpjsonIntro count={question.servers.length} />,
+        lead: <McpjsonIntro count={question.servers.length} where={remote ? deviceName : undefined} />,
         bodyInset: 'list' as const,
         footerLead: (
           <Button variant="ghost" size="lg" onClick={backToForm}>
@@ -631,6 +725,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                 into the model name. */}
             {chipCount > 0 && `${chipCount} image${chipCount === 1 ? '' : 's'} · `}
             {modelByValue(model, models)?.shortVersion ?? (otherActive && model ? model : 'default model')} · {permissionMode}
+            {/* 50g `gFoot`: the device, once there is a choice of one. */}
+            {showDevice ? ` · on ${remote ? deviceName : 'this device'}` : null}
             {choosesDir && claudeDirName ? ` · under ${claudeDirName}` : null}
             {footerTagName ? <> · <span className="text-text-soft">{footerTagName.toUpperCase()}</span></> : null}
           </>
@@ -667,8 +763,39 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               data-content-dim
               className={['flex flex-col gap-5', dropArmed ? 'opacity-35' : ''].join(' ')}
             >
-              <div className="flex flex-col gap-2">
-                <FieldLabel htmlFor="new-session-cwd">PROJECT DIRECTORY</FieldLabel>
+              {showDevice && (
+                // Canvas 50g DEVICE FIRST: above the directory, which only
+                // means something on a device.
+                <div className="flex flex-col gap-2">
+                  <FieldLabel>
+                    <span id="new-session-device">DEVICE</span>
+                    <span aria-hidden className="flex-1" />
+                    <span className="tracking-[0.06em] text-[rgba(160,190,225,.5)]">where the session runs</span>
+                  </FieldLabel>
+                  <Select
+                    variant="device"
+                    aria-labelledby="new-session-device"
+                    className="w-full"
+                    value={device}
+                    onChange={switchDevice}
+                    footer="PHONES DRIVE SESSIONS · THEY DON'T RUN THEM"
+                    options={options.map((o) => ({
+                      value: o.id,
+                      label: o.label,
+                      sub: o.sub,
+                      inert: o.inert,
+                      glyph: <KindGlyph kind={o.kind} untitled />,
+                    }))}
+                  />
+                </div>
+              )}
+
+              {/* Relative and above the groups after it: the folder chooser hangs over them (50g). */}
+              <div className="relative z-[2] flex flex-col gap-2">
+                <FieldLabel htmlFor="new-session-cwd">
+                  PROJECT DIRECTORY
+                  {remote && <span className="tracking-[0.04em] text-[rgba(160,190,225,.45)]">on {deviceName}</span>}
+                </FieldLabel>
                 <div className="flex gap-2">
                   <Input
                     id="new-session-cwd"
@@ -679,10 +806,23 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                     placeholder="/path/to/project"
                     className="min-w-0 flex-1"
                   />
-                  {canBrowse && (
-                    <Button variant="ghost" size="field" onClick={browse}>
-                      Browse…
+                  {remote ? (
+                    // Only this desktop has a system dialog; another device gets the chooser (50g).
+                    <Button
+                      variant="ghost"
+                      size="field"
+                      title={`Browses ${deviceName}’s folders`}
+                      aria-expanded={chooserOpen}
+                      onClick={() => setChooserOpen((o) => !o)}
+                    >
+                      Browse {deviceName}…
                     </Button>
+                  ) : (
+                    canBrowse && (
+                      <Button variant="ghost" size="field" title="Opens the system folder dialog" onClick={browse}>
+                        Browse…
+                      </Button>
+                    )
                   )}
                 </div>
                 {dirLine && (
@@ -693,7 +833,11 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                   </p>
                 )}
                 {projects.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Recent directories">
+                  <div
+                    className={['flex flex-wrap items-center gap-1.5', chooserOpen ? 'invisible' : ''].join(' ')}
+                    role="group"
+                    aria-label="Recent directories"
+                  >
                     <span className="mr-0.5 shrink-0 font-mono text-[10px] tracking-[0.08em] text-[rgba(160,190,225,.5)]">
                       RECENT
                     </span>
@@ -712,6 +856,22 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                       </button>
                     ))}
                   </div>
+                )}
+                {chooserOpen && remote && (
+                  <FolderChooser
+                    // A fresh chooser per device: it opens where that device's field points.
+                    key={device}
+                    machine={device}
+                    name={deviceName}
+                    kind={options.find((o) => o.id === device)?.kind ?? 'headless'}
+                    start={cwd}
+                    recents={projects}
+                    onChoose={(path) => {
+                      setCwd(path)
+                      setChooserOpen(false)
+                    }}
+                    onCancel={() => setChooserOpen(false)}
+                  />
                 )}
               </div>
 

@@ -5,6 +5,7 @@ import {
   LOCAL_DEVICE, addedByLine, asOfLabel, deviceChips, deviceOf, deviceRows, devicesOn, kindOs, memberStateWords,
   isMemberOffline, namesShown, oneWordCode, osLabel, showDeviceRow, toggleDevice,
   agoWords, deviceLock, ideHere, pillWords, runsOn, sessionOfUrl, stateAsOf, withMachineOffline,
+  childPath, crumbsOf, deviceOptions, openingDevice, recentAge,
 } from '../lib/devices'
 import { ApiError } from '../lib/api'
 import type { GroupMember, IdeContext, MachineRef } from '../lib/types'
@@ -399,5 +400,105 @@ describe('another device in the detail panel (canvas 50f)', () => {
       expect(ideHere({ ide, machine: machine() })).toBeNull()
       expect(ideHere(undefined)).toBeNull()
     })
+  })
+})
+
+describe('deviceOptions', () => {
+  const self = member({ id: 'me', self: true, state: 'self', name: 'studio-mbp' })
+  const roster = [
+    self,
+    member({ id: 'build', name: 'build-box', kind: 'headless', os: 'linux' }),
+    member({ id: 'air', name: 'air-m3', state: 'offline', online: false, seenAt: NOW - 2 * 60 * 60_000 }),
+    member({ id: 'gpu', name: 'gpu-01', kind: 'headless', os: 'linux', tooOld: true }),
+    member({ id: 'mini', name: 'mini-office', state: 'notLinked', linked: false }),
+    member({ id: 'link', name: 'new-box', state: 'linking', linked: false }),
+    member({ id: 'phone', name: 'pixel', kind: 'phone', os: 'android' }),
+  ]
+
+  it('lists this device first, with its own name in the sub-line', () => {
+    const [first] = deviceOptions(roster, NOW)
+    expect(first).toMatchObject({ id: LOCAL_DEVICE, label: 'This device', sub: 'studio-mbp · desktop · macOS', inert: false })
+  })
+
+  it('never lists a phone', () => {
+    expect(deviceOptions(roster, NOW).map((o) => o.id)).not.toContain('phone')
+  })
+
+  it('lets only an online, federating member take a session; the rest say why', () => {
+    const byId = Object.fromEntries(deviceOptions(roster, NOW).map((o) => [o.id, o]))
+    expect(byId.build).toMatchObject({ inert: false, sub: 'headless · Linux' })
+    expect(byId.air).toMatchObject({ inert: true, sub: 'offline · seen 2h ago' })
+    expect(byId.gpu).toMatchObject({ inert: true, sub: 'update Orbital on gpu-01' })
+    expect(byId.mini).toMatchObject({ inert: true, sub: 'not linked — pair by hand' })
+    expect(byId.link).toMatchObject({ inert: true, sub: 'linking…' })
+  })
+
+  it('is this device alone with the remote off', () => {
+    expect(deviceOptions(undefined, NOW)).toEqual([
+      { id: LOCAL_DEVICE, label: 'This device', name: '', kind: 'desktop', sub: 'desktop', inert: false },
+    ])
+  })
+})
+
+describe('openingDevice', () => {
+  const options = deviceOptions([
+    member({ id: 'me', self: true, state: 'self' }),
+    member({ id: 'build', name: 'build-box', kind: 'headless' }),
+    member({ id: 'air', name: 'air-m3', state: 'offline', online: false }),
+  ], NOW)
+
+  it('opens on the remembered device while it can take a session', () => {
+    expect(openingDevice(options, 'build')).toBe('build')
+  })
+
+  it('falls back to this device when the remembered one is inert or gone', () => {
+    expect(openingDevice(options, 'air')).toBe(LOCAL_DEVICE)
+    expect(openingDevice(options, 'left-the-group')).toBe(LOCAL_DEVICE)
+    expect(openingDevice(options, null)).toBe(LOCAL_DEVICE)
+  })
+
+  it('prefers the selected planet\'s device, then the remembered one', () => {
+    expect(openingDevice(options, 'build', LOCAL_DEVICE)).toBe(LOCAL_DEVICE)
+    expect(openingDevice(options, LOCAL_DEVICE, 'build')).toBe('build')
+    expect(openingDevice(options, 'build', 'air')).toBe('build')
+  })
+})
+
+describe('crumbsOf', () => {
+  it('walks an absolute path from the root', () => {
+    expect(crumbsOf('/home/me/srv/gateway')).toEqual([
+      { label: '/', path: '/' },
+      { label: 'home', path: '/home' },
+      { label: 'me', path: '/home/me' },
+      { label: 'srv', path: '/home/me/srv' },
+      { label: 'gateway', path: '/home/me/srv/gateway' },
+    ])
+  })
+
+  it('is the root alone at /', () => {
+    expect(crumbsOf('/')).toEqual([{ label: '/', path: '/' }])
+  })
+
+  it('reads repeated and trailing slashes as one', () => {
+    expect(crumbsOf('//srv//app/').map((c) => c.path)).toEqual(['/', '/srv', '/srv/app'])
+  })
+
+  it('starts a relative path at its first segment', () => {
+    expect(crumbsOf('~/srv')).toEqual([{ label: '~', path: '~' }, { label: 'srv', path: '~/srv' }])
+  })
+})
+
+describe('childPath', () => {
+  it('joins under the root without a double slash', () => {
+    expect(childPath('/', 'srv')).toBe('/srv')
+    expect(childPath('/home/me', 'srv')).toBe('/home/me/srv')
+  })
+})
+
+describe('recentAge', () => {
+  it('spaces the unit and says nothing without a date', () => {
+    expect(recentAge(NOW - 2 * 60 * 60_000, NOW)).toBe('2 h')
+    expect(recentAge(NOW - 3 * 24 * 60 * 60_000, NOW)).toBe('3 d')
+    expect(recentAge(null, NOW)).toBe('')
   })
 })

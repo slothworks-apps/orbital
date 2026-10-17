@@ -396,6 +396,8 @@ export const api = {
     /** The answer to the `.mcp.json` question, recorded before the launch. Omitted, the
      * Mac keeps every undecided server out (spec 2026-10-08-mcpjson-approval-design). */
     mcpjson?: McpjsonDecisions
+    /** The member the session runs on (device federation); omitted, this device. */
+    machine?: string
   }): Promise<string> {
     const data = await request<{ sessionId: string }>('POST', '/api/sessions', body)
     return data.sessionId
@@ -756,19 +758,23 @@ export const api = {
    * question (spec 2026-10-08-mcpjson-approval-design). Through the relay on
    * the phone.
    */
-  async mcpjson(cwd: string, claudeDirId?: number): Promise<McpjsonServer[]> {
+  async mcpjson(cwd: string, claudeDirId?: number, machine?: string): Promise<McpjsonServer[]> {
     const params = new URLSearchParams({ cwd })
     if (claudeDirId !== undefined) params.set('claudeDirId', String(claudeDirId))
+    if (machine !== undefined) params.set('machine', machine)
     const data = await request<{ undecided: McpjsonServer[] }>('GET', `/api/mcpjson?${params}`)
     return data.undecided
   },
 
   /**
    * What a typed project directory is on the Mac, `~` expanded (spec
-   * 2026-10-12-new-session-missing-directory-design § Server).
+   * 2026-10-12-new-session-missing-directory-design § Server); on the member
+   * `machine` names, when it names one.
    */
-  async directoryState(path: string): Promise<{ path: string; state: DirectoryState }> {
-    return request<{ path: string; state: DirectoryState }>('GET', `/api/directory?${new URLSearchParams({ path })}`)
+  async directoryState(path: string, machine?: string): Promise<{ path: string; state: DirectoryState }> {
+    const params = new URLSearchParams({ path })
+    if (machine !== undefined) params.set('machine', machine)
+    return request<{ path: string; state: DirectoryState }>('GET', `/api/directory?${params}`)
   },
 
   /**
@@ -784,8 +790,8 @@ export const api = {
   },
 
   /** Creates a missing project directory and its parents; answers the expanded path. */
-  async createDirectory(path: string): Promise<{ path: string }> {
-    return request<{ path: string }>('POST', '/api/directory', { path })
+  async createDirectory(path: string, machine?: string): Promise<{ path: string }> {
+    return request<{ path: string }>('POST', '/api/directory', machine === undefined ? { path } : { path, machine })
   },
 
   /**
@@ -871,11 +877,14 @@ export const api = {
   },
 
   // Projects API
-  /** `lastAt` is the newest session's `lastAt` in that directory — the phone's 9d rows read it as its last use. */
-  async listProjects(): Promise<Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>> {
+  /**
+   * `lastAt` is the newest session's `lastAt` in that directory — the phone's
+   * 9d rows read it as its last use. `machine` asks that member for its own.
+   */
+  async listProjects(machine?: string): Promise<Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>> {
     const data = await request<{
       projects: Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>
-    }>('GET', '/api/projects')
+    }>('GET', machine === undefined ? '/api/projects' : `/api/projects?${new URLSearchParams({ machine })}`)
     return data.projects
   },
 

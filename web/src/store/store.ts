@@ -608,6 +608,8 @@ export interface OrbitalActions {
     claudeDirId?: number
     /** The `.mcp.json` question's answers (`api.createSession`); omitted, undecided servers stay out. */
     mcpjson?: McpjsonDecisions
+    /** The member the session runs on (`api.createSession`); omitted, this device. */
+    machine?: string
   }, images?: readonly SentAttachment[]): Promise<string>
   select(id: string): Promise<void>
   loadOlder(id: string): Promise<ChatMessage[] | null>
