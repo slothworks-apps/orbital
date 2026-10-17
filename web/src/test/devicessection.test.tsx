@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { deviceId, generateIdentity, toBase64Url } from '@orbital/shared/remote/keys'
+import { encodePairingCode } from '@orbital/shared/remote/relayApi'
 import type { GroupMember, RemoteStatus } from '../lib/types'
 
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
@@ -176,5 +178,191 @@ describe('DevicesSection', () => {
     expect(await screen.findByText(words)).toBeInTheDocument()
     act(() => useOrbital.getState().setRemote(status(others)))
     expect(screen.queryByText(words)).not.toBeInTheDocument()
+  })
+})
+
+// Joining from this device (canvas 50b, 50d B–D): the pasted code is read
+// here first, then the server's answer, then the joining status.
+describe('DevicesSection — joining another device\'s group', () => {
+  const T0 = new Date('2026-10-17T12:00:00Z').getTime()
+  const PEER = deviceId(generateIdentity().publicKey)
+  const OWN = deviceId(generateIdentity().publicKey)
+
+  function codeFor(patch: Record<string, unknown> = {}): string {
+    return encodePairingCode(JSON.stringify({
+      v: 1, relay: 'https://relay.test', mac: PEER, name: 'studio-mbp', token: 'tok',
+      secret: toBase64Url(new Uint8Array(16)), kind: 'desktop', expiresAt: T0 + 80_000, ...patch,
+    }))
+  }
+
+  function joining(patch: Partial<NonNullable<RemoteStatus['joining']>> = {}): RemoteStatus['joining'] {
+    return { device: PEER, name: 'studio-mbp', kind: 'desktop', code: 'K7F-Q2M', expiresAt: T0 + 60_000, ...patch }
+  }
+
+  /** Flushes the awaited api answer into React. */
+  async function settle() {
+    await act(async () => {})
+  }
+
+  async function paste(code: string) {
+    fireEvent.change(screen.getByLabelText("Another device's code"), { target: { value: code } })
+    fireEvent.click(screen.getByRole('button', { name: 'Join' }))
+    await settle()
+  }
+
+  function tick(ms: number) {
+    act(() => { vi.advanceTimersByTime(ms) })
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ now: T0 })
+    vi.mocked(api.joinGroup).mockResolvedValue({ ok: true, device: PEER, name: 'studio-mbp', code: 'K7F-Q2M' })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('reads text that is not a code as such, without asking the server', async () => {
+    renderWith(status([]))
+    await paste('hello there')
+    expect(screen.getByText("That isn't a device code.")).toBeInTheDocument()
+    expect(api.joinGroup).not.toHaveBeenCalled()
+  })
+
+  it("knows this device's own code without asking the server", async () => {
+    renderWith(status([], { macId: OWN }))
+    await paste(codeFor({ mac: OWN }))
+    expect(screen.getByText("That's this device's own code.")).toBeInTheDocument()
+    expect(api.joinGroup).not.toHaveBeenCalled()
+  })
+
+  it('catches a code from another relay at paste, and Use <relay> saves it while alone', async () => {
+    renderWith(status([]))
+    await paste(codeFor({ relay: 'https://relay.lab.internal' }))
+    expect(api.joinGroup).not.toHaveBeenCalled()
+    expect(screen.getByText('studio-mbp uses another relay')).toBeInTheDocument()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Use relay.lab.internal' }))
+    })
+    expect(patchAndSet).toHaveBeenCalledWith({ remote_relay_url: 'https://relay.lab.internal' })
+  })
+
+  it('in a group, another relay points to leaving instead of switching', async () => {
+    renderWith(status([member({ id: 'b1', name: 'build-box' })]))
+    await paste(codeFor({ relay: 'https://relay.lab.internal' }))
+    expect(screen.getByText('Leave this group first to change relays.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Use / })).not.toBeInTheDocument()
+    expect(api.joinGroup).not.toHaveBeenCalled()
+  })
+
+  it('takes the same relay with a trailing slash as the same relay', async () => {
+    renderWith(status([], { relayUrl: 'https://relay.test/' }))
+    const code = codeFor()
+    await paste(code)
+    expect(api.joinGroup).toHaveBeenCalledWith(code)
+  })
+
+  it('a code already run out reads as expired, without asking the server', async () => {
+    renderWith(status([]))
+    await paste(codeFor({ expiresAt: T0 - 1 }))
+    expect(screen.getByText('Code expired')).toBeInTheDocument()
+    expect(screen.getByText('Codes last two minutes. Make a new one on studio-mbp and paste it again.')).toBeInTheDocument()
+    expect(api.joinGroup).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Paste a new code' }))
+    expect(screen.queryByText('Code expired')).not.toBeInTheDocument()
+    expect(screen.getByLabelText<HTMLInputElement>("Another device's code").value).toBe('')
+  })
+
+  it('a code the relay no longer knows reads as expired', async () => {
+    vi.mocked(api.joinGroup).mockResolvedValue({ ok: false, error: 'bad_code' })
+    renderWith(status([]))
+    await paste(codeFor())
+    expect(screen.getByText('Code expired')).toBeInTheDocument()
+  })
+
+  it('in a group already: says to leave first', async () => {
+    vi.mocked(api.joinGroup).mockResolvedValue({ ok: false, error: 'in_group' })
+    renderWith(status([]))
+    await paste(codeFor())
+    expect(screen.getByText('This device is already in a group. Leave it first, then join.')).toBeInTheDocument()
+  })
+
+  it('a relay that does not answer says so', async () => {
+    vi.mocked(api.joinGroup).mockResolvedValue({ ok: false, error: 'relay_error' })
+    renderWith(status([]))
+    await paste(codeFor())
+    expect(screen.getByText("The relay didn't answer. Try again.")).toBeInTheDocument()
+  })
+
+  it('offline: Try again is one more check and nothing retries by itself; the code running out turns it to expired', async () => {
+    vi.mocked(api.joinGroup).mockResolvedValue({ ok: false, error: 'peer_offline', expiresAt: T0 + 80_000 })
+    renderWith(status([]))
+    await paste(codeFor())
+    expect(screen.getByText('studio-mbp is offline')).toBeInTheDocument()
+    expect(screen.getByText(/Its code is good for another 1:20 — try again once studio-mbp is awake\./)).toBeInTheDocument()
+    expect(api.joinGroup).toHaveBeenCalledTimes(1)
+
+    tick(30_000)
+    expect(api.joinGroup).toHaveBeenCalledTimes(1)
+    expect(screen.getByText(/good for another 0:50/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await settle()
+    expect(api.joinGroup).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled()
+
+    tick(50_000)
+    expect(screen.getByText('Code expired')).toBeInTheDocument()
+    expect(api.joinGroup).toHaveBeenCalledTimes(2)
+  })
+
+  it('while joining: the six characters, the member, the countdown, and Cancel', async () => {
+    renderWith(status([], { joining: joining() }))
+    expect(screen.getByText('Type K7F-Q2M on studio-mbp')).toBeInTheDocument()
+    expect(screen.getByLabelText('Code K7FQ2M')).toBeInTheDocument()
+    expect(screen.getByText('· desktop')).toBeInTheDocument()
+    expect(screen.getByText('waiting · code expires in 1:00')).toBeInTheDocument()
+    tick(15_000)
+    expect(screen.getByText('waiting · code expires in 0:45')).toBeInTheDocument()
+
+    vi.mocked(api.cancelJoin).mockResolvedValue(undefined)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await settle()
+    expect(api.cancelJoin).toHaveBeenCalledTimes(1)
+    act(() => useOrbital.getState().setRemote(status([])))
+    expect(screen.queryByText('Request rejected')).not.toBeInTheDocument()
+    expect(screen.getByLabelText("Another device's code")).toBeInTheDocument()
+  })
+
+  it('joining a member by hand names its OS from the roster', () => {
+    const known = member({ id: PEER, name: 'studio-mbp', os: 'macos', state: 'notLinked', linked: false })
+    renderWith(status([known], { joining: joining() }))
+    expect(screen.getByText('· desktop · macOS')).toBeInTheDocument()
+  })
+
+  it('accepted: the member appears in the list and no card is left', () => {
+    renderWith(status([], { joining: joining() }))
+    const joined = member({ id: PEER, name: 'studio-mbp' })
+    act(() => useOrbital.getState().setRemote(status([joined])))
+    expect(screen.queryByText(/Type K7F-Q2M/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Request rejected')).not.toBeInTheDocument()
+    expect(screen.getByText('studio-mbp').closest('[data-member]')).not.toBeNull()
+  })
+
+  it('rejected: joining clears without the member', () => {
+    renderWith(status([], { joining: joining() }))
+    act(() => useOrbital.getState().setRemote(status([])))
+    expect(screen.getByText('Request rejected')).toBeInTheDocument()
+  })
+
+  it('the countdown reaching zero first turns the card to expired, and the status clearing later keeps it', () => {
+    renderWith(status([], { joining: joining() }))
+    tick(60_000)
+    expect(screen.getByText('Code expired')).toBeInTheDocument()
+    act(() => useOrbital.getState().setRemote(status([])))
+    expect(screen.getByText('Code expired')).toBeInTheDocument()
+    expect(screen.queryByText('Request rejected')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Paste a new code' }))
+    expect(screen.queryByText('Code expired')).not.toBeInTheDocument()
   })
 })

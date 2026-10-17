@@ -17,6 +17,7 @@ import { Button } from '../ui/Button'
 import { Dialog } from '../ui/Dialog'
 import { Input } from '../ui/Input'
 import { KindGlyph } from '../ui/KindGlyph'
+import { JoinArea } from './JoinCard'
 import { DEBOUNCE_MS, Row, SectionLabel } from './settingsRows'
 
 const MUTED = 'text-[rgba(160,190,225,.6)]'
@@ -87,15 +88,6 @@ function longDate(ts: number): string {
 
 function deviceCount(n: number): string {
   return n === 1 ? '1 device' : `${n} devices`
-}
-
-/**
- * What Join does with the pasted code. Joining from this device (canvas 50b,
- * 50d) is built next, in its own change; until then the field and the button
- * are drawn and the code goes nowhere.
- */
-function joinWithCode(code: string): void {
-  void code
 }
 
 /** Settings → Devices' "Try again" (canvas 11b), shared by the too-old card and the add-a-device box. */
@@ -263,6 +255,8 @@ export function DevicesSection({
   const { shown: remote, ...check } = useRelayCheck(liveRemote)
   const enabled = settings.remote_enabled === 'true'
   const [relayOpen, setRelayOpen] = useState(false)
+  /** A relay URL card B (canvas 50d) asked to move to: committed through the Relay field, as if typed there. */
+  const [proposedRelay, setProposedRelay] = useState<{ url: string } | null>(null)
   /** The member Pair by hand was asked for: the add-a-device box is titled for it (50a ADD A DEVICE). */
   const [pairFor, setPairFor] = useState<string | null>(null)
 
@@ -333,6 +327,7 @@ export function DevicesSection({
           savedSecret={settings.remote_relay_secret ?? ''}
           remote={liveRemote}
           locked={relayLocked}
+          proposed={proposedRelay}
         />
       )}
 
@@ -377,20 +372,29 @@ export function DevicesSection({
             <div className={`${KICKER} pb-2 pt-2.5`}>
               {pairTarget ? `ADD A DEVICE · FOR ${pairTarget.name.toUpperCase()}` : 'ADD A DEVICE'}
             </div>
-            <div className={`${CARD} flex flex-col gap-3.5 p-4`}>
-              {/* A relay too old has its card above; a code would point at a relay that refuses it. */}
-              {remote?.relay !== 'too_old' && (
-                <>
-                  {online ? (
-                    <CodeArea pairing={pairing} />
-                  ) : (
-                    <RelayWait kind={line?.kind ?? 'off'} remote={remote} check={check} />
+            <JoinArea
+              remote={liveRemote}
+              onUseRelay={(url) => {
+                setRelayOpen(true)
+                setProposedRelay({ url })
+              }}
+              idle={(field) => (
+                <div className={`${CARD} flex flex-col gap-3.5 p-4`}>
+                  {/* A relay too old has its card above; a code would point at a relay that refuses it. */}
+                  {remote?.relay !== 'too_old' && (
+                    <>
+                      {online ? (
+                        <CodeArea pairing={pairing} />
+                      ) : (
+                        <RelayWait kind={line?.kind ?? 'off'} remote={remote} check={check} />
+                      )}
+                      <div className="h-px bg-[rgba(150,205,255,.1)]" />
+                    </>
                   )}
-                  <div className="h-px bg-[rgba(150,205,255,.1)]" />
-                </>
+                  {field}
+                </div>
               )}
-              <JoinField onJoin={joinWithCode} />
-            </div>
+            />
             {others.length > 0 && <Leave count={others.length} relayOnline={online} />}
           </div>
         </div>
@@ -513,35 +517,6 @@ function CodeArea({ pairing }: { pairing: PairingCode }) {
         </span>
       </div>
     </>
-  )
-}
-
-/** "Have another device's code?" (canvas 50a): the field and Join; what Join does is `onJoin`'s. */
-function JoinField({ onJoin }: { onJoin: (code: string) => void }) {
-  const [paste, setPaste] = useState('')
-  const code = paste.trim()
-  return (
-    <div className="flex flex-col gap-[7px]">
-      <span className="text-[13px] font-semibold text-text-bright">Have another device's code?</span>
-      <div className="flex gap-1.5">
-        <Input
-          aria-label="Another device's code"
-          font="mono"
-          size="sm"
-          spellCheck={false}
-          placeholder="Paste it here"
-          value={paste}
-          onChange={(e) => setPaste(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && code !== '') onJoin(code)
-          }}
-          className="min-w-0 flex-1"
-        />
-        <Button variant="outline" size="beside-field" disabled={code === ''} onClick={() => onJoin(code)}>
-          Join
-        </Button>
-      </div>
-    </div>
   )
 }
 
@@ -862,12 +837,15 @@ function RelaySettings({
   savedSecret,
   remote,
   locked,
+  proposed,
 }: {
   patchAndSet: (patch: Record<string, string>) => Promise<void>
   savedUrl: string
   savedSecret: string
   remote: RemoteStatus | null
   locked: boolean
+  /** A URL to commit as if typed here (card B's Use <relay>); a new object each time it is asked. */
+  proposed: { url: string } | null
 }) {
   const [urlDraft, setUrlDraft] = useState(savedUrl)
   const [secretDraft, setSecretDraft] = useState(savedSecret)
@@ -947,6 +925,14 @@ function RelaySettings({
       setBusy(false)
     }
   }
+
+  // Card B's Use <relay>: the same commit as Enter in the field, with its confirm when devices are paired.
+  useEffect(() => {
+    if (!proposed) return
+    setUrlDraft(proposed.url)
+    commit('remote_relay_url', proposed.url)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proposed])
 
   const ask = ASK[asked.current.key]
   const count = asked.current.count

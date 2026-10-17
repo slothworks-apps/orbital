@@ -597,12 +597,14 @@ describe('RemoteService join and the group', () => {
     expect(service.status().joining).toBeNull();
   });
 
-  it('the waiting join carries the code to type and the code\'s expiry', async () => {
+  it('the waiting join carries the code to type, the code\'s expiry and the kind it named', async () => {
     const { service } = build();
     const code = codeFrom();
     const res = await service.join(code);
     if (!('code' in res)) throw new Error('join failed');
-    expect(service.status().joining).toEqual({ device: res.device, name: 'studio', code: res.code, expiresAt: NOW + 90_000 });
+    expect(service.status().joining).toEqual({
+      device: res.device, name: 'studio', kind: 'desktop', code: res.code, expiresAt: NOW + 90_000,
+    });
   });
 
   it('cancels a join', async () => {

@@ -144,9 +144,10 @@ export type RemoteStatus = {
   pairing: { expiresAt: number } | null;
   /**
    * A device whose code this server redeemed and which has not confirmed
-   * yet: `code` is what the user types on it, `expiresAt` when its code stops working.
+   * yet: `code` is what the user types on it, `expiresAt` when its code stops working,
+   * `kind` its kind as its code named it (null from a code without one).
    */
-  joining: { device: string; name: string; code: string; expiresAt: number } | null;
+  joining: { device: string; name: string; kind: string | null; code: string; expiresAt: number } | null;
   /** Why the last `start` failed; null while it is fine. */
   error: string | null;
   /**
@@ -412,7 +413,8 @@ export class RemoteService {
       pairing: this.pairing ? { expiresAt: this.pairing.expiresAt } : null,
       joining: this.joining && this.joining.expiresAt > this.now()
         ? {
-          device: this.joining.device, name: this.joining.name, code: this.joining.code, expiresAt: this.joining.expiresAt,
+          device: this.joining.device, name: this.joining.name, kind: this.joining.kind, code: this.joining.code,
+          expiresAt: this.joining.expiresAt,
         } : null,
       error: this.error,
       group: this.listGroup(online),

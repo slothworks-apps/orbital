@@ -1892,9 +1892,10 @@ export interface RemoteStatus {
   /**
    * A device whose code this server redeemed and which has not confirmed
    * yet: `code` is what the user types on it, `expiresAt` when its code
-   * stops working (spec 2026-10-16-device-group-design § 3).
+   * stops working, `kind` its kind as its code named it — null from a code
+   * without one (spec 2026-10-16-device-group-design § 3).
    */
-  joining: { device: string; name: string; code: string; expiresAt: number } | null
+  joining: { device: string; name: string; kind: string | null; code: string; expiresAt: number } | null
   /** Why the last start failed; null while it is fine. */
   error: string | null
   /**
