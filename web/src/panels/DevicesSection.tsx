@@ -361,7 +361,10 @@ export function DevicesSection({
                 <span className="flex flex-col gap-[3px]">
                   <span className="text-[13.5px] font-semibold text-text-bright">Just this device</span>
                   <span className="text-[12.5px] text-[rgba(160,190,225,.65)]">
-                    Add another with the code on the right, or paste one of theirs.
+                    {/* The device being added reads 50b's words; one alone, 50a's. */}
+                    {liveRemote.joining
+                      ? "Paste a code from any device in your group, or show this device's code to one of them."
+                      : 'Add another with the code on the right, or paste one of theirs.'}
                   </span>
                 </span>
               </div>

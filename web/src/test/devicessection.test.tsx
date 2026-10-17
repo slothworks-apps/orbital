@@ -131,9 +131,11 @@ describe('DevicesSection', () => {
     expect(screen.getByText('ADD A DEVICE · FOR MINI-OFFICE')).toBeInTheDocument()
   })
 
-  it('draws a code only once Show code is clicked', async () => {
+  it('draws a code only once Show code is clicked, and Copy waits for it', async () => {
     renderWith(status([]))
     expect(api.startPairing).not.toHaveBeenCalled()
+    expect(screen.getByText(/^Add another with the code on the right/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeDisabled()
     await userEvent.click(screen.getByRole('button', { name: 'Show code' }))
     expect(api.startPairing).toHaveBeenCalledTimes(1)
   })
@@ -322,6 +324,10 @@ describe('DevicesSection — joining another device\'s group', () => {
     expect(screen.getByLabelText('Code K7FQ2M')).toBeInTheDocument()
     expect(screen.getByText('· desktop')).toBeInTheDocument()
     expect(screen.getByText('waiting · code expires in 1:00')).toBeInTheDocument()
+    // The box stays above the card: this device's code and the field (canvas 50b).
+    expect(screen.getByRole('button', { name: 'Show code' })).toBeInTheDocument()
+    expect(screen.getByLabelText("Another device's code")).toBeInTheDocument()
+    expect(screen.getByText(/^Paste a code from any device in your group/)).toBeInTheDocument()
     tick(15_000)
     expect(screen.getByText('waiting · code expires in 0:45')).toBeInTheDocument()
 

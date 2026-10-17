@@ -202,9 +202,13 @@ export function PairConfirmDialog() {
           {/* No canvas 50c button (its only control is the demo's RESET DEMO);
               styled as the pending state's primary action, as 50i's phone
               sheet has its own "Done". */}
-          <Button variant="primary" size="wide" className="w-full" onClick={() => setJoined(null)}>
-            Done
-          </Button>
+          {/* In a row like Accept and Reject: `wide` grows along the row, and as a
+              child of the dialog's column it would collapse to its text's height. */}
+          <div className="flex w-full">
+            <Button variant="primary" size="wide" onClick={() => setJoined(null)}>
+              Done
+            </Button>
+          </div>
         </>
       ) : (
         request &&

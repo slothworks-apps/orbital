@@ -189,7 +189,7 @@ function useJoin(remote: RemoteStatus) {
 
 type Join = ReturnType<typeof useJoin>
 
-/** The cards of canvas 50d B–D and the rejected request. */
+/** Card D and the rejected request (canvas 50d D). */
 const CARD = 'flex flex-col gap-2.5 rounded-[12px] border border-[rgba(150,205,255,.16)] bg-[rgba(6,10,20,.6)] p-4'
 const CARD_TITLE = 'text-[14px] font-semibold text-text-bright'
 const CARD_BODY = 'text-[12.5px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]'
@@ -197,9 +197,10 @@ const CARD_BODY = 'text-[12.5px] leading-[1.5] text-[rgba(160,190,225,.72)] [tex
 const HOST = 'font-mono text-[11.5px] text-text-bright'
 
 /**
- * The join box of ADD A DEVICE: the field and Join while nothing is under
- * way (`idle` draws the box around it), the JOINING card while the status
- * has a join (50b), and the card a refusal or the join's end calls for (50d).
+ * The join part of ADD A DEVICE: the field and Join inside the box `idle`
+ * draws, with cards B and C under the field they answer (50d); below the
+ * box, the JOINING card while the status has a join (50b), or card D or the
+ * rejected request once it ended.
  * `onUseRelay` moves this device to the code's relay, the way the Relay
  * field does.
  */
@@ -215,22 +216,24 @@ export function JoinArea({
   const join = useJoin(remote)
   const { outcome, now } = join
 
-  if (join.joining) return <JoiningCard joining={join.joining} remote={remote} now={now} onCancel={join.cancel} />
-
   // Card C's code running out turns it to D, as the joining card does.
   const offlineRanOut = outcome?.kind === 'offline' && outcome.expiresAt !== null && now >= outcome.expiresAt
-  if (outcome?.kind === 'expired' || offlineRanOut) {
-    return (
+
+  /** The card under the box (canvas 50b): the join under way, or how it ended. */
+  let below: ReactNode = null
+  if (join.joining) {
+    below = <JoiningCard joining={join.joining} remote={remote} now={now} onCancel={join.cancel} />
+  } else if (outcome?.kind === 'expired' || offlineRanOut) {
+    below = (
       <EndCard
         title="Code expired"
         body={`Codes last two minutes. Make a new one on ${outcome.name} and paste it again.`}
         onStartOver={join.startOver}
       />
     )
-  }
-  if (outcome?.kind === 'rejected') {
+  } else if (outcome?.kind === 'rejected') {
     // Provisional copy: the canvas draws no rejected card on the joining side.
-    return (
+    below = (
       <EndCard
         title="Request rejected"
         body={`${outcome.name} didn't let this device in. Make a new code on ${outcome.name} and paste it again.`}
@@ -239,13 +242,13 @@ export function JoinArea({
     )
   }
 
-  const field = <JoinField join={join} />
+  /** What cards B and C say under the field they answer (canvas 50d B, C). */
+  let message: ReactNode = null
   // Once this device is on the code's relay, card B has said what it had to.
   if (outcome?.kind === 'otherRelay' && !sameRelay(outcome.relay, remote.relayUrl)) {
     const theirs = relayHostname(outcome.relay)
-    return (
-      <div className={CARD}>
-        {field}
+    message = (
+      <>
         <span className={CARD_TITLE}>{outcome.name} uses another relay</span>
         <span className={CARD_BODY}>
           It's on <span className={HOST}>{theirs}</span>;{' '}
@@ -273,15 +276,13 @@ export function JoinArea({
             Use {theirs}
           </Button>
         )}
-      </div>
+      </>
     )
-  }
-  if (outcome?.kind === 'offline') {
+  } else if (outcome?.kind === 'offline' && !offlineRanOut) {
     const left = outcome.expiresAt !== null ? codeTimeLeft(outcome.expiresAt, now).label : null
     const checked = checkedLabel(outcome.checkedAt, now)
-    return (
-      <div className={CARD}>
-        {field}
+    message = (
+      <>
         <span className={`flex items-center gap-2 ${CARD_TITLE}`}>
           {/* The offline member's hollow ring (canvas 50d C). */}
           <span aria-hidden className="block h-[7px] w-[7px] box-border rounded-full border-[1.3px] border-solid border-[rgba(200,215,235,.6)]" />
@@ -296,10 +297,27 @@ export function JoinArea({
         <Button variant="outline" size="member" className="self-start" disabled={join.busy} onClick={() => void join.tryAgain()}>
           Try again
         </Button>
-      </div>
+      </>
     )
   }
-  return idle(field)
+
+  const field = <JoinField join={join} />
+  return (
+    <>
+      {/* The box stays, this device's code and the field in it (canvas 50b). */}
+      {idle(
+        message ? (
+          <div className="flex flex-col gap-2.5">
+            {field}
+            {message}
+          </div>
+        ) : (
+          field
+        ),
+      )}
+      {below && <div className="mt-3.5 flex flex-col">{below}</div>}
+    </>
+  )
 }
 
 /** "Have another device's code?" (canvas 50a): the field, Join, and a refusal's one line under them. */
