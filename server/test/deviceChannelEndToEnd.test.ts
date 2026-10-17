@@ -68,6 +68,48 @@ describe('two servers, one channel', () => {
     expect(await phone.next('http_res', (m) => m.id === 1)).toMatchObject({ status: 200 });
   }, 20_000);
 
+  const membersOf = async (s: { api: (m: 'GET', u: string) => Promise<{ json(): any }> }) =>
+    (await s.api('GET', '/api/remote')).json().group.members;
+
+  it('pairing writes both into one roster, and the rosters converge', async () => {
+    const { a, b, idA, idB } = await joined();
+    await until(async () => {
+      const ma = await membersOf(a);
+      const mb = await membersOf(b);
+      return ma.length === 2 && mb.length === 2 && JSON.stringify(ma.map((m: any) => m.id)) === JSON.stringify(mb.map((m: any) => m.id))
+        && a.remote.rosterDigest() === b.remote.rosterDigest();
+    });
+    const ma = await membersOf(a);
+    expect(ma.find((m: any) => m.id === idA)).toMatchObject({ self: true, name: 'studio' });
+    expect(ma.find((m: any) => m.id === idB)).toMatchObject({ self: false, name: 'laptop', linked: true, links: true });
+    expect(a.remote.rosterDigest()).toBe(b.remote.rosterDigest());
+  }, 20_000);
+
+  it('a phone paired with a member is listed, not linked with others', async () => {
+    const { a, b, idA } = await joined();
+    const pair = await a.api('POST', '/api/remote/pair');
+    const phone = new FakePhone();
+    closers.push(() => phone.close());
+    await phone.connect(pair.json().qr);
+    expect((await phone.redeem()).status).toBe(200);
+    await until(async () => (await a.api('GET', '/api/remote')).json().pendingPair !== null);
+    const code = pairingCode(idA, phone.identity.publicKey);
+    // The relay tells the phone `paired` before it answers A's confirm, and the phone handshakes then.
+    const confirm = a.api('POST', '/api/remote/pair/confirm', { accept: true, phone: phone.id, code });
+    expect(await phone.nextControl('paired')).toMatchObject({ type: 'paired' });
+    await phone.handshake();
+    expect((await confirm).statusCode).toBe(200);
+    expect(await phone.hello()).toMatchObject({ t: 'hello', macName: 'studio' });
+    expect((await membersOf(a)).find((m: any) => m.id === phone.id)).toMatchObject({
+      kind: 'phone', name: 'Pixel', os: 'android', links: false, linked: true, self: false,
+    });
+    await until(async () => (await membersOf(b)).some((m: any) => m.id === phone.id));
+    expect((await membersOf(b)).find((m: any) => m.id === phone.id)).toMatchObject({
+      kind: 'phone', links: false, linked: false, online: false,
+    });
+    await until(() => a.remote.rosterDigest() === b.remote.rosterDigest());
+  }, 20_000);
+
   it('refuses a code from another relay and a code that is not one', async () => {
     const a = await startMacAndRelay(closers);
     const b = await startMacAndRelay(closers);

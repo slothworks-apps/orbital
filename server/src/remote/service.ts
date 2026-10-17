@@ -20,6 +20,10 @@ import { initiates, osName } from '@orbital/shared/remote/device';
 import type { Role } from '@orbital/shared/remote/handshake';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import type { Channel } from '@orbital/shared/remote/channel';
+import type { GroupMessage, HelloMessage } from '@orbital/shared/remote/messages';
+import {
+  addMember, describeMember, isLive, mergeRosters, rosterDigest, type RosterEntry,
+} from '@orbital/shared/remote/roster';
 import type { RelayTooOld } from '@orbital/shared/remote/version';
 import type { Hub } from '../api/hub.js';
 import { CONFIG } from '../config.js';
@@ -29,6 +33,7 @@ import { DeviceStore, type RemoteDevice } from './devices.js';
 import { DeviceWatcher } from './deviceWatcher.js';
 import { loadOrCreateIdentity, macDisplayName, serverDeviceKind, serverHello } from './identity.js';
 import { createPhoneFileReader, type PhoneFileReader } from './phoneFiles.js';
+import { RosterStore } from './rosterStore.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
 import { openDeviceChannel, type PhoneTooOld } from './deviceChannel.js';
 import type { InjectFn } from './servingHalf.js';
@@ -115,6 +120,12 @@ export type RemoteStatus = {
   joining: { device: string; name: string } | null;
   /** Why the last `start` failed; null while it is fine. */
   error: string | null;
+  /**
+   * The group's roster (spec 2026-10-16-device-group-design § 2), removed
+   * entries included. `self`: this device; `linked`: paired with this device
+   * directly; `online`: on the relay as this device sees it.
+   */
+  group: { members: (RosterEntry & { self: boolean; linked: boolean; online: boolean })[] };
 };
 
 /**
@@ -157,6 +168,7 @@ export class RemoteService {
   private identity: Identity | null = null;
   private client: RelayClient | null = null;
   private readonly devices: DeviceStore;
+  private readonly roster: RosterStore;
   private readonly watchers = new Map<string, DeviceWatcher>();
   private readonly channels = new Map<string, Channel>();
   /** `code` is the fingerprint the phone shows; `attemptsLeft` counts down in place, so the object stays the one a confirm in flight compares against. */
@@ -181,6 +193,7 @@ export class RemoteService {
 
   constructor(private readonly opts: RemoteServiceOptions) {
     this.devices = new DeviceStore(opts.db);
+    this.roster = new RosterStore(opts.db);
     this.now = opts.now ?? Date.now;
     this.files = createPhoneFileReader(
       opts.db,
@@ -223,6 +236,7 @@ export class RemoteService {
       const loaded = loadOrCreateIdentity(this.opts.dataDir);
       this.identity = loaded.identity;
       if (loaded.regenerated) this.forgetAllDevices();
+      this.addSelf();
       const client = (this.opts.clientFactory ?? ((o) => new RelayClient(o)))({
         relayUrl: this.relayUrl, identity: this.identity, relaySecret: this.relaySecret,
       });
@@ -297,7 +311,20 @@ export class RemoteService {
    * every window shows the new name.
    */
   nameChanged(): void {
-    this.publishStatus();
+    const self = this.selfId;
+    const described = self !== null
+      && this.setRoster(describeMember(this.roster.list(), self, { name: this.macName }, this.now()));
+    if (!described) this.publishStatus();
+  }
+
+  /** This device's id while the remote runs; null while it is off. */
+  private get selfId(): string | null {
+    return this.identity ? deviceId(this.identity.publicKey) : null;
+  }
+
+  /** The roster's digest, for tests that check two members converged. */
+  rosterDigest(): string {
+    return this.roster.digest();
   }
 
   status(): RemoteStatus {
@@ -319,7 +346,22 @@ export class RemoteService {
       joining: this.joining && this.joining.expiresAt > this.now()
         ? { device: this.joining.device, name: this.joining.name } : null,
       error: this.error,
+      group: { members: this.listMembers(online) },
     };
+  }
+
+  /** As `listDevices`: a database already gone reads as an empty roster. */
+  private listMembers(online: Set<string>): RemoteStatus['group']['members'] {
+    try {
+      const self = this.selfId;
+      const linked = new Set(this.devices.list().map((d) => d.id));
+      return this.roster.list().map((e) => ({
+        ...e, self: e.id === self, linked: linked.has(e.id), online: online.has(e.id),
+      }));
+    } catch (err) {
+      console.warn(`[remote] could not list the roster: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
   }
 
   /** The request as the status shows it: everything but the code. */
@@ -433,6 +475,9 @@ export class RemoteService {
       this.pendingPair = null;
       this.pairing = null;
     }
+    if (accept) {
+      this.addPaired({ id: pending.phone, kind: pending.kind, name: pending.name, os: osName(pending.platform) });
+    }
     this.publishStatus();
     // A guard: the relay's `presence` for the new device, sent before it
     // answered the post, has normally opened the channel already (if this
@@ -538,6 +583,9 @@ export class RemoteService {
         id: joined.device, name: joined.name, platform: '', kind: joined.kind, pairedAt: this.now(),
         notifications: parseNotificationSettings(this.opts.allSettings()),
       });
+      // A code without a kind came from a Mac from before kinds. Its OS is
+      // not known until its hello.
+      this.addPaired({ id: joined.device, kind: joined.kind ?? 'desktop', name: joined.name, os: '' });
       this.publishStatus();
       this.open(joined.device);
       return;
@@ -638,9 +686,99 @@ export class RemoteService {
         opened.close();
         if (role === 'initiator') this.open(from);
       }
+      if (event.type === 'hello') this.onPeerHello(from, opened, event.hello);
+      // Each side sends its digest as the channel opens; a difference is answered with the roster.
+      if (event.type === 'ready' && event.ready && opened.groups) opened.sendGroup({ t: 'roster_digest', digest: this.roster.digest() });
+      if (event.type === 'group') this.onGroup(from, opened, event.msg);
     });
     this.channels.set(from, opened);
     return opened;
+  }
+
+  /**
+   * The only way the roster changes. Unchanged, it does nothing: that is
+   * what ends an exchange between two members once they agree. Changed, it
+   * publishes the status and offers the new digest on every group channel
+   * but `from`, the one the change came in on.
+   */
+  private setRoster(next: RosterEntry[], from?: string): boolean {
+    if (!this.roster.replace(next)) return false;
+    this.publishStatus();
+    const digest = this.roster.digest();
+    for (const [id, channel] of this.channels) {
+      if (id !== from) channel.sendGroup({ t: 'roster_digest', digest });
+    }
+    return true;
+  }
+
+  /** This device, once, as the first member of its own group; a removed entry for it stays removed. */
+  private addSelf(): void {
+    const self = this.selfId!;
+    if (this.roster.entry(self)) return;
+    const now = this.now();
+    this.setRoster(addMember(this.roster.list(), {
+      id: self, kind: serverDeviceKind(), name: this.macName, os: osName(process.platform), links: true,
+      addedBy: self, addedAt: now, describedAt: now,
+    }));
+  }
+
+  /**
+   * A device this one just paired with, at the next epoch. A live entry is
+   * kept: the device is a member already, perhaps written by its first
+   * hello, which can arrive before the pairing finishes here.
+   */
+  private addPaired(device: Pick<RosterEntry, 'id' | 'kind' | 'name' | 'os'>): void {
+    const self = this.selfId;
+    if (self === null) return;
+    const known = this.roster.entry(device.id);
+    if (known && isLive(known)) return;
+    const now = this.now();
+    this.setRoster(addMember(this.roster.list(), {
+      ...device, links: false, addedBy: self, addedAt: now, describedAt: now,
+    }));
+  }
+
+  /**
+   * What a peer's hello says about it, written onto its live entry; only the
+   * fields the hello names. A device paired before the roster existed has
+   * no entry yet and gets one here.
+   */
+  private onPeerHello(from: string, channel: Channel, hello: HelloMessage): void {
+    const self = this.selfId;
+    if (self === null) return;
+    const name = hello.name ?? hello.macName;
+    const patch = {
+      ...(name !== undefined ? { name } : {}),
+      ...(hello.os !== undefined ? { os: hello.os } : {}),
+      links: channel.groups,
+    };
+    const known = this.roster.entry(from);
+    const now = this.now();
+    // `from` is skipped: the channel's own `ready` follows with the digest.
+    if (known) {
+      if (isLive(known)) this.setRoster(describeMember(this.roster.list(), from, patch, now), from);
+      return;
+    }
+    const device = this.devices.get(from);
+    if (!device) return;
+    this.setRoster(addMember(this.roster.list(), {
+      id: from, kind: device.kind ?? hello.kind ?? 'desktop', name: patch.name ?? device.name, os: patch.os ?? '',
+      links: patch.links, addedBy: self, addedAt: now, describedAt: now,
+    }), from);
+  }
+
+  private onGroup(from: string, channel: Channel, msg: GroupMessage): void {
+    if (msg.t === 'roster_digest') {
+      if (msg.digest !== this.roster.digest()) channel.sendGroup({ t: 'roster', entries: this.roster.list() });
+      return;
+    }
+    if (msg.t === 'roster') {
+      this.setRoster(mergeRosters(this.roster.list(), msg.entries), from);
+      // The sender may still lack what only this side knew.
+      if (this.roster.digest() !== rosterDigest(msg.entries)) channel.sendGroup({ t: 'roster', entries: this.roster.list() });
+      return;
+    }
+    // `removed` is Task 7's: until then a member told it was removed carries on.
   }
 
   /**
