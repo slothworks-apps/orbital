@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.33.1] — 2026-10-17
 ### Fixed
 - Sessions that follow a harness are named after your first message (until then, after the harness) instead of all starting "This session follows the Orbital harness…". Sessions named that way before are renamed too.
 
