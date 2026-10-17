@@ -199,6 +199,25 @@ describe('two servers, one channel', () => {
     expect(a.remote.channel(idB)).toBeNull();
   }, 30_000);
 
+  it('a device that left pairs again through the ceremony, at an epoch above its removal', async () => {
+    const { a, b, idA, idB } = await joined();
+    await b.api('POST', '/api/remote/leave');
+    await until(async () => (await membersOf(a)).find((x: any) => x.id === idB)?.removedAt !== undefined && (await aloneIn(b)), 15_000);
+    const removedEpoch = (await membersOf(a)).find((x: any) => x.id === idB).epoch;
+    const qr = (await a.api('POST', '/api/remote/pair')).json().qr;
+    const join = await b.api('POST', '/api/remote/join', { code: qr });
+    expect(join.statusCode).toBe(200);
+    await until(async () => (await a.api('GET', '/api/remote')).json().pendingPair !== null);
+    expect((await a.api('POST', '/api/remote/pair/confirm', { accept: true, phone: idB, code: join.json().code })).statusCode).toBe(200);
+    await until(async () => {
+      const m = (await membersOf(a)).find((x: any) => x.id === idB);
+      return a.remote.channel(idB)?.ready === true && b.remote.channel(idA)?.ready === true
+        && m?.removedAt === undefined && m.linked && a.remote.rosterDigest() === b.remote.rosterDigest();
+    }, 15_000);
+    expect((await membersOf(a)).find((x: any) => x.id === idB).epoch).toBeGreaterThan(removedEpoch);
+    expect((await membersOf(b)).find((x: any) => x.id === idA)).toMatchObject({ linked: true });
+  }, 30_000);
+
   it('phone is listed, not linked: no mutual pair is asked for it', async () => {
     const posts = vi.spyOn(RelayClient.prototype, 'post');
     const { a, b, idA } = await joined();

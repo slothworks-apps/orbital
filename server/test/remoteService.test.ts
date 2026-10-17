@@ -499,15 +499,30 @@ describe('RemoteService remove', () => {
         d.add({ id, name: 'p', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}) });
       }
     });
-    withMembers(db, { id: paired[0], kind: 'phone', links: false }, {});
+    // The second is a member that links and is not paired here: its waiting half goes too.
+    const [, unpaired] = withMembers(db, { id: paired[0], kind: 'phone', links: false }, {});
     const self = service.status().macId!;
-    await service.leave();
-    expect(revoked(fake).sort()).toEqual([...paired].sort());
+    expect(await service.leave()).toEqual({ ok: true });
+    expect(revoked(fake).sort()).toEqual([...paired, unpaired].sort());
     expect(devices.list()).toEqual([]);
     expect(service.status().group.members).toEqual([
       expect.objectContaining({ id: self, self: true, epoch: 2, addedBy: self }),
     ]);
     expect(service.status().group.members[0].removedAt).toBeUndefined();
+  });
+
+  it('leave while the relay is not online is refused and changes nothing', async () => {
+    const phone = phoneId();
+    const { service, fake, db, devices } = build((d) => d.add({
+      id: phone, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}),
+    }));
+    withMembers(db, {});
+    fake.status = 'connecting';
+    const before = service.rosterDigest();
+    expect(await service.leave()).toEqual({ error: 'offline' });
+    expect(service.rosterDigest()).toBe(before);
+    expect(devices.get(phone)).not.toBeNull();
+    expect(fake.posts).toEqual([]);
   });
 
   it('the relay saying unpaired drops that paired device and leaves the roster to the group', () => {

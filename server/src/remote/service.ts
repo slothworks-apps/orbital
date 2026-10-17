@@ -197,6 +197,8 @@ export class RemoteService {
   private pairByHand = new Set<string>();
   /** Revokes posted to the relay and not answered yet; a removal waits for them before it answers. */
   private readonly revoking = new Set<Promise<void>>();
+  /** `ownId`'s answer once known; undefined until then. */
+  private knownId: string | null | undefined = undefined;
   private readonly now: () => number;
   /** One for every phone, so its named-path cache serves them all. */
   private readonly files: PhoneFileReader;
@@ -579,17 +581,27 @@ export class RemoteService {
     return true;
   }
 
-  /** This device leaves its group: removing it, from itself. */
-  async leave(): Promise<void> {
-    const self = this.ownId();
-    if (self !== null) await this.remove(self);
+  /**
+   * This device leaves its group: removing it, from itself. Only while the
+   * relay is online: the others hear of it over the channels and the pairs
+   * go at the relay, and offline neither happens — the group of one written
+   * next would overwrite the removal before it ever spread.
+   */
+  async leave(): Promise<{ ok: true } | { error: 'offline' }> {
+    const self = this.selfId;
+    if (self === null || !this.client || this.client.status !== 'online') return { error: 'offline' };
+    await this.remove(self);
+    return { ok: true };
   }
 
-  /** This device's id, read from the data dir while the remote is off; null when it never had one. */
+  /** This device's id, read once from the data dir while the remote is off; null when it never had one. */
   private ownId(): string | null {
-    if (this.selfId !== null) return this.selfId;
-    const identity = readIdentity(this.opts.dataDir);
-    return identity ? deviceId(identity.publicKey) : null;
+    if (this.selfId !== null) this.knownId = this.selfId;
+    if (this.knownId === undefined) {
+      const identity = readIdentity(this.opts.dataDir);
+      this.knownId = identity ? deviceId(identity.publicKey) : null;
+    }
+    return this.knownId;
   }
 
   /**
@@ -614,7 +626,7 @@ export class RemoteService {
    * This device was removed from its group: the members it still talks to
    * get the roster that says so (a `removed` would tell them they were
    * removed) and `bye revoked`, while the channels exist; then every pair
-   * goes at the relay, then every paired device here; then this device
+   * goes at the relay, with any mutual half waiting for a member, then every paired device here; then this device
    * starts a group of one at its next epoch, which the others' removal
    * does not reach.
    */
@@ -627,6 +639,10 @@ export class RemoteService {
     this.channels.clear();
     const paired = this.devices.list();
     for (const d of paired) this.revokeAtRelay(d.id);
+    // A member that links but is not paired here may have a mutual half waiting at the relay.
+    for (const e of entries) {
+      if (e.id !== self && isLive(e) && e.links && !paired.some((d) => d.id === e.id)) this.revokeAtRelay(e.id);
+    }
     for (const w of this.watchers.values()) w.stop();
     this.watchers.clear();
     for (const d of paired) this.devices.remove(d.id);

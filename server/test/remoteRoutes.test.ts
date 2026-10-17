@@ -133,12 +133,12 @@ describe('/api/remote', () => {
     expect((await app.inject({ method: 'GET', url: '/api/remote' })).json().devices).toEqual([]);
     await app.close();
   });
-  it('leave answers ok, with the remote on or off', async () => {
+  it('leave is refused while the relay is not online, with the remote off or still connecting', async () => {
     for (const enabled of [false, true]) {
       const app = await server(enabled);
       const res = await app.inject({ method: 'POST', url: '/api/remote/leave' });
-      expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ ok: true });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toEqual({ error: 'offline' });
       await app.close();
     }
   });
