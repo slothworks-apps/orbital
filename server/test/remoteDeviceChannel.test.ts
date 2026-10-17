@@ -526,7 +526,9 @@ describe('DeviceWatcher', () => {
   it('wakes nobody for another member\'s session: that member wakes the phone for its own', () => {
     const hub = new Hub({ heartbeatIntervalMs: 60_000 });
     const wakes: string[] = [];
-    const w = new DeviceWatcher({ deviceId: 'p1', hub, settings: () => allOn, onWake: (id) => wakes.push(id) });
+    const w = new DeviceWatcher({
+      deviceId: 'p1', hub, settings: () => allOn, onWake: (id) => wakes.push(id), foreign: (id) => id === 'theirs' || id === 'seeded',
+    });
     const machine = { id: 'b', name: 'laptop', kind: 'desktop', os: 'macos', online: true, asOf: null };
     w.start([{ id: 'seeded', status: 'working', machine }]);
     hub.publish('sessions', { event: 'upsert', session: { id: 'theirs', status: 'working', machine } });
@@ -535,6 +537,18 @@ describe('DeviceWatcher', () => {
     hub.publish('sessions', { event: 'status', sessionId: 'seeded', status: 'needs_input' });
     expect(wakes).toEqual([]);
     hub.publish('sessions', { event: 'upsert', session: { id: 'mine', status: 'working' } });
+    hub.publish('sessions', { event: 'status', sessionId: 'mine', status: 'needs_input' });
+    expect(wakes).toEqual(['mine']);
+    w.stop();
+  });
+  it('wakes nobody for a federated session it never saw an upsert of: a phone paired after the federation seeded', () => {
+    const hub = new Hub({ heartbeatIntervalMs: 60_000 });
+    const wakes: string[] = [];
+    const w = new DeviceWatcher({
+      deviceId: 'p1', hub, settings: () => allOn, onWake: (id) => wakes.push(id), foreign: (id) => id === 'theirs',
+    });
+    w.start([]);
+    hub.publish('sessions', { event: 'status', sessionId: 'theirs', status: 'needs_input' });
     hub.publish('sessions', { event: 'status', sessionId: 'mine', status: 'needs_input' });
     expect(wakes).toEqual(['mine']);
     w.stop();

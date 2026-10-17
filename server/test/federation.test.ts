@@ -5,6 +5,9 @@ import { capabilitiesOf } from '@orbital/shared/remote/device';
 import { PROTOCOL_VERSION, type HelloMessage } from '@orbital/shared/remote/messages';
 import { isLive, type RosterEntry } from '@orbital/shared/remote/roster';
 import { Hub } from '../src/api/hub.js';
+import { createImageStore } from '../src/images/store.js';
+import { ServingHalf } from '../src/remote/servingHalf.js';
+import { makeTmpDir } from './tmp.js';
 import { FederationService, type FederationOptions } from '../src/federation/service.js';
 
 const SELF = 'self';
@@ -288,6 +291,37 @@ describe('FederationService', () => {
     expect(await federation.request(link, 'GET', '/api/health')).toEqual({ status: 502, body: { error: 'member_unreachable' } });
     b.down();
     expect(await federation.request(link, 'GET', '/api/health')).toEqual({ status: 409, body: { error: 'member_offline' } });
+  });
+
+  it('a peer of this server never sees the remove of a federated session, from the member or from a roster drop', async () => {
+    const { hub, remote, federation } = setup();
+    const b = memberB();
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    b.hub({ topic: 'sessions', event: 'upsert', session: { id: 's2', status: 'working' } });
+    // A peer served here, wired as `buildServer` wires it.
+    const dir = makeTmpDir('federation');
+    const peer: unknown[] = [];
+    const serving = new ServingHalf({
+      deviceId: 'peer', hub, inject: async () => ({ statusCode: 500, body: '{}' }), images: createImageStore(dir), imagesDir: dir,
+      files: () => ({ status: 404 }), notifications: { get: () => ({}) as never, set: () => {} }, onSeen: () => {},
+      foreign: (id) => federation.linkOf(id) !== null,
+    });
+    serving.open({ json: (msg) => { peer.push(msg); }, inner: () => {} });
+    serving.ask({ t: 'ws', type: 'subscribe', topic: 'sessions' });
+    const win = localSocket(hub, ['sessions']);
+    b.hub({ topic: 'sessions', event: 'remove', sessionId: 's2' });
+    remote.members = [entry(SELF)];
+    remote.published();
+    expect(win.frames()).toEqual([
+      { topic: 'sessions', event: 'remove', sessionId: 's2' },
+      { topic: 'sessions', event: 'remove', sessionId: 's1' },
+    ]);
+    expect(peer.filter((m: any) => m.frame?.topic === 'sessions')).toEqual([]);
+    // The dropped member's channel is not left streaming.
+    expect(b.subs.has('sessions')).toBe(false);
+    serving.reset();
   });
 
   it('stop forgets every member and listens no more', async () => {

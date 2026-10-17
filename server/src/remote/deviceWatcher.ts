@@ -21,16 +21,16 @@ export type DeviceWatcherOptions = {
    * 2026-10-15-the-phone-is-quiet-while-you-are-at-the-mac-design § 2).
    */
   quiet?: () => boolean;
+  /**
+   * Whether a session is another member's, federated into this hub: that
+   * member wakes the phone for its own (spec 2026-10-16-device-group-design § 10).
+   */
+  foreign?: (sessionId: string) => boolean;
 };
 
 export class DeviceWatcher {
   private readonly notifier = new SessionNotifier();
   private readonly pending = new Set<string>();
-  /**
-   * Sessions seen only as another member's (carrying `machine`): that member
-   * wakes the phone for its own (spec 2026-10-16-device-group-design § 10).
-   */
-  private readonly foreign = new Set<string>();
   private socket: (EventEmitter & { send(data: string): void }) | null = null;
 
   constructor(private readonly opts: DeviceWatcherOptions) {}
@@ -59,23 +59,14 @@ export class DeviceWatcher {
     this.socket = null;
   }
 
-  /** Whether a `sessions` frame is about another member's session; remembers which ids are. */
+  /** Whether a `sessions` frame is about another member's session: one carrying `machine`, or an id the federation holds. */
   private isForeign(frame: Record<string, unknown>): boolean {
     if (frame.topic !== 'sessions') return false;
     const session = frame.session && typeof frame.session === 'object'
-      ? (frame.session as { id?: string | number | null; machine?: unknown }) : undefined;
-    if (session) {
-      const id = String(session.id ?? '');
-      if (session.machine != null) {
-        this.foreign.add(id);
-        return true;
-      }
-      this.foreign.delete(id);
-      return false;
-    }
-    if (typeof frame.sessionId !== 'string' || !this.foreign.has(frame.sessionId)) return false;
-    if (frame.event === 'remove') this.foreign.delete(frame.sessionId);
-    return true;
+      ? (frame.session as { id?: unknown; machine?: unknown }) : undefined;
+    if (session && session.machine !== undefined && session.machine !== null) return true;
+    const id = typeof frame.sessionId === 'string' ? frame.sessionId : typeof session?.id === 'string' ? session.id : null;
+    return id !== null && (this.opts.foreign?.(id) ?? false);
   }
 
   private onFrame(data: string): void {

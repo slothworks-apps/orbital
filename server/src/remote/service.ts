@@ -212,7 +212,8 @@ export type RemoteServiceOptions = {
   /**
    * Whether a session is another member's, federated into this hub: a
    * channel never passes one on (no chaining, spec
-   * 2026-10-16-device-group-design § 7). Absent, none is.
+   * 2026-10-16-device-group-design § 7), and a phone is never woken for one
+   * (§ 10). Absent, none is.
    */
   foreign?: (sessionId: string) => boolean;
 };
@@ -1317,6 +1318,7 @@ export class RemoteService {
       deviceId: id, hub: this.opts.hub,
       settings: () => this.devices.get(id)?.notifications ?? parseNotificationSettings({}),
       quiet: () => this.opts.presence?.atMac ?? false,
+      ...(this.opts.foreign ? { foreign: this.opts.foreign } : {}),
       // Sent whether or not the phone is connected: the relay forwards to a
       // connected phone (which ignores an empty body) and pushes otherwise.
       onWake: (sessionId) => this.client?.sendData(encodeFrame({

@@ -128,6 +128,11 @@ export class FederationService {
       const res = await channel.request(method, path, body);
       const payload = res.body as { session?: Session } | null;
       if (payload && typeof payload === 'object' && payload.session && typeof payload.session.id === 'string') {
+        // A third device's session, as the member shows it: not ours to pass on as the member's.
+        if (carriesMachine(payload.session)) {
+          const { session: _chained, ...rest } = payload;
+          return { status: res.status, body: rest };
+        }
         return { status: res.status, body: { ...payload, session: this.localize(link, payload.session) } };
       }
       return res;
@@ -305,11 +310,11 @@ export class FederationService {
       for (const id of link.sessions.keys()) {
         if (!fresh.has(id)) this.opts.hub.publish('sessions', { event: 'remove', sessionId: id });
       }
+      const before = new Set(link.sessions.keys());
       link.sessions.clear();
       for (const [id, s] of fresh) {
-        const known = link.sessions.has(id);
         link.sessions.set(id, s);
-        if (!known) this.followSession(link, id);
+        if (!before.has(id)) this.followSession(link, id);
       }
       link.seenAt = null;
       this.republish(link);
@@ -331,10 +336,21 @@ export class FederationService {
     }
   }
 
-  /** A member no longer in the group: its sessions leave the map. */
+  /**
+   * A member no longer in the group: its sessions leave the map. The removes
+   * go out while the sessions are still known as foreign, so no channel
+   * passes them on.
+   */
   private drop(link: MemberLink): void {
-    this.links.delete(link.id);
     for (const id of link.sessions.keys()) this.opts.hub.publish('sessions', { event: 'remove', sessionId: id });
+    this.links.delete(link.id);
+    const channel = link.channel;
+    if (!channel) return;
+    channel.unsubscribe('sessions');
+    for (const topic of this.localTopics) {
+      const session = sessionOfTopic(topic);
+      if (session !== null && link.sessions.has(session)) channel.unsubscribe(topic);
+    }
   }
 
   private onHub(link: MemberLink, raw: unknown): void {
@@ -360,7 +376,10 @@ export class FederationService {
       this.opts.hub.publish('sessions', { event: 'upsert', session: this.localize(link, session) });
     } else if (frame.event === 'remove') {
       const id = frame.sessionId;
-      if (typeof id === 'string' && link.sessions.delete(id)) this.opts.hub.publish('sessions', { event: 'remove', sessionId: id });
+      // Published while still known as foreign, so no channel passes it on.
+      if (typeof id !== 'string' || !link.sessions.has(id)) return;
+      this.opts.hub.publish('sessions', { event: 'remove', sessionId: id });
+      link.sessions.delete(id);
     } else if (frame.event === 'status') {
       const id = frame.sessionId;
       const session = typeof id === 'string' ? link.sessions.get(id) : undefined;
@@ -379,6 +398,9 @@ export class FederationService {
   private rosterChanged(): void {
     if (!this.running) return;
     const live = new Map(this.opts.remote.liveMembers().map((e) => [e.id, e]));
+    // A roster that could not be read (or holds no self yet) says nothing about who left.
+    const self = this.opts.remote.selfId();
+    if (self === null || !live.has(self)) return;
     for (const link of [...this.links.values()]) {
       const entry = live.get(link.id);
       if (!entry || entry.kind === 'phone') {
