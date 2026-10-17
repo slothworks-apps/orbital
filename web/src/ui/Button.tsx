@@ -3,6 +3,7 @@ import type { ButtonHTMLAttributes } from 'react'
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?:
     | 'primary'
+    | 'primary-flat'
     | 'ghost'
     | 'danger'
     | 'warning'
@@ -25,7 +26,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'hairline'
     | 'outline'
     | 'ink'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'check' | 'member' | 'beside-field'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'check' | 'member' | 'beside-field' | 'over-code'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -39,6 +40,8 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
  */
 const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   primary: 'bg-accent text-space-deep font-bold shadow-[0_0_24px_rgba(89,228,243,.4)] hover:bg-text-soft',
+  // Canvas 50a's Show code / New code over the QR: the primary's fill and ink, flat — no bloom, 600 weight.
+  'primary-flat': 'bg-accent text-space-deep font-semibold hover:bg-text-soft',
   warning: 'bg-warning text-[#1a1000] font-bold shadow-[0_0_24px_rgba(255,187,123,.4)] hover:brightness-110',
   ghost: 'bg-transparent text-text-soft font-semibold border border-[rgba(150,205,255,.18)] hover:bg-white/5',
   'accent-outline': 'bg-transparent text-accent font-semibold border border-accent/45 hover:bg-accent/10',
@@ -132,6 +135,8 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   member: 'h-8 px-3.5 text-[12.5px]',
   // Canvas 50a's Copy, Join and New code beside a field: 31px tall, 12px sides, 12px.
   'beside-field': 'h-[31px] px-3 text-xs',
+  // Canvas 50a's Show code / New code over the QR: 30px tall, 12px sides, 12px.
+  'over-code': 'h-[30px] px-3 text-xs',
 }
 
 export function Button({

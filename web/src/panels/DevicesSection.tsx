@@ -50,7 +50,7 @@ const HOLLOW: CSSProperties = { border: '1.3px solid rgba(200,215,235,.6)' }
  * while linking, a faint one while not linked; an ink dot while too old.
  * Nothing moves.
  */
-const MEMBER_DOT: Record<RowState, CSSProperties> = {
+const MEMBER_DOT: Record<Exclude<RowState, 'elsewhere'>, CSSProperties> = {
   online: { background: 'var(--color-accent)' },
   offline: HOLLOW,
   linking: { border: '1.3px dashed rgba(200,215,235,.6)' },
@@ -247,7 +247,7 @@ export function DevicesSection({
   patchAndSet,
   onSaved,
 }: {
-  patchAndSet: (patch: Record<string, string>) => Promise<void>
+  patchAndSet: (patch: Record<string, string>) => Promise<boolean>
   onSaved: () => void
 }) {
   const settings = useOrbital(useShallow((s) => s.settings))
@@ -476,7 +476,7 @@ function CodeArea({ pairing }: { pairing: PairingCode }) {
                 <span className="font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.7)]">CODE EXPIRED</span>
               )}
               {/* No code until asked for: each one opens a window in which a device can ask to pair. */}
-              <Button variant="primary" size="beside-field" disabled={pairing.busy} onClick={() => void pairing.newCode()}>
+              <Button variant="primary-flat" size="over-code" disabled={pairing.busy} onClick={() => void pairing.newCode()}>
                 {expired ? 'New code' : 'Show code'}
               </Button>
             </div>
@@ -502,10 +502,9 @@ function CodeArea({ pairing }: { pairing: PairingCode }) {
             {copied ? 'Copied' : 'Copy'}
           </Button>
         </div>
+        {/* 50a also draws `on a server: orbital join …`; it comes back with the headless server's command. */}
         <span className="font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.55)]">
-          paste it in Devices there · on a server:
-          <br />
-          orbital join {code ? `${code.word.slice(0, 8)}…` : 'orb1…'}
+          paste it in Devices there
         </span>
       </div>
       <div className="flex flex-col gap-1.5">
@@ -531,7 +530,7 @@ function ThisDevice({
   savedName,
   networkName,
 }: {
-  patchAndSet: (patch: Record<string, string>) => Promise<void>
+  patchAndSet: (patch: Record<string, string>) => Promise<boolean>
   self: GroupMember | null
   savedName: string
   networkName: string
@@ -654,7 +653,8 @@ function Members({
                     state === 'online' ? 'text-[rgba(200,220,245,.85)]' : 'text-[rgba(160,190,225,.72)]'
                   }`}
                 >
-                  <Dot style={MEMBER_DOT[state]} />
+                  {/* A phone paired with another member has no presence here, so no dot. */}
+                  {state !== 'elsewhere' && <Dot style={MEMBER_DOT[state]} />}
                   {state === 'notLinked' ? (
                     <button
                       type="button"
@@ -753,7 +753,9 @@ function Leave({ count, relayOnline }: { count: number; relayOnline: boolean }) 
           <span className="text-[12.5px] leading-[1.5] text-text-bright [text-wrap:pretty]">
             Leave?{' '}
             <span className="text-[rgba(160,190,225,.7)]">
-              This device forgets the other {count} and their keys; they stop seeing its sessions.
+              {count === 1
+                ? "This device forgets the other device and its keys; it stops seeing this device's sessions."
+                : `This device forgets the other ${count} and their keys; they stop seeing its sessions.`}
             </span>
           </span>
           <div className="flex justify-end gap-2">
@@ -844,7 +846,7 @@ function RelaySettings({
   proposed,
   onProposedDone,
 }: {
-  patchAndSet: (patch: Record<string, string>) => Promise<void>
+  patchAndSet: (patch: Record<string, string>) => Promise<boolean>
   savedUrl: string
   savedSecret: string
   remote: RemoteStatus | null
@@ -902,7 +904,10 @@ function RelaySettings({
         // The draft stays in the field; the next commit decides.
         return false
       case 'save':
-        void patchAndSet({ [key]: typed.trim() })
+        void patchAndSet({ [key]: typed.trim() }).then((saved) => {
+          // A proposal that failed to save leaves the field free: the same URL blurred again saves it.
+          if (!saved && key === 'remote_relay_url' && proposedUrl.current === typed.trim()) proposedUrl.current = null
+        })
         return true
       case 'ask':
         setAsking({ key, value: typed.trim(), count: pairedCount ?? 0 })
@@ -931,7 +936,8 @@ function RelaySettings({
       }
       // Known limitation: `patchAndSet` reports its own failure and does not
       // throw, so a failed save leaves the devices removed and the old value kept.
-      await patchAndSet({ [asking.key]: asking.value })
+      const saved = await patchAndSet({ [asking.key]: asking.value })
+      if (!saved && asking.key === 'remote_relay_url') proposedUrl.current = null
       setAsking(null)
     } catch (err) {
       reportError(err, 'Failed to change the relay')

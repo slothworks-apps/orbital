@@ -551,7 +551,8 @@ export function Settings({ open, onClose }: SettingsProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  async function patchAndSet(patch: Record<string, string>) {
+  /** Saves `patch`; false when the save failed, which it has already reported. */
+  async function patchAndSet(patch: Record<string, string>): Promise<boolean> {
     try {
       await api.patchSettings(patch)
       useOrbital.setState((state) => ({ settings: { ...state.settings, ...patch } }))
@@ -561,8 +562,10 @@ export function Settings({ open, onClose }: SettingsProps) {
       // topic. Told here rather than inside `api.patchSettings` so the
       // sidebar's own writes do not make it re-read for nothing.
       notifyDesktopSettingsChanged()
+      return true
     } catch (err) {
       reportError(err, 'Failed to save settings')
+      return false
     }
   }
 

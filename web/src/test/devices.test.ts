@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { deviceId, generateIdentity, toBase64Url } from '@orbital/shared/remote/keys'
 import { parsePairingCode } from '@orbital/shared/remote/relayApi'
-import { addedByLine, kindOs, memberStateWords, oneWordCode, osLabel } from '../lib/devices'
+import { addedByLine, deviceRows, kindOs, memberStateWords, oneWordCode, osLabel } from '../lib/devices'
 import type { GroupMember } from '../lib/types'
 
 const NOW = Date.now()
@@ -27,6 +27,17 @@ describe('memberStateWords', () => {
   it('reads offline with a seen time as offline, seen ago', () => {
     const twoHoursAgo = NOW - 2 * 60 * 60_000
     expect(memberStateWords(member({ state: 'offline', seenAt: twoHoursAgo }), NOW)).toBe('offline · seen 2h ago')
+  })
+
+  it('reads a time under a minute as seen just now, never "seen now ago"', () => {
+    expect(memberStateWords(member({ state: 'offline', seenAt: NOW - 10_000 }), NOW)).toBe('offline · seen just now')
+  })
+
+  it('reads a time old enough to be a date without "ago"', () => {
+    const longAgo = NOW - 90 * 24 * 60 * 60_000
+    const words = memberStateWords(member({ state: 'offline', seenAt: longAgo }), NOW)
+    expect(words).toMatch(/^offline · seen \S+ \d+$/)
+    expect(words).not.toMatch(/ago$/)
   })
 
   it('reads offline with no seen time as bare offline', () => {
@@ -101,5 +112,44 @@ describe('oneWordCode', () => {
     }
     const json = JSON.stringify(qr)
     expect(parsePairingCode(oneWordCode(json))).toEqual(qr)
+  })
+})
+
+describe('deviceRows', () => {
+  const self = member({ id: 'self-id', name: 'studio-mbp', self: true, state: 'self' })
+  const build = member({ id: 'build-id', name: 'build-box' })
+
+  it('a phone paired with another member reads paired with its adder, with no presence', () => {
+    const phone = member({
+      id: 'p1', kind: 'phone', os: 'ios', links: false, linked: false, state: 'offline', addedBy: 'build-id',
+    })
+    const row = deviceRows([self, build, phone], [], NOW).find((r) => r.id === 'p1')!
+    expect(row.state).toBe('elsewhere')
+    expect(row.words).toBe('paired with build-box')
+  })
+
+  it('names an adder no longer in the group by its short id', () => {
+    const phone = member({
+      id: 'p1', kind: 'phone', os: 'ios', links: false, linked: false, state: 'online', addedBy: 'deadbeef12345678',
+    })
+    expect(deviceRows([self, phone], [], NOW)[0].words).toBe('paired with deadbeef')
+  })
+
+  it('a desktop that does not link yet keeps its own state words', () => {
+    const desk = member({ id: 'd1', links: false, linked: false, state: 'offline' })
+    expect(deviceRows([self, desk], [], NOW)[0]).toMatchObject({ state: 'offline', words: 'offline' })
+  })
+
+  it('a phone paired here keeps its presence', () => {
+    const phone = member({ id: 'p1', kind: 'phone', os: 'ios', links: false, linked: true, state: 'offline' })
+    expect(deviceRows([self, phone], [], NOW)[0]).toMatchObject({ state: 'offline', words: 'offline' })
+  })
+
+  it('an unlisted device seen under a minute ago reads seen just now', () => {
+    const rows = deviceRows([self], [{
+      id: 'old', name: 'Galaxy', platform: 'android', kind: null, pairedAt: NOW, lastSeenAt: NOW - 5_000, online: false,
+      needsUpdate: null,
+    }], NOW)
+    expect(rows[0].words).toBe('offline · seen just now')
   })
 })

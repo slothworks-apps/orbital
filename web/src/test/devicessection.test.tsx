@@ -37,7 +37,7 @@ function status(others: GroupMember[], patch: Partial<RemoteStatus> = {}): Remot
   }
 }
 
-const patchAndSet = vi.fn(async () => {})
+const patchAndSet = vi.fn(async (_patch: Record<string, string>) => true)
 
 function renderWith(remote: RemoteStatus) {
   useOrbital.setState({
@@ -106,13 +106,49 @@ describe('DevicesSection', () => {
     vi.mocked(api.leaveGroup).mockResolvedValue({ ok: false, error: 'offline' })
     renderWith(status([member({ id: 'b1', name: 'build-box' })]))
     await userEvent.click(screen.getByRole('button', { name: 'Leave…' }))
-    expect(screen.getByText(/This device forgets the other 1 and their keys/)).toBeInTheDocument()
+    expect(screen.getByText(/This device forgets the other device and its keys/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Leave' }))
     expect(api.leaveGroup).toHaveBeenCalledTimes(1)
     expect(await screen.findByText('Connect to the relay to leave — the others have to hear it.')).toBeInTheDocument()
     expect(api.removeDevice).not.toHaveBeenCalled()
     expect(patchAndSet).not.toHaveBeenCalled()
     expect(screen.getByText('build-box')).toBeInTheDocument()
+  })
+
+  it('with one other device, Leave speaks of it in the singular; with more, in the plural', async () => {
+    const { unmount } = renderWith(status([member({ id: 'b1', name: 'build-box' })]))
+    await userEvent.click(screen.getByRole('button', { name: 'Leave…' }))
+    expect(screen.getByText('This device forgets the other device and its keys; it stops seeing this device\'s sessions.'))
+      .toBeInTheDocument()
+    unmount()
+    renderWith(status([member({ id: 'b1', name: 'build-box' }), member({ id: 'b2', name: 'rpi-lab' })]))
+    await userEvent.click(screen.getByRole('button', { name: 'Leave…' }))
+    expect(screen.getByText(/This device forgets the other 2 and their keys/)).toBeInTheDocument()
+  })
+
+  it('a Mac with only its phones changes the relay after the confirm that removes them', async () => {
+    const phone = member({ id: 'p1', name: 'Pixel 8', kind: 'phone', os: 'android', links: false })
+    renderWith(status([phone], {
+      group: { members: [SELF, phone], relayLocked: false },
+      devices: [{
+        id: 'p1', name: 'Pixel 8', platform: 'android', kind: 'phone', pairedAt: NOW, lastSeenAt: null, online: true,
+        needsUpdate: null,
+      }],
+    }))
+    const relay = await openRelay()
+    expect(relay).not.toHaveAttribute('readonly')
+    await userEvent.clear(relay)
+    await userEvent.type(relay, 'https://other.test{Enter}')
+    expect(patchAndSet).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'Change and remove' }))
+    expect(api.removeDevice).toHaveBeenCalledWith('p1')
+    expect(patchAndSet).toHaveBeenCalledWith({ remote_relay_url: 'https://other.test' })
+  })
+
+  it('the add box offers no server command until one exists', () => {
+    renderWith(status([]))
+    expect(screen.queryByText(/orbital join/)).not.toBeInTheDocument()
+    expect(screen.getByText(/paste it in Devices there/)).toBeInTheDocument()
   })
 
   it('a member that is not linked offers Pair by hand, which draws a code for it', async () => {
@@ -445,6 +481,22 @@ describe('DevicesSection — joining another device\'s group', () => {
     await user.click(document.body)
     expect(patchAndSet).toHaveBeenCalledTimes(1)
     expect(patchAndSet).toHaveBeenCalledWith({ remote_relay_url: 'https://relay.lab.internal' })
+  })
+
+  it('Use <relay> whose save failed saves again when the same URL is blurred', async () => {
+    vi.useRealTimers()
+    const user = userEvent.setup()
+    patchAndSet.mockResolvedValueOnce(false)
+    renderWith(status([]))
+    await paste(codeFor({ relay: 'https://relay.lab.internal', expiresAt: Date.now() + 120_000 }))
+    await user.click(screen.getByRole('button', { name: 'Use relay.lab.internal' }))
+    expect(patchAndSet).toHaveBeenCalledTimes(1)
+    const relay = screen.getByLabelText<HTMLInputElement>('Relay URL')
+    expect(relay.value).toBe('https://relay.lab.internal')
+    await user.click(relay)
+    await user.click(document.body)
+    expect(patchAndSet).toHaveBeenCalledTimes(2)
+    expect(patchAndSet).toHaveBeenLastCalledWith({ remote_relay_url: 'https://relay.lab.internal' })
   })
 
   it('another relay while this device has none says so', async () => {
