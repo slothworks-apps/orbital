@@ -328,6 +328,7 @@ export function DevicesSection({
           remote={liveRemote}
           locked={relayLocked}
           proposed={proposedRelay}
+          onProposedDone={() => setProposedRelay(null)}
         />
       )}
 
@@ -838,6 +839,7 @@ function RelaySettings({
   remote,
   locked,
   proposed,
+  onProposedDone,
 }: {
   patchAndSet: (patch: Record<string, string>) => Promise<void>
   savedUrl: string
@@ -846,6 +848,8 @@ function RelaySettings({
   locked: boolean
   /** A URL to commit as if typed here (card B's Use <relay>); a new object each time it is asked. */
   proposed: { url: string } | null
+  /** The proposal was committed: it is forgotten, so reopening the panel never commits it again. */
+  onProposedDone: () => void
 }) {
   const [urlDraft, setUrlDraft] = useState(savedUrl)
   const [secretDraft, setSecretDraft] = useState(savedSecret)
@@ -859,11 +863,16 @@ function RelaySettings({
   const asked = useRef<{ key: RelaySetting; count: number }>({ key: 'remote_relay_url', count: 0 })
   if (asking) asked.current = { key: asking.key, count: asking.count }
   const [busy, setBusy] = useState(false)
+  /** The URL a proposal last committed: the field's own blur with it in the field adds no second save or ask. */
+  const proposedUrl = useRef<string | null>(null)
   // Unknown until the first status: whether to ask cannot be decided from nothing.
   const pairedCount = remote ? remote.devices.length : null
 
   // A save or another window moves the saved value: the field follows.
-  useEffect(() => setUrlDraft(savedUrl), [savedUrl])
+  useEffect(() => {
+    setUrlDraft(savedUrl)
+    proposedUrl.current = null
+  }, [savedUrl])
   useEffect(() => setSecretDraft(savedSecret), [savedSecret])
 
   function resetDraft(key: RelaySetting) {
@@ -876,6 +885,7 @@ function RelaySettings({
       resetDraft(key)
       return
     }
+    if (key === 'remote_relay_url' && typed.trim() === proposedUrl.current) return
     const decision =
       key === 'remote_relay_url'
         ? relayUrlCommit(savedUrl, typed, pairedCount)
@@ -899,6 +909,7 @@ function RelaySettings({
     if (busy || asking === null) return
     resetDraft(asking.key)
     setAsking(null)
+    proposedUrl.current = null
   }
 
   async function changeAndRemove() {
@@ -930,7 +941,10 @@ function RelaySettings({
   useEffect(() => {
     if (!proposed) return
     setUrlDraft(proposed.url)
+    proposedUrl.current = null
     commit('remote_relay_url', proposed.url)
+    proposedUrl.current = proposed.url.trim()
+    onProposedDone()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proposed])
 

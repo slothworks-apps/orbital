@@ -85,10 +85,12 @@ function useJoin(remote: RemoteStatus) {
   const [ended, setEnded] = useState<string | null>(null)
   const [prev, setPrev] = useState<Joining | null>(joining)
 
-  const waiting = joining !== null && key !== ended
-  const offlineExpiry = outcome?.kind === 'offline' ? outcome.expiresAt : null
-  // Ticks only while a countdown is on screen.
-  const now = useNow(waiting || offlineExpiry !== null)
+  // While a Join is in flight the server publishes its `joining` before it
+  // posts the code to the relay and clears it again if the relay refuses:
+  // that is not a join under way yet, and the answer settles what to show.
+  const waiting = joining !== null && key !== ended && !busy
+  // Ticks while a countdown is on screen, and while card C's "checked …" ages.
+  const now = useNow(waiting || outcome?.kind === 'offline')
 
   // The join's code ran out by the clock before the status cleared it.
   useEffect(() => {
@@ -101,11 +103,12 @@ function useJoin(remote: RemoteStatus) {
   // The status moved from one join to none (or to another).
   if (joinKey(prev) !== key) {
     setPrev(joining)
-    if (joining) {
+    // In flight, nothing here is an outcome yet: `send` settles it when the answer lands.
+    if (!busy && joining) {
       setOutcome(null)
       setPaste('')
     }
-    if (prev && joinKey(prev) !== ended) {
+    if (!busy && prev && joinKey(prev) !== ended) {
       setEnded(joinKey(prev))
       if (Date.now() >= prev.expiresAt) setOutcome({ kind: 'expired', name: prev.name })
       else if (remote.group.members.some((m) => m.id === prev.device)) setOutcome(null)
@@ -115,6 +118,9 @@ function useJoin(remote: RemoteStatus) {
   }
 
   async function send(code: string, name: string, expiresAt: number | undefined) {
+    // The server keys a join again by the same device and expiry: a join
+    // cancelled or ended earlier must not hide this one.
+    setEnded(null)
     setBusy(true)
     try {
       const res = await api.joinGroup(code)
@@ -235,14 +241,28 @@ export function JoinArea({
         {field}
         <span className={CARD_TITLE}>{outcome.name} uses another relay</span>
         <span className={CARD_BODY}>
-          It's on <span className={HOST}>{theirs}</span>; this device is on{' '}
-          <span className={HOST}>{relayHostname(remote.relayUrl)}</span>. Both need the same one.
+          It's on <span className={HOST}>{theirs}</span>;{' '}
+          {remote.relayUrl === '' ? (
+            'this device has no relay yet.'
+          ) : (
+            <>
+              this device is on <span className={HOST}>{relayHostname(remote.relayUrl)}</span>.
+            </>
+          )}{' '}
+          Both need the same one.
         </span>
         {/* The one-click switch only while this device is alone (50d B); a group keeps its relay. */}
         {remote.group.relayLocked ? (
           <span className={CARD_BODY}>Leave this group first to change relays.</span>
         ) : (
-          <Button variant="outline" size="member" className="self-start" onClick={() => onUseRelay(outcome.relay)}>
+          <Button
+            variant="outline"
+            size="member"
+            className="self-start"
+            // Keeps a draft in the Relay field from blurring into a save of its own first: the proposal wins.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onUseRelay(outcome.relay)}
+          >
             Use {theirs}
           </Button>
         )}

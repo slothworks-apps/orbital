@@ -355,6 +355,109 @@ describe('DevicesSection — joining another device\'s group', () => {
     expect(screen.getByText('Request rejected')).toBeInTheDocument()
   })
 
+  /** A joinGroup answer the test lands by hand, after the statuses the server publishes first. */
+  function deferredJoin() {
+    let land: (a: Awaited<ReturnType<typeof api.joinGroup>>) => void = () => {}
+    vi.mocked(api.joinGroup).mockImplementationOnce(() => new Promise((resolve) => { land = resolve }))
+    return async (a: Awaited<ReturnType<typeof api.joinGroup>>) => {
+      await act(async () => { land(a) })
+    }
+  }
+
+  function publish(remote: RemoteStatus) {
+    act(() => useOrbital.getState().setRemote(remote))
+  }
+
+  it('a redeem the relay refuses: the joining the server published and cleared is no outcome, and the field keeps the code', async () => {
+    renderWith(status([]))
+    const land = deferredJoin()
+    const code = codeFor()
+    await paste(code)
+    publish(status([], { joining: joining() }))
+    expect(screen.queryByText(/^Type /)).not.toBeInTheDocument()
+    publish(status([]))
+    await land({ ok: false, error: 'peer_offline', expiresAt: T0 + 80_000 })
+    expect(screen.queryByText('Request rejected')).not.toBeInTheDocument()
+    expect(screen.getByText('studio-mbp is offline')).toBeInTheDocument()
+    expect(screen.getByLabelText<HTMLInputElement>("Another device's code").value).toBe(code)
+  })
+
+  it('Try again that gets through shows the joining card, under the same key as before', async () => {
+    renderWith(status([]))
+    let land = deferredJoin()
+    await paste(codeFor())
+    publish(status([], { joining: joining() }))
+    publish(status([]))
+    await land({ ok: false, error: 'peer_offline', expiresAt: T0 + 80_000 })
+
+    land = deferredJoin()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await settle()
+    publish(status([], { joining: joining() }))
+    await land({ ok: true, device: PEER, name: 'studio-mbp', code: 'K7F-Q2M' })
+    expect(screen.getByText('Type K7F-Q2M on studio-mbp')).toBeInTheDocument()
+  })
+
+  it('Cancel, then the same code again, shows the joining card again', async () => {
+    renderWith(status([], { joining: joining() }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await settle()
+    publish(status([]))
+    expect(screen.queryByText(/^Type /)).not.toBeInTheDocument()
+
+    const land = deferredJoin()
+    await paste(codeFor())
+    publish(status([], { joining: joining() }))
+    await land({ ok: true, device: PEER, name: 'studio-mbp', code: 'K7F-Q2M' })
+    expect(screen.getByText('Type K7F-Q2M on studio-mbp')).toBeInTheDocument()
+  })
+
+  it('Use <relay> commits once: reopening Change relay does not commit it again', async () => {
+    renderWith(status([]))
+    await paste(codeFor({ relay: 'https://relay.lab.internal' }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Use relay.lab.internal' }))
+    })
+    expect(patchAndSet).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Change relay' }))
+    })
+    expect(patchAndSet).toHaveBeenCalledTimes(1)
+  })
+
+  it('Use <relay> over a draft typed in the Relay field saves the proposal only', async () => {
+    // userEvent's own waits want the real clock; nothing here counts down.
+    vi.useRealTimers()
+    const user = userEvent.setup()
+    renderWith(status([]))
+    await paste(codeFor({ relay: 'https://relay.lab.internal', expiresAt: Date.now() + 120_000 }))
+    await user.click(screen.getByRole('button', { name: 'Change relay' }))
+    const relay = screen.getByLabelText<HTMLInputElement>('Relay URL')
+    await user.clear(relay)
+    await user.type(relay, 'https://draft.test')
+    await user.click(screen.getByRole('button', { name: 'Use relay.lab.internal' }))
+    await user.click(document.body)
+    expect(patchAndSet).toHaveBeenCalledTimes(1)
+    expect(patchAndSet).toHaveBeenCalledWith({ remote_relay_url: 'https://relay.lab.internal' })
+  })
+
+  it('another relay while this device has none says so', async () => {
+    renderWith(status([], { relayUrl: '' }))
+    await paste(codeFor({ relay: 'https://relay.lab.internal' }))
+    expect(screen.getByText(/this device has no relay yet\./)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Use relay.lab.internal' })).toBeInTheDocument()
+  })
+
+  it('card C without the code\'s expiry still ages its check', async () => {
+    vi.mocked(api.joinGroup).mockResolvedValue({ ok: false, error: 'peer_offline' })
+    renderWith(status([]))
+    await paste(codeFor({ expiresAt: undefined }))
+    expect(screen.getByText(/^Checked just now\. Try again once studio-mbp is awake\./)).toBeInTheDocument()
+    tick(2 * 60_000)
+    expect(screen.getByText(/^Checked 2m ago\./)).toBeInTheDocument()
+  })
+
   it('the countdown reaching zero first turns the card to expired, and the status clearing later keeps it', () => {
     renderWith(status([], { joining: joining() }))
     tick(60_000)
