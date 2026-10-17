@@ -3,6 +3,11 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Added
+- The phone joins your group of devices: it reaches every desktop and server in the group on its own, so a sleeping Mac takes away only its own sessions. Pairing with one device links the phone with the rest. Needs the Mac update that brings device groups; with an older Mac the phone works as before.
+- The session list shows a chip per device to show or hide its sessions, names each session's device, and says which device is asleep.
+- Settings → Devices lists every device in the group: add one by showing this phone's code, remove one, or leave the group.
+- New session asks which device the session runs on.
 
 ## [0.13.0] — 2026-10-15
 ### Added
