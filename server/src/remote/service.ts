@@ -20,10 +20,11 @@ import { initiates, osName } from '@orbital/shared/remote/device';
 import type { Role } from '@orbital/shared/remote/handshake';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import type { Channel } from '@orbital/shared/remote/channel';
-import type { GroupMessage, HelloMessage } from '@orbital/shared/remote/messages';
+import type { HelloMessage } from '@orbital/shared/remote/messages';
+import { ROSTER_KIND_MAX_CHARS, isLive, type RosterEntry } from '@orbital/shared/remote/roster';
 import {
-  ROSTER_KIND_MAX_CHARS, addMember, describeMember, isLive, mergeRosters, removeMember, rosterDigest, type RosterEntry,
-} from '@orbital/shared/remote/roster';
+  GroupMember, type GroupStorage, type MemberState, type RemoveResult, type SelfAbout,
+} from '@orbital/shared/remote/group';
 import type { RelayTooOld } from '@orbital/shared/remote/version';
 import type { Hub } from '../api/hub.js';
 import { CONFIG } from '../config.js';
@@ -42,16 +43,6 @@ import { wakeSecret, wakeToken } from './wake.js';
 import type { Presence } from './presence.js';
 import { memberTooOld } from './memberGate.js';
 
-/**
- * Whether `entries` holds a live member other than `self` that makes a
- * group: one that links, or one this device is not paired with (`paired`
- * holds the ids with a `remote_devices` row). A phone paired here makes no
- * group — a Mac with only its phones keeps today's relay change and joins.
- */
-function hasOtherGroupMember(entries: RosterEntry[], self: string | null, paired: Set<string>): boolean {
-  return entries.some((e) => isLive(e) && e.id !== self && (e.links || !paired.has(e.id)));
-}
-
 /** A phone refused at `hello` for an app too old: both versions, and when it was last refused. */
 export type PhoneRefusal = PhoneTooOld & { at: number };
 
@@ -62,11 +53,7 @@ export type PhoneRefusal = PhoneTooOld & { at: number };
  */
 export const RELAY_TOO_OLD_RECHECK_MS = 5 * 60_000;
 
-/**
- * How long a mutual pair the relay refused for its rate limit waits before it
- * is asked again, rather than only at the next relay `ok`.
- */
-export const MUTUAL_RETRY_MS = 60_000;
+export { MUTUAL_RETRY_MS, type MemberState, type RemoveResult } from '@orbital/shared/remote/group';
 
 /**
  * Wrong pairing codes a request may be sent before it is rejected as if the
@@ -94,9 +81,6 @@ export type PairConfirmResult =
   | { error: 'no_pending' | 'code_rejected' | 'relay_error' }
   | { error: 'code_mismatch'; attemptsLeft: number };
 
-/** The answer to removing a device: `offline` when it is this device itself and the relay is not online (`leave`). */
-export type RemoveResult = { ok: true } | { error: 'not_found' | 'offline' | 'failed' };
-
 /**
  * The answer to joining another device by its code: that device and the
  * code the user types on it, or why not. `in_group`: this device is in a
@@ -109,15 +93,6 @@ export type JoinResult =
   | { error: 'bad_code' | 'disabled' | 'offline' | 'already_paired' | 'in_group' | 'relay_error' | 'relay_too_old' }
   | { error: 'other_relay'; relay: string }
   | { error: 'peer_offline'; expiresAt?: number };
-
-/**
- * How Settings shows a member. `self`: this device. `online`/`offline`: a
- * member paired here, or a member that does not link (a phone paired with
- * another member), by the relay's presence. `linking`: a member that links
- * and is not paired here yet; `notLinked`: one the relay cannot pair
- * (`pairByHand`), so only a pairing code links the two.
- */
-export type MemberState = 'self' | 'online' | 'offline' | 'linking' | 'notLinked';
 
 export type RemoteStatus = {
   enabled: boolean;
@@ -252,20 +227,13 @@ export class RemoteService {
    * the next hello decides again, and a restart only loses the mark until then.
    */
   private readonly phonesTooOld = new Map<string, PhoneRefusal>();
-  /**
-   * Members a mutual pair was asked for on this relay connection, and those
-   * the relay could not pair (a relay from before `/pair/mutual`). Both are
-   * replaced at every relay `ok`, so a reconnect, or an updated relay, asks again.
-   */
-  private mutualAsked = new Set<string>();
-  private pairByHand = new Set<string>();
-  /** Members the relay refused a mutual pair for its rate limit, asked again when `mutualRetry` fires. */
-  private rateLimited = new Set<string>();
-  /** The ask again `MUTUAL_RETRY_MS` after a rate limit; cleared by the next relay `ok` and by any stop. */
-  private mutualRetry: NodeJS.Timeout | null = null;
   private readonly pendingRevokes: PendingRevokes;
-  /** Revokes posted to the relay and not answered yet; a removal waits for them before it answers. */
-  private readonly revoking = new Set<Promise<void>>();
+  /**
+   * This device as a member of its group: the roster, linking, removal and
+   * leaving. One for the service's life, so what it knows of the relay
+   * (members it cannot pair) reads the same while the remote is off.
+   */
+  private readonly group: GroupMember;
   /** `ownId`'s answer once known; undefined until then. */
   private knownId: string | null | undefined = undefined;
   private readonly now: () => number;
@@ -285,6 +253,21 @@ export class RemoteService {
     this.roster = new RosterStore(opts.db);
     this.pendingRevokes = new PendingRevokes(opts.db);
     this.now = opts.now ?? Date.now;
+    this.group = new GroupMember(this.groupStorage(), {
+      selfId: () => this.runningId,
+      about: () => this.selfAbout(),
+      knownId: () => this.ownId(),
+      relay: () => this.client,
+      channels: () => this.channels,
+      channel: (id) => this.channels.get(id) ?? null,
+      open: (id) => this.open(id),
+      paired: (id) => this.watch(id),
+      forget: (id) => this.forget(id),
+      forgetAll: () => this.forgetAll(),
+      changed: () => this.publishStatus(),
+      now: () => this.now(),
+      log: (message) => console.warn(`[remote] ${message}`),
+    });
     this.files = createPhoneFileReader(
       opts.db,
       opts.transcriptPath ?? ((id, projectDir) => join(CONFIG.projectsDir, projectDir, `${id}.jsonl`)),
@@ -326,7 +309,7 @@ export class RemoteService {
       const loaded = loadOrCreateIdentity(this.opts.dataDir);
       this.identity = loaded.identity;
       if (loaded.regenerated) this.forgetAllDevices();
-      this.addSelf();
+      this.group.addSelf();
       const client = (this.opts.clientFactory ?? ((o) => new RelayClient(o)))({
         relayUrl: this.relayUrl, identity: this.identity, relaySecret: this.relaySecret,
       });
@@ -375,7 +358,7 @@ export class RemoteService {
   private teardown(): void {
     if (this.relayRecheck) clearTimeout(this.relayRecheck);
     this.relayRecheck = null;
-    this.clearMutualRetry();
+    this.group.stop();
     this.closeChannels();
     for (const w of this.watchers.values()) w.stop();
     this.watchers.clear();
@@ -403,10 +386,7 @@ export class RemoteService {
    * every window shows the new name.
    */
   nameChanged(): void {
-    const self = this.runningId;
-    const described = self !== null
-      && this.setRoster(describeMember(this.roster.list(), self, { name: this.selfAbout().name }, this.now()));
-    if (!described) this.publishStatus();
+    if (!this.group.nameChanged()) this.publishStatus();
   }
 
   /** This device's id, known whether or not the remote runs; null when it never had one. */
@@ -485,40 +465,19 @@ export class RemoteService {
   /** As `listDevices`: a database already gone reads as an empty roster. */
   private listGroup(online: Set<string>): RemoteStatus['group'] {
     try {
-      const self = this.ownId();
-      const rows = new Map(this.devices.list().map((d) => [d.id, d]));
-      const roster = this.roster.list();
-      const members = roster.filter(isLive).map((e) => {
-        const row = rows.get(e.id);
-        const pairByHand = this.pairByHand.has(e.id);
-        const state: MemberState = e.id === self ? 'self'
-          : row || !e.links ? (online.has(e.id) ? 'online' : 'offline')
-            : pairByHand ? 'notLinked' : 'linking';
-        return {
-          ...e, self: e.id === self, linked: row !== undefined, online: online.has(e.id), pairByHand,
-          state, seenAt: row?.lastSeenAt ?? null,
-          tooOld: e.id !== self && memberTooOld(e.kind, this.hellos.get(e.id) ?? null),
-        };
-      });
-      return { members, relayLocked: hasOtherGroupMember(roster, self, new Set(rows.keys())) };
+      const members = this.group.members(online).map((m) => ({
+        ...m, tooOld: !m.self && memberTooOld(m.kind, this.hellos.get(m.id) ?? null),
+      }));
+      return { members, relayLocked: this.group.inGroup() };
     } catch (err) {
       console.warn(`[remote] could not list the roster: ${err instanceof Error ? err.message : String(err)}`);
       return { members: [], relayLocked: false };
     }
   }
 
-  /**
-   * Whether this device is in a group of two or more (`hasOtherGroupMember`):
-   * it cannot join another group then, nor move to another relay. As the
-   * status, a roster that cannot be read reads as a group of one.
-   */
+  /** See `GroupMember.inGroup`: it cannot join another group then, nor move to another relay. */
   inGroup(): boolean {
-    try {
-      return hasOtherGroupMember(this.roster.list(), this.ownId(), new Set(this.devices.list().map((d) => d.id)));
-    } catch (err) {
-      console.warn(`[remote] could not read the roster: ${err instanceof Error ? err.message : String(err)}`);
-      return false;
-    }
+    return this.group.inGroup();
   }
 
   /** The request as the status shows it: everything but the code. */
@@ -635,9 +594,7 @@ export class RemoteService {
       this.pairing = null;
     }
     if (accept) {
-      this.tryRoster('add a paired device', () => this.addPaired({
-        id: pending.phone, kind: pending.kind, name: pending.name, os: osName(pending.platform),
-      }));
+      this.group.addPaired({ id: pending.phone, kind: pending.kind, name: pending.name, os: osName(pending.platform) });
     }
     this.publishStatus();
     // A guard: the relay's `presence` for the new device, sent before it
@@ -658,7 +615,7 @@ export class RemoteService {
     if (this.relayRefusal) return { error: 'relay_too_old' };
     // Groups do not merge (§ 3): a device in one leaves it before it joins
     // another group. A code from a member of its own group is pairing by hand.
-    if (this.inGroup() && !this.isLiveMember(qr.mac)) return { error: 'in_group' };
+    if (this.inGroup() && !this.group.isLiveMember(qr.mac)) return { error: 'in_group' };
     if (!this.enabled || !this.client || !this.identity) return { error: 'disabled' };
     if (this.client.status !== 'online') return { error: 'offline' };
     const self = deviceId(this.identity.publicKey);
@@ -712,76 +669,19 @@ export class RemoteService {
     return true;
   }
 
-  /** A roster that cannot be read holds no one, as `inGroup` reads it. */
-  private isLiveMember(id: string): boolean {
-    try {
-      const entry = this.roster.entry(id);
-      return entry !== null && isLive(entry);
-    } catch {
-      return false;
-    }
-  }
-
   /** The channel to a paired device, while one is open. */
   channel(id: string): Channel | null {
     return this.channels.get(id) ?? null;
   }
 
-  /**
-   * Removes a member from the group, on every member (ADR
-   * joining-one-member-joins-the-group): the roster marks it removed and
-   * the removal is applied here at once, remote on or off. A device paired
-   * before the roster existed gets its entry first. Telling the relay is
-   * best effort on top — a device it still thinks is paired can reach
-   * nothing here. `not_found` when `id` is neither a live member nor
-   * paired. This device's own id is `leave`, with its refusal while offline.
-   */
-  async remove(id: string): Promise<RemoveResult> {
-    const self = this.ownId();
-    if (self !== null && id === self) return this.leave();
-    const known = this.roster.entry(id);
-    const device = this.devices.get(id);
-    if (!(known && isLive(known)) && !device) return { error: 'not_found' };
-    if (self !== null) {
-      this.tryRoster('remove a member', () => {
-        const now = this.now();
-        let roster = this.roster.list();
-        if (!known && device) {
-          roster = addMember(roster, {
-            id, kind: device.kind ?? 'phone', name: device.name, os: osName(device.platform), links: false,
-            addedBy: self, addedAt: device.pairedAt, describedAt: now,
-          });
-        }
-        this.setRoster(removeMember(roster, id, self, now));
-      });
-    }
-    // Still paired: no identity to write the roster with, or an entry that was removed already.
-    if (this.devices.get(id)) {
-      this.dropMember(id);
-      this.publishStatus();
-    }
-    await Promise.all([...this.revoking]);
-    return { ok: true };
+  /** See `GroupMember.remove`: this device's own id is `leave`. */
+  remove(id: string): Promise<RemoveResult> {
+    return this.group.remove(id);
   }
 
-  /**
-   * This device leaves its group: removing it, from itself. Only while the
-   * relay is online: the others hear of it over the channels and the pairs
-   * go at the relay, and offline neither happens — the group of one written
-   * next would overwrite the removal before it ever spread. `failed` when
-   * the roster could not be written.
-   */
-  async leave(): Promise<RemoveResult> {
-    const self = this.runningId;
-    if (self === null || !this.client || this.client.status !== 'online') return { error: 'offline' };
-    try {
-      this.setRoster(removeMember(this.roster.list(), self, self, this.now()));
-    } catch (err) {
-      console.warn(`[remote] could not leave the group: ${err instanceof Error ? err.message : String(err)}`);
-      return { error: 'failed' };
-    }
-    await Promise.all([...this.revoking]);
-    return { ok: true };
+  /** See `GroupMember.leave`: only while the relay is online. */
+  leave(): Promise<RemoveResult> {
+    return this.group.leave();
   }
 
   /** This device's id, read once from the data dir while the remote is off; null when it never had one. */
@@ -795,81 +695,41 @@ export class RemoteService {
   }
 
   /**
-   * A member removed from the group, on this device: told so while its
-   * channel is open, then its channel, watcher and row go, and its pair at
-   * the relay — posted even with no row, so the relay also drops a mutual
-   * half waiting between the two.
+   * A member dropped from the group (`GroupMember`), after it was told so:
+   * its channel, watcher and marks go. Its row and its pair at the relay
+   * are the group's to remove.
    */
-  private dropMember(id: string): void {
-    const channel = this.channels.get(id);
-    channel?.sendGroup({ t: 'removed' });
-    channel?.close('revoked');
+  private forget(id: string): void {
+    this.channels.get(id)?.close('revoked');
     this.channels.delete(id);
     this.watchers.get(id)?.stop();
     this.watchers.delete(id);
-    this.devices.remove(id);
     this.phonesTooOld.delete(id);
     this.hellos.delete(id);
-    this.revokeAtRelay(id);
   }
 
-  /**
-   * This device was removed from its group: the members it still talks to
-   * get the roster that says so (a `removed` would tell them they were
-   * removed) and `bye revoked`, while the channels exist; then every pair
-   * goes at the relay, with any mutual half waiting for a member, then every paired device here; then this device
-   * starts a group of one at its next epoch, which the others' removal
-   * does not reach.
-   */
-  private leaveGroup(self: string): void {
-    const paired = this.devices.list();
-    // A phone paired here loses that pair below, and no other member can reach it: the roster
-    // the others get says it is gone too. Not written here — the group of one replaces it.
-    const now = this.now();
-    let entries = this.roster.list();
-    for (const e of entries) {
-      if (e.kind === 'phone' && isLive(e) && !e.links && paired.some((d) => d.id === e.id)) {
-        entries = removeMember(entries, e.id, self, now);
-      }
-    }
-    for (const channel of this.channels.values()) {
-      channel.sendGroup({ t: 'roster', entries });
-      channel.close('revoked');
-    }
+  /** This device left its group (`GroupMember`): every channel, watcher and mark goes. */
+  private forgetAll(): void {
+    for (const channel of this.channels.values()) channel.close('revoked');
     this.channels.clear();
-    for (const d of paired) this.revokeAtRelay(d.id);
-    // A member that links but is not paired here may have a mutual half waiting at the relay.
-    for (const e of entries) {
-      if (e.id !== self && isLive(e) && e.links && !paired.some((d) => d.id === e.id)) this.revokeAtRelay(e.id);
-    }
     for (const w of this.watchers.values()) w.stop();
     this.watchers.clear();
-    for (const d of paired) this.devices.remove(d.id);
     this.phonesTooOld.clear();
     this.hellos.clear();
-    this.setRoster(addMember(entries.filter((e) => e.id === self), {
-      id: self, ...this.selfAbout(), addedBy: self, addedAt: now, describedAt: now,
-    }));
   }
 
-  /**
-   * The device is gone here whatever the relay answers. The revoke is kept
-   * in `pending_revokes` until the relay answers it — 404 is a pair the
-   * relay no longer had — and posted again at every relay `ok` until then.
-   */
-  private revokeAtRelay(id: string): void {
-    this.pendingRevokes.add(id);
-    const client = this.client;
-    if (!client || client.status !== 'online') return;
-    const done = client.post('/pair/revoke', 'pair.revoke', { phone: id }).then((res) => {
-      if (res.status === 200 || res.status === 404) {
-        this.tryRoster('forget a revoke the relay answered', () => this.pendingRevokes.remove(id));
-      } else {
-        console.warn(`[remote] relay revoke of ${id.slice(0, 8)} failed: ${res.status}`);
-      }
-    });
-    this.revoking.add(done);
-    void done.finally(() => this.revoking.delete(done));
+  /** The device rows as the group reads and writes them; a pair it adds gets the default notifications. */
+  private groupStorage(): GroupStorage {
+    return {
+      roster: this.roster,
+      pendingRevokes: this.pendingRevokes,
+      paired: {
+        list: () => this.devices.list(),
+        get: (id) => this.devices.get(id),
+        add: (d) => this.devices.add({ ...d, notifications: parseNotificationSettings(this.opts.allSettings()) }),
+        remove: (id) => this.devices.remove(id),
+      },
+    };
   }
 
   /**
@@ -889,20 +749,11 @@ export class RemoteService {
   private onControl(msg: RelayToDevice): void {
     if (msg.type === 'ok') {
       for (const device of this.devices.list()) this.open(device.id);
-      const hadByHand = this.pairByHand.size > 0;
-      this.mutualAsked = new Set();
-      this.pairByHand = new Set();
-      this.clearMutualRetry();
-      if (hadByHand) this.publishStatus();
-      this.tryRoster('revoke what the relay was not told', () => {
-        for (const id of this.pendingRevokes.list()) this.revokeAtRelay(id);
-      });
-      // Paired members too: a pair the relay lost while this side kept its row forms again.
-      this.tryRoster('link the group', () => this.link(true));
+      this.group.relayOk();
       return;
     }
     if (msg.type === 'linked') {
-      this.tryRoster('add a linked member', () => this.onLinked(msg.peer));
+      this.group.relayLinked(msg.peer);
       return;
     }
     // The other side revoked the pair; the roster hears of a removal from the group.
@@ -934,9 +785,7 @@ export class RemoteService {
       this.pendingRevokes.remove(joined.device);
       // A code without a kind came from a Mac from before kinds. Its OS is
       // not known until its hello.
-      this.tryRoster('add a paired device', () => this.addPaired({
-        id: joined.device, kind: joined.kind ?? 'desktop', name: joined.name, os: '',
-      }));
+      this.group.addPaired({ id: joined.device, kind: joined.kind ?? 'desktop', name: joined.name, os: '' });
       this.publishStatus();
       this.open(joined.device);
       return;
@@ -945,7 +794,7 @@ export class RemoteService {
     if (msg.type === 'paired' && this.cancelledJoin && msg.mac === this.cancelledJoin.device) {
       const cancelled = this.cancelledJoin;
       this.cancelledJoin = null;
-      if (cancelled.expiresAt > this.now()) this.tryRoster('revoke a cancelled join', () => this.revokeAtRelay(cancelled.device));
+      if (cancelled.expiresAt > this.now()) this.group.tryRoster('revoke a cancelled join', () => this.group.revokeAtRelay(cancelled.device));
       return;
     }
     if (msg.type === 'rejected' && this.joining && msg.mac === this.joining.device) {
@@ -1047,11 +896,10 @@ export class RemoteService {
       }
       if (event.type === 'hello') {
         this.hellos.set(from, event.hello);
-        this.tryRoster('describe a peer', () => this.onPeerHello(from, opened, event.hello));
+        this.group.onPeerHello(from, opened, event.hello);
       }
-      // Each side sends its digest as the channel opens; a difference is answered with the roster.
-      if (event.type === 'ready' && event.ready && opened.groups) opened.sendGroup({ t: 'roster_digest', digest: this.roster.digest() });
-      if (event.type === 'group') this.onGroup(from, opened, event.msg);
+      if (event.type === 'ready' && event.ready) this.group.channelReady(opened);
+      if (event.type === 'group') this.group.onGroup(from, opened, event.msg);
     });
     this.channels.set(from, opened);
     for (const listener of [...this.channelListeners]) {
@@ -1065,238 +913,15 @@ export class RemoteService {
   }
 
   /**
-   * The only way the roster changes. Unchanged, it does nothing: that is
-   * what ends an exchange between two members once they agree. Changed, it
-   * applies what the change removed, publishes the status and offers the
-   * new digest on every group channel but `from`, the one the change came in on.
-   */
-  private setRoster(next: RosterEntry[], from?: string): boolean {
-    const before = new Map(this.roster.list().map((e) => [e.id, e]));
-    if (!this.roster.replace(next)) return false;
-    this.applyRemovals(before);
-    this.publishStatus();
-    const digest = this.roster.digest();
-    for (const [id, channel] of this.channels) {
-      if (id !== from) channel.sendGroup({ t: 'roster_digest', digest });
-    }
-    this.link();
-    return true;
-  }
-
-  /**
-   * Every entry this write removed: this device's own makes it leave the
-   * group; another's drops that member here. An entry first heard of as
-   * removed is dropped only when this device is paired with it.
-   */
-  private applyRemovals(before: Map<string, RosterEntry>): void {
-    const self = this.ownId();
-    const removed = this.roster.list().filter((e) => {
-      const was = before.get(e.id);
-      return !isLive(e) && (was === undefined || isLive(was));
-    });
-    if (self !== null && removed.some((e) => e.id === self)) {
-      this.leaveGroup(self);
-      return;
-    }
-    for (const e of removed) {
-      if (before.has(e.id) || this.devices.get(e.id)) this.dropMember(e.id);
-    }
-  }
-
-  /**
-   * Asks the relay for a mutual pair with every live member that links and
-   * is not paired with this device yet, each once per relay connection (ADR
-   * the-relay-pairs-two-devices-that-both-sign). The pair forms when the
-   * member asks too; the relay then says `linked`, and so may this answer.
-   * `paired` asks for the members paired here as well: the relay answers
-   * `linked` while it holds the pair, and otherwise waits for the other half.
-   */
-  private link(paired = false): void {
-    const self = this.runningId;
-    const client = this.client;
-    if (self === null || !client || client.status !== 'online') return;
-    const asked = this.mutualAsked;
-    for (const e of this.roster.list()) {
-      if (!isLive(e) || !e.links || e.id === self || asked.has(e.id) || (!paired && this.devices.get(e.id))) continue;
-      const id = e.id;
-      asked.add(id);
-      void client.post<{ linked?: boolean }>('/pair/mutual', 'pair.mutual', { peer: id }).then((res) => {
-        // A relay `ok` in between started a new connection's asking; this answer is the old one's.
-        if (this.client !== client || this.mutualAsked !== asked) return;
-        if (res.status === 200) {
-          if (res.body.linked === true) this.tryRoster('add a linked member', () => this.onLinked(id));
-          return;
-        }
-        if (res.status === 404) {
-          this.pairByHand.add(id);
-          this.publishStatus();
-          return;
-        }
-        // A refusal (a bad id) waits for the next relay `ok`, a rate limit
-        // `MUTUAL_RETRY_MS` at most; a network failure or a relay error is
-        // asked again at the next roster change.
-        if (res.status === 0 || res.status >= 500) asked.delete(id);
-        if (res.status === 429) this.retryMutual(id);
-        console.warn(`[remote] relay mutual pair with ${id.slice(0, 8)} failed: ${res.status}`);
-      });
-    }
-  }
-
-  /** One timer for every rate-limited member: they are asked again together. */
-  private retryMutual(id: string): void {
-    this.rateLimited.add(id);
-    if (this.mutualRetry) return;
-    this.mutualRetry = setTimeout(() => {
-      this.mutualRetry = null;
-      for (const limited of this.rateLimited) this.mutualAsked.delete(limited);
-      this.rateLimited = new Set();
-      this.tryRoster('link the group', () => this.link());
-    }, MUTUAL_RETRY_MS);
-    this.mutualRetry.unref?.();
-  }
-
-  private clearMutualRetry(): void {
-    if (this.mutualRetry) clearTimeout(this.mutualRetry);
-    this.mutualRetry = null;
-    this.rateLimited = new Set();
-  }
-
-  /**
-   * The relay paired this device with `peer`. Only a member the roster holds
-   * live, and that links, becomes a paired device — never one on the relay's word alone. Both
-   * the control and the post's answer can say so; the second changes nothing.
-   */
-  private onLinked(peer: string): void {
-    const entry = this.roster.entry(peer);
-    if (!this.identity || peer === this.runningId) return;
-    // A removed member asked before its removal reached the relay: the pair goes again.
-    if (entry && !isLive(entry)) {
-      console.warn(`[remote] revoked a link with ${peer.slice(0, 8)}: removed from the group`);
-      this.revokeAtRelay(peer);
-      return;
-    }
-    // A member that does not link (a phone) is never asked for, so a `linked` for one is not ours.
-    if (!entry || !entry.links) {
-      console.warn(`[remote] ignored a link with ${peer.slice(0, 8)}: no live member of the group that links`);
-      return;
-    }
-    if (!this.devices.get(peer)) {
-      this.devices.add({
-        id: peer, name: entry.name, platform: entry.os, kind: entry.kind, pairedAt: this.now(),
-        notifications: parseNotificationSettings(this.opts.allSettings()),
-      });
-      this.pendingRevokes.remove(peer);
-      this.watch(peer);
-      this.publishStatus();
-    }
-    this.open(peer);
-  }
-
-  /**
-   * This device, once, as the first member of its own group; a removed entry
-   * for it stays removed. A live one is described afresh: a rename made while
-   * the remote was off reached no roster.
-   */
-  private addSelf(): void {
-    const self = this.runningId!;
-    const known = this.roster.entry(self);
-    const now = this.now();
-    const about = this.selfAbout();
-    if (!known) {
-      this.setRoster(addMember(this.roster.list(), { id: self, ...about, addedBy: self, addedAt: now, describedAt: now }));
-    } else if (isLive(known)) {
-      this.setRoster(describeMember(this.roster.list(), self, about, now));
-    }
-  }
-
-  /**
    * What this device says about itself in the roster, cut to the bounds a
    * roster entry is read within: an entry past them would refuse the whole
    * roster on every other member.
    */
-  private selfAbout(): Pick<RosterEntry, 'kind' | 'name' | 'os' | 'links'> {
+  private selfAbout(): SelfAbout {
     return {
       kind: serverDeviceKind(), name: this.macName.slice(0, PAIR_NAME_MAX_CHARS),
       os: osName(process.platform).slice(0, ROSTER_KIND_MAX_CHARS), links: true,
     };
-  }
-
-  /**
-   * A roster write on the way to something else — a confirm already
-   * accepted, a hello inside the channel — that must not fail it: the
-   * roster catches up at the next exchange.
-   */
-  private tryRoster(what: string, write: () => void): void {
-    try {
-      write();
-    } catch (err) {
-      console.warn(`[remote] could not ${what}: ${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
-
-  /**
-   * A device this one just paired with, at the next epoch. A live entry is
-   * kept: the device is a member already, perhaps written by its first
-   * hello, which can arrive before the pairing finishes here.
-   */
-  private addPaired(device: Pick<RosterEntry, 'id' | 'kind' | 'name' | 'os'>): void {
-    const self = this.runningId;
-    if (self === null) return;
-    const known = this.roster.entry(device.id);
-    if (known && isLive(known)) return;
-    const now = this.now();
-    this.setRoster(addMember(this.roster.list(), {
-      ...device, links: false, addedBy: self, addedAt: now, describedAt: now,
-    }));
-  }
-
-  /**
-   * What a peer's hello says about it, written onto its live entry; only the
-   * fields the hello names. A device paired before the roster existed has
-   * no entry yet and gets one here.
-   */
-  private onPeerHello(from: string, channel: Channel, hello: HelloMessage): void {
-    const self = this.runningId;
-    if (self === null) return;
-    const name = hello.name ?? hello.macName;
-    const patch = {
-      ...(name !== undefined ? { name } : {}),
-      ...(hello.os !== undefined ? { os: hello.os } : {}),
-      links: channel.groups,
-    };
-    const known = this.roster.entry(from);
-    const now = this.now();
-    // `from` is skipped: the channel's own `ready` follows with the digest.
-    if (known) {
-      if (isLive(known)) this.setRoster(describeMember(this.roster.list(), from, patch, now), from);
-      return;
-    }
-    const device = this.devices.get(from);
-    if (!device) return;
-    this.setRoster(addMember(this.roster.list(), {
-      id: from, kind: device.kind ?? hello.kind ?? 'desktop', name: patch.name ?? device.name, os: patch.os ?? '',
-      links: patch.links, addedBy: self, addedAt: now, describedAt: now,
-    }), from);
-  }
-
-  private onGroup(from: string, channel: Channel, msg: GroupMessage): void {
-    if (msg.t === 'roster_digest') {
-      this.tryRoster('answer a roster digest', () => {
-        if (msg.digest !== this.roster.digest()) channel.sendGroup({ t: 'roster', entries: this.roster.list() });
-      });
-      return;
-    }
-    if (msg.t === 'roster') {
-      this.tryRoster('merge a roster', () => this.setRoster(mergeRosters(this.roster.list(), msg.entries), from));
-      // The sender may still lack what only this side knew.
-      this.tryRoster('answer a roster', () => {
-        if (this.roster.digest() !== rosterDigest(msg.entries)) channel.sendGroup({ t: 'roster', entries: this.roster.list() });
-      });
-      return;
-    }
-    // A member says this device was removed; its roster says so too, and the removal comes with it.
-    const self = this.runningId;
-    if (self !== null) this.tryRoster('leave the group', () => this.setRoster(removeMember(this.roster.list(), self, from, this.now()), from));
   }
 
   /**
