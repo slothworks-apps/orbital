@@ -193,7 +193,12 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
     if (!s) return;
     const peer = s.payload.peer;
     if (!publicKeyOf(peer) || peer === s.id) return reply.code(400).send({ error: 'bad_peer' });
-    const outcome = await ctx.store.offerMutual(s.id, peer, ctx.now());
+    // A signer with a socket here passed the secret and is a live device: it
+    // gets its row now, so a relay that lost its store pairs its devices
+    // again (`pairs_lost` heals); a half to a connected peer waits for it the
+    // same way. Keys with no socket only reach devices the relay knows.
+    if (ctx.connections.isOnline(s.id)) await ctx.store.ensureDevice({ id: s.id, kind: 'mac' });
+    const outcome = await ctx.store.offerMutual(s.id, peer, ctx.now(), { peerLive: ctx.connections.isOnline(peer) });
     if (outcome.full) {
       log(`mutual half from ${short(s.id)} refused: the relay holds as many as it keeps`);
       return reply.code(429).send({ error: 'rate_limited' });

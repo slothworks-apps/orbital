@@ -62,10 +62,11 @@ export interface RelayStore {
    * stored the pair, so the pair is announced once even when both halves
    * arrive together. Expired halves go first, and `from`'s oldest past
    * `MUTUAL_HALVES_PER_DEVICE` after this one is in. A half waits only for
-   * a device the relay knows (it has a row), unless it completes the
-   * other's; one to a device it does not know is not kept.
+   * a device the relay knows (it has a row) or one `peerLive` (connected to
+   * the relay now), unless it completes the other's; one to any other
+   * device is not kept.
    */
-  offerMutual(from: string, to: string, now: number): Promise<MutualOutcome>;
+  offerMutual(from: string, to: string, now: number, opts?: { peerLive?: boolean }): Promise<MutualOutcome>;
   isPaired(a: string, b: string): Promise<boolean>;
   /** Every device paired with this one, whichever side it is. */
   peersOf(id: string): Promise<string[]>;
@@ -170,14 +171,14 @@ export class KyselyRelayStore implements RelayStore {
     return result.numDeletedRows > 0n;
   }
 
-  async offerMutual(from: string, to: string, now: number): Promise<MutualOutcome> {
+  async offerMutual(from: string, to: string, now: number, opts: { peerLive?: boolean } = {}): Promise<MutualOutcome> {
     await this.db.deleteFrom('mutual_halves').where('expires_at', '<', now).execute();
     if (await this.isPaired(from, to)) return { linked: true, created: false };
     const waiting = async (a: string, b: string) => (await this.db.selectFrom('mutual_halves').select('to_id')
       .where('from_id', '=', a).where('to_id', '=', b).executeTakeFirst()) !== undefined;
     if (!(await waiting(to, from))) {
-      // Nothing to complete: this half waits only for a device the relay knows, and only while there is room.
-      if (!(await this.device(to))) return { linked: false, created: false };
+      // Nothing to complete: this half waits only for a device the relay knows or that is connected, and only while there is room.
+      if (opts.peerLive !== true && !(await this.device(to))) return { linked: false, created: false };
       if (!(await waiting(from, to))) {
         const { count } = await this.db.selectFrom('mutual_halves')
           .select((eb) => eb.fn.countAll<number | string>().as('count')).executeTakeFirstOrThrow();

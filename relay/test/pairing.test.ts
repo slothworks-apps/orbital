@@ -387,4 +387,17 @@ describe('pairing', () => {
     });
     expect(res.statusCode).toBe(429);
   });
+
+  it('a relay that lost its store pairs two connected devices again through their halves', async () => {
+    const r = await relay();
+    const a = await connectDevice(r.base, r.mac);
+    const b = await connectDevice(r.base, r.phone);
+    expect(await r.store.device(a.id)).toBeNull();
+    expect(await r.store.device(b.id)).toBeNull();
+    expect((await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: b.id }, r.now()))).json()).toEqual({ linked: false });
+    expect((await r.post('/pair/mutual', signRequest(r.phone, 'pair.mutual', { peer: a.id }, r.now()))).json()).toEqual({ linked: true });
+    expect(await r.store.isPaired(a.id, b.id)).toBe(true);
+    expect(await r.store.device(a.id)).not.toBeNull();
+    expect(await r.store.device(b.id)).not.toBeNull();
+  });
 });
