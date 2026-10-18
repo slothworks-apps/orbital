@@ -1,8 +1,8 @@
 {
+  "id": "fd10d93d-3c62-4271-bf37-c6fd84b5586b",
+  "prevId": "10a26253-a64b-497d-83de-d68f95c080ad",
   "version": "6",
   "dialect": "sqlite",
-  "id": "30220945-33d7-41f8-8720-2e086e1feda0",
-  "prevId": "10a26253-a64b-497d-83de-d68f95c080ad",
   "tables": {
     "background_tasks": {
       "name": "background_tasks",
@@ -97,15 +97,15 @@
         "background_tasks_session_id_sessions_id_fk": {
           "name": "background_tasks_session_id_sessions_id_fk",
           "tableFrom": "background_tasks",
-          "tableTo": "sessions",
           "columnsFrom": [
             "session_id"
           ],
+          "tableTo": "sessions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {
@@ -913,13 +913,6 @@
           "notNull": true,
           "autoincrement": false
         },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "paired_at": {
           "name": "paired_at",
           "type": "integer",
@@ -1327,15 +1320,15 @@
         "session_stats_session_id_sessions_id_fk": {
           "name": "session_stats_session_id_sessions_id_fk",
           "tableFrom": "session_stats",
-          "tableTo": "sessions",
           "columnsFrom": [
             "session_id"
           ],
+          "tableTo": "sessions",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1675,15 +1668,15 @@
         "tag_rules_tag_id_tags_id_fk": {
           "name": "tag_rules_tag_id_tags_id_fk",
           "tableFrom": "tag_rules",
-          "tableTo": "tags",
           "columnsFrom": [
             "tag_id"
           ],
+          "tableTo": "tags",
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
+          "onUpdate": "no action",
+          "onDelete": "cascade"
         }
       },
       "compositePrimaryKeys": {},
@@ -1755,8 +1748,8 @@
           "columns": [
             "is_default"
           ],
-          "isUnique": true,
-          "where": "\"tags\".\"is_default\" = 1"
+          "where": "\"tags\".\"is_default\" = 1",
+          "isUnique": true
         }
       },
       "foreignKeys": {},
@@ -1768,9 +1761,9 @@
   "views": {},
   "enums": {},
   "_meta": {
+    "columns": {},
     "schemas": {},
-    "tables": {},
-    "columns": {}
+    "tables": {}
   },
   "internal": {
     "indexes": {

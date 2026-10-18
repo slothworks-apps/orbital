@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "5e97e346-7e11-4fdd-affb-4cda58fd5026",
-  "prevId": "30220945-33d7-41f8-8720-2e086e1feda0",
+  "id": "d3e9b3dc-c64f-4f61-9e3d-0cfea4c1a1e7",
+  "prevId": "fd10d93d-3c62-4271-bf37-c6fd84b5586b",
   "tables": {
     "background_tasks": {
       "name": "background_tasks",
@@ -327,20 +327,13 @@
         }
       }
     },
-    "group_members": {
-      "name": "group_members",
+    "group_descriptions": {
+      "name": "group_descriptions",
       "columns": {
         "id": {
           "name": "id",
           "type": "text",
           "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
@@ -365,15 +358,129 @@
           "notNull": true,
           "autoincrement": false
         },
-        "epoch": {
-          "name": "epoch",
+        "described_at": {
+          "name": "described_at",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "added_by": {
-          "name": "added_by",
+        "described_by": {
+          "name": "described_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sig": {
+          "name": "sig",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "group_exits": {
+      "name": "group_exits",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "since": {
+          "name": "since",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "group_left": {
+      "name": "group_left",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "founding": {
+          "name": "founding",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "at": {
+          "name": "at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sig": {
+          "name": "sig",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "group_members": {
+      "name": "group_members",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "kind": {
+          "name": "kind",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
@@ -386,25 +493,136 @@
           "notNull": true,
           "autoincrement": false
         },
-        "described_at": {
-          "name": "described_at",
+        "added_version": {
+          "name": "added_version",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "group_membership": {
+      "name": "group_membership",
+      "columns": {
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
         },
-        "removed_by": {
-          "name": "removed_by",
+        "founding": {
+          "name": "founding",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "removed_at": {
-          "name": "removed_at",
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "member": {
+          "name": "member",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "left_founding": {
+          "name": "left_founding",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "left_version": {
+          "name": "left_version",
           "type": "integer",
           "primaryKey": false,
           "notNull": false,
+          "autoincrement": false
+        },
+        "ended_why": {
+          "name": "ended_why",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ended_by": {
+          "name": "ended_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ended_by_name": {
+          "name": "ended_by_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "join_expires": {
+          "name": "join_expires",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "group_roster": {
+      "name": "group_roster",
+      "columns": {
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "founding": {
+          "name": "founding",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "dissolved": {
+          "name": "dissolved",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sig": {
+          "name": "sig",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
           "autoincrement": false
         }
       },
@@ -767,6 +985,51 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "member_snapshots": {
+      "name": "member_snapshots",
+      "columns": {
+        "member_id": {
+          "name": "member_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sessions": {
+          "name": "sessions",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tags": {
+          "name": "tags",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "seen_at": {
+          "name": "seen_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "narrations": {
       "name": "narrations",
       "columns": {
@@ -830,6 +1093,23 @@
           "value": "\"narrations\".\"status\" IN ('running','done','failed')"
         }
       }
+    },
+    "pending_revokes": {
+      "name": "pending_revokes",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
     "pending_rewinds": {
       "name": "pending_rewinds",

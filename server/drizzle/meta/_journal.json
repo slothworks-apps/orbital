@@ -201,50 +201,15 @@
     {
       "idx": 28,
       "version": "6",
-      "when": 1792156789336,
-      "tag": "0028_device_kind",
+      "when": 1792239321457,
+      "tag": "0028_harness_session_titles",
       "breakpoints": true
     },
     {
       "idx": 29,
       "version": "6",
-      "when": 1792221379213,
-      "tag": "0029_group_roster",
-      "breakpoints": true
-    },
-    {
-      "idx": 30,
-      "version": "6",
-      "when": 1792227178673,
-      "tag": "0030_pending_revokes",
-      "breakpoints": true
-    },
-    {
-      "idx": 31,
-      "version": "6",
-      "when": 1792250479797,
-      "tag": "0031_member_snapshots",
-      "breakpoints": true
-    },
-    {
-      "idx": 32,
-      "version": "6",
-      "when": 1792304571348,
-      "tag": "0032_signed_roster",
-      "breakpoints": true
-    },
-    {
-      "idx": 33,
-      "version": "6",
-      "when": 1792308735100,
-      "tag": "0033_roster_endorsements",
-      "breakpoints": true
-    },
-    {
-      "idx": 34,
-      "version": "6",
-      "when": 1792315034120,
-      "tag": "0034_roster_primary",
+      "when": 1792328527942,
+      "tag": "0029_device_group",
       "breakpoints": true
     }
   ]

@@ -11,6 +11,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - New session can start a session on another device, with that device's recent projects and a browser for its folders.
 - A device that is offline keeps its sessions on the map, dimmed and still, with what it last sent still readable.
 
+## [0.33.1] — 2026-10-17
+### Fixed
+- Sessions that follow a harness are named after your first message (until then, after the harness) instead of all starting "This session follows the Orbital harness…". Sessions named that way before are renamed too.
+
 ## [0.33.0] — 2026-10-16
 ### Added
 - A session can now list your other sessions and archive the finished ones when you ask it to tidy up — the same as pressing End. It leaves alone, unless told otherwise, sessions that are working, waiting for you or pinned.
