@@ -3,7 +3,7 @@ import { deviceId, generateIdentity } from '@orbital/shared/remote/keys';
 import {
   EMPTY_ROSTER, describeDevice, dissolveRoster, foundRoster, leftNotice, rosterDigest, takeRoster, type RosterState,
 } from '@orbital/shared/remote/roster';
-import { RosterStore } from '../src/remote/rosterStore.js';
+import { GroupMembershipStore, RosterStore } from '../src/remote/rosterStore.js';
 import { openTmpDb } from './tmp.js';
 
 describe('RosterStore', () => {
@@ -26,12 +26,25 @@ describe('RosterStore', () => {
     expect(store.replace(store.read())).toBe(false);
     expect(store.digest()).toBe(rosterDigest(state));
     // What comes back verifies as it went in: another member takes all of it.
-    const taken = takeRoster(EMPTY_ROSTER, store.read(), { self: deviceId(b.publicKey), alone: true, paired: () => true });
+    const taken = takeRoster(EMPTY_ROSTER, store.read(), { self: deviceId(b.publicKey), groupId: null, paired: () => true });
     expect(rosterDigest(taken)).toBe(rosterDigest(state));
     // A dissolved document reads back as one.
     expect(store.replace({ roster: dissolveRoster(doc, primary)!, descriptions: [], left: [] })).toBe(true);
     expect(store.read().roster).toMatchObject({ dissolved: true, version: 2 });
     expect(store.replace(EMPTY_ROSTER)).toBe(true);
     expect(store.read()).toEqual(EMPTY_ROSTER);
+  });
+
+  it('keeps the group id apart from the document', () => {
+    const db = openTmpDb('membership');
+    const membership = new GroupMembershipStore(db);
+    expect(membership.get()).toBeNull();
+    membership.set('group-a');
+    membership.set('group-b');
+    expect(membership.get()).toBe('group-b');
+    new RosterStore(db).replace(EMPTY_ROSTER);
+    expect(membership.get()).toBe('group-b');
+    membership.set(null);
+    expect(membership.get()).toBeNull();
   });
 });

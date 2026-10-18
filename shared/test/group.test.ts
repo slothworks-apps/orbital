@@ -83,10 +83,13 @@ function fakeChannel(groups = true) {
 function build(opts: {
   roster?: RosterState; paired?: PairedDevice[]; relay?: ReturnType<typeof fakeRelay> | null; kind?: string;
   identity?: Identity; about?: Partial<SelfAbout>;
+  /** The group id stored apart from the roster; by default the held document's group. */
+  groupId?: string | null;
 } = {}) {
   const identity = opts.identity ?? SELF_KEY;
   const self = deviceId(identity.publicKey);
   let state = normalize(opts.roster ?? roster());
+  let groupId = opts.groupId !== undefined ? opts.groupId : state.roster && !state.roster.dissolved ? state.roster.group : null;
   const paired = new Map((opts.paired ?? []).map((d) => [d.id, d]));
   const pending = new Set<string>();
   let relay: GroupRelay | null = opts.relay === null ? null : (opts.relay ?? fakeRelay()).relay;
@@ -126,10 +129,12 @@ function build(opts: {
       remove: (id) => { paired.delete(id); },
     },
     pendingRevokes: { list: () => [...pending], add: (id) => { pending.add(id); }, remove: (id) => { pending.delete(id); } },
+    groupId: { get: () => groupId, set: (id) => { groupId = id; } },
   }, host);
   return {
     group, channels, forgotten, opened, pending, paired, logs, self,
     state: () => state,
+    groupId: () => groupId,
     setRelay: (r: GroupRelay | null) => { relay = r; },
   };
 }
@@ -452,6 +457,17 @@ describe('GroupMember leaving', () => {
     expect(mac.state().left).toEqual([]);
   });
 
+  it('the primary drops a noticed device even when a version it signed since still names it', () => {
+    const v1 = roster(OTHER);
+    const notice = leftNotice(SELF_KEY, v1.roster!, 5);
+    const v2 = moved(v1, { add: [PHONE] });
+    const mac = build({ identity: MAC_KEY, roster: v2, paired: [row(SELF), row(OTHER)] });
+    mac.group.onGroup(OTHER, fakeChannel().channel, { t: 'roster', roster: null, descriptions: [], left: [notice] });
+    expect(mac.state().roster).toMatchObject({ version: 3 });
+    expect(memberIds(mac.state())).not.toContain(SELF);
+    expect(mac.paired.has(SELF)).toBe(false);
+  });
+
   it('a notice is void once the primary adds the device again', () => {
     const state = roster(OTHER);
     const notice = leftNotice(SELF_KEY, state.roster!, 5);
@@ -562,6 +578,33 @@ describe('GroupMember members', () => {
   });
 });
 
+describe('GroupMember with its stored roster dropped', () => {
+  it('takes only its own primary\'s roster again, and becomes alone if that no longer names it', () => {
+    // The Mac's group, this device a member; the document it stored did not read, the group id did.
+    const g = build({ roster: EMPTY_ROSTER, groupId: MAC, paired: [row(MAC), row(OTHER)] });
+    // OTHER, a member, hands it a group of its own.
+    g.group.onGroup(OTHER, fakeChannel().channel, { t: 'roster', ...doc(OTHER_KEY, [SELF]) });
+    expect(g.state().roster).toBeNull();
+    g.group.onGroup(OTHER, fakeChannel().channel, { t: 'roster', ...roster(OTHER) });
+    expect(g.state().roster?.group).toBe(MAC);
+    expect(memberIds(g.state())).toContain(SELF);
+    // Removed while its document was gone: the version it learns leaves it out, and it is alone.
+    const h = build({ roster: EMPTY_ROSTER, groupId: MAC, paired: [row(MAC), row(OTHER)] });
+    h.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...moved(roster(OTHER), { remove: [SELF] }) });
+    expect(h.state()).toEqual(EMPTY_ROSTER);
+    expect(h.groupId()).toBeNull();
+    expect(h.paired.size).toBe(0);
+  });
+
+  it('a device with no group id adopts a group that names it, from its primary, and keeps its id', () => {
+    const g = build({ roster: EMPTY_ROSTER, paired: [row(MAC)] });
+    g.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...roster() });
+    expect(g.groupId()).toBe(MAC);
+    // Leaving clears it.
+    return g.group.leave().then(() => expect(g.groupId()).toBeNull());
+  });
+});
+
 describe('GroupMember founding and joining', () => {
   it('two devices alone: the founder signs version 1 naming both, the joiner takes it and describes itself', () => {
     const mac = build({ identity: MAC_KEY, roster: EMPTY_ROSTER, about: { name: 'mac' } });
@@ -597,11 +640,16 @@ describe('GroupMember founding and joining', () => {
     expect(r.posts).toContainEqual({ path: '/pair/mutual', payload: { peer: PHONE } });
   });
 
-  it('a device in a group of only its own phones joins another primary\'s group, and keeps its phones paired', () => {
+  it('a device in a group of only its own phones joins another primary\'s group by a ceremony, and keeps its phones paired', () => {
     const own = doc(SELF_KEY, [[PHONE, { kind: 'phone', links: false }]]);
     const g = build({ roster: own, paired: [row(PHONE, 'phone'), row(MAC)] });
     const theirs = roster(OTHER);
+    // Without the ceremony naming that group, its roster is not taken.
     g.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...theirs });
+    expect(g.state().roster?.group).toBe(SELF);
+    g.group.joinGroup(MAC);
+    g.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...theirs });
+    expect(g.groupId()).toBe(MAC);
     expect(g.state().roster?.group).toBe(MAC);
     expect(g.paired.has(PHONE)).toBe(true);
     expect(g.group.isPrimary()).toBe(false);

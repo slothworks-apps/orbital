@@ -22,7 +22,7 @@ const B = 'member-b';
 type Entry = MemberView & { removedAt?: number; removedBy?: string };
 
 function entry(id: string, patch: Partial<Entry> = {}): Entry {
-  return { id, kind: 'desktop', name: id === SELF ? 'studio' : 'laptop', os: 'macos', links: true, addedAt: 1, primary: id === SELF, ...patch };
+  return { id, kind: 'desktop', name: id === SELF ? 'studio' : 'laptop', os: 'macos', links: true, addedAt: 1, addedVersion: 1, primary: id === SELF, ...patch };
 }
 
 const desktopHello: HelloMessage = {

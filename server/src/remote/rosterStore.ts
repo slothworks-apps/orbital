@@ -7,7 +7,7 @@
  */
 import { eq } from 'drizzle-orm';
 import { EMPTY_ROSTER, normalize, rosterDigest, rosterKey, type RosterState } from '@orbital/shared/remote/roster';
-import { groupDescriptions, groupLeft, groupMembers, groupRoster, pendingRevokes } from '../db/schema.js';
+import { groupDescriptions, groupLeft, groupMembers, groupMembership, groupRoster, pendingRevokes } from '../db/schema.js';
 import type { OrbitalDb } from '../db/database.js';
 
 const byId = <T extends { id: string }>(x: T, y: T) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
@@ -51,6 +51,22 @@ export class RosterStore {
       for (const { group, ...n } of state.left) tx.insert(groupLeft).values({ ...n, groupId: group }).run();
     });
     return true;
+  }
+}
+
+/** The group this device belongs to or is joining (`GroupStorage.groupId`), apart from the document. */
+export class GroupMembershipStore {
+  constructor(private readonly db: OrbitalDb) {}
+
+  get(): string | null {
+    return this.db.select().from(groupMembership).all()[0]?.groupId ?? null;
+  }
+
+  set(id: string | null): void {
+    this.db.transaction((tx) => {
+      tx.delete(groupMembership).run();
+      if (id !== null) tx.insert(groupMembership).values({ groupId: id }).run();
+    });
   }
 }
 

@@ -521,11 +521,21 @@ export const groupRoster = sqliteTable('group_roster', {
   sig: text('sig').notNull(),
 });
 
-/** The members the document names, with the kind each one's pairing proved. */
+/** The members the document names, with the kind each one's pairing proved and the version that added it. */
 export const groupMembers = sqliteTable('group_members', {
   id: text('id').primaryKey(),
   kind: text('kind').notNull(),
   addedAt: integer('added_at').notNull(),
+  addedVersion: integer('added_version').notNull(),
+});
+
+/**
+ * The group this device belongs to, or is joining by a ceremony: its
+ * primary's id, at most one row. Kept apart from the document, so a device
+ * whose document was dropped still takes only its own primary's.
+ */
+export const groupMembership = sqliteTable('group_membership', {
+  groupId: text('group_id').primaryKey(),
 });
 
 /** Each member's description, signed by the member itself or by the primary. */

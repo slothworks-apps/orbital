@@ -35,6 +35,15 @@ export const MUTUAL_RETRY_MS = 60_000;
 export const RELAY_POST_TIMEOUT_MS = 30_000;
 
 /**
+ * How long a member that leaves holds its pairs at the relay after it sent
+ * its left notice: the relay drops a frame between two devices no longer
+ * paired, so a revoke that overtook the notice would leave the others never
+ * hearing of it. The revokes are kept pending meanwhile, so a restart still
+ * posts them.
+ */
+export const LEFT_NOTICE_GRACE_MS = 1_000;
+
+/**
  * How Settings shows a member. `self`: this device. `online`/`offline`: a
  * member paired here, or a member this device does not link with
  * (`linksWith`: a phone paired with another member), by the relay's presence. `linking`: a member that links
@@ -97,6 +106,12 @@ export interface GroupStorage {
   };
   /** Pairs revoked here and not yet answered by the relay; kept across restarts. */
   pendingRevokes: { list(): string[]; add(id: string): void; remove(id: string): void };
+  /**
+   * The group this device belongs to (its primary's id), or is joining by a
+   * ceremony; null while it has none. Kept apart from the roster, so a device
+   * whose stored document was dropped still takes only its own primary's.
+   */
+  groupId: { get(): string | null; set(id: string | null): void };
 }
 
 /**
@@ -247,7 +262,7 @@ export class GroupMember {
     const list = rosterMembers(this.storage.roster.read());
     if (self === null || list.some((m) => m.id === self)) return list;
     const { kind, name, os, links } = this.host.about();
-    return [{ id: self, kind, addedAt: 0, name, os, links, primary: false }];
+    return [{ id: self, kind, addedAt: 0, addedVersion: 0, name, os, links, primary: false }];
   }
 
   /**
@@ -300,6 +315,14 @@ export class GroupMember {
     const primary = this.primary();
     if (!primary || primary.id === this.host.knownId()) return null;
     return { error: 'not_primary', primary };
+  }
+
+  /**
+   * A pairing just made this device join `primary`'s group (the other side
+   * adds it): from now on it takes that primary's roster, and no other group's.
+   */
+  joinGroup(primary: string): void {
+    this.tryRoster('remember the group joined', () => this.storage.groupId.set(primary));
   }
 
   /** A member the relay cannot pair with this device: only a pairing code between the two links them. */
@@ -393,7 +416,8 @@ export class GroupMember {
         this.setRoster(dissolved);
         this.becomeAlone(dissolved, dissolved);
       } else if (doc && !doc.dissolved && doc.group !== self) {
-        this.becomeAlone({ roster: null, descriptions: [], left: [leftNotice(identity, doc, this.host.now())] }, EMPTY_ROSTER);
+        const notice = leftNotice(identity, doc, this.host.now());
+        this.becomeAlone({ roster: null, descriptions: [], left: [notice] }, EMPTY_ROSTER, LEFT_NOTICE_GRACE_MS);
       } else {
         this.becomeAlone(null, state);
       }
@@ -416,9 +440,12 @@ export class GroupMember {
    */
   setRoster(next: RosterState, from?: string): boolean {
     const before = this.storage.roster.read();
+    const groupBefore = this.storage.groupId.get();
     const state = this.describedSelf(this.honoured(normalize(next)));
     if (!this.storage.roster.replace(state)) return false;
-    this.applyRemovals(before, state);
+    const doc = state.roster;
+    if (doc && !doc.dissolved && (before.roster?.group !== doc.group || groupBefore === null)) this.storage.groupId.set(doc.group);
+    this.applyRemovals(before, state, groupBefore);
     this.host.changed();
     const digest = this.storage.roster.digest();
     for (const [id, channel] of this.host.channels()) {
@@ -455,19 +482,21 @@ export class GroupMember {
    * the new state no longer holds is dropped here, and a version that no
    * longer names this device, or that dissolves the group, makes it alone.
    * A change of group (joining one) drops nothing: a device this one paired
-   * before it joined keeps its pair.
+   * before it joined keeps its pair. A device that held no document of its
+   * group (`groupBefore`: one it stored was dropped) was a member of it.
    */
-  private applyRemovals(before: RosterState, after: RosterState): void {
+  private applyRemovals(before: RosterState, after: RosterState, groupBefore: string | null): void {
     const self = this.host.knownId();
     const doc = after.roster;
-    if (!doc || self === null || before.roster?.group !== doc.group) return;
+    if (!doc || self === null || (before.roster?.group ?? groupBefore) !== doc.group) return;
     const was = memberIds(before);
+    const wasMember = was.includes(self) || before.roster === null;
     const now = new Set(memberIds(after));
     if (doc.dissolved && doc.group !== self) {
       this.becomeAlone(after, EMPTY_ROSTER);
       return;
     }
-    if (was.includes(self) && !now.has(self) && !doc.dissolved) {
+    if (wasMember && !now.has(self) && !doc.dissolved) {
       this.becomeAlone(after, EMPTY_ROSTER);
       return;
     }
@@ -496,17 +525,33 @@ export class GroupMember {
    * version of a group it dissolved, so its versions go on if it founds
    * another.
    */
-  private becomeAlone(send: RosterState | null, final: RosterState): void {
+  private becomeAlone(send: RosterState | null, final: RosterState, revokeAfterMs = 0): void {
     const self = this.host.knownId();
     const paired = this.storage.paired.list();
     const held = this.storage.roster.read();
-    if (send) for (const [, channel] of this.host.channels()) channel.sendGroup({ t: 'roster', ...send });
+    let sent = false;
+    if (send) for (const [, channel] of this.host.channels()) sent = channel.sendGroup({ t: 'roster', ...send }) || sent;
     this.host.forgetAll();
-    for (const d of paired) this.revokeAtRelay(d.id);
+    const revokes = paired.map((d) => d.id);
     for (const m of rosterMembers(held)) {
-      if (m.id !== self && m.links && !paired.some((d) => d.id === m.id)) this.revokeAtRelay(m.id);
+      if (m.id !== self && m.links && !paired.some((d) => d.id === m.id)) revokes.push(m.id);
+    }
+    if (sent && revokeAfterMs > 0) {
+      for (const id of revokes) this.storage.pendingRevokes.add(id);
+      const later: Promise<void> = new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, revokeAfterMs);
+        (timer as { unref?: () => void }).unref?.();
+      }).then((): Promise<void> => {
+        this.tryRoster('revoke after leaving', () => { for (const id of revokes) this.revokeAtRelay(id); });
+        return Promise.all([...this.revoking].filter((p) => p !== later)).then(() => {});
+      });
+      this.revoking.add(later);
+      void later.finally(() => this.revoking.delete(later));
+    } else {
+      for (const id of revokes) this.revokeAtRelay(id);
     }
     for (const d of paired) this.storage.paired.remove(d.id);
+    this.storage.groupId.set(null);
     if (this.storage.roster.replace(normalize(final))) this.host.changed();
   }
 
@@ -804,7 +849,7 @@ export class GroupMember {
       const self = this.ownId;
       if (self === null) return;
       const next = takeRoster(this.storage.roster.read(), theirs, {
-        self, alone: !this.inGroup(), paired: (id) => this.storage.paired.get(id) !== null,
+        self, groupId: this.storage.groupId.get(), paired: (id) => this.storage.paired.get(id) !== null,
       });
       this.setRoster(next, from);
     });
@@ -814,8 +859,9 @@ export class GroupMember {
     this.tryRoster('answer a roster', () => {
       const ours = this.storage.roster.read();
       if (!ours.roster) return;
+      // A sender that holds no document is taken to be of this group, as its stored group id would say.
       const would = takeRoster(theirs, ours, {
-        self: from, alone: theirs.roster === null, paired: () => true, trusted: true,
+        self: from, groupId: theirs.roster?.group ?? ours.roster.group, paired: () => true, trusted: true,
       });
       if (rosterKey(would) !== rosterKey(theirs)) channel.sendGroup({ t: 'roster', ...ours });
     });

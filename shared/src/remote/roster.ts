@@ -41,11 +41,16 @@ const IdSchema = z.string().max(43);
 const TimeSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const VersionSchema = z.number().int().min(1).max(ROSTER_MAX_VERSION);
 
-/** A member as the primary names it: `kind` is what its pairing proved, never what it later says. */
+/**
+ * A member as the primary names it: `kind` is what its pairing proved,
+ * never what it later says; `addedVersion` the version at which the primary
+ * added it, which a left notice is weighed against.
+ */
 export const RosterMemberSchema = z.object({
   id: IdSchema,
   kind: z.string().max(ROSTER_KIND_MAX_CHARS),
   addedAt: TimeSchema,
+  addedVersion: VersionSchema,
 });
 export type RosterMember = z.infer<typeof RosterMemberSchema>;
 
@@ -110,7 +115,8 @@ const encoder = new TextEncoder();
 /** The bytes the primary signs: a fixed-order array, domain-separated by its tag. */
 export function rosterBytes(doc: Omit<RosterDoc, 'sig'>): Uint8Array {
   return encoder.encode(JSON.stringify([
-    'orbital-roster-v3', doc.group, doc.version, doc.members.map((m) => [m.id, m.kind, m.addedAt]), doc.dissolved === true,
+    'orbital-roster-v4', doc.group, doc.version, doc.members.map((m) => [m.id, m.kind, m.addedAt, m.addedVersion]),
+    doc.dissolved === true,
   ]));
 }
 
@@ -139,13 +145,14 @@ const byId = <T extends { id: string }>(x: T, y: T) => (x.id < y.id ? -1 : x.id 
 
 /**
  * Whether a document is one the primary could have signed: members sorted
- * by id, each once and each a device id, the primary among them and not a
- * phone, a dissolved one naming the primary alone, and the primary's
- * signature good.
+ * by id, each once and each a device id added at a version no later than
+ * this one, the primary among them and not a phone, a dissolved one naming
+ * the primary alone, and the primary's signature good.
  */
 export function verifyRoster(doc: RosterDoc): boolean {
   const { members } = doc;
   for (let i = 1; i < members.length; i++) if (!(members[i - 1].id < members[i].id)) return false;
+  if (members.some((m) => m.addedVersion > doc.version)) return false;
   const primary = members.find((m) => m.id === doc.group);
   if (!primary || primary.kind === 'phone') return false;
   if (doc.dissolved && members.length !== 1) return false;
@@ -186,18 +193,23 @@ function verifiedOnce(key: string, check: () => boolean): boolean {
 const named = (doc: RosterDoc, id: string) => doc.members.some((m) => m.id === id);
 
 /** Each part in a fixed order, so the same part reads the same whatever its keys' order. */
-const docKey = (d: RosterDoc) => [d.group, d.version, d.members.map((m) => [m.id, m.kind, m.addedAt]), d.dissolved === true, d.sig];
+const docKey = (d: RosterDoc) => [
+  d.group, d.version, d.members.map((m) => [m.id, m.kind, m.addedAt, m.addedVersion]), d.dissolved === true, d.sig,
+];
 const descriptionKey = (d: Description) => JSON.stringify([d.id, d.name, d.os, d.links, d.describedAt, d.by, d.sig]);
 const leftKey = (n: LeftNotice) => [n.id, n.group, n.version, n.at, n.sig];
 
 /**
- * A left notice holds while no version above the notice's names its device:
- * here, while the version held is at most the notice's, names the device,
- * and the notice is for this group. Once the primary leaves the device out,
- * the notice has nothing left to say.
+ * A left notice holds while no version names its device as added above the
+ * notice's version: a later version that merely still names it (signed
+ * before the primary heard of the notice) does not void it; adding the
+ * device again does. Only for this group, and only while the document names
+ * the device: once the primary leaves it out, the notice has nothing left to say.
  */
 function holds(doc: RosterDoc, n: LeftNotice): boolean {
-  return !doc.dissolved && n.group === doc.group && n.id !== doc.group && named(doc, n.id) && n.version >= doc.version;
+  if (doc.dissolved || n.group !== doc.group || n.id === doc.group) return false;
+  const member = doc.members.find((m) => m.id === n.id);
+  return member !== undefined && member.addedVersion <= n.version;
 }
 
 /** Of two descriptions of one device: the device's own over the primary's, then the later, then the larger. */
@@ -275,10 +287,13 @@ export type TakeOptions = {
   /** This device. */
   self: string;
   /**
-   * This device is in no group of two or more (`GroupMember.inGroup`): it
-   * takes a document of another group that names it, from a primary paired here.
+   * The group this device belongs to, or is joining by a ceremony, kept
+   * apart from the document (`GroupStorage.groupId`): it takes a document of
+   * that group's primary even while it holds none (one it stored was
+   * dropped). Null: it holds no group, and may take another group's
+   * document that names it, from a primary paired here.
    */
-  alone: boolean;
+  groupId: string | null;
   /** Whether this device holds a pair with `id`. */
   paired: (id: string) => boolean;
   /** `incoming` was written or checked here already: no signature is checked again. */
@@ -287,9 +302,11 @@ export type TakeOptions = {
 
 /**
  * `held` with what it takes of `incoming`, normalized. The document only
- * when signed by the primary of the group held and of a higher version; or,
- * while this device is alone, one of another group that names it, not
- * dissolved, whose primary is another device paired here. Then each
+ * when signed by the primary of the group held and of a higher version; or
+ * by the primary of this device's group (`groupId`) while it holds no
+ * document of that group; or, while this device has no group at all, one of
+ * another group that names it, not dissolved, whose primary is another
+ * device paired here. Then each
  * description and left notice that verifies and that the document leaves
  * room for (`normalize`). Whichever device passed it on, the rule is the same.
  */
@@ -300,7 +317,9 @@ export function takeRoster(held: RosterState, incoming: RosterState, opts: TakeO
   if (theirs && ok(`r${JSON.stringify(theirs)}`, () => verifyRoster(theirs))) {
     if (doc && theirs.group === doc.group) {
       if (theirs.version > doc.version) doc = theirs;
-    } else if (opts.alone && !theirs.dissolved && theirs.group !== opts.self && named(theirs, opts.self) && opts.paired(theirs.group)) {
+    } else if (opts.groupId !== null) {
+      if (theirs.group === opts.groupId) doc = theirs;
+    } else if (!theirs.dissolved && theirs.group !== opts.self && named(theirs, opts.self) && opts.paired(theirs.group)) {
       doc = theirs;
     }
   }
@@ -356,15 +375,15 @@ export function foundRoster(
   const group = deviceId(signer.publicKey);
   if (kind === 'phone') return null;
   const ids = new Set([group]);
-  const members: RosterMember[] = [{ id: group, kind, addedAt: now }];
+  const version = previous && previous.group === group ? previous.version + 1 : 1;
+  if (version > ROSTER_MAX_VERSION) return null;
+  const members: RosterMember[] = [{ id: group, kind, addedAt: now, addedVersion: version }];
   for (const o of others) {
     if (ids.has(o.id)) continue;
     ids.add(o.id);
-    members.push({ id: o.id, kind: o.kind, addedAt: now });
+    members.push({ id: o.id, kind: o.kind, addedAt: now, addedVersion: version });
   }
   if (members.length > ROSTER_MAX_ENTRIES) return null;
-  const version = previous && previous.group === group ? previous.version + 1 : 1;
-  if (version > ROSTER_MAX_VERSION) return null;
   return signRoster(signer, { group, version, members });
 }
 
@@ -383,7 +402,7 @@ export function nextRoster(
   const members = doc.members.filter((m) => !remove.has(m.id));
   for (const a of change.add ?? []) {
     if (members.some((m) => m.id === a.id)) continue;
-    members.push({ id: a.id, kind: a.kind, addedAt: now });
+    members.push({ id: a.id, kind: a.kind, addedAt: now, addedVersion: doc.version + 1 });
   }
   if (members.length > ROSTER_MAX_ENTRIES || doc.version + 1 > ROSTER_MAX_VERSION) return null;
   return signRoster(signer, { group: doc.group, version: doc.version + 1, members });

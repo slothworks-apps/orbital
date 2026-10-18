@@ -197,6 +197,12 @@ export interface CeremonyHost {
    * links; a shipped phone does not.
    */
   addPaired(device: { id: string; kind: string; name: string; os: string; links: boolean }): boolean;
+  /**
+   * A pairing made this device join the other device's group: that device
+   * adds it, and its roster is the only one this device takes from now on
+   * (`GroupMember.joinGroup`).
+   */
+  joinGroup(primary: string): void;
   /** A pair that must not stand (a join the user cancelled, a device the roster cannot take): revoke it at the relay. */
   revokeCancelled(id: string): void;
   /** The adder paired a device: the host's own setup for a new pair (a phone's watcher). */
@@ -218,17 +224,19 @@ export class PairingCeremony {
    * `code` is the fingerprint the phone shows; `attemptsLeft` counts down in
    * place, so the object stays the one a confirm in flight compares against.
    * `links`: the request proved a sealed kind (`devicePairingProof`).
-   * `adds`: this side adds the device once it is confirmed; otherwise the
-   * device adds this one (it is in a group, or this side cannot found one).
+   * `adds`: this side adds the device once it is confirmed; `joins`: the
+   * device adds this one instead (it is in a group, or this side cannot
+   * found one). Neither: two members pairing by hand.
    */
-  private pendingPair: (PendingPair & { code: string; links: boolean; adds: boolean }) | null = null;
+  private pendingPair: (PendingPair & { code: string; links: boolean; adds: boolean; joins: boolean }) | null = null;
   /** `secret` went into the QR and only there; a `pair_request` must prove it (`verifyPairingProof`). */
   private pairing: { expiresAt: number; secret: Uint8Array } | null = null;
   /**
    * A device whose code this device redeemed, until it confirms or refuses
-   * (`paired`, `rejected`). `adds`: this side adds it once it confirms.
+   * (`paired`, `rejected`). `adds`: this side adds it once it confirms;
+   * `joins`: it adds this side, whose group it is then.
    */
-  private joining: (Joining & { adds: boolean }) | null = null;
+  private joining: (Joining & { adds: boolean; joins: boolean }) | null = null;
   /**
    * A join the user cancelled, until its code expires: the other device may
    * still confirm it, and the pair the relay then makes is revoked here.
@@ -270,7 +278,7 @@ export class PairingCeremony {
   /** The request as the status shows it: everything but the code. */
   private publicPendingPair(): PendingPair | null {
     if (!this.pendingPair) return null;
-    const { code: _code, links: _links, adds: _adds, ...shown } = this.pendingPair;
+    const { code: _code, links: _links, adds: _adds, joins: _joins, ...shown } = this.pendingPair;
     return shown;
   }
 
@@ -365,7 +373,7 @@ export class PairingCeremony {
     const adds = !member && (this.host.inGroup() || (!theirGroup && this.host.self().kind !== 'phone'));
     this.pendingPair = {
       phone: msg.phone, name, platform: device?.platform ?? '',
-      kind, links: sealedKind, adds,
+      kind, links: sealedKind, adds, joins: !member && !adds,
       code: fingerprint(identity.publicKey, phoneKey), attemptsLeft: PAIR_CODE_ATTEMPTS,
     };
     this.host.announce(this.publicPendingPair()!);
@@ -447,6 +455,7 @@ export class PairingCeremony {
     }
     // Paired afresh: a revoke still waiting from an earlier removal must not undo it.
     if (accept) this.host.pendingRevokes.remove(pending.phone);
+    if (accept && pending.joins) this.host.joinGroup(pending.phone);
     // A stop/start during the post replaced the state; leave the new one be.
     if (this.pendingPair === pending) {
       this.pendingPair = null;
@@ -496,6 +505,8 @@ export class PairingCeremony {
     const adds = !member && this.host.self().kind !== 'phone'
       && (this.host.inGroup() || (qr.group !== true && (qr.kind === undefined || qr.kind === 'phone')));
     if (adds && !this.host.canAdd(qr.mac)) return { error: 'group_full' };
+    // The device whose code it is adds this one: it is in a group, or a device of this release that is no phone.
+    const joins = !member && !adds && (qr.group === true || (qr.kind !== undefined && qr.kind !== 'phone'));
     const client = this.host.relay();
     const identity = this.host.identity();
     if (!this.host.enabled() || !client || !identity) return { error: 'disabled' };
@@ -520,7 +531,7 @@ export class PairingCeremony {
     // one from before it carried its expiry is good for that long.
     const longest = this.host.now() + PAIRING_TOKEN_TTL_MS;
     const joining = {
-      device: qr.mac, name, kind: qr.kind ?? null, code: typed, expiresAt: Math.min(qr.expiresAt ?? longest, longest), adds,
+      device: qr.mac, name, kind: qr.kind ?? null, code: typed, expiresAt: Math.min(qr.expiresAt ?? longest, longest), adds, joins,
     };
     this.joining = joining;
     // Joining that device again: its confirm is wanted now.
@@ -579,6 +590,7 @@ export class PairingCeremony {
         this.host.changed();
         return true;
       }
+      if (joined.joins) this.host.joinGroup(joined.device);
       this.host.changed();
       this.host.open(joined.device);
       return true;

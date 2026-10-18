@@ -454,6 +454,30 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "added_version": {
+          "name": "added_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "group_membership": {
+      "name": "group_membership",
+      "columns": {
+        "group_id": {
+          "name": "group_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
         }
       },
       "indexes": {},

@@ -213,6 +213,7 @@ export class GroupClient {
       paired: this.storage.paired,
       pendingRevokes: this.storage.pendingRevokes,
       addPaired: (device) => this.group.addPaired(device),
+      joinGroup: (id) => this.group.joinGroup(id),
       revokeCancelled: (id) => this.group.tryRoster('revoke a cancelled join', () => this.group.revokeAtRelay(id)),
       watch: () => {},
       abandon: (id) => this.drop(id),
@@ -771,6 +772,14 @@ function persisting(storage: GroupStorage, stored: () => void): GroupStorage {
         stored();
       },
     },
+    groupId: {
+      get: () => storage.groupId.get(),
+      set: (id) => {
+        if (storage.groupId.get() === id) return;
+        storage.groupId.set(id);
+        stored();
+      },
+    },
     pendingRevokes: {
       list: () => storage.pendingRevokes.list(),
       add: (id) => {
@@ -787,8 +796,12 @@ function persisting(storage: GroupStorage, stored: () => void): GroupStorage {
   };
 }
 
-/** The phone's group as the app persists it: `MemoryGroupStorage.toJSON`. */
-export type StoredGroup = { roster: RosterState; paired: PairedDevice[]; pendingRevokes: string[] };
+/**
+ * The phone's group as the app persists it: `MemoryGroupStorage.toJSON`.
+ * `group`: the group id, kept apart from the roster (`GroupStorage.groupId`);
+ * absent while the phone has none.
+ */
+export type StoredGroup = { roster: RosterState; paired: PairedDevice[]; pendingRevokes: string[]; group?: string };
 
 const PairedRow = z.object({
   id: z.string(), name: z.string(), platform: z.string(), kind: z.string().nullable(), pairedAt: z.number(),
@@ -801,6 +814,7 @@ const PairedRow = z.object({
  */
 export class MemoryGroupStorage implements GroupStorage {
   private state: RosterState = EMPTY_ROSTER;
+  private group: string | null = null;
   private readonly devices = new Map<string, PairedDevice>();
   private readonly revokes = new Set<string>();
 
@@ -829,6 +843,13 @@ export class MemoryGroupStorage implements GroupStorage {
     },
   };
 
+  readonly groupId: GroupStorage['groupId'] = {
+    get: () => this.group,
+    set: (id) => {
+      this.group = id;
+    },
+  };
+
   readonly pendingRevokes: GroupStorage['pendingRevokes'] = {
     list: () => [...this.revokes],
     add: (id) => {
@@ -840,20 +861,25 @@ export class MemoryGroupStorage implements GroupStorage {
   };
 
   toJSON(): StoredGroup {
-    return { roster: this.roster.read(), paired: this.paired.list(), pendingRevokes: this.pendingRevokes.list() };
+    return {
+      roster: this.roster.read(), paired: this.paired.list(), pendingRevokes: this.pendingRevokes.list(),
+      ...(this.group !== null ? { group: this.group } : {}),
+    };
   }
 
   /**
    * Nothing here throws: what does not read is left out. A paired row and a
    * revoke are read one by one, since losing one loses a pair; a roster that
    * does not read as a whole (one stored before the primary signed it) is
-   * dropped, and the paired members send it again.
+   * dropped, and the paired members send it again — only its own group's
+   * primary's, by the group id stored beside it.
    */
   static fromJSON(value: unknown): MemoryGroupStorage {
     const storage = new MemoryGroupStorage();
     const parts = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
     const roster = RosterStateSchema.safeParse(parts.roster);
     if (roster.success) storage.roster.replace(roster.data);
+    if (typeof parts.group === 'string' && publicKeyOf(parts.group)) storage.group = parts.group;
     for (const row of Array.isArray(parts.paired) ? parts.paired : []) {
       const d = PairedRow.safeParse(row);
       if (d.success && publicKeyOf(d.data.id)) storage.devices.set(d.data.id, d.data);

@@ -19,7 +19,7 @@ const NOW = Date.now()
 function member(patch: Partial<GroupMember>): GroupMember {
   return {
     id: 'm', kind: 'desktop', name: 'm', os: 'macos', links: true,
-    addedAt: NOW, primary: false,
+    addedAt: NOW, addedVersion: 1, primary: false,
     self: false, linked: true, online: true, pairByHand: false, state: 'online', seenAt: null, tooOld: false,
     ...patch,
   }

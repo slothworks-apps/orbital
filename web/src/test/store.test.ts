@@ -1340,7 +1340,7 @@ describe('visibleSessions (pure)', () => {
 
 describe('the device filter (pure, canvas 50e)', () => {
   const member = (patch: Partial<GroupMember>): GroupMember => ({
-    id: 'x', kind: 'desktop', name: 'x', os: 'macos', links: true, addedAt: 0, primary: false,
+    id: 'x', kind: 'desktop', name: 'x', os: 'macos', links: true, addedAt: 0, addedVersion: 1, primary: false,
      self: false, linked: true, online: true, pairByHand: false, state: 'online', seenAt: null,
     tooOld: false, ...patch,
   })

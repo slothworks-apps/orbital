@@ -37,7 +37,7 @@ function build(opts: {
   const calls = {
     addPaired: [] as { id: string; kind: string; name: string; os: string; links: boolean }[],
     revoked: [] as string[], watched: [] as string[], opened: [] as string[], abandoned: [] as string[],
-    announced: [] as PendingPair[], unrevoked: [] as string[],
+    announced: [] as PendingPair[], unrevoked: [] as string[], joined: [] as string[],
   };
   let now = 1_000;
   const host: CeremonyHost = {
@@ -60,6 +60,7 @@ function build(opts: {
     },
     pendingRevokes: { remove: (id) => { calls.unrevoked.push(id); } },
     addPaired: (d) => { calls.addPaired.push(d); return !opts.fills; },
+    joinGroup: (id) => { calls.joined.push(id); },
     revokeCancelled: (id) => { calls.revoked.push(id); },
     watch: (id) => { calls.watched.push(id); },
     abandon: (id) => { calls.abandoned.push(id); },
@@ -408,6 +409,26 @@ describe('PairingCeremony: who adds whom', () => {
     await pairThrough(shower, typer);
     expect(typer.paired.has(shower.id)).toBe(false);
     expect(typer.calls).toMatchObject({ abandoned: [shower.id], revoked: [shower.id] });
+  });
+});
+
+describe('PairingCeremony: the group a pairing joins', () => {
+  it('the side the other adds remembers that device\'s group; the adder, and members pairing by hand, do not', async () => {
+    const shower = build({ inGroup: true });
+    const typer = build();
+    await pairThrough(shower, typer);
+    expect([shower.calls.joined, typer.calls.joined]).toEqual([[], [shower.id]]);
+    const phone = build({ kind: 'phone' });
+    const desktop = build();
+    await pairThrough(phone, desktop);
+    expect([phone.calls.joined, desktop.calls.joined]).toEqual([[desktop.id], []]);
+    // A Mac from before groups adds no one: a phone that types its code joins no group.
+    const qr = { ...(await showCode(build())) };
+    delete qr.kind;
+    const plain = build({ kind: 'phone' });
+    await plain.ceremony.join(JSON.stringify(qr));
+    plain.ceremony.onPaired(qr.mac);
+    expect(plain.calls.joined).toEqual([]);
   });
 });
 

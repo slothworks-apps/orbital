@@ -142,7 +142,7 @@ describe('parseChannelMessage', () => {
   it('reads group messages, and refuses a roster over its bound', () => {
     expect(parseChannelMessage({ t: 'roster_digest', digest: 'ab' })?.kind).toBe('group');
     expect(parseChannelMessage({ t: 'removed' })).toBeNull();
-    const member = { id: 'A', kind: 'desktop', addedAt: 1 };
+    const member = { id: 'A', kind: 'desktop', addedAt: 1, addedVersion: 1 };
     const roster = { group: 'A', version: 1, members: [member], sig: 's' };
     const notice = { id: 'B', group: 'A', version: 1, at: 1, sig: 's' };
     expect(parseChannelMessage({ t: 'roster', roster, descriptions: [], left: [] })?.kind).toBe('group');

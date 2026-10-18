@@ -30,7 +30,7 @@ import { DeviceStore, type RemoteDevice } from './devices.js';
 import { DeviceWatcher } from './deviceWatcher.js';
 import { loadOrCreateIdentity, macDisplayName, readIdentity, serverDeviceKind, serverHello } from './identity.js';
 import { createPhoneFileReader, type PhoneFileReader } from './phoneFiles.js';
-import { PendingRevokes, RosterStore } from './rosterStore.js';
+import { GroupMembershipStore, PendingRevokes, RosterStore } from './rosterStore.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
 import { openDeviceChannel, type PhoneTooOld } from './deviceChannel.js';
 import type { InjectFn } from './servingHalf.js';
@@ -165,6 +165,8 @@ export class RemoteService {
   private client: RelayClient | null = null;
   private readonly devices: DeviceStore;
   private readonly roster: RosterStore;
+  /** The group this device belongs to, kept apart from the roster. */
+  private readonly membership: GroupMembershipStore;
   private readonly watchers = new Map<string, DeviceWatcher>();
   private readonly channels = new Map<string, Channel>();
   /**
@@ -207,6 +209,7 @@ export class RemoteService {
   constructor(private readonly opts: RemoteServiceOptions) {
     this.devices = new DeviceStore(opts.db);
     this.roster = new RosterStore(opts.db);
+    this.membership = new GroupMembershipStore(opts.db);
     this.pendingRevokes = new PendingRevokes(opts.db);
     this.now = opts.now ?? Date.now;
     this.group = new GroupMember(this.groupStorage(), {
@@ -244,6 +247,7 @@ export class RemoteService {
       },
       pendingRevokes: this.pendingRevokes,
       addPaired: (device) => this.group.addPaired(device),
+      joinGroup: (id) => this.group.joinGroup(id),
       revokeCancelled: (id) => this.group.tryRoster('revoke a cancelled join', () => this.group.revokeAtRelay(id)),
       watch: (id) => this.watch(id),
       abandon: (id) => {
@@ -569,6 +573,7 @@ export class RemoteService {
     return {
       roster: this.roster,
       pendingRevokes: this.pendingRevokes,
+      groupId: this.membership,
       paired: {
         list: () => this.devices.list(),
         get: (id) => this.devices.get(id),
@@ -595,6 +600,7 @@ export class RemoteService {
    * device is alone under its new one.
    */
   private forgetAllDevices(): void {
+    this.membership.set(null);
     if (this.roster.replace(EMPTY_ROSTER)) console.warn('[remote] the identity was regenerated; the group roster it held is dropped');
     const all = this.devices.list();
     if (all.length === 0) return;

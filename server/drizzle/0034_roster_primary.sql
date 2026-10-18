@@ -7,7 +7,12 @@ DROP TABLE `group_members`;--> statement-breakpoint
 CREATE TABLE `group_members` (
 	`id` text PRIMARY KEY NOT NULL,
 	`kind` text NOT NULL,
-	`added_at` integer NOT NULL
+	`added_at` integer NOT NULL,
+	`added_version` integer NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE `group_membership` (
+	`group_id` text PRIMARY KEY NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `group_descriptions` (

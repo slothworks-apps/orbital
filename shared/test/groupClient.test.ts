@@ -432,8 +432,10 @@ describe('MemoryGroupStorage', () => {
     storage.paired.add({ id, name: 'studio', platform: 'darwin', kind: 'desktop', pairedAt: 5 });
     storage.pendingRevokes.add(id);
     storage.roster.replace(member(id, idOf()));
+    storage.groupId.set(id);
     const back = MemoryGroupStorage.fromJSON(JSON.parse(JSON.stringify(storage)));
     expect(back.toJSON()).toEqual(storage.toJSON());
+    expect(back.groupId.get()).toBe(id);
     expect(back.roster.digest()).toBe(storage.roster.digest());
   });
 
@@ -444,6 +446,9 @@ describe('MemoryGroupStorage', () => {
       roster: [unsigned], paired: [{ id, name: 'studio', platform: 'darwin', kind: 'desktop', pairedAt: 1, lastSeenAt: null }],
     });
     expect(back.roster.read()).toEqual({ roster: null, descriptions: [], left: [] });
+    // The group id is kept apart, and reads on its own.
+    expect(MemoryGroupStorage.fromJSON({ roster: [unsigned], group: id }).groupId.get()).toBe(id);
+    expect(MemoryGroupStorage.fromJSON({ group: 'not a key' }).groupId.get()).toBeNull();
     expect(back.paired.list().map((d) => d.id)).toEqual([id]);
   });
 

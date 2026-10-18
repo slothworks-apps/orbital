@@ -148,6 +148,8 @@ describe('the phone as a member', () => {
     const dropped = MemoryGroupStorage.fromJSON({ ...stored, roster: [{ id: idA, epoch: 1 }] });
     expect(dropped.roster.read().roster).toBeNull();
     expect(dropped.paired.list().map((d) => d.id).sort()).toEqual([idA, idB].sort());
+    // The group id, kept apart, still reads: only A's roster is taken again.
+    expect(dropped.groupId.get()).toBe(idA);
     const again = make(dropped);
     again.start();
     closers.push(() => again.stop());

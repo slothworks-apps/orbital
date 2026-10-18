@@ -9,7 +9,7 @@ const HOUR = 3_600_000
 
 function member(over: Partial<MemberRow> & Pick<MemberRow, 'id' | 'name'>): MemberRow {
   return {
-    kind: 'desktop', os: 'macos', links: true, addedAt: NOW - 24 * HOUR, primary: false,
+    kind: 'desktop', os: 'macos', links: true, addedAt: NOW - 24 * HOUR, addedVersion: 1, primary: false,
     self: false, linked: true, online: true, pairByHand: false, state: 'online', seenAt: null,
     ...over,
   }

@@ -32,7 +32,7 @@ const next = (state: RosterState, change: { add?: Identity[]; remove?: Identity[
 
 /** What `self` holds once `incoming` arrives from a paired device. */
 const at = (self: Identity, held: RosterState, incoming: RosterState, opts: Partial<TakeOptions> = {}) =>
-  takeRoster(held, incoming, { self: idOf(self), alone: false, paired: () => true, ...opts });
+  takeRoster(held, incoming, { self: idOf(self), groupId: held.roster?.group ?? null, paired: () => true, ...opts });
 
 /** A document signed by hand, as no primary would sign it. */
 function forged(signer: Identity, doc: Omit<RosterDoc, 'sig'>): RosterDoc {
@@ -63,7 +63,7 @@ describe('taking a roster', () => {
     expect(verifyRoster(forged(A, base))).toBe(false);
     expect(at(B, v2, { ...v2, roster: forged(A, base) }).roster).toEqual(v2.roster);
     // The removed device signs a version that names it again.
-    const back = { ...base, members: [...v2.roster!.members, { id: idOf(R), kind: 'desktop', addedAt: 3 }].sort((x, y) => (x.id < y.id ? -1 : 1)) };
+    const back = { ...base, members: [...v2.roster!.members, { id: idOf(R), kind: 'desktop', addedAt: 3, addedVersion: 9 }].sort((x, y) => (x.id < y.id ? -1 : 1)) };
     expect(at(A, v2, { ...v2, roster: forged(R, back) }).roster).toEqual(v2.roster);
     // A removed device as the primary of its own group: not this group, so nothing.
     const own = foundRoster(R, 'desktop', [{ id: idOf(A), kind: 'desktop' }], 3)!;
@@ -73,7 +73,7 @@ describe('taking a roster', () => {
   it('refuses a document with a phone as its primary, members out of order, or a canonical form changed', () => {
     const phone = generateIdentity();
     expect(foundRoster(phone, 'phone', [], 1)).toBeNull();
-    const asPhone = forged(phone, { group: idOf(phone), version: 1, members: [{ id: idOf(phone), kind: 'phone', addedAt: 1 }] });
+    const asPhone = forged(phone, { group: idOf(phone), version: 1, members: [{ id: idOf(phone), kind: 'phone', addedAt: 1, addedVersion: 1 }] });
     expect(verifyRoster(asPhone)).toBe(false);
     const doc = group().roster!;
     expect(verifyRoster(doc)).toBe(true);
@@ -85,11 +85,11 @@ describe('taking a roster', () => {
   it('a device alone takes the document of a primary paired here that names it, and no other', () => {
     const joiner = generateIdentity();
     const v2 = next(group(), { add: [joiner] });
-    const alone = { alone: true, paired: (id: string) => id === idOf(P) };
+    const alone = { groupId: null, paired: (id: string) => id === idOf(P) };
     expect(at(joiner, EMPTY_ROSTER, v2, alone).roster).toEqual(v2.roster);
     // Not named, or a primary not paired here, or a member of another group: nothing.
     expect(at(generateIdentity(), EMPTY_ROSTER, v2, alone).roster).toBeNull();
-    expect(at(joiner, EMPTY_ROSTER, v2, { alone: true, paired: () => false }).roster).toBeNull();
+    expect(at(joiner, EMPTY_ROSTER, v2, { groupId: null, paired: () => false }).roster).toBeNull();
     const elsewhere = foundRoster(B, 'desktop', [{ id: idOf(A), kind: 'desktop' }], 1)!;
     expect(at(A, group(), { roster: elsewhere, descriptions: [], left: [] }).roster).toEqual(group().roster);
   });
@@ -141,6 +141,36 @@ describe('leaving', () => {
     expect(memberIds(at(R, held, { roster: null, descriptions: [], left: [forgedNotice] }))).toContain(idOf(A));
   });
 
+  it('a version signed before the primary heard of a notice does not void it; only adding the device again does', () => {
+    const v1 = group();
+    const notice = leftNotice(A, v1.roster!, 7);
+    // The primary signs an unrelated v2 that still names A, as added at v1.
+    const v2 = next(v1, { add: [generateIdentity()] });
+    expect(v2.roster!.members.find((m) => m.id === idOf(A))?.addedVersion).toBe(1);
+    const taken = at(B, v2, { roster: null, descriptions: [], left: [notice] });
+    expect(memberIds(taken)).not.toContain(idOf(A));
+    // Taken in the other order: the notice first, then v2.
+    const first = at(B, v1, { roster: null, descriptions: [], left: [notice] });
+    expect(memberIds(at(B, first, v2))).not.toContain(idOf(A));
+    // Left out, then added again at v4: added above the notice's version, so A is a member again.
+    const readded = next(next(taken, { remove: [A] }), { add: [A] });
+    expect(readded.roster!.members.find((m) => m.id === idOf(A))?.addedVersion).toBe(4);
+    expect(memberIds(at(B, taken, readded))).toContain(idOf(A));
+    // A member's `addedVersion` above its document's version is no document the primary signed.
+    const doc = v2.roster!;
+    expect(verifyRoster({ ...doc, members: doc.members.map((m) => ({ ...m, addedVersion: 3 })) })).toBe(false);
+  });
+
+  it('a device whose stored document was dropped takes only its own primary\'s, by the group id kept apart', () => {
+    const v2 = next(group(), { remove: [R] });
+    // A member of the group, B, hands A a group of its own that names A.
+    const fake = { roster: foundRoster(B, 'desktop', [{ id: idOf(A), kind: 'desktop' }], 1)!, descriptions: [], left: [] };
+    expect(at(A, EMPTY_ROSTER, fake, { groupId: idOf(P) }).roster).toBeNull();
+    expect(at(A, EMPTY_ROSTER, v2, { groupId: idOf(P) }).roster).toEqual(v2.roster);
+    // With no group id at all, it may adopt a group that names it, from a primary paired here.
+    expect(at(A, EMPTY_ROSTER, fake, { groupId: null }).roster?.group).toBe(idOf(B));
+  });
+
   it('the primary leaving dissolves the group: the last version names it alone', () => {
     const held = group();
     const last = dissolveRoster(held.roster!, P)!;
@@ -185,7 +215,7 @@ describe('the frame', () => {
     const escaped = (n: number) => '\u0001'.repeat(n);
     const big = Number.MAX_SAFE_INTEGER;
     const id = idOf(A);
-    const members = new Array(ROSTER_MAX_ENTRIES).fill({ id, kind: escaped(ROSTER_KIND_MAX_CHARS), addedAt: big });
+    const members = new Array(ROSTER_MAX_ENTRIES).fill({ id, kind: escaped(ROSTER_KIND_MAX_CHARS), addedAt: big, addedVersion: ROSTER_MAX_VERSION });
     const msg = {
       t: 'roster',
       roster: { group: id, version: ROSTER_MAX_VERSION, members, dissolved: true, sig: 's'.repeat(86) },
