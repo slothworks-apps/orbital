@@ -63,6 +63,10 @@ UI, the phone as a member); each is narrow or heals on its own.
   session screen is read only).
 - **This phone's code** is the QR's JSON as one long word; canvas 50i
   draws a short code.
+- **A phone left with only other phones.** `GroupClient.grouped()` still
+  counts another phone as a member to reach, so a phone whose roster holds
+  only phones (a path outside Settings' removal, which leaves) waits out
+  `ALONE_GRACE_MS` and shows the unreachable card instead of 9h.
 - **Model switcher default.** The header's model switcher of another
   device's session starts from this Mac's `default_model`.
 
