@@ -24,7 +24,9 @@ describe('mobile remote, end to end', () => {
     const status = (await api('GET', '/api/remote')).json();
     // The code is the phone's to show and the user's to type; the status never carries it.
     const code = pairingCode(status.macId, phone.identity.publicKey);
-    expect(status.pendingPair).toEqual({ phone: phone.id, name: 'Pixel', platform: 'android', kind: 'phone', attemptsLeft: 3 });
+    expect(status.pendingPair).toEqual({
+      phone: phone.id, name: 'Pixel', platform: 'android', kind: 'phone', attemptsLeft: 3, manager: { by: 'here', newGroup: true },
+    });
     expect(JSON.parse(pair.json().qr)).toMatchObject({ kind: 'desktop' });
     expect((await api('POST', '/api/remote/pair/confirm', { accept: true, phone: phone.id })).statusCode).toBe(400);
     const wrong = await api('POST', '/api/remote/pair/confirm', { accept: true, phone: phone.id, code: wrongCode(code) });

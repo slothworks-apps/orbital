@@ -80,6 +80,12 @@ export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService
     remote.acknowledgeEnded();
     return { ok: true };
   });
+
+  // The card saying a join was dropped, its primary's group never come, was read (canvas 50p B).
+  app.post('/api/remote/join/expired/acknowledge', () => {
+    remote.acknowledgeExpiredJoin();
+    return { ok: true };
+  });
 }
 
 /**

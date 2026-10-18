@@ -445,14 +445,19 @@ export class RemoteService {
         ...m, tooOld: !m.self && memberTooOld(m.kind, this.hellos.get(m.id) ?? null),
       }));
       const primary = this.group.primary();
+      // Before `joinExpired`: reading the join under way is what drops one whose code ran out.
+      const pendingJoin = this.pendingJoin();
       return {
         members, relayLocked: this.group.inGroup(), primary, isPrimary: this.group.isPrimary(),
         ended: this.group.ended(),
-        pendingJoin: this.pendingJoin(),
+        pendingJoin,
+        joinExpired: this.group.expiredJoin(),
       };
     } catch (err) {
       console.warn(`[remote] could not list the roster: ${err instanceof Error ? err.message : String(err)}`);
-      return { members: [], relayLocked: false, primary: null, isPrimary: false, ended: null, pendingJoin: null };
+      return {
+        members: [], relayLocked: false, primary: null, isPrimary: false, ended: null, pendingJoin: null, joinExpired: null,
+      };
     }
   }
 
@@ -518,6 +523,11 @@ export class RemoteService {
   /** The user read the notice of the group's ending (`GroupMember.acknowledgeEnded`); the status drops it. */
   acknowledgeEnded(): void {
     this.group.acknowledgeEnded();
+  }
+
+  /** The user read that a join was dropped by its code's clock (`GroupMember.acknowledgeExpiredJoin`); the status drops it. */
+  acknowledgeExpiredJoin(): void {
+    this.group.acknowledgeExpiredJoin();
   }
 
   /** This device's id, read once from the data dir while the remote is off; null when it never had one. */

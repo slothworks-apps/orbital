@@ -98,6 +98,8 @@ export type MemberRow = MemberView & {
  * otherwise. `pendingJoin`: a pairing made this device join `primary`'s
  * group and its first roster has not come; `expiresAt`, when the code it
  * was made with stops working and the join is dropped. Null otherwise.
+ * `joinExpired`: the primary of a join dropped that way, until the user
+ * reads it (`GroupMember.expiredJoin`); null otherwise.
  */
 export type GroupStatus = {
   members: (MemberRow & { tooOld: boolean })[];
@@ -106,6 +108,7 @@ export type GroupStatus = {
   isPrimary: boolean;
   ended: GroupEnded | null;
   pendingJoin: { primary: string; expiresAt: number | null } | null;
+  joinExpired: PrimaryRef | null;
 };
 
 /** What this device says about itself: its kind (for a founding) and its description. */
@@ -263,6 +266,13 @@ export class GroupMember {
   /** `leave` waiting for the first member to acknowledge its notice. */
   private leaving: { state: RosterState; digest: string; acked(from: string): void } | null = null;
   private leaveRun: Promise<RemoveResult> | null = null;
+  /**
+   * The primary of the join `pendingJoin` dropped when its code stopped
+   * working, its first roster never come (canvas 50p B): kept until the user
+   * reads it or a pairing joins a group again. In memory only: a restart
+   * forgets it, and the device was standalone all along.
+   */
+  private droppedJoin: PrimaryRef | null = null;
 
   private readonly storage: GroupStorage;
   private readonly host: GroupHost;
@@ -415,6 +425,7 @@ export class GroupMember {
         ...(expires !== undefined ? { expires } : {}),
       });
       joined = true;
+      this.droppedJoin = null;
       this.host.changed();
       // The primary may have sent its roster before this was recorded: its digest asks for it again.
       this.host.channel(primary)?.sendGroup({ t: 'roster_digest', digest: this.storage.roster.digest() });
@@ -436,6 +447,7 @@ export class GroupMember {
       // carries none, and is no join under way.
       if (!m || !m.member || m.founding !== null || m.expires === undefined || this.storage.roster.read().roster) return null;
       if (m.expires <= this.host.now()) {
+        this.droppedJoin = { id: m.group, name: this.storage.paired.get(m.group)?.name ?? m.group.slice(0, 8) };
         this.dropJoin(m);
         return null;
       }
@@ -456,6 +468,18 @@ export class GroupMember {
     this.dropJoin(m);
     if (this.storage.paired.get(m.group)) this.finishExit(m.group);
     return true;
+  }
+
+  /** The primary of a join dropped by its code's clock, until the user reads it (`droppedJoin`); null otherwise. */
+  expiredJoin(): PrimaryRef | null {
+    return this.droppedJoin;
+  }
+
+  /** The user read that the join was dropped: it is gone. */
+  acknowledgeExpiredJoin(): void {
+    if (this.droppedJoin === null) return;
+    this.droppedJoin = null;
+    this.host.changed();
   }
 
   private dropJoin(m: Membership): void {

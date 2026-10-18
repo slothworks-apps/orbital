@@ -879,6 +879,25 @@ describe('GroupMember with a join under way', () => {
     expect(late.group.canAdd(OTHER)).toBe(true);
   });
 
+  it('a join dropped by its code\'s clock is kept for the user until read or joined again; a cancel leaves none', () => {
+    const joining: Membership = { group: MAC, founding: null, version: 0, member: true, expires: NOW };
+    const g = build({ roster: EMPTY_ROSTER, membership: joining, paired: [row(MAC)] });
+    expect(g.group.expiredJoin()).toBeNull();
+    expect(g.group.pendingJoin()).toBeNull();
+    expect(g.group.expiredJoin()).toEqual({ id: MAC, name: row(MAC).name });
+    g.group.acknowledgeExpiredJoin();
+    expect(g.group.expiredJoin()).toBeNull();
+    // Dropped again, then a pairing joins a group: the old drop is no news any more.
+    const again = build({ roster: EMPTY_ROSTER, membership: joining, paired: [row(MAC)] });
+    again.group.pendingJoin();
+    again.group.joinGroup(OTHER, NOW + 1_000);
+    expect(again.group.expiredJoin()).toBeNull();
+    // Cancelled by the user before its code ran out: nothing to tell.
+    const cancelled = build({ roster: EMPTY_ROSTER, membership: { ...joining, expires: NOW + 10 }, paired: [row(MAC)] });
+    expect(cancelled.group.abandonJoin()).toBe(true);
+    expect(cancelled.group.expiredJoin()).toBeNull();
+  });
+
   it('a phone migrated from one Mac before groups is no join under way: it adds as usual, and a cancel never revokes its Mac', async () => {
     const r = fakeRelay();
     const migrated: Membership = { group: MAC, founding: null, version: 0, member: true };

@@ -118,18 +118,34 @@ export type StartPairingResult =
   | { error: 'not_primary'; primary: PrimaryRef };
 
 /**
+ * Who manages the group once a pairing goes through, for the line the
+ * ceremony's screens say it in (canvas 50b, 50c, 50i): `here`, this device —
+ * it founds the group or adds to the one it is primary of; `there`, the
+ * other device. `newGroup`: the pairing founds the group, so the role is
+ * new. Null for two members pairing by hand, which changes no roster, and
+ * for a Mac from before groups, which keeps none.
+ */
+export type GroupManager = { by: 'here' | 'there'; newGroup: boolean } | null;
+
+/**
  * A device asking to pair, and how many wrong codes it may still be sent
  * before it is rejected. The code itself is not here: the user types it
- * from the device and this side compares.
+ * from the device and this side compares. `manager`: who manages the group
+ * once it is in (`GroupManager`).
  */
-export type PendingPair = { phone: string; name: string; platform: string; kind: string; attemptsLeft: number };
+export type PendingPair = {
+  phone: string; name: string; platform: string; kind: string; attemptsLeft: number; manager: GroupManager;
+};
 
 /**
  * A device whose code this device redeemed and which has not confirmed
  * yet: `code` is what the user types on it, `expiresAt` when its code stops working,
- * `kind` its kind as its code named it (null from a code without one).
+ * `kind` its kind as its code named it (null from a code without one),
+ * `manager` who manages the group once it confirms (`GroupManager`).
  */
-export type Joining = { device: string; name: string; kind: string | null; code: string; expiresAt: number };
+export type Joining = {
+  device: string; name: string; kind: string | null; code: string; expiresAt: number; manager: GroupManager;
+};
 
 /**
  * A request the code on screen refused without asking the user, and why:
@@ -273,7 +289,7 @@ export class PairingCeremony {
       joining: this.joining && this.joining.expiresAt > this.host.now()
         ? {
           device: this.joining.device, name: this.joining.name, kind: this.joining.kind, code: this.joining.code,
-          expiresAt: this.joining.expiresAt,
+          expiresAt: this.joining.expiresAt, manager: this.joining.manager,
         } : null,
       refused: this.refused,
     };
@@ -381,10 +397,12 @@ export class PairingCeremony {
     }
     // In a group, this device (its primary) adds the newcomer; both alone, the device showing the code founds one.
     const adds = !member && (this.host.inGroup() || (!theirGroup && this.host.self().kind !== 'phone'));
+    const joins = !member && !adds;
     this.pendingPair = {
       phone: msg.phone, name, platform: device?.platform ?? '',
-      kind, links: sealedKind, adds, joins: !member && !adds,
+      kind, links: sealedKind, adds, joins,
       code: fingerprint(identity.publicKey, phoneKey), attemptsLeft: PAIR_CODE_ATTEMPTS,
+      manager: adds ? { by: 'here', newGroup: !this.host.inGroup() } : joins ? { by: 'there', newGroup: !theirGroup } : null,
     };
     this.host.announce(this.publicPendingPair()!);
     this.host.changed();
@@ -545,8 +563,12 @@ export class PairingCeremony {
     // No code lives longer than `PAIRING_TOKEN_TTL_MS`, whatever it says;
     // one from before it carried its expiry is good for that long.
     const longest = this.host.now() + PAIRING_TOKEN_TTL_MS;
+    const manager: GroupManager = adds
+      ? { by: 'here', newGroup: !this.host.inGroup() }
+      : joins ? { by: 'there', newGroup: qr.group !== true } : null;
     const joining = {
       device: qr.mac, name, kind: qr.kind ?? null, code: typed, expiresAt: Math.min(qr.expiresAt ?? longest, longest), adds, joins,
+      manager,
     };
     this.joining = joining;
     // Joining that device again: its confirm is wanted now.

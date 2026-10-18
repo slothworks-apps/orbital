@@ -119,6 +119,7 @@ describe('PairingCeremony as the adder', () => {
     a.ceremony.onPairRequest(request(qr, generateIdentity()));
     expect(a.ceremony.state().pendingPair).toEqual({
       phone: deviceId(first.publicKey), name: 'Pixel', platform: 'android', kind: 'phone', attemptsLeft: PAIR_CODE_ATTEMPTS,
+      manager: { by: 'here', newGroup: true },
     });
     expect(a.calls.announced).toHaveLength(1);
   });
@@ -415,6 +416,38 @@ describe('PairingCeremony: who adds whom', () => {
     await pairThrough(shower, typer);
     expect(typer.paired.has(shower.id)).toBe(false);
     expect(typer.calls).toMatchObject({ abandoned: [shower.id], revoked: [shower.id] });
+  });
+});
+
+describe('PairingCeremony: who will manage the group, as both sides show it', () => {
+  /** Each side's `manager` while the pairing waits for the confirm: the typer's join, the shower's request. */
+  async function managers(shower: ReturnType<typeof build>, typer: ReturnType<typeof build>) {
+    const qr = await showCode(shower);
+    await typer.ceremony.join(JSON.stringify(qr));
+    const redeem = typer.relay.posts.find((p) => p.path === '/pair/redeem')!.payload as { proof: string; device: string };
+    shower.ceremony.onPairRequest({ type: 'pair_request', phone: typer.id, ...redeem });
+    return { shower: shower.ceremony.state().pendingPair?.manager, typer: typer.ceremony.state().joining?.manager };
+  }
+
+  it('both alone: the desktop showing the code will manage a new group', async () => {
+    expect(await managers(build(), build())).toEqual({
+      shower: { by: 'here', newGroup: true }, typer: { by: 'there', newGroup: true },
+    });
+  });
+
+  it('a phone showing the code: the device that typed it will manage a new group', async () => {
+    expect(await managers(build({ kind: 'phone' }), build())).toEqual({
+      shower: { by: 'there', newGroup: true }, typer: { by: 'here', newGroup: true },
+    });
+  });
+
+  it('the side in a group manages it already: no new group, whichever shows the code', async () => {
+    expect(await managers(build({ inGroup: true }), build())).toEqual({
+      shower: { by: 'here', newGroup: false }, typer: { by: 'there', newGroup: false },
+    });
+    expect(await managers(build(), build({ inGroup: true }))).toEqual({
+      shower: { by: 'there', newGroup: false }, typer: { by: 'here', newGroup: false },
+    });
   });
 });
 

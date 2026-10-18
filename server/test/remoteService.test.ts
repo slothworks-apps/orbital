@@ -286,7 +286,9 @@ describe('RemoteService pairing', () => {
     const phone = phoneId();
     fake.emit('control', request(phone));
     const code = codeFor(service, phone);
-    expect(service.status().pendingPair).toEqual({ phone, name: 'iPhone', platform: 'ios', kind: 'phone', attemptsLeft: PAIR_CODE_ATTEMPTS });
+    expect(service.status().pendingPair).toEqual({
+      phone, name: 'iPhone', platform: 'ios', kind: 'phone', attemptsLeft: PAIR_CODE_ATTEMPTS, manager: { by: 'here', newGroup: true },
+    });
     expect(JSON.stringify(service.status())).not.toContain(code);
     expect(publish).toHaveBeenCalledWith('remote', expect.objectContaining({ event: 'pair_request', phone }));
     expect(JSON.stringify(publish.mock.calls)).not.toContain(code);
@@ -665,6 +667,20 @@ describe('RemoteService join and the group', () => {
     expect(redeems(fake)).toHaveLength(1);
   });
 
+  it('a join whose code ran out before the primary\'s roster came is dropped, and the status says so until read', async () => {
+    const { service, fake, advance } = build();
+    const joined = await service.join(codeFrom({ group: undefined }));
+    if (!('device' in joined)) throw new Error('join failed');
+    fake.emit('control', { type: 'paired', mac: joined.device });
+    expect(service.status().group).toMatchObject({ pendingJoin: { primary: joined.device }, joinExpired: null });
+    advance(90_000);
+    expect(service.status().group).toMatchObject({
+      pendingJoin: null, joinExpired: { id: joined.device, name: 'studio' },
+    });
+    service.acknowledgeExpiredJoin();
+    expect(service.status().group.joinExpired).toBeNull();
+  });
+
   it('a join under way shows in the status, blocks a code of its own, and is cancelled by cancelJoin', async () => {
     const { service, fake } = build();
     const joined = await service.join(codeFrom({ group: undefined }));
@@ -674,6 +690,8 @@ describe('RemoteService join and the group', () => {
     expect(await service.startPairing()).toEqual({ error: 'joining' });
     expect(service.cancelJoin()).toBe(true);
     expect(service.status().group.pendingJoin).toBeNull();
+    // Given up by the user, not by the clock: no card says it was dropped.
+    expect(service.status().group.joinExpired).toBeNull();
     await tick();
     expect(fake.posts.filter((p) => p.path === '/pair/revoke').map((p) => p.payload)).toEqual([{ phone: joined.device }]);
     expect(service.cancelJoin()).toBe(false);
@@ -729,6 +747,7 @@ describe('RemoteService join and the group', () => {
     if (!('code' in res)) throw new Error('join failed');
     expect(service.status().joining).toEqual({
       device: res.device, name: 'studio', kind: 'desktop', code: res.code, expiresAt: NOW + 90_000,
+      manager: { by: 'there', newGroup: false },
     });
   });
 
