@@ -5,6 +5,7 @@ import {
 } from '@orbital/shared/remote/roster';
 import { GroupExitStore, GroupMembershipStore, RosterStore } from '../src/remote/rosterStore.js';
 import { openTmpDb } from './tmp.js';
+import { groupExits } from '../src/db/schema.js';
 
 describe('RosterStore', () => {
   it('stores the document, the descriptions and the left notices, signatures included, and says whether a replace changed it', () => {
@@ -57,9 +58,12 @@ describe('RosterStore', () => {
     expect(membership.get()).toBeNull();
     const exits = new GroupExitStore(db);
     const state = { roster: null, descriptions: [], left: [] };
-    exits.set({ id: 'a', state });
-    exits.set({ id: 'a', state });
-    expect(exits.list()).toEqual([{ id: 'a', state }]);
+    exits.set({ id: 'a', state, since: 3 });
+    exits.set({ id: 'a', state, since: 3 });
+    expect(exits.list()).toEqual([{ id: 'a', state, since: 3 }]);
+    // A row whose state does not read is still an exit: its device stays served nothing.
+    db.update(groupExits).set({ state: 'not json' }).run();
+    expect(exits.list()).toEqual([{ id: 'a', state: null, since: 3 }]);
     exits.remove('a');
     expect(exits.list()).toEqual([]);
   });

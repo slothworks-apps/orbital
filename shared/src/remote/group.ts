@@ -127,7 +127,21 @@ export interface GroupStorage {
  * version that no longer names it, the dissolved version, or this device's
  * own left notice.
  */
-export type GroupExit = { id: string; state: RosterState };
+export type GroupExit = {
+  id: string;
+  /** Null when what was stored no longer reads: nothing to send, but the device is still served nothing. */
+  state: RosterState | null;
+  /** When the exit began (epoch ms): past `EXIT_MAX_MS` the pair ends whether or not it was heard. */
+  since: number;
+};
+
+/**
+ * How long a pair waits for the device to acknowledge what ends it before
+ * it ends anyway (`finishExit`, revoked at the relay): as long as the relay
+ * keeps a mutual half (`MUTUAL_PAIR_TTL_MS`). A device asleep longer than
+ * this never learns of its end by message.
+ */
+export const EXIT_MAX_MS = 7 * 24 * 60 * 60_000;
 
 /**
  * The relay connection as the group uses it. The host hands out the same
@@ -248,6 +262,7 @@ export class GroupMember {
   relayOk(): void {
     if (this.okHandled) return;
     this.okHandled = true;
+    this.sweepExits();
     const hadByHand = this.pairByHand.size > 0;
     this.mutualAsked = new Set();
     this.pairByHand = new Set();
@@ -373,8 +388,10 @@ export class GroupMember {
   pendingJoin(): Membership | null {
     try {
       const m = this.storage.membership.get();
-      if (!m || !m.member || m.founding !== null || this.storage.roster.read().roster) return null;
-      if (m.expires !== undefined && m.expires <= this.host.now()) {
+      // A join made by a ceremony carries its code's expiry; a phone migrated from one Mac before groups
+      // carries none, and is no join under way.
+      if (!m || !m.member || m.founding !== null || m.expires === undefined || this.storage.roster.read().roster) return null;
+      if (m.expires <= this.host.now()) {
         this.dropJoin(m);
         return null;
       }
@@ -407,8 +424,22 @@ export class GroupMember {
     try {
       return this.storage.exits.list().some((e) => e.id === id);
     } catch {
-      return false;
+      // Unreadable: served nothing rather than everything.
+      return true;
     }
+  }
+
+  /** Every exit older than `EXIT_MAX_MS` ends now, heard or not. At every relay `ok` and at start. */
+  private sweepExits(): void {
+    this.tryRoster('end exits that waited too long', () => {
+      const now = this.host.now();
+      for (const exit of this.storage.exits.list()) {
+        if (exit.since + EXIT_MAX_MS <= now) {
+          this.host.log(`ended the pair with ${exit.id.slice(0, 8)}: it never acknowledged its exit`);
+          this.finishExit(exit.id);
+        }
+      }
+    });
   }
 
   /** Paired afresh by a ceremony: a revoke or an exit still waiting for `id` must not undo the new pair. */
@@ -689,7 +720,8 @@ export class GroupMember {
       this.finishExit(id);
       return;
     }
-    this.storage.exits.set({ id, state: ending });
+    const held = this.storage.exits.list().find((e) => e.id === id);
+    this.storage.exits.set({ id, state: ending, since: held?.since ?? this.host.now() });
     this.deliverExit(id);
   }
 
@@ -697,7 +729,7 @@ export class GroupMember {
   private deliverExit(id: string): void {
     const exit = this.storage.exits.list().find((e) => e.id === id);
     const channel = this.host.channel(id);
-    if (exit && channel?.groups) channel.sendGroup({ t: 'roster', ...exit.state });
+    if (exit?.state && channel?.groups) channel.sendGroup({ t: 'roster', ...exit.state });
   }
 
   /**
@@ -903,6 +935,7 @@ export class GroupMember {
    * made while the remote was off reached no roster.
    */
   addSelf(): void {
+    this.sweepExits();
     const identity = this.host.identity();
     if (!identity) return;
     const state = this.storage.roster.read();
@@ -1038,7 +1071,7 @@ export class GroupMember {
       this.tryRoster('take an acknowledgement', () => {
         if (this.leaving?.digest === msg.digest) this.leaving.acked(from);
         const exit = this.storage.exits.list().find((e) => e.id === from);
-        if (exit && exitDigest(exit.state) === msg.digest) this.finishExit(from);
+        if (exit?.state && exitDigest(exit.state) === msg.digest) this.finishExit(from);
       });
       return;
     }

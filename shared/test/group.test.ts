@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   GroupMember, LEAVE_ACK_TIMEOUT_MS, MUTUAL_RETRY_MS, RELAY_POST_TIMEOUT_MS, type GroupChannel, type GroupHost, type GroupRelay,
-  type PairedDevice, type SelfAbout,
+  type GroupExit, type PairedDevice, type SelfAbout, EXIT_MAX_MS,
 } from '../src/remote/group.js';
 import { deviceId, generateIdentity, type Identity } from '../src/remote/keys.js';
 import type { GroupMessage, HelloMessage } from '../src/remote/messages.js';
@@ -93,7 +93,9 @@ function build(opts: {
   let membership: Membership | null = opts.membership !== undefined ? opts.membership
     : held && !held.dissolved && memberIds(state).includes(self)
       ? { group: held.group, founding: held.founding, version: held.version, member: true } : null;
-  const exits = new Map<string, RosterState>();
+  const exits = new Map<string, GroupExit>();
+  let now = NOW;
+  let exitsBroken = false;
   const paired = new Map((opts.paired ?? []).map((d) => [d.id, d]));
   const pending = new Set<string>();
   let relay: GroupRelay | null = opts.relay === null ? null : (opts.relay ?? fakeRelay()).relay;
@@ -113,7 +115,7 @@ function build(opts: {
     forget: (id) => { forgotten.push(id); channels.delete(id); },
     leftGroup: () => { forgotten.push('*'); },
     changed: () => {},
-    now: () => NOW,
+    now: () => now,
     log: (m) => { logs.push(m); },
   };
   const group = new GroupMember({
@@ -135,8 +137,11 @@ function build(opts: {
     pendingRevokes: { list: () => [...pending], add: (id) => { pending.add(id); }, remove: (id) => { pending.delete(id); } },
     membership: { get: () => membership, set: (m) => { membership = m; } },
     exits: {
-      list: () => [...exits].map(([id, st]) => ({ id, state: st })),
-      set: (e) => { exits.set(e.id, e.state); },
+      list: () => {
+        if (exitsBroken) throw new Error('unreadable');
+        return [...exits.values()];
+      },
+      set: (e) => { exits.set(e.id, e); },
       remove: (id) => { exits.delete(id); },
     },
   }, host);
@@ -145,6 +150,8 @@ function build(opts: {
     state: () => state,
     membership: () => membership,
     exits,
+    setNow: (n: number) => { now = n; },
+    breakExits: () => { exitsBroken = true; },
     setRelay: (r: GroupRelay | null) => { relay = r; },
   };
 }
@@ -763,6 +770,44 @@ describe('GroupMember with its stored roster dropped', () => {
   });
 });
 
+describe('GroupMember exits, bounded and closed', () => {
+  it('an exit never acknowledged ends after EXIT_MAX_MS, at the next relay ok or start', async () => {
+    const r = fakeRelay();
+    const g = build({ roster: doc(SELF_KEY, [MAC]), paired: [row(MAC)], relay: r });
+    await g.group.remove(MAC);
+    expect(g.group.exiting(MAC)).toBe(true);
+    g.setNow(NOW + EXIT_MAX_MS - 1);
+    g.group.relayOk();
+    expect(g.group.exiting(MAC)).toBe(true);
+    g.group.relayLost();
+    g.setNow(NOW + EXIT_MAX_MS);
+    g.group.relayOk();
+    await flush();
+    expect(g.group.exiting(MAC)).toBe(false);
+    expect(g.paired.has(MAC)).toBe(false);
+    expect(revoked(r.posts)).toEqual([MAC]);
+    // At start too.
+    const h = build({ roster: doc(SELF_KEY, [MAC]), paired: [row(MAC)] });
+    await h.group.remove(MAC);
+    h.setNow(NOW + EXIT_MAX_MS);
+    h.group.addSelf();
+    expect(h.group.exiting(MAC)).toBe(false);
+  });
+
+  it('an exit whose state does not read, or exits that cannot be read at all, still serve the device nothing', () => {
+    const g = build({ paired: [row(MAC)] });
+    g.exits.set(MAC, { id: MAC, state: null, since: NOW });
+    expect(g.group.exiting(MAC)).toBe(true);
+    // Nothing to send, and no acknowledgement can match it.
+    const { channel, sent } = fakeChannel();
+    g.channels.set(MAC, channel);
+    g.group.channelReady(MAC, channel);
+    expect(sent).toEqual([]);
+    g.breakExits();
+    expect(g.group.exiting(OTHER)).toBe(true);
+  });
+});
+
 describe('GroupMember with a join under way', () => {
   it('adds and founds nothing while its primary\'s roster has not come, and drops the join once its code ran out', () => {
     const joining: Membership = { group: MAC, founding: null, version: 0, member: true, expires: NOW + 10 };
@@ -777,6 +822,19 @@ describe('GroupMember with a join under way', () => {
     expect(late.group.pendingJoin()).toBeNull();
     expect(late.membership()).toBeNull();
     expect(late.group.canAdd(OTHER)).toBe(true);
+  });
+
+  it('a phone migrated from one Mac before groups is no join under way: it adds as usual, and a cancel never revokes its Mac', async () => {
+    const r = fakeRelay();
+    const migrated: Membership = { group: MAC, founding: null, version: 0, member: true };
+    const g = build({ roster: EMPTY_ROSTER, membership: migrated, paired: [row(MAC)], relay: r });
+    expect(g.group.pendingJoin()).toBeNull();
+    expect(g.group.canAdd(OTHER)).toBe(true);
+    expect(g.group.abandonJoin()).toBe(false);
+    await flush();
+    expect(g.paired.has(MAC)).toBe(true);
+    expect(revoked(r.posts)).toEqual([]);
+    expect(g.membership()).toEqual(migrated);
   });
 
   it('a cancelled join gives the membership back and ends the pair made for it', async () => {

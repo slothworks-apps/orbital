@@ -562,6 +562,8 @@ export const groupMembership = sqliteTable('group_membership', {
 export const groupExits = sqliteTable('group_exits', {
   id: text('id').primaryKey(),
   state: text('state').notNull(),
+  /** When the exit began: past `EXIT_MAX_MS` the pair ends anyway. */
+  since: integer('since').notNull(),
 });
 
 /** Each member's description, signed by the member itself or by the primary. */

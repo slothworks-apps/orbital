@@ -26,7 +26,8 @@ CREATE TABLE `group_membership` (
 --> statement-breakpoint
 CREATE TABLE `group_exits` (
 	`id` text PRIMARY KEY NOT NULL,
-	`state` text NOT NULL
+	`state` text NOT NULL,
+	`since` integer NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `group_descriptions` (

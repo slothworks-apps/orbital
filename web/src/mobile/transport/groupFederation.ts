@@ -22,7 +22,7 @@ export type FederationOptions = {
 }
 
 /** What the federation needs of the group: its peers, their channels, and what it delegates. */
-export type FederatedGroup = Pick<GroupClient, 'on' | 'peers' | 'channel' | 'stop' | 'recheck' | 'pushToken'>
+export type FederatedGroup = Pick<GroupClient, 'on' | 'peers' | 'channel' | 'stop' | 'recheck' | 'pushToken' | 'exiting'>
 
 /** The asking half of one peer's channel. */
 type PeerChannel = Pick<
@@ -400,7 +400,8 @@ export class GroupFederation implements SwappableClient {
         this.onHub(event.peer, event.frame)
         return
       case 'wake':
-        if (this.sourcesById.has(event.peer)) this.emit({ type: 'wake', flags: event.flags })
+        // A device whose pair is ending wakes nothing (`withdrawn`, as on the server).
+        if (this.sourcesById.has(event.peer) && !this.withdrawn(event.peer)) this.emit({ type: 'wake', flags: event.flags })
         return
       case 'bye':
         // A member that revoked this phone says so in the roster, and the pair goes by the relay; the
@@ -429,7 +430,9 @@ export class GroupFederation implements SwappableClient {
     this.peerInfo = new Map(peers.map((p) => [p.id, p]))
     const current = new Set<string>()
     for (const peer of peers) {
-      if (!servesSessions(peer)) continue
+      // A device whose pair is ending (removed, or this phone left) is no source: no requests, never the
+      // default, no rules sent, its frames ignored — as the server's `withdrawn` serves it nothing.
+      if (!servesSessions(peer) || this.withdrawn(peer.id)) continue
       current.add(peer.id)
       let source = this.sourcesById.get(peer.id)
       if (!source) {
@@ -537,7 +540,7 @@ export class GroupFederation implements SwappableClient {
 
   private onHub(peer: string, raw: unknown): void {
     const source = this.sourcesById.get(peer)
-    if (!source || !isObject(raw) || typeof raw.topic !== 'string') return
+    if (!source || this.withdrawn(peer) || !isObject(raw) || typeof raw.topic !== 'string') return
     if (raw.topic === PRESENCE_TOPIC) {
       const atMac = presenceFromFrame(raw)
       if (atMac !== null) {
@@ -996,10 +999,20 @@ export class GroupFederation implements SwappableClient {
     return null
   }
 
-  /** The channel to a source while it is up and serves. */
+  /** The channel to a source while it is up and serves, and its pair is not ending. */
   private channelOf(id: string): PeerChannel | null {
+    if (this.withdrawn(id)) return null
     const channel: PeerChannel | null = this.group.channel(id)
     return channel && channel.ready && channel.serves ? channel : null
+  }
+
+  /** The device's pair is ending (`GroupClient.exiting`); a group that cannot say counts it as ending. */
+  private withdrawn(id: string): boolean {
+    try {
+      return this.group.exiting(id)
+    } catch {
+      return true
+    }
   }
 
   private readySources(): [Source, PeerChannel][] {

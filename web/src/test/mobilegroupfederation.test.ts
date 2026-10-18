@@ -70,6 +70,12 @@ class FakeGroup implements FederatedGroup {
   readonly stop = vi.fn()
   readonly recheck = vi.fn(async () => {})
   readonly pushToken = vi.fn()
+  /** Devices whose pair is ending: removed, and not yet acknowledged. */
+  readonly ending = new Set<string>()
+
+  exiting(id: string): boolean {
+    return this.ending.has(id)
+  }
 
   add(id: string, name: string, channel: FakeChannel | null, kind: string | null = 'desktop'): void {
     this.infos.push({ id, name, kind, os: 'macos', online: channel !== null, ready: channel?.ready ?? false, hello: channel?.peer ?? null })
@@ -555,3 +561,25 @@ describe('GroupFederation, group-wide answers', () => {
     expect(studio.request).toHaveBeenLastCalledWith('POST', '/api/tag-rules', { tagId: 90, condition: 'path_matches', pattern: 'x' })
   })
 })
+
+describe('GroupFederation and a device whose pair is ending', () => {
+  it('a removed Mac that never acknowledges is no source: no request, never the default, no rules, its wake and frames ignored', async () => {
+    const { group, fed, events, laptop } = await setup()
+    expect(fed.sources().map((x) => x.id).sort()).toEqual([LAPTOP, STUDIO].sort())
+    // The phone heard the laptop's removal; the laptop never acknowledges.
+    group.ending.add(LAPTOP)
+    group.emit({ type: 'group' })
+    expect(fed.sources().map((x) => x.id)).toEqual([STUDIO])
+    const before = events.length
+    group.emit({ type: 'wake', peer: LAPTOP, flags: 1 })
+    group.emit({ type: 'hub', peer: LAPTOP, frame: { topic: 'sessions', event: 'upsert', session: session('l9') } })
+    expect(events.slice(before).filter((e) => e.type === 'wake' || e.type === 'hub')).toEqual([])
+    const asked = laptop.request.mock.calls.length
+    await fed.request('GET', '/api/sessions').catch(() => {})
+    expect(laptop.request.mock.calls.length).toBe(asked)
+    // The studio still wakes the phone.
+    group.emit({ type: 'wake', peer: STUDIO, flags: 1 })
+    expect(events.at(-1)).toEqual({ type: 'wake', flags: 1 })
+  })
+})
+

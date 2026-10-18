@@ -344,6 +344,14 @@ export class GroupClient {
     return this.group.primary();
   }
 
+  /**
+   * A device whose pair is ending (`GroupMember.exiting`): it is no member
+   * any more, and nothing it sends is taken nor anything sent to it but its exit.
+   */
+  exiting(id: string): boolean {
+    return this.group.exiting(id);
+  }
+
   /** Always false: a phone is never its group's primary. */
   isPrimary(): boolean {
     return this.group.isPrimary();
@@ -834,7 +842,7 @@ const MembershipSchema = z.object({
   ended: z.object({ why: z.enum(['dissolved', 'removed']), by: z.object({ id: z.string(), name: z.string() }) }).optional(),
   expires: z.number().int().nonnegative().optional(),
 });
-const ExitSchema = z.object({ id: z.string(), state: RosterStateSchema });
+const ExitSchema = z.object({ id: z.string(), state: z.unknown(), since: z.number().int().nonnegative().catch(0) });
 
 const PairedRow = z.object({
   id: z.string(), name: z.string(), platform: z.string(), kind: z.string().nullable(), pairedAt: z.number(),
@@ -848,7 +856,7 @@ const PairedRow = z.object({
 export class MemoryGroupStorage implements GroupStorage {
   private state: RosterState = EMPTY_ROSTER;
   private group: Membership | null = null;
-  private readonly ending = new Map<string, RosterState>();
+  private readonly ending = new Map<string, { state: RosterState | null; since: number }>();
   private readonly devices = new Map<string, PairedDevice>();
   private readonly revokes = new Set<string>();
 
@@ -885,9 +893,9 @@ export class MemoryGroupStorage implements GroupStorage {
   };
 
   readonly exits: GroupStorage['exits'] = {
-    list: () => [...this.ending].map(([id, state]) => ({ id, state: structuredClone(state) })),
+    list: () => [...this.ending].map(([id, e]) => ({ id, state: structuredClone(e.state), since: e.since })),
     set: (exit) => {
-      this.ending.set(exit.id, structuredClone(exit.state));
+      this.ending.set(exit.id, { state: structuredClone(exit.state), since: exit.since });
     },
     remove: (id) => {
       this.ending.delete(id);
@@ -928,8 +936,11 @@ export class MemoryGroupStorage implements GroupStorage {
     const membership = MembershipSchema.safeParse(parts.membership);
     if (membership.success && publicKeyOf(membership.data.group)) storage.group = membership.data;
     for (const raw of Array.isArray(parts.exits) ? parts.exits : []) {
+      // An exit whose state does not read still keeps its device served nothing: the id is kept.
       const exit = ExitSchema.safeParse(raw);
-      if (exit.success && publicKeyOf(exit.data.id)) storage.ending.set(exit.data.id, exit.data.state);
+      if (!exit.success || !publicKeyOf(exit.data.id)) continue;
+      const state = RosterStateSchema.safeParse(exit.data.state);
+      storage.ending.set(exit.data.id, { state: state.success ? state.data : null, since: exit.data.since });
     }
     for (const row of Array.isArray(parts.paired) ? parts.paired : []) {
       const d = PairedRow.safeParse(row);

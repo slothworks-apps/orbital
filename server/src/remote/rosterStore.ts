@@ -91,21 +91,24 @@ export class GroupMembershipStore {
 export class GroupExitStore {
   constructor(private readonly db: OrbitalDb) {}
 
-  /** A row whose state does not read is no exit: its pair ends at the next relay `unpaired`, or by hand. */
+  /** A row whose state does not read is still an exit (state null): its device stays served nothing. */
   list(): GroupExit[] {
-    return this.db.select().from(groupExits).all().flatMap((row) => {
+    return this.db.select().from(groupExits).all().map((row) => {
+      let state: GroupExit['state'] = null;
       try {
-        const state = RosterStateSchema.safeParse(JSON.parse(row.state));
-        return state.success ? [{ id: row.id, state: state.data }] : [];
+        const parsed = RosterStateSchema.safeParse(JSON.parse(row.state));
+        if (parsed.success) state = parsed.data;
       } catch {
-        return [];
+        /* unreadable: kept as an exit with nothing to send */
       }
+      return { id: row.id, state, since: row.since };
     });
   }
 
   set(exit: GroupExit): void {
     const state = JSON.stringify(exit.state);
-    this.db.insert(groupExits).values({ id: exit.id, state }).onConflictDoUpdate({ target: groupExits.id, set: { state } }).run();
+    this.db.insert(groupExits).values({ id: exit.id, state, since: exit.since })
+      .onConflictDoUpdate({ target: groupExits.id, set: { state, since: exit.since } }).run();
   }
 
   remove(id: string): void {
