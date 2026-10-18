@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { osName } from '@orbital/shared/remote/device'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
+import { osLabel } from '../lib/devices'
 import { codeLeft } from '../lib/remote'
+import { openSettingsSection } from '../lib/sessionUrl'
 import { attemptsLine, joinSentence, kindTile, whereLine } from '../lib/joinRequest'
 import { useNow } from '../lib/useNow'
 import type { RemoteStatus } from '../lib/types'
@@ -43,6 +46,8 @@ export function PairConfirmDialog() {
   const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null)
   /** Set by Accept's success: the joined screen (canvas 50c `cDone`) replaces the code form until a new request. */
   const [joined, setJoined] = useState<{ name: string } | null>(null)
+  /** Set by an Accept the group had no room for: canvas 50o replaces the code form until a new request. */
+  const [full, setFull] = useState<PendingPair | null>(null)
   const complete = code.length === PAIRING_CODE_LENGTH
 
   // A different request (or none) starts empty, without the last one's failure.
@@ -56,7 +61,10 @@ export function PairConfirmDialog() {
   // `pending` too, and must not wipe the screen it just set — so this keys
   // on the request's identity, not its every field.
   useEffect(() => {
-    if (pending) setJoined(null)
+    if (pending) {
+      setJoined(null)
+      setFull(null)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending?.phone])
 
@@ -102,8 +110,8 @@ export function PairConfirmDialog() {
         // The server rejected the request and publishes it gone, which closes the dialog.
         useOrbital.setState({ toast: { kind: 'info', message: 'Request rejected · three codes didn’t match' } })
       } else if (res.error === 'group_full') {
-        // The server rejected the request and publishes it gone, which closes the dialog.
-        useOrbital.setState({ toast: { kind: 'info', message: 'Request rejected · this group can’t take more devices' } })
+        // The server rejected the request and publishes it gone; the answer takes the dialog's place (canvas 50o).
+        setFull(pending)
       } else {
         // `no_pending` / `mismatch`: what the dialog shows is stale. No publish
         // may follow (an expired request is cleared silently), so the status
@@ -142,11 +150,13 @@ export function PairConfirmDialog() {
 
   return (
     <Dialog
-      open={pending !== null || joined !== null}
+      open={pending !== null || joined !== null || full !== null}
       variant="card"
-      eyebrow={joined ? undefined : eyebrow}
+      eyebrow={full ? 'JOIN REQUEST · NOT ADDED' : joined ? undefined : eyebrow}
       beforeTitle={
-        joined ? (
+        full ? (
+          <FullTile request={full} />
+        ) : joined ? (
           <span
             aria-hidden
             className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-full border-2 border-accent text-xl text-accent"
@@ -157,12 +167,14 @@ export function PairConfirmDialog() {
           kindTileNode
         )
       }
-      title={joined ? `${joined.name} joined` : sentence}
-      // Esc is a rejection while a request is open; the joined screen has
-      // nothing left to reject, so it only dismisses.
-      onClose={() => (joined ? setJoined(null) : void answer(false))}
+      title={full ? 'This group can’t take more devices.' : joined ? `${joined.name} joined` : sentence}
+      // Esc is a rejection while a request is open; the joined and full
+      // screens have nothing left to reject, so they only dismiss.
+      onClose={() => (full ? setFull(null) : joined ? setJoined(null) : void answer(false))}
     >
-      {joined ? (
+      {full ? (
+        <FullBody name={full.name} onClose={() => setFull(null)} />
+      ) : joined ? (
         <>
           <p className="text-[13px] leading-[1.55] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
             The other devices link to it on their own. It appears under Devices → In this group.
@@ -206,5 +218,55 @@ export function PairConfirmDialog() {
         )
       )}
     </Dialog>
+  )
+}
+
+/**
+ * GROUP FULL (canvas 50o): the answer to an Accept the group had no room
+ * for, in the confirmation's place rather than a toast. The kind tile stays,
+ * dimmed, so it is clear who was not added; then the fact and the one way
+ * out. Nothing red, nothing counts down.
+ */
+function FullTile({ request }: { request: PendingPair }) {
+  const os = osLabel(osName(request.platform))
+  return (
+    <div className="flex w-full items-center gap-4 rounded-xl border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.6)] px-[18px] py-3.5 text-left opacity-60">
+      <span className="grid h-[60px] w-[60px] shrink-0 place-items-center rounded-xl border border-[rgba(150,205,255,.2)] text-text-bright">
+        <KindGlyph kind={request.kind} scale={3} />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-[5px]">
+        <span className="font-mono text-base tracking-[0.2em] text-text-bright">{kindTile(request.kind).word}</span>
+        <span className="text-[12.5px] leading-[1.45] text-[rgba(160,190,225,.78)]">
+          {os === '' ? request.name : `${request.name} · ${os}`}
+        </span>
+      </span>
+    </div>
+  )
+}
+
+/** 50o's sentence and its two ways on: Devices, where a device can be removed, and OK. */
+function FullBody({ name, onClose }: { name: string; onClose: () => void }) {
+  return (
+    <>
+      <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
+        {name} wasn’t added and keeps running on its own. To make room, remove a device under Devices → In this group,
+        then pair {name} again.
+      </p>
+      <div className="flex w-full gap-2.5">
+        <Button
+          variant="ghost"
+          size="wide"
+          onClick={() => {
+            onClose()
+            openSettingsSection('devices')
+          }}
+        >
+          Devices
+        </Button>
+        <Button variant="primary" size="wide" onClick={onClose}>
+          OK
+        </Button>
+      </div>
+    </>
   )
 }

@@ -74,6 +74,12 @@ export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService
 
   // This device leaves its group (spec 2026-10-16-device-group-design § 4).
   app.post('/api/remote/leave', async (_req, reply) => removed(reply, await remote.leave()));
+
+  // The notice that the primary dissolved the group or removed this device was read (canvas 50m OK).
+  app.post('/api/remote/ended/acknowledge', () => {
+    remote.acknowledgeEnded();
+    return { ok: true };
+  });
 }
 
 /**

@@ -10,7 +10,8 @@ import { clearFileCache } from './files/fileCache'
 import { clearRecentFiles } from './files/recentFiles'
 import { clearHarnessCache } from './harness/harnessCache'
 import { clearGroup } from './platform/group'
-import { clearPairing, setUnpaired } from './platform/pairing'
+import type { GroupEnded } from '@orbital/shared/remote/group'
+import { clearPairing, saveEnded, setUnpaired } from './platform/pairing'
 import { useMobile } from './state'
 import { clientRef } from './transport/clientRef'
 import { groupRef } from './transport/groupRef'
@@ -57,9 +58,11 @@ export async function forgetGroupHere(): Promise<void> {
  * group and pairing, the caches (spec § 4). `unpaired` is the group's doing
  * — it removed this phone — and 9h then shows on every launch until a new
  * pairing; the key goes too, as before groups. Without it the user left
- * (`leaveGroup`), the key stays, and the scanner comes next.
+ * (`leaveGroup`), the key stays, and the scanner comes next. `ended`: the
+ * group's primary dissolved the group or removed this phone; the key stays,
+ * the notice is kept, and Settings → Devices tells it (canvas 50n).
  */
-export async function forgetEverything(opts: { unpaired: boolean }): Promise<void> {
+export async function forgetEverything(opts: { unpaired: boolean; ended?: GroupEnded }): Promise<void> {
   const { macName, pairing } = useMobile.getState()
   const name = macName ?? pairing?.macName ?? ''
   // Not live and not paired from here on, so neither a write still waiting
@@ -98,6 +101,14 @@ export async function forgetEverything(opts: { unpaired: boolean }): Promise<voi
       console.warn('[mobile] could not mark the Mac unpaired', err)
     }
   }
+  if (opts.ended) {
+    try {
+      // Before the group goes, as 9h's flag: a kill in between still tells it.
+      await saveEnded(opts.ended)
+    } catch (err) {
+      console.warn('[mobile] could not keep the notice of the group ending', err)
+    }
+  }
   // Independent of each other and of the flag above: one failing clear must not skip the rest.
   const clears = await Promise.allSettled([
     clearGroup(), clearPairing(), ...(opts.unpaired ? [forgetIdentity()] : []),
@@ -121,8 +132,8 @@ export async function forgetEverything(opts: { unpaired: boolean }): Promise<voi
     asOf: null, checkedAt: null, rechecking: null, listedAt: null, endedSummary: null, endedLoaded: false,
     sessionId: null, pushed: [], composerIntent: null, mismatch: null, previous: null,
     devices: [], refusals: {}, members: [], pendingPair: null, ownCode: null, refusedPair: null, macVersion: null,
-    unpaired: opts.unpaired, unreachable: false,
+    unpaired: opts.unpaired, unreachable: false, groupEnded: opts.ended ?? null,
     macName: opts.unpaired ? name : null,
-    screen: opts.unpaired ? 'unpaired' : 'pairing',
+    screen: opts.unpaired ? 'unpaired' : opts.ended ? 'settings' : 'pairing',
   })
 }

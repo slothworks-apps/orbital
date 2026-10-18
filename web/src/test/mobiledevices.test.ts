@@ -27,9 +27,9 @@ describe('phoneRows', () => {
 
   it('lists every member but this phone, and marks the primary', () => {
     const rows = phoneRows([self, member({ id: 'studio', name: 'studio-mbp', primary: true }), member({ id: 'air', name: 'air-m3' })], [], NOW)
-    expect(rows.map((r) => [r.name, r.added])).toEqual([
-      ['studio-mbp', 'primary'],
-      ['air-m3', ''],
+    expect(rows.map((r) => [r.name, r.primary])).toEqual([
+      ['studio-mbp', true],
+      ['air-m3', false],
     ])
     expect(rows[1].kindOs).toBe('desktop · macOS')
   })
@@ -40,13 +40,13 @@ describe('phoneRows', () => {
     expect(row.words).toBe('asleep · seen 2 h ago')
   })
 
-  it('offers pair by hand only for a member that does not link with this phone yet', () => {
+  it('reads a member not linked as just that: a phone is never primary, so it pairs no one by hand', () => {
     const rows = phoneRows([
       self,
       member({ id: 'mini', name: 'mini-office', linked: false, pairByHand: true, state: 'notLinked' }),
       member({ id: 'rpi', name: 'rpi-lab', kind: 'headless', linked: false, state: 'linking' }),
     ], [], NOW)
-    expect(rows.map((r) => r.notLinked)).toEqual([true, false])
+    expect(rows.map((r) => [r.state, r.words])).toEqual([['notLinked', 'not linked'], ['linking', 'linking…']])
   })
 
   it('marks a member this phone refused as too old, whatever its presence', () => {
@@ -67,13 +67,14 @@ describe('phoneRows', () => {
       id: 'pixel', name: 'Pixel 7', kind: 'phone', os: 'android', linked: false, state: 'offline',
     })
     const [, row] = phoneRows([self, studio, other], [], NOW)
-    expect(row).toMatchObject({ state: 'elsewhere', words: 'paired with studio-mbp', notLinked: false })
+    expect(row).toMatchObject({ state: 'elsewhere', words: 'paired with studio-mbp' })
   })
 
   it('lists a paired Mac from before groups, which sends no roster', () => {
     const rows = phoneRows([self], [source({ id: 'old', name: 'old-mac', online: false, asOf: NOW - 3 * HOUR })], NOW)
     expect(rows).toHaveLength(1)
-    expect(rows[0]).toMatchObject({ id: 'old', name: 'old-mac', state: 'offline', added: 'paired with this phone' })
+    // The roster does not list it, so it has no join date.
+    expect(rows[0]).toMatchObject({ id: 'old', name: 'old-mac', state: 'offline', joinedAt: null })
     expect(rows[0].words).toBe('asleep · seen 3 h ago')
   })
 })

@@ -1,3 +1,4 @@
+import type { GroupEnded } from '@orbital/shared/remote/group'
 import {
   SECRET_KEY_BYTES, deviceId, fingerprint, fromBase64Url, identityFromSecret, publicKeyOf, toBase64Url, type Identity,
 } from '@orbital/shared/remote/keys'
@@ -225,4 +226,16 @@ export const FALLBACK_DEVICE_NAME = 'Android phone'
 export function deviceName(info: { model?: string | null } | null): string {
   const model = info?.model?.trim()
   return model ? model : FALLBACK_DEVICE_NAME
+}
+
+/** `ENDED_KEY`'s value as it was stored, or null when it is not one. */
+export function parseEnded(value: string | null): GroupEnded | null {
+  if (value === null) return null
+  try {
+    const v = JSON.parse(value) as { why?: unknown; by?: { id?: unknown; name?: unknown } }
+    if ((v.why !== 'dissolved' && v.why !== 'removed') || typeof v.by?.id !== 'string' || typeof v.by.name !== 'string') return null
+    return { why: v.why, by: { id: v.by.id, name: v.by.name } }
+  } catch {
+    return null
+  }
 }

@@ -16,14 +16,14 @@ export interface PhoneRow {
   kind: string
   /** The dot beside the state words; none for a phone paired with another member. */
   state: RowState
-  /** The second line: `online`, `asleep · seen 2 h ago`, `not linked — pair by hand`… */
+  /** The second line: `online`, `asleep · seen 2 h ago`, `not linked`… */
   words: string
-  /** `desktop · macOS`. */
+  /** The quiet third line: `desktop · macOS`. */
   kindOs: string
-  /** `added by this phone`, `added by build-box`, `started the group`. */
-  added: string
-  /** Pair by hand: the member does not link with this phone yet, and the relay pairs it by a code. */
-  notLinked: boolean
+  /** The group's primary: the PRIMARY label beside its name (canvas 50i). */
+  primary: boolean
+  /** When it joined the group, for the sheet's `joined`; null for a device the roster does not list. */
+  joinedAt: number | null
 }
 
 /**
@@ -32,17 +32,17 @@ export interface PhoneRow {
  * one (canvas 50i). A member the phone hears refuse it as too old (`bye
  * protocol`, or older than the phone's floor) reads `update Orbital on
  * <name>`. Where the desktop says offline the phone says asleep, and this
- * phone is `this phone`.
+ * phone is `this phone`. A phone is never primary, so a member not linked
+ * reads `not linked`, with no pairing by hand (canvas 50i `st2`).
  */
 export function phoneRows(members: MemberRow[], devices: DeviceView[], now: number): PhoneRow[] {
   const tooOld = new Set(devices.filter((d) => d.refused?.cause === 'mac').map((d) => d.id))
   const group: GroupMember[] = members.map((m) => ({ ...m, tooOld: !m.self && tooOld.has(m.id) }))
-  const listed = new Set(members.map((m) => m.id))
   const paired: RemoteDevice[] = devices.map((d) => ({
     id: d.id, name: d.name, platform: d.os, kind: d.kind, pairedAt: 0, lastSeenAt: d.asOf, online: d.online,
     needsUpdate: null,
   }))
-  return deviceRows(group, paired, now).map((row) => ({
+  return deviceRows(group, paired, now, false).map((row) => ({
     id: row.id,
     name: row.name,
     kind: row.kind,
@@ -51,9 +51,8 @@ export function phoneRows(members: MemberRow[], devices: DeviceView[], now: numb
       ? `update Orbital on ${row.name}`
       : row.words.replace(/^offline\b/, 'asleep').replace(/ this device$/, ' this phone'),
     kindOs: kindOs(row.kind, row.os),
-    // A device the roster does not list paired this phone itself, before groups.
-    added: !listed.has(row.id) ? 'paired with this phone' : row.added.replace(/^added by this device$/, 'added by this phone'),
-    notLinked: row.state === 'notLinked',
+    primary: row.primary,
+    joinedAt: row.member ? row.addedAt : null,
   }))
 }
 

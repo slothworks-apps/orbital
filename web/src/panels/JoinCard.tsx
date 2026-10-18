@@ -60,10 +60,12 @@ function refusal(res: Exclude<JoinAnswer, { ok: true }>, name: string, code: str
       return { kind: 'line', text: 'The relay needs an update first.' }
     case 'relay_error':
       return { kind: 'line', text: "The relay didn't answer. Try again." }
+    // This device, the primary, would add the other to a group with no room (canvas 50o's words).
     case 'group_full':
-      return { kind: 'line', text: 'This group holds as many devices as it can.' }
+      return { kind: 'line', text: `This group can’t take more devices. Remove one under In this group, then pair ${name} again.` }
+    // The status moved under the user: this device is a member now, and only its primary adds (canvas 50l).
     case 'not_primary':
-      return { kind: 'line', text: `Only ${res.primary.name} adds devices to this group.` }
+      return { kind: 'line', text: `${res.primary.name} manages this group — add devices there.` }
   }
 }
 

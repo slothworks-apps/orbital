@@ -17,6 +17,7 @@ const io = vi.hoisted(() => {
     clearImageCache: step('clearImageCache'),
     clearPairing: step('clearPairing'),
     setUnpaired: step('setUnpaired'),
+    saveEnded: step('saveEnded'),
     clearGroup: step('clearGroup'),
   }
 })
@@ -25,7 +26,7 @@ vi.mock('../mobile/platform/cache', () => ({
 }))
 vi.mock('../mobile/platform/identity', () => ({ forgetIdentity: io.forgetIdentity }))
 vi.mock('../mobile/platform/imageCache', () => ({ clearImageCache: io.clearImageCache }))
-vi.mock('../mobile/platform/pairing', () => ({ clearPairing: io.clearPairing, setUnpaired: io.setUnpaired }))
+vi.mock('../mobile/platform/pairing', () => ({ clearPairing: io.clearPairing, setUnpaired: io.setUnpaired, saveEnded: io.saveEnded }))
 vi.mock('../mobile/platform/group', () => ({ clearGroup: io.clearGroup }))
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
@@ -104,6 +105,18 @@ describe('forgetEverything', () => {
     expect(state.historyLoaded).toEqual({})
     expect(state.sessions).toEqual({})
     expect(useMobile.getState()).toMatchObject({ screen: 'unpaired', unpaired: true, pairing: null, macName: 'studio' })
+  })
+
+  it('after the primary ended the group: keeps the key and the notice, and opens Settings standalone, not 9h', async () => {
+    useMobile.setState({ pairing: PAIRING, screen: 'list' })
+    const ended = { why: 'dissolved' as const, by: { id: 'm1', name: 'studio' } }
+    await forgetEverything({ unpaired: false, ended })
+    expect(io.saveEnded).toHaveBeenCalledWith(ended)
+    // The notice is kept before the group goes, as 9h's flag is.
+    expect(io.calls.indexOf('saveEnded')).toBeLessThan(io.calls.indexOf('clearGroup'))
+    expect(io.forgetIdentity).not.toHaveBeenCalled()
+    expect(io.setUnpaired).not.toHaveBeenCalled()
+    expect(useMobile.getState()).toMatchObject({ screen: 'settings', unpaired: false, pairing: null, groupEnded: ended })
   })
 
   it('writes the unpaired flag before the pairing goes, so a kill in between still lands on 9h', async () => {

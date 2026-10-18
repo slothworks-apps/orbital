@@ -31,7 +31,7 @@ import { PAIR_NAME_MAX_CHARS } from './relayApi.js';
 import { RelayLink, type LinkStatus, type RelayLinkEvent, type SocketConstructor } from './relayLink.js';
 import {
   EMPTY_ROSTER, ROSTER_KIND_MAX_CHARS, RosterStateSchema, memberIds, normalize, rosterDigest, rosterKey, rosterMembers,
-  type Membership, type RosterState,
+  type GroupEnded, type Membership, type RosterState,
 } from './roster.js';
 import type { RelayTooOld } from './version.js';
 
@@ -210,7 +210,6 @@ export class GroupClient {
       self: () => ({ name: this.about().name, platform: opts.os, kind: 'phone' }),
       inGroup: () => this.group.inGroup(),
       notPrimary: () => this.group.notPrimary()?.primary ?? null,
-      byHand: () => this.group.byHandPending(),
       isLiveMember: (id) => this.group.isLiveMember(id),
       canAdd: (id) => this.group.canAdd(id),
       paired: this.storage.paired,
@@ -346,6 +345,11 @@ export class GroupClient {
   /** Always false: a phone is never its group's primary. */
   isPrimary(): boolean {
     return this.group.isPrimary();
+  }
+
+  /** Why this phone is no member of its group any more, when the primary did it (`GroupMember.ended`). */
+  ended(): GroupEnded | null {
+    return this.group.ended();
   }
 
   /** Shows this phone's code (`PairingCeremony.start`). */
@@ -825,6 +829,7 @@ export type StoredGroup = {
 const MembershipSchema = z.object({
   group: z.string(), founding: z.string().nullable(), version: z.number().int().nonnegative(), member: z.boolean(),
   left: z.object({ founding: z.string(), version: z.number().int().nonnegative() }).optional(),
+  ended: z.object({ why: z.enum(['dissolved', 'removed']), by: z.object({ id: z.string(), name: z.string() }) }).optional(),
 });
 const ExitSchema = z.object({ id: z.string(), state: RosterStateSchema });
 

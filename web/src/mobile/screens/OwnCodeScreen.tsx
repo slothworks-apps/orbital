@@ -10,8 +10,11 @@ import { groupRef } from '../transport/groupRef'
 import { MobileScreen, PrimaryButton, SecondaryButton } from '../ui'
 
 /** What showing a code came to, short of a code. */
-function codeError(error: Extract<StartPairingResult, { error: string }>['error']): string {
+function codeError(res: Extract<StartPairingResult, { error: string }>): string {
+  const { error } = res
   if (error === 'offline') return LEAVE_OFFLINE
+  // In a group, only its primary shows a code that adds a device (canvas 50i).
+  if (res.error === 'not_primary') return `${res.primary.name} manages this group — add devices there.`
   if (error === 'relay_too_old') return 'The relay needs an update before this phone can show a code.'
   return "The relay didn't answer. Try again."
 }
@@ -50,7 +53,7 @@ export function OwnCodeScreen() {
     setBusy(true)
     try {
       const res = await group.startPairing()
-      if ('error' in res) setError(codeError(res.error))
+      if ('error' in res) setError(codeError(res))
       else setCode({ word: encodePairingCode(res.qr), expiresAt: res.expiresAt })
     } finally {
       setBusy(false)

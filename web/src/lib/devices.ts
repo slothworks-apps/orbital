@@ -1,12 +1,15 @@
 /**
  * Settings → Devices' pure derivations (spec 2026-10-16-device-group-design):
- * a member's state wording, its kind and OS, who added it, and the one-word
- * form of a pairing code (canvas 50k); and the map's and sidebar's device
+ * a member's state wording, its kind and OS, what this device offers by its
+ * place in the group (canvas 50a, 50l) and the notice of a group's ending
+ * (50m, 50n); and the map's and sidebar's device
  * chips and filter (canvas 50e).
  */
 import { linksWith } from '@orbital/shared/remote/group'
 import { timeAgo } from './format'
-import type { ApiSession, GroupMember, IdeContext, MachineRef, MemberState, RemoteDevice, Tag } from './types'
+import type {
+  ApiSession, GroupEnded, GroupMember, IdeContext, MachineRef, MemberState, RemoteDevice, RemoteStatus, Tag,
+} from './types'
 
 const OS_LABELS: Record<string, string> = {
   macos: 'macOS', linux: 'Linux', ios: 'iOS', android: 'Android',
@@ -81,7 +84,7 @@ function pairedElsewhere(m: GroupMember, selfKind: string | undefined): boolean 
  */
 export type RowState = Exclude<MemberState, 'self'> | 'update' | 'elsewhere'
 
-/** One row of Settings → Devices' IN THIS GROUP (canvas 50a). */
+/** One row of Settings → Devices' IN THIS GROUP (canvas 50a, 50l). */
 export interface DeviceRow {
   id: string
   name: string
@@ -90,8 +93,10 @@ export interface DeviceRow {
   state: RowState
   /** The words beside the state dot (no dot while `elsewhere`). */
   words: string
-  /** The quiet second line: who added it. */
-  added: string
+  /** The group's primary: the quiet PRIMARY label beside its name (canvas 50a ROWS). */
+  primary: boolean
+  /** Named by the roster; false for a device paired here outside any group, which only this device can drop. */
+  member: boolean
   addedAt: number
   /** What the refusal said, while `state` is `update`. */
   needsUpdate: RemoteDevice['needsUpdate']
@@ -99,25 +104,31 @@ export interface DeviceRow {
 
 /**
  * The rows under IN THIS GROUP: every member but this device, then every
- * paired device the roster does not list yet (a phone paired before the
- * roster existed; this device paired it, and the relay's presence says
- * whether it is online). A paired device this server refused as too old
- * reads `needs an update` whatever its presence says — the relay may still
- * count it online.
+ * paired device the roster does not list (a device this one paired outside
+ * any group; the relay's presence says whether it is online). A paired
+ * device this server refused as too old reads `needs an update` whatever
+ * its presence says — the relay may still count it online. A member not
+ * linked reads `not linked`, and offers pairing by hand only where this
+ * device `pairsByHand` — on the primary (canvas 50l).
  */
-export function deviceRows(members: GroupMember[], devices: RemoteDevice[], now: number): DeviceRow[] {
+export function deviceRows(
+  members: GroupMember[], devices: RemoteDevice[], now: number, pairsByHand = true,
+): DeviceRow[] {
   const paired = new Map(devices.map((d) => [d.id, d]))
   const listed = new Set(members.map((m) => m.id))
   const selfKind = members.find((m) => m.self)?.kind
   const fromRoster = members.filter((m) => !m.self).map((m): DeviceRow => {
     const needsUpdate = paired.get(m.id)?.needsUpdate ?? null
     const elsewhere = !needsUpdate && pairedElsewhere(m, selfKind)
+    const notLinked = !needsUpdate && !elsewhere && !m.tooOld && m.state === 'notLinked'
     return {
       id: m.id, name: m.name, kind: m.kind, os: m.os,
       state: needsUpdate ? 'update' : elsewhere ? 'elsewhere' : m.state === 'self' ? 'online' : m.state,
       words: needsUpdate ? 'needs an update'
-        : elsewhere ? `paired with ${primaryName(members)}` : memberStateWords(m, now),
-      added: addedByLine(m),
+        : elsewhere ? `paired with ${primaryName(members)}`
+          : notLinked && !pairsByHand ? 'not linked' : memberStateWords(m, now),
+      primary: m.primary,
+      member: true,
       addedAt: m.addedAt,
       needsUpdate,
     }
@@ -126,11 +137,69 @@ export function deviceRows(members: GroupMember[], devices: RemoteDevice[], now:
     id: d.id, name: d.name, kind: d.kind ?? 'phone', os: d.platform,
     state: d.needsUpdate ? 'update' : d.online ? 'online' : 'offline',
     words: d.needsUpdate ? 'needs an update' : d.online ? 'online' : offlineWords(d.lastSeenAt, now),
-    added: 'added by this device',
+    primary: false,
+    member: false,
     addedAt: d.pairedAt,
     needsUpdate: d.needsUpdate,
   }))
   return [...fromRoster, ...unlisted]
+}
+
+/**
+ * What Settings → Devices offers on this device, by its place in the group
+ * (ADR the-group-has-one-primary-device; canvas 50a, 50l). The primary adds
+ * a device, removes any, pairs by hand and dissolves; a member does none of
+ * that, names the primary in the add box's place, and leaves; a device in no
+ * group adds one, which founds a group.
+ */
+export interface GroupView {
+  role: 'primary' | 'member' | 'alone'
+  /** ADD A DEVICE: the code and the field that pastes another's. */
+  canAdd: boolean
+  /** The name the add box's place gives on a member: `<primary> manages this group`. */
+  managedBy: string | null
+  /** Pair by hand on a row that is not linked. */
+  pairsByHand: boolean
+  /** The box under the add area, while another device is in the group: Dissolve on the primary, Leave on a member. */
+  exit: 'dissolve' | 'leave' | null
+  /** PRIMARY on THIS DEVICE's kicker, and the list's `ONLY THE PRIMARY ADDS OR REMOVES`. */
+  selfPrimary: boolean
+}
+
+/** `others`: the group's members other than this device. */
+export function groupView(group: Pick<RemoteStatus['group'], 'primary' | 'isPrimary'>, others: number): GroupView {
+  const role = group.isPrimary ? 'primary' : group.primary !== null ? 'member' : 'alone'
+  const inGroup = others > 0
+  return {
+    role,
+    canAdd: role !== 'member',
+    managedBy: role === 'member' ? group.primary!.name : null,
+    pairsByHand: role === 'primary',
+    exit: !inGroup || role === 'alone' ? null : role === 'primary' ? 'dissolve' : 'leave',
+    selfPrimary: role === 'primary' && inGroup,
+  }
+}
+
+/**
+ * Whether a row offers Remove: on the primary, every row; elsewhere only a
+ * device paired here outside any group, whose pair is this device's own to
+ * end (`GroupMember.remove`). A member removes no member (canvas 50l).
+ */
+export function canRemoveRow(view: GroupView, row: Pick<DeviceRow, 'member'>): boolean {
+  return view.role === 'primary' || !row.member
+}
+
+/**
+ * The one-time notice of a group's ending by the primary's hand (canvas
+ * 50m on the desktop, 50n on the phone): its head and its body.
+ */
+export function endedNotice(ended: GroupEnded, on: 'desktop' | 'phone'): { head: string; body: string } {
+  const self = on === 'phone' ? 'this phone' : 'this device'
+  const head = ended.why === 'dissolved' ? `${ended.by.name} dissolved the group` : `${ended.by.name} removed ${self} from the group`
+  const body = on === 'phone'
+    ? 'This phone is standalone now. It shows sessions again once it pairs with a desktop or server.'
+    : 'This device is standalone now. Its own sessions kept running; it no longer sees the others’.'
+  return { head, body }
 }
 
 /** The versions and the time behind `needs an update` (as Settings → Mobile said it, canvas 11c). */

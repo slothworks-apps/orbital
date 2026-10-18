@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { PendingPair, RefusedPair } from '@orbital/shared/remote/ceremony'
 import type { LinkStatus, TunnelEvent } from '@orbital/shared/remote/tunnel'
-import type { MemberRow, PrimaryRef } from '@orbital/shared/remote/group'
+import type { GroupEnded, MemberRow, PrimaryRef } from '@orbital/shared/remote/group'
 import type { GroupClientEvent } from '@orbital/shared/remote/groupClient'
 import { MIN_SERVER_VERSION, isSupportedServer } from '@orbital/shared/remote/version'
 import type { EndedSummary } from '../lib/api'
@@ -122,6 +122,12 @@ export interface MobileState {
   mismatch: Mismatch | null
   unpaired: boolean
   /**
+   * The group's primary dissolved the group or removed this phone: the
+   * one-time notice under THIS PHONE (canvas 50n), kept (`ENDED_KEY`) until
+   * OK or a new pairing. Not 9h: the phone is standalone, its key kept.
+   */
+  groupEnded: GroupEnded | null
+  /**
    * No device of the group can reach this phone right now
    * (`GroupClient.unreachable`): the session list says so and offers to
    * pair again. Not 9h: nothing says this phone was removed.
@@ -185,7 +191,7 @@ export interface MobileState {
 export const initialMobileState: MobileState = {
   screen: 'pairing', previous: null, sessionId: null, pushed: [], link: 'off', macOnline: false, ready: false,
   asOf: null, checkedAt: null, rechecking: null, listedAt: null, endedSummary: null, endedLoaded: false,
-  mismatch: null, unpaired: false, unreachable: false, pairing: null, macName: null, macVersion: null, devices: [], refusals: {},
+  mismatch: null, unpaired: false, groupEnded: null, unreachable: false, pairing: null, macName: null, macVersion: null, devices: [], refusals: {},
   members: [], group: { primary: null, isPrimary: false }, pendingPair: null, ownCode: null, refusedPair: null, composerIntent: null,
   screenLock: false, lock: 'open', appLock: true, lockLabel: 'screen lock', backgroundedAt: null, authenticating: false,
 }
@@ -373,6 +379,8 @@ export function back(state: MobileState): Partial<MobileState> | 'exit' {
     case 'session':
       return { screen: 'list', sessionId: null, pushed: [], composerIntent: null }
     case 'settings':
+      // A standalone phone came to Settings from the group's ending (canvas 50n): no list to go back to.
+      return state.pairing ? { screen: 'list' } : { screen: 'pairing', previous: null }
     case 'new':
       return { screen: 'list' }
     case 'code':

@@ -1,4 +1,4 @@
-import type { MemberState as SharedMemberState, MemberRow, NotPrimary, PrimaryRef } from '@orbital/shared/remote/group'
+import type { GroupEnded, MemberState as SharedMemberState, MemberRow, NotPrimary, PrimaryRef } from '@orbital/shared/remote/group'
 import type { JoinResult, Joining, PendingPair } from '@orbital/shared/remote/ceremony'
 import type { MachineRef } from '@orbital/shared/remote/device'
 
@@ -1855,8 +1855,12 @@ export type MemberState = SharedMemberState
  */
 export type GroupMember = MemberRow & { tooOld: boolean }
 
-/** The group's primary, which alone adds and removes devices (ADR the-group-has-one-primary-device). */
-export type { PrimaryRef, NotPrimary }
+/**
+ * The group's primary, which alone adds and removes devices (ADR
+ * the-group-has-one-primary-device), and why a device stopped being a
+ * member by the primary's hand (`GroupEnded`).
+ */
+export type { PrimaryRef, NotPrimary, GroupEnded }
 
 /**
  * The mobile remote as `GET /api/remote` answers it and the hub's `remote`
@@ -1895,9 +1899,13 @@ export interface RemoteStatus {
    * members (this device alone while it holds no group), whether the relay
    * URL is locked because another member is in the group, the group's
    * `primary` (null while there is no group) and whether this device
-   * `isPrimary` — only the primary adds and removes devices.
+   * `isPrimary` — only the primary adds and removes devices. `ended`: the
+   * primary dissolved the group or removed this device, until the notice is
+   * acknowledged (`api.acknowledgeEnded`); absent from a server from before it.
    */
-  group: { members: GroupMember[]; relayLocked: boolean; primary: PrimaryRef | null; isPrimary: boolean }
+  group: {
+    members: GroupMember[]; relayLocked: boolean; primary: PrimaryRef | null; isPrimary: boolean; ended?: GroupEnded | null
+  }
 }
 
 /** The refusals `POST /api/remote/pair/confirm` answers with instead of `{ ok: true }`. */

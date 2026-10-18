@@ -1378,6 +1378,11 @@ export const api = {
     return 'error' in res ? { ok: false, error: res.error } : res
   },
 
+  /** The notice that the primary dissolved the group or removed this device was read (canvas 50m OK). */
+  async acknowledgeEnded(): Promise<void> {
+    await request<{ ok: true }>('POST', '/api/remote/ended/acknowledge')
+  },
+
   /** "Try again": stops the remote and starts it with the same settings. */
   async restartRemote(): Promise<RemoteStatus> {
     return request('POST', '/api/remote/restart')

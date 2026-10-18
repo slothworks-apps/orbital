@@ -107,8 +107,8 @@ export type JoinResult =
 /**
  * The answer to showing a code: the QR's JSON and when it stops working, or
  * why not. `not_primary`: this device is a member that is not its group's
- * primary, which alone shows a code that adds a device; it shows one only
- * while a member waits to be paired by hand.
+ * primary, which alone shows a code — one that adds a device, or one that
+ * pairs a member by hand.
  */
 export type StartPairingResult =
   | { qr: string; expiresAt: number }
@@ -180,8 +180,6 @@ export interface CeremonyHost {
   inGroup(): boolean;
   /** The primary of this device's group when this device is a member and not it (`GroupMember.notPrimary`); null otherwise. */
   notPrimary(): PrimaryRef | null;
-  /** A member waits to be paired by hand (`GroupMember.byHandPending`): a member that is not primary may show a code for it. */
-  byHand(): boolean;
   /** See `GroupMember.isLiveMember`. */
   isLiveMember(id: string): boolean;
   /** See `GroupMember.canAdd`. */
@@ -301,8 +299,9 @@ export class PairingCeremony {
     const client = this.host.relay();
     const identity = this.host.identity();
     if (!this.host.enabled() || !client || !identity) return { error: 'disabled' };
+    // Only the primary shows a code, pairing by hand included (canvas 50l: a member pairs no one by hand).
     const primary = this.host.notPrimary();
-    if (primary && !this.host.byHand()) return { error: 'not_primary', primary };
+    if (primary) return { error: 'not_primary', primary };
     if (client.status !== 'online') return { error: 'offline' };
     // No name: the relay knows none. The phone reads it from the QR.
     const res = await client.post<{ token: string; expiresAt: number }>('/pair/token', 'pair.token', {});

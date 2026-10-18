@@ -281,13 +281,14 @@ describe('GroupClient', () => {
     expect([...old.events, ...alone.events].some((e) => e.type === 'unreachable' || e.type === 'unpaired_all')).toBe(false);
   });
 
-  it('a relay too old to answer the web view: members pair by hand, and no code is shown', async () => {
+  it('a relay too old to answer the web view: members wait to be paired by hand, which only the primary does', async () => {
     const b = idOf();
     // A web view's CORS failure: fetch throws.
     const s = setup((storage, self) => grouped(storage, b, self), { fetchImpl: () => Promise.reject(new TypeError('Failed to fetch')) });
     online(s.sock(), { peers: [] }, '0.5.0');
     await until(() => s.client.members().find((m) => m.id === b)?.state === 'notLinked');
-    expect(await s.client.startPairing()).toEqual({ error: 'relay_too_old' });
+    // A phone is never primary: it shows no code for a member waiting by hand either.
+    expect(await s.client.startPairing()).toMatchObject({ error: 'not_primary', primary: { name: 'primary' } });
     // The same failure on a relay new enough is the network's: asked again, no code.
     const fresh = setup((storage, self) => grouped(storage, b, self), { fetchImpl: () => Promise.reject(new TypeError('Failed to fetch')) });
     online(fresh.sock(), { peers: [] });
@@ -432,10 +433,11 @@ describe('MemoryGroupStorage', () => {
     storage.paired.add({ id, name: 'studio', platform: 'darwin', kind: 'desktop', pairedAt: 5 });
     storage.pendingRevokes.add(id);
     storage.roster.replace(member(id, idOf()));
-    storage.membership.set({ group: id, founding: 'f', version: 3, member: true });
+    const ended = { why: 'removed' as const, by: { id, name: 'studio' } };
+    storage.membership.set({ group: id, founding: 'f', version: 3, member: false, ended });
     const back = MemoryGroupStorage.fromJSON(JSON.parse(JSON.stringify(storage)));
     expect(back.toJSON()).toEqual(storage.toJSON());
-    expect(back.membership.get()).toEqual({ group: id, founding: 'f', version: 3, member: true });
+    expect(back.membership.get()).toEqual({ group: id, founding: 'f', version: 3, member: false, ended });
     expect(back.roster.digest()).toBe(storage.roster.digest());
   });
 

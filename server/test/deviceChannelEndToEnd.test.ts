@@ -206,7 +206,12 @@ describe('two servers, one channel', () => {
     await until(() => aloneIn(c), 15_000);
     // Alone, it holds no roster: the next primary that adds it sends one.
     expect(c.remote.rosterState().roster).toBeNull();
-    expect((await c.api('GET', '/api/remote')).json().group).toMatchObject({ primary: null, isPrimary: false });
+    // The notice names the primary that removed it, until the user acknowledges it.
+    expect((await c.api('GET', '/api/remote')).json().group).toMatchObject({
+      primary: null, isPrimary: false, ended: { why: 'removed', by: { id: idA, name: 'studio' } },
+    });
+    expect((await c.api('POST', '/api/remote/ended/acknowledge')).statusCode).toBe(200);
+    expect((await c.api('GET', '/api/remote')).json().group.ended).toBeNull();
     expect(c.remote.channel(idA)).toBeNull();
     expect(c.remote.channel(idB)).toBeNull();
   }, 30_000);

@@ -3,6 +3,9 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Changed
+- In a group, Settings → Devices names the device that manages it: devices are added and removed there, and a device's sheet shows its state and when it joined.
+- When the group's primary dissolves the group or removes this phone, the phone stays standalone in Settings → Devices and says so once, instead of showing "no longer paired"; it keeps its key.
 
 ## [0.15.0] — 2026-10-17
 ### Added

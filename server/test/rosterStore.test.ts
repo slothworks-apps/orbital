@@ -44,6 +44,11 @@ describe('RosterStore', () => {
     const kept = { group: 'group-b', founding: 'f1', version: 7, member: false };
     membership.set(kept);
     expect(membership.get()).toEqual(kept);
+    const ended = { why: 'dissolved' as const, by: { id: 'group-b', name: 'studio' } };
+    membership.set({ ...kept, ended });
+    expect(membership.get()).toEqual({ ...kept, ended });
+    membership.set(kept);
+    expect(membership.get()).toEqual(kept);
     membership.set({ ...kept, member: true, left: { founding: 'f0', version: 4 } });
     expect(membership.get()?.left).toEqual({ founding: 'f0', version: 4 });
     new RosterStore(db).replace(EMPTY_ROSTER);

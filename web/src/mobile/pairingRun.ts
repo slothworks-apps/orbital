@@ -12,7 +12,7 @@ import { fingerprintFor } from './pairingFlow'
 import { thisDevice } from './platform/device'
 import { loadOrCreateIdentity } from './platform/identity'
 import type { Pairing } from './platform/parse'
-import { clearUnpaired } from './platform/pairing'
+import { clearEnded, clearUnpaired } from './platform/pairing'
 import { usePhoneTip } from './phoneTip'
 import { useMobile } from './state'
 import { groupRef, type GroupHandle } from './transport/groupRef'
@@ -167,6 +167,12 @@ export function joinRefused(
       }
     case 'already_paired':
       return { kind: 'scan', error: alreadyPaired(qr.name) }
+    // A phone in a group scanned a device outside it: only the primary adds one (canvas 50i's line).
+    case 'not_primary':
+      return { kind: 'scan', error: `${answer.primary.name} manages this group — add devices there.` }
+    // The typer adds only as a primary, which a phone never is; said as 50o says it, should a group ever answer it.
+    case 'group_full':
+      return { kind: 'scan', error: 'This group can’t take more devices.' }
     case 'offline':
       return { kind: 'scan', error: RELAY_UNREACHABLE }
     case 'relay_error':
@@ -260,9 +266,9 @@ async function pair(
     if (qr.relaySecret !== undefined) pairing.relaySecret = qr.relaySecret
     // The notifications tip becomes due with a pairing (spec
     // 2026-10-08-notifications-off-by-default-design § 5), before the list can show.
-    await Promise.all([handle.persist(), clearUnpaired(), usePhoneTip.getState().markPending()])
+    await Promise.all([handle.persist(), clearUnpaired(), clearEnded(), usePhoneTip.getState().markPending()])
     // A phone already in a group keeps what it shows; a new one is in the group of the device it joined.
-    if (!current) useMobile.setState({ pairing, unpaired: false, macName: qr.name })
+    if (!current) useMobile.setState({ pairing, unpaired: false, groupEnded: null, macName: qr.name })
     // The channel follows the pair within moments; "Paired with" waits for it, bounded, and shows either way.
     if (!federation.ready) {
       await waitFor<TunnelEvent>((listener) => federation.on(listener), (e) => e.type === 'ready' && e.ready, PAIRED_HELLO_WAIT_MS)

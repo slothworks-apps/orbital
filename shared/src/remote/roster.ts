@@ -302,10 +302,20 @@ export function descriptionOf(state: RosterState, id: string): Description | nul
  * the group was dissolved, at `version`). `left`: a ceremony joined the
  * primary of a group this device had left; that founding's versions up to
  * the one it left at stay refused, so a stale one is not taken for a re-add.
+ * `ended`: why this device stopped being a member when it was not its own
+ * doing, kept until the user acknowledges the notice (`GroupEnded`).
  */
 export type Membership = {
   group: string; founding: string | null; version: number; member: boolean; left?: { founding: string; version: number };
+  ended?: GroupEnded;
 };
+
+/**
+ * Why a device stopped being a member by another's hand, for its one-time
+ * notice (canvas 50m, 50n): the primary `by` dissolved the group or removed
+ * this device. Nothing reads it but that notice: it decides no roster.
+ */
+export type GroupEnded = { why: 'dissolved' | 'removed'; by: { id: string; name: string } };
 
 /** Whether `doc` is of the group `m` names. */
 export function ofGroup(doc: Pick<RosterDoc, 'group' | 'founding'>, m: Membership): boolean {

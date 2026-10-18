@@ -16,7 +16,7 @@ import type { Channel } from '@orbital/shared/remote/channel';
 import type { HelloMessage } from '@orbital/shared/remote/messages';
 import { EMPTY_ROSTER, ROSTER_KIND_MAX_CHARS, type MemberView, type RosterState } from '@orbital/shared/remote/roster';
 import {
-  GroupMember, type GroupStorage, type MemberRow, type PrimaryRef, type RemoveResult, type SelfAbout,
+  GroupMember, type GroupEnded, type GroupStorage, type MemberRow, type PrimaryRef, type RemoveResult, type SelfAbout,
 } from '@orbital/shared/remote/group';
 import {
   PairingCeremony, type JoinResult, type PairConfirmResult, type StartPairingResult,
@@ -102,12 +102,15 @@ export type RemoteStatus = {
    * hello. `relayLocked`: this device is in a group (`inGroup`), so the relay
    * URL and secret cannot change. `primary` (of the group): its id and
    * name, null while this device holds no group. `isPrimary`: this device is it.
+   * `ended`: the primary dissolved the group or removed this device, and the
+   * user has not acknowledged the notice yet (`GroupMember.ended`); null otherwise.
    */
   group: {
     members: (MemberRow & { tooOld: boolean })[];
     relayLocked: boolean;
     primary: PrimaryRef | null;
     isPrimary: boolean;
+    ended: GroupEnded | null;
   };
 };
 
@@ -240,7 +243,6 @@ export class RemoteService {
       self: () => ({ name: this.macName, platform: osName(process.platform), kind: serverDeviceKind() }),
       inGroup: () => this.group.inGroup(),
       notPrimary: () => this.group.notPrimary()?.primary ?? null,
-      byHand: () => this.group.byHandPending(),
       isLiveMember: (id) => this.group.isLiveMember(id),
       canAdd: (id) => this.group.canAdd(id),
       paired: {
@@ -463,10 +465,13 @@ export class RemoteService {
         ...m, tooOld: !m.self && memberTooOld(m.kind, this.hellos.get(m.id) ?? null),
       }));
       const primary = this.group.primary();
-      return { members, relayLocked: this.group.inGroup(), primary, isPrimary: primary !== null && primary.id === this.ownId() };
+      return {
+        members, relayLocked: this.group.inGroup(), primary, isPrimary: primary !== null && primary.id === this.ownId(),
+        ended: this.group.ended(),
+      };
     } catch (err) {
       console.warn(`[remote] could not list the roster: ${err instanceof Error ? err.message : String(err)}`);
-      return { members: [], relayLocked: false, primary: null, isPrimary: false };
+      return { members: [], relayLocked: false, primary: null, isPrimary: false, ended: null };
     }
   }
 
@@ -522,6 +527,11 @@ export class RemoteService {
   /** See `GroupMember.leave`: only while the relay is online; the primary leaving dissolves the group. */
   leave(): Promise<RemoveResult> {
     return this.group.leave();
+  }
+
+  /** The user read the notice of the group's ending (`GroupMember.acknowledgeEnded`); the status drops it. */
+  acknowledgeEnded(): void {
+    this.group.acknowledgeEnded();
   }
 
   /** This device's id, read once from the data dir while the remote is off; null when it never had one. */

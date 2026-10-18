@@ -246,7 +246,6 @@ describe('GroupMember linking', () => {
     g.group.setRoster(roster());
     await flush();
     expect(g.group.members(new Set()).find((m) => m.id === MAC)).toMatchObject({ pairByHand: true, state: 'notLinked' });
-    expect(g.group.byHandPending()).toBe(true);
     r.answers['/pair/mutual'] = { status: 200, body: {} };
     g.group.relayOk();
     expect(g.group.members(new Set()).find((m) => m.id === MAC)).toMatchObject({ pairByHand: false, state: 'linking' });
@@ -444,6 +443,7 @@ describe('GroupMember removal', () => {
     const r = fakeRelay();
     const before = roster(OTHER);
     const g = build({ roster: before, paired: [row(MAC), row(OTHER), row(PHONE, 'phone')], relay: r });
+    const primary = g.group.primary()!;
     const mac = fakeChannel();
     g.channels.set(MAC, mac.channel);
     // OTHER passes on the version the Mac signed without this device; it hears the acknowledgement first.
@@ -455,6 +455,11 @@ describe('GroupMember removal', () => {
     expect(fromOther.sent).toContainEqual(ackOf(v2));
     expect(g.state()).toEqual(EMPTY_ROSTER);
     expect(g.membership()).toMatchObject({ group: MAC, version: 2, member: false });
+    // The notice names the primary as this device held it, until it is acknowledged; the membership stays.
+    expect(g.group.ended()).toEqual({ why: 'removed', by: primary });
+    g.group.acknowledgeEnded();
+    expect(g.group.ended()).toBeNull();
+    expect(g.membership()).toEqual({ group: MAC, founding: before.roster!.founding, version: 2, member: false });
     expect(g.group.memberList()).toEqual([expect.objectContaining({ id: SELF, primary: false })]);
     // Each pair ends when that member acknowledges the version: none before.
     expect(revoked(r.posts)).toEqual([]);
@@ -519,6 +524,8 @@ describe('GroupMember leaving', () => {
     expect(notice.left).toMatchObject([{ id: SELF, group: MAC, founding: state.roster!.founding, version: 1 }]);
     expect(leaver.state()).toEqual(EMPTY_ROSTER);
     expect(leaver.membership()).toMatchObject({ member: false, version: 1 });
+    // Its own doing: no notice.
+    expect(leaver.group.ended()).toBeNull();
     // OTHER heard it: that pair ended. The Mac was asleep: its pair waits, holding the notice.
     expect(revoked(r.posts)).toEqual([OTHER]);
     expect(leaver.group.exiting(MAC)).toBe(true);
@@ -596,6 +603,7 @@ describe('GroupMember leaving', () => {
     expect(await p.group.leave()).toEqual({ ok: true });
     expect(p.state()).toEqual(EMPTY_ROSTER);
     expect(p.group.primary()).toBeNull();
+    expect(p.group.ended()).toBeNull();
     expect(p.membership()).toMatchObject({ member: false, version: 2 });
     const last = roster$(toSelf.sent.find((m) => m.t === 'roster'))!;
     expect(last.roster).toMatchObject({ dissolved: true, version: 2 });
@@ -604,10 +612,16 @@ describe('GroupMember leaving', () => {
     expect(revoked(r.posts)).toEqual([]);
     // A member awake takes it, acknowledges it, and is alone.
     const m = build({ roster: start, paired: [row(MAC), row(OTHER)] });
+    const primary = m.group.primary()!;
     const back = fakeChannel();
     m.group.onGroup(MAC, back.channel, { t: 'roster', ...last });
     expect(m.state()).toEqual(EMPTY_ROSTER);
     expect(m.membership()?.member).toBe(false);
+    // The dissolved document carries no descriptions: the notice names the primary as the member held it.
+    expect(m.group.ended()).toEqual({ why: 'dissolved', by: primary });
+    // Joining a group again drops the notice with the ended membership.
+    m.group.joinGroup(OTHER);
+    expect(m.group.ended()).toBeNull();
     p.group.onGroup(SELF, toSelf.channel, back.sent.find((x) => x.t === 'roster_ack')!);
     await flush();
     expect(revoked(r.posts)).toEqual([SELF]);

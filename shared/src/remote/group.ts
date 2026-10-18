@@ -16,9 +16,11 @@ import type { RelayAction } from './relayApi.js';
 import type { LinkStatus } from './relayLink.js';
 import {
   EMPTY_ROSTER, ROSTER_MAX_ENTRIES, describeDevice, descriptionOf, dissolveRoster, exitDigest, foundRoster, leftNotice,
-  memberIds, nextRoster, normalize, ofGroup, rosterKey, rosterMembers, takeRoster, type Membership, type MemberView,
-  type NewMember, type RosterAbout, type RosterState,
+  memberIds, nextRoster, normalize, ofGroup, rosterKey, rosterMembers, takeRoster, type GroupEnded, type Membership,
+  type MemberView, type NewMember, type RosterAbout, type RosterState,
 } from './roster.js';
+
+export type { GroupEnded } from './roster.js';
 
 /**
  * How long a mutual pair the relay refused for its rate limit waits before it
@@ -372,9 +374,29 @@ export class GroupMember {
     this.tryRoster('forget an exit', () => this.storage.exits.remove(id));
   }
 
-  /** A member the relay cannot pair with this device: only a pairing code between the two links them. */
-  byHandPending(): boolean {
-    return this.pairByHand.size > 0;
+  /**
+   * Why this device is no member of its group any more, when another did it
+   * (the primary dissolved the group or removed it), until the user
+   * acknowledges the notice; null otherwise. A storage that cannot be read holds none.
+   */
+  ended(): GroupEnded | null {
+    try {
+      const m = this.storage.membership.get();
+      return m !== null && !m.member ? m.ended ?? null : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** The user read the notice `ended` gives: it is gone. */
+  acknowledgeEnded(): void {
+    this.tryRoster('acknowledge the group ending', () => {
+      const m = this.storage.membership.get();
+      if (!m?.ended) return;
+      const { ended: _ended, ...rest } = m;
+      this.storage.membership.set(rest);
+      this.host.changed();
+    });
   }
 
   /**
@@ -589,7 +611,10 @@ export class GroupMember {
     const now = new Set(memberIds(after));
     if ((doc.dissolved && doc.group !== self) || (wasMember && !now.has(self) && !doc.dissolved)) {
       const members = [...new Set([...was, ...doc.members.map((m) => m.id)])].filter((id) => id !== self);
-      this.becomeAlone(after, members, links, doc.version);
+      // The primary's name as this device last held it: a dissolved document travels with no descriptions.
+      const name = descriptionOf(before, doc.group)?.name ?? descriptionOf(after, doc.group)?.name ?? doc.group.slice(0, 8);
+      const ended: GroupEnded = { why: doc.dissolved ? 'dissolved' : 'removed', by: { id: doc.group, name } };
+      this.becomeAlone(after, members, links, doc.version, undefined, ended);
       return;
     }
     for (const id of was) if (id !== self && !now.has(id)) this.endPair(id, after, links.get(id) ?? false);
@@ -644,14 +669,19 @@ export class GroupMember {
    * false), so nothing at or below it is taken again. Each pair with a
    * member of that group ends once `ending` reached it (`endPair`; `done`
    * heard it already); a pair with a device that was never in the group
-   * stays. Then it holds no roster.
+   * stays. Then it holds no roster. `ended`: another did it (`GroupEnded`),
+   * kept for the notice; leaving by its own hand keeps none.
    */
-  private becomeAlone(ending: RosterState, members: string[], links: Map<string, boolean>, version: number, done?: string): void {
+  private becomeAlone(
+    ending: RosterState, members: string[], links: Map<string, boolean>, version: number, done?: string, ended?: GroupEnded,
+  ): void {
     const m = this.storage.membership.get();
     const doc = ending.roster ?? this.storage.roster.read().roster;
     if (doc) {
       const highest = m !== null && ofGroup(doc, m) ? m.version : 0;
-      this.storage.membership.set({ group: doc.group, founding: doc.founding, version: Math.max(version, highest), member: false });
+      this.storage.membership.set({
+        group: doc.group, founding: doc.founding, version: Math.max(version, highest), member: false, ...(ended ? { ended } : {}),
+      });
     }
     for (const id of members) this.endPair(id, ending, links.get(id) ?? false, id === done);
     this.host.leftGroup();

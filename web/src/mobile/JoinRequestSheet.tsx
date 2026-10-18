@@ -27,21 +27,33 @@ export function JoinRequestSheet() {
   const shown = useRef<PendingPair | null>(null)
   if (pending) shown.current = pending
   const [joined, setJoined] = useState<string | null>(null)
+  /** The device an Accept could not add, the group having no room (canvas 50o's words). */
+  const [full, setFull] = useState<string | null>(null)
 
-  // A new request replaces a joined sheet still up. A request gone takes
-  // its put-away mark with it, so the same device asking again is shown.
+  // A new request replaces a joined or full sheet still up. A request gone
+  // takes its put-away mark with it, so the same device asking again is shown.
   useEffect(() => {
-    if (pending) setJoined(null)
-    else useJoinSheet.setState({ setAside: null })
+    if (pending) {
+      setJoined(null)
+      setFull(null)
+    } else useJoinSheet.setState({ setAside: null })
   }, [pending?.phone]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <SheetPresence>
       {joined !== null ? (
         <JoinedSheet name={joined} onDone={() => setJoined(null)} />
+      ) : full !== null ? (
+        <FullSheet name={full} onDone={() => setFull(null)} />
       ) : (
         pending && pending.phone !== setAside && (
-          <RequestSheet key={pending.phone} request={pending} expiresAt={ownCode?.expiresAt ?? null} onJoined={setJoined} />
+          <RequestSheet
+            key={pending.phone}
+            request={pending}
+            expiresAt={ownCode?.expiresAt ?? null}
+            onJoined={setJoined}
+            onFull={setFull}
+          />
         )
       )}
     </SheetPresence>
@@ -59,10 +71,12 @@ function RequestSheet({
   request,
   expiresAt,
   onJoined,
+  onFull,
 }: {
   request: PendingPair
   expiresAt: number | null
   onJoined: (name: string) => void
+  onFull: (name: string) => void
 }) {
   const now = useNow(true)
   const [code, setCode] = useState('')
@@ -93,8 +107,11 @@ function RequestSheet({
         // The boxes clear and one quiet line counts what is left.
         setCode('')
         setAttemptsLeft(res.attemptsLeft)
+      } else if (res.error === 'group_full') {
+        // The group dropped the request; the answer takes the sheet's place, as 50o does on the desktop.
+        onFull(request.name)
       }
-      // `code_rejected`, `group_full` and `no_pending`: the group dropped the request, and the sheet goes with it.
+      // `code_rejected` and `no_pending`: the group dropped the request, and the sheet goes with it.
     } finally {
       setBusy(false)
       refreshGroupState()
@@ -161,6 +178,25 @@ function JoinedSheet({ name, onDone }: { name: string; onDone: () => void }) {
         <h2 className="text-[18px] font-bold">{name} joined</h2>
         <p className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)]">The other devices link to it on their own.</p>
         <SecondaryButton onClick={onDone}>Done</SecondaryButton>
+      </div>
+    </BottomSheet>
+  )
+}
+
+/**
+ * An Accept the group had no room for: the desktop's 50o answer in the
+ * sheet's place, in its words. A phone adds no one, so only a group that
+ * says so brings it here.
+ */
+function FullSheet({ name, onDone }: { name: string; onDone: () => void }) {
+  return (
+    <BottomSheet label="This group can’t take more devices." onDismiss={onDone} variant="device">
+      <div className="flex flex-col items-center gap-3 pb-2 pt-3 text-center">
+        <h2 className="text-[18px] font-bold [text-wrap:balance]">This group can’t take more devices.</h2>
+        <p className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+          {name} wasn’t added and keeps running on its own.
+        </p>
+        <SecondaryButton onClick={onDone}>OK</SecondaryButton>
       </div>
     </BottomSheet>
   )

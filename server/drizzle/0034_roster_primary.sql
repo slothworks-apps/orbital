@@ -17,7 +17,10 @@ CREATE TABLE `group_membership` (
 	`version` integer NOT NULL,
 	`member` integer NOT NULL,
 	`left_founding` text,
-	`left_version` integer
+	`left_version` integer,
+	`ended_why` text,
+	`ended_by` text,
+	`ended_by_name` text
 );
 --> statement-breakpoint
 CREATE TABLE `group_exits` (

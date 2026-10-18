@@ -546,6 +546,10 @@ export const groupMembership = sqliteTable('group_membership', {
   /** `Membership.left`: the founding and version of the group left before, joined again by a ceremony; both or neither. */
   leftFounding: text('left_founding'),
   leftVersion: integer('left_version'),
+  /** `Membership.ended`: why the primary ended this device's membership, and its id and name, until acknowledged; all or none. */
+  endedWhy: text('ended_why'),
+  endedBy: text('ended_by'),
+  endedByName: text('ended_by_name'),
 });
 
 /**

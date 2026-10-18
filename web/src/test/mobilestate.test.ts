@@ -168,10 +168,14 @@ describe('per-device refusals', () => {
 describe('back', () => {
   it('walks session and settings back to the list, and leaves the app from the list', () => {
     expect(back(state({ screen: 'session', sessionId: 's1' }))).toEqual({ screen: 'list', sessionId: null, pushed: [], composerIntent: null })
-    expect(back(state({ screen: 'settings' }))).toEqual({ screen: 'list' })
+    expect(back(state({ screen: 'settings', pairing: PAIRING }))).toEqual({ screen: 'list' })
     expect(back(state({ screen: 'new' }))).toEqual({ screen: 'list' })
     expect(back(state({ screen: 'list' }))).toBe('exit')
     expect(back(state({ screen: 'mismatch' }))).toBe('exit')
+  })
+
+  it('from a standalone phone\'s Settings (the group ended), goes to the scanner: there is no list', () => {
+    expect(back(state({ screen: 'settings', pairing: null, previous: 'settings' }))).toEqual({ screen: 'pairing', previous: null })
   })
 
   it('returns from pairing to where it came from, and stays when there is nowhere to go', () => {

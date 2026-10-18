@@ -29,7 +29,7 @@ function fakeRelay(answers: Record<string, Answer> = {}) {
 function build(opts: {
   kind?: string; inGroup?: boolean; members?: string[]; paired?: PairedDevice[]; answers?: Record<string, Answer>; full?: boolean; fills?: boolean;
   /** This device is a member whose group's primary is this one. */
-  primary?: PrimaryRef; byHand?: boolean;
+  primary?: PrimaryRef;
 } = {}) {
   const identity = generateIdentity();
   const r = fakeRelay(opts.answers);
@@ -50,7 +50,6 @@ function build(opts: {
     self: () => ({ name: 'self', platform: 'macos', kind: opts.kind ?? 'desktop' }),
     inGroup: () => opts.inGroup ?? false,
     notPrimary: () => opts.primary ?? null,
-    byHand: () => opts.byHand ?? false,
     isLiveMember: (id) => (opts.members ?? []).includes(id),
     canAdd: () => !opts.full,
     paired: {
@@ -443,21 +442,22 @@ describe('PairingCeremony on a member that is not the primary', () => {
     expect(m.relay.posts).toEqual([]);
   });
 
-  it('pairs by hand with a member of its own group, adding no one', async () => {
+  it('pairs by hand with its own primary, adding no one', async () => {
     const showerMembers: string[] = [];
     const typerMembers: string[] = [];
-    const shower = build({ inGroup: true, primary, byHand: true, members: showerMembers });
+    // The primary shows the code: in its group, and no primary above it.
+    const shower = build({ inGroup: true, members: showerMembers });
     const m = build({ inGroup: true, primary, members: typerMembers });
     showerMembers.push(m.id);
     typerMembers.push(shower.id);
     const res = await pairThrough(shower, m);
     expect(res.joined).toEqual({ ok: true });
     expect([res.shower, res.typer]).toEqual([[], []]);
-    // A device that is no member, at a member showing a code by hand: refused, naming nothing more.
-    const other = build({ inGroup: true, primary, byHand: true });
-    const qr = await showCode(other);
-    const stranger = generateIdentity();
-    other.ceremony.onPairRequest(request(qr, stranger, fromBase64Url(qr.secret), 'desktop'));
-    expect(other.ceremony.state().refused).toMatchObject({ error: 'not_primary' });
+  });
+
+  it('shows no code even while a member waits to be paired by hand: only the primary pairs by hand', async () => {
+    const m = build({ inGroup: true, primary, members: ['M'.repeat(43)] });
+    expect(await m.ceremony.start()).toEqual({ error: 'not_primary', primary });
+    expect(m.relay.posts).toEqual([]);
   });
 });

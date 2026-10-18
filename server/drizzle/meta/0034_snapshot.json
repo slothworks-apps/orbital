@@ -544,6 +544,27 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "ended_why": {
+          "name": "ended_why",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ended_by": {
+          "name": "ended_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ended_by_name": {
+          "name": "ended_by_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {},

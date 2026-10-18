@@ -27,14 +27,26 @@ function member(patch: Partial<GroupMember>): GroupMember {
 
 const SELF = member({ id: 'self', name: 'studio', self: true, state: 'self' })
 
+/** This device with `others` in its group, as their primary; alone with none. */
 function status(others: GroupMember[], patch: Partial<RemoteStatus> = {}): RemoteStatus {
+  const grouped = others.length > 0
   return {
     enabled: true, relay: 'online', relayTooOld: null, relayAttempts: 0, relayUrl: 'https://relay.test',
     macId: 'self', macName: 'studio', devices: [],
     pendingPair: null, pairing: null, joining: null, error: null,
-    group: { members: [SELF, ...others], relayLocked: others.length > 0, primary: null, isPrimary: false },
+    group: {
+      members: [SELF, ...others], relayLocked: grouped,
+      primary: grouped ? { id: 'self', name: 'studio' } : null, isPrimary: grouped, ended: null,
+    },
     ...patch,
   }
+}
+
+const BUILD = { id: 'b1', name: 'build-box' }
+
+/** `status`, on a member of `primary`'s group rather than its primary. */
+function asMember(remote: RemoteStatus, primary = BUILD): RemoteStatus {
+  return { ...remote, group: { ...remote.group, primary, isPrimary: false } }
 }
 
 const patchAndSet = vi.fn(async (_patch: Record<string, string>) => true)
@@ -93,37 +105,65 @@ describe('DevicesSection', () => {
     expect(patchAndSet).toHaveBeenCalledWith({ remote_relay_url: 'https://other.test' })
   })
 
-  it('in a group: the relay is read-only and Leave is offered', async () => {
-    renderWith(status([member({ id: 'b1', name: 'build-box' })]))
+  it('on a member: the relay is read-only, Leave is offered, and the primary is named where the add box was', async () => {
+    renderWith(asMember(status([member({ id: 'b1', name: 'build-box', primary: true })])))
     const relay = await openRelay()
     expect(relay).toHaveAttribute('readonly')
     await userEvent.type(relay, 'x{Enter}')
     expect(patchAndSet).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'Leave…' })).toBeInTheDocument()
+    expect(screen.getByText(/manages this group — add and remove devices there\./)).toBeInTheDocument()
+    expect(screen.queryByLabelText("Another device's code")).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument()
+  })
+
+  it('on the primary: Remove on each row and Dissolve, with no Leave', async () => {
+    vi.mocked(api.leaveGroup).mockResolvedValue({ ok: true })
+    renderWith(status([member({ id: 'b1', name: 'build-box' }), member({ id: 'b2', name: 'rpi-lab' })]))
+    expect(screen.getAllByRole('button', { name: 'Remove' })).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: 'Leave…' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Dissolve…' }))
+    expect(screen.getByText(/All 2 other devices become standalone/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Dissolve' }))
+    expect(api.leaveGroup).toHaveBeenCalledTimes(1)
+  })
+
+  it('heads the list with the notice of the group ending until OK', async () => {
+    vi.mocked(api.acknowledgeEnded).mockResolvedValue(undefined)
+    renderWith(status([], {
+      group: {
+        members: [SELF], relayLocked: false, primary: null, isPrimary: false,
+        ended: { why: 'removed', by: { id: 'b1', name: 'build-box' } },
+      },
+    }))
+    expect(screen.getByText('build-box removed this device from the group')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'OK' }))
+    expect(api.acknowledgeEnded).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('build-box removed this device from the group')).not.toBeInTheDocument()
   })
 
   it('a Leave the relay cannot carry says so and changes nothing else', async () => {
     vi.mocked(api.leaveGroup).mockResolvedValue({ ok: false, error: 'offline' })
-    renderWith(status([member({ id: 'b1', name: 'build-box' })]))
+    renderWith(asMember(status([member({ id: 'b1', name: 'build-box' })])))
     await userEvent.click(screen.getByRole('button', { name: 'Leave…' }))
-    expect(screen.getByText(/This device forgets the other device and its keys/)).toBeInTheDocument()
+    expect(screen.getByText(/This device becomes standalone and forgets the other one/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Leave' }))
     expect(api.leaveGroup).toHaveBeenCalledTimes(1)
     expect(await screen.findByText('Connect to the relay to leave — the others have to hear it.')).toBeInTheDocument()
     expect(api.removeDevice).not.toHaveBeenCalled()
     expect(patchAndSet).not.toHaveBeenCalled()
-    expect(screen.getByText('build-box')).toBeInTheDocument()
+    expect(document.querySelector('[data-member="b1"]')).not.toBeNull()
   })
 
   it('with one other device, Leave speaks of it in the singular; with more, in the plural', async () => {
-    const { unmount } = renderWith(status([member({ id: 'b1', name: 'build-box' })]))
+    const { unmount } = renderWith(asMember(status([member({ id: 'b1', name: 'build-box' })])))
     await userEvent.click(screen.getByRole('button', { name: 'Leave…' }))
-    expect(screen.getByText('This device forgets the other device and its keys; it stops seeing this device\'s sessions.'))
+    expect(screen.getByText('This device becomes standalone and forgets the other one. To join again, pair it with build-box.'))
       .toBeInTheDocument()
     unmount()
-    renderWith(status([member({ id: 'b1', name: 'build-box' }), member({ id: 'b2', name: 'rpi-lab' })]))
+    renderWith(asMember(status([member({ id: 'b1', name: 'build-box' }), member({ id: 'b2', name: 'rpi-lab' })])))
     await userEvent.click(screen.getByRole('button', { name: 'Leave…' }))
-    expect(screen.getByText(/This device forgets the other 2 and their keys/)).toBeInTheDocument()
+    expect(screen.getByText(/This device becomes standalone and forgets the other 2\./)).toBeInTheDocument()
   })
 
   it('a Mac with only its phones changes the relay after the confirm that removes them', async () => {
@@ -151,7 +191,14 @@ describe('DevicesSection', () => {
     expect(screen.getByText(/paste it in Devices there/)).toBeInTheDocument()
   })
 
-  it('a member that is not linked offers Pair by hand, which draws a code for it', async () => {
+  it('on a member, a row not linked reads not linked, with no Pair by hand: only the primary pairs by hand', () => {
+    renderWith(asMember(status([member({ id: 'n1', name: 'mini-office', state: 'notLinked', pairByHand: true, linked: false })])))
+    const row = screen.getByText('mini-office').closest('[data-member]') as HTMLElement
+    expect(within(row).getByText('not linked')).toBeInTheDocument()
+    expect(within(row).queryByRole('button', { name: /pair by hand/ })).not.toBeInTheDocument()
+  })
+
+  it('on the primary, a member that is not linked offers Pair by hand, which draws a code for it', async () => {
     renderWith(status([
       member({ id: 'n1', name: 'mini-office', state: 'notLinked', pairByHand: true, linked: false }),
       member({ id: 'l1', name: 'rpi-lab', kind: 'headless', state: 'linking', linked: false }),
@@ -209,12 +256,12 @@ describe('DevicesSection', () => {
   it('the Leave refusal goes once the relay is back', async () => {
     vi.mocked(api.leaveGroup).mockResolvedValue({ ok: false, error: 'offline' })
     const others = [member({ id: 'b1', name: 'build-box' })]
-    renderWith(status(others, { relay: 'connecting' }))
+    renderWith(asMember(status(others, { relay: 'connecting' })))
     await userEvent.click(screen.getByRole('button', { name: 'Leave…' }))
     await userEvent.click(screen.getByRole('button', { name: 'Leave' }))
     const words = 'Connect to the relay to leave — the others have to hear it.'
     expect(await screen.findByText(words)).toBeInTheDocument()
-    act(() => useOrbital.getState().setRemote(status(others)))
+    act(() => useOrbital.getState().setRemote(asMember(status(others))))
     expect(screen.queryByText(words)).not.toBeInTheDocument()
   })
 })

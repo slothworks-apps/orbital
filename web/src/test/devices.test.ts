@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  LOCAL_DEVICE, addedByLine, asOfLabel, deviceChips, deviceOf, deviceRows, devicesOn, kindOs, memberStateWords,
+  LOCAL_DEVICE, addedByLine, asOfLabel, canRemoveRow, deviceChips, deviceOf, deviceRows, devicesOn, groupView, kindOs,
+  memberStateWords,
   isMemberOffline, namesShown, osLabel, showDeviceRow, toggleDevice,
   agoWords, deviceLock, ideHere, pillWords, runsOn, stateAsOf, withMachine, withMachineOffline,
   childPath, crumbsOf, deviceOptions, openingDevice, recentAge,
@@ -126,12 +127,60 @@ describe('deviceRows', () => {
     expect(deviceRows([self, phone], [], NOW)[0]).toMatchObject({ state: 'offline', words: 'offline' })
   })
 
+  it('a member not linked offers pairing by hand only where this device pairs by hand (the primary)', () => {
+    const mini = member({ id: 'mini', linked: false, pairByHand: true, state: 'notLinked' })
+    expect(deviceRows([self, mini], [], NOW)[0]).toMatchObject({ state: 'notLinked', words: 'not linked — pair by hand' })
+    expect(deviceRows([self, mini], [], NOW, false)[0]).toMatchObject({ state: 'notLinked', words: 'not linked' })
+    // Too old says what to do about it, whoever reads it.
+    expect(deviceRows([self, { ...mini, tooOld: true }], [], NOW, false)[0].words).toBe('update Orbital on studio-mbp')
+  })
+
+  it('marks the primary, and tells a roster member from a device paired here outside any group', () => {
+    const rows = deviceRows([self, build], [{
+      id: 'old', name: 'Galaxy', platform: 'android', kind: null, pairedAt: NOW, lastSeenAt: null, online: true,
+      needsUpdate: null,
+    }], NOW)
+    expect(rows.map((r) => [r.id, r.primary, r.member])).toEqual([['build-id', true, true], ['old', false, false]])
+  })
+
   it('an unlisted device seen under a minute ago reads seen just now', () => {
     const rows = deviceRows([self], [{
       id: 'old', name: 'Galaxy', platform: 'android', kind: null, pairedAt: NOW, lastSeenAt: NOW - 5_000, online: false,
       needsUpdate: null,
     }], NOW)
     expect(rows[0].words).toBe('offline · seen just now')
+  })
+})
+
+describe('groupView (canvas 50a, 50l)', () => {
+  const studio = { id: 'studio', name: 'studio-mbp' }
+
+  it('the primary adds, removes, pairs by hand and dissolves; PRIMARY sits on this device', () => {
+    const view = groupView({ primary: studio, isPrimary: true }, 3)
+    expect(view).toEqual({
+      role: 'primary', canAdd: true, managedBy: null, pairsByHand: true, exit: 'dissolve', selfPrimary: true,
+    })
+    expect(canRemoveRow(view, { member: true })).toBe(true)
+  })
+
+  it('a member adds and removes no one, names the primary in the add box\'s place, and leaves', () => {
+    const view = groupView({ primary: studio, isPrimary: false }, 3)
+    expect(view).toEqual({
+      role: 'member', canAdd: false, managedBy: 'studio-mbp', pairsByHand: false, exit: 'leave', selfPrimary: false,
+    })
+    expect(canRemoveRow(view, { member: true })).toBe(false)
+    // A device it paired outside any group is its own to drop.
+    expect(canRemoveRow(view, { member: false })).toBe(true)
+  })
+
+  it('a device in no group adds one, which founds a group; there is nothing to leave', () => {
+    expect(groupView({ primary: null, isPrimary: false }, 0)).toMatchObject({
+      role: 'alone', canAdd: true, managedBy: null, pairsByHand: false, exit: null, selfPrimary: false,
+    })
+  })
+
+  it('a primary with no one else in its group offers no Dissolve and carries no PRIMARY', () => {
+    expect(groupView({ primary: studio, isPrimary: true }, 0)).toMatchObject({ role: 'primary', exit: null, selfPrimary: false })
   })
 })
 

@@ -10,15 +10,18 @@ import {
   RELAY_CHECK_WINDOW_MS, codeLeft, relayCheckSettled, relayLine, relaySecretCommit, relayUrlCommit, relayHostname,
   statusDuringCheck, type RelayLineKind,
 } from '../lib/remote'
-import { deviceRows, kindOs, needsUpdateLine, type DeviceRow } from '../lib/devices'
+import {
+  canRemoveRow, deviceRows, endedNotice, groupView, kindOs, needsUpdateLine, type DeviceRow, type GroupView,
+} from '../lib/devices'
 import { useNow } from '../lib/useNow'
-import type { GroupMember, RemoteStatus } from '../lib/types'
+import type { GroupEnded, GroupMember, RemoteStatus } from '../lib/types'
 import { Toggle } from '../ui/Checkbox'
 import { Button } from '../ui/Button'
 import { Dialog } from '../ui/Dialog'
 import { Input } from '../ui/Input'
 import { KindGlyph } from '../ui/KindGlyph'
 import { MemberDot } from '../ui/MemberDot'
+import { PrimaryLabel } from '../ui/PrimaryLabel'
 import { JoinArea } from './JoinCard'
 import { DEBOUNCE_MS, Row, SectionLabel } from './settingsRows'
 
@@ -220,10 +223,14 @@ function usePairingCode(remote: RemoteStatus | null): PairingCode {
 }
 
 /**
- * Settings → Devices (spec 2026-10-16-device-group-design; canvas 50a): the
- * switch and the relay, this device, every other member of the group, the
- * code that adds a device, the field that joins another's group, and Leave.
- * It replaces Settings → Mobile in the same place (50a REPLACES MOBILE). The
+ * Settings → Devices (spec 2026-10-16-device-group-design; canvas 50a, 50l,
+ * 50m): the switch and the relay, this device, every other member of the
+ * group, and what this device's place in the group offers (`groupView`) — on
+ * the primary or a device in no group the code that adds a device and the
+ * field that joins another's, Remove on the rows and Dissolve; on a member
+ * the primary's name in their place, and Leave. A notice of the group's
+ * ending by the primary's hand heads IN THIS GROUP until OK. It replaces
+ * Settings → Mobile in the same place (50a REPLACES MOBILE). The
  * confirmation of a pairing is not here — it is `PairConfirmDialog`, which
  * belongs to the app.
  */
@@ -252,7 +259,9 @@ export function DevicesSection({
   const self = members.find((m) => m.self) ?? null
   const others = members.filter((m) => !m.self)
   const now = useNow(true, SEEN_TICK_MS)
-  const rows = deviceRows(members, liveRemote?.devices ?? [], now)
+  const view = groupView(liveRemote?.group ?? { primary: null, isPrimary: false }, others.length)
+  const rows = deviceRows(members, liveRemote?.devices ?? [], now, view.pairsByHand)
+  const ended = liveRemote?.group.ended ?? null
   const relayLocked = liveRemote?.group.relayLocked ?? false
   // Only while that member still waits on a hand pairing: once it links, the box is everyone's again.
   const pairTarget = others.find((m) => m.id === pairFor && m.state === 'notLinked') ?? null
@@ -312,6 +321,7 @@ export function DevicesSection({
           savedSecret={settings.remote_relay_secret ?? ''}
           remote={liveRemote}
           locked={relayLocked}
+          role={view.role}
           proposed={proposedRelay}
           onProposedDone={() => setProposedRelay(null)}
         />
@@ -329,7 +339,10 @@ export function DevicesSection({
           {/* Stays live with the switch off: a removal applies here at once,
               and Remove is the way out of a member that keeps the relay locked. */}
           <div className="flex min-w-0 flex-col">
-            <div className={`${KICKER} pb-2 pt-2.5`}>THIS DEVICE</div>
+            <div className="flex items-center gap-2.5 pb-2 pt-2.5">
+              <span className={KICKER}>THIS DEVICE</span>
+              {view.selfPrimary && <PrimaryLabel />}
+            </div>
             <ThisDevice
               patchAndSet={patchAndSet}
               self={self}
@@ -339,8 +352,9 @@ export function DevicesSection({
             <div className="flex items-baseline gap-2.5 pb-2 pt-5">
               <span className={KICKER}>IN THIS GROUP · {rows.length}</span>
               <span className="flex-1" />
-              <span className={ASIDE}>ANY MEMBER CAN REMOVE ANY DEVICE</span>
+              {view.selfPrimary && <span className={ASIDE}>ONLY THE PRIMARY ADDS OR REMOVES</span>}
             </div>
+            {ended && <EndedNotice ended={ended} />}
             {rows.length === 0 ? (
               <div className="flex items-center gap-3.5 rounded-[12px] border border-dashed border-[rgba(150,205,255,.16)] px-4 py-[18px]">
                 <span className="flex flex-col gap-[3px]">
@@ -354,37 +368,48 @@ export function DevicesSection({
                 </span>
               </div>
             ) : (
-              <Members rows={rows} now={now} onPairByHand={pairByHand} onSaved={onSaved} />
+              <Members rows={rows} view={view} now={now} onPairByHand={pairByHand} onSaved={onSaved} />
             )}
           </div>
           <div className={`flex min-w-0 flex-col ${enabled ? '' : 'pointer-events-none'}`}>
             <div className={`${KICKER} pb-2 pt-2.5`}>
-              {pairTarget ? `ADD A DEVICE · FOR ${pairTarget.name.toUpperCase()}` : 'ADD A DEVICE'}
+              {view.canAdd && pairTarget ? `ADD A DEVICE · FOR ${pairTarget.name.toUpperCase()}` : 'ADD A DEVICE'}
             </div>
-            <JoinArea
-              remote={liveRemote}
-              onUseRelay={(url) => {
-                setRelayOpen(true)
-                setProposedRelay({ url })
-              }}
-              idle={(field) => (
-                <div className={`${CARD} flex flex-col gap-3.5 p-4`}>
-                  {/* A relay too old has its card above; a code would point at a relay that refuses it. */}
-                  {remote?.relay !== 'too_old' && (
-                    <>
-                      {online ? (
-                        <CodeArea pairing={pairing} />
-                      ) : (
-                        <RelayWait kind={line?.kind ?? 'off'} remote={remote} check={check} />
-                      )}
-                      <div className="h-px bg-[rgba(150,205,255,.1)]" />
-                    </>
-                  )}
-                  {field}
-                </div>
-              )}
-            />
-            {others.length > 0 && <Leave count={others.length} relayOnline={online} />}
+            {view.managedBy !== null ? (
+              <Managed primary={view.managedBy} />
+            ) : (
+              <JoinArea
+                remote={liveRemote}
+                onUseRelay={(url) => {
+                  setRelayOpen(true)
+                  setProposedRelay({ url })
+                }}
+                idle={(field) => (
+                  <div className={`${CARD} flex flex-col gap-3.5 p-4`}>
+                    {/* A relay too old has its card above; a code would point at a relay that refuses it. */}
+                    {remote?.relay !== 'too_old' && (
+                      <>
+                        {online ? (
+                          <CodeArea pairing={pairing} />
+                        ) : (
+                          <RelayWait kind={line?.kind ?? 'off'} remote={remote} check={check} />
+                        )}
+                        <div className="h-px bg-[rgba(150,205,255,.1)]" />
+                      </>
+                    )}
+                    {field}
+                  </div>
+                )}
+              />
+            )}
+            {view.exit && (
+              <Leave
+                exit={view.exit}
+                count={others.length}
+                primary={liveRemote.group.primary?.name ?? ''}
+                relayOnline={online}
+              />
+            )}
           </div>
         </div>
       )}
@@ -571,19 +596,23 @@ function ThisDevice({
 }
 
 /**
- * IN THIS GROUP's rows (canvas 50a ROWS): glyph, name, kind and OS, the quiet
- * added-by line with its date on hover, and the state as a dot and words. A
- * row's Remove asks in place first. Remove stays available with the relay
- * offline: the removal applies here at once, and it is the only way out of a
- * member that keeps the relay locked.
+ * IN THIS GROUP's rows (canvas 50a ROWS, 50l): glyph, name with PRIMARY on
+ * the primary's row, kind and OS on the quiet line under it, and the state
+ * as a dot and words. Remove asks in place first, and only where `view`
+ * offers it (`canRemoveRow`); a row not linked is a Pair by hand link only on
+ * the primary. Remove stays available with the relay offline: the removal
+ * applies here at once, and it is the only way out of a member that keeps
+ * the relay locked.
  */
 function Members({
   rows,
+  view,
   now,
   onPairByHand,
   onSaved,
 }: {
   rows: DeviceRow[]
+  view: GroupView
   now: number
   onPairByHand: (m: DeviceRow) => void
   onSaved: () => void
@@ -595,9 +624,11 @@ function Members({
     if (removing) return
     setRemoving(true)
     try {
-      await api.removeDevice(id)
+      const res = await api.removeDevice(id)
       setAsking(null)
-      onSaved()
+      // The status moved under the user: this device is no primary any more.
+      if (typeof res === 'object') reportError(null, `Only ${res.primary.name} removes devices from this group.`)
+      else onSaved()
     } catch (err) {
       reportError(err, 'Failed to remove the device')
     } finally {
@@ -622,16 +653,18 @@ function Members({
                   <KindGlyph kind={m.kind} />
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className={`truncate text-[13.5px] font-semibold ${nameInk}`}>{m.name}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span title={`joined ${longDate(m.addedAt)}`} className={`truncate text-[13.5px] font-semibold ${nameInk}`}>
+                      {m.name}
+                    </span>
+                    {m.primary && <PrimaryLabel />}
+                  </span>
                   <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{kindOs(m.kind, m.os)}</span>
                   {m.needsUpdate && (
                     <span className="font-mono text-[10px] text-[rgba(160,190,225,.6)]">
                       {needsUpdateLine(m.needsUpdate, now)}
                     </span>
                   )}
-                  <span title={longDate(m.addedAt)} className="font-mono text-[10px] text-[rgba(160,190,225,.42)]">
-                    {m.added}
-                  </span>
                 </span>
                 <span
                   className={`flex w-[172px] flex-none items-center gap-[7px] font-mono text-[11px] ${
@@ -640,7 +673,7 @@ function Members({
                 >
                   {/* A phone paired with another member has no presence here, so no dot. */}
                   {state !== 'elsewhere' && <MemberDot state={state} sizePx={7} />}
-                  {state === 'notLinked' ? (
+                  {state === 'notLinked' && view.pairsByHand ? (
                     <button
                       type="button"
                       onClick={() => onPairByHand(m)}
@@ -652,16 +685,18 @@ function Members({
                     <span>{words}</span>
                   )}
                 </span>
-                <Button variant="outline" size="member" onClick={() => setAsking(m.id)}>
-                  Remove
-                </Button>
+                {canRemoveRow(view, m) && (
+                  <Button variant="outline" size="member" onClick={() => setAsking(m.id)}>
+                    Remove
+                  </Button>
+                )}
               </div>
             ) : (
               <div className="box-border flex min-h-[58px] items-center gap-2.5 bg-[rgba(150,205,255,.05)] py-2 pl-4 pr-3">
                 <span className="flex-1 text-[12.5px] leading-[1.45] text-text-bright [text-wrap:pretty]">
                   Remove {m.name}?{' '}
                   <span className="text-[rgba(160,190,225,.7)]">
-                    It drops out of every device in the group now and has to join again.
+                    It drops out of every device in the group now and has to be paired again from here.
                   </span>
                 </span>
                 <Button variant="outline" size="member" disabled={removing} onClick={() => setAsking(null)}>
@@ -680,16 +715,110 @@ function Members({
 }
 
 /**
- * Leave this group (canvas 50a), only while another member exists. It asks
- * in place; a relay that cannot carry the leave answers `offline`, said in the
- * same place, and nothing else changes until the relay is back.
+ * The one-time notice of the group's ending by the primary's hand (canvas
+ * 50m): it heads IN THIS GROUP until OK, which the server forgets. No toast,
+ * no badge, no sound.
  */
-function Leave({ count, relayOnline }: { count: number; relayOnline: boolean }) {
+function EndedNotice({ ended }: { ended: GroupEnded }) {
+  const [busy, setBusy] = useState(false)
+  const { head, body } = endedNotice(ended, 'desktop')
+
+  async function ok() {
+    if (busy) return
+    setBusy(true)
+    try {
+      await api.acknowledgeEnded()
+      // The server publishes the status without it; this tab need not wait for the hub.
+      const { remote, setRemote } = useOrbital.getState()
+      if (remote) setRemote({ ...remote, group: { ...remote.group, ended: null } })
+    } catch (err) {
+      reportError(err, 'Failed to dismiss the notice')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mb-2.5 flex items-center gap-3.5 rounded-[12px] border border-[rgba(150,205,255,.2)] bg-[rgba(150,205,255,.05)] py-3.5 pl-4 pr-3">
+      <span className="flex text-[rgba(232,238,248,.7)]">
+        <KindGlyph kind="desktop" />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+        <span className="text-[13.5px] font-semibold text-text-bright">{head}</span>
+        <span className="text-[12.5px] leading-[1.45] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">{body}</span>
+      </span>
+      <Button variant="outline" size="member" disabled={busy} onClick={() => void ok()}>
+        OK
+      </Button>
+    </div>
+  )
+}
+
+/** ADD A DEVICE on a member (canvas 50l): no code and no field, only who adds and removes devices. */
+function Managed({ primary }: { primary: string }) {
+  return (
+    <div className="flex items-start gap-3 rounded-[12px] border border-dashed border-[rgba(150,205,255,.16)] p-4">
+      <span className="flex pt-1 text-[rgba(232,238,248,.7)]">
+        <KindGlyph kind="desktop" />
+      </span>
+      <span className="flex-1 text-[12.5px] leading-[1.5] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
+        <span className="font-semibold text-text-bright">{primary}</span> manages this group — add and remove devices there.
+      </span>
+    </div>
+  )
+}
+
+/** Dissolve on the primary, Leave on a member (canvas 50a, 50l `leave*`): the box's words, and its confirmation's. */
+function exitWords(exit: 'dissolve' | 'leave', count: number, primary: string) {
+  if (exit === 'dissolve') {
+    return {
+      title: 'Dissolve this group',
+      sub: 'Sessions on every device keep running.',
+      button: 'Dissolve…',
+      question: 'Dissolve the group?',
+      body: count === 1
+        ? 'The other device becomes standalone and its pair with this one ends. To form a new group, pair devices again from here.'
+        : `All ${count} other devices become standalone and every pair between them ends. To form a new group, pair devices again from here.`,
+      go: 'Dissolve',
+      offline: 'Connect to the relay to dissolve the group — the others have to hear it.',
+    }
+  }
+  return {
+    title: 'Leave this group',
+    sub: 'Sessions here keep running.',
+    button: 'Leave…',
+    question: 'Leave the group?',
+    body: count === 1
+      ? `This device becomes standalone and forgets the other one. To join again, pair it with ${primary}.`
+      : `This device becomes standalone and forgets the other ${count}. To join again, pair it with ${primary}.`,
+    go: 'Leave',
+    offline: 'Connect to the relay to leave — the others have to hear it.',
+  }
+}
+
+/**
+ * Dissolve this group on the primary, Leave this group on a member (canvas
+ * 50a, 50l), only while another member exists. It asks in place; a relay
+ * that cannot carry it answers `offline`, said in the same place, and
+ * nothing else changes until the relay is back.
+ */
+function Leave({
+  exit,
+  count,
+  primary,
+  relayOnline,
+}: {
+  exit: 'dissolve' | 'leave'
+  count: number
+  primary: string
+  relayOnline: boolean
+}) {
   const [asking, setAsking] = useState(false)
   const [busy, setBusy] = useState(false)
   const [offline, setOffline] = useState(false)
+  const words = exitWords(exit, count, primary)
 
-  // The refusal was about the relay; once it is back, Leave can be asked again.
+  // The refusal was about the relay; once it is back, it can be asked again.
   useEffect(() => {
     if (relayOnline) setOffline(false)
   }, [relayOnline])
@@ -702,11 +831,11 @@ function Leave({ count, relayOnline }: { count: number; relayOnline: boolean }) 
       setAsking(false)
       if (!res.ok) {
         if (res.error === 'offline') setOffline(true)
-        else reportError(null, "Couldn't leave the group. Try again.")
+        else reportError(null, exit === 'dissolve' ? "Couldn't dissolve the group. Try again." : "Couldn't leave the group. Try again.")
       }
     } catch (err) {
       setAsking(false)
-      reportError(err, 'Failed to leave the group')
+      reportError(err, exit === 'dissolve' ? 'Failed to dissolve the group' : 'Failed to leave the group')
     } finally {
       setBusy(false)
     }
@@ -717,9 +846,9 @@ function Leave({ count, relayOnline }: { count: number; relayOnline: boolean }) 
       {!asking ? (
         <div className="flex items-center gap-3">
           <span className="flex flex-1 flex-col gap-[3px]">
-            <span className="text-[13px] font-semibold text-text-bright">Leave this group</span>
+            <span className="text-[13px] font-semibold text-text-bright">{words.title}</span>
             <span className="text-[12px] leading-[1.45] text-[rgba(160,190,225,.7)]">
-              {offline ? 'Connect to the relay to leave — the others have to hear it.' : 'Sessions here keep running.'}
+              {offline ? words.offline : words.sub}
             </span>
           </span>
           <Button
@@ -730,25 +859,20 @@ function Leave({ count, relayOnline }: { count: number; relayOnline: boolean }) 
               setAsking(true)
             }}
           >
-            Leave…
+            {words.button}
           </Button>
         </div>
       ) : (
         <div className="flex flex-col gap-2.5">
           <span className="text-[12.5px] leading-[1.5] text-text-bright [text-wrap:pretty]">
-            Leave?{' '}
-            <span className="text-[rgba(160,190,225,.7)]">
-              {count === 1
-                ? "This device forgets the other device and its keys; it stops seeing this device's sessions."
-                : `This device forgets the other ${count} and their keys; they stop seeing its sessions.`}
-            </span>
+            {words.question} <span className="text-[rgba(160,190,225,.7)]">{words.body}</span>
           </span>
           <div className="flex justify-end gap-2">
             <Button variant="outline" size="member" disabled={busy} onClick={() => setAsking(false)}>
               Cancel
             </Button>
             <Button variant="ink" size="member" disabled={busy} onClick={() => void leave()}>
-              Leave
+              {words.go}
             </Button>
           </div>
         </div>
@@ -828,6 +952,7 @@ function RelaySettings({
   savedSecret,
   remote,
   locked,
+  role,
   proposed,
   onProposedDone,
 }: {
@@ -836,6 +961,8 @@ function RelaySettings({
   savedSecret: string
   remote: RemoteStatus | null
   locked: boolean
+  /** Who may unlock it: the primary dissolves, a member leaves (`groupView`). */
+  role: GroupView['role']
   /** A URL to commit as if typed here (card B's Use <relay>); a new object each time it is asked. */
   proposed: { url: string } | null
   /** The proposal was committed: it is forgotten, so reopening the panel never commits it again. */
@@ -954,7 +1081,9 @@ function RelaySettings({
         title="Relay"
         desc={
           locked
-            ? 'One relay for the whole group. Remove the other devices, or leave, to change it.'
+            ? role === 'member'
+              ? 'One relay for the whole group. Leave the group to change it.'
+              : 'One relay for the whole group. Remove the other devices, or dissolve the group, to change it.'
             : 'Self-host if you prefer. The pairing code carries it, so no other device ever types it.'
         }
       >
