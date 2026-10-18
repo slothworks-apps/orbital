@@ -67,6 +67,30 @@ export function mergeRosters(a: RosterEntry[], b: RosterEntry[]): RosterEntry[] 
   return [...byId.values()].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
 }
 
+/**
+ * The entries of a roster received from member `from` that a member holding
+ * `local` takes into its merge (ADR joining-one-member-joins-the-group).
+ * Entries carry no signature, and a higher epoch beats a removal, so a
+ * removed device holding its key could otherwise re-add itself without a
+ * ceremony. `from` may describe itself, never raise its own epoch above the
+ * one known here — unless what is known here is the placeholder written on
+ * joining it (`addedBy` itself, described at `placeholderAt`), which only
+ * its own entry replaces. An entry for a device removed here is taken only
+ * at a higher epoch that the device did not add itself.
+ */
+export function admitted(local: RosterEntry[], incoming: RosterEntry[], from: string, placeholderAt: number): RosterEntry[] {
+  const known = new Map(local.map((e) => [e.id, e]));
+  return incoming.filter((e) => {
+    const here = known.get(e.id);
+    if (!here) return true;
+    if (e.id === from && e.epoch > here.epoch) {
+      return isLive(here) && here.addedBy === from && here.describedAt === placeholderAt;
+    }
+    if (!isLive(here) && e.epoch > here.epoch && e.addedBy === e.id) return false;
+    return true;
+  });
+}
+
 export function rosterDigest(entries: RosterEntry[]): string {
   const sorted = [...entries].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
   return bytesToHex(sha256(new TextEncoder().encode(sorted.map(canonical).join('\n'))));

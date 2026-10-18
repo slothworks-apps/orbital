@@ -264,6 +264,54 @@ describe('GroupMember removal', () => {
   });
 });
 
+describe('GroupMember merging a roster', () => {
+  const OTHER = 'O'.repeat(43);
+  const macRow: PairedDevice = { id: MAC, name: 'Mac', platform: 'macos', kind: 'desktop', pairedAt: 1, lastSeenAt: null };
+
+  it('a removed device cannot re-add itself at the next epoch through a member that has not heard of its removal', () => {
+    const g = build({ roster: [entry(SELF), entry(MAC, { addedBy: OTHER }), entry(OTHER)], paired: [macRow] });
+    const mac = fakeChannel();
+    g.channels.set(MAC, mac.channel);
+    const removal = removeMember(g.roster(), MAC, OTHER, 5);
+    // The removed device sends its own entry, live, one epoch up.
+    g.group.onGroup(MAC, mac.channel, { t: 'roster', entries: [entry(MAC, { epoch: 2, addedBy: OTHER, describedAt: 9 })] });
+    expect(g.roster().find((e) => e.id === MAC)).toMatchObject({ epoch: 1 });
+    // The removal arrives and holds.
+    const other = fakeChannel();
+    g.group.onGroup(OTHER, other.channel, { t: 'roster', entries: removal });
+    expect(isLive(g.roster().find((e) => e.id === MAC)!)).toBe(false);
+  });
+
+  it('a device removed here is not taken back at a higher epoch it added itself, from any member', () => {
+    const g = build({ roster: [entry(SELF), entry(MAC, { removedBy: SELF, removedAt: 3 }), entry(OTHER)] });
+    const other = fakeChannel();
+    g.group.onGroup(OTHER, other.channel, { t: 'roster', entries: [entry(OTHER), entry(MAC, { epoch: 2, addedBy: MAC, describedAt: 9 })] });
+    const mac = g.roster().find((e) => e.id === MAC)!;
+    expect(mac.epoch).toBe(1);
+    expect(isLive(mac)).toBe(false);
+  });
+
+  it('a re-add by a ceremony on another member spreads through a third member', () => {
+    const third = build({ roster: [entry(SELF), entry(MAC, { removedBy: SELF, removedAt: 3 }), entry(OTHER)] });
+    const readded = entry(MAC, { epoch: 2, addedBy: OTHER, addedAt: 8, describedAt: 9 });
+    const other = fakeChannel();
+    third.group.onGroup(OTHER, other.channel, { t: 'roster', entries: [entry(OTHER), readded] });
+    expect(third.roster().find((e) => e.id === MAC)).toEqual(readded);
+    // And from there, to a member that heard of it through this one.
+    const fourth = build({ roster: [entry(SELF), entry(MAC, { removedBy: SELF, removedAt: 3 })] });
+    fourth.group.onGroup(OTHER, fakeChannel().channel, { t: 'roster', entries: third.roster() });
+    expect(fourth.roster().find((e) => e.id === MAC)).toEqual(readded);
+  });
+
+  it('two members that keep a different entry for the sender do not trade rosters forever', () => {
+    const g = build({ roster: [entry(SELF), entry(MAC)] });
+    const mac = fakeChannel();
+    // The sender's own entry one epoch up is not taken; this side has nothing the sender would take.
+    g.group.onGroup(MAC, mac.channel, { t: 'roster', entries: [entry(SELF), entry(MAC, { epoch: 2 })] });
+    expect(mac.sent.filter((m) => m.t === 'roster')).toEqual([]);
+  });
+});
+
 describe('GroupMember members', () => {
   it('reads each member as Settings shows it', async () => {
     const r = fakeRelay({ '/pair/mutual': { status: 404, body: {} } });
@@ -311,6 +359,14 @@ describe('GroupMember joining', () => {
     // The joined device was added by another member, before the joiner heard of it.
     const real = entry(MAC, { name: 'studio', addedBy: OTHER, addedAt: 50, describedAt: 60 });
     g.group.onGroup(MAC, channel, { t: 'roster', entries: [entry(OTHER, { addedBy: OTHER }), real] });
+    expect(g.roster().find((e) => e.id === MAC)).toEqual(real);
+  });
+
+  it("the joined device's own entry replaces the placeholder at whatever epoch it holds", () => {
+    const g = build();
+    g.group.addPaired({ id: MAC, kind: 'desktop', name: 'studio', os: '' }, true);
+    const real = entry(MAC, { epoch: 3, addedBy: MAC, describedAt: 60 });
+    g.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', entries: [real] });
     expect(g.roster().find((e) => e.id === MAC)).toEqual(real);
   });
 

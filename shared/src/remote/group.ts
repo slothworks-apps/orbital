@@ -13,7 +13,7 @@ import type { GroupMessage, HelloMessage } from './messages.js';
 import type { RelayAction } from './relayApi.js';
 import type { LinkStatus } from './relayLink.js';
 import {
-  addMember, describeMember, isLive, mergeRosters, removeMember, rosterDigest, type RosterEntry,
+  addMember, admitted, describeMember, isLive, mergeRosters, removeMember, rosterDigest, type RosterEntry,
 } from './roster.js';
 
 /**
@@ -591,11 +591,19 @@ export class GroupMember {
       return;
     }
     if (msg.t === 'roster') {
-      this.tryRoster('merge a roster', () => this.setRoster(mergeRosters(this.storage.roster.list(), msg.entries), from));
-      // The sender may still lack what only this side knew.
+      this.tryRoster('merge a roster', () => {
+        const local = this.storage.roster.list();
+        this.setRoster(mergeRosters(local, admitted(local, msg.entries, from, PLACEHOLDER_DESCRIBED_AT)), from);
+      });
+      // The sender may still lack what only this side knew: answered only when
+      // its merge would take something, so two members that keep a different
+      // entry (one the other does not admit) do not trade rosters forever.
       this.tryRoster('answer a roster', () => {
-        if (this.storage.roster.digest() !== rosterDigest(msg.entries)) {
-          channel.sendGroup({ t: 'roster', entries: this.storage.roster.list() });
+        const local = this.storage.roster.list();
+        const self = this.host.knownId();
+        const offered = self === null ? local : admitted(msg.entries, local, self, PLACEHOLDER_DESCRIBED_AT);
+        if (rosterDigest(mergeRosters(msg.entries, offered)) !== rosterDigest(msg.entries)) {
+          channel.sendGroup({ t: 'roster', entries: local });
         }
       });
       return;
