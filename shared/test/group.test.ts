@@ -524,6 +524,23 @@ describe('GroupMember removal', () => {
 });
 
 describe('GroupMember leaving', () => {
+  it('a second leave while one runs joins it and gets the same answer', async () => {
+    vi.useFakeTimers();
+    const r = fakeRelay();
+    const leaver = build({ roster: roster(OTHER), paired: [row(MAC), row(OTHER)], relay: r });
+    const other = fakeChannel();
+    leaver.channels.set(OTHER, other.channel);
+    const first = leaver.group.leave();
+    const second = leaver.group.leave();
+    await vi.advanceTimersByTimeAsync(0);
+    const notices = other.sent.filter((m) => m.t === 'roster');
+    expect(notices).toHaveLength(1);
+    leaver.group.onGroup(OTHER, other.channel, ackOf(notices[0]!));
+    await vi.advanceTimersByTimeAsync(LEAVE_ACK_TIMEOUT_MS);
+    expect(await Promise.all([first, second])).toEqual([{ ok: true }, { ok: true }]);
+    expect(leaver.state()).toEqual(EMPTY_ROSTER);
+  });
+
   it('a member leaves once one member acknowledged its notice; an asleep one hears it on waking; the primary leaves it out', async () => {
     const r = fakeRelay();
     const state = roster(OTHER);

@@ -238,6 +238,7 @@ export class GroupMember {
   private okHandled = false;
   /** `leave` waiting for the first member to acknowledge its notice. */
   private leaving: { state: RosterState; digest: string; acked(from: string): void } | null = null;
+  private leaveRun: Promise<RemoveResult> | null = null;
 
   private readonly storage: GroupStorage;
   private readonly host: GroupHost;
@@ -571,7 +572,14 @@ export class GroupMember {
    * as each member acknowledges the notice. Only while the relay is online;
    * `failed` when the roster could not be written.
    */
-  async leave(): Promise<RemoveResult> {
+  leave(): Promise<RemoveResult> {
+    // A second call while one runs (two taps, two screens) waits for the same answer: a
+    // second notice would take the one waiter the first is listening on.
+    this.leaveRun ??= this.leaveOnce().finally(() => { this.leaveRun = null; });
+    return this.leaveRun;
+  }
+
+  private async leaveOnce(): Promise<RemoveResult> {
     const identity = this.host.identity();
     const relay = this.host.relay();
     if (identity === null || !relay || relay.status !== 'online') return { error: 'offline' };
