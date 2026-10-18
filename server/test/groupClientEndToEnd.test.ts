@@ -74,6 +74,7 @@ describe('the phone as a member', () => {
     const idB = (await statusOf(b)).macId as string;
     await a.api('POST', '/api/remote/pair/confirm', { accept: true, phone: idB, code: join.json().code });
     await until(() => a.remote.channel(idB)?.ready === true && b.remote.channel(idA)?.ready === true);
+    await until(() => b.remote.rosterState().roster?.group === idA);
     return { a, b, idA, idB };
   }
 
@@ -149,7 +150,7 @@ describe('the phone as a member', () => {
     expect(dropped.roster.read().roster).toBeNull();
     expect(dropped.paired.list().map((d) => d.id).sort()).toEqual([idA, idB].sort());
     // The group id, kept apart, still reads: only A's roster is taken again.
-    expect(dropped.groupId.get()).toBe(idA);
+    expect(dropped.membership.get()).toMatchObject({ group: idA, member: true });
     const again = make(dropped);
     again.start();
     closers.push(() => again.stop());
@@ -235,10 +236,10 @@ describe('the phone as a member', () => {
       for (const s of [a, b]) {
         if (isMember(s, id) || (await pairedWith(s, id))) return false;
       }
-      return a.remote.channel(id) === null && b.remote.channel(id) === null;
+      // Each side ends its pair once the other acknowledged what ends it.
+      return a.remote.channel(id) === null && b.remote.channel(id) === null
+        && phone.client.channel(idA) === null && phone.client.channel(idB) === null;
     }, 15_000);
-    expect(phone.client.channel(idA)).toBeNull();
-    expect(phone.client.channel(idB)).toBeNull();
     expect(phone.client.members()).toEqual([expect.objectContaining({ id, self: true })]);
     // Its own choice: not the "removed" screen.
     expect(phone.events.some((e) => e.type === 'unpaired_all')).toBe(false);

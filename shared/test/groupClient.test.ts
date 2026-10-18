@@ -432,10 +432,10 @@ describe('MemoryGroupStorage', () => {
     storage.paired.add({ id, name: 'studio', platform: 'darwin', kind: 'desktop', pairedAt: 5 });
     storage.pendingRevokes.add(id);
     storage.roster.replace(member(id, idOf()));
-    storage.groupId.set(id);
+    storage.membership.set({ group: id, founding: 'f', version: 3, member: true });
     const back = MemoryGroupStorage.fromJSON(JSON.parse(JSON.stringify(storage)));
     expect(back.toJSON()).toEqual(storage.toJSON());
-    expect(back.groupId.get()).toBe(id);
+    expect(back.membership.get()).toEqual({ group: id, founding: 'f', version: 3, member: true });
     expect(back.roster.digest()).toBe(storage.roster.digest());
   });
 
@@ -447,8 +447,9 @@ describe('MemoryGroupStorage', () => {
     });
     expect(back.roster.read()).toEqual({ roster: null, descriptions: [], left: [] });
     // The group id is kept apart, and reads on its own.
-    expect(MemoryGroupStorage.fromJSON({ roster: [unsigned], group: id }).groupId.get()).toBe(id);
-    expect(MemoryGroupStorage.fromJSON({ group: 'not a key' }).groupId.get()).toBeNull();
+    const membership = { group: id, founding: null, version: 0, member: true };
+    expect(MemoryGroupStorage.fromJSON({ roster: [unsigned], membership }).membership.get()).toEqual(membership);
+    expect(MemoryGroupStorage.fromJSON({ membership: { ...membership, group: 'not a key' } }).membership.get()).toBeNull();
     expect(back.paired.list().map((d) => d.id)).toEqual([id]);
   });
 

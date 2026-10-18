@@ -3,7 +3,7 @@ import { deviceId, generateIdentity, sign, toBase64Url, type Identity } from '..
 import {
   EMPTY_ROSTER, ROSTER_KIND_MAX_CHARS, ROSTER_MAX_ENTRIES, ROSTER_MAX_VERSION, RosterStateSchema, describeDevice,
   dissolveRoster, foundRoster, leftNotice, memberIds, nextRoster, rosterBytes, rosterDigest, rosterMembers, takeRoster,
-  verifyRoster, type RosterDoc, type RosterState, type TakeOptions,
+  verifyRoster, type Membership, type RosterDoc, type RosterState, type TakeOptions,
 } from '../src/remote/roster.js';
 import { PAIR_NAME_MAX_CHARS } from '../src/remote/relayApi.js';
 import { MAX_INNER_BYTES } from '../src/remote/channel.js';
@@ -32,7 +32,13 @@ const next = (state: RosterState, change: { add?: Identity[]; remove?: Identity[
 
 /** What `self` holds once `incoming` arrives from a paired device. */
 const at = (self: Identity, held: RosterState, incoming: RosterState, opts: Partial<TakeOptions> = {}) =>
-  takeRoster(held, incoming, { self: idOf(self), groupId: held.roster?.group ?? null, paired: () => true, ...opts });
+  takeRoster(held, incoming, { self: idOf(self), membership: memberOf(held), paired: () => true, ...opts });
+
+/** The membership a device holding `held` keeps, as a member at its version. */
+const memberOf = (held: RosterState): Membership | null => (held.roster
+  ? { group: held.roster.group, founding: held.roster.founding, version: held.roster.version, member: true } : null);
+/** P's group as a ceremony names it, before any document of it: any founding, any version. */
+const joining = (by: Identity): Membership => ({ group: idOf(by), founding: null, version: 0, member: true });
 
 /** A document signed by hand, as no primary would sign it. */
 function forged(signer: Identity, doc: Omit<RosterDoc, 'sig'>): RosterDoc {
@@ -58,7 +64,7 @@ describe('taking a roster', () => {
 
   it('refuses a version a member signed, and one a removed device signed', () => {
     const v2 = next(group(), { remove: [R] });
-    const base = { group: idOf(P), version: 9, members: v2.roster!.members.filter((m) => m.id !== idOf(B)) };
+    const base = { group: idOf(P), founding: v2.roster!.founding, version: 9, members: v2.roster!.members.filter((m) => m.id !== idOf(B)) };
     // A member signs in the primary's name.
     expect(verifyRoster(forged(A, base))).toBe(false);
     expect(at(B, v2, { ...v2, roster: forged(A, base) }).roster).toEqual(v2.roster);
@@ -73,7 +79,7 @@ describe('taking a roster', () => {
   it('refuses a document with a phone as its primary, members out of order, or a canonical form changed', () => {
     const phone = generateIdentity();
     expect(foundRoster(phone, 'phone', [], 1)).toBeNull();
-    const asPhone = forged(phone, { group: idOf(phone), version: 1, members: [{ id: idOf(phone), kind: 'phone', addedAt: 1, addedVersion: 1 }] });
+    const asPhone = forged(phone, { group: idOf(phone), founding: 'f', version: 1, members: [{ id: idOf(phone), kind: 'phone', addedAt: 1, addedVersion: 1 }] });
     expect(verifyRoster(asPhone)).toBe(false);
     const doc = group().roster!;
     expect(verifyRoster(doc)).toBe(true);
@@ -85,13 +91,14 @@ describe('taking a roster', () => {
   it('a device alone takes the document of a primary paired here that names it, and no other', () => {
     const joiner = generateIdentity();
     const v2 = next(group(), { add: [joiner] });
-    const alone = { groupId: null, paired: (id: string) => id === idOf(P) };
+    const alone = { membership: null, paired: (id: string) => id === idOf(P) };
     expect(at(joiner, EMPTY_ROSTER, v2, alone).roster).toEqual(v2.roster);
     // Not named, or a primary not paired here, or a member of another group: nothing.
     expect(at(generateIdentity(), EMPTY_ROSTER, v2, alone).roster).toBeNull();
-    expect(at(joiner, EMPTY_ROSTER, v2, { groupId: null, paired: () => false }).roster).toBeNull();
+    expect(at(joiner, EMPTY_ROSTER, v2, { membership: null, paired: () => false }).roster).toBeNull();
     const elsewhere = foundRoster(B, 'desktop', [{ id: idOf(A), kind: 'desktop' }], 1)!;
-    expect(at(A, group(), { roster: elsewhere, descriptions: [], left: [] }).roster).toEqual(group().roster);
+    const ours = group();
+    expect(at(A, ours, { roster: elsewhere, descriptions: [], left: [] }).roster).toEqual(ours.roster);
   });
 });
 
@@ -165,10 +172,26 @@ describe('leaving', () => {
     const v2 = next(group(), { remove: [R] });
     // A member of the group, B, hands A a group of its own that names A.
     const fake = { roster: foundRoster(B, 'desktop', [{ id: idOf(A), kind: 'desktop' }], 1)!, descriptions: [], left: [] };
-    expect(at(A, EMPTY_ROSTER, fake, { groupId: idOf(P) }).roster).toBeNull();
-    expect(at(A, EMPTY_ROSTER, v2, { groupId: idOf(P) }).roster).toEqual(v2.roster);
+    expect(at(A, EMPTY_ROSTER, fake, { membership: joining(P) }).roster).toBeNull();
+    expect(at(A, EMPTY_ROSTER, v2, { membership: joining(P) }).roster).toEqual(v2.roster);
     // With no group id at all, it may adopt a group that names it, from a primary paired here.
-    expect(at(A, EMPTY_ROSTER, fake, { groupId: null }).roster?.group).toBe(idOf(B));
+    expect(at(A, EMPTY_ROSTER, fake, { membership: null }).roster?.group).toBe(idOf(B));
+  });
+
+  it('a group the primary founds again is another group: no version or notice of the earlier one holds in it', () => {
+    const first = group();
+    const second = group();
+    expect(second.roster!.founding).not.toBe(first.roster!.founding);
+    const later = next(first, { remove: [B] });
+    expect(at(A, second, later).roster).toEqual(second.roster);
+    const notice = leftNotice(A, first.roster!, 9);
+    expect(memberIds(at(B, second, { roster: null, descriptions: [], left: [notice] }))).toContain(idOf(A));
+    // The founding is signed: one moved onto another group's document does not verify.
+    expect(verifyRoster({ ...later.roster!, founding: second.roster!.founding })).toBe(false);
+    // A device whose document was dropped refuses a version at or below the one it took.
+    const kept: Membership = { group: idOf(P), founding: later.roster!.founding, version: 2, member: true };
+    expect(at(A, EMPTY_ROSTER, first, { membership: kept }).roster).toBeNull();
+    expect(at(A, EMPTY_ROSTER, next(later, { add: [R] }), { membership: kept }).roster?.version).toBe(3);
   });
 
   it('the primary leaving dissolves the group: the last version names it alone', () => {
@@ -179,8 +202,8 @@ describe('leaving', () => {
     const taken = at(A, held, { roster: last, descriptions: [], left: [] });
     expect(taken.roster?.dissolved).toBe(true);
     expect(memberIds(taken)).toEqual([]);
-    // Founding again goes on from the dissolved version, so a member asleep since takes it.
-    expect(foundRoster(P, 'desktop', [{ id: idOf(A), kind: 'desktop' }], 9, last)?.version).toBe(3);
+    // Founding again starts a group of its own: another founding id.
+    expect(foundRoster(P, 'desktop', [{ id: idOf(A), kind: 'desktop' }], 9)?.founding).not.toBe(last.founding);
   });
 });
 
@@ -198,7 +221,7 @@ describe('writing', () => {
     expect(full.members).toHaveLength(ROSTER_MAX_ENTRIES);
     expect(nextRoster(full, P, { add: [{ id: idOf(A), kind: 'desktop' }] }, 2)).toBeNull();
     expect(foundRoster(P, 'desktop', [...others, { id: idOf(A), kind: 'desktop' }], 1)).toBeNull();
-    const last = forged(P, { group: idOf(P), version: ROSTER_MAX_VERSION, members: full.members });
+    const last = forged(P, { group: idOf(P), founding: full.founding, version: ROSTER_MAX_VERSION, members: full.members });
     expect(nextRoster(last, P, { remove: [others[0].id] }, 2)).toBeNull();
   });
 
@@ -218,12 +241,14 @@ describe('the frame', () => {
     const members = new Array(ROSTER_MAX_ENTRIES).fill({ id, kind: escaped(ROSTER_KIND_MAX_CHARS), addedAt: big, addedVersion: ROSTER_MAX_VERSION });
     const msg = {
       t: 'roster',
-      roster: { group: id, version: ROSTER_MAX_VERSION, members, dissolved: true, sig: 's'.repeat(86) },
+      roster: { group: id, founding: 'f'.repeat(22), version: ROSTER_MAX_VERSION, members, dissolved: true, sig: 's'.repeat(86) },
       descriptions: new Array(ROSTER_MAX_ENTRIES).fill({
         id, name: escaped(PAIR_NAME_MAX_CHARS), os: escaped(ROSTER_KIND_MAX_CHARS), links: false, describedAt: big, by: id,
         sig: 's'.repeat(86),
       }),
-      left: new Array(ROSTER_MAX_ENTRIES).fill({ id, group: id, version: ROSTER_MAX_VERSION, at: big, sig: 's'.repeat(86) }),
+      left: new Array(ROSTER_MAX_ENTRIES).fill({
+        id, group: id, founding: 'f'.repeat(22), version: ROSTER_MAX_VERSION, at: big, sig: 's'.repeat(86),
+      }),
     };
     expect(GroupMessage.safeParse(msg).success).toBe(true);
     expect(encodeInner({ kind: 'json', value: msg }).length).toBeLessThanOrEqual(MAX_INNER_BYTES);

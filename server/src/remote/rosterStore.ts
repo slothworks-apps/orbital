@@ -6,8 +6,9 @@
  * so the service pushes only real changes.
  */
 import { eq } from 'drizzle-orm';
-import { EMPTY_ROSTER, normalize, rosterDigest, rosterKey, type RosterState } from '@orbital/shared/remote/roster';
-import { groupDescriptions, groupLeft, groupMembers, groupMembership, groupRoster, pendingRevokes } from '../db/schema.js';
+import { EMPTY_ROSTER, RosterStateSchema, normalize, rosterDigest, rosterKey, type Membership, type RosterState } from '@orbital/shared/remote/roster';
+import type { GroupExit } from '@orbital/shared/remote/group';
+import { groupDescriptions, groupExits, groupLeft, groupMembers, groupMembership, groupRoster, pendingRevokes } from '../db/schema.js';
 import type { OrbitalDb } from '../db/database.js';
 
 const byId = <T extends { id: string }>(x: T, y: T) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
@@ -21,7 +22,7 @@ export class RosterStore {
     if (!head) return EMPTY_ROSTER;
     const members = this.db.select().from(groupMembers).all().sort(byId);
     const roster = {
-      group: head.groupId, version: head.version, members, ...(head.dissolved ? { dissolved: true as const } : {}), sig: head.sig,
+      group: head.groupId, founding: head.founding, version: head.version, members, ...(head.dissolved ? { dissolved: true as const } : {}), sig: head.sig,
     };
     const descriptions = this.db.select().from(groupDescriptions).all().sort(byId)
       .map(({ describedBy, ...d }) => ({ ...d, by: describedBy }));
@@ -45,7 +46,9 @@ export class RosterStore {
       tx.delete(groupLeft).run();
       const doc = state.roster;
       if (!doc) return;
-      tx.insert(groupRoster).values({ groupId: doc.group, version: doc.version, dissolved: doc.dissolved === true, sig: doc.sig }).run();
+      tx.insert(groupRoster).values({
+        groupId: doc.group, founding: doc.founding, version: doc.version, dissolved: doc.dissolved === true, sig: doc.sig,
+      }).run();
       for (const m of doc.members) tx.insert(groupMembers).values(m).run();
       for (const { by, ...d } of state.descriptions) tx.insert(groupDescriptions).values({ ...d, describedBy: by }).run();
       for (const { group, ...n } of state.left) tx.insert(groupLeft).values({ ...n, groupId: group }).run();
@@ -54,19 +57,52 @@ export class RosterStore {
   }
 }
 
-/** The group this device belongs to or is joining (`GroupStorage.groupId`), apart from the document. */
+/** The group this device belongs to or is joining (`GroupStorage.membership`), apart from the document. */
 export class GroupMembershipStore {
   constructor(private readonly db: OrbitalDb) {}
 
-  get(): string | null {
-    return this.db.select().from(groupMembership).all()[0]?.groupId ?? null;
+  get(): Membership | null {
+    const row = this.db.select().from(groupMembership).all()[0];
+    if (!row) return null;
+    const m: Membership = { group: row.groupId, founding: row.founding, version: row.version, member: row.member };
+    return row.leftFounding !== null && row.leftVersion !== null ? { ...m, left: { founding: row.leftFounding, version: row.leftVersion } } : m;
   }
 
-  set(id: string | null): void {
+  set(m: Membership | null): void {
     this.db.transaction((tx) => {
       tx.delete(groupMembership).run();
-      if (id !== null) tx.insert(groupMembership).values({ groupId: id }).run();
+      if (m === null) return;
+      tx.insert(groupMembership).values({
+        groupId: m.group, founding: m.founding, version: m.version, member: m.member,
+        leftFounding: m.left?.founding ?? null, leftVersion: m.left?.version ?? null,
+      }).run();
     });
+  }
+}
+
+/** Pairs that end once the document that ends them is acknowledged (`GroupStorage.exits`). */
+export class GroupExitStore {
+  constructor(private readonly db: OrbitalDb) {}
+
+  /** A row whose state does not read is no exit: its pair ends at the next relay `unpaired`, or by hand. */
+  list(): GroupExit[] {
+    return this.db.select().from(groupExits).all().flatMap((row) => {
+      try {
+        const state = RosterStateSchema.safeParse(JSON.parse(row.state));
+        return state.success ? [{ id: row.id, state: state.data }] : [];
+      } catch {
+        return [];
+      }
+    });
+  }
+
+  set(exit: GroupExit): void {
+    const state = JSON.stringify(exit.state);
+    this.db.insert(groupExits).values({ id: exit.id, state }).onConflictDoUpdate({ target: groupExits.id, set: { state } }).run();
+  }
+
+  remove(id: string): void {
+    this.db.delete(groupExits).where(eq(groupExits.id, id)).run();
   }
 }
 

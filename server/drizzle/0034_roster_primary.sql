@@ -12,7 +12,17 @@ CREATE TABLE `group_members` (
 );
 --> statement-breakpoint
 CREATE TABLE `group_membership` (
-	`group_id` text PRIMARY KEY NOT NULL
+	`group_id` text PRIMARY KEY NOT NULL,
+	`founding` text,
+	`version` integer NOT NULL,
+	`member` integer NOT NULL,
+	`left_founding` text,
+	`left_version` integer
+);
+--> statement-breakpoint
+CREATE TABLE `group_exits` (
+	`id` text PRIMARY KEY NOT NULL,
+	`state` text NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE `group_descriptions` (
@@ -28,6 +38,7 @@ CREATE TABLE `group_descriptions` (
 CREATE TABLE `group_left` (
 	`id` text PRIMARY KEY NOT NULL,
 	`group_id` text NOT NULL,
+	`founding` text NOT NULL,
 	`version` integer NOT NULL,
 	`at` integer NOT NULL,
 	`sig` text NOT NULL
@@ -35,6 +46,7 @@ CREATE TABLE `group_left` (
 --> statement-breakpoint
 CREATE TABLE `group_roster` (
 	`group_id` text PRIMARY KEY NOT NULL,
+	`founding` text NOT NULL,
 	`version` integer NOT NULL,
 	`dissolved` integer NOT NULL,
 	`sig` text NOT NULL

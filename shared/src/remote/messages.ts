@@ -188,6 +188,8 @@ export type AnswerMessage = z.infer<typeof AnswerMessage>;
 export const GroupMessage = z.discriminatedUnion('t', [
   z.object({ t: z.literal('roster_digest'), digest: z.string().max(128) }),
   RosterStateSchema.extend({ t: z.literal('roster') }),
+  /** A `roster` heard, by its `exitDigest`: a pair waiting on that document to end ends now. */
+  z.object({ t: z.literal('roster_ack'), digest: z.string().max(128) }),
 ]);
 export type GroupMessage = z.infer<typeof GroupMessage>;
 

@@ -351,7 +351,7 @@ function LeaveSheet({ onClose }: { onClose: () => void }) {
                 Forget this group on this phone
               </SecondaryButton>
               <p className="px-1 text-[12px] leading-[1.5] text-[rgba(160,190,225,.65)]">
-                The other devices keep listing this phone, and may still notify it, until someone removes it there.
+                The group keeps listing this phone, and may still notify it, until its primary device removes it.
               </p>
             </>
           )}

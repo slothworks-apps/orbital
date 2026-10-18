@@ -30,7 +30,7 @@ import { DeviceStore, type RemoteDevice } from './devices.js';
 import { DeviceWatcher } from './deviceWatcher.js';
 import { loadOrCreateIdentity, macDisplayName, readIdentity, serverDeviceKind, serverHello } from './identity.js';
 import { createPhoneFileReader, type PhoneFileReader } from './phoneFiles.js';
-import { GroupMembershipStore, PendingRevokes, RosterStore } from './rosterStore.js';
+import { GroupExitStore, GroupMembershipStore, PendingRevokes, RosterStore } from './rosterStore.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
 import { openDeviceChannel, type PhoneTooOld } from './deviceChannel.js';
 import type { InjectFn } from './servingHalf.js';
@@ -167,6 +167,8 @@ export class RemoteService {
   private readonly roster: RosterStore;
   /** The group this device belongs to, kept apart from the roster. */
   private readonly membership: GroupMembershipStore;
+  /** Pairs that end once the document that ends them is acknowledged. */
+  private readonly exits: GroupExitStore;
   private readonly watchers = new Map<string, DeviceWatcher>();
   private readonly channels = new Map<string, Channel>();
   /**
@@ -210,6 +212,7 @@ export class RemoteService {
     this.devices = new DeviceStore(opts.db);
     this.roster = new RosterStore(opts.db);
     this.membership = new GroupMembershipStore(opts.db);
+    this.exits = new GroupExitStore(opts.db);
     this.pendingRevokes = new PendingRevokes(opts.db);
     this.now = opts.now ?? Date.now;
     this.group = new GroupMember(this.groupStorage(), {
@@ -222,7 +225,7 @@ export class RemoteService {
       open: (id) => this.open(id),
       paired: (id) => this.watch(id),
       forget: (id) => this.forget(id),
-      forgetAll: () => this.forgetAll(),
+      leftGroup: () => {},
       changed: () => this.publishStatus(),
       now: () => this.now(),
       log: (message) => console.warn(`[remote] ${message}`),
@@ -245,7 +248,7 @@ export class RemoteService {
         add: (d) => this.addDevice(d),
         remove: (id) => this.devices.remove(id),
       },
-      pendingRevokes: this.pendingRevokes,
+      pendingRevokes: { remove: (id) => this.group.pairedAfresh(id) },
       addPaired: (device) => this.group.addPaired(device),
       joinGroup: (id) => this.group.joinGroup(id),
       revokeCancelled: (id) => this.group.tryRoster('revoke a cancelled join', () => this.group.revokeAtRelay(id)),
@@ -558,22 +561,13 @@ export class RemoteService {
     this.hellos.delete(id);
   }
 
-  /** This device left its group (`GroupMember`): every channel, watcher and mark goes. */
-  private forgetAll(): void {
-    for (const channel of this.channels.values()) channel.close('revoked');
-    this.channels.clear();
-    for (const w of this.watchers.values()) w.stop();
-    this.watchers.clear();
-    this.phonesTooOld.clear();
-    this.hellos.clear();
-  }
-
   /** The device rows as the group reads and writes them. */
   private groupStorage(): GroupStorage {
     return {
       roster: this.roster,
       pendingRevokes: this.pendingRevokes,
-      groupId: this.membership,
+      membership: this.membership,
+      exits: this.exits,
       paired: {
         list: () => this.devices.list(),
         get: (id) => this.devices.get(id),
@@ -601,6 +595,7 @@ export class RemoteService {
    */
   private forgetAllDevices(): void {
     this.membership.set(null);
+    for (const exit of this.exits.list()) this.exits.remove(exit.id);
     if (this.roster.replace(EMPTY_ROSTER)) console.warn('[remote] the identity was regenerated; the group roster it held is dropped');
     const all = this.devices.list();
     if (all.length === 0) return;
@@ -621,6 +616,7 @@ export class RemoteService {
     }
     // The other side revoked the pair; the roster hears of a removal from the group.
     if (msg.type === 'unpaired') {
+      this.group.pairEnded(msg.mac);
       if (!this.devices.get(msg.mac)) return;
       this.channels.get(msg.mac)?.close();
       this.channels.delete(msg.mac);
@@ -692,6 +688,8 @@ export class RemoteService {
       onSeen: (sessionId) => this.watchers.get(from)?.seen(sessionId),
       atMac: () => this.opts.presence?.atMac ?? false,
       onAppVersion: (refusal) => this.markPhoneVersion(from, refusal),
+      // A device whose pair is ending is served nothing: only the group messages of its exit pass.
+      withdrawn: () => this.group.exiting(from),
       ...(this.opts.foreign ? { foreign: this.opts.foreign } : {}),
     });
     opened.on((event) => {
@@ -710,7 +708,7 @@ export class RemoteService {
         this.hellos.set(from, event.hello);
         this.group.onPeerHello(from, opened, event.hello);
       }
-      if (event.type === 'ready' && event.ready) this.group.channelReady(opened);
+      if (event.type === 'ready' && event.ready) this.group.channelReady(from, opened);
       if (event.type === 'group') this.group.onGroup(from, opened, event.msg);
     });
     this.channels.set(from, opened);
@@ -764,7 +762,7 @@ export class RemoteService {
       ...(this.opts.foreign ? { foreign: this.opts.foreign } : {}),
       // Sent whether or not the phone is connected: the relay forwards to a
       // connected phone (which ignores an empty body) and pushes otherwise.
-      onWake: (sessionId) => this.client?.sendData(encodeFrame({
+      onWake: (sessionId) => !this.group.exiting(id) && this.client?.sendData(encodeFrame({
         peer: phoneKey, flags: FLAG_WAKE | FLAG_STATE, wake: wakeToken(secret, sessionId), body: new Uint8Array(0),
       })),
     });

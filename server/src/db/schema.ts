@@ -515,6 +515,8 @@ export type RemoteDeviceRow = typeof remoteDevices.$inferSelect;
 export const groupRoster = sqliteTable('group_roster', {
   /** The primary's id. */
   groupId: text('group_id').primaryKey(),
+  /** The random id the primary chose when it founded this group. */
+  founding: text('founding').notNull(),
   version: integer('version').notNull(),
   dissolved: integer('dissolved', { mode: 'boolean' }).notNull(),
   /** The primary's signature over the document. */
@@ -530,12 +532,30 @@ export const groupMembers = sqliteTable('group_members', {
 });
 
 /**
- * The group this device belongs to, or is joining by a ceremony: its
- * primary's id, at most one row. Kept apart from the document, so a device
- * whose document was dropped still takes only its own primary's.
+ * The group this device belongs to, or is joining by a ceremony, at most
+ * one row (`Membership`): its primary's id, its founding id (null while a
+ * ceremony named only the primary), the highest version taken of it, and
+ * whether this device is still a member. Kept apart from the document, so a
+ * device whose document was dropped takes only its own primary's, above that version.
  */
 export const groupMembership = sqliteTable('group_membership', {
   groupId: text('group_id').primaryKey(),
+  founding: text('founding'),
+  version: integer('version').notNull(),
+  member: integer('member', { mode: 'boolean' }).notNull(),
+  /** `Membership.left`: the founding and version of the group left before, joined again by a ceremony; both or neither. */
+  leftFounding: text('left_founding'),
+  leftVersion: integer('left_version'),
+});
+
+/**
+ * Pairs that end once the document that ends them (`state`, a roster state
+ * as JSON) reached the device and it acknowledged it; nothing is served to
+ * it meanwhile.
+ */
+export const groupExits = sqliteTable('group_exits', {
+  id: text('id').primaryKey(),
+  state: text('state').notNull(),
 });
 
 /** Each member's description, signed by the member itself or by the primary. */
@@ -553,6 +573,7 @@ export const groupDescriptions = sqliteTable('group_descriptions', {
 export const groupLeft = sqliteTable('group_left', {
   id: text('id').primaryKey(),
   groupId: text('group_id').notNull(),
+  founding: text('founding').notNull(),
   version: integer('version').notNull(),
   at: integer('at').notNull(),
   sig: text('sig').notNull(),

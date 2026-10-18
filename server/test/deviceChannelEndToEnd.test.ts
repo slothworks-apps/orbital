@@ -31,6 +31,8 @@ describe('two servers, one channel', () => {
     });
     expect(confirm.statusCode).toBe(200);
     await until(() => a.remote.channel(statusB.macId)?.ready === true && b.remote.channel(statusA.macId)?.ready === true);
+    // B holds A's roster: it knows its group, and its primary.
+    await until(() => b.remote.rosterState().roster?.group === statusA.macId);
     expect((await b.api('GET', '/api/remote')).json().joining).toBeNull();
     return { a, b, idA: statusA.macId as string, idB: statusB.macId as string };
   }
@@ -239,7 +241,7 @@ describe('two servers, one channel', () => {
     await until(async () => (await membersOf(b)).some((m: any) => m.id === phone.id));
     expect((await a.api('POST', '/api/remote/leave')).json()).toEqual({ ok: true });
     await until(async () => (await aloneIn(a)) && (await aloneIn(b)), 15_000);
-    expect(a.remote.rosterState().roster).toMatchObject({ dissolved: true });
+    expect(a.remote.rosterState().roster).toBeNull();
     expect(b.remote.rosterState().roster).toBeNull();
   }, 30_000);
 
@@ -278,6 +280,26 @@ describe('two servers, one channel', () => {
     const asked = posts.mock.calls.filter(([path]) => path === '/pair/mutual').map(([, , payload]) => (payload as any).peer);
     expect(asked).not.toContain(phone.id);
   }, 20_000);
+
+  it('a member asleep when the primary dissolves the group hears it on waking and ends alone; the pair waits for it', async () => {
+    const { a, b, idB } = await joined();
+    await b.api('PATCH', '/api/settings', { remote_enabled: 'false' });
+    expect((await a.api('POST', '/api/remote/leave')).json()).toEqual({ ok: true });
+    // B has not heard: its pair stays, and nothing is served to it meanwhile.
+    expect(await pairedWith(a, idB)).toBe(true);
+    await b.api('PATCH', '/api/settings', { remote_enabled: 'true' });
+    await until(async () => (await aloneIn(a)) && (await aloneIn(b)), 15_000);
+    expect(b.remote.rosterState().roster).toBeNull();
+  }, 30_000);
+
+  it('leaving with no member reachable is refused, and changes nothing', async () => {
+    const { a, b, idB } = await joined();
+    await a.api('PATCH', '/api/settings', { remote_enabled: 'false' });
+    await until(() => b.remote.channel((a.remote.selfId())!) === null, 10_000);
+    const res = await b.api('POST', '/api/remote/leave');
+    expect([res.statusCode, res.json()]).toEqual([409, { error: 'offline' }]);
+    expect(isMember(b, idB)).toBe(true);
+  }, 30_000);
 
   it('refuses a code from another relay and a code that is not one', async () => {
     const a = await startMacAndRelay(closers);

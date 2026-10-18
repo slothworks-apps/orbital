@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  GroupMember, MUTUAL_RETRY_MS, RELAY_POST_TIMEOUT_MS, type GroupChannel, type GroupHost, type GroupRelay,
+  GroupMember, LEAVE_ACK_TIMEOUT_MS, MUTUAL_RETRY_MS, RELAY_POST_TIMEOUT_MS, type GroupChannel, type GroupHost, type GroupRelay,
   type PairedDevice, type SelfAbout,
 } from '../src/remote/group.js';
 import { deviceId, generateIdentity, type Identity } from '../src/remote/keys.js';
 import type { GroupMessage, HelloMessage } from '../src/remote/messages.js';
 import {
-  EMPTY_ROSTER, ROSTER_MAX_ENTRIES, describeDevice, foundRoster, leftNotice, memberIds, nextRoster, normalize,
-  rosterDigest, rosterKey, rosterMembers, type RosterState,
+  EMPTY_ROSTER, ROSTER_MAX_ENTRIES, describeDevice, exitDigest, foundRoster, leftNotice, memberIds, nextRoster, normalize,
+  rosterDigest, rosterKey, rosterMembers, type Membership, type RosterState,
 } from '../src/remote/roster.js';
 
 const SELF_KEY = generateIdentity();
@@ -83,13 +83,17 @@ function fakeChannel(groups = true) {
 function build(opts: {
   roster?: RosterState; paired?: PairedDevice[]; relay?: ReturnType<typeof fakeRelay> | null; kind?: string;
   identity?: Identity; about?: Partial<SelfAbout>;
-  /** The group id stored apart from the roster; by default the held document's group. */
-  groupId?: string | null;
+  /** The membership stored apart from the roster; by default that of the held document, when it names this device. */
+  membership?: Membership | null;
 } = {}) {
   const identity = opts.identity ?? SELF_KEY;
   const self = deviceId(identity.publicKey);
   let state = normalize(opts.roster ?? roster());
-  let groupId = opts.groupId !== undefined ? opts.groupId : state.roster && !state.roster.dissolved ? state.roster.group : null;
+  const held = state.roster;
+  let membership: Membership | null = opts.membership !== undefined ? opts.membership
+    : held && !held.dissolved && memberIds(state).includes(self)
+      ? { group: held.group, founding: held.founding, version: held.version, member: true } : null;
+  const exits = new Map<string, RosterState>();
   const paired = new Map((opts.paired ?? []).map((d) => [d.id, d]));
   const pending = new Set<string>();
   let relay: GroupRelay | null = opts.relay === null ? null : (opts.relay ?? fakeRelay()).relay;
@@ -107,7 +111,7 @@ function build(opts: {
     open: (id) => { opened.push(id); },
     paired: () => {},
     forget: (id) => { forgotten.push(id); channels.delete(id); },
-    forgetAll: () => { forgotten.push('*'); channels.clear(); },
+    leftGroup: () => { forgotten.push('*'); },
     changed: () => {},
     now: () => NOW,
     log: (m) => { logs.push(m); },
@@ -129,12 +133,18 @@ function build(opts: {
       remove: (id) => { paired.delete(id); },
     },
     pendingRevokes: { list: () => [...pending], add: (id) => { pending.add(id); }, remove: (id) => { pending.delete(id); } },
-    groupId: { get: () => groupId, set: (id) => { groupId = id; } },
+    membership: { get: () => membership, set: (m) => { membership = m; } },
+    exits: {
+      list: () => [...exits].map(([id, st]) => ({ id, state: st })),
+      set: (e) => { exits.set(e.id, e.state); },
+      remove: (id) => { exits.delete(id); },
+    },
   }, host);
   return {
     group, channels, forgotten, opened, pending, paired, logs, self,
     state: () => state,
-    groupId: () => groupId,
+    membership: () => membership,
+    exits,
     setRelay: (r: GroupRelay | null) => { relay = r; },
   };
 }
@@ -155,7 +165,7 @@ function wire(...members: Built[]) {
   }
   return {
     ready: () => {
-      for (const a of members) for (const [, channel] of a.channels) a.group.channelReady(channel);
+      for (const a of members) for (const [id, channel] of a.channels) a.group.channelReady(id, channel);
     },
     flush: () => {
       for (let i = 0; queue.length > 0 && i < 200; i++) {
@@ -330,21 +340,45 @@ describe('GroupMember linking', () => {
   });
 });
 
+/** What a member answers a `roster` with once it heard it. */
+const ackOf = (state: RosterState): GroupMessage => ({ t: 'roster_ack', digest: exitDigest(state) });
+
+/** A channel to `peer` that acknowledges every roster it is sent, as a member that heard it does. */
+function acking(g: Built, peer: string) {
+  const sent: GroupMessage[] = [];
+  const channel: GroupChannel = {
+    groups: true,
+    sendGroup: (m) => {
+      sent.push(m);
+      if (m.t === 'roster') queueMicrotask(() => g.group.onGroup(peer, channel, ackOf(m)));
+      return true;
+    },
+  };
+  g.channels.set(peer, channel);
+  return { channel, sent };
+}
+
 describe('GroupMember removal', () => {
-  it('the primary removes a member: a version without it, sent to it, and its pair revoked', async () => {
+  it('the primary removes a member: a version without it, and the pair ends once the member acknowledged it', async () => {
     const r = fakeRelay();
     const g = build({ roster: doc(SELF_KEY, [MAC, OTHER]), paired: [row(MAC), row(OTHER)], relay: r });
     const { channel, sent } = fakeChannel();
     g.channels.set(MAC, channel);
     expect(await g.group.remove(MAC)).toEqual({ ok: true });
-    const told = roster$(sent.find((m) => m.t === 'roster'));
-    expect(told?.roster).toMatchObject({ group: SELF, version: 2 });
-    expect(memberIds(told!)).not.toContain(MAC);
+    const told = roster$(sent.find((m) => m.t === 'roster'))!;
+    expect(told.roster).toMatchObject({ group: SELF, version: 2 });
+    expect(memberIds(told)).not.toContain(MAC);
+    expect(memberIds(g.state())).toEqual([OTHER, SELF].sort());
+    // Not heard yet: the pair stays, and nothing is served to it meanwhile.
+    expect(g.group.exiting(MAC)).toBe(true);
+    expect(g.paired.has(MAC)).toBe(true);
+    expect(revoked(r.posts)).toEqual([]);
+    g.group.onGroup(MAC, channel, ackOf(told));
+    await flush();
+    expect(g.group.exiting(MAC)).toBe(false);
     expect(g.forgotten).toEqual([MAC]);
     expect(g.paired.has(MAC)).toBe(false);
-    expect(memberIds(g.state())).toEqual([OTHER, SELF].sort());
-    expect(r.posts).toContainEqual({ path: '/pair/revoke', payload: { phone: MAC } });
-    expect(g.pending.size).toBe(0);
+    expect(revoked(r.posts)).toEqual([MAC]);
   });
 
   it('a member that is not the primary is refused, naming the primary; a pair outside the group is its own to drop', async () => {
@@ -361,100 +395,150 @@ describe('GroupMember removal', () => {
     expect(await g.group.remove(deviceId(generateIdentity().publicKey))).toEqual({ error: 'not_found' });
   });
 
-  it('a revoke made while the relay is offline stays pending and is posted at the next relay ok', async () => {
+  it('a member asleep at its removal hears it at its next channel, and only then is its pair revoked', async () => {
     const r = fakeRelay();
     r.relay.status = 'connecting';
     const g = build({ roster: doc(SELF_KEY, [MAC]), paired: [row(MAC)], relay: r });
     await g.group.remove(MAC);
-    expect(r.posts).toEqual([]);
+    expect(g.exits.has(MAC)).toBe(true);
+    // It wakes: the version is what its channel is sent first.
+    const { channel, sent } = fakeChannel();
+    g.channels.set(MAC, channel);
+    g.group.channelReady(MAC, channel);
+    const told = roster$(sent[0])!;
+    expect(memberIds(told)).not.toContain(MAC);
+    // Its digest is answered with the same version, never with the roster.
+    sent.length = 0;
+    g.group.onGroup(MAC, channel, { t: 'roster_digest', digest: 'x' });
+    expect(roster$(sent[0])).toEqual(told);
+    // An acknowledgement of something else ends nothing.
+    g.group.onGroup(MAC, channel, { t: 'roster_ack', digest: 'other' });
+    expect(g.group.exiting(MAC)).toBe(true);
+    g.group.onGroup(MAC, channel, ackOf(told));
+    // The relay is offline: the revoke waits for the next relay `ok`.
     expect([...g.pending]).toEqual([MAC]);
     r.relay.status = 'online';
     g.group.relayOk();
     await flush();
-    expect(r.posts).toContainEqual({ path: '/pair/revoke', payload: { phone: MAC } });
+    expect(revoked(r.posts)).toEqual([MAC]);
     expect(g.pending.size).toBe(0);
   });
 
-  it('a revoke the relay fails stays pending', async () => {
-    const r = fakeRelay({ '/pair/revoke': { status: 500, body: {} } });
-    const g = build({ roster: doc(SELF_KEY, [MAC]), paired: [row(MAC)], relay: r });
-    await g.group.remove(MAC);
-    expect([...g.pending]).toEqual([MAC]);
+  it('a device that does not take group messages (a shipped phone) loses its pair at once', async () => {
+    const r = fakeRelay();
+    const g = build({ roster: doc(SELF_KEY, [[PHONE, { kind: 'phone', links: false }]]), paired: [row(PHONE, 'phone')], relay: r });
+    await g.group.remove(PHONE);
+    expect(g.paired.has(PHONE)).toBe(false);
+    expect(g.exits.size).toBe(0);
+    expect(revoked(r.posts)).toEqual([PHONE]);
   });
 
-  it('a removed device learns it from the version, through any member, and becomes alone', async () => {
+  it('the relay dropping the pair ends an exit waiting for it', async () => {
+    const g = build({ roster: doc(SELF_KEY, [MAC]), paired: [row(MAC)] });
+    await g.group.remove(MAC);
+    g.group.pairEnded(MAC);
+    expect(g.group.exiting(MAC)).toBe(false);
+  });
+
+  it('a removed device learns it from the version, through any member, and becomes alone; its own pairs end as each member hears', async () => {
     const r = fakeRelay();
     const before = roster(OTHER);
-    const g = build({ roster: before, paired: [row(MAC), row(OTHER)], relay: r });
+    const g = build({ roster: before, paired: [row(MAC), row(OTHER), row(PHONE, 'phone')], relay: r });
     const mac = fakeChannel();
     g.channels.set(MAC, mac.channel);
-    // OTHER passes on the version the Mac signed without this device.
-    g.group.onGroup(OTHER, fakeChannel().channel, { t: 'roster', ...moved(before, { remove: [SELF] }) });
+    // OTHER passes on the version the Mac signed without this device; it hears the acknowledgement first.
+    const v2 = moved(before, { remove: [SELF] });
+    const fromOther = fakeChannel();
+    g.channels.set(OTHER, fromOther.channel);
+    g.group.onGroup(OTHER, fromOther.channel, { t: 'roster', ...v2 });
     await flush();
-    // What it took goes on to the members it still talks to, and then it is alone.
-    expect(roster$(mac.sent.find((m) => m.t === 'roster'))?.roster?.version).toBe(2);
-    expect(g.forgotten).toEqual(['*']);
-    expect(g.paired.size).toBe(0);
-    expect(revoked(r.posts)).toEqual([MAC, OTHER].sort());
+    expect(fromOther.sent).toContainEqual(ackOf(v2));
     expect(g.state()).toEqual(EMPTY_ROSTER);
+    expect(g.membership()).toMatchObject({ group: MAC, version: 2, member: false });
     expect(g.group.memberList()).toEqual([expect.objectContaining({ id: SELF, primary: false })]);
+    // Each pair ends when that member acknowledges the version: none before.
+    expect(revoked(r.posts)).toEqual([]);
+    expect(roster$(mac.sent.find((m) => m.t === 'roster'))?.roster?.version).toBe(2);
+    expect([g.group.exiting(MAC), g.group.exiting(OTHER)]).toEqual([true, true]);
+    g.group.onGroup(OTHER, fromOther.channel, ackOf(v2));
+    g.group.onGroup(MAC, mac.channel, ackOf(v2));
+    await flush();
+    expect(revoked(r.posts)).toEqual([MAC, OTHER].sort());
+    // A phone paired here that was never in the group keeps its pair.
+    expect(g.paired.has(PHONE)).toBe(true);
+    // The old version again, from a member paired again, brings nothing back.
+    g.paired.set(OTHER, row(OTHER));
+    g.group.onGroup(OTHER, fakeChannel().channel, { t: 'roster', ...before });
+    expect(g.state()).toEqual(EMPTY_ROSTER);
   });
 
-  it('a version the primary signed reaches a member asleep at the removal through any member, and drops its pair', () => {
+  it('a version the primary signed reaches a member asleep at the removal through any member', () => {
     const before = roster(OTHER, PHONE);
     const g = build({ roster: before, paired: [row(OTHER), row(PHONE)] });
     g.group.onGroup(PHONE, fakeChannel().channel, { t: 'roster', ...moved(before, { remove: [OTHER] }) });
-    expect(g.paired.has(OTHER)).toBe(false);
-    expect(g.forgotten).toEqual([OTHER]);
+    expect(memberIds(g.state())).not.toContain(OTHER);
+    expect(g.group.exiting(OTHER)).toBe(true);
     // The same removal again, or an older version, changes nothing.
     g.group.onGroup(PHONE, fakeChannel().channel, { t: 'roster', ...before });
     expect(memberIds(g.state())).not.toContain(OTHER);
   });
 
-  it('a roster a former peer had in flight, delivered after leaving, is not taken', async () => {
-    const g = build({ roster: roster(OTHER), paired: [row(MAC), row(OTHER)] });
-    const stale = g.state();
-    expect(await g.group.leave()).toEqual({ ok: true });
-    expect(g.state()).toEqual(EMPTY_ROSTER);
-    const mac = fakeChannel();
-    g.group.onGroup(MAC, mac.channel, { t: 'roster', ...stale });
-    g.group.onGroup(OTHER, mac.channel, { t: 'roster_digest', digest: 'x' });
-    expect(g.state()).toEqual(EMPTY_ROSTER);
-    expect(mac.sent).toEqual([]);
-    expect(g.logs.filter((l) => l.includes('not paired here'))).toHaveLength(2);
-  });
-
-  it('leaving is refused while the relay is offline', async () => {
+  it('leaving is refused while the relay is offline, and with no member that hears the notice', async () => {
     const r = fakeRelay();
     r.relay.status = 'connecting';
-    const g = build({ relay: r });
+    const g = build({ relay: r, paired: [row(MAC)] });
     expect(await g.group.remove(SELF)).toEqual({ error: 'offline' });
+    r.relay.status = 'online';
+    // Paired with the Mac, but no channel is up: nobody would hear of it.
+    expect(await g.group.leave()).toEqual({ error: 'offline' });
     expect(memberIds(g.state())).toContain(SELF);
+    expect(g.membership()?.member).toBe(true);
+  });
+
+  it('leaving with a member reached that never acknowledges answers offline after LEAVE_ACK_TIMEOUT_MS, and leaves nothing', async () => {
+    vi.useFakeTimers();
+    const g = build({ paired: [row(MAC)] });
+    g.channels.set(MAC, fakeChannel().channel);
+    const left = g.group.leave();
+    await vi.advanceTimersByTimeAsync(LEAVE_ACK_TIMEOUT_MS);
+    expect(await left).toEqual({ error: 'offline' });
+    expect(memberIds(g.state())).toContain(SELF);
+    expect(g.exits.size).toBe(0);
   });
 });
 
 describe('GroupMember leaving', () => {
-  it('a member signs its notice, sends it and is alone; members drop it; the primary leaves it out', async () => {
+  it('a member leaves once one member acknowledged its notice; an asleep one hears it on waking; the primary leaves it out', async () => {
+    const r = fakeRelay();
     const state = roster(OTHER);
-    const leaver = build({ roster: state, paired: [row(MAC), row(OTHER)] });
-    const out = fakeChannel();
-    leaver.channels.set(MAC, out.channel);
+    const leaver = build({ roster: state, paired: [row(MAC), row(OTHER)], relay: r });
+    const other = acking(leaver, OTHER);
     expect(await leaver.group.leave()).toEqual({ ok: true });
-    const notice = roster$(out.sent.find((m) => m.t === 'roster'))!;
+    const notice = roster$(other.sent.find((m) => m.t === 'roster'))!;
     expect(notice.roster).toBeNull();
-    expect(notice.left).toMatchObject([{ id: SELF, group: MAC, version: 1 }]);
+    expect(notice.left).toMatchObject([{ id: SELF, group: MAC, founding: state.roster!.founding, version: 1 }]);
     expect(leaver.state()).toEqual(EMPTY_ROSTER);
-    // Another member takes the notice: this device is no member there, and its pair goes.
-    const other = build({ identity: OTHER_KEY, roster: state, paired: [row(SELF), row(MAC)] });
-    other.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...notice });
-    expect(memberIds(other.state())).not.toContain(SELF);
-    expect(other.paired.has(SELF)).toBe(false);
+    expect(leaver.membership()).toMatchObject({ member: false, version: 1 });
+    // OTHER heard it: that pair ended. The Mac was asleep: its pair waits, holding the notice.
+    expect(revoked(r.posts)).toEqual([OTHER]);
+    expect(leaver.group.exiting(MAC)).toBe(true);
+    const mac = fakeChannel();
+    leaver.channels.set(MAC, mac.channel);
+    leaver.group.channelReady(MAC, mac.channel);
+    expect(roster$(mac.sent[0])).toEqual(notice);
+    leaver.group.onGroup(MAC, mac.channel, ackOf(notice));
+    await flush();
+    expect(revoked(r.posts)).toEqual([MAC, OTHER].sort());
+    // Another member takes the notice: this device is no member there, and its pair ends once it hears.
+    const o = build({ identity: OTHER_KEY, roster: state, paired: [row(SELF), row(MAC)] });
+    o.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...notice });
+    expect(memberIds(o.state())).not.toContain(SELF);
     // The primary signs its next version without it.
-    const mac = build({ identity: MAC_KEY, roster: state, paired: [row(SELF), row(OTHER)] });
-    mac.group.onGroup(SELF, fakeChannel().channel, { t: 'roster', ...notice });
-    expect(mac.state().roster).toMatchObject({ version: 2 });
-    expect(mac.state().roster!.members.map((m) => m.id)).not.toContain(SELF);
-    expect(mac.state().left).toEqual([]);
+    const p = build({ identity: MAC_KEY, roster: state, paired: [row(SELF), row(OTHER)] });
+    p.group.onGroup(SELF, fakeChannel().channel, { t: 'roster', ...notice });
+    expect(p.state().roster).toMatchObject({ version: 2 });
+    expect(p.state().roster!.members.map((m) => m.id)).not.toContain(SELF);
+    expect(p.state().left).toEqual([]);
   });
 
   it('the primary drops a noticed device even when a version it signed since still names it', () => {
@@ -465,7 +549,7 @@ describe('GroupMember leaving', () => {
     mac.group.onGroup(OTHER, fakeChannel().channel, { t: 'roster', roster: null, descriptions: [], left: [notice] });
     expect(mac.state().roster).toMatchObject({ version: 3 });
     expect(memberIds(mac.state())).not.toContain(SELF);
-    expect(mac.paired.has(SELF)).toBe(false);
+    expect(mac.group.exiting(SELF)).toBe(true);
   });
 
   it('a notice is void once the primary adds the device again', () => {
@@ -479,25 +563,64 @@ describe('GroupMember leaving', () => {
     expect(memberIds(other.state())).toContain(SELF);
   });
 
-  it('the primary leaving dissolves the group, and every member becomes alone', async () => {
+  it('a device that left is added again right after: a re-add above its notice, which it takes', async () => {
+    const state = roster(OTHER);
+    const leaver = build({ roster: state, paired: [row(MAC), row(OTHER)] });
+    acking(leaver, MAC);
+    expect(await leaver.group.leave()).toEqual({ ok: true });
+    // The primary has it as noticed: no member any more, so the pairing is an add.
+    const p = build({ identity: MAC_KEY, roster: state, paired: [row(SELF), row(OTHER)] });
+    p.group.onGroup(SELF, fakeChannel().channel, { t: 'roster', roster: null, descriptions: [], left: [leftNotice(SELF_KEY, state.roster!, 9)] });
+    expect(p.group.isLiveMember(SELF)).toBe(false);
+    p.group.pairedAfresh(SELF);
+    expect(p.group.addPaired({ id: SELF, kind: 'desktop', name: 'back', os: 'macos', links: true })).toBe(true);
+    const readd = p.state();
+    expect(readd.roster!.members.find((m) => m.id === SELF)?.addedVersion).toBe(3);
+    // The leaver's ceremony names that group; the stale version it left at is still refused, the re-add is taken.
+    leaver.paired.set(MAC, row(MAC));
+    leaver.group.pairedAfresh(MAC);
+    leaver.group.joinGroup(MAC);
+    leaver.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...state });
+    expect(leaver.state()).toEqual(EMPTY_ROSTER);
+    leaver.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...readd });
+    expect(memberIds(leaver.state())).toContain(SELF);
+    expect(leaver.membership()).toMatchObject({ member: true, version: 3, founding: readd.roster!.founding });
+  });
+
+  it('the primary leaving dissolves the group: each member hears it, asleep or not, and becomes alone', async () => {
     const r = fakeRelay();
-    const p = build({ identity: MAC_KEY, roster: roster(OTHER), paired: [row(SELF), row(OTHER)], relay: r });
+    const start = roster(OTHER);
+    const p = build({ identity: MAC_KEY, roster: start, paired: [row(SELF), row(OTHER)], relay: r });
     const toSelf = fakeChannel();
     p.channels.set(SELF, toSelf.channel);
     expect(await p.group.leave()).toEqual({ ok: true });
-    expect(p.state().roster).toMatchObject({ dissolved: true, version: 2 });
+    expect(p.state()).toEqual(EMPTY_ROSTER);
     expect(p.group.primary()).toBeNull();
-    expect(p.paired.size).toBe(0);
-    expect(revoked(r.posts)).toEqual([SELF, OTHER].sort());
+    expect(p.membership()).toMatchObject({ member: false, version: 2 });
     const last = roster$(toSelf.sent.find((m) => m.t === 'roster'))!;
-    const m = build({ roster: roster(OTHER), paired: [row(MAC), row(OTHER)] });
-    m.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...last });
+    expect(last.roster).toMatchObject({ dissolved: true, version: 2 });
+    // Neither has heard yet: both pairs stay, nothing served to either.
+    expect([p.group.exiting(SELF), p.group.exiting(OTHER)]).toEqual([true, true]);
+    expect(revoked(r.posts)).toEqual([]);
+    // A member awake takes it, acknowledges it, and is alone.
+    const m = build({ roster: start, paired: [row(MAC), row(OTHER)] });
+    const back = fakeChannel();
+    m.group.onGroup(MAC, back.channel, { t: 'roster', ...last });
     expect(m.state()).toEqual(EMPTY_ROSTER);
-    expect(m.paired.size).toBe(0);
-    // The former primary founds again from where it left: its versions go on.
+    expect(m.membership()?.member).toBe(false);
+    p.group.onGroup(SELF, toSelf.channel, back.sent.find((x) => x.t === 'roster_ack')!);
+    await flush();
+    expect(revoked(r.posts)).toEqual([SELF]);
+    // OTHER, asleep, hears it on waking.
+    const toOther = fakeChannel();
+    p.channels.set(OTHER, toOther.channel);
+    p.group.channelReady(OTHER, toOther.channel);
+    expect(roster$(toOther.sent[0])).toEqual(last);
+    // The former primary founds again: another founding, starting over.
     p.paired.set(PHONE, row(PHONE, 'phone'));
     expect(p.group.addPaired({ id: PHONE, kind: 'phone', name: 'p', os: 'ios', links: false })).toBe(true);
-    expect(p.state().roster).toMatchObject({ version: 3, group: MAC });
+    expect(p.state().roster).toMatchObject({ version: 1, group: MAC });
+    expect(p.state().roster!.founding).not.toBe(last.roster!.founding);
   });
 });
 
@@ -517,12 +640,13 @@ describe('GroupMember taking a roster', () => {
   });
 
   it('two members that hold what the other does not take do not trade rosters forever', () => {
-    const g = build({ roster: roster(), paired: [row(MAC)] });
+    const start = roster();
+    const g = build({ roster: start, paired: [row(MAC)] });
     g.group.setRoster(g.state());
     const mac = fakeChannel();
     // The same version, its own description of this device missing, and one of the Mac by a device that is no primary.
     const theirs = {
-      ...roster(), descriptions: [...roster().descriptions, describeDevice(MAC, { name: 'x', os: 'y', links: true }, OTHER_KEY, 9)],
+      ...start, descriptions: [...start.descriptions, describeDevice(MAC, { name: 'x', os: 'y', links: true }, OTHER_KEY, 9)],
     };
     g.group.onGroup(MAC, mac.channel, { t: 'roster', ...theirs });
     // The sender lacks this device's own description: answered once.
@@ -531,7 +655,7 @@ describe('GroupMember taking a roster', () => {
     // Its next roster holds it, and still the description this side does not take: no answer.
     mac.sent.length = 0;
     g.group.onGroup(MAC, mac.channel, { t: 'roster', ...answer, descriptions: [...answer.descriptions, theirs.descriptions.at(-1)!] });
-    expect(mac.sent).toEqual([]);
+    expect(mac.sent.filter((m) => m.t === 'roster')).toEqual([]);
   });
 });
 
@@ -579,29 +703,55 @@ describe('GroupMember members', () => {
 });
 
 describe('GroupMember with its stored roster dropped', () => {
-  it('takes only its own primary\'s roster again, and becomes alone if that no longer names it', () => {
-    // The Mac's group, this device a member; the document it stored did not read, the group id did.
-    const g = build({ roster: EMPTY_ROSTER, groupId: MAC, paired: [row(MAC), row(OTHER)] });
-    // OTHER, a member, hands it a group of its own.
+  it('takes only its own primary\'s roster again, above the version it took, and becomes alone if that no longer names it', () => {
+    const v1 = roster(OTHER);
+    const v2 = moved(v1, { add: [PHONE] });
+    const kept: Membership = { group: MAC, founding: v1.roster!.founding, version: 2, member: true };
+    // The document it stored did not read; its membership, kept apart, did.
+    const g = build({ roster: EMPTY_ROSTER, membership: kept, paired: [row(MAC), row(OTHER)] });
+    // OTHER, a member, hands it a group of its own; then an older version of its own group.
     g.group.onGroup(OTHER, fakeChannel().channel, { t: 'roster', ...doc(OTHER_KEY, [SELF]) });
+    g.group.onGroup(OTHER, fakeChannel().channel, { t: 'roster', ...v1 });
     expect(g.state().roster).toBeNull();
-    g.group.onGroup(OTHER, fakeChannel().channel, { t: 'roster', ...roster(OTHER) });
-    expect(g.state().roster?.group).toBe(MAC);
-    expect(memberIds(g.state())).toContain(SELF);
+    // The version it held is learned again (the primary signs one per version), and a newer one after it.
+    g.group.onGroup(OTHER, fakeChannel().channel, { t: 'roster', ...v2 });
+    expect(g.state().roster?.version).toBe(2);
+    const v3 = moved(v2, { add: [deviceId(generateIdentity().publicKey)] });
+    g.group.onGroup(OTHER, fakeChannel().channel, { t: 'roster', ...v3 });
+    expect(g.state().roster?.version).toBe(3);
     // Removed while its document was gone: the version it learns leaves it out, and it is alone.
-    const h = build({ roster: EMPTY_ROSTER, groupId: MAC, paired: [row(MAC), row(OTHER)] });
-    h.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...moved(roster(OTHER), { remove: [SELF] }) });
+    const h = build({ roster: EMPTY_ROSTER, membership: kept, paired: [row(MAC), row(OTHER)] });
+    h.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...moved(v2, { remove: [SELF] }) });
     expect(h.state()).toEqual(EMPTY_ROSTER);
-    expect(h.groupId()).toBeNull();
-    expect(h.paired.size).toBe(0);
+    expect(h.membership()?.member).toBe(false);
   });
 
-  it('a device with no group id adopts a group that names it, from its primary, and keeps its id', () => {
+  it('a device with no group adopts a group that names it, from its primary, and records it', () => {
     const g = build({ roster: EMPTY_ROSTER, paired: [row(MAC)] });
-    g.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...roster() });
-    expect(g.groupId()).toBe(MAC);
-    // Leaving clears it.
-    return g.group.leave().then(() => expect(g.groupId()).toBeNull());
+    const state = roster();
+    g.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...state });
+    expect(g.membership()).toEqual({ group: MAC, founding: state.roster!.founding, version: 1, member: true });
+  });
+});
+
+describe('GroupMember and a re-founded group', () => {
+  it('nothing of the group the primary dissolved holds in the group it founded next', () => {
+    // A member of the Mac's first group, asleep through its dissolve and the founding of a second.
+    const first = roster(OTHER);
+    const g = build({ roster: first, paired: [row(MAC), row(OTHER)] });
+    const second = doc(MAC_KEY, [OTHER, SELF]);
+    expect(second.roster!.founding).not.toBe(first.roster!.founding);
+    g.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...moved(second, { add: [PHONE] }) });
+    expect(g.state().roster?.founding).toBe(first.roster!.founding);
+    // A member of the second group is handed the first one's later versions and its notices.
+    const n = build({ identity: OTHER_KEY, roster: second, paired: [row(MAC), row(SELF)] });
+    const oldLater = moved(first, { remove: [OTHER] });
+    n.group.onGroup(SELF, fakeChannel().channel, { t: 'roster', ...oldLater });
+    expect(n.state().roster?.founding).toBe(second.roster!.founding);
+    expect(memberIds(n.state())).toContain(OTHER);
+    const oldNotice = leftNotice(SELF_KEY, first.roster!, 3);
+    n.group.onGroup(SELF, fakeChannel().channel, { t: 'roster', roster: null, descriptions: [], left: [oldNotice] });
+    expect(memberIds(n.state())).toContain(SELF);
   });
 });
 
@@ -649,10 +799,31 @@ describe('GroupMember founding and joining', () => {
     expect(g.state().roster?.group).toBe(SELF);
     g.group.joinGroup(MAC);
     g.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...theirs });
-    expect(g.groupId()).toBe(MAC);
+    expect(g.membership()?.group).toBe(MAC);
     expect(g.state().roster?.group).toBe(MAC);
     expect(g.paired.has(PHONE)).toBe(true);
     expect(g.group.isPrimary()).toBe(false);
+  });
+
+  it('a Mac from before groups with its phones joins a group and leaves it: its phones stay paired, and it founds again', async () => {
+    const g = build({ roster: EMPTY_ROSTER, paired: [row(PHONE, 'phone'), row(MAC)] });
+    g.group.addSelf();
+    expect(g.group.isPrimary()).toBe(true);
+    // It joins the Mac's group by a ceremony, and takes its roster.
+    const theirs = roster(OTHER);
+    g.group.joinGroup(MAC);
+    g.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...theirs });
+    expect(g.state().roster?.group).toBe(MAC);
+    expect(g.paired.has(PHONE)).toBe(true);
+    // It leaves: the Mac hears it, and only the pairs with that group's members end.
+    acking(g, MAC);
+    expect(await g.group.leave()).toEqual({ ok: true });
+    expect(g.paired.has(MAC)).toBe(false);
+    expect(g.paired.has(PHONE)).toBe(true);
+    // At its next start it is its phones' primary again.
+    g.group.addSelf();
+    expect(g.group.isPrimary()).toBe(true);
+    expect(memberIds(g.state())).toEqual([PHONE, SELF].sort());
   });
 
   it('a Mac from before groups that holds paired phones founds its group at start, as their primary', () => {

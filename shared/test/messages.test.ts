@@ -143,8 +143,8 @@ describe('parseChannelMessage', () => {
     expect(parseChannelMessage({ t: 'roster_digest', digest: 'ab' })?.kind).toBe('group');
     expect(parseChannelMessage({ t: 'removed' })).toBeNull();
     const member = { id: 'A', kind: 'desktop', addedAt: 1, addedVersion: 1 };
-    const roster = { group: 'A', version: 1, members: [member], sig: 's' };
-    const notice = { id: 'B', group: 'A', version: 1, at: 1, sig: 's' };
+    const roster = { group: 'A', founding: 'f', version: 1, members: [member], sig: 's' };
+    const notice = { id: 'B', group: 'A', founding: 'f', version: 1, at: 1, sig: 's' };
     expect(parseChannelMessage({ t: 'roster', roster, descriptions: [], left: [] })?.kind).toBe('group');
     // A member leaving sends its notice alone.
     expect(parseChannelMessage({ t: 'roster', roster: null, descriptions: [], left: [notice] })?.kind).toBe('group');

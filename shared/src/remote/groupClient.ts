@@ -22,7 +22,8 @@ import {
 } from './ceremony.js';
 import { osName, type Capability } from './device.js';
 import {
-  GroupMember, type GroupStorage, type MemberRow, type PairedDevice, type PrimaryRef, type RemoveResult, type SelfAbout,
+  GroupMember, type GroupExit, type GroupStorage, type MemberRow, type PairedDevice, type PrimaryRef, type RemoveResult,
+  type SelfAbout,
 } from './group.js';
 import { publicKeyOf, type Identity } from './keys.js';
 import type { HelloMessage } from './messages.js';
@@ -30,7 +31,7 @@ import { PAIR_NAME_MAX_CHARS } from './relayApi.js';
 import { RelayLink, type LinkStatus, type RelayLinkEvent, type SocketConstructor } from './relayLink.js';
 import {
   EMPTY_ROSTER, ROSTER_KIND_MAX_CHARS, RosterStateSchema, memberIds, normalize, rosterDigest, rosterKey, rosterMembers,
-  type RosterState,
+  type Membership, type RosterState,
 } from './roster.js';
 import type { RelayTooOld } from './version.js';
 
@@ -149,6 +150,8 @@ export class GroupClient {
   private deliberate = false;
   /** The group removed this phone and took its pairs: `unpaired_all` at the next change. */
   private removedFromGroup = false;
+  /** This phone left by the user's choice: its pairs end one by one after, and that is no `unpaired_all`. */
+  private leftByChoice = false;
   /**
    * When the last relay `ok` was handled (the client's start before one). A
    * row added since may be missing from the next `ok.pairs` only because the
@@ -192,7 +195,7 @@ export class GroupClient {
       open: (id) => this.open(id),
       paired: () => {},
       forget: (id) => this.forget(id),
-      forgetAll: () => this.forgetAll(),
+      leftGroup: () => this.leftGroup(),
       changed: () => this.changed(),
       now: () => this.now(),
       log: (message) => this.log(message),
@@ -211,7 +214,7 @@ export class GroupClient {
       isLiveMember: (id) => this.group.isLiveMember(id),
       canAdd: (id) => this.group.canAdd(id),
       paired: this.storage.paired,
-      pendingRevokes: this.storage.pendingRevokes,
+      pendingRevokes: { remove: (id) => this.group.pairedAfresh(id) },
       addPaired: (device) => this.group.addPaired(device),
       joinGroup: (id) => this.group.joinGroup(id),
       revokeCancelled: (id) => this.group.tryRoster('revoke a cancelled join', () => this.group.revokeAtRelay(id)),
@@ -378,11 +381,11 @@ export class GroupClient {
     return this.deliberately(() => this.group.leave());
   }
 
-  /** The group writes the roster before its first await, so the flag covers every drop it makes. */
-  private deliberately(run: () => Promise<RemoveResult>): Promise<RemoveResult> {
+  /** Every drop the run makes, before and after its awaits, is the user's own. */
+  private async deliberately(run: () => Promise<RemoveResult>): Promise<RemoveResult> {
     this.deliberate = true;
     try {
-      return run();
+      return await run();
     } finally {
       this.deliberate = false;
     }
@@ -521,7 +524,7 @@ export class GroupClient {
         return;
       case 'ready':
         if (event.ready) {
-          this.group.channelReady(channel);
+          this.group.channelReady(id, channel);
           this.reached();
         }
         this.emit({ type: 'peer', peer: id });
@@ -645,6 +648,7 @@ export class GroupClient {
     const had = this.storage.paired.list().length > 0;
     let changed = false;
     for (const id of ids) {
+      this.group.pairEnded(id);
       if (!this.storage.paired.get(id)) continue;
       this.drop(id);
       this.hellos.delete(id);
@@ -654,7 +658,9 @@ export class GroupClient {
     }
     if (!changed) return;
     this.changed();
-    if (had && this.storage.paired.list().length === 0) this.emit({ type: this.grouped() ? 'pairs_lost' : 'unpaired_all' });
+    if (had && this.storage.paired.list().length === 0 && !this.leftByChoice) {
+      this.emit({ type: this.grouped() ? 'pairs_lost' : 'unpaired_all' });
+    }
   }
 
   /** A member dropped by the group, after it was told so. */
@@ -666,21 +672,19 @@ export class GroupClient {
     this.emit({ type: 'peer', peer: id });
   }
 
-  /** This phone left its group: every channel closed with `revoked`; the group removes every row next. */
-  private forgetAll(): void {
-    if (!this.deliberate && this.storage.paired.list().length > 0) this.removedFromGroup = true;
-    const channels = [...this.channels];
-    this.channels.clear();
-    for (const [id, channel] of channels) {
-      channel.close('revoked');
-      this.emit({ type: 'peer', peer: id });
-    }
-    this.hellos.clear();
-    this.heardAt.clear();
+  /**
+   * This phone is no member of its group any more. Not the user's own
+   * leave: the group removed it, and `unpaired_all` follows once its last
+   * pair has ended. The channels stay until each exit is acknowledged.
+   */
+  private leftGroup(): void {
+    if (this.deliberate) this.leftByChoice = true;
+    else this.removedFromGroup = true;
   }
 
   private changed(): void {
     this.watchCode();
+    if (this.grouped()) this.leftByChoice = false;
     this.emit({ type: 'group' });
     if (this.removedFromGroup && this.storage.paired.list().length === 0 && !this.grouped()) {
       this.removedFromGroup = false;
@@ -772,11 +776,23 @@ function persisting(storage: GroupStorage, stored: () => void): GroupStorage {
         stored();
       },
     },
-    groupId: {
-      get: () => storage.groupId.get(),
-      set: (id) => {
-        if (storage.groupId.get() === id) return;
-        storage.groupId.set(id);
+    membership: {
+      get: () => storage.membership.get(),
+      set: (m) => {
+        if (JSON.stringify(storage.membership.get()) === JSON.stringify(m)) return;
+        storage.membership.set(m);
+        stored();
+      },
+    },
+    exits: {
+      list: () => storage.exits.list(),
+      set: (exit) => {
+        storage.exits.set(exit);
+        stored();
+      },
+      remove: (id) => {
+        if (!storage.exits.list().some((e) => e.id === id)) return;
+        storage.exits.remove(id);
         stored();
       },
     },
@@ -798,10 +814,19 @@ function persisting(storage: GroupStorage, stored: () => void): GroupStorage {
 
 /**
  * The phone's group as the app persists it: `MemoryGroupStorage.toJSON`.
- * `group`: the group id, kept apart from the roster (`GroupStorage.groupId`);
- * absent while the phone has none.
+ * `membership`: its group, kept apart from the roster
+ * (`GroupStorage.membership`), absent while it has none; `exits`: pairs
+ * that end once the document that ends them is acknowledged, absent while none waits.
  */
-export type StoredGroup = { roster: RosterState; paired: PairedDevice[]; pendingRevokes: string[]; group?: string };
+export type StoredGroup = {
+  roster: RosterState; paired: PairedDevice[]; pendingRevokes: string[]; membership?: Membership; exits?: GroupExit[];
+};
+
+const MembershipSchema = z.object({
+  group: z.string(), founding: z.string().nullable(), version: z.number().int().nonnegative(), member: z.boolean(),
+  left: z.object({ founding: z.string(), version: z.number().int().nonnegative() }).optional(),
+});
+const ExitSchema = z.object({ id: z.string(), state: RosterStateSchema });
 
 const PairedRow = z.object({
   id: z.string(), name: z.string(), platform: z.string(), kind: z.string().nullable(), pairedAt: z.number(),
@@ -814,7 +839,8 @@ const PairedRow = z.object({
  */
 export class MemoryGroupStorage implements GroupStorage {
   private state: RosterState = EMPTY_ROSTER;
-  private group: string | null = null;
+  private group: Membership | null = null;
+  private readonly ending = new Map<string, RosterState>();
   private readonly devices = new Map<string, PairedDevice>();
   private readonly revokes = new Set<string>();
 
@@ -843,10 +869,20 @@ export class MemoryGroupStorage implements GroupStorage {
     },
   };
 
-  readonly groupId: GroupStorage['groupId'] = {
-    get: () => this.group,
-    set: (id) => {
-      this.group = id;
+  readonly membership: GroupStorage['membership'] = {
+    get: () => (this.group ? { ...this.group } : null),
+    set: (m) => {
+      this.group = m ? { ...m } : null;
+    },
+  };
+
+  readonly exits: GroupStorage['exits'] = {
+    list: () => [...this.ending].map(([id, state]) => ({ id, state: structuredClone(state) })),
+    set: (exit) => {
+      this.ending.set(exit.id, structuredClone(exit.state));
+    },
+    remove: (id) => {
+      this.ending.delete(id);
     },
   };
 
@@ -863,7 +899,8 @@ export class MemoryGroupStorage implements GroupStorage {
   toJSON(): StoredGroup {
     return {
       roster: this.roster.read(), paired: this.paired.list(), pendingRevokes: this.pendingRevokes.list(),
-      ...(this.group !== null ? { group: this.group } : {}),
+      ...(this.group !== null ? { membership: { ...this.group } } : {}),
+      ...(this.ending.size > 0 ? { exits: this.exits.list() } : {}),
     };
   }
 
@@ -872,14 +909,20 @@ export class MemoryGroupStorage implements GroupStorage {
    * revoke are read one by one, since losing one loses a pair; a roster that
    * does not read as a whole (one stored before the primary signed it) is
    * dropped, and the paired members send it again — only its own group's
-   * primary's, by the group id stored beside it.
+   * primary's, above the version stored beside it (`membership`). An exit
+   * is read one by one, as a pair is.
    */
   static fromJSON(value: unknown): MemoryGroupStorage {
     const storage = new MemoryGroupStorage();
     const parts = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
     const roster = RosterStateSchema.safeParse(parts.roster);
     if (roster.success) storage.roster.replace(roster.data);
-    if (typeof parts.group === 'string' && publicKeyOf(parts.group)) storage.group = parts.group;
+    const membership = MembershipSchema.safeParse(parts.membership);
+    if (membership.success && publicKeyOf(membership.data.group)) storage.group = membership.data;
+    for (const raw of Array.isArray(parts.exits) ? parts.exits : []) {
+      const exit = ExitSchema.safeParse(raw);
+      if (exit.success && publicKeyOf(exit.data.id)) storage.ending.set(exit.data.id, exit.data.state);
+    }
     for (const row of Array.isArray(parts.paired) ? parts.paired : []) {
       const d = PairedRow.safeParse(row);
       if (d.success && publicKeyOf(d.data.id)) storage.devices.set(d.data.id, d.data);

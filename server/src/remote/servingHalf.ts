@@ -65,6 +65,12 @@ export type ServingHalfOptions = {
    * passed on to the peer (no chaining, spec 2026-10-16-device-group-design § 7).
    */
   foreign?: (sessionId: string) => boolean;
+  /**
+   * Whether the device's pair is ending (`GroupMember.exiting`): it is no
+   * member any more, or this device left, and nothing is served to it — no
+   * request, no topic, no frame. Absent, never.
+   */
+  withdrawn?: () => boolean;
 };
 
 type VirtualSocket = EventEmitter & { send(data: string): void };
@@ -101,6 +107,10 @@ export class ServingHalf implements ChannelServer {
 
   /** `ask` runs inside the relay client's frame loop: a throwing hook answers 500, never unwinds into it. */
   ask(msg: AskMessage): void {
+    if (this.opts.withdrawn?.()) {
+      this.refuse(msg);
+      return;
+    }
     try {
       this.onAsk(msg);
     } catch (err) {
@@ -112,6 +122,7 @@ export class ServingHalf implements ChannelServer {
   }
 
   chunk(chunk: BlobChunk): void {
+    if (this.opts.withdrawn?.()) return;
     try {
       this.onChunk(chunk);
     } catch (err) {
@@ -121,6 +132,13 @@ export class ServingHalf implements ChannelServer {
     }
   }
 
+  /** What a device whose pair is ending is told: nothing it asked for. */
+  private refuse(msg: AskMessage): void {
+    if (msg.t === 'http') this.answer({ t: 'http_res', id: msg.id, status: 403, body: { error: 'not_in_group' } });
+    else if (msg.t === 'blob_get' || msg.t === 'file_get') this.answer({ t: 'blob_meta', id: msg.id, status: 403 });
+    else if (msg.t === 'blob_put') this.answer({ t: 'blob_put_done', id: msg.id, error: 'not_in_group' });
+  }
+
   private answer(msg: AnswerMessage): void {
     this.reply?.json(msg);
   }
@@ -128,7 +146,7 @@ export class ServingHalf implements ChannelServer {
   private makeSocket(): VirtualSocket {
     const socket: VirtualSocket = Object.assign(new EventEmitter(), {
       send: (data: string) => {
-        if (this.socket !== socket) return;
+        if (this.socket !== socket || this.opts.withdrawn?.()) return;
         // Every hub frame goes through, heartbeats included and on purpose:
         // they are what the asker's watchdog tells a live channel by.
         let frame: unknown;

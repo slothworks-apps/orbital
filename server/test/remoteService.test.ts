@@ -11,7 +11,7 @@ import {
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import { PROTOCOL_VERSION, decodeInner, encodeInner } from '@orbital/shared/remote/messages';
 import { MIN_PHONE_VERSION, MIN_RELAY_VERSION } from '@orbital/shared/remote/version';
-import { describeDevice, foundRoster, memberIds, nextRoster, type RosterState } from '@orbital/shared/remote/roster';
+import { describeDevice, exitDigest, foundRoster, memberIds, nextRoster, type RosterState } from '@orbital/shared/remote/roster';
 import { Hub } from '../src/api/hub.js';
 import { openDb, type OrbitalDb } from '../src/db/database.js';
 import { createImageStore } from '../src/images/store.js';
@@ -153,7 +153,47 @@ describe('RemoteService roster', () => {
       replace.mockRestore();
       warn.mockRestore();
     }
-    expect(received(from)).toEqual([expect.objectContaining({ t: 'roster' })]);
+    expect(received(from)).toContainEqual(expect.objectContaining({ t: 'roster' }));
+  });
+});
+
+describe('RemoteService exits', () => {
+  it('a member removed while asleep is served nothing when it comes back, only the version that ends its pair; its ack ends it', async () => {
+    const peer = generateIdentity();
+    const id = deviceId(peer.publicKey);
+    const { fake, service, db, devices } = build((d) => d.add({
+      id, name: 'vps', platform: 'linux', kind: 'desktop', pairedAt: 1, notifications: parseNotificationSettings({}),
+    }));
+    withMembers(db, { id, name: 'vps' });
+    expect(await service.remove(id)).toEqual({ ok: true });
+    // Asleep: nothing could reach it, so its pair stays.
+    expect(devices.get(id)).not.toBeNull();
+    expect(fake.posts.filter((p) => p.path === '/pair/revoke')).toEqual([]);
+    const hs = startHandshake(peer, publicKeyOf(service.status().macId!)!, 'initiator');
+    fake.emit('data', encodeFrame({ peer: peer.publicKey, flags: 0, wake: ZERO_WAKE, body: hs.message! }));
+    const cipher = hs.complete(decodeFrame(fake.sent[0])!.body)!;
+    const seal = (value: unknown) => encodeFrame({
+      peer: peer.publicKey, flags: 0, wake: ZERO_WAKE, body: cipher.seal(encodeInner({ kind: 'json', value })),
+    });
+    const received = (from: number) => fake.sent.slice(from).map((f) => {
+      const inner = decodeInner(cipher.open(decodeFrame(f)!.body)!);
+      return inner?.kind === 'json' ? inner.value as { t: string; [k: string]: unknown } : null;
+    });
+    const from = fake.sent.length;
+    fake.emit('data', seal({ t: 'hello', protocol: PROTOCOL_VERSION, kind: 'desktop', name: 'vps', capabilities: ['group', 'sessions'] }));
+    fake.emit('data', seal({ t: 'http', id: 1, method: 'GET', path: '/api/sessions' }));
+    fake.emit('data', seal({ t: 'ws', type: 'subscribe', topic: 'sessions' }));
+    await tick();
+    const got = received(from).filter((m) => m && m.t !== 'hello');
+    const ending = got.find((m) => m?.t === 'roster') as unknown as RosterState;
+    expect(ending.roster).toMatchObject({ version: 2 });
+    expect(got).toContainEqual({ t: 'http_res', id: 1, status: 403, body: { error: 'not_in_group' } });
+    expect(got.some((m) => m?.t === 'ws')).toBe(false);
+    // It acknowledges the version: only now does its pair end.
+    fake.emit('data', seal({ t: 'roster_ack', digest: exitDigest(ending) }));
+    await tick();
+    expect(devices.get(id)).toBeNull();
+    expect(fake.posts.filter((p) => p.path === '/pair/revoke').map((p) => p.payload)).toEqual([{ phone: id }]);
   });
 });
 
@@ -793,7 +833,7 @@ describe('RemoteService remove', () => {
     expect(revoked(fake)).toEqual([]);
   });
 
-  it('the primary leaving dissolves the group: every pair revoked, every device and member forgotten, the last version kept', async () => {
+  it('the primary leaving dissolves the group: pairs that cannot hear it end at once, and it holds no roster', async () => {
     const paired = [phoneId(), phoneId()];
     const { service, fake, db, devices } = build((d) => {
       for (const id of paired) {
@@ -809,7 +849,7 @@ describe('RemoteService remove', () => {
     expect(service.status().group).toMatchObject({
       members: [expect.objectContaining({ id: self, self: true, primary: false })], primary: null, isPrimary: false,
     });
-    expect(service.rosterState().roster).toMatchObject({ dissolved: true, group: self });
+    expect(service.rosterState().roster).toBeNull();
   });
 
   it('leave while the relay is not online is refused and changes nothing', async () => {
@@ -854,7 +894,8 @@ describe('RemoteService remove', () => {
   });
 
   it('leave answers failed when the roster cannot be written', async () => {
-    const { service } = build();
+    const { service, db } = build();
+    withMembers(db, {});
     const replace = vi.spyOn(RosterStore.prototype, 'replace').mockImplementation(() => { throw new Error('disk full'); });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
