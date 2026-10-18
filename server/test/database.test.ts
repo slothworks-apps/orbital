@@ -500,7 +500,7 @@ describe('device group migration', () => {
     };
     journal.entries.forEach((e, i) => {
       expect(e.idx).toBe(i);
-      if (i > 0) expect(e.when).toBeGreaterThan(journal.entries[i - 1]!.when);
+      if (i > 0) expect(e.when).toBeGreaterThan(journal.entries[i - 1].when);
     });
   });
 });

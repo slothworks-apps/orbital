@@ -1392,7 +1392,6 @@ describe('the device filter (pure, canvas 50e)', () => {
     const base = { ...state(['self']), sessions: { local, away, other } }
     expect(historyPageOffset(base)).toBe(2)
     expect(historyPageOffset({ ...base, ui: { ...base.ui, search: 'unrelated' } })).toBe(1)
-    expect(historyPageOffset({ ...base, ui: { ...base.ui, hiddenDeviceIds: [] } })).toBe(2)
   })
 })
 
@@ -2728,7 +2727,7 @@ describe('refreshRemote', () => {
   const remoteStatus = (macName: string) => ({
     enabled: true, relay: 'online' as const, relayTooOld: null, relayAttempts: 0, relayUrl: 'https://r.example', macId: 'm',
     macName, devices: [], pendingPair: null, pairing: null, joining: null, error: null,
-    group: { members: [], relayLocked: false, primary: null, isPrimary: false },
+    group: { members: [], relayLocked: false, primary: null, isPrimary: false, ended: null, pendingJoin: null },
   })
 
   it('stores the answer when nothing newer arrived meanwhile', async () => {

@@ -1,10 +1,9 @@
-import type { GroupEnded } from '@orbital/shared/remote/group'
 import {
   SECRET_KEY_BYTES, deviceId, fingerprint, fromBase64Url, identityFromSecret, publicKeyOf, toBase64Url, type Identity,
 } from '@orbital/shared/remote/keys'
 import { MemoryGroupStorage, type StoredGroup } from '@orbital/shared/remote/groupClient'
 import { NotificationSettingsSchema, type NotificationSettings } from '@orbital/shared/remote/messages'
-import { EMPTY_ROSTER, memberIds, rosterMembers, type Membership } from '@orbital/shared/remote/roster'
+import { EMPTY_ROSTER, GroupEndedSchema, memberIds, rosterMembers, type GroupEnded, type Membership } from '@orbital/shared/remote/roster'
 import type { ApiSession, ChatMessage, Tag } from '../../lib/types'
 
 /**
@@ -267,24 +266,13 @@ export type StandaloneRelay = { relay: string; relaySecret?: string }
 
 /** `ENDED_KEY`'s value as it was stored, or null when it is not one. */
 export function parseEnded(value: string | null): GroupEnded | null {
-  if (value === null) return null
-  try {
-    const v = JSON.parse(value) as { why?: unknown; by?: { id?: unknown; name?: unknown } }
-    if ((v.why !== 'dissolved' && v.why !== 'removed') || typeof v.by?.id !== 'string' || typeof v.by.name !== 'string') return null
-    return { why: v.why, by: { id: v.by.id, name: v.by.name } }
-  } catch {
-    return null
-  }
+  const parsed = GroupEndedSchema.safeParse(parseJson(value))
+  return parsed.success ? parsed.data : null
 }
 
 /** `STANDALONE_KEY`'s value as it was stored, or null when it is not one. */
 export function parseStandaloneRelay(value: string | null): StandaloneRelay | null {
-  if (value === null) return null
-  try {
-    const v = JSON.parse(value) as { relay?: unknown; relaySecret?: unknown }
-    if (typeof v.relay !== 'string' || v.relay === '') return null
-    return { relay: v.relay, ...(typeof v.relaySecret === 'string' ? { relaySecret: v.relaySecret } : {}) }
-  } catch {
-    return null
-  }
+  const v = parseJson(value) as { relay?: unknown; relaySecret?: unknown } | null | undefined
+  if (typeof v?.relay !== 'string' || v.relay === '') return null
+  return { relay: v.relay, ...(typeof v.relaySecret === 'string' ? { relaySecret: v.relaySecret } : {}) }
 }

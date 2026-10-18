@@ -824,7 +824,8 @@ export class GroupFederation implements SwappableClient {
         out.push(known.id)
         continue
       }
-      if (!channel) continue
+      // A Mac from before groups takes no new tag from a phone (its allowlist answers 403): left out there.
+      if (!channel?.peer?.capabilities?.includes('group')) continue
       const model = this.tagNamed(name)
       const body = { name, hue: typeof model?.hue === 'number' ? model.hue : 0 }
       try {

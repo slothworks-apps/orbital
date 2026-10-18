@@ -21,7 +21,7 @@ function remote(pendingPair: RemoteStatus['pendingPair'], attemptsLeft = 3): Rem
     pairing: { expiresAt: Date.now() + 100_000 },
     joining: null,
     error: null,
-    group: { members: [], relayLocked: false, primary: null, isPrimary: false },
+    group: { members: [], relayLocked: false, primary: null, isPrimary: false, ended: null, pendingJoin: null },
   }
 }
 

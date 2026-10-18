@@ -16,7 +16,7 @@ import type { Channel } from '@orbital/shared/remote/channel';
 import type { HelloMessage } from '@orbital/shared/remote/messages';
 import { EMPTY_ROSTER, ROSTER_KIND_MAX_CHARS, type MemberView, type RosterState } from '@orbital/shared/remote/roster';
 import {
-  GroupMember, type GroupEnded, type GroupStorage, type MemberRow, type PrimaryRef, type RemoveResult, type SelfAbout,
+  GroupMember, type GroupStatus, type GroupStorage, type RemoveResult, type SelfAbout,
 } from '@orbital/shared/remote/group';
 import {
   PairingCeremony, type JoinResult, type PairConfirmResult, type StartPairingResult,
@@ -88,37 +88,8 @@ export type RemoteStatus = {
   joining: { device: string; name: string; kind: string | null; code: string; expiresAt: number } | null;
   /** Why the last `start` failed; null while it is fine. */
   error: string | null;
-  /**
-   * The group (spec 2026-10-16-device-group-design § 2, ADR
-   * the-group-has-one-primary-device). `members`: every member the latest
-   * version names (this device alone while it holds no group), each with
-   * its description. `primary`: this member is the group's primary, which
-   * alone adds and removes members; `self`: this device; `linked`: paired
-   * with this device directly; `online`: on the relay as this device sees
-   * it; `pairByHand`: the relay has no `/pair/mutual`, so only a pairing
-   * code links the two; `state`: how Settings shows it; `seenAt`: when a
-   * member paired here was last on the relay, null for any other; `tooOld`:
-   * a member too old to take part in the group (`memberTooOld`), by its last
-   * hello. `relayLocked`: this device is in a group (`inGroup`), so the relay
-   * URL and secret cannot change. `primary` (of the group): its id and
-   * name, null while this device holds no group. `isPrimary`: this device is it.
-   * `ended`: the primary dissolved the group or removed this device, and the
-   * user has not acknowledged the notice yet (`GroupMember.ended`); null otherwise.
-   */
-  group: {
-    members: (MemberRow & { tooOld: boolean })[];
-    relayLocked: boolean;
-    primary: PrimaryRef | null;
-    isPrimary: boolean;
-    ended: GroupEnded | null;
-    /**
-     * A join under way: a pairing made this device join `primary`'s group and
-     * its first roster has not come; `expiresAt`, when the code it was made
-     * with stops working and the join is dropped. `DELETE /api/remote/join`
-     * cancels it. Null otherwise.
-     */
-    pendingJoin: { primary: string; expiresAt: number | null } | null;
-  };
+  /** The device group (`GroupStatus`). */
+  group: GroupStatus;
 };
 
 /**
@@ -475,7 +446,7 @@ export class RemoteService {
       }));
       const primary = this.group.primary();
       return {
-        members, relayLocked: this.group.inGroup(), primary, isPrimary: primary !== null && primary.id === this.ownId(),
+        members, relayLocked: this.group.inGroup(), primary, isPrimary: this.group.isPrimary(),
         ended: this.group.ended(),
         pendingJoin: this.pendingJoin(),
       };

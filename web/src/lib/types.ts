@@ -1,4 +1,4 @@
-import type { GroupEnded, MemberState as SharedMemberState, MemberRow, NotPrimary, PrimaryRef } from '@orbital/shared/remote/group'
+import type { GroupEnded, GroupStatus, MemberState as SharedMemberState, NotPrimary, PrimaryRef } from '@orbital/shared/remote/group'
 import type { JoinResult, Joining, PendingPair } from '@orbital/shared/remote/ceremony'
 import type { MachineRef } from '@orbital/shared/remote/device'
 
@@ -1845,15 +1845,8 @@ export interface RemoteDevice {
 /** How Settings shows a group member; `MemberState` in `shared/src/remote/group.ts`. */
 export type MemberState = SharedMemberState
 
-/**
- * One member of the device group (spec 2026-10-16-device-group-design § 2),
- * as the status lists it: shared's `MemberRow` (a member the latest version
- * of the roster names, its description, `primary` when it is the group's
- * primary, and the facts `RemoteStatus.group` adds) and `tooOld`, a member
- * too old to take part in the group: not a phone, and its last hello named
- * no `group` capability.
- */
-export type GroupMember = MemberRow & { tooOld: boolean }
+/** One member of the device group as the status lists it (`GroupStatus`). */
+export type GroupMember = GroupStatus['members'][number]
 
 /**
  * The group's primary, which alone adds and removes devices (ADR
@@ -1894,24 +1887,8 @@ export interface RemoteStatus {
   joining: Joining | null
   /** Why the last start failed; null while it is fine. */
   error: string | null
-  /**
-   * The device group (spec 2026-10-16-device-group-design § 2, § 4): its
-   * members (this device alone while it holds no group), whether the relay
-   * URL is locked because another member is in the group, the group's
-   * `primary` (null while there is no group) and whether this device
-   * `isPrimary` — only the primary adds and removes devices. `ended`: the
-   * primary dissolved the group or removed this device, until the notice is
-   * acknowledged (`api.acknowledgeEnded`); absent from a server from before it.
-   */
-  group: {
-    members: GroupMember[]; relayLocked: boolean; primary: PrimaryRef | null; isPrimary: boolean; ended?: GroupEnded | null
-    /**
-     * A join under way: a pairing made this device join `primary`'s group and its first roster has
-     * not come; dropped when its code runs out (`expiresAt`), cancelled by `DELETE /api/remote/join`.
-     * Absent from a server from before it.
-     */
-    pendingJoin?: { primary: string; expiresAt: number | null } | null
-  }
+  /** The device group (`GroupStatus` in shared/src/remote/group.ts). */
+  group: GroupStatus
 }
 
 /** The refusals `POST /api/remote/pair/confirm` answers with instead of `{ ok: true }`. */

@@ -36,7 +36,7 @@ function status(others: GroupMember[], patch: Partial<RemoteStatus> = {}): Remot
     pendingPair: null, pairing: null, joining: null, error: null,
     group: {
       members: [SELF, ...others], relayLocked: grouped,
-      primary: grouped ? { id: 'self', name: 'studio' } : null, isPrimary: grouped, ended: null,
+      primary: grouped ? { id: 'self', name: 'studio' } : null, isPrimary: grouped, ended: null, pendingJoin: null,
     },
     ...patch,
   }
@@ -133,7 +133,7 @@ describe('DevicesSection', () => {
     renderWith(status([], {
       group: {
         members: [SELF], relayLocked: false, primary: null, isPrimary: false,
-        ended: { why: 'removed', by: { id: 'b1', name: 'build-box' } },
+        ended: { why: 'removed', by: { id: 'b1', name: 'build-box' } }, pendingJoin: null,
       },
     }))
     expect(screen.getByText('build-box removed this device from the group')).toBeInTheDocument()
@@ -169,7 +169,7 @@ describe('DevicesSection', () => {
   it('a Mac with only its phones changes the relay after the confirm that removes them', async () => {
     const phone = member({ id: 'p1', name: 'Pixel 8', kind: 'phone', os: 'android', links: false })
     renderWith(status([phone], {
-      group: { members: [SELF, phone], relayLocked: false, primary: null, isPrimary: false },
+      group: { members: [SELF, phone], relayLocked: false, primary: null, isPrimary: false, ended: null, pendingJoin: null },
       devices: [{
         id: 'p1', name: 'Pixel 8', platform: 'android', kind: 'phone', pairedAt: NOW, lastSeenAt: null, online: true,
         needsUpdate: null,

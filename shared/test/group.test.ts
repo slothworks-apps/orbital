@@ -535,7 +535,7 @@ describe('GroupMember leaving', () => {
     await vi.advanceTimersByTimeAsync(0);
     const notices = other.sent.filter((m) => m.t === 'roster');
     expect(notices).toHaveLength(1);
-    leaver.group.onGroup(OTHER, other.channel, ackOf(notices[0]!));
+    leaver.group.onGroup(OTHER, other.channel, ackOf(notices[0]));
     await vi.advanceTimersByTimeAsync(LEAVE_ACK_TIMEOUT_MS);
     expect(await Promise.all([first, second])).toEqual([{ ok: true }, { ok: true }]);
     expect(leaver.state()).toEqual(EMPTY_ROSTER);
@@ -574,6 +574,19 @@ describe('GroupMember leaving', () => {
     expect(p.state().roster).toMatchObject({ version: 2 });
     expect(p.state().roster!.members.map((m) => m.id)).not.toContain(SELF);
     expect(p.state().left).toEqual([]);
+  });
+
+  it('a member that left ends the exits still waiting when it is about to forget its group', async () => {
+    const r = fakeRelay();
+    const leaver = build({ roster: roster(OTHER), paired: [row(MAC), row(OTHER)], relay: r });
+    acking(leaver, OTHER);
+    expect(await leaver.group.leave()).toEqual({ ok: true });
+    // The Mac never heard the notice: its pair would outlive the group stored here.
+    expect(leaver.group.exiting(MAC)).toBe(true);
+    await leaver.group.endExits();
+    expect(revoked(r.posts)).toEqual([MAC, OTHER].sort());
+    expect(leaver.group.exiting(MAC)).toBe(false);
+    expect(leaver.paired.has(MAC)).toBe(false);
   });
 
   it('the primary drops a noticed device even when a version it signed since still names it', () => {

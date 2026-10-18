@@ -35,6 +35,8 @@ export async function leaveGroup(): Promise<LeaveResult> {
   if (handle) {
     const left = await handle.group.leave()
     if ('error' in left) return { error: left.error === 'offline' ? 'offline' : 'failed' }
+    // The members that have not acknowledged yet: their pairs are revoked now, as nothing would once the group is forgotten.
+    await handle.group.endExits()
   } else {
     // No group running (its connect failed): the members go on listing this phone until they remove it.
     console.warn('[mobile] leaving with no group running; the other devices are not told')

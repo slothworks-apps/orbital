@@ -229,7 +229,7 @@ export function JoinArea({
 
   /** The card in the box's place (canvas 50b): the join under way, or how it ended. */
   let below: ReactNode = null
-  const pendingJoin = remote.group.pendingJoin ?? null
+  const pendingJoin = remote.group.pendingJoin
   if (join.joining) {
     below = <JoiningCard joining={join.joining} remote={remote} now={now} onCancel={join.cancel} />
   } else if (pendingJoin) {

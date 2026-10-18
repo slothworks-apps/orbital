@@ -84,6 +84,30 @@ export type MemberRow = MemberView & {
   self: boolean; linked: boolean; online: boolean; pairByHand: boolean; state: MemberState; seenAt: number | null;
 };
 
+/**
+ * The group as the Mac's status lists it (`RemoteStatus.group`; spec
+ * 2026-10-16-device-group-design § 2, ADR the-group-has-one-primary-device).
+ * `members`: every member the latest version names (this device alone while
+ * it holds no group), each with its description and `tooOld`: a member too
+ * old to take part in the group (not a phone, and its last hello named no
+ * `group` capability). `relayLocked`: this device is in a group, so the
+ * relay URL and secret cannot change. `primary`: the group's primary, which
+ * alone adds and removes members, null while this device holds no group;
+ * `isPrimary`: this device is it. `ended`: the primary dissolved the group
+ * or removed this device, until the user acknowledges the notice; null
+ * otherwise. `pendingJoin`: a pairing made this device join `primary`'s
+ * group and its first roster has not come; `expiresAt`, when the code it
+ * was made with stops working and the join is dropped. Null otherwise.
+ */
+export type GroupStatus = {
+  members: (MemberRow & { tooOld: boolean })[];
+  relayLocked: boolean;
+  primary: PrimaryRef | null;
+  isPrimary: boolean;
+  ended: GroupEnded | null;
+  pendingJoin: { primary: string; expiresAt: number | null } | null;
+};
+
 /** What this device says about itself: its kind (for a founding) and its description. */
 export type SelfAbout = { kind: string } & RosterAbout;
 
@@ -633,6 +657,20 @@ export class GroupMember {
     }
     await Promise.all([...this.revoking]);
     return { ok: true };
+  }
+
+  /**
+   * Before this device forgets its group (the phone, once it left): every
+   * exit still waiting ends now and every pending revoke is posted, since
+   * nothing would post them once the stored group is gone. A member that has
+   * not heard the left notice yet learns of it from the primary's next version.
+   */
+  async endExits(): Promise<void> {
+    this.tryRoster('end the exits before forgetting the group', () => {
+      for (const exit of this.storage.exits.list()) this.finishExit(exit.id);
+      for (const id of this.storage.pendingRevokes.list()) this.revokeAtRelay(id);
+    });
+    await Promise.all([...this.revoking]);
   }
 
   /** The highest version this device took of its group, which the next one it signs goes above. */

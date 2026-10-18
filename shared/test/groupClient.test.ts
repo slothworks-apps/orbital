@@ -454,6 +454,8 @@ describe('MemoryGroupStorage', () => {
     // An exit whose state does not read keeps its id, so its device stays served nothing.
     const exits = MemoryGroupStorage.fromJSON({ exits: [{ id, state: 'garbage', since: 5 }, { id: 'nope', state: null, since: 1 }] }).exits.list();
     expect(exits).toEqual([{ id, state: null, since: 5 }]);
+    // One whose `since` does not read starts its bound over rather than ending at once.
+    expect(MemoryGroupStorage.fromJSON({ exits: [{ id, state: null, since: 'x' }] }, 900).exits.list()).toEqual([{ id, state: null, since: 900 }]);
     expect(back.paired.list().map((d) => d.id)).toEqual([id]);
   });
 

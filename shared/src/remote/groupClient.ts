@@ -30,7 +30,7 @@ import type { HelloMessage } from './messages.js';
 import { PAIR_NAME_MAX_CHARS } from './relayApi.js';
 import { RelayLink, type LinkStatus, type RelayLinkEvent, type SocketConstructor } from './relayLink.js';
 import {
-  EMPTY_ROSTER, ROSTER_KIND_MAX_CHARS, RosterStateSchema, memberIds, normalize, rosterDigest, rosterKey, rosterMembers,
+  EMPTY_ROSTER, GroupEndedSchema, ROSTER_KIND_MAX_CHARS, RosterStateSchema, memberIds, normalize, rosterDigest, rosterKey, rosterMembers,
   type GroupEnded, type Membership, type RosterState,
 } from './roster.js';
 import type { RelayTooOld } from './version.js';
@@ -388,6 +388,11 @@ export class GroupClient {
   /** This phone leaves its group; only while the relay is online. */
   leave(): Promise<RemoveResult> {
     return this.deliberately(() => this.group.leave());
+  }
+
+  /** After `leave`, before the phone forgets its group: the pairs still ending are revoked now (`GroupMember.endExits`). */
+  endExits(): Promise<void> {
+    return this.group.endExits();
   }
 
   /** Every drop the run makes, before and after its awaits, is the user's own. */
@@ -835,10 +840,12 @@ export type StoredGroup = {
 const MembershipSchema = z.object({
   group: z.string(), founding: z.string().nullable(), version: z.number().int().nonnegative(), member: z.boolean(),
   left: z.object({ founding: z.string(), version: z.number().int().nonnegative() }).optional(),
-  ended: z.object({ why: z.enum(['dissolved', 'removed']), by: z.object({ id: z.string(), name: z.string() }) }).optional(),
+  ended: GroupEndedSchema.optional(),
   expires: z.number().int().nonnegative().optional(),
 });
-const ExitSchema = z.object({ id: z.string(), state: z.unknown(), since: z.number().int().nonnegative().catch(0) });
+// A `since` that does not read is null: the exit starts its bound over (`fromJSON`), rather than
+// counting from the epoch and ending at once.
+const ExitSchema = z.object({ id: z.string(), state: z.unknown(), since: z.number().int().nonnegative().nullable().catch(null) });
 
 const PairedRow = z.object({
   id: z.string(), name: z.string(), platform: z.string(), kind: z.string().nullable(), pairedAt: z.number(),
@@ -923,9 +930,9 @@ export class MemoryGroupStorage implements GroupStorage {
    * does not read as a whole (one stored before the primary signed it) is
    * dropped, and the paired members send it again — only its own group's
    * primary's, above the version stored beside it (`membership`). An exit
-   * is read one by one, as a pair is.
+   * is read one by one, as a pair is; one whose `since` does not read counts from `now`.
    */
-  static fromJSON(value: unknown): MemoryGroupStorage {
+  static fromJSON(value: unknown, now = Date.now()): MemoryGroupStorage {
     const storage = new MemoryGroupStorage();
     const parts = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
     const roster = RosterStateSchema.safeParse(parts.roster);
@@ -937,7 +944,7 @@ export class MemoryGroupStorage implements GroupStorage {
       const exit = ExitSchema.safeParse(raw);
       if (!exit.success || !publicKeyOf(exit.data.id)) continue;
       const state = RosterStateSchema.safeParse(exit.data.state);
-      storage.ending.set(exit.data.id, { state: state.success ? state.data : null, since: exit.data.since });
+      storage.ending.set(exit.data.id, { state: state.success ? state.data : null, since: exit.data.since ?? now });
     }
     for (const row of Array.isArray(parts.paired) ? parts.paired : []) {
       const d = PairedRow.safeParse(row);

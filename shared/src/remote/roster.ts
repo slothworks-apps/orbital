@@ -273,14 +273,8 @@ export function rosterMembers(state: RosterState): MemberView[] {
   const doc = state.roster;
   if (!doc) return [];
   const ids = new Set(memberIds(state));
-  const about = new Map<string, Description>();
-  for (const d of state.descriptions) {
-    if (d.by !== d.id && d.by !== doc.group) continue;
-    const held = about.get(d.id);
-    about.set(d.id, held ? better(held, d) : d);
-  }
   return doc.members.filter((m) => ids.has(m.id)).map((m) => {
-    const d = about.get(m.id);
+    const d = descriptionOf(state, m.id);
     return {
       ...m, name: d?.name ?? m.id.slice(0, 8), os: d?.os ?? '', links: d?.links ?? false, primary: m.id === doc.group,
     };
@@ -321,7 +315,10 @@ export type Membership = {
  * notice (canvas 50m, 50n): the primary `by` dissolved the group or removed
  * this device. Nothing reads it but that notice: it decides no roster.
  */
-export type GroupEnded = { why: 'dissolved' | 'removed'; by: { id: string; name: string } };
+export const GroupEndedSchema = z.object({
+  why: z.enum(['dissolved', 'removed']), by: z.object({ id: z.string(), name: z.string() }),
+});
+export type GroupEnded = z.infer<typeof GroupEndedSchema>;
 
 /** Whether `doc` is of the group `m` names. */
 export function ofGroup(doc: Pick<RosterDoc, 'group' | 'founding'>, m: Membership): boolean {

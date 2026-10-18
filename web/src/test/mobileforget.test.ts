@@ -195,7 +195,7 @@ describe('leaveGroup', () => {
     const close = vi.fn(async () => {
       io.calls.push('close')
     })
-    const h = { group: { leave: vi.fn(leave) }, federation, persist: vi.fn(async () => {}), close }
+    const h = { group: { leave: vi.fn(leave), endExits: vi.fn(async () => {}) }, federation, persist: vi.fn(async () => {}), close }
     groupRef.set(h as unknown as GroupHandle)
     return h
   }
@@ -214,6 +214,7 @@ describe('leaveGroup', () => {
     useMobile.setState({ pairing: PAIRING, screen: 'settings' })
     expect(await leaveGroup()).toEqual({ ok: true })
     expect(h.group.leave).toHaveBeenCalled()
+    expect(h.group.endExits).toHaveBeenCalled()
     // A write still waiting must not put the group back after the clear.
     expect(io.calls.indexOf('close')).toBeLessThan(io.calls.indexOf('clearGroup'))
     expect(io.forgetIdentity).not.toHaveBeenCalled()

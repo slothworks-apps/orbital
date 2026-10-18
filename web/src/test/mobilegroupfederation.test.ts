@@ -239,6 +239,15 @@ describe('GroupFederation', () => {
     expect(studio.request.mock.calls.filter(([m, p]) => m === 'POST' && p === '/api/tags')).toHaveLength(1)
   })
 
+  it('asks a Mac from before groups to make no tag, which it would refuse: the tag is left out there', async () => {
+    const { fed, studio } = await setup()
+    studio.peer = hello('studio', ['sessions', 'map', 'presence'])
+    const tags = await localTags(fed)
+    await fed.request('POST', '/api/sessions', { cwd: '/p', prompt: 'go', tagId: tags.get('work'), machine: STUDIO })
+    expect(studio.request.mock.calls.filter(([m, p]) => m === 'POST' && p === '/api/tags')).toHaveLength(0)
+    expect(studio.request).toHaveBeenLastCalledWith('POST', '/api/sessions', { cwd: '/p', prompt: 'go' })
+  })
+
   it('subscribes sessions everywhere and a session\'s topics on its owner, once it is known', async () => {
     const { fed, group, studio, laptop } = await setup()
     fed.subscribe('sessions')
