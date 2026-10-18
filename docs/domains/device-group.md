@@ -91,8 +91,12 @@ A device alone holds no roster. At a pairing (`ceremony.ts`):
   `not_primary`, naming the primary; pairing by hand is the primary's too;
 - while a join waits for the primary's first roster (`pendingJoin`,
   until the code expires), the device neither founds nor adds
-  (`joining`); cancelling the join restores its membership and ends that
-  pair;
+  (`joining`); cancelling the join, or its code running out, restores
+  its membership and ends that pair; a join that ran out is kept as
+  `joinExpired` until the user has read it
+  (`POST /api/remote/join/expired/acknowledge`);
+- the first pairing says which device will manage the group, on both
+  sides, and no clock ticks while the user types the code;
 - the joining side records the join before it confirms, and asks the
   primary for the roster again once it has; the primary's add is refused
   at `ROSTER_MAX_ENTRIES` (`group_full`) and the pair it just made is
@@ -207,7 +211,8 @@ through them.
 ## What the status shows
 
 `status.group`: `primary` (`{ id, name }`, null while alone), `isPrimary`,
-`pendingJoin` (`{ primary, expiresAt }` while a join waits), the
+`pendingJoin` (`{ primary, expiresAt }` while a join waits),
+`joinExpired` (the primary of a join that ran out), the
 one-time notice of how this device became alone, `relayLocked` (the
 relay is fixed while in a group, idea `move-a-group-to-another-relay`),
 and `members`, one row per member the roster names: `primary`, `state`
