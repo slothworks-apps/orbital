@@ -12,6 +12,7 @@ import { clearHarnessCache } from './harness/harnessCache'
 import { clearGroup } from './platform/group'
 import type { GroupEnded } from '@orbital/shared/remote/group'
 import { clearPairing, saveEnded, setUnpaired } from './platform/pairing'
+import { standaloneRelay } from './standalone'
 import { useMobile } from './state'
 import { clientRef } from './transport/clientRef'
 import { groupRef } from './transport/groupRef'
@@ -104,7 +105,7 @@ export async function forgetEverything(opts: { unpaired: boolean; ended?: GroupE
   if (opts.ended) {
     try {
       // Before the group goes, as 9h's flag: a kill in between still tells it.
-      await saveEnded(opts.ended)
+      await saveEnded(opts.ended, pairing ? standaloneRelay(pairing) : null)
     } catch (err) {
       console.warn('[mobile] could not keep the notice of the group ending', err)
     }
@@ -132,7 +133,7 @@ export async function forgetEverything(opts: { unpaired: boolean; ended?: GroupE
     asOf: null, checkedAt: null, rechecking: null, listedAt: null, endedSummary: null, endedLoaded: false,
     sessionId: null, pushed: [], composerIntent: null, mismatch: null, previous: null,
     devices: [], refusals: {}, members: [], pendingPair: null, ownCode: null, refusedPair: null, macVersion: null,
-    unpaired: opts.unpaired, unreachable: false, groupEnded: opts.ended ?? null,
+    unpaired: opts.unpaired, unreachable: false, groupEnded: opts.ended ?? null, standaloneRelay: null,
     macName: opts.unpaired ? name : null,
     screen: opts.unpaired ? 'unpaired' : opts.ended ? 'settings' : 'pairing',
   })

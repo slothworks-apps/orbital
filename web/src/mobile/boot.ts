@@ -26,6 +26,7 @@ import { readDeviceLock } from './platform/deviceLock'
 import { loadGroup } from './platform/group'
 import { loadOrCreateIdentity } from './platform/identity'
 import { loadEnded, loadUnpaired } from './platform/pairing'
+import { goStandalone, standaloneRelay } from './standalone'
 import { pairingFromGroup, type GroupRecord, type Pairing } from './platform/parse'
 import { installNotificationChannels, installPushListeners, registerPush } from './platform/push'
 import { dismissTopSheet, isGated, lockEnabled, openFromNotice, pairGoneFor, useMobile } from './state'
@@ -104,7 +105,7 @@ export async function boot(): Promise<void> {
     unpaired: unpaired !== null,
     macName: pairing?.macName ?? unpaired?.macName ?? null,
     // The group's ending is told under THIS PHONE (canvas 50n) until OK.
-    groupEnded: pairing ? null : ended,
+    groupEnded: pairing ? null : ended?.ended ?? null,
     screen: unpaired ? 'unpaired' : pairing ? 'list' : ended ? 'settings' : 'pairing',
     appLock,
     screenLock: !device.secure,
@@ -114,6 +115,10 @@ export async function boot(): Promise<void> {
   booted = true
   const open = pendingOpen
   pendingOpen = null
+  // Standalone after the group's ending: back on its relay while the notice is up (canvas 50n).
+  if (!pairing && !unpaired && ended?.relay) {
+    goStandalone(ended.relay).catch((err: unknown) => console.warn('[mobile] could not stay on the relay', err))
+  }
   if (!pairing || unpaired) return
   // Only a paired phone has sessions to open; behind 9s or 9t the tap waits (`openFromNotice`).
   open?.()
@@ -152,7 +157,11 @@ function onClientEvent(event: TunnelEvent): void {
   // The primary dissolved the group or removed this phone: standalone, told under THIS PHONE (canvas 50n), not 9h.
   const ended = gone && event.type === 'unpaired' ? handle?.group.ended() ?? null : null
   if (ended) {
-    forgetEverything({ unpaired: false, ended }).catch((err: unknown) => console.warn('[mobile] could not forget the group', err))
+    const pairing = useMobile.getState().pairing
+    forgetEverything({ unpaired: false, ended })
+      // Standalone, it stays on its relay with its key (canvas 50n): online, and able to show its code.
+      .then(() => (pairing ? goStandalone(standaloneRelay(pairing)) : undefined))
+      .catch((err: unknown) => console.warn('[mobile] could not forget the group', err))
     return
   }
   useMobile.getState().apply(event, grouped)

@@ -111,7 +111,8 @@ describe('forgetEverything', () => {
     useMobile.setState({ pairing: PAIRING, screen: 'list' })
     const ended = { why: 'dissolved' as const, by: { id: 'm1', name: 'studio' } }
     await forgetEverything({ unpaired: false, ended })
-    expect(io.saveEnded).toHaveBeenCalledWith(ended)
+    // With the relay it stays on while standalone (canvas 50n).
+    expect(io.saveEnded).toHaveBeenCalledWith(ended, { relay: PAIRING.relay })
     // The notice is kept before the group goes, as 9h's flag is.
     expect(io.calls.indexOf('saveEnded')).toBeLessThan(io.calls.indexOf('clearGroup'))
     expect(io.forgetIdentity).not.toHaveBeenCalled()

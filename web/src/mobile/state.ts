@@ -127,6 +127,8 @@ export interface MobileState {
    * OK or a new pairing. Not 9h: the phone is standalone, its key kept.
    */
   groupEnded: GroupEnded | null
+  /** The relay a phone standalone after the group's ending stays on (`goStandalone`), while it has no pairing to name it. */
+  standaloneRelay: string | null
   /**
    * No device of the group can reach this phone right now
    * (`GroupClient.unreachable`): the session list says so and offers to
@@ -191,7 +193,7 @@ export interface MobileState {
 export const initialMobileState: MobileState = {
   screen: 'pairing', previous: null, sessionId: null, pushed: [], link: 'off', macOnline: false, ready: false,
   asOf: null, checkedAt: null, rechecking: null, listedAt: null, endedSummary: null, endedLoaded: false,
-  mismatch: null, unpaired: false, groupEnded: null, unreachable: false, pairing: null, macName: null, macVersion: null, devices: [], refusals: {},
+  mismatch: null, unpaired: false, groupEnded: null, standaloneRelay: null, unreachable: false, pairing: null, macName: null, macVersion: null, devices: [], refusals: {},
   members: [], group: { primary: null, isPrimary: false }, pendingPair: null, ownCode: null, refusedPair: null, composerIntent: null,
   screenLock: false, lock: 'open', appLock: true, lockLabel: 'screen lock', backgroundedAt: null, authenticating: false,
 }

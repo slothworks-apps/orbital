@@ -136,7 +136,11 @@ describe('loadOrCreateIdentity', () => {
 describe('parseEnded', () => {
   it('reads the notice of a group ending as stored, and nothing that is not one', () => {
     const ended = { why: 'removed', by: { id: 'm1', name: 'studio' } }
-    expect(parseEnded(JSON.stringify(ended))).toEqual(ended)
+    expect(parseEnded(JSON.stringify(ended))).toEqual({ ended, relay: null })
+    // The relay the phone stays on rides along, its secret with it.
+    expect(parseEnded(JSON.stringify({ ...ended, relay: 'https://r.test', relaySecret: 's' })))
+      .toEqual({ ended, relay: { relay: 'https://r.test', relaySecret: 's' } })
+    expect(parseEnded(JSON.stringify({ ...ended, relay: 7 }))).toEqual({ ended, relay: null })
     expect(parseEnded(null)).toBeNull()
     expect(parseEnded('not json')).toBeNull()
     expect(parseEnded(JSON.stringify({ ...ended, why: 'left' }))).toBeNull()

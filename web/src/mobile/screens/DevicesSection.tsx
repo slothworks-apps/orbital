@@ -50,6 +50,9 @@ export function DevicesSection() {
   const devices = useMobile((s) => s.devices)
   const link = useMobile((s) => s.link)
   const pairing = useMobile((s) => s.pairing)
+  const standaloneRelay = useMobile((s) => s.standaloneRelay)
+  // A standalone phone still names the relay it stays on (canvas 50n).
+  const relayUrl = pairing?.relay ?? standaloneRelay
   const go = useMobile((s) => s.go)
   const pendingPair = useMobile((s) => s.pendingPair)
   const setAside = useJoinSheet((s) => s.setAside)
@@ -175,8 +178,8 @@ export function DevicesSection() {
               <span className="flex-1">Scan another device&apos;s code</span>
               <span aria-hidden className="text-[18px] text-[rgba(160,190,225,.5)]">›</span>
             </button>
-            {/* Only with a group running to show it from: a phone the group's ending left standalone has none. */}
-            {pairing && (
+            {/* Only with a client on a relay to show it from: a phone standalone after the group's ending keeps one. */}
+            {(pairing || link !== 'off') && (
               <button type="button" onClick={() => go('code')} className={`${LINK_ROW} border-t border-[rgba(150,205,255,.08)]`}>
                 <span className="flex-1">Show this phone&apos;s code</span>
                 <span aria-hidden className="text-[18px] text-[rgba(160,190,225,.5)]">›</span>
@@ -197,7 +200,7 @@ export function DevicesSection() {
             <span className="text-[14px] font-semibold">Connect this phone to the group</span>
             <span className="truncate font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
               {LINK_WORDS[link]}
-              {pairing ? ` · ${relayHost(pairing.relay)}` : ''}
+              {relayUrl ? ` · ${relayHost(relayUrl)}` : ''}
             </span>
           </span>
         </div>
@@ -215,7 +218,7 @@ export function DevicesSection() {
         </button>
         {relayOpen && (
           <p className="px-3.5 pb-3.5 text-[11.5px] leading-[1.45] text-[rgba(160,190,225,.6)]">
-            {pairing ? `${relayHost(pairing.relay)}. ` : ''}Every device in the group uses the same relay. It only sees
+            {relayUrl ? `${relayHost(relayUrl)}. ` : ''}Every device in the group uses the same relay. It only sees
             encrypted bytes.
           </p>
         )}

@@ -262,13 +262,27 @@ export function deviceName(info: { model?: string | null } | null): string {
   return model ? model : FALLBACK_DEVICE_NAME
 }
 
-/** `ENDED_KEY`'s value as it was stored, or null when it is not one. */
-export function parseEnded(value: string | null): GroupEnded | null {
+/** The relay a phone the group's ending left standalone stays on (canvas 50n), as its pairing named it. */
+export type StandaloneRelay = { relay: string; relaySecret?: string }
+
+/**
+ * `ENDED_KEY`'s value as it was stored: the notice, and the relay the phone
+ * stays on while it is up; null when it is not one. A relay that does not
+ * read is left out, the notice kept.
+ */
+export function parseEnded(value: string | null): { ended: GroupEnded; relay: StandaloneRelay | null } | null {
   if (value === null) return null
   try {
-    const v = JSON.parse(value) as { why?: unknown; by?: { id?: unknown; name?: unknown } }
+    const v = JSON.parse(value) as {
+      why?: unknown; by?: { id?: unknown; name?: unknown }; relay?: unknown; relaySecret?: unknown
+    }
     if ((v.why !== 'dissolved' && v.why !== 'removed') || typeof v.by?.id !== 'string' || typeof v.by.name !== 'string') return null
-    return { why: v.why, by: { id: v.by.id, name: v.by.name } }
+    const ended: GroupEnded = { why: v.why, by: { id: v.by.id, name: v.by.name } }
+    if (typeof v.relay !== 'string' || v.relay === '') return { ended, relay: null }
+    return {
+      ended,
+      relay: { relay: v.relay, ...(typeof v.relaySecret === 'string' ? { relaySecret: v.relaySecret } : {}) },
+    }
   } catch {
     return null
   }

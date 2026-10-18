@@ -1,6 +1,6 @@
 import { Preferences } from '@capacitor/preferences'
 import type { GroupEnded } from '@orbital/shared/remote/group'
-import { parseEnded, parsePairing, type Pairing } from './parse'
+import { parseEnded, parsePairing, type Pairing, type StandaloneRelay } from './parse'
 
 /** The native shells read its presence too, for the app lock's snapshot cover (`APP_LOCK_KEY`). */
 export const PAIRING_KEY = 'orbital.pairing'
@@ -40,13 +40,14 @@ export function clearUnpaired(): Promise<void> {
 }
 
 /** The notice of the group's ending, or null; one that does not read is none. */
-export async function loadEnded(): Promise<GroupEnded | null> {
+export async function loadEnded(): Promise<{ ended: GroupEnded; relay: StandaloneRelay | null } | null> {
   const { value } = await Preferences.get({ key: ENDED_KEY })
   return parseEnded(value)
 }
 
-export function saveEnded(ended: GroupEnded): Promise<void> {
-  return Preferences.set({ key: ENDED_KEY, value: JSON.stringify(ended) })
+/** The notice, with the relay the phone stays on until it is read (`relay` null: none known). */
+export function saveEnded(ended: GroupEnded, relay: StandaloneRelay | null): Promise<void> {
+  return Preferences.set({ key: ENDED_KEY, value: JSON.stringify({ ...ended, ...(relay ?? {}) }) })
 }
 
 export function clearEnded(): Promise<void> {
