@@ -14,8 +14,8 @@ import type { GroupMessage, HelloMessage } from './messages.js';
 import type { RelayAction } from './relayApi.js';
 import type { LinkStatus } from './relayLink.js';
 import {
-  ROSTER_MAX_ENTRIES, addMember, describeMember, foundingEntry, hasDuplicateIds, isLive, mergeRoster, removeMember,
-  rosterDigest, rosterFields, shareable, type RosterEntry, type RosterFields,
+  ROSTER_MAX_ADDED_BY, ROSTER_MAX_ENTRIES, addMember, describeMember, foundingEntry, hasDuplicateIds, isFounding, isLive,
+  mergeRoster, removeMember, rosterDigest, rosterFields, shareable, type RosterEntry, type RosterFields,
 } from './roster.js';
 
 /**
@@ -620,13 +620,17 @@ export class GroupMember {
   }
 
   /**
-   * Whether the roster can take `id`: a device it holds already, or room
-   * for one more (`ROSTER_MAX_ENTRIES`). A roster that cannot be read takes none.
+   * Whether this device can add `id`: room for it (`ROSTER_MAX_ENTRIES`,
+   * unless the roster holds it already) and this device has not added
+   * `ROSTER_MAX_ADDED_BY` devices already. A roster that cannot be read takes none.
    */
   canAdd(id: string): boolean {
+    const self = this.ownId;
     try {
       const entries = this.storage.roster.list();
-      return entries.some((e) => e.id === id) || entries.length < ROSTER_MAX_ENTRIES;
+      const room = entries.some((e) => e.id === id) || entries.length < ROSTER_MAX_ENTRIES;
+      const mine = entries.filter((e) => e.addedBy === self && e.id !== id && e.id !== self).length;
+      return self !== null && room && mine < ROSTER_MAX_ADDED_BY;
     } catch {
       return false;
     }
@@ -639,14 +643,30 @@ export class GroupMember {
    * written here: its own roster names it, and a device that keeps none is
    * added at its hello or its first roster (`onPeerHello`, `onGroup`).
    */
-  addPaired(device: Pick<RosterEntry, 'id' | 'kind' | 'name' | 'os' | 'links'>): void {
+  addPaired(device: Pick<RosterEntry, 'id' | 'kind' | 'name' | 'os' | 'links'>): boolean {
+    let added = false;
     this.tryRoster('add a paired device', () => {
       const identity = this.host.identity();
       if (!identity) return;
       const known = this.storage.roster.entry(device.id);
-      if (known && isLive(known)) return;
-      this.setRoster(addMember(this.storage.roster.list(), device, identity, this.host.now()));
+      if (!(known && isLive(known))) this.setRoster(addMember(this.storage.roster.list(), device, identity, this.host.now()));
+      const entry = this.storage.roster.entry(device.id);
+      added = entry !== null && isLive(entry) && !isFounding(entry);
     });
+    return added;
+  }
+
+  /**
+   * A device paired here that the roster cannot take (it is full, or this
+   * device added its quota): its pair goes, here and at the relay, rather
+   * than stay half added.
+   */
+  private unpairUnadded(id: string): void {
+    this.host.log(`dropped the pair with ${id.slice(0, 8)}: the group can't take it`);
+    this.host.forget(id);
+    this.storage.paired.remove(id);
+    this.revokeAtRelay(id);
+    this.host.changed();
   }
 
   /** Each side sends its digest as the channel opens; a difference is answered with the roster. */
@@ -680,10 +700,13 @@ export class GroupMember {
       }
       const device = this.storage.paired.get(from);
       if (!device || channel.groups) return;
-      this.setRoster(addMember(this.storage.roster.list(), {
+      const roster = this.storage.roster.list();
+      const next = addMember(roster, {
         id: from, kind: device.kind ?? 'desktop', name: name ?? device.name, os: hello.os ?? osName(device.platform),
         links: false,
-      }, identity, now), from);
+      }, identity, now);
+      if (next === roster) this.unpairUnadded(from);
+      else this.setRoster(next, from);
     });
   }
 
@@ -717,7 +740,7 @@ export class GroupMember {
       return;
     }
     this.tryRoster('merge a roster', () => {
-      this.setRoster(mergeRoster(this.storage.roster.list(), msg.entries), from);
+      this.setRoster(mergeRoster(this.storage.roster.list(), msg.entries, { from, self: this.ownId }), from);
     });
     // A device paired here whose roster does not name it: the device whose code this one
     // redeemed, while it was alone. This device adds it, as the pairing named it.
@@ -725,16 +748,19 @@ export class GroupMember {
       const identity = this.host.identity();
       const device = this.storage.paired.get(from);
       if (!identity || !device || this.storage.roster.entry(from)) return;
-      this.setRoster(addMember(this.storage.roster.list(), {
+      const roster = this.storage.roster.list();
+      const next = addMember(roster, {
         id: from, kind: device.kind ?? 'desktop', name: device.name, os: osName(device.platform), links: true,
-      }, identity, this.host.now()), from);
+      }, identity, this.host.now());
+      if (next === roster) this.unpairUnadded(from);
+      else this.setRoster(next, from);
     });
     // The sender may still lack what only this side knew: answered only when
     // its merge would take something, so two members that keep a different
     // entry (one the other does not take) do not trade rosters forever.
     this.tryRoster('answer a roster', () => {
       const local = shareable(this.storage.roster.list());
-      const theirs = mergeRoster(msg.entries, local, { trusted: true });
+      const theirs = mergeRoster(msg.entries, local, { from: this.ownId, self: from, trusted: true });
       if (rosterDigest(theirs) !== rosterDigest(msg.entries)) channel.sendGroup({ t: 'roster', entries: local });
     });
   }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { deviceId, generateIdentity, sign, toBase64Url, type Identity } from '../src/remote/keys.js';
 import {
-  ROSTER_KIND_MAX_CHARS, ROSTER_MAX_ENTRIES, ROSTER_MAX_EPOCH, RosterEntrySchema, addMember,
+  ROSTER_KIND_MAX_CHARS, ROSTER_MAX_ADDED_BY, ROSTER_MAX_ENTRIES, ROSTER_MAX_EPOCH, RosterEntrySchema, addMember,
   describeMember, descriptionBytes, foundingEntry, isLive, membershipBytes, mergeRoster, removeMember, rosterDigest,
   verifyEntry, type RosterEntry,
 } from '../src/remote/roster.js';
@@ -137,7 +137,31 @@ describe('removal and re-adding', () => {
     expect(isLive(one(mergeRoster(vRemoved, added(vRemoved, V, B, 'phone')), V))).toBe(false);
   });
 
-  it('who signed an entry need not be known here: a device joining through the newest member learns them all', () => {
+  it('a chain of keys from a device removed here is refused, link by link', () => {
+    // R was removed here; while it was live on an asleep member it added Y, and Y added Z.
+    const R = generateIdentity();
+    const Y = generateIdentity();
+    const Z = generateIdentity();
+    const withR = added(group(), R, A);
+    const here = removeMember(withR, idOf(R), A, 50);
+    const asleep = added(added(withR, Y, R), Z, Y);
+    const merged = mergeRoster(here, asleep, { from: idOf(B), self: idOf(A) });
+    expect(merged.some((e) => e.id === idOf(Y) || e.id === idOf(Z))).toBe(false);
+    // Nor a removal R signs at the same epoch.
+    const byR = removeMember(here, idOf(V), R, 60);
+    expect(isLive(one(mergeRoster(here, byR, { from: idOf(B), self: idOf(A) }), V))).toBe(true);
+  });
+
+  it('a member that missed both "A adds D" and "A removed" takes D and the removal from one frame', () => {
+    const D = generateIdentity();
+    const missed = group();
+    const later = removeMember(added(missed, D, A), idOf(A), B, 70);
+    const merged = mergeRoster(missed, later, { from: idOf(B), self: idOf(V) });
+    expect(isLive(one(merged, D))).toBe(true);
+    expect(isLive(one(merged, A))).toBe(false);
+  });
+
+  it('who signed an entry need not be known to a device that holds no roster yet: joining through the newest member learns them all', () => {
     // A and B added each other; C joined through B; J joins through C and holds only its own entry.
     const C = generateIdentity();
     const J = generateIdentity();
@@ -199,8 +223,13 @@ describe('the epoch ceiling', () => {
 
 describe('the size bound', () => {
   it('a merge takes no new id past ROSTER_MAX_ENTRIES, and still updates the ids it holds', () => {
-    let full: RosterEntry[] = added([], V, A, 'phone');
-    while (full.length < ROSTER_MAX_ENTRIES) full = added(full, generateIdentity(), A);
+    // Each device adds the next, so no adder reaches its quota.
+    let full: RosterEntry[] = added(added([], A, B), V, A, 'phone');
+    for (let by = A; full.length < ROSTER_MAX_ENTRIES;) {
+      const next = generateIdentity();
+      full = added(full, next, by);
+      by = next;
+    }
     const newcomer = generateIdentity();
     expect(added(full, newcomer, A)).toBe(full);
     const incoming = [...removeMember(full, idOf(V), A, 50), ...added([], newcomer, A)];
@@ -209,6 +238,20 @@ describe('the size bound', () => {
     expect(merged.some((e) => e.id === idOf(newcomer))).toBe(false);
     expect(isLive(one(merged, V))).toBe(false);
     expect(RosterEntrySchema.array().max(ROSTER_MAX_ENTRIES).safeParse(merged).success).toBe(true);
+  });
+});
+
+describe('the adder quota', () => {
+  it('no device adds past ROSTER_MAX_ADDED_BY, here or in a merge', () => {
+    let mine = added(added([], A, B), B, A);
+    while (mine.filter((e) => e.addedBy === idOf(A)).length < ROSTER_MAX_ADDED_BY) mine = added(mine, generateIdentity(), A);
+    const one_more = generateIdentity();
+    expect(added(mine, one_more, A)).toBe(mine);
+    // A member that held A's quota already refuses a seventeenth from A; B adds it fine.
+    const extra = added([], one_more, A);
+    const forged = [...mine.filter((e) => e.id !== idOf(B)), ...extra];
+    expect(mergeRoster(mine, forged).some((e) => e.id === idOf(one_more))).toBe(false);
+    expect(mergeRoster(mine, added(mine, one_more, B)).some((e) => e.id === idOf(one_more))).toBe(true);
   });
 });
 

@@ -442,12 +442,22 @@ describe('GroupMember bounds', () => {
 
   it('at ROSTER_MAX_ENTRIES nothing new is added, and no roster above it is ever held', () => {
     let full = roster();
-    while (full.length < ROSTER_MAX_ENTRIES) full = addMember(full, { id: deviceId(generateIdentity().publicKey), kind: 'desktop', name: 'x', os: 'linux', links: true }, MAC_KEY, 1);
+    for (let by = MAC_KEY; full.length < ROSTER_MAX_ENTRIES;) {
+      const next = generateIdentity();
+      full = addMember(full, { id: deviceId(next.publicKey), kind: 'desktop', name: 'x', os: 'linux', links: true }, by, 1);
+      by = next;
+    }
     const g = build({ roster: full });
     expect(g.group.canAdd(PHONE)).toBe(false);
     expect(g.group.canAdd(MAC)).toBe(true);
     g.group.addPaired({ id: PHONE, kind: 'phone', name: 'Pixel', os: 'android', links: true });
     expect(g.roster()).toHaveLength(ROSTER_MAX_ENTRIES);
+    // A device paired here that keeps no roster is not left half added: its pair goes.
+    g.paired.set(PHONE, row(PHONE, 'phone'));
+    g.group.onPeerHello(PHONE, fakeChannel(false).channel, hello({ capabilities: [] }));
+    expect(g.paired.has(PHONE)).toBe(false);
+    expect(g.forgotten).toContain(PHONE);
+    expect([...g.pending]).toContain(PHONE);
     const past = [...full, ...add([], PHONE)];
     expect(g.group.setRoster(past)).toBe(false);
     expect(g.roster()).toHaveLength(ROSTER_MAX_ENTRIES);

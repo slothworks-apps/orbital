@@ -169,8 +169,8 @@ export interface CeremonyHost {
    * this device (`GroupMember.addPaired`). `links`: it sealed its kind, so it
    * is a device of this release, which links; a shipped phone does not.
    */
-  addPaired(device: { id: string; kind: string; name: string; os: string; links: boolean }): void;
-  /** A pair the user cancelled was confirmed by the other device: revoke it at the relay. */
+  addPaired(device: { id: string; kind: string; name: string; os: string; links: boolean }): boolean;
+  /** A pair that must not stand (a join the user cancelled, a device the roster cannot take): revoke it at the relay. */
   revokeCancelled(id: string): void;
   /** The adder paired a device: the host's own setup for a new pair (a phone's watcher). */
   watch(id: string): void;
@@ -402,10 +402,16 @@ export class PairingCeremony {
       this.pendingPair = null;
       this.pairing = null;
     }
-    if (accept) {
-      this.host.addPaired({
-        id: pending.phone, kind: pending.kind, name: pending.name, os: osName(pending.platform), links: pending.links,
-      });
+    if (accept && !this.host.addPaired({
+      id: pending.phone, kind: pending.kind, name: pending.name, os: osName(pending.platform), links: pending.links,
+    })) {
+      // The roster could not take it after all (filled while the post was out): not half added,
+      // the pair goes again here and at the relay.
+      this.host.abandon(pending.phone);
+      this.host.paired.remove(pending.phone);
+      this.host.revokeCancelled(pending.phone);
+      this.host.changed();
+      return { error: 'group_full' };
     }
     this.host.changed();
     // A guard: the relay's `presence` for the new device, sent before it

@@ -27,7 +27,7 @@ function fakeRelay(answers: Record<string, Answer> = {}) {
 }
 
 function build(opts: {
-  kind?: string; inGroup?: boolean; members?: string[]; paired?: PairedDevice[]; answers?: Record<string, Answer>; full?: boolean;
+  kind?: string; inGroup?: boolean; members?: string[]; paired?: PairedDevice[]; answers?: Record<string, Answer>; full?: boolean; fills?: boolean;
 } = {}) {
   const identity = generateIdentity();
   const r = fakeRelay(opts.answers);
@@ -55,7 +55,7 @@ function build(opts: {
       remove: (id) => { paired.delete(id); },
     },
     pendingRevokes: { remove: (id) => { calls.unrevoked.push(id); } },
-    addPaired: (d) => { calls.addPaired.push(d); },
+    addPaired: (d) => { calls.addPaired.push(d); return !opts.fills; },
     revokeCancelled: (id) => { calls.revoked.push(id); },
     watch: (id) => { calls.watched.push(id); },
     abandon: (id) => { calls.abandoned.push(id); },
@@ -184,6 +184,17 @@ describe('PairingCeremony as the adder', () => {
     expect(a.paired.size).toBe(0);
     expect(a.calls.addPaired).toEqual([]);
     expect(a.ceremony.state()).toMatchObject({ pendingPair: null, pairing: null });
+  });
+
+  it('a group that fills while the accept is out drops the pair again: not half added', async () => {
+    const a = build({ fills: true });
+    const qr = await showCode(a);
+    const phone = generateIdentity();
+    const id = deviceId(phone.publicKey);
+    a.ceremony.onPairRequest(request(qr, phone));
+    expect(await a.ceremony.confirm(true, id, codeFor(a.identity, phone))).toEqual({ error: 'group_full' });
+    expect(a.paired.size).toBe(0);
+    expect(a.calls).toMatchObject({ abandoned: [id], revoked: [id], opened: [] });
   });
 
   it('undoes the pair when the relay does not take the accept', async () => {

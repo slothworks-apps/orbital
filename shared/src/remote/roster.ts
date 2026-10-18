@@ -31,6 +31,14 @@ export const ROSTER_MAX_ENTRIES = 128;
 export const ROSTER_MAX_EPOCH = 2 ** 31;
 
 /**
+ * The most entries one device may have added, live or removed, ever: a
+ * merge takes no membership past an adder's quota, and this device adds no
+ * device past its own. One member, or a key it added, cannot fill the
+ * roster to `ROSTER_MAX_ENTRIES` alone.
+ */
+export const ROSTER_MAX_ADDED_BY = 16;
+
+/**
  * The longest `kind` and `os` an entry carries: what a pairing cuts a
  * platform to, and a hello its `kind` and `os` (`HELLO_KIND_MAX_CHARS`).
  * A name is bound by `PAIR_NAME_MAX_CHARS`, as a pairing and a hello cut it.
@@ -215,24 +223,34 @@ function verifiedOnce(e: RosterEntry): boolean {
 
 /**
  * What stands for an id once `incoming` arrived, or null when it is not
- * taken. A membership new here (a higher epoch, or one over a founding
- * entry) is refused when its adder is removed here. A higher epoch
- * replaces a live entry only when it says the device is removed, or the
- * device described itself under it (no member re-adds a live device
- * behind its back), and replaces a removed entry whenever it is signed.
+ * taken: a founding entry gives way to any membership; a lower epoch is
+ * ignored; one epoch is combined part by part. A higher epoch replaces a
+ * live entry only when it says the device is removed, or the device
+ * described itself under it (no member re-adds a live device behind its
+ * back), and replaces a removed entry whenever it is signed.
  */
-function take(here: RosterEntry, incoming: RosterEntry, removedHere: (id: string) => boolean): RosterEntry | null {
-  if (isFounding(here)) return removedHere(incoming.addedBy) ? null : incoming;
+function take(here: RosterEntry, incoming: RosterEntry): RosterEntry | null {
+  if (isFounding(here)) return incoming;
   if (incoming.epoch < here.epoch) return null;
   if (incoming.epoch === here.epoch) return combine(here, incoming);
-  if (removedHere(incoming.addedBy)) return null;
   if (isLive(here) && isLive(incoming) && incoming.describedBy !== incoming.id) return null;
   return incoming;
 }
 
 const byId = (x: RosterEntry, y: RosterEntry) => (x.id < y.id ? -1 : x.id > y.id ? 1 : x.epoch - y.epoch);
 
+/** How many entries `by` added in `entries`, founding ones aside, `except` one id. */
+function addedBy(entries: Iterable<RosterEntry>, by: string, except: string): number {
+  let n = 0;
+  for (const e of entries) if (e.addedBy === by && e.id !== except && !isFounding(e)) n++;
+  return n;
+}
+
 export type MergeOptions = {
+  /** The device the roster came from: a signer this device trusts. */
+  from?: string | null;
+  /** This device: a signer it trusts. */
+  self?: string | null;
   /** `incoming` was written or checked here already: no signature is checked again. */
   trusted?: boolean;
 };
@@ -243,29 +261,61 @@ export function hasDuplicateIds(entries: RosterEntry[]): boolean {
 }
 
 /**
+ * The devices whose signature on a new membership or a removal this device
+ * takes from `incoming`, read from its roster before the merge: its live
+ * members, itself and the sender, and every device the same roster says
+ * one of them added (over and over). A device removed here vouches for
+ * nothing, unless the roster re-adds it at a later epoch.
+ */
+function trustedSigners(held: Map<string, RosterEntry>, incoming: RosterEntry[], opts: MergeOptions): Set<string> {
+  const trusted = new Set<string>();
+  for (const e of held.values()) if (isLive(e)) trusted.add(e.id);
+  if (opts.self) trusted.add(opts.self);
+  if (opts.from) trusted.add(opts.from);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const e of incoming) {
+      if (trusted.has(e.id) || !trusted.has(e.addedBy)) continue;
+      const here = held.get(e.id);
+      if (here && !isLive(here) && e.epoch <= here.epoch) continue;
+      trusted.add(e.id);
+      grew = true;
+    }
+  }
+  return trusted;
+}
+
+/**
  * `local` with what it takes of `incoming`, sorted by id. An entry is
- * taken only if its signatures hold (`verifyEntry`); who signed it need not
- * be known here, since a member can add any key anyway. Then, per id (see
- * `take`): a founding entry gives way to any membership; a lower epoch is
- * ignored; one epoch is combined part by part; a higher epoch replaces what
- * is held by the rules of `take`. A new id is refused when its adder is
- * removed here, and once the roster holds `ROSTER_MAX_ENTRIES`, so a merge
- * never outgrows what a frame carries; ids known here still update,
- * removals included.
+ * taken only if its signatures hold (`verifyEntry`). A new membership (an
+ * id not held, a higher epoch, or one over a founding entry) and any
+ * removal are taken only when signed by a trusted signer
+ * (`trustedSigners`) — except by a device that holds no roster yet (only
+ * its founding entry: joining, or a stored roster dropped), which takes
+ * every signed entry. A new membership past its adder's
+ * `ROSTER_MAX_ADDED_BY` is not taken, nor a new id once the roster holds
+ * `ROSTER_MAX_ENTRIES`, so a merge never outgrows what a frame carries; ids
+ * known here still update, removals included. Per id, see `take`.
  */
 export function mergeRoster(local: RosterEntry[], incoming: RosterEntry[], opts: MergeOptions = {}): RosterEntry[] {
   const held = new Map(local.map((e) => [e.id, e]));
   const same = new Map(local.map((e) => [e.id, canonical(e)]));
-  const removed = new Set(local.filter((e) => !isLive(e)).map((e) => e.id));
-  const removedHere = (id: string) => removed.has(id);
   const taken = incoming.filter((e) => same.get(e.id) !== canonical(e)
     && (opts.trusted ? !isFounding(e) && e.epoch >= 1 && e.epoch <= ROSTER_MAX_EPOCH : verifiedOnce(e)));
+  const open = shareable(local).length === 0;
+  const signers = open ? null : trustedSigners(held, taken, opts);
+  const trusts = (id: string) => signers === null || signers.has(id);
   for (const e of taken.sort(byId)) {
+    if (e.removedBy !== undefined && !trusts(e.removedBy)) continue;
     const here = held.get(e.id);
+    if (!here || isFounding(here) || e.epoch > here.epoch) {
+      if (!trusts(e.addedBy)) continue;
+      if (addedBy(held.values(), e.addedBy, e.id) >= ROSTER_MAX_ADDED_BY) continue;
+    }
     if (here) {
-      const next = take(here, e, removedHere);
+      const next = take(here, e);
       if (next) held.set(e.id, next);
-    } else if (held.size < ROSTER_MAX_ENTRIES && !removedHere(e.addedBy)) {
+    } else if (held.size < ROSTER_MAX_ENTRIES) {
       held.set(e.id, e);
     }
   }
@@ -305,7 +355,8 @@ export function foundingEntry(signer: Identity, kind: string, about: RosterDescr
  * A newcomer, or a removed device paired again, added by `signer`: the next
  * epoch after any entry known for it, described as the adder learned it at
  * the pairing. Unchanged when `signer` is that device, the next epoch
- * would pass `ROSTER_MAX_EPOCH`, or a new id would pass `ROSTER_MAX_ENTRIES`.
+ * would pass `ROSTER_MAX_EPOCH`, a new id would pass `ROSTER_MAX_ENTRIES`,
+ * or `signer` has added `ROSTER_MAX_ADDED_BY` devices already.
  */
 export function addMember(
   roster: RosterEntry[], device: Pick<RosterEntry, 'id' | 'kind'> & RosterDescription, signer: Identity, now: number,
@@ -314,6 +365,7 @@ export function addMember(
   if (device.id === by) return roster;
   const known = roster.find((e) => e.id === device.id);
   if (!known && roster.length >= ROSTER_MAX_ENTRIES) return roster;
+  if (addedBy(roster, by, device.id) >= ROSTER_MAX_ADDED_BY) return roster;
   const epoch = known && !isFounding(known) ? known.epoch + 1 : 1;
   if (epoch > ROSTER_MAX_EPOCH) return roster;
   const membership = { id: device.id, kind: device.kind, epoch, addedBy: by, addedAt: now };
