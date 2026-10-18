@@ -137,8 +137,12 @@ relay revoke) only when the other side acknowledges it. A device whose
 exit is pending is served nothing: `ServingHalf` answers 403
 `not_in_group`, sends no hub frame and takes no upload, the watcher
 wakes it for nothing, federation drops it. A relay `unpaired` ends a
-pending exit; a device that never acknowledges keeps its relay pair and
-is served nothing until it is removed or the relay drops the pair. A
+pending exit; a device that never acknowledges is served nothing, and
+after `EXIT_MAX_MS` the pair ends anyway. The check fails closed: an
+exit whose stored state no longer reads, or a storage error, still
+counts as ending. On the phone the same check (`GroupClient.exiting`)
+keeps an ending device out of its sources: no requests, no default, no
+notification rules, its wake and hub frames ignored. A
 shipped phone, which reads no group messages, ends at once.
 
 - **Removing** (`remove(id)`) is the primary's: another member answers
@@ -226,8 +230,9 @@ primary's own phones after it joined another group) is listed under
   stay `not linked`: only the primary pairs by hand.
 - **The joining side of a full group** reads "Request rejected"; only
   the primary is told the group is full (the relay carries no reason).
-- **A device that never acknowledges its exit** keeps its relay pair,
-  served nothing.
+- **A device asleep longer than `EXIT_MAX_MS`** after its removal does
+  not learn of it by message: its pairs are gone when it wakes, and it
+  still shows the group until it leaves.
 - **After this device's identity is regenerated** it drops its roster
   (it named the old key); the old id stays in the group until the
   primary removes it.

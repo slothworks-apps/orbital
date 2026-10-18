@@ -20,6 +20,9 @@ related:
   - the-relay-pairs-two-devices-that-both-sign
   - every-member-reaches-one-literal-allowlist
   - a-headless-orbital-is-a-full-member
+  - the-group-has-one-primary-device
+  - roster-entries-are-signed
+  - transfer-the-primary-role
 tags:
   - remote
   - handoff
@@ -42,15 +45,27 @@ carry it.
 - **`/orbital-code-review` ran on the PR** (8 agents). All 11 findings
   were fixed, reviewed and pushed (commits `b119a41e` … `015c3448`),
   plus the last round: two phones never link with each other.
+- **Security pass (2026-10-18), done.** Four adversarial reviews (a
+  stolen phone, a malicious member, a malicious relay, a page in the
+  WebView origin) found 16 issues; all were fixed. The roster had to be
+  rebuilt: signed multi-writer entries kept leaking through four review
+  rounds, so the group now has **one primary device** that alone signs
+  the roster, adds, removes and dissolves (ADR
+  `the-group-has-one-primary-device`; `roster-entries-are-signed` is
+  superseded). Pairs end only once their ending was acknowledged
+  (bounded by `EXIT_MAX_MS`), an ending device is served nothing on the
+  Mac or the phone, and every check fails closed. A final whole-branch
+  review and a scoped re-review of its fixes followed. The working files
+  are in `.superpowers/sdd/security/` (git-ignored).
+- **Design**: the primary model is in Claude Design file
+  `Feature - Device group 2.dc.html` (50a primary, 50l member, 50m/50n
+  dissolved, 50i phone in a group, 50o group full); desktop fidelity
+  checked live, the phone screens not yet in a browser.
 - **Before merge:**
-  1. A dedicated adversarial security pass over the whole PR (see
-     "Security posture" below) — the user asked whether it is
-     bulletproof; the answer is "solid for its threat model, not
-     bulletproof".
-  2. The four Demo screenshots in the PR description.
-  3. The maintainer's look at "For the maintainer to confirm in Claude
+  1. The four Demo screenshots in the PR description.
+  2. The maintainer's look at "For the maintainer to confirm in Claude
      Design".
-  4. Deploy order: the relay (0.6.0) before the Mac and the phone — the
+  3. Deploy order: the relay (0.6.0) before the Mac and the phone — the
      phone reads a relay below `RELAY_PHONE_GROUP_VERSION` as one without
      the group routes.
 - **After merge:** close **#79** (peer Macs, replaced); **#93** (MCP on
@@ -60,45 +75,22 @@ carry it.
 - Nothing runs in the background; the throwaway servers' data is in
   `/tmp/fid-a`, `/tmp/fid-b`, `/tmp/fid-relay` (disposable).
 
-## Security posture (2026-10-18)
+## Security posture (2026-10-18, after the pass)
 
-Holds:
-- End to end: Ed25519 identities, X25519 + AES-GCM per channel; the
-  relay is blind and cannot invent a pair (`/pair/mutual` needs both
-  signatures).
-- Pairing: proof from the QR secret, six-character code with
-  `PAIR_CODE_ATTEMPTS`, single-use, expiring; a code tried while its
-  device is offline stays good.
-- One literal allowlist for every member (canonical string, restricted
-  segments); IDE, terminals, auth, remote never on it.
-  `x-orbital-device` only restricts (never forwarded, no `remote_*`).
-- No chaining: hub, `ServingHalf`, `DeviceWatcher`, merged lists, a new
-  `machine` event withheld from every peer.
-- Image fallback: sha256 of the bytes = the ref, type by extension,
-  `nosniff`. CORS only on signed pair routes.
-- A removed device cannot re-add itself directly: a member refuses a
-  roster entry in which the sender raises its own epoch, and a
-  self-added higher epoch for a device it removed.
+Holds, besides what held before (end-to-end crypto, a blind relay that
+cannot invent pairs, the pairing proof and code limits, one literal
+allowlist, the restricting device header, no chaining): only the
+primary's signature changes membership; a removed or left device has
+nothing to sign with and is served nothing; old foundings and versions
+are refused; a group is adopted only through a ceremony; member ids are
+encoded in every web path and cannot claim another device's session; a
+member's 401 cannot log the window out; downloads are bounded; the relay
+bounds mutual halves and cannot wipe a grouped phone.
 
-Not bulletproof, knowingly:
-- **The roster is unsigned.** Three edge cases of the rule remain
-  (`docs/fixes/device-group-federation-edges.md` → Roster rule). The
-  real fix is signed roster entries (the adder signs) — a future ADR.
-- **Trust is group-wide by design**: a paired device's kind and whether
-  it links are its own word; any member may run a session with
-  `bypassPermissions` or set `claude_executable_path` on another
-  (spec § 6, ADR `every-member-reaches-one-literal-allowlist`).
-- **A stolen device with its key** acts until removed; a removal reaches
-  a sleeping member late.
-- **The relay** sees metadata (pairs, presence, message sizes) and can
-  deny service.
-- **At rest**: other members' session snapshots are in SQLite,
-  unencrypted, like the rest of Orbital's data.
-
-Suggested next step: one `review-security` run on Opus with an
-attacker's brief (a stolen phone with its key; a malicious member; a
-malicious relay; a web page in the WebView's origin) over PR #97, then
-decide on signed roster entries.
+Knowingly left: a member asleep at a removal links with the removed
+device until a newer version reaches it; a stolen, unlocked primary
+controls the group; group-wide trust for allowlisted routes; relay
+metadata and denial of service; snapshots at rest unencrypted.
 
 ## What is done
 
@@ -123,15 +115,15 @@ without plan documents, from task briefs. Open edges:
 - The relay is fixed while in a group (`ideas/move-a-group-to-another-relay`).
 - The roster never changes on the relay's word alone.
 - The pairing code is drawn only on a click.
-- A leaving device sends its roster with its own entry removed.
+- A leaving device sends a signed left notice and waits for one member to acknowledge it.
 - A request a channel injects carries `x-orbital-device`; it only ever
   restricts (never forwarded, no `remote_*` settings).
 - "Too old" between members is a non-phone whose hello names no
   `group` (a Mac from before groups); it is not federated.
 - Device chips live in the sidebar in both themes (the Desk has a
   sidebar; 50h's HUD chips are not built).
-- A joiner writes the device it joined with `describedAt: 0`, so that
-  device's own roster entry always wins.
+- One primary per group: only it adds, removes and dissolves; losing it
+  means founding again (handover is an idea).
 - A phone no member can reach is shown so (a card with Pair again),
   never wiped automatically.
 
@@ -159,7 +151,8 @@ without plan documents, from task briefs. Open edges:
 
 ## Next
 
-- **Before merge**: the security pass and the rest of "Where the work is".
+- **Before merge**: the rest of "Where the work is"; the phone screens
+  50i/50n in a browser.
 - **Part 4, the headless server** (spec § 11): `ORBITAL_HEADLESS=1`,
   kind `headless`, `orbital devices add|join|list|rename|remove`, the
   Linux fixes, a systemd unit and a runbook.
