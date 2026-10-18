@@ -415,6 +415,24 @@ describe('GroupMember merging a roster', () => {
     expect(one(phone.roster(), PHONE).kind).toBe('phone');
   });
 
+  it('a member a removal made invalid is pruned here, and its pair goes', () => {
+    // R, added by the Mac, added Y; this device paired with Y. The Mac removes R, never having seen Y.
+    const R = generateIdentity();
+    const Y = generateIdentity();
+    const [r, y] = [deviceId(R.publicKey), deviceId(Y.publicKey)];
+    const withR = describeMember(
+      addMember(roster(), { id: r, kind: 'desktop', name: 'r', os: 'macos', links: true }, MAC_KEY, 1), r,
+      { name: 'r', os: 'macos', links: true }, R, 1, 'desktop',
+    );
+    const withY = addMember(withR, { id: y, kind: 'desktop', name: 'y', os: 'macos', links: true }, R, 1);
+    const g = build({ roster: withY, paired: [row(MAC), row(y)] });
+    g.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', entries: removeMember(withR, r, MAC_KEY, 5) });
+    expect(g.roster().some((e) => e.id === y)).toBe(false);
+    expect(isLive(one(g.roster(), r))).toBe(false);
+    expect(g.paired.has(y)).toBe(false);
+    expect(g.forgotten).toContain(y);
+  });
+
   it('two members that keep a different entry for the sender do not trade rosters forever', () => {
     const g = build({ roster: roster(), paired: [row(MAC)] });
     g.group.setRoster(g.roster());

@@ -31,7 +31,10 @@ export class RosterStore {
       tx.delete(groupMembers).run();
       for (const e of entries) {
         tx.insert(groupMembers).values({
-          ...e, removedBy: e.removedBy ?? null, removedAt: e.removedAt ?? null, removedSig: e.removedSig ?? null,
+          ...e, endorsedBy: e.endorsedBy ?? null, endorsedEpoch: e.endorsedEpoch ?? null, endorsedSig: e.endorsedSig ?? null,
+          removedBy: e.removedBy ?? null, removerEpoch: e.removerEpoch ?? null, removedAt: e.removedAt ?? null,
+          removedSig: e.removedSig ?? null, removalEndorsedBy: e.removalEndorsedBy ?? null,
+          removalEndorsedEpoch: e.removalEndorsedEpoch ?? null, removalEndorsedSig: e.removalEndorsedSig ?? null,
         }).run();
       }
     });
@@ -39,10 +42,25 @@ export class RosterStore {
   }
 }
 
-/** A removal is all three columns or none; a row with only some reads as live. */
+/**
+ * Each optional part is all its columns or none: a row with only some of a
+ * removal reads as live, with only some of an endorsement as not endorsed,
+ * and a removal's endorsement goes with its removal.
+ */
 function fromRow(row: typeof groupMembers.$inferSelect): RosterEntry {
-  const { removedBy, removedAt, removedSig, ...rest } = row;
-  return removedBy !== null && removedAt !== null && removedSig !== null ? { ...rest, removedBy, removedAt, removedSig } : rest;
+  const {
+    endorsedBy, endorsedEpoch, endorsedSig, removedBy, removerEpoch, removedAt, removedSig, removalEndorsedBy,
+    removalEndorsedEpoch, removalEndorsedSig, ...rest
+  } = row;
+  let entry: RosterEntry = rest;
+  if (endorsedBy !== null && endorsedEpoch !== null && endorsedSig !== null) entry = { ...entry, endorsedBy, endorsedEpoch, endorsedSig };
+  if (removedBy !== null && removerEpoch !== null && removedAt !== null && removedSig !== null) {
+    entry = { ...entry, removedBy, removerEpoch, removedAt, removedSig };
+    if (removalEndorsedBy !== null && removalEndorsedEpoch !== null && removalEndorsedSig !== null) {
+      entry = { ...entry, removalEndorsedBy, removalEndorsedEpoch, removalEndorsedSig };
+    }
+  }
+  return entry;
 }
 
 /** Pairs revoked here and not yet answered by the relay; kept across restarts. */

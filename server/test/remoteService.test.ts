@@ -17,7 +17,7 @@ import { openDb, type OrbitalDb } from '../src/db/database.js';
 import { createImageStore } from '../src/images/store.js';
 import { DeviceStore } from '../src/remote/devices.js';
 import { RosterStore } from '../src/remote/rosterStore.js';
-import { IDENTITY_FILE } from '../src/remote/identity.js';
+import { IDENTITY_FILE, readIdentity } from '../src/remote/identity.js';
 import { RelayClient } from '../src/remote/relayClient.js';
 import { PAIR_CODE_ATTEMPTS, UNKNOWN_PHONE_NAME } from '@orbital/shared/remote/ceremony';
 import { MUTUAL_RETRY_MS } from '@orbital/shared/remote/group';
@@ -90,7 +90,7 @@ function build(
     return res;
   };
   service.start();
-  return { service, fake, hub, db, devices, settings, advance: (ms: number) => { now += ms; } };
+  return { service, fake, hub, db, dir, devices, settings, advance: (ms: number) => { now += ms; } };
 }
 
 const phoneId = () => deviceId(generateIdentity().publicKey);
@@ -122,12 +122,13 @@ describe('RemoteService roster', () => {
   it('a roster that cannot be written here is still answered with this side\'s own', () => {
     const peer = generateIdentity();
     const id = deviceId(peer.publicKey);
-    const { fake, service, db } = build((d) => d.add({
+    const { fake, service, db, dir } = build((d) => d.add({
       id, name: 'vps', platform: 'linux', kind: 'desktop', pairedAt: 1, notifications: parseNotificationSettings({}),
     }));
-    // A member the peer added, which the peer's empty roster lacks.
+    // The peer, added here, and a member the peer added, which the peer's empty roster lacks.
     const store = new RosterStore(db);
-    store.replace([...store.list(), ...addMember([], { id: phoneId(), kind: 'desktop', name: 'x', os: 'linux', links: true }, peer, 1)]);
+    const withPeer = addMember(store.list(), { id, kind: 'desktop', name: 'vps', os: 'linux', links: true }, readIdentity(dir)!, 1);
+    store.replace(addMember(withPeer, { id: phoneId(), kind: 'desktop', name: 'x', os: 'linux', links: true }, peer, 1));
     const hs = startHandshake(peer, publicKeyOf(service.status().macId!)!, 'initiator');
     fake.emit('data', encodeFrame({ peer: peer.publicKey, flags: 0, wake: ZERO_WAKE, body: hs.message! }));
     const cipher = hs.complete(decodeFrame(fake.sent[0])!.body)!;

@@ -143,7 +143,7 @@ describe('parseChannelMessage', () => {
     expect(parseChannelMessage({ t: 'roster_digest', digest: 'ab' })?.kind).toBe('group');
     expect(parseChannelMessage({ t: 'removed' })).toBeNull();
     const one = {
-      id: 'A', kind: 'desktop', name: 'a', os: 'macos', links: true, epoch: 1, addedBy: 'B', addedAt: 1, addedSig: 's',
+      id: 'A', kind: 'desktop', name: 'a', os: 'macos', links: true, epoch: 1, addedBy: 'B', addedEpoch: 1, addedAt: 1, addedSig: 's',
       describedAt: 1, describedBy: 'A', describedSig: 's',
     };
     expect(parseChannelMessage({ t: 'roster', entries: [one] })?.kind).toBe('group');

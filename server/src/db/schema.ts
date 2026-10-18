@@ -520,16 +520,27 @@ export const groupMembers = sqliteTable('group_members', {
   links: integer('links', { mode: 'boolean' }).notNull(),
   epoch: integer('epoch').notNull(),
   addedBy: text('added_by').notNull(),
+  /** `added_by`'s own epoch when it signed. */
+  addedEpoch: integer('added_epoch').notNull(),
   addedAt: integer('added_at').notNull(),
   /** `added_by`'s signature over the membership (ADR roster-entries-are-signed). */
   addedSig: text('added_sig').notNull(),
+  /** A member that stands behind the membership once `added_by` is removed; all three or none. */
+  endorsedBy: text('endorsed_by'),
+  endorsedEpoch: integer('endorsed_epoch'),
+  endorsedSig: text('endorsed_sig'),
   describedAt: integer('described_at').notNull(),
   /** The device itself, or its adder until it describes itself. */
   describedBy: text('described_by').notNull(),
   describedSig: text('described_sig').notNull(),
   removedBy: text('removed_by'),
+  removerEpoch: integer('remover_epoch'),
   removedAt: integer('removed_at'),
   removedSig: text('removed_sig'),
+  /** A member that stands behind the removal once `removed_by` is removed; all three or none. */
+  removalEndorsedBy: text('removal_endorsed_by'),
+  removalEndorsedEpoch: integer('removal_endorsed_epoch'),
+  removalEndorsedSig: text('removal_endorsed_sig'),
 });
 
 /**

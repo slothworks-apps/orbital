@@ -232,6 +232,13 @@
       "when": 1792304571348,
       "tag": "0032_signed_roster",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1792308735100,
+      "tag": "0033_roster_endorsements",
+      "breakpoints": true
     }
   ]
 }

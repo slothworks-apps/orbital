@@ -21,7 +21,7 @@ const B = 'member-b';
 function entry(id: string, patch: Partial<RosterEntry> = {}): RosterEntry {
   return {
     id, kind: 'desktop', name: id === SELF ? 'studio' : 'laptop', os: 'macos', links: true,
-    epoch: 1, addedBy: SELF, addedAt: 1, addedSig: '', describedAt: 1, describedBy: id, describedSig: '', ...patch,
+    epoch: 1, addedBy: SELF, addedEpoch: 1, addedAt: 1, addedSig: '', describedAt: 1, describedBy: id, describedSig: '', ...patch,
   };
 }
 

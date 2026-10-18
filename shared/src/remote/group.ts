@@ -14,8 +14,8 @@ import type { GroupMessage, HelloMessage } from './messages.js';
 import type { RelayAction } from './relayApi.js';
 import type { LinkStatus } from './relayLink.js';
 import {
-  ROSTER_MAX_ADDED_BY, ROSTER_MAX_ENTRIES, addMember, describeMember, foundingEntry, hasDuplicateIds, isFounding, isLive,
-  mergeRoster, removeMember, rosterDigest, rosterFields, shareable, type RosterEntry, type RosterFields,
+  ROSTER_MAX_ENTRIES, addMember, describeMember, foundingEntry, hasDuplicateIds, isFounding, isLive, mayAdd, mergeRoster,
+  removeMember, rosterDigest, rosterFields, shareable, type RosterEntry, type RosterFields,
 } from './roster.js';
 
 /**
@@ -383,11 +383,15 @@ export class GroupMember {
   /**
    * Every entry this write removed: this device's own makes it leave the
    * group; another's drops that member here. An entry first heard of as
-   * removed is dropped only when this device is paired with it.
+   * removed is dropped only when this device is paired with it. A live
+   * member the write pruned (a removal froze the membership it stood on)
+   * is dropped too when it is paired here: what is not in the roster is not
+   * linked with.
    */
   private applyRemovals(before: Map<string, RosterEntry>): void {
     const self = this.host.knownId();
-    const removed = this.storage.roster.list().filter((e) => {
+    const now = this.storage.roster.list();
+    const removed = now.filter((e) => {
       const was = before.get(e.id);
       return !isLive(e) && (was === undefined || isLive(was));
     });
@@ -397,6 +401,10 @@ export class GroupMember {
     }
     for (const e of removed) {
       if (before.has(e.id) || this.storage.paired.get(e.id)) this.dropMember(e.id);
+    }
+    const kept = new Set(now.map((e) => e.id));
+    for (const [id, was] of before) {
+      if (id !== self && isLive(was) && !kept.has(id) && this.storage.paired.get(id)) this.dropMember(id);
     }
   }
 
@@ -620,17 +628,14 @@ export class GroupMember {
   }
 
   /**
-   * Whether this device can add `id`: room for it (`ROSTER_MAX_ENTRIES`,
-   * unless the roster holds it already) and this device has not added
-   * `ROSTER_MAX_ADDED_BY` devices already. A roster that cannot be read takes none.
+   * Whether this device can add `id` (`mayAdd`: room for it, and this device
+   * has not signed `ROSTER_MAX_ADDED_BY` memberships at its epoch). A roster
+   * that cannot be read takes none.
    */
   canAdd(id: string): boolean {
     const self = this.ownId;
     try {
-      const entries = this.storage.roster.list();
-      const room = entries.some((e) => e.id === id) || entries.length < ROSTER_MAX_ENTRIES;
-      const mine = entries.filter((e) => e.addedBy === self && e.id !== id && e.id !== self).length;
-      return self !== null && room && mine < ROSTER_MAX_ADDED_BY;
+      return self !== null && mayAdd(this.storage.roster.list(), id, self);
     } catch {
       return false;
     }
@@ -658,8 +663,8 @@ export class GroupMember {
 
   /**
    * A device paired here that the roster cannot take (it is full, or this
-   * device added its quota): its pair goes, here and at the relay, rather
-   * than stay half added.
+   * device signed `ROSTER_MAX_ADDED_BY` memberships at its epoch): its pair
+   * goes, here and at the relay, rather than stay half added.
    */
   private unpairUnadded(id: string): void {
     this.host.log(`dropped the pair with ${id.slice(0, 8)}: the group can't take it`);
@@ -740,7 +745,8 @@ export class GroupMember {
       return;
     }
     this.tryRoster('merge a roster', () => {
-      this.setRoster(mergeRoster(this.storage.roster.list(), msg.entries, { from, self: this.ownId }), from);
+      const self = this.ownId;
+      if (self !== null) this.setRoster(mergeRoster(this.storage.roster.list(), msg.entries, { self }), from);
     });
     // A device paired here whose roster does not name it: the device whose code this one
     // redeemed, while it was alone. This device adds it, as the pairing named it.
@@ -760,7 +766,7 @@ export class GroupMember {
     // entry (one the other does not take) do not trade rosters forever.
     this.tryRoster('answer a roster', () => {
       const local = shareable(this.storage.roster.list());
-      const theirs = mergeRoster(msg.entries, local, { from: this.ownId, self: from, trusted: true });
+      const theirs = mergeRoster(msg.entries, local, { self: from, trusted: true });
       if (rosterDigest(theirs) !== rosterDigest(msg.entries)) channel.sendGroup({ t: 'roster', entries: local });
     });
   }

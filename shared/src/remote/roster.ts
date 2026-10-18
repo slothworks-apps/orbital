@@ -3,10 +3,12 @@
  * keeps all of it and they converge on it by merging. Every entry is signed
  * (ADR roster-entries-are-signed): its membership by the member that added
  * it, its description by the device itself (or, until the device describes
- * itself, by its adder), its removal by the member that removed it. A merge
- * takes only entries whose signatures hold, signed by devices the roster
- * knows, so a member can add and remove devices but never change how
- * another device reads. No I/O: the server stores it, the channel carries it.
+ * itself, by its adder), its removal by the member that removed it. Each
+ * write names its signer's epoch, and a removal freezes what the removed
+ * device signed at it: only what its remover endorsed stays. Which entries
+ * stand is computed from the merged roster alone (`decide`), so members that
+ * hold the same entries reach the same answer. No I/O: the server stores it,
+ * the channel carries it.
  */
 import { z } from 'zod';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -15,10 +17,10 @@ import { deviceId, publicKeyOf, sign, signatureOf, toBase64Url, verify, type Ide
 import { PAIR_NAME_MAX_CHARS, PAIR_PLATFORM_MAX_CHARS } from './relayApi.js';
 
 /**
- * The most entries a roster holds, removed ones included: a merge takes no
- * new id past it, so every roster a member sends fits the frame schema
+ * The most entries a roster holds, removed ones included: a merge keeps no
+ * more, so every roster a member sends fits the frame schema
  * (`RosterSchema`) and one channel frame, even with every field at its
- * longest and every character escaped.
+ * longest, both endorsements present and every character escaped.
  */
 export const ROSTER_MAX_ENTRIES = 128;
 
@@ -31,10 +33,10 @@ export const ROSTER_MAX_ENTRIES = 128;
 export const ROSTER_MAX_EPOCH = 2 ** 31;
 
 /**
- * The most entries one device may have added, live or removed, ever: a
- * merge takes no membership past an adder's quota, and this device adds no
- * device past its own. One member, or a key it added, cannot fill the
- * roster to `ROSTER_MAX_ENTRIES` alone.
+ * The most memberships one device signs at one of its epochs, and the most
+ * removals: what a removal of that device must endorse stays bounded, and
+ * one key cannot fill the roster alone. Past it a merge keeps the first by
+ * id and `addMember` and `removeMember` write nothing.
  */
 export const ROSTER_MAX_ADDED_BY = 16;
 
@@ -52,6 +54,8 @@ const SignatureSchema = z.string().max(86);
 const IdSchema = z.string().max(43);
 /** A time in epoch ms. */
 const TimeSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
+/** Read within the schema's bound so one entry past `ROSTER_MAX_EPOCH` drops alone, not the whole roster. */
+const EpochSchema = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 
 export const RosterEntrySchema = z.object({
   id: IdSchema,
@@ -61,27 +65,42 @@ export const RosterEntrySchema = z.object({
   os: z.string().max(ROSTER_KIND_MAX_CHARS),
   /** The device links with other members: its hello named the `group` capability. */
   links: z.boolean(),
-  /** Read within the schema's bound so one entry past `ROSTER_MAX_EPOCH` drops alone, not the whole roster. */
-  epoch: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  epoch: EpochSchema,
   addedBy: IdSchema,
+  /** `addedBy`'s own epoch when it signed. */
+  addedEpoch: EpochSchema,
   addedAt: TimeSchema,
   /** `addedBy`'s signature over `membershipBytes`. */
   addedSig: SignatureSchema,
+  /** A member that stands behind the membership once `addedBy` is removed (`endorsementBytes` over `addedSig`). */
+  endorsedBy: IdSchema.optional(),
+  endorsedEpoch: EpochSchema.optional(),
+  endorsedSig: SignatureSchema.optional(),
   describedAt: TimeSchema,
   /** Who signed the description: the device itself, or its adder until the device describes itself. */
   describedBy: IdSchema,
   /** `describedBy`'s signature over `descriptionBytes`. */
   describedSig: SignatureSchema,
   removedBy: IdSchema.optional(),
+  /** `removedBy`'s own epoch when it signed. */
+  removerEpoch: EpochSchema.optional(),
   removedAt: TimeSchema.optional(),
   /** `removedBy`'s signature over `removalBytes`. */
   removedSig: SignatureSchema.optional(),
+  /** A member that stands behind the removal once `removedBy` is removed (`endorsementBytes` over `removedSig`). */
+  removalEndorsedBy: IdSchema.optional(),
+  removalEndorsedEpoch: EpochSchema.optional(),
+  removalEndorsedSig: SignatureSchema.optional(),
 });
 export type RosterEntry = z.infer<typeof RosterEntrySchema>;
 export const RosterSchema = z.array(RosterEntrySchema).max(ROSTER_MAX_ENTRIES);
 
-/** An entry without its signatures: what Settings and the status show. */
-export type RosterFields = Omit<RosterEntry, 'addedSig' | 'describedBy' | 'describedSig' | 'removedSig'>;
+type Signatures =
+  | 'addedEpoch' | 'addedSig' | 'endorsedBy' | 'endorsedEpoch' | 'endorsedSig' | 'describedBy' | 'describedSig'
+  | 'removerEpoch' | 'removedSig' | 'removalEndorsedBy' | 'removalEndorsedEpoch' | 'removalEndorsedSig';
+
+/** An entry without its signatures, signer epochs and endorsements: what Settings and the status show. */
+export type RosterFields = Omit<RosterEntry, Signatures>;
 
 /** What a device's description says. */
 export type RosterDescription = Pick<RosterEntry, 'name' | 'os' | 'links'>;
@@ -106,15 +125,22 @@ export function shareable(entries: RosterEntry[]): RosterEntry[] {
 
 /** The signatures stripped off, for a status. */
 export function rosterFields(e: RosterEntry): RosterFields {
-  const { addedSig: _a, describedBy: _b, describedSig: _c, removedSig: _d, ...fields } = e;
+  const {
+    addedEpoch: _a, addedSig: _b, endorsedBy: _c, endorsedEpoch: _d, endorsedSig: _e, describedBy: _f, describedSig: _g,
+    removerEpoch: _h, removedSig: _i, removalEndorsedBy: _j, removalEndorsedEpoch: _k, removalEndorsedSig: _l, ...fields
+  } = e;
   return fields;
 }
 
 const encoder = new TextEncoder();
 
 /** The bytes `addedBy` signs: a fixed-order array, domain-separated by its tag. */
-export function membershipBytes(e: Pick<RosterEntry, 'id' | 'kind' | 'epoch' | 'addedBy' | 'addedAt'>): Uint8Array {
-  return encoder.encode(JSON.stringify(['orbital-roster-membership-v1', e.id, e.kind, e.epoch, e.addedBy, e.addedAt]));
+export function membershipBytes(
+  e: Pick<RosterEntry, 'id' | 'kind' | 'epoch' | 'addedBy' | 'addedEpoch' | 'addedAt'>,
+): Uint8Array {
+  return encoder.encode(JSON.stringify([
+    'orbital-roster-membership-v2', e.id, e.kind, e.epoch, e.addedBy, e.addedEpoch, e.addedAt,
+  ]));
 }
 
 /**
@@ -132,8 +158,17 @@ export function descriptionBytes(
 }
 
 /** The bytes `removedBy` signs. */
-export function removalBytes(e: { id: string; epoch: number; removedBy: string; removedAt: number }): Uint8Array {
-  return encoder.encode(JSON.stringify(['orbital-roster-removal-v1', e.id, e.epoch, e.removedBy, e.removedAt]));
+export function removalBytes(
+  e: { id: string; epoch: number; removedBy: string; removerEpoch: number; removedAt: number },
+): Uint8Array {
+  return encoder.encode(JSON.stringify([
+    'orbital-roster-removal-v2', e.id, e.epoch, e.removedBy, e.removerEpoch, e.removedAt,
+  ]));
+}
+
+/** The bytes an endorser signs: the write's own signature, and the endorser at its epoch. */
+export function endorsementBytes(writeSig: string, by: string, epoch: number): Uint8Array {
+  return encoder.encode(JSON.stringify(['orbital-roster-endorsement-v1', writeSig, by, epoch]));
 }
 
 function signed(signer: Identity, bytes: Uint8Array): string {
@@ -146,60 +181,57 @@ function checks(id: string, bytes: Uint8Array, signature: string): boolean {
   return key !== null && sig !== null && verify(key, bytes, sig);
 }
 
+/** How many of `parts` are set: a part of an entry is whole or absent. */
+const present = (...parts: unknown[]) => parts.filter((x) => x !== undefined).length;
+
+const inEpochs = (n: number | undefined) => n === undefined || n <= ROSTER_MAX_EPOCH;
+
 /**
  * Whether an entry from another member may take part in a merge: an epoch
- * from 1 to `ROSTER_MAX_EPOCH`, added by a device other than itself,
- * described by itself or its adder, removed wholly or not at all, and every
- * signature good against the id that made it.
+ * from 1 to `ROSTER_MAX_EPOCH` (and every signer epoch within it), added by
+ * a device other than itself, described by itself or its adder, each part
+ * whole or absent, an endorsement only by someone other than the write's
+ * signer, and every signature good against the id that made it. Whether
+ * the entry stands is the merge's question (`decide`), not this one's.
  */
 export function verifyEntry(e: RosterEntry): boolean {
   if (e.epoch < 1 || e.epoch > ROSTER_MAX_EPOCH || isFounding(e)) return false;
+  if (![e.addedEpoch, e.endorsedEpoch, e.removerEpoch, e.removalEndorsedEpoch].every(inEpochs)) return false;
   if (e.describedBy !== e.id && e.describedBy !== e.addedBy) return false;
-  const removal = [e.removedBy, e.removedAt, e.removedSig].filter((x) => x !== undefined).length;
-  if (removal !== 0 && removal !== 3) return false;
+  const endorsed = present(e.endorsedBy, e.endorsedEpoch, e.endorsedSig);
+  const removal = present(e.removedBy, e.removerEpoch, e.removedAt, e.removedSig);
+  const removalEndorsed = present(e.removalEndorsedBy, e.removalEndorsedEpoch, e.removalEndorsedSig);
+  if ((endorsed !== 0 && endorsed !== 3) || (removal !== 0 && removal !== 4)) return false;
+  if ((removalEndorsed !== 0 && removalEndorsed !== 3) || (removalEndorsed === 3 && removal === 0)) return false;
+  if (e.endorsedBy !== undefined && e.endorsedBy === e.addedBy) return false;
+  if (e.removalEndorsedBy !== undefined && e.removalEndorsedBy === e.removedBy) return false;
   if (!checks(e.addedBy, membershipBytes(e), e.addedSig)) return false;
   if (!checks(e.describedBy, descriptionBytes(e), e.describedSig)) return false;
-  return removal === 0 || checks(e.removedBy!, removalBytes({ ...e, removedBy: e.removedBy!, removedAt: e.removedAt! }), e.removedSig!);
+  if (endorsed && !checks(e.endorsedBy!, endorsementBytes(e.addedSig, e.endorsedBy!, e.endorsedEpoch!), e.endorsedSig!)) {
+    return false;
+  }
+  if (removal === 0) return true;
+  const removed = { id: e.id, epoch: e.epoch, removedBy: e.removedBy!, removerEpoch: e.removerEpoch!, removedAt: e.removedAt! };
+  if (!checks(e.removedBy!, removalBytes(removed), e.removedSig!)) return false;
+  return removalEndorsed === 0 || checks(
+    e.removalEndorsedBy!, endorsementBytes(e.removedSig!, e.removalEndorsedBy!, e.removalEndorsedEpoch!), e.removalEndorsedSig!,
+  );
 }
 
 /** The keys in a fixed order, so the same entry always reads the same. */
 function canonical(e: RosterEntry): string {
   return JSON.stringify([
-    e.id, e.kind, e.name, e.os, e.links, e.epoch, e.addedBy, e.addedAt, e.addedSig, e.describedAt, e.describedBy,
-    e.describedSig, e.removedBy ?? null, e.removedAt ?? null, e.removedSig ?? null,
+    e.id, e.kind, e.name, e.os, e.links, e.epoch, e.addedBy, e.addedEpoch, e.addedAt, e.addedSig,
+    e.endorsedBy ?? null, e.endorsedEpoch ?? null, e.endorsedSig ?? null, e.describedAt, e.describedBy, e.describedSig,
+    e.removedBy ?? null, e.removerEpoch ?? null, e.removedAt ?? null, e.removedSig ?? null,
+    e.removalEndorsedBy ?? null, e.removalEndorsedEpoch ?? null, e.removalEndorsedSig ?? null,
   ]);
 }
 
-const membershipKey = (e: RosterEntry) => JSON.stringify([e.kind, e.addedBy, e.addedAt, e.addedSig]);
+const membershipKey = (e: RosterEntry) => JSON.stringify([e.kind, e.addedBy, e.addedEpoch, e.addedAt, e.addedSig]);
 const descriptionKey = (e: RosterEntry) => JSON.stringify([e.name, e.os, e.links, e.describedAt, e.describedBy, e.describedSig]);
-const removalKey = (e: RosterEntry) => JSON.stringify([e.removedBy ?? null, e.removedAt ?? null, e.removedSig ?? null]);
-
-/**
- * Two signed entries of one id at one epoch, as one, the same whichever
- * comes first. One membership: the better description of the two (the
- * device's own over its adder's, then the later, then the larger). Two
- * memberships (two members added the device at one epoch): the one the
- * device described itself under, then the larger, with its own
- * description — a description fits only its membership. A removal over
- * none, then the larger.
- */
-function combine(a: RosterEntry, b: RosterEntry): RosterEntry {
-  const own = (e: RosterEntry) => (e.describedBy === e.id ? 1 : 0);
-  let described: RosterEntry;
-  if (membershipKey(a) === membershipKey(b)) {
-    described = own(a) !== own(b) ? (own(a) > own(b) ? a : b)
-      : a.describedAt !== b.describedAt ? (a.describedAt > b.describedAt ? a : b)
-        : descriptionKey(a) >= descriptionKey(b) ? a : b;
-  } else {
-    described = own(a) !== own(b) ? (own(a) > own(b) ? a : b) : membershipKey(a) >= membershipKey(b) ? a : b;
-  }
-  const removals = [a, b].filter((e) => !isLive(e));
-  const removed = removals.length === 0 ? null : removals.reduce((x, y) => (removalKey(x) >= removalKey(y) ? x : y));
-  const { removedBy: _by, removedAt: _at, removedSig: _sig, ...out } = described;
-  return removed
-    ? { ...out, removedBy: removed.removedBy, removedAt: removed.removedAt, removedSig: removed.removedSig }
-    : out;
-}
+const endorsementKey = (e: RosterEntry) => JSON.stringify([e.endorsedBy, e.endorsedEpoch, e.endorsedSig]);
+const removalKey = (e: RosterEntry) => JSON.stringify([e.removedBy, e.removerEpoch, e.removedAt, e.removedSig]);
 
 /**
  * Entries whose signatures were checked here, by their canonical form: a
@@ -221,36 +253,340 @@ function verifiedOnce(e: RosterEntry): boolean {
   return true;
 }
 
-/**
- * What stands for an id once `incoming` arrived, or null when it is not
- * taken: a founding entry gives way to any membership; a lower epoch is
- * ignored; one epoch is combined part by part. A higher epoch replaces a
- * live entry only when it says the device is removed, or the device
- * described itself under it (no member re-adds a live device behind its
- * back), and replaces a removed entry whenever it is signed.
- */
-function take(here: RosterEntry, incoming: RosterEntry): RosterEntry | null {
-  if (isFounding(here)) return incoming;
-  if (incoming.epoch < here.epoch) return null;
-  if (incoming.epoch === here.epoch) return combine(here, incoming);
-  if (isLive(here) && isLive(incoming) && incoming.describedBy !== incoming.id) return null;
-  return incoming;
-}
-
 const byId = (x: RosterEntry, y: RosterEntry) => (x.id < y.id ? -1 : x.id > y.id ? 1 : x.epoch - y.epoch);
 
-/** How many entries `by` added in `entries`, founding ones aside, `except` one id. */
-function addedBy(entries: Iterable<RosterEntry>, by: string, except: string): number {
-  let n = 0;
-  for (const e of entries) if (e.addedBy === by && e.id !== except && !isFounding(e)) n++;
-  return n;
+/**
+ * Every entry known for each id (from this device's roster first, then
+ * from the one that arrived), and the devices this device takes as valid
+ * outright: itself, and the device that signed its membership, upward along
+ * that chain.
+ */
+class Pool {
+  readonly byId = new Map<string, number[]>();
+  readonly anchors = new Set<string>();
+  readonly cands: RosterEntry[];
+  readonly self: string;
+
+  constructor(cands: RosterEntry[], self: string) {
+    this.cands = cands;
+    this.self = self;
+    cands.forEach((c, i) => {
+      const list = this.byId.get(c.id);
+      if (list) list.push(i);
+      else this.byId.set(c.id, [i]);
+    });
+    this.anchors.add(self);
+    let next = this.ownMembership()?.addedBy;
+    while (next !== undefined && !this.anchors.has(next)) {
+      this.anchors.add(next);
+      const first = this.byId.get(next)?.[0];
+      const c = first === undefined ? undefined : cands[first];
+      next = c && !isFounding(c) ? c.addedBy : undefined;
+    }
+  }
+
+  /**
+   * The membership this device stands behind, read from the entries alone:
+   * any over its founding entry, a higher epoch over a live one only when
+   * either is removed or this device described itself under it, and at one
+   * epoch the one it described itself under.
+   */
+  private ownMembership(): RosterEntry | undefined {
+    const own = (this.byId.get(this.self) ?? []).map((i) => this.cands[i]).filter((c) => !isFounding(c));
+    if (own.length === 0) return undefined;
+    return own.reduce((a, b) => {
+      if (a.epoch !== b.epoch) {
+        const [lo, hi] = a.epoch < b.epoch ? [a, b] : [b, a];
+        return !isLive(lo) || !isLive(hi) || hi.describedBy === hi.id ? hi : lo;
+      }
+      return b.describedBy === b.id && a.describedBy !== a.id ? b : a;
+    });
+  }
+}
+
+/** One evaluation of the pool under an assumed set of facts (`decide`). */
+type Pass = {
+  valid: Set<string>;
+  /** Per candidate: its membership stands. */
+  membership: boolean[];
+  /** Its membership's endorsement stands. */
+  endorsed: boolean[];
+  /** Its removal stands. */
+  removal: boolean[];
+  /** Its removal's endorsement stands. */
+  removalEndorsed: boolean[];
+  /** The facts that come out true: `r<i>` a removal by another device stands, `s<i>` candidate i replaces lower epochs of its id. */
+  facts: Set<string>;
+};
+
+/**
+ * The epoch an id stands at, and the candidates there, given which
+ * candidates count and which higher epochs replace lower ones (`s<i>`): a
+ * founding entry gives way to any other, the lowest epoch stands unless one
+ * above it replaces it.
+ */
+function topOf(pool: Pool, id: string, counts: (i: number) => boolean, facts: Set<string>): number | null {
+  const all = (pool.byId.get(id) ?? []).filter(counts);
+  const real = all.filter((i) => !isFounding(pool.cands[i]));
+  const from = real.length > 0 ? real : all;
+  if (from.length === 0) return null;
+  const lowest = Math.min(...from.map((i) => pool.cands[i].epoch));
+  let top = lowest;
+  for (const i of from) {
+    const epoch = pool.cands[i].epoch;
+    if (epoch > top && facts.has(`s${i}`)) top = epoch;
+  }
+  return top;
+}
+
+/**
+ * Evaluates the pool with the removals and replacements in `facts` taken
+ * as standing. With them fixed, validity is a least fixpoint: from the
+ * anchors, a membership stands when its signer is valid and was live at the
+ * epoch it signed at, or its endorser was; its device is then valid.
+ *
+ * Live at an epoch: the signer stands at that epoch and no removal in
+ * `facts` names it there, setting aside the signer's own removal (a device
+ * that left still stands behind what it signed) and one signed by the
+ * write's subject (a device removing its own adder keeps its membership;
+ * a device removing the one that removed it is not undone by that removal).
+ * A signer at a higher epoch now was live at an older one only for writes
+ * about the device that added it again. Epoch 0 is a device alone: what it
+ * signed there stands while it is live at all.
+ */
+function pass(pool: Pool, facts: Set<string>): Pass {
+  const { cands, anchors } = pool;
+  const membership = cands.map(() => false);
+  const counts = (i: number) => membership[i] || anchors.has(cands[i].id);
+  const removedAt = (signer: string, epoch: number, subject: string) => (pool.byId.get(signer) ?? []).some((k) => (
+    cands[k].epoch === epoch && facts.has(`r${k}`) && cands[k].removedBy !== subject
+  ));
+  const live = (signer: string, epoch: number, subject: string): boolean => {
+    const top = topOf(pool, signer, counts, facts);
+    if (top === null) return false;
+    if (epoch === 0 || epoch === top) return !removedAt(signer, top, subject);
+    if (epoch > top) return false;
+    return (pool.byId.get(signer) ?? []).some((k) => counts(k) && cands[k].epoch === top && cands[k].addedBy === subject);
+  };
+  const valid = new Set(anchors);
+  const vouched = (by: string | undefined, epoch: number | undefined, subject: string) => (
+    by !== undefined && valid.has(by) && live(by, epoch!, subject)
+  );
+  for (let changed = true; changed;) {
+    changed = false;
+    cands.forEach((c, i) => {
+      if (membership[i] || !(vouched(c.addedBy, c.addedEpoch, c.id) || vouched(c.endorsedBy, c.endorsedEpoch, c.id))) return;
+      membership[i] = true;
+      valid.add(c.id);
+      changed = true;
+    });
+  }
+  const endorsed = cands.map((c) => vouched(c.endorsedBy, c.endorsedEpoch, c.id));
+  const removalEndorsed = cands.map((c) => vouched(c.removalEndorsedBy, c.removalEndorsedEpoch, c.id));
+  const removal = cands.map((c, i) => c.removedBy !== undefined
+    && (vouched(c.removedBy, c.removerEpoch, c.id) || removalEndorsed[i]));
+  const out = new Set<string>();
+  cands.forEach((c, i) => {
+    if (removal[i] && c.removedBy !== c.id) out.add(`r${i}`);
+    if (isFounding(c) || !counts(i)) return;
+    const lower = (pool.byId.get(c.id) ?? []).filter((j) => counts(j) && cands[j].epoch < c.epoch);
+    if (lower.length === 0) return;
+    // A higher epoch replaces a live one only when either is removed or the device described itself under it;
+    // one held here already (it comes first) stays — a lower epoch never replaces a higher one.
+    if (c.describedBy === c.id || removal[i] || lower.some((j) => removal[j] || isFounding(cands[j]) || j > i)) {
+      out.add(`s${i}`);
+    }
+  });
+  return { valid, membership, endorsed, removal, removalEndorsed, facts: out };
+}
+
+/** A pass with its facts settled: what `select` and the endorsing writers read. */
+type Decision = Pass & { settled: Set<string> };
+
+const union = (a: Set<string>, b: Set<string>) => new Set([...a, ...b]);
+const same = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every((x) => b.has(x));
+
+/**
+ * Which removals and replacements stand. Taking one as standing can make
+ * another fall, so they are settled as the well-founded answer: alternately
+ * what stands when every fact assumed so far stands (an over-estimate) and
+ * what stands under that (an under-estimate), until the two stop moving.
+ * Facts in neither are undecided: two removals each of which, standing,
+ * would make the other fall — a removed device that also removed a device
+ * its own remover depends on. Of those, a removal stands when the device it
+ * removes signed an undecided removal itself (it took part in the dispute),
+ * and the rest is settled again from there; what is still undecided does
+ * not stand.
+ */
+function decide(pool: Pool): Decision {
+  const forced = new Set<string>();
+  const step = (assumed: Set<string>) => union(pass(pool, union(assumed, forced)).facts, forced);
+  const limit = 2 * pool.cands.length + 4;
+  for (;;) {
+    let under = new Set(forced);
+    let over = step(under);
+    for (let round = 0; round < limit; round++) {
+      const next = step(over);
+      if (same(next, under)) break;
+      under = next;
+      over = step(under);
+    }
+    const undecided = [...over].filter((f) => !under.has(f) && f.startsWith('r')).map((f) => Number(f.slice(1)));
+    const disputed = (k: number) => {
+      const c = pool.cands[k];
+      return undecided.some((j) => {
+        const w = pool.cands[j];
+        return w.removedBy === c.id && (w.removerEpoch === c.epoch || w.removerEpoch === 0);
+      });
+    };
+    const more = undecided.filter((k) => !forced.has(`r${k}`) && disputed(k));
+    if (more.length === 0) {
+      const settled = union(under, forced);
+      const final = pass(pool, settled);
+      const removal = pool.cands.map((c, i) => (c.removedBy === c.id ? final.removal[i] : settled.has(`r${i}`)));
+      return { ...final, removal, settled };
+    }
+    for (const k of more) forced.add(`r${k}`);
+  }
+}
+
+const larger = <T>(xs: T[], key: (x: T) => string): T => xs.reduce((a, b) => (key(b) > key(a) ? b : a));
+
+/**
+ * One entry per valid id, from what stands: the epoch `topOf` gives; at it,
+ * a standing membership — the one the device described itself under, then
+ * the larger — with its best description (the device's own over its
+ * adder's, then the later, then the larger) and a standing endorsement; a
+ * standing removal, another device's over the device's own, then the
+ * larger, with its endorsement if that stands. An id with no standing
+ * membership is gone, unless this device takes it as valid outright.
+ */
+function select(pool: Pool, d: Decision): RosterEntry[] {
+  const { cands, anchors } = pool;
+  const counts = (i: number) => d.membership[i] || anchors.has(cands[i].id);
+  const out: RosterEntry[] = [];
+  for (const [id, all] of pool.byId) {
+    const top = topOf(pool, id, counts, d.settled);
+    if (top === null) continue;
+    const there = all.filter((i) => counts(i) && cands[i].epoch === top && (top === 0 || !isFounding(cands[i])));
+    const standing = there.filter((i) => d.membership[i]);
+    const from = standing.length > 0 ? standing : there;
+    const own = from.filter((i) => cands[i].describedBy === id);
+    const chosen = larger(own.length > 0 ? own : from, (i) => membershipKey(cands[i]));
+    const sameMembership = there.filter((i) => membershipKey(cands[i]) === membershipKey(cands[chosen]));
+    const described = sameMembership.reduce((a, b) => {
+      const [x, y] = [cands[a], cands[b]];
+      const ownX = x.describedBy === id ? 1 : 0;
+      const ownY = y.describedBy === id ? 1 : 0;
+      if (ownX !== ownY) return ownY > ownX ? b : a;
+      if (x.describedAt !== y.describedAt) return y.describedAt > x.describedAt ? b : a;
+      return descriptionKey(y) > descriptionKey(x) ? b : a;
+    });
+    const endorsements = sameMembership.filter((i) => d.endorsed[i]);
+    const endorsement = endorsements.length > 0 ? cands[larger(endorsements, (i) => endorsementKey(cands[i]))] : null;
+    const removals = all.filter((i) => cands[i].epoch === top && d.removal[i]);
+    const byOther = removals.filter((i) => cands[i].removedBy !== id);
+    const removal = removals.length > 0
+      ? cands[larger(byOther.length > 0 ? byOther : removals, (i) => removalKey(cands[i]))] : null;
+    const removalIndex = removal ? cands.indexOf(removal) : -1;
+    const {
+      endorsedBy: _a, endorsedEpoch: _b, endorsedSig: _c, removedBy: _d, removerEpoch: _e, removedAt: _f, removedSig: _g,
+      removalEndorsedBy: _h, removalEndorsedEpoch: _i, removalEndorsedSig: _j, ...base
+    } = cands[described];
+    let entry: RosterEntry = base;
+    if (endorsement) {
+      entry = { ...entry, endorsedBy: endorsement.endorsedBy, endorsedEpoch: endorsement.endorsedEpoch, endorsedSig: endorsement.endorsedSig };
+    }
+    if (removal) {
+      entry = {
+        ...entry, removedBy: removal.removedBy, removerEpoch: removal.removerEpoch, removedAt: removal.removedAt, removedSig: removal.removedSig,
+      };
+      if (removal.removalEndorsedBy !== undefined && d.removalEndorsed[removalIndex]) {
+        entry = {
+          ...entry, removalEndorsedBy: removal.removalEndorsedBy, removalEndorsedEpoch: removal.removalEndorsedEpoch,
+          removalEndorsedSig: removal.removalEndorsedSig,
+        };
+      }
+    }
+    out.push(entry);
+  }
+  return out;
+}
+
+/**
+ * The bounds on what stands: at most `ROSTER_MAX_ADDED_BY` memberships and
+ * as many removals per signer and epoch, and at most `ROSTER_MAX_ENTRIES`
+ * entries. Past a bound what stays is this device, then the ids in `prefer`
+ * (the roster held before the merge), then the entries fewest adds away from
+ * this device's own chain — so an adder stays ahead of what it added — then
+ * the first by id.
+ */
+function bounded(entries: RosterEntry[], self: string, prefer: Set<string>): RosterEntry[] {
+  const index = new Map(entries.map((e) => [e.id, e]));
+  const depths = new Map<string, number>();
+  const depth = (e: RosterEntry): number => {
+    const known = depths.get(e.id);
+    if (known !== undefined) return known;
+    depths.set(e.id, 0);
+    const adder = index.get(e.addedBy);
+    const d = e.id === self || isFounding(e) || !adder ? 0 : depth(adder) + 1;
+    depths.set(e.id, d);
+    return d;
+  };
+  const order = (x: RosterEntry, y: RosterEntry) => {
+    const rank = (e: RosterEntry) => (e.id === self ? 0 : prefer.has(e.id) ? 1 : 2);
+    return rank(x) - rank(y) || depth(x) - depth(y) || byId(x, y);
+  };
+  const sorted = [...entries].sort(order);
+  const adds = new Map<string, number>();
+  const removes = new Map<string, number>();
+  const out: RosterEntry[] = [];
+  for (const e of sorted) {
+    let entry = e;
+    if (!isFounding(e)) {
+      const key = JSON.stringify([e.addedBy, e.addedEpoch]);
+      const n = adds.get(key) ?? 0;
+      if (n >= ROSTER_MAX_ADDED_BY) continue;
+      adds.set(key, n + 1);
+    }
+    if (e.removedBy !== undefined && e.removedBy !== e.id) {
+      const key = JSON.stringify([e.removedBy, e.removerEpoch]);
+      const n = removes.get(key) ?? 0;
+      if (n >= ROSTER_MAX_ADDED_BY) {
+        const {
+          removedBy: _a, removerEpoch: _b, removedAt: _c, removedSig: _d, removalEndorsedBy: _e, removalEndorsedEpoch: _f,
+          removalEndorsedSig: _g, ...live
+        } = e;
+        entry = live;
+      } else {
+        removes.set(key, n + 1);
+      }
+    }
+    if (out.length >= ROSTER_MAX_ENTRIES) break;
+    out.push(entry);
+  }
+  return out.sort(byId);
+}
+
+/**
+ * What stands of `cands` (several may share an id), seen from `self`: one
+ * entry per valid id, within the bounds, settled again until nothing more
+ * falls — an entry dropped at a bound can take with it what only it vouched for.
+ */
+function settle(cands: RosterEntry[], self: string, prefer: Set<string>): RosterEntry[] {
+  let current = cands;
+  for (let round = 0; round < 8; round++) {
+    const pool = new Pool(current, self);
+    const next = bounded(select(pool, decide(pool)), self, prefer);
+    if (round > 0 && rosterKey(next) === rosterKey(current)) return next;
+    current = next;
+  }
+  return current;
 }
 
 export type MergeOptions = {
-  /** The device the roster came from: a signer this device trusts. */
-  from?: string | null;
-  /** This device: a signer it trusts. */
-  self?: string | null;
+  /** The device whose view this is: its own entry and the chain that added it anchor what is valid. */
+  self: string;
   /** `incoming` was written or checked here already: no signature is checked again. */
   trusted?: boolean;
 };
@@ -261,65 +597,17 @@ export function hasDuplicateIds(entries: RosterEntry[]): boolean {
 }
 
 /**
- * The devices whose signature on a new membership or a removal this device
- * takes from `incoming`, read from its roster before the merge: its live
- * members, itself and the sender, and every device the same roster says
- * one of them added (over and over). A device removed here vouches for
- * nothing, unless the roster re-adds it at a later epoch.
+ * `local` with what it takes of `incoming`, sorted by id. An incoming entry
+ * takes part only if its signatures hold (`verifyEntry`); then the two are
+ * weighed together (`decide`), and only valid entries and standing writes
+ * are kept (`select`, `bounded`): an entry a removal made invalid is pruned
+ * here, so what a removed key filled frees itself once the removal is known.
  */
-function trustedSigners(held: Map<string, RosterEntry>, incoming: RosterEntry[], opts: MergeOptions): Set<string> {
-  const trusted = new Set<string>();
-  for (const e of held.values()) if (isLive(e)) trusted.add(e.id);
-  if (opts.self) trusted.add(opts.self);
-  if (opts.from) trusted.add(opts.from);
-  for (let grew = true; grew;) {
-    grew = false;
-    for (const e of incoming) {
-      if (trusted.has(e.id) || !trusted.has(e.addedBy)) continue;
-      const here = held.get(e.id);
-      if (here && !isLive(here) && e.epoch <= here.epoch) continue;
-      trusted.add(e.id);
-      grew = true;
-    }
-  }
-  return trusted;
-}
-
-/**
- * `local` with what it takes of `incoming`, sorted by id. An entry is
- * taken only if its signatures hold (`verifyEntry`). A new membership (an
- * id not held, a higher epoch, or one over a founding entry) and any
- * removal are taken only when signed by a trusted signer
- * (`trustedSigners`) — except by a device that holds no roster yet (only
- * its founding entry: joining, or a stored roster dropped), which takes
- * every signed entry. A new membership past its adder's
- * `ROSTER_MAX_ADDED_BY` is not taken, nor a new id once the roster holds
- * `ROSTER_MAX_ENTRIES`, so a merge never outgrows what a frame carries; ids
- * known here still update, removals included. Per id, see `take`.
- */
-export function mergeRoster(local: RosterEntry[], incoming: RosterEntry[], opts: MergeOptions = {}): RosterEntry[] {
-  const held = new Map(local.map((e) => [e.id, e]));
-  const same = new Map(local.map((e) => [e.id, canonical(e)]));
-  const taken = incoming.filter((e) => same.get(e.id) !== canonical(e)
+export function mergeRoster(local: RosterEntry[], incoming: RosterEntry[], opts: MergeOptions): RosterEntry[] {
+  const held = new Map(local.map((e) => [e.id, canonical(e)]));
+  const taken = incoming.filter((e) => held.get(e.id) !== canonical(e)
     && (opts.trusted ? !isFounding(e) && e.epoch >= 1 && e.epoch <= ROSTER_MAX_EPOCH : verifiedOnce(e)));
-  const open = shareable(local).length === 0;
-  const signers = open ? null : trustedSigners(held, taken, opts);
-  const trusts = (id: string) => signers === null || signers.has(id);
-  for (const e of taken.sort(byId)) {
-    if (e.removedBy !== undefined && !trusts(e.removedBy)) continue;
-    const here = held.get(e.id);
-    if (!here || isFounding(here) || e.epoch > here.epoch) {
-      if (!trusts(e.addedBy)) continue;
-      if (addedBy(held.values(), e.addedBy, e.id) >= ROSTER_MAX_ADDED_BY) continue;
-    }
-    if (here) {
-      const next = take(here, e);
-      if (next) held.set(e.id, next);
-    } else if (held.size < ROSTER_MAX_ENTRIES) {
-      held.set(e.id, e);
-    }
-  }
-  return [...held.values()].sort(byId);
+  return settle([...local, ...taken], opts.self, new Set(local.map((e) => e.id)));
 }
 
 /** The whole roster as one string, founding entries included: what a store compares to tell a change. */
@@ -330,6 +618,60 @@ export function rosterKey(entries: RosterEntry[]): string {
 /** What two members compare: the hash of every entry they share. */
 export function rosterDigest(entries: RosterEntry[]): string {
   return bytesToHex(sha256(encoder.encode(rosterKey(shareable(entries)))));
+}
+
+/** `by`'s own epoch in `roster`: its entry's, 0 while it is alone or not in it. */
+function epochOf(roster: RosterEntry[], by: string): number {
+  return roster.find((e) => e.id === by)?.epoch ?? 0;
+}
+
+/**
+ * Whether `by` may add `id` to `roster`: not itself, room for it
+ * (`ROSTER_MAX_ENTRIES`, unless the roster holds it already), and fewer than
+ * `ROSTER_MAX_ADDED_BY` memberships signed by `by` at its current epoch.
+ */
+export function mayAdd(roster: RosterEntry[], id: string, by: string): boolean {
+  if (id === by) return false;
+  const room = roster.some((e) => e.id === id) || roster.length < ROSTER_MAX_ENTRIES;
+  const epoch = epochOf(roster, by);
+  const mine = roster.filter((e) => e.addedBy === by && e.addedEpoch === epoch && e.id !== id && !isFounding(e)).length;
+  return room && mine < ROSTER_MAX_ADDED_BY;
+}
+
+/**
+ * `roster` with `signer` (at `signerEpoch`) endorsing every write whose
+ * standing hangs on `device` at `epoch` (and at epoch 0 with `alone`): what
+ * it signed there without an endorsement of its own, and what it endorsed
+ * there. Only writes that stand now, and of memberships only those of a
+ * device that described itself under them: a membership the device never
+ * stood behind falls with its adder. A write about `signer` itself needs no
+ * endorsement (`pass`).
+ */
+function endorsing(
+  roster: RosterEntry[], device: string, epoch: number, alone: boolean, signer: Identity, signerEpoch: number,
+): RosterEntry[] {
+  const by = deviceId(signer.publicKey);
+  const d = decide(new Pool(roster, by));
+  const on = (who: string | undefined, at: number | undefined) => who === device && (at === epoch || (alone && at === 0));
+  return roster.map((e, i) => {
+    if (e.id === by || e.id === device) return e;
+    let out = e;
+    const endorsement = (sig: string) => ({ by, epoch: signerEpoch, sig: signed(signer, endorsementBytes(sig, by, signerEpoch)) });
+    const ownEndorsement = e.endorsedBy !== undefined && !on(e.endorsedBy, e.endorsedEpoch) && d.endorsed[i];
+    if (d.membership[i] && e.describedBy === e.id && e.addedBy !== by
+      && ((on(e.addedBy, e.addedEpoch) && !ownEndorsement) || on(e.endorsedBy, e.endorsedEpoch))) {
+      const x = endorsement(e.addedSig);
+      out = { ...out, endorsedBy: x.by, endorsedEpoch: x.epoch, endorsedSig: x.sig };
+    }
+    const ownRemovalEndorsement = e.removalEndorsedBy !== undefined && !on(e.removalEndorsedBy, e.removalEndorsedEpoch)
+      && d.removalEndorsed[i];
+    if (e.removedSig !== undefined && d.removal[i] && e.removedBy !== by
+      && ((on(e.removedBy, e.removerEpoch) && !ownRemovalEndorsement) || on(e.removalEndorsedBy, e.removalEndorsedEpoch))) {
+      const x = endorsement(e.removedSig);
+      out = { ...out, removalEndorsedBy: x.by, removalEndorsedEpoch: x.epoch, removalEndorsedSig: x.sig };
+    }
+    return out;
+  });
 }
 
 /** A device's description as `signer` signs it, at the entry's epoch. */
@@ -344,7 +686,7 @@ function describedAs(e: RosterEntry, about: RosterDescription, signer: Identity,
  */
 export function foundingEntry(signer: Identity, kind: string, about: RosterDescription, now: number): RosterEntry {
   const id = deviceId(signer.publicKey);
-  const membership = { id, kind, epoch: 0, addedBy: id, addedAt: now };
+  const membership = { id, kind, epoch: 0, addedBy: id, addedEpoch: 0, addedAt: now };
   return describedAs({
     ...membership, ...about, addedSig: signed(signer, membershipBytes(membership)), describedAt: now, describedBy: id,
     describedSig: '',
@@ -352,37 +694,51 @@ export function foundingEntry(signer: Identity, kind: string, about: RosterDescr
 }
 
 /**
- * A newcomer, or a removed device paired again, added by `signer`: the next
- * epoch after any entry known for it, described as the adder learned it at
- * the pairing. Unchanged when `signer` is that device, the next epoch
- * would pass `ROSTER_MAX_EPOCH`, a new id would pass `ROSTER_MAX_ENTRIES`,
- * or `signer` has added `ROSTER_MAX_ADDED_BY` devices already.
+ * A newcomer, or a removed device paired again, added by `signer` at its
+ * own epoch: the next epoch after any entry known for it, described as the
+ * adder learned it at the pairing. Adding a removed device again, the adder
+ * endorses what still stands of what the device signed at its old epoch
+ * (`endorsing`): that epoch is over once the new one is taken. Unchanged
+ * when `mayAdd` refuses, or the next epoch would pass `ROSTER_MAX_EPOCH`.
  */
 export function addMember(
   roster: RosterEntry[], device: Pick<RosterEntry, 'id' | 'kind'> & RosterDescription, signer: Identity, now: number,
 ): RosterEntry[] {
   const by = deviceId(signer.publicKey);
-  if (device.id === by) return roster;
+  if (!mayAdd(roster, device.id, by)) return roster;
   const known = roster.find((e) => e.id === device.id);
-  if (!known && roster.length >= ROSTER_MAX_ENTRIES) return roster;
-  if (addedBy(roster, by, device.id) >= ROSTER_MAX_ADDED_BY) return roster;
   const epoch = known && !isFounding(known) ? known.epoch + 1 : 1;
   if (epoch > ROSTER_MAX_EPOCH) return roster;
-  const membership = { id: device.id, kind: device.kind, epoch, addedBy: by, addedAt: now };
+  const addedEpoch = epochOf(roster, by);
+  const base = known && !isFounding(known) && !isLive(known)
+    ? endorsing(roster, known.id, known.epoch, false, signer, addedEpoch) : roster;
+  const membership = { id: device.id, kind: device.kind, epoch, addedBy: by, addedEpoch, addedAt: now };
   const entry = describedAs({
     ...membership, name: device.name, os: device.os, links: device.links,
     addedSig: signed(signer, membershipBytes(membership)), describedAt: now, describedBy: by, describedSig: '',
   }, device, signer, now);
-  return [...roster.filter((e) => e.id !== device.id), entry].sort(byId);
+  return [...base.filter((e) => e.id !== device.id), entry].sort(byId);
 }
 
-/** Marks a live member removed by `signer`, at its current epoch; unchanged when unknown or already removed. */
+/**
+ * Marks a live member removed by `signer`, at the member's current epoch
+ * and the signer's own. Removing another device, the signer endorses what
+ * it keeps of what that device signed at that epoch or alone (`endorsing`);
+ * its own removal (leaving) freezes nothing. Unchanged when the member is
+ * unknown or already removed, or `signer` has signed `ROSTER_MAX_ADDED_BY`
+ * removals at its epoch.
+ */
 export function removeMember(roster: RosterEntry[], id: string, signer: Identity, now: number): RosterEntry[] {
   const known = roster.find((e) => e.id === id);
   if (!known || !isLive(known)) return roster;
-  const removal = { id, epoch: known.epoch, removedBy: deviceId(signer.publicKey), removedAt: now };
+  const by = deviceId(signer.publicKey);
+  const removerEpoch = epochOf(roster, by);
+  const mine = roster.filter((e) => e.removedBy === by && e.removerEpoch === removerEpoch && e.id !== by).length;
+  if (id !== by && mine >= ROSTER_MAX_ADDED_BY) return roster;
+  const base = id === by ? roster : endorsing(roster, id, known.epoch, true, signer, removerEpoch);
+  const removal = { id, epoch: known.epoch, removedBy: by, removerEpoch, removedAt: now };
   const removed = { ...known, ...removal, removedSig: signed(signer, removalBytes(removal)) };
-  return roster.map((e) => (e.id === id ? removed : e));
+  return base.map((e) => (e.id === id ? removed : e));
 }
 
 /**

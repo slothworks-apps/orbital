@@ -13,7 +13,7 @@ const PAIRING: Pairing = { relay: 'https://relay.test', mac, macName: 'studio', 
 
 function entry(id: string, patch: Partial<RosterEntry> = {}): RosterEntry {
   return {
-    id, kind: 'desktop', name: id.slice(0, 6), os: 'macOS', links: true, epoch: 1, addedBy: id, addedAt: 3, addedSig: 's',
+    id, kind: 'desktop', name: id.slice(0, 6), os: 'macOS', links: true, epoch: 1, addedBy: id, addedEpoch: 0, addedAt: 3, addedSig: 's',
     describedAt: 3, describedBy: id, describedSig: 's', ...patch,
   }
 }
