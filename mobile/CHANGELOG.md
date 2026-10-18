@@ -3,15 +3,12 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
-### Changed
-- In a group, Settings → Devices names the device that manages it: devices are added and removed there, and a device's sheet shows its state and when it joined.
-- When the group's primary dissolves the group or removes this phone, the phone stays standalone in Settings → Devices and says so once, instead of showing "no longer paired"; it keeps its key.
 
 ## [0.15.0] — 2026-10-17
 ### Added
 - The phone joins your group of devices: it reaches every desktop and server in the group on its own, so a sleeping Mac takes away only its own sessions. Pairing with one device links the phone with the rest. Needs the Mac update that brings device groups; with an older Mac the phone works as before.
 - The session list shows a chip per device to show or hide its sessions, names each session's device, and says which device is asleep.
-- Settings → Devices lists every device in the group: add one by showing this phone's code, remove one, or leave the group.
+- Settings → Devices lists every device in the group and names the one that manages it; join a group by showing this phone's code, or leave it.
 - New session asks which device the session runs on.
 
 ## [0.14.0] — 2026-10-16

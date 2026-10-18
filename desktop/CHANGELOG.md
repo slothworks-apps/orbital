@@ -3,14 +3,10 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
-### Changed
-- One device of a group is its primary: only it adds and removes devices, pairs a device by hand and dissolves the group. Settings → Devices on the other devices names it, and they can leave.
-- When the primary dissolves the group or removes this Mac, Settings → Devices says so once, until you press OK.
-- A device that cannot join because the group is full is told so in the same window where you accepted it, not in a passing message.
 
 ## [0.34.0] — 2026-10-17
 ### Added
-- Settings → Mobile is now Settings → Devices: pair another desktop by code, see every device in your group, remove one or leave.
+- Settings → Mobile is now Settings → Devices: pair another desktop by code and see every device in your group. The device that started the group is its primary: only it adds and removes devices or dissolves the group; the others can leave.
 - The sessions of your other devices show on the map and in the sidebar, with a chip per device to show or hide each; open one and drive it as if it ran here.
 - New session can start a session on another device, with that device's recent projects and a browser for its folders.
 - A device that is offline keeps its sessions on the map, dimmed and still, with what it last sent still readable.
