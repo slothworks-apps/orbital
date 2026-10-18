@@ -1,4 +1,4 @@
-import type { MemberState as SharedMemberState, MemberRow } from '@orbital/shared/remote/group'
+import type { MemberState as SharedMemberState, MemberRow, NotPrimary, PrimaryRef } from '@orbital/shared/remote/group'
 import type { JoinResult, Joining, PendingPair } from '@orbital/shared/remote/ceremony'
 import type { MachineRef } from '@orbital/shared/remote/device'
 
@@ -1847,12 +1847,16 @@ export type MemberState = SharedMemberState
 
 /**
  * One member of the device group (spec 2026-10-16-device-group-design § 2),
- * as the status lists it — removed members are dropped before the wire:
- * shared's `MemberRow` (a roster entry plus the facts `RemoteStatus.group`
- * adds) and `tooOld`, a member too old to take part in the group: not a
- * phone, and its last hello named no `group` capability.
+ * as the status lists it: shared's `MemberRow` (a member the latest version
+ * of the roster names, its description, `primary` when it is the group's
+ * primary, and the facts `RemoteStatus.group` adds) and `tooOld`, a member
+ * too old to take part in the group: not a phone, and its last hello named
+ * no `group` capability.
  */
 export type GroupMember = MemberRow & { tooOld: boolean }
+
+/** The group's primary, which alone adds and removes devices (ADR the-group-has-one-primary-device). */
+export type { PrimaryRef, NotPrimary }
 
 /**
  * The mobile remote as `GET /api/remote` answers it and the hub's `remote`
@@ -1887,10 +1891,13 @@ export interface RemoteStatus {
   /** Why the last start failed; null while it is fine. */
   error: string | null
   /**
-   * The device group's live members and whether the relay URL is locked
-   * because another member is live (spec 2026-10-16-device-group-design § 2, § 4).
+   * The device group (spec 2026-10-16-device-group-design § 2, § 4): its
+   * members (this device alone while it holds no group), whether the relay
+   * URL is locked because another member is in the group, the group's
+   * `primary` (null while there is no group) and whether this device
+   * `isPrimary` — only the primary adds and removes devices.
    */
-  group: { members: GroupMember[]; relayLocked: boolean }
+  group: { members: GroupMember[]; relayLocked: boolean; primary: PrimaryRef | null; isPrimary: boolean }
 }
 
 /** The refusals `POST /api/remote/pair/confirm` answers with instead of `{ ok: true }`. */

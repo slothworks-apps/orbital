@@ -1,6 +1,7 @@
 import { describe, expect, it, afterEach, vi } from 'vitest';
 import { formatFingerprint, publicKeyOf } from '@orbital/shared/remote/keys';
 import { PAIR_NAME_MAX_CHARS } from '@orbital/shared/remote/relayApi';
+import { memberIds } from '@orbital/shared/remote/roster';
 import { FakePhone } from './remoteFakePhone.js';
 import { RelayClient } from '../src/remote/relayClient.js';
 import { pairingCode, startMacAndRelay, until, type MacAndRelay } from './remoteHarness.js';
@@ -63,33 +64,22 @@ describe('two servers, one channel', () => {
     expect((await a.remote.channel(idB)!.request('GET', '/api/health')).status).toBe(200);
   }, 20_000);
 
-  it('a phone still pairs with B after B joined A', async () => {
-    const { b } = await joined();
-    const pair = await b.api('POST', '/api/remote/pair');
-    expect(pair.statusCode).toBe(200);
-    const phone = new FakePhone();
-    closers.push(() => phone.close());
-    await phone.connect(pair.json().qr);
-    expect((await phone.redeem()).status).toBe(200);
-    await until(async () => (await b.api('GET', '/api/remote')).json().pendingPair !== null);
-    const status = (await b.api('GET', '/api/remote')).json();
-    expect(status.pendingPair).toMatchObject({ phone: phone.id, kind: 'phone' });
-    const code = pairingCode(status.macId, phone.identity.publicKey);
-    // The relay tells the phone `paired` before it answers B's confirm, and the phone handshakes then.
-    const confirm = b.api('POST', '/api/remote/pair/confirm', { accept: true, phone: phone.id, code });
-    expect(await phone.nextControl('paired')).toMatchObject({ type: 'paired' });
-    await phone.handshake();
-    expect((await confirm).statusCode).toBe(200);
-    await until(async () => (await b.api('GET', '/api/remote')).json().devices.some((d: any) => d.id === phone.id && d.online));
-    expect(await phone.hello()).toMatchObject({ t: 'hello', macName: 'laptop' });
+  it('a phone pairs with the group only through its primary: B, a member, shows no code', async () => {
+    const { a, b, idA } = await joined();
+    const refused = await b.api('POST', '/api/remote/pair');
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json()).toMatchObject({ error: 'not_primary', primary: { id: idA, name: 'studio' } });
+    expect((await a.api('GET', '/api/remote')).json().group).toMatchObject({ isPrimary: true, primary: { id: idA } });
+    expect((await b.api('GET', '/api/remote')).json().group).toMatchObject({ isPrimary: false, primary: { id: idA } });
+    const phone = await pairPhone(a, idA);
     phone.send({ t: 'http', id: 1, method: 'GET', path: '/api/sessions' });
     expect(await phone.next('http_res', (m) => m.id === 1)).toMatchObject({ status: 200 });
   }, 20_000);
 
   const membersOf = async (s: { api: (m: 'GET', u: string) => Promise<{ json(): any }> }) =>
     (await s.api('GET', '/api/remote')).json().group.members;
-  /** A member as the store holds it: the status lists only live ones. */
-  const entryIn = (s: MacAndRelay, id: string) => s.remote.rosterEntries().find((e) => e.id === id);
+  /** Whether the latest version `s` holds names `id`, its left notice aside. */
+  const isMember = (s: MacAndRelay, id: string) => memberIds(s.remote.rosterState()).includes(id);
   const pairedWith = async (s: MacAndRelay, id: string) =>
     (await s.api('GET', '/api/remote')).json().devices.some((d: any) => d.id === id);
 
@@ -147,38 +137,38 @@ describe('two servers, one channel', () => {
     await until(() => a.remote.rosterDigest() === b.remote.rosterDigest());
   }, 20_000);
 
-  /** A ↔ B by a ceremony, C joined through B, and A ↔ C linked by the mutual pair alone. */
+  /** A ↔ B by a ceremony, C joined through A (the primary), and B ↔ C linked by the mutual pair alone. */
   async function threeLinked() {
     const { a, b, idA, idB } = await joined();
     const c = await startMacAndRelay(closers, { relayUrl: a.relayUrl, name: 'vps' });
-    const qr = (await b.api('POST', '/api/remote/pair')).json().qr;
+    const qr = (await a.api('POST', '/api/remote/pair')).json().qr;
     const join = await c.api('POST', '/api/remote/join', { code: qr });
-    await until(async () => (await b.api('GET', '/api/remote')).json().pendingPair !== null);
+    await until(async () => (await a.api('GET', '/api/remote')).json().pendingPair !== null);
     const idC = (await c.api('GET', '/api/remote')).json().macId as string;
-    await b.api('POST', '/api/remote/pair/confirm', { accept: true, phone: idC, code: join.json().code });
-    await until(() => a.remote.channel(idC)?.ready === true && c.remote.channel(idA)?.ready === true
-      && b.remote.channel(idC)?.ready === true, 15_000);
+    await a.api('POST', '/api/remote/pair/confirm', { accept: true, phone: idC, code: join.json().code });
+    await until(() => b.remote.channel(idC)?.ready === true && c.remote.channel(idB)?.ready === true
+      && a.remote.channel(idC)?.ready === true, 15_000);
     return { a, b, c, idA, idB, idC };
   }
 
-  it('a device paired with one member links with the others without a ceremony', async () => {
-    const { a, b, c, idA, idC } = await threeLinked();
-    expect((await a.remote.channel(idC)!.request('GET', '/api/health')).status).toBe(200);
-    expect((await c.remote.channel(idA)!.request('GET', '/api/health')).status).toBe(200);
+  it('a device paired with the primary links with the others without a ceremony', async () => {
+    const { a, b, c, idB, idC } = await threeLinked();
+    expect((await b.remote.channel(idC)!.request('GET', '/api/health')).status).toBe(200);
+    expect((await c.remote.channel(idB)!.request('GET', '/api/health')).status).toBe(200);
     for (const s of [a, b, c]) {
       const members = (await s.api('GET', '/api/remote')).json().group.members;
       expect(members.filter((m: any) => m.linked || m.self)).toHaveLength(3);
     }
   }, 30_000);
 
-  it('a fourth device joining through the third learns every member and links with each', async () => {
+  it('a fourth device joining through the primary learns every member and links with each', async () => {
     const { a, b, c, idA, idB, idC } = await threeLinked();
     const j = await startMacAndRelay(closers, { relayUrl: a.relayUrl, name: 'mini' });
-    const qr = (await c.api('POST', '/api/remote/pair')).json().qr;
+    const qr = (await a.api('POST', '/api/remote/pair')).json().qr;
     const join = await j.api('POST', '/api/remote/join', { code: qr });
-    await until(async () => (await c.api('GET', '/api/remote')).json().pendingPair !== null);
+    await until(async () => (await a.api('GET', '/api/remote')).json().pendingPair !== null);
     const idJ = (await j.api('GET', '/api/remote')).json().macId as string;
-    await c.api('POST', '/api/remote/pair/confirm', { accept: true, phone: idJ, code: join.json().code });
+    await a.api('POST', '/api/remote/pair/confirm', { accept: true, phone: idJ, code: join.json().code });
     await until(() => [idA, idB, idC].every((id) => j.remote.channel(id)?.ready === true), 20_000);
     for (const s of [a, b, c, j]) {
       await until(() => s.remote.rosterDigest() === j.remote.rosterDigest(), 10_000);
@@ -186,12 +176,14 @@ describe('two servers, one channel', () => {
     }
   }, 45_000);
 
-  it('removing a member on any device removes it everywhere', async () => {
-    const { a, b, idC } = await threeLinked();
+  it('removing a member on the primary removes it everywhere; another member is refused', async () => {
+    const { a, b, idA, idC } = await threeLinked();
+    const refused = await b.api('DELETE', `/api/remote/devices/${idC}`);
+    expect([refused.statusCode, refused.json()]).toEqual([403, { error: 'not_primary', primary: { id: idA, name: 'studio' } }]);
     expect((await a.api('DELETE', `/api/remote/devices/${idC}`)).statusCode).toBe(200);
     await until(async () => {
       for (const s of [a, b]) {
-        if (entryIn(s, idC)?.removedAt === undefined || (await pairedWith(s, idC))) return false;
+        if (isMember(s, idC) || (await pairedWith(s, idC))) return false;
         if ((await membersOf(s)).some((x: any) => x.id === idC)) return false;
       }
       return b.remote.channel(idC) === null && a.remote.channel(idC) === null;
@@ -210,14 +202,14 @@ describe('two servers, one channel', () => {
     const { a, c, idA, idB } = await threeLinked();
     await a.api('DELETE', `/api/remote/devices/${(await c.api('GET', '/api/remote')).json().macId}`);
     await until(() => aloneIn(c), 15_000);
-    // Its founding entry: any member's next membership for it replaces it, and the removal the
-    // others hold stays theirs.
-    expect((await membersOf(c))[0]).toMatchObject({ epoch: 0, addedBy: (await c.api('GET', '/api/remote')).json().macId });
+    // Alone, it holds no roster: the next primary that adds it sends one.
+    expect(c.remote.rosterState().roster).toBeNull();
+    expect((await c.api('GET', '/api/remote')).json().group).toMatchObject({ primary: null, isPrimary: false });
     expect(c.remote.channel(idA)).toBeNull();
     expect(c.remote.channel(idB)).toBeNull();
   }, 30_000);
 
-  it('offline member catches up: a member that missed a removal drops its pair when it comes back', async () => {
+  it('a member asleep at a removal drops its pair when it wakes, from the version any member passes on', async () => {
     const { a, b, idC } = await threeLinked();
     await b.api('PATCH', '/api/settings', { remote_enabled: 'false' });
     expect((await b.api('GET', '/api/remote')).json().relay).toBe('off');
@@ -226,33 +218,36 @@ describe('two servers, one channel', () => {
     expect((await b.api('GET', '/api/remote')).json().devices.some((d: any) => d.id === idC)).toBe(true);
     await b.api('PATCH', '/api/settings', { remote_enabled: 'true' });
     await until(async () => {
-      return entryIn(b, idC)?.removedAt !== undefined && !(await pairedWith(b, idC));
+      return !isMember(b, idC) && !(await pairedWith(b, idC));
     }, 15_000);
   }, 45_000);
 
-  it('leave: a member leaves the group from itself', async () => {
+  it('leave: a member leaves the group from itself, and the primary leaves it out', async () => {
     const { a, b, idB } = await joined();
     expect((await b.api('POST', '/api/remote/leave')).json()).toEqual({ ok: true });
     await until(async () => {
-      return entryIn(a, idB)?.removedAt !== undefined && !(await pairedWith(a, idB)) && (await aloneIn(b));
+      return !isMember(a, idB) && !(await pairedWith(a, idB)) && (await aloneIn(b));
     }, 15_000);
     expect(a.remote.channel(idB)).toBeNull();
+    expect(a.remote.rosterState().roster).toMatchObject({ version: 2 });
+    expect(a.remote.rosterState().left).toEqual([]);
   }, 30_000);
 
-  it('a member that leaves takes its phones out of the group: the others list them removed', async () => {
+  it('the primary leaving dissolves the group: every member becomes alone, its phones go with it', async () => {
     const { a, b, idA } = await joined();
     const phone = await pairPhone(a, idA);
     await until(async () => (await membersOf(b)).some((m: any) => m.id === phone.id));
     expect((await a.api('POST', '/api/remote/leave')).json()).toEqual({ ok: true });
-    await until(() => entryIn(b, phone.id)?.removedAt !== undefined, 15_000);
-    expect(entryIn(b, phone.id)).toMatchObject({ removedBy: idA });
+    await until(async () => (await aloneIn(a)) && (await aloneIn(b)), 15_000);
+    expect(a.remote.rosterState().roster).toMatchObject({ dissolved: true });
+    expect(b.remote.rosterState().roster).toBeNull();
   }, 30_000);
 
-  it('a device that left pairs again through the ceremony, at an epoch above its removal', async () => {
+  it('a device that left pairs again through the ceremony, in a version above the one that left it out', async () => {
     const { a, b, idA, idB } = await joined();
     await b.api('POST', '/api/remote/leave');
-    await until(async () => entryIn(a, idB)?.removedAt !== undefined && (await aloneIn(b)), 15_000);
-    const removedEpoch = entryIn(a, idB)!.epoch;
+    await until(async () => !isMember(a, idB) && (await aloneIn(b)), 15_000);
+    const leftOut = a.remote.rosterState().roster!.version;
     const qr = (await a.api('POST', '/api/remote/pair')).json().qr;
     const join = await b.api('POST', '/api/remote/join', { code: qr });
     expect(join.statusCode).toBe(200);
@@ -263,7 +258,8 @@ describe('two servers, one channel', () => {
       return a.remote.channel(idB)?.ready === true && b.remote.channel(idA)?.ready === true
         && m !== undefined && m.linked && a.remote.rosterDigest() === b.remote.rosterDigest();
     }, 15_000);
-    expect((await membersOf(a)).find((x: any) => x.id === idB).epoch).toBeGreaterThan(removedEpoch);
+    expect(a.remote.rosterState().roster!.version).toBeGreaterThan(leftOut);
+    expect(b.remote.rosterState().roster).toEqual(a.remote.rosterState().roster);
     expect((await membersOf(b)).find((x: any) => x.id === idA)).toMatchObject({ linked: true });
   }, 30_000);
 

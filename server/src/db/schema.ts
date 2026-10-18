@@ -507,40 +507,45 @@ export const remoteDevices = sqliteTable('remote_devices', {
 export type RemoteDeviceRow = typeof remoteDevices.$inferSelect;
 
 /**
- * The group's roster as this device knows it (spec
- * 2026-10-16-device-group-design § 2), linked or not, removed members
- * included: a removal has to outlive the device it removed. `remote_devices`
- * holds only the devices this one has a relay pair with.
+ * The roster this device holds of its group (ADR
+ * the-group-has-one-primary-device): the document the primary signs. At
+ * most one row; none while this device is alone. `remote_devices` holds only
+ * the devices this one has a relay pair with.
  */
+export const groupRoster = sqliteTable('group_roster', {
+  /** The primary's id. */
+  groupId: text('group_id').primaryKey(),
+  version: integer('version').notNull(),
+  dissolved: integer('dissolved', { mode: 'boolean' }).notNull(),
+  /** The primary's signature over the document. */
+  sig: text('sig').notNull(),
+});
+
+/** The members the document names, with the kind each one's pairing proved. */
 export const groupMembers = sqliteTable('group_members', {
   id: text('id').primaryKey(),
   kind: text('kind').notNull(),
+  addedAt: integer('added_at').notNull(),
+});
+
+/** Each member's description, signed by the member itself or by the primary. */
+export const groupDescriptions = sqliteTable('group_descriptions', {
+  id: text('id').primaryKey(),
   name: text('name').notNull(),
   os: text('os').notNull(),
   links: integer('links', { mode: 'boolean' }).notNull(),
-  epoch: integer('epoch').notNull(),
-  addedBy: text('added_by').notNull(),
-  /** `added_by`'s own epoch when it signed. */
-  addedEpoch: integer('added_epoch').notNull(),
-  addedAt: integer('added_at').notNull(),
-  /** `added_by`'s signature over the membership (ADR roster-entries-are-signed). */
-  addedSig: text('added_sig').notNull(),
-  /** A member that stands behind the membership once `added_by` is removed; all three or none. */
-  endorsedBy: text('endorsed_by'),
-  endorsedEpoch: integer('endorsed_epoch'),
-  endorsedSig: text('endorsed_sig'),
   describedAt: integer('described_at').notNull(),
-  /** The device itself, or its adder until it describes itself. */
   describedBy: text('described_by').notNull(),
-  describedSig: text('described_sig').notNull(),
-  removedBy: text('removed_by'),
-  removerEpoch: integer('remover_epoch'),
-  removedAt: integer('removed_at'),
-  removedSig: text('removed_sig'),
-  /** A member that stands behind the removal once `removed_by` is removed; all three or none. */
-  removalEndorsedBy: text('removal_endorsed_by'),
-  removalEndorsedEpoch: integer('removal_endorsed_epoch'),
-  removalEndorsedSig: text('removal_endorsed_sig'),
+  sig: text('sig').notNull(),
+});
+
+/** The notices of members that left, each signed by the member that left, while they hold. */
+export const groupLeft = sqliteTable('group_left', {
+  id: text('id').primaryKey(),
+  groupId: text('group_id').notNull(),
+  version: integer('version').notNull(),
+  at: integer('at').notNull(),
+  sig: text('sig').notNull(),
 });
 
 /**

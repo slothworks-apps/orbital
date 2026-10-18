@@ -26,7 +26,7 @@ function status(patch: Partial<RemoteStatus> = {}): RemoteStatus {
     pairing: null,
     joining: null,
     error: null,
-    group: { members: [], relayLocked: false },
+    group: { members: [], relayLocked: false, primary: null, isPrimary: false },
     ...patch,
   }
 }

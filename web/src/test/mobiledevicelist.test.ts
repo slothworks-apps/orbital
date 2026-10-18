@@ -21,7 +21,7 @@ function source(over: Partial<DeviceView> & Pick<DeviceView, 'id' | 'name'>): De
 
 function member(over: Partial<MemberRow> & Pick<MemberRow, 'id' | 'name'>): MemberRow {
   return {
-    kind: 'desktop', os: 'macos', links: true, epoch: 1, addedBy: 'phone', addedAt: NOW - 24 * HOUR, describedAt: NOW,
+    kind: 'desktop', os: 'macos', links: true, addedAt: NOW - 24 * HOUR, primary: false,
     self: false, linked: true, online: true, pairByHand: false, state: 'online', seenAt: null,
     ...over,
   }

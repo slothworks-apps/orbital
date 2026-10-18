@@ -1,5 +1,6 @@
 import { CONNECT_TIMEOUT_MS, type TunnelEvent } from '@orbital/shared/remote/tunnel'
 import type { JoinResult } from '@orbital/shared/remote/ceremony'
+import { EMPTY_ROSTER } from '@orbital/shared/remote/roster'
 import type { GroupClient, GroupClientEvent } from '@orbital/shared/remote/groupClient'
 import { PAIRING_TOKEN_TTL_MS, type QrPayload } from '@orbital/shared/remote/relayApi'
 import { MIN_RELAY_VERSION, type RelayTooOld } from '@orbital/shared/remote/version'
@@ -194,7 +195,7 @@ async function pair(
   const handle = current ?? newGroup(
     {
       relay: qr.relay, ...(qr.relaySecret !== undefined ? { relaySecret: qr.relaySecret } : {}),
-      group: { roster: [], paired: [], pendingRevokes: [] },
+      group: { roster: EMPTY_ROSTER, paired: [], pendingRevokes: [] },
     },
     identity, device, { persist: false },
   )

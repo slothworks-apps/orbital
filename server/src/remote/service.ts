@@ -14,9 +14,9 @@ import type { Role } from '@orbital/shared/remote/handshake';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import type { Channel } from '@orbital/shared/remote/channel';
 import type { HelloMessage } from '@orbital/shared/remote/messages';
-import { ROSTER_KIND_MAX_CHARS, isLive, type RosterEntry, type RosterFields } from '@orbital/shared/remote/roster';
+import { EMPTY_ROSTER, ROSTER_KIND_MAX_CHARS, type MemberView, type RosterState } from '@orbital/shared/remote/roster';
 import {
-  GroupMember, type GroupStorage, type MemberState, type RemoveResult, type SelfAbout,
+  GroupMember, type GroupStorage, type MemberRow, type PrimaryRef, type RemoveResult, type SelfAbout,
 } from '@orbital/shared/remote/group';
 import {
   PairingCeremony, type JoinResult, type PairConfirmResult, type StartPairingResult,
@@ -89,21 +89,25 @@ export type RemoteStatus = {
   /** Why the last `start` failed; null while it is fine. */
   error: string | null;
   /**
-   * The group's live members (spec 2026-10-16-device-group-design § 2); the
-   * removed ones stay in the store only. `self`: this device; `linked`:
-   * paired with this device directly; `online`: on the relay as this device
-   * sees it; `pairByHand`: the relay has no `/pair/mutual`, so only a
-   * pairing code links the two; `state`: how Settings shows it; `seenAt`:
-   * when a member paired here was last on the relay, null for any other.
-   * `tooOld`: a member too old to take part in the group (`memberTooOld`), by its last hello.
-   * `relayLocked`: this device is in a group (`inGroup`), so the relay URL and secret cannot change.
+   * The group (spec 2026-10-16-device-group-design § 2, ADR
+   * the-group-has-one-primary-device). `members`: every member the latest
+   * version names (this device alone while it holds no group), each with
+   * its description. `primary`: this member is the group's primary, which
+   * alone adds and removes members; `self`: this device; `linked`: paired
+   * with this device directly; `online`: on the relay as this device sees
+   * it; `pairByHand`: the relay has no `/pair/mutual`, so only a pairing
+   * code links the two; `state`: how Settings shows it; `seenAt`: when a
+   * member paired here was last on the relay, null for any other; `tooOld`:
+   * a member too old to take part in the group (`memberTooOld`), by its last
+   * hello. `relayLocked`: this device is in a group (`inGroup`), so the relay
+   * URL and secret cannot change. `primary` (of the group): its id and
+   * name, null while this device holds no group. `isPrimary`: this device is it.
    */
   group: {
-    members: (RosterFields & {
-      self: boolean; linked: boolean; online: boolean; pairByHand: boolean; state: MemberState; seenAt: number | null;
-      tooOld: boolean;
-    })[];
+    members: (MemberRow & { tooOld: boolean })[];
     relayLocked: boolean;
+    primary: PrimaryRef | null;
+    isPrimary: boolean;
   };
 };
 
@@ -229,6 +233,8 @@ export class RemoteService {
       relaySecret: () => this.relaySecret,
       self: () => ({ name: this.macName, platform: osName(process.platform), kind: serverDeviceKind() }),
       inGroup: () => this.group.inGroup(),
+      notPrimary: () => this.group.notPrimary()?.primary ?? null,
+      byHand: () => this.group.byHandPending(),
       isLiveMember: (id) => this.group.isLiveMember(id),
       canAdd: (id) => this.group.canAdd(id),
       paired: {
@@ -379,10 +385,10 @@ export class RemoteService {
     return this.ownId();
   }
 
-  /** The roster's live members, this device included; none when the roster cannot be read. */
-  liveMembers(): RosterEntry[] {
+  /** The group's members, this device included (alone, the only one); none when the roster cannot be read. */
+  liveMembers(): MemberView[] {
     try {
-      return this.roster.list().filter(isLive);
+      return this.group.memberList();
     } catch (err) {
       console.warn(`[remote] could not read the roster: ${err instanceof Error ? err.message : String(err)}`);
       return [];
@@ -416,9 +422,9 @@ export class RemoteService {
     return this.roster.digest();
   }
 
-  /** The whole roster, removed entries included, for tests: the status lists only live members. */
-  rosterEntries(): RosterEntry[] {
-    return this.roster.list();
+  /** Everything this device holds of its group, for tests. */
+  rosterState(): RosterState {
+    return this.roster.read();
   }
 
   status(): RemoteStatus {
@@ -449,10 +455,11 @@ export class RemoteService {
       const members = this.group.members(online).map((m) => ({
         ...m, tooOld: !m.self && memberTooOld(m.kind, this.hellos.get(m.id) ?? null),
       }));
-      return { members, relayLocked: this.group.inGroup() };
+      const primary = this.group.primary();
+      return { members, relayLocked: this.group.inGroup(), primary, isPrimary: primary !== null && primary.id === this.ownId() };
     } catch (err) {
       console.warn(`[remote] could not list the roster: ${err instanceof Error ? err.message : String(err)}`);
-      return { members: [], relayLocked: false };
+      return { members: [], relayLocked: false, primary: null, isPrimary: false };
     }
   }
 
@@ -500,12 +507,12 @@ export class RemoteService {
     return this.channels.get(id) ?? null;
   }
 
-  /** See `GroupMember.remove`: this device's own id is `leave`. */
+  /** See `GroupMember.remove`: a member only on the primary (`not_primary`); this device's own id is `leave`. */
   remove(id: string): Promise<RemoveResult> {
     return this.group.remove(id);
   }
 
-  /** See `GroupMember.leave`: only while the relay is online. */
+  /** See `GroupMember.leave`: only while the relay is online; the primary leaving dissolves the group. */
   leave(): Promise<RemoveResult> {
     return this.group.leave();
   }
@@ -583,10 +590,12 @@ export class RemoteService {
   /**
    * After the identity file was unreadable and replaced: every phone paired
    * with the old key verifies the Mac against that key and can never
-   * handshake again, so listing them would only lie. The old self entry
-   * stays in the roster: the old key is gone, and with it the old id.
+   * handshake again, so listing them would only lie. The roster goes too:
+   * it names the old id, which nothing can sign for any more, so this
+   * device is alone under its new one.
    */
   private forgetAllDevices(): void {
+    if (this.roster.replace(EMPTY_ROSTER)) console.warn('[remote] the identity was regenerated; the group roster it held is dropped');
     const all = this.devices.list();
     if (all.length === 0) return;
     for (const d of all) this.devices.remove(d.id);
@@ -711,8 +720,8 @@ export class RemoteService {
 
   /**
    * What this device says about itself in the roster, cut to the bounds a
-   * roster entry is read within: an entry past them would refuse the whole
-   * roster on every other member.
+   * description is read within: one past them would refuse the whole roster
+   * on every other member.
    */
   private selfAbout(): SelfAbout {
     return {

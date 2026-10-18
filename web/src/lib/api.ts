@@ -45,6 +45,7 @@ import type {
   PairConfirmError,
   PairConfirmResult,
   RemoteStatus,
+  NotPrimary,
   SessionDefaults,
 } from './types'
 import { markUnauthorized } from './unauthorized'
@@ -1275,13 +1276,20 @@ export const api = {
     return request('GET', '/api/remote')
   },
 
-  /** A new code. 409 when the remote is off or the relay is not online right now. */
+  /**
+   * A new code. 409 when the remote is off or the relay is not online right
+   * now; 403 `not_primary`, naming the primary, from a member that is not
+   * its group's primary — only the primary adds a device.
+   */
   async startPairing(): Promise<
-    { qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' }
+    { qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' } | NotPrimary
   > {
-    return remoteCall('POST', '/api/remote/pair', undefined, {
-      409: ['disabled', 'offline', 'relay_error', 'relay_too_old'],
-    })
+    return remoteCall<{ qr: string; expiresAt: number }, 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' | 'not_primary'>(
+      'POST', '/api/remote/pair', undefined, {
+        403: ['not_primary'],
+        409: ['disabled', 'offline', 'relay_error', 'relay_too_old'],
+      },
+    ) as Promise<{ qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' } | NotPrimary>
   },
 
   /**
@@ -1343,15 +1351,17 @@ export const api = {
     ) as Promise<PairConfirmResult>
   },
 
-  /** `false` when the phone was already gone (404) — the next status drops its row either way. */
-  async removeDevice(id: string): Promise<boolean> {
-    try {
-      await request('DELETE', apiPath`/api/remote/devices/${id}`)
-      return true
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 404) return false
-      throw err
-    }
+  /**
+   * `false` when the device was already gone (404) — the next status drops
+   * its row either way. `not_primary` (403), naming the primary, from a
+   * member that is not its group's primary: only the primary removes a member.
+   */
+  async removeDevice(id: string): Promise<boolean | NotPrimary> {
+    const res = await remoteCall<{ ok: true }, 'not_found' | 'not_primary'>(
+      'DELETE', apiPath`/api/remote/devices/${id}`, undefined, { 403: ['not_primary'], 404: ['not_found'] },
+    )
+    if (!('error' in res)) return true
+    return res.error === 'not_primary' ? (res as NotPrimary) : false
   },
 
   /**
@@ -1377,11 +1387,15 @@ export const api = {
 /** The refusals `POST /api/remote/join` answers with instead of `{ device, name, code }`. */
 type JoinErrorCode =
   | 'bad_code' | 'disabled' | 'offline' | 'already_paired' | 'in_group' | 'relay_error' | 'relay_too_old'
-  | 'other_relay' | 'peer_offline'
+  | 'other_relay' | 'peer_offline' | 'group_full' | 'not_primary'
 
 const JOIN_REFUSALS: Partial<Record<number, readonly JoinErrorCode[]>> = {
   400: ['bad_code'],
-  409: ['disabled', 'offline', 'already_paired', 'in_group', 'relay_error', 'relay_too_old', 'other_relay', 'peer_offline'],
+  403: ['not_primary'],
+  409: [
+    'disabled', 'offline', 'already_paired', 'in_group', 'relay_error', 'relay_too_old', 'other_relay', 'peer_offline',
+    'group_full',
+  ],
 }
 
 /** What `/api/claude-dirs` refuses a change with. Mirrors `server/src/claudeDirs/service.ts`. */

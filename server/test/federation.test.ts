@@ -5,7 +5,7 @@ import Fastify from 'fastify';
 import { TunnelError, type BlobResult, type Channel, type ChannelEvent, type TunnelResponse } from '@orbital/shared/remote/channel';
 import { capabilitiesOf } from '@orbital/shared/remote/device';
 import { PROTOCOL_VERSION, type HelloMessage } from '@orbital/shared/remote/messages';
-import { isLive, type RosterEntry } from '@orbital/shared/remote/roster';
+import type { MemberView } from '@orbital/shared/remote/roster';
 import { Hub } from '../src/api/hub.js';
 import { createImageStore } from '../src/images/store.js';
 import { ServingHalf } from '../src/remote/servingHalf.js';
@@ -18,11 +18,11 @@ import { ReadCache } from '../src/federation/readCache.js';
 const SELF = 'self';
 const B = 'member-b';
 
-function entry(id: string, patch: Partial<RosterEntry> = {}): RosterEntry {
-  return {
-    id, kind: 'desktop', name: id === SELF ? 'studio' : 'laptop', os: 'macos', links: true,
-    epoch: 1, addedBy: SELF, addedEpoch: 1, addedAt: 1, addedSig: '', describedAt: 1, describedBy: id, describedSig: '', ...patch,
-  };
+/** A member as the remote lists it; `removedAt` marks one the latest version no longer names. */
+type Entry = MemberView & { removedAt?: number; removedBy?: string };
+
+function entry(id: string, patch: Partial<Entry> = {}): Entry {
+  return { id, kind: 'desktop', name: id === SELF ? 'studio' : 'laptop', os: 'macos', links: true, addedAt: 1, primary: id === SELF, ...patch };
 }
 
 const desktopHello: HelloMessage = {
@@ -78,7 +78,7 @@ class FakeChannel {
   }
 }
 
-function fakeRemote(members: RosterEntry[]) {
+function fakeRemote(members: Entry[]) {
   const channelListeners = new Set<(id: string, channel: Channel) => void>();
   const statusListeners = new Set<() => void>();
   const channels = new Map<string, Channel>();
@@ -87,7 +87,7 @@ function fakeRemote(members: RosterEntry[]) {
     onChannel(l: (id: string, channel: Channel) => void) { channelListeners.add(l); return () => { channelListeners.delete(l); }; },
     onStatus(l: () => void) { statusListeners.add(l); return () => { statusListeners.delete(l); }; },
     peerHello: (id: string) => (channels.get(id)?.peer ?? null),
-    liveMembers: () => remote.members.filter(isLive),
+    liveMembers: (): MemberView[] => remote.members.filter((e) => e.removedAt === undefined),
     channel: (id: string) => channels.get(id) ?? null,
     selfId: () => SELF,
     /** A new channel to `id`, as `makeChannel` announces it. */

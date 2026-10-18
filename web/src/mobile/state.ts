@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { PendingPair, RefusedPair } from '@orbital/shared/remote/ceremony'
 import type { LinkStatus, TunnelEvent } from '@orbital/shared/remote/tunnel'
-import type { MemberRow } from '@orbital/shared/remote/group'
+import type { MemberRow, PrimaryRef } from '@orbital/shared/remote/group'
 import type { GroupClientEvent } from '@orbital/shared/remote/groupClient'
 import { MIN_SERVER_VERSION, isSupportedServer } from '@orbital/shared/remote/version'
 import type { EndedSummary } from '../lib/api'
@@ -138,8 +138,14 @@ export interface MobileState {
   devices: DeviceView[]
   /** Devices that refused this app (`bye app_too_old`/`protocol`), until they are up again. */
   refusals: Record<string, Mismatch>
-  /** The group's roster as Settings → Devices lists it. */
+  /** The group's roster as Settings → Devices lists it; `primary` marks the group's primary. */
   members: MemberRow[]
+  /**
+   * The group's primary, which alone adds and removes devices (ADR
+   * the-group-has-one-primary-device), and whether this phone is it — never:
+   * a phone is never primary. `primary` is null while the phone holds no group.
+   */
+  group: { primary: PrimaryRef | null; isPrimary: boolean }
   /** A device that redeemed this phone's code and waits for the user's code (canvas 50i's join request). */
   pendingPair: PendingPair | null
   /** This phone's code while one is open (`GroupClient.startPairing`): when it stops working. */
@@ -180,7 +186,7 @@ export const initialMobileState: MobileState = {
   screen: 'pairing', previous: null, sessionId: null, pushed: [], link: 'off', macOnline: false, ready: false,
   asOf: null, checkedAt: null, rechecking: null, listedAt: null, endedSummary: null, endedLoaded: false,
   mismatch: null, unpaired: false, unreachable: false, pairing: null, macName: null, macVersion: null, devices: [], refusals: {},
-  members: [], pendingPair: null, ownCode: null, refusedPair: null, composerIntent: null,
+  members: [], group: { primary: null, isPrimary: false }, pendingPair: null, ownCode: null, refusedPair: null, composerIntent: null,
   screenLock: false, lock: 'open', appLock: true, lockLabel: 'screen lock', backgroundedAt: null, authenticating: false,
 }
 

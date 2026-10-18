@@ -11,11 +11,12 @@ import { Hub } from '../src/api/hub.js';
 import { DEVICE_HEADER, remoteInjectOptions } from '../src/remote/inject.js';
 import { generateIdentity, deviceId, toBase64Url } from '@orbital/shared/remote/keys';
 import { PAIRING_SECRET_BYTES } from '@orbital/shared/remote/relayApi';
-import { addMember } from '@orbital/shared/remote/roster';
+import { describeDevice, foundRoster } from '@orbital/shared/remote/roster';
+import { loadOrCreateIdentity } from '../src/remote/identity.js';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import { makeTmpDir } from './tmp.js';
 
-async function server(enabled: boolean, relayUrl = 'http://127.0.0.1:1', seed?: (db: OrbitalDb) => void) {
+async function server(enabled: boolean, relayUrl = 'http://127.0.0.1:1', seed?: (db: OrbitalDb, dir: string) => void) {
   const dir = makeTmpDir('remote');
   const dbPath = join(dir, 'index.db');
   const db = openDb(dbPath);
@@ -23,16 +24,24 @@ async function server(enabled: boolean, relayUrl = 'http://127.0.0.1:1', seed?: 
     .onConflictDoUpdate({ target: settingsTable.key, set: { value: String(enabled) } }).run();
   db.insert(settingsTable).values({ key: 'remote_relay_url', value: relayUrl })
     .onConflictDoUpdate({ target: settingsTable.key, set: { value: relayUrl } }).run();
-  seed?.(db);
+  seed?.(db, dir);
   db.$client.close();
   return buildServer({ dbPath, claudeDir: join(dir, 'claude'), dataDir: dir });
 }
 
-/** Another live member in the roster: this device is in a group. */
-function withMember(db: OrbitalDb): void {
-  new RosterStore(db).replace(addMember([], {
-    id: deviceId(generateIdentity().publicKey), kind: 'desktop', name: 'peer', os: 'linux', links: true,
-  }, generateIdentity(), 1));
+/**
+ * Another member that links in the roster: this device (its identity in
+ * `dir`) is in a group, as its primary or as a member of another device's.
+ */
+function withMember(db: OrbitalDb, dir: string, asPrimary = true): void {
+  const self = loadOrCreateIdentity(dir).identity;
+  const primary = asPrimary ? self : generateIdentity();
+  const peer = deviceId(generateIdentity().publicKey);
+  const others = [{ id: peer, kind: 'desktop' }, ...(asPrimary ? [] : [{ id: deviceId(self.publicKey), kind: 'desktop' }])];
+  const roster = foundRoster(primary, 'desktop', others, 1)!;
+  new RosterStore(db).replace({
+    roster, descriptions: [describeDevice(peer, { name: 'peer', os: 'linux', links: true }, primary, 1)], left: [],
+  });
 }
 
 describe('/api/remote', () => {
@@ -161,16 +170,27 @@ describe('/api/remote', () => {
     expect((await app.inject({ method: 'GET', url: '/api/remote' })).json().group).toEqual(before.group);
     await app.close();
   });
-  it('join is refused with in_group while another member is live', async () => {
-    const app = await server(true, 'http://127.0.0.1:1', (db) => withMember(db));
-    const code = JSON.stringify({
+  it('join is refused with in_group between two groups, and with not_primary on a member that is not the primary', async () => {
+    const code = (group: boolean) => JSON.stringify({
       v: 1, relay: 'http://127.0.0.1:1', mac: deviceId(generateIdentity().publicKey), name: 'studio', token: 't',
-      secret: toBase64Url(new Uint8Array(PAIRING_SECRET_BYTES)),
+      secret: toBase64Url(new Uint8Array(PAIRING_SECRET_BYTES)), kind: 'desktop', ...(group ? { group: true } : {}),
     });
-    const res = await app.inject({ method: 'POST', url: '/api/remote/join', payload: { code } });
-    expect(res.statusCode).toBe(409);
-    expect(res.json()).toEqual({ error: 'in_group' });
-    await app.close();
+    const primary = await server(true, 'http://127.0.0.1:1', (db, dir) => withMember(db, dir));
+    const res = await primary.inject({ method: 'POST', url: '/api/remote/join', payload: { code: code(true) } });
+    expect([res.statusCode, res.json()]).toEqual([409, { error: 'in_group' }]);
+    expect((await primary.inject({ method: 'GET', url: '/api/remote' })).json().group).toMatchObject({ isPrimary: true });
+    await primary.close();
+    const member = await server(true, 'http://127.0.0.1:1', (db, dir) => withMember(db, dir, false));
+    const refused = await member.inject({ method: 'POST', url: '/api/remote/join', payload: { code: code(false) } });
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json()).toMatchObject({ error: 'not_primary', primary: { name: expect.any(String) } });
+    expect((await member.inject({ method: 'POST', url: '/api/remote/pair' })).statusCode).toBe(403);
+    // Only the primary removes a member.
+    const { members } = (await member.inject({ method: 'GET', url: '/api/remote' })).json().group as { members: { id: string; self: boolean }[] };
+    const other = members.find((m) => !m.self)!;
+    const removed = await member.inject({ method: 'DELETE', url: `/api/remote/devices/${other.id}` });
+    expect([removed.statusCode, removed.json().error]).toEqual([403, 'not_primary']);
+    await member.close();
   });
   it('cancelling a join answers ok while one waits, and 404 when none does', async () => {
     const app = await server(true);
@@ -187,7 +207,7 @@ describe('/api/remote', () => {
     }
   });
   it('the relay URL is refused while another member is live, and saved while this device is alone', async () => {
-    const grouped = await server(true, 'http://127.0.0.1:1', (db) => withMember(db));
+    const grouped = await server(true, 'http://127.0.0.1:1', (db, dir) => withMember(db, dir));
     expect((await grouped.inject({ method: 'GET', url: '/api/remote' })).json().group.relayLocked).toBe(true);
     const refused = await grouped.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_url: 'http://127.0.0.1:2' } });
     expect(refused.statusCode).toBe(409);
@@ -201,7 +221,7 @@ describe('/api/remote', () => {
     await alone.close();
   });
   it('the relay secret is refused like the URL while another member is live', async () => {
-    const grouped = await server(true, 'http://127.0.0.1:1', (db) => withMember(db));
+    const grouped = await server(true, 'http://127.0.0.1:1', (db, dir) => withMember(db, dir));
     const refused = await grouped.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_secret: 'other' } });
     expect(refused.statusCode).toBe(409);
     expect(refused.json()).toEqual({ error: 'in_group' });
@@ -213,12 +233,10 @@ describe('/api/remote', () => {
       new DeviceStore(db).add({
         id: phone, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}),
       });
-      new RosterStore(db).replace(addMember([], {
-        id: phone, kind: 'phone', name: 'iPhone', os: 'ios', links: false,
-      }, generateIdentity(), 1));
     });
     try {
-      expect((await app.inject({ method: 'GET', url: '/api/remote' })).json().group.relayLocked).toBe(false);
+      // A Mac from before groups: at its start it founds its group with its phone, as their primary.
+      expect((await app.inject({ method: 'GET', url: '/api/remote' })).json().group).toMatchObject({ relayLocked: false, isPrimary: true });
       const code = JSON.stringify({
         v: 1, relay: 'http://127.0.0.1:1', mac: deviceId(generateIdentity().publicKey), name: 'studio', token: 't',
         secret: toBase64Url(new Uint8Array(PAIRING_SECRET_BYTES)),
@@ -231,8 +249,8 @@ describe('/api/remote', () => {
     }
   });
   it('a roster that cannot be read leaves the relay URL unlocked, as the status does', async () => {
-    const app = await server(true, 'http://127.0.0.1:1', (db) => withMember(db));
-    const list = vi.spyOn(RosterStore.prototype, 'list').mockImplementation(() => { throw new Error('no such table'); });
+    const app = await server(true, 'http://127.0.0.1:1', (db, dir) => withMember(db, dir));
+    const list = vi.spyOn(RosterStore.prototype, 'read').mockImplementation(() => { throw new Error('no such table'); });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const res = await app.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_url: 'http://127.0.0.1:2' } });

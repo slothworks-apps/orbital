@@ -153,9 +153,10 @@ describe('federation: linked servers', () => {
     await until(async () => (await a.api('GET', '/api/remote')).json().pendingPair !== null);
     await a.api('POST', '/api/remote/pair/confirm', { accept: true, phone: idB, code: join1.json().code });
     await until(() => a.remote.channel(idB)?.ready === true && b.remote.channel(idA)?.ready === true, 10_000);
-    const join2 = await c.api('POST', '/api/remote/join', { code: (await b.api('POST', '/api/remote/pair')).json().qr });
-    await until(async () => (await b.api('GET', '/api/remote')).json().pendingPair !== null);
-    await b.api('POST', '/api/remote/pair/confirm', { accept: true, phone: idC, code: join2.json().code });
+    // C joins through A, the group's primary, and links with B by itself.
+    const join2 = await c.api('POST', '/api/remote/join', { code: (await a.api('POST', '/api/remote/pair')).json().qr });
+    await until(async () => (await a.api('GET', '/api/remote')).json().pendingPair !== null);
+    await a.api('POST', '/api/remote/pair/confirm', { accept: true, phone: idC, code: join2.json().code });
     await until(() => a.remote.channel(idC)?.ready === true && c.remote.channel(idA)?.ready === true
       && b.remote.channel(idC)?.ready === true, 15_000);
     // B's session reaches A and C through their own channels to B.
@@ -318,10 +319,10 @@ describe('federation: linked servers', () => {
     expect([offline.statusCode, offline.json()]).toEqual([409, { error: 'member_offline' }]);
   }, 60_000);
 
-  it('removing a member on any device takes its sessions off the others', async () => {
+  it('removing a member on the primary takes its sessions off the others', async () => {
     const { a, c, idB } = await threeLinked();
-    expect((await c.api('DELETE', `/api/remote/devices/${idB}`)).statusCode).toBe(200);
-    await until(async () => !(await listed(a)).some((x) => x.id === SESSION_ID), 15_000);
-    expect(a.federation.linkOf(SESSION_ID)).toBeNull();
+    expect((await a.api('DELETE', `/api/remote/devices/${idB}`)).statusCode).toBe(200);
+    await until(async () => !(await listed(c)).some((x) => x.id === SESSION_ID), 15_000);
+    expect(c.federation.linkOf(SESSION_ID)).toBeNull();
   }, 60_000);
 });

@@ -21,9 +21,10 @@ export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService
     return remote.status();
   });
 
+  // Only the primary shows a code that adds a device (ADR the-group-has-one-primary-device): 403 `not_primary` names it.
   app.post('/api/remote/pair', async (_req, reply) => {
     const res = await remote.startPairing();
-    if ('error' in res) return reply.code(409).send(res);
+    if ('error' in res) return reply.code(res.error === 'not_primary' ? 403 : 409).send(res);
     return res;
   });
 
@@ -32,7 +33,7 @@ export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService
     const { code } = (req.body ?? {}) as { code?: unknown };
     if (typeof code !== 'string') return reply.code(400).send({ error: 'code must be a string' });
     const res = await remote.join(code);
-    if ('error' in res) return reply.code(res.error === 'bad_code' ? 400 : 409).send(res);
+    if ('error' in res) return reply.code(res.error === 'bad_code' ? 400 : res.error === 'not_primary' ? 403 : 409).send(res);
     return res;
   });
 
@@ -64,7 +65,8 @@ export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService
     }
   });
 
-  // This device's own id is leaving the group, refused as `leave` is.
+  // Only the primary removes a member (403 `not_primary` names it); this device's own id is leaving the group,
+  // refused as `leave` is.
   app.delete('/api/remote/devices/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
     return removed(reply, await remote.remove(id));
@@ -74,8 +76,13 @@ export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService
   app.post('/api/remote/leave', async (_req, reply) => removed(reply, await remote.leave()));
 }
 
-/** A removal's answer: 404 for no such device, 409 for leaving while offline, 500 for a roster that could not be written. */
+/**
+ * A removal's answer: 404 for no such device, 403 from a member that is not
+ * the primary, 409 for leaving while offline, 500 for a roster that could
+ * not be written.
+ */
 function removed(reply: FastifyReply, res: RemoveResult) {
   if (!('error' in res)) return res;
-  return reply.code(res.error === 'not_found' ? 404 : res.error === 'offline' ? 409 : 500).send(res);
+  const code = { not_found: 404, not_primary: 403, offline: 409, failed: 500 }[res.error];
+  return reply.code(code).send(res);
 }

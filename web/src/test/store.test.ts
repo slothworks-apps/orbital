@@ -1340,8 +1340,8 @@ describe('visibleSessions (pure)', () => {
 
 describe('the device filter (pure, canvas 50e)', () => {
   const member = (patch: Partial<GroupMember>): GroupMember => ({
-    id: 'x', kind: 'desktop', name: 'x', os: 'macos', links: true, epoch: 1, addedBy: 'me', addedAt: 0,
-    describedAt: 0, self: false, linked: true, online: true, pairByHand: false, state: 'online', seenAt: null,
+    id: 'x', kind: 'desktop', name: 'x', os: 'macos', links: true, addedAt: 0, primary: false,
+     self: false, linked: true, online: true, pairByHand: false, state: 'online', seenAt: null,
     tooOld: false, ...patch,
   })
   const remote = {
@@ -2728,7 +2728,7 @@ describe('refreshRemote', () => {
   const remoteStatus = (macName: string) => ({
     enabled: true, relay: 'online' as const, relayTooOld: null, relayAttempts: 0, relayUrl: 'https://r.example', macId: 'm',
     macName, devices: [], pendingPair: null, pairing: null, joining: null, error: null,
-    group: { members: [], relayLocked: false },
+    group: { members: [], relayLocked: false, primary: null, isPrimary: false },
   })
 
   it('stores the answer when nothing newer arrived meanwhile', async () => {

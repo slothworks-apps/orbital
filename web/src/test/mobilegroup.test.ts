@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { deviceId, fingerprint, generateIdentity } from '@orbital/shared/remote/keys'
-import type { RosterEntry } from '@orbital/shared/remote/roster'
+import { EMPTY_ROSTER, describeDevice, foundRoster, type RosterState } from '@orbital/shared/remote/roster'
+import type { Identity } from '@orbital/shared/remote/keys'
 import { migratePairing, pairingFromGroup, parseGroupRecord, reconcileGroup, type Pairing } from '../mobile/platform/parse'
 import { PersistQueue } from '../mobile/platform/persistQueue'
 import { useMobile, type DeviceView } from '../mobile/state'
@@ -11,10 +12,13 @@ const macKey = generateIdentity().publicKey
 const mac = deviceId(macKey)
 const PAIRING: Pairing = { relay: 'https://relay.test', mac, macName: 'studio', fingerprint: 'f', pairedAt: 7, relaySecret: 's' }
 
-function entry(id: string, patch: Partial<RosterEntry> = {}): RosterEntry {
+/** A group whose primary is `primary`, naming `others` too, each described by the primary. */
+function rosterOf(primary: Identity, ...others: string[]): RosterState {
+  const roster = foundRoster(primary, 'desktop', others.map((id) => ({ id, kind: 'desktop' })), 3)!
+  const ids = [deviceId(primary.publicKey), ...others]
   return {
-    id, kind: 'desktop', name: id.slice(0, 6), os: 'macOS', links: true, epoch: 1, addedBy: id, addedEpoch: 0, addedAt: 3, addedSig: 's',
-    describedAt: 3, describedBy: id, describedSig: 's', ...patch,
+    roster, left: [],
+    descriptions: ids.map((id) => describeDevice(id, { name: id.slice(0, 6), os: 'macOS', links: true }, primary, 3)),
   }
 }
 
@@ -33,7 +37,7 @@ describe('the stored group', () => {
       group: { roster: 'bad', paired: [{ id: 'not-a-key' }, migratePairing(PAIRING).group.paired[0]], pendingRevokes: [mac, 'x'] },
     })
     const record = parseGroupRecord(raw)
-    expect(record).toEqual({ relay: PAIRING.relay, group: { roster: [], paired: migratePairing(PAIRING).group.paired, pendingRevokes: [mac] } })
+    expect(record).toEqual({ relay: PAIRING.relay, group: { roster: EMPTY_ROSTER, paired: migratePairing(PAIRING).group.paired, pendingRevokes: [mac] } })
   })
 
   it('keeps the notification rules chosen on the phone, and drops ones that do not read', () => {
@@ -47,7 +51,7 @@ describe('the stored group', () => {
     expect(migratePairing(PAIRING)).toEqual({
       relay: PAIRING.relay, relaySecret: 's',
       group: {
-        roster: [],
+        roster: EMPTY_ROSTER,
         paired: [{ id: mac, name: 'studio', kind: null, platform: '', pairedAt: 7, lastSeenAt: null }],
         pendingRevokes: [],
       },
@@ -62,19 +66,19 @@ describe('the stored group', () => {
       relay: PAIRING.relay, mac, macName: 'studio', fingerprint: fingerprint(macKey, phone.publicKey), pairedAt: 7, relaySecret: 's',
     })
     const self = deviceId(phone.publicKey)
-    const lost = {
-      ...record,
-      group: { roster: [entry(self, { kind: 'phone' }), entry(mac, { removedAt: 9, removedBy: mac }), entry(deviceId(generateIdentity().publicKey))], paired: [], pendingRevokes: [] },
-    }
-    expect(pairingFromGroup(lost, phone.publicKey)?.mac).toBe(lost.group.roster[2].id)
-    // Only itself, or only removed members: not in a group.
-    expect(pairingFromGroup({ ...record, group: { roster: [entry(self)], paired: [], pendingRevokes: [] } }, phone.publicKey)).toBeNull()
+    // The Mac is no member any more; the group's primary stands in.
+    const primary = generateIdentity()
+    const lost = { ...record, group: { roster: rosterOf(primary, self), paired: [], pendingRevokes: [] } }
+    expect(pairingFromGroup(lost, phone.publicKey)?.mac).toBe(deviceId(primary.publicKey))
+    // No roster and no pair: not in a group.
+    expect(pairingFromGroup({ ...record, group: { roster: EMPTY_ROSTER, paired: [], pendingRevokes: [] } }, phone.publicKey)).toBeNull()
   })
 })
 
 describe('reconcileGroup', () => {
-  const other = deviceId(generateIdentity().publicKey)
-  const group = { ...migratePairing(PAIRING), group: { ...migratePairing(PAIRING).group, roster: [entry(other)] } }
+  const otherKey = generateIdentity()
+  const other = deviceId(otherKey.publicKey)
+  const group = { ...migratePairing(PAIRING), group: { ...migratePairing(PAIRING).group, roster: rosterOf(otherKey) } }
 
   it('boots the group when the pairing beside it agrees, by a paired device or a live member', () => {
     expect(reconcileGroup(group, PAIRING)).toEqual({ record: group, stale: false })
@@ -95,8 +99,8 @@ describe('reconcileGroup', () => {
   it('starts afresh from a pairing for a device the group does not hold: an older bundle paired another', () => {
     const fresh: Pairing = { ...PAIRING, mac: deviceId(generateIdentity().publicKey), macName: 'laptop' }
     expect(reconcileGroup(group, fresh)).toEqual({ record: migratePairing(fresh), stale: true })
-    // A removed member is not held either, nor a device on another relay.
-    const removed = { ...group, group: { ...group.group, paired: [], roster: [entry(other, { removedAt: 9, removedBy: other })] } }
+    // A device the roster no longer names is not held either, nor a device on another relay.
+    const removed = { ...group, group: { ...group.group, paired: [], roster: rosterOf(generateIdentity()) } }
     expect(reconcileGroup(removed, { ...PAIRING, mac: other }).stale).toBe(true)
     expect(reconcileGroup(group, { ...PAIRING, relay: 'https://other.test' }).stale).toBe(true)
   })

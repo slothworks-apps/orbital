@@ -142,12 +142,15 @@ describe('parseChannelMessage', () => {
   it('reads group messages, and refuses a roster over its bound', () => {
     expect(parseChannelMessage({ t: 'roster_digest', digest: 'ab' })?.kind).toBe('group');
     expect(parseChannelMessage({ t: 'removed' })).toBeNull();
-    const one = {
-      id: 'A', kind: 'desktop', name: 'a', os: 'macos', links: true, epoch: 1, addedBy: 'B', addedEpoch: 1, addedAt: 1, addedSig: 's',
-      describedAt: 1, describedBy: 'A', describedSig: 's',
-    };
-    expect(parseChannelMessage({ t: 'roster', entries: [one] })?.kind).toBe('group');
-    expect(parseChannelMessage({ t: 'roster', entries: new Array(ROSTER_MAX_ENTRIES + 1).fill(one) })).toBeNull();
+    const member = { id: 'A', kind: 'desktop', addedAt: 1 };
+    const roster = { group: 'A', version: 1, members: [member], sig: 's' };
+    const notice = { id: 'B', group: 'A', version: 1, at: 1, sig: 's' };
+    expect(parseChannelMessage({ t: 'roster', roster, descriptions: [], left: [] })?.kind).toBe('group');
+    // A member leaving sends its notice alone.
+    expect(parseChannelMessage({ t: 'roster', roster: null, descriptions: [], left: [notice] })?.kind).toBe('group');
+    const over = { ...roster, members: new Array(ROSTER_MAX_ENTRIES + 1).fill(member) };
+    expect(parseChannelMessage({ t: 'roster', roster: over, descriptions: [], left: [] })).toBeNull();
+    expect(parseChannelMessage({ t: 'roster', roster, descriptions: [], left: [{ ...notice, version: 0 }] })).toBeNull();
   });
 });
 

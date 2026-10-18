@@ -60,6 +60,10 @@ function refusal(res: Exclude<JoinAnswer, { ok: true }>, name: string, code: str
       return { kind: 'line', text: 'The relay needs an update first.' }
     case 'relay_error':
       return { kind: 'line', text: "The relay didn't answer. Try again." }
+    case 'group_full':
+      return { kind: 'line', text: 'This group holds as many devices as it can.' }
+    case 'not_primary':
+      return { kind: 'line', text: `Only ${res.primary.name} adds devices to this group.` }
   }
 }
 

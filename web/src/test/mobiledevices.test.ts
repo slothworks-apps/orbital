@@ -9,7 +9,7 @@ const HOUR = 3_600_000
 
 function member(over: Partial<MemberRow> & Pick<MemberRow, 'id' | 'name'>): MemberRow {
   return {
-    kind: 'desktop', os: 'macos', links: true, epoch: 1, addedBy: 'phone', addedAt: NOW - 24 * HOUR, describedAt: NOW,
+    kind: 'desktop', os: 'macos', links: true, addedAt: NOW - 24 * HOUR, primary: false,
     self: false, linked: true, online: true, pairByHand: false, state: 'online', seenAt: null,
     ...over,
   }
@@ -25,11 +25,11 @@ function source(over: Partial<DeviceView> & Pick<DeviceView, 'id' | 'name'>): De
 describe('phoneRows', () => {
   const self = member({ id: 'phone', name: 'Pixel 8', kind: 'phone', os: 'android', self: true, state: 'self' })
 
-  it('lists every member but this phone, and names this phone as the adder', () => {
-    const rows = phoneRows([self, member({ id: 'studio', name: 'studio-mbp', addedBy: 'studio' }), member({ id: 'air', name: 'air-m3' })], [], NOW)
+  it('lists every member but this phone, and marks the primary', () => {
+    const rows = phoneRows([self, member({ id: 'studio', name: 'studio-mbp', primary: true }), member({ id: 'air', name: 'air-m3' })], [], NOW)
     expect(rows.map((r) => [r.name, r.added])).toEqual([
-      ['studio-mbp', 'started the group'],
-      ['air-m3', 'added by this phone'],
+      ['studio-mbp', 'primary'],
+      ['air-m3', ''],
     ])
     expect(rows[1].kindOs).toBe('desktop · macOS')
   })
@@ -60,11 +60,11 @@ describe('phoneRows', () => {
     expect(phoneRows([self, studio], [app], NOW)[0].state).toBe('online')
   })
 
-  it('reads another phone of the group as paired with the desktop that added it, never linking', () => {
-    const studio = member({ id: 'studio', name: 'studio-mbp', addedBy: 'studio' })
+  it('reads another phone of the group as paired with the primary, never linking', () => {
+    const studio = member({ id: 'studio', name: 'studio-mbp', primary: true })
     // A phone names `group`, so it links; it still never links with this phone.
     const other = member({
-      id: 'pixel', name: 'Pixel 7', kind: 'phone', os: 'android', addedBy: 'studio', linked: false, state: 'offline',
+      id: 'pixel', name: 'Pixel 7', kind: 'phone', os: 'android', linked: false, state: 'offline',
     })
     const [, row] = phoneRows([self, studio, other], [], NOW)
     expect(row).toMatchObject({ state: 'elsewhere', words: 'paired with studio-mbp', notLinked: false })

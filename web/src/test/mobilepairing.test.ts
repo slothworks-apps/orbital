@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RemoteClientEvent } from '@orbital/shared/remote/client'
 import type { JoinResult } from '@orbital/shared/remote/ceremony'
+import { EMPTY_ROSTER } from '@orbital/shared/remote/roster'
 import type { GroupClientEvent } from '@orbital/shared/remote/groupClient'
 import type { LinkStatus } from '@orbital/shared/remote/relayLink'
 import { deviceId, generateIdentity, toBase64Url, type Identity } from '@orbital/shared/remote/keys'
@@ -109,6 +110,8 @@ function fakeGroup(onStart: GroupClientEvent = { type: 'status', status: 'online
     stop: vi.fn(),
     cancelJoin: vi.fn(() => true),
     members: () => [],
+    primary: () => null,
+    isPrimary: () => false,
     join: vi.fn(async (): Promise<JoinResult> => ({ device: mac, name: 'studio', code: 'ABC-123' })),
   }
   const federation = {
@@ -123,7 +126,7 @@ function fakeGroup(onStart: GroupClientEvent = { type: 'status', status: 'online
 
 describe('runPairing', () => {
   const phone = generateIdentity()
-  const empty = { roster: [], paired: [], pendingRevokes: [] }
+  const empty = { roster: EMPTY_ROSTER, paired: [], pendingRevokes: [] }
   let steps: PairingStep[]
   let cancel: boolean
 

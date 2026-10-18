@@ -2,9 +2,10 @@
  * The phone as a member of its group (spec 2026-10-16-device-group-design
  * § 5, § 12): one relay socket (`RelayLink`), a channel to every device this
  * phone is paired with (the phone always initiates), the roster kept here and
- * synced over those channels (`GroupMember`), a link with every live member
+ * synced over those channels (`GroupMember`), a link with every member
  * through `/pair/mutual`, and both pairing ceremonies (`PairingCeremony`) —
- * joining by any member's code, and adding a device by showing its own.
+ * joining a group by its primary's code, and joining a device alone by
+ * showing its own. A phone is never its group's primary.
  * `RemoteClient` (one Mac) stays for what still uses it.
  *
  * This file exposes the channels; merging what they carry is the caller's.
@@ -21,13 +22,16 @@ import {
 } from './ceremony.js';
 import { osName, type Capability } from './device.js';
 import {
-  GroupMember, type GroupStorage, type MemberRow, type PairedDevice, type RemoveResult, type SelfAbout,
+  GroupMember, type GroupStorage, type MemberRow, type PairedDevice, type PrimaryRef, type RemoveResult, type SelfAbout,
 } from './group.js';
 import { publicKeyOf, type Identity } from './keys.js';
 import type { HelloMessage } from './messages.js';
 import { PAIR_NAME_MAX_CHARS } from './relayApi.js';
 import { RelayLink, type LinkStatus, type RelayLinkEvent, type SocketConstructor } from './relayLink.js';
-import { ROSTER_KIND_MAX_CHARS, RosterSchema, isLive, rosterDigest, rosterKey, type RosterEntry } from './roster.js';
+import {
+  EMPTY_ROSTER, ROSTER_KIND_MAX_CHARS, RosterStateSchema, memberIds, normalize, rosterDigest, rosterKey, rosterMembers,
+  type RosterState,
+} from './roster.js';
 import type { RelayTooOld } from './version.js';
 
 /**
@@ -112,7 +116,7 @@ export type GroupClientOptions = {
   app: string;
   /** The phone's OS as `hello` names it (`osName` of the Capacitor platform). */
   os: string;
-  /** This phone's name: in its hello, its roster entry, and sealed into a redeem. */
+  /** This phone's name: in its hello, its description in the roster, and sealed into a redeem. */
   name: string;
   /** Synchronous; the caller persists it after every `onStored`. */
   storage: GroupStorage;
@@ -202,6 +206,8 @@ export class GroupClient {
       relaySecret: () => opts.relaySecret ?? '',
       self: () => ({ name: this.about().name, platform: opts.os, kind: 'phone' }),
       inGroup: () => this.group.inGroup(),
+      notPrimary: () => this.group.notPrimary()?.primary ?? null,
+      byHand: () => this.group.byHandPending(),
       isLiveMember: (id) => this.group.isLiveMember(id),
       canAdd: (id) => this.group.canAdd(id),
       paired: this.storage.paired,
@@ -302,9 +308,9 @@ export class GroupClient {
 
   /** Every paired device, named as the roster names it. */
   peers(): PeerInfo[] {
+    const members = new Map(rosterMembers(this.storage.roster.read()).map((m) => [m.id, m]));
     return this.storage.paired.list().map((d) => {
-      const entry = this.storage.roster.entry(d.id);
-      const live = entry !== null && isLive(entry) ? entry : null;
+      const live = members.get(d.id) ?? null;
       return {
         id: d.id, name: live?.name ?? d.name, kind: live?.kind ?? d.kind, os: live?.os ?? osName(d.platform),
         online: this.link.peersOnline.has(d.id), ready: this.channels.get(d.id)?.ready === true,
@@ -328,6 +334,16 @@ export class GroupClient {
     return this.group.inGroup();
   }
 
+  /** The group's primary, which alone adds and removes devices; null while this phone holds no group. */
+  primary(): PrimaryRef | null {
+    return this.group.primary();
+  }
+
+  /** Always false: a phone is never its group's primary. */
+  isPrimary(): boolean {
+    return this.group.isPrimary();
+  }
+
   /** Shows this phone's code (`PairingCeremony.start`). */
   startPairing(): Promise<StartPairingResult> {
     return this.ceremony.start();
@@ -347,7 +363,11 @@ export class GroupClient {
     return this.ceremony.cancelJoin();
   }
 
-  /** Removes a member from the group, on every member; this phone's own id is `leave`. */
+  /**
+   * Removes a device: a member only on the primary, so on a phone it is
+   * refused (`not_primary`) unless it is a device this phone paired outside
+   * any group; this phone's own id is `leave`.
+   */
   remove(id: string): Promise<RemoveResult> {
     return this.deliberately(() => this.group.remove(id));
   }
@@ -466,7 +486,8 @@ export class GroupClient {
     const device = this.storage.paired.get(id);
     if (!device) return;
     // Another phone initiates too: no handshake between the two would ever be answered.
-    if ((this.storage.roster.entry(id)?.kind ?? device.kind) === 'phone') return;
+    const member = rosterMembers(this.storage.roster.read()).find((m) => m.id === id);
+    if ((member?.kind ?? device.kind) === 'phone') return;
     const existing = this.channels.get(id);
     if (existing && (!existing.keyed || !cameBack)) return;
     const peerKey = publicKeyOf(id);
@@ -667,15 +688,14 @@ export class GroupClient {
   }
 
   /**
-   * Whether the roster still makes this phone part of a group: its own entry
-   * live and another live member that links. Unlike `inGroup`, a paired
+   * Whether the roster still makes this phone part of a group: it is a
+   * member, and so is another device that links. Unlike `inGroup`, a paired
    * device that does not link counts for nothing here.
    */
   private grouped(): boolean {
     try {
-      const entries = this.storage.roster.list();
-      const own = entries.find((e) => e.id === this.id);
-      return (own === undefined || isLive(own)) && entries.some((e) => e.id !== this.id && isLive(e) && e.links);
+      const state = this.storage.roster.read();
+      return memberIds(state).includes(this.id) && rosterMembers(state).some((m) => m.id !== this.id && m.links);
     } catch {
       return false;
     }
@@ -686,7 +706,7 @@ export class GroupClient {
     return { app: this.opts.app, kind: 'phone', os: about.os, name: about.name, capabilities: GROUP_PHONE_CAPABILITIES };
   }
 
-  /** Cut to the bounds a roster entry and a hello are read within. */
+  /** Cut to the bounds the roster and a hello are read within. */
   private about(): SelfAbout {
     return {
       kind: 'phone', name: this.opts.name.slice(0, PAIR_NAME_MAX_CHARS),
@@ -730,11 +750,10 @@ function message(err: unknown): string {
 function persisting(storage: GroupStorage, stored: () => void): GroupStorage {
   return {
     roster: {
-      list: () => storage.roster.list(),
-      entry: (id) => storage.roster.entry(id),
+      read: () => storage.roster.read(),
       digest: () => storage.roster.digest(),
-      replace: (entries) => {
-        const changed = storage.roster.replace(entries);
+      replace: (state) => {
+        const changed = storage.roster.replace(state);
         if (changed) stored();
         return changed;
       },
@@ -769,7 +788,7 @@ function persisting(storage: GroupStorage, stored: () => void): GroupStorage {
 }
 
 /** The phone's group as the app persists it: `MemoryGroupStorage.toJSON`. */
-export type StoredGroup = { roster: RosterEntry[]; paired: PairedDevice[]; pendingRevokes: string[] };
+export type StoredGroup = { roster: RosterState; paired: PairedDevice[]; pendingRevokes: string[] };
 
 const PairedRow = z.object({
   id: z.string(), name: z.string(), platform: z.string(), kind: z.string().nullable(), pairedAt: z.number(),
@@ -781,22 +800,18 @@ const PairedRow = z.object({
  * every `onStored` (`toJSON`) and read back at start (`fromJSON`).
  */
 export class MemoryGroupStorage implements GroupStorage {
-  private entries: RosterEntry[] = [];
+  private state: RosterState = EMPTY_ROSTER;
   private readonly devices = new Map<string, PairedDevice>();
   private readonly revokes = new Set<string>();
 
   readonly roster: GroupStorage['roster'] = {
-    list: () => this.entries.map((e) => ({ ...e })),
-    entry: (id) => {
-      const e = this.entries.find((x) => x.id === id);
-      return e ? { ...e } : null;
-    },
-    replace: (entries) => {
-      if (rosterKey(entries) === rosterKey(this.entries)) return false;
-      this.entries = [...entries].map((e) => ({ ...e })).sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
+    read: () => structuredClone(this.state),
+    replace: (state) => {
+      if (rosterKey(state) === rosterKey(this.state)) return false;
+      this.state = structuredClone(normalize(state));
       return true;
     },
-    digest: () => rosterDigest(this.entries),
+    digest: () => rosterDigest(this.state),
   };
 
   readonly paired: GroupStorage['paired'] = {
@@ -825,19 +840,19 @@ export class MemoryGroupStorage implements GroupStorage {
   };
 
   toJSON(): StoredGroup {
-    return { roster: this.roster.list(), paired: this.paired.list(), pendingRevokes: this.pendingRevokes.list() };
+    return { roster: this.roster.read(), paired: this.paired.list(), pendingRevokes: this.pendingRevokes.list() };
   }
 
   /**
    * Nothing here throws: what does not read is left out. A paired row and a
    * revoke are read one by one, since losing one loses a pair; a roster that
-   * does not read as a whole (one stored before entries were signed) is
-   * empty, and the members send it again.
+   * does not read as a whole (one stored before the primary signed it) is
+   * dropped, and the paired members send it again.
    */
   static fromJSON(value: unknown): MemoryGroupStorage {
     const storage = new MemoryGroupStorage();
     const parts = typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
-    const roster = RosterSchema.safeParse(parts.roster);
+    const roster = RosterStateSchema.safeParse(parts.roster);
     if (roster.success) storage.roster.replace(roster.data);
     for (const row of Array.isArray(parts.paired) ? parts.paired : []) {
       const d = PairedRow.safeParse(row);

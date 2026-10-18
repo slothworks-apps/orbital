@@ -11,7 +11,7 @@ import {
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import { PROTOCOL_VERSION, decodeInner, encodeInner } from '@orbital/shared/remote/messages';
 import { MIN_PHONE_VERSION, MIN_RELAY_VERSION } from '@orbital/shared/remote/version';
-import { addMember, removeMember, type RosterEntry } from '@orbital/shared/remote/roster';
+import { describeDevice, foundRoster, memberIds, nextRoster, type RosterState } from '@orbital/shared/remote/roster';
 import { Hub } from '../src/api/hub.js';
 import { openDb, type OrbitalDb } from '../src/db/database.js';
 import { createImageStore } from '../src/images/store.js';
@@ -62,6 +62,7 @@ function build(
 ) {
   const dir = makeTmpDir('remote-svc');
   const db = openDb(join(dir, 'index.db'));
+  dirOf.set(db, dir);
   const devices = new DeviceStore(db);
   seed?.(devices);
   if (opts.corruptIdentity) writeFileSync(join(dir, IDENTITY_FILE), 'not json');
@@ -105,30 +106,31 @@ const codeFor = (service: RemoteService, phone: string) =>
   pairingCode(service.status().macId!, publicKeyOf(phone)!);
 
 describe('RemoteService roster', () => {
-  it('a rename made while the remote is off reaches the self entry at the next start', () => {
-    const { service, settings } = build();
+  it('a rename made while the remote is off reaches this device\'s description at the next start', () => {
+    const { service, settings, db } = build();
+    withMembers(db, {});
+    service.nameChanged();
     const self = () => service.status().group.members.find((m) => m.self);
-    expect(self()).toMatchObject({ links: true });
+    const own = () => service.rosterState().descriptions.find((d) => d.id === service.status().macId);
+    expect(self()).toMatchObject({ links: true, primary: true });
     settings.remote_enabled = 'false';
     service.settingsChanged();
     settings.remote_mac_name = 'renamed';
     service.nameChanged();
     settings.remote_enabled = 'true';
     service.settingsChanged();
-    // Alone, this device holds its founding entry: epoch 0, added by itself.
-    expect(self()).toMatchObject({ name: 'renamed', epoch: 0 });
+    expect(self()).toMatchObject({ name: 'renamed' });
+    expect(own()).toMatchObject({ name: 'renamed', by: service.status().macId });
   });
 
   it('a roster that cannot be written here is still answered with this side\'s own', () => {
     const peer = generateIdentity();
     const id = deviceId(peer.publicKey);
-    const { fake, service, db, dir } = build((d) => d.add({
+    const { fake, service, db } = build((d) => d.add({
       id, name: 'vps', platform: 'linux', kind: 'desktop', pairedAt: 1, notifications: parseNotificationSettings({}),
     }));
-    // The peer, added here, and a member the peer added, which the peer's empty roster lacks.
-    const store = new RosterStore(db);
-    const withPeer = addMember(store.list(), { id, kind: 'desktop', name: 'vps', os: 'linux', links: true }, readIdentity(dir)!, 1);
-    store.replace(addMember(withPeer, { id: phoneId(), kind: 'desktop', name: 'x', os: 'linux', links: true }, peer, 1));
+    // This device's group names the peer, whose empty roster lacks it.
+    withMembers(db, { id, name: 'vps' }, {});
     const hs = startHandshake(peer, publicKeyOf(service.status().macId!)!, 'initiator');
     fake.emit('data', encodeFrame({ peer: peer.publicKey, flags: 0, wake: ZERO_WAKE, body: hs.message! }));
     const cipher = hs.complete(decodeFrame(fake.sent[0])!.body)!;
@@ -145,8 +147,8 @@ describe('RemoteService roster', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const from = fake.sent.length;
     try {
-      fake.emit('data', seal({ t: 'roster', entries: [] }));
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not merge a roster'));
+      fake.emit('data', seal({ t: 'roster', roster: null, descriptions: [], left: [] }));
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not take a roster'));
     } finally {
       replace.mockRestore();
       warn.mockRestore();
@@ -365,20 +367,30 @@ describe('RemoteService pairing', () => {
   });
 });
 
+/** Where each test's service keeps its identity, by its database. */
+const dirOf = new WeakMap<OrbitalDb, string>();
+
+type MemberSpec = { id?: string; kind?: string; name?: string; os?: string; links?: boolean; removedAt?: number };
+
 /**
- * Members written straight into the store, beside the service's own self
- * entry, each added (and, with `removedAt`, removed) by another member: no
- * link is asked yet.
+ * Members written straight into the store: this device, the primary, signs
+ * the next version naming them, each described by itself as given. One with
+ * `removedAt` was removed already: no version names it. No link is asked yet.
  */
-function withMembers(db: OrbitalDb, ...entries: Partial<Pick<RosterEntry, 'id' | 'kind' | 'name' | 'os' | 'links' | 'removedAt'>>[]) {
+function withMembers(db: OrbitalDb, ...specs: MemberSpec[]): string[] {
   const store = new RosterStore(db);
-  const adder = generateIdentity();
-  const added = entries.map(({ removedAt, ...e }): RosterEntry => {
-    const entry = addMember([], { id: phoneId(), kind: 'desktop', name: 'peer', os: 'linux', links: true, ...e }, adder, NOW);
-    return (removedAt === undefined ? entry : removeMember(entry, entry[0].id, adder, removedAt))[0];
-  });
-  store.replace([...store.list(), ...added]);
-  return added.map((e) => e.id);
+  const self = readIdentity(dirOf.get(db)!)!;
+  const ids = specs.map((e) => e.id ?? phoneId());
+  const live = specs.map((e, i) => ({ ...e, id: ids[i] })).filter((e) => e.removedAt === undefined);
+  const held = store.read();
+  const add = live.map((e) => ({ id: e.id, kind: e.kind ?? 'desktop' }));
+  const roster = held.roster ? nextRoster(held.roster, self, { add }, NOW)! : foundRoster(self, 'desktop', add, NOW)!;
+  const descriptions = live.map((e) => describeDevice(e.id, {
+    name: e.name ?? 'peer', os: e.os ?? 'linux', links: e.links ?? true,
+  }, self, NOW));
+  const next: RosterState = { roster, descriptions: [...held.descriptions, ...descriptions], left: [] };
+  store.replace(next);
+  return ids;
 }
 
 /** The relay connection drops and comes back: a new connection, and its `ok`. */
@@ -509,12 +521,14 @@ describe('RemoteService mutual pairs', () => {
     const [server] = withMembers(db, { name: 'vps', os: 'linux' });
     const [removed] = withMembers(db, { removedAt: NOW });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    fake.emit('control', { type: 'linked', peer: phoneId() });
+    const unknown = phoneId();
+    fake.emit('control', { type: 'linked', peer: unknown });
     fake.emit('control', { type: 'linked', peer: removed });
     warn.mockRestore();
     expect(service.status().devices).toEqual([]);
-    // A removed member is not left half linked: its pair goes at once. An unknown id is only ignored.
-    expect(fake.posts.filter((p) => p.path === '/pair/revoke').map((p) => p.payload)).toEqual([{ phone: removed }]);
+    // A device the group does not name is not left half linked: its pair goes at once.
+    expect(fake.posts.filter((p) => p.path === '/pair/revoke').map((p) => (p.payload as { phone: string }).phone))
+      .toEqual([unknown, removed]);
     // Both the post's answer and the control say so; the device is added once.
     fake.answers['/pair/mutual'] = { status: 200, body: { linked: true } };
     reconnect(fake);
@@ -565,7 +579,7 @@ describe('RemoteService join and the group', () => {
   const codeFrom = (over: Partial<QrPayload> = {}) => {
     const qr: QrPayload = {
       v: 1, relay: 'https://relay.test', mac: phoneId(), name: 'studio', token: 'tok',
-      secret: toBase64Url(new Uint8Array(PAIRING_SECRET_BYTES)), kind: 'desktop', expiresAt: NOW + 90_000, ...over,
+      secret: toBase64Url(new Uint8Array(PAIRING_SECRET_BYTES)), kind: 'desktop', expiresAt: NOW + 90_000, group: true, ...over,
     };
     return JSON.stringify(qr);
   };
@@ -599,7 +613,7 @@ describe('RemoteService join and the group', () => {
     const { service, db } = build();
     const [phone] = withMembers(db, { kind: 'phone', links: false });
     expect(await service.join(codeFrom())).toEqual({ error: 'in_group' });
-    new RosterStore(db).replace(removeMember(new RosterStore(db).list(), phone, generateIdentity(), NOW));
+    await service.remove(phone);
     expect(await service.join(codeFrom())).toMatchObject({ code: expect.any(String) });
   });
 
@@ -630,7 +644,7 @@ describe('RemoteService join and the group', () => {
     await tick();
     expect(revoked()).toEqual([first.device]);
     expect(devices.get(first.device)).toBeNull();
-    expect(new RosterStore(db).entry(first.device)).toBeNull();
+    expect(memberIds(new RosterStore(db).read())).not.toContain(first.device);
     // Once the code has expired, nothing is left to revoke.
     const second = await service.join(codeFrom());
     if (!('device' in second)) throw new Error('join failed');
@@ -745,21 +759,21 @@ describe('RemoteService relay status', () => {
 describe('RemoteService remove', () => {
   const revoked = (fake: FakeClient) => fake.posts.filter((p) => p.path === '/pair/revoke').map((p) => (p.payload as { phone: string }).phone);
 
-  it('removes a phone paired before the roster: its entry is written, marked removed, and the device goes even when the relay revoke fails', async () => {
+  it('a Mac from before groups founds its group with its phone; removing it signs a version without it, and the device goes even when the relay revoke fails', async () => {
     const phone = phoneId();
     const { service, fake, db, devices } = build((d) => d.add({
       id: phone, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}),
     }));
+    expect(service.status().group).toMatchObject({ isPrimary: true, primary: { id: service.status().macId } });
+    expect(service.status().group.members.find((m) => m.id === phone)).toMatchObject({ kind: 'phone', name: 'iPhone', os: 'ios', links: false });
     fake.answers['/pair/revoke'] = { status: 0, body: { error: 'network' } };
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     expect(await service.remove(phone)).toEqual({ ok: true });
     warn.mockRestore();
     expect(devices.get(phone)).toBeNull();
     expect(fake.posts.map((p) => p.path)).toEqual(['/pair/revoke']);
-    // The store keeps the removed entry; the status lists only live members.
-    expect(new RosterStore(db).entry(phone)).toMatchObject({
-      kind: 'phone', name: 'iPhone', os: 'ios', removedBy: service.status().macId, removedAt: NOW,
-    });
+    expect(new RosterStore(db).read().roster).toMatchObject({ version: 2 });
+    expect(memberIds(new RosterStore(db).read())).not.toContain(phone);
     expect(service.status().group.members.some((m) => m.id === phone)).toBe(false);
   });
 
@@ -768,7 +782,7 @@ describe('RemoteService remove', () => {
     const [member] = withMembers(db, {});
     expect(await service.remove(member)).toEqual({ ok: true });
     expect(revoked(fake)).toEqual([member]);
-    expect(new RosterStore(db).entry(member)?.removedAt).toBe(NOW);
+    expect(memberIds(new RosterStore(db).read())).not.toContain(member);
   });
 
   it('is false for an id neither in the roster nor paired, and for a member already removed', async () => {
@@ -779,7 +793,7 @@ describe('RemoteService remove', () => {
     expect(revoked(fake)).toEqual([]);
   });
 
-  it('leave revokes every pair, forgets every device and member, and starts a group of one: its founding entry', async () => {
+  it('the primary leaving dissolves the group: every pair revoked, every device and member forgotten, the last version kept', async () => {
     const paired = [phoneId(), phoneId()];
     const { service, fake, db, devices } = build((d) => {
       for (const id of paired) {
@@ -792,10 +806,10 @@ describe('RemoteService remove', () => {
     expect(await service.leave()).toEqual({ ok: true });
     expect(revoked(fake).sort()).toEqual([...paired, unpaired].sort());
     expect(devices.list()).toEqual([]);
-    expect(service.status().group.members).toEqual([
-      expect.objectContaining({ id: self, self: true, epoch: 0, addedBy: self }),
-    ]);
-    expect(service.status().group.members[0].removedAt).toBeUndefined();
+    expect(service.status().group).toMatchObject({
+      members: [expect.objectContaining({ id: self, self: true, primary: false })], primary: null, isPrimary: false,
+    });
+    expect(service.rosterState().roster).toMatchObject({ dissolved: true, group: self });
   });
 
   it('leave while the relay is not online is refused and changes nothing', async () => {
@@ -836,7 +850,7 @@ describe('RemoteService remove', () => {
     const self = service.status().macId!;
     expect(await service.remove(self)).toEqual({ ok: true });
     expect(revoked(fake)).toEqual([member]);
-    expect(service.status().group.members).toEqual([expect.objectContaining({ id: self, epoch: 0 })]);
+    expect(service.status().group.members).toEqual([expect.objectContaining({ id: self, self: true })]);
   });
 
   it('leave answers failed when the roster cannot be written', async () => {
@@ -884,10 +898,9 @@ describe('RemoteService remove', () => {
     await service.remove(member);
     settings.remote_enabled = 'true';
     service.settingsChanged();
-    // Paired again through a ceremony, at the next epoch, before the relay heard of the removal.
-    const store = new RosterStore(db);
-    store.replace(addMember(store.list(), { id: member, kind: 'desktop', name: 'peer', os: 'linux', links: true }, generateIdentity(), NOW));
-    expect(store.entry(member)?.epoch).toBe(2);
+    // Added again through a ceremony, at the next version, before the relay heard of the removal.
+    withMembers(db, { id: member });
+    expect(memberIds(new RosterStore(db).read())).toContain(member);
     fake.emit('control', { type: 'linked', peer: member });
     reconnect(fake);
     await tick();

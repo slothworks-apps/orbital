@@ -1,12 +1,13 @@
 /**
  * The phone as a member (`GroupClient`) against real servers on one
- * in-memory relay: joining by a member's code, linking with the others
- * without a ceremony, adding a server by the phone's own code, removal,
- * leaving, and a Mac from before groups served one-to-one.
+ * in-memory relay: joining by the primary's code, linking with the others
+ * without a ceremony, a server founding a group by a phone's own code,
+ * removal, leaving, and a Mac from before groups served one-to-one.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import { generateIdentity } from '@orbital/shared/remote/keys';
+import { memberIds } from '@orbital/shared/remote/roster';
 import { Channel } from '@orbital/shared/remote/channel';
 import {
   GroupClient, MemoryGroupStorage, type GroupClientEvent,
@@ -99,7 +100,7 @@ describe('the phone as a member', () => {
     return { ...servers, phone };
   }
 
-  const entryIn = (s: MacAndRelay, id: string) => s.remote.rosterEntries().find((e) => e.id === id);
+  const isMember = (s: MacAndRelay, id: string) => memberIds(s.remote.rosterState()).includes(id);
   const pairedWith = async (s: MacAndRelay, id: string) => (await statusOf(s)).devices.some((d: any) => d.id === id);
 
   it('joins one member by its code and links with the other without a ceremony', async () => {
@@ -115,14 +116,14 @@ describe('the phone as a member', () => {
     });
     expect(phone.client.peers().map((p) => p.id).sort()).toEqual([idA, idB].sort());
     expect(phone.client.inGroup()).toBe(true);
-    // B joined A by its code while A was alone: A added B, and B added A, since no device adds
-    // itself. The phone joined A later: A added it. Every member says who did.
-    await until(() => phone.client.members().find((m) => m.id === idA)?.addedBy === idB);
-    for (const roster of [a.remote.rosterEntries(), b.remote.rosterEntries(), phone.client.members()]) {
-      expect(roster.find((e) => e.id === idA)?.addedBy).toBe(idB);
-      expect(roster.find((e) => e.id === idB)?.addedBy).toBe(idA);
-      expect(roster.find((e) => e.id === phone.client.id)?.addedBy).toBe(idA);
-    }
+    // B joined A by its code while both were alone: A, showing the code, founded the group and
+    // is its primary. Every member says so, and the phone is no primary.
+    for (const status of [await statusOf(a), await statusOf(b)]) expect(status.group.primary).toMatchObject({ id: idA, name: 'studio' });
+    expect(phone.client.primary()).toEqual({ id: idA, name: 'studio' });
+    expect(phone.client.members().filter((m) => m.primary).map((m) => m.id)).toEqual([idA]);
+    // The phone, not the primary, neither shows a code nor removes a member.
+    expect(await phone.client.startPairing()).toEqual({ error: 'not_primary', primary: { id: idA, name: 'studio' } });
+    expect(await phone.client.remove(idB)).toEqual({ error: 'not_primary', primary: { id: idA, name: 'studio' } });
   }, 30_000);
 
   it('a phone whose stored roster was dropped learns it again from its members', async () => {
@@ -142,24 +143,23 @@ describe('the phone as a member', () => {
     await joinBy({ client: first, events, posts: [], mutual: [], channels: [] }, a, idA);
     await until(() => first.channel(idB)?.ready === true && first.members().length === 3, 15_000);
     first.stop();
-    // Stored before entries were signed: the roster does not read, the pairs do.
+    // A roster that no longer reads (one stored before the primary signed it): dropped, the pairs kept.
     const stored = storage.toJSON();
-    const dropped = MemoryGroupStorage.fromJSON({ ...stored, roster: stored.roster.map(({ addedSig: _s, ...e }) => e) });
-    expect(dropped.roster.list()).toEqual([]);
+    const dropped = MemoryGroupStorage.fromJSON({ ...stored, roster: [{ id: idA, epoch: 1 }] });
+    expect(dropped.roster.read().roster).toBeNull();
+    expect(dropped.paired.list().map((d) => d.id).sort()).toEqual([idA, idB].sort());
     const again = make(dropped);
     again.start();
     closers.push(() => again.stop());
     await until(() => again.members().length === 3 && again.members().every((m) => m.self || m.linked), 15_000);
-    expect(again.members().find((m) => m.self)).toMatchObject({ addedBy: idA, name: 'Pixel' });
+    expect(again.members().find((m) => m.self)).toMatchObject({ primary: false, name: 'Pixel' });
+    expect(again.primary()).toEqual({ id: idA, name: 'studio' });
   }, 30_000);
 
-  it('adds a server by its own code; the server then links with the phone\'s other members', async () => {
-    const a = await startMacAndRelay(closers, { name: 'studio' });
-    const idA = (await statusOf(a)).macId as string;
-    const phone = await startPhone(a.relayUrl);
-    await joinBy(phone, a, idA);
-    const c = await startMacAndRelay(closers, { relayUrl: a.relayUrl, name: 'vps' });
+  it('a phone alone shows its code: the server that types it founds the group, and adds the next device', async () => {
+    const c = await startMacAndRelay(closers, { name: 'vps' });
     const idC = (await statusOf(c)).macId as string;
+    const phone = await startPhone(c.relayUrl);
     const shown = await phone.client.startPairing();
     if (!('qr' in shown)) throw new Error(`no code: ${JSON.stringify(shown)}`);
     expect(phone.client.pairing).not.toBeNull();
@@ -169,10 +169,18 @@ describe('the phone as a member', () => {
     expect(phone.events.some((e) => e.type === 'pair_request' && e.phone === idC)).toBe(true);
     expect(phone.client.pendingPair).toMatchObject({ phone: idC, name: 'vps', kind: 'desktop' });
     expect(await phone.client.confirmPairing(true, idC, join.json().code)).toEqual({ ok: true });
-    await until(() => phone.client.channel(idC)?.ready === true
-      && a.remote.channel(idC)?.ready === true && c.remote.channel(idA)?.ready === true, 15_000);
+    await until(() => phone.client.channel(idC)?.ready === true && phone.client.primary()?.id === idC, 15_000);
+    expect((await statusOf(c)).group).toMatchObject({ isPrimary: true });
     expect((await phone.client.channel(idC)!.request('GET', '/api/health')).status).toBe(200);
-    expect((await a.remote.channel(idC)!.request('GET', '/api/health')).status).toBe(200);
+    // A fourth device joins through the primary, and links with the phone without a ceremony.
+    const a = await startMacAndRelay(closers, { relayUrl: c.relayUrl, name: 'studio' });
+    const idA = (await statusOf(a)).macId as string;
+    const qr = (await c.api('POST', '/api/remote/pair')).json().qr;
+    const joinA = await a.api('POST', '/api/remote/join', { code: qr });
+    await until(async () => (await statusOf(c)).pendingPair !== null);
+    await c.api('POST', '/api/remote/pair/confirm', { accept: true, phone: idA, code: joinA.json().code });
+    await until(() => phone.client.channel(idA)?.ready === true && a.remote.channel(phone.client.id)?.ready === true, 15_000);
+    expect((await phone.client.channel(idA)!.request('GET', '/api/health')).status).toBe(200);
   }, 30_000);
 
   it('two phones of one group never link with each other, and each reads the other as paired with the desktop', async () => {
@@ -202,18 +210,18 @@ describe('the phone as a member', () => {
     expect((await statusOf(a)).devices.map((d: any) => d.id).sort()).toEqual([one.client.id, two.client.id].sort());
   }, 30_000);
 
-  it('removing the phone on B removes it everywhere', async () => {
+  it('removing the phone on the primary removes it everywhere', async () => {
     const { a, b, idA, idB, phone } = await phoneInGroup();
     const id = phone.client.id;
-    expect((await b.api('DELETE', `/api/remote/devices/${id}`)).statusCode).toBe(200);
+    expect((await b.api('DELETE', `/api/remote/devices/${id}`)).statusCode).toBe(403);
+    expect((await a.api('DELETE', `/api/remote/devices/${id}`)).statusCode).toBe(200);
     await until(() => phone.client.channel(idA) === null && phone.client.channel(idB) === null
       && phone.client.peers().length === 0, 15_000);
-    // A group of one: its founding entry.
-    const members = phone.client.members();
-    expect(members).toEqual([expect.objectContaining({ id, self: true, epoch: 0, addedBy: id })]);
+    // Alone: it holds no roster.
+    expect(phone.client.members()).toEqual([expect.objectContaining({ id, self: true })]);
+    expect(phone.client.primary()).toBeNull();
     expect(phone.client.inGroup()).toBe(false);
-    await until(async () => !(await pairedWith(a, id)) && !(await pairedWith(b, id))
-      && entryIn(a, id)?.removedAt !== undefined, 15_000);
+    await until(async () => !(await pairedWith(a, id)) && !(await pairedWith(b, id)) && !isMember(b, id), 15_000);
     expect(phone.events.filter((e) => e.type === 'unpaired_all')).toHaveLength(1);
   }, 30_000);
 
@@ -223,7 +231,7 @@ describe('the phone as a member', () => {
     expect(await phone.client.leave()).toEqual({ ok: true });
     await until(async () => {
       for (const s of [a, b]) {
-        if (entryIn(s, id)?.removedAt === undefined || (await pairedWith(s, id))) return false;
+        if (isMember(s, id) || (await pairedWith(s, id))) return false;
       }
       return a.remote.channel(id) === null && b.remote.channel(id) === null;
     }, 15_000);
@@ -255,6 +263,8 @@ describe('the phone as a member', () => {
     expect(sentByPhone).toEqual([]);
     expect(heard).toBe(0);
     expect(phone.posts).not.toContain('/pair/mutual');
-    expect(phone.client.members().find((m) => m.id === idMac)).toMatchObject({ links: false, linked: true, name: 'old' });
+    // It sends no roster, and a phone adds no one: the phone serves it as a pair of its own.
+    expect(phone.client.members().find((m) => m.id === idMac)).toBeUndefined();
+    expect(phone.client.peers()).toEqual([expect.objectContaining({ id: idMac, name: 'old' })]);
   }, 30_000);
 });

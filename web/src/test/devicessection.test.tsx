@@ -19,7 +19,7 @@ const NOW = Date.now()
 function member(patch: Partial<GroupMember>): GroupMember {
   return {
     id: 'm', kind: 'desktop', name: 'm', os: 'macos', links: true,
-    epoch: 1, addedBy: 'self', addedAt: NOW, describedAt: NOW,
+    addedAt: NOW, primary: false,
     self: false, linked: true, online: true, pairByHand: false, state: 'online', seenAt: null, tooOld: false,
     ...patch,
   }
@@ -32,7 +32,7 @@ function status(others: GroupMember[], patch: Partial<RemoteStatus> = {}): Remot
     enabled: true, relay: 'online', relayTooOld: null, relayAttempts: 0, relayUrl: 'https://relay.test',
     macId: 'self', macName: 'studio', devices: [],
     pendingPair: null, pairing: null, joining: null, error: null,
-    group: { members: [SELF, ...others], relayLocked: others.length > 0 },
+    group: { members: [SELF, ...others], relayLocked: others.length > 0, primary: null, isPrimary: false },
     ...patch,
   }
 }
@@ -129,7 +129,7 @@ describe('DevicesSection', () => {
   it('a Mac with only its phones changes the relay after the confirm that removes them', async () => {
     const phone = member({ id: 'p1', name: 'Pixel 8', kind: 'phone', os: 'android', links: false })
     renderWith(status([phone], {
-      group: { members: [SELF, phone], relayLocked: false },
+      group: { members: [SELF, phone], relayLocked: false, primary: null, isPrimary: false },
       devices: [{
         id: 'p1', name: 'Pixel 8', platform: 'android', kind: 'phone', pairedAt: NOW, lastSeenAt: null, online: true,
         needsUpdate: null,

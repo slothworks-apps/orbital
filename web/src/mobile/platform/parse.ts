@@ -3,7 +3,7 @@ import {
 } from '@orbital/shared/remote/keys'
 import { MemoryGroupStorage, type StoredGroup } from '@orbital/shared/remote/groupClient'
 import { NotificationSettingsSchema, type NotificationSettings } from '@orbital/shared/remote/messages'
-import { isLive } from '@orbital/shared/remote/roster'
+import { EMPTY_ROSTER, memberIds, rosterMembers } from '@orbital/shared/remote/roster'
 import type { ApiSession, ChatMessage, Tag } from '../../lib/types'
 
 /**
@@ -132,7 +132,7 @@ export function migratePairing(pairing: Pairing): GroupRecord {
   const record: GroupRecord = {
     relay: pairing.relay,
     group: {
-      roster: [],
+      roster: EMPTY_ROSTER,
       paired: [{ id: pairing.mac, name: pairing.macName, kind: null, platform: '', pairedAt: pairing.pairedAt, lastSeenAt: null }],
       pendingRevokes: [],
     },
@@ -155,7 +155,7 @@ export function reconcileGroup(record: GroupRecord | null, pairing: Pairing | nu
   if (!record) return { record: migratePairing(pairing), stale: false }
   const holds = record.relay === pairing.relay && (
     record.group.paired.some((d) => d.id === pairing.mac) ||
-    record.group.roster.some((e) => isLive(e) && e.id === pairing.mac)
+    memberIds(record.group.roster).includes(pairing.mac)
   )
   return holds ? { record, stale: false } : { record: migratePairing(pairing), stale: true }
 }
@@ -169,7 +169,7 @@ export function reconcileGroup(record: GroupRecord | null, pairing: Pairing | nu
 export function pairingFromGroup(record: GroupRecord, phoneKey: Uint8Array): Pairing | null {
   const self = deviceId(phoneKey)
   const first = record.group.paired.at(0)
-  const entry = record.group.roster.find((e) => isLive(e) && e.id !== self)
+  const entry = rosterMembers(record.group.roster).find((m) => m.id !== self)
   const member = first
     ? { id: first.id, name: first.name, at: first.pairedAt }
     : entry ? { id: entry.id, name: entry.name, at: entry.addedAt } : null

@@ -160,6 +160,12 @@ export const QrPayload = z.object({
   kind: z.string().max(PAIR_PLATFORM_MAX_CHARS).optional(),
   /** When the code stops working, by the relay's clock (epoch ms); absent from a device from before it said so. */
   expiresAt: z.number().int().nonnegative().optional(),
+  /**
+   * The device that shows the code is in a group of two or more, as its
+   * primary: the device that redeems it joins that group. Absent while it is
+   * alone, and from a device from before groups.
+   */
+  group: z.boolean().optional(),
 });
 export type QrPayload = z.infer<typeof QrPayload>;
 
@@ -196,12 +202,18 @@ export const PAIRING_DEVICE_INFO = new TextEncoder().encode('orbital-pairing-dev
 const SEALED_DEVICE_NONCE_BYTES = 24;
 const SEALED_DEVICE_TAG_BYTES = 16;
 
-/** What a device tells the one whose code it redeems, for the confirmation and the paired list. `kind`: absent from a phone that predates kinds. */
-export type PairingDevice = { name: string; platform: string; kind?: string };
+/**
+ * What a device tells the one whose code it redeems, for the confirmation
+ * and the paired list. `kind`: absent from a phone that predates kinds.
+ * `group`: the device is in a group of two or more, as its primary, and the
+ * one whose code it redeems joins that group.
+ */
+export type PairingDevice = { name: string; platform: string; kind?: string; group?: boolean };
 const PairingDeviceSchema = z.object({
   name: z.string().max(PAIR_NAME_MAX_CHARS),
   platform: z.string().max(PAIR_PLATFORM_MAX_CHARS),
   kind: z.string().max(PAIR_PLATFORM_MAX_CHARS).optional(),
+  group: z.boolean().optional(),
 });
 
 function pairingDeviceKey(secret: Uint8Array): Uint8Array {
@@ -219,6 +231,7 @@ export function sealPairingDevice(secret: Uint8Array, phonePublicKey: Uint8Array
   const plain = new TextEncoder().encode(JSON.stringify({
     name: device.name.slice(0, PAIR_NAME_MAX_CHARS), platform: device.platform.slice(0, PAIR_PLATFORM_MAX_CHARS),
     ...(device.kind !== undefined ? { kind: device.kind.slice(0, PAIR_PLATFORM_MAX_CHARS) } : {}),
+    ...(device.group === true ? { group: true } : {}),
   }));
   const nonce = randomBytes(SEALED_DEVICE_NONCE_BYTES);
   const sealed = xchacha20poly1305(pairingDeviceKey(secret), nonce, phonePublicKey).encrypt(plain);

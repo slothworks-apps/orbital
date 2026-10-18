@@ -47,24 +47,19 @@ export function memberStateWords(m: GroupMember, now: number): string {
 }
 
 /**
- * The row's second line (canvas 50k `devRow`): `started the group` for the
- * one member no one added (`addedBy` names itself); otherwise `added by
- * <name>`, `this device` when the adder is the device reading the list
- * (found by the `self` entry in `members`, there being exactly one), its
- * roster name when the adder is some other live member, or the first 8
- * characters of its id when the adder has since left the group.
+ * The row's second line (canvas 50k `devRow`): `primary` for the group's
+ * primary, which added every other member (ADR
+ * the-group-has-one-primary-device), and nothing for any other.
  */
-export function addedByLine(m: GroupMember, members: GroupMember[]): string {
-  if (m.addedBy === m.id) return 'started the group'
-  return `added by ${adderName(m, members)}`
+export function addedByLine(m: GroupMember): string {
+  return m.primary ? 'primary' : ''
 }
 
-/** Who added `m`, as `addedByLine` names it: `this device`, a live member's name, or a short id. */
-function adderName(m: GroupMember, members: GroupMember[]): string {
-  const selfId = members.find((x) => x.self)?.id
-  if (m.addedBy === selfId) return 'this device'
-  const adder = members.find((x) => x.id === m.addedBy)
-  return adder ? adder.name : m.addedBy.slice(0, 8)
+/** The device that paired a member: the group's primary, `this device` when it is the one reading the list. */
+function primaryName(members: GroupMember[]): string {
+  const primary = members.find((x) => x.primary)
+  if (!primary) return 'another device'
+  return primary.self ? 'this device' : primary.name
 }
 
 /**
@@ -121,8 +116,8 @@ export function deviceRows(members: GroupMember[], devices: RemoteDevice[], now:
       id: m.id, name: m.name, kind: m.kind, os: m.os,
       state: needsUpdate ? 'update' : elsewhere ? 'elsewhere' : m.state === 'self' ? 'online' : m.state,
       words: needsUpdate ? 'needs an update'
-        : elsewhere ? `paired with ${adderName(m, members)}` : memberStateWords(m, now),
-      added: addedByLine(m, members),
+        : elsewhere ? `paired with ${primaryName(members)}` : memberStateWords(m, now),
+      added: addedByLine(m),
       addedAt: m.addedAt,
       needsUpdate,
     }
@@ -391,7 +386,7 @@ export function runsOn(
     const seen = member?.seenAt ?? machine.asOf
     return { name, kind, os, dot: 'offline', words: offlineWords(seen, now) }
   }
-  return { name, kind, os, dot: 'live', words: member ? `online · ${addedByLine(member, members ?? [])}` : 'online' }
+  return { name, kind, os, dot: 'live', words: member?.primary ? `online · ${addedByLine(member)}` : 'online' }
 }
 
 /** The device pill's words (canvas 50f `fTag`): the name, and why it cannot be driven when it cannot. */

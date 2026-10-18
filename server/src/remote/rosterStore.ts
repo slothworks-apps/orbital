@@ -1,66 +1,57 @@
 /**
- * The roster in SQLite, signatures included (ADR roster-entries-are-signed).
- * `replace` writes a whole roster at once and says whether anything changed,
+ * The roster in SQLite, signatures included (ADR
+ * the-group-has-one-primary-device): the primary's document across
+ * `group_roster` and `group_members`, the descriptions and the left notices.
+ * `replace` writes a whole state at once and says whether anything changed,
  * so the service pushes only real changes.
  */
 import { eq } from 'drizzle-orm';
-import { rosterDigest, rosterKey, type RosterEntry } from '@orbital/shared/remote/roster';
-import { groupMembers, pendingRevokes } from '../db/schema.js';
+import { EMPTY_ROSTER, normalize, rosterDigest, rosterKey, type RosterState } from '@orbital/shared/remote/roster';
+import { groupDescriptions, groupLeft, groupMembers, groupRoster, pendingRevokes } from '../db/schema.js';
 import type { OrbitalDb } from '../db/database.js';
+
+const byId = <T extends { id: string }>(x: T, y: T) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
 
 export class RosterStore {
   constructor(private readonly db: OrbitalDb) {}
 
-  list(): RosterEntry[] {
-    return this.db.select().from(groupMembers).orderBy(groupMembers.id).all().map(fromRow);
+  /** What this device holds; nothing while it is alone. */
+  read(): RosterState {
+    const head = this.db.select().from(groupRoster).all()[0];
+    if (!head) return EMPTY_ROSTER;
+    const members = this.db.select().from(groupMembers).all().sort(byId);
+    const roster = {
+      group: head.groupId, version: head.version, members, ...(head.dissolved ? { dissolved: true as const } : {}), sig: head.sig,
+    };
+    const descriptions = this.db.select().from(groupDescriptions).all().sort(byId)
+      .map(({ describedBy, ...d }) => ({ ...d, by: describedBy }));
+    const left = this.db.select().from(groupLeft).all().sort(byId).map(({ groupId, ...n }) => ({ ...n, group: groupId }));
+    return { roster, descriptions, left };
   }
 
-  entry(id: string): RosterEntry | null {
-    return this.list().find((e) => e.id === id) ?? null;
-  }
-
-  /** What members compare (`rosterDigest`): this device's founding entry is not in it. */
+  /** What members compare (`rosterDigest`). */
   digest(): string {
-    return rosterDigest(this.list());
+    return rosterDigest(this.read());
   }
 
-  /** Writes the whole roster atomically; returns false when it is unchanged, founding entry included. */
-  replace(entries: RosterEntry[]): boolean {
-    if (rosterKey(entries) === rosterKey(this.list())) return false;
+  /** Writes the whole state atomically; returns false when it is unchanged. */
+  replace(next: RosterState): boolean {
+    const state = normalize(next);
+    if (rosterKey(state) === rosterKey(this.read())) return false;
     this.db.transaction((tx) => {
+      tx.delete(groupRoster).run();
       tx.delete(groupMembers).run();
-      for (const e of entries) {
-        tx.insert(groupMembers).values({
-          ...e, endorsedBy: e.endorsedBy ?? null, endorsedEpoch: e.endorsedEpoch ?? null, endorsedSig: e.endorsedSig ?? null,
-          removedBy: e.removedBy ?? null, removerEpoch: e.removerEpoch ?? null, removedAt: e.removedAt ?? null,
-          removedSig: e.removedSig ?? null, removalEndorsedBy: e.removalEndorsedBy ?? null,
-          removalEndorsedEpoch: e.removalEndorsedEpoch ?? null, removalEndorsedSig: e.removalEndorsedSig ?? null,
-        }).run();
-      }
+      tx.delete(groupDescriptions).run();
+      tx.delete(groupLeft).run();
+      const doc = state.roster;
+      if (!doc) return;
+      tx.insert(groupRoster).values({ groupId: doc.group, version: doc.version, dissolved: doc.dissolved === true, sig: doc.sig }).run();
+      for (const m of doc.members) tx.insert(groupMembers).values(m).run();
+      for (const { by, ...d } of state.descriptions) tx.insert(groupDescriptions).values({ ...d, describedBy: by }).run();
+      for (const { group, ...n } of state.left) tx.insert(groupLeft).values({ ...n, groupId: group }).run();
     });
     return true;
   }
-}
-
-/**
- * Each optional part is all its columns or none: a row with only some of a
- * removal reads as live, with only some of an endorsement as not endorsed,
- * and a removal's endorsement goes with its removal.
- */
-function fromRow(row: typeof groupMembers.$inferSelect): RosterEntry {
-  const {
-    endorsedBy, endorsedEpoch, endorsedSig, removedBy, removerEpoch, removedAt, removedSig, removalEndorsedBy,
-    removalEndorsedEpoch, removalEndorsedSig, ...rest
-  } = row;
-  let entry: RosterEntry = rest;
-  if (endorsedBy !== null && endorsedEpoch !== null && endorsedSig !== null) entry = { ...entry, endorsedBy, endorsedEpoch, endorsedSig };
-  if (removedBy !== null && removerEpoch !== null && removedAt !== null && removedSig !== null) {
-    entry = { ...entry, removedBy, removerEpoch, removedAt, removedSig };
-    if (removalEndorsedBy !== null && removalEndorsedEpoch !== null && removalEndorsedSig !== null) {
-      entry = { ...entry, removalEndorsedBy, removalEndorsedEpoch, removalEndorsedSig };
-    }
-  }
-  return entry;
 }
 
 /** Pairs revoked here and not yet answered by the relay; kept across restarts. */

@@ -6,7 +6,7 @@ import type { RelayToDevice } from '../src/remote/relayApi.js';
 import type { SocketLike } from '../src/remote/relayLink.js';
 import { RELAY_PHONE_GROUP_VERSION, RELAY_VERSION_HEADER } from '../src/remote/version.js';
 import { ALONE_GRACE_MS, GroupClient, MemoryGroupStorage, type GroupClientEvent } from '../src/remote/groupClient.js';
-import { addMember, type RosterEntry } from '../src/remote/roster.js';
+import { describeDevice, foundRoster, memberIds, type RosterState } from '../src/remote/roster.js';
 
 /** The relay socket the test plays: frames the phone sends go to `route`, a microtask later. */
 class FakeSocket implements SocketLike {
@@ -75,11 +75,11 @@ type SetupOpts = {
   fetchImpl?: (input: string, init: RequestInit) => Promise<Response>;
 };
 
-function setup(seed: (storage: MemoryGroupStorage) => void = () => {}, opts: SetupOpts = {}) {
+function setup(seed: (storage: MemoryGroupStorage, self: string) => void = () => {}, opts: SetupOpts = {}) {
   FakeSocket.all = [];
   const identity = generateIdentity();
   const storage = new MemoryGroupStorage();
-  seed(storage);
+  seed(storage, deviceId(identity.publicKey));
   let stored = 0;
   const client = new GroupClient({
     relayUrl: 'https://relay.test', identity, WebSocketImpl: FakeSocket, app: 'orbital-mobile/test', os: 'android',
@@ -119,21 +119,40 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-/** A desktop that links, as another member added it. */
-function member(id: string): RosterEntry[] {
-  return addMember([], { id, kind: 'desktop', name: 'vps', os: 'linux', links: true }, generateIdentity(), 1);
+/**
+ * A group whose primary (a fresh desktop) names `id`, a desktop that links,
+ * and the phone `self`.
+ */
+function member(id: string, self: string): RosterState {
+  const primary = generateIdentity();
+  const doc = foundRoster(primary, 'desktop', [{ id, kind: 'desktop' }, { id: self, kind: 'phone' }], 1)!;
+  return {
+    roster: doc,
+    descriptions: [
+      describeDevice(deviceId(primary.publicKey), { name: 'primary', os: 'macos', links: true }, primary, 1),
+      describeDevice(id, { name: 'vps', os: 'linux', links: true }, primary, 1),
+    ],
+    left: [],
+  };
 }
 
 /** A member that links, in the roster of a phone that is in its group. */
-function grouped(storage: MemoryGroupStorage, id: string): void {
-  storage.roster.replace(member(id));
+function grouped(storage: MemoryGroupStorage, id: string, self: string): void {
+  storage.roster.replace(member(id, self));
 }
 
 describe('GroupClient', () => {
-  it('adds itself to its roster as a phone that links', () => {
+  it('alone, it holds no roster and lists itself as a phone that links; in a group, it describes itself', () => {
     const s = setup();
     expect(s.client.members()).toEqual([expect.objectContaining({ id: s.client.id, kind: 'phone', links: true, self: true })]);
-    expect(s.stored()).toBeGreaterThan(0);
+    expect(s.storage.roster.read().roster).toBeNull();
+    expect(s.client.primary()).toBeNull();
+    const g = setup((storage, self) => grouped(storage, idOf(), self));
+    const state = g.storage.roster.read();
+    expect(memberIds(state)).toContain(g.client.id);
+    expect(state.descriptions.find((d) => d.id === g.client.id)).toMatchObject({ by: g.client.id, name: 'Pixel', links: true });
+    expect(g.client.primary()).toMatchObject({ name: 'primary' });
+    expect(g.client.isPrimary()).toBe(false);
   });
 
   it('opens a channel to every paired member online, and a silent one starts over alone', async () => {
@@ -203,9 +222,9 @@ describe('GroupClient', () => {
   it('no pair at the relay and none formed within ALONE_GRACE_MS: unreachable, and nothing forgotten', () => {
     vi.useFakeTimers();
     const b = idOf();
-    const s = setup((storage) => {
+    const s = setup((storage, self) => {
       pairWith(storage, b);
-      grouped(storage, b);
+      grouped(storage, b, self);
     });
     online(s.sock(), { peers: [], pairs: [] });
     expect(s.events.map((e) => e.type)).toContain('pairs_lost');
@@ -230,7 +249,7 @@ describe('GroupClient', () => {
   it('an ok that names a pair again clears unreachable', () => {
     vi.useFakeTimers();
     const b = idOf();
-    const s = setup((storage) => grouped(storage, b));
+    const s = setup((storage, self) => grouped(storage, b, self));
     online(s.sock(), { peers: [], pairs: [] });
     vi.advanceTimersByTime(ALONE_GRACE_MS);
     expect(s.client.unreachable).toBe(true);
@@ -243,7 +262,7 @@ describe('GroupClient', () => {
   it('a pair that forms within ALONE_GRACE_MS (a relay that lost its pairs) keeps the phone reachable', () => {
     vi.useFakeTimers();
     const b = idOf();
-    const s = setup((storage) => grouped(storage, b));
+    const s = setup((storage, self) => grouped(storage, b, self));
     online(s.sock(), { peers: [], pairs: [] });
     vi.advanceTimersByTime(ALONE_GRACE_MS / 2);
     s.sock().control({ type: 'linked', peer: b });
@@ -254,7 +273,7 @@ describe('GroupClient', () => {
 
   it('a relay that names no pairs, or a phone in no group, never waits to be alone', () => {
     vi.useFakeTimers();
-    const old = setup((storage) => grouped(storage, idOf()));
+    const old = setup((storage, self) => grouped(storage, idOf(), self));
     online(old.sock(), { peers: [] });
     const alone = setup();
     online(alone.sock(), { peers: [], pairs: [] });
@@ -265,14 +284,15 @@ describe('GroupClient', () => {
   it('a relay too old to answer the web view: members pair by hand, and no code is shown', async () => {
     const b = idOf();
     // A web view's CORS failure: fetch throws.
-    const s = setup((storage) => grouped(storage, b), { fetchImpl: () => Promise.reject(new TypeError('Failed to fetch')) });
+    const s = setup((storage, self) => grouped(storage, b, self), { fetchImpl: () => Promise.reject(new TypeError('Failed to fetch')) });
     online(s.sock(), { peers: [] }, '0.5.0');
     await until(() => s.client.members().find((m) => m.id === b)?.state === 'notLinked');
     expect(await s.client.startPairing()).toEqual({ error: 'relay_too_old' });
     // The same failure on a relay new enough is the network's: asked again, no code.
-    const fresh = setup((storage) => grouped(storage, b), { fetchImpl: () => Promise.reject(new TypeError('Failed to fetch')) });
+    const fresh = setup((storage, self) => grouped(storage, b, self), { fetchImpl: () => Promise.reject(new TypeError('Failed to fetch')) });
     online(fresh.sock(), { peers: [] });
-    expect(await fresh.client.startPairing()).toEqual({ error: 'relay_error' });
+    // A member that is not the primary shows no code: only the primary adds a device.
+    expect(await fresh.client.startPairing()).toMatchObject({ error: 'not_primary', primary: { name: 'primary' } });
     expect(fresh.client.members().find((m) => m.id === b)?.state).toBe('linking');
   });
 
@@ -349,11 +369,11 @@ describe('GroupClient', () => {
 
   it('a relay that lost every pair of a phone still in its group: pairs_lost, not unpaired_all', () => {
     const [a, b] = [idOf(), idOf()];
-    const s = setup((storage) => {
+    const s = setup((storage, self) => {
       pairWith(storage, a);
       pairWith(storage, b);
       // B links: the group is intact, and its members pair again through /pair/mutual.
-      storage.roster.replace(member(b));
+      storage.roster.replace(member(b, self));
     });
     online(s.sock(), { peers: [], pairs: [] });
     expect(s.client.peers()).toEqual([]);
@@ -411,25 +431,27 @@ describe('MemoryGroupStorage', () => {
     const id = idOf();
     storage.paired.add({ id, name: 'studio', platform: 'darwin', kind: 'desktop', pairedAt: 5 });
     storage.pendingRevokes.add(id);
-    storage.roster.replace(member(id));
+    storage.roster.replace(member(id, idOf()));
     const back = MemoryGroupStorage.fromJSON(JSON.parse(JSON.stringify(storage)));
     expect(back.toJSON()).toEqual(storage.toJSON());
     expect(back.roster.digest()).toBe(storage.roster.digest());
   });
 
-  it('drops a roster stored before entries were signed, and keeps the pairs', () => {
+  it('drops a roster stored before the primary signed it, and keeps the pairs', () => {
     const id = idOf();
     const unsigned = { id, kind: 'desktop', name: 'studio', os: 'macos', links: true, epoch: 1, addedBy: idOf(), addedAt: 1, describedAt: 1 };
     const back = MemoryGroupStorage.fromJSON({
       roster: [unsigned], paired: [{ id, name: 'studio', platform: 'darwin', kind: 'desktop', pairedAt: 1, lastSeenAt: null }],
     });
-    expect(back.roster.list()).toEqual([]);
+    expect(back.roster.read()).toEqual({ roster: null, descriptions: [], left: [] });
     expect(back.paired.list().map((d) => d.id)).toEqual([id]);
   });
 
   it('reads garbage as empty, and keeps the rows that read', () => {
     for (const garbage of [null, 'x', 42, [], { roster: 'no', paired: {}, pendingRevokes: [1] }]) {
-      expect(MemoryGroupStorage.fromJSON(garbage).toJSON()).toEqual({ roster: [], paired: [], pendingRevokes: [] });
+      expect(MemoryGroupStorage.fromJSON(garbage).toJSON()).toEqual({
+        roster: { roster: null, descriptions: [], left: [] }, paired: [], pendingRevokes: [],
+      });
     }
     const id = idOf();
     const mixed = MemoryGroupStorage.fromJSON({

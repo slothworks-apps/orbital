@@ -14,7 +14,7 @@ const NOW = Date.now()
 function member(patch: Partial<GroupMember> = {}): GroupMember {
   return {
     id: 'self-id', kind: 'desktop', name: 'studio-mbp', os: 'macos', links: true,
-    epoch: 1, addedBy: 'self-id', addedAt: NOW, describedAt: NOW,
+    addedAt: NOW, primary: false,
     self: false, linked: true, online: true, pairByHand: false, state: 'online', seenAt: null, tooOld: false,
     ...patch,
   }
@@ -92,48 +92,28 @@ describe('kindOs', () => {
 })
 
 describe('addedByLine', () => {
-  const self = member({ id: 'self-id', name: 'studio-mbp', self: true, addedBy: 'someone-else' })
-  const build = member({ id: 'build-id', name: 'build-box', self: false })
-
-  it('reads "started the group" for the member no one added', () => {
-    const m = member({ id: 'air-id', addedBy: 'air-id' })
-    expect(addedByLine(m, [m])).toBe('started the group')
-  })
-
-  it('names the adder "this device" when it is the self entry in members', () => {
-    const m = member({ id: 'air-id', addedBy: 'self-id' })
-    expect(addedByLine(m, [self, m])).toBe('added by this device')
-  })
-
-  it('names the adder from the roster when it is some other live member', () => {
-    const m = member({ id: 'air-id', addedBy: 'build-id' })
-    expect(addedByLine(m, [build, m])).toBe('added by build-box')
-  })
-
-  it('falls back to the first 8 characters of an adder no longer in the group', () => {
-    const m = member({ id: 'air-id', addedBy: 'deadbeef12345678' })
-    expect(addedByLine(m, [m])).toBe('added by deadbeef')
+  it('reads "primary" for the group\'s primary, and nothing for any other member', () => {
+    expect(addedByLine(member({ id: 'air-id', primary: true }))).toBe('primary')
+    expect(addedByLine(member({ id: 'air-id' }))).toBe('')
   })
 })
 
 describe('deviceRows', () => {
   const self = member({ id: 'self-id', name: 'studio-mbp', self: true, state: 'self' })
-  const build = member({ id: 'build-id', name: 'build-box' })
+  const build = member({ id: 'build-id', name: 'build-box', primary: true })
 
-  it('a phone paired with another member reads paired with its adder, with no presence', () => {
+  it('a phone paired with another member reads paired with the primary, with no presence', () => {
     const phone = member({
-      id: 'p1', kind: 'phone', os: 'ios', links: false, linked: false, state: 'offline', addedBy: 'build-id',
+      id: 'p1', kind: 'phone', os: 'ios', links: false, linked: false, state: 'offline',
     })
     const row = deviceRows([self, build, phone], [], NOW).find((r) => r.id === 'p1')!
     expect(row.state).toBe('elsewhere')
     expect(row.words).toBe('paired with build-box')
   })
 
-  it('names an adder no longer in the group by its short id', () => {
-    const phone = member({
-      id: 'p1', kind: 'phone', os: 'ios', links: false, linked: false, state: 'online', addedBy: 'deadbeef12345678',
-    })
-    expect(deviceRows([self, phone], [], NOW)[0].words).toBe('paired with deadbeef')
+  it('a phone paired with this device, the primary, reads paired with this device', () => {
+    const phone = member({ id: 'p1', kind: 'phone', os: 'ios', links: false, linked: false, state: 'online' })
+    expect(deviceRows([{ ...self, primary: true }, phone], [], NOW)[0].words).toBe('paired with this device')
   })
 
   it('a desktop that does not link yet keeps its own state words', () => {
@@ -258,7 +238,7 @@ describe('another device in the detail panel (canvas 50f)', () => {
   })
   const self = member({ id: 'self-id', self: true, state: 'self' })
   const build = (patch: Partial<GroupMember> = {}) =>
-    member({ id: 'build', name: 'build-box', kind: 'headless', os: 'linux', addedBy: 'self-id', ...patch })
+    member({ id: 'build', name: 'build-box', kind: 'headless', os: 'linux', ...patch })
 
   describe('agoWords', () => {
     it('spells the age the way the panel prints it', () => {
@@ -312,10 +292,13 @@ describe('another device in the detail panel (canvas 50f)', () => {
   })
 
   describe('runsOn and pillWords', () => {
-    it('reads an online member with who added it', () => {
-      const card = runsOn({ machine: machine() }, [self, build()], NOW)
+    it('reads an online member, and the primary as such', () => {
+      expect(runsOn({ machine: machine() }, [self, build()], NOW)).toEqual({
+        name: 'build-box', kind: 'headless', os: 'linux', dot: 'live', words: 'online',
+      })
+      const card = runsOn({ machine: machine() }, [self, build({ primary: true })], NOW)
       expect(card).toEqual({
-        name: 'build-box', kind: 'headless', os: 'linux', dot: 'live', words: 'online · added by this device',
+        name: 'build-box', kind: 'headless', os: 'linux', dot: 'live', words: 'online · primary',
       })
       expect(pillWords({ machine: machine() }, [self, build()])).toBe('build-box')
     })

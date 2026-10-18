@@ -114,9 +114,9 @@ export function refreshGroupState(): void {
 /** What the state shows of the group: its members, a device asking to join, this phone's open code and what it refused. */
 export function groupState(
   group: GroupClient,
-): Pick<MobileState, 'members' | 'pendingPair' | 'ownCode' | 'refusedPair' | 'unreachable'> {
+): Pick<MobileState, 'members' | 'group' | 'pendingPair' | 'ownCode' | 'refusedPair' | 'unreachable'> {
   return {
-    members: group.members(), pendingPair: group.pendingPair, ownCode: group.pairing, refusedPair: group.refusedPair,
+    members: group.members(), group: { primary: group.primary(), isPrimary: group.isPrimary() }, pendingPair: group.pendingPair, ownCode: group.pairing, refusedPair: group.refusedPair,
     unreachable: group.unreachable,
   }
 }

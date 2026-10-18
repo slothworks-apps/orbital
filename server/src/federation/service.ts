@@ -15,7 +15,7 @@ import {
 } from '@orbital/shared/remote/channel';
 import type { MachineEvent, MachineRef } from '@orbital/shared/remote/device';
 import type { FileAs, HelloMessage } from '@orbital/shared/remote/messages';
-import type { RosterEntry } from '@orbital/shared/remote/roster';
+import type { MemberView } from '@orbital/shared/remote/roster';
 import { isSafeId, sessionOfRequest, sessionOfTopic } from '@orbital/shared/remote/segments';
 import type { Hub } from '../api/hub.js';
 import { memberTooOld } from '../remote/memberGate.js';
@@ -63,7 +63,7 @@ export type MemberLink = {
   /** When the member was last heard from, while it is offline; null while it is up. */
   seenAt: number | null;
   /** The member as the roster describes it: its machine's name, kind and OS. */
-  entry: RosterEntry;
+  entry: MemberView;
   /** This channel's ready spell has been engaged and seeded; cleared when it ends. */
   seeded: boolean;
   /** The user is at this member, by its own `presence`; false while its channel is not ready. */
@@ -380,13 +380,13 @@ export class FederationService {
    * hello names `sessions` and `group`. One whose hello names neither may be
    * a shipped Mac: it is left alone, nothing is sent to it.
    */
-  private federates(entry: RosterEntry, hello: HelloMessage | null): boolean {
+  private federates(entry: MemberView, hello: HelloMessage | null): boolean {
     if (entry.kind === 'phone' || entry.id === this.opts.remote.selfId() || hello === null) return false;
     return hello.capabilities?.includes('sessions') === true && !memberTooOld(entry.kind, hello);
   }
 
   /** Subscribes to a member that federates over `channel`, and seeds it once per ready spell. */
-  private engage(id: string, channel: Channel, entry?: RosterEntry): void {
+  private engage(id: string, channel: Channel, entry?: MemberView): void {
     const member = entry ?? this.opts.remote.liveMembers().find((e) => e.id === id);
     const existing = this.links.get(id);
     const hello = channel.peer ?? this.opts.remote.peerHello(id);

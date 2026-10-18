@@ -213,8 +213,9 @@ export function DevicesSection() {
 }
 
 /** The words of a removal the group did not take. */
-function removeError(error: 'not_found' | 'offline' | 'failed'): string {
+function removeError(error: 'not_found' | 'offline' | 'failed' | 'not_primary'): string {
   if (error === 'offline') return LEAVE_OFFLINE
+  if (error === 'not_primary') return 'Only the group\'s primary device removes a device.'
   if (error === 'not_found') return 'It is not in the group any more.'
   return "Couldn't remove it on this phone. Try again."
 }

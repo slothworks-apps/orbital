@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   PAIR_CODE_ATTEMPTS, PairingCeremony, devicePairingProof, type CeremonyHost, type CeremonyRelay, type PendingPair,
 } from '../src/remote/ceremony.js';
-import type { PairedDevice } from '../src/remote/group.js';
+import type { PairedDevice, PrimaryRef } from '../src/remote/group.js';
 import {
   deviceId, fingerprint, formatFingerprint, fromBase64Url, generateIdentity, type Identity,
 } from '../src/remote/keys.js';
@@ -28,6 +28,8 @@ function fakeRelay(answers: Record<string, Answer> = {}) {
 
 function build(opts: {
   kind?: string; inGroup?: boolean; members?: string[]; paired?: PairedDevice[]; answers?: Record<string, Answer>; full?: boolean; fills?: boolean;
+  /** This device is a member whose group's primary is this one. */
+  primary?: PrimaryRef; byHand?: boolean;
 } = {}) {
   const identity = generateIdentity();
   const r = fakeRelay(opts.answers);
@@ -47,6 +49,8 @@ function build(opts: {
     relaySecret: () => '',
     self: () => ({ name: 'self', platform: 'macos', kind: opts.kind ?? 'desktop' }),
     inGroup: () => opts.inGroup ?? false,
+    notPrimary: () => opts.primary ?? null,
+    byHand: () => opts.byHand ?? false,
     isLiveMember: (id) => (opts.members ?? []).includes(id),
     canAdd: () => !opts.full,
     paired: {
@@ -211,14 +215,16 @@ describe('PairingCeremony as the adder', () => {
 });
 
 describe('PairingCeremony as the newcomer', () => {
-  it('refuses a code from another relay, its own, a device already paired, and while in another group', async () => {
-    const adder = build();
+  it('refuses a code from another relay, its own, a device already paired, and from another group while in one', async () => {
+    const adder = build({ inGroup: true });
     const qr = await showCode(adder);
+    expect(qr.group).toBe(true);
     const code = JSON.stringify(qr);
 
     expect(await build().ceremony.join(JSON.stringify({ ...qr, relay: 'wss://other.example' })))
       .toEqual({ error: 'other_relay', relay: 'wss://other.example' });
-    expect(await adder.ceremony.join(code)).toEqual({ error: 'bad_code' });
+    const alone = build();
+    expect(await alone.ceremony.join(JSON.stringify(await showCode(alone)))).toEqual({ error: 'bad_code' });
     const pairedAlready = build({ paired: [{ id: qr.mac, name: 'x', platform: '', kind: 'desktop', pairedAt: 1, lastSeenAt: null }] });
     expect(await pairedAlready.ceremony.join(code)).toEqual({ error: 'already_paired' });
     const inOther = build({ inGroup: true });
@@ -321,5 +327,116 @@ describe('PairingCeremony between two phones', () => {
     expect(joiner.relay.posts).toEqual([]);
     // A desktop takes the same code.
     expect(await build().ceremony.join(JSON.stringify(qr))).toHaveProperty('device', qr.mac);
+  });
+});
+
+/**
+ * A whole pairing between `shower` (shows its code) and `typer` (redeems it):
+ * the request, the confirm with the right code, the `paired` on the typer.
+ * Answers what each side added.
+ */
+async function pairThrough(shower: ReturnType<typeof build>, typer: ReturnType<typeof build>) {
+  const qr = await showCode(shower);
+  const res = await typer.ceremony.join(JSON.stringify(qr));
+  if (!('code' in res)) return { joined: res, shower: shower.calls.addPaired, typer: typer.calls.addPaired };
+  const redeem = typer.relay.posts.find((p) => p.path === '/pair/redeem')!.payload as { proof: string; device: string };
+  shower.ceremony.onPairRequest({ type: 'pair_request', phone: typer.id, ...redeem });
+  const confirmed = shower.ceremony.state().pendingPair
+    ? await shower.ceremony.confirm(true, typer.id, res.code) : { refused: shower.ceremony.state().refused };
+  typer.ceremony.onPaired(shower.id);
+  return { joined: confirmed, shower: shower.calls.addPaired, typer: typer.calls.addPaired };
+}
+
+describe('PairingCeremony: who adds whom', () => {
+  it('both alone: the desktop showing the code founds the group', async () => {
+    const res = await pairThrough(build(), build());
+    expect(res.joined).toEqual({ ok: true });
+    expect(res.shower.map((d) => [d.kind, d.links])).toEqual([['desktop', true]]);
+    expect(res.typer).toEqual([]);
+  });
+
+  it('both alone, a phone showing the code: the device that typed it founds the group', async () => {
+    const res = await pairThrough(build({ kind: 'phone' }), build());
+    expect(res.joined).toEqual({ ok: true });
+    expect(res.shower).toEqual([]);
+    expect(res.typer.map((d) => [d.kind, d.links])).toEqual([['phone', true]]);
+  });
+
+  it('the side in a group stays its primary and adds the other, whichever shows the code', async () => {
+    const shown = await pairThrough(build({ inGroup: true }), build());
+    expect([shown.shower.length, shown.typer.length]).toEqual([1, 0]);
+    const typed = await pairThrough(build(), build({ inGroup: true }));
+    expect([typed.shower.length, typed.typer.length]).toEqual([0, 1]);
+    expect(typed.typer[0]).toMatchObject({ kind: 'desktop', links: true });
+  });
+
+  it('two groups never pair: refused on both sides of the code', async () => {
+    const typed = await pairThrough(build({ inGroup: true }), build({ inGroup: true }));
+    expect(typed.joined).toEqual({ error: 'in_group' });
+    // A typer that says it is in a group, at a primary: rejected at the relay without asking.
+    const shower = build({ inGroup: true });
+    const qr = await showCode(shower);
+    const other = generateIdentity();
+    const secret = fromBase64Url(qr.secret);
+    shower.ceremony.onPairRequest({
+      type: 'pair_request', phone: deviceId(other.publicKey), proof: devicePairingProof(secret, other.publicKey),
+      device: sealPairingDevice(secret, other.publicKey, { name: 'studio', platform: 'darwin', kind: 'desktop', group: true }),
+    });
+    expect(shower.ceremony.state().refused).toMatchObject({ error: 'in_group' });
+    expect(shower.calls.announced).toEqual([]);
+  });
+
+  it('a device alone that types the code of a Mac from before groups adds it; a phone adds no one', async () => {
+    const qr = { ...(await showCode(build())) };
+    delete qr.kind;
+    const desktop = build();
+    await desktop.ceremony.join(JSON.stringify(qr));
+    desktop.ceremony.onPaired(qr.mac);
+    expect(desktop.calls.addPaired).toMatchObject([{ id: qr.mac, kind: 'desktop', links: false }]);
+    const phone = build({ kind: 'phone' });
+    await phone.ceremony.join(JSON.stringify(qr));
+    phone.ceremony.onPaired(qr.mac);
+    expect(phone.calls.addPaired).toEqual([]);
+    expect(phone.paired.has(qr.mac)).toBe(true);
+  });
+
+  it('a typer that would add to a full roster refuses before the relay; one that fills meanwhile drops the pair', async () => {
+    const full = await pairThrough(build({ kind: 'phone' }), build({ full: true }));
+    expect(full.joined).toEqual({ error: 'group_full' });
+    const shower = build({ kind: 'phone' });
+    const typer = build({ fills: true });
+    await pairThrough(shower, typer);
+    expect(typer.paired.has(shower.id)).toBe(false);
+    expect(typer.calls).toMatchObject({ abandoned: [shower.id], revoked: [shower.id] });
+  });
+});
+
+describe('PairingCeremony on a member that is not the primary', () => {
+  const primary = { id: 'P'.repeat(43), name: 'studio' };
+
+  it('shows no code and redeems none, naming the primary', async () => {
+    const m = build({ inGroup: true, primary });
+    expect(await m.ceremony.start()).toEqual({ error: 'not_primary', primary });
+    const qr = await showCode(build());
+    expect(await m.ceremony.join(JSON.stringify(qr))).toEqual({ error: 'not_primary', primary });
+    expect(m.relay.posts).toEqual([]);
+  });
+
+  it('pairs by hand with a member of its own group, adding no one', async () => {
+    const showerMembers: string[] = [];
+    const typerMembers: string[] = [];
+    const shower = build({ inGroup: true, primary, byHand: true, members: showerMembers });
+    const m = build({ inGroup: true, primary, members: typerMembers });
+    showerMembers.push(m.id);
+    typerMembers.push(shower.id);
+    const res = await pairThrough(shower, m);
+    expect(res.joined).toEqual({ ok: true });
+    expect([res.shower, res.typer]).toEqual([[], []]);
+    // A device that is no member, at a member showing a code by hand: refused, naming nothing more.
+    const other = build({ inGroup: true, primary, byHand: true });
+    const qr = await showCode(other);
+    const stranger = generateIdentity();
+    other.ceremony.onPairRequest(request(qr, stranger, fromBase64Url(qr.secret), 'desktop'));
+    expect(other.ceremony.state().refused).toMatchObject({ error: 'not_primary' });
   });
 });
