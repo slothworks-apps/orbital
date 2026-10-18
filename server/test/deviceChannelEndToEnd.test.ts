@@ -195,8 +195,9 @@ describe('two servers, one channel', () => {
     const { a, c, idA, idB } = await threeLinked();
     await a.api('DELETE', `/api/remote/devices/${(await c.api('GET', '/api/remote')).json().macId}`);
     await until(() => aloneIn(c), 15_000);
-    // A new epoch: the removal the others hold is of the old one.
-    expect((await membersOf(c))[0].epoch).toBe(2);
+    // Its founding entry: any member's next membership for it replaces it, and the removal the
+    // others hold stays theirs.
+    expect((await membersOf(c))[0]).toMatchObject({ epoch: 0, addedBy: (await c.api('GET', '/api/remote')).json().macId });
     expect(c.remote.channel(idA)).toBeNull();
     expect(c.remote.channel(idB)).toBeNull();
   }, 30_000);

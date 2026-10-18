@@ -12,7 +12,10 @@ const mac = deviceId(macKey)
 const PAIRING: Pairing = { relay: 'https://relay.test', mac, macName: 'studio', fingerprint: 'f', pairedAt: 7, relaySecret: 's' }
 
 function entry(id: string, patch: Partial<RosterEntry> = {}): RosterEntry {
-  return { id, kind: 'desktop', name: id.slice(0, 6), os: 'macOS', links: true, epoch: 1, addedBy: id, addedAt: 3, describedAt: 3, ...patch }
+  return {
+    id, kind: 'desktop', name: id.slice(0, 6), os: 'macOS', links: true, epoch: 1, addedBy: id, addedAt: 3, addedSig: 's',
+    describedAt: 3, describedBy: id, describedSig: 's', ...patch,
+  }
 }
 
 describe('the stored group', () => {

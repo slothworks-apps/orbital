@@ -9,10 +9,12 @@
  * and no Node.
  */
 import { randomBytes } from '@noble/ciphers/utils.js';
+import { hmac } from '@noble/hashes/hmac.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { osName } from './device.js';
 import type { GroupStorage } from './group.js';
 import {
-  deviceId, fingerprint, formatFingerprint, fromBase64Url, normalizePairingCode, publicKeyOf, toBase64Url,
+  concat, deviceId, fingerprint, formatFingerprint, fromBase64Url, normalizePairingCode, publicKeyOf, toBase64Url,
   type Identity,
 } from './keys.js';
 import {
@@ -36,6 +38,28 @@ export const PAIR_CODE_ATTEMPTS = 3;
  * 2026-10-08-relay-knows-no-names-design § 3).
  */
 export const UNKNOWN_PHONE_NAME = 'Unknown phone';
+
+const DEVICE_PROOF_TAG = new TextEncoder().encode('orbital-pair-device-v1');
+
+/**
+ * The proof of a redeem that carries a sealed device with its kind: the
+ * pairing proof (`pairingProof`) made over the requester's key and a tag,
+ * so the relay, which cannot make either, also cannot strip the device and
+ * pass the request on as a shipped phone's. A requester sends it only to a
+ * code that names a kind (a device from this release, which checks it); a
+ * shipped phone sends the plain proof and no kind.
+ */
+export function devicePairingProof(secret: Uint8Array, requesterKey: Uint8Array): string {
+  return toBase64Url(hmac(sha256, secret, concat(requesterKey, DEVICE_PROOF_TAG)));
+}
+
+/** Constant time over the whole string: a proof is a MAC, compare it as one. */
+function sameProof(expected: string, proof: string): boolean {
+  if (proof.length !== expected.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ proof.charCodeAt(i);
+  return diff === 0;
+}
 
 /**
  * The answer to a pairing request. `no_pending`: nothing to answer, or a
@@ -136,8 +160,12 @@ export interface CeremonyHost {
   paired: Pick<GroupStorage['paired'], 'get' | 'add' | 'remove'>;
   /** Pairs revoked here and not yet answered by the relay (`GroupStorage['pendingRevokes']`). */
   pendingRevokes: { remove(id: string): void };
-  /** A device was paired here: into the roster (`GroupMember.addPaired`); `joined` when this device redeemed its code. */
-  addPaired(device: { id: string; kind: string; name: string; os: string }, joined?: boolean): void;
+  /**
+   * A device whose request this device confirmed: into the roster, added by
+   * this device (`GroupMember.addPaired`). `links`: it sealed its kind, so it
+   * is a device of this release, which links; a shipped phone does not.
+   */
+  addPaired(device: { id: string; kind: string; name: string; os: string; links: boolean }): void;
   /** A pair the user cancelled was confirmed by the other device: revoke it at the relay. */
   revokeCancelled(id: string): void;
   /** The adder paired a device: the host's own setup for a new pair (a phone's watcher). */
@@ -155,8 +183,12 @@ export interface CeremonyHost {
 }
 
 export class PairingCeremony {
-  /** `code` is the fingerprint the phone shows; `attemptsLeft` counts down in place, so the object stays the one a confirm in flight compares against. */
-  private pendingPair: (PendingPair & { code: string }) | null = null;
+  /**
+   * `code` is the fingerprint the phone shows; `attemptsLeft` counts down in
+   * place, so the object stays the one a confirm in flight compares against.
+   * `links`: the request proved a sealed kind (`devicePairingProof`).
+   */
+  private pendingPair: (PendingPair & { code: string; links: boolean }) | null = null;
   /** `secret` went into the QR and only there; a `pair_request` must prove it (`verifyPairingProof`). */
   private pairing: { expiresAt: number; secret: Uint8Array } | null = null;
   /** A device whose code this device redeemed, until it confirms or refuses (`paired`, `rejected`). */
@@ -202,7 +234,7 @@ export class PairingCeremony {
   /** The request as the status shows it: everything but the code. */
   private publicPendingPair(): PendingPair | null {
     if (!this.pendingPair) return null;
-    const { code: _code, ...shown } = this.pendingPair;
+    const { code: _code, links: _links, ...shown } = this.pendingPair;
     return shown;
   }
 
@@ -260,20 +292,27 @@ export class PairingCeremony {
     // The relay could otherwise substitute a key of its own whose 30-bit
     // fingerprint it ground to match; only the phone that scanned the QR
     // holds the secret the proof is made with.
-    if (!verifyPairingProof(this.pairing.secret, phoneKey, msg.proof)) {
+    const sealedKind = sameProof(devicePairingProof(this.pairing.secret, phoneKey), msg.proof);
+    if (!sealedKind && !verifyPairingProof(this.pairing.secret, phoneKey, msg.proof)) {
       this.host.log(`ignored a pairing request from ${msg.phone.slice(0, 8)}: its proof does not match this code`);
       return;
     }
     // Only what the phone sealed with this code's secret: a plain name came from the relay.
     const device = msg.device === undefined ? null : openPairingDevice(this.pairing.secret, phoneKey, msg.device);
-    const kind = device?.kind ?? 'phone';
+    // A proof that says a kind was sealed and no kind that opens: the relay took it out. A plain
+    // proof is a shipped phone's, whatever a sealed blob beside it says.
+    if (sealedKind && device?.kind === undefined) {
+      this.host.log(`ignored a pairing request from ${msg.phone.slice(0, 8)}: its sealed device is missing`);
+      return;
+    }
+    const kind = sealedKind ? device!.kind! : 'phone';
     if (kind === 'phone' && this.host.self().kind === 'phone') {
       this.refusePhone(msg.phone, device?.name || UNKNOWN_PHONE_NAME);
       return;
     }
     this.pendingPair = {
       phone: msg.phone, name: device?.name || UNKNOWN_PHONE_NAME, platform: device?.platform ?? '',
-      kind,
+      kind, links: sealedKind,
       code: fingerprint(identity.publicKey, phoneKey), attemptsLeft: PAIR_CODE_ATTEMPTS,
     };
     this.host.announce(this.publicPendingPair()!);
@@ -351,7 +390,9 @@ export class PairingCeremony {
       this.pairing = null;
     }
     if (accept) {
-      this.host.addPaired({ id: pending.phone, kind: pending.kind, name: pending.name, os: osName(pending.platform) });
+      this.host.addPaired({
+        id: pending.phone, kind: pending.kind, name: pending.name, os: osName(pending.platform), links: pending.links,
+      });
     }
     this.host.changed();
     // A guard: the relay's `presence` for the new device, sent before it
@@ -384,9 +425,11 @@ export class PairingCeremony {
     // One relay per group (§ 4), and this device's socket is on its own.
     if (qr.relay.replace(/\/+$/, '') !== this.host.relayUrl().replace(/\/+$/, '')) return { error: 'other_relay', relay: qr.relay };
     const secret = fromBase64Url(qr.secret);
+    // A code that names a kind is from a device of this release, which checks the proof that
+    // binds the sealed kind; a Mac from before kinds checks only the plain one.
     const payload = {
       token: qr.token,
-      proof: pairingProof(secret, identity.publicKey),
+      proof: qr.kind !== undefined ? devicePairingProof(secret, identity.publicKey) : pairingProof(secret, identity.publicKey),
       device: sealPairingDevice(secret, identity.publicKey, this.host.self()),
     };
     // Cut as a pairing cuts a phone's name: the QR's is whatever that device was called.
@@ -444,9 +487,9 @@ export class PairingCeremony {
       this.host.paired.add({ id: joined.device, name: joined.name, platform: '', kind: joined.kind, pairedAt: this.host.now() });
       // Paired afresh: a revoke still waiting from an earlier removal must not undo it.
       this.host.pendingRevokes.remove(joined.device);
-      // A code without a kind came from a Mac from before kinds. Its OS is
-      // not known until its hello.
-      this.host.addPaired({ id: joined.device, kind: joined.kind ?? 'desktop', name: joined.name, os: '' }, true);
+      // Not into the roster here: that device's own roster names it, signed by the member that
+      // added it. One that keeps none (alone, or from before groups) is added by this device at
+      // its first roster or hello, with the kind its code named — the row holds it till then.
       this.host.changed();
       this.host.open(joined.device);
       return true;

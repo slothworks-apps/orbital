@@ -180,11 +180,12 @@ export type AnswerMessage = z.infer<typeof AnswerMessage>;
  * The group's own messages (spec 2026-10-16-device-group-design § 2, § 4),
  * sent only to a peer whose hello named the `group` capability: a shipped
  * device never sees one. They change the group, so no route carries them.
+ * A member removed hears it as a `roster` that says so, signed by the
+ * member that removed it.
  */
 export const GroupMessage = z.discriminatedUnion('t', [
   z.object({ t: z.literal('roster_digest'), digest: z.string().max(128) }),
   z.object({ t: z.literal('roster'), entries: RosterSchema }),
-  z.object({ t: z.literal('removed') }),
 ]);
 export type GroupMessage = z.infer<typeof GroupMessage>;
 

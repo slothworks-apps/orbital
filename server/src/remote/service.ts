@@ -14,7 +14,7 @@ import type { Role } from '@orbital/shared/remote/handshake';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import type { Channel } from '@orbital/shared/remote/channel';
 import type { HelloMessage } from '@orbital/shared/remote/messages';
-import { ROSTER_KIND_MAX_CHARS, isLive, type RosterEntry } from '@orbital/shared/remote/roster';
+import { ROSTER_KIND_MAX_CHARS, isLive, type RosterEntry, type RosterFields } from '@orbital/shared/remote/roster';
 import {
   GroupMember, type GroupStorage, type MemberState, type RemoveResult, type SelfAbout,
 } from '@orbital/shared/remote/group';
@@ -99,7 +99,7 @@ export type RemoteStatus = {
    * `relayLocked`: this device is in a group (`inGroup`), so the relay URL and secret cannot change.
    */
   group: {
-    members: (RosterEntry & {
+    members: (RosterFields & {
       self: boolean; linked: boolean; online: boolean; pairByHand: boolean; state: MemberState; seenAt: number | null;
       tooOld: boolean;
     })[];
@@ -206,7 +206,7 @@ export class RemoteService {
     this.pendingRevokes = new PendingRevokes(opts.db);
     this.now = opts.now ?? Date.now;
     this.group = new GroupMember(this.groupStorage(), {
-      selfId: () => this.runningId,
+      identity: () => this.ownIdentity(),
       about: () => this.selfAbout(),
       knownId: () => this.ownId(),
       relay: () => this.client,
@@ -236,7 +236,7 @@ export class RemoteService {
         remove: (id) => this.devices.remove(id),
       },
       pendingRevokes: this.pendingRevokes,
-      addPaired: (device, joined) => this.group.addPaired(device, joined),
+      addPaired: (device) => this.group.addPaired(device),
       revokeCancelled: (id) => this.group.tryRoster('revoke a cancelled join', () => this.group.revokeAtRelay(id)),
       watch: (id) => this.watch(id),
       abandon: (id) => {
@@ -299,7 +299,11 @@ export class RemoteService {
       this.client = client;
       client.on('status', () => {
         // A new connection means new session keys: every phone re-handshakes.
-        if (client.status !== 'online') this.closeChannels();
+        if (client.status !== 'online') {
+          this.closeChannels();
+          // The next `ok` is a new connection's, and the group asks the relay again then.
+          this.group.relayLost();
+        }
         this.publishStatus();
       });
       client.on('control', (msg: RelayToDevice) => this.onControl(msg));
@@ -513,6 +517,19 @@ export class RemoteService {
       this.knownId = identity ? deviceId(identity.publicKey) : null;
     }
     return this.knownId;
+  }
+
+  /**
+   * The identity the group signs with, whether or not the remote runs: a
+   * removal made while it is off is written, signed, at once. Read from the
+   * data dir while off; null when this device never had one.
+   */
+  private ownIdentity(): Identity | null {
+    if (this.identity) return this.identity;
+    const id = this.ownId();
+    if (id === null) return null;
+    const stored = readIdentity(this.opts.dataDir);
+    return stored && deviceId(stored.publicKey) === id ? stored : null;
   }
 
   /**

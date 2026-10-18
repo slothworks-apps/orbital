@@ -225,6 +225,13 @@
       "when": 1792250479797,
       "tag": "0031_member_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1792304571348,
+      "tag": "0032_signed_roster",
+      "breakpoints": true
     }
   ]
 }

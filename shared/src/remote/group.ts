@@ -9,11 +9,13 @@
  */
 import type { Channel } from './channel.js';
 import { osName } from './device.js';
+import { deviceId, type Identity } from './keys.js';
 import type { GroupMessage, HelloMessage } from './messages.js';
 import type { RelayAction } from './relayApi.js';
 import type { LinkStatus } from './relayLink.js';
 import {
-  addMember, admitted, describeMember, isLive, mergeRosters, removeMember, rosterDigest, type RosterEntry,
+  addMember, describeMember, foundingEntry, isLive, mergeRoster, removeMember, rosterDigest, rosterFields, shareable,
+  type RosterEntry, type RosterFields,
 } from './roster.js';
 
 /**
@@ -23,11 +25,12 @@ import {
 export const MUTUAL_RETRY_MS = 60_000;
 
 /**
- * The `describedAt` of an entry written for a device this one joined
- * (`GroupMember.addPaired`): earlier than any real description, so the
- * entry that device keeps for itself wins the merge.
+ * How long the group waits for the relay's answer to one post (a mutual
+ * pair, a revoke) before it counts it as unanswered (status 0): a relay
+ * that never answers must not hold a post, or the next one for that peer,
+ * for ever.
  */
-export const PLACEHOLDER_DESCRIBED_AT = 0;
+export const RELAY_POST_TIMEOUT_MS = 30_000;
 
 /**
  * How Settings shows a member. `self`: this device. `online`/`offline`: a
@@ -50,8 +53,8 @@ export type PairedDevice = {
   id: string; name: string; platform: string; kind: string | null; pairedAt: number; lastSeenAt: number | null;
 };
 
-/** A member row as Settings lists it; see `RemoteStatus['group']` on the server. */
-export type MemberRow = RosterEntry & {
+/** A member row as Settings lists it, without the signatures; see `RemoteStatus['group']` on the server. */
+export type MemberRow = RosterFields & {
   self: boolean; linked: boolean; online: boolean; pairByHand: boolean; state: MemberState; seenAt: number | null;
 };
 
@@ -97,8 +100,12 @@ export interface GroupRelay {
 export type GroupChannel = Pick<Channel, 'sendGroup' | 'groups'>;
 
 export interface GroupHost {
-  /** This device's id while its identity is loaded; null while the remote is off. */
-  selfId(): string | null;
+  /**
+   * This device's identity, which signs what it writes in the roster,
+   * whether or not the remote runs (a removal while it is off is written at
+   * once); null when it never had one.
+   */
+  identity(): Identity | null;
   /**
    * What this device says about itself in the roster, cut to the bounds a
    * roster entry is read within: an entry past them would refuse the whole
@@ -160,6 +167,10 @@ export class GroupMember {
   private mutualRetry: ReturnType<typeof setTimeout> | null = null;
   /** Revokes posted to the relay and not answered yet; a removal waits for them before it answers. */
   private readonly revoking = new Set<Promise<void>>();
+  /** Posts to the relay not answered yet, by `path` and peer: never two at once for one peer. */
+  private readonly inFlight = new Set<string>();
+  /** Set by the relay's first `ok` on a connection, cleared when it goes (`relayLost`): later ones ask nothing again. */
+  private okHandled = false;
 
   private readonly storage: GroupStorage;
   private readonly host: GroupHost;
@@ -170,20 +181,31 @@ export class GroupMember {
     this.host = host;
   }
 
-  private get runningId(): string | null {
-    return this.host.selfId();
+  /** This device's id, from the identity it signs with; null when it never had one. */
+  private get ownId(): string | null {
+    const identity = this.host.identity();
+    return identity ? deviceId(identity.publicKey) : null;
   }
 
   /** The relay went away for good (the remote stopped): no retry fires after it. */
   stop(): void {
     this.clearMutualRetry();
+    this.okHandled = false;
+  }
+
+  /** The relay connection went: the next `ok` is a new connection's. */
+  relayLost(): void {
+    this.okHandled = false;
   }
 
   /**
    * The relay said `ok`: a new connection. Asks again for every mutual pair
-   * and posts every revoke the relay was not told yet.
+   * and posts every revoke the relay was not told yet — once per
+   * connection: a relay that repeats `ok` on one socket gets nothing more.
    */
   relayOk(): void {
+    if (this.okHandled) return;
+    this.okHandled = true;
     const hadByHand = this.pairByHand.size > 0;
     this.mutualAsked = new Set();
     this.pairByHand = new Set();
@@ -203,13 +225,11 @@ export class GroupMember {
 
   /**
    * This device's name changed: its live entry is described afresh. False
-   * when nothing was written (the remote is off, or the roster did not
+   * when nothing was written (no identity yet, or the roster did not
    * change), so the caller publishes the status itself.
    */
   nameChanged(): boolean {
-    const self = this.runningId;
-    return self !== null
-      && this.setRoster(describeMember(this.storage.roster.list(), self, { name: this.host.about().name }, this.host.now()));
+    return this.ownId !== null && this.setRoster(this.storage.roster.list());
   }
 
   /**
@@ -227,7 +247,7 @@ export class GroupMember {
         : row || !linksWith(selfKind, e) ? (online.has(e.id) ? 'online' : 'offline')
           : pairByHand ? 'notLinked' : 'linking';
       return {
-        ...e, self: e.id === self, linked: row !== undefined, online: online.has(e.id), pairByHand,
+        ...rosterFields(e), self: e.id === self, linked: row !== undefined, online: online.has(e.id), pairByHand,
         state, seenAt: row?.lastSeenAt ?? null,
       };
     });
@@ -274,17 +294,17 @@ export class GroupMember {
     const known = this.storage.roster.entry(id);
     const device = this.storage.paired.get(id);
     if (!(known && isLive(known)) && !device) return { error: 'not_found' };
-    if (self !== null) {
+    const identity = this.host.identity();
+    if (identity) {
       this.tryRoster('remove a member', () => {
         const now = this.host.now();
         let roster = this.storage.roster.list();
         if (!known && device) {
           roster = addMember(roster, {
             id, kind: device.kind ?? 'phone', name: device.name, os: osName(device.platform), links: false,
-            addedBy: self, addedAt: device.pairedAt, describedAt: now,
-          });
+          }, identity, now);
         }
-        this.setRoster(removeMember(roster, id, self, now));
+        this.setRoster(removeMember(roster, id, identity, now));
       });
     }
     // Still paired: no identity to write the roster with, or an entry that was removed already.
@@ -304,11 +324,11 @@ export class GroupMember {
    * the roster could not be written.
    */
   async leave(): Promise<RemoveResult> {
-    const self = this.runningId;
+    const identity = this.host.identity();
     const relay = this.host.relay();
-    if (self === null || !relay || relay.status !== 'online') return { error: 'offline' };
+    if (identity === null || !relay || relay.status !== 'online') return { error: 'offline' };
     try {
-      this.setRoster(removeMember(this.storage.roster.list(), self, self, this.host.now()));
+      this.setRoster(removeMember(this.storage.roster.list(), deviceId(identity.publicKey), identity, this.host.now()));
     } catch (err) {
       this.host.log(`could not leave the group: ${err instanceof Error ? err.message : String(err)}`);
       return { error: 'failed' };
@@ -318,14 +338,17 @@ export class GroupMember {
   }
 
   /**
-   * The only way the roster changes. Unchanged, it does nothing: that is
-   * what ends an exchange between two members once they agree. Changed, it
-   * applies what the change removed, publishes the status and offers the
-   * new digest on every group channel but `from`, the one the change came in on.
+   * The only way the roster changes. This device's own live entry is
+   * described afresh first, signed by itself, whenever it does not say
+   * what this device says of itself (a new membership, a rename).
+   * Unchanged, it does nothing: that is what ends an exchange between two
+   * members once they agree. Changed, it applies what the change removed,
+   * publishes the status and offers the new digest on every group channel
+   * but `from`, the one the change came in on.
    */
   setRoster(next: RosterEntry[], from?: string): boolean {
     const before = new Map(this.storage.roster.list().map((e) => [e.id, e]));
-    if (!this.storage.roster.replace(next)) return false;
+    if (!this.storage.roster.replace(this.describedSelf(next))) return false;
     this.applyRemovals(before);
     this.host.changed();
     const digest = this.storage.roster.digest();
@@ -334,6 +357,21 @@ export class GroupMember {
     }
     this.link();
     return true;
+  }
+
+  /** `entries` with this device's own live entry in its own words; the same array when it is already. */
+  private describedSelf(entries: RosterEntry[]): RosterEntry[] {
+    const identity = this.host.identity();
+    if (!identity) return entries;
+    const self = deviceId(identity.publicKey);
+    const own = entries.find((e) => e.id === self);
+    if (!own || !isLive(own)) return entries;
+    const { kind, name, os, links } = this.host.about();
+    const described = describeMember(entries, self, { name, os, links }, identity, this.host.now(), kind);
+    if (described === entries && own.describedBy !== self) {
+      this.host.log(`not describing this device under a membership as ${own.kind}: it is ${kind}`);
+    }
+    return described;
   }
 
   /**
@@ -357,13 +395,14 @@ export class GroupMember {
   }
 
   /**
-   * A member removed from the group, on this device: told so while its
-   * channel is open, then its channel and the host's state for it go, its
-   * row, and its pair at the relay — posted even with no row, so the relay
-   * also drops a mutual half waiting between the two.
+   * A member removed from the group, on this device: sent the roster that
+   * says so, signed, while its channel is open, then its channel and the
+   * host's state for it go, its row, and its pair at the relay — posted
+   * even with no row, so the relay also drops a mutual half waiting
+   * between the two.
    */
   private dropMember(id: string): void {
-    this.host.channel(id)?.sendGroup({ t: 'removed' });
+    this.host.channel(id)?.sendGroup({ t: 'roster', entries: shareable(this.storage.roster.list()) });
     this.host.forget(id);
     this.storage.paired.remove(id);
     this.revokeAtRelay(id);
@@ -371,13 +410,15 @@ export class GroupMember {
 
   /**
    * This device was removed from its group: the members it still talks to
-   * get the roster that says so (a `removed` would tell them they were
-   * removed) and `bye revoked`, while the channels exist; then every pair
-   * goes at the relay, with any mutual half waiting for a member, then every paired device here; then this device
-   * starts a group of one at its next epoch, which the others' removal
-   * does not reach.
+   * get the roster that says so and `bye revoked`, while the channels
+   * exist; then every pair goes at the relay, with any mutual half waiting
+   * for a member, then every paired device here; then this device starts a
+   * group of one with its founding entry, which any member's next
+   * membership for it replaces.
    */
   private leaveGroup(self: string): void {
+    const identity = this.host.identity();
+    if (!identity) return;
     const paired = this.storage.paired.list();
     // A phone paired here loses that pair below, and no other member can reach it: the roster
     // the others get says it is gone too. Not written here — the group of one replaces it.
@@ -385,10 +426,10 @@ export class GroupMember {
     let entries = this.storage.roster.list();
     for (const e of entries) {
       if (e.kind === 'phone' && isLive(e) && !e.links && paired.some((d) => d.id === e.id)) {
-        entries = removeMember(entries, e.id, self, now);
+        entries = removeMember(entries, e.id, identity, now);
       }
     }
-    for (const [, channel] of this.host.channels()) channel.sendGroup({ t: 'roster', entries });
+    for (const [, channel] of this.host.channels()) channel.sendGroup({ t: 'roster', entries: shareable(entries) });
     this.host.forgetAll();
     for (const d of paired) this.revokeAtRelay(d.id);
     // A member that links but is not paired here may have a mutual half waiting at the relay.
@@ -396,9 +437,33 @@ export class GroupMember {
       if (e.id !== self && isLive(e) && e.links && !paired.some((d) => d.id === e.id)) this.revokeAtRelay(e.id);
     }
     for (const d of paired) this.storage.paired.remove(d.id);
-    this.setRoster(addMember(entries.filter((e) => e.id === self), {
-      id: self, ...this.host.about(), addedBy: self, addedAt: now, describedAt: now,
-    }));
+    this.setRoster([this.founding(identity)]);
+  }
+
+  private founding(identity: Identity): RosterEntry {
+    const { kind, name, os, links } = this.host.about();
+    return foundingEntry(identity, kind, { name, os, links }, this.host.now());
+  }
+
+  /**
+   * One relay post for `peer` at a time, answered within
+   * `RELAY_POST_TIMEOUT_MS` (status 0 past it); null while one is in flight.
+   */
+  private postOnce<T>(
+    relay: GroupRelay, path: string, action: RelayAction, peer: string, payload: unknown,
+  ): Promise<{ status: number; body: T; unsupported?: boolean }> | null {
+    const key = `${path} ${peer}`;
+    if (this.inFlight.has(key)) return null;
+    this.inFlight.add(key);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timeout = new Promise<{ status: number; body: T }>((resolve) => {
+      timer = setTimeout(() => resolve({ status: 0, body: {} as T }), RELAY_POST_TIMEOUT_MS);
+      (timer as { unref?: () => void }).unref?.();
+    });
+    return Promise.race([relay.post<T>(path, action, payload), timeout]).finally(() => {
+      if (timer) clearTimeout(timer);
+      this.inFlight.delete(key);
+    });
   }
 
   /**
@@ -410,7 +475,10 @@ export class GroupMember {
     this.storage.pendingRevokes.add(id);
     const relay = this.host.relay();
     if (!relay || relay.status !== 'online') return;
-    const done = relay.post('/pair/revoke', 'pair.revoke', { phone: id }).then((res) => {
+    // One in flight already: its answer clears the pending revoke, or the next relay `ok` posts it again.
+    const posted = this.postOnce(relay, '/pair/revoke', 'pair.revoke', id, { phone: id });
+    if (!posted) return;
+    const done = posted.then((res) => {
       if (res.status === 200 || res.status === 404) {
         this.tryRoster('forget a revoke the relay answered', () => this.storage.pendingRevokes.remove(id));
       } else {
@@ -431,7 +499,7 @@ export class GroupMember {
    * `linked` while it holds the pair, and otherwise waits for the other half.
    */
   link(paired = false): void {
-    const self = this.runningId;
+    const self = this.ownId;
     const relay = this.host.relay();
     if (self === null || !relay || relay.status !== 'online') return;
     const asked = this.mutualAsked;
@@ -439,10 +507,17 @@ export class GroupMember {
     for (const e of this.storage.roster.list()) {
       if (!isLive(e) || !linksWith(selfKind, e) || e.id === self || asked.has(e.id) || (!paired && this.storage.paired.get(e.id))) continue;
       const id = e.id;
+      // One in flight from an earlier connection: its answer asks again (below).
+      const posted = this.postOnce<{ linked?: boolean }>(relay, '/pair/mutual', 'pair.mutual', id, { peer: id });
+      if (!posted) continue;
       asked.add(id);
-      void relay.post<{ linked?: boolean }>('/pair/mutual', 'pair.mutual', { peer: id }).then((res) => {
-        // A relay `ok` in between started a new connection's asking; this answer is the old one's.
-        if (this.host.relay() !== relay || this.mutualAsked !== asked) return;
+      void posted.then((res) => {
+        // A relay `ok` in between started a new connection's asking; this answer is the old one's,
+        // and the new connection asks for this member now that nothing is in flight for it.
+        if (this.host.relay() !== relay || this.mutualAsked !== asked) {
+          this.tryRoster('link the group', () => this.link(true));
+          return;
+        }
         if (res.status === 200) {
           if (res.body.linked === true) this.relayLinked(id);
           return;
@@ -491,7 +566,7 @@ export class GroupMember {
    */
   private onLinked(peer: string): void {
     const entry = this.storage.roster.entry(peer);
-    const self = this.runningId;
+    const self = this.ownId;
     if (self === null || peer === self) return;
     // A removed member asked before its removal reached the relay: the pair goes again.
     if (entry && !isLive(entry)) {
@@ -526,47 +601,32 @@ export class GroupMember {
   }
 
   /**
-   * This device, once, as the first member of its own group; a removed entry
-   * for it stays removed. A live one is described afresh: a rename made while
-   * the remote was off reached no roster.
+   * This device, once, as the first member of its own group (its founding
+   * entry); a removed entry for it stays removed. A live one is described
+   * afresh (`setRoster`): a rename made while the remote was off reached no roster.
    */
   addSelf(): void {
-    const self = this.runningId;
-    if (self === null) return;
-    const known = this.storage.roster.entry(self);
-    const now = this.host.now();
-    const about = this.host.about();
-    if (!known) {
-      this.setRoster(addMember(this.storage.roster.list(), { id: self, ...about, addedBy: self, addedAt: now, describedAt: now }));
-    } else if (isLive(known)) {
-      this.setRoster(describeMember(this.storage.roster.list(), self, about, now));
-    }
+    const identity = this.host.identity();
+    if (!identity) return;
+    const known = this.storage.roster.entry(deviceId(identity.publicKey));
+    if (!known) this.setRoster([...this.storage.roster.list(), this.founding(identity)]);
+    else if (isLive(known)) this.setRoster(this.storage.roster.list());
   }
 
   /**
-   * A device this one just paired with, at the next epoch. A live entry is
-   * kept: the device is a member already, perhaps written by its first
-   * hello, which can arrive before the pairing finishes here.
-   *
-   * `joined`: this device redeemed that device's code, so that device is the
-   * existing member and its own roster holds the real entry for it. What is
-   * written here is only a placeholder until that roster arrives: added by
-   * itself, described at `PLACEHOLDER_DESCRIBED_AT`, so the merge prefers
-   * the real entry (same epoch, later `describedAt`).
+   * A device whose request this one confirmed, added by this device at the
+   * next epoch, as the pairing named it. A live entry is kept: the device
+   * is a member already. A device whose code this one redeemed is not
+   * written here: its own roster names it, and a device that keeps none is
+   * added at its hello or its first roster (`onPeerHello`, `onGroup`).
    */
-  addPaired(device: Pick<RosterEntry, 'id' | 'kind' | 'name' | 'os'>, joined = false): void {
+  addPaired(device: Pick<RosterEntry, 'id' | 'kind' | 'name' | 'os' | 'links'>): void {
     this.tryRoster('add a paired device', () => {
-      const self = this.runningId;
-      if (self === null) return;
+      const identity = this.host.identity();
+      if (!identity) return;
       const known = this.storage.roster.entry(device.id);
       if (known && isLive(known)) return;
-      const now = this.host.now();
-      this.setRoster(addMember(this.storage.roster.list(), {
-        ...device, links: false,
-        ...(joined
-          ? { addedBy: device.id, addedAt: now, describedAt: PLACEHOLDER_DESCRIBED_AT }
-          : { addedBy: self, addedAt: now, describedAt: now }),
-      }));
+      this.setRoster(addMember(this.storage.roster.list(), device, identity, this.host.now()));
     });
   }
 
@@ -576,68 +636,69 @@ export class GroupMember {
   }
 
   /**
-   * What a peer's hello says about it, written onto its live entry; only the
-   * fields the hello names. A device paired before the roster existed has
-   * no entry yet and gets one here.
+   * A peer's hello. Its entry is its own to describe: only the member that
+   * added it writes what the hello says, and only while the device has not
+   * described itself (a device that never signs, a shipped phone). A
+   * device paired here with no entry gets one, added by this device, when
+   * it keeps no roster of its own (a phone from before groups, a Mac from
+   * before groups); one that does is added at its first roster (`onGroup`).
    */
   onPeerHello(from: string, channel: GroupChannel, hello: HelloMessage): void {
     this.tryRoster('describe a peer', () => {
-      const self = this.runningId;
-      if (self === null) return;
+      const identity = this.host.identity();
+      if (!identity) return;
+      const self = deviceId(identity.publicKey);
       const name = hello.name ?? hello.macName;
-      const patch = {
-        ...(name !== undefined ? { name } : {}),
-        ...(hello.os !== undefined ? { os: hello.os } : {}),
-        links: channel.groups,
-      };
       const known = this.storage.roster.entry(from);
       const now = this.host.now();
       // `from` is skipped: the channel's own `ready` follows with the digest.
       if (known) {
-        // A placeholder stays one: its hello must not make it win over the device's own entry.
-        const at = known.describedAt === PLACEHOLDER_DESCRIBED_AT ? PLACEHOLDER_DESCRIBED_AT : now;
-        if (isLive(known)) this.setRoster(describeMember(this.storage.roster.list(), from, patch, at), from);
+        if (!isLive(known) || known.addedBy !== self || known.describedBy === from) return;
+        this.setRoster(describeMember(this.storage.roster.list(), from, {
+          name: name ?? known.name, os: hello.os ?? known.os, links: channel.groups,
+        }, identity, now), from);
         return;
       }
       const device = this.storage.paired.get(from);
-      if (!device) return;
+      if (!device || channel.groups) return;
       this.setRoster(addMember(this.storage.roster.list(), {
-        id: from, kind: device.kind ?? hello.kind ?? 'desktop', name: patch.name ?? device.name, os: patch.os ?? '',
-        links: patch.links, addedBy: self, addedAt: now, describedAt: now,
-      }), from);
+        id: from, kind: device.kind ?? 'desktop', name: name ?? device.name, os: hello.os ?? osName(device.platform),
+        links: false,
+      }, identity, now), from);
     });
   }
 
   onGroup(from: string, channel: GroupChannel, msg: GroupMessage): void {
     if (msg.t === 'roster_digest') {
       this.tryRoster('answer a roster digest', () => {
-        if (msg.digest !== this.storage.roster.digest()) channel.sendGroup({ t: 'roster', entries: this.storage.roster.list() });
-      });
-      return;
-    }
-    if (msg.t === 'roster') {
-      this.tryRoster('merge a roster', () => {
-        const local = this.storage.roster.list();
-        this.setRoster(mergeRosters(local, admitted(local, msg.entries, from, PLACEHOLDER_DESCRIBED_AT)), from);
-      });
-      // The sender may still lack what only this side knew: answered only when
-      // its merge would take something, so two members that keep a different
-      // entry (one the other does not admit) do not trade rosters forever.
-      this.tryRoster('answer a roster', () => {
-        const local = this.storage.roster.list();
-        const self = this.host.knownId();
-        const offered = self === null ? local : admitted(msg.entries, local, self, PLACEHOLDER_DESCRIBED_AT);
-        if (rosterDigest(mergeRosters(msg.entries, offered)) !== rosterDigest(msg.entries)) {
-          channel.sendGroup({ t: 'roster', entries: local });
+        if (msg.digest !== this.storage.roster.digest()) {
+          channel.sendGroup({ t: 'roster', entries: shareable(this.storage.roster.list()) });
         }
       });
       return;
     }
-    // A member says this device was removed; its roster says so too, and the removal comes with it.
-    const self = this.runningId;
-    if (self !== null) {
-      this.tryRoster('leave the group', () => this.setRoster(removeMember(this.storage.roster.list(), self, from, this.host.now()), from));
-    }
+    const self = this.ownId;
+    this.tryRoster('merge a roster', () => {
+      this.setRoster(mergeRoster(this.storage.roster.list(), msg.entries, { from, self }), from);
+    });
+    // A device paired here whose roster does not name it: the device whose code this one
+    // redeemed, while it was alone. This device adds it, as the pairing named it.
+    this.tryRoster('add the member a roster came from', () => {
+      const identity = this.host.identity();
+      const device = this.storage.paired.get(from);
+      if (!identity || !device || this.storage.roster.entry(from)) return;
+      this.setRoster(addMember(this.storage.roster.list(), {
+        id: from, kind: device.kind ?? 'desktop', name: device.name, os: osName(device.platform), links: true,
+      }, identity, this.host.now()), from);
+    });
+    // The sender may still lack what only this side knew: answered only when
+    // its merge would take something, so two members that keep a different
+    // entry (one the other does not take) do not trade rosters forever.
+    this.tryRoster('answer a roster', () => {
+      const local = shareable(this.storage.roster.list());
+      const theirs = mergeRoster(msg.entries, local, { from: self, self: from, trusted: true });
+      if (rosterDigest(theirs) !== rosterDigest(msg.entries)) channel.sendGroup({ t: 'roster', entries: local });
+    });
   }
 
   /**

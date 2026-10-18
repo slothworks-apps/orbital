@@ -115,10 +115,11 @@ describe('the phone as a member', () => {
     });
     expect(phone.client.peers().map((p) => p.id).sort()).toEqual([idA, idB].sort());
     expect(phone.client.inGroup()).toBe(true);
-    // B and then the phone joined A by its code: neither says it added A, every member says who did.
-    await until(() => phone.client.members().find((m) => m.id === idA)?.addedBy === idA);
+    // B joined A by its code while A was alone: A added B, and B added A, since no device adds
+    // itself. The phone joined A later: A added it. Every member says who did.
+    await until(() => phone.client.members().find((m) => m.id === idA)?.addedBy === idB);
     for (const roster of [a.remote.rosterEntries(), b.remote.rosterEntries(), phone.client.members()]) {
-      expect(roster.find((e) => e.id === idA)?.addedBy).toBe(idA);
+      expect(roster.find((e) => e.id === idA)?.addedBy).toBe(idB);
       expect(roster.find((e) => e.id === idB)?.addedBy).toBe(idA);
       expect(roster.find((e) => e.id === phone.client.id)?.addedBy).toBe(idA);
     }
@@ -179,9 +180,9 @@ describe('the phone as a member', () => {
     expect((await b.api('DELETE', `/api/remote/devices/${id}`)).statusCode).toBe(200);
     await until(() => phone.client.channel(idA) === null && phone.client.channel(idB) === null
       && phone.client.peers().length === 0, 15_000);
-    // A group of one, at a new epoch.
+    // A group of one: its founding entry.
     const members = phone.client.members();
-    expect(members).toEqual([expect.objectContaining({ id, self: true, epoch: 2 })]);
+    expect(members).toEqual([expect.objectContaining({ id, self: true, epoch: 0, addedBy: id })]);
     expect(phone.client.inGroup()).toBe(false);
     await until(async () => !(await pairedWith(a, id)) && !(await pairedWith(b, id))
       && entryIn(a, id)?.removedAt !== undefined, 15_000);

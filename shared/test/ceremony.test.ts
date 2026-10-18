@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  PAIR_CODE_ATTEMPTS, PairingCeremony, type CeremonyHost, type CeremonyRelay, type PendingPair,
+  PAIR_CODE_ATTEMPTS, PairingCeremony, devicePairingProof, type CeremonyHost, type CeremonyRelay, type PendingPair,
 } from '../src/remote/ceremony.js';
 import type { PairedDevice } from '../src/remote/group.js';
 import {
@@ -31,7 +31,7 @@ function build(opts: { kind?: string; inGroup?: boolean; members?: string[]; pai
   const r = fakeRelay(opts.answers);
   const paired = new Map((opts.paired ?? []).map((d) => [d.id, d]));
   const calls = {
-    addPaired: [] as { id: string; kind: string; name: string; os: string }[],
+    addPaired: [] as { id: string; kind: string; name: string; os: string; links: boolean }[],
     revoked: [] as string[], watched: [] as string[], opened: [] as string[], abandoned: [] as string[],
     announced: [] as PendingPair[], unrevoked: [] as string[],
   };
@@ -76,12 +76,12 @@ async function showCode(adder: ReturnType<typeof build>): Promise<QrPayload> {
   return parsePairingCode(res.qr)!;
 }
 
-/** The relay's `pair_request` for `qr`, as the device with `identity` redeems it. */
-function request(qr: QrPayload, identity: Identity, secret = fromBase64Url(qr.secret)) {
+/** The relay's `pair_request` for `qr`, as a phone of this release with `identity` redeems it. */
+function request(qr: QrPayload, identity: Identity, secret = fromBase64Url(qr.secret), kind = 'phone') {
   return {
     type: 'pair_request' as const, phone: deviceId(identity.publicKey),
-    proof: pairingProof(secret, identity.publicKey),
-    device: sealPairingDevice(secret, identity.publicKey, { name: 'Pixel', platform: 'android', kind: 'phone' }),
+    proof: devicePairingProof(secret, identity.publicKey),
+    device: sealPairingDevice(secret, identity.publicKey, { name: 'Pixel', platform: 'android', kind }),
   };
 }
 
@@ -142,9 +142,32 @@ describe('PairingCeremony as the adder', () => {
     a.ceremony.onPairRequest(request(qr, phone));
     expect(await a.ceremony.confirm(true, id, codeFor(a.identity, phone))).toEqual({ ok: true });
     expect(a.paired.get(id)).toMatchObject({ name: 'Pixel', platform: 'android', kind: 'phone' });
-    expect(a.calls.addPaired).toEqual([{ id, kind: 'phone', name: 'Pixel', os: 'android' }]);
+    expect(a.calls.addPaired).toEqual([{ id, kind: 'phone', name: 'Pixel', os: 'android', links: true }]);
     expect(a.calls).toMatchObject({ watched: [id], opened: [id], unrevoked: [id] });
     expect(a.ceremony.state()).toMatchObject({ pendingPair: null, pairing: null });
+  });
+
+  it('a request whose proof binds a sealed kind is ignored when the relay stripped the device', async () => {
+    const a = build();
+    const qr = await showCode(a);
+    const { device: _stripped, ...stripped } = request(qr, generateIdentity(), undefined, 'desktop');
+    a.ceremony.onPairRequest(stripped);
+    expect(a.ceremony.state().pendingPair).toBeNull();
+  });
+
+  it('a shipped phone (the plain proof) is a phone that does not link, whatever its sealed blob says', async () => {
+    const a = build();
+    const qr = await showCode(a);
+    const secret = fromBase64Url(qr.secret);
+    const phone = generateIdentity();
+    const id = deviceId(phone.publicKey);
+    a.ceremony.onPairRequest({
+      type: 'pair_request', phone: id, proof: pairingProof(secret, phone.publicKey),
+      device: sealPairingDevice(secret, phone.publicKey, { name: 'Pixel', platform: 'android', kind: 'desktop' }),
+    });
+    expect(a.ceremony.state().pendingPair).toMatchObject({ kind: 'phone', name: 'Pixel' });
+    expect(await a.ceremony.confirm(true, id, codeFor(a.identity, phone))).toEqual({ ok: true });
+    expect(a.calls.addPaired).toEqual([{ id, kind: 'phone', name: 'Pixel', os: 'android', links: false }]);
   });
 
   it('undoes the pair when the relay does not take the accept', async () => {
@@ -183,7 +206,7 @@ describe('PairingCeremony as the newcomer', () => {
     expect(await n.ceremony.join(JSON.stringify(qr))).toEqual({ device: qr.mac, name: 'self', code: codeFor(adder.identity, n.identity) });
   });
 
-  it('a paired for the joined device adds it; the code is the one the adder expects', async () => {
+  it('a paired for the joined device pairs it, and leaves its entry to its own roster; the code is the one the adder expects', async () => {
     const adder = build();
     const qr = await showCode(adder);
     const n = build();
@@ -197,7 +220,7 @@ describe('PairingCeremony as the newcomer', () => {
     expect(n.ceremony.state().joining).toMatchObject({ device: qr.mac, kind: 'desktop' });
     expect(n.ceremony.onPaired(qr.mac)).toBe(true);
     expect(n.paired.get(qr.mac)).toMatchObject({ name: 'self', platform: '', kind: 'desktop' });
-    expect(n.calls.addPaired).toEqual([{ id: qr.mac, kind: 'desktop', name: 'self', os: '' }]);
+    expect(n.calls.addPaired).toEqual([]);
     expect(n.calls).toMatchObject({ opened: [qr.mac], unrevoked: [qr.mac] });
     expect(n.ceremony.state().joining).toBeNull();
     // Not ours: a `paired` for any other device is left to the host.
@@ -257,7 +280,7 @@ describe('PairingCeremony between two phones', () => {
     const mac = generateIdentity();
     const secret = fromBase64Url(qr.secret);
     shower.ceremony.onPairRequest({
-      type: 'pair_request', phone: deviceId(mac.publicKey), proof: pairingProof(secret, mac.publicKey),
+      type: 'pair_request', phone: deviceId(mac.publicKey), proof: devicePairingProof(secret, mac.publicKey),
       device: sealPairingDevice(secret, mac.publicKey, { name: 'studio', platform: 'darwin', kind: 'desktop' }),
     });
     expect(shower.ceremony.state().pendingPair).toMatchObject({ kind: 'desktop' });

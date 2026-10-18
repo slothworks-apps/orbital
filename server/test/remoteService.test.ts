@@ -11,7 +11,7 @@ import {
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import { PROTOCOL_VERSION, decodeInner, encodeInner } from '@orbital/shared/remote/messages';
 import { MIN_PHONE_VERSION, MIN_RELAY_VERSION } from '@orbital/shared/remote/version';
-import type { RosterEntry } from '@orbital/shared/remote/roster';
+import { addMember, removeMember, type RosterEntry } from '@orbital/shared/remote/roster';
 import { Hub } from '../src/api/hub.js';
 import { openDb, type OrbitalDb } from '../src/db/database.js';
 import { createImageStore } from '../src/images/store.js';
@@ -115,15 +115,19 @@ describe('RemoteService roster', () => {
     service.nameChanged();
     settings.remote_enabled = 'true';
     service.settingsChanged();
-    expect(self()).toMatchObject({ name: 'renamed', epoch: 1 });
+    // Alone, this device holds its founding entry: epoch 0, added by itself.
+    expect(self()).toMatchObject({ name: 'renamed', epoch: 0 });
   });
 
   it('a roster that cannot be written here is still answered with this side\'s own', () => {
     const peer = generateIdentity();
     const id = deviceId(peer.publicKey);
-    const { fake, service } = build((d) => d.add({
+    const { fake, service, db } = build((d) => d.add({
       id, name: 'vps', platform: 'linux', kind: 'desktop', pairedAt: 1, notifications: parseNotificationSettings({}),
     }));
+    // A member the peer added, which the peer's empty roster lacks.
+    const store = new RosterStore(db);
+    store.replace([...store.list(), ...addMember([], { id: phoneId(), kind: 'desktop', name: 'x', os: 'linux', links: true }, peer, 1)]);
     const hs = startHandshake(peer, publicKeyOf(service.status().macId!)!, 'initiator');
     fake.emit('data', encodeFrame({ peer: peer.publicKey, flags: 0, wake: ZERO_WAKE, body: hs.message! }));
     const cipher = hs.complete(decodeFrame(fake.sent[0])!.body)!;
@@ -360,36 +364,49 @@ describe('RemoteService pairing', () => {
   });
 });
 
-/** Members written straight into the store, beside the service's own self entry: no link is asked yet. */
-function withMembers(db: OrbitalDb, ...entries: Partial<RosterEntry>[]) {
+/**
+ * Members written straight into the store, beside the service's own self
+ * entry, each added (and, with `removedAt`, removed) by another member: no
+ * link is asked yet.
+ */
+function withMembers(db: OrbitalDb, ...entries: Partial<Pick<RosterEntry, 'id' | 'kind' | 'name' | 'os' | 'links' | 'removedAt'>>[]) {
   const store = new RosterStore(db);
-  const added = entries.map((e): RosterEntry => ({
-    id: phoneId(), kind: 'desktop', name: 'peer', os: 'linux', links: true, epoch: 1,
-    addedBy: 'x', addedAt: NOW, describedAt: NOW, ...e,
-  }));
+  const adder = generateIdentity();
+  const added = entries.map(({ removedAt, ...e }): RosterEntry => {
+    const entry = addMember([], { id: phoneId(), kind: 'desktop', name: 'peer', os: 'linux', links: true, ...e }, adder, NOW);
+    return (removedAt === undefined ? entry : removeMember(entry, entry[0].id, adder, removedAt))[0];
+  });
   store.replace([...store.list(), ...added]);
   return added.map((e) => e.id);
 }
 
+/** The relay connection drops and comes back: a new connection, and its `ok`. */
+function reconnect(fake: FakeClient): void {
+  fake.status = 'connecting';
+  fake.emit('status', 'connecting');
+  fake.status = 'online';
+  fake.emit('status', 'online');
+  fake.emit('control', { type: 'ok', peers: [] });
+}
+
 describe('RemoteService mutual pairs', () => {
-  const ok = { type: 'ok', peers: [] };
   const asked = (fake: FakeClient) => fake.posts.filter((p) => p.path === '/pair/mutual').map((p) => (p.payload as { peer: string }).peer);
 
   it('asks once per relay connection for each live member that links, paired here or not', async () => {
     const { service, fake, db, devices, settings } = build();
     const paired = phoneId();
     devices.add({ id: paired, name: 'p', platform: 'linux', kind: 'desktop', pairedAt: NOW, notifications: parseNotificationSettings({}) });
-    const [server] = withMembers(db, {}, { kind: 'phone', links: false }, { removedBy: 'x', removedAt: NOW }, { id: paired });
-    fake.emit('control', ok);
+    const [server] = withMembers(db, {}, { kind: 'phone', links: false }, { removedAt: NOW }, { id: paired });
+    reconnect(fake);
     await tick();
     expect(asked(fake).sort()).toEqual([paired, server].sort());
-    fake.emit('control', ok);
+    reconnect(fake);
     await tick();
     expect(asked(fake).sort()).toEqual([paired, paired, server, server].sort());
     // Between two connections a roster change asks only for whom is not paired and not asked yet.
     fake.answers['/pair/mutual'] = { status: 500, body: {} };
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    fake.emit('control', ok);
+    reconnect(fake);
     await tick();
     settings.remote_mac_name = 'renamed';
     service.nameChanged();
@@ -399,16 +416,33 @@ describe('RemoteService mutual pairs', () => {
     expect(asked(fake).filter((id) => id === server)).toHaveLength(4);
   });
 
+  it('a relay that repeats ok on one connection is asked nothing more', async () => {
+    const { fake, db, service } = build();
+    const [server] = withMembers(db, {});
+    const [gone] = withMembers(db, {});
+    await service.remove(gone);
+    fake.answers['/pair/revoke'] = { status: 500, body: {} };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    reconnect(fake);
+    await tick();
+    const posts = fake.posts.length;
+    for (let i = 0; i < 5; i++) fake.emit('control', { type: 'ok', peers: [] });
+    await tick();
+    warn.mockRestore();
+    expect(fake.posts).toHaveLength(posts);
+    expect(asked(fake)).toContain(server);
+  });
+
   it('a paired member whose pair the relay lost is asked again at the next ok, and linked again', async () => {
     const { service, fake, db, devices } = build();
     const [server] = withMembers(db, {});
     fake.answers['/pair/mutual'] = { status: 200, body: { linked: true } };
-    fake.emit('control', ok);
+    reconnect(fake);
     await tick();
     expect(devices.get(server)).not.toBeNull();
     // The relay lost the pair (the other side revoked it while this one was away): this row stays.
     fake.answers['/pair/mutual'] = { status: 200, body: { linked: false } };
-    fake.emit('control', ok);
+    reconnect(fake);
     await tick();
     expect(asked(fake)).toEqual([server, server]);
     // The other side's half arrives: the relay says `linked`, and the row is the same one.
@@ -423,7 +457,7 @@ describe('RemoteService mutual pairs', () => {
       const { service, fake, db } = build();
       const [server] = withMembers(db, {});
       fake.answers['/pair/mutual'] = { status: 429, body: {} };
-      fake.emit('control', ok);
+      reconnect(fake);
       await vi.advanceTimersByTimeAsync(0);
       expect(asked(fake)).toEqual([server]);
       await vi.advanceTimersByTimeAsync(MUTUAL_RETRY_MS - 1);
@@ -446,11 +480,11 @@ describe('RemoteService mutual pairs', () => {
     const [server] = withMembers(db, {});
     const member = () => service.status().group.members.find((m) => m.id === server);
     fake.answers['/pair/mutual'] = { status: 404, body: {} };
-    fake.emit('control', ok);
+    reconnect(fake);
     await tick();
     expect(member()).toMatchObject({ pairByHand: true });
     fake.answers['/pair/mutual'] = { status: 500, body: {} };
-    fake.emit('control', ok);
+    reconnect(fake);
     await tick();
     expect(member()).toMatchObject({ pairByHand: false });
     expect(asked(fake)).toHaveLength(2);
@@ -461,7 +495,7 @@ describe('RemoteService mutual pairs', () => {
     expect(asked(fake)).toHaveLength(3);
     // A refusal waits for the next relay `ok`, whatever the roster does.
     fake.answers['/pair/mutual'] = { status: 429, body: {} };
-    fake.emit('control', ok);
+    reconnect(fake);
     await tick();
     settings.remote_mac_name = 'renamed again';
     service.nameChanged();
@@ -472,7 +506,7 @@ describe('RemoteService mutual pairs', () => {
   it('a linked member the roster holds live becomes a paired device once; any other id is ignored', async () => {
     const { service, fake, db } = build();
     const [server] = withMembers(db, { name: 'vps', os: 'linux' });
-    const [removed] = withMembers(db, { removedBy: 'x', removedAt: NOW });
+    const [removed] = withMembers(db, { removedAt: NOW });
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     fake.emit('control', { type: 'linked', peer: phoneId() });
     fake.emit('control', { type: 'linked', peer: removed });
@@ -482,7 +516,7 @@ describe('RemoteService mutual pairs', () => {
     expect(fake.posts.filter((p) => p.path === '/pair/revoke').map((p) => p.payload)).toEqual([{ phone: removed }]);
     // Both the post's answer and the control say so; the device is added once.
     fake.answers['/pair/mutual'] = { status: 200, body: { linked: true } };
-    fake.emit('control', ok);
+    reconnect(fake);
     await tick();
     fake.emit('control', { type: 'linked', peer: server });
     expect(service.status().devices).toEqual([
@@ -564,7 +598,7 @@ describe('RemoteService join and the group', () => {
     const { service, db } = build();
     const [phone] = withMembers(db, { kind: 'phone', links: false });
     expect(await service.join(codeFrom())).toEqual({ error: 'in_group' });
-    new RosterStore(db).replace(new RosterStore(db).list().map((e) => (e.id === phone ? { ...e, removedBy: 'x', removedAt: NOW } : e)));
+    new RosterStore(db).replace(removeMember(new RosterStore(db).list(), phone, generateIdentity(), NOW));
     expect(await service.join(codeFrom())).toMatchObject({ code: expect.any(String) });
   });
 
@@ -649,10 +683,10 @@ describe('RemoteService join and the group', () => {
     const [byHand] = withMembers(db, {});
     // The relay has no `/pair/mutual`: the member asked at this `ok` can only be paired by hand.
     fake.answers['/pair/mutual'] = { status: 404, body: {} };
-    fake.emit('control', { type: 'ok', peers: [] });
+    reconnect(fake);
     await tick();
     const [rowOnline, rowOffline, linking, phoneOnline, phoneOffline, removed] = withMembers(
-      db, {}, {}, {}, { kind: 'phone', links: false }, { kind: 'phone', links: false }, { removedBy: 'x', removedAt: NOW },
+      db, {}, {}, {}, { kind: 'phone', links: false }, { kind: 'phone', links: false }, { removedAt: NOW },
     );
     add(rowOnline);
     add(rowOffline);
@@ -677,7 +711,7 @@ describe('RemoteService join and the group', () => {
   it('the relay is locked only while another member is live', () => {
     const { service, db } = build();
     expect(service.status().group.relayLocked).toBe(false);
-    const [other] = withMembers(db, { removedBy: 'x', removedAt: NOW });
+    const [other] = withMembers(db, { removedAt: NOW });
     expect(other).toBeDefined();
     expect(service.status().group.relayLocked).toBe(false);
     withMembers(db, {});
@@ -708,7 +742,6 @@ describe('RemoteService relay status', () => {
 });
 
 describe('RemoteService remove', () => {
-  const ok = { type: 'ok', peers: [] };
   const revoked = (fake: FakeClient) => fake.posts.filter((p) => p.path === '/pair/revoke').map((p) => (p.payload as { phone: string }).phone);
 
   it('removes a phone paired before the roster: its entry is written, marked removed, and the device goes even when the relay revoke fails', async () => {
@@ -739,13 +772,13 @@ describe('RemoteService remove', () => {
 
   it('is false for an id neither in the roster nor paired, and for a member already removed', async () => {
     const { service, fake, db } = build();
-    const [removed] = withMembers(db, { removedBy: 'x', removedAt: NOW });
+    const [removed] = withMembers(db, { removedAt: NOW });
     expect(await service.remove(phoneId())).toEqual({ error: 'not_found' });
     expect(await service.remove(removed)).toEqual({ error: 'not_found' });
     expect(revoked(fake)).toEqual([]);
   });
 
-  it('leave revokes every pair, forgets every device and member, and starts a group of one at the next epoch', async () => {
+  it('leave revokes every pair, forgets every device and member, and starts a group of one: its founding entry', async () => {
     const paired = [phoneId(), phoneId()];
     const { service, fake, db, devices } = build((d) => {
       for (const id of paired) {
@@ -759,7 +792,7 @@ describe('RemoteService remove', () => {
     expect(revoked(fake).sort()).toEqual([...paired, unpaired].sort());
     expect(devices.list()).toEqual([]);
     expect(service.status().group.members).toEqual([
-      expect.objectContaining({ id: self, self: true, epoch: 2, addedBy: self }),
+      expect.objectContaining({ id: self, self: true, epoch: 0, addedBy: self }),
     ]);
     expect(service.status().group.members[0].removedAt).toBeUndefined();
   });
@@ -802,7 +835,7 @@ describe('RemoteService remove', () => {
     const self = service.status().macId!;
     expect(await service.remove(self)).toEqual({ ok: true });
     expect(revoked(fake)).toEqual([member]);
-    expect(service.status().group.members).toEqual([expect.objectContaining({ id: self, epoch: 2 })]);
+    expect(service.status().group.members).toEqual([expect.objectContaining({ id: self, epoch: 0 })]);
   });
 
   it('leave answers failed when the roster cannot be written', async () => {
@@ -828,16 +861,16 @@ describe('RemoteService remove', () => {
     expect(revoked(fake)).toEqual([]);
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     fake.answers['/pair/revoke'] = { status: 500, body: {} };
-    fake.emit('control', ok);
+    reconnect(fake);
     await tick();
     warn.mockRestore();
     expect(revoked(fake)).toEqual([member]);
     // Not answered: still waiting. A 404 answers it — the relay had no such pair.
     fake.answers['/pair/revoke'] = { status: 404, body: {} };
-    fake.emit('control', ok);
+    reconnect(fake);
     await tick();
     expect(revoked(fake)).toEqual([member, member]);
-    fake.emit('control', ok);
+    reconnect(fake);
     await tick();
     expect(revoked(fake)).toEqual([member, member]);
   });
@@ -852,10 +885,10 @@ describe('RemoteService remove', () => {
     service.settingsChanged();
     // Paired again through a ceremony, at the next epoch, before the relay heard of the removal.
     const store = new RosterStore(db);
-    store.replace(store.list().map((e) => (e.id === member
-      ? { id: e.id, kind: e.kind, name: e.name, os: e.os, links: true, epoch: 2, addedBy: 'x', addedAt: NOW, describedAt: NOW } : e)));
+    store.replace(addMember(store.list(), { id: member, kind: 'desktop', name: 'peer', os: 'linux', links: true }, generateIdentity(), NOW));
+    expect(store.entry(member)?.epoch).toBe(2);
     fake.emit('control', { type: 'linked', peer: member });
-    fake.emit('control', ok);
+    reconnect(fake);
     await tick();
     expect(revoked(fake)).toEqual([]);
   });

@@ -11,7 +11,7 @@ import { Hub } from '../src/api/hub.js';
 import { DEVICE_HEADER, remoteInjectOptions } from '../src/remote/inject.js';
 import { generateIdentity, deviceId, toBase64Url } from '@orbital/shared/remote/keys';
 import { PAIRING_SECRET_BYTES } from '@orbital/shared/remote/relayApi';
-import type { RosterEntry } from '@orbital/shared/remote/roster';
+import { addMember } from '@orbital/shared/remote/roster';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import { makeTmpDir } from './tmp.js';
 
@@ -30,11 +30,9 @@ async function server(enabled: boolean, relayUrl = 'http://127.0.0.1:1', seed?: 
 
 /** Another live member in the roster: this device is in a group. */
 function withMember(db: OrbitalDb): void {
-  const entry: RosterEntry = {
-    id: deviceId(generateIdentity().publicKey), kind: 'desktop', name: 'peer', os: 'linux', links: true, epoch: 1,
-    addedBy: 'x', addedAt: 1, describedAt: 1,
-  };
-  new RosterStore(db).replace([entry]);
+  new RosterStore(db).replace(addMember([], {
+    id: deviceId(generateIdentity().publicKey), kind: 'desktop', name: 'peer', os: 'linux', links: true,
+  }, generateIdentity(), 1));
 }
 
 describe('/api/remote', () => {
@@ -215,9 +213,9 @@ describe('/api/remote', () => {
       new DeviceStore(db).add({
         id: phone, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}),
       });
-      new RosterStore(db).replace([{
-        id: phone, kind: 'phone', name: 'iPhone', os: 'ios', links: false, epoch: 1, addedBy: 'x', addedAt: 1, describedAt: 1,
-      }]);
+      new RosterStore(db).replace(addMember([], {
+        id: phone, kind: 'phone', name: 'iPhone', os: 'ios', links: false,
+      }, generateIdentity(), 1));
     });
     try {
       expect((await app.inject({ method: 'GET', url: '/api/remote' })).json().group.relayLocked).toBe(false);

@@ -1,9 +1,10 @@
 /**
- * The roster in SQLite. `replace` writes a whole roster at once and says
- * whether anything changed, so the service pushes only real changes.
+ * The roster in SQLite, signatures included (ADR roster-entries-are-signed).
+ * `replace` writes a whole roster at once and says whether anything changed,
+ * so the service pushes only real changes.
  */
 import { eq } from 'drizzle-orm';
-import { rosterDigest, type RosterEntry } from '@orbital/shared/remote/roster';
+import { rosterDigest, rosterKey, type RosterEntry } from '@orbital/shared/remote/roster';
 import { groupMembers, pendingRevokes } from '../db/schema.js';
 import type { OrbitalDb } from '../db/database.js';
 
@@ -18,18 +19,19 @@ export class RosterStore {
     return this.list().find((e) => e.id === id) ?? null;
   }
 
+  /** What members compare (`rosterDigest`): this device's founding entry is not in it. */
   digest(): string {
     return rosterDigest(this.list());
   }
 
-  /** Writes the whole roster atomically; returns false when it is unchanged. */
+  /** Writes the whole roster atomically; returns false when it is unchanged, founding entry included. */
   replace(entries: RosterEntry[]): boolean {
-    if (rosterDigest(entries) === this.digest()) return false;
+    if (rosterKey(entries) === rosterKey(this.list())) return false;
     this.db.transaction((tx) => {
       tx.delete(groupMembers).run();
       for (const e of entries) {
         tx.insert(groupMembers).values({
-          ...e, removedBy: e.removedBy ?? null, removedAt: e.removedAt ?? null,
+          ...e, removedBy: e.removedBy ?? null, removedAt: e.removedAt ?? null, removedSig: e.removedSig ?? null,
         }).run();
       }
     });
@@ -37,9 +39,10 @@ export class RosterStore {
   }
 }
 
+/** A removal is all three columns or none; a row with only some reads as live. */
 function fromRow(row: typeof groupMembers.$inferSelect): RosterEntry {
-  const { removedBy, removedAt, ...rest } = row;
-  return { ...rest, ...(removedBy !== null ? { removedBy } : {}), ...(removedAt !== null ? { removedAt } : {}) };
+  const { removedBy, removedAt, removedSig, ...rest } = row;
+  return removedBy !== null && removedAt !== null && removedSig !== null ? { ...rest, removedBy, removedAt, removedSig } : rest;
 }
 
 /** Pairs revoked here and not yet answered by the relay; kept across restarts. */

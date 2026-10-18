@@ -521,9 +521,15 @@ export const groupMembers = sqliteTable('group_members', {
   epoch: integer('epoch').notNull(),
   addedBy: text('added_by').notNull(),
   addedAt: integer('added_at').notNull(),
+  /** `added_by`'s signature over the membership (ADR roster-entries-are-signed). */
+  addedSig: text('added_sig').notNull(),
   describedAt: integer('described_at').notNull(),
+  /** The device itself, or its adder until it describes itself. */
+  describedBy: text('described_by').notNull(),
+  describedSig: text('described_sig').notNull(),
   removedBy: text('removed_by'),
   removedAt: integer('removed_at'),
+  removedSig: text('removed_sig'),
 });
 
 /**

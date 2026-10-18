@@ -27,7 +27,7 @@ import { publicKeyOf, type Identity } from './keys.js';
 import type { HelloMessage } from './messages.js';
 import { PAIR_NAME_MAX_CHARS } from './relayApi.js';
 import { RelayLink, type LinkStatus, type RelayLinkEvent, type SocketConstructor } from './relayLink.js';
-import { ROSTER_KIND_MAX_CHARS, RosterSchema, isLive, rosterDigest, type RosterEntry } from './roster.js';
+import { ROSTER_KIND_MAX_CHARS, RosterSchema, isLive, rosterDigest, rosterKey, type RosterEntry } from './roster.js';
 import type { RelayTooOld } from './version.js';
 
 /**
@@ -179,7 +179,7 @@ export class GroupClient {
       connectTimeoutMs: opts.connectTimeoutMs,
     });
     this.group = new GroupMember(this.storage, {
-      selfId: () => this.id,
+      identity: () => opts.identity,
       about: () => this.about(),
       knownId: () => this.id,
       relay: () => this.link,
@@ -205,7 +205,7 @@ export class GroupClient {
       isLiveMember: (id) => this.group.isLiveMember(id),
       paired: this.storage.paired,
       pendingRevokes: this.storage.pendingRevokes,
-      addPaired: (device, joined) => this.group.addPaired(device, joined),
+      addPaired: (device) => this.group.addPaired(device),
       revokeCancelled: (id) => this.group.tryRoster('revoke a cancelled join', () => this.group.revokeAtRelay(id)),
       watch: () => {},
       abandon: (id) => this.drop(id),
@@ -378,7 +378,10 @@ export class GroupClient {
     switch (event.type) {
       case 'status':
         // The link leaves `online` only when its socket went: every channel goes with it.
-        if (event.status !== 'online') this.dropAll();
+        if (event.status !== 'online') {
+          this.dropAll();
+          this.group.relayLost();
+        }
         this.emit({ type: 'status', status: event.status });
         // `online` follows `ok` at once: the relay's view is fresh, and the group may post now.
         if (event.status === 'online') {
@@ -788,7 +791,7 @@ export class MemoryGroupStorage implements GroupStorage {
       return e ? { ...e } : null;
     },
     replace: (entries) => {
-      if (rosterDigest(entries) === rosterDigest(this.entries)) return false;
+      if (rosterKey(entries) === rosterKey(this.entries)) return false;
       this.entries = [...entries].map((e) => ({ ...e })).sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
       return true;
     },
@@ -827,7 +830,8 @@ export class MemoryGroupStorage implements GroupStorage {
   /**
    * Nothing here throws: what does not read is left out. A paired row and a
    * revoke are read one by one, since losing one loses a pair; a roster that
-   * does not read as a whole is empty, and the members send it again.
+   * does not read as a whole (one stored before entries were signed) is
+   * empty, and the members send it again.
    */
   static fromJSON(value: unknown): MemoryGroupStorage {
     const storage = new MemoryGroupStorage();

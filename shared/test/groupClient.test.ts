@@ -6,6 +6,7 @@ import type { RelayToDevice } from '../src/remote/relayApi.js';
 import type { SocketLike } from '../src/remote/relayLink.js';
 import { RELAY_PHONE_GROUP_VERSION, RELAY_VERSION_HEADER } from '../src/remote/version.js';
 import { ALONE_GRACE_MS, GroupClient, MemoryGroupStorage, type GroupClientEvent } from '../src/remote/groupClient.js';
+import { addMember, type RosterEntry } from '../src/remote/roster.js';
 
 /** The relay socket the test plays: frames the phone sends go to `route`, a microtask later. */
 class FakeSocket implements SocketLike {
@@ -118,11 +119,14 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/** A desktop that links, as another member added it. */
+function member(id: string): RosterEntry[] {
+  return addMember([], { id, kind: 'desktop', name: 'vps', os: 'linux', links: true }, generateIdentity(), 1);
+}
+
 /** A member that links, in the roster of a phone that is in its group. */
 function grouped(storage: MemoryGroupStorage, id: string): void {
-  storage.roster.replace([{
-    id, kind: 'desktop', name: 'vps', os: 'linux', links: true, epoch: 1, addedBy: id, addedAt: 1, describedAt: 1,
-  }]);
+  storage.roster.replace(member(id));
 }
 
 describe('GroupClient', () => {
@@ -349,9 +353,7 @@ describe('GroupClient', () => {
       pairWith(storage, a);
       pairWith(storage, b);
       // B links: the group is intact, and its members pair again through /pair/mutual.
-      storage.roster.replace([{
-        id: b, kind: 'desktop', name: 'vps', os: 'linux', links: true, epoch: 1, addedBy: b, addedAt: 1, describedAt: 1,
-      }]);
+      storage.roster.replace(member(b));
     });
     online(s.sock(), { peers: [], pairs: [] });
     expect(s.client.peers()).toEqual([]);
@@ -409,12 +411,20 @@ describe('MemoryGroupStorage', () => {
     const id = idOf();
     storage.paired.add({ id, name: 'studio', platform: 'darwin', kind: 'desktop', pairedAt: 5 });
     storage.pendingRevokes.add(id);
-    storage.roster.replace([{
-      id, kind: 'desktop', name: 'studio', os: 'macos', links: true, epoch: 1, addedBy: id, addedAt: 1, describedAt: 1,
-    }]);
+    storage.roster.replace(member(id));
     const back = MemoryGroupStorage.fromJSON(JSON.parse(JSON.stringify(storage)));
     expect(back.toJSON()).toEqual(storage.toJSON());
     expect(back.roster.digest()).toBe(storage.roster.digest());
+  });
+
+  it('drops a roster stored before entries were signed, and keeps the pairs', () => {
+    const id = idOf();
+    const unsigned = { id, kind: 'desktop', name: 'studio', os: 'macos', links: true, epoch: 1, addedBy: idOf(), addedAt: 1, describedAt: 1 };
+    const back = MemoryGroupStorage.fromJSON({
+      roster: [unsigned], paired: [{ id, name: 'studio', platform: 'darwin', kind: 'desktop', pairedAt: 1, lastSeenAt: null }],
+    });
+    expect(back.roster.list()).toEqual([]);
+    expect(back.paired.list().map((d) => d.id)).toEqual([id]);
   });
 
   it('reads garbage as empty, and keeps the rows that read', () => {
