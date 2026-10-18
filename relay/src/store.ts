@@ -13,6 +13,14 @@ import { MUTUAL_PAIR_TTL_MS } from '@orbital/shared/remote/relayApi';
 import { asNumber, openRelayDb, type RelayDb } from './db.js';
 
 export type DeviceKind = 'mac' | 'phone';
+
+/**
+ * The most halves of a mutual pair one device may have waiting at once. A
+ * device asks every other member of its group for one, so this is more than
+ * a group has members in practice; past it, its oldest half goes, and a
+ * member whose half went asks again at its next relay connection.
+ */
+export const MUTUAL_HALVES_PER_DEVICE = 32;
 export type DeviceRow = { id: string; kind: DeviceKind; pushToken: string | null; lastSeenAt: number | null };
 
 export interface RelayStore {
@@ -43,7 +51,8 @@ export interface RelayStore {
    * (the pair is stored, lower id in `mac`) or the two were already paired;
    * not while only this half is in. `created` only for the one call that
    * stored the pair, so the pair is announced once even when both halves
-   * arrive together. Expired halves go first.
+   * arrive together. Expired halves go first, and `from`'s oldest past
+   * `MUTUAL_HALVES_PER_DEVICE` after this one is in.
    */
   offerMutual(from: string, to: string, now: number): Promise<{ linked: boolean; created: boolean }>;
   isPaired(a: string, b: string): Promise<boolean>;
@@ -159,6 +168,7 @@ export class KyselyRelayStore implements RelayStore {
     await this.db.insertInto('mutual_halves').values({ from_id: from, to_id: to, expires_at: expiresAt })
       .onConflict((oc) => oc.columns(['from_id', 'to_id']).doUpdateSet({ expires_at: expiresAt }))
       .execute();
+    await this.pruneHalvesOf(from, to);
     const other = await this.db.selectFrom('mutual_halves').select('to_id')
       .where('from_id', '=', to).where('to_id', '=', from).executeTakeFirst();
     if (!other) {
@@ -173,6 +183,18 @@ export class KyselyRelayStore implements RelayStore {
       .onConflict((oc) => oc.columns(['mac', 'phone']).doNothing()).executeTakeFirst();
     await this.deleteHalves(from, to);
     return { linked: true, created: (inserted.numInsertedOrUpdatedRows ?? 0n) > 0n };
+  }
+
+  /** `from`'s halves past `MUTUAL_HALVES_PER_DEVICE`, the oldest first; never the one to `keep`, just offered. */
+  private async pruneHalvesOf(from: string, keep: string): Promise<void> {
+    const rows = await this.db.selectFrom('mutual_halves').select(['to_id', 'expires_at'])
+      .where('from_id', '=', from).execute();
+    if (rows.length <= MUTUAL_HALVES_PER_DEVICE) return;
+    const older = rows.filter((r) => r.to_id !== keep)
+      .sort((a, b) => Number(b.expires_at) - Number(a.expires_at))
+      .slice(MUTUAL_HALVES_PER_DEVICE - 1)
+      .map((r) => r.to_id);
+    await this.db.deleteFrom('mutual_halves').where('from_id', '=', from).where('to_id', 'in', older).execute();
   }
 
   private async deleteHalves(a: string, b: string): Promise<void> {

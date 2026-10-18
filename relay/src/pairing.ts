@@ -71,20 +71,25 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
    * Verifies, rate-limits, checks the relay secret, parses, and answers the error itself; returns
    * null then. The signature comes first so unsigned junk never counts
    * against an IP's limit — only a request someone signed can use it up.
-   * A mutual pair or a revoke draws on `mutualLimiter` instead, and on the
-   * guessing budget only with a wrong secret: past that budget it is refused
-   * like a connect, so the secret cannot be guessed faster through it.
+   *
+   * A mutual pair or a revoke draws on the guessing budget only with a
+   * wrong secret: past that budget it is refused like a connect, so the
+   * secret cannot be guessed faster through it. Only once the secret holds
+   * does it draw on `mutualLimiter`, and a device the relay knows draws on
+   * its own share of the IP's budget: any page in a browser behind the same
+   * address may sign with keys made up on the spot, and those share one
+   * budget that never stands in the way of the address's own devices.
    */
-  function signed<T extends z.ZodTypeAny>(
+  async function signed<T extends z.ZodTypeAny>(
     body: unknown, action: RelayAction, schema: T, ip: string, reply: FastifyReply,
-  ): { id: string; payload: z.infer<T> } | null {
+  ): Promise<{ id: string; payload: z.infer<T> } | null> {
     const v = verifyRequest(body, action, ctx.now());
     if (!v.ok) {
       void reply.code(401).send({ error: v.reason });
       return null;
     }
     const own = action === 'pair.mutual' || action === 'pair.revoke';
-    if (own ? ctx.mutualLimiter.hit(ip) || (ctx.secret !== null && ctx.limiter.spent(ip)) : ctx.limiter.hit(ip)) {
+    if (own ? ctx.secret !== null && ctx.limiter.spent(ip) : ctx.limiter.hit(ip)) {
       void reply.code(429).send({ error: 'rate_limited' });
       return null;
     }
@@ -93,6 +98,13 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
       log(`pairing ${action} refused for ${short(v.id)}: bad secret`);
       void reply.code(401).send({ error: 'bad_secret' });
       return null;
+    }
+    if (own) {
+      const known = (await ctx.store.device(v.id)) !== null;
+      if (ctx.mutualLimiter.hit(known ? `${ip} ${v.id}` : ip)) {
+        void reply.code(429).send({ error: 'rate_limited' });
+        return null;
+      }
     }
     const parsed = schema.safeParse(v.payload);
     if (!parsed.success) {
@@ -108,7 +120,7 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
 
   app.post('/pair/token', async (req, reply) => {
     sendPairCors(reply);
-    const s = signed(req.body, 'pair.token', TokenPayload, req.ip, reply);
+    const s = await signed(req.body, 'pair.token', TokenPayload, req.ip, reply);
     if (!s) return;
     // A phone that showed its own code earlier stays a phone; only a device the relay has never met becomes a mac.
     await ctx.store.ensureDevice({ id: s.id, kind: 'mac' });
@@ -121,7 +133,7 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
 
   app.post('/pair/redeem', async (req, reply) => {
     sendPairCors(reply);
-    const s = signed(req.body, 'pair.redeem', RedeemPayload, req.ip, reply);
+    const s = await signed(req.body, 'pair.redeem', RedeemPayload, req.ip, reply);
     if (!s) return;
     const { token, proof, device } = s.payload;
     const open = await ctx.store.peekPairingToken(token, ctx.now());
@@ -148,7 +160,7 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
 
   app.post('/pair/confirm', async (req, reply) => {
     sendPairCors(reply);
-    const s = signed(req.body, 'pair.confirm', ConfirmPayload, req.ip, reply);
+    const s = await signed(req.body, 'pair.confirm', ConfirmPayload, req.ip, reply);
     if (!s) return;
     const { phone, accept } = s.payload;
     if (!(await ctx.store.pending(s.id, phone))) return reply.code(404).send({ error: 'no_pending' });
@@ -177,14 +189,16 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
   // the-relay-pairs-two-devices-that-both-sign). Neither half says why.
   app.post('/pair/mutual', async (req, reply) => {
     sendPairCors(reply);
-    const s = signed(req.body, 'pair.mutual', MutualPayload, req.ip, reply);
+    const s = await signed(req.body, 'pair.mutual', MutualPayload, req.ip, reply);
     if (!s) return;
     const peer = s.payload.peer;
     if (!publicKeyOf(peer) || peer === s.id) return reply.code(400).send({ error: 'bad_peer' });
-    // A phone that signs one stays a phone; only a device the relay has never met gets a row.
-    await ctx.store.ensureDevice({ id: s.id, kind: 'mac' });
     const outcome = await ctx.store.offerMutual(s.id, peer, ctx.now());
     if (outcome.created) {
+      // A half alone makes no row: any key can sign one. A pair does, for a
+      // device the relay never met (one that lost its rows); a phone stays a phone.
+      await ctx.store.ensureDevice({ id: s.id, kind: 'mac' });
+      await ctx.store.ensureDevice({ id: peer, kind: 'mac' });
       ctx.connections.get(s.id)?.peers.add(peer);
       ctx.connections.get(peer)?.peers.add(s.id);
       ctx.connections.pairsChanged();
@@ -199,7 +213,7 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
 
   app.post('/pair/revoke', async (req, reply) => {
     sendPairCors(reply);
-    const s = signed(req.body, 'pair.revoke', RevokePayload, req.ip, reply);
+    const s = await signed(req.body, 'pair.revoke', RevokePayload, req.ip, reply);
     if (!s) return;
     // Only act if a pair actually existed: otherwise any signed caller could
     // name an arbitrary phone and drain its queue or push a fake `unpaired`.

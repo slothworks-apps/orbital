@@ -7,8 +7,8 @@ import {
 } from '@orbital/shared/remote/relayApi';
 import { RELAY_VERSION_HEADER } from '@orbital/shared/remote/version';
 import { buildRelay } from '../src/app.js';
-import { PAIR_RATE_LIMIT_PER_MIN } from '../src/rateLimit.js';
-import { openRelayStore } from '../src/store.js';
+import { MUTUAL_RATE_LIMIT_PER_MIN, PAIR_RATE_LIMIT_PER_MIN } from '../src/rateLimit.js';
+import { MUTUAL_HALVES_PER_DEVICE, openRelayStore } from '../src/store.js';
 import { connectDevice, listen, sleep } from './helpers.js';
 
 const RELAY_PACKAGE_VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
@@ -316,5 +316,44 @@ describe('pairing', () => {
     expect((await mint('10.0.0.2')).statusCode).toBe(200);
     r.tick(60_000);
     expect((await mint()).statusCode).toBe(200);
+  });
+
+  it('a half alone makes no row for a signer the relay never met; the pair it completes makes both', async () => {
+    const r = await relay();
+    const a = deviceId(r.mac.publicKey);
+    const b = deviceId(r.phone.publicKey);
+    await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: b }, r.now()));
+    expect(await r.store.device(a)).toBeNull();
+    expect(await r.store.device(b)).toBeNull();
+    await r.post('/pair/mutual', signRequest(r.phone, 'pair.mutual', { peer: a }, r.now()));
+    expect(await r.store.device(a)).toMatchObject({ id: a, kind: 'mac' });
+    expect(await r.store.device(b)).toMatchObject({ id: b, kind: 'mac' });
+  });
+
+  it('keeps at most MUTUAL_HALVES_PER_DEVICE halves of one signer waiting; its oldest goes first', async () => {
+    const r = await relay();
+    const peers = Array.from({ length: MUTUAL_HALVES_PER_DEVICE + 1 }, () => generateIdentity());
+    for (const peer of peers) {
+      await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: deviceId(peer.publicKey) }, r.now()));
+      r.tick(1);
+    }
+    const a = deviceId(r.mac.publicKey);
+    // The first half went when the last came; the second still waits and completes.
+    const first = await r.post('/pair/mutual', signRequest(peers[0], 'pair.mutual', { peer: a }, r.now()));
+    expect(first.json()).toEqual({ linked: false });
+    const second = await r.post('/pair/mutual', signRequest(peers[1], 'pair.mutual', { peer: a }, r.now()));
+    expect(second.json()).toEqual({ linked: true });
+  });
+
+  it('keys made up on the spot behind one address do not use up a known device\'s mutual budget there', async () => {
+    const r = await relay();
+    // The phone is known to the relay: it showed a code once.
+    await r.post('/pair/token', signRequest(r.phone, 'pair.token', {}, r.now()));
+    const peer = deviceId(r.mac.publicKey);
+    const mutual = (who: ReturnType<typeof generateIdentity>) => r.post('/pair/mutual', signRequest(who, 'pair.mutual', { peer }, r.now()));
+    let limited = 0;
+    for (let i = 0; i <= MUTUAL_RATE_LIMIT_PER_MIN; i++) if ((await mutual(generateIdentity())).statusCode === 429) limited++;
+    expect(limited).toBeGreaterThan(0);
+    expect((await mutual(r.phone)).statusCode).toBe(200);
   });
 });
