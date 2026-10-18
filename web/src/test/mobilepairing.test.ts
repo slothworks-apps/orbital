@@ -14,6 +14,8 @@ const io = vi.hoisted(() => ({
   thisDevice: vi.fn(async () => ({ name: 'Pixel', platform: 'android' })),
   clearUnpaired: vi.fn(async () => {}),
   clearEnded: vi.fn(async () => {}),
+  clearStandalone: vi.fn(async () => {}),
+  loadStandalone: vi.fn(async () => null),
   newGroup: vi.fn(),
 }))
 vi.mock('../mobile/connect', async (importOriginal) => ({
@@ -21,7 +23,9 @@ vi.mock('../mobile/connect', async (importOriginal) => ({
 }))
 vi.mock('../mobile/platform/identity', () => ({ loadOrCreateIdentity: io.loadOrCreateIdentity }))
 vi.mock('../mobile/platform/device', () => ({ thisDevice: io.thisDevice }))
-vi.mock('../mobile/platform/pairing', () => ({ clearUnpaired: io.clearUnpaired, clearEnded: io.clearEnded }))
+vi.mock('../mobile/platform/pairing', () => ({
+  clearUnpaired: io.clearUnpaired, clearEnded: io.clearEnded, clearStandalone: io.clearStandalone, loadStandalone: io.loadStandalone,
+}))
 
 import { parseQrText, redeemOutcome } from '../mobile/pairingFlow'
 import {

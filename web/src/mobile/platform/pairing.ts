@@ -1,6 +1,6 @@
 import { Preferences } from '@capacitor/preferences'
 import type { GroupEnded } from '@orbital/shared/remote/group'
-import { parseEnded, parsePairing, type Pairing, type StandaloneRelay } from './parse'
+import { parseEnded, parsePairing, parseStandaloneRelay, type Pairing, type StandaloneRelay } from './parse'
 
 /** The native shells read its presence too, for the app lock's snapshot cover (`APP_LOCK_KEY`). */
 export const PAIRING_KEY = 'orbital.pairing'
@@ -40,14 +40,33 @@ export function clearUnpaired(): Promise<void> {
 }
 
 /** The notice of the group's ending, or null; one that does not read is none. */
-export async function loadEnded(): Promise<{ ended: GroupEnded; relay: StandaloneRelay | null } | null> {
+export async function loadEnded(): Promise<GroupEnded | null> {
   const { value } = await Preferences.get({ key: ENDED_KEY })
   return parseEnded(value)
 }
 
-/** The notice, with the relay the phone stays on until it is read (`relay` null: none known). */
-export function saveEnded(ended: GroupEnded, relay: StandaloneRelay | null): Promise<void> {
-  return Preferences.set({ key: ENDED_KEY, value: JSON.stringify({ ...ended, ...(relay ?? {}) }) })
+export function saveEnded(ended: GroupEnded): Promise<void> {
+  return Preferences.set({ key: ENDED_KEY, value: JSON.stringify(ended) })
+}
+
+/**
+ * The relay a phone standalone after its group's ending stays on (canvas
+ * 50m/50n: the standalone page stays after OK). Kept across launches until
+ * the phone pairs again; the notice is apart from it (`ENDED_KEY`).
+ */
+export const STANDALONE_KEY = 'orbital.standalone'
+
+export async function loadStandalone(): Promise<StandaloneRelay | null> {
+  const { value } = await Preferences.get({ key: STANDALONE_KEY })
+  return parseStandaloneRelay(value)
+}
+
+export function saveStandalone(relay: StandaloneRelay): Promise<void> {
+  return Preferences.set({ key: STANDALONE_KEY, value: JSON.stringify(relay) })
+}
+
+export function clearStandalone(): Promise<void> {
+  return Preferences.remove({ key: STANDALONE_KEY })
 }
 
 export function clearEnded(): Promise<void> {

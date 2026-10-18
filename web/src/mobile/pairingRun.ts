@@ -12,7 +12,8 @@ import { fingerprintFor } from './pairingFlow'
 import { thisDevice } from './platform/device'
 import { loadOrCreateIdentity } from './platform/identity'
 import type { Pairing } from './platform/parse'
-import { clearEnded, clearUnpaired } from './platform/pairing'
+import { clearEnded, clearStandalone, clearUnpaired } from './platform/pairing'
+import { isStandalone, resumeStandalone } from './standalone'
 import { usePhoneTip } from './phoneTip'
 import { useMobile } from './state'
 import { groupRef, type GroupHandle } from './transport/groupRef'
@@ -99,7 +100,10 @@ export function cancelPairing(): void {
     groupRef.current?.group.cancelJoin()
     return
   }
+  // A standalone phone that never scanned keeps its client (canvas 50n).
+  if (isStandalone(groupRef.current)) return
   groupRef.set(null)
+  void resumeStandalone()
 }
 
 /**
@@ -124,7 +128,10 @@ export async function runPairing(
     // The error only: never the code, whose text carries the pairing secret.
     console.warn('[mobile] pairing failed', err)
     if (cancelled()) return
-    if (held.handle && groupRef.current === held.handle) groupRef.set(null)
+    if (held.handle && groupRef.current === held.handle) {
+      groupRef.set(null)
+      void resumeStandalone()
+    }
     // A phone in a group keeps it, and stops waiting for the device it was joining.
     else if (!held.handle) groupRef.current?.group.cancelJoin()
     report({ kind: 'scan', error: PAIRING_FAILED })
@@ -212,7 +219,11 @@ async function pair(
   // Dropped on the way out of a run that fails: a phone in a group keeps its own.
   const fail = (step: PairingStep) => {
     if (current) group.cancelJoin()
-    else groupRef.set(null)
+    else {
+      groupRef.set(null)
+      // A standalone phone goes back on its own relay (canvas 50n).
+      void resumeStandalone()
+    }
     report(step)
   }
   // A refused secret or a relay too old ends the wait too: the client has
@@ -269,9 +280,9 @@ async function pair(
     if (qr.relaySecret !== undefined) pairing.relaySecret = qr.relaySecret
     // The notifications tip becomes due with a pairing (spec
     // 2026-10-08-notifications-off-by-default-design § 5), before the list can show.
-    await Promise.all([handle.persist(), clearUnpaired(), clearEnded(), usePhoneTip.getState().markPending()])
+    await Promise.all([handle.persist(), clearUnpaired(), clearEnded(), clearStandalone(), usePhoneTip.getState().markPending()])
     // A phone already in a group keeps what it shows; a new one is in the group of the device it joined.
-    if (!current) useMobile.setState({ pairing, unpaired: false, groupEnded: null, macName: qr.name })
+    if (!current) useMobile.setState({ pairing, unpaired: false, groupEnded: null, standaloneRelay: null, macName: qr.name })
     // The channel follows the pair within moments; "Paired with" waits for it, bounded, and shows either way.
     if (!federation.ready) {
       await waitFor<TunnelEvent>((listener) => federation.on(listener), (e) => e.type === 'ready' && e.ready, PAIRED_HELLO_WAIT_MS)

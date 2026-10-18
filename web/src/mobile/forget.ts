@@ -11,7 +11,7 @@ import { clearRecentFiles } from './files/recentFiles'
 import { clearHarnessCache } from './harness/harnessCache'
 import { clearGroup } from './platform/group'
 import type { GroupEnded } from '@orbital/shared/remote/group'
-import { clearPairing, saveEnded, setUnpaired } from './platform/pairing'
+import { clearPairing, clearStandalone, saveEnded, saveStandalone, setUnpaired } from './platform/pairing'
 import { standaloneRelay } from './standalone'
 import { useMobile } from './state'
 import { clientRef } from './transport/clientRef'
@@ -105,14 +105,16 @@ export async function forgetEverything(opts: { unpaired: boolean; ended?: GroupE
   if (opts.ended) {
     try {
       // Before the group goes, as 9h's flag: a kill in between still tells it.
-      await saveEnded(opts.ended, pairing ? standaloneRelay(pairing) : null)
+      await saveEnded(opts.ended)
+      // The phone stays on its relay, standalone, across launches until it pairs again (canvas 50n).
+      if (pairing) await saveStandalone(standaloneRelay(pairing))
     } catch (err) {
       console.warn('[mobile] could not keep the notice of the group ending', err)
     }
   }
   // Independent of each other and of the flag above: one failing clear must not skip the rest.
   const clears = await Promise.allSettled([
-    clearGroup(), clearPairing(), ...(opts.unpaired ? [forgetIdentity()] : []),
+    clearGroup(), clearPairing(), ...(opts.unpaired ? [forgetIdentity()] : []), ...(opts.ended ? [] : [clearStandalone()]),
     clearCaches(), clearImageCache(), clearHarnessCache(), clearFileCache(),
   ])
   for (const result of clears) {

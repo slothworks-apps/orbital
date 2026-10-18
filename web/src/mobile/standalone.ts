@@ -5,7 +5,7 @@ import { holdGroup, newGroup } from './connect'
 import { fingerprintFor } from './pairingFlow'
 import { thisDevice } from './platform/device'
 import { loadOrCreateIdentity } from './platform/identity'
-import { clearEnded, clearUnpaired } from './platform/pairing'
+import { clearEnded, clearStandalone, clearUnpaired, loadStandalone } from './platform/pairing'
 import type { Pairing, StandaloneRelay } from './platform/parse'
 import { registerPush } from './platform/push'
 import { useMobile } from './state'
@@ -14,6 +14,29 @@ import { groupRef, type GroupHandle } from './transport/groupRef'
 /** The relay a pairing names, as a standalone phone keeps it. */
 export function standaloneRelay(pairing: Pick<Pairing, 'relay' | 'relaySecret'>): StandaloneRelay {
   return { relay: pairing.relay, ...(pairing.relaySecret !== undefined ? { relaySecret: pairing.relaySecret } : {}) }
+}
+
+/** The standalone client `goStandalone` holds, while it is the one held. */
+let standaloneHandle: GroupHandle | null = null
+
+/** Whether `handle` is the standalone client: a pairing screen left without a scan keeps it. */
+export function isStandalone(handle: GroupHandle | null): boolean {
+  return handle !== null && handle === standaloneHandle
+}
+
+/**
+ * Back on the stored relay after a scan that failed or was cancelled
+ * replaced the standalone client: the phone stays online until it pairs.
+ * Nothing when it is paired, holds a client, or has no standalone relay.
+ */
+export async function resumeStandalone(): Promise<void> {
+  try {
+    if (useMobile.getState().pairing || groupRef.current) return
+    const relay = await loadStandalone()
+    if (relay) await goStandalone(relay)
+  } catch (err) {
+    console.warn('[mobile] could not stay on the relay', err)
+  }
 }
 
 /**
@@ -44,6 +67,7 @@ export async function goStandalone(relay: StandaloneRelay): Promise<void> {
       console.warn('[mobile] could not keep the pairing made from this phone\'s code', err)
     })
   })
+  standaloneHandle = handle
   holdGroup(handle)
   useMobile.setState({ standaloneRelay: relay.relay })
   handle.group.start()
@@ -52,7 +76,7 @@ export async function goStandalone(relay: StandaloneRelay): Promise<void> {
 /** A device paired with the standalone phone through its code: the phone is paired again, its group stored from now on. */
 async function adopt(handle: GroupHandle, peer: PeerInfo, relay: StandaloneRelay, identity: Identity): Promise<void> {
   await handle.persist()
-  await Promise.all([clearUnpaired(), clearEnded()])
+  await Promise.all([clearUnpaired(), clearEnded(), clearStandalone()])
   if (groupRef.current !== handle) return
   const pairing: Pairing = {
     ...relay, mac: peer.id, macName: peer.name, fingerprint: fingerprintFor(peer.id, identity.publicKey), pairedAt: Date.now(),

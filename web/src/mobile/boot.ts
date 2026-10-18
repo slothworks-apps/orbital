@@ -25,7 +25,7 @@ import { loadAppLock } from './platform/appLock'
 import { readDeviceLock } from './platform/deviceLock'
 import { loadGroup } from './platform/group'
 import { loadOrCreateIdentity } from './platform/identity'
-import { loadEnded, loadUnpaired } from './platform/pairing'
+import { loadEnded, loadStandalone, loadUnpaired } from './platform/pairing'
 import { goStandalone, standaloneRelay } from './standalone'
 import { pairingFromGroup, type GroupRecord, type Pairing } from './platform/parse'
 import { installNotificationChannels, installPushListeners, registerPush } from './platform/push'
@@ -91,8 +91,9 @@ export async function boot(): Promise<void> {
 
   // The device lock is read before the first screen: without a screen lock
   // 9s stands in front of everything, pairing included.
-  const [record, unpaired, ended, cached, rules, appLock, device] = await Promise.all([
-    loadGroup(), loadUnpaired(), loadEnded(), readSessionsCache(), readNotificationsCache(), loadAppLock(), readDeviceLock(),
+  const [record, unpaired, ended, standalone, cached, rules, appLock, device] = await Promise.all([
+    loadGroup(), loadUnpaired(), loadEnded(), loadStandalone(), readSessionsCache(), readNotificationsCache(), loadAppLock(),
+    readDeviceLock(),
   ])
   const pairing = record ? await groupPairing(record) : null
   if (rules) setRules(rules.value)
@@ -105,8 +106,9 @@ export async function boot(): Promise<void> {
     unpaired: unpaired !== null,
     macName: pairing?.macName ?? unpaired?.macName ?? null,
     // The group's ending is told under THIS PHONE (canvas 50n) until OK.
-    groupEnded: pairing ? null : ended?.ended ?? null,
-    screen: unpaired ? 'unpaired' : pairing ? 'list' : ended ? 'settings' : 'pairing',
+    groupEnded: pairing ? null : ended,
+    // Standalone after a group's ending, the phone opens on its standalone page (canvas 50m/50n).
+    screen: unpaired ? 'unpaired' : pairing ? 'list' : ended || standalone ? 'settings' : 'pairing',
     appLock,
     screenLock: !device.secure,
     lockLabel: device.label,
@@ -116,8 +118,8 @@ export async function boot(): Promise<void> {
   const open = pendingOpen
   pendingOpen = null
   // Standalone after the group's ending: back on its relay while the notice is up (canvas 50n).
-  if (!pairing && !unpaired && ended?.relay) {
-    goStandalone(ended.relay).catch((err: unknown) => console.warn('[mobile] could not stay on the relay', err))
+  if (!pairing && !unpaired && standalone) {
+    goStandalone(standalone).catch((err: unknown) => console.warn('[mobile] could not stay on the relay', err))
   }
   if (!pairing || unpaired) return
   // Only a paired phone has sessions to open; behind 9s or 9t the tap waits (`openFromNotice`).

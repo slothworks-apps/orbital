@@ -18,6 +18,8 @@ const io = vi.hoisted(() => {
     clearPairing: step('clearPairing'),
     setUnpaired: step('setUnpaired'),
     saveEnded: step('saveEnded'),
+    saveStandalone: step('saveStandalone'),
+    clearStandalone: step('clearStandalone'),
     clearGroup: step('clearGroup'),
   }
 })
@@ -26,7 +28,10 @@ vi.mock('../mobile/platform/cache', () => ({
 }))
 vi.mock('../mobile/platform/identity', () => ({ forgetIdentity: io.forgetIdentity }))
 vi.mock('../mobile/platform/imageCache', () => ({ clearImageCache: io.clearImageCache }))
-vi.mock('../mobile/platform/pairing', () => ({ clearPairing: io.clearPairing, setUnpaired: io.setUnpaired, saveEnded: io.saveEnded }))
+vi.mock('../mobile/platform/pairing', () => ({
+  clearPairing: io.clearPairing, setUnpaired: io.setUnpaired, saveEnded: io.saveEnded,
+  saveStandalone: io.saveStandalone, clearStandalone: io.clearStandalone,
+}))
 vi.mock('../mobile/platform/group', () => ({ clearGroup: io.clearGroup }))
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
@@ -111,8 +116,10 @@ describe('forgetEverything', () => {
     useMobile.setState({ pairing: PAIRING, screen: 'list' })
     const ended = { why: 'dissolved' as const, by: { id: 'm1', name: 'studio' } }
     await forgetEverything({ unpaired: false, ended })
-    // With the relay it stays on while standalone (canvas 50n).
-    expect(io.saveEnded).toHaveBeenCalledWith(ended, { relay: PAIRING.relay })
+    expect(io.saveEnded).toHaveBeenCalledWith(ended)
+    // The relay it stays on, standalone, apart from the notice: OK on the notice keeps it (canvas 50n).
+    expect(io.saveStandalone).toHaveBeenCalledWith({ relay: PAIRING.relay })
+    expect(io.clearStandalone).not.toHaveBeenCalled()
     // The notice is kept before the group goes, as 9h's flag is.
     expect(io.calls.indexOf('saveEnded')).toBeLessThan(io.calls.indexOf('clearGroup'))
     expect(io.forgetIdentity).not.toHaveBeenCalled()
