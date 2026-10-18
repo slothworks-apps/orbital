@@ -1,4 +1,5 @@
 import { App } from '@capacitor/app'
+import { ALONE_GRACE_MS } from '@orbital/shared/remote/groupClient'
 import type { TunnelEvent } from '@orbital/shared/remote/tunnel'
 import { configureApi } from '../lib/api'
 import { configureImages } from '../lib/images'
@@ -29,6 +30,7 @@ import { pairingFromGroup, type GroupRecord, type Pairing } from './platform/par
 import { installNotificationChannels, installPushListeners, registerPush } from './platform/push'
 import { dismissTopSheet, isGated, lockEnabled, openFromNotice, pairGoneFor, useMobile } from './state'
 import { clientRef } from './transport/clientRef'
+import { groupRef, type GroupHandle } from './transport/groupRef'
 import { makeImageResolver } from './transport/imageResolver'
 import { makeTunnelFetch } from './transport/tunnelFetch'
 import { TunnelSocket } from './transport/tunnelSocket'
@@ -142,14 +144,31 @@ async function groupPairing(record: GroupRecord): Promise<Pairing | null> {
 
 function onClientEvent(event: TunnelEvent): void {
   // Read before `apply`, which clears the pairing when the pair is gone.
-  const gone = pairGoneFor(event, useMobile.getState().pairing)
-  useMobile.getState().apply(event)
+  const handle = groupRef.current
+  const grouped = handle?.group.inGroup() ?? false
+  const gone = pairGoneFor(event, useMobile.getState().pairing, grouped)
+  useMobile.getState().apply(event, grouped)
   if (gone) {
     // Deleted on first contact, then 9h (spec § 4).
     forgetEverything({ unpaired: true }).catch((err: unknown) => console.warn('[mobile] could not forget the pair', err))
     return
   }
+  if (handle && grouped && event.type === 'relay_error' && event.code === 'bad_secret') unreachableAfterGrace(handle)
   if (event.type === 'hub') refetchDropped(event.frame)
+}
+
+/**
+ * A grouped phone's relay refused its secret and stopped its link: nothing
+ * more will come from the relay to say whether a member reaches it. As
+ * after `pairs_lost`, the unreachable card comes `ALONE_GRACE_MS` later —
+ * its Pair again is how a new secret arrives — unless the group was
+ * forgotten or replaced meanwhile, or a channel is up after all.
+ */
+function unreachableAfterGrace(handle: GroupHandle): void {
+  setTimeout(() => {
+    if (groupRef.current !== handle || clientRef.ready) return
+    useMobile.setState({ unreachable: true })
+  }, ALONE_GRACE_MS)
 }
 
 /** A hub frame too large for one relay frame arrives as `dropped` (parent § 7): read that session's page again. */

@@ -247,15 +247,22 @@ export function returnToForeground(state: MobileState, now: number): Partial<Mob
  * `isPairGone` for this phone as it stands. A refused relay secret ends a
  * pair only when one is stored: mid-pairing there is none to lose, and the
  * pairing run reports the refusal on its own screen instead of 9h.
+ *
+ * A phone in a group (`grouped`: the roster holds another member) is out
+ * of it only by the group's own word (`unpaired`). The relay's `error`
+ * alone — a relay that lost or never had the pairs, or one that lies —
+ * forgets nothing there: the pairs form again, or the unreachable card
+ * comes as it does for `pairs_lost`. Only a phone with no group at all, a
+ * single Mac's, still takes the relay's word for it.
  */
-export function pairGoneFor(event: TunnelEvent, pairing: Pairing | null): boolean {
-  if (event.type === 'relay_error' && event.code === 'bad_secret' && pairing === null) return false
+export function pairGoneFor(event: TunnelEvent, pairing: Pairing | null, grouped = false): boolean {
+  if (event.type === 'relay_error' && (grouped || (event.code === 'bad_secret' && pairing === null))) return false
   return isPairGone(event)
 }
 
 /** What one client event changes (spec § 5: offline, 9h, 9i). Pure; `useMobile.apply` writes it. */
-export function reduce(state: MobileState, event: TunnelEvent, now: number): Partial<MobileState> {
-  if (pairGoneFor(event, state.pairing)) {
+export function reduce(state: MobileState, event: TunnelEvent, now: number, grouped = false): Partial<MobileState> {
+  if (pairGoneFor(event, state.pairing, grouped)) {
     return { screen: 'unpaired', unpaired: true, sessionId: null, pushed: [], pairing: null, ready: false }
   }
   switch (event.type) {
@@ -407,7 +414,8 @@ export function pushedTop<K extends PushedScreen>(state: Pick<MobileState, 'push
 }
 
 interface MobileActions {
-  apply(event: TunnelEvent): void
+  /** `grouped`: this phone is in a group, so the relay's word alone does not unpair it (`pairGoneFor`). */
+  apply(event: TunnelEvent, grouped?: boolean): void
   /** A group event the federation does not pass on (`reduceGroup`). */
   applyGroup(event: GroupClientEvent): void
   /** The federation's sources changed (`applyDevices`). */
@@ -429,7 +437,7 @@ interface MobileActions {
 
 export const useMobile = create<MobileState & MobileActions>()((set, get) => ({
   ...initialMobileState,
-  apply: (event) => set(reduce(get(), event, Date.now())),
+  apply: (event, grouped) => set(reduce(get(), event, Date.now(), grouped)),
   applyGroup: (event) => set(reduceGroup(get(), event)),
   setDevices: (sources) => set(applyDevices(get(), sources)),
   go: (screen) => set((s) => ({ screen, previous: s.screen, pushed: [] })),

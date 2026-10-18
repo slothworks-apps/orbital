@@ -86,6 +86,17 @@ describe('reduce', () => {
     expect(pairGoneFor({ type: 'unpaired' }, null)).toBe(true)
   })
 
+  it('a phone in a group is unpaired only by its group, never by the relay\'s error alone', () => {
+    const pairing: Pairing = { relay: 'https://relay.test', mac: 'm', macName: 'studio', fingerprint: 'ABC123', pairedAt: 1 }
+    for (const code of ['not_paired', 'unknown_device', 'bad_secret']) {
+      const event = { type: 'relay_error', code } as const
+      expect(pairGoneFor(event, pairing, true)).toBe(false)
+      expect(reduce(state({ pairing, screen: 'list' }), event, NOW, true)).toEqual({})
+    }
+    expect(pairGoneFor({ type: 'unpaired' }, pairing, true)).toBe(true)
+    expect(reduce(state({ pairing, screen: 'list' }), { type: 'unpaired' }, NOW, true)).toMatchObject({ screen: 'unpaired', unpaired: true })
+  })
+
   it('ignores a relay error that says nothing about the pair', () => {
     expect(isPairGone({ type: 'relay_error', code: 'bad_url' })).toBe(false)
     expect(reduce(state(), { type: 'relay_error', code: 'bad_url' }, NOW)).toEqual({})
