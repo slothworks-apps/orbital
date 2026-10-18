@@ -746,7 +746,7 @@ export class GroupFederation implements SwappableClient {
     await Promise.all(ready.map(([source]) => this.readTags(source)))
     const asks = ready.flatMap(([source, channel]) => {
       const theirs = [...source.tags.values()].find((t) => t.name === name)
-      return theirs ? [channel.request(method, `/api/tags/${theirs.id}`, body)] : []
+      return theirs ? [channel.request(method, `/api/tags/${encodeURIComponent(String(theirs.id))}`, body)] : []
     })
     if (asks.length === 0) return { status: 404, body: { error: 'not_found' } }
     const answers = await Promise.allSettled(asks)

@@ -23,7 +23,8 @@ export type ImageOptions = { thumb?: boolean }
  */
 export type FileResolver = (sessionId: string, path: string, cwd?: string) => string | Promise<string>
 
-export const apiImagePath = (ref: string): string => `/api/images/${ref}`
+/** A ref may come from another device's transcript: it stays one segment. */
+export const apiImagePath = (ref: string): string => `/api/images/${encodeURIComponent(ref)}`
 
 /** An image on disk that a session's text names by path, read inside that
  * session's trees — inside `cwd` when the path came from a transcript entry

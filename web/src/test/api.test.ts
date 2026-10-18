@@ -268,6 +268,34 @@ describe('Sessions API', () => {
   })
 })
 
+describe('a session id from another device', () => {
+  /** Where the request lands, as the browser resolves it. */
+  const landed = (call: unknown) => new URL(String(call), 'http://localhost')
+
+  it.each(['../../tags', 'x?machine=other', 'x#frag', 'a/b', '%2e%2e'])(
+    'stays on the session route: %s',
+    async (id) => {
+      fetchMock.mockImplementation(async () => new Response(JSON.stringify({ messages: [] }), { status: 200 }))
+      await api.getSession(id).catch(() => undefined)
+      await api.getMessages(id, { limit: 5 })
+      await api.interrupt(id).catch(() => undefined)
+      for (const [call] of fetchMock.mock.calls) {
+        const url = landed(call)
+        const [, prefix, , segment] = url.pathname.split('/')
+        expect(prefix).toBe('api')
+        expect(decodeURIComponent(segment)).toBe(id)
+        expect(url.searchParams.has('machine')).toBe(false)
+        expect(url.hash).toBe('')
+      }
+    }
+  )
+
+  it.each(['', '.', '..'])('is refused when it is a dot segment or empty: %j', async (id) => {
+    await expect(api.getSession(id)).rejects.toBeInstanceOf(ApiError)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
 describe('Messages API', () => {
   it('getMessages should unwrap messages array and support before cursor', async () => {
     const messages: ChatMessage[] = [
