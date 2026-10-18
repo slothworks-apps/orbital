@@ -687,7 +687,22 @@ export class GroupMember {
     });
   }
 
+  /**
+   * A group message from `from`, taken only while `from` is paired here:
+   * after this device leaves, every pair is gone, and a roster a former
+   * peer had in flight must not bring back the group it left.
+   */
   onGroup(from: string, channel: GroupChannel, msg: GroupMessage): void {
+    let paired = false;
+    try {
+      paired = this.storage.paired.get(from) !== null;
+    } catch (err) {
+      this.host.log(`could not read the pairs: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (!paired) {
+      this.host.log(`ignored a group message from ${from.slice(0, 8)}: not paired here`);
+      return;
+    }
     if (msg.t === 'roster_digest') {
       this.tryRoster('answer a roster digest', () => {
         if (msg.digest !== this.storage.roster.digest()) {

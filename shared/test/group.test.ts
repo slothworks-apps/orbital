@@ -36,6 +36,8 @@ function roster(...more: (string | [string, { by?: string; kind?: string; links?
 }
 
 const removed = (entries: RosterEntry[], id: string, by = SELF) => removeMember(entries, id, keyOf.get(by)!, 5);
+/** A pair this device holds with `id`: group messages are taken only from a paired device. */
+const row = (id: string, kind = 'desktop'): PairedDevice => ({ id, name: id.slice(0, 4), platform: 'macos', kind, pairedAt: 1, lastSeenAt: null });
 const one = (entries: RosterEntry[], id: string) => entries.find((e) => e.id === id)!;
 
 type Answer = { status: number; body: unknown; unsupported?: boolean };
@@ -340,6 +342,23 @@ describe('GroupMember removal', () => {
     expect(isLive(g.roster()[0])).toBe(true);
   });
 
+  it('a roster a former peer had in flight, delivered after leaving, leaves the founding entry alone', async () => {
+    const r = fakeRelay();
+    const before = roster(OTHER);
+    const g = build({ roster: before, paired: [macRow, row(OTHER)], relay: r });
+    g.group.setRoster(g.roster());
+    const stale = g.roster();
+    expect(await g.group.leave()).toEqual({ ok: true });
+    const founding = g.roster();
+    expect(founding).toEqual([expect.objectContaining({ id: SELF, epoch: 0, addedBy: SELF })]);
+    const mac = fakeChannel();
+    g.group.onGroup(MAC, mac.channel, { t: 'roster', entries: stale });
+    g.group.onGroup(OTHER, mac.channel, { t: 'roster_digest', digest: 'x' });
+    expect(g.roster()).toBe(founding);
+    expect(mac.sent).toEqual([]);
+    expect(g.logs.filter((l) => l.includes('not paired here'))).toHaveLength(2);
+  });
+
   it('leaving is refused while the relay is offline', async () => {
     const r = fakeRelay();
     r.relay.status = 'connecting';
@@ -349,7 +368,7 @@ describe('GroupMember removal', () => {
   });
 
   it('a removal merged from another member drops a paired member', () => {
-    const g = build({ roster: roster(PHONE), paired: [macRow] });
+    const g = build({ roster: roster(PHONE), paired: [macRow, row(PHONE)] });
     g.group.onGroup(PHONE, fakeChannel().channel, { t: 'roster', entries: removed(g.roster(), MAC, PHONE) });
     expect(g.paired.has(MAC)).toBe(false);
     expect(g.forgotten).toEqual([MAC]);
@@ -360,7 +379,7 @@ describe('GroupMember merging a roster', () => {
   const macRow: PairedDevice = { id: MAC, name: 'Mac', platform: 'macos', kind: 'desktop', pairedAt: 1, lastSeenAt: null };
 
   it('a removed device cannot re-add itself, through any member', () => {
-    const g = build({ roster: removed(roster(OTHER), MAC), paired: [macRow] });
+    const g = build({ roster: removed(roster(OTHER), MAC), paired: [macRow, row(OTHER)] });
     const readded = describeMember(add([], MAC, { by: MAC }), MAC, { name: 'back', os: 'macos', links: true }, MAC_KEY, 9);
     expect(readded).toEqual([]);
     // Its own founding entry, which it signs, is all it can make of itself.
@@ -371,19 +390,19 @@ describe('GroupMember merging a roster', () => {
 
   it('a re-add by another member spreads through a third member', () => {
     const removedHere = removed(roster(OTHER), MAC);
-    const third = build({ roster: removedHere });
+    const third = build({ roster: removedHere, paired: [row(OTHER)] });
     const readded = add(removedHere, MAC, { by: OTHER });
     third.group.onGroup(OTHER, fakeChannel().channel, { t: 'roster', entries: readded });
     expect(one(third.roster(), MAC)).toEqual(one(readded, MAC));
     expect(one(third.roster(), MAC).epoch).toBe(2);
     // And from there, to a member that heard of it through this one.
-    const fourth = build({ roster: removedHere });
+    const fourth = build({ roster: removedHere, paired: [row(SELF)] });
     fourth.group.onGroup(SELF, fakeChannel().channel, { t: 'roster', entries: third.roster() });
     expect(one(fourth.roster(), MAC)).toEqual(one(readded, MAC));
   });
 
   it('a member cannot describe another, and its hello does not change its kind', () => {
-    const g = build({ roster: roster(PHONE, OTHER) });
+    const g = build({ roster: roster(PHONE, OTHER), paired: [row(OTHER)] });
     // OTHER signs a description of the phone, under the membership the Mac signed.
     const held = one(g.roster(), PHONE);
     const forged = describeMember([{ ...held, addedBy: OTHER }], PHONE, { name: 'renamed', os: 'x', links: false }, OTHER_KEY, 9)
@@ -397,7 +416,7 @@ describe('GroupMember merging a roster', () => {
   });
 
   it('two members that keep a different entry for the sender do not trade rosters forever', () => {
-    const g = build({ roster: roster() });
+    const g = build({ roster: roster(), paired: [row(MAC)] });
     g.group.setRoster(g.roster());
     const mac = fakeChannel();
     // An entry for the Mac far above the one held is not taken; this side has nothing the sender would take.
@@ -410,7 +429,7 @@ describe('GroupMember merging a roster', () => {
 
 describe('GroupMember bounds', () => {
   it('a roster that names one device twice is ignored whole', () => {
-    const g = build({ roster: roster() });
+    const g = build({ roster: roster(), paired: [row(MAC)] });
     g.group.setRoster(g.roster());
     const before = g.roster();
     const twice = [...removed(roster(), MAC, OTHER), ...add([], MAC, { by: OTHER })];
