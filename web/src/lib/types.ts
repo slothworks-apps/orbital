@@ -1,5 +1,6 @@
 import type { MemberState as SharedMemberState, MemberRow } from '@orbital/shared/remote/group'
 import type { JoinResult, Joining, PendingPair } from '@orbital/shared/remote/ceremony'
+import type { MachineRef } from '@orbital/shared/remote/device'
 
 export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended'
 export type SessionSource = 'terminal' | 'web'
@@ -70,19 +71,8 @@ export interface RecentTool {
   at: number
 }
 
-/**
- * The member of the device group a session runs on. Mirrors `MachineRef` in
- * `server/src/federation/service.ts`. `asOf`: when this device last heard
- * from that member while it is offline (epoch ms), else null.
- */
-export interface MachineRef {
-  id: string
-  name: string
-  kind: string
-  os: string
-  online: boolean
-  asOf: number | null
-}
+/** The member of the device group a session runs on: `MachineRef` in `shared/src/remote/device.ts`. */
+export type { MachineRef }
 
 export interface ApiSession {
   id: string
@@ -1931,8 +1921,6 @@ export type JoinAnswer =
 export interface DirListing {
   /** The absolute path listed. */
   path: string
-  /** Null at `/`. */
-  parent: string | null
   /** Sub-directories only, hidden ones left out, sorted case-insensitively. */
   dirs: { name: string; hasChildren: boolean }[]
   /** True when the server cut the list at its cap. */

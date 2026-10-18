@@ -8,7 +8,7 @@ import { Hub } from '../src/api/hub.js';
 import { createImageStore } from '../src/images/store.js';
 import { ServingHalf } from '../src/remote/servingHalf.js';
 import { makeTmpDir, openTmpDb } from './tmp.js';
-import { FederationService, SNAPSHOT_WRITE_MS, type FederationOptions } from '../src/federation/service.js';
+import { FederationService, SEED_RETRY_MS, SNAPSHOT_WRITE_MS, type FederationOptions } from '../src/federation/service.js';
 import { MemberSnapshotStore } from '../src/federation/store.js';
 import { ReadCache } from '../src/federation/readCache.js';
 
@@ -182,7 +182,7 @@ describe('FederationService', () => {
     expect(federation.sessions().map((s) => [s.id, s.status])).toEqual([['s2', 'needs_input']]);
   });
 
-  it('a channel that goes down republishes the member\'s sessions offline, as of then, and a new one seeds again', async () => {
+  it('a channel that goes down marks the member offline in one frame, as of then, and a new one seeds again', async () => {
     const { hub, remote, setNow } = setup();
     const b = memberB();
     remote.open(B, b);
@@ -193,22 +193,23 @@ describe('FederationService', () => {
     b.down();
     b.emit({ type: 'closed' });
     expect(win.frames()).toEqual([
-      { topic: 'sessions', event: 'upsert', session: expect.objectContaining({ id: 's1', machine: { ...machineB, online: false, asOf: 5000 } }) },
+      { topic: 'sessions', event: 'machine', machine: { ...machineB, online: false, asOf: 5000 } },
     ]);
     const again = memberB();
     remote.open(B, again);
     again.greet(desktopHello);
     await flush();
     expect(again.subs.has('sessions')).toBe(true);
-    expect(win.frames().at(-1)).toEqual({
-      topic: 'sessions', event: 'upsert', session: expect.objectContaining({ id: 's1', machine: { ...machineB, online: true, asOf: null } }),
-    });
+    // The list is what it was: no upsert, only the member back online.
+    expect(win.frames().slice(1)).toEqual([
+      { topic: 'sessions', event: 'machine', machine: { ...machineB, online: true, asOf: null } },
+    ]);
     // The old channel speaks for nobody now.
     b.hub({ topic: 'sessions', event: 'upsert', session: { id: 'stale' } });
     expect(win.frames().some((f) => f.session?.id === 'stale')).toBe(false);
   });
 
-  it('a member removed from the roster takes its sessions along; a renamed one is republished', async () => {
+  it('a member removed from the roster takes its sessions along; a renamed one is told in one frame', async () => {
     const { hub, remote, federation } = setup();
     const b = memberB();
     remote.open(B, b);
@@ -218,8 +219,9 @@ describe('FederationService', () => {
     remote.members = [entry(SELF), entry(B, { name: 'travel' })];
     remote.published();
     expect(win.frames()).toEqual([
-      { topic: 'sessions', event: 'upsert', session: expect.objectContaining({ id: 's1', machine: expect.objectContaining({ name: 'travel' }) }) },
+      { topic: 'sessions', event: 'machine', machine: { ...machineB, name: 'travel', online: true, asOf: null } },
     ]);
+    expect(federation.sessions()[0].machine).toMatchObject({ name: 'travel' });
     remote.published();
     expect(win.frames()).toHaveLength(1);
     remote.members = [entry(SELF), entry(B, { removedAt: 2, removedBy: SELF })];
@@ -331,6 +333,29 @@ describe('FederationService', () => {
     serving.reset();
   });
 
+  it('a peer of this server never gets a member\'s machine frame', async () => {
+    const { hub, remote, federation, setNow } = setup();
+    const b = memberB();
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    const dir = makeTmpDir('federation');
+    const peer: unknown[] = [];
+    const serving = new ServingHalf({
+      deviceId: 'peer', hub, inject: async () => ({ statusCode: 500, body: '{}' }), images: createImageStore(dir), imagesDir: dir,
+      files: () => ({ status: 404 }), notifications: { get: () => ({}) as never, set: () => {} }, onSeen: () => {},
+      foreign: (id) => federation.linkOf(id) !== null,
+    });
+    serving.open({ json: (msg) => { peer.push(msg); }, inner: () => {} });
+    serving.ask({ t: 'ws', type: 'subscribe', topic: 'sessions' });
+    const win = localSocket(hub, ['sessions']);
+    setNow(5000);
+    b.down();
+    expect(win.frames().map((f) => f.event)).toEqual(['machine']);
+    expect(peer.filter((m: any) => m.frame?.topic === 'sessions')).toEqual([]);
+    serving.reset();
+  });
+
   it('a spawn on a member from here: its topics are asked of the member first, and its frames taken in before its list names it', async () => {
     const { hub, remote, federation } = setup();
     const b = memberB();
@@ -420,6 +445,106 @@ describe('FederationService', () => {
     expect(win.frames()).toEqual([]);
     expect(federation.sessions()).toEqual([]);
     expect(b.subs.has('session:s1')).toBe(false);
+  });
+});
+
+describe('FederationService seed failures', () => {
+  afterEach(() => vi.useRealTimers());
+
+  /** B as `memberB`, but its list answers `listStatus` until `heal()`. */
+  function failingB(listStatus: number) {
+    let failing = true;
+    const ok = memberB();
+    const channel = new FakeChannel((method, path) => {
+      if (failing && path.startsWith('/api/sessions?limit=')) return { status: listStatus, body: { error: 'x' } };
+      return ok.answer(method, path);
+    });
+    return { channel, heal: () => { failing = false; } };
+  }
+
+  it('a member whose list cannot be read stays offline as of when it was last read, and is asked again until it can', async () => {
+    vi.useFakeTimers();
+    const { hub, remote, federation, setNow } = setup();
+    const b = memberB();
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await vi.advanceTimersByTimeAsync(0);
+    setNow(5000);
+    b.down();
+    const win = localSocket(hub, ['sessions']);
+    setNow(9000);
+    const again = failingB(500);
+    remote.open(B, again.channel);
+    again.channel.greet(desktopHello);
+    await vi.advanceTimersByTimeAsync(0);
+    // Up, but nothing read: still offline as of 5000, and nothing said otherwise.
+    expect(federation.sessions()[0].machine).toEqual({ ...machineB, online: false, asOf: 5000 });
+    expect(win.frames()).toEqual([]);
+    const asked = () => again.channel.asked.filter((a) => a.startsWith('GET /api/sessions')).length;
+    expect(asked()).toBe(1);
+    await vi.advanceTimersByTimeAsync(SEED_RETRY_MS);
+    expect(asked()).toBe(2);
+    again.heal();
+    // The next wait is longer: the backoff doubles.
+    await vi.advanceTimersByTimeAsync(SEED_RETRY_MS);
+    expect(asked()).toBe(2);
+    await vi.advanceTimersByTimeAsync(SEED_RETRY_MS);
+    expect(asked()).toBeGreaterThan(2);
+    expect(federation.sessions()[0].machine).toEqual({ ...machineB, online: true, asOf: null });
+    expect(win.frames().at(-1)).toEqual({ topic: 'sessions', event: 'machine', machine: { ...machineB, online: true, asOf: null } });
+    // Read once: no more asking.
+    const settled = asked();
+    await vi.advanceTimersByTimeAsync(SEED_RETRY_MS * 100);
+    expect(asked()).toBe(settled);
+  });
+
+  it('a first seed that fails marks what the member already sent offline; every limit too large is a failure too', async () => {
+    vi.useFakeTimers();
+    const { hub, remote, federation, setNow } = setup();
+    const win = localSocket(hub, ['sessions']);
+    setNow(3000);
+    const b = failingB(413);
+    remote.open(B, b.channel);
+    b.channel.greet(desktopHello);
+    // A live upsert arrives before the list fails.
+    b.channel.hub({ topic: 'sessions', event: 'upsert', session: { id: 'live', status: 'working' } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(b.channel.asked).toEqual(['GET /api/tags', 'GET /api/sessions?limit=200', 'GET /api/sessions?limit=80', 'GET /api/sessions?limit=30']);
+    expect(federation.sessions()[0].machine).toEqual({ ...machineB, online: false, asOf: 3000 });
+    expect(win.frames().at(-1)).toEqual({ topic: 'sessions', event: 'machine', machine: { ...machineB, online: false, asOf: 3000 } });
+  });
+
+  it('a retry stops with the channel', async () => {
+    vi.useFakeTimers();
+    const { remote } = setup();
+    const b = failingB(502);
+    remote.open(B, b.channel);
+    b.channel.greet(desktopHello);
+    await vi.advanceTimersByTimeAsync(0);
+    b.channel.down();
+    const before = b.channel.asked.length;
+    await vi.advanceTimersByTimeAsync(SEED_RETRY_MS * 10);
+    expect(b.channel.asked.length).toBe(before);
+  });
+});
+
+describe('FederationService errors that are not the network', () => {
+  it('upload and file pass on what is not a channel failure, and answer null for one', async () => {
+    const { remote, federation } = setup();
+    const b = memberB() as FakeChannel & { putBlob?: unknown; getFile?: unknown };
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    const link = federation.link(B)!;
+    const image = () => ({ bytes: new Uint8Array([1]), mediaType: 'image/png' });
+    b.putBlob = async () => { throw new TunnelError('lost'); };
+    b.getFile = async () => { throw new TunnelError('lost'); };
+    expect(await federation.upload(link, ['r'], image)).toBeNull();
+    expect(await federation.file(link, 's1', '/a', 'raw' as never)).toBeNull();
+    b.putBlob = async () => { throw new TypeError('bug'); };
+    b.getFile = async () => { throw new TypeError('bug'); };
+    await expect(federation.upload(link, ['r'], image)).rejects.toThrow('bug');
+    await expect(federation.file(link, 's1', '/a', 'raw' as never)).rejects.toThrow('bug');
   });
 });
 
@@ -519,6 +644,33 @@ describe('FederationService snapshots', () => {
     expect(saves).toHaveLength(2);
     await vi.advanceTimersByTimeAsync(SNAPSHOT_WRITE_MS * 2);
     expect(saves).toHaveLength(2);
+  });
+
+  it('a change of status or lastAt alone schedules no write; any other change writes once per SNAPSHOT_WRITE_MS', async () => {
+    vi.useFakeTimers();
+    const saves: unknown[] = [];
+    const snapshots = { load: () => [], remove: () => {}, save: (...args: unknown[]) => { saves.push(args); } };
+    const { remote } = setup(undefined, { snapshots });
+    const b = memberB();
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await vi.advanceTimersByTimeAsync(SNAPSHOT_WRITE_MS);
+    // The seed's own write.
+    expect(saves).toHaveLength(1);
+    b.hub({ topic: 'sessions', event: 'status', sessionId: 's1', status: 'idle' });
+    b.hub({ topic: 'sessions', event: 'upsert', session: { id: 's1', status: 'working', tagIds: [7, 8], lastAt: 50 } });
+    await vi.advanceTimersByTimeAsync(SNAPSHOT_WRITE_MS * 3);
+    expect(saves).toHaveLength(1);
+    b.hub({ topic: 'sessions', event: 'upsert', session: { id: 's1', status: 'working', tagIds: [7, 8], lastAt: 60, title: 'named' } });
+    await vi.advanceTimersByTimeAsync(SNAPSHOT_WRITE_MS / 2);
+    b.hub({ topic: 'sessions', event: 'upsert', session: { id: 's2', status: 'working' } });
+    await vi.advanceTimersByTimeAsync(SNAPSHOT_WRITE_MS / 2 - 1);
+    expect(saves).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(saves).toHaveLength(2);
+    // Going offline still writes at once.
+    b.down();
+    expect(saves).toHaveLength(3);
   });
 
   it('a member removed from the group takes its snapshot along', async () => {

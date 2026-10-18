@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { deviceId, generateIdentity, toBase64Url } from '@orbital/shared/remote/keys'
-import { parsePairingCode } from '@orbital/shared/remote/relayApi'
 import {
   LOCAL_DEVICE, addedByLine, asOfLabel, deviceChips, deviceOf, deviceRows, devicesOn, kindOs, memberStateWords,
-  isMemberOffline, namesShown, oneWordCode, osLabel, showDeviceRow, toggleDevice,
-  agoWords, deviceLock, ideHere, pillWords, runsOn, sessionOfUrl, stateAsOf, withMachineOffline,
+  isMemberOffline, namesShown, osLabel, showDeviceRow, toggleDevice,
+  agoWords, deviceLock, ideHere, pillWords, runsOn, stateAsOf, withMachine, withMachineOffline,
   childPath, crumbsOf, deviceOptions, openingDevice, recentAge,
   chipsOfKey, deviceChipsKey, localClaudeDirId, localTagOf, machineOffline,
 } from '../lib/devices'
@@ -33,7 +31,7 @@ describe('memberStateWords', () => {
 
   it('reads offline with a seen time as offline, seen ago', () => {
     const twoHoursAgo = NOW - 2 * 60 * 60_000
-    expect(memberStateWords(member({ state: 'offline', seenAt: twoHoursAgo }), NOW)).toBe('offline · seen 2h ago')
+    expect(memberStateWords(member({ state: 'offline', seenAt: twoHoursAgo }), NOW)).toBe('offline · seen 2 h ago')
   })
 
   it('reads a time under a minute as seen just now, never "seen now ago"', () => {
@@ -115,18 +113,6 @@ describe('addedByLine', () => {
   it('falls back to the first 8 characters of an adder no longer in the group', () => {
     const m = member({ id: 'air-id', addedBy: 'deadbeef12345678' })
     expect(addedByLine(m, [m])).toBe('added by deadbeef')
-  })
-})
-
-describe('oneWordCode', () => {
-  it('round-trips a QR payload through the shared parsePairingCode', () => {
-    const mac = deviceId(generateIdentity().publicKey)
-    const qr = {
-      v: 1 as const, relay: 'https://relay.example.org', mac, name: 'studio', token: 'tok',
-      secret: toBase64Url(new Uint8Array(16).fill(1)),
-    }
-    const json = JSON.stringify(qr)
-    expect(parsePairingCode(oneWordCode(json))).toEqual(qr)
   })
 })
 
@@ -384,19 +370,22 @@ describe('another device in the detail panel (canvas 50f)', () => {
     })
   })
 
-  describe('sessionOfUrl', () => {
-    it('reads the session the way the server routes it', () => {
-      expect(sessionOfUrl('/api/sessions/abc%3A1/interrupt')).toBe('abc:1')
-      expect(sessionOfUrl('/api/sessions/abc')).toBe('abc')
-      expect(sessionOfUrl('/api/files/preview?session=xyz&path=a')).toBe('xyz')
-      // The stats row and the harness's start view, as the server reads them.
-      expect(sessionOfUrl('/api/stats/sessions/abc')).toBe('abc')
-      expect(sessionOfUrl('/api/harness/templates?sessionId=h1')).toBe('h1')
-      expect(sessionOfUrl('/api/sessions/%E0%A4%A')).toBeNull()
-      expect(sessionOfUrl('/api/settings')).toBeNull()
-      expect(sessionOfUrl(undefined)).toBeNull()
+  describe('withMachine', () => {
+    it("gives that device's sessions its new state, and leaves the rest be", () => {
+      const sessions: Record<string, { machine?: MachineRef }> = {
+        a: { machine: machine({ online: false, asOf: NOW - MIN }) },
+        c: { machine: machine({ id: 'air' }) },
+        d: {},
+      }
+      const back = machine({ name: 'renamed' })
+      const next = withMachine(sessions, back)
+      expect(next.a.machine).toEqual(back)
+      expect(next.c).toBe(sessions.c)
+      expect(next.d).toBe(sessions.d)
+      expect(withMachine(sessions, machine({ id: 'nobody' }))).toBe(sessions)
     })
   })
+
 
   describe('ideHere', () => {
     it("drops the editor of another device's session", () => {
@@ -432,7 +421,7 @@ describe('deviceOptions', () => {
   it('lets only an online, federating member take a session; the rest say why', () => {
     const byId = Object.fromEntries(deviceOptions(roster, NOW).map((o) => [o.id, o]))
     expect(byId.build).toMatchObject({ inert: false, sub: 'headless · Linux' })
-    expect(byId.air).toMatchObject({ inert: true, sub: 'offline · seen 2h ago' })
+    expect(byId.air).toMatchObject({ inert: true, sub: 'offline · seen 2 h ago' })
     expect(byId.gpu).toMatchObject({ inert: true, sub: 'update Orbital on gpu-01' })
     expect(byId.mini).toMatchObject({ inert: true, sub: 'not linked — pair by hand' })
     expect(byId.link).toMatchObject({ inert: true, sub: 'linking…' })

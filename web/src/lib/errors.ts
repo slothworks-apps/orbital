@@ -1,7 +1,8 @@
+import { sessionOfRequest } from '@orbital/shared/remote/segments'
 import { api, ApiError } from './api'
 import { useOrbital } from '../store/store'
 import { isUnauthorized } from './unauthorized'
-import { isMemberOffline, sessionOfUrl } from './devices'
+import { isMemberOffline } from './devices'
 
 /**
  * Turns whatever was thrown into the long form the error log keeps.
@@ -43,7 +44,7 @@ export function reportError(err: unknown, fallback: string): void {
   // A session's device went offline before this tab heard: the composer
   // gives way to the lock, and a toast would only repeat it. A refusal about
   // no session (a device picked for a new one) still says so.
-  const refusedFor = isMemberOffline(err) ? sessionOfUrl(err instanceof ApiError ? err.url : undefined) : null
+  const refusedFor = isMemberOffline(err) && err instanceof ApiError && err.url ? sessionOfRequest(err.url) : null
   if (refusedFor !== null) {
     useOrbital.getState().refusedOffline(refusedFor, err)
     return

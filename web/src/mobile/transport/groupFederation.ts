@@ -7,9 +7,9 @@ import type { GroupClient, GroupClientEvent, PeerInfo } from '@orbital/shared/re
 import {
   NotificationSettingsSchema, peerServes, type FileAs, type HelloMessage, type NotificationSettings,
 } from '@orbital/shared/remote/messages'
-import { RESERVED_SEGMENTS } from '@orbital/shared/remote/segments'
+import type { MachineEvent, MachineRef } from '@orbital/shared/remote/device'
+import { sessionOfRequest, sessionOfTopic } from '@orbital/shared/remote/segments'
 import { PRESENCE_TOPIC, presenceFromFrame } from '@orbital/shared/presence'
-import type { MachineRef } from '../../lib/types'
 import type { SwappableClient } from './clientRef'
 import { mediaTypeOf } from './imageResolver'
 
@@ -70,6 +70,9 @@ type Source = {
 /** How many sessions a source that comes up is asked for; one channel frame has to carry the answer. */
 const RELIST_LIMITS = [80, 30]
 
+/** How long a source whose relist failed waits before it is relisted once more. */
+export const RELIST_RETRY_MS = 5_000
+
 /** How long a request about a session no member has listed yet waits for the lists in flight. */
 const RELIST_WAIT_MS = 3_000
 
@@ -81,25 +84,6 @@ const RELIST_WAIT_MS = 3_000
 type Lookup = { source: Source } | { missing: TunnelResponse } | { offline: true }
 
 const NOT_FOUND: TunnelResponse = { status: 404, body: { error: 'not_found' } }
-
-/** The session a per-session topic is about: `session:<id>`, `subagent:<id>:…`, `task-output:<id>:…`. */
-export function sessionOfTopic(topic: string): string | null {
-  const m = /^(?:session|subagent|task-output):([^:]+)/.exec(topic)
-  return m ? m[1] : null
-}
-
-/** The session a request is about: its path (never a literal sibling), else `?session=`, else `?sessionId=`. */
-export function sessionOfRequest(url: URL): string | null {
-  const m = /^\/api\/(?:stats\/)?sessions\/([^/]+)/.exec(url.pathname)
-  if (m && !RESERVED_SEGMENTS.has(m[1])) {
-    try {
-      return decodeURIComponent(m[1])
-    } catch {
-      return null
-    }
-  }
-  return url.searchParams.get('session') ?? url.searchParams.get('sessionId')
-}
 
 /**
  * The phone's one client over every member of its group (spec
@@ -452,20 +436,12 @@ export class GroupFederation implements SwappableClient {
       if (ready) {
         source.asOf = null
         this.sendChosen(source)
-        const run = this.relist(source)
-        this.relisting.add(run)
-        const done = () => {
-          this.relisting.delete(run)
-        }
-        run.then(done, done)
+        this.startRelist(source, false)
       } else {
         source.asOf = this.now()
         source.atMac = false
-        // Now offline, nothing new: `replay` tells the notifier so.
-        for (const s of source.sessions.values()) {
-          if (this.owners.get(s.id) !== source.id) continue
-          this.emitHub({ topic: 'sessions', event: 'upsert', session: this.localize(source, s), replay: true })
-        }
+        // Now offline, nothing new: one frame every session of it takes, which no notifier reads as news.
+        this.emitMachine(source)
       }
     }
     for (const source of [...this.sourcesById.values()]) if (!current.has(source.id)) this.dropSource(source)
@@ -590,8 +566,30 @@ export class GroupFederation implements SwappableClient {
     this.emitHub(frame)
   }
 
+  /** Relists `source`, held in `relisting` while it runs; `retry` when this is the one retry after a failure. */
+  private startRelist(source: Source, retry: boolean): void {
+    const run = this.relist(source, retry)
+    this.relisting.add(run)
+    const done = () => {
+      this.relisting.delete(run)
+    }
+    run.then(done, done)
+  }
+
+  /**
+   * A relist that failed is tried once more after `RELIST_RETRY_MS`, if the
+   * source is still the one up on the same channel; after that, the next
+   * time it comes up.
+   */
+  private retryRelist(source: Source, channel: PeerChannel): void {
+    setTimeout(() => {
+      if (this.sourcesById.get(source.id) !== source || this.channelOf(source.id) !== channel) return
+      this.startRelist(source, true)
+    }, RELIST_RETRY_MS)
+  }
+
   /** A source that came up: its tags and its sessions, read afresh and sent on as upserts. */
-  private async relist(source: Source): Promise<void> {
+  private async relist(source: Source, retry = false): Promise<void> {
     const channel = this.channelOf(source.id)
     if (!channel) return
     await this.readTags(source)
@@ -599,7 +597,9 @@ export class GroupFederation implements SwappableClient {
       let res: TunnelResponse
       try {
         res = await channel.request('GET', `/api/sessions?limit=${limit}&ended=exclude`)
-      } catch {
+      } catch (err) {
+        console.warn(`[mobile] could not list the sessions of ${source.id.slice(0, 8)}`, err)
+        if (!retry) this.retryRelist(source, channel)
         return
       }
       if (this.channelOf(source.id) !== channel || this.sourcesById.get(source.id) !== source) return
@@ -774,8 +774,9 @@ export class GroupFederation implements SwappableClient {
       if (res.status !== 200 || !Array.isArray(tags)) return
       source.tags = new Map(tags.filter(isTag).map((t) => [t.id, t]))
       for (const t of source.tags.values()) this.localTagId(t.name)
-    } catch {
-      /* the tags it had */
+    } catch (err) {
+      // The tags it had stay.
+      console.warn(`[mobile] could not read the tags of ${source.id.slice(0, 8)}`, err)
     }
   }
 
@@ -821,8 +822,9 @@ export class GroupFederation implements SwappableClient {
           source.tags.set(made, { ...body, id: made })
           out.push(made)
         }
-      } catch {
-        /* left out, as a tag the member could not make */
+      } catch (err) {
+        // Left out, as a tag the member could not make.
+        console.warn(`[mobile] could not make the tag ${name} on ${source.id.slice(0, 8)}`, err)
       }
     }
     return out
@@ -899,7 +901,7 @@ export class GroupFederation implements SwappableClient {
    * default: another member would answer "not found" for it.
    */
   private async targetOf(url: URL, body: unknown): Promise<Lookup> {
-    const session = sessionOfRequest(url)
+    const session = sessionOfRequest(url.pathname + url.search)
     const known = session !== null ? this.knownOwner(session) : null
     if (known) return known
     const machine = url.searchParams.get('machine') ?? (isObject(body) && typeof body.machine === 'string' ? body.machine : null)
@@ -1113,6 +1115,13 @@ export class GroupFederation implements SwappableClient {
       id: source.id, name: info?.name ?? '', kind: info?.kind ?? info?.hello?.kind ?? 'desktop', os: info?.os ?? '',
       online: source.ready, asOf: source.ready ? null : source.asOf,
     }
+  }
+
+  /** The source's state, online or not, in one `machine` frame rather than an upsert per session; none while it shows none. */
+  private emitMachine(source: Source): void {
+    if (![...source.sessions.keys()].some((id) => this.owners.get(id) === source.id)) return
+    const event: MachineEvent = { event: 'machine', machine: this.machineOf(source) }
+    this.emitHub({ topic: 'sessions', ...event })
   }
 
   private emitHub(frame: unknown): void {

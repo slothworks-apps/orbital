@@ -49,11 +49,7 @@ export type PhoneRefusal = PhoneTooOld & { at: number };
  */
 export const RELAY_TOO_OLD_RECHECK_MS = 5 * 60_000;
 
-export { MUTUAL_RETRY_MS, type MemberState, type RemoveResult } from '@orbital/shared/remote/group';
-
-export {
-  PAIR_CODE_ATTEMPTS, UNKNOWN_PHONE_NAME, type JoinResult, type PairConfirmResult,
-} from '@orbital/shared/remote/ceremony';
+export type { RemoveResult } from '@orbital/shared/remote/group';
 
 export type RemoteStatus = {
   enabled: boolean;

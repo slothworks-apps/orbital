@@ -7,6 +7,22 @@ export type DeviceKind = 'desktop' | 'headless' | 'phone';
 export type Capability = 'sessions' | 'map' | 'ide' | 'folderPicker' | 'presence' | 'group';
 
 /**
+ * The member of the group a session runs on, as the device showing it names
+ * it (spec 2026-10-16-device-group-design § 7); absent on a session of the
+ * device itself. `asOf`: when that device last heard from the member, while
+ * it shows the member offline (epoch ms); null while it is online.
+ */
+export type MachineRef = { id: string; name: string; kind: string; os: string; online: boolean; asOf: number | null };
+
+/**
+ * The `sessions` event that says a member's state changed — online, offline,
+ * renamed: every session with `machine.id` takes `machine`, in one frame
+ * rather than an upsert per session. Never sent to a peer: it is about
+ * another member.
+ */
+export type MachineEvent = { event: 'machine'; machine: MachineRef };
+
+/**
  * The first ask id of a channel's responder. The initiator numbers from 1;
  * a blob chunk's id (a 32-bit field) then says on its own whether it
  * answers this side's ask or carries the peer's upload.

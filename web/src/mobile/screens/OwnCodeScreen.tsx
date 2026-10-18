@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { StartPairingResult } from '@orbital/shared/remote/ceremony'
+import { encodePairingCode } from '@orbital/shared/remote/relayApi'
 import { copyToClipboard } from '../../lib/clipboard'
-import { oneWordCode } from '../../lib/devices'
 import { useNow } from '../../lib/useNow'
 import { ownCodeLeft } from '../devices'
 import { LEAVE_OFFLINE } from '../forget'
@@ -47,7 +47,7 @@ export function OwnCodeScreen() {
     try {
       const res = await group.startPairing()
       if ('error' in res) setError(codeError(res.error))
-      else setCode({ word: oneWordCode(res.qr), expiresAt: res.expiresAt })
+      else setCode({ word: encodePairingCode(res.qr), expiresAt: res.expiresAt })
     } finally {
       setBusy(false)
     }

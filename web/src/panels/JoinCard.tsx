@@ -4,7 +4,7 @@ import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { checkedLabel } from '../lib/format'
 import { codeLeft, relayHostname } from '../lib/remote'
-import { codeTimeLeft, kindOs } from '../lib/devices'
+import { kindOs } from '../lib/devices'
 import { useNow } from '../lib/useNow'
 import type { JoinAnswer, RemoteStatus } from '../lib/types'
 import { Button } from '../ui/Button'
@@ -278,7 +278,7 @@ export function JoinArea({
       </>
     )
   } else if (outcome?.kind === 'offline' && !offlineRanOut) {
-    const left = outcome.expiresAt !== null ? codeTimeLeft(outcome.expiresAt, now).label : null
+    const left = outcome.expiresAt !== null ? codeLeft(outcome.expiresAt, now).label : null
     const checked = checkedLabel(outcome.checkedAt, now)
     message = (
       <>

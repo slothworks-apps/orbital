@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { TunnelError, type RemoteClientEvent, type TunnelResponse } from '@orbital/shared/remote/client'
 import type { GroupClientEvent, PeerInfo } from '@orbital/shared/remote/groupClient'
 import type { HelloMessage } from '@orbital/shared/remote/messages'
-import { GroupFederation, sessionOfRequest, type FederatedGroup } from '../mobile/transport/groupFederation'
+import { GroupFederation, RELIST_RETRY_MS, type FederatedGroup } from '../mobile/transport/groupFederation'
 
 type Answer = (method: string, path: string, body?: unknown) => TunnelResponse | Promise<TunnelResponse> | undefined
 
@@ -206,8 +206,9 @@ describe('GroupFederation', () => {
     const { fed, group, frames, events, setNow } = await setup()
     setNow(5000)
     group.down(LAPTOP)
-    const offline = frames().filter((f) => f.event === 'upsert' && (f.session as Listed).id === 'l1').at(-1)!
-    expect((offline.session as Listed).machine).toMatchObject({ online: false, asOf: 5000 })
+    // One frame for the member, not an upsert per session.
+    expect(frames().filter((f) => f.event === 'upsert' && (f.session as Listed).id === 'l1')).toHaveLength(1)
+    expect(frames().at(-1)).toEqual({ topic: 'sessions', event: 'machine', machine: expect.objectContaining({ id: LAPTOP, online: false, asOf: 5000 }) })
     // The studio still answers: the phone stays ready, and lists the laptop's as it last knew them.
     expect(events.some((e) => e.type === 'ready' && !e.ready)).toBe(false)
     const sessions = await list(fed)
@@ -378,11 +379,38 @@ describe('GroupFederation', () => {
     expect(fed.ready).toBe(true)
   })
 
-  it('marks what a member that comes back relists, and what one that goes keeps, as replay', async () => {
+  it('a list that fails is logged, naming the member, and tried once more', async () => {
+    vi.useFakeTimers()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      let fails = 2
+      const { laptop, frames } = await setup({
+        settle: false,
+        laptopAnswer: (method, path) => {
+          if (method === 'GET' && path.startsWith('/api/sessions?') && fails-- > 0) throw new TunnelError('timeout')
+          return undefined
+        },
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      const lists = () => laptop.request.mock.calls.filter(([m, p]) => m === 'GET' && String(p).startsWith('/api/sessions?')).length
+      expect(lists()).toBe(1)
+      expect(String(warn.mock.calls[0]?.[0])).toContain(LAPTOP.slice(0, 8))
+      await vi.advanceTimersByTimeAsync(RELIST_RETRY_MS)
+      expect(lists()).toBe(2)
+      // Once more only: the next is at the next time it comes up.
+      await vi.advanceTimersByTimeAsync(RELIST_RETRY_MS * 10)
+      expect(lists()).toBe(2)
+      expect(frames().some((f) => f.event === 'upsert' && (f.session as Listed).id === 'l1')).toBe(false)
+    } finally {
+      warn.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('marks what a member that comes back relists as replay', async () => {
     const { group, laptop, frames } = await setup()
     const upsertsOf = (id: string) => frames().filter((f) => f.event === 'upsert' && (f.session as Listed).id === id)
     group.down(LAPTOP)
-    expect(upsertsOf('l1').at(-1)).toMatchObject({ replay: true })
     const before = upsertsOf('l1').length
     laptop.ready = true
     group.emit({ type: 'peer', peer: LAPTOP })
@@ -506,18 +534,5 @@ describe('GroupFederation, group-wide answers', () => {
     expect((res.body as { rules: unknown[] }).rules).toEqual([{ id: 1, tag_id: tags.get('orbital'), pattern: 'a' }])
     await fed.request('POST', '/api/tag-rules', { tagId: tags.get('work'), condition: 'path_matches', pattern: 'x' })
     expect(studio.request).toHaveBeenLastCalledWith('POST', '/api/tag-rules', { tagId: 90, condition: 'path_matches', pattern: 'x' })
-  })
-})
-
-describe('sessionOfRequest', () => {
-  const of = (path: string) => sessionOfRequest(new URL(path, 'http://phone'))
-  it('reads the session of a path, never of a literal sibling', () => {
-    expect(of('/api/sessions/abc/messages')).toBe('abc')
-    expect(of('/api/stats/sessions/abc')).toBe('abc')
-    expect(of('/api/sessions/count')).toBeNull()
-    expect(of('/api/sessions/defaults')).toBeNull()
-    expect(of('/api/files?session=s')).toBe('s')
-    expect(of('/api/harness?sessionId=t')).toBe('t')
-    expect(of('/api/sessions/%E0%A4%A')).toBeNull()
   })
 })

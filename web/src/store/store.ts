@@ -17,7 +17,8 @@ import type { ContextThresholds } from '../lib/usage'
 import type { MapStatePills } from '../lib/stateStyle'
 import type { LinesMode } from '../lib/branchStatus'
 import { archipelagoEnabled } from '../lib/experimental'
-import { deviceChips, deviceOf, devicesOn, ideHere, isMemberOffline, withMachineOffline } from '../lib/devices'
+import type { MachineEvent } from '@orbital/shared/remote/device'
+import { deviceChips, deviceOf, devicesOn, ideHere, isMemberOffline, withMachine, withMachineOffline } from '../lib/devices'
 import type {
   ApiSession,
   AttachmentSource,
@@ -48,6 +49,8 @@ export type SessionsEvent =
   | { event: 'upsert'; session: ApiSession }
   | { event: 'status'; sessionId: string; status: SessionStatus }
   | { event: 'remove'; sessionId: string }
+  /** A member of the group came online, went offline or was renamed: every session of it takes `machine`. */
+  | MachineEvent
 
 /** Events delivered on the `session:<id>` topic. */
 export type SessionEvent =
@@ -2861,6 +2864,11 @@ function sessionsEventPatch(
       // moves with it. A re-upsert of a known session is just a change.
       ...(isNew ? { sessionsTotal: state.sessionsTotal + 1 } : {}),
     }
+  }
+
+  if (msg.event === 'machine') {
+    const sessions = withMachine(state.sessions, msg.machine)
+    return sessions === state.sessions ? null : { sessions }
   }
 
   if (msg.event === 'status') {

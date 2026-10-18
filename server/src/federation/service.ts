@@ -13,12 +13,14 @@ import { PRESENCE_TOPIC, presenceFromFrame } from '@orbital/shared/presence';
 import {
   TunnelError, type BlobResult, type Channel, type FileResult, type HttpMethod, type TunnelResponse,
 } from '@orbital/shared/remote/channel';
+import type { MachineEvent, MachineRef } from '@orbital/shared/remote/device';
 import type { FileAs, HelloMessage } from '@orbital/shared/remote/messages';
 import type { RosterEntry } from '@orbital/shared/remote/roster';
+import { sessionOfTopic } from '@orbital/shared/remote/segments';
 import type { Hub } from '../api/hub.js';
 import { memberTooOld } from '../remote/memberGate.js';
 import type { RemoteService } from '../remote/service.js';
-import { carriesMachine, sessionOfTopic } from '../remote/servingHalf.js';
+import { carriesMachine } from '../remote/servingHalf.js';
 import { ReadCache } from './readCache.js';
 import type { MemberSnapshotStore } from './store.js';
 
@@ -26,17 +28,20 @@ import type { MemberSnapshotStore } from './store.js';
 const SEED_LIMITS = [200, 80, 30];
 
 /**
- * How long a member's changes gather before its snapshot is written: a
- * status change per session must not mean a write per frame.
+ * How long a member's changes gather before its snapshot is written. The
+ * snapshot only stands in after a crash — going offline and stopping write
+ * at once — so it is written seldom, and a change of a session's `status`
+ * or `lastAt` alone schedules no write.
  */
-export const SNAPSHOT_WRITE_MS = 5000;
+export const SNAPSHOT_WRITE_MS = 60_000;
 
 /**
- * Which device a session runs on; absent on a session of this device.
- * `asOf`: when this device last heard from that member, while it is
- * offline; null while it is online.
+ * How long a member whose list could not be read waits before it is asked
+ * again, doubling at each failure up to `SEED_RETRY_MAX_MS`, while its
+ * channel stays up. Until a list is read its sessions stay shown offline.
  */
-export type MachineRef = { id: string; name: string; kind: string; os: string; online: boolean; asOf: number | null };
+export const SEED_RETRY_MS = 5_000;
+export const SEED_RETRY_MAX_MS = 5 * 60_000;
 
 export type Session = { id: string; tagIds?: number[]; status?: string; machine?: unknown; [key: string]: unknown };
 export type Tag = { id: number; name: string; hue?: number };
@@ -56,6 +61,9 @@ export type MemberLink = {
   seeded: boolean;
   /** The user is at this member, by its own `presence`; false while its channel is not ready. */
   present: boolean;
+  /** A seed asked again after its list could not be read (`SEED_RETRY_MS`), and how many failed in a row. */
+  seedRetry?: ReturnType<typeof setTimeout>;
+  seedFailures?: number;
 };
 
 export type FederationOptions = {
@@ -133,6 +141,7 @@ export class FederationService {
       if (link.channel?.ready || this.pendingWrites.has(link.id)) this.writeSnapshot(link);
     }
     this.running = false;
+    for (const link of this.links.values()) this.clearSeedRetry(link);
     for (const off of this.offs) off();
     this.offs = [];
     for (const { off } of this.channels.values()) off();
@@ -283,8 +292,10 @@ export class FederationService {
         const res = await channel.putBlob(image.bytes, image.mediaType);
         if (res.kind !== 'ok') return null;
         out.push(res.entry.ref);
-      } catch {
-        return null;
+      } catch (err) {
+        // The channel failing is the member's; anything else is a bug here, as in `ask`.
+        if (err instanceof TunnelError) return null;
+        throw err;
       }
     }
     return out;
@@ -309,8 +320,9 @@ export class FederationService {
     if (!channel?.ready) return null;
     try {
       return await channel.getFile(sessionId, path, as, cwd ? { cwd } : {});
-    } catch {
-      return null;
+    } catch (err) {
+      if (err instanceof TunnelError) return null;
+      throw err;
     }
   }
 
@@ -371,6 +383,7 @@ export class FederationService {
       link.channel = channel;
       link.seeded = false;
       link.present = false;
+      this.clearSeedRetry(link);
     }
     channel.subscribe('sessions');
     // The member answers at once with where the user is, and again at every change.
@@ -381,19 +394,26 @@ export class FederationService {
     }
     if (channel.ready && !link.seeded) {
       link.seeded = true;
-      void this.seed(link, channel);
+      this.startSeed(link, channel);
     }
   }
 
-  /** The member's channel went down: its sessions stay, shown offline as of now, and kept so. */
+  /**
+   * The member's channel went down: its sessions stay, shown offline as of
+   * now, and kept so. Ones shown offline already (a seed that failed) keep
+   * the date they had: nothing newer was read of them.
+   */
   private offline(id: string, channel: Channel): void {
     const link = this.links.get(id);
     if (!link || link.channel !== channel) return;
     link.present = false;
+    this.clearSeedRetry(link);
     if (!link.seeded) return;
     link.seeded = false;
-    link.seenAt = this.now();
-    this.republish(link);
+    if (link.seenAt === null) {
+      link.seenAt = this.now();
+      this.publishMachine(link);
+    }
     this.writeSnapshot(link);
   }
 
@@ -402,18 +422,37 @@ export class FederationService {
     return this.running && this.links.get(link.id) === link && link.channel === channel && channel.ready;
   }
 
-  /** The member's sessions and tags, read afresh whenever its channel comes up. */
-  private async seed(link: MemberLink, channel: Channel): Promise<void> {
+  /** Seeds `link` over `channel`; a list that could not be read is asked again (`seedFailed`). */
+  private startSeed(link: MemberLink, channel: Channel): void {
+    void this.seed(link, channel).then((seeded) => {
+      if (!seeded && this.current(link, channel)) this.seedFailed(link, channel);
+    }, (err: unknown) => {
+      console.warn(`[federation] could not read ${link.id}'s sessions: ${err instanceof Error ? err.message : String(err)}`);
+      if (this.current(link, channel)) this.seedFailed(link, channel);
+    });
+  }
+
+  /**
+   * The member's sessions and tags, read afresh whenever its channel comes
+   * up. True once its list is read, or when the answer no longer matters
+   * (the channel went); false when the list could not be read: a non-200,
+   * a channel failure, or every `SEED_LIMITS` too large for a frame.
+   */
+  private async seed(link: MemberLink, channel: Channel): Promise<boolean> {
     const tags = await this.request(link, 'GET', '/api/tags');
-    if (!this.current(link, channel)) return;
+    if (!this.current(link, channel)) return true;
     const tagList = (tags.body as { tags?: Tag[] } | null)?.tags;
-    if (tags.status === 200 && Array.isArray(tagList)) link.tags = new Map(tagList.map((t) => [t.id, t]));
+    let tagsChanged = false;
+    if (tags.status === 200 && Array.isArray(tagList)) {
+      tagsChanged = JSON.stringify([...link.tags.values()]) !== JSON.stringify(tagList);
+      link.tags = new Map(tagList.map((t) => [t.id, t]));
+    }
     for (const limit of SEED_LIMITS) {
       const res = await this.request(link, 'GET', `/api/sessions?limit=${limit}`);
-      if (!this.current(link, channel)) return;
+      if (!this.current(link, channel)) return true;
       if (res.status === 413) continue;
       const list = (res.body as { sessions?: Session[] } | null)?.sessions;
-      if (res.status !== 200 || !Array.isArray(list)) return;
+      if (res.status !== 200 || !Array.isArray(list)) return false;
       const fresh = new Map(list
         .filter((s) => s && typeof s.id === 'string' && !carriesMachine(s))
         .map((s) => [s.id, s]));
@@ -422,18 +461,53 @@ export class FederationService {
         this.opts.hub.publish('sessions', { event: 'remove', sessionId: id });
         this.readCache.dropSession(link.id, id);
       }
-      const before = new Set(link.sessions.keys());
+      const before = new Map(link.sessions);
+      const wasOffline = link.seenAt !== null;
       link.sessions.clear();
+      link.seenAt = null;
+      link.seedFailures = 0;
       for (const [id, s] of fresh) {
         link.sessions.set(id, s);
         this.expected.delete(id);
-        if (!before.has(id)) this.followSession(link, id);
+        const held = before.get(id);
+        if (!held) this.followSession(link, id);
+        // Only what changed goes out as an upsert; the member coming back online is one `machine` frame.
+        if (!held || tagsChanged || JSON.stringify(held) !== JSON.stringify(s)) {
+          this.opts.hub.publish('sessions', { event: 'upsert', session: this.localize(link, s) });
+        }
       }
-      link.seenAt = null;
-      this.republish(link);
+      if (wasOffline) this.publishMachine(link);
       this.scheduleSnapshot(link);
-      return;
+      return true;
     }
+    return false;
+  }
+
+  /**
+   * The member's list could not be read while its channel stays up: what
+   * is shown of it stays offline, as of when it was last read, and the seed
+   * is asked again, `SEED_RETRY_MS` doubling up to `SEED_RETRY_MAX_MS`.
+   */
+  private seedFailed(link: MemberLink, channel: Channel): void {
+    if (link.seenAt === null) {
+      link.seenAt = this.now();
+      this.publishMachine(link);
+    }
+    const failures = (link.seedFailures ?? 0) + 1;
+    link.seedFailures = failures;
+    this.clearSeedRetry(link);
+    const delay = Math.min(SEED_RETRY_MS * 2 ** (failures - 1), SEED_RETRY_MAX_MS);
+    const timer = setTimeout(() => {
+      link.seedRetry = undefined;
+      if (this.current(link, channel)) this.startSeed(link, channel);
+    }, delay);
+    timer.unref?.();
+    link.seedRetry = timer;
+  }
+
+  private clearSeedRetry(link: MemberLink): void {
+    clearTimeout(link.seedRetry);
+    link.seedRetry = undefined;
   }
 
   /** A window that subscribed before this member's list carried the id (a spawn from here). */
@@ -447,6 +521,17 @@ export class FederationService {
     for (const s of link.sessions.values()) {
       this.opts.hub.publish('sessions', { event: 'upsert', session: this.localize(link, s) });
     }
+  }
+
+  /**
+   * The member's state changed — online, offline, renamed: one frame that
+   * every session of it takes, not an upsert per session. `ServingHalf`
+   * withholds it from every peer: it is about another member.
+   */
+  private publishMachine(link: MemberLink): void {
+    if (link.sessions.size === 0) return;
+    const event: MachineEvent = { event: 'machine', machine: this.machine(link) };
+    this.opts.hub.publish('sessions', event);
   }
 
   /** Whether `sessionId` is the member's: listed by it, or being spawned on it from here. */
@@ -467,6 +552,7 @@ export class FederationService {
     for (const id of expected) this.expected.delete(id);
     clearTimeout(this.pendingWrites.get(link.id));
     this.pendingWrites.delete(link.id);
+    this.clearSeedRetry(link);
     this.removeSnapshot(link.id);
     const channel = link.channel;
     if (!channel) return;
@@ -499,12 +585,12 @@ export class FederationService {
       const session = frame.session as Session | undefined;
       // Another device's session, passed on by this member: not ours to show (no chaining).
       if (!session || typeof session !== 'object' || typeof session.id !== 'string' || carriesMachine(session)) return;
-      const known = link.sessions.has(session.id);
+      const held = link.sessions.get(session.id);
       link.sessions.set(session.id, session);
       this.expected.delete(session.id);
-      if (!known) this.followSession(link, session.id);
+      if (!held) this.followSession(link, session.id);
       this.opts.hub.publish('sessions', { event: 'upsert', session: this.localize(link, session) });
-      this.scheduleSnapshot(link);
+      if (!held || !sameButLive(held, session)) this.scheduleSnapshot(link);
     } else if (frame.event === 'remove') {
       const id = frame.sessionId;
       // Published while still known as foreign, so no channel passes it on.
@@ -518,8 +604,8 @@ export class FederationService {
       const session = typeof id === 'string' ? link.sessions.get(id) : undefined;
       if (!session) return;
       if (typeof frame.status === 'string') session.status = frame.status;
+      // A status alone schedules no write (`SNAPSHOT_WRITE_MS`).
       this.opts.hub.publish('sessions', rest);
-      this.scheduleSnapshot(link);
     }
   }
 
@@ -548,7 +634,7 @@ export class FederationService {
       }
       const before = link.entry;
       link.entry = entry;
-      if (before.name !== entry.name || before.kind !== entry.kind || before.os !== entry.os) this.republish(link);
+      if (before.name !== entry.name || before.kind !== entry.kind || before.os !== entry.os) this.publishMachine(link);
     }
     for (const entry of live.values()) {
       if (this.links.has(entry.id)) continue;
@@ -630,7 +716,8 @@ export class FederationService {
       const at = (s: Session) => (typeof s.lastAt === 'number' ? s.lastAt : 0);
       sessions = sessions.sort((a, b) => at(b) - at(a)).slice(0, limit);
     }
-    const seenAt = link.channel?.ready ? this.now() : (link.seenAt ?? this.now());
+    // Up and read (no `seenAt`): heard from now. Otherwise as of the last list read.
+    const seenAt = link.seenAt ?? this.now();
     try {
       store.save(link.id, sessions, [...link.tags.values()], seenAt);
     } catch (err) {
@@ -663,8 +750,9 @@ export class FederationService {
     return this.localTagMap;
   }
 
+  /** Online while its channel is up and its list was read on it: a list that failed leaves the sessions as of before. */
   private machine(link: MemberLink): MachineRef {
-    const online = link.channel?.ready === true;
+    const online = link.channel?.ready === true && link.seenAt === null;
     return {
       id: link.id, name: link.entry.name, kind: link.entry.kind, os: link.entry.os, online,
       asOf: online ? null : link.seenAt,
@@ -679,4 +767,12 @@ export class FederationService {
       .filter((id): id is number => id !== undefined);
     return { ...session, tagIds, machine: this.machine(link) };
   }
+}
+
+/** The fields that change with every turn: a session that differs in these alone is not worth a snapshot write. */
+const LIVE_FIELDS: ReadonlySet<string> = new Set(['status', 'lastAt']);
+
+function sameButLive(a: Session, b: Session): boolean {
+  const rest = (s: Session) => JSON.stringify(Object.entries(s).filter(([k]) => !LIVE_FIELDS.has(k)));
+  return rest(a) === rest(b);
 }

@@ -63,6 +63,8 @@ export class DeviceWatcher {
   /** Whether a `sessions` frame is about another member's session: one carrying `machine`, or an id the federation holds. */
   private isForeign(frame: Record<string, unknown>): boolean {
     if (frame.topic !== 'sessions') return false;
+    // Another member's state, online or not: that member wakes the phone for its own.
+    if (frame.event === 'machine') return true;
     const session = frame.session && typeof frame.session === 'object'
       ? (frame.session as { id?: unknown; machine?: unknown }) : undefined;
     if (session && carriesMachine(session)) return true;

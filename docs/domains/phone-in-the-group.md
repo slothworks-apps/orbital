@@ -89,7 +89,10 @@ hello. #79's `MultiClient`, with no main Mac:
   last one a session was started on, else the first ready one). The
   first owner keeps a session while it is ready.
 - Lists are merged across members; an offline member's last sessions
-  stay, `online: false`. Tags share one namespace by name, mapped both
+  stay, `online: false`, told in one `machine` event as on the Mac
+  (`docs/domains/device-federation.md`). A relist that fails on the
+  channel is logged, naming the member, and tried once more after
+  `RELIST_RETRY_MS`. Tags share one namespace by name, mapped both
   ways (tags, tag rules, a spawn's tag).
 - Presence is aggregated: one `presence` frame, at the user while they
   are at any member. Notification settings are the phone's choice and

@@ -8,12 +8,13 @@
  * another member's sessions merged in: no chaining.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { HttpMethod } from '@orbital/shared/remote/channel';
+import { sessionOfRequest } from '@orbital/shared/remote/segments';
 import { IMAGE_CONTENT_TYPES, IMAGE_REF_RE } from '../api/routes.js';
-import { RESERVED_SEGMENTS } from '../remote/allowlist.js';
+import type { ImageStore } from '../images/store.js';
 import { DEVICE_HEADER } from '../remote/inject.js';
 import type { FederationService, ReadResponse, Session } from './service.js';
 
@@ -27,6 +28,7 @@ const TAG_ROUTES: ReadonlySet<string> = new Set(['/api/tags', '/api/tags/:id']);
 
 export function registerFederationRoutes(
   app: FastifyInstance, federation: FederationService, selfId: () => string | null, imagesDir: string,
+  images: Pick<ImageStore, 'bytes'>,
 ): void {
   /** Requests answered with one device's list alone: a member's reply, or this device's own by name. */
   const unmerged = new WeakSet<FastifyRequest>();
@@ -56,8 +58,7 @@ export function registerFederationRoutes(
       return reply.send(Buffer.from(blob.bytes));
     }
 
-    // `sessionId` is the harness start view's name for the same thing.
-    const sessionId = sessionOf(path) ?? query.get('session') ?? query.get('sessionId');
+    const sessionId = sessionOfRequest(req.url);
     let link = sessionId ? federation.linkOf(sessionId) : null;
     if (!link) {
       const machine = query.get('machine') ?? machineOfBody(req);
@@ -105,7 +106,7 @@ export function registerFederationRoutes(
       if (!refs.every((r): r is string => typeof r === 'string' && IMAGE_REF_RE.test(r))) {
         return reply.code(400).send({ error: 'invalid_attachment' });
       }
-      const sent = await federation.upload(link, refs, (ref) => readImage(imagesDir, ref));
+      const sent = await federation.upload(link, refs, (ref) => images.bytes(ref));
       if (!sent) return reply.code(502).send({ error: 'attachment_not_sent' });
       body = { ...body, attachments: sent };
     }
@@ -188,27 +189,6 @@ export function registerFederationRoutes(
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
-function readImage(imagesDir: string, ref: string): { bytes: Uint8Array; mediaType: string } | null {
-  const m = IMAGE_REF_RE.exec(ref);
-  if (!m) return null;
-  try {
-    return { bytes: new Uint8Array(readFileSync(join(imagesDir, ref))), mediaType: IMAGE_CONTENT_TYPES[m[1]] };
-  } catch {
-    return null;
-  }
-}
-
-/** The session a path names; never one of the literal siblings of `:id`. */
-function sessionOf(path: string): string | null {
-  const m = /^\/api\/(?:stats\/)?sessions\/([^/]+)/.exec(path);
-  if (!m || RESERVED_SEGMENTS.has(m[1])) return null;
-  try {
-    return decodeURIComponent(m[1]);
-  } catch {
-    return null;
-  }
 }
 
 function machineOfBody(req: FastifyRequest): string | null {

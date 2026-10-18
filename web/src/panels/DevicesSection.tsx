@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import qrcode from 'qrcode-generator'
 import { useShallow } from 'zustand/react/shallow'
+import { encodePairingCode } from '@orbital/shared/remote/relayApi'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
@@ -9,7 +10,7 @@ import {
   RELAY_CHECK_WINDOW_MS, codeLeft, relayCheckSettled, relayLine, relaySecretCommit, relayUrlCommit, relayHostname,
   statusDuringCheck, type RelayLineKind,
 } from '../lib/remote'
-import { deviceRows, kindOs, needsUpdateLine, oneWordCode, type DeviceRow } from '../lib/devices'
+import { deviceRows, kindOs, needsUpdateLine, type DeviceRow } from '../lib/devices'
 import { useNow } from '../lib/useNow'
 import type { GroupMember, RemoteStatus } from '../lib/types'
 import { Toggle } from '../ui/Checkbox'
@@ -182,7 +183,7 @@ function usePairingCode(remote: RemoteStatus | null): PairingCode {
         if (res.error === 'relay_error') reportError(null, "The relay didn't answer. Try again.")
         return
       }
-      setCode({ expiresAt: res.expiresAt, svg: qrSvg(res.qr), word: oneWordCode(res.qr) })
+      setCode({ expiresAt: res.expiresAt, svg: qrSvg(res.qr), word: encodePairingCode(res.qr) })
       // The server publishes the status with this code before it answers, but
       // the answer can still overtake that publish; a status without the
       // code would read as used until the publish lands.

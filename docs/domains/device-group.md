@@ -58,6 +58,16 @@ ceremony. A device is only ever added again by such a ceremony, which
 writes the next epoch after whatever epoch is already known for its id
 (`addMember`).
 
+Entries carry no signature, so what a member takes from a received
+roster is filtered first (`admitted` in `shared/src/remote/roster.ts`):
+an entry for the sender itself is taken only if it does not raise the
+sender's epoch above the one known here — a device may describe itself,
+never re-add itself — unless what is known here is the placeholder this
+device wrote on joining it; and an entry for a device removed here is
+taken only at a higher epoch that the device did not add itself. Without
+this, a removed device that still holds its key could send a member that
+has not heard of its removal its own entry, live, one epoch up.
+
 ## Syncing the roster over the channels
 
 Every `RemoteService` keeps its own roster in `RosterStore`
@@ -75,10 +85,12 @@ not just echo it back and forth.
 A channel's own `ready` event, once its peer's hello named `group`,
 sends this side's `roster_digest` first. Receiving a `roster_digest`
 that does not match this side's own answers with the whole `roster`.
-Receiving a `roster` merges it in with `mergeRosters` and, if the
-result still does not match what was sent, answers with this side's own
-`roster` in turn — the sender may be missing something only this side
-knew. So two members converge within a few round trips of opening a
+Receiving a `roster` merges in what it admits with `mergeRosters` and,
+if the sender's own merge of this side's roster would change it, answers
+with this side's own `roster` in turn — the sender may be missing
+something only this side knew. Two members that each keep an entry the
+other does not admit therefore stop after one answer rather than trading
+rosters forever. So two members converge within a few round trips of opening a
 channel, and after that only an actual change moves anything.
 
 Group messages (`roster_digest`, `roster`, `removed` — `GroupMessage` in
@@ -245,6 +257,11 @@ before
 anything is sent to the relay: groups do not merge, a device leaves its
 group before it joins another (ADR `joining-one-member-joins-the-group`),
 while a code from a member of its own group is pairing by hand.
+A phone refuses another phone on both sides of a code: joining with a
+code whose kind is `phone` answers `phone_to_phone` before anything is
+sent, and a phone showing its code rejects a request from a phone at the
+relay without asking, keeping it as the ceremony's `refused`
+(`GroupClient.refusedPair`) for the screen to word.
 "In a group" (`hasOtherGroupMember`) means the roster holds a live member,
 other than this device, that links or that is not paired here (no
 `remote_devices` row). A phone paired here makes no group: a Mac whose

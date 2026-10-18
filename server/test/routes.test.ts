@@ -1719,9 +1719,9 @@ describe('POST /api/sessions with a browser-minted session id', () => {
       errors: new ErrorLog({ db, hub }),
       titler: stubTitler(),
       narrator: new Narrator({ db, queryFn: noNarrateQuery, model: () => '' }),
-      images: { put: () => null, putBytes: () => null, read: () => null, entry: () => null }, imagesDir: '/nonexistent',
+      images: { put: () => null, putBytes: () => null, read: () => null, entry: () => null, bytes: () => null }, imagesDir: '/nonexistent',
       files: { putBytes: () => null },
-      remote: stubRemote(db, hub, { put: () => null, putBytes: () => null, read: () => null, entry: () => null }, '/nonexistent', { get: () => '' }),
+      remote: stubRemote(db, hub, { put: () => null, putBytes: () => null, read: () => null, entry: () => null, bytes: () => null }, '/nonexistent', { get: () => '' }),
       settings: { get: () => '', set: () => {} },
       mcpFor: () => noMcp,
       retention: retentionFor(db),
@@ -4329,7 +4329,7 @@ describe('GET /api/dirs', () => {
       for (const path of [undefined, '', '~']) {
         expect(await list(app, path), String(path)).toEqual({
           status: 200,
-          body: { path: home, parent: join(home, '..'), dirs: [{ name: 'Projects', hasChildren: false }], truncated: false },
+          body: { path: home, dirs: [{ name: 'Projects', hasChildren: false }], truncated: false },
         });
       }
       expect((await list(app, '~/Projects')).body.path).toBe(join(home, 'Projects'));
@@ -4354,7 +4354,6 @@ describe('GET /api/dirs', () => {
     expect(status).toBe(200);
     expect(body).toEqual({
       path: dir,
-      parent: join(dir, '..'),
       dirs: [
         { name: 'Alpha', hasChildren: false },
         { name: 'beta', hasChildren: true },
@@ -4365,14 +4364,14 @@ describe('GET /api/dirs', () => {
     });
   });
 
-  it('answers the resolved path, and no parent at /', async () => {
+  it('answers the resolved path', async () => {
     const { app } = makeApp();
     const dir = makeTmpDir('dirs');
     mkdirSync(join(dir, 'a'));
     expect((await list(app, `${dir}/a/..`)).body.path).toBe(dir);
     const root = await list(app, '/');
     expect(root.status).toBe(200);
-    expect([root.body.path, root.body.parent]).toEqual(['/', null]);
+    expect(root.body.path).toBe('/');
   });
 
   it('refuses a relative path, a missing one and a file', async () => {

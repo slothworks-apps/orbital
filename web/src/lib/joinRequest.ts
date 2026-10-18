@@ -5,7 +5,7 @@
  * same request.
  */
 import { osName } from '@orbital/shared/remote/device'
-import { kindWord, osLabel } from './devices'
+import { osLabel } from './devices'
 
 /**
  * The kind tile's word and meaning line (canvas 50c `cK.word`/`cK.note` in
@@ -46,7 +46,7 @@ export function whereLine(kind: string, name: string): string {
  */
 export function joinSentence(request: { name: string; kind: string; platform: string }): string {
   const os = osLabel(osName(request.platform))
-  const kindOs = os === '' ? kindWord(request.kind) : `${kindWord(request.kind)}, ${os}`
+  const kindOs = os === '' ? request.kind : `${request.kind}, ${os}`
   return `${request.name} (${kindOs}) wants to join`
 }
 

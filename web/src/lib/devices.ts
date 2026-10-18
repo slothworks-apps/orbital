@@ -4,19 +4,8 @@
  * form of a pairing code (canvas 50k); and the map's and sidebar's device
  * chips and filter (canvas 50e).
  */
-import { encodePairingCode } from '@orbital/shared/remote/relayApi'
 import { timeAgo } from './format'
-import { codeLeft } from './remote'
 import type { ApiSession, GroupMember, IdeContext, MachineRef, MemberState, RemoteDevice, Tag } from './types'
-
-/**
- * The three known device kinds read as is; an unrecognised one passes
- * through verbatim (canvas 50k). `string & {}` rather than a bare `string`
- * keeps the three literals as autocomplete without the union collapsing.
- */
-export function kindWord(kind: string): 'desktop' | 'headless' | 'phone' | (string & {}) {
-  return kind
-}
 
 const OS_LABELS: Record<string, string> = {
   macos: 'macOS', linux: 'Linux', ios: 'iOS', android: 'Android',
@@ -30,19 +19,12 @@ export function osLabel(os: string): string {
 /** `desktop · macOS` (canvas 50k); the OS half drops with its separator while it is not known yet. */
 export function kindOs(kind: string, os: string): string {
   const label = osLabel(os)
-  return label === '' ? kindWord(kind) : `${kindWord(kind)} · ${label}`
+  return label === '' ? kind : `${kind} · ${label}`
 }
 
-/**
- * `offline`, dated by `seenAt` when there is one: `seen just now` inside
- * `timeAgo`'s first minute, `seen <date>` once it answers with a date, and
- * `seen <n> ago` between them.
- */
+/** `offline`, dated by `seenAt` when there is one, in `agoWords`' words: `offline · seen 12 min ago`. */
 function offlineWords(seenAt: number | null, now: number): string {
-  if (seenAt === null) return 'offline'
-  const ago = timeAgo(seenAt, now)
-  if (ago === 'now') return 'offline · seen just now'
-  return /^\d+[mhd]$/.test(ago) ? `offline · seen ${ago} ago` : `offline · seen ${ago}`
+  return seenAt === null ? 'offline' : `offline · seen ${agoWords(seenAt, now)}`
 }
 
 /**
@@ -92,17 +74,6 @@ function adderName(m: GroupMember, members: GroupMember[]): string {
  */
 function pairedElsewhere(m: GroupMember): boolean {
   return !m.self && m.kind === 'phone' && !m.links && !m.linked
-}
-
-/** The QR's JSON as one word to paste (`encodePairingCode`, shared with the phone's own paste box). */
-export function oneWordCode(qrJson: string): string {
-  return encodePairingCode(qrJson)
-}
-
-/** A joining code's remaining time and whether it has run out — `codeLeft` without the draining bar's fraction. */
-export function codeTimeLeft(expiresAt: number, now: number): { label: string; expired: boolean } {
-  const { label, expired } = codeLeft(expiresAt, now)
-  return { label, expired }
 }
 
 /**
@@ -414,7 +385,7 @@ export function runsOn(
   if (member?.tooOld) return { name, kind, os, dot: 'update', words: `update Orbital on ${name}` }
   if (machineOffline(session, members)) {
     const seen = member?.seenAt ?? machine.asOf
-    return { name, kind, os, dot: 'offline', words: seen === null ? 'offline' : `offline · seen ${agoWords(seen, now)}` }
+    return { name, kind, os, dot: 'offline', words: offlineWords(seen, now) }
   }
   return { name, kind, os, dot: 'live', words: member ? `online · ${addedByLine(member, members ?? [])}` : 'online' }
 }
@@ -444,6 +415,24 @@ export function withMachineOffline<S extends Pick<ApiSession, 'machine'>>(
     if (s.machine?.id !== machineId || machineOffline(s)) continue
     next ??= { ...sessions }
     next[id] = { ...s, machine: { ...s.machine, online: false, asOf: s.machine.asOf ?? now } }
+  }
+  return next ?? sessions
+}
+
+/**
+ * A member's state as its server says it (a `machine` event on `sessions`):
+ * every session that runs on it takes `machine`. The same object when no
+ * session runs there.
+ */
+export function withMachine<S extends Pick<ApiSession, 'machine'>>(
+  sessions: Record<string, S>,
+  machine: MachineRef,
+): Record<string, S> {
+  let next: Record<string, S> | null = null
+  for (const [id, s] of Object.entries(sessions)) {
+    if (s.machine?.id !== machine.id) continue
+    next ??= { ...sessions }
+    next[id] = { ...s, machine }
   }
   return next ?? sessions
 }
@@ -483,27 +472,6 @@ export function localClaudeDirId(
 ): number | null {
   if (!session || session.machine) return null
   return session.claudeDirId ?? null
-}
-
-/**
- * The session a request was about, read off its url the way the server
- * routes it (`/api/sessions/:id…` or `/api/stats/sessions/:id`, else
- * `?session=`, else the harness's `?sessionId=`): what a refusal that
- * reached `reportError` names, so the lock can show on the right session.
- */
-export function sessionOfUrl(url: string | undefined): string | null {
-  if (!url) return null
-  const [path, query = ''] = url.split('?', 2)
-  const inPath = /^\/api\/(?:stats\/)?sessions\/([^/]+)/.exec(path)
-  if (inPath) {
-    try {
-      return decodeURIComponent(inPath[1])
-    } catch {
-      return null
-    }
-  }
-  const params = new URLSearchParams(query)
-  return params.get('session') ?? params.get('sessionId')
 }
 
 /** One row of New session's DEVICE field (canvas 50g, logic.js `opts`). */

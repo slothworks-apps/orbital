@@ -207,6 +207,19 @@ describe('applySessionsEvent', () => {
     expect(useOrbital.getState().sessions.s1.lastAt).toBe(300)
   })
 
+  it("machine gives every session of that device its new state in one event", () => {
+    const offline = { id: 'build', name: 'build-box', kind: 'desktop', os: 'linux', online: false, asOf: 50 }
+    useOrbital.getState().applySessionsEvent({ event: 'upsert', session: makeSession({ id: 'm1', machine: offline }) })
+    useOrbital.getState().applySessionsEvent({ event: 'upsert', session: makeSession({ id: 'm2', machine: offline }) })
+    useOrbital.getState().applySessionsEvent({ event: 'upsert', session: makeSession({ id: 'local' }) })
+    const back = { ...offline, online: true, asOf: null }
+    useOrbital.getState().applySessionsEvent({ event: 'machine', machine: back })
+    const { sessions } = useOrbital.getState()
+    expect(sessions.m1.machine).toEqual(back)
+    expect(sessions.m2.machine).toEqual(back)
+    expect(sessions.local.machine).toBeUndefined()
+  })
+
   it('status merges into an existing row', () => {
     const s1 = makeSession({ id: 's1', status: 'idle' })
     useOrbital.getState().applySessionsEvent({ event: 'upsert', session: s1 })

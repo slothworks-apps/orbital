@@ -64,7 +64,12 @@ its tags, the newest channel (an older one is ignored from then on),
 `presence` (when the hello names it) and every per-session topic of that
 member that has a local subscriber; on `ready` it seeds — `GET
 /api/tags`, then `GET /api/sessions` with the first of `SEED_LIMITS` that
-fits one frame — and republishes every session. A hub frame from the
+fits one frame — and upserts every session that is new or changed; a
+member that was shown offline comes back online in one `machine` event.
+A list that cannot be read (a non-200, a channel failure, every limit
+too large) leaves the member's sessions offline, as of the last list
+read, and the seed is asked again after `SEED_RETRY_MS`, doubling up to
+`SEED_RETRY_MAX_MS`, while the channel stays up. A hub frame from the
 member: a `sessions` upsert, remove or status is republished (an upsert
 that carries `machine` is dropped — no chaining); `presence` sets
 `present` and is never republished; any other topic only when it is
@@ -74,12 +79,17 @@ about one of that member's own sessions.
 tags mapped by name to this server's tag ids, and
 `machine: { id, name, kind, os, online, asOf }` from the roster entry;
 `asOf` is when the member was last heard from while it is offline, null
-while online.
+while online. `MachineRef` lives in `shared/src/remote/device.ts`. A
+change of the member's state alone — online, offline, renamed — is one
+`sessions` event `{ event: 'machine', machine }` that the web store
+applies to every session with that `machine.id`; `ServingHalf` withholds
+it from every peer and `DeviceWatcher` ignores it.
 
 **Offline.** When the channel stops being ready the member's sessions
-are republished with `online: false` and stay. They survive a restart:
+are marked `online: false` (one `machine` event) and stay. They survive a restart:
 each link is written to `member_snapshots` (`server/src/federation/store.ts`)
-at most once per `SNAPSHOT_WRITE_MS` while changes come, at once when it
+at most once per `SNAPSHOT_WRITE_MS` while changes come — a change of a
+session's `status` or `lastAt` alone schedules none — at once when it
 goes offline, and at `stop()`; `start()` restores the snapshots of live
 members, offline. A snapshot keeps at most the first `SEED_LIMITS`
 sessions, the newest.

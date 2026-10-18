@@ -37,7 +37,7 @@ describe('phoneRows', () => {
   it('says asleep where the desktop says offline, dated as the desktop dates it', () => {
     const [row] = phoneRows([self, member({ id: 'air', name: 'air-m3', state: 'offline', online: false, seenAt: NOW - 2 * HOUR })], [], NOW)
     expect(row.state).toBe('offline')
-    expect(row.words).toBe('asleep · seen 2h ago')
+    expect(row.words).toBe('asleep · seen 2 h ago')
   })
 
   it('offers pair by hand only for a member that does not link with this phone yet', () => {
@@ -64,7 +64,7 @@ describe('phoneRows', () => {
     const rows = phoneRows([self], [source({ id: 'old', name: 'old-mac', online: false, asOf: NOW - 3 * HOUR })], NOW)
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ id: 'old', name: 'old-mac', state: 'offline', added: 'paired with this phone' })
-    expect(rows[0].words).toBe('asleep · seen 3h ago')
+    expect(rows[0].words).toBe('asleep · seen 3 h ago')
   })
 })
 

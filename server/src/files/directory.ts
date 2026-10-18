@@ -1,6 +1,6 @@
 import { mkdirSync, opendirSync, readdirSync, statSync, type Dirent } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { expandHome } from '../paths.js';
 
 /**
@@ -50,7 +50,6 @@ export const DIRS_MAX = 500;
 
 export type DirListing = {
   path: string;
-  parent: string | null;
   dirs: { name: string; hasChildren: boolean }[];
   truncated: boolean;
 };
@@ -88,7 +87,6 @@ export function listDirs(raw: string | undefined, home: string = homedir()): Lis
     ok: true,
     listing: {
       path,
-      parent: path === '/' ? null : dirname(path),
       dirs: names.slice(0, DIRS_MAX).map((name) => ({ name, hasChildren: hasSubDir(join(path, name)) })),
       truncated: names.length > DIRS_MAX,
     },

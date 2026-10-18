@@ -14,6 +14,7 @@ import {
   chunkBlob, type AnswerMessage, type AskMessage, type NotificationSettings,
 } from '@orbital/shared/remote/messages';
 import { PRESENCE_TOPIC } from '@orbital/shared/presence';
+import { sessionOfTopic } from '@orbital/shared/remote/segments';
 import type { Hub } from '../api/hub.js';
 import { ATTACHMENT_MAX_BYTES, IMAGE_CONTENT_TYPES } from '../api/routes.js';
 import type { ImageStore } from '../images/store.js';
@@ -37,12 +38,6 @@ export const MEMBER_ALLOWED_TOPIC_PREFIXES: readonly string[] = ['session:', 'su
 
 export function memberMayWatch(topic: string): boolean {
   return MEMBER_ALLOWED_TOPICS.has(topic) || MEMBER_ALLOWED_TOPIC_PREFIXES.some((p) => topic.startsWith(p) && topic.length > p.length);
-}
-
-/** The session a per-session topic is about: `session:<id>`, `subagent:<id>:…`, `task-output:<id>:…`. */
-export function sessionOfTopic(topic: string): string | null {
-  const m = /^(?:session|subagent|task-output):([^:]+)/.exec(topic);
-  return m ? m[1] : null;
 }
 
 /** A session another device passed on as some third device's: it carries the `machine` it runs on. */
@@ -149,11 +144,15 @@ export class ServingHalf implements ChannelServer {
     return socket;
   }
 
-  /** A frame about another member's session, which this device only shows: it stays here. */
+  /**
+   * A frame about another member or its session, which this device only
+   * shows: it stays here. A `machine` event is about another member always.
+   */
   private withheld(frame: unknown): boolean {
-    const f = frame as { topic?: unknown; sessionId?: unknown; session?: { machine?: unknown } | null } | null;
+    const f = frame as { topic?: unknown; event?: unknown; sessionId?: unknown; session?: { machine?: unknown } | null } | null;
     if (!f || typeof f.topic !== 'string') return false;
     if (f.topic === 'sessions') {
+      if (f.event === 'machine') return true;
       if (f.session && typeof f.session === 'object' && carriesMachine(f.session)) return true;
       return typeof f.sessionId === 'string' && this.isForeign(f.sessionId);
     }

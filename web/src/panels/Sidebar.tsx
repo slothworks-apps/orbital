@@ -40,7 +40,7 @@ import { sessionViewTransitionName } from '../lib/viewTransition'
 import { timeAgo, shortenPath } from '../lib/format'
 import { KindGlyph } from '../ui/KindGlyph'
 import {
-  AS_OF_TICK_MS, asOfLabel, chipsOfKey, deviceChipsKey, devicesOn, kindWord, localClaudeDirId, machineOffline, namesShown,
+  AS_OF_TICK_MS, asOfLabel, chipsOfKey, deviceChipsKey, devicesOn, localClaudeDirId, machineOffline, namesShown,
   showDeviceRow, toggleDevice,
 } from '../lib/devices'
 import type { DeviceChip } from '../lib/devices'
@@ -453,7 +453,7 @@ function SessionRow({
 /** A device chip's tooltip: name · kind · state (canvas 50e, logic.js `devChips`). */
 function deviceChipTitle(chip: DeviceChip): string {
   const state = chip.update ? 'update' : chip.offline ? 'offline' : 'online'
-  return `${chip.name} · ${kindWord(chip.kind)} · ${state}`
+  return `${chip.name} · ${chip.kind} · ${state}`
 }
 
 /** ACTIVE/PINNED/HISTORY heading, per canvas 1a with 4a's accent count. */

@@ -1457,7 +1457,7 @@ export async function buildServer(overrides: {
   overrides.exposeHub?.(hub);
   // Before the routes: a request for a member's session must never reach a
   // local handler, which would answer it as an unknown session of this device.
-  registerFederationRoutes(app, federation, () => remote.selfId(), imagesDir);
+  registerFederationRoutes(app, federation, () => remote.selfId(), imagesDir, images);
   registerRoutes(app, {
     db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, terminals, recentTools, errors,
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees,
