@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { cpSync, mkdirSync, writeFileSync, readFileSync, appendFileSync, statSync, utimesSync } from 'node:fs';
 import { join } from 'node:path';
 import { DEFAULT_MIGRATIONS_FOLDER, openDb } from '../src/db/database.js';
-import { sessions, sessionColumns, sessionTags, sweptSessions, sessionStats, tagRules, tags } from '../src/db/schema.js';
+import { harnessMessages, sessionHarnesses, sessions, sessionColumns, sessionTags, sweptSessions, sessionStats, tagRules, tags } from '../src/db/schema.js';
 import { indexPaths, indexProjects, indexProjectsSliced } from '../src/indexer/indexer.js';
 import { retentionCutoff, sweepSessions } from '../src/retention.js';
 import { STATS_VERSION, CHARS_PER_TOKEN, OBESE_RESULT_TOKENS } from '../src/stats/constants.js';
@@ -603,5 +603,51 @@ describe('the sliced full pass', () => {
       .run();
     await indexProjectsSliced(db, projects, undefined, undefined, undefined, 0);
     expect(db.select().from(sessionTags).all()).toHaveLength(4);
+  });
+});
+
+describe('indexProjects and harness sessions', () => {
+  const kickoff = (uuid: string) => ({
+    type: 'user', uuid, timestamp: '2026-10-01T10:00:00.000Z', cwd: '/p',
+    message: { role: 'user', content: 'This session follows the Orbital harness "Feature". The checklist:' },
+  });
+  const user = (uuid: string, text: string) => ({
+    type: 'user', uuid, timestamp: '2026-10-01T10:05:00.000Z', cwd: '/p',
+    message: { role: 'user', content: text },
+  });
+
+  function harnessed(entries: unknown[]) {
+    const { db, projects } = setupEmpty();
+    db.insert(sessionHarnesses).values({
+      sessionId: 's1', templateId: null, name: 'Feature', steps: [], inputs: {}, state: [], createdAt: 0, updatedAt: 0,
+    }).run();
+    db.insert(harnessMessages).values({ uuid: 'k1', sessionId: 's1', kind: 'kickoff', stepIndex: 0, at: 0 }).run();
+    writeTranscriptFile(projects, '-p', 's1', entries);
+    const title = () => db.select({ title: sessions.title }).from(sessions).where(eq(sessions.id, 's1')).get()!.title;
+    return { db, projects, title };
+  }
+
+  it('names the session after the user, not the kickoff', () => {
+    const { db, projects, title } = harnessed([kickoff('k1'), user('u1', 'Add a badge to harness sessions')]);
+    indexProjects(db, projects);
+    expect(title()).toBe('Add a badge to harness sessions');
+  });
+
+  it('holds the harness name until the user writes, then takes theirs', () => {
+    const { db, projects, title } = harnessed([kickoff('k1')]);
+    indexProjects(db, projects);
+    expect(title()).toBe('Feature');
+    writeTranscriptFile(projects, '-p', 's1', [kickoff('k1'), user('u1', 'Fix the gate pill')]);
+    indexProjects(db, projects);
+    expect(title()).toBe('Fix the gate pill');
+  });
+
+  it('keeps a typed title that happens to equal the harness name', () => {
+    const { db, projects, title } = harnessed([kickoff('k1')]);
+    indexProjects(db, projects);
+    db.update(sessions).set({ titleSource: 'manual' }).where(eq(sessions.id, 's1')).run();
+    writeTranscriptFile(projects, '-p', 's1', [kickoff('k1'), user('u1', 'Fix the gate pill')]);
+    indexProjects(db, projects);
+    expect(title()).toBe('Feature');
   });
 });

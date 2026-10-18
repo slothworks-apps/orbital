@@ -223,7 +223,12 @@ export function isBareSlashCommand(text: string): boolean {
   return /^\/[A-Za-z0-9](?:[A-Za-z0-9:_-]*)$/.test(text);
 }
 
-export function extractMeta(entries: TranscriptEntry[]) {
+/**
+ * `skip` holds the uuids of user entries that are not the user's words — the
+ * messages Orbital sent on a harness's account (`harness_messages`). They
+ * count as messages but never name the session.
+ */
+export function extractMeta(entries: TranscriptEntry[], skip: ReadonlySet<string> = new Set()) {
   let cwd = '';
   let model: string | null = null;
   let title = '';
@@ -245,7 +250,7 @@ export function extractMeta(entries: TranscriptEntry[]) {
       if (firstAt === null) firstAt = t;
       lastAt = t;
     }
-    if (!title && e.type === 'user' && e.message) {
+    if (!title && e.type === 'user' && e.message && !(e.uuid && skip.has(e.uuid))) {
       const text = truncateTitle(cleanTitle(textOf(e.message.content)));
       if (!text) continue;
       // Skip past a leading `/clear` (or any other bare command) to the first

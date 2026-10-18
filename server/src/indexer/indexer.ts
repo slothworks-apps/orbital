@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 import type { OrbitalDb } from '../db/database.js';
-import { sessions, sweptSessions, sessionStats } from '../db/schema.js';
+import { harnessMessages, sessionHarnesses, sessions, sweptSessions, sessionStats } from '../db/schema.js';
 import { parseTranscript, extractMeta } from '../transcript/parser.js';
 import { liveBranch } from '../transcript/liveBranch.js';
 import { regenerateRuleTags } from '../tags/rules.js';
@@ -231,6 +231,7 @@ function writePass(
           .select({
             cwd: sessions.cwd,
             title: sessions.title,
+            titleSource: sessions.titleSource,
             indexedMtime: sessions.indexedMtime,
             indexedSize: sessions.indexedSize,
             statsVersion: sessionStats.statsVersion,
@@ -267,7 +268,23 @@ function writePass(
         // The title, the count and the timestamps come off the live branch
         // (spec 2026-09-29-rewind-design); stats take every entry and split
         // it themselves, since a dead branch was still billed.
-        const meta = extractMeta(liveBranch(entries));
+        // What Orbital said on a harness's account never names the session:
+        // the user's first message does, and until there is one, the
+        // harness's own name stands in for it.
+        const harnessSaid = new Set(
+          db.select({ uuid: harnessMessages.uuid }).from(harnessMessages)
+            .where(eq(harnessMessages.sessionId, id)).all().map((r) => r.uuid),
+        );
+        const harnessName = harnessSaid.size > 0
+          ? db.select({ name: sessionHarnesses.name }).from(sessionHarnesses)
+            .where(eq(sessionHarnesses.sessionId, id)).get()?.name ?? ''
+          : '';
+        const meta = extractMeta(liveBranch(entries), harnessSaid);
+        if (!meta.title) meta.title = harnessName;
+        // A stand-in gives way to the user's first message once it arrives.
+        const replacesTitle = existing?.title === ''
+          || (harnessName !== '' && existing?.titleSource === 'derived'
+            && existing.title === harnessName && meta.title !== harnessName);
         // Sidechains live in their own files beside this one, so stats read
         // both; `extractMeta` above stays on the session's own entries. A
         // permission wait needs no trigger of its own: it is recorded before
@@ -276,7 +293,7 @@ function writePass(
         if (
           !existing ||
           existing.cwd !== meta.cwd ||
-          (existing.title === '' && meta.title !== '')
+          (replacesTitle && meta.title !== '')
         ) ruleInputsChanged = true;
         db.insert(sessions)
           .values({
@@ -303,7 +320,8 @@ function writePass(
               // a bare "/clear" included, when a transcript holds nothing else
               // — is kept as is on every later pass; the one-off cleanup of
               // stale titles is migration 0013, not something this loop redoes.
-              title: sql`CASE WHEN ${sessions.title} = '' THEN ${meta.title} ELSE ${sessions.title} END`,
+              // A harness's stand-in name is the one exception (above).
+              title: replacesTitle ? meta.title : sql`${sessions.title}`,
               firstAt: meta.firstAt,
               lastAt: meta.lastAt,
               messageCount: meta.messageCount,
