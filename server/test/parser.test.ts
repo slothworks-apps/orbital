@@ -571,7 +571,7 @@ describe('extractMeta skip', () => {
       { type: 'user', uuid: 'k1', message: { role: 'user', content: 'This session follows the Orbital harness "Feature".' } },
       { type: 'user', uuid: 'u1', message: { role: 'user', content: 'Fix the gate pill' } },
     ];
-    const meta = extractMeta(entries as any, new Set(['k1']));
+    const meta = extractMeta(entries, new Set(['k1']));
     expect(meta.title).toBe('Fix the gate pill');
     expect(meta.messageCount).toBe(2);
   });
