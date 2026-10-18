@@ -26,7 +26,7 @@ function fakeRelay(answers: Record<string, Answer> = {}) {
   return { relay, posts, answers };
 }
 
-function build(opts: { inGroup?: boolean; members?: string[]; paired?: PairedDevice[]; answers?: Record<string, Answer> } = {}) {
+function build(opts: { kind?: string; inGroup?: boolean; members?: string[]; paired?: PairedDevice[]; answers?: Record<string, Answer> } = {}) {
   const identity = generateIdentity();
   const r = fakeRelay(opts.answers);
   const paired = new Map((opts.paired ?? []).map((d) => [d.id, d]));
@@ -43,7 +43,7 @@ function build(opts: { inGroup?: boolean; members?: string[]; paired?: PairedDev
     relayTooOld: () => false,
     relayUrl: () => RELAY,
     relaySecret: () => '',
-    self: () => ({ name: 'self', platform: 'macos', kind: 'desktop' }),
+    self: () => ({ name: 'self', platform: 'macos', kind: opts.kind ?? 'desktop' }),
     inGroup: () => opts.inGroup ?? false,
     isLiveMember: (id) => (opts.members ?? []).includes(id),
     paired: {
@@ -230,5 +230,46 @@ describe('PairingCeremony as the newcomer', () => {
     expect(n.ceremony.onRejected(qr.mac)).toBe(true);
     expect(n.ceremony.state().joining).toBeNull();
     expect(n.ceremony.onPaired(qr.mac)).toBe(false);
+  });
+});
+
+describe('PairingCeremony between two phones', () => {
+  it('a phone showing its code refuses another phone: rejected at the relay, never asked, the code spent', async () => {
+    const shower = build({ kind: 'phone' });
+    const qr = await showCode(shower);
+    const phone = generateIdentity();
+    shower.ceremony.onPairRequest(request(qr, phone));
+    await new Promise((r) => setTimeout(r, 0));
+    const state = shower.ceremony.state();
+    expect(state.pendingPair).toBeNull();
+    expect(state.pairing).toBeNull();
+    expect(state.refused).toEqual({ phone: deviceId(phone.publicKey), name: 'Pixel', error: 'phone_to_phone' });
+    expect(shower.calls.announced).toEqual([]);
+    expect(shower.relay.posts).toContainEqual({ path: '/pair/confirm', payload: { phone: deviceId(phone.publicKey), accept: false } });
+    // The next code starts clean.
+    await showCode(shower);
+    expect(shower.ceremony.state().refused).toBeNull();
+  });
+
+  it('a phone showing its code still takes a desktop', async () => {
+    const shower = build({ kind: 'phone' });
+    const qr = await showCode(shower);
+    const mac = generateIdentity();
+    const secret = fromBase64Url(qr.secret);
+    shower.ceremony.onPairRequest({
+      type: 'pair_request', phone: deviceId(mac.publicKey), proof: pairingProof(secret, mac.publicKey),
+      device: sealPairingDevice(secret, mac.publicKey, { name: 'studio', platform: 'darwin', kind: 'desktop' }),
+    });
+    expect(shower.ceremony.state().pendingPair).toMatchObject({ kind: 'desktop' });
+  });
+
+  it("a phone refuses another phone's code before it asks the relay", async () => {
+    const shower = build({ kind: 'phone' });
+    const qr = await showCode(shower);
+    const joiner = build({ kind: 'phone' });
+    expect(await joiner.ceremony.join(JSON.stringify(qr))).toEqual({ error: 'phone_to_phone' });
+    expect(joiner.relay.posts).toEqual([]);
+    // A desktop takes the same code.
+    expect(await build().ceremony.join(JSON.stringify(qr))).toHaveProperty('device', qr.mac);
   });
 });

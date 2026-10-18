@@ -54,10 +54,13 @@ export type PairConfirmResult =
  * group already and leaves it first. `peer_offline`: the device that showed
  * the code is not on the relay; `expiresAt` is the code's, when it says.
  * `other_relay`: the code names a relay this device is not on, `relay`.
+ * `phone_to_phone`: this device is a phone and so is the one whose code it
+ * is — a phone joins a group through a computer, never another phone.
  */
 export type JoinResult =
   | { device: string; name: string; code: string }
   | { error: 'bad_code' | 'disabled' | 'offline' | 'already_paired' | 'in_group' | 'relay_error' | 'relay_too_old' }
+  | { error: 'phone_to_phone' }
   | { error: 'other_relay'; relay: string }
   | { error: 'peer_offline'; expiresAt?: number };
 
@@ -80,11 +83,18 @@ export type PendingPair = { phone: string; name: string; platform: string; kind:
  */
 export type Joining = { device: string; name: string; kind: string | null; code: string; expiresAt: number };
 
+/**
+ * A request the code on screen refused without asking the user, and why:
+ * `phone_to_phone`, a phone asking to join a phone. Kept until the next code.
+ */
+export type RefusedPair = { phone: string; name: string; error: 'phone_to_phone' };
+
 /** What a status shows of the ceremonies. */
 export type CeremonyState = {
   pendingPair: PendingPair | null;
   pairing: { expiresAt: number } | null;
   joining: Joining | null;
+  refused: RefusedPair | null;
 };
 
 /**
@@ -156,6 +166,7 @@ export class PairingCeremony {
    * still confirm it, and the pair the relay then makes is revoked here.
    */
   private cancelledJoin: { device: string; expiresAt: number } | null = null;
+  private refused: RefusedPair | null = null;
 
   private readonly host: CeremonyHost;
 
@@ -170,6 +181,7 @@ export class PairingCeremony {
     this.pairing = null;
     this.joining = null;
     this.cancelledJoin = null;
+    this.refused = null;
   }
 
   /** What a status shows; an expired code and its request are cleared first. */
@@ -183,6 +195,7 @@ export class PairingCeremony {
           device: this.joining.device, name: this.joining.name, kind: this.joining.kind, code: this.joining.code,
           expiresAt: this.joining.expiresAt,
         } : null,
+      refused: this.refused,
     };
   }
 
@@ -221,6 +234,7 @@ export class PairingCeremony {
     const secret = randomBytes(PAIRING_SECRET_BYTES);
     this.pairing = { expiresAt: res.body.expiresAt, secret };
     this.pendingPair = null;
+    this.refused = null;
     const self = this.host.self();
     const qr: QrPayload = {
       v: 1, relay: this.host.relayUrl(), mac: deviceId(identity.publicKey), name: self.name, token: res.body.token,
@@ -252,13 +266,34 @@ export class PairingCeremony {
     }
     // Only what the phone sealed with this code's secret: a plain name came from the relay.
     const device = msg.device === undefined ? null : openPairingDevice(this.pairing.secret, phoneKey, msg.device);
+    const kind = device?.kind ?? 'phone';
+    if (kind === 'phone' && this.host.self().kind === 'phone') {
+      this.refusePhone(msg.phone, device?.name || UNKNOWN_PHONE_NAME);
+      return;
+    }
     this.pendingPair = {
       phone: msg.phone, name: device?.name || UNKNOWN_PHONE_NAME, platform: device?.platform ?? '',
-      kind: device?.kind ?? 'phone',
+      kind,
       code: fingerprint(identity.publicKey, phoneKey), attemptsLeft: PAIR_CODE_ATTEMPTS,
     };
     this.host.announce(this.publicPendingPair()!);
     this.host.changed();
+  }
+
+  /**
+   * A phone redeemed this phone's code: the request is rejected at the relay
+   * without asking, so the other phone hears `rejected`, and the code is spent.
+   */
+  private refusePhone(phone: string, name: string): void {
+    this.pairing = null;
+    this.refused = { phone, name, error: 'phone_to_phone' };
+    this.host.log(`refused a pairing request from ${phone.slice(0, 8)}: a phone can't join another phone`);
+    this.host.changed();
+    const client = this.host.relay();
+    if (!client) return;
+    void client.post('/pair/confirm', 'pair.confirm', { phone, accept: false }).then((res) => {
+      if (res.status !== 200) this.host.log(`relay reject of ${phone.slice(0, 8)} failed: ${res.status}`);
+    });
   }
 
   /**
@@ -335,6 +370,7 @@ export class PairingCeremony {
     const qr = parsePairingCode(code);
     if (!qr) return { error: 'bad_code' };
     if (this.host.relayTooOld()) return { error: 'relay_too_old' };
+    if (qr.kind === 'phone' && this.host.self().kind === 'phone') return { error: 'phone_to_phone' };
     // Groups do not merge (§ 3): a device in one leaves it before it joins
     // another group. A code from a member of its own group is pairing by hand.
     if (this.host.inGroup() && !this.host.isLiveMember(qr.mac)) return { error: 'in_group' };

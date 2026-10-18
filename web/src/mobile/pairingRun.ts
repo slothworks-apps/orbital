@@ -52,6 +52,8 @@ export function relayTooOldMessage(relayUrl: string, tooOld: RelayTooOld): strin
 export const PAIRING_FAILED = "Couldn't pair on this phone. Try again."
 /** A code from a device of another group while this phone is in one: groups do not merge. Provisional copy. */
 export const IN_GROUP = 'This phone is in a group already. Leave it first.'
+/** A code another phone shows: a phone joins a group through a computer. */
+export const PHONE_TO_PHONE = "A phone can't join another phone."
 /** A code from a device this phone is paired with already. */
 export function alreadyPaired(name: string): string {
   return `This phone is already paired with ${name}.`
@@ -151,6 +153,8 @@ export function joinRefused(
       return { kind: 'scan', error: relayTooOldMessage(qr.relay, tooOld ?? { relayVersion: null, needed: MIN_RELAY_VERSION }) }
     case 'in_group':
       return { kind: 'scan', error: IN_GROUP }
+    case 'phone_to_phone':
+      return { kind: 'scan', error: PHONE_TO_PHONE }
     case 'other_relay':
       // 50d B: a phone moves relays only by leaving its group, so no switch is offered.
       return {

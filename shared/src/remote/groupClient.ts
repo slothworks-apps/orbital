@@ -254,6 +254,11 @@ export class GroupClient {
     return this.ceremony.state().joining;
   }
 
+  /** A request this phone's code refused without asking: another phone's. */
+  get refusedPair(): CeremonyState['refused'] {
+    return this.ceremony.state().refused;
+  }
+
   on(listener: (event: GroupClientEvent) => void): () => void {
     this.listeners.add(listener);
     return () => {
