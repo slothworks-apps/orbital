@@ -1,7 +1,7 @@
 ---
 id: joining-one-member-joins-the-group
 title: Pairing with one member joins the whole group, and a removal wins
-status: draft
+status: in-force
 type: adr
 domain: remote
 related:

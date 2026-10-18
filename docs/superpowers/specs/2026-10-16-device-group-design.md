@@ -1,7 +1,7 @@
 ---
 id: 2026-10-16-device-group-design
 title: Device group — every device of one person talks to every other directly
-status: draft
+status: active
 type: spec
 domain: remote
 related:
@@ -68,13 +68,18 @@ member (the person already consented once, on two of their own devices).
 - **For:** anyone running Orbital on more than one machine, or on a
   machine and the phone.
 - **Lives:** on by default. A device alone is a group of one, and nothing
-  changes for it until a second device joins.
+  changes for it until a second device joins. Not Labs: adding a device is
+  an explicit act, the phone already reached its Mac this way, and nothing
+  of another device appears until one is added.
 - **An existing user notices:** nothing on the Mac until they add a
   device. Settings → Mobile becomes Settings → Devices, which lists the
   phone already paired as a member. A phone already paired keeps working
-  without pairing again.
-- **Can be set:** which devices are in the group (add, rename this
-  device, remove any); the device filter chips on the map and the phone;
+  without pairing again; its Settings shows Devices (the group, this phone's
+  code, Leave this group) where it showed one Mac and "Pair a different
+  Mac".
+- **Can be set:** which devices are in the group (add, remove any, leave;
+  rename this device on a desktop — the phone takes its name from the
+  system); the device filter chips on the map and the phone;
   the relay, only while the device is alone (§ 4).
 
 ## 1. Members

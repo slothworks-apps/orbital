@@ -1,7 +1,7 @@
 ---
 id: the-relay-pairs-two-devices-that-both-sign
 title: The relay pairs two devices when both sign for it
-status: draft
+status: in-force
 type: adr
 domain: remote
 related:

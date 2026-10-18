@@ -1,7 +1,7 @@
 ---
 id: a-device-has-one-identity-and-one-channel-per-pair
 title: A device has one identity, and one channel per pair carries both directions
-status: draft
+status: in-force
 type: adr
 domain: remote
 related:

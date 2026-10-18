@@ -1,7 +1,7 @@
 ---
 id: every-member-reaches-one-literal-allowlist
 title: Every member of a group reaches one literal allowlist, the phone included
-status: draft
+status: in-force
 type: adr
 domain: remote
 related:
