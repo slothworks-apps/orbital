@@ -5,6 +5,7 @@ status: active
 type: spec
 domain: remote
 related:
+  - the-group-has-one-primary-device
   - 2026-09-30-mobile-remote-design
   - remote-identity-is-ed25519-with-ephemeral-session-keys
   - the-phone-tunnels-the-api-behind-an-allowlist
@@ -98,6 +99,13 @@ member (the person already consented once, on two of their own devices).
   one, so there is no "create a group" step.
 
 ## 2. The roster
+
+> As built (2026-10-18): the roster is one document signed by the
+> group's primary — the device that founded the group — which alone adds
+> and removes devices and dissolves the group (ADR
+> `the-group-has-one-primary-device`). § 2–§ 4 below describe the earlier
+> design where every member wrote and merged; `docs/domains/device-group.md`
+> is how it works now.
 
 Every member keeps the whole roster and they converge on it.
 

@@ -72,11 +72,10 @@ UI, the phone as a member); each is narrow or heals on its own.
 
 ## Roster rule (removed devices)
 
-Closed by signed roster entries (ADR `roster-entries-are-signed`): the
-joiner's placeholder is gone, a re-add by the removed device's code is
-an ordinary re-add signed by the joiner, and an epoch is raised only by
-a membership another member signed. What a signature cannot settle is
-listed under Known limits in `docs/domains/device-group.md`. Left from
+Closed: the group's primary alone signs the roster (ADR
+`the-group-has-one-primary-device`), so a removed device has nothing to
+sign with. What remains is listed under Known limits in
+`docs/domains/device-group.md`. Left from
 the security pass of 2026-10-18:
 
 - **A peer announcing a huge size** may stream that many bytes until the
@@ -87,6 +86,4 @@ the security pass of 2026-10-18:
   after the relay lost its device rows.
 - **After the relay lost its store**, a member whose peer is offline
   cannot leave a half for it until that peer connects again.
-- **The first member of a group** reads "added by" the device that
-  joined it, not "started the group".
 

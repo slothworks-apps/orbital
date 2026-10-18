@@ -5,6 +5,7 @@ type: domain
 status: in-force
 domain: remote
 related:
+  - the-group-has-one-primary-device
   - 2026-10-16-device-group-design
   - device-channel
   - device-group
@@ -30,7 +31,7 @@ on both:
 
 | piece | file | what it holds |
 |---|---|---|
-| `GroupMember` | `shared/src/remote/group.ts` | the roster writes and their sync over channels, linking through `/pair/mutual` (asked once per relay connection, 404 → pair by hand, 429 → retried after `MUTUAL_RETRY_MS`), `linked`, removal, leaving, pending revokes, the member rows Settings lists |
+| `GroupMember` | `shared/src/remote/group.ts` | the roster (signed by the group's primary, ADR `the-group-has-one-primary-device`) and its sync over channels, linking through `/pair/mutual` (asked once per relay connection, 404 → pair by hand, 429 → retried after `MUTUAL_RETRY_MS`), `linked`, the exits of removal, leaving and dissolving, pending revokes, the member rows Settings lists |
 | `PairingCeremony` | `shared/src/remote/ceremony.ts` | showing a code (`/pair/token`, the proof check, `PAIR_CODE_ATTEMPTS`, confirm) and joining by one (`/pair/redeem`, the code to type on the other device, cancel) |
 | `RelayLink` | `shared/src/remote/relayLink.ts` | the phone's relay socket on its own: auth, reconnect, push token, every control, frames by peer, signed `post` |
 
@@ -62,8 +63,11 @@ tests.
   `error` `not_paired` or `unknown_device`, or a refused secret, does not
   forget a phone that holds a group: it reads as `pairs_lost` below. Only
   a phone with no group forgets on it, as a shipped phone did.
-- **`unpaired_all`** fires when the roster says this phone is no longer
-  in a group (removed by a member). The app shows 9h.
+- **Removed or dissolved.** A version of its group that no longer names
+  this phone, or a dissolved one, makes it standalone: it keeps its key,
+  ends its pairs with the group, and Settings → Devices shows a one-time
+  notice of who did it (canvas 50n). The old 9h screen remains for a
+  relay that ends the pair before the roster arrives.
 - **`pairs_lost`** is the relay losing pairs while the group still
   holds the phone: the members re-form them through `/pair/mutual`.
   When no pair and no channel come back within `ALONE_GRACE_MS`, the
@@ -132,10 +136,13 @@ hello. #79's `MultiClient`, with no main Mac:
   <code> on <name>"; the list's device chips, asleep per device, rows
   naming their device, New session's device picker (canvas 50j). A
   too-old device's sessions are read only.
-- **Leaving** keeps the identity; it is refused while the relay is
-  offline, where "Forget this group on this phone" forgets it locally.
-  Removing the last other member is leaving. A removal by the group
-  clears the identity, as it always did.
+- **The primary.** A phone is never primary. In a group it offers no
+  code and no Remove; one line names the device that manages the group
+  (canvas 50i). It shows its own code only while it is in no group.
+- **Leaving** keeps the identity and needs a member to acknowledge the
+  notice; without one it answers `offline`, and "Forget this group on
+  this phone" forgets it locally (the group lists the phone until the
+  primary removes it).
 
 ## The relay
 
