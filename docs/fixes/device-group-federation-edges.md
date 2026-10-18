@@ -72,18 +72,21 @@ UI, the phone as a member); each is narrow or heals on its own.
 
 ## Roster rule (removed devices)
 
-A member refuses a roster entry in which the sender raises its own epoch,
-and a self-added higher epoch for a device it removed (`roster.ts`). Left:
+Closed by signed roster entries (ADR `roster-entries-are-signed`): the
+joiner's placeholder is gone, a re-add by the removed device's code is
+an ordinary re-add signed by the joiner, and an epoch is raised only by
+a membership another member signed. What a signature cannot settle is
+listed under Known limits in `docs/domains/device-group.md`. Left from
+the security pass of 2026-10-18:
 
-- **The joiner's placeholder.** A member that still holds the placeholder
-  for a device (written by the member when it joined that device, with
-  that device as `addedBy`) and never got that device's own entry can
-  take a self-raised entry from the device after it was removed; members
-  that heard of the removal refuse it. Needs a device that withheld its
-  roster before it was removed.
-- **Re-adding by redeeming the removed device's code** writes that device
-  as its own `addedBy`, which a member that removed it refuses. Narrow:
-  joining is refused while in a group unless the joiner is alone.
-- **A device whose own epoch is above a member's** never gets its own
-  entry taken there; renames still arrive through its hello, and each
-  channel open costs one extra roster exchange.
+- **A peer announcing a huge size** may stream that many bytes until the
+  download deadline; the size is not capped, because the image store
+  keeps transcript images of any size.
+- **Keys the relay does not know share one mutual budget per address**,
+  which a page on the same network can use up; it only slows re-pairing
+  after the relay lost its device rows.
+- **After the relay lost its store**, a member whose peer is offline
+  cannot leave a half for it until that peer connects again.
+- **The first member of a group** reads "added by" the device that
+  joined it, not "started the group".
+

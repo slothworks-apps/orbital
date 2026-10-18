@@ -91,5 +91,16 @@ stays.
   cannot sign that device's description); it takes that device's entry
   from its first roster, and the three edge cases of the old rule
   (`docs/fixes/device-group-federation-edges.md` → Roster rule) go with it.
+- As built (2026-10-18): a higher epoch replaces a live entry only when
+  it is removed or described by the device itself, so no member re-adds
+  a live device behind its back; a membership signed by a device removed
+  here is refused; a roster frame naming one id twice is ignored; a
+  device alone holds a founding entry (epoch 0, never sent) that any
+  signed membership replaces; a roster is taken only from a device
+  paired here; `ROSTER_MAX_ENTRIES` is 128 so a full roster fits one
+  frame, and an add at the bound is refused (`group_full`).
+- Two limits stay: two memberships signed at one epoch before the device
+  describes itself are settled by the canonical form, and a removed key's
+  earlier signatures stay valid history.
 - Every entry costs up to three signatures (64 bytes each) in storage and
   on the wire, and a check per signature at each merge.

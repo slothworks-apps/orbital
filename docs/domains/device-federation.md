@@ -75,6 +75,16 @@ that carries `machine` is dropped — no chaining); `presence` sets
 `present` and is never republished; any other topic only when it is
 about one of that member's own sessions.
 
+**What a member may claim** (`mayHold`, at seed, upsert, restore and
+in a member's list): a session id that is a safe path segment, held
+neither by this device nor by another member; at most
+`MEMBER_SESSIONS_MAX` per member (past it a new id is dropped and logged
+once). The web app encodes every value it puts in an `/api` path as one
+segment (`web/src/lib/api.ts`), so an id a member chose never reaches
+another route. A channel download stops at the size the peer announced
+(`DOWNLOAD_MAX_BYTES` when it announced none) and at an overall
+deadline.
+
 **What a federated session looks like.** The member's session with its
 tags mapped by name to this server's tag ids, and
 `machine: { id, name, kind, os, online, asOf }` from the roster entry;
@@ -113,13 +123,17 @@ routes (the token guard is an `onRequest` hook and runs first):
   own id falls through to the local route; an id that is neither 404
   `unknown_device`.
 - The request goes through `federation.request` with `machine` dropped;
+  a member's 401 reaches the window as 502 `member_refused` (only this
+  server's own 401 means the token is wrong), and an answer naming a
+  session other than the one asked for has that session dropped;
   a composer's attachments are first sent to the member's image store
   (`putBlob`), a spawn's `tagId` and a tags `PUT` are mapped to the
   member's tags of the same names (made there when missing). An offline
   member answers 409 `member_offline`, a broken channel 502
   `member_unreachable`.
 - `GET /api/files/image?session=` goes through `getFile`;
-  `GET /api/images/:ref` not on disk here is asked of every member.
+  `GET /api/images/:ref` not on disk here is asked of every member, one
+  after another, until one answers bytes that hash to the ref.
 - A multipart upload is stored here, also for a member's session
   (`foreign` on the attachments route), and sent on with the message —
   an image only: anything else would reach the member as a path on this

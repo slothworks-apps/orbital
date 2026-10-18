@@ -36,9 +36,11 @@ on both:
 
 `RemoteService` (`server/src/remote/service.ts`) hosts the first two over
 its SQLite stores; the phone's `GroupClient` hosts them over an in-memory
-`MemoryGroupStorage` it persists behind. A device that joins writes the
-device it joined with `describedAt: 0` and that device as `addedBy`, so
-the joined device's own entry always wins the merge.
+`MemoryGroupStorage` it persists behind. Roster entries are signed (ADR
+`roster-entries-are-signed`, `docs/domains/device-group.md`); a stored
+roster without signatures is dropped and learned again from the members.
+A device that joins writes nothing for the device it joined: it takes
+that device's entry from its first roster.
 
 ## `GroupClient`
 
@@ -56,7 +58,10 @@ tests.
   peer has spoken rebuilds the whole socket — a half-open socket is the
   likely cause, as for a shipped phone.
 - **The relay's word** changes pairs, never the roster: `unpaired` and a
-  paired row missing from `ok.pairs` drop that pair and channel.
+  paired row missing from `ok.pairs` drop that pair and channel. A relay
+  `error` `not_paired` or `unknown_device`, or a refused secret, does not
+  forget a phone that holds a group: it reads as `pairs_lost` below. Only
+  a phone with no group forgets on it, as a shipped phone did.
 - **`unpaired_all`** fires when the roster says this phone is no longer
   in a group (removed by a member). The app shows 9h.
 - **`pairs_lost`** is the relay losing pairs while the group still
@@ -81,7 +86,12 @@ that serves sessions — a group member, or a shipped Mac by its `server`
 hello. #79's `MultiClient`, with no main Mac:
 
 - Every session carries `machine`; a session that already carries one
-  (a member passing on a third's) is dropped.
+  (a member passing on a third's) is dropped, and so is one whose id
+  another member already holds (`mayOwn`).
+- An image asked of every member is taken from the first whose bytes
+  hash to the ref; a wrong answer moves on to the next. A thumbnail
+  cannot be checked that way, so it is never written to the file cache;
+  a cached full image stands in for it offline.
 - A request about a session goes to its owner. An owner not known yet is
   looked up — the relists in flight are waited for (bounded), then every
   ready member is asked — never sent to the default member. A request

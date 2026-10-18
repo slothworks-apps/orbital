@@ -32,41 +32,58 @@ channel work that applies to it is `docs/domains/device-channel.md`.
 
 A roster is an array of entries, one per device id: `kind`, `name`,
 `os`, `links` (the device named the `group` capability and so is asked
-to link), `epoch`, `addedBy`, `addedAt`, `describedAt`, and, once
-removed, `removedBy` and `removedAt`. `isLive` is simply "no
-`removedAt`". The type and its schema live in `shared/src/remote/
-roster.ts`, with `ROSTER_MAX_ENTRIES` bounding how many a channel frame
-carries.
+to link), `epoch`, `addedBy`, `addedAt`, `describedAt`, `describedBy`,
+and, once removed, `removedBy` and `removedAt`. `isLive` is simply "no
+`removedAt`". The type, its schema and the merge live in
+`shared/src/remote/roster.ts`; `ROSTER_MAX_ENTRIES` bounds how many a
+member holds and a channel frame carries.
 
-Two rosters merge entry by entry, by `winner`: the higher `epoch` wins
-outright; within one epoch a removed entry beats a live one; within
-that, the later `describedAt` wins; and if even that ties, a
-fixed-order canonical form of the entry breaks it so every member
-computes the same winner. The winner is always one whole entry, never a
-field-by-field blend. `mergeRosters` is commutative — merging A into B
-gives the same roster as merging B into A — which is what lets every
-member converge without a single source of truth, and `rosterDigest`
-hashes the merged roster (sorted by id, keys in a fixed order) so two
-members can tell whether they agree without sending the whole thing.
+**Every entry is signed** (ADR `roster-entries-are-signed`). A device's
+id is its Ed25519 public key, so any member checks any signature on its
+own. Three parts, each over a fixed-order array opened by a domain tag:
 
-Because a removal only ever wins by `epoch` and then by being removed,
-a member that comes back online with a stale, still-live entry for a
-device cannot undo another member's removal of it: the removed entry
-either shares the epoch (and wins, being removed) or carries a higher
-one written by whoever re-added the device through a new pairing
-ceremony. A device is only ever added again by such a ceremony, which
-writes the next epoch after whatever epoch is already known for its id
-(`addMember`).
+| part | covers | signed by |
+|---|---|---|
+| membership (`addedSig`) | id, kind, epoch, `addedBy`, `addedAt` | `addedBy`, never the id itself |
+| description (`describedSig`) | id, epoch, `addedSig`, name, os, links, `describedAt`, `describedBy` | the device itself, or its adder until the device describes itself |
+| removal (`removedSig`) | id, epoch, `removedBy`, `removedAt` | `removedBy` |
 
-Entries carry no signature, so what a member takes from a received
-roster is filtered first (`admitted` in `shared/src/remote/roster.ts`):
-an entry for the sender itself is taken only if it does not raise the
-sender's epoch above the one known here — a device may describe itself,
-never re-add itself — unless what is known here is the placeholder this
-device wrote on joining it; and an entry for a device removed here is
-taken only at a higher epoch that the device did not add itself. Without
-this, a removed device that still holds its key could send a member that
-has not heard of its removal its own entry, live, one epoch up.
+`verifyEntry` checks every part (canonical base64url signatures only,
+`signatureOf` in `keys.ts`), an epoch between 1 and `ROSTER_MAX_EPOCH`,
+and a removal that is whole or absent; a verified entry is remembered by
+its canonical form (`verifiedOnce`, a bounded cache), so a roster sent
+again costs no checks. `kind` comes from the pairing — the sealed device
+of a device-bound proof, or `phone` for a plain proof — never from a
+hello. A description covers its membership's signature, so it belongs to
+one membership at one epoch: a device describes itself only under a
+membership of its own kind, and a member that re-signs a device's
+membership with another kind cannot carry the device's description over.
+
+`mergeRoster` takes an incoming entry only when it verifies, and decides
+per id:
+
+- an entry held here that is a **founding entry** (below) gives way to
+  any membership;
+- the **same epoch** combines part by part — the device's own
+  description beats its adder's, a removal beats none — the same in
+  either order;
+- a **higher epoch** replaces a *removed* entry with any valid
+  membership (a re-add, by someone other than the device), but a *live*
+  entry only when the incoming one is removed or described by the device
+  itself — no member re-adds a live device behind its back;
+- a membership that is new here and whose `addedBy` is removed here is
+  refused: a removed device adds nobody;
+- a lower epoch is ignored; a merge takes no new id once the roster is
+  full, and `addMember` refuses one (the pairing answers `group_full`).
+
+A roster frame that names one id twice is ignored whole. `rosterDigest`
+hashes the shareable roster (sorted by id, the canonical form) so two
+members can tell whether they agree without sending it.
+
+**The founding entry.** A device alone holds its own entry at epoch 0,
+added by itself (`foundingEntry`). It is never sent and never part of
+the digest; the first member that pairs with it signs its real
+membership. Leaving writes the founding entry again.
 
 ## Syncing the roster over the channels
 
@@ -85,15 +102,15 @@ not just echo it back and forth.
 A channel's own `ready` event, once its peer's hello named `group`,
 sends this side's `roster_digest` first. Receiving a `roster_digest`
 that does not match this side's own answers with the whole `roster`.
-Receiving a `roster` merges in what it admits with `mergeRosters` and,
+Receiving a `roster` from a device paired here merges it with `mergeRoster` and,
 if the sender's own merge of this side's roster would change it, answers
 with this side's own `roster` in turn — the sender may be missing
 something only this side knew. Two members that each keep an entry the
-other does not admit therefore stop after one answer rather than trading
+other does not take therefore stop after one answer rather than trading
 rosters forever. So two members converge within a few round trips of opening a
 channel, and after that only an actual change moves anything.
 
-Group messages (`roster_digest`, `roster`, `removed` — `GroupMessage` in
+Group messages (`roster_digest`, `roster` — `GroupMessage` in
 `shared/src/remote/messages.ts`) travel only between two peers that both
 named the `group` capability in their hello: `Channel.sendGroup` checks
 `this.groups` (the peer's hello named it) before sending, and the
@@ -113,23 +130,27 @@ other members carry (`kind: 'phone'`, `links: false`).
   platform, `links: true` — each cut to the bound the roster schema reads
   it within (`PAIR_NAME_MAX_CHARS`, `ROSTER_KIND_MAX_CHARS`), since one
   entry past a bound makes every other member refuse the whole roster.
-  If its name changes while it already has a live entry, it re-describes
-  itself (`describeMember`); a rename made while the remote was off is
-  picked up the next time the remote starts.
-- **A newcomer, at pairing.** Confirming an incoming pair, or finishing
-  a join through another member, adds the new device with `links:
-  false` and whatever the pairing ceremony knew about it (`addPaired`).
-  `links` only becomes true once that device's own hello says so — the
-  roster never takes a device's word about itself from the pairing
-  ceremony alone.
+  Alone, that entry is the founding entry; once a member has signed its
+  membership, `setRoster` re-signs its own description whenever it no
+  longer says what this device says of itself (`describedSelf`), so a
+  rename travels in the roster. A rename made while the remote was off
+  is picked up the next time the remote starts.
+- **A newcomer, at pairing.** Confirming an incoming pair signs the new
+  device's membership with the kind the ceremony proved — a device-bound
+  proof's sealed device, `links: true`; a plain proof (a shipped phone)
+  `kind: 'phone'`, `links: false` (`addPaired`). At `ROSTER_MAX_ENTRIES`
+  the request is rejected with `group_full`. The joiner writes nothing at
+  `paired`: it takes the joined device's entry from that device's first
+  roster, and signs it itself only when that roster does not name it
+  (the joined device was alone).
 - **What a hello describes.** Every channel's `hello` event calls
-  `onPeerHello`: it patches the peer's live entry with its `name` (or
-  `macName`), its `os`, and `links = channel.groups` (whether its hello
-  named the `group` capability) — only the fields the hello actually
-  carries. A device paired before the roster existed (an old phone) gets
-  a first entry here instead of a patch.
-- **Removal and leaving** write through `removeMember`/`addMember` as
-  below.
+  `onPeerHello`. A device that keeps no roster (a shipped phone, a Mac
+  from before groups) is added there by the device holding its pair,
+  with the paired row's kind; afterwards its adder re-describes it from
+  its hello (`name`, `os`, `links`) for as long as the device has not
+  described itself. `kind` is never taken from a hello.
+- **Removal and leaving** write through `removeMember` and the founding
+  entry as below.
 
 ## Linking
 
@@ -184,7 +205,7 @@ removed. `setRoster`'s `applyRemovals` then acts on every entry the
 write actually removed (one that was live, or unknown, just before):
 
 - **Removing someone else** (`dropMember`): while its channel is still
-  open, it is told `{ t: 'removed' }` and then the channel closes with
+  open, it is sent the signed roster that says so and then the channel closes with
   `bye revoked`; its watcher stops, its `remote_devices` row goes, and
   its relay pair is revoked (`POST /pair/revoke`) — posted even when
   there was no row, so a mutual half still waiting at the relay for this
@@ -198,26 +219,26 @@ write actually removed (one that was live, or unknown, just before):
   refusal while offline — first marks removed, in the roster it is about
   to send, every live `phone` entry this device has a `remote_devices`
   row for (those pairs go in this same leave, and no other member can
-  reach such a phone); then tells every open channel the roster (not `removed`: that message means "you were removed", and
-  this device was not) and closes it with `bye revoked`; revokes every
+  reach such a phone); then tells every open channel the roster and
+  closes it with `bye revoked`; revokes every
   paired device's relay pair, and separately revokes any live, linking
   member this device was never paired with but might have a mutual half
   waiting with; stops every watcher; and finally writes a fresh roster
-  holding only this device's own entry, at its next epoch — a group of
-  one. `leave()` itself only runs while the relay is online: offline,
+  holding only this device's founding entry — a group of one. A roster
+  is taken only from a device paired here, so one still in flight from a
+  former member does not bring the old group back. `leave()` itself only runs while the relay is online: offline,
   nothing reaches anyone else and the group-of-one write would
   overwrite the removal before it ever spread, so it answers `{ error:
   'offline' }` instead (409 from both `POST /api/remote/leave` and
   `DELETE /api/remote/devices/<own id>`). A roster write that fails
   answers `{ error: 'failed' }` (500), never `ok`.
-- **Learning of its own removal from a peer**: a `removed` group
-  message means "you were removed" — the sender is a member that
-  already knows — and is handled as `leaveGroup` above.
+- **Learning of its own removal from a peer**: a roster whose entry for
+  this device is removed, with a good removal signature, is handled as
+  `leaveGroup` above.
 - **A relay `unpaired` control** for a device with a `remote_devices`
   row means the other side revoked the pair directly; the row, channel
   and watcher go, but the roster is not touched by this alone — only a
-  roster write (a `removed` message, or a roster that already marks the
-  device removed) ends its membership. The relay's word about a pair is
+  roster that marks the device removed ends its membership. The relay's word about a pair is
   not the relay's word about the group.
 
 ## The relay's part
@@ -232,7 +253,12 @@ once both halves are in it writes the pair (lower device id in the
 and `presence` to each side exactly once — `created` is true only for
 the call that actually formed the pair, so simultaneous requests do not
 double-send. A half older than `MUTUAL_PAIR_TTL_MS` is pruned before the
-next request is considered. `POST /pair/revoke` works for either side of
+next request is considered. A half is kept only when its peer has a
+device row or holds a relay socket now, or when it completes the peer's
+waiting half; a signer connected now gets its row then, so two members
+pair again after the relay lost its store. Each signer keeps at most
+`MUTUAL_HALVES_PER_DEVICE` halves (the oldest goes), and past
+`MUTUAL_HALVES_MAX` on the whole relay a new half is refused with 429. `POST /pair/revoke` works for either side of
 a mutual pair, same as it already did for a phone pair, and deletes any
 waiting half between the two devices along with it — a half signed
 before a revoke cannot complete a pair after it. A revoked device's
@@ -244,7 +270,10 @@ per sender.
 (`MUTUAL_RATE_LIMIT_PER_MIN` in `relay/src/rateLimit.ts`), not on the
 one a WebSocket connect checks (`PAIR_RATE_LIMIT_PER_MIN`): every member
 asks for every other at each connection, and that must never lock a
-device behind the same address out of connecting. A wrong relay secret
+device behind the same address out of connecting. The secret is checked before
+this budget is charged, and a device the relay knows has its own share
+of its address's budget, so throwaway keys from a page on the same
+network cannot use up a member's. A wrong relay secret
 on either route still counts against the guessing budget, and past it
 they are refused like a connect, so the secret is not guessed faster
 through them.
@@ -311,19 +340,25 @@ presence says nothing about it here.
 - **A peer that is asleep when another member leaves, or that receives
   the relay's `unpaired` before the leaver's roster message** keeps the
   leaver listed as a live but unlinked member until a person removes it
-  by hand. The roster only ever changes by a roster write — a `removed`
-  message or an already-removed entry — never by the relay's `unpaired`
-  alone, so the relay cannot make a member disappear from anyone's
+  by hand. The roster only ever changes by a signed roster entry, never by the
+  relay's `unpaired` alone, so the relay cannot make a member disappear from anyone's
   roster on its own.
 - **Removed entries are never pruned.** A removal has to outlive the
   device it removed, so the roster only ever grows: `ROSTER_MAX_ENTRIES`
   is a limit on how many devices a group can ever have held, not on how
   many it holds now.
-- **A device's own word is trusted group-wide.** The `kind` sealed at
-  pairing and `links` from its hello are what the device says about
-  itself; nothing checks them. Pairing anything by code with one member
-  makes it a member that every other member links with, if it says it
-  links.
+- **A member's word is trusted group-wide.** Any member signs adds and
+  removals, so a stolen key adds and removes devices until it is removed
+  itself; it cannot change how another device describes itself, nor
+  re-add a live device. A device's `kind` is what it proved at pairing.
+- **Two memberships at one epoch, before the device describes itself.**
+  A member that signs a competing membership for a fresh add before the
+  device's own description arrives may win the tie on the canonical form;
+  for a device that never describes itself (a shipped phone, a Mac from
+  before groups) that holds until it is removed and added again.
+- **A removed key still signs history.** Entries it signed before its
+  removal stay valid and are passed on; only new memberships it signs are
+  refused.
 - **After this device's identity file is unreadable and regenerated**,
   its old self entry in the roster is left live: the old key, and the
   id derived from it, is simply gone, so nothing can mark that entry
@@ -346,7 +381,8 @@ presence says nothing about it here.
 ## Storage
 
 - On a Mac or a server: `group_members` (`server/src/db/schema.ts`,
-  migration `0029_group_roster`), one row per roster entry, read and
+  migrations `0029_group_roster` and `0032_signed_roster`, which added
+  the signatures and dropped the unsigned rows), one row per roster entry, read and
   written through `RosterStore`. This is a deviation from spec § 2
   "Storage", which described the roster as columns added to
   `remote_devices`; as built, `remote_devices` holds only the devices
