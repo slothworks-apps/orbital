@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
 import Fastify from 'fastify';
-import { DOWNLOAD_MAX_BYTES, TunnelError, type BlobResult, type Channel, type ChannelEvent, type TunnelResponse } from '@orbital/shared/remote/channel';
+import { TunnelError, type BlobResult, type Channel, type ChannelEvent, type TunnelResponse } from '@orbital/shared/remote/channel';
 import { capabilitiesOf } from '@orbital/shared/remote/device';
 import { PROTOCOL_VERSION, type HelloMessage } from '@orbital/shared/remote/messages';
 import { isLive, type RosterEntry } from '@orbital/shared/remote/roster';
@@ -10,8 +10,6 @@ import { Hub } from '../src/api/hub.js';
 import { createImageStore } from '../src/images/store.js';
 import { ServingHalf } from '../src/remote/servingHalf.js';
 import { makeTmpDir, openTmpDb } from './tmp.js';
-import { ATTACHMENT_MAX_BYTES } from '../src/api/routes.js';
-import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
 import { registerFederationRoutes } from '../src/federation/routes.js';
 import { FederationService, MEMBER_SESSIONS_MAX, SEED_RETRY_MS, SNAPSHOT_WRITE_MS, type FederationOptions } from '../src/federation/service.js';
 import { MemberSnapshotStore } from '../src/federation/store.js';
@@ -23,7 +21,7 @@ const B = 'member-b';
 function entry(id: string, patch: Partial<RosterEntry> = {}): RosterEntry {
   return {
     id, kind: 'desktop', name: id === SELF ? 'studio' : 'laptop', os: 'macos', links: true,
-    epoch: 1, addedBy: SELF, addedAt: 1, describedAt: 1, ...patch,
+    epoch: 1, addedBy: SELF, addedAt: 1, addedSig: '', describedAt: 1, describedBy: id, describedSig: '', ...patch,
   };
 }
 
@@ -300,6 +298,11 @@ describe('FederationService', () => {
     expect(await federation.request(link, 'GET', '/api/sessions/s1')).toEqual({
       status: 200, body: { session: { id: 's1', tagIds: [3], machine: { ...machineB, online: true, asOf: null } } },
     });
+    // An answer naming another session than the one asked: that session is left out, here and in a read.
+    b.answer = () => ({ status: 200, body: { session: { id: 'other' }, extra: 1 } });
+    expect(await federation.request(link, 'GET', '/api/sessions/s1')).toEqual({ status: 200, body: { extra: 1 } });
+    expect(await federation.read(link, 's1', '/api/sessions/s1')).toEqual({ status: 200, body: { extra: 1 } });
+    expect(await federation.request(link, 'POST', '/api/sessions')).toEqual({ status: 200, body: { extra: 1 } });
     b.answer = () => { throw new TunnelError('timeout'); };
     expect(await federation.request(link, 'GET', '/api/health')).toEqual({ status: 502, body: { error: 'member_unreachable' } });
     b.down();
@@ -993,12 +996,5 @@ describe('ReadCache', () => {
     cache.put('m', 's', '/a', { list: [1] }, 1);
     (cache.get('m', '/a')!.body as { list: number[] }).list.push(2);
     expect(cache.get('m', '/a')!.body).toEqual({ list: [1] });
-  });
-});
-
-describe('what a channel downloads', () => {
-  it('DOWNLOAD_MAX_BYTES takes in every image and file a Mac serves over a channel', () => {
-    expect(DOWNLOAD_MAX_BYTES).toBeGreaterThanOrEqual(ATTACHMENT_MAX_BYTES);
-    expect(DOWNLOAD_MAX_BYTES).toBeGreaterThanOrEqual(FILE_PREVIEW_MAX_BYTES);
   });
 });

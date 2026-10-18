@@ -9,15 +9,14 @@
  * device is never taken in, and nothing here is passed on to another member
  * (no chaining: `ServingHalf` withholds what this holds).
  */
-import { createHash } from 'node:crypto';
 import { PRESENCE_TOPIC, presenceFromFrame } from '@orbital/shared/presence';
 import {
-  TunnelError, type BlobResult, type Channel, type FileResult, type HttpMethod, type TunnelResponse,
+  bytesMatchRef, TunnelError, type BlobResult, type Channel, type FileResult, type HttpMethod, type TunnelResponse,
 } from '@orbital/shared/remote/channel';
 import type { MachineEvent, MachineRef } from '@orbital/shared/remote/device';
 import type { FileAs, HelloMessage } from '@orbital/shared/remote/messages';
 import type { RosterEntry } from '@orbital/shared/remote/roster';
-import { isSafeId, sessionOfTopic } from '@orbital/shared/remote/segments';
+import { isSafeId, sessionOfRequest, sessionOfTopic } from '@orbital/shared/remote/segments';
 import type { Hub } from '../api/hub.js';
 import { memberTooOld } from '../remote/memberGate.js';
 import type { RemoteService } from '../remote/service.js';
@@ -216,7 +215,7 @@ export class FederationService {
   }
 
   async request(link: MemberLink, method: HttpMethod, path: string, body?: unknown): Promise<TunnelResponse> {
-    return this.localizeAnswer(link, await this.ask(link, method, path, body));
+    return this.localizeAnswer(link, await this.ask(link, method, path, body), sessionOfRequest(path));
   }
 
   /**
@@ -228,14 +227,14 @@ export class FederationService {
     if (!link.channel?.ready) {
       const kept = this.readCache.get(link.id, path);
       // Localized now: the copy names the member as it is, offline.
-      if (kept) return { ...this.localizeAnswer(link, { status: 200, body: kept.body }), asOf: kept.at };
+      if (kept) return { ...this.localizeAnswer(link, { status: 200, body: kept.body }, sessionId), asOf: kept.at };
     }
     const res = await this.ask(link, 'GET', path);
     // Not kept when the member or the session left while the answer was on its way.
     if (res.status === 200 && this.links.get(link.id) === link && this.owns(link, sessionId)) {
       this.readCache.put(link.id, sessionId, path, res.body, this.now());
     }
-    return this.localizeAnswer(link, res);
+    return this.localizeAnswer(link, res, sessionId);
   }
 
   /** The member's answer as it came; 409 while it is offline, 502 when the channel failed. */
@@ -250,12 +249,16 @@ export class FederationService {
     }
   }
 
-  /** A session in a member's answer, as this device shows it. */
-  private localizeAnswer(link: MemberLink, res: TunnelResponse): TunnelResponse {
+  /**
+   * A session in a member's answer, as this device shows it. Only the
+   * session the request named (`asked`) is passed on: a member answering
+   * with another id would claim it here, so that `session` is left out.
+   */
+  private localizeAnswer(link: MemberLink, res: TunnelResponse, asked: string | null): TunnelResponse {
     const payload = res.body as { session?: Session } | null;
-    if (payload && typeof payload === 'object' && payload.session && typeof payload.session.id === 'string') {
-      // A third device's session, as the member shows it: not ours to pass on as the member's.
-      if (carriesMachine(payload.session)) {
+    if (payload && typeof payload === 'object' && payload.session && typeof payload.session === 'object') {
+      // A third device's session, as the member shows it, or one the request did not name: not ours to pass on.
+      if (payload.session.id !== asked || carriesMachine(payload.session)) {
         const { session: _chained, ...rest } = payload;
         return { status: res.status, body: rest };
       }
@@ -317,12 +320,11 @@ export class FederationService {
    * ref's answers. A member answering other bytes does not end the search.
    */
   async blob(ref: string): Promise<BlobResult | null> {
-    const hash = ref.slice(0, ref.indexOf('.'));
     const asks = [...this.links.values()].flatMap((link) => {
       const channel = link.channel;
       if (!channel?.ready) return [];
       return [channel.getBlob(ref).then((res) => (
-        res.status === 200 && createHash('sha256').update(res.bytes).digest('hex') === hash
+        res.status === 200 && bytesMatchRef(ref, res.bytes)
           ? res : Promise.reject(new Error('not held'))
       ))];
     });
