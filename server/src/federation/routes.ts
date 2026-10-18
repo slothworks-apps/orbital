@@ -7,7 +7,6 @@
  * came over a channel (`DEVICE_HEADER`) is never forwarded and never gets
  * another member's sessions merged in: no chaining.
  */
-import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -48,9 +47,9 @@ export function registerFederationRoutes(
       const ref = image[1];
       const m = IMAGE_REF_RE.exec(ref);
       if (!m || existsSync(join(imagesDir, ref))) return;
+      // Content-addressed: only bytes that are the ref's come back, so only they are served and cached as it.
       const blob = await federation.blob(ref);
-      // Content-addressed: bytes that are not the ref's are not served, and never cached as it.
-      if (!blob || createHash('sha256').update(blob.bytes).digest('hex') !== ref.slice(0, ref.indexOf('.'))) return;
+      if (!blob) return;
       // The type is the ref's, never the member's word: a member's answer must not become a page on this origin.
       reply.header('content-type', IMAGE_CONTENT_TYPES[m[1]]);
       reply.header('x-content-type-options', 'nosniff');
@@ -83,7 +82,7 @@ export function registerFederationRoutes(
         link, sessionId, filePath, /\.pdf$/i.test(filePath) ? 'pdf' : 'image', query.get('cwd') ?? undefined,
       );
       if (!file) return reply.code(502).send({ error: 'member_unreachable' });
-      if (file.status !== 200) return reply.code(file.status).send({ error: 'not_found' });
+      if (file.status !== 200) return send(reply, file.status, { error: 'not_found' });
       reply.header('content-type', file.mediaType ?? 'application/octet-stream');
       reply.header('cache-control', 'no-cache');
       reply.header('content-security-policy', "default-src 'none'; style-src 'unsafe-inline'; sandbox");
@@ -195,8 +194,14 @@ function machineOfBody(req: FastifyRequest): string | null {
   return isObject(req.body) && typeof req.body.machine === 'string' ? req.body.machine : null;
 }
 
-/** The member's answer as it came: a string body is plain text. */
+/**
+ * The member's answer as it came: a string body is plain text. A 401 is the
+ * member refusing this device, not this device's window lacking its token:
+ * passed on as it came, it would log the window out (`markUnauthorized`), so
+ * it goes out as a 502 `member_refused`.
+ */
 function send(reply: FastifyReply, status: number, body: unknown): FastifyReply {
+  if (status === 401) return reply.code(502).send({ error: 'member_refused' });
   reply.code(status);
   return typeof body === 'string' ? reply.type('text/plain').send(body) : reply.send(body ?? null);
 }

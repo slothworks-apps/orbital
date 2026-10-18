@@ -9,6 +9,7 @@
  * device is never taken in, and nothing here is passed on to another member
  * (no chaining: `ServingHalf` withholds what this holds).
  */
+import { createHash } from 'node:crypto';
 import { PRESENCE_TOPIC, presenceFromFrame } from '@orbital/shared/presence';
 import {
   TunnelError, type BlobResult, type Channel, type FileResult, type HttpMethod, type TunnelResponse,
@@ -16,7 +17,7 @@ import {
 import type { MachineEvent, MachineRef } from '@orbital/shared/remote/device';
 import type { FileAs, HelloMessage } from '@orbital/shared/remote/messages';
 import type { RosterEntry } from '@orbital/shared/remote/roster';
-import { sessionOfTopic } from '@orbital/shared/remote/segments';
+import { isSafeId, sessionOfTopic } from '@orbital/shared/remote/segments';
 import type { Hub } from '../api/hub.js';
 import { memberTooOld } from '../remote/memberGate.js';
 import type { RemoteService } from '../remote/service.js';
@@ -26,6 +27,13 @@ import type { MemberSnapshotStore } from './store.js';
 
 /** How many sessions are asked of a member at once; one channel frame has to carry the answer. */
 const SEED_LIMITS = [200, 80, 30];
+
+/**
+ * The most sessions held of one member, by seed and by upsert together: a
+ * member that announces more has the new ones dropped, logged once while it
+ * stays full.
+ */
+export const MEMBER_SESSIONS_MAX = 1000;
 
 /**
  * How long a member's changes gather before its snapshot is written. The
@@ -64,6 +72,8 @@ export type MemberLink = {
   /** A seed asked again after its list could not be read (`SEED_RETRY_MS`), and how many failed in a row. */
   seedRetry?: ReturnType<typeof setTimeout>;
   seedFailures?: number;
+  /** A session past `MEMBER_SESSIONS_MAX` was dropped and said so; cleared once there is room again. */
+  full?: boolean;
 };
 
 export type FederationOptions = {
@@ -166,7 +176,7 @@ export class FederationService {
    */
   expect(link: MemberLink, sessionId: string): void {
     // This device's own session must not be taken for the member's: its topics would go there.
-    if (this.linkOf(sessionId) !== null || this.opts.localSession?.(sessionId)) return;
+    if (!isSafeId(sessionId) || this.linkOf(sessionId) !== null || this.opts.localSession?.(sessionId)) return;
     this.expected.set(sessionId, link.id);
     this.followSession(link, sessionId);
   }
@@ -202,7 +212,7 @@ export class FederationService {
 
   /** A list the member answered, as this device shows it: a third device's sessions left out. */
   localizeList(link: MemberLink, list: Session[]): Session[] {
-    return list.filter((s) => s && typeof s.id === 'string' && !carriesMachine(s)).map((s) => this.localize(link, s));
+    return list.filter((s) => s && typeof s.id === 'string' && isSafeId(s.id) && !carriesMachine(s)).map((s) => this.localize(link, s));
   }
 
   async request(link: MemberLink, method: HttpMethod, path: string, body?: unknown): Promise<TunnelResponse> {
@@ -301,12 +311,20 @@ export class FederationService {
     return out;
   }
 
-  /** A stored image of some member's session, by ref: asked of every member that is up at once, the first to hold it answers. */
+  /**
+   * A stored image of some member's session, by ref (`<sha256>.<ext>`):
+   * asked of every member that is up at once, the first whose bytes are the
+   * ref's answers. A member answering other bytes does not end the search.
+   */
   async blob(ref: string): Promise<BlobResult | null> {
+    const hash = ref.slice(0, ref.indexOf('.'));
     const asks = [...this.links.values()].flatMap((link) => {
       const channel = link.channel;
       if (!channel?.ready) return [];
-      return [channel.getBlob(ref).then((res) => (res.status === 200 ? res : Promise.reject(new Error('not held'))))];
+      return [channel.getBlob(ref).then((res) => (
+        res.status === 200 && createHash('sha256').update(res.bytes).digest('hex') === hash
+          ? res : Promise.reject(new Error('not held'))
+      ))];
     });
     try {
       return await Promise.any(asks);
@@ -453,9 +471,16 @@ export class FederationService {
       if (res.status === 413) continue;
       const list = (res.body as { sessions?: Session[] } | null)?.sessions;
       if (res.status !== 200 || !Array.isArray(list)) return false;
-      const fresh = new Map(list
-        .filter((s) => s && typeof s.id === 'string' && !carriesMachine(s))
-        .map((s) => [s.id, s]));
+      const fresh = new Map<string, Session>();
+      for (const s of list) {
+        if (!s || typeof s !== 'object' || typeof s.id !== 'string' || carriesMachine(s) || !this.mayHold(link.id, s.id)) continue;
+        if (fresh.size >= MEMBER_SESSIONS_MAX) {
+          this.full(link);
+          break;
+        }
+        fresh.set(s.id, s);
+      }
+      if (fresh.size < MEMBER_SESSIONS_MAX) link.full = false;
       for (const id of link.sessions.keys()) {
         if (fresh.has(id)) continue;
         this.opts.hub.publish('sessions', { event: 'remove', sessionId: id });
@@ -534,6 +559,27 @@ export class FederationService {
     this.opts.hub.publish('sessions', event);
   }
 
+  /**
+   * Whether member `memberId` may hold a session of this id: one that is a safe path
+   * segment, not this device's own, and not held by (or being spawned on)
+   * another member. The first to hold an id keeps it: a member must not
+   * take over another's session, and with it what is sent to that session.
+   */
+  private mayHold(memberId: string, id: string): boolean {
+    if (!isSafeId(id) || this.opts.localSession?.(id)) return false;
+    const expected = this.expected.get(id);
+    if (expected !== undefined && expected !== memberId) return false;
+    for (const other of this.links.values()) if (other.id !== memberId && other.sessions.has(id)) return false;
+    return true;
+  }
+
+  /** A session past `MEMBER_SESSIONS_MAX` was dropped: said once while the member stays full. */
+  private full(link: MemberLink): void {
+    if (link.full) return;
+    link.full = true;
+    console.warn(`[federation] ${link.id} holds ${MEMBER_SESSIONS_MAX} sessions; more are not taken in`);
+  }
+
   /** Whether `sessionId` is the member's: listed by it, or being spawned on it from here. */
   private owns(link: MemberLink, sessionId: string): boolean {
     return link.sessions.has(sessionId) || this.expected.get(sessionId) === link.id;
@@ -585,7 +631,12 @@ export class FederationService {
       const session = frame.session as Session | undefined;
       // Another device's session, passed on by this member: not ours to show (no chaining).
       if (!session || typeof session !== 'object' || typeof session.id !== 'string' || carriesMachine(session)) return;
+      if (!this.mayHold(link.id, session.id)) return;
       const held = link.sessions.get(session.id);
+      if (!held && link.sessions.size >= MEMBER_SESSIONS_MAX) {
+        this.full(link);
+        return;
+      }
       link.sessions.set(session.id, session);
       this.expected.delete(session.id);
       if (!held) this.followSession(link, session.id);
@@ -597,6 +648,7 @@ export class FederationService {
       if (typeof id !== 'string' || !link.sessions.has(id)) return;
       this.opts.hub.publish('sessions', { event: 'remove', sessionId: id });
       link.sessions.delete(id);
+      link.full = false;
       this.readCache.dropSession(link.id, id);
       this.scheduleSnapshot(link);
     } else if (frame.event === 'status') {
@@ -679,7 +731,10 @@ export class FederationService {
       if (this.links.has(entry.id)) continue;
       const link: MemberLink = {
         id: entry.id,
-        sessions: new Map(snap.sessions.filter((s) => !carriesMachine(s)).map((s) => [s.id, s])),
+        sessions: new Map(snap.sessions
+          .filter((s) => typeof s.id === 'string' && !carriesMachine(s) && this.mayHold(entry.id, s.id))
+          .slice(0, MEMBER_SESSIONS_MAX)
+          .map((s) => [s.id, s])),
         tags: new Map(snap.tags.map((t) => [t.id, t])),
         channel: null, seenAt: snap.seenAt, entry, seeded: false, present: false,
       };

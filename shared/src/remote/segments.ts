@@ -36,3 +36,16 @@ export function sessionOfRequest(url: string): string | null {
   const params = new URLSearchParams(q < 0 ? '' : url.slice(q + 1));
   return params.get('session') ?? params.get('sessionId');
 }
+
+/** A segment restricted to this alphabet can't spell `.`, `..`, a `%`-escape, or be empty. */
+export const SAFE_SEGMENT = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Whether `id` can stand as one path segment and one topic part as it is:
+ * nothing to escape, no dot segment, no `:`, and no `RESERVED_SEGMENTS`
+ * literal it would be routed as. Another device's session id that is not is
+ * never taken in.
+ */
+export function isSafeId(id: string): boolean {
+  return SAFE_SEGMENT.test(id) && !RESERVED_SEGMENTS.has(id);
+}

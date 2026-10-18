@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { TunnelError, type BlobResult, type Channel, type ChannelEvent, type TunnelResponse } from '@orbital/shared/remote/channel';
+import { createHash } from 'node:crypto';
+import Fastify from 'fastify';
+import { DOWNLOAD_MAX_BYTES, TunnelError, type BlobResult, type Channel, type ChannelEvent, type TunnelResponse } from '@orbital/shared/remote/channel';
 import { capabilitiesOf } from '@orbital/shared/remote/device';
 import { PROTOCOL_VERSION, type HelloMessage } from '@orbital/shared/remote/messages';
 import { isLive, type RosterEntry } from '@orbital/shared/remote/roster';
@@ -8,7 +10,10 @@ import { Hub } from '../src/api/hub.js';
 import { createImageStore } from '../src/images/store.js';
 import { ServingHalf } from '../src/remote/servingHalf.js';
 import { makeTmpDir, openTmpDb } from './tmp.js';
-import { FederationService, SEED_RETRY_MS, SNAPSHOT_WRITE_MS, type FederationOptions } from '../src/federation/service.js';
+import { ATTACHMENT_MAX_BYTES } from '../src/api/routes.js';
+import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
+import { registerFederationRoutes } from '../src/federation/routes.js';
+import { FederationService, MEMBER_SESSIONS_MAX, SEED_RETRY_MS, SNAPSHOT_WRITE_MS, type FederationOptions } from '../src/federation/service.js';
 import { MemberSnapshotStore } from '../src/federation/store.js';
 import { ReadCache } from '../src/federation/readCache.js';
 
@@ -411,11 +416,32 @@ describe('FederationService', () => {
     // B never answers; C holds the image.
     b.blob = () => new Promise(() => {});
     const held: BlobResult = { status: 200, bytes: new Uint8Array([1, 2]), mediaType: 'image/png' };
+    const ref = `${createHash('sha256').update(held.bytes).digest('hex')}.png`;
     c.blob = async () => held;
-    expect(await federation.blob('r.png')).toBe(held);
+    expect(await federation.blob(ref)).toBe(held);
     c.blob = async () => ({ status: 404, bytes: new Uint8Array(), mediaType: null });
     b.blob = async () => { throw new TunnelError('timeout'); };
-    expect(await federation.blob('r.png')).toBeNull();
+    expect(await federation.blob(ref)).toBeNull();
+  });
+
+  it('an image answer whose bytes are not the ref\'s does not end the search', async () => {
+    const C = 'member-c';
+    const { remote, federation } = setup([entry(SELF), entry(B), entry(C)]);
+    const b = memberB();
+    const c = memberB();
+    remote.open(B, b);
+    remote.open(C, c);
+    b.greet(desktopHello);
+    c.greet(desktopHello);
+    await flush();
+    const held: BlobResult = { status: 200, bytes: new Uint8Array([1, 2]), mediaType: 'image/png' };
+    const ref = `${createHash('sha256').update(held.bytes).digest('hex')}.png`;
+    // B answers at once with other bytes; C, later, with the ref's.
+    b.blob = async () => ({ status: 200, bytes: new Uint8Array([6, 6, 6]), mediaType: 'image/png' });
+    c.blob = () => new Promise((r) => setTimeout(() => r(held), 5));
+    expect(await federation.blob(ref)).toBe(held);
+    c.blob = b.blob;
+    expect(await federation.blob(ref)).toBeNull();
   });
 
   it('reads this device\'s tags once, not per frame, and again after they change', async () => {
@@ -431,6 +457,110 @@ describe('FederationService', () => {
     localTags.mockReturnValue([{ id: 4, name: 'work', hue: 10 }]);
     federation.tagsChanged();
     expect(federation.sessions()[0].tagIds).toEqual([4]);
+  });
+
+  it('a member cannot take a session id another member, or this device, holds', async () => {
+    const C = 'member-c';
+    const { hub, remote, federation } = setup([entry(SELF), entry(B), entry(C)], { localSession: (id) => id === 'mine' });
+    const b = memberB();
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    // C lists B's session and this device's own, and announces them again.
+    const c = new FakeChannel((_method, path) => {
+      if (path === '/api/tags') return { status: 200, body: { tags: [] } };
+      if (path.startsWith('/api/sessions?limit=')) return { status: 200, body: { sessions: [{ id: 's1' }, { id: 'mine' }, { id: 'c1' }] } };
+      return { status: 404, body: {} };
+    });
+    remote.open(C, c);
+    c.greet(desktopHello);
+    await flush();
+    const win = localSocket(hub, ['sessions', 'session:s1']);
+    c.hub({ topic: 'sessions', event: 'upsert', session: { id: 's1', title: 'taken' } });
+    c.hub({ topic: 'sessions', event: 'upsert', session: { id: 'mine' } });
+    c.hub({ topic: 'session:s1', event: 'message' });
+    expect(win.frames()).toEqual([]);
+    expect(federation.linkOf('s1')?.id).toBe(B);
+    expect(federation.linkOf('mine')).toBeNull();
+    expect(federation.linkOf('c1')?.id).toBe(C);
+    expect(c.subs.has('session:s1')).toBe(false);
+  });
+
+  it.each(['../tags', 'a/b', 'x?machine=c', 'x#y', '%2e%2e', '..', '', 'count', 'a:b'])(
+    'a session id that is not a safe path segment never enters the hub: %j',
+    async (id) => {
+      const { hub, remote, federation } = setup();
+      const b = new FakeChannel((_method, path) => {
+        if (path === '/api/tags') return { status: 200, body: { tags: [] } };
+        if (path.startsWith('/api/sessions?limit=')) return { status: 200, body: { sessions: [{ id }, { id: 'ok-1' }] } };
+        return { status: 404, body: {} };
+      });
+      remote.open(B, b);
+      b.greet(desktopHello);
+      await flush();
+      const win = localSocket(hub, ['sessions']);
+      b.hub({ topic: 'sessions', event: 'upsert', session: { id } });
+      expect(win.frames()).toEqual([]);
+      expect(federation.linkOf(id)).toBeNull();
+      expect(federation.sessions().map((s) => s.id)).toEqual(['ok-1']);
+      expect(federation.localizeList(federation.link(B)!, [{ id }]).length).toBe(0);
+    },
+  );
+
+  it('holds at most MEMBER_SESSIONS_MAX sessions of a member, by seed and by upsert, and says so once', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const { remote, federation } = setup();
+      const many = Array.from({ length: MEMBER_SESSIONS_MAX + 5 }, (_, i) => ({ id: `s${i}` }));
+      const b = new FakeChannel((_method, path) => {
+        if (path === '/api/tags') return { status: 200, body: { tags: [] } };
+        if (path.startsWith('/api/sessions?limit=')) return { status: 200, body: { sessions: many } };
+        return { status: 404, body: {} };
+      });
+      remote.open(B, b);
+      b.greet(desktopHello);
+      await flush();
+      expect(federation.sessions()).toHaveLength(MEMBER_SESSIONS_MAX);
+      b.hub({ topic: 'sessions', event: 'upsert', session: { id: 'new-1' } });
+      b.hub({ topic: 'sessions', event: 'upsert', session: { id: 'new-2' } });
+      expect(federation.linkOf('new-1')).toBeNull();
+      // One already held still changes.
+      b.hub({ topic: 'sessions', event: 'upsert', session: { id: 's0', status: 'working' } });
+      expect(federation.sessions().find((s) => s.id === 's0')?.status).toBe('working');
+      expect(warn.mock.calls.filter(([m]) => String(m).includes('more are not taken in'))).toHaveLength(1);
+      // Room again: a new one is taken in.
+      b.hub({ topic: 'sessions', event: 'remove', sessionId: 's1' });
+      b.hub({ topic: 'sessions', event: 'upsert', session: { id: 'new-3' } });
+      expect(federation.linkOf('new-3')?.id).toBe(B);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('a member\'s 401 reaches the window as 502 member_refused, not as this device\'s own', async () => {
+    const { remote, federation } = setup();
+    const b = new FakeChannel((_method, path) => {
+      if (path === '/api/tags') return { status: 200, body: { tags: [] } };
+      if (path.startsWith('/api/sessions?limit=')) return { status: 200, body: { sessions: [{ id: 's1' }] } };
+      return { status: 401, body: { error: 'unauthorized' } };
+    });
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    const app = Fastify();
+    app.decorateRequest('isMultipart', () => false);
+    registerFederationRoutes(app, federation, () => SELF, makeTmpDir('federation-routes'), { bytes: () => null });
+    app.get('/api/sessions/:id', async () => ({ local: true }));
+    app.post('/api/sessions/:id/interrupt', async () => ({ local: true }));
+    try {
+      for (const [method, url] of [['GET', '/api/sessions/s1'], ['POST', '/api/sessions/s1/interrupt']] as const) {
+        const res = await app.inject({ method, url });
+        expect(res.statusCode).toBe(502);
+        expect(res.json()).toEqual({ error: 'member_refused' });
+      }
+    } finally {
+      await app.close();
+    }
   });
 
   it('stop forgets every member and listens no more', async () => {
@@ -863,5 +993,12 @@ describe('ReadCache', () => {
     cache.put('m', 's', '/a', { list: [1] }, 1);
     (cache.get('m', '/a')!.body as { list: number[] }).list.push(2);
     expect(cache.get('m', '/a')!.body).toEqual({ list: [1] });
+  });
+});
+
+describe('what a channel downloads', () => {
+  it('DOWNLOAD_MAX_BYTES takes in every image and file a Mac serves over a channel', () => {
+    expect(DOWNLOAD_MAX_BYTES).toBeGreaterThanOrEqual(ATTACHMENT_MAX_BYTES);
+    expect(DOWNLOAD_MAX_BYTES).toBeGreaterThanOrEqual(FILE_PREVIEW_MAX_BYTES);
   });
 });
