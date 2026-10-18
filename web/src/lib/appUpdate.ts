@@ -54,7 +54,7 @@ export function updateNoticeOnMap(prompt: UpdatePrompt): boolean {
 }
 
 /** "the last working session finishes" — what a waiting restart waits for. */
-export function waitingFor(workingCount: number): string {
+function waitingFor(workingCount: number): string {
   return workingCount <= 1 ? 'the last working session finishes' : `the ${workingCount} working sessions finish`
 }
 
@@ -161,11 +161,17 @@ export function updateCheckLine({
       case 'held':
       case 'skipped':
         return `Orbital ${v} found · offered after Orbital restarts`
+      // The version the prompt is about: where the prompt has gone since —
+      // waiting, restarting — wins; the answer can land before the prompt.
       case 'offered':
       case 'none':
-        return `Orbital ${v} found · offered on the map`
+        if (prompt.phase !== 'waiting' && prompt.phase !== 'restarting') return `Orbital ${v} found · offered on the map`
+        break
+      case 'waiting':
+        break
     }
   }
+  if (prompt.phase === 'restarting') return `Orbital ${prompt.version} · restarting`
   if (prompt.phase === 'waiting') return `Orbital ${prompt.version} restarts when ${waitingFor(prompt.workingCount)}`
   if (prompt.phase !== 'none') return `Orbital ${prompt.version} found · offered on the map`
   if (checkedAt === null) return 'Not checked yet'

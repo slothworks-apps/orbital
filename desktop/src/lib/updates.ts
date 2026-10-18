@@ -194,6 +194,8 @@ export function parseUpdateView(raw: unknown): UpdateView {
  * What a check found version-wise, as the flow took it:
  *
  * - `offered` — the map shows a prompt for it now.
+ * - `waiting` — downloaded, and Orbital restarts into it when the working
+ *   sessions finish; nothing is on the map.
  * - `downloading` — downloading by itself (setting on); the prompt appears
  *   when it is ready.
  * - `installs-on-quit` — already downloaded and its prompt ended (× then
@@ -204,9 +206,9 @@ export function parseUpdateView(raw: unknown): UpdateView {
  *   for. Never the answer to Check now, which offers it again.
  * - `none` — the app is already restarting.
  */
-export type FoundOutcome = 'offered' | 'downloading' | 'installs-on-quit' | 'held' | 'skipped' | 'none';
+export type FoundOutcome = 'offered' | 'waiting' | 'downloading' | 'installs-on-quit' | 'held' | 'skipped' | 'none';
 
-const FOUND_OUTCOMES: readonly FoundOutcome[] = ['offered', 'downloading', 'installs-on-quit', 'held', 'skipped', 'none'];
+const FOUND_OUTCOMES: readonly FoundOutcome[] = ['offered', 'waiting', 'downloading', 'installs-on-quit', 'held', 'skipped', 'none'];
 
 /**
  * What a Check now (Settings, or Orbital → Check for Updates…) found:
@@ -250,6 +252,11 @@ export function checkAnswerMessage(
         case 'offered':
         case 'none':
           return null;
+        case 'waiting':
+          return {
+            message: `Orbital ${answer.version} is downloaded.`,
+            detail: 'Orbital restarts into it when the working sessions finish.',
+          };
         case 'downloading':
           return {
             message: `Orbital ${answer.version} found.`,
@@ -379,7 +386,7 @@ export class UpdateFlow {
     });
     if (this.phase === 'restarting') return found('none');
     const shown = this.phase !== 'none' && this.version === version;
-    if (shown) return found('offered');
+    if (shown) return found(this.phase === 'waiting' ? 'waiting' : 'offered');
     if (version === this.dismissedVersion) return found('installs-on-quit');
     if (version === this.downloadedVersion) return found(this.phase === 'none' ? 'installs-on-quit' : 'held');
     if (this.phase === 'downloading') return found('held');

@@ -91,6 +91,14 @@ describe('updateCheckLine', () => {
       updateCheckLine({ ...base, checkedAt: now, prompt: { phase: 'waiting', version: '0.26.0', workingCount: n } })
     expect(at(1)).toBe('Orbital 0.26.0 restarts when the last working session finishes')
     expect(at(2)).toBe('Orbital 0.26.0 restarts when the 2 working sessions finish')
+    // Check now pressed while it waits answers with the same wait, not the map.
+    const prompt = { phase: 'waiting', version: '0.26.0', workingCount: 1 } as const
+    for (const outcome of ['waiting', 'offered'] as const) {
+      const answer = { kind: 'found', version: '0.26.0', outcome } as const
+      expect(updateCheckLine({ ...base, checkedAt: now, prompt, answer })).toBe(
+        'Orbital 0.26.0 restarts when the last working session finishes',
+      )
+    }
   })
 
   it('says it is checking, and when a check could not run', () => {
