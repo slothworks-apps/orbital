@@ -328,7 +328,7 @@ describe('another device in the detail panel (canvas 50f)', () => {
     it('asks for an update on a member too old to be driven, whatever its presence', () => {
       expect(deviceLock({ machine: machine() }, [self, build({ tooOld: true })], NOW)).toEqual({
         title: 'Update Orbital on build-box',
-        body: 'Its Orbital is too old to be driven from here. Reading still works.',
+        body: 'Its Orbital is too old for groups. Nothing from build-box reaches this device until it is updated.',
       })
     })
   })

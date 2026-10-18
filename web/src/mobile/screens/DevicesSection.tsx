@@ -63,7 +63,6 @@ export function DevicesSection() {
   const [device, setDevice] = useState<{ name: string; platform: string } | null>(null)
   const [open, setOpen] = useState<string | null>(null)
   const [leaving, setLeaving] = useState(false)
-  const [relayOpen, setRelayOpen] = useState(false)
 
   // The name this phone gives itself (`thisDevice`), before the roster lists it.
   useEffect(() => {
@@ -193,36 +192,26 @@ export function DevicesSection() {
       )}
 
       <SectionLabel>REMOTE</SectionLabel>
+      {/* Canvas 50i THE SAME LIST: REMOTE holds only the relay — no Connect switch, nothing to open. */}
       <div className={CARD}>
-        {/* The canvas's switch is left out: the phone has nothing to show without the group. */}
         <div className="flex min-h-16 items-center gap-2.5 px-3.5">
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="text-[14px] font-semibold">Connect this phone to the group</span>
-            <span className="truncate font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
-              {LINK_WORDS[link]}
-              {relayUrl ? ` · ${relayHost(relayUrl)}` : ''}
+            <span className="text-[14px] font-semibold">Relay</span>
+            <span className="flex min-w-0 items-center gap-[7px] font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+              <MemberDot state={link === 'online' ? 'online' : 'offline'} sizePx={6} />
+              <span className="truncate">
+                {LINK_WORDS[link]}
+                {relayUrl ? ` · ${relayHost(relayUrl)}` : ''}
+              </span>
             </span>
           </span>
         </div>
-        <button
-          type="button"
-          aria-expanded={relayOpen}
-          onClick={() => setRelayOpen(!relayOpen)}
-          className="flex min-h-13 w-full items-center gap-2.5 border-t border-[rgba(150,205,255,.08)] px-3.5 text-left"
-        >
-          <span aria-hidden className="text-[9px] text-[rgba(160,190,225,.6)]">
-            {relayOpen ? '▾' : '▸'}
-          </span>
-          <span className="flex-1 text-[14px] font-semibold">Relay</span>
-          <span className="font-mono text-[11px] text-[rgba(160,190,225,.6)]">same for the group</span>
-        </button>
-        {relayOpen && (
-          <p className="px-3.5 pb-3.5 text-[11.5px] leading-[1.45] text-[rgba(160,190,225,.6)]">
-            {relayUrl ? `${relayHost(relayUrl)}. ` : ''}Every device in the group uses the same relay. It only sees
-            encrypted bytes.
-          </p>
-        )}
       </div>
+      {inGroup && (
+        <p className="px-1 pt-2 text-[12px] leading-[1.5] text-[rgba(160,190,225,.65)] [text-wrap:pretty]">
+          One relay for the whole group. Leave the group to change it.
+        </p>
+      )}
 
       {inGroup && (
         <div className={[CARD, 'mt-5'].join(' ')}>

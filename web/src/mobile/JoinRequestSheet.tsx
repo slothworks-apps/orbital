@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import type { PendingPair } from '@orbital/shared/remote/ceremony'
-import { codeLeft } from '../lib/remote'
-import { attemptsLine, joinSentence, kindTile, whereLine } from '../lib/joinRequest'
-import { useNow } from '../lib/useNow'
+import { attemptsLine, joinSentence, kindTile, managerWords, whereLine } from '../lib/joinRequest'
 import { KindGlyph } from '../ui/KindGlyph'
 import { PAIRING_CODE_LENGTH, PairingCodeInput } from '../ui/PairingCodeInput'
 import { refreshGroupState } from './connect'
@@ -26,7 +24,7 @@ export function JoinRequestSheet() {
   // The request stays drawn while the sheet sinks after the group drops it.
   const shown = useRef<PendingPair | null>(null)
   if (pending) shown.current = pending
-  const [joined, setJoined] = useState<string | null>(null)
+  const [joined, setJoined] = useState<{ name: string; done: string | null } | null>(null)
   /** The device an Accept could not add, the group having no room (canvas 50o's words). */
   const [full, setFull] = useState<string | null>(null)
 
@@ -42,7 +40,7 @@ export function JoinRequestSheet() {
   return (
     <SheetPresence>
       {joined !== null ? (
-        <JoinedSheet name={joined} onDone={() => setJoined(null)} />
+        <JoinedSheet name={joined.name} done={joined.done} onDone={() => setJoined(null)} />
       ) : full !== null ? (
         <FullSheet name={full} onDone={() => setFull(null)} />
       ) : (
@@ -75,22 +73,22 @@ function RequestSheet({
 }: {
   request: PendingPair
   expiresAt: number | null
-  onJoined: (name: string) => void
+  onJoined: (joined: { name: string; done: string | null }) => void
   onFull: (name: string) => void
 }) {
-  const now = useNow(true)
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [relayFailed, setRelayFailed] = useState(false)
   /** Set by a wrong code: how many more the group takes before it rejects. */
   const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null)
   const complete = code.length === PAIRING_CODE_LENGTH
-  const expired = expiresAt !== null && now >= expiresAt
 
   // The group says nothing when the code runs out; it drops the request when next asked.
   useEffect(() => {
-    if (expired) refreshGroupState()
-  }, [expired])
+    if (expiresAt === null) return
+    const timer = setTimeout(refreshGroupState, Math.max(0, expiresAt - Date.now()))
+    return () => clearTimeout(timer)
+  }, [expiresAt])
 
   const answer = async (accept: boolean) => {
     const group = groupRef.current?.group
@@ -100,7 +98,7 @@ function RequestSheet({
     try {
       const res = accept ? await group.confirmPairing(true, request.phone, code) : await group.confirmPairing(false, request.phone)
       if ('ok' in res) {
-        if (accept) onJoined(request.name)
+        if (accept) onJoined({ name: request.name, done: managerWords(request.manager, request.name).done })
       } else if (res.error === 'relay_error') {
         setRelayFailed(true)
       } else if (res.error === 'code_mismatch') {
@@ -119,7 +117,8 @@ function RequestSheet({
   }
 
   const tile = kindTile(request.kind)
-  const eyebrow = expiresAt !== null ? `JOIN REQUEST · EXPIRES IN ${codeLeft(expiresAt, now).label}` : 'JOIN REQUEST'
+  // No clock while the user types (canvas 50i): the header says only whether the group is new.
+  const manager = managerWords(request.manager, request.name)
   const line = relayFailed
     ? "The relay didn't answer. Try again."
     : attemptsLeft !== null
@@ -133,7 +132,7 @@ function RequestSheet({
       variant="device"
     >
       <div className="flex flex-col items-center gap-[13px] pb-2 text-center">
-        <div className="font-mono text-[9.5px] tracking-[0.2em] text-[rgba(160,190,225,.55)]">{eyebrow}</div>
+        <div className="font-mono text-[9.5px] tracking-[0.2em] text-[rgba(160,190,225,.55)]">{manager.eyebrow}</div>
         {/* Canvas 50c "KIND, THREE TIMES": the glyph, the kind word and its meaning, then the sentence. */}
         <div className="flex w-full items-center gap-3.5 rounded-[14px] border border-[rgba(150,205,255,.26)] bg-[rgba(4,8,16,.6)] px-3.5 py-3 text-left">
           <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[12px] border border-[rgba(150,205,255,.2)] text-text-bright">
@@ -148,6 +147,12 @@ function RequestSheet({
         <p className="text-[13px] leading-[1.5] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
           Once in, it sees and drives every session on every device in this group.
         </p>
+        {/* Canvas 50i: a boxed line says who will manage the group, a role the pairing makes permanent. */}
+        {manager.line && (
+          <p className="box-border w-full rounded-[12px] border border-[rgba(150,205,255,.16)] px-3.5 py-2.5 text-left text-[13px] leading-[1.5] text-text-bright [text-wrap:pretty]">
+            {manager.line}
+          </p>
+        )}
         {/* Never disabled while an answer is in flight: after a wrong code the user types straight on. */}
         <PairingCodeInput size="sm" value={code} onChange={setCode} onSubmit={() => void answer(true)} />
         <div className="min-h-[18px] font-mono text-[11px] text-[rgba(160,190,225,.75)]">{line}</div>
@@ -164,8 +169,8 @@ function RequestSheet({
   )
 }
 
-/** After Accept (canvas 50i `p2Done`): the device is in, and the rest link to it without the user. */
-function JoinedSheet({ name, onDone }: { name: string; onDone: () => void }) {
+/** After Accept (canvas 50i `p2Done`): the device is in, and who adds the next one. */
+function JoinedSheet({ name, done, onDone }: { name: string; done: string | null; onDone: () => void }) {
   return (
     <BottomSheet label={`${name} joined`} onDismiss={onDone} variant="device">
       <div className="flex flex-col items-center gap-3 pb-2 pt-3 text-center">
@@ -176,7 +181,9 @@ function JoinedSheet({ name, onDone }: { name: string; onDone: () => void }) {
           ✓
         </span>
         <h2 className="text-[18px] font-bold">{name} joined</h2>
-        <p className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)]">The other devices link to it on their own.</p>
+        <p className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)]">
+          {done ?? 'The other devices link to it on their own.'}
+        </p>
         <SecondaryButton onClick={onDone}>Done</SecondaryButton>
       </div>
     </BottomSheet>

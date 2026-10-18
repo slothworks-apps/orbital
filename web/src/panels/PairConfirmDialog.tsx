@@ -6,7 +6,7 @@ import { reportError } from '../lib/errors'
 import { osLabel } from '../lib/devices'
 import { codeLeft } from '../lib/remote'
 import { openSettingsSection } from '../lib/sessionUrl'
-import { attemptsLine, joinSentence, kindTile, whereLine } from '../lib/joinRequest'
+import { attemptsLine, joinSentence, kindTile, managerWords, whereLine } from '../lib/joinRequest'
 import { useNow } from '../lib/useNow'
 import type { RemoteStatus } from '../lib/types'
 import { Dialog } from '../ui/Dialog'
@@ -45,7 +45,7 @@ export function PairConfirmDialog() {
   /** Set by a wrong code: how many more the server takes before it rejects. */
   const [attemptsLeft, setAttemptsLeft] = useState<number | null>(null)
   /** Set by Accept's success: the joined screen (canvas 50c `cDone`) replaces the code form until a new request. */
-  const [joined, setJoined] = useState<{ name: string } | null>(null)
+  const [joined, setJoined] = useState<{ name: string; done: string | null } | null>(null)
   /** Set by an Accept the group had no room for: canvas 50o replaces the code form until a new request. */
   const [full, setFull] = useState<PendingPair | null>(null)
   const complete = code.length === PAIRING_CODE_LENGTH
@@ -92,13 +92,14 @@ export function PairConfirmDialog() {
   async function answer(accept: boolean) {
     if (!pending || busy || (accept && !complete)) return
     const { phone, name } = pending
+    const { done } = managerWords(pending.manager, name)
     setBusy(true)
     setRelayFailed(false)
     try {
       const res = accept ? await api.confirmPairing(true, phone, code) : await api.confirmPairing(false, phone)
       if ('ok' in res) {
         // Accept gets its own screen (canvas 50c `cDone`); Reject keeps the toast.
-        if (accept) setJoined({ name })
+        if (accept) setJoined({ name, done })
         else useOrbital.setState({ toast: { kind: 'info', message: 'Request rejected' } })
       } else if (res.error === 'relay_error') {
         setRelayFailed(true)
@@ -125,9 +126,9 @@ export function PairConfirmDialog() {
     }
   }
 
-  const eyebrow = pairing
-    ? `JOIN REQUEST · EXPIRES IN ${codeLeft(pairing.expiresAt, now).label}`
-    : 'JOIN REQUEST'
+  // No clock while the user types (canvas 50c `cHead`): the header says only whether the group is new.
+  const manager = request ? managerWords(request.manager, request.name) : null
+  const eyebrow = manager?.eyebrow ?? 'JOIN REQUEST'
 
   // The sentence names the kind a second time (`joinSentence`).
   const sentence = request ? joinSentence(request) : ''
@@ -177,7 +178,7 @@ export function PairConfirmDialog() {
       ) : joined ? (
         <>
           <p className="text-[13px] leading-[1.55] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
-            The other devices link to it on their own. It appears under Devices → In this group.
+            {joined.done ?? 'The other devices link to it on their own. It appears under Devices → In this group.'}
           </p>
           {/* Not on the canvas: 50c draws no Done (its only control is the
               demo's RESET DEMO); styled as the pending state's primary action,
@@ -197,6 +198,12 @@ export function PairConfirmDialog() {
             <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
               Once in, it sees and drives every session on every device in this group.
             </p>
+            {/* Canvas 50c `cFirst`: the role is permanent, so the pairing that sets it says so. */}
+            {manager?.line && (
+              <p className="box-border w-full rounded-[10px] border border-[rgba(150,205,255,.16)] px-3.5 py-2.5 text-[13px] leading-[1.5] text-text-bright [text-wrap:pretty]">
+                {manager.line}
+              </p>
+            )}
             <p className="text-[13.5px] leading-[1.55] text-text-bright">{whereLine(request.kind, request.name)}</p>
             {/* Never disabled while an answer is in flight: that would drop the
                 focus, and after a wrong code the user types straight on. */}
@@ -249,8 +256,7 @@ function FullBody({ name, onClose }: { name: string; onClose: () => void }) {
   return (
     <>
       <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
-        {name} wasn’t added and keeps running on its own. To make room, remove a device under Devices → In this group,
-        then pair {name} again.
+        {name} wasn’t added and keeps running on its own. Remove one under In this group, then pair {name} again.
       </p>
       <div className="flex w-full gap-2.5">
         <Button

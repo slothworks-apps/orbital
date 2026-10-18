@@ -5,6 +5,8 @@ import { reportError } from '../lib/errors'
 import { checkedLabel } from '../lib/format'
 import { codeLeft, relayHostname } from '../lib/remote'
 import { kindOs } from '../lib/devices'
+import { managerWords } from '../lib/joinRequest'
+import { useOrbital } from '../store/store'
 import { useNow } from '../lib/useNow'
 import type { JoinAnswer, RemoteStatus } from '../lib/types'
 import { Button } from '../ui/Button'
@@ -100,8 +102,8 @@ function useJoin(remote: RemoteStatus) {
   // A join whose code ran out is never one under way: the server does not
   // publish its end, so it can linger in the status long after.
   const waiting = joining !== null && joining.expiresAt > Date.now() && key !== ended && !busy
-  // Ticks while a countdown is on screen, and while card C's "checked …" ages.
-  const now = useNow(waiting || outcome?.kind === 'offline')
+  // Ticks while card C's "checked …" ages and its code's time runs down; the joining card shows no clock.
+  const now = useNow(outcome?.kind === 'offline')
 
   // The waiting join's code runs out by the clock: card D, once, for that join.
   useEffect(() => {
@@ -231,10 +233,13 @@ export function JoinArea({
   let below: ReactNode = null
   const pendingJoin = remote.group.pendingJoin
   if (join.joining) {
-    below = <JoiningCard joining={join.joining} remote={remote} now={now} onCancel={join.cancel} />
+    below = <JoiningCard joining={join.joining} remote={remote} onCancel={join.cancel} />
   } else if (pendingJoin) {
     // Paired, the primary's first roster not come yet: the joining card's place, its Cancel giving the join up.
     below = <WaitingCard pending={pendingJoin} remote={remote} />
+  } else if (remote.group.joinExpired) {
+    // The primary never sent the group before the code ran out (canvas 50p B).
+    below = <NeverSentCard primary={remote.group.joinExpired.name} />
   } else if (outcome?.kind === 'expired' || offlineRanOut) {
     below = (
       <EndCard
@@ -361,24 +366,24 @@ function JoinField({ join }: { join: Join }) {
 
 /**
  * JOINING (canvas 50b): the six characters to type on the member, the member,
- * the code's countdown, and Cancel. The joiner shows, the member types.
+ * who will manage the group, who it waits for, and Cancel. The joiner shows,
+ * the member types. No clock while the user types: a code that runs out gets
+ * its own card (`useJoin`).
  */
 function JoiningCard({
   joining,
   remote,
-  now,
   onCancel,
 }: {
   joining: Joining
   remote: RemoteStatus
-  now: number
   onCancel: () => Promise<void>
 }) {
   // A member joined by hand is in the roster already, OS and all; otherwise the code named only its kind.
   const known = remote.group.members.find((m) => m.id === joining.device)
   // A code without a kind came from a device from before kinds: a desktop.
   const kind = known?.kind ?? joining.kind ?? 'desktop'
-  const left = codeLeft(joining.expiresAt, now)
+  const { line } = managerWords(joining.manager, joining.name)
   return (
     <div className="flex flex-col items-center gap-3.5 rounded-[12px] border border-[rgba(150,205,255,.2)] bg-[rgba(6,10,20,.6)] px-4 pb-4 pt-5 text-center">
       <span className="font-mono text-[9.5px] tracking-[0.2em] text-[rgba(160,190,225,.55)]">JOINING</span>
@@ -391,16 +396,8 @@ function JoiningCard({
         {joining.name}
         <span className="text-[rgba(160,190,225,.55)]">· {kindOs(kind, known?.os ?? '')}</span>
       </span>
-      <div className="flex w-[220px] flex-col gap-1.5">
-        <div className="h-[3px] overflow-hidden rounded-[2px] bg-[rgba(150,205,255,.12)]">
-          {/* Drains linearly over each one-second tick, as the code's own bar does (50a). */}
-          <span
-            className="block h-full bg-accent/70 transition-[width] duration-1000 ease-linear"
-            style={{ width: `${left.fraction * 100}%` }}
-          />
-        </div>
-        <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">waiting · code expires in {left.label}</span>
-      </div>
+      {line && <span className={`max-w-[300px] ${CARD_BODY}`}>{line}</span>}
+      <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">waiting for {joining.name}</span>
       <Button variant="outline" size="member" onClick={() => void onCancel()}>
         Cancel
       </Button>
@@ -410,15 +407,23 @@ function JoiningCard({
 
 /**
  * A join paired and not yet in (`group.pendingJoin`): the primary's first
- * roster has not come. In the joining card's place and voice (canvas 50b),
- * with its Cancel, which gives the join up and ends the pair made for it.
+ * roster has not come. In the joining card's place and voice (canvas 50p A),
+ * with its Cancel, which gives the join up and ends the pair made for it. No
+ * clock: when the code it was made with runs out, the status is read again,
+ * and the server, dropping the join, says so (`NeverSentCard`).
  */
 function WaitingCard({ pending, remote }: { pending: NonNullable<RemoteStatus['group']['pendingJoin']>; remote: RemoteStatus }) {
   const [busy, setBusy] = useState(false)
-  const now = useNow(pending.expiresAt !== null)
   // The pair with the primary exists by now; before it is listed, its id is all there is.
   const name = remote.devices.find((d) => d.id === pending.primary)?.name ?? pending.primary.slice(0, 8)
-  const left = pending.expiresAt !== null ? codeLeft(pending.expiresAt, now) : null
+
+  // The server publishes nothing when the join's code runs out: it drops the
+  // join inside its next status. So at the expiry this asks for that status, once.
+  useEffect(() => {
+    if (pending.expiresAt === null) return
+    const timer = setTimeout(() => void useOrbital.getState().refreshRemote(), Math.max(0, pending.expiresAt - Date.now()))
+    return () => clearTimeout(timer)
+  }, [pending.expiresAt])
 
   async function cancel() {
     if (busy) return
@@ -433,17 +438,49 @@ function WaitingCard({ pending, remote }: { pending: NonNullable<RemoteStatus['g
   }
 
   return (
-    <div className="flex flex-col items-center gap-3.5 rounded-[12px] border border-[rgba(150,205,255,.2)] bg-[rgba(6,10,20,.6)] px-4 pb-4 pt-5 text-center">
+    <div className="flex flex-col items-center gap-3 rounded-[12px] border border-[rgba(150,205,255,.2)] bg-[rgba(6,10,20,.6)] px-4 pb-4 pt-5 text-center">
       <span className="font-mono text-[9.5px] tracking-[0.2em] text-[rgba(160,190,225,.55)]">JOINING</span>
       <span className="text-[16px] font-bold text-text-bright">Waiting for {name}…</span>
-      <span className="text-[12.5px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
-        Paired. This device is in once {name} sends it the group.
-      </span>
-      {left && !left.expired && (
-        <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">waiting · gives up in {left.label}</span>
-      )}
+      <span className={CARD_BODY}>Paired. This device is in once {name} sends it the group.</span>
+      <span className="font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.6)]">waiting for {name}</span>
       <Button variant="outline" size="member" disabled={busy} onClick={() => void cancel()}>
         Cancel
+      </Button>
+    </div>
+  )
+}
+
+/**
+ * The join dropped when its code ran out before the primary sent the group
+ * (canvas 50p B, `group.joinExpired`): this device is still standalone.
+ * Paste a new code reads it, which takes the card away.
+ */
+function NeverSentCard({ primary }: { primary: string }) {
+  const [busy, setBusy] = useState(false)
+
+  async function startOver() {
+    if (busy) return
+    setBusy(true)
+    try {
+      await api.acknowledgeExpiredJoin()
+      // The server publishes the status without it; this tab need not wait for the hub.
+      const { remote, setRemote } = useOrbital.getState()
+      if (remote) setRemote({ ...remote, group: { ...remote.group, joinExpired: null } })
+    } catch (err) {
+      reportError(err, 'Failed to dismiss the card')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className={CARD}>
+      <span className={CARD_TITLE}>{primary} didn’t send the group</span>
+      <span className={CARD_BODY}>
+        This device is still standalone. Pair it with {primary} again when {primary} is online.
+      </span>
+      <Button variant="outline" size="member" className="self-start" disabled={busy} onClick={() => void startOver()}>
+        Paste a new code
       </Button>
     </div>
   )

@@ -389,8 +389,8 @@ export interface DeviceLock {
  * Whether the composer of a session gives way to the reason it cannot be
  * driven (canvas 50f C): null for this device's sessions and for a member
  * that is up; the update texts for a member too old to federate (its
- * versions are not known here, so they are left out of the canvas's
- * sentence); the offline texts, dated by when it was last seen, for one
+ * versions are not known here, so the canvas's `It runs orbital 0.5.3;
+ * groups need 0.6` names none); the offline texts, dated by when it was last seen, for one
  * that is down — by the session's own `machine` or by the roster.
  */
 export function deviceLock(
@@ -403,7 +403,10 @@ export function deviceLock(
   const member = memberOf(session, members)
   const name = member?.name ?? machine.name
   if (member?.tooOld) {
-    return { title: `Update Orbital on ${name}`, body: 'Its Orbital is too old to be driven from here. Reading still works.' }
+    return {
+      title: `Update Orbital on ${name}`,
+      body: `Its Orbital is too old for groups. Nothing from ${name} reaches this device until it is updated.`,
+    }
   }
   if (!machineOffline(session, members)) return null
   const seen = member?.seenAt ?? machine.asOf

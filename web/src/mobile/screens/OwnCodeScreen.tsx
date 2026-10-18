@@ -126,11 +126,10 @@ export function OwnCodeScreen() {
         <h2 className="text-[22px] font-bold leading-[1.25] tracking-[-0.01em] [text-wrap:balance]">
           Paste it on the device you&apos;re adding
         </h2>
-        {/* `min-h-[85px]` is not on the canvas (50i's box has no height): two
-            lines of the code, so the box keeps its size while it is empty. */}
-        <div className="min-h-[85px] select-all break-all rounded-[14px] border border-[rgba(150,205,255,.2)] bg-[rgba(4,8,16,.6)] p-4 font-mono text-[17px] leading-[1.5] tracking-[0.04em] text-text-bright">
+        {/* Canvas 50i: the QR payload as one long word, wrapping in a box at least 85 px tall. */}
+        <div className="box-border min-h-[85px] select-all break-all rounded-[14px] border border-[rgba(150,205,255,.2)] bg-[rgba(4,8,16,.6)] px-4 py-3.5 font-mono text-[13px] leading-[1.55] text-text-bright">
           {refused ? (
-            <span className="font-sans text-[14px] tracking-normal break-normal text-[rgba(200,214,235,.85)]">
+            <span className="font-sans text-[14px] break-normal text-[rgba(200,214,235,.85)]">
               {refusedPair?.error === 'joining' ? REFUSED_JOINING : REFUSED_PHONE}
             </span>
           ) : code && !left?.expired ? (

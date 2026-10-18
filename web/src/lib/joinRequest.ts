@@ -4,6 +4,7 @@
  * code is found, and the wrong-code line. Platform-free, so both draw the
  * same request.
  */
+import type { GroupManager } from '@orbital/shared/remote/ceremony'
 import { osName } from '@orbital/shared/remote/device'
 import { osLabel } from './devices'
 
@@ -53,4 +54,39 @@ export function joinSentence(request: { name: string; kind: string; platform: st
 /** After a wrong code (canvas 9o C, 50d A): the boxes clear and this line counts what is left. */
 export function attemptsLine(attemptsLeft: number): string {
   return `That code didn’t match · ${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} left`
+}
+
+/**
+ * What a pairing says about who will manage the group (canvas 50b, 50c,
+ * 50i; `GroupManager`), each line only where it is true. `eyebrow`: the
+ * request's header — `NEW GROUP` while the pairing founds the group.
+ * `line`: the boxed line of the request, and the joining card's line. `done`:
+ * what the request's joined screen says once the device is in, or null for
+ * the screen's own default. A pairing by hand says none of it.
+ */
+export interface ManagerWords {
+  eyebrow: string
+  line: string | null
+  done: string | null
+}
+
+export function managerWords(manager: GroupManager, name: string): ManagerWords {
+  const eyebrow = manager?.newGroup ? 'JOIN REQUEST · NEW GROUP' : 'JOIN REQUEST'
+  if (!manager) return { eyebrow, line: null, done: null }
+  if (manager.by === 'there') {
+    return {
+      eyebrow,
+      line: manager.newGroup
+        ? `${name} will manage the group: devices are added and removed there.`
+        : `${name} manages the group: devices are added and removed there.`,
+      done: `${name} manages the group: add more devices there.`,
+    }
+  }
+  // This device already manages the group it adds to: nothing about the role is new.
+  if (!manager.newGroup) return { eyebrow, line: null, done: null }
+  return {
+    eyebrow,
+    line: 'This device will manage the group: devices are added and removed here.',
+    done: 'A group of two now, managed here. Add more devices from Devices → Add a device.',
+  }
 }

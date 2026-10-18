@@ -157,6 +157,8 @@ interface PairingCode {
   expired: boolean
   left: { label: string; fraction: number } | null
   busy: boolean
+  /** Why the last ask made no code, said under the code rather than as a toast (canvas 50p I); null otherwise. */
+  error: string | null
   newCode: () => Promise<void>
 }
 
@@ -170,6 +172,7 @@ interface PairingCode {
 function usePairingCode(remote: RemoteStatus | null): PairingCode {
   const [code, setCode] = useState<PairingCode['code']>(null)
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   // Ticks only while the code is open; stopped once it ran out or was used.
   const [ticking, setTicking] = useState(false)
   const now = useNow(ticking)
@@ -177,15 +180,18 @@ function usePairingCode(remote: RemoteStatus | null): PairingCode {
   async function newCode() {
     if (busy) return
     setBusy(true)
+    setError(null)
     try {
       const res = await api.startPairing()
       if ('error' in res) {
         // The relay refused the token but stays online, so no status will
         // redraw anything: say so. `offline` / `disabled` mean the status
         // moved under the user, and the next one redraws this.
-        if (res.error === 'relay_error') reportError(null, "The relay didn't answer. Try again.")
+        if (res.error === 'relay_error') setError("The relay didn't answer. Try again.")
         // Paired with a primary whose first roster has not come: one join at a time.
-        else if (res.error === 'joining') reportError(null, 'A join is still under way. Cancel it first.')
+        else if (res.error === 'joining') setError('A join is still under way. Cancel it first.')
+        // The status moved under the user: this device is a member now (canvas 50p I).
+        else if (res.error === 'not_primary') setError(`${res.primary.name} manages this group — add devices there.`)
         return
       }
       setCode({ expiresAt: res.expiresAt, svg: qrSvg(res.qr), word: encodePairingCode(res.qr) })
@@ -221,7 +227,7 @@ function usePairingCode(remote: RemoteStatus | null): PairingCode {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [live])
 
-  return { code, open, expired, left, busy, newCode }
+  return { code, open, expired, left, busy, error, newCode }
 }
 
 /**
@@ -305,25 +311,33 @@ export function DevicesSection({
             </div>
           )
         )}
-        {/* canvas 50a: a dashed text link, not a button's box. */}
-        <button
-          type="button"
-          aria-expanded={relayOpen}
-          onClick={() => setRelayOpen((o) => !o)}
-          className="cursor-pointer border-b border-dashed border-[rgba(160,190,225,.45)] font-mono text-[10.5px] tracking-[0.06em] text-[rgba(200,220,245,.8)]"
-        >
-          {relayOpen ? 'Done' : 'Change relay'}
-        </button>
+        {relayLocked ? (
+          // Canvas 50a `relayLock`, 50p C: in a group the relay cannot change, and this says how it can again.
+          <span className="max-w-[300px] text-[11.5px] leading-[1.5] text-[rgba(160,190,225,.65)] [text-wrap:pretty]">
+            {view.role === 'member'
+              ? 'One relay for the whole group. Leave the group to change it.'
+              : 'One relay for the whole group. Remove the other devices, or dissolve the group, to change it.'}
+          </span>
+        ) : (
+          // canvas 50a: a dashed text link, not a button's box.
+          <button
+            type="button"
+            aria-expanded={relayOpen}
+            onClick={() => setRelayOpen((o) => !o)}
+            className="cursor-pointer border-b border-dashed border-[rgba(160,190,225,.45)] font-mono text-[10.5px] tracking-[0.06em] text-[rgba(200,220,245,.8)]"
+          >
+            {relayOpen ? 'Done' : 'Change relay'}
+          </button>
+        )}
       </Row>
 
-      {relayOpen && (
+      {/* Only out of a group (canvas 50a `relayOpen && !inGroup`): one relay serves the whole group. */}
+      {relayOpen && !relayLocked && (
         <RelaySettings
           patchAndSet={patchAndSet}
           savedUrl={settings.remote_relay_url ?? ''}
           savedSecret={settings.remote_relay_secret ?? ''}
           remote={liveRemote}
-          locked={relayLocked}
-          role={view.role}
           proposed={proposedRelay}
           onProposedDone={() => setProposedRelay(null)}
         />
@@ -530,6 +544,11 @@ function CodeArea({ pairing }: { pairing: PairingCode }) {
         <span className="min-h-[1lh] font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
           {open && left ? `expires in ${left.label} · one device per code` : expired ? 'expired · make a new code' : ''}
         </span>
+        {pairing.error && (
+          <span role="alert" className="text-[12.5px] leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+            {pairing.error}
+          </span>
+        )}
       </div>
     </>
   )
@@ -621,6 +640,8 @@ function Members({
 }) {
   const [asking, setAsking] = useState<string | null>(null)
   const [removing, setRemoving] = useState(false)
+  /** A removal the group refused, said under that row rather than as a toast (canvas 50p I). */
+  const [refusal, setRefusal] = useState<{ id: string; text: string } | null>(null)
 
   async function remove(id: string) {
     if (removing) return
@@ -629,7 +650,7 @@ function Members({
       const res = await api.removeDevice(id)
       setAsking(null)
       // The status moved under the user: this device is no primary any more.
-      if (typeof res === 'object') reportError(null, `Only ${res.primary.name} removes devices from this group.`)
+      if (typeof res === 'object') setRefusal({ id, text: `Only ${res.primary.name} removes devices from this group.` })
       else onSaved()
     } catch (err) {
       reportError(err, 'Failed to remove the device')
@@ -647,6 +668,7 @@ function Members({
           <div
             key={m.id}
             data-member={m.id}
+            title={`joined ${longDate(m.addedAt)}`}
             className={i === 0 ? '' : 'border-t border-[rgba(150,205,255,.08)]'}
           >
             {asking !== m.id ? (
@@ -656,7 +678,7 @@ function Members({
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="flex min-w-0 items-center gap-2">
-                    <span title={`joined ${longDate(m.addedAt)}`} className={`truncate text-[13.5px] font-semibold ${nameInk}`}>
+                    <span className={`truncate text-[13.5px] font-semibold ${nameInk}`}>
                       {m.name}
                     </span>
                     {m.primary && <PrimaryLabel />}
@@ -688,7 +710,14 @@ function Members({
                   )}
                 </span>
                 {canRemoveRow(view, m) && (
-                  <Button variant="outline" size="member" onClick={() => setAsking(m.id)}>
+                  <Button
+                    variant="outline"
+                    size="member"
+                    onClick={() => {
+                      setRefusal(null)
+                      setAsking(m.id)
+                    }}
+                  >
                     Remove
                   </Button>
                 )}
@@ -707,6 +736,11 @@ function Members({
                 <Button variant="ink" size="member" disabled={removing} onClick={() => void remove(m.id)}>
                   Remove
                 </Button>
+              </div>
+            )}
+            {refusal?.id === m.id && (
+              <div role="alert" className="px-4 pb-2.5 text-[12.5px] leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+                {refusal.text}
               </div>
             )}
           </div>
@@ -770,7 +804,7 @@ function Managed({ primary }: { primary: string }) {
   )
 }
 
-/** Dissolve on the primary, Leave on a member (canvas 50a, 50l `leave*`): the box's words, and its confirmation's. */
+/** Dissolve on the primary, Leave on a member (canvas 50a, 50l `leave*`, 50p F–H): the box's words, and its confirmation's. */
 function exitWords(exit: 'dissolve' | 'leave', count: number, primary: string) {
   if (exit === 'dissolve') {
     return {
@@ -783,6 +817,7 @@ function exitWords(exit: 'dissolve' | 'leave', count: number, primary: string) {
         : `All ${count} other devices become standalone and every pair between them ends. To form a new group, pair devices again from here.`,
       go: 'Dissolve',
       offline: 'Connect to the relay to dissolve the group — the others have to hear it.',
+      failed: "Couldn't dissolve the group. Try again.",
     }
   }
   return {
@@ -790,19 +825,22 @@ function exitWords(exit: 'dissolve' | 'leave', count: number, primary: string) {
     sub: 'Sessions here keep running.',
     button: 'Leave…',
     question: 'Leave the group?',
+    // With one other device, that device is the primary (canvas 50p H).
     body: count === 1
-      ? `This device becomes standalone and forgets the other one. To join again, pair it with ${primary}.`
+      ? `This device becomes standalone and forgets ${primary}. To join again, pair it with ${primary}.`
       : `This device becomes standalone and forgets the other ${count}. To join again, pair it with ${primary}.`,
     go: 'Leave',
     offline: 'Connect to the relay to leave — the others have to hear it.',
+    failed: "Couldn't leave the group. Try again.",
   }
 }
 
 /**
  * Dissolve this group on the primary, Leave this group on a member (canvas
- * 50a, 50l), only while another member exists. It asks in place; a relay
- * that cannot carry it answers `offline`, said in the same place, and
- * nothing else changes until the relay is back.
+ * 50a, 50l), only while another member exists. It asks in place. While the
+ * relay cannot carry it, the button dims and one line under the row says
+ * why (canvas 50p F); a refusal the server answers is said in the same
+ * place, never as a toast (50p I).
  */
 function Leave({
   exit,
@@ -817,13 +855,16 @@ function Leave({
 }) {
   const [asking, setAsking] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [offline, setOffline] = useState(false)
+  const [refused, setRefused] = useState<'offline' | 'failed' | null>(null)
   const words = exitWords(exit, count, primary)
 
   // The refusal was about the relay; once it is back, it can be asked again.
   useEffect(() => {
-    if (relayOnline) setOffline(false)
+    if (relayOnline) setRefused((r) => (r === 'offline' ? null : r))
   }, [relayOnline])
+
+  const offline = !relayOnline || refused === 'offline'
+  const line = offline ? words.offline : refused === 'failed' ? words.failed : null
 
   async function leave() {
     if (busy) return
@@ -831,10 +872,7 @@ function Leave({
     try {
       const res = await api.leaveGroup()
       setAsking(false)
-      if (!res.ok) {
-        if (res.error === 'offline') setOffline(true)
-        else reportError(null, exit === 'dissolve' ? "Couldn't dissolve the group. Try again." : "Couldn't leave the group. Try again.")
-      }
+      if (!res.ok) setRefused(res.error)
     } catch (err) {
       setAsking(false)
       reportError(err, exit === 'dissolve' ? 'Failed to dissolve the group' : 'Failed to leave the group')
@@ -845,24 +883,26 @@ function Leave({
 
   return (
     <div className="mt-4 rounded-[12px] border border-[rgba(150,205,255,.12)] px-4 py-3">
-      {!asking ? (
-        <div className="flex items-center gap-3">
-          <span className="flex flex-1 flex-col gap-[3px]">
-            <span className="text-[13px] font-semibold text-text-bright">{words.title}</span>
-            <span className="text-[12px] leading-[1.45] text-[rgba(160,190,225,.7)]">
-              {offline ? words.offline : words.sub}
+      {!asking || offline ? (
+        <div className="flex flex-col gap-2.5">
+          <div className="flex items-center gap-3">
+            <span className="flex flex-1 flex-col gap-[3px]">
+              <span className="text-[13px] font-semibold text-text-bright">{words.title}</span>
+              <span className="text-[12px] leading-[1.45] text-[rgba(160,190,225,.7)]">{words.sub}</span>
             </span>
-          </span>
-          <Button
-            variant="outline"
-            size="member"
-            onClick={() => {
-              setOffline(false)
-              setAsking(true)
-            }}
-          >
-            {words.button}
-          </Button>
+            <Button
+              variant="outline"
+              size="member"
+              disabled={offline}
+              onClick={() => {
+                setRefused(null)
+                setAsking(true)
+              }}
+            >
+              {words.button}
+            </Button>
+          </div>
+          {line && <span className="text-[12.5px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">{line}</span>}
         </div>
       ) : (
         <div className="flex flex-col gap-2.5">
@@ -943,8 +983,8 @@ const ASK: Record<RelaySetting, { title: string; body: (devices: string, have: s
  * Change relay (canvas 50a, 9r): the relay URL and the relay secret. Each is
  * committed on Enter or blur, never debounced — a relay change drops every
  * connection, so it must not fire mid-typing — and with devices paired a
- * change asks first, because they are removed. In a group (`locked`) both are
- * read-only: one relay serves the whole group, and moving it is not built.
+ * change asks first, because they are removed. Only out of a group: one
+ * relay serves the whole group, and moving it is not built (canvas 50a).
  * The secret's row is not on the canvas yet (ADR
  * the-relay-takes-a-shared-secret): it mirrors the URL's.
  */
@@ -953,8 +993,6 @@ function RelaySettings({
   savedUrl,
   savedSecret,
   remote,
-  locked,
-  role,
   proposed,
   onProposedDone,
 }: {
@@ -962,9 +1000,6 @@ function RelaySettings({
   savedUrl: string
   savedSecret: string
   remote: RemoteStatus | null
-  locked: boolean
-  /** Who may unlock it: the primary dissolves, a member leaves (`groupView`). */
-  role: GroupView['role']
   /** A URL to commit as if typed here (card B's Use <relay>); a new object each time it is asked. */
   proposed: { url: string } | null
   /** The proposal was committed: it is forgotten, so reopening the panel never commits it again. */
@@ -1001,10 +1036,6 @@ function RelaySettings({
 
   /** Commits a typed value; true when it saved or asked, so something is now under way for it. */
   function commit(key: RelaySetting, typed: string): boolean {
-    if (locked) {
-      resetDraft(key)
-      return false
-    }
     if (key === 'remote_relay_url' && typed.trim() === proposedUrl.current) return false
     const decision =
       key === 'remote_relay_url'
@@ -1081,20 +1112,13 @@ function RelaySettings({
       <Row
         narrow
         title="Relay"
-        desc={
-          locked
-            ? role === 'member'
-              ? 'One relay for the whole group. Leave the group to change it.'
-              : 'One relay for the whole group. Remove the other devices, or dissolve the group, to change it.'
-            : 'Self-host if you prefer. The pairing code carries it, so no other device ever types it.'
-        }
+        desc="Set it before pairing: every device that joins uses this relay. In a group it is locked until the group is gone."
       >
         <Input
           aria-label="Relay URL"
           font="mono"
           size="sm"
           spellCheck={false}
-          readOnly={locked}
           value={urlDraft}
           placeholder="https://relay.example.com"
           onChange={(e) => setUrlDraft(e.target.value)}
@@ -1117,7 +1141,6 @@ function RelaySettings({
           type="password"
           font="mono"
           size="sm"
-          readOnly={locked}
           value={secretDraft}
           placeholder="none"
           onChange={(e) => setSecretDraft(e.target.value)}

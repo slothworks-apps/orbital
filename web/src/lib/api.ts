@@ -1383,6 +1383,11 @@ export const api = {
     await request<{ ok: true }>('POST', '/api/remote/ended/acknowledge')
   },
 
+  /** The card saying a join was dropped, its primary's group never come, was read (canvas 50p B). */
+  async acknowledgeExpiredJoin(): Promise<void> {
+    await request<{ ok: true }>('POST', '/api/remote/join/expired/acknowledge')
+  },
+
   /** "Try again": stops the remote and starts it with the same settings. */
   async restartRemote(): Promise<RemoteStatus> {
     return request('POST', '/api/remote/restart')

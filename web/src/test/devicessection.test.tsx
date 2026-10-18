@@ -36,7 +36,7 @@ function status(others: GroupMember[], patch: Partial<RemoteStatus> = {}): Remot
     pendingPair: null, pairing: null, joining: null, error: null,
     group: {
       members: [SELF, ...others], relayLocked: grouped,
-      primary: grouped ? { id: 'self', name: 'studio' } : null, isPrimary: grouped, ended: null, pendingJoin: null,
+      primary: grouped ? { id: 'self', name: 'studio' } : null, isPrimary: grouped, ended: null, pendingJoin: null, joinExpired: null,
     },
     ...patch,
   }
@@ -105,12 +105,12 @@ describe('DevicesSection', () => {
     expect(patchAndSet).toHaveBeenCalledWith({ remote_relay_url: 'https://other.test' })
   })
 
-  it('on a member: the relay is read-only, Leave is offered, and the primary is named where the add box was', async () => {
+  it('on a member: the relay is locked, Leave is offered, and the primary is named where the add box was', () => {
     renderWith(asMember(status([member({ id: 'b1', name: 'build-box', primary: true })])))
-    const relay = await openRelay()
-    expect(relay).toHaveAttribute('readonly')
-    await userEvent.type(relay, 'x{Enter}')
-    expect(patchAndSet).not.toHaveBeenCalled()
+    // Canvas 50a: in a group no Change relay, only how to change it again.
+    expect(screen.queryByRole('button', { name: 'Change relay' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Relay URL')).not.toBeInTheDocument()
+    expect(screen.getByText('One relay for the whole group. Leave the group to change it.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Leave…' })).toBeInTheDocument()
     expect(screen.getByText(/manages this group — add and remove devices there\./)).toBeInTheDocument()
     expect(screen.queryByLabelText("Another device's code")).not.toBeInTheDocument()
@@ -133,7 +133,7 @@ describe('DevicesSection', () => {
     renderWith(status([], {
       group: {
         members: [SELF], relayLocked: false, primary: null, isPrimary: false,
-        ended: { why: 'removed', by: { id: 'b1', name: 'build-box' } }, pendingJoin: null,
+        ended: { why: 'removed', by: { id: 'b1', name: 'build-box' } }, pendingJoin: null, joinExpired: null,
       },
     }))
     expect(screen.getByText('build-box removed this device from the group')).toBeInTheDocument()
@@ -146,7 +146,7 @@ describe('DevicesSection', () => {
     vi.mocked(api.leaveGroup).mockResolvedValue({ ok: false, error: 'offline' })
     renderWith(asMember(status([member({ id: 'b1', name: 'build-box' })])))
     await userEvent.click(screen.getByRole('button', { name: 'Leave…' }))
-    expect(screen.getByText(/This device becomes standalone and forgets the other one/)).toBeInTheDocument()
+    expect(screen.getByText(/This device becomes standalone and forgets build-box/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Leave' }))
     expect(api.leaveGroup).toHaveBeenCalledTimes(1)
     expect(await screen.findByText('Connect to the relay to leave — the others have to hear it.')).toBeInTheDocument()
@@ -155,10 +155,10 @@ describe('DevicesSection', () => {
     expect(document.querySelector('[data-member="b1"]')).not.toBeNull()
   })
 
-  it('with one other device, Leave speaks of it in the singular; with more, in the plural', async () => {
+  it('with one other device, Leave names it (it is the primary); with more, counts them', async () => {
     const { unmount } = renderWith(asMember(status([member({ id: 'b1', name: 'build-box' })])))
     await userEvent.click(screen.getByRole('button', { name: 'Leave…' }))
-    expect(screen.getByText('This device becomes standalone and forgets the other one. To join again, pair it with build-box.'))
+    expect(screen.getByText('This device becomes standalone and forgets build-box. To join again, pair it with build-box.'))
       .toBeInTheDocument()
     unmount()
     renderWith(asMember(status([member({ id: 'b1', name: 'build-box' }), member({ id: 'b2', name: 'rpi-lab' })])))
@@ -169,7 +169,7 @@ describe('DevicesSection', () => {
   it('a Mac with only its phones changes the relay after the confirm that removes them', async () => {
     const phone = member({ id: 'p1', name: 'Pixel 8', kind: 'phone', os: 'android', links: false })
     renderWith(status([phone], {
-      group: { members: [SELF, phone], relayLocked: false, primary: null, isPrimary: false, ended: null, pendingJoin: null },
+      group: { members: [SELF, phone], relayLocked: false, primary: null, isPrimary: false, ended: null, pendingJoin: null, joinExpired: null },
       devices: [{
         id: 'p1', name: 'Pixel 8', platform: 'android', kind: 'phone', pairedAt: NOW, lastSeenAt: null, online: true,
         needsUpdate: null,
@@ -253,16 +253,25 @@ describe('DevicesSection', () => {
     expect(api.removeDevice).toHaveBeenCalledWith('old')
   })
 
-  it('the Leave refusal goes once the relay is back', async () => {
-    vi.mocked(api.leaveGroup).mockResolvedValue({ ok: false, error: 'offline' })
+  it('while the relay is not online, Dissolve dims and says why under its row, until the relay is back', () => {
     const others = [member({ id: 'b1', name: 'build-box' })]
-    renderWith(asMember(status(others, { relay: 'connecting' })))
-    await userEvent.click(screen.getByRole('button', { name: 'Leave…' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Leave' }))
-    const words = 'Connect to the relay to leave — the others have to hear it.'
-    expect(await screen.findByText(words)).toBeInTheDocument()
-    act(() => useOrbital.getState().setRemote(asMember(status(others))))
+    renderWith(status(others, { relay: 'connecting' }))
+    const words = 'Connect to the relay to dissolve the group — the others have to hear it.'
+    expect(screen.getByText(words)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Dissolve…' })).toBeDisabled()
+    act(() => useOrbital.getState().setRemote(status(others)))
     expect(screen.queryByText(words)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Dissolve…' })).toBeEnabled()
+  })
+
+  it('says a removal the group refused under its row, not as a toast', async () => {
+    vi.mocked(api.removeDevice).mockResolvedValue({ error: 'not_primary', primary: BUILD })
+    renderWith(status([member({ id: 'r1', name: 'rpi-lab' })]))
+    const row = screen.getByText('rpi-lab').closest('[data-member]') as HTMLElement
+    await userEvent.click(within(row).getByRole('button', { name: 'Remove' }))
+    await userEvent.click(within(row).getAllByRole('button', { name: 'Remove' }).at(-1)!)
+    expect(within(row).getByText('Only build-box removes devices from this group.')).toBeInTheDocument()
+    expect(useOrbital.getState().toast).toBeNull()
   })
 })
 
@@ -281,7 +290,10 @@ describe('DevicesSection — joining another device\'s group', () => {
   }
 
   function joining(patch: Partial<NonNullable<RemoteStatus['joining']>> = {}): RemoteStatus['joining'] {
-    return { device: PEER, name: 'studio-mbp', kind: 'desktop', code: 'K7F-Q2M', expiresAt: T0 + 60_000, ...patch }
+    return {
+      device: PEER, name: 'studio-mbp', kind: 'desktop', code: 'K7F-Q2M', expiresAt: T0 + 60_000,
+      manager: { by: 'there', newGroup: true }, ...patch,
+    }
   }
 
   /** Flushes the awaited api answer into React. */
@@ -401,17 +413,17 @@ describe('DevicesSection — joining another device\'s group', () => {
     expect(api.joinGroup).toHaveBeenCalledTimes(2)
   })
 
-  it('while joining: the six characters, the member, the countdown, and Cancel', async () => {
+  it('while joining: the six characters, the member, who will manage the group, no clock, and Cancel', async () => {
     renderWith(status([], { joining: joining() }))
     expect(screen.getByText('Type K7F-Q2M on studio-mbp')).toBeInTheDocument()
     expect(screen.getByLabelText('Code K7FQ2M')).toBeInTheDocument()
     expect(screen.getByText('· desktop')).toBeInTheDocument()
-    expect(screen.getByText('waiting · code expires in 1:00')).toBeInTheDocument()
+    expect(screen.getByText('studio-mbp will manage the group: devices are added and removed there.')).toBeInTheDocument()
+    expect(screen.getByText('waiting for studio-mbp')).toBeInTheDocument()
+    expect(screen.queryByText(/expires in/)).not.toBeInTheDocument()
     // The card takes the add box's place (canvas 50b).
     expect(screen.queryByLabelText("Another device's code")).not.toBeInTheDocument()
     expect(screen.getByText(/^Paste a code from any device in your group/)).toBeInTheDocument()
-    tick(15_000)
-    expect(screen.getByText('waiting · code expires in 0:45')).toBeInTheDocument()
 
     vi.mocked(api.cancelJoin).mockResolvedValue(undefined)
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
@@ -588,5 +600,37 @@ describe('DevicesSection — joining another device\'s group', () => {
     expect(screen.queryByText('Request rejected')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Paste a new code' }))
     expect(screen.queryByText('Code expired')).not.toBeInTheDocument()
+  })
+
+  it('waiting for the primary: no clock; at the code\'s expiry the status is read, and the dropped join gets its card', async () => {
+    const refresh = vi.spyOn(useOrbital.getState(), 'refreshRemote').mockResolvedValue('stored')
+    const pendingJoin = { primary: PEER, expiresAt: T0 + 30_000 }
+    renderWith(status([], {
+      devices: [{
+        id: PEER, name: 'studio-mbp', platform: 'darwin', kind: 'desktop', pairedAt: T0, lastSeenAt: null, online: true,
+        needsUpdate: null,
+      }],
+      group: { ...status([]).group, pendingJoin },
+    }))
+    expect(screen.getByText('Waiting for studio-mbp…')).toBeInTheDocument()
+    expect(screen.getByText('waiting for studio-mbp')).toBeInTheDocument()
+    expect(screen.queryByText(/gives up in/)).not.toBeInTheDocument()
+    tick(29_000)
+    expect(refresh).not.toHaveBeenCalled()
+    tick(1_000)
+    expect(refresh).toHaveBeenCalledTimes(1)
+
+    // The server dropped the join reading that status, and says so (canvas 50p B).
+    act(() => useOrbital.getState().setRemote(status([], {
+      group: { ...status([]).group, joinExpired: { id: PEER, name: 'studio-mbp' } },
+    })))
+    expect(screen.getByText('studio-mbp didn’t send the group')).toBeInTheDocument()
+    expect(screen.getByText('This device is still standalone. Pair it with studio-mbp again when studio-mbp is online.'))
+      .toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Paste a new code' }))
+    await settle()
+    expect(api.acknowledgeExpiredJoin).toHaveBeenCalledTimes(1)
+    expect(screen.getByLabelText("Another device's code")).toBeInTheDocument()
+    refresh.mockRestore()
   })
 })

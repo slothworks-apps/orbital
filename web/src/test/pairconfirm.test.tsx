@@ -21,13 +21,13 @@ function remote(pendingPair: RemoteStatus['pendingPair'], attemptsLeft = 3): Rem
     pairing: { expiresAt: Date.now() + 100_000 },
     joining: null,
     error: null,
-    group: { members: [], relayLocked: false, primary: null, isPrimary: false, ended: null, pendingJoin: null },
+    group: { members: [], relayLocked: false, primary: null, isPrimary: false, ended: null, pendingJoin: null, joinExpired: null },
   }
 }
 
-const phonePending = { phone: 'p1', name: 'Pixel 8', platform: 'android', kind: 'phone', attemptsLeft: 3 }
-const desktopPending = { phone: 'p2', name: 'imac-home', platform: 'macos', kind: 'desktop', attemptsLeft: 3 }
-const headlessPending = { phone: 'p3', name: 'build-box', platform: 'linux', kind: 'headless', attemptsLeft: 3 }
+const phonePending = { phone: 'p1', name: 'Pixel 8', platform: 'android', kind: 'phone', attemptsLeft: 3, manager: null }
+const desktopPending = { phone: 'p2', name: 'imac-home', platform: 'macos', kind: 'desktop', attemptsLeft: 3, manager: null }
+const headlessPending = { phone: 'p3', name: 'build-box', platform: 'linux', kind: 'headless', attemptsLeft: 3, manager: null }
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -78,6 +78,26 @@ describe('PairConfirmDialog', () => {
     await userEvent.click(accept())
     expect(api.confirmPairing).toHaveBeenCalledWith(true, 'p1', 'K7FQ2M')
     expect(await screen.findByText('Pixel 8 joined')).toBeInTheDocument()
+  })
+
+  it('a pairing that founds the group says so: the header, the boxed line, and what the joined screen says', async () => {
+    vi.mocked(api.confirmPairing).mockResolvedValue({ ok: true })
+    useOrbital.setState({ remote: remote({ ...desktopPending, manager: { by: 'here', newGroup: true } }) })
+    render(<PairConfirmDialog />)
+    expect(screen.getByText('JOIN REQUEST · NEW GROUP')).toBeInTheDocument()
+    expect(screen.getByText('This device will manage the group: devices are added and removed here.')).toBeInTheDocument()
+    await userEvent.type(field(), 'K7FQ2M')
+    await userEvent.click(accept())
+    expect(await screen.findByText('A group of two now, managed here. Add more devices from Devices → Add a device.'))
+      .toBeInTheDocument()
+  })
+
+  it('a request to a group this device already manages carries no line about it, and no clock', () => {
+    useOrbital.setState({ remote: remote({ ...desktopPending, manager: { by: 'here', newGroup: false } }) })
+    render(<PairConfirmDialog />)
+    expect(screen.getByText('JOIN REQUEST')).toBeInTheDocument()
+    expect(screen.queryByText(/will manage the group/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/EXPIRES/)).not.toBeInTheDocument()
   })
 
   it('the joined screen closes on Done', async () => {

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { formatFingerprint } from '@orbital/shared/remote/keys'
-import { PAIRING_TOKEN_TTL_MS } from '@orbital/shared/remote/relayApi'
 import { codeLeft } from '../../lib/remote'
 import { useNow } from '../../lib/useNow'
 import { useOrbital } from '../../store/store'
@@ -319,8 +318,6 @@ function ConfirmStep({
   step: Extract<PairingStep, { kind: 'confirm' }>
   onCancel: () => void
 }) {
-  const now = useNow(true)
-  const left = Math.max(0, step.expiresAt - now)
   return (
     <Step
       label="STEP 2 OF 2"
@@ -341,16 +338,8 @@ function ConfirmStep({
       <p className="max-w-[300px] text-center text-[14px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
         {step.macName} is asking for these six characters now.
       </p>
-      <div className="mt-3.5 flex w-60 flex-col items-center gap-2">
-        {/* Drains over PAIRING_TOKEN_TTL_MS, the code's whole life. */}
-        <div aria-hidden className="h-[3px] w-full overflow-hidden rounded-full bg-[rgba(150,205,255,.12)]">
-          <div
-            className="h-full bg-[oklch(85%_.12_205/.7)] transition-[width] duration-1000 ease-linear"
-            style={{ width: `${(left / PAIRING_TOKEN_TTL_MS) * 100}%` }}
-          />
-        </div>
-        <p className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">waiting · code expires in {codeLeft(step.expiresAt, now).label}</p>
-      </div>
+      {/* No clock while the user types (canvas 50i): a code that runs out gets its own card. */}
+      <p className="mt-3.5 font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">waiting for {step.macName}</p>
     </Step>
   )
 }
