@@ -18,7 +18,8 @@ const CHECKED_TICK_MS = 60_000
  * the installed version with Check now and its release notes, and whether a
  * new version downloads by itself. Desktop only — `Settings` lists it only
  * where the update bridge is. No badge anywhere while an update waits; the
- * map's prompt is where it is offered.
+ * map's prompt is where it is offered. A restart waiting for sessions to
+ * finish is off the map, so its line and Cancel are here.
  */
 export function UpdatesSection({ patchAndSet }: { patchAndSet: (patch: Record<string, string>) => Promise<unknown> }) {
   const source = useAppUpdate((s) => s.source)
@@ -63,8 +64,15 @@ export function UpdatesSection({ patchAndSet }: { patchAndSet: (patch: Record<st
               Check now
             </Button>
           </div>
-          <div aria-live="polite" className="font-mono text-[11px] leading-[1.5] text-[rgba(160,190,225,.65)]">
-            {line}
+          <div className="flex items-center gap-3">
+            <div aria-live="polite" className="font-mono text-[11px] leading-[1.5] text-[rgba(160,190,225,.65)]">
+              {line}
+            </div>
+            {state?.phase === 'waiting' && (
+              <Button variant="hairline" size="check" onClick={() => source?.updateAction('cancel-wait')}>
+                Cancel
+              </Button>
+            )}
           </div>
           <a
             href={releaseNotesUrl(orbitalVersion)}

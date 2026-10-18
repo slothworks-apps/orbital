@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.34.1] — 2026-10-19
+### Changed
+- After you choose Restart when sessions finish, the update message leaves the map; Settings → Updates shows the waiting restart and lets you cancel it.
+
 ## [0.34.0] — 2026-10-17
 ### Added
 - Settings → Mobile is now Settings → Devices: pair another desktop by code and see every device in your group. The device that started the group is its primary: only it adds and removes devices or dissolves the group; the others can leave.

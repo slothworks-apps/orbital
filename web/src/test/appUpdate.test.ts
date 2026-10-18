@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { autoDownloadOn, updateCheckLine, updateNoticeContent } from '../lib/appUpdate'
+import { autoDownloadOn, updateCheckLine, updateNoticeContent, updateNoticeOnMap } from '../lib/appUpdate'
 import type { FoundOutcome } from '../lib/desktop'
 import { initialSection } from '../panels/Settings'
 
@@ -39,12 +39,11 @@ describe('updateNoticeContent', () => {
     }
   })
 
-  it('Waiting: only Cancel, no ×', () => {
-    const at = (n: number) => updateNoticeContent({ phase: 'waiting', version: v, workingCount: n })
-    expect(at(1)?.text).toBe('Orbital restarts when the last working session finishes.')
-    expect(at(2)?.text).toBe('Orbital restarts when the 2 working sessions finish.')
-    expect(at(2)?.secondary?.action).toBe('cancel-wait')
-    expect(at(2)?.primary ?? at(2)?.close).toBeUndefined()
+  it('Waiting is off the map', () => {
+    const waiting = { phase: 'waiting', version: v, workingCount: 2 } as const
+    expect(updateNoticeOnMap(waiting)).toBe(false)
+    expect(updateNoticeContent(waiting)).toBeNull()
+    expect(updateNoticeOnMap({ phase: 'ready', version: v, workingCount: 2, buttons: 'two' })).toBe(true)
   })
 
   it('the receipt: OK ends it, no ×', () => {
@@ -85,6 +84,13 @@ describe('updateCheckLine', () => {
   it('names a prompt already on the map when this visit has not checked', () => {
     const prompt = { phase: 'ready', version: '0.26.0', workingCount: 0, buttons: 'one' } as const
     expect(updateCheckLine({ ...base, checkedAt: now, prompt })).toBe('Orbital 0.26.0 found · offered on the map')
+  })
+
+  it('says what a waiting restart waits for, since it is off the map', () => {
+    const at = (n: number) =>
+      updateCheckLine({ ...base, checkedAt: now, prompt: { phase: 'waiting', version: '0.26.0', workingCount: n } })
+    expect(at(1)).toBe('Orbital 0.26.0 restarts when the last working session finishes')
+    expect(at(2)).toBe('Orbital 0.26.0 restarts when the 2 working sessions finish')
   })
 
   it('says it is checking, and when a check could not run', () => {
