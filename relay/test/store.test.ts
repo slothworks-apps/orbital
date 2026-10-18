@@ -20,6 +20,8 @@ describe.each(backends)('RelayStore (%s)', (_name, open) => {
   beforeEach(async () => {
     store = await open();
     await store.clearForTests();
+    // A half waits only for a device the relay knows.
+    for (const id of ['amy', 'zed', 'bob', 'cat']) await store.ensureDevice({ id, kind: 'mac' });
   });
   afterEach(async () => { await store.close(); });
 
@@ -123,6 +125,13 @@ describe.each(backends)('RelayStore (%s)', (_name, open) => {
     expect(await store.confirmPair('mac1', 'phone1', 102)).toBe(false);
     expect(await store.isPaired('mac1', 'phone2')).toBe(true);
   });
+  it('a half to a device the relay does not know is not kept; one that completes a waiting half is', async () => {
+    const waiting = { linked: false, created: false };
+    expect(await store.offerMutual('amy', 'ghost', 1)).toEqual(waiting);
+    // Not kept: the ghost's own half finds nothing to complete.
+    expect(await store.offerMutual('ghost', 'amy', 1)).toEqual(waiting);
+    expect(await store.offerMutual('amy', 'ghost', 2)).toEqual({ linked: true, created: true });
+  });
   it('migrations are idempotent: opening twice is fine', async () => {
     const again = await open();
     expect(await again.device('nope')).toBeNull();
@@ -164,5 +173,19 @@ describe('migration 0002_no_names', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('mutual halves, relay-wide', () => {
+  it('refuses a new half past halvesMax; one that completes a pair, or renews its own, still goes', async () => {
+    const store = await openRelayStore(':memory:', { halvesMax: 2 });
+    for (const id of ['a', 'b', 'c', 'd']) await store.ensureDevice({ id, kind: 'mac' });
+    expect(await store.offerMutual('a', 'b', 1)).toEqual({ linked: false, created: false });
+    expect(await store.offerMutual('a', 'c', 1)).toEqual({ linked: false, created: false });
+    expect(await store.offerMutual('a', 'd', 1)).toEqual({ linked: false, created: false, full: true });
+    expect(await store.offerMutual('a', 'b', 2)).toEqual({ linked: false, created: false });
+    expect(await store.offerMutual('b', 'a', 2)).toEqual({ linked: true, created: true });
+    expect(await store.offerMutual('a', 'd', 3)).toEqual({ linked: false, created: false });
+    await store.close();
   });
 });

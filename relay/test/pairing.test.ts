@@ -27,7 +27,11 @@ describe('pairing', () => {
     const phone = generateIdentity();
     const post = (path: string, body: unknown) =>
       app.inject({ method: 'POST', url: path, payload: body as any });
-    return { store, app, base, mac, phone, post, tick: (ms: number) => { now += ms; }, now: () => now };
+    /** Rows for these keys, as a code once gave them: a mutual half waits only for a device the relay knows. */
+    const know = async (...ids: ReturnType<typeof generateIdentity>[]) => {
+      for (const id of ids) await store.ensureDevice({ id: deviceId(id.publicKey), kind: 'mac' });
+    };
+    return { store, app, base, mac, phone, post, know, tick: (ms: number) => { now += ms; }, now: () => now };
   }
 
   it('mints a token for a signed Mac, and redeeming it hands the online Mac the sealed device', async () => {
@@ -214,6 +218,7 @@ describe('pairing', () => {
 
   it('both halves: the pair forms, both hear linked and presence', async () => {
     const r = await relay();
+    await r.know(r.mac, r.phone);
     const a = await connectDevice(r.base, r.mac);
     const b = await connectDevice(r.base, r.phone);
     await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: b.id }, r.now()));
@@ -237,6 +242,7 @@ describe('pairing', () => {
 
   it('asking again once paired answers linked and changes nothing', async () => {
     const r = await relay();
+    await r.know(r.mac, r.phone);
     const a = deviceId(r.mac.publicKey);
     const b = deviceId(r.phone.publicKey);
     await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: b }, r.now()));
@@ -253,6 +259,7 @@ describe('pairing', () => {
 
   it('either side of a mutual pair may revoke it', async () => {
     const r = await relay();
+    await r.know(r.mac, r.phone);
     const a = deviceId(r.mac.publicKey);
     const b = await connectDevice(r.base, r.phone);
     await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: b.id }, r.now()));
@@ -278,6 +285,7 @@ describe('pairing', () => {
   it('a revoke keeps the frames another pair queued for the revoked device', async () => {
     const r = await relay();
     const third = generateIdentity();
+    await r.know(r.mac, r.phone, third);
     const x = deviceId(r.phone.publicKey);
     const a = deviceId(r.mac.publicKey);
     const b = await connectDevice(r.base, third);
@@ -318,21 +326,32 @@ describe('pairing', () => {
     expect((await mint()).statusCode).toBe(200);
   });
 
-  it('a half alone makes no row for a signer the relay never met; the pair it completes makes both', async () => {
+  it('a half alone makes no row for a signer the relay never met; the pair it completes does', async () => {
     const r = await relay();
+    await r.know(r.phone);
     const a = deviceId(r.mac.publicKey);
     const b = deviceId(r.phone.publicKey);
     await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: b }, r.now()));
     expect(await r.store.device(a)).toBeNull();
-    expect(await r.store.device(b)).toBeNull();
-    await r.post('/pair/mutual', signRequest(r.phone, 'pair.mutual', { peer: a }, r.now()));
+    const res = await r.post('/pair/mutual', signRequest(r.phone, 'pair.mutual', { peer: a }, r.now()));
+    expect(res.json()).toEqual({ linked: true });
     expect(await r.store.device(a)).toMatchObject({ id: a, kind: 'mac' });
-    expect(await r.store.device(b)).toMatchObject({ id: b, kind: 'mac' });
+  });
+
+  it('keeps no half for a peer the relay does not know', async () => {
+    const r = await relay();
+    await r.know(r.mac);
+    const a = deviceId(r.mac.publicKey);
+    // The phone is unknown: the Mac's half to it is not kept, so the phone's own finds nothing to complete.
+    await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: deviceId(r.phone.publicKey) }, r.now()));
+    const res = await r.post('/pair/mutual', signRequest(r.phone, 'pair.mutual', { peer: a }, r.now()));
+    expect(res.json()).toEqual({ linked: false });
   });
 
   it('keeps at most MUTUAL_HALVES_PER_DEVICE halves of one signer waiting; its oldest goes first', async () => {
     const r = await relay();
     const peers = Array.from({ length: MUTUAL_HALVES_PER_DEVICE + 1 }, () => generateIdentity());
+    await r.know(...peers);
     for (const peer of peers) {
       await r.post('/pair/mutual', signRequest(r.mac, 'pair.mutual', { peer: deviceId(peer.publicKey) }, r.now()));
       r.tick(1);
@@ -355,5 +374,17 @@ describe('pairing', () => {
     for (let i = 0; i <= MUTUAL_RATE_LIMIT_PER_MIN; i++) if ((await mutual(generateIdentity())).statusCode === 429) limited++;
     expect(limited).toBeGreaterThan(0);
     expect((await mutual(r.phone)).statusCode).toBe(200);
+  });
+
+  it('answers 429 to a half while the relay holds as many as it keeps', async () => {
+    const store = await openRelayStore(':memory:', { halvesMax: 0 });
+    const app = await buildRelay({ store, now: () => 1_000_000 });
+    closers.push(() => app.close());
+    const [a, b] = [generateIdentity(), generateIdentity()];
+    await store.ensureDevice({ id: deviceId(b.publicKey), kind: 'mac' });
+    const res = await app.inject({
+      method: 'POST', url: '/pair/mutual', payload: signRequest(a, 'pair.mutual', { peer: deviceId(b.publicKey) }, 1_000_000),
+    });
+    expect(res.statusCode).toBe(429);
   });
 });

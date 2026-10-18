@@ -21,6 +21,15 @@ export type DeviceKind = 'mac' | 'phone';
  * member whose half went asks again at its next relay connection.
  */
 export const MUTUAL_HALVES_PER_DEVICE = 32;
+/**
+ * The most halves the relay keeps waiting, all devices together. Keys cost
+ * nothing to make, so the bound per device bounds nothing on its own: past
+ * this one a new half is refused (`full`) until older ones expire or complete.
+ */
+export const MUTUAL_HALVES_MAX = 10_000;
+
+/** What `offerMutual` did; `full` when the half was refused for `MUTUAL_HALVES_MAX`. */
+export type MutualOutcome = { linked: boolean; created: boolean; full?: true };
 export type DeviceRow = { id: string; kind: DeviceKind; pushToken: string | null; lastSeenAt: number | null };
 
 export interface RelayStore {
@@ -52,9 +61,11 @@ export interface RelayStore {
    * not while only this half is in. `created` only for the one call that
    * stored the pair, so the pair is announced once even when both halves
    * arrive together. Expired halves go first, and `from`'s oldest past
-   * `MUTUAL_HALVES_PER_DEVICE` after this one is in.
+   * `MUTUAL_HALVES_PER_DEVICE` after this one is in. A half waits only for
+   * a device the relay knows (it has a row), unless it completes the
+   * other's; one to a device it does not know is not kept.
    */
-  offerMutual(from: string, to: string, now: number): Promise<{ linked: boolean; created: boolean }>;
+  offerMutual(from: string, to: string, now: number): Promise<MutualOutcome>;
   isPaired(a: string, b: string): Promise<boolean>;
   /** Every device paired with this one, whichever side it is. */
   peersOf(id: string): Promise<string[]>;
@@ -66,7 +77,7 @@ export interface RelayStore {
 }
 
 export class KyselyRelayStore implements RelayStore {
-  constructor(private readonly db: RelayDb) {}
+  constructor(private readonly db: RelayDb, private readonly halvesMax = MUTUAL_HALVES_MAX) {}
 
   async upsertDevice(d: { id: string; kind: DeviceKind }): Promise<void> {
     await this.db.insertInto('devices')
@@ -159,9 +170,20 @@ export class KyselyRelayStore implements RelayStore {
     return result.numDeletedRows > 0n;
   }
 
-  async offerMutual(from: string, to: string, now: number): Promise<{ linked: boolean; created: boolean }> {
+  async offerMutual(from: string, to: string, now: number): Promise<MutualOutcome> {
     await this.db.deleteFrom('mutual_halves').where('expires_at', '<', now).execute();
     if (await this.isPaired(from, to)) return { linked: true, created: false };
+    const waiting = async (a: string, b: string) => (await this.db.selectFrom('mutual_halves').select('to_id')
+      .where('from_id', '=', a).where('to_id', '=', b).executeTakeFirst()) !== undefined;
+    if (!(await waiting(to, from))) {
+      // Nothing to complete: this half waits only for a device the relay knows, and only while there is room.
+      if (!(await this.device(to))) return { linked: false, created: false };
+      if (!(await waiting(from, to))) {
+        const { count } = await this.db.selectFrom('mutual_halves')
+          .select((eb) => eb.fn.countAll<number | string>().as('count')).executeTakeFirstOrThrow();
+        if (Number(count) >= this.halvesMax) return { linked: false, created: false, full: true };
+      }
+    }
     // This half goes in before the other is looked for: two halves arriving
     // together then both see each other, rather than both missing it.
     const expiresAt = now + MUTUAL_PAIR_TTL_MS;
@@ -246,6 +268,7 @@ export class KyselyRelayStore implements RelayStore {
   }
 }
 
-export async function openRelayStore(target: string): Promise<RelayStore> {
-  return new KyselyRelayStore(await openRelayDb(target));
+/** `halvesMax`: `MUTUAL_HALVES_MAX` unless given; tests reach the bound with a smaller one. */
+export async function openRelayStore(target: string, opts: { halvesMax?: number } = {}): Promise<RelayStore> {
+  return new KyselyRelayStore(await openRelayDb(target), opts.halvesMax);
 }

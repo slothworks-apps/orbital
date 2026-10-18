@@ -194,6 +194,10 @@ export function registerPairingRoutes(app: FastifyInstance, ctx: WsContext): voi
     const peer = s.payload.peer;
     if (!publicKeyOf(peer) || peer === s.id) return reply.code(400).send({ error: 'bad_peer' });
     const outcome = await ctx.store.offerMutual(s.id, peer, ctx.now());
+    if (outcome.full) {
+      log(`mutual half from ${short(s.id)} refused: the relay holds as many as it keeps`);
+      return reply.code(429).send({ error: 'rate_limited' });
+    }
     if (outcome.created) {
       // A half alone makes no row: any key can sign one. A pair does, for a
       // device the relay never met (one that lost its rows); a phone stays a phone.
