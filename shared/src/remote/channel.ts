@@ -11,6 +11,8 @@
  */
 import type { Identity } from './keys.js';
 import { concat } from './keys.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import { FRAME_HEADER_BYTES, MAX_FRAME_BYTES } from './frame.js';
 import {
   GCM_TAG_BYTES, HANDSHAKE_BYTES, NONCE_BYTES, startHandshake, type Handshake, type Role, type SessionCipher,
@@ -38,11 +40,11 @@ export const HANDSHAKE_TIMEOUT_MS = 10_000;
 /** How long a `request`, a `getBlob` or `getFile` (per chunk, unless told otherwise) or a notifications call waits for its answer. */
 export const REQUEST_TIMEOUT_MS = 20_000;
 /**
- * The most bytes one `getBlob` or `getFile` takes in, whatever the peer
- * announces. It covers what a Mac serves: its stored images
- * (`ATTACHMENT_MAX_BYTES`) and the files its viewer reads
- * (`FILE_PREVIEW_MAX_BYTES`). A download announced or arriving past it, or
- * past what its `blob_meta` announced, fails `lost`.
+ * A download takes in no more than its `blob_meta` announced; this is the
+ * bound for one that announced no size, which a Mac never sends. Announced
+ * sizes have no cap of their own: a Mac's image store keeps a transcript's
+ * images at whatever size they came, so no size is too large for a real
+ * one, and `DOWNLOAD_DEADLINE_MS` bounds what a peer can push past that.
  */
 export const DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
 /**
@@ -58,6 +60,16 @@ export const DOWNLOAD_DEADLINE_MS = 5 * 60_000;
  * instead of silence.
  */
 export const MAX_INNER_BYTES = MAX_FRAME_BYTES - FRAME_HEADER_BYTES - NONCE_BYTES - GCM_TAG_BYTES - 1;
+
+/**
+ * Whether `bytes` are the image a store ref (`<sha256 hex>.<ext>`) names. A
+ * full image fetched by ref from a peer is taken only when they are; a
+ * thumbnail (`edge`) cannot be checked this way.
+ */
+export function bytesMatchRef(ref: string, bytes: Uint8Array): boolean {
+  const dot = ref.indexOf('.');
+  return dot > 0 && bytesToHex(sha256(bytes)) === ref.slice(0, dot).toLowerCase();
+}
 
 export type ByeReason = 'protocol' | 'revoked' | 'app_too_old';
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -477,7 +489,7 @@ export class Channel {
         waiter.w = msg.w ?? null;
         waiter.h = msg.h ?? null;
         if (msg.status === 200) {
-          if (msg.bytes !== undefined && (msg.bytes < 0 || msg.bytes > DOWNLOAD_MAX_BYTES)) {
+          if (msg.bytes !== undefined && msg.bytes < 0) {
             this.fail(this.blobs, msg.id, new TunnelError('lost'));
             return;
           }
@@ -538,7 +550,7 @@ export class Channel {
       this.fail(this.blobs, chunk.id, new TunnelError('lost'));
       return;
     }
-    // More than was announced, or than any download may be: the rest is not taken in.
+    // More than was announced, or past the bound for one that announced nothing: the rest is not taken in.
     if (waiter.received + chunk.bytes.length > (waiter.total ?? DOWNLOAD_MAX_BYTES)) {
       this.fail(this.blobs, chunk.id, new TunnelError('lost'));
       return;

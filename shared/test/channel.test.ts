@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateIdentity } from '../src/remote/keys.js';
 import {
-  Channel, DOWNLOAD_DEADLINE_MS, DOWNLOAD_MAX_BYTES, HANDSHAKE_TIMEOUT_MS, MAX_INNER_BYTES, REQUEST_TIMEOUT_MS, TunnelError,
+  Channel, bytesMatchRef, DOWNLOAD_DEADLINE_MS, DOWNLOAD_MAX_BYTES, HANDSHAKE_TIMEOUT_MS, MAX_INNER_BYTES, REQUEST_TIMEOUT_MS, TunnelError,
   type ChannelReply, type ChannelServer,
 } from '../src/remote/channel.js';
 import { BLOB_CHUNK_BYTES } from '../src/remote/messages.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 import { HANDSHAKE_BYTES, startHandshake } from '../src/remote/handshake.js';
 import { RESPONDER_FIRST_ID } from '../src/remote/device.js';
 import type { AskMessage, HelloMessage } from '../src/remote/messages.js';
@@ -133,7 +135,7 @@ describe('Channel', () => {
     a.start();
     pump();
     expect(a.groups).toBe(false);
-    expect(a.sendGroup({ t: 'removed' })).toBe(false);
+    expect(a.sendGroup({ t: 'roster_digest', digest: 'x' })).toBe(false);
   });
 
   it('does not emit a group event from a sender whose own hello never named the capability', () => {
@@ -147,7 +149,7 @@ describe('Channel', () => {
     pump();
     expect(a.groups).toBe(true);
     expect(b.groups).toBe(false);
-    expect(a.sendGroup({ t: 'removed' })).toBe(true);
+    expect(a.sendGroup({ t: 'roster_digest', digest: 'x' })).toBe(true);
     pump();
     expect(got).toEqual([]);
     expect(b.dropped).toBe(1);
@@ -278,12 +280,22 @@ describe('Channel downloads from a peer that does not stop', () => {
     expect(h.a.ready).toBe(true);
   });
 
-  it('fails a download announced past DOWNLOAD_MAX_BYTES', async () => {
+  it('takes in a download announced past DOWNLOAD_MAX_BYTES whole: the bound is for one that announced nothing', async () => {
     const h = handServed();
     const down = h.a.getBlob(`${'b'.repeat(64)}.png`);
     h.pump();
-    h.meta(DOWNLOAD_MAX_BYTES + 1);
-    await expect(down).rejects.toMatchObject({ reason: 'lost' });
+    const chunks = DOWNLOAD_MAX_BYTES / BLOB_CHUNK_BYTES + 1;
+    h.meta(chunks * BLOB_CHUNK_BYTES);
+    for (let seq = 0; seq < chunks; seq++) h.chunk(seq, BLOB_CHUNK_BYTES, seq === chunks - 1);
+    expect((await down).bytes.length).toBe(chunks * BLOB_CHUNK_BYTES);
+  });
+
+  it('bytesMatchRef: the bytes a ref names, and no others', () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const ref = `${bytesToHex(sha256(bytes))}.png`;
+    expect(bytesMatchRef(ref, bytes)).toBe(true);
+    expect(bytesMatchRef(ref, new Uint8Array([1, 2]))).toBe(false);
+    expect(bytesMatchRef('nodot', bytes)).toBe(false);
   });
 
   it('fails a download that announces nothing once it runs past DOWNLOAD_MAX_BYTES', async () => {
