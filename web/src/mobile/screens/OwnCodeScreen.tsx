@@ -16,8 +16,13 @@ function codeError(res: Extract<StartPairingResult, { error: string }>): string 
   // In a group, only its primary shows a code that adds a device (canvas 50i).
   if (res.error === 'not_primary') return `${res.primary.name} manages this group — add devices there.`
   if (error === 'relay_too_old') return 'The relay needs an update before this phone can show a code.'
+  // Paired with a primary whose first roster has not come: it adds no one meanwhile.
+  if (error === 'joining') return 'This phone is still joining a group. Try again once it has.'
   return "The relay didn't answer. Try again."
 }
+
+/** What stands where the code was when a request came while this phone was still joining a group. */
+const REFUSED_JOINING = 'This phone is still joining a group, so it took no one. Show a new code once it has.'
 
 /** What stands where the code was when another phone redeemed it: a phone joins through a desktop. */
 const REFUSED_PHONE = "A phone can't join another phone. Show this code on a desktop instead."
@@ -125,7 +130,9 @@ export function OwnCodeScreen() {
             lines of the code, so the box keeps its size while it is empty. */}
         <div className="min-h-[85px] select-all break-all rounded-[14px] border border-[rgba(150,205,255,.2)] bg-[rgba(4,8,16,.6)] p-4 font-mono text-[17px] leading-[1.5] tracking-[0.04em] text-text-bright">
           {refused ? (
-            <span className="font-sans text-[14px] tracking-normal break-normal text-[rgba(200,214,235,.85)]">{REFUSED_PHONE}</span>
+            <span className="font-sans text-[14px] tracking-normal break-normal text-[rgba(200,214,235,.85)]">
+              {refusedPair?.error === 'joining' ? REFUSED_JOINING : REFUSED_PHONE}
+            </span>
           ) : code && !left?.expired ? (
             code.word
           ) : (

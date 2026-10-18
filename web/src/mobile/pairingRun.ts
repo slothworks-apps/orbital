@@ -170,6 +170,9 @@ export function joinRefused(
     // A phone in a group scanned a device outside it: only the primary adds one (canvas 50i's line).
     case 'not_primary':
       return { kind: 'scan', error: `${answer.primary.name} manages this group — add devices there.` }
+    // Paired with a primary whose first roster has not come: one join at a time.
+    case 'joining':
+      return { kind: 'scan', error: 'This phone is still joining a group. Try again once it has.' }
     // The typer adds only as a primary, which a phone never is; said as 50o says it, should a group ever answer it.
     case 'group_full':
       return { kind: 'scan', error: 'This group can’t take more devices.' }

@@ -184,6 +184,8 @@ function usePairingCode(remote: RemoteStatus | null): PairingCode {
         // redraw anything: say so. `offline` / `disabled` mean the status
         // moved under the user, and the next one redraws this.
         if (res.error === 'relay_error') reportError(null, "The relay didn't answer. Try again.")
+        // Paired with a primary whose first roster has not come: one join at a time.
+        else if (res.error === 'joining') reportError(null, 'A join is still under way. Cancel it first.')
         return
       }
       setCode({ expiresAt: res.expiresAt, svg: qrSvg(res.qr), word: encodePairingCode(res.qr) })

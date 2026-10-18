@@ -63,9 +63,10 @@ function refusal(res: Exclude<JoinAnswer, { ok: true }>, name: string, code: str
     // This device, the primary, would add the other to a group with no room (canvas 50o's words).
     case 'group_full':
       return { kind: 'line', text: `This group can’t take more devices. Remove one under In this group, then pair ${name} again.` }
-    // The status moved under the user: this device is a member now, and only its primary adds (canvas 50l).
+    // Paired with a primary whose first roster has not come: one join at a time.
     case 'joining':
       return { kind: 'line', text: 'A join is still under way. Cancel it first.' }
+    // The status moved under the user: this device is a member now, and only its primary adds (canvas 50l).
     case 'not_primary':
       return { kind: 'line', text: `${res.primary.name} manages this group — add devices there.` }
   }
@@ -126,7 +127,7 @@ function useJoin(remote: RemoteStatus) {
       // A join whose code ran out had its end drawn by the clock, if it was on screen at all.
       if (Date.now() >= prev.expiresAt) {
         /* nothing more */
-      } else if (remote.group.members.some((m) => m.id === prev.device)) setOutcome(null)
+      } else if (remote.group.members.some((m) => m.id === prev.device) || remote.group.pendingJoin) setOutcome(null)
       // Only a relay that is still up can have carried a rejection.
       else if (!joining && remote.enabled && remote.relay === 'online') setOutcome({ kind: 'rejected', name: prev.name })
     }
@@ -228,8 +229,12 @@ export function JoinArea({
 
   /** The card in the box's place (canvas 50b): the join under way, or how it ended. */
   let below: ReactNode = null
+  const pendingJoin = remote.group.pendingJoin ?? null
   if (join.joining) {
     below = <JoiningCard joining={join.joining} remote={remote} now={now} onCancel={join.cancel} />
+  } else if (pendingJoin) {
+    // Paired, the primary's first roster not come yet: the joining card's place, its Cancel giving the join up.
+    below = <WaitingCard pending={pendingJoin} remote={remote} />
   } else if (outcome?.kind === 'expired' || offlineRanOut) {
     below = (
       <EndCard
@@ -397,6 +402,47 @@ function JoiningCard({
         <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">waiting · code expires in {left.label}</span>
       </div>
       <Button variant="outline" size="member" onClick={() => void onCancel()}>
+        Cancel
+      </Button>
+    </div>
+  )
+}
+
+/**
+ * A join paired and not yet in (`group.pendingJoin`): the primary's first
+ * roster has not come. In the joining card's place and voice (canvas 50b),
+ * with its Cancel, which gives the join up and ends the pair made for it.
+ */
+function WaitingCard({ pending, remote }: { pending: NonNullable<RemoteStatus['group']['pendingJoin']>; remote: RemoteStatus }) {
+  const [busy, setBusy] = useState(false)
+  const now = useNow(pending.expiresAt !== null)
+  // The pair with the primary exists by now; before it is listed, its id is all there is.
+  const name = remote.devices.find((d) => d.id === pending.primary)?.name ?? pending.primary.slice(0, 8)
+  const left = pending.expiresAt !== null ? codeLeft(pending.expiresAt, now) : null
+
+  async function cancel() {
+    if (busy) return
+    setBusy(true)
+    try {
+      await api.cancelJoin()
+    } catch (err) {
+      reportError(err, 'Failed to cancel the join')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-3.5 rounded-[12px] border border-[rgba(150,205,255,.2)] bg-[rgba(6,10,20,.6)] px-4 pb-4 pt-5 text-center">
+      <span className="font-mono text-[9.5px] tracking-[0.2em] text-[rgba(160,190,225,.55)]">JOINING</span>
+      <span className="text-[16px] font-bold text-text-bright">Waiting for {name}…</span>
+      <span className="text-[12.5px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+        Paired. This device is in once {name} sends it the group.
+      </span>
+      {left && !left.expired && (
+        <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">waiting · gives up in {left.label}</span>
+      )}
+      <Button variant="outline" size="member" disabled={busy} onClick={() => void cancel()}>
         Cancel
       </Button>
     </div>
