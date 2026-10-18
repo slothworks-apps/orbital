@@ -879,12 +879,17 @@ describe('GroupMember with a join under way', () => {
     expect(late.group.canAdd(OTHER)).toBe(true);
   });
 
-  it('a join dropped by its code\'s clock is kept for the user until read or joined again; a cancel leaves none', () => {
+  it('a join dropped by its code\'s clock ends its pair and is kept for the user until read or joined again; a cancel leaves none', async () => {
     const joining: Membership = { group: MAC, founding: null, version: 0, member: true, expires: NOW };
-    const g = build({ roster: EMPTY_ROSTER, membership: joining, paired: [row(MAC)] });
+    const r = fakeRelay();
+    const g = build({ roster: EMPTY_ROSTER, membership: joining, paired: [row(MAC)], relay: r });
     expect(g.group.expiredJoin()).toBeNull();
     expect(g.group.pendingJoin()).toBeNull();
     expect(g.group.expiredJoin()).toEqual({ id: MAC, name: row(MAC).name });
+    // The pair made for the join ends as a cancel's does: here and at the relay.
+    expect(g.paired.has(MAC)).toBe(false);
+    await flush();
+    expect(revoked(r.posts)).toEqual([MAC]);
     g.group.acknowledgeExpiredJoin();
     expect(g.group.expiredJoin()).toBeNull();
     // Dropped again, then a pairing joins a group: the old drop is no news any more.

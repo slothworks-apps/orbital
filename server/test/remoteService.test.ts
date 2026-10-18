@@ -677,8 +677,18 @@ describe('RemoteService join and the group', () => {
     expect(service.status().group).toMatchObject({
       pendingJoin: null, joinExpired: { id: joined.device, name: 'studio' },
     });
+    // The pair made for the join ended, here and at the relay, as a cancel's does.
+    expect(service.status().devices.map((d) => d.id)).not.toContain(joined.device);
+    await tick();
+    expect(fake.posts.filter((p) => p.path === '/pair/revoke').map((p) => p.payload)).toEqual([{ phone: joined.device }]);
     service.acknowledgeExpiredJoin();
     expect(service.status().group.joinExpired).toBeNull();
+    // So pairing with that primary again works: a new code from it is redeemed, not refused as already paired.
+    const again = await service.join(codeFrom({ mac: joined.device, group: undefined, expiresAt: NOW + 200_000 }));
+    expect(again).toMatchObject({ device: joined.device, code: expect.any(String) });
+    fake.emit('control', { type: 'paired', mac: joined.device });
+    expect(service.status().group.pendingJoin).toMatchObject({ primary: joined.device });
+    expect(service.status().devices.map((d) => d.id)).toContain(joined.device);
   });
 
   it('a join under way shows in the status, blocks a code of its own, and is cancelled by cancelJoin', async () => {

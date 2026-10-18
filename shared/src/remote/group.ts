@@ -438,7 +438,8 @@ export class GroupMember {
   /**
    * The join under way: a ceremony named the primary, and its first roster
    * has not come. One whose code stopped working is dropped here (the
-   * membership goes back to what the device left before, if anything).
+   * membership goes back to what the device left before, if anything), and
+   * the pair made for it ends at the relay and here, as a cancel's does.
    */
   pendingJoin(): Membership | null {
     try {
@@ -449,6 +450,8 @@ export class GroupMember {
       if (m.expires <= this.host.now()) {
         this.droppedJoin = { id: m.group, name: this.storage.paired.get(m.group)?.name ?? m.group.slice(0, 8) };
         this.dropJoin(m);
+        // As a cancel does (`abandonJoin`): the pair made for the join ends, so pairing with that primary again works.
+        if (this.storage.paired.get(m.group)) this.finishExit(m.group);
         return null;
       }
       return m;
