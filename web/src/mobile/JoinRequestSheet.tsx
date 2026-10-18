@@ -94,7 +94,7 @@ function RequestSheet({
         setCode('')
         setAttemptsLeft(res.attemptsLeft)
       }
-      // `code_rejected` and `no_pending`: the group dropped the request, and the sheet goes with it.
+      // `code_rejected`, `group_full` and `no_pending`: the group dropped the request, and the sheet goes with it.
     } finally {
       setBusy(false)
       refreshGroupState()

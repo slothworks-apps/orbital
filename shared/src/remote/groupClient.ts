@@ -203,6 +203,7 @@ export class GroupClient {
       self: () => ({ name: this.about().name, platform: opts.os, kind: 'phone' }),
       inGroup: () => this.group.inGroup(),
       isLiveMember: (id) => this.group.isLiveMember(id),
+      canAdd: (id) => this.group.canAdd(id),
       paired: this.storage.paired,
       pendingRevokes: this.storage.pendingRevokes,
       addPaired: (device) => this.group.addPaired(device),

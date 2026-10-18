@@ -171,6 +171,21 @@ describe('two servers, one channel', () => {
     }
   }, 30_000);
 
+  it('a fourth device joining through the third learns every member and links with each', async () => {
+    const { a, b, c, idA, idB, idC } = await threeLinked();
+    const j = await startMacAndRelay(closers, { relayUrl: a.relayUrl, name: 'mini' });
+    const qr = (await c.api('POST', '/api/remote/pair')).json().qr;
+    const join = await j.api('POST', '/api/remote/join', { code: qr });
+    await until(async () => (await c.api('GET', '/api/remote')).json().pendingPair !== null);
+    const idJ = (await j.api('GET', '/api/remote')).json().macId as string;
+    await c.api('POST', '/api/remote/pair/confirm', { accept: true, phone: idJ, code: join.json().code });
+    await until(() => [idA, idB, idC].every((id) => j.remote.channel(id)?.ready === true), 20_000);
+    for (const s of [a, b, c, j]) {
+      await until(() => s.remote.rosterDigest() === j.remote.rosterDigest(), 10_000);
+      expect((await membersOf(s)).map((m: any) => m.id).sort()).toEqual([idA, idB, idC, idJ].sort());
+    }
+  }, 45_000);
+
   it('removing a member on any device removes it everywhere', async () => {
     const { a, b, idC } = await threeLinked();
     expect((await a.api('DELETE', `/api/remote/devices/${idC}`)).statusCode).toBe(200);

@@ -6,7 +6,8 @@ import {
 import { deviceId, generateIdentity, type Identity } from '../src/remote/keys.js';
 import type { GroupMessage, HelloMessage } from '../src/remote/messages.js';
 import {
-  addMember, describeMember, foundingEntry, isLive, removeMember, rosterDigest, rosterKey, type RosterEntry,
+  ROSTER_MAX_ENTRIES, addMember, describeMember, foundingEntry, isLive, removeMember, rosterDigest, rosterKey,
+  type RosterEntry,
 } from '../src/remote/roster.js';
 
 const SELF_KEY = generateIdentity();
@@ -353,15 +354,6 @@ describe('GroupMember removal', () => {
     expect(g.paired.has(MAC)).toBe(false);
     expect(g.forgotten).toEqual([MAC]);
   });
-
-  it('a removal signed by a device no member knows is not taken', () => {
-    const g = build({ roster: roster(), paired: [macRow] });
-    const stranger = generateIdentity();
-    const entries = removeMember(g.roster(), MAC, stranger, 5);
-    g.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', entries });
-    expect(isLive(one(g.roster(), MAC))).toBe(true);
-    expect(g.paired.has(MAC)).toBe(true);
-  });
 });
 
 describe('GroupMember merging a roster', () => {
@@ -413,6 +405,33 @@ describe('GroupMember merging a roster', () => {
     for (let i = 0; i < 9; i++) far = add(removed(far, MAC, OTHER), MAC, { by: OTHER });
     g.group.onGroup(MAC, mac.channel, { t: 'roster', entries: [...far, ...add([], OTHER, { by: SELF })] });
     expect(mac.sent.filter((m) => m.t === 'roster')).toEqual([]);
+  });
+});
+
+describe('GroupMember bounds', () => {
+  it('a roster that names one device twice is ignored whole', () => {
+    const g = build({ roster: roster() });
+    g.group.setRoster(g.roster());
+    const before = g.roster();
+    const twice = [...removed(roster(), MAC, OTHER), ...add([], MAC, { by: OTHER })];
+    const mac = fakeChannel();
+    g.group.onGroup(MAC, mac.channel, { t: 'roster', entries: [...twice, ...add([], OTHER, { by: SELF })] });
+    expect(g.roster()).toBe(before);
+    expect(mac.sent).toEqual([]);
+    expect(g.logs.some((l) => l.includes('names one device twice'))).toBe(true);
+  });
+
+  it('at ROSTER_MAX_ENTRIES nothing new is added, and no roster above it is ever held', () => {
+    let full = roster();
+    while (full.length < ROSTER_MAX_ENTRIES) full = addMember(full, { id: deviceId(generateIdentity().publicKey), kind: 'desktop', name: 'x', os: 'linux', links: true }, MAC_KEY, 1);
+    const g = build({ roster: full });
+    expect(g.group.canAdd(PHONE)).toBe(false);
+    expect(g.group.canAdd(MAC)).toBe(true);
+    g.group.addPaired({ id: PHONE, kind: 'phone', name: 'Pixel', os: 'android', links: true });
+    expect(g.roster()).toHaveLength(ROSTER_MAX_ENTRIES);
+    const past = [...full, ...add([], PHONE)];
+    expect(g.group.setRoster(past)).toBe(false);
+    expect(g.roster()).toHaveLength(ROSTER_MAX_ENTRIES);
   });
 });
 

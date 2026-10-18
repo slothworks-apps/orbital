@@ -11,7 +11,7 @@
 import { z } from 'zod';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
-import { deviceId, fromBase64Url, publicKeyOf, sign, toBase64Url, verify, type Identity } from './keys.js';
+import { deviceId, publicKeyOf, sign, signatureOf, toBase64Url, verify, type Identity } from './keys.js';
 import { PAIR_NAME_MAX_CHARS, PAIR_PLATFORM_MAX_CHARS } from './relayApi.js';
 
 /**
@@ -29,15 +29,6 @@ export const ROSTER_MAX_ENTRIES = 128;
  * epoch no longer reads.
  */
 export const ROSTER_MAX_EPOCH = 2 ** 31;
-
-/**
- * How far above the epoch held here an entry may jump and still be taken.
- * An honest member writes one epoch up from what it knows (`addMember`);
- * a member that missed a few removals and re-adds of one device still
- * catches up. Past it, a member would need this many signed rounds per step
- * to walk a device's epoch to `ROSTER_MAX_EPOCH`.
- */
-export const ROSTER_MAX_EPOCH_STEP = 8;
 
 /**
  * The longest `kind` and `os` an entry carries: what a pairing cuts a
@@ -143,7 +134,8 @@ function signed(signer: Identity, bytes: Uint8Array): string {
 
 function checks(id: string, bytes: Uint8Array, signature: string): boolean {
   const key = publicKeyOf(id);
-  return key !== null && verify(key, bytes, fromBase64Url(signature));
+  const sig = signatureOf(signature);
+  return key !== null && sig !== null && verify(key, bytes, sig);
 }
 
 /**
@@ -201,62 +193,81 @@ function combine(a: RosterEntry, b: RosterEntry): RosterEntry {
     : out;
 }
 
-/** What stands for an id once `incoming` arrived: see `mergeRoster`. */
-function take(here: RosterEntry, incoming: RosterEntry): RosterEntry {
-  if (isFounding(here)) return incoming;
-  if (incoming.epoch < here.epoch) return here;
+/**
+ * Entries whose signatures were checked here, by their canonical form: a
+ * roster sent again costs no check. Bounded; the oldest goes first.
+ */
+const VERIFIED_CACHE_MAX = 1024;
+const verified = new Map<string, true>();
+
+function verifiedOnce(e: RosterEntry): boolean {
+  const key = canonical(e);
+  if (verified.has(key)) {
+    verified.delete(key);
+    verified.set(key, true);
+    return true;
+  }
+  if (!verifyEntry(e)) return false;
+  verified.set(key, true);
+  if (verified.size > VERIFIED_CACHE_MAX) verified.delete(verified.keys().next().value!);
+  return true;
+}
+
+/**
+ * What stands for an id once `incoming` arrived, or null when it is not
+ * taken. A membership new here (a higher epoch, or one over a founding
+ * entry) is refused when its adder is removed here. A higher epoch
+ * replaces a live entry only when it says the device is removed, or the
+ * device described itself under it (no member re-adds a live device
+ * behind its back), and replaces a removed entry whenever it is signed.
+ */
+function take(here: RosterEntry, incoming: RosterEntry, removedHere: (id: string) => boolean): RosterEntry | null {
+  if (isFounding(here)) return removedHere(incoming.addedBy) ? null : incoming;
+  if (incoming.epoch < here.epoch) return null;
   if (incoming.epoch === here.epoch) return combine(here, incoming);
-  return incoming.epoch - here.epoch <= ROSTER_MAX_EPOCH_STEP ? incoming : here;
+  if (removedHere(incoming.addedBy)) return null;
+  if (isLive(here) && isLive(incoming) && incoming.describedBy !== incoming.id) return null;
+  return incoming;
 }
 
 const byId = (x: RosterEntry, y: RosterEntry) => (x.id < y.id ? -1 : x.id > y.id ? 1 : x.epoch - y.epoch);
 
 export type MergeOptions = {
-  /** The member the roster came from: a device paired here, so it may sign. */
-  from?: string | null;
-  /** This device: it may sign. */
-  self?: string | null;
   /** `incoming` was written or checked here already: no signature is checked again. */
   trusted?: boolean;
 };
 
+/** Whether a roster names one id twice: such a roster is not merged at all. */
+export function hasDuplicateIds(entries: RosterEntry[]): boolean {
+  return new Set(entries.map((e) => e.id)).size !== entries.length;
+}
+
 /**
  * `local` with what it takes of `incoming`, sorted by id. An entry is
- * taken only if its signatures hold (`verifyEntry`) and every device that
- * signed it is known: in `local`, the sender, this device, or added by a
- * known device in the same roster. Then, per id: a founding entry gives way
- * to any membership; a lower epoch is ignored; one epoch is combined part
- * by part; a higher epoch replaces what is held, if no more than
- * `ROSTER_MAX_EPOCH_STEP` above it. A new id is taken only while the
- * roster holds fewer than `ROSTER_MAX_ENTRIES`, so a merge never outgrows
- * what a frame carries; ids known here still update, removals included.
+ * taken only if its signatures hold (`verifyEntry`); who signed it need not
+ * be known here, since a member can add any key anyway. Then, per id (see
+ * `take`): a founding entry gives way to any membership; a lower epoch is
+ * ignored; one epoch is combined part by part; a higher epoch replaces what
+ * is held by the rules of `take`. A new id is refused when its adder is
+ * removed here, and once the roster holds `ROSTER_MAX_ENTRIES`, so a merge
+ * never outgrows what a frame carries; ids known here still update,
+ * removals included.
  */
 export function mergeRoster(local: RosterEntry[], incoming: RosterEntry[], opts: MergeOptions = {}): RosterEntry[] {
   const held = new Map(local.map((e) => [e.id, e]));
   const same = new Map(local.map((e) => [e.id, canonical(e)]));
-  let pending = incoming.filter((e) => same.get(e.id) !== canonical(e) && (opts.trusted ? !isFounding(e) && e.epoch >= 1 && e.epoch <= ROSTER_MAX_EPOCH : verifyEntry(e)));
-  const known = new Set<string>(held.keys());
-  if (opts.from) known.add(opts.from);
-  if (opts.self) known.add(opts.self);
-  const accepted: RosterEntry[] = [];
-  for (let progress = true; progress;) {
-    progress = false;
-    const rest: RosterEntry[] = [];
-    for (const e of pending) {
-      if (known.has(e.addedBy) && (e.removedBy === undefined || e.removedBy === e.id || known.has(e.removedBy))) {
-        accepted.push(e);
-        known.add(e.id);
-        progress = true;
-      } else {
-        rest.push(e);
-      }
-    }
-    pending = rest;
-  }
-  for (const e of accepted.sort(byId)) {
+  const removed = new Set(local.filter((e) => !isLive(e)).map((e) => e.id));
+  const removedHere = (id: string) => removed.has(id);
+  const taken = incoming.filter((e) => same.get(e.id) !== canonical(e)
+    && (opts.trusted ? !isFounding(e) && e.epoch >= 1 && e.epoch <= ROSTER_MAX_EPOCH : verifiedOnce(e)));
+  for (const e of taken.sort(byId)) {
     const here = held.get(e.id);
-    if (here) held.set(e.id, take(here, e));
-    else if (held.size < ROSTER_MAX_ENTRIES) held.set(e.id, e);
+    if (here) {
+      const next = take(here, e, removedHere);
+      if (next) held.set(e.id, next);
+    } else if (held.size < ROSTER_MAX_ENTRIES && !removedHere(e.addedBy)) {
+      held.set(e.id, e);
+    }
   }
   return [...held.values()].sort(byId);
 }
@@ -293,8 +304,8 @@ export function foundingEntry(signer: Identity, kind: string, about: RosterDescr
 /**
  * A newcomer, or a removed device paired again, added by `signer`: the next
  * epoch after any entry known for it, described as the adder learned it at
- * the pairing. Unchanged when `signer` is that device, or the next epoch
- * would pass `ROSTER_MAX_EPOCH`.
+ * the pairing. Unchanged when `signer` is that device, the next epoch
+ * would pass `ROSTER_MAX_EPOCH`, or a new id would pass `ROSTER_MAX_ENTRIES`.
  */
 export function addMember(
   roster: RosterEntry[], device: Pick<RosterEntry, 'id' | 'kind'> & RosterDescription, signer: Identity, now: number,
@@ -302,6 +313,7 @@ export function addMember(
   const by = deviceId(signer.publicKey);
   if (device.id === by) return roster;
   const known = roster.find((e) => e.id === device.id);
+  if (!known && roster.length >= ROSTER_MAX_ENTRIES) return roster;
   const epoch = known && !isFounding(known) ? known.epoch + 1 : 1;
   if (epoch > ROSTER_MAX_EPOCH) return roster;
   const membership = { id: device.id, kind: device.kind, epoch, addedBy: by, addedAt: now };

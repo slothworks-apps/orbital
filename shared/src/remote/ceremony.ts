@@ -66,10 +66,12 @@ function sameProof(expected: string, proof: string): boolean {
  * different phone than the one asked about. `code_mismatch`: a wrong code,
  * the request still waits. `code_rejected`: the last wrong code, the request
  * was rejected. `relay_error`: the relay did not take the answer.
+ * `group_full`: the roster holds `ROSTER_MAX_ENTRIES` already; the request
+ * was rejected.
  */
 export type PairConfirmResult =
   | { ok: true }
-  | { error: 'no_pending' | 'code_rejected' | 'relay_error' }
+  | { error: 'no_pending' | 'code_rejected' | 'relay_error' | 'group_full' }
   | { error: 'code_mismatch'; attemptsLeft: number };
 
 /**
@@ -156,6 +158,8 @@ export interface CeremonyHost {
   inGroup(): boolean;
   /** See `GroupMember.isLiveMember`. */
   isLiveMember(id: string): boolean;
+  /** See `GroupMember.canAdd`. */
+  canAdd(id: string): boolean;
   /** The relay pairs this device holds (`GroupStorage['paired']`). */
   paired: Pick<GroupStorage['paired'], 'get' | 'add' | 'remove'>;
   /** Pairs revoked here and not yet answered by the relay (`GroupStorage['pendingRevokes']`). */
@@ -361,6 +365,15 @@ export class PairingCeremony {
       const res = await client.post('/pair/confirm', 'pair.confirm', { phone: pending.phone, accept: false });
       if (res.status !== 200) this.host.log(`relay reject of ${pending.phone.slice(0, 8)} after wrong codes failed: ${res.status}`);
       return { error: 'code_rejected' };
+    }
+    // A roster at its bound takes no new device: the request is rejected, as Reject would.
+    if (accept && !this.host.canAdd(pending.phone)) {
+      this.pendingPair = null;
+      this.pairing = null;
+      this.host.changed();
+      const res = await client.post('/pair/confirm', 'pair.confirm', { phone: pending.phone, accept: false });
+      if (res.status !== 200) this.host.log(`relay reject of ${pending.phone.slice(0, 8)} in a full group failed: ${res.status}`);
+      return { error: 'group_full' };
     }
     // The relay tells the phone `paired` before it answers this post, and a
     // phone handshakes the moment it hears that — so the device must exist

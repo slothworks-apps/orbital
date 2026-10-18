@@ -125,6 +125,34 @@ describe('the phone as a member', () => {
     }
   }, 30_000);
 
+  it('a phone whose stored roster was dropped learns it again from its members', async () => {
+    const { a, idA, idB } = await twoServers();
+    const identity = generateIdentity();
+    const storage = new MemoryGroupStorage();
+    const make = (store: MemoryGroupStorage) => new GroupClient({
+      relayUrl: a.relayUrl, identity, WebSocketImpl: WebSocket, app: 'orbital-mobile/test', os: 'android', name: 'Pixel',
+      storage: store, log: () => {},
+    });
+    const first = make(storage);
+    const events: GroupClientEvent[] = [];
+    first.on((e) => { events.push(e); });
+    first.start();
+    closers.push(() => first.stop());
+    await until(() => first.status === 'online');
+    await joinBy({ client: first, events, posts: [], mutual: [], channels: [] }, a, idA);
+    await until(() => first.channel(idB)?.ready === true && first.members().length === 3, 15_000);
+    first.stop();
+    // Stored before entries were signed: the roster does not read, the pairs do.
+    const stored = storage.toJSON();
+    const dropped = MemoryGroupStorage.fromJSON({ ...stored, roster: stored.roster.map(({ addedSig: _s, ...e }) => e) });
+    expect(dropped.roster.list()).toEqual([]);
+    const again = make(dropped);
+    again.start();
+    closers.push(() => again.stop());
+    await until(() => again.members().length === 3 && again.members().every((m) => m.self || m.linked), 15_000);
+    expect(again.members().find((m) => m.self)).toMatchObject({ addedBy: idA, name: 'Pixel' });
+  }, 30_000);
+
   it('adds a server by its own code; the server then links with the phone\'s other members', async () => {
     const a = await startMacAndRelay(closers, { name: 'studio' });
     const idA = (await statusOf(a)).macId as string;

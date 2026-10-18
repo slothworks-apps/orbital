@@ -1336,7 +1336,7 @@ export const api = {
       accept ? { accept, phone, code } : { accept, phone },
       {
         404: ['no_pending'],
-        409: ['mismatch', 'code_rejected'],
+        409: ['mismatch', 'code_rejected', 'group_full'],
         422: ['code_mismatch'],
         502: ['relay_error'],
       },

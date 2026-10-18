@@ -101,6 +101,9 @@ export function PairConfirmDialog() {
       } else if (res.error === 'code_rejected') {
         // The server rejected the request and publishes it gone, which closes the dialog.
         useOrbital.setState({ toast: { kind: 'info', message: 'Request rejected · three codes didn’t match' } })
+      } else if (res.error === 'group_full') {
+        // The server rejected the request and publishes it gone, which closes the dialog.
+        useOrbital.setState({ toast: { kind: 'info', message: 'Request rejected · this group can’t take more devices' } })
       } else {
         // `no_pending` / `mismatch`: what the dialog shows is stale. No publish
         // may follow (an expired request is cleared silently), so the status

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { deviceId, generateIdentity, sign, toBase64Url, type Identity } from '../src/remote/keys.js';
 import {
-  ROSTER_KIND_MAX_CHARS, ROSTER_MAX_ENTRIES, ROSTER_MAX_EPOCH, ROSTER_MAX_EPOCH_STEP, RosterEntrySchema, addMember,
+  ROSTER_KIND_MAX_CHARS, ROSTER_MAX_ENTRIES, ROSTER_MAX_EPOCH, RosterEntrySchema, addMember,
   describeMember, descriptionBytes, foundingEntry, isLive, membershipBytes, mergeRoster, removeMember, rosterDigest,
   verifyEntry, type RosterEntry,
 } from '../src/remote/roster.js';
@@ -47,6 +47,16 @@ describe('signatures', () => {
     for (const change of changes) expect(verifyEntry({ ...entry, ...change }), JSON.stringify(change)).toBe(false);
   });
 
+  it('a signature is read only in its one canonical spelling', () => {
+    const entry = one(group(), V);
+    const last = entry.addedSig.at(-1)!;
+    // 64 bytes in 86 characters leave spare bits in the last one; a decoder that ignores them reads another spelling.
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    const twin = alphabet[alphabet.indexOf(last) ^ 1];
+    expect(verifyEntry({ ...entry, addedSig: entry.addedSig.slice(0, -1) + twin })).toBe(false);
+    expect(verifyEntry({ ...entry, addedSig: `${entry.addedSig}=` })).toBe(false);
+  });
+
   it('a description fits only the membership it was signed under', () => {
     const v = one(group(), V);
     const other = one(added([], V, B, 'phone', 99), V);
@@ -57,13 +67,13 @@ describe('signatures', () => {
     expect(addMember([], { id: idOf(V), kind: 'desktop', ...about }, V, 1)).toEqual([]);
     const founding = foundingEntry(V, 'desktop', about, 1);
     expect(verifyEntry(founding)).toBe(false);
-    expect(mergeRoster([], [founding], { from: idOf(V) })).toEqual([]);
+    expect(mergeRoster([], [founding])).toEqual([]);
   });
 
   it('a founding entry is not in the digest, and any membership replaces it', () => {
     const founding = foundingEntry(V, 'phone', about, 1);
     expect(rosterDigest([founding])).toBe(rosterDigest([]));
-    const merged = mergeRoster([founding], group(), { from: idOf(A), self: idOf(V) });
+    const merged = mergeRoster([founding], group());
     expect(one(merged, V).addedBy).toBe(idOf(A));
   });
 });
@@ -83,7 +93,7 @@ describe('descriptions', () => {
     const roster = group();
     const v = one(roster, V);
     const forged = describeMember([{ ...v, addedBy: idOf(M) }], idOf(V), { ...about, links: false }, M, 50)[0];
-    const merged = mergeRoster(roster, [{ ...forged, addedBy: v.addedBy }], { from: idOf(M), self: idOf(B) });
+    const merged = mergeRoster(roster, [{ ...forged, addedBy: v.addedBy }]);
     expect(one(merged, V)).toEqual(v);
   });
 
@@ -91,8 +101,8 @@ describe('descriptions', () => {
     const roster = group();
     const own = describeMember(roster, idOf(V), { ...about, name: 'own' }, V, 30, 'phone');
     const byAdder = describeMember(roster, idOf(V), { ...about, name: 'adder' }, A, 90);
-    expect(one(mergeRoster(byAdder, own, { self: idOf(B) }), V).name).toBe('own');
-    expect(one(mergeRoster(own, byAdder, { self: idOf(B) }), V).name).toBe('own');
+    expect(one(mergeRoster(byAdder, own), V).name).toBe('own');
+    expect(one(mergeRoster(own, byAdder), V).name).toBe('own');
   });
 
   it('a device describes itself only under a membership of its own kind', () => {
@@ -108,21 +118,32 @@ describe('kind', () => {
     const v = one(roster, V);
     const raised = added([{ ...v, epoch: v.epoch - 1, addedBy: idOf(M) }], V, M, 'desktop', 999);
     expect(one(raised, V).epoch).toBe(v.epoch);
-    const merged = mergeRoster(roster, raised, { from: idOf(M), self: idOf(B) });
+    const merged = mergeRoster(roster, raised);
     expect(one(merged, V).kind).toBe('phone');
-    expect(one(mergeRoster(raised, roster, { from: idOf(A), self: idOf(M) }), V).kind).toBe('phone');
+    expect(one(mergeRoster(raised, roster), V).kind).toBe('phone');
   });
 });
 
 describe('removal and re-adding', () => {
-  it('a removal by a member is taken; one by a key no member knows is not', () => {
+  it('a removal by a member is taken; a new membership signed by a device removed here is not', () => {
     const roster = group();
     const byMember = removeMember(roster, idOf(V), B, 50);
-    expect(isLive(one(mergeRoster(roster, byMember, { self: idOf(A) }), V))).toBe(false);
-    const stranger = generateIdentity();
-    const byStranger = removeMember(roster, idOf(V), stranger, 50);
-    expect(verifyEntry(one(byStranger, V))).toBe(true);
-    expect(isLive(one(mergeRoster(roster, byStranger, { from: idOf(B), self: idOf(A) }), V))).toBe(true);
+    expect(isLive(one(mergeRoster(roster, byMember), V))).toBe(false);
+    // B is removed here; what it adds afterwards, a new id or a re-add, is refused.
+    const bRemoved = removeMember(roster, idOf(B), A, 50);
+    const newcomer = generateIdentity();
+    expect(mergeRoster(bRemoved, added([], newcomer, B)).some((e) => e.id === idOf(newcomer))).toBe(false);
+    const vRemoved = removeMember(bRemoved, idOf(V), A, 60);
+    expect(isLive(one(mergeRoster(vRemoved, added(vRemoved, V, B, 'phone')), V))).toBe(false);
+  });
+
+  it('who signed an entry need not be known here: a device joining through the newest member learns them all', () => {
+    // A and B added each other; C joined through B; J joins through C and holds only its own entry.
+    const C = generateIdentity();
+    const J = generateIdentity();
+    const full = added(added(added(added([], A, B), B, A), C, B), J, C);
+    const merged = mergeRoster([foundingEntry(J, 'desktop', about, 1)], full);
+    expect(merged.map((e) => e.id).sort()).toEqual([A, B, C, J].map(idOf).sort());
   });
 
   it('a removed device cannot re-add itself; another member can, one epoch up', () => {
@@ -130,9 +151,9 @@ describe('removal and re-adding', () => {
     const v = one(removed, V);
     // V signs a membership for itself at the next epoch.
     const self = handSigned(V, V, 'desktop', v.epoch + 1);
-    expect(isLive(one(mergeRoster(removed, [self], { from: idOf(V), self: idOf(B) }), V))).toBe(false);
+    expect(isLive(one(mergeRoster(removed, [self]), V))).toBe(false);
     const readded = added(removed, V, B, 'phone', 70);
-    const merged = one(mergeRoster(removed, readded, { from: idOf(B), self: idOf(A) }), V);
+    const merged = one(mergeRoster(removed, readded), V);
     expect(isLive(merged)).toBe(true);
     expect(merged.epoch).toBe(v.epoch + 1);
   });
@@ -140,16 +161,25 @@ describe('removal and re-adding', () => {
   it('an old live entry never brings a removed device back', () => {
     const live = group();
     const removed = removeMember(live, idOf(V), A, 50);
-    expect(isLive(one(mergeRoster(removed, live, { self: idOf(B) }), V))).toBe(false);
-    expect(isLive(one(mergeRoster(live, removed, { self: idOf(B) }), V))).toBe(false);
+    expect(isLive(one(mergeRoster(removed, live), V))).toBe(false);
+    expect(isLive(one(mergeRoster(live, removed), V))).toBe(false);
   });
 
-  it('an epoch far above the one held is not taken', () => {
+  it('a live device is not re-added behind its back; a member that missed its removal and re-add catches up once it described itself', () => {
     const roster = group();
-    let far = roster;
-    for (let i = 0; i <= ROSTER_MAX_EPOCH_STEP; i++) far = added(removeMember(far, idOf(V), M, 1), V, M);
-    expect(one(far, V).epoch).toBe(one(roster, V).epoch + ROSTER_MAX_EPOCH_STEP + 1);
-    expect(one(mergeRoster(roster, far, { from: idOf(M), self: idOf(B) }), V)).toEqual(one(roster, V));
+    const v = one(roster, V);
+    // M re-adds V, live, one epoch up, as a desktop: V never described itself under it.
+    const behind = added(removeMember(roster, idOf(V), M, 1), V, M, 'desktop');
+    expect(one(behind, V).epoch).toBe(v.epoch + 1);
+    expect(one(mergeRoster(roster, behind), V)).toEqual(v);
+    // V was removed and re-added by A; V took its new membership and described itself under it.
+    const readded = added(removeMember(roster, idOf(V), A, 1), V, A, 'phone');
+    const described = describeMember(readded, idOf(V), about, V, 40, 'phone');
+    expect(one(mergeRoster(roster, readded), V)).toEqual(v);
+    expect(one(mergeRoster(roster, described), V)).toEqual(one(described, V));
+    // A removal at a higher epoch reaches it too.
+    const removedAgain = removeMember(described, idOf(V), A, 50);
+    expect(isLive(one(mergeRoster(roster, removedAgain), V))).toBe(false);
   });
 });
 
@@ -163,7 +193,7 @@ describe('the epoch ceiling', () => {
 
     const past = handSigned(V, M, 'desktop', ROSTER_MAX_EPOCH + 1);
     expect(verifyEntry(past)).toBe(false);
-    expect(mergeRoster([], [past], { from: idOf(M) })).toEqual([]);
+    expect(mergeRoster([], [past])).toEqual([]);
   });
 });
 
@@ -172,8 +202,9 @@ describe('the size bound', () => {
     let full: RosterEntry[] = added([], V, A, 'phone');
     while (full.length < ROSTER_MAX_ENTRIES) full = added(full, generateIdentity(), A);
     const newcomer = generateIdentity();
-    const incoming = removeMember(added(full, newcomer, A), idOf(V), A, 50);
-    const merged = mergeRoster(full, incoming, { from: idOf(A) });
+    expect(added(full, newcomer, A)).toBe(full);
+    const incoming = [...removeMember(full, idOf(V), A, 50), ...added([], newcomer, A)];
+    const merged = mergeRoster(full, incoming);
     expect(merged).toHaveLength(ROSTER_MAX_ENTRIES);
     expect(merged.some((e) => e.id === idOf(newcomer))).toBe(false);
     expect(isLive(one(merged, V))).toBe(false);
@@ -200,8 +231,8 @@ describe('convergence', () => {
   it('two members that added one device at one epoch agree, whichever roster arrives first', () => {
     const byA = added(added([], A, B), V, A, 'phone', 5);
     const byB = added(added([], A, B), V, B, 'phone', 6);
-    const ab = mergeRoster(byA, byB, { from: idOf(B), self: idOf(A) });
-    const ba = mergeRoster(byB, byA, { from: idOf(A), self: idOf(B) });
+    const ab = mergeRoster(byA, byB);
+    const ba = mergeRoster(byB, byA);
     expect(ab).toEqual(ba);
     expect(rosterDigest(ab)).toBe(rosterDigest(ba));
   });

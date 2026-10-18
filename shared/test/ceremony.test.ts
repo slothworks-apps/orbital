@@ -26,7 +26,9 @@ function fakeRelay(answers: Record<string, Answer> = {}) {
   return { relay, posts, answers };
 }
 
-function build(opts: { kind?: string; inGroup?: boolean; members?: string[]; paired?: PairedDevice[]; answers?: Record<string, Answer> } = {}) {
+function build(opts: {
+  kind?: string; inGroup?: boolean; members?: string[]; paired?: PairedDevice[]; answers?: Record<string, Answer>; full?: boolean;
+} = {}) {
   const identity = generateIdentity();
   const r = fakeRelay(opts.answers);
   const paired = new Map((opts.paired ?? []).map((d) => [d.id, d]));
@@ -46,6 +48,7 @@ function build(opts: { kind?: string; inGroup?: boolean; members?: string[]; pai
     self: () => ({ name: 'self', platform: 'macos', kind: opts.kind ?? 'desktop' }),
     inGroup: () => opts.inGroup ?? false,
     isLiveMember: (id) => (opts.members ?? []).includes(id),
+    canAdd: () => !opts.full,
     paired: {
       get: (id) => paired.get(id) ?? null,
       add: (d) => { paired.set(d.id, { ...d, lastSeenAt: null }); },
@@ -168,6 +171,19 @@ describe('PairingCeremony as the adder', () => {
     expect(a.ceremony.state().pendingPair).toMatchObject({ kind: 'phone', name: 'Pixel' });
     expect(await a.ceremony.confirm(true, id, codeFor(a.identity, phone))).toEqual({ ok: true });
     expect(a.calls.addPaired).toEqual([{ id, kind: 'phone', name: 'Pixel', os: 'android', links: false }]);
+  });
+
+  it('a full group rejects the request at the relay and adds nothing', async () => {
+    const a = build({ full: true });
+    const qr = await showCode(a);
+    const phone = generateIdentity();
+    const id = deviceId(phone.publicKey);
+    a.ceremony.onPairRequest(request(qr, phone));
+    expect(await a.ceremony.confirm(true, id, codeFor(a.identity, phone))).toEqual({ error: 'group_full' });
+    expect(a.relay.posts.at(-1)).toEqual({ path: '/pair/confirm', payload: { phone: id, accept: false } });
+    expect(a.paired.size).toBe(0);
+    expect(a.calls.addPaired).toEqual([]);
+    expect(a.ceremony.state()).toMatchObject({ pendingPair: null, pairing: null });
   });
 
   it('undoes the pair when the relay does not take the accept', async () => {

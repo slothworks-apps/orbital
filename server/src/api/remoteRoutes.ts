@@ -59,6 +59,7 @@ export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService
       case 'no_pending': return reply.code(404).send(res);
       case 'code_mismatch': return reply.code(422).send(res);
       case 'code_rejected': return reply.code(409).send(res);
+      case 'group_full': return reply.code(409).send(res);
       case 'relay_error': return reply.code(502).send(res);
     }
   });

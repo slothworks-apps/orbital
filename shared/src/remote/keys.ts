@@ -117,6 +117,16 @@ export function publicKeyOf(id: string): Uint8Array | null {
   return bytes;
 }
 
+const SIGNATURE_RE = /^[A-Za-z0-9_-]{86}$/;
+
+/** A signature's bytes from its base64url, only in its one canonical spelling (as `publicKeyOf`); null otherwise. */
+export function signatureOf(text: string): Uint8Array | null {
+  if (!SIGNATURE_RE.test(text)) return null;
+  const bytes = fromBase64Url(text);
+  if (bytes.length !== SIGNATURE_BYTES || toBase64Url(bytes) !== text) return null;
+  return bytes;
+}
+
 const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 
 /**

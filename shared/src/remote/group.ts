@@ -14,8 +14,8 @@ import type { GroupMessage, HelloMessage } from './messages.js';
 import type { RelayAction } from './relayApi.js';
 import type { LinkStatus } from './relayLink.js';
 import {
-  addMember, describeMember, foundingEntry, isLive, mergeRoster, removeMember, rosterDigest, rosterFields, shareable,
-  type RosterEntry, type RosterFields,
+  ROSTER_MAX_ENTRIES, addMember, describeMember, foundingEntry, hasDuplicateIds, isLive, mergeRoster, removeMember,
+  rosterDigest, rosterFields, shareable, type RosterEntry, type RosterFields,
 } from './roster.js';
 
 /**
@@ -348,7 +348,13 @@ export class GroupMember {
    */
   setRoster(next: RosterEntry[], from?: string): boolean {
     const before = new Map(this.storage.roster.list().map((e) => [e.id, e]));
-    if (!this.storage.roster.replace(this.describedSelf(next))) return false;
+    const described = this.describedSelf(next);
+    // Never held: every roster this device sent would be refused whole, and removals would stop.
+    if (described.length > ROSTER_MAX_ENTRIES) {
+      this.host.log(`refused a roster of ${described.length} entries: past ${ROSTER_MAX_ENTRIES}`);
+      return false;
+    }
+    if (!this.storage.roster.replace(described)) return false;
     this.applyRemovals(before);
     this.host.changed();
     const digest = this.storage.roster.digest();
@@ -614,6 +620,19 @@ export class GroupMember {
   }
 
   /**
+   * Whether the roster can take `id`: a device it holds already, or room
+   * for one more (`ROSTER_MAX_ENTRIES`). A roster that cannot be read takes none.
+   */
+  canAdd(id: string): boolean {
+    try {
+      const entries = this.storage.roster.list();
+      return entries.some((e) => e.id === id) || entries.length < ROSTER_MAX_ENTRIES;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * A device whose request this one confirmed, added by this device at the
    * next epoch, as the pairing named it. A live entry is kept: the device
    * is a member already. A device whose code this one redeemed is not
@@ -677,9 +696,13 @@ export class GroupMember {
       });
       return;
     }
-    const self = this.ownId;
+    // One id twice: each copy could be weighed alone; such a roster is no one's honest view.
+    if (hasDuplicateIds(msg.entries)) {
+      this.host.log(`ignored a roster from ${from.slice(0, 8)}: it names one device twice`);
+      return;
+    }
     this.tryRoster('merge a roster', () => {
-      this.setRoster(mergeRoster(this.storage.roster.list(), msg.entries, { from, self }), from);
+      this.setRoster(mergeRoster(this.storage.roster.list(), msg.entries), from);
     });
     // A device paired here whose roster does not name it: the device whose code this one
     // redeemed, while it was alone. This device adds it, as the pairing named it.
@@ -696,7 +719,7 @@ export class GroupMember {
     // entry (one the other does not take) do not trade rosters forever.
     this.tryRoster('answer a roster', () => {
       const local = shareable(this.storage.roster.list());
-      const theirs = mergeRoster(msg.entries, local, { from: self, self: from, trusted: true });
+      const theirs = mergeRoster(msg.entries, local, { trusted: true });
       if (rosterDigest(theirs) !== rosterDigest(msg.entries)) channel.sendGroup({ t: 'roster', entries: local });
     });
   }

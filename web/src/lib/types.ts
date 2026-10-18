@@ -1894,11 +1894,12 @@ export interface RemoteStatus {
 }
 
 /** The refusals `POST /api/remote/pair/confirm` answers with instead of `{ ok: true }`. */
-export type PairConfirmError = 'no_pending' | 'mismatch' | 'code_mismatch' | 'code_rejected' | 'relay_error'
+export type PairConfirmError = 'no_pending' | 'mismatch' | 'code_mismatch' | 'code_rejected' | 'relay_error' | 'group_full'
 
 /**
  * `code_mismatch`: a wrong code, the request still waits with `attemptsLeft`.
  * `code_rejected`: the last wrong code; the server rejected the request.
+ * `group_full`: the group holds as many devices as it can; the server rejected the request.
  */
 export type PairConfirmResult =
   | { ok: true }

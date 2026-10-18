@@ -230,6 +230,7 @@ export class RemoteService {
       self: () => ({ name: this.macName, platform: osName(process.platform), kind: serverDeviceKind() }),
       inGroup: () => this.group.inGroup(),
       isLiveMember: (id) => this.group.isLiveMember(id),
+      canAdd: (id) => this.group.canAdd(id),
       paired: {
         get: (id) => this.devices.get(id),
         add: (d) => this.addDevice(d),
