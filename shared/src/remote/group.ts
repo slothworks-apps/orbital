@@ -118,8 +118,10 @@ export interface GroupStorage {
   /**
    * Pairs that end once the document that ends them reached the other side
    * (`GroupExit`), kept across restarts. Nothing is served to such a device meanwhile.
+   * `has` is asked on every frame to and from a peer, so it reads no stored state: an id
+   * whose state does not read still counts.
    */
-  exits: { list(): GroupExit[]; set(exit: GroupExit): void; remove(id: string): void };
+  exits: { list(): GroupExit[]; has(id: string): boolean; set(exit: GroupExit): void; remove(id: string): void };
 }
 
 /**
@@ -439,7 +441,7 @@ export class GroupMember {
   /** A device whose pair ends once the document that ends it reached it: nothing is served to it meanwhile. */
   exiting(id: string): boolean {
     try {
-      return this.storage.exits.list().some((e) => e.id === id);
+      return this.storage.exits.has(id);
     } catch {
       // Unreadable: served nothing rather than everything.
       return true;

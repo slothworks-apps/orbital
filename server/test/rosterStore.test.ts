@@ -64,7 +64,14 @@ describe('RosterStore', () => {
     // A row whose state does not read is still an exit: its device stays served nothing.
     db.update(groupExits).set({ state: 'not json' }).run();
     expect(exits.list()).toEqual([{ id: 'a', state: null, since: 3 }]);
+    // `has` reads the ids once, from the rows another store left, and follows this one's writes.
+    expect(new GroupExitStore(db).has('a')).toBe(true);
+    expect([exits.has('a'), exits.has('b')]).toEqual([true, false]);
+    exits.set({ id: 'b', state, since: 4 });
+    expect(exits.has('b')).toBe(true);
     exits.remove('a');
+    expect(exits.has('a')).toBe(false);
+    exits.remove('b');
     expect(exits.list()).toEqual([]);
   });
 });

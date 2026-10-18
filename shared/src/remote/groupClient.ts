@@ -800,12 +800,13 @@ function persisting(storage: GroupStorage, stored: () => void): GroupStorage {
     },
     exits: {
       list: () => storage.exits.list(),
+      has: (id) => storage.exits.has(id),
       set: (exit) => {
         storage.exits.set(exit);
         stored();
       },
       remove: (id) => {
-        if (!storage.exits.list().some((e) => e.id === id)) return;
+        if (!storage.exits.has(id)) return;
         storage.exits.remove(id);
         stored();
       },
@@ -894,6 +895,7 @@ export class MemoryGroupStorage implements GroupStorage {
 
   readonly exits: GroupStorage['exits'] = {
     list: () => [...this.ending].map(([id, e]) => ({ id, state: structuredClone(e.state), since: e.since })),
+    has: (id) => this.ending.has(id),
     set: (exit) => {
       this.ending.set(exit.id, { state: structuredClone(exit.state), since: exit.since });
     },

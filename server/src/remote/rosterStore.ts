@@ -89,7 +89,16 @@ export class GroupMembershipStore {
 
 /** Pairs that end once the document that ends them is acknowledged (`GroupStorage.exits`). */
 export class GroupExitStore {
+  /** The stored ids, read once: `has` is asked on every frame. Null until a read succeeds. */
+  private ids: Set<string> | null = null;
+
   constructor(private readonly db: OrbitalDb) {}
+
+  /** Throws when the ids do not read, and reads them again on the next call. */
+  has(id: string): boolean {
+    this.ids ??= new Set(this.db.select({ id: groupExits.id }).from(groupExits).all().map((r) => r.id));
+    return this.ids.has(id);
+  }
 
   /** A row whose state does not read is still an exit (state null): its device stays served nothing. */
   list(): GroupExit[] {
@@ -107,12 +116,15 @@ export class GroupExitStore {
 
   set(exit: GroupExit): void {
     const state = JSON.stringify(exit.state);
+    // Before the write: a write that fails still leaves the device served nothing until restart.
+    this.ids?.add(exit.id);
     this.db.insert(groupExits).values({ id: exit.id, state, since: exit.since })
       .onConflictDoUpdate({ target: groupExits.id, set: { state, since: exit.since } }).run();
   }
 
   remove(id: string): void {
     this.db.delete(groupExits).where(eq(groupExits.id, id)).run();
+    this.ids?.delete(id);
   }
 }
 

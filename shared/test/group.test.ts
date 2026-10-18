@@ -141,6 +141,10 @@ function build(opts: {
         if (exitsBroken) throw new Error('unreadable');
         return [...exits.values()];
       },
+      has: (id) => {
+        if (exitsBroken) throw new Error('unreadable');
+        return exits.has(id);
+      },
       set: (e) => { exits.set(e.id, e); },
       remove: (id) => { exits.delete(id); },
     },
