@@ -54,6 +54,7 @@ describe('the stored group', () => {
         roster: EMPTY_ROSTER,
         paired: [{ id: mac, name: 'studio', kind: null, platform: '', pairedAt: 7, lastSeenAt: null }],
         pendingRevokes: [],
+        membership: { group: mac, founding: null, version: 0, member: true },
       },
     })
     const { relaySecret: _, ...open } = PAIRING

@@ -26,7 +26,8 @@ describe('RosterStore', () => {
     expect(store.replace(store.read())).toBe(false);
     expect(store.digest()).toBe(rosterDigest(state));
     // What comes back verifies as it went in: another member takes all of it.
-    const taken = takeRoster(EMPTY_ROSTER, store.read(), { self: deviceId(b.publicKey), membership: null, paired: () => true });
+    const joining = { group: deviceId(primary.publicKey), founding: null, version: 0, member: true };
+    const taken = takeRoster(EMPTY_ROSTER, store.read(), { self: deviceId(b.publicKey), membership: joining, from: joining.group });
     expect(rosterDigest(taken)).toBe(rosterDigest(state));
     // A dissolved document reads back as one.
     expect(store.replace({ roster: dissolveRoster(doc, primary)!, descriptions: [], left: [] })).toBe(true);

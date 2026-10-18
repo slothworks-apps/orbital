@@ -317,39 +317,41 @@ export type TakeOptions = {
   self: string;
   /** This device's group (`Membership`); null when it has none. */
   membership: Membership | null;
-  /** Whether this device holds a pair with `id`. */
-  paired: (id: string) => boolean;
+  /** The device `incoming` came from: while a join knows only its primary, only that primary's own word counts. */
+  from?: string;
   /** `incoming` was written or checked here already: no signature is checked again. */
   trusted?: boolean;
 };
 
 /**
- * `held` with what it takes of `incoming`, normalized. The document only
- * when signed by the primary of this device's group, of that founding, at
- * a version above the highest taken of it — even while this device holds
- * no document (one it stored was dropped) — and, once this device is no
- * member, only one that names it again. With no group, or after one ended,
- * a document of another group that names it, not dissolved, whose primary
- * is another device paired here. Then each description and left notice
- * that verifies and that the document leaves room for (`normalize`).
- * Whichever device passed it on, the rule is the same.
+ * `held` with what it takes of `incoming`, normalized. Only while this
+ * device is a member of a group, and only a document its primary signed:
+ * - Its founding known: of that founding, at a version above the highest
+ *   taken of it — or that very version, while no document is held (one
+ *   stored was dropped): the primary signs one document per version.
+ * - Its founding not known yet (a ceremony named only the primary): one
+ *   that names this device, not dissolved, sent by that primary itself; its
+ *   founding is then the group's (`GroupMember.setRoster`).
+ * A device in no group, or whose group ended, adopts nothing: it joins only
+ * through a ceremony (`GroupMember.joinGroup`). The versions of a founding
+ * this device left stay refused up to where it left (`Membership.left`).
+ * Then each description and left notice that verifies and that the
+ * document leaves room for (`normalize`).
  */
 export function takeRoster(held: RosterState, incoming: RosterState, opts: TakeOptions): RosterState {
   const ok = (key: string, check: () => boolean) => opts.trusted === true || verifiedOnce(key, check);
   const m = opts.membership;
   let doc = held.roster && (m === null || ofGroup(held.roster, m)) ? held.roster : null;
   const theirs = incoming.roster;
-  if (theirs && ok(`r${JSON.stringify(theirs)}`, () => verifyRoster(theirs))) {
-    if (m !== null && ofGroup(theirs, m)) {
-      // Above the highest taken; for a member that holds no document (one stored was dropped), the very
-      // version taken too: the primary signs one document per version, so it is the same one.
-      const relearn = m.member && doc === null && theirs.version === m.version;
-      const newer = relearn || (theirs.version > m.version && (doc === null || theirs.version > doc.version));
-      const stale = m.left !== undefined && theirs.founding === m.left.founding && theirs.version <= m.left.version;
-      if (newer && !stale && (m.member || named(theirs, opts.self))) doc = theirs;
-    } else if ((m === null || !m.member) && !theirs.dissolved && theirs.group !== opts.self && named(theirs, opts.self)
-      && opts.paired(theirs.group)) {
-      doc = theirs;
+  if (theirs && m !== null && m.member && theirs.group === m.group && ok(`r${JSON.stringify(theirs)}`, () => verifyRoster(theirs))) {
+    const stale = m.left !== undefined && theirs.founding === m.left.founding && theirs.version <= m.left.version;
+    if (stale) {
+      // A version of the founding it left, at or below where it left: refused.
+    } else if (m.founding === null) {
+      if (!theirs.dissolved && named(theirs, opts.self) && opts.from === m.group) doc = theirs;
+    } else if (theirs.founding === m.founding) {
+      const relearn = doc === null && theirs.version === m.version;
+      if (relearn || (theirs.version > m.version && (doc === null || theirs.version > doc.version))) doc = theirs;
     }
   }
   // A document of a group this device holds no longer (it joined another by a ceremony) is not kept.

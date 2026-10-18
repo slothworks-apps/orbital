@@ -462,11 +462,9 @@ export class GroupMember {
       return { error: 'failed' };
     }
     const doc = state.roster;
-    // In no group, or joining one whose roster has not come yet: nothing to tell anyone.
-    if (!doc || doc.dissolved) {
-      if (this.storage.membership.get()?.member) this.storage.membership.set(null);
-      return { ok: true };
-    }
+    // A member that holds no document (one stored was dropped, or a join whose roster never came)
+    // cannot tell its group: `failed`, and forgetting the group on this device stays the way out.
+    if (!doc || doc.dissolved) return this.storage.membership.get()?.member ? { error: 'failed' } : { ok: true };
     const members = memberIds(state).filter((id) => id !== self);
     const links = new Map(rosterMembers(state).map((m) => [m.id, m.links]));
     if (doc.group === self) {
@@ -974,7 +972,7 @@ export class GroupMember {
       const self = this.ownId;
       if (self === null) return;
       const next = takeRoster(this.storage.roster.read(), theirs, {
-        self, membership: this.storage.membership.get(), paired: (id) => this.storage.paired.get(id) !== null,
+        self, membership: this.storage.membership.get(), from,
       });
       this.setRoster(next, from);
     });
@@ -990,7 +988,7 @@ export class GroupMember {
       const of = theirs.roster ?? ours.roster;
       const would = takeRoster(theirs, ours, {
         self: from, membership: { group: of.group, founding: of.founding, version: theirs.roster?.version ?? 0, member: true },
-        paired: () => true, trusted: true,
+        trusted: true,
       });
       if (rosterKey(would) !== rosterKey(theirs)) channel.sendGroup({ t: 'roster', ...ours });
     });

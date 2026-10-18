@@ -135,6 +135,8 @@ export function migratePairing(pairing: Pairing): GroupRecord {
       roster: EMPTY_ROSTER,
       paired: [{ id: pairing.mac, name: pairing.macName, kind: null, platform: '', pairedAt: pairing.pairedAt, lastSeenAt: null }],
       pendingRevokes: [],
+      // The Mac it paired with by its code: the group it founds is the only one this phone takes.
+      membership: { group: pairing.mac, founding: null, version: 0, member: true },
     },
   }
   if (pairing.relaySecret !== undefined) record.relaySecret = pairing.relaySecret

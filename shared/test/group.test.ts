@@ -726,11 +726,26 @@ describe('GroupMember with its stored roster dropped', () => {
     expect(h.membership()?.member).toBe(false);
   });
 
-  it('a device with no group adopts a group that names it, from its primary, and records it', () => {
-    const g = build({ roster: EMPTY_ROSTER, paired: [row(MAC)] });
-    const state = roster();
+  it('a device in no group adopts nothing; through a ceremony it takes its primary\'s, and records the founding', () => {
+    const g = build({ roster: EMPTY_ROSTER, paired: [row(MAC), row(OTHER)] });
+    const state = roster(OTHER);
+    g.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...state });
+    expect(g.state()).toEqual(EMPTY_ROSTER);
+    g.group.joinGroup(MAC);
+    // Only from the primary itself while the founding is not known.
+    g.group.onGroup(OTHER, fakeChannel().channel, { t: 'roster', ...state });
+    expect(g.state()).toEqual(EMPTY_ROSTER);
     g.group.onGroup(MAC, fakeChannel().channel, { t: 'roster', ...state });
     expect(g.membership()).toEqual({ group: MAC, founding: state.roster!.founding, version: 1, member: true });
+  });
+
+  it('leaving with its stored roster dropped answers failed and changes nothing', async () => {
+    const kept: Membership = { group: MAC, founding: 'f', version: 3, member: true };
+    const g = build({ roster: EMPTY_ROSTER, membership: kept, paired: [row(MAC)] });
+    g.channels.set(MAC, fakeChannel().channel);
+    expect(await g.group.leave()).toEqual({ error: 'failed' });
+    expect(g.membership()).toEqual(kept);
+    expect(g.paired.has(MAC)).toBe(true);
   });
 });
 
@@ -764,6 +779,8 @@ describe('GroupMember founding and joining', () => {
     expect(mac.group.addPaired({ id: PHONE, kind: 'phone', name: 'pixel', os: 'android', links: true })).toBe(true);
     expect(mac.state().roster).toMatchObject({ group: MAC, version: 1 });
     joiner.paired.set(MAC, row(MAC));
+    // Its ceremony named the Mac as the device that adds it.
+    joiner.group.joinGroup(MAC);
     const w = wire(mac, joiner);
     w.ready();
     expect(w.flush()).toBe(0);

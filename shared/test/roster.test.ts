@@ -30,9 +30,9 @@ const next = (state: RosterState, change: { add?: Identity[]; remove?: Identity[
   }, 2)!,
 });
 
-/** What `self` holds once `incoming` arrives from a paired device. */
+/** What `self` holds once `incoming` arrives, from the primary unless `from` says otherwise. */
 const at = (self: Identity, held: RosterState, incoming: RosterState, opts: Partial<TakeOptions> = {}) =>
-  takeRoster(held, incoming, { self: idOf(self), membership: memberOf(held), paired: () => true, ...opts });
+  takeRoster(held, incoming, { self: idOf(self), membership: memberOf(held), from: idOf(P), ...opts });
 
 /** The membership a device holding `held` keeps, as a member at its version. */
 const memberOf = (held: RosterState): Membership | null => (held.roster
@@ -88,17 +88,47 @@ describe('taking a roster', () => {
     expect(verifyRoster({ ...doc, sig: `${doc.sig}=` })).toBe(false);
   });
 
-  it('a device alone takes the document of a primary paired here that names it, and no other', () => {
+  it('a joiner whose ceremony named only the primary takes only a document naming it, from that primary itself', () => {
     const joiner = generateIdentity();
     const v2 = next(group(), { add: [joiner] });
-    const alone = { membership: null, paired: (id: string) => id === idOf(P) };
-    expect(at(joiner, EMPTY_ROSTER, v2, alone).roster).toEqual(v2.roster);
-    // Not named, or a primary not paired here, or a member of another group: nothing.
-    expect(at(generateIdentity(), EMPTY_ROSTER, v2, alone).roster).toBeNull();
-    expect(at(joiner, EMPTY_ROSTER, v2, { membership: null, paired: () => false }).roster).toBeNull();
-    const elsewhere = foundRoster(B, 'desktop', [{ id: idOf(A), kind: 'desktop' }], 1)!;
+    expect(at(joiner, EMPTY_ROSTER, v2, { membership: joining(P) }).roster).toEqual(v2.roster);
+    // Not naming it, sent by another member, or dissolved: nothing.
+    expect(at(generateIdentity(), EMPTY_ROSTER, v2, { membership: joining(P) }).roster).toBeNull();
+    expect(at(joiner, EMPTY_ROSTER, v2, { membership: joining(P), from: idOf(B) }).roster).toBeNull();
     const ours = group();
+    const elsewhere = foundRoster(B, 'desktop', [{ id: idOf(A), kind: 'desktop' }], 1)!;
     expect(at(A, ours, { roster: elsewhere, descriptions: [], left: [] }).roster).toEqual(ours.roster);
+  });
+
+  it('a device in no group, or whose group ended, adopts nothing: it joins only through a ceremony', () => {
+    const v2 = next(group(), { add: [generateIdentity()] });
+    expect(at(A, EMPTY_ROSTER, v2, { membership: null }).roster).toBeNull();
+    const ended: Membership = { group: idOf(P), founding: v2.roster!.founding, version: 1, member: false };
+    expect(at(A, EMPTY_ROSTER, v2, { membership: ended }).roster).toBeNull();
+  });
+
+  it('a replay of the founding a device left, or of another founding of its former primary, is refused', () => {
+    const first = group();
+    const ended: Membership = { group: idOf(P), founding: first.roster!.founding, version: 1, member: false };
+    const later = next(first, { add: [generateIdentity()] });
+    expect(at(A, EMPTY_ROSTER, later, { membership: ended }).roster).toBeNull();
+    expect(at(A, EMPTY_ROSTER, group(), { membership: ended }).roster).toBeNull();
+    // Joined again by a ceremony: the founding it left stays refused up to where it left, and the primary's
+    // current group is taken from the primary itself.
+    const rejoined: Membership = { ...joining(P), left: { founding: first.roster!.founding, version: 1 } };
+    expect(at(A, EMPTY_ROSTER, first, { membership: rejoined }).roster).toBeNull();
+    expect(at(A, EMPTY_ROSTER, later, { membership: rejoined }).roster).toEqual(later.roster);
+  });
+
+  it('a joiner sets its founding from the first document it takes: an older founding at a higher version is refused after', () => {
+    const old = group();
+    const oldLater = next(next(old, { add: [generateIdentity()] }), { add: [generateIdentity()] });
+    const current = group();
+    const took = at(A, EMPTY_ROSTER, current, { membership: joining(P) });
+    expect(took.roster?.founding).toBe(current.roster!.founding);
+    const nowKnown: Membership = { group: idOf(P), founding: current.roster!.founding, version: 1, member: true };
+    expect(oldLater.roster!.version).toBeGreaterThan(1);
+    expect(at(A, took, oldLater, { membership: nowKnown }).roster).toEqual(current.roster);
   });
 });
 
@@ -172,10 +202,9 @@ describe('leaving', () => {
     const v2 = next(group(), { remove: [R] });
     // A member of the group, B, hands A a group of its own that names A.
     const fake = { roster: foundRoster(B, 'desktop', [{ id: idOf(A), kind: 'desktop' }], 1)!, descriptions: [], left: [] };
-    expect(at(A, EMPTY_ROSTER, fake, { membership: joining(P) }).roster).toBeNull();
-    expect(at(A, EMPTY_ROSTER, v2, { membership: joining(P) }).roster).toEqual(v2.roster);
-    // With no group id at all, it may adopt a group that names it, from a primary paired here.
-    expect(at(A, EMPTY_ROSTER, fake, { membership: null }).roster?.group).toBe(idOf(B));
+    expect(at(A, EMPTY_ROSTER, fake, { membership: joining(P), from: idOf(B) }).roster).toBeNull();
+    const kept: Membership = { group: idOf(P), founding: v2.roster!.founding, version: 1, member: true };
+    expect(at(A, EMPTY_ROSTER, v2, { membership: kept, from: idOf(B) }).roster).toEqual(v2.roster);
   });
 
   it('a group the primary founds again is another group: no version or notice of the earlier one holds in it', () => {
