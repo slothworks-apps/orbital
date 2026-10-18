@@ -241,7 +241,7 @@ primary's own phones after it joined another group) is listed under
 
 ## Storage
 
-- On a Mac or a server (migration `0034_roster_primary`):
+- On a Mac or a server (migration `0029_device_group`):
   `group_roster` (the document's head), `group_members`,
   `group_descriptions`, `group_left`, `group_membership` (the membership
   and the notice of how it ended), `group_exits` (pending exits),

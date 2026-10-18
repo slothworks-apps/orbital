@@ -67,7 +67,11 @@ member (the person already consented once, on two of their own devices).
 ## Scope
 
 - **For:** anyone running Orbital on more than one machine, or on a
-  machine and the phone.
+  machine and the phone. Every phone user already is one: the phone
+  reached its Mac before groups, and a group is what keeps it working
+  when that Mac sleeps. Several machines (a desk Mac and a laptop, a
+  build server) is common among people who run many sessions at once,
+  which is who Orbital is for.
 - **Lives:** on by default. A device alone is a group of one, and nothing
   changes for it until a second device joins. Not Labs: adding a device is
   an explicit act, the phone already reached its Mac this way, and nothing
@@ -78,7 +82,9 @@ member (the person already consented once, on two of their own devices).
   without pairing again; its Settings shows Devices (the group, this phone's
   code, Leave this group) where it showed one Mac and "Pair a different
   Mac".
-- **Can be set:** which devices are in the group (add, remove any, leave;
+- **Can be set:** which devices are in the group (add, remove and
+  dissolve on the group's primary — the device that founded it; leave on
+  any other;
   rename this device on a desktop — the phone takes its name from the
   system); the device filter chips on the map and the phone;
   the relay, only while the device is alone (§ 4).
@@ -129,6 +135,10 @@ Every member keeps the whole roster and they converge on it.
   Mac). On the phone: secure storage, beside its identity.
 
 ## 3. Joining
+
+> As built: the ceremony is with the group's primary only (ADR
+> `the-group-has-one-primary-device`); "any member" below reads "the
+> primary".
 
 1. On any member, Settings → Devices → **Add a device** shows a code: the
    QR on a Mac (the phone scans it), the same payload as one word to copy
@@ -306,9 +316,11 @@ Its own sub-project (§ 14), designed here only so far as the group needs
 
 ## 12. Phone
 
-Built for the phone (§ 3, § 7): it is a member like any other, joins by
-scanning any member's QR, adds a device by showing its own code, lists
-every member in Settings → Devices, and reaches each member directly, so
+Built for the phone (§ 3, § 7): it is a member like any other, except
+that it is never the group's primary. It joins by scanning the primary's
+QR or by showing its own code to the primary while it is in no group,
+lists every member in Settings → Devices with the device that manages
+the group, and reaches each member directly, so
 a sleeping Mac takes away only its own sessions. It runs no sessions and
 serves nothing. Against an older Mac it keeps today's one-to-one link
 (§ 9), gated per member (§ 8). It ships over the air: one identity it
