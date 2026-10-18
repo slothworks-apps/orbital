@@ -38,6 +38,20 @@ export const HANDSHAKE_TIMEOUT_MS = 10_000;
 /** How long a `request`, a `getBlob` or `getFile` (per chunk, unless told otherwise) or a notifications call waits for its answer. */
 export const REQUEST_TIMEOUT_MS = 20_000;
 /**
+ * The most bytes one `getBlob` or `getFile` takes in, whatever the peer
+ * announces. It covers what a Mac serves: its stored images
+ * (`ATTACHMENT_MAX_BYTES`) and the files its viewer reads
+ * (`FILE_PREVIEW_MAX_BYTES`). A download announced or arriving past it, or
+ * past what its `blob_meta` announced, fails `lost`.
+ */
+export const DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
+/**
+ * How long one `getBlob` or `getFile` may take in all, however steadily its
+ * chunks arrive: a peer trickling chunks inside the idle timeout must not
+ * hold a download open for good.
+ */
+export const DOWNLOAD_DEADLINE_MS = 5 * 60_000;
+/**
  * The largest encoded inner message that still fits one relay frame once
  * sealed (nonce + tag) and framed (header), with a byte to spare. An
  * `http_res` above it would make `encodeFrame` throw; the phone gets a 413
@@ -152,6 +166,8 @@ export type ChannelOptions = {
   judge?(hello: HelloMessage): HelloVerdict;
   handshakeTimeoutMs?: number;
   requestTimeoutMs?: number;
+  /** `DOWNLOAD_DEADLINE_MS` unless given. */
+  downloadDeadlineMs?: number;
   /** A frame `send` threw on (one past `MAX_FRAME_BYTES`, a socket gone); dropped either way. */
   onSendError?(err: unknown): void;
   silenceTimeoutMs?: number;
@@ -461,6 +477,10 @@ export class Channel {
         waiter.w = msg.w ?? null;
         waiter.h = msg.h ?? null;
         if (msg.status === 200) {
+          if (msg.bytes !== undefined && (msg.bytes < 0 || msg.bytes > DOWNLOAD_MAX_BYTES)) {
+            this.fail(this.blobs, msg.id, new TunnelError('lost'));
+            return;
+          }
           waiter.mediaType = msg.mediaType ?? null;
           waiter.total = msg.bytes ?? null;
           this.rearmBlob(msg.id, waiter);
@@ -518,6 +538,11 @@ export class Channel {
       this.fail(this.blobs, chunk.id, new TunnelError('lost'));
       return;
     }
+    // More than was announced, or than any download may be: the rest is not taken in.
+    if (waiter.received + chunk.bytes.length > (waiter.total ?? DOWNLOAD_MAX_BYTES)) {
+      this.fail(this.blobs, chunk.id, new TunnelError('lost'));
+      return;
+    }
     waiter.nextSeq++;
     waiter.parts.push(chunk.bytes);
     waiter.received += chunk.bytes.length;
@@ -547,8 +572,14 @@ export class Channel {
     const idleMs = opts.idleTimeoutMs ?? this.requestTimeoutMs;
     return new Promise<FileResult>((resolve, reject) => {
       const timer = setTimeout(() => this.fail(this.blobs, id, new TunnelError('timeout')), idleMs);
+      // The whole download's deadline, beside the idle timer that every chunk re-arms; gone once it settles.
+      const deadline = setTimeout(
+        () => this.fail(this.blobs, id, new TunnelError('timeout')), this.opts.downloadDeadlineMs ?? DOWNLOAD_DEADLINE_MS,
+      );
       this.blobs.set(id, {
-        resolve, reject, timer, mediaType: null, parts: [], nextSeq: 0, received: 0, total: null,
+        resolve: (result) => { clearTimeout(deadline); resolve(result); },
+        reject: (err) => { clearTimeout(deadline); reject(err); },
+        timer, mediaType: null, parts: [], nextSeq: 0, received: 0, total: null,
         size: null, w: null, h: null, idleMs, onProgress: opts.onProgress,
       });
       if (!this.sendJson(ask(id))) this.fail(this.blobs, id, new TunnelError('lost'));

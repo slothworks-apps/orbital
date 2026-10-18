@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateIdentity } from '../src/remote/keys.js';
 import {
-  Channel, HANDSHAKE_TIMEOUT_MS, MAX_INNER_BYTES, TunnelError, type ChannelReply, type ChannelServer,
+  Channel, DOWNLOAD_DEADLINE_MS, DOWNLOAD_MAX_BYTES, HANDSHAKE_TIMEOUT_MS, MAX_INNER_BYTES, REQUEST_TIMEOUT_MS, TunnelError,
+  type ChannelReply, type ChannelServer,
 } from '../src/remote/channel.js';
+import { BLOB_CHUNK_BYTES } from '../src/remote/messages.js';
 import { HANDSHAKE_BYTES, startHandshake } from '../src/remote/handshake.js';
 import { RESPONDER_FIRST_ID } from '../src/remote/device.js';
 import type { AskMessage, HelloMessage } from '../src/remote/messages.js';
@@ -243,5 +245,75 @@ describe('Channel', () => {
     pump();
     vi.advanceTimersByTime(60 * 60_000);
     expect(events).toContain('silent');
+  });
+});
+
+describe('Channel downloads from a peer that does not stop', () => {
+  afterEach(() => vi.useRealTimers());
+
+  /** b serves a blob the test sends by hand: `meta` then `chunk`s, through the reply b got. */
+  function handServed() {
+    const { a, b, pump, bServer } = pair();
+    let reply: ChannelReply | null = null;
+    let asked = -1;
+    bServer.open = (r) => { reply = r; };
+    bServer.ask = (msg) => { if (msg.t === 'blob_get' || msg.t === 'file_get') asked = msg.id; };
+    a.start();
+    pump();
+    return {
+      a, b, pump,
+      meta: (bytes?: number) => { reply!.json({ t: 'blob_meta', id: asked, status: 200, mediaType: 'image/png', ...(bytes === undefined ? {} : { bytes }) }); pump(); },
+      chunk: (seq: number, size: number, last = false) => { reply!.inner({ id: asked, seq, last, bytes: new Uint8Array(size) }); pump(); },
+    };
+  }
+
+  it('fails a download whose chunks run past what was announced', async () => {
+    const h = handServed();
+    const down = h.a.getBlob(`${'b'.repeat(64)}.png`);
+    h.pump();
+    h.meta(10);
+    h.chunk(0, 8);
+    h.chunk(1, 8, true);
+    await expect(down).rejects.toMatchObject({ reason: 'lost' });
+    expect(h.a.ready).toBe(true);
+  });
+
+  it('fails a download announced past DOWNLOAD_MAX_BYTES', async () => {
+    const h = handServed();
+    const down = h.a.getBlob(`${'b'.repeat(64)}.png`);
+    h.pump();
+    h.meta(DOWNLOAD_MAX_BYTES + 1);
+    await expect(down).rejects.toMatchObject({ reason: 'lost' });
+  });
+
+  it('fails a download that announces nothing once it runs past DOWNLOAD_MAX_BYTES', async () => {
+    const h = handServed();
+    const down = h.a.getBlob(`${'b'.repeat(64)}.png`);
+    h.pump();
+    h.meta();
+    down.catch(() => {});
+    for (let seq = 0; seq <= DOWNLOAD_MAX_BYTES / BLOB_CHUNK_BYTES; seq++) h.chunk(seq, BLOB_CHUNK_BYTES);
+    await expect(down).rejects.toMatchObject({ reason: 'lost' });
+  });
+
+  it('a download whose chunks keep trickling in fails at DOWNLOAD_DEADLINE_MS', async () => {
+    vi.useFakeTimers();
+    const h = handServed();
+    const down = h.a.getBlob(`${'b'.repeat(64)}.png`);
+    let outcome: unknown = null;
+    down.catch((err) => { outcome = err; });
+    h.pump();
+    h.meta(DOWNLOAD_MAX_BYTES);
+    const step = REQUEST_TIMEOUT_MS / 2;
+    let seq = 0;
+    for (let t = 0; t < DOWNLOAD_DEADLINE_MS - step; t += step) {
+      h.chunk(seq++, 1);
+      await vi.advanceTimersByTimeAsync(step);
+    }
+    expect(outcome).toBeNull();
+    h.chunk(seq, 1);
+    await vi.advanceTimersByTimeAsync(step);
+    expect(outcome).toBeInstanceOf(TunnelError);
+    expect((outcome as TunnelError).reason).toBe('timeout');
   });
 });
