@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   GroupMember, LEAVE_ACK_TIMEOUT_MS, MUTUAL_RETRY_MS, RELAY_POST_TIMEOUT_MS, type GroupChannel, type GroupHost, type GroupRelay,
-  type GroupExit, type PairedDevice, type SelfAbout, EXIT_MAX_MS,
+  type GroupExit, type PairedDevice, type SelfAbout, EXIT_MAX_MS, EXIT_SWEEP_MS,
 } from '../src/remote/group.js';
 import { deviceId, generateIdentity, type Identity } from '../src/remote/keys.js';
 import type { GroupMessage, HelloMessage } from '../src/remote/messages.js';
@@ -792,6 +792,27 @@ describe('GroupMember exits, bounded and closed', () => {
     h.setNow(NOW + EXIT_MAX_MS);
     h.group.addSelf();
     expect(h.group.exiting(MAC)).toBe(false);
+  });
+
+  it('on a connection that stays up, an overdue exit ends at the next EXIT_SWEEP_MS; a stopped member sweeps no more', async () => {
+    vi.useFakeTimers();
+    const r = fakeRelay();
+    const g = build({ roster: doc(SELF_KEY, [MAC, OTHER]), paired: [row(MAC), row(OTHER)], relay: r });
+    g.group.relayOk();
+    await g.group.remove(MAC);
+    g.setNow(NOW + EXIT_MAX_MS);
+    await vi.advanceTimersByTimeAsync(EXIT_SWEEP_MS - 1);
+    expect(g.group.exiting(MAC)).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(g.group.exiting(MAC)).toBe(false);
+    expect(revoked(r.posts)).toEqual([MAC]);
+    // Stopped: no sweep runs any more.
+    await g.group.remove(OTHER);
+    g.group.stop();
+    g.setNow(NOW + 3 * EXIT_MAX_MS);
+    await vi.advanceTimersByTimeAsync(EXIT_SWEEP_MS * 3);
+    expect(g.group.exiting(OTHER)).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('an exit whose state does not read, or exits that cannot be read at all, still serve the device nothing', () => {

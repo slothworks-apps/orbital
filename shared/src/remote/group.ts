@@ -144,6 +144,13 @@ export type GroupExit = {
 export const EXIT_MAX_MS = 7 * 24 * 60 * 60_000;
 
 /**
+ * How often exits past `EXIT_MAX_MS` are ended while the relay connection
+ * stays up: a connection that never drops would otherwise keep an overdue
+ * one (and its pair, which can still wake a phone) for ever.
+ */
+export const EXIT_SWEEP_MS = 60 * 60_000;
+
+/**
  * The relay connection as the group uses it. The host hands out the same
  * object for one connection's life, so an answer can tell it is stale.
  * `post` never rejects: a relay that cannot be reached answers status 0.
@@ -219,6 +226,8 @@ export class GroupMember {
   private rateLimited = new Set<string>();
   /** The ask again `MUTUAL_RETRY_MS` after a rate limit; cleared by the next relay `ok` and by any stop. */
   private mutualRetry: ReturnType<typeof setTimeout> | null = null;
+  /** Ends overdue exits every `EXIT_SWEEP_MS` from the first relay `ok`; cleared by `stop`. */
+  private exitSweep: ReturnType<typeof setInterval> | null = null;
   /** Revokes posted to the relay and not answered yet; a removal waits for them before it answers. */
   private readonly revoking = new Set<Promise<void>>();
   /** Posts to the relay not answered yet, by `path` and peer: never two at once for one peer. */
@@ -246,6 +255,8 @@ export class GroupMember {
   /** The relay went away for good (the remote stopped): no retry fires after it. */
   stop(): void {
     this.clearMutualRetry();
+    if (this.exitSweep) clearInterval(this.exitSweep);
+    this.exitSweep = null;
     this.okHandled = false;
   }
 
@@ -263,6 +274,12 @@ export class GroupMember {
     if (this.okHandled) return;
     this.okHandled = true;
     this.sweepExits();
+    if (!this.exitSweep) {
+      const timer = setInterval(() => this.sweepExits(), EXIT_SWEEP_MS);
+      // Node keeps a process alive for a pending timer; a sweep is no reason to.
+      (timer as { unref?: () => void }).unref?.();
+      this.exitSweep = timer;
+    }
     const hadByHand = this.pairByHand.size > 0;
     this.mutualAsked = new Set();
     this.pairByHand = new Set();
