@@ -86,6 +86,12 @@ export type TooltipProps =
        * bubble's (`Feature - Git worktree` 2e: the worktree list is wider).
        */
       widthPx?: number
+      /**
+       * `branch` is the Branch status shell above. `flyout` is the device
+       * pill's RUNS ON card (canvas 50f): a solid fill, a deeper drop, looser
+       * rows, and its border flush on the trigger's left edge.
+       */
+      shell?: 'branch' | 'flyout'
       title?: never
       description?: never
     })
@@ -161,7 +167,9 @@ export function Tooltip(props: TooltipProps) {
 
   // The panel bubble's left offset from its trigger, measured once it is up.
   const wrapper = useRef<HTMLSpanElement | null>(null)
-  const [panelLeft, setPanelLeft] = useState(-PANEL_INSET_PX)
+  const shell = (props.variant === 'panel' ? props.shell : undefined) ?? 'branch'
+  const inset = shell === 'flyout' ? FLYOUT_INSET_PX : PANEL_INSET_PX
+  const [panelLeft, setPanelLeft] = useState(-inset)
   const clampWithin = props.variant === 'panel' ? props.clampWithin : undefined
   const panelWidth = (props.variant === 'panel' ? props.widthPx : undefined) ?? PANEL_WIDTH_PX
   useLayoutEffect(() => {
@@ -169,9 +177,9 @@ export function Tooltip(props: TooltipProps) {
     const bounds = clampWithin()?.getBoundingClientRect()
     if (!bounds) return
     const trigger = wrapper.current.getBoundingClientRect().left
-    const left = Math.max(bounds.left - PANEL_INSET_PX, Math.min(trigger - PANEL_INSET_PX, bounds.right - panelWidth))
+    const left = Math.max(bounds.left - inset, Math.min(trigger - inset, bounds.right - panelWidth))
     setPanelLeft(left - trigger)
-  }, [open, clampWithin, panelWidth])
+  }, [open, clampWithin, panelWidth, inset])
 
   if (props.variant === 'panel') {
     return (
@@ -186,7 +194,7 @@ export function Tooltip(props: TooltipProps) {
             role="tooltip"
             id={id}
             style={{ left: panelLeft, width: panelWidth }}
-            className={['orbital-tooltip-in orbital-no-drag absolute top-full z-20 mt-2', PANEL_CLASS].join(' ')}
+            className={['orbital-tooltip-in orbital-no-drag absolute top-full z-20 mt-2', shell === 'flyout' ? FLYOUT_CLASS : PANEL_CLASS].join(' ')}
           >
             {props.content}
           </span>
@@ -267,6 +275,10 @@ const PANEL_WIDTH_PX = 264
 const PANEL_INSET_PX = 6
 const PANEL_CLASS =
   'box-border flex w-[264px] flex-col gap-[9px] whitespace-normal rounded-lg border border-[rgba(150,205,255,.2)] bg-[rgba(10,16,28,.96)] px-3 py-2.5 text-left shadow-[0_10px_26px_rgba(0,0,0,.5)]'
+/** Canvas 50f RUNS ON: `left:-1px`, so its border sits on the trigger's. */
+const FLYOUT_INSET_PX = 1
+const FLYOUT_CLASS =
+  'box-border flex flex-col gap-[5px] whitespace-normal rounded-[10px] border border-[rgba(150,205,255,.18)] bg-[rgb(10,16,28)] px-[13px] pt-[11px] pb-3 text-left shadow-[0_18px_50px_rgba(0,0,0,.6)]'
 const CARD_CLASS = 'max-w-[340px] rounded-[9px] px-3 py-[9px] shadow-[0_16px_40px_rgba(0,0,0,.55)]'
 const CARD_TITLE_CLASS = 'block font-mono text-[11.5px] text-text-bright'
 const SHORTCUT_CLASS = 'ml-2 whitespace-nowrap text-[rgba(160,190,225,.55)]'

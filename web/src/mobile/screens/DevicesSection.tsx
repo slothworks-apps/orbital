@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { osName } from '@orbital/shared/remote/device'
 import { kindOs, type RowState } from '../../lib/devices'
 import { useNow } from '../../lib/useNow'
 import { KindGlyph } from '../../ui/KindGlyph'
+import { MemberDot } from '../../ui/MemberDot'
 import { phoneRows, removalLeavesAlone, type PhoneRow } from '../devices'
 import { forgetGroupHere, LEAVE_FAILED, LEAVE_OFFLINE, leaveGroup } from '../forget'
 import { relayHost } from '../format'
@@ -14,22 +15,10 @@ import { BottomSheet, CARD, PrimaryButton, SecondaryButton, SectionLabel, SheetP
 /** "asleep · seen …" moves in minutes at the finest, so the rows are re-read that often. */
 const SEEN_TICK_MS = 60_000
 
-/**
- * A member's state dot (canvas 50i, logic.js `DOT`): accent while online,
- * every other state neutral — a hollow ring asleep, a dashed one while
- * linking, a faint one while not linked; an ink dot while too old.
- */
-const MEMBER_DOT: Record<Exclude<RowState, 'elsewhere'>, CSSProperties> = {
-  online: { background: 'oklch(85% .12 205)' },
-  offline: { border: '1.3px solid rgba(200,215,235,.6)' },
-  linking: { border: '1.3px dashed rgba(200,215,235,.6)' },
-  notLinked: { border: '1.3px solid rgba(200,215,235,.32)' },
-  update: { background: 'rgba(232,238,248,.85)' },
-}
-
+/** A member's state dot, 6 px on the phone (canvas 50i); none for a phone paired with another member. */
 function Dot({ state }: { state: RowState }) {
   if (state === 'elsewhere') return null
-  return <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full box-border" style={MEMBER_DOT[state]} />
+  return <MemberDot state={state} sizePx={6} />
 }
 
 /** The relay link as REMOTE's state line says it. */

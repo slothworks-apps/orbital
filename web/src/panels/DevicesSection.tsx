@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import qrcode from 'qrcode-generator'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
@@ -9,7 +9,7 @@ import {
   RELAY_CHECK_WINDOW_MS, codeLeft, relayCheckSettled, relayLine, relaySecretCommit, relayUrlCommit, relayHostname,
   statusDuringCheck, type RelayLineKind,
 } from '../lib/remote'
-import { deviceRows, kindOs, needsUpdateLine, oneWordCode, type DeviceRow, type RowState } from '../lib/devices'
+import { deviceRows, kindOs, needsUpdateLine, oneWordCode, type DeviceRow } from '../lib/devices'
 import { useNow } from '../lib/useNow'
 import type { GroupMember, RemoteStatus } from '../lib/types'
 import { Toggle } from '../ui/Checkbox'
@@ -17,6 +17,7 @@ import { Button } from '../ui/Button'
 import { Dialog } from '../ui/Dialog'
 import { Input } from '../ui/Input'
 import { KindGlyph } from '../ui/KindGlyph'
+import { MemberDot } from '../ui/MemberDot'
 import { JoinArea } from './JoinCard'
 import { DEBOUNCE_MS, Row, SectionLabel } from './settingsRows'
 
@@ -41,30 +42,12 @@ const DOT: Record<RelayLineKind, string> = {
   failed: 'bg-[oklch(78%_.13_75_/_.8)]',
 }
 
-/** The hollow ring canvas 50a draws for a switch that is off and a member that is offline. */
-const HOLLOW: CSSProperties = { border: '1.3px solid rgba(200,215,235,.6)' }
-
-/**
- * A member's state dot (canvas 50a ROWS, 50k MEMBER STATE): accent while
- * online, every other state neutral — a hollow ring offline, a dashed one
- * while linking, a faint one while not linked; an ink dot while too old.
- * Nothing moves.
- */
-const MEMBER_DOT: Record<Exclude<RowState, 'elsewhere'>, CSSProperties> = {
-  online: { background: 'var(--color-accent)' },
-  offline: HOLLOW,
-  linking: { border: '1.3px dashed rgba(200,215,235,.6)' },
-  notLinked: { border: '1.3px solid rgba(200,215,235,.32)' },
-  // The ink dot: its Orbital is too old (50a ROWS, logic.js `update`).
-  update: { background: 'rgba(232,238,248,.85)' },
-}
-
-function Dot({ style, className = '' }: { style?: CSSProperties; className?: string }) {
+/** The status line's dot (canvas 9q), 7 px like a member's. */
+function Dot({ className }: { className: string }) {
   return (
     <span
       aria-hidden
-      className={`block h-[7px] w-[7px] shrink-0 rounded-full box-border ${className}`}
-      style={style}
+      className={`block h-[7px] w-[7px] shrink-0 rounded-full ${className}`}
     />
   )
 }
@@ -293,7 +276,8 @@ export function DevicesSection({
         />
         {!enabled ? (
           <div className="flex items-center gap-2 font-mono text-[11px] text-[rgba(200,220,245,.82)]">
-            <Dot style={HOLLOW} />
+            {/* Canvas 50a: the hollow ring of an offline member, for a switch that is off. */}
+            <MemberDot state="offline" sizePx={7} />
             off · this device is on its own
           </div>
         ) : (
@@ -654,7 +638,7 @@ function Members({
                   }`}
                 >
                   {/* A phone paired with another member has no presence here, so no dot. */}
-                  {state !== 'elsewhere' && <Dot style={MEMBER_DOT[state]} />}
+                  {state !== 'elsewhere' && <MemberDot state={state} sizePx={7} />}
                   {state === 'notLinked' ? (
                     <button
                       type="button"

@@ -1,3 +1,6 @@
+import type { MemberState as SharedMemberState, MemberRow } from '@orbital/shared/remote/group'
+import type { JoinResult, Joining, PendingPair } from '@orbital/shared/remote/ceremony'
+
 export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended'
 export type SessionSource = 'terminal' | 'web'
 /** Ordered by escalating autonomy; `lib/permissionModes.ts` carries the copy
@@ -1849,46 +1852,17 @@ export interface RemoteDevice {
   needsUpdate: { version: string; needed: string; at: number } | null
 }
 
-/**
- * How Settings shows a group member. `self`: this device. `online`/`offline`:
- * a member paired here, or a member that does not link (a phone paired with
- * another member), by the relay's presence. `linking`: a member that links
- * and is not paired here yet; `notLinked`: one the relay cannot pair, so
- * only a pairing code links the two. Mirrors `MemberState` in
- * `server/src/remote/service.ts`.
- */
-export type MemberState = 'self' | 'online' | 'offline' | 'linking' | 'notLinked'
+/** How Settings shows a group member; `MemberState` in `shared/src/remote/group.ts`. */
+export type MemberState = SharedMemberState
 
 /**
  * One member of the device group (spec 2026-10-16-device-group-design § 2),
- * as the status lists it — removed members are dropped before the wire.
- * Mirrors a roster entry (`RosterEntry` in `shared/src/remote/roster.ts`)
- * plus the facts `RemoteStatus.group` adds: `self` is this device; `linked`
- * is paired with this device directly; `online` is on the relay as this
- * device sees it; `pairByHand` is a relay with no mutual pairing, so only a
- * pairing code links the two; `state` is how Settings shows it; `seenAt` is
- * when a member paired here was last on the relay, null for any other.
+ * as the status lists it — removed members are dropped before the wire:
+ * shared's `MemberRow` (a roster entry plus the facts `RemoteStatus.group`
+ * adds) and `tooOld`, a member too old to take part in the group: not a
+ * phone, and its last hello named no `group` capability.
  */
-export interface GroupMember {
-  id: string
-  kind: string
-  name: string
-  os: string
-  /** The device links with other members: its hello named the `group` capability. */
-  links: boolean
-  epoch: number
-  addedBy: string
-  addedAt: number
-  describedAt: number
-  self: boolean
-  linked: boolean
-  online: boolean
-  pairByHand: boolean
-  state: MemberState
-  seenAt: number | null
-  /** A member too old to take part in the group: not a phone, and its last hello named no `group` capability. */
-  tooOld: boolean
-}
+export type GroupMember = MemberRow & { tooOld: boolean }
 
 /**
  * The mobile remote as `GET /api/remote` answers it and the hub's `remote`
@@ -1911,7 +1885,7 @@ export interface RemoteStatus {
    * before the server rejects it. The code itself stays on the server: the
    * user types it from the phone (spec 2026-10-06-pairing-code-and-app-lock-design § 1).
    */
-  pendingPair: { phone: string; name: string; platform: string; kind: string; attemptsLeft: number } | null
+  pendingPair: PendingPair | null
   pairing: { expiresAt: number } | null
   /**
    * A device whose code this server redeemed and which has not confirmed
@@ -1919,7 +1893,7 @@ export interface RemoteStatus {
    * stops working, `kind` its kind as its code named it — null from a code
    * without one (spec 2026-10-16-device-group-design § 3).
    */
-  joining: { device: string; name: string; kind: string | null; code: string; expiresAt: number } | null
+  joining: Joining | null
   /** Why the last start failed; null while it is fine. */
   error: string | null
   /**
@@ -1942,21 +1916,16 @@ export type PairConfirmResult =
   | { error: 'code_mismatch'; attemptsLeft: number }
 
 /**
- * The answer to `api.joinGroup` — mirrors `JoinResult` in
- * `server/src/remote/service.ts` (spec 2026-10-16-device-group-design § 3),
+ * The answer to `api.joinGroup`: shared's `JoinResult`
+ * (`shared/src/remote/ceremony.ts`, spec 2026-10-16-device-group-design § 3)
  * with `ok` added so a caller can narrow without checking for `error`'s
- * absence. `in_group`: this device is in a group already and leaves it first.
- * `peer_offline`: the device that showed the code is not on the relay;
- * `expiresAt` is the code's, when it says. `other_relay`: the code names a
- * relay this server is not on, `relay`. A refusal this server never names
- * itself (a network failure, an unexpected status) reads as `relay_error`,
- * like the rest of the remote surface's refusals.
+ * absence. A refusal the server never names itself (a network failure, an
+ * unexpected status) reads as `relay_error`, like the rest of the remote
+ * surface's refusals. `phone_to_phone` is a phone's alone: a server is no phone.
  */
 export type JoinAnswer =
-  | { ok: true; device: string; name: string; code: string }
-  | { ok: false; error: 'bad_code' | 'disabled' | 'offline' | 'already_paired' | 'in_group' | 'relay_error' | 'relay_too_old' }
-  | { ok: false; error: 'other_relay'; relay: string }
-  | { ok: false; error: 'peer_offline'; expiresAt?: number }
+  | ({ ok: true } & Extract<JoinResult, { device: string }>)
+  | ({ ok: false } & Exclude<JoinResult, { device: string } | { error: 'phone_to_phone' }>)
 
 /** One level of a device's folders, for the folder chooser (`GET /api/dirs`). */
 export interface DirListing {

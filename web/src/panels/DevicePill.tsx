@@ -2,13 +2,36 @@ import { useState } from 'react'
 import { useOrbital } from '../store/store'
 import { deviceKind, kindOs, pillWords, runsOn, type RunsOn } from '../lib/devices'
 import { KindGlyph } from '../ui/KindGlyph'
+import { MemberDot, type MemberDotState } from '../ui/MemberDot'
+import { Tooltip } from '../ui/Tooltip'
 import type { ApiSession } from '../lib/types'
 
-/** The RUNS ON dot (canvas 50f `fbDot`, `fbDotBd`): the accent while live, a ring while offline, light for an update. */
-const DOT_STYLE: Record<RunsOn['dot'], { background: string; border?: string }> = {
-  live: { background: 'oklch(85% .12 205)' },
-  offline: { background: 'transparent', border: '1.3px solid rgba(200,215,235,.6)' },
-  update: { background: 'rgba(232,238,248,.85)' },
+/** Canvas 50f RUNS ON's width. */
+const RUNS_ON_WIDTH_PX = 250
+
+/** RUNS ON's dot (canvas 50f `fbDot`, `fbDotBd`): the accent while live, a ring while offline, light for an update. */
+const RUNS_ON_DOT: Record<RunsOn['dot'], MemberDotState> = { live: 'online', offline: 'offline', update: 'update' }
+
+/**
+ * Canvas 50f RUNS ON: the device's name, kind and OS, and its state. Mounted
+ * only while the card is up, so the roster is read only then; its `seen 12
+ * min ago` is read when it opens and needs no ticking clock.
+ */
+function RunsOnCard({ session }: { session: ApiSession }) {
+  const members = useOrbital((s) => s.remote?.group?.members)
+  const [openedAt] = useState(() => Date.now())
+  const card = runsOn(session, members, openedAt)
+  return (
+    <span className="flex flex-col gap-[5px] font-mono">
+      <span className="text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.6)]">RUNS ON</span>
+      <span className="font-sans text-[12.5px] font-semibold text-[#e8eef8]">{card.name}</span>
+      <span className="text-[10px] text-[rgba(160,190,225,.65)]">{kindOs(card.kind, card.os)}</span>
+      <span className="flex items-center gap-[7px] text-[10px] text-[rgba(200,220,245,.85)]">
+        <MemberDot state={RUNS_ON_DOT[card.dot]} sizePx={6} />
+        {card.words}
+      </span>
+    </span>
+  )
 }
 
 /**
@@ -37,14 +60,13 @@ export function DevicePill({
   const [hovered, setHovered] = useState(false)
   // The pill's words and glyph as strings, so they settle: `remote` is
   // replaced on every status publish. The roster itself only while the card
-  // is open.
+  // is open (`RunsOnCard`).
   const words = useOrbital((s) => pillWords(session, s.remote?.group?.members))
   const kind = useOrbital((s) => deviceKind(session, s.remote?.group?.members))
-  const members = useOrbital((s) => (hovered ? s.remote?.group?.members : undefined))
-  // Read when the card opens: its `seen 12 min ago` needs no ticking clock.
-  const card = hovered ? runsOn(session, members, Date.now()) : null
 
   return (
+    // The hover is the whole box, card included, so the pill stays lit while
+    // the pointer is on the card under it.
     <div
       data-device-pill
       onPointerEnter={() => setHovered(true)}
@@ -52,29 +74,23 @@ export function DevicePill({
       // `orbital-no-drag`: the main window's drag band, and a detached
       // window's title bar, would take the pointer near the top.
       className={[
-        'orbital-no-drag z-30 box-border flex h-5 cursor-default items-center gap-1.5 whitespace-nowrap rounded-[10px] border border-solid px-[9px] font-mono text-[10px] text-[rgba(214,230,248,.9)] shadow-[0_6px_18px_rgba(0,0,0,.45)] backdrop-blur-[12px] transition-[background,border-color] duration-[120ms] ease-[ease]',
+        'orbital-no-drag z-30 flex',
         placement === 'edge' ? 'absolute top-[-10px] left-[22px]' : 'relative mr-2.5 flex-none',
       ].join(' ')}
-      // Canvas 50f `fbBg`/`fbBd`: the tag hue at .1 over the panel's own dark, .18 and .85 on hover.
-      style={{
-        borderColor: `oklch(80% .13 ${hue} / ${hovered ? 0.85 : 0.55})`,
-        background: `linear-gradient(oklch(80% .13 ${hue} / ${hovered ? 0.18 : 0.1}),oklch(80% .13 ${hue} / ${hovered ? 0.18 : 0.1})),rgba(10,15,27,.92)`,
-      }}
     >
-      <KindGlyph kind={kind} untitled />
-      {words}
-      {card && (
-        // Canvas 50f RUNS ON: under the pill, its left edge on the pill's.
-        <div className="absolute top-[calc(100%+8px)] left-[-1px] box-border flex w-[250px] flex-col gap-[5px] whitespace-normal rounded-[10px] border border-solid border-[rgba(150,205,255,.18)] bg-[rgb(10,16,28)] px-[13px] pt-[11px] pb-3 shadow-[0_18px_50px_rgba(0,0,0,.6)]">
-          <div className="text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.6)]">RUNS ON</div>
-          <div className="font-sans text-[12.5px] font-semibold text-[#e8eef8]">{card.name}</div>
-          <div className="text-[10px] text-[rgba(160,190,225,.65)]">{kindOs(card.kind, card.os)}</div>
-          <div className="flex items-center gap-[7px] text-[10px] text-[rgba(200,220,245,.85)]">
-            <span aria-hidden className="box-border block size-1.5 flex-none rounded-full" style={DOT_STYLE[card.dot]} />
-            {card.words}
-          </div>
+      <Tooltip variant="panel" shell="flyout" widthPx={RUNS_ON_WIDTH_PX} content={<RunsOnCard session={session} />}>
+        <div
+          className="box-border flex h-5 cursor-default items-center gap-1.5 whitespace-nowrap rounded-[10px] border border-solid px-[9px] font-mono text-[10px] text-[rgba(214,230,248,.9)] shadow-[0_6px_18px_rgba(0,0,0,.45)] backdrop-blur-[12px] transition-[background,border-color] duration-[120ms] ease-[ease]"
+          // Canvas 50f `fbBg`/`fbBd`: the tag hue at .1 over the panel's own dark, .18 and .85 on hover.
+          style={{
+            borderColor: `oklch(80% .13 ${hue} / ${hovered ? 0.85 : 0.55})`,
+            background: `linear-gradient(oklch(80% .13 ${hue} / ${hovered ? 0.18 : 0.1}),oklch(80% .13 ${hue} / ${hovered ? 0.18 : 0.1})),rgba(10,15,27,.92)`,
+          }}
+        >
+          <KindGlyph kind={kind} untitled />
+          {words}
         </div>
-      )}
+      </Tooltip>
     </div>
   )
 }
