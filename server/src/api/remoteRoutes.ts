@@ -1,6 +1,6 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { Presence } from '../remote/presence.js';
-import type { RemoteService } from '../remote/service.js';
+import type { RemoteService, RemoveResult } from '../remote/service.js';
 
 /** Settings → Mobile and the desktop app talk to these; the phone never can (they are not allowlisted). */
 export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService, presence?: Presence): void {
@@ -21,10 +21,26 @@ export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService
     return remote.status();
   });
 
+  // Only the primary shows a code that adds a device (ADR the-group-has-one-primary-device): 403 `not_primary` names it.
   app.post('/api/remote/pair', async (_req, reply) => {
     const res = await remote.startPairing();
-    if ('error' in res) return reply.code(409).send(res);
+    if ('error' in res) return reply.code(res.error === 'not_primary' ? 403 : 409).send(res);
     return res;
+  });
+
+  // This server joins another device by its code (spec 2026-10-16-device-group-design § 3).
+  app.post('/api/remote/join', async (req, reply) => {
+    const { code } = (req.body ?? {}) as { code?: unknown };
+    if (typeof code !== 'string') return reply.code(400).send({ error: 'code must be a string' });
+    const res = await remote.join(code);
+    if ('error' in res) return reply.code(res.error === 'bad_code' ? 400 : res.error === 'not_primary' ? 403 : 409).send(res);
+    return res;
+  });
+
+  // Stops waiting for the device being joined; the relay's request expires with the code.
+  app.delete('/api/remote/join', (_req, reply) => {
+    if (!remote.cancelJoin()) return reply.code(404).send({ error: 'not_joining' });
+    return { ok: true };
   });
 
   app.post('/api/remote/pair/confirm', async (req, reply) => {
@@ -44,13 +60,41 @@ export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService
       case 'no_pending': return reply.code(404).send(res);
       case 'code_mismatch': return reply.code(422).send(res);
       case 'code_rejected': return reply.code(409).send(res);
+      case 'group_full': return reply.code(409).send(res);
       case 'relay_error': return reply.code(502).send(res);
     }
   });
 
+  // Only the primary removes a member (403 `not_primary` names it); this device's own id is leaving the group,
+  // refused as `leave` is.
   app.delete('/api/remote/devices/:id', async (req, reply) => {
     const { id } = req.params as { id: string };
-    if (!(await remote.revoke(id))) return reply.code(404).send({ error: 'not_found' });
+    return removed(reply, await remote.remove(id));
+  });
+
+  // This device leaves its group (spec 2026-10-16-device-group-design § 4).
+  app.post('/api/remote/leave', async (_req, reply) => removed(reply, await remote.leave()));
+
+  // The notice that the primary dissolved the group or removed this device was read (canvas 50m OK).
+  app.post('/api/remote/ended/acknowledge', () => {
+    remote.acknowledgeEnded();
     return { ok: true };
   });
+
+  // The card saying a join was dropped, its primary's group never come, was read (canvas 50p B).
+  app.post('/api/remote/join/expired/acknowledge', () => {
+    remote.acknowledgeExpiredJoin();
+    return { ok: true };
+  });
+}
+
+/**
+ * A removal's answer: 404 for no such device, 403 from a member that is not
+ * the primary, 409 for leaving while offline, 500 for a roster that could
+ * not be written.
+ */
+function removed(reply: FastifyReply, res: RemoveResult) {
+  if (!('error' in res)) return res;
+  const code = { not_found: 404, not_primary: 403, offline: 409, failed: 500 }[res.error];
+  return reply.code(code).send(res);
 }

@@ -465,3 +465,42 @@ describe('notifications off by default', () => {
     db.$client.close();
   });
 });
+
+// Spec 2026-10-16-device-group-design § 1: a Mac from before kinds could only
+// ever pair with a phone, so a row left over from that era could not be
+// anything else.
+describe('device group migration', () => {
+  it('upgrades a 0.33.1 database: its phones become phones and the group tables exist', () => {
+    const dir = makeTmpDir('db-device-group');
+    const dbPath = join(dir, 'index.db');
+    // 0.33.1 shipped with every migration up to 0028_harness_session_titles.
+    const old = openDb(dbPath, migrationsBefore(dir, '_device_group'));
+    old.$client.prepare(
+      `INSERT INTO remote_devices (id, name, platform, paired_at, notifications) VALUES ('p', 'Pixel', 'android', 1, '{}')`,
+    ).run();
+    old.$client.close();
+
+    const now = openDb(dbPath);
+    const row = now.$client.prepare(`SELECT kind FROM remote_devices WHERE id = 'p'`).get() as { kind: string | null };
+    expect(row.kind).toBe('phone');
+    const tables = (now.$client.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[])
+      .map((t) => t.name);
+    expect(tables).toEqual(expect.arrayContaining([
+      'group_members', 'group_membership', 'group_exits', 'group_descriptions', 'group_left', 'group_roster',
+      'member_snapshots', 'pending_revokes',
+    ]));
+    now.$client.close();
+  });
+
+  // The migrator applies only entries newer than the newest one already run, so a migration
+  // whose "when" is older than one before it is skipped on every upgraded install.
+  it('keeps every journal entry newer than the one before it', () => {
+    const journal = JSON.parse(readFileSync(join(DEFAULT_MIGRATIONS_FOLDER, 'meta', '_journal.json'), 'utf8')) as {
+      entries: { idx: number; when: number }[];
+    };
+    journal.entries.forEach((e, i) => {
+      expect(e.idx).toBe(i);
+      if (i > 0) expect(e.when).toBeGreaterThan(journal.entries[i - 1].when);
+    });
+  });
+});

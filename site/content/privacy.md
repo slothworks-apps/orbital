@@ -52,21 +52,26 @@ Orbital's public repository, and downloads it from there. GitHub sees what
 it sees of any download from GitHub, such as your IP address. No Orbital
 data goes with it, and nothing reaches us.
 
-## The phone and the relay
+## Your devices and the relay
 
-The phone app is optional. Nothing connects to a relay until you turn it on
-in the Mac app's Settings → Mobile and enter a relay address. **There is no
+The phone app and a group of several Macs are optional. Nothing connects to
+a relay until you turn it on in the Mac app's Settings → Devices and enter a
+relay address. **There is no
 default relay.** The relay is part of the open source code and ships as a
 Docker image; whoever runs the relay you use holds the data described below.
 
-**Pairing.** The Mac shows a QR code; the phone scans it with Google's ML Kit
-barcode scanner and sends a one-time pairing request to the relay. You
-confirm the phone on the Mac.
+**Pairing.** A device shows a code: a QR code the phone scans with Google's
+ML Kit barcode scanner, or the same code as one word another Mac pastes. The
+new device sends a one-time pairing request to the relay, and you confirm it
+on the device that showed the code. The devices of one group - your Macs and
+your phone - then pair with each other on their own: each asks the relay for
+a pair with the other, signed with its own key, and the relay forms the pair
+once both have asked.
 
 **What is end-to-end encrypted.** Everything about your sessions - the
 session list, transcripts, files and images you open, messages you send,
-photos you attach - travels between your phone and your Mac sealed with keys
-only the two devices hold (signed X25519 key exchange, AES-256-GCM, fresh
+photos you attach - and the list of devices in your group travel between
+two of your devices sealed with keys only those two devices hold (signed X25519 key exchange, AES-256-GCM, fresh
 keys for every connection). The relay passes these messages along and cannot
 read them. It does not store them: a message for a phone that is offline is
 dropped, because it could not be decrypted on the next connection anyway.
@@ -74,11 +79,14 @@ dropped, because it could not be decrypted on the next connection anyway.
 **What the relay can see and keep.** To route messages and send push
 notifications, the relay stores, in its database:
 
-- each device's public key (its ID) and whether it is a Mac or a phone;
+- each device's public key (its ID) and whether it last paired as the
+  device showing a code or the one redeeming it;
 - the phone's push token from Firebase Cloud Messaging, if you allowed
   notifications;
 - when each device last connected;
-- which phones are paired with which Mac, and when they were paired;
+- which of your devices are paired with which, and when they were paired;
+- a request from one device to pair with another of your devices, until the
+  other asks too or the request expires after a week;
 - the pairing codes it issued, with when they expire, whether they were
   used, and the public key of the phone that redeemed them.
 
@@ -102,21 +110,25 @@ on an iPhone, Apple's push service). They carry only the title "Orbital"
 and how many sessions are waiting, for example "A session needs your
 input" - no Mac name, no session title, nothing you wrote.
 
-**How long the relay keeps it.** Unused pairing codes are deleted when they
-expire. Everything else is kept until it is removed. Removing a phone in the
-Mac app's Settings → Mobile deletes the pairing; "Pair a different Mac" on
-the phone tells the relay to stop sending it push notifications. The device
+**How long the relay keeps it.** Unused pairing codes and pairing
+requests are deleted when they expire. Everything else is kept until it is
+removed. Removing a device in Settings → Devices, on any device of the group,
+deletes its pairs; leaving the group on the phone tells the relay to stop
+sending it push notifications. The device
 records themselves (public key, push token, last seen) stay in the relay's
 database until its operator deletes them.
 
-**On the phone itself.** The phone keeps its pairing and its device key (in
-the system's secure storage), and a cache of what you last saw - the session
-list, the latest page of transcripts you opened, and a size-capped cache of
-images and files - so the app has something to show while your Mac is
-asleep. "Pair a different Mac" deletes all of it. The Android app opts out of Android's cloud backup. The phone asks
+**On your devices.** Each device keeps the list of devices in its group. The
+phone keeps its device key (in the system's secure storage) and a cache of
+what you last saw - the session list, the latest page of transcripts you
+opened, and a size-capped cache of images and files - so the app has
+something to show while a Mac is asleep; leaving the group deletes the
+cache. A Mac keeps the last session list of every other device in its group,
+and in memory what it last read of their sessions, so it can show them while
+that device is asleep; removing a device deletes them. The Android app opts out of Android's cloud backup. The phone asks
 for the camera or your photos only when you choose to scan a code, take a
 photo or pick one; a large photo is downscaled on the phone, and photos are
-sent, encrypted, only to your Mac.
+sent, encrypted, only to the device the session runs on.
 
 ## Updates for the phone app
 

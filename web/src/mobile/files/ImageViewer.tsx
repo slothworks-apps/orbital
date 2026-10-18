@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MessageImage } from '../../lib/fileOpen'
 import { formatBytes } from '../../lib/format'
 import { asOfLabel, basename } from '../format'
-import { useMobile } from '../state'
+import { useSessionDeviceName } from '../useDevice'
 import type { MediaItem } from '../../lib/types'
 import { CantShow } from './CantShow'
 import { MediaFoot } from './MediaFoot'
@@ -106,7 +106,7 @@ export function ImagePage({
 }) {
   const source = useMemo(() => sourceOf(sessionId, cwd, item), [sessionId, cwd, item])
   const { view, retry, known, instant } = useFile(source)
-  const mac = useMobile((s) => s.macName) ?? 'the Mac'
+  const mac = useSessionDeviceName(sessionId) ?? 'the Mac'
   const path = item.kind === 'path' ? item.path : null
   const name = path ? basename(path) : 'Image'
 

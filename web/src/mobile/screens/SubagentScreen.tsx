@@ -7,7 +7,8 @@ import { PhoneToolRowContext } from '../../panels/ToolRow'
 import { TranscriptView } from '../../panels/TranscriptView'
 import { usePhoneToolRow } from '../session/TranscriptChip'
 import { useOrbital } from '../../store/store'
-import { isMacAsleep, pushedTop, useMobile } from '../state'
+import { pushedTop, useMobile } from '../state'
+import { useSessionAsOf, useSessionAsleep } from '../useDevice'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Code, Pre } from '../../panels/MessageView'
@@ -40,8 +41,8 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
   const tag = useOrbital((s) => (parent ? s.tags.find((t) => t.id === parent.tagIds[0]) : undefined))
   const openSubagent = useOrbital((s) => s.openSubagent)
   const closeSubagent = useOrbital((s) => s.closeSubagent)
-  const offline = useMobile(isMacAsleep)
-  const asOf = useMobile((s) => s.asOf)
+  const offline = useSessionAsleep(sessionId)
+  const asOf = useSessionAsOf(sessionId)
   const goBack = useMobile((s) => s.goBack)
   const openSession = useMobile((s) => s.openSession)
 

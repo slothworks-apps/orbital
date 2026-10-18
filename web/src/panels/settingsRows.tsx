@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 
 /**
  * The Settings dialog's row primitives, shared by `Settings.tsx` and the
- * sections that live in their own files (`MobileSection.tsx`).
+ * sections that live in their own files (`DevicesSection.tsx`).
  */
 
 /** Debounce for the free-text fields — the rest of this panel's controls
@@ -32,15 +32,19 @@ export function Row({
   title,
   desc,
   dimmed = false,
+  narrow = false,
   children,
 }: {
   title: string
-  desc: string
+  desc: ReactNode
   dimmed?: boolean
+  /** Canvas 50a's rows: a 300px control column 32px from the words. */
+  narrow?: boolean
   children: ReactNode
 }) {
+  const grid = narrow ? 'grid-cols-[minmax(0,1fr)_300px] gap-8' : 'grid-cols-[1fr_320px] gap-6'
   return (
-    <div className="grid grid-cols-[1fr_320px] items-start gap-6 border-t border-[rgba(150,205,255,.08)] py-[13px]">
+    <div className={`grid ${grid} items-start border-t border-[rgba(150,205,255,.08)] py-[13px]`}>
       <div className={dimmed ? 'opacity-45' : undefined}>
         <div className="text-[13.5px] font-semibold text-text-bright">{title}</div>
         <div className="mt-1 text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">

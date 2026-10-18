@@ -71,13 +71,18 @@ export function makeImageResolver(
     if (running) return running
     const loading = (async () => {
       // A cache read that fails is a miss, not a reason to give up: fall through to the tunnel.
+      // A thumbnail missing from the cache is served by the full image when that is kept.
       let hit = await io.read(ref, thumb).catch(() => null)
+      if (!hit && thumb) hit = await io.read(ref, false).catch(() => null)
       if (!hit) {
         const answer = await client.getBlob(ref, thumb ? { edge: PHONE_THUMB_EDGE } : {})
         if (answer.status !== 200) throw new Error(`image ${answer.status}`)
         hit = { bytes: answer.bytes, mediaType: answer.mediaType ?? mediaTypeOf(ref) }
-        // A cache write that fails costs a refetch next time, nothing more.
-        await io.write(ref, hit.bytes, thumb, hit.mediaType).catch(() => undefined)
+        // Only a full image is kept: its bytes were checked against the ref
+        // (`GroupFederation.getBlob`), a thumbnail's cannot be, and one kept
+        // under the ref would stand in for it for good. A cache write that
+        // fails costs a refetch next time, nothing more.
+        if (!thumb) await io.write(ref, hit.bytes, false, hit.mediaType).catch(() => undefined)
       }
       const url = toUrl(hit.bytes, hit.mediaType)
       remember(key, url)

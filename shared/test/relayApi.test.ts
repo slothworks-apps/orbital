@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { generateIdentity, deviceId, fromBase64Url, toBase64Url } from '../src/remote/keys.js';
 import {
   DeviceToRelay, PAIRING_SECRET_BYTES, PAIR_NAME_MAX_CHARS, PAIR_PLATFORM_MAX_CHARS, QrPayload, RelayToDevice,
-  SEALED_DEVICE_MAX_CHARS, SIGNED_REQUEST_SKEW_MS, authSignature, canonicalJson, openPairingDevice, pairingProof,
-  relayWsUrl, sealPairingDevice, signRequest, verifyAuthSignature, verifyPairingProof, verifyRequest,
+  SEALED_DEVICE_MAX_CHARS, SIGNED_REQUEST_SKEW_MS, authSignature, canonicalJson, encodePairingCode, openPairingDevice,
+  pairingProof, parsePairingCode, relayWsUrl, sealPairingDevice, signRequest, verifyAuthSignature, verifyPairingProof,
+  verifyRequest,
 } from '../src/remote/relayApi.js';
 
 describe('sealed pairing device', () => {
@@ -124,6 +125,9 @@ describe('schemas and urls', () => {
     expect(DeviceToRelay.safeParse({ type: 'push_token', token: 't' }).success).toBe(true);
     expect(DeviceToRelay.safeParse({ type: 'auth' }).success).toBe(false);
   });
+  it('reads a linked control', () => {
+    expect(RelayToDevice.parse({ type: 'linked', peer: 'x' })).toEqual({ type: 'linked', peer: 'x' });
+  });
   it('QR payload is versioned', () => {
     expect(QrPayload.safeParse({ v: 1, relay: 'https://r', mac: 'm', name: 'studio', token: 't', secret: 's' }).success).toBe(true);
     expect(QrPayload.safeParse({ v: 2, relay: 'https://r', mac: 'm', name: 'studio', token: 't', secret: 's' }).success).toBe(false);
@@ -140,5 +144,38 @@ describe('schemas and urls', () => {
   it('adds paired=1 only when asked', () => {
     expect(relayWsUrl('https://orbital-relay.example', 'm1', { paired: true })).toBe('wss://orbital-relay.example/ws?mac=m1&paired=1');
     expect(relayWsUrl('https://orbital-relay.example', 'm1', { paired: false })).toBe('wss://orbital-relay.example/ws?mac=m1');
+  });
+});
+
+describe('pairing device kind', () => {
+  it('seals and opens a kind, and opens a device sealed without one', () => {
+    const secret = new Uint8Array(16).fill(7);
+    const key = generateIdentity().publicKey;
+    const withKind = sealPairingDevice(secret, key, { name: 'studio', platform: 'macos', kind: 'desktop' });
+    expect(openPairingDevice(secret, key, withKind)).toEqual({ name: 'studio', platform: 'macos', kind: 'desktop' });
+    const without = sealPairingDevice(secret, key, { name: 'Pixel', platform: 'android' });
+    expect(openPairingDevice(secret, key, without)).toEqual({ name: 'Pixel', platform: 'android' });
+  });
+});
+
+describe('pairing code', () => {
+  const mac = deviceId(generateIdentity().publicKey);
+  const qr = JSON.stringify({ v: 1, relay: 'https://r', mac, name: 'studio', token: 't', secret: 's', kind: 'desktop' });
+  it('reads the QR JSON and its one-word form', () => {
+    expect(parsePairingCode(qr)?.kind).toBe('desktop');
+    expect(parsePairingCode(encodePairingCode(qr))?.mac).toBe(mac);
+  });
+  it('keeps the code\'s expiry, and reads a code from before it carried one', () => {
+    const withExpiry = JSON.stringify({ ...JSON.parse(qr), expiresAt: 123_456 });
+    expect(parsePairingCode(withExpiry)?.expiresAt).toBe(123_456);
+    expect(parsePairingCode(encodePairingCode(withExpiry))?.expiresAt).toBe(123_456);
+    expect(parsePairingCode(qr)).not.toBeNull();
+    expect(parsePairingCode(qr)?.expiresAt).toBeUndefined();
+    expect(parsePairingCode(JSON.stringify({ ...JSON.parse(qr), expiresAt: -1 }))).toBeNull();
+    expect(parsePairingCode(JSON.stringify({ ...JSON.parse(qr), expiresAt: 1.5 }))).toBeNull();
+  });
+  it('refuses anything else', () => {
+    expect(parsePairingCode('hello')).toBeNull();
+    expect(parsePairingCode(JSON.stringify({ v: 1, relay: 'r', mac: 'nope', name: 'n', token: 't', secret: 's' }))).toBeNull();
   });
 });

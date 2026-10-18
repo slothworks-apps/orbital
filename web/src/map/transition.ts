@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { SessionStatus, Subagent } from '../lib/types'
-import { DIMMED_OPACITY, MUTED_OPACITY, moonVisuals, planetVisuals, type MoonVisuals, type PlanetVisuals } from './visuals'
+import { DIMMED_OPACITY, MUTED_OPACITY, OFFLINE_OPACITY, moonVisuals, planetVisuals, type MoonVisuals, type PlanetVisuals } from './visuals'
 
 /**
  * The interpolation layer that sits ON TOP of `visuals.ts`.
@@ -287,6 +287,23 @@ export function endedHideTransform(fade: number): { opacity: number; scale: numb
  */
 export function mutedOpacity(mute: number): number {
   return 1 - mute * (1 - MUTED_OPACITY)
+}
+
+/**
+ * How long a planet takes to fade out when its device chip goes off, and in
+ * when it comes back on or its device goes offline: canvas 50e
+ * `transition:opacity .5s ease`.
+ */
+export const DEVICE_FADE_MS = 500
+
+/**
+ * The whole-body opacity multiplier for a session's device: `shown` is 1
+ * while its chip is on and 0 once it is off, `offline` 1 while the device is
+ * offline (down to `OFFLINE_OPACITY`). An exact no-op at `shown === 1,
+ * offline === 0`, like the other multipliers.
+ */
+export function deviceOpacity(shown: number, offline: number): number {
+  return shown * (1 - offline * (1 - OFFLINE_OPACITY))
 }
 
 /**

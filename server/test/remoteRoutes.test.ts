@@ -5,14 +5,18 @@ import { openDb } from '../src/db/database.js';
 import { settings as settingsTable } from '../src/db/schema.js';
 import type { OrbitalDb } from '../src/db/database.js';
 import { DeviceStore } from '../src/remote/devices.js';
+import { RosterStore } from '../src/remote/rosterStore.js';
 import { RemoteService } from '../src/remote/service.js';
 import { Hub } from '../src/api/hub.js';
-import { remoteInjectOptions } from '../src/remote/inject.js';
-import { generateIdentity, deviceId } from '@orbital/shared/remote/keys';
+import { DEVICE_HEADER, remoteInjectOptions } from '../src/remote/inject.js';
+import { generateIdentity, deviceId, toBase64Url } from '@orbital/shared/remote/keys';
+import { PAIRING_SECRET_BYTES } from '@orbital/shared/remote/relayApi';
+import { describeDevice, foundRoster } from '@orbital/shared/remote/roster';
+import { loadOrCreateIdentity } from '../src/remote/identity.js';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import { makeTmpDir } from './tmp.js';
 
-async function server(enabled: boolean, relayUrl = 'http://127.0.0.1:1', seed?: (db: OrbitalDb) => void) {
+async function server(enabled: boolean, relayUrl = 'http://127.0.0.1:1', seed?: (db: OrbitalDb, dir: string) => void) {
   const dir = makeTmpDir('remote');
   const dbPath = join(dir, 'index.db');
   const db = openDb(dbPath);
@@ -20,9 +24,24 @@ async function server(enabled: boolean, relayUrl = 'http://127.0.0.1:1', seed?: 
     .onConflictDoUpdate({ target: settingsTable.key, set: { value: String(enabled) } }).run();
   db.insert(settingsTable).values({ key: 'remote_relay_url', value: relayUrl })
     .onConflictDoUpdate({ target: settingsTable.key, set: { value: relayUrl } }).run();
-  seed?.(db);
+  seed?.(db, dir);
   db.$client.close();
   return buildServer({ dbPath, claudeDir: join(dir, 'claude'), dataDir: dir });
+}
+
+/**
+ * Another member that links in the roster: this device (its identity in
+ * `dir`) is in a group, as its primary or as a member of another device's.
+ */
+function withMember(db: OrbitalDb, dir: string, asPrimary = true): void {
+  const self = loadOrCreateIdentity(dir).identity;
+  const primary = asPrimary ? self : generateIdentity();
+  const peer = deviceId(generateIdentity().publicKey);
+  const others = [{ id: peer, kind: 'desktop' }, ...(asPrimary ? [] : [{ id: deviceId(self.publicKey), kind: 'desktop' }])];
+  const roster = foundRoster(primary, 'desktop', others, 1)!;
+  new RosterStore(db).replace({
+    roster, descriptions: [describeDevice(peer, { name: 'peer', os: 'linux', links: true }, primary, 1)], left: [],
+  });
 }
 
 describe('/api/remote', () => {
@@ -126,12 +145,141 @@ describe('/api/remote', () => {
   it('revoke removes a paired phone with the remote off', async () => {
     const phone = deviceId(generateIdentity().publicKey);
     const app = await server(false, 'http://127.0.0.1:1', (db) => new DeviceStore(db).add({
-      id: phone, name: 'iPhone', platform: 'ios', pairedAt: 1, notifications: parseNotificationSettings({}),
+      id: phone, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}),
     }));
     expect((await app.inject({ method: 'GET', url: '/api/remote' })).json().devices).toHaveLength(1);
     expect((await app.inject({ method: 'DELETE', url: `/api/remote/devices/${phone}` })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: '/api/remote' })).json().devices).toEqual([]);
     await app.close();
+  });
+  it('leave is refused while the relay is not online, with the remote off or still connecting', async () => {
+    for (const enabled of [false, true]) {
+      const app = await server(enabled);
+      const res = await app.inject({ method: 'POST', url: '/api/remote/leave' });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toEqual({ error: 'offline' });
+      await app.close();
+    }
+  });
+  it('removing this device\'s own id is refused like leave while the relay is not online, and changes nothing', async () => {
+    const app = await server(true);
+    const before = (await app.inject({ method: 'GET', url: '/api/remote' })).json();
+    const res = await app.inject({ method: 'DELETE', url: `/api/remote/devices/${before.macId}` });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: 'offline' });
+    expect((await app.inject({ method: 'GET', url: '/api/remote' })).json().group).toEqual(before.group);
+    await app.close();
+  });
+  it('join is refused with in_group between two groups, and with not_primary on a member that is not the primary', async () => {
+    const code = (group: boolean) => JSON.stringify({
+      v: 1, relay: 'http://127.0.0.1:1', mac: deviceId(generateIdentity().publicKey), name: 'studio', token: 't',
+      secret: toBase64Url(new Uint8Array(PAIRING_SECRET_BYTES)), kind: 'desktop', ...(group ? { group: true } : {}),
+    });
+    const primary = await server(true, 'http://127.0.0.1:1', (db, dir) => withMember(db, dir));
+    const res = await primary.inject({ method: 'POST', url: '/api/remote/join', payload: { code: code(true) } });
+    expect([res.statusCode, res.json()]).toEqual([409, { error: 'in_group' }]);
+    expect((await primary.inject({ method: 'GET', url: '/api/remote' })).json().group).toMatchObject({ isPrimary: true });
+    await primary.close();
+    const member = await server(true, 'http://127.0.0.1:1', (db, dir) => withMember(db, dir, false));
+    const refused = await member.inject({ method: 'POST', url: '/api/remote/join', payload: { code: code(false) } });
+    expect(refused.statusCode).toBe(403);
+    expect(refused.json()).toMatchObject({ error: 'not_primary', primary: { name: expect.any(String) } });
+    expect((await member.inject({ method: 'POST', url: '/api/remote/pair' })).statusCode).toBe(403);
+    // Only the primary removes a member.
+    const { members } = (await member.inject({ method: 'GET', url: '/api/remote' })).json().group as { members: { id: string; self: boolean }[] };
+    const other = members.find((m) => !m.self)!;
+    const removed = await member.inject({ method: 'DELETE', url: `/api/remote/devices/${other.id}` });
+    expect([removed.statusCode, removed.json().error]).toEqual([403, 'not_primary']);
+    await member.close();
+  });
+  it('cancelling a join answers ok while one waits, and 404 when none does', async () => {
+    const app = await server(true);
+    const cancel = vi.spyOn(RemoteService.prototype, 'cancelJoin').mockReturnValueOnce(true);
+    try {
+      const first = await app.inject({ method: 'DELETE', url: '/api/remote/join' });
+      expect(first.statusCode).toBe(200);
+      expect(first.json()).toEqual({ ok: true });
+      cancel.mockRestore();
+      expect((await app.inject({ method: 'DELETE', url: '/api/remote/join' })).statusCode).toBe(404);
+    } finally {
+      cancel.mockRestore();
+      await app.close();
+    }
+  });
+  it('the relay URL is refused while another member is live, and saved while this device is alone', async () => {
+    const grouped = await server(true, 'http://127.0.0.1:1', (db, dir) => withMember(db, dir));
+    expect((await grouped.inject({ method: 'GET', url: '/api/remote' })).json().group.relayLocked).toBe(true);
+    const refused = await grouped.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_url: 'http://127.0.0.1:2' } });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toEqual({ error: 'in_group' });
+    expect((await grouped.inject({ method: 'GET', url: '/api/settings' })).json().remote_relay_url).toBe('http://127.0.0.1:1');
+    // Every other setting saves as before.
+    expect((await grouped.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_mac_name: 'Studio' } })).statusCode).toBe(200);
+    await grouped.close();
+    const alone = await server(true);
+    expect((await alone.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_url: 'http://127.0.0.1:2' } })).statusCode).toBe(200);
+    await alone.close();
+  });
+  it('the relay secret is refused like the URL while another member is live', async () => {
+    const grouped = await server(true, 'http://127.0.0.1:1', (db, dir) => withMember(db, dir));
+    const refused = await grouped.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_secret: 'other' } });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toEqual({ error: 'in_group' });
+    await grouped.close();
+  });
+  it('a Mac whose only other device is a phone paired with it changes its relay URL and secret, and joins', async () => {
+    const phone = deviceId(generateIdentity().publicKey);
+    const app = await server(true, 'http://127.0.0.1:1', (db) => {
+      new DeviceStore(db).add({
+        id: phone, name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({}),
+      });
+    });
+    try {
+      // A Mac from before groups: at its start it founds its group with its phone, as their primary.
+      expect((await app.inject({ method: 'GET', url: '/api/remote' })).json().group).toMatchObject({ relayLocked: false, isPrimary: true });
+      const code = JSON.stringify({
+        v: 1, relay: 'http://127.0.0.1:1', mac: deviceId(generateIdentity().publicKey), name: 'studio', token: 't',
+        secret: toBase64Url(new Uint8Array(PAIRING_SECRET_BYTES)),
+      });
+      expect((await app.inject({ method: 'POST', url: '/api/remote/join', payload: { code } })).json()).not.toEqual({ error: 'in_group' });
+      expect((await app.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_secret: 'other' } })).statusCode).toBe(200);
+      expect((await app.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_url: 'http://127.0.0.1:2' } })).statusCode).toBe(200);
+    } finally {
+      await app.close();
+    }
+  });
+  it('a roster that cannot be read leaves the relay URL unlocked, as the status does', async () => {
+    const app = await server(true, 'http://127.0.0.1:1', (db, dir) => withMember(db, dir));
+    const list = vi.spyOn(RosterStore.prototype, 'read').mockImplementation(() => { throw new Error('no such table'); });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const res = await app.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_relay_url: 'http://127.0.0.1:2' } });
+      expect(res.statusCode).toBe(200);
+    } finally {
+      list.mockRestore();
+      warn.mockRestore();
+      await app.close();
+    }
+  });
+  it('a member may not change this device\'s remote_ settings; every other key, and a local request, go through', async () => {
+    const app = await server(false);
+    const patch = (payload: Record<string, string>, device?: string) =>
+      app.inject(remoteInjectOptions({ method: 'PATCH', url: '/api/settings', payload, device }, undefined));
+    const settings = async () => (await app.inject({ method: 'GET', url: '/api/settings' })).json();
+    try {
+      for (const payload of [{ remote_relay_url: 'http://127.0.0.1:2' }, { remote_enabled: 'true' }, { theme: 'desk', remote_mac_name: 'x' }] as Record<string, string>[]) {
+        const res = await patch(payload, 'member-id');
+        expect([res.statusCode, res.json()], JSON.stringify(payload)).toEqual([403, { error: 'not_allowed' }]);
+      }
+      expect(await settings()).toMatchObject({ remote_relay_url: 'http://127.0.0.1:1', remote_enabled: 'false' });
+      expect((await settings()).theme).toBeUndefined();
+      expect((await patch({ theme: 'desk' }, 'member-id')).statusCode).toBe(200);
+      expect((await settings()).theme).toBe('desk');
+      expect((await patch({ remote_mac_name: 'Studio' })).statusCode).toBe(200);
+      expect((await settings()).remote_mac_name).toBe('Studio');
+    } finally {
+      await app.close();
+    }
   });
   it('a phone\'s body-less POST reaches its route instead of failing on an empty JSON body', async () => {
     const app = await server(false);
@@ -149,5 +297,9 @@ describe('remoteInjectOptions', () => {
     });
     expect(remoteInjectOptions({ method: 'POST', url: '/api/sessions/s/message', payload: { text: 'hi' } }, undefined).headers)
       .toEqual({ host: '127.0.0.1', 'content-type': 'application/json' });
+  });
+  it('names the asking member in DEVICE_HEADER, and only when there is one', () => {
+    expect(remoteInjectOptions({ method: 'GET', url: '/api/sessions', device: 'dev1' }, undefined).headers)
+      .toEqual({ host: '127.0.0.1', [DEVICE_HEADER]: 'dev1' });
   });
 });

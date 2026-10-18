@@ -18,7 +18,7 @@ import {
   type SessionStateKey,
   type Subagent,
 } from '../../lib/types'
-import { stateColor, stateDot } from '../../lib/stateStyle'
+import { stateColor, stateDot, stillDot } from '../../lib/stateStyle'
 import { decisionHeadline } from '../../lib/decisionCard'
 import { contextLevelOklch, oklchCss, CONTEXT_CRITICAL_OKLCH } from '../../lib/usage'
 import { reportError } from '../../lib/errors'
@@ -26,7 +26,11 @@ import { useNow } from '../../lib/useNow'
 import { useDocumentHidden, useWindowFocused } from '../../lib/useWindowFocused'
 import { StateDot } from '../../ui/StateDot'
 import { useSceneModel } from '../useSceneModel'
-import type { ScenePlanet } from '../sceneModel'
+import { deskCardMeta, type ScenePlanet } from '../sceneModel'
+import { WithAge } from '../WithAge'
+import { prefersReducedMotion } from '../transition'
+import { OFFLINE_OPACITY } from '../visuals'
+import { isMemberOffline } from '../../lib/devices'
 import { COMPACT_COMMAND } from '../Planet'
 import { MapShell, useMapInsets } from '../shell/MapShell'
 import { anchorForMatMove, cardOrder, matDropSlot, matOrder } from './order'
@@ -36,6 +40,10 @@ const DRAG_THRESHOLD_PX = 3
 const MAT_WIDTH_PX = 336
 const MAT_GAP_PX = 14
 const STRIP_WINDOW_MS = 120_000
+/** The card column's gap (`gap-2.5`), which a folded card gives back. */
+const CARD_GAP_PX = 10
+/** Canvas 50h: a card whose device chip goes off folds away in 240 ms. */
+const CARD_FOLD_MS = 240
 
 /** 41a/41b surfaces: panel glass for the mat, one step brighter for the card. */
 const MAT_GLASS = 'linear-gradient(180deg,rgba(14,20,34,.6),rgba(8,12,22,.68))'
@@ -193,9 +201,11 @@ export function DeskMap() {
         if (!s) return
         const how = trashDropFor(s.source, s.status)
         if (how === 'end')
-          trashSession(d.id, { undo: true }).catch((err: unknown) =>
-            reportError(err, 'Failed to end the session'),
-          )
+          trashSession(d.id, { undo: true }).catch((err: unknown) => {
+            // An offline device's card stays where it was, and says nothing
+            // more; the drop works once the device is back.
+            if (!isMemberOffline(err)) reportError(err, 'Failed to end the session')
+          })
         else if (how === 'confirm') setConfirmEndId(d.id)
         return
       }
@@ -444,6 +454,8 @@ function MatHeader({
   const counts = useMemo(() => {
     const c: Partial<Record<SessionStateKey, number>> = {}
     for (const p of cards) {
+      // A card folded away with its device chip is not counted.
+      if (p.deviceOff) continue
       const k = sessionStateKey(p.session)
       c[k] = (c[k] ?? 0) + 1
     }
@@ -543,7 +555,11 @@ const DeskCard = memo(function DeskCard({
   const colour = stateColor(key)
   const tools = s.recentTools ?? []
   const last = tools.length ? tools[tools.length - 1] : null
-  const now = useNow(key === 'working' || key === 'waiting' || Boolean(planet.compactingSince))
+  // An offline device's card holds its last state: the clock stops, and with
+  // it the tool strip's drift (canvas 50h). A folded card needs no clock.
+  const now = useNow(
+    !planet.offline && !planet.deviceOff && (key === 'working' || key === 'waiting' || Boolean(planet.compactingSince)),
+  )
   const recent = tools.filter((t) => now - t.at < STRIP_WINDOW_MS)
   const fill = planet.contextFill
   const ended = key === 'ended'
@@ -556,6 +572,9 @@ const DeskCard = memo(function DeskCard({
     ? Math.max(0, Math.floor((now - planet.compactingSince) / 1000))
     : 0
   const needs = key === 'needs_input'
+  const meta = deskCardMeta(s.git?.ref, planet.modelFamily, planet.deviceName)
+  const cardRef = useRef<HTMLElement>(null)
+  useFold(cardRef, planet.deviceOff)
 
   let border = '1px solid rgba(150,205,255,.12)'
   let shadow = INSET_LIGHT
@@ -572,6 +591,7 @@ const DeskCard = memo(function DeskCard({
 
   return (
     <article
+      ref={cardRef}
       data-card={s.id}
       className={[
         'relative shrink-0 cursor-pointer select-none rounded-xl text-text-bright',
@@ -584,7 +604,9 @@ const DeskCard = memo(function DeskCard({
         border,
         boxShadow: shadow,
         transform: lift ? `translate(${lift.x}px, ${lift.y - 6}px)` : undefined,
-        opacity: planet.leaving ? 0 : planet.muted ? 0.28 : ended ? 0.6 : 1,
+        opacity: planet.leaving
+          ? 0
+          : (planet.muted ? 0.28 : ended ? 0.6 : 1) * (planet.offline ? OFFLINE_OPACITY : 1),
         maxHeight: planet.leaving ? 0 : undefined,
         overflow: planet.leaving ? 'hidden' : undefined,
       }}
@@ -640,14 +662,15 @@ const DeskCard = memo(function DeskCard({
                   colour={colour}
                   mode={statePills}
                   gate={gateWaits(s)}
+                  offline={planet.offline}
                 />
               )}
             </div>
           </div>
 
-          {(s.git?.ref || planet.modelFamily) && (
+          {(meta || planet.dated) && (
             <div className="-mt-1 truncate pl-4 font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
-              {[s.git?.ref, planet.modelFamily].filter(Boolean).join(' · ')}
+              {planet.dated ? <WithAge text={meta} machine={s.machine} /> : meta}
             </div>
           )}
 
@@ -758,6 +781,50 @@ const DeskCard = memo(function DeskCard({
   )
 })
 
+/**
+ * Folds a card away when its device chip goes off, and back out when it
+ * comes on (canvas 50h: 240 ms), mats keeping their place. Measured, because
+ * a height cannot transition to or from `auto`; it runs on the Web
+ * Animations API, and where there is none (jsdom) or motion is reduced the
+ * card simply goes or comes. Folded, it is `display: none`.
+ */
+function useFold(ref: React.RefObject<HTMLElement | null>, folded: boolean) {
+  const mounted = useRef(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    if (!mounted.current) {
+      mounted.current = true
+      el.style.display = folded ? 'none' : ''
+      return
+    }
+    el.style.display = ''
+    if (typeof el.animate !== 'function' || prefersReducedMotion()) {
+      el.style.display = folded ? 'none' : ''
+      return
+    }
+    const open = { height: `${el.offsetHeight}px`, opacity: getComputedStyle(el).opacity, marginBottom: '0px' }
+    const shut = { height: '0px', opacity: '0', marginBottom: `-${CARD_GAP_PX}px` }
+    // Restored to what it was, not cleared: a leaving card holds its own.
+    const overflow = el.style.overflow
+    el.style.overflow = 'hidden'
+    const animation = el.animate(folded ? [open, shut] : [shut, open], {
+      duration: CARD_FOLD_MS,
+      easing: 'ease-out',
+    })
+    const settle = () => {
+      el.style.overflow = overflow
+      el.style.display = folded ? 'none' : ''
+    }
+    animation.onfinish = settle
+    return () => {
+      animation.onfinish = null
+      animation.cancel()
+      settle()
+    }
+  }, [ref, folded])
+}
+
 /** The state pill (41b): a hairline chip in the state's colour; in dot mode only the dot, the word slides out on hover. */
 function Pill({
   sessionKey,
@@ -765,18 +832,21 @@ function Pill({
   colour,
   mode,
   gate,
+  offline,
 }: {
   sessionKey: SessionStateKey
   label: string
   colour: string
   mode: 'dot' | 'label'
   gate: boolean
+  /** The device is offline: the dot holds steady, nothing breathes or pulses. */
+  offline: boolean
 }) {
   const borderColour = `color-mix(in oklch, ${colour} 40%, transparent)`
   // WORKING and IDLE have no dot on the map's surfaces; on a card they get a
   // steady one (41b: solid for working, hollow for idle) — nothing pulses.
   const dotFor = (surface: 'label' | 'dot') => {
-    const d = stateDot(sessionKey, surface, gate)
+    const d = stillDot(stateDot(sessionKey, surface, gate), offline)
     if (d.shape !== 'none' || (sessionKey !== 'working' && sessionKey !== 'idle')) return d
     return {
       shape: sessionKey === 'working' ? ('solid' as const) : ('hollow' as const),

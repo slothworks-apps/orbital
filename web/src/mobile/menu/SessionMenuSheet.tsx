@@ -6,6 +6,7 @@ import { useMedia } from '../../store/media'
 import { useOrbital } from '../../store/store'
 import { patchSession } from '../session/patchSession'
 import { useMobile } from '../state'
+import { useSessionDeviceName, useSessionRefusedLine } from '../useDevice'
 import { BottomSheet, ConfirmBody } from '../ui'
 import { noteOutcome } from './MenuOutcome'
 import { RenameSheet } from './RenameSheet'
@@ -37,7 +38,8 @@ export function SessionMenuSheet({
   const [busy, setBusy] = useState(false)
   const tags = useOrbital((s) => s.tags)
   const models = useOrbital((s) => s.models)
-  const macName = useMobile((s) => s.macName)
+  const macName = useSessionDeviceName(session.id)
+  const refused = useSessionRefusedLine(session.id)
   const id = session.id
   // Every item, tool images too: the total, as 24g puts it beside the row.
   const mediaCount = useMedia((s) => s.lists[session.id]?.length ?? 0)
@@ -222,7 +224,7 @@ export function SessionMenuSheet({
           // canvas 10j MAC ASLEEP: one sentence above the inert items.
           <div className="mx-2.5 mb-2.5 mt-0.5 flex min-h-11 items-center gap-2.5 rounded-[12px] border border-dashed border-[rgba(150,205,255,.18)] px-3 text-[13px] text-[rgba(160,190,225,.75)]">
             <span aria-hidden className="box-border block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-[rgba(200,215,235,.6)]" />
-            {macName ?? 'Your Mac'} is asleep — these wait for it
+            {refused ?? `${macName ?? 'Your Mac'} is asleep — these wait for it`}
           </div>
         ) : (
           <div className={['truncate', SHEET_LABEL].join(' ')}>

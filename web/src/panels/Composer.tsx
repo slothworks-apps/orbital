@@ -39,6 +39,7 @@ import { IdeSlot, IDE_SLOT_HEIGHT_PX } from './IdeSlot'
 import { lineCountLabel, selectionId } from '../lib/ideSelection'
 import { useIdeReadout } from '../lib/useIdeReadout'
 import type { CompletionKey, IdeContext, SlashCommand } from '../lib/types'
+import { completionKeyId } from '../lib/completionKey'
 
 /**
  * The prompt composer — one control, two homes (spec:
@@ -289,8 +290,9 @@ export function Composer({
   /** Paths already probed, so a path that does not exist is asked about once. */
   const probed = useRef<Set<string>>(new Set())
 
-  // The Claude directory is part of the key: the dialog's catalog follows its choice.
-  const keyId = 'session' in sessionKey ? `s:${sessionKey.session}` : `c:${sessionKey.claudeDir ?? ''}:${sessionKey.cwd}`
+  // The Claude directory and the device are part of the key: the dialog's
+  // catalog follows its choice of both.
+  const keyId = completionKeyId(sessionKey)
 
   // A different session or directory is a different catalog and a different
   // filesystem; nothing learned about the last one carries over.

@@ -6,6 +6,7 @@ import {
   clampSidebarWidth,
   parseSidebarWidth,
   useOrbital,
+  historyPageOffset,
   visibleSessions,
 } from '../store/store'
 import { api } from '../lib/api'
@@ -20,8 +21,9 @@ import { useWindowFocused } from '../lib/useWindowFocused'
 import { useViewportWidth } from '../lib/useViewportWidth'
 import { awaitedCount, awaitedWork, gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
 import { compactingLabelOpacity, compactingOf, formatElapsed } from '../lib/compaction'
+import { useAsOfNow } from '../lib/asOfClock'
 import { useNow } from '../lib/useNow'
-import { stateColor, stateDot, stateWord } from '../lib/stateStyle'
+import { OFFLINE_STATE_INK, stateColor, stateDot, stateWord, stillDot } from '../lib/stateStyle'
 import { StateDot } from '../ui/StateDot'
 import type { ApiSession, SessionSource, Tag } from '../lib/types'
 import { Panel } from '../ui/Panel'
@@ -37,11 +39,20 @@ import { limitWaitShort } from '../lib/limits'
 import { ClaudeDirMark, useClaudeDirMark } from '../ui/ClaudeDirMark'
 import { sessionViewTransitionName } from '../lib/viewTransition'
 import { timeAgo, shortenPath } from '../lib/format'
+import { KindGlyph } from '../ui/KindGlyph'
+import {
+  asOfLabel, chipsOfKey, deviceChipsKey, devicesOn, localClaudeDirId, machineOffline, namesShown,
+  showDeviceRow, toggleDevice,
+} from '../lib/devices'
+import type { DeviceChip } from '../lib/devices'
 
 /** How many sessions `loadMore` asks for per infinite-scroll page. */
 const PAGE_SIZE = 20
 
 const SEARCH_INPUT_ID = 'sidebar-search'
+
+/** A stable empty list, so the hidden-devices selector does not return a new one each read. */
+const NONE_HIDDEN: string[] = []
 
 /**
  * Minimal shape `Sidebar` needs from an `IntersectionObserver` — lets tests
@@ -106,10 +117,13 @@ function RowDot({
   hue,
   status,
   size = 7,
+  offline = false,
 }: {
   hue: number | undefined
   status: ApiSession['status']
   size?: 7 | 8
+  /** Its device is offline: what it last said is not live, so the busy disc loses its glow (canvas 50e `live = WORKING && !off`). */
+  offline?: boolean
 }) {
   const color = hue !== undefined ? tagColor(hue) : 'rgba(160,190,225,.6)'
   const box = { width: `${size}px`, height: `${size}px` }
@@ -126,7 +140,7 @@ function RowDot({
     <span
       aria-hidden
       className="shrink-0 rounded-full"
-      style={{ ...box, background: color, boxShadow: `0 0 8px ${color}` }}
+      style={{ ...box, background: color, boxShadow: offline ? 'none' : `0 0 8px ${color}` }}
     />
   )
 }
@@ -263,12 +277,18 @@ function IconButton({
  *
  * The row's leading tag dot keeps the tag hue — a row can wear an amber tag
  * dot and an amber INPUT, and the word's text and dot keep them apart.
+ *
+ * A session whose device is offline is not live, whatever it last said: the
+ * word drops to the muted ink and its dot holds still (canvas 50e
+ * `live = WORKING && !off`).
  */
 function RowStatus({ session }: { session: ApiSession }) {
   const compacting = compactingOf(session)
   const now = useNow(compacting !== null)
   const key = sessionStateKey(session)
-  const color = stateColor(key)
+  const offline = machineOffline(session)
+  const color = offline ? OFFLINE_STATE_INK : stateColor(key)
+  const dot = stateDot(key, 'label', gateWaits(session))
   // A compaction takes the label once it has run three seconds (26e): `COMPACT
   // 0:14`, the compacting grey, no dot. Shorter ones never show here at all.
   if (compacting && compactingLabelOpacity(now - compacting.startedAt) > 0) {
@@ -299,7 +319,7 @@ function RowStatus({ session }: { session: ApiSession }) {
       className="flex shrink-0 items-center gap-[5px] font-mono text-[9.5px] uppercase tracking-[0.08em]"
       style={{ color }}
     >
-      <StateDot dot={stateDot(key, 'label', gateWaits(session))} color={color} solidPx={5} hollowPx={6} />
+      <StateDot dot={stillDot(dot, offline)} color={color} solidPx={5} hollowPx={6} />
       {stateWord(key, awaitedCount(awaitedWork(session)), true)}
     </span>
   )
@@ -314,10 +334,13 @@ function SessionRow({
   right,
   history = false,
   detached = false,
+  deviceName = null,
 }: {
   session: ApiSession
   tags: Tag[]
   selected: boolean
+  /** The device name that opens the path line while names show (`namesShown`, canvas 50e); null otherwise. */
+  deviceName?: string | null
   /** Open in a detached window (spec: 2026-09-23-detached-session-windows-design). */
   detached?: boolean
   onSelect: (id: string) => void
@@ -328,7 +351,14 @@ function SessionRow({
 }) {
   const hue = rowHue(session, tags)
   const pinned = session.pinnedAt != null
-  const dirMark = useClaudeDirMark(session.claudeDirId)
+  const dirMark = useClaudeDirMark(localClaudeDirId(session))
+  const offline = machineOffline(session)
+  // Re-read each minute while it shows an age, so `as of 2 h` keeps counting.
+  const now = useAsOfNow(offline)
+  // Canvas 50e: `build-box · ~/oncall/runbooks · as of 2 h`.
+  const meta = [deviceName, shortenPath(session.cwd), asOfLabel(session.machine, now)]
+    .filter((part): part is string => Boolean(part))
+    .join(' · ')
   return (
     // Two sibling interactive elements — the pin is a button, and a button
     // inside the row button would be invalid HTML. Same shape `ToolRow` uses:
@@ -343,8 +373,9 @@ function SessionRow({
       className={[
         'group/row relative rounded-lg transition-colors hover:bg-white/5',
         // 1a dims ended rows; per-row rather than on the list, because 4c
-        // puts ended and live rows side by side inside PINNED.
-        history ? 'opacity-75' : '',
+        // puts ended and live rows side by side inside PINNED. 50e halves a
+        // row whose device is offline, ended or not.
+        offline ? 'opacity-50' : history ? 'opacity-75' : '',
         selected
           ? 'border border-[rgba(150,205,255,.12)] bg-[rgba(150,205,255,.07)]'
           : 'border border-transparent',
@@ -364,7 +395,7 @@ function SessionRow({
           history ? 'py-2' : 'py-[9px]',
         ].join(' ')}
       >
-        <RowDot hue={hue} status={session.status} />
+        <RowDot hue={hue} status={session.status} offline={offline} />
         <span className="min-w-0 flex-1">
           {/* 3b: the badge shares the name's line, so it reads as a property
               of the session rather than of its status — and the name is what
@@ -396,11 +427,11 @@ function SessionRow({
               <span className="pointer-events-auto flex" onClick={() => onSelect(session.id)}>
                 <ClaudeDirMark mono={dirMark.mono} title={dirMark.title} />
               </span>
-              <span className="min-w-0 truncate">{shortenPath(session.cwd)}</span>
+              <span className="min-w-0 truncate">{meta}</span>
             </span>
           ) : (
             <span className="block truncate font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
-              {shortenPath(session.cwd)}
+              {meta}
             </span>
           )}
         </span>
@@ -418,6 +449,12 @@ function SessionRow({
       </div>
     </li>
   )
+}
+
+/** A device chip's tooltip: name · kind · state (canvas 50e, logic.js `devChips`). */
+function deviceChipTitle(chip: DeviceChip): string {
+  const state = chip.update ? 'update' : chip.offline ? 'offline' : 'online'
+  return `${chip.name} · ${chip.kind} · ${state}`
 }
 
 /** ACTIVE/PINNED/HISTORY heading, per canvas 1a with 4a's accent count. */
@@ -481,6 +518,20 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
 
   const tags = useOrbital(useShallow((s) => s.tags))
   const visible = useOrbital(useShallow(visibleSessions))
+
+  // The device chips (canvas 50e): a row of them only once a second device
+  // can host sessions, and the device's name on every row while two or more
+  // are on. With one device none of this shows.
+  // The chips as one string, so the selector settles: `remote` is replaced on
+  // every status publish (a paired phone's presence included), and the list
+  // should not re-render for one that changes no chip.
+  const chipsKey = useOrbital((s) => deviceChipsKey(s.remote?.group?.members))
+  const hiddenDeviceIds = useOrbital((s) => s.ui.hiddenDeviceIds ?? NONE_HIDDEN)
+  const setHiddenDeviceIds = useOrbital((s) => s.setHiddenDeviceIds)
+  const chips = useMemo(() => chipsOfKey(chipsKey), [chipsKey])
+  const showNames = namesShown(chips, hiddenDeviceIds)
+  const deviceNameOf = (session: ApiSession): string | null =>
+    showNames ? (session.machine?.name ?? chips[0].name) : null
 
   // Resizable width — the mirror of the detail panel's handle, down to the
   // optimistic save: the store value moves LIVE during the drag (the panel
@@ -608,12 +659,20 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
     setExhausted(false)
   }, [filterTagIds, search])
 
+  // What the server has sent so far, counted the way it pages (`historyPageOffset`): once per
+  // change of the sessions or the filters, not on every store change.
+  const sessions = useOrbital((s) => s.sessions)
+  const pagedCount = useMemo(
+    () => historyPageOffset({ sessions, ui: { filterTagIds, search } }),
+    [sessions, filterTagIds, search]
+  )
+
   const loadMore = useCallback(async () => {
     if (loadingRef.current) return
     loadingRef.current = true
     try {
       const fetched = await api.listSessions({
-        offset: visible.length,
+        offset: pagedCount,
         limit: PAGE_SIZE,
         tags: filterTagIds.length > 0 ? filterTagIds : undefined,
         q: search || undefined,
@@ -625,7 +684,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
     } finally {
       loadingRef.current = false
     }
-  }, [applySessionsEvent, visible.length, filterTagIds, search])
+  }, [applySessionsEvent, pagedCount, filterTagIds, search])
 
   // Infinite scroll: observe the sentinel at the bottom of the session
   // lists and fetch the next page once it enters the viewport.
@@ -695,7 +754,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         />
         <span aria-hidden className="h-px w-5 bg-panel-border" />
         {active.slice(0, 8).map((s) => (
-          <RowDot key={s.id} hue={rowHue(s, tags)} status={s.status} size={8} />
+          <RowDot key={s.id} hue={rowHue(s, tags)} status={s.status} size={8} offline={machineOffline(s)} />
         ))}
         {/* Rail settings button (1a): 30px, and the only icon button here that
             is not one of `IconButton`'s 28px text glyphs. 11d's stats glyph
@@ -773,8 +832,29 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         </span>
       </label>
 
+      {showDeviceRow(chips) && (
+        // Canvas 50e: one row above the tag chips, which then sit 8px under it.
+        <div className="flex flex-wrap gap-1.5 px-3.5 pt-3" role="group" aria-label="Filter by device">
+          {chips.map((chip) => (
+            <Chip
+              key={chip.id}
+              label={chip.label}
+              glyph={<KindGlyph kind={chip.kind} untitled />}
+              note={chip.update ? 'update' : undefined}
+              dimmed={chip.offline}
+              title={deviceChipTitle(chip)}
+              active={devicesOn(chips, hiddenDeviceIds).includes(chip.id)}
+              onClick={() => setHiddenDeviceIds(toggleDevice(hiddenDeviceIds, chip.id, chips))}
+            />
+          ))}
+        </div>
+      )}
+
       <div
-        className="flex flex-wrap gap-1.5 px-3.5 pt-3 pb-1.5"
+        className={[
+          'flex flex-wrap gap-1.5 px-3.5 pb-1.5',
+          showDeviceRow(chips) ? 'pt-2' : 'pt-3',
+        ].join(' ')}
         role="group"
         aria-label="Filter by tag"
       >
@@ -808,6 +888,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
                   detached={detachedIds.includes(s.id)}
                   onSelect={handleSelect}
                   onTogglePin={handleTogglePin}
+                  deviceName={deviceNameOf(s)}
                   history={s.status === 'ended'}
                   right={
                     s.status === 'ended' ? (
@@ -847,6 +928,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
               detached={detachedIds.includes(s.id)}
               onSelect={handleSelect}
               onTogglePin={handleTogglePin}
+              deviceName={deviceNameOf(s)}
               right={<RowStatus session={s} />}
             />
           ))}
@@ -863,6 +945,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
               detached={detachedIds.includes(s.id)}
               onSelect={handleSelect}
               onTogglePin={handleTogglePin}
+              deviceName={deviceNameOf(s)}
               history
               right={
                 <span className="font-mono text-[10px] text-text-muted">

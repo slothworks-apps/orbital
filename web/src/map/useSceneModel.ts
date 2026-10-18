@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { MAP_LEAVE_GRACE_MS, useOrbital } from '../store/store'
-import { buildSceneModel, reuseContextFills, type SceneModel } from './sceneModel'
+import { MAP_LEAVE_GRACE_MS, hiddenDevices, useOrbital } from '../store/store'
+import { buildSceneModel, reuseContextFills, type DeviceNames, type SceneModel } from './sceneModel'
+import { deviceChips, namesShown, showDeviceRow } from '../lib/devices'
 
 /**
  * `<SpaceMap>`'s scene-model subscription. Deliberately NOT
@@ -41,7 +42,23 @@ export function useSceneModel(): SceneModel {
   const contextWindows = useOrbital((s) => s.contextWindows)
   const sessionsTotal = useOrbital((s) => s.sessionsTotal)
   const leavingSince = useOrbital((s) => s.leavingSince)
-
+  // The devices whose chip is off, as one string so the selector settles:
+  // the `remote` status they derive from is replaced on every publish, and
+  // the map should not rebuild for a presence change that hides nothing.
+  const hiddenKey = useOrbital((s) => hiddenDevices(s).join('\n'))
+  const hidden = useMemo(() => (hiddenKey === '' ? [] : hiddenKey.split('\n')), [hiddenKey])
+  // While the chip row shows: this device's name, and whether labels carry
+  // names now (`namesShown`) — as one string, so the selector settles like
+  // `hiddenKey`. Empty while the row does not show.
+  const namesKey = useOrbital((s) => {
+    const chips = deviceChips(s.remote?.group?.members)
+    if (!showDeviceRow(chips)) return ''
+    return `${namesShown(chips, s.ui.hiddenDeviceIds ?? []) ? 1 : 0}${chips[0].name}`
+  })
+  const names = useMemo<DeviceNames | null>(
+    () => (namesKey === '' ? null : { self: namesKey.slice(1), shown: namesKey[0] === '1' }),
+    [namesKey],
+  )
   // The one impure input, kept in one place. Seeded on mount and re-read
   // once a leaving body's grace has run out, so its fade ends with it off the
   // map without the model itself reading a clock. Rescheduled on every new
@@ -117,7 +134,9 @@ export function useSceneModel(): SceneModel {
             fileViewer: null,
           },
         },
-        nowMs
+        nowMs,
+        hidden,
+        names,
       ), previous.current),
     [
       sessions,
@@ -133,10 +152,13 @@ export function useSceneModel(): SceneModel {
       search,
       sourceFilter,
       nowMs,
+      hidden,
+      names,
     ]
   )
   useEffect(() => {
     previous.current = model
   }, [model])
+
   return model
 }

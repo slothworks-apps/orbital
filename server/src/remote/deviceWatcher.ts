@@ -9,6 +9,7 @@
 import { EventEmitter } from 'node:events';
 import { SessionNotifier, type NotificationSettings } from '@orbital/shared/notifications';
 import type { Hub } from '../api/hub.js';
+import { carriesMachine } from './servingHalf.js';
 
 export type DeviceWatcherOptions = {
   deviceId: string;
@@ -21,6 +22,11 @@ export type DeviceWatcherOptions = {
    * 2026-10-15-the-phone-is-quiet-while-you-are-at-the-mac-design § 2).
    */
   quiet?: () => boolean;
+  /**
+   * Whether a session is another member's, federated into this hub: that
+   * member wakes the phone for its own (spec 2026-10-16-device-group-design § 10).
+   */
+  foreign?: (sessionId: string) => boolean;
 };
 
 export class DeviceWatcher {
@@ -34,7 +40,10 @@ export class DeviceWatcher {
   start(initialSessions: unknown[]): void {
     // A second subscriber would wake the phone twice for every event.
     if (this.socket) return;
-    for (const session of initialSessions) this.notifier.onEvent({ topic: 'sessions', event: 'upsert', session });
+    for (const session of initialSessions) {
+      if (this.isForeign({ topic: 'sessions', event: 'upsert', session })) continue;
+      this.notifier.onEvent({ topic: 'sessions', event: 'upsert', session });
+    }
     const socket = Object.assign(new EventEmitter(), { send: (data: string) => this.onFrame(data) });
     this.socket = socket;
     this.opts.hub.handleSocket(socket);
@@ -51,6 +60,18 @@ export class DeviceWatcher {
     this.socket = null;
   }
 
+  /** Whether a `sessions` frame is about another member's session: one carrying `machine`, or an id the federation holds. */
+  private isForeign(frame: Record<string, unknown>): boolean {
+    if (frame.topic !== 'sessions') return false;
+    // Another member's state, online or not: that member wakes the phone for its own.
+    if (frame.event === 'machine') return true;
+    const session = frame.session && typeof frame.session === 'object'
+      ? (frame.session as { id?: unknown; machine?: unknown }) : undefined;
+    if (session && carriesMachine(session)) return true;
+    const id = typeof frame.sessionId === 'string' ? frame.sessionId : typeof session?.id === 'string' ? session.id : null;
+    return id !== null && (this.opts.foreign?.(id) ?? false);
+  }
+
   private onFrame(data: string): void {
     let frame: Record<string, unknown>;
     try {
@@ -58,6 +79,7 @@ export class DeviceWatcher {
     } catch {
       return;
     }
+    if (this.isForeign(frame)) return;
     // A session leaving needs_input retires its debounce, whichever way it went.
     if (frame.topic === 'sessions') {
       const session = frame.session && typeof frame.session === 'object'

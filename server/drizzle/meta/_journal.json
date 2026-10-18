@@ -204,6 +204,13 @@
       "when": 1792239321457,
       "tag": "0028_harness_session_titles",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1792328527942,
+      "tag": "0029_device_group",
+      "breakpoints": true
     }
   ]
 }

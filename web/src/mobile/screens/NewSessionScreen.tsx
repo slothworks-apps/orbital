@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { DeviceOption } from '../../lib/devices'
+import { KindGlyph } from '../../ui/KindGlyph'
 import { useShallow } from 'zustand/react/shallow'
 import { api } from '../../lib/api'
-import { promptWithFiles } from '../../lib/attachedFiles'
 import { tagColor, type OrbitalModel, type PermissionMode, type SessionDefaults } from '../../lib/types'
 import { timeAgo } from '../../lib/format'
 import { useClaudeDirModels } from '../../lib/useClaudeDirModels'
@@ -14,22 +15,25 @@ import { ModeCards } from '../../ui/ModeCards'
 import { CLOCK_TICK_MS } from '../constants'
 import { basename, homePath } from '../format'
 import {
-  filterDirectories, noSuchDirectory, prefillClaudeDir, preselectMode, preselectModel, startFailureLine,
+  filterDirectories, launchRequest, noSuchDirectory, prefillClaudeDir, preselectMode, preselectModel, startFailureLine,
   type DirectoryRow,
 } from '../newSession'
+import { deviceAsleep, openingSettles, phoneDeviceOptions, phoneOpeningDevice, rememberDevice, rememberedDevice } from '../deviceList'
 import { isMacAsleep, useMobile } from '../state'
-import { FieldLabel, MobileScreen, PrimaryButton, SheetPresence } from '../ui'
+import { BottomSheet, FieldLabel, MobileScreen, PrimaryButton, SecondaryButton, SheetPresence } from '../ui'
 import { ClaudeDirPicker } from './ClaudeDirPicker'
 import { McpjsonSheet } from './McpjsonSheet'
 import { MissingDirectorySheet } from './MissingDirectorySheet'
 import { blocksLaunch, directoryLine, useDirectoryState } from '../../lib/useDirectoryState'
-import { macSupports } from '../version'
+import { defaultSupports, deviceSupports } from '../version'
 import { undecidedBeforeLaunch, type McpjsonAnswers, type McpjsonDecisions, type McpjsonServer } from '../../lib/mcpjson'
 
 /** 9d: past this many rows the directory list folds to a window, "Show all N" under it. */
 const COLLAPSED_ROWS = 3
 /** The folded window's height: three and a half rows, so the cut reads as "more below". */
 const COLLAPSED_LIST_PX = 196
+/** The device sheet's ages are in minutes at the finest. */
+const MINUTE_MS = 60_000
 
 /**
  * 9d (spec § 6.4): a session started from the phone. Directory, mode, model
@@ -39,19 +43,53 @@ export function NewSessionScreen() {
   const tags = useOrbital((s) => s.tags)
   const sessions = useOrbital((s) => s.sessions)
   const launchSession = useOrbital((s) => s.launchSession)
-  const { asleep, macName, macVersion } = useMobile(
-    useShallow((s) => ({ asleep: isMacAsleep(s), macName: s.macName, macVersion: s.macVersion })),
+  const { allAsleep, macName, macVersion, link, rechecking, devices, members } = useMobile(
+    useShallow((s) => ({
+      allAsleep: isMacAsleep(s), macName: s.macName, macVersion: s.macVersion,
+      link: s.link, rechecking: s.rechecking, devices: s.devices, members: s.members,
+    })),
   )
   const goBack = useMobile((s) => s.goBack)
   const openSession = useMobile((s) => s.openSession)
   const now = useNow(true, CLOCK_TICK_MS)
-  const mac = macName ?? 'Your Mac'
+
+  // Canvas 50j DEVICE PICKER: with two or more devices that host sessions,
+  // the session runs on the one chosen here; with one, the screen is 9d's.
+  // The sheet's "seen 2 h ago" says minutes at the finest: the options follow the minute, not each tick.
+  const minute = Math.floor(now / MINUTE_MS) * MINUTE_MS
+  const options = useMemo(
+    () => phoneDeviceOptions({ link, rechecking, devices }, members, minute),
+    [link, rechecking, devices, members, minute],
+  )
+  const several = devices.length >= 2
+  const [remembered] = useState(rememberedDevice)
+  const opening = phoneOpeningDevice(options, remembered)
+  const settles = openingSettles({ link, rechecking, devices }, options, remembered)
+  /** Chosen in the sheet, or held once settled; until then the opening device, which follows the devices as they come up. */
+  const [pickedDevice, setPickedDevice] = useState<string | null>(null)
+  const [deviceSheet, setDeviceSheet] = useState(false)
+  // Held once settled, so a device waking or sleeping meanwhile does not move the form under the user.
+  useEffect(() => {
+    if (pickedDevice === null && opening !== null && settles) setPickedDevice(opening)
+  }, [pickedDevice, opening, settles])
+  /** The device every request about the new session names: the federation routes by it. */
+  const machine = pickedDevice ?? opening
+  const chosen = options.find((o) => o.id === machine)
+  const mac = chosen?.name || macName || 'Your Mac'
+  /**
+   * Start waits: in a group, the chosen device cannot take the session now
+   * (asleep, too old, linking); with one device, as 9d had it, it is asleep.
+   */
+  const asleep = several && chosen ? chosen.inert : allAsleep
+  const chosenAsleep = several ? machine !== null && deviceAsleep({ link, rechecking, devices }, machine) : allAsleep
 
   /** `undefined` while the two reads run; `null` when the defaults could not be read. */
   const [defaults, setDefaults] = useState<SessionDefaults | null | undefined>(undefined)
   const [projects, setProjects] = useState<DirectoryRow[]>([])
   const [cwd, setCwd] = useState('')
-  const [mode, setMode] = useState<PermissionMode>('acceptEdits')
+  /** A permission mode picked by hand: kept across a change of device, unlike its directory and model. */
+  const [pickedMode, setPickedMode] = useState<PermissionMode | null>(null)
+  const mode = pickedMode ?? (defaults ? preselectMode(defaults) : 'acceptEdits')
   /** A model picked by hand; until then the preselection follows the directory. */
   const [pickedModel, setPickedModel] = useState<string | null>(null)
   /** A Claude directory picked by hand; until then the Mac's prefill (`prefillClaudeDir`). */
@@ -75,23 +113,31 @@ export function NewSessionScreen() {
    * expanded, that *Create and start* makes. Set, it is a sheet over the form.
    */
   const [missingDir, setMissingDir] = useState<string | null>(null)
-  /** An older Mac has no `/api/directory`; against it Start's `no_such_directory` is all there is. */
-  const checksDir = macSupports('directoryCheck', macVersion)
-  const dirState = useDirectoryState(cwd, checksDir && !asleep)
+  /**
+   * An older Mac has no `/api/directory`; against it Start's `no_such_directory` is all there is.
+   * The chosen device's version decides; with none known yet, the default member's.
+   */
+  const checksDir = machine !== null ? deviceSupports('directoryCheck', machine, devices) : defaultSupports('directoryCheck', macVersion)
+  const dirState = useDirectoryState(cwd, checksDir && !asleep, machine ?? undefined)
 
+  // The chosen device's defaults and recent directories (canvas 50j: they
+  // follow the device); its Claude directory ids are its own, so a choice
+  // made on another device is dropped with it.
   useEffect(() => {
     let current = true
-    void Promise.allSettled([api.sessionDefaults(), api.listProjects()]).then(([d, p]) => {
+    setDefaults(undefined)
+    setProjects([])
+    setPickedDir(null)
+    setPickedModel(null)
+    void Promise.allSettled([api.sessionDefaults(machine ?? undefined), api.listProjects(machine ?? undefined)]).then(([d, p]) => {
       if (!current) return
       if (p.status === 'fulfilled') setProjects(p.value)
-      const read = d.status === 'fulfilled' ? d.value : null
-      if (read) setMode(preselectMode(read))
-      setDefaults(read)
+      setDefaults(d.status === 'fulfilled' ? d.value : null)
     })
     return () => {
       current = false
     }
-  }, [])
+  }, [machine])
 
   const loaded = defaults !== undefined
   const dirs = defaults?.claudeDirs ?? []
@@ -102,7 +148,7 @@ export function NewSessionScreen() {
   const claudeDirHint =
     pickedDir !== null && pickedDir !== prefill?.id ? 'changed' : prefill?.from === 'last' ? 'last launch' : 'default'
   /** The chosen directory's catalog: each account has its own models. */
-  const models = useClaudeDirModels(claudeDirId)
+  const models = useClaudeDirModels(claudeDirId, true, machine ?? undefined)
 
   const list = useMemo(() => filterDirectories(projects, cwd), [projects, cwd])
   const project = projects.find((p) => p.cwd === cwd.trim())
@@ -113,11 +159,12 @@ export function NewSessionScreen() {
   const hueByCwd = useMemo(() => {
     const hues = new Map<string, number>()
     for (const s of Object.values(sessions)) {
+      if (machine !== null && s.machine && s.machine.id !== machine) continue
       const tag = tags.find((t) => t.id === s.tagIds[0])
       if (tag && !hues.has(s.cwd)) hues.set(s.cwd, tag.hue)
     }
     return hues
-  }, [sessions, tags])
+  }, [sessions, tags, machine])
 
   const editCwd = (next: string) => {
     setCwd(next)
@@ -140,14 +187,14 @@ export function NewSessionScreen() {
     if (checksDir) {
       // Asked again rather than read off the line, which may be stale. A
       // failed ask starts anyway: `requireDirectory` still refuses.
-      const dir = await api.directoryState(cwd.trim()).catch(() => null)
+      const dir = await api.directoryState(cwd.trim(), machine ?? undefined).catch(() => null)
       if (dir && dir.state !== 'directory') {
         setPending(false)
         if (dir.state === 'missing') setMissingDir(dir.path)
         return
       }
     }
-    const servers = await undecidedBeforeLaunch(cwd.trim(), claudeDirId ?? undefined)
+    const servers = await undecidedBeforeLaunch(cwd.trim(), claudeDirId ?? undefined, machine ?? undefined)
     if (servers.length > 0) {
       setPending(false)
       setQuestion({ servers, answers: {} })
@@ -161,10 +208,10 @@ export function NewSessionScreen() {
     if (!missingDir) return
     setPending(true)
     try {
-      await api.createDirectory(missingDir)
+      await api.createDirectory(missingDir, machine ?? undefined)
     } catch (err) {
       setMissingDir(null)
-      setFailure(startFailureLine(err, macName))
+      setFailure(startFailureLine(err, mac))
       setPending(false)
       return
     }
@@ -186,19 +233,11 @@ export function NewSessionScreen() {
     try {
       const refs = images.map((image) => image.entry.ref)
       const sessionId = await launchSession(
-        {
-          cwd: cwd.trim(),
-          prompt: promptWithFiles(prompt, files),
-          permissionMode: mode,
-          model: model ?? undefined,
-          requireDirectory: true,
-          // Only when the choice was offered; the Mac remembers it for the next prefill.
-          ...(claudeDirId !== null ? { claudeDirId } : {}),
-          ...(refs.length > 0 ? { attachments: refs } : {}),
-          ...(mcpjson ? { mcpjson } : {}),
-        },
+        launchRequest({ cwd, prompt, files, mode, model, claudeDirId, refs, mcpjson, machine }),
         images,
       )
+      // The next New session opens on it (canvas 50j).
+      if (machine !== null) rememberDevice(machine)
       attachments.reset()
       openSession(sessionId)
     } catch (err) {
@@ -206,7 +245,7 @@ export function NewSessionScreen() {
       setQuestion(null)
       // Said here, never through `reportError`: its `/api/errors` POST is not the phone's to make.
       if (noSuchDirectory(err)) setNotFound(true)
-      else setFailure(startFailureLine(err, macName))
+      else setFailure(startFailureLine(err, mac))
       setPending(false)
     }
   }
@@ -222,23 +261,28 @@ export function NewSessionScreen() {
         ×
       </button>
       <h1 className="flex-1 text-[17px] font-bold">New session</h1>
-      <span className="flex min-w-0 items-center gap-1.5 pr-3.5 font-mono text-[11px] text-[rgba(160,190,225,.7)]">
-        <span
-          aria-hidden
-          className={[
-            'block h-1.5 w-1.5 shrink-0 rounded-full',
-            asleep ? 'border border-[rgba(200,215,235,.6)]' : 'bg-[oklch(85%_.12_205)]',
-          ].join(' ')}
-        />
-        <span className="truncate">{mac}</span>
-      </span>
+      {/* Canvas 50j: with a DEVICE field the header names no device. */}
+      {!several && (
+        <span className="flex min-w-0 items-center gap-1.5 pr-3.5 font-mono text-[11px] text-[rgba(160,190,225,.7)]">
+          <span
+            aria-hidden
+            className={[
+              'block h-1.5 w-1.5 shrink-0 rounded-full',
+              asleep ? 'border border-[rgba(200,215,235,.6)]' : 'bg-[oklch(85%_.12_205)]',
+            ].join(' ')}
+          />
+          <span className="truncate">{mac}</span>
+        </span>
+      )}
     </div>
   )
+
+  const startLabel = chosenAsleep ? `Start · needs ${mac} awake` : several ? `Start on ${mac}` : 'Start session'
 
   const footer = (
     <div className="border-t border-[rgba(150,205,255,.08)] px-4 pb-1.5 pt-2.5">
       <PrimaryButton onClick={() => void start()} disabled={!canStart}>
-        {asleep ? `Start · needs ${mac} awake` : 'Start session'}
+        {startLabel}
       </PrimaryButton>
       {failure && (
         <p role="alert" className="mt-2 text-center text-[13px] text-[var(--state-input)]">
@@ -249,18 +293,20 @@ export function NewSessionScreen() {
   )
 
   /** The row the field already names wears the ✓ (9d). */
-  const chosen = cwd.trim()
+  const chosenCwd = cwd.trim()
   const check = (path: string) => (
-    <span aria-hidden className={['w-3 shrink-0 font-mono text-[12px] text-[oklch(85%_.12_205)]', path === chosen ? '' : 'opacity-0'].join(' ')}>
+    <span aria-hidden className={['w-3 shrink-0 font-mono text-[12px] text-[oklch(85%_.12_205)]', path === chosenCwd ? '' : 'opacity-0'].join(' ')}>
       ✓
     </span>
   )
-  const picked = (path: string) => (path === chosen ? 'bg-[oklch(85%_.12_205/.08)]' : '')
+  const picked = (path: string) => (path === chosenCwd ? 'bg-[oklch(85%_.12_205/.08)]' : '')
 
   const typed = cwd.trim() !== ''
   const rows = list.kind === 'rows' ? list.rows : []
   const canExpand = rows.length > COLLAPSED_ROWS
-  const hint = !typed ? 'ten most recent' : list.kind === 'use-as-is' ? 'no match · typed path' : `${rows.length} on ${mac}`
+  const hint = !typed
+    ? several ? `on ${mac}` : 'ten most recent'
+    : list.kind === 'use-as-is' ? 'no match · typed path' : `${rows.length} on ${mac}`
   const dirLine = notFound ? null : directoryLine(dirState, mac)
   const fieldBorder = notFound
     ? 'border-[oklch(70%_.14_25/.7)]'
@@ -273,6 +319,12 @@ export function NewSessionScreen() {
   return (
     <MobileScreen header={header} footer={footer}>
       <div className="flex flex-col gap-[18px] px-4 py-3.5">
+        {several && (
+          <div className="flex flex-col gap-2">
+            <FieldLabel>DEVICE</FieldLabel>
+            <DeviceField option={chosen ?? null} onOpen={() => setDeviceSheet(true)} />
+          </div>
+        )}
         <div className="flex flex-col gap-2">
           <FieldLabel hint={hint}>DIRECTORY</FieldLabel>
           <div className={['flex h-13 items-center gap-2 rounded-[14px] border bg-[rgba(4,8,16,.6)] pl-3.5 pr-1.5', fieldBorder].join(' ')}>
@@ -410,7 +462,7 @@ export function NewSessionScreen() {
             )}
             <div className="flex flex-col gap-1.5">
               <FieldLabel>PERMISSION MODE</FieldLabel>
-              <ModeCards value={mode} onChange={setMode} touch />
+              <ModeCards value={mode} onChange={setPickedMode} touch />
             </div>
             <div className="flex flex-col gap-1.5">
               <FieldLabel>MODEL</FieldLabel>
@@ -423,7 +475,11 @@ export function NewSessionScreen() {
           <FieldLabel>FIRST PROMPT</FieldLabel>
         <Composer
           aria-label="First prompt"
-          sessionKey={claudeDirId !== null ? { cwd: cwd.trim(), claudeDir: claudeDirId } : { cwd: cwd.trim() }}
+          sessionKey={{
+            cwd: cwd.trim(),
+            ...(claudeDirId !== null ? { claudeDir: claudeDirId } : {}),
+            ...(machine !== null ? { machine } : {}),
+          }}
           value={prompt}
           onChange={setPrompt}
           enter="newline"
@@ -435,6 +491,19 @@ export function NewSessionScreen() {
         />
         </div>
       </div>
+      <SheetPresence>
+        {deviceSheet && (
+          <DeviceSheet
+            options={options}
+            value={machine}
+            onPick={(id) => {
+              setPickedDevice(id)
+              setDeviceSheet(false)
+            }}
+            onClose={() => setDeviceSheet(false)}
+          />
+        )}
+      </SheetPresence>
       <SheetPresence>
         {missingDir && (
           <MissingDirectorySheet
@@ -453,7 +522,7 @@ export function NewSessionScreen() {
             servers={question.servers}
             answers={question.answers}
             project={basename(cwd.trim())}
-            macName={macName ?? 'your Mac'}
+            macName={chosen?.name || macName || 'your Mac'}
             pending={pending}
             onAnswer={(name, answer) => setQuestion((q) => (q ? { ...q, answers: { ...q.answers, [name]: answer } } : q))}
             onStart={(decisions) => void launch(decisions)}
@@ -462,6 +531,81 @@ export function NewSessionScreen() {
         )}
       </SheetPresence>
     </MobileScreen>
+  )
+}
+
+/** Canvas 50j DEVICE: the chosen device, a 56 px field that opens the sheet. */
+function DeviceField({ option, onOpen }: { option: DeviceOption | null; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-haspopup="dialog"
+      onClick={onOpen}
+      className="flex min-h-14 items-center gap-3 rounded-[14px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.6)] pl-3.5 pr-2.5 text-left"
+    >
+      <span className="flex text-text-bright">
+        <KindGlyph kind={option?.kind ?? 'desktop'} untitled />
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate text-[15px] font-semibold text-text-bright">{option?.name ?? 'Choose a device'}</span>
+        {option && <span className="truncate font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{option.sub}</span>}
+      </span>
+      <span aria-hidden className="grid h-11 w-8 shrink-0 place-items-center text-[10px] text-[rgba(160,190,225,.6)]">
+        ▾
+      </span>
+    </button>
+  )
+}
+
+/** Canvas 50j `Run it on`: every device; the inert ones carry their reason and take no tap. */
+function DeviceSheet({
+  options,
+  value,
+  onPick,
+  onClose,
+}: {
+  options: DeviceOption[]
+  value: string | null
+  onPick: (id: string) => void
+  onClose: () => void
+}) {
+  return (
+    <BottomSheet label="Run it on" onDismiss={onClose} variant="device">
+      <div className="flex flex-col gap-3 pb-2">
+        <h2 className="text-[18px] font-bold">Run it on</h2>
+        <div role="radiogroup" aria-label="Device" className="overflow-hidden rounded-[14px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.5)]">
+          {options.map((o, i) => (
+            <button
+              key={o.id}
+              type="button"
+              role="radio"
+              aria-checked={o.id === value}
+              aria-disabled={o.inert}
+              onClick={() => {
+                if (!o.inert) onPick(o.id)
+              }}
+              className={[
+                'flex min-h-14 w-full items-center gap-3 px-3.5 text-left',
+                i > 0 ? 'border-t border-[rgba(150,205,255,.08)]' : '',
+                o.inert ? 'cursor-default text-[rgba(160,190,225,.5)]' : 'text-text-bright',
+              ].join(' ')}
+            >
+              <span className="flex">
+                <KindGlyph kind={o.kind} untitled />
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <span className="truncate text-[14.5px] font-semibold">{o.name}</span>
+                <span className="truncate font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{o.sub}</span>
+              </span>
+              <span aria-hidden className={['font-mono text-[13px] text-[oklch(85%_.12_205)]', o.id === value ? '' : 'opacity-0'].join(' ')}>
+                ✓
+              </span>
+            </button>
+          ))}
+        </div>
+        <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+      </div>
+    </BottomSheet>
   )
 }
 

@@ -87,6 +87,21 @@ describe('precheckFile — refuse before uploading', () => {
     expect(precheckFile(fakeFile('dump.bin', '', 130 * MB), { hasPath: true, folder: false })).toBeNull()
     expect(precheckFile(fakeFile('src', '', 0), { hasPath: true, folder: true })).toBeNull()
   })
+
+  it('sends a session of another device inline images only, never a path of this one', () => {
+    const foreign = { hasPath: true, folder: false, foreign: true }
+    expect(precheckFile(fakeFile('a.png', 'image/png', 4 * MB), foreign)).toBeNull()
+    expect(precheckFile(fakeFile('report.xlsx', 'application/vnd.ms-excel', 1000), foreign)).toEqual({
+      kind: 'not_on_device',
+      name: 'report.xlsx',
+    })
+    // An image of any size is brought down and rides inline, so it reaches another device too.
+    expect(precheckFile(fakeFile('huge.png', 'image/png', 40 * MB), { ...foreign, hasPath: false })).toBeNull()
+    expect(precheckFile(fakeFile('src', '', 0), { ...foreign, folder: true })).toEqual({
+      kind: 'not_on_device',
+      name: 'src',
+    })
+  })
 })
 
 describe('refusalNotice — one line, never a stack (canvas 9d-C)', () => {

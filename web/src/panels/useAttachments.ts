@@ -137,7 +137,14 @@ let chipCounter = 0
  * which is NOT the same thing: nothing can be dropped on a panel that is not
  * there, and an empty id must not quietly become a valid sessionless upload.
  */
-export function useAttachments(sessionId: string | null): AttachmentsHandle {
+export function useAttachments(
+  sessionId: string | null,
+  opts: {
+    /** The session runs on another device of the group: only inline images can reach it (`precheckFile`). */
+    foreign?: boolean
+  } = {},
+): AttachmentsHandle {
+  const foreign = opts.foreign ?? false
   const [items, setItems] = useState<readonly Attachment[]>([])
   const [refusal, setRefusal] = useState<(RefusalNotice & { exiting: boolean }) | null>(null)
 
@@ -164,6 +171,23 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
     const entry = work.current.get(id)
     if (entry?.ticker !== undefined) clearInterval(entry.ticker)
     if (entry) entry.ticker = undefined
+  }, [])
+
+  const showRefusal = useCallback((refusals: Refusal[]) => {
+    const notice = refusalNotice(refusals)
+    for (const timer of refusalTimers.current) clearTimeout(timer)
+    refusalTimers.current = []
+    if (!notice) return
+    // A second refusal rewrites the line and restarts the clock; it never
+    // stacks (canvas 9e refusal line).
+    setRefusal({ ...notice, exiting: false })
+    refusalTimers.current = [
+      setTimeout(
+        () => setRefusal((current) => (current ? { ...current, exiting: true } : null)),
+        REFUSAL_HOLD_MS,
+      ),
+      setTimeout(() => setRefusal(null), REFUSAL_HOLD_MS + REFUSAL_OUT_MS),
+    ]
   }, [])
 
   /**
@@ -200,6 +224,12 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
         })
         .then((result) => {
           if (controller.signal.aborted) return
+          if (result.kind === 'not_on_device') {
+            // Not a disagreement a retry could settle: the line says why.
+            fail()
+            showRefusal([{ kind: 'not_on_device', name: chip.name }])
+            return
+          }
           if (result.kind !== 'ok') {
             // A 413/415/400 here is the server disagreeing with the client
             // pre-check (a mislabelled file, a ceiling that has moved). That is
@@ -226,7 +256,7 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
           entry.run = undefined
         })
     },
-    [patch, sessionId, stopTicker],
+    [patch, sessionId, showRefusal, stopTicker],
   )
 
   /** Releases everything one chip holds: its upload, its ticker, its preview. */
@@ -240,23 +270,6 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
     },
     [],
   )
-
-  const showRefusal = useCallback((refusals: Refusal[]) => {
-    const notice = refusalNotice(refusals)
-    for (const timer of refusalTimers.current) clearTimeout(timer)
-    refusalTimers.current = []
-    if (!notice) return
-    // A second refusal rewrites the line and restarts the clock; it never
-    // stacks (canvas 9e refusal line).
-    setRefusal({ ...notice, exiting: false })
-    refusalTimers.current = [
-      setTimeout(
-        () => setRefusal((current) => (current ? { ...current, exiting: true } : null)),
-        REFUSAL_HOLD_MS,
-      ),
-      setTimeout(() => setRefusal(null), REFUSAL_HOLD_MS + REFUSAL_OUT_MS),
-    ]
-  }, [])
 
   const accept = useCallback(
     (
@@ -273,6 +286,7 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
         const refused = precheckFile(file, {
           hasPath: path !== null,
           folder: folders?.has(file.name) ?? false,
+          foreign,
         })
         if (refused) refusals.push(refused)
         else keepers.push({ file, path })
@@ -319,7 +333,7 @@ export function useAttachments(sessionId: string | null): AttachmentsHandle {
       }
       showRefusal(refusals)
     },
-    [showRefusal, startUpload, sync],
+    [foreign, showRefusal, startUpload, sync],
   )
 
   const remove = useCallback(

@@ -723,7 +723,8 @@ export function planetOutline(
       | 'limitWait'
     >
     scale: number
-    modelFamily: string | null
+    /** The second label line as measured (`ScenePlanet.outlineLine`, not the line drawn), or null. */
+    secondLine: string | null
     /** The context gauge moves the label and the pill further out (`Planet`'s `clearsGauge`). */
     gauged: boolean
   },
@@ -734,7 +735,7 @@ export function planetOutline(
   const wait = planet.session.limitWait
   const label = restingLabelSizePx(
     planet.session.title,
-    planet.modelFamily?.toUpperCase() ?? null,
+    planet.secondLine,
     labelFont,
     wait ? limitPillText(wait) : null,
   )

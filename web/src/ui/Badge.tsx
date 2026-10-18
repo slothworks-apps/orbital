@@ -1,5 +1,5 @@
 import type { SessionStateKey } from '../lib/types'
-import { stateBorder, stateColor, stateDot, stateWord } from '../lib/stateStyle'
+import { OFFLINE_STATE_INK, stateBorder, stateColor, stateDot, stateWord, stillDot } from '../lib/stateStyle'
 import { StateDot } from './StateDot'
 import type { SubagentTaskState } from '../lib/subagentPanel'
 
@@ -19,6 +19,12 @@ export type BadgeProps =
        * NEEDS YOUR OK, its dot steady (canvas 30a-d).
        */
       gate?: boolean
+      /**
+       * The device the session runs on is offline: the state keeps its last
+       * value, dated by this (`stateAsOf`, `AS OF 12 MIN AGO`), in the muted
+       * ink with its dot at half and still (canvas 50f `fState`).
+       */
+      asOf?: string | null
     }
   | {
       /**
@@ -172,8 +178,14 @@ export function Badge(props: BadgeProps) {
     // 24c draws the two neutral chips in their own quiet literals rather than
     // the state colour mixed toward transparent: IDLE a shade brighter, with
     // a dimmer steady dot; ENDED the faintest of all.
-    const tone =
-      state === 'idle'
+    const asOf = props.asOf ?? null
+    const tone = asOf
+      ? {
+          ink: OFFLINE_STATE_INK,
+          dot: `color-mix(in oklch, ${color} 50%, transparent)`,
+          border: 'rgba(150,205,255,.14)',
+        }
+      : state === 'idle'
         ? { ink: 'rgba(200,220,245,.7)', dot: 'rgba(160,190,225,.5)', border: 'rgba(150,205,255,.2)' }
         : state === 'ended'
           ? { ink: color, dot: color, border: 'rgba(150,205,255,.14)' }
@@ -185,18 +197,24 @@ export function Badge(props: BadgeProps) {
       <span
         data-variant="status"
         data-status={state}
-        className="inline-flex items-center gap-1.5 rounded-[5px] border px-[9px] py-1 font-mono text-[10.5px] tracking-[0.08em]"
+        // One line always: an offline device's ` · AS OF 12 MIN AGO` would
+        // otherwise wrap the chip in a crowded row. `min-w-0` lets the row
+        // shrink it, and the words end in an ellipsis instead.
+        className="inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap rounded-[5px] border px-[9px] py-1 font-mono text-[10.5px] tracking-[0.08em]"
         style={{ color: tone.ink, borderColor: tone.border }}
       >
         <StateDot
-          dot={stateDot(state, 'chip', gate)}
+          dot={stillDot(stateDot(state, 'chip', gate), Boolean(asOf))}
           color={tone.dot}
           solidPx={6}
           hollowPx={7}
           // WORKING keeps its glow; its dot is the state cyan now, not the tag hue.
-          glow={state === 'working'}
+          glow={state === 'working' && !asOf}
         />
-        {gate ? 'NEEDS YOUR OK' : stateWord(state, awaiting)}
+        <span className="min-w-0 truncate">
+          {gate ? 'NEEDS YOUR OK' : stateWord(state, awaiting)}
+          {asOf && ` · ${asOf}`}
+        </span>
       </span>
     )
   }

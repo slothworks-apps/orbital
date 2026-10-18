@@ -20,7 +20,7 @@ const CHECKED_TICK_MS = 60_000
  * where the update bridge is. No badge anywhere while an update waits; the
  * map's prompt is where it is offered.
  */
-export function UpdatesSection({ patchAndSet }: { patchAndSet: (patch: Record<string, string>) => Promise<void> }) {
+export function UpdatesSection({ patchAndSet }: { patchAndSet: (patch: Record<string, string>) => Promise<unknown> }) {
   const source = useAppUpdate((s) => s.source)
   const state = useAppUpdate((s) => s.state)
   const autoDownload = useOrbital((s) => autoDownloadOn(s.settings))

@@ -5,7 +5,7 @@ import { forgetIdentity, IDENTITY_KEY, loadOrCreateIdentity } from '../mobile/pl
 import { readCachedImage } from '../mobile/platform/imageCache'
 import {
   FALLBACK_DEVICE_NAME, acceptMessages, acceptNotifications, acceptSessions, deviceName, identityBackend,
-  isImageRef, parseCached, parseIdentity, parsePairing, serializeIdentity,
+  isImageRef, parseCached, parseEnded, parseIdentity, parsePairing, parseStandaloneRelay, serializeIdentity,
 } from '../mobile/platform/parse'
 
 // Stubbed so `readCachedImage`'s ref check is provably checked before any
@@ -130,5 +130,27 @@ describe('loadOrCreateIdentity', () => {
       getItem.mockRestore()
       await forgetIdentity()
     }
+  })
+})
+
+describe('parseEnded', () => {
+  it('reads the notice of a group ending as stored, and nothing that is not one', () => {
+    const ended = { why: 'removed', by: { id: 'm1', name: 'studio' } }
+    expect(parseEnded(JSON.stringify(ended))).toEqual(ended)
+    expect(parseEnded(null)).toBeNull()
+    expect(parseEnded('not json')).toBeNull()
+    expect(parseEnded(JSON.stringify({ ...ended, why: 'left' }))).toBeNull()
+    expect(parseEnded(JSON.stringify({ why: 'dissolved', by: { id: 'm1' } }))).toBeNull()
+  })
+})
+
+describe('parseStandaloneRelay', () => {
+  it('reads the relay a standalone phone stays on, its secret with it, and nothing that is not one', () => {
+    expect(parseStandaloneRelay(JSON.stringify({ relay: 'https://r.test', relaySecret: 's' })))
+      .toEqual({ relay: 'https://r.test', relaySecret: 's' })
+    expect(parseStandaloneRelay(JSON.stringify({ relay: 'https://r.test', relaySecret: 3 }))).toEqual({ relay: 'https://r.test' })
+    expect(parseStandaloneRelay(JSON.stringify({ relay: '' }))).toBeNull()
+    expect(parseStandaloneRelay('null')).toBeNull()
+    expect(parseStandaloneRelay(null)).toBeNull()
   })
 })

@@ -5,6 +5,7 @@ status: in-force
 type: adr
 domain: remote
 related:
+  - every-member-reaches-one-literal-allowlist
   - 2026-09-30-mobile-remote-design
   - 2026-10-01-mobile-remote-backend
 tags:
@@ -44,8 +45,9 @@ uncanonical would approve a string the real router rewrites before
 matching it. Both checks are required, together, so the string handed to
 `inject()` is provably the string Fastify will route — not a string that
 merely looks safe. A phone's `subscribe` is checked the same way at the
-hub, by an allowlist (`PHONE_ALLOWED_TOPICS` and its per-id prefixes, in
-`server/src/remote/phoneSession.ts`): the topics the web client uses and
+hub, by an allowlist (`PHONE_ALLOWED_TOPICS` and its per-id prefixes, then
+in `server/src/remote/phoneSession.ts`; today `MEMBER_ALLOWED_TOPICS` in
+`server/src/remote/servingHalf.ts`): the topics the web client uses and
 nothing else, so the `remote` topic — pairing and device state — and any
 topic added later stay Mac-only until listed. (A denylist of `remote`
 alone until 2026-10-01.)
@@ -82,3 +84,11 @@ alone until 2026-10-01.)
 - `allowedPath` is the one place path-handling bugs in this feature can
   live; a change to it needs the same scrutiny as a new entry on the
   list, not less.
+
+## Since 2026-10-17
+
+With the device group, the list is the one literal list every member of a
+group reaches, the phone included ([[every-member-reaches-one-literal-allowlist]]).
+How the list is checked — canonical string, restricted segments, a literal
+list for routes and topics — is unchanged; what is on it grew with
+federation (`docs/domains/device-federation.md`).

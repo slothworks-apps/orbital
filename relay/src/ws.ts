@@ -34,6 +34,8 @@ export type WsContext = {
   secret: string | null;
   /** The per-IP budget pairing and a refused secret share. */
   limiter: RateLimiter;
+  /** The per-IP budget of `/pair/mutual` and `/pair/revoke` (`MUTUAL_RATE_LIMIT_PER_MIN`); a connect never checks it. */
+  mutualLimiter: RateLimiter;
 };
 
 /**
@@ -78,9 +80,9 @@ export function handleSocket(socket: WebSocket, ctx: WsContext, expectMac: strin
     void (async () => {
       // A device the relay has never met may still connect — a phone has to
       // be online to hear `paired` — but gets no row for it: any key can
-      // sign a challenge, so only `/pair/redeem` (a phone) and `/pair/token`
-      // (a Mac) create one. Until then it has no peers, and `touch` and a
-      // push token update nothing.
+      // sign a challenge, so only `/pair/redeem` (a phone), `/pair/token`
+      // (a Mac) and `/pair/mutual` (a group member) create one. Until then it
+      // has no peers, and `touch` and a push token update nothing.
       //
       // A pair created or revoked while this device is not yet in
       // `connections` cannot edit its `peers`, so the read is repeated until
@@ -108,7 +110,9 @@ function attach(conn: Conn, ctx: WsContext, early: [RawData, boolean][], expectM
   previous?.socket.terminate();
   log(`device ${short(id)} connected${previous ? ', replacing its previous socket' : ''}`);
 
-  send(socket, { type: 'ok', peers: [...peers].filter((p) => ctx.connections.isOnline(p)) });
+  // `pairs` names every pair, asleep or not: a device in a group learns from
+  // it whom it may open a channel to once they wake (a relay from before it sent none).
+  send(socket, { type: 'ok', peers: [...peers].filter((p) => ctx.connections.isOnline(p)), pairs: [...peers] });
   // A device that expects a pair the relay no longer holds would otherwise
   // read its Mac as asleep forever: `ok` lists only online peers, and the
   // `unpaired` sent at revoke time went to a socket that did not exist.

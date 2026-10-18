@@ -193,14 +193,25 @@ describe('makeImageResolver', () => {
     expect(client.getBlob).toHaveBeenCalledTimes(1)
   })
 
-  it('asks the Mac for a thumbnail apart from the image, and keeps it under its own key', async () => {
+  it('asks the Mac for a thumbnail apart from the image, and keeps no copy of it: its bytes cannot be checked', async () => {
     const client = new FakeClient()
     client.getBlob.mockResolvedValue({ status: 200, bytes: new Uint8Array([9]), mediaType: 'image/jpeg' })
     const io = { read: vi.fn(async (_ref: string, _thumb: boolean) => null), write: vi.fn(async () => {}) }
     const resolve = makeImageResolver(client, io, toUrl)
     await expect(resolve(REF, { thumb: true })).resolves.toBe('blob:image/jpeg:1')
     expect(client.getBlob).toHaveBeenCalledWith(REF, { edge: PHONE_THUMB_EDGE })
-    expect(io.write).toHaveBeenCalledWith(REF, new Uint8Array([9]), true, 'image/jpeg')
+    expect(io.write).not.toHaveBeenCalled()
+  })
+
+  it('serves a thumbnail from the kept full image without asking the Mac', async () => {
+    const client = new FakeClient()
+    const io = {
+      read: vi.fn(async (_ref: string, thumb: boolean) => (thumb ? null : { bytes: new Uint8Array([1, 2, 3]), mediaType: 'image/png' })),
+      write: vi.fn(async () => {}),
+    }
+    const resolve = makeImageResolver(client, io, toUrl)
+    await expect(resolve(REF, { thumb: true })).resolves.toBe('blob:image/png:3')
+    expect(client.getBlob).not.toHaveBeenCalled()
   })
 
   it('serves a thumbnail from the full image once that is here', async () => {
@@ -307,11 +318,11 @@ describe('makeTunnelUpload', () => {
     Object.assign(new File([bytes], name, { type }), { arrayBuffer: async () => bytes.slice().buffer })
   const photo = () => fileOf(new Uint8Array([1, 2, 3]), 'IMG_090507.jpg', 'image/jpeg')
 
-  it("hands the file's bytes and media type to putBlob and answers ok with the entry", async () => {
+  it("hands the file's bytes, media type and session to putBlob and answers ok with the entry", async () => {
     const client = new FakeClient()
     client.putBlob.mockResolvedValueOnce({ kind: 'ok', entry: ENTRY })
     await expect(makeTunnelUpload(client)('s1', photo())).resolves.toEqual({ kind: 'ok', entry: ENTRY })
-    expect(client.putBlob).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), 'image/jpeg')
+    expect(client.putBlob).toHaveBeenCalledWith(new Uint8Array([1, 2, 3]), 'image/jpeg', 's1')
   })
 
   it("answers too_large with the file's size, which is exact", async () => {

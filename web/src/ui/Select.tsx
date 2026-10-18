@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, Ref } from 'react'
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react'
 import { useEscapeLayer } from './escapeLayer'
 import { POPUP_SHELL, usePopupPosition } from './usePopupPosition'
 
@@ -19,6 +19,12 @@ export interface SelectOption<T> {
    * the menu is open.
    */
   short?: string
+  /** Leading glyph (canvas 50g: the device's kind glyph), on the row and on the `device` trigger. */
+  glyph?: ReactNode
+  /** Mono line after the label (canvas 50g: `headless · Linux`, or why the device cannot be picked). */
+  sub?: string
+  /** Listed but not pickable (canvas 50g: an offline or too-old device): muted, and a click or ⏎ does nothing. */
+  inert?: boolean
 }
 
 export interface SelectProps<T> {
@@ -40,9 +46,10 @@ export interface SelectProps<T> {
    * `tag` is 1b's session-tag pill — the same hue, but FILLED and with the
    * chevron inline, so the trigger reads as the tag it carries; `ghost` is
    * 3a's origin filter — a bare label inside a list heading, which grows
-   * chrome only while it is open or `active`.
+   * chrome only while it is open or `active`; `device` is 50g's DEVICE
+   * field — the glyph, the name and its sub-line on one roomier row.
    */
-  variant?: 'field' | 'pill' | 'tag' | 'ghost'
+  variant?: 'field' | 'pill' | 'tag' | 'ghost' | 'device'
   /**
    * `ghost` only: keep the lit chrome while the control is closed, because
    * its value is doing something visible (a filter that is narrowing a list).
@@ -178,6 +185,7 @@ export function Select<T extends string | number>({
   const commit = useCallback(
     (index: number) => {
       const option = options[index]
+      if (option?.inert) return
       closePopup(true)
       if (option && option.value !== value) onChange(option.value)
     },
@@ -318,6 +326,7 @@ export function Select<T extends string | number>({
   const isPill = variant === 'pill'
   const isTag = variant === 'tag'
   const isGhost = variant === 'ghost'
+  const isDevice = variant === 'device'
   // 3a paints the ghost trigger in two states only: bare, or lit. Open and
   // "narrowing something" are the same state — both mean it has the floor.
   const lit = isGhost && (open || active)
@@ -361,7 +370,7 @@ export function Select<T extends string | number>({
           // so a caller's `w-[200px]` never has to out-order a built-in
           // `w-full` in the stylesheet (see the v4 footguns in web/CLAUDE.md).
           'relative inline-flex min-w-0 cursor-pointer items-center text-left disabled:cursor-not-allowed disabled:opacity-50',
-          isGhost ? 'gap-[5px]' : 'gap-1.5',
+          isGhost ? 'gap-[5px]' : isDevice ? 'gap-2.5' : 'gap-1.5',
           // The ghost branch owns its own ink in both states, so it must not
           // also inherit `text-text-bright` — two colour utilities on one
           // element are settled by stylesheet order, not by this array's.
@@ -376,6 +385,15 @@ export function Select<T extends string | number>({
                   ? 'border-[rgba(150,205,255,.22)] bg-[rgba(150,205,255,.12)] text-[oklch(90%_.06_205)]'
                   : 'border-transparent bg-transparent text-inherit hover:bg-[rgba(150,205,255,.1)]',
               ].join(' ')
+            : isDevice
+              ? // 50g's DEVICE field: 9px/12px inside a 9px radius over the
+                // field fill; the border lights to the accent at .5 while open,
+                // `border-color .18s ease`.
+                [
+                  'rounded-[9px] border bg-[rgba(4,8,16,.6)] px-3 py-[9px] font-sans',
+                  'transition-[border-color] duration-[180ms] ease-[ease]',
+                  open ? 'border-[oklch(85%_.12_205/.5)]' : 'border-[rgba(150,205,255,.18)]',
+                ].join(' ')
             : isTag
               ? // 1b's session-tag pill: 4px/9px/4px/10px inside a 999px
                 // hue-tinted border over a hue fill, 11px/600 label, chevron
@@ -411,12 +429,28 @@ export function Select<T extends string | number>({
             style={{ background: selected.dotColor }}
           />
         )}
-        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {isDevice ? (
+          // 50g: glyph, the name at 13px/600, the sub-line in mono 11px, then
+          // the caret pushed right.
+          <>
+            {selected?.glyph && <span aria-hidden className="flex shrink-0 text-text-bright">{selected.glyph}</span>}
+            <span className="shrink-0 text-[13px] font-semibold text-text-bright">{label}</span>
+            {selected?.sub && (
+              <span className="min-w-0 truncate font-mono text-[11px] text-[rgba(160,190,225,.6)]">{selected.sub}</span>
+            )}
+            <span aria-hidden className="flex-1" />
+          </>
+        ) : (
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+        )}
         <span
           aria-hidden
           data-caret
           className={
-            isTag || isGhost
+            isDevice
+              ? // 50g: 8px, inline, flips while open (`transform .2s ease`).
+                `block shrink-0 text-[8px] text-[rgba(160,190,225,.6)] transition-transform duration-200 ease-[ease] ${open ? 'rotate-180' : ''}`
+              : isTag || isGhost
               ? // Inline, and it flips while the popup is open (1b, 3a).
                 `block shrink-0 text-[8px] opacity-70 transition-transform duration-200 ease-out ${open ? 'rotate-180' : ''}`
               : [
@@ -456,6 +490,19 @@ export function Select<T extends string | number>({
               {options.map((option, index) => {
                 const isSelected = option.value === value
                 const isActive = index === activeIndex
+                if (isDevice) {
+                  return (
+                    <DeviceRow
+                      key={String(option.value)}
+                      id={optionId(index)}
+                      option={option}
+                      selected={isSelected}
+                      active={isActive}
+                      onHover={() => setActiveIndex(index)}
+                      onPick={() => commit(index)}
+                    />
+                  )
+                }
                 return (
                   <div
                     key={String(option.value)}
@@ -520,6 +567,63 @@ export function Select<T extends string | number>({
           document.body,
         )}
     </>
+  )
+}
+
+/**
+ * One row of the `device` menu (canvas 50g `gOpts`): 8px/10px inside a 7px
+ * radius, 10px gaps; the glyph, the name in sans 13px/600, the sub-line in
+ * mono 10.5px filling the row, and the ✓ column. Inert rows are muted to
+ * .5 and keep the default cursor. The selected row rests at .07, the active
+ * one (hover or arrows) at .09 — 50g's hover tint.
+ */
+function DeviceRow<T>({
+  id,
+  option,
+  selected,
+  active,
+  onHover,
+  onPick,
+}: {
+  id: string
+  option: SelectOption<T>
+  selected: boolean
+  active: boolean
+  onHover: () => void
+  onPick: () => void
+}) {
+  return (
+    <div
+      id={id}
+      role="option"
+      aria-selected={selected}
+      aria-disabled={option.inert || undefined}
+      data-label={option.label}
+      data-active={active || undefined}
+      onMouseMove={onHover}
+      onClick={onPick}
+      className={[
+        'flex shrink-0 items-center gap-2.5 rounded-[7px] px-2.5 py-2',
+        option.inert ? 'cursor-default text-[rgba(160,190,225,.5)]' : 'cursor-pointer text-text-bright',
+        active ? 'bg-[rgba(150,205,255,.09)]' : selected ? 'bg-[rgba(150,205,255,.07)]' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      {option.glyph && <span aria-hidden className="flex shrink-0">{option.glyph}</span>}
+      <span className="shrink-0 font-sans text-[13px] font-semibold">{option.label}</span>
+      <span
+        className={[
+          'min-w-0 flex-1 truncate font-mono text-[10.5px]',
+          option.inert ? 'text-[rgba(160,190,225,.5)]' : 'text-[rgba(160,190,225,.6)]',
+        ].join(' ')}
+      >
+        {option.sub}
+      </span>
+      <span aria-hidden className={`shrink-0 font-mono text-[10px] text-accent ${selected ? '' : 'opacity-0'}`}>
+        ✓
+      </span>
+    </div>
   )
 }
 

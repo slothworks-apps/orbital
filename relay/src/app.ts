@@ -4,7 +4,7 @@ import { MAX_FRAME_BYTES } from '@orbital/shared/remote/frame';
 import { RELAY_PING_INTERVAL_MS } from '@orbital/shared/remote/relayApi';
 import { RELAY_VERSION_HEADER } from '@orbital/shared/remote/version';
 import { Connections, OfflineQueue } from './connections.js';
-import { RateLimiter } from './rateLimit.js';
+import { MUTUAL_RATE_LIMIT_PER_MIN, RateLimiter } from './rateLimit.js';
 import { handleSocket, type WakeHook, type WsContext } from './ws.js';
 import { registerPairingRoutes } from './pairing.js';
 import { LogPushSender, wakeHook, type PushSender } from './push.js';
@@ -47,6 +47,7 @@ export async function buildRelay(opts: RelayOptions): Promise<FastifyInstance> {
     pingIntervalMs: opts.pingIntervalMs ?? RELAY_PING_INTERVAL_MS,
     secret: opts.secret || null,
     limiter: new RateLimiter(now),
+    mutualLimiter: new RateLimiter(now, MUTUAL_RATE_LIMIT_PER_MIN),
   };
   app.decorate('relay', ctx);
   // Every HTTP answer says which relay gave it, errors included: a device

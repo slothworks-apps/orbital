@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MIN_SERVER_VERSION } from '../mobile/version'
 import {
-  back, dismissTopSheet, initialMobileState, isGated, isMacAsleep, isPairGone, keepsSelection, leaveForeground, lockEnabled,
-  mayOpenFromNotice, openFromNotice, pairGoneFor, push, pushedTop, reduce, registerSheet, returnToForeground, useMobile,
+  applyDevices, back, dismissTopSheet, initialMobileState, isGated, isMacAsleep, isPairGone, keepsSelection, leaveForeground, lockEnabled,
+  mayOpenFromNotice, openFromNotice, pairGoneFor, push, pushedTop, reduce, reduceGroup, registerSheet, returnToForeground, useMobile,
   type Mismatch, type MobileState, type Pushed,
 } from '../mobile/state'
 
@@ -11,6 +11,7 @@ vi.mock('../mobile/transport/clientRef', () => ({ clientRef: { recheck: vi.fn(),
 import { recheckMac, recheckOnForeground } from '../mobile/connect'
 import { clientRef } from '../mobile/transport/clientRef'
 import type { Pairing } from '../mobile/platform/parse'
+import type { FederatedSource } from '../mobile/transport/groupFederation'
 
 const NOW = 1_000
 const state = (patch: Partial<MobileState> = {}): MobileState => ({ ...initialMobileState, ...patch })
@@ -31,45 +32,12 @@ describe('reduce', () => {
     expect(reduce(state({ asOf: 5 }), { type: 'ready', ready: false }, NOW)).toEqual({ ready: false })
   })
 
-  it('blocks the app behind 9i on a Mac older than MIN_SERVER_VERSION, naming both versions', () => {
-    const next = reduce(state({ screen: 'list' }), { type: 'hello', server: '0.16.0', macName: 'studio' }, NOW)
-    expect(next).toEqual({
-      screen: 'mismatch', macName: 'studio', macVersion: '0.16.0',
-      mismatch: { cause: 'mac', theirs: '0.16.0', needed: MIN_SERVER_VERSION },
+  it("takes the default member's name and version from its hello, and leaves 9i to each device", () => {
+    expect(reduce(state({ screen: 'list' }), { type: 'hello', server: '0.16.0', macName: 'studio' }, NOW)).toEqual({
+      macName: 'studio', macVersion: '0.16.0',
     })
-  })
-
-  it('leaves 9i for the list once a hello is new enough, whatever the cause was', () => {
-    for (const mismatch of [MAC_OLD, RELAY_OLD, APP_OLD]) {
-      expect(reduce(state({ screen: 'mismatch', mismatch }), { type: 'hello', server: MIN_SERVER_VERSION, macName: 'studio' }, NOW)).toMatchObject({
-        screen: 'list', mismatch: null, macName: 'studio',
-      })
-    }
-    expect(reduce(state({ screen: 'session' }), { type: 'hello', server: 'dev', macName: 'studio' }, NOW)).not.toHaveProperty('screen')
-    // What the Mac serves beyond the floor is read from the version it said hello with (macSupports).
-    expect(reduce(state({ screen: 'list' }), { type: 'hello', server: '0.26.0', macName: 'studio' }, NOW)).toMatchObject({ macVersion: '0.26.0' })
-  })
-
-  it('blocks the app on bye protocol, keeping a Mac version it already knew', () => {
-    expect(reduce(state({ mismatch: MAC_OLD }), { type: 'bye', reason: 'protocol' }, NOW)).toEqual({
-      screen: 'mismatch', mismatch: MAC_OLD,
-    })
-    expect(reduce(state(), { type: 'bye', reason: 'protocol' }, NOW)).toEqual({
-      screen: 'mismatch', mismatch: { cause: 'mac', theirs: null, needed: MIN_SERVER_VERSION },
-    })
-    // A relay's version is not the Mac's.
-    expect(reduce(state({ pairing: PAIRING, mismatch: RELAY_OLD }), { type: 'bye', reason: 'protocol' }, NOW)).toMatchObject({
-      mismatch: { cause: 'mac', theirs: null },
-    })
-  })
-
-  it('blocks the app on bye app_too_old with the minimum the Mac sent', () => {
-    expect(reduce(state({ screen: 'list' }), { type: 'bye', reason: 'app_too_old', needed: '0.5.0' }, NOW)).toEqual({
-      screen: 'mismatch', mismatch: APP_OLD,
-    })
-    expect(reduce(state(), { type: 'bye', reason: 'app_too_old' }, NOW)).toMatchObject({
-      mismatch: { cause: 'app', needed: null },
-    })
+    // A refusal arrives with its member's id (`reduceGroup`); the federation's copy changes nothing.
+    expect(reduce(state({ screen: 'list' }), { type: 'bye', reason: 'app_too_old', needed: '0.5.0' }, NOW)).toEqual({})
   })
 
   it('blocks a paired app on a relay too old, naming both versions', () => {
@@ -89,17 +57,15 @@ describe('reduce', () => {
     }
   })
 
-  it('goes to 9h on bye revoked, on the relay saying unpaired, and on a relay error that says the pair is gone', () => {
-    for (const event of [
-      { type: 'bye', reason: 'revoked' } as const,
-      { type: 'unpaired' } as const,
-      { type: 'relay_error', code: 'not_paired' } as const,
-    ]) {
+  it('goes to 9h on the group saying unpaired and on a relay error that says the pair is gone, not on one bye revoked', () => {
+    for (const event of [{ type: 'unpaired' } as const, { type: 'relay_error', code: 'not_paired' } as const]) {
       expect(isPairGone(event)).toBe(true)
       expect(reduce(state({ screen: 'session', sessionId: 's1' }), event, NOW)).toMatchObject({
         screen: 'unpaired', unpaired: true, sessionId: null, pairing: null,
       })
     }
+    // One member revoking drops that member; the phone stays in its group.
+    expect(isPairGone({ type: 'bye', reason: 'revoked' })).toBe(false)
   })
 
   it('reads a refused relay secret as the pair gone only while a pairing is stored', () => {
@@ -114,12 +80,21 @@ describe('reduce', () => {
     expect(reduce(state({ screen: 'pairing' }), refused, NOW)).toEqual({})
   })
 
-  it('reads the Mac revoking or the relay saying unpaired as the pair gone, stored pairing or not', () => {
+  it('reads the group saying unpaired as the pair gone, stored pairing or not', () => {
     const pairing: Pairing = { relay: 'https://relay.test', mac: 'm', macName: 'studio', fingerprint: 'ABC123', pairedAt: 1 }
-    for (const event of [{ type: 'bye', reason: 'revoked' } as const, { type: 'unpaired' } as const]) {
-      expect(pairGoneFor(event, pairing)).toBe(true)
-      expect(pairGoneFor(event, null)).toBe(true)
+    expect(pairGoneFor({ type: 'unpaired' }, pairing)).toBe(true)
+    expect(pairGoneFor({ type: 'unpaired' }, null)).toBe(true)
+  })
+
+  it('a phone in a group is unpaired only by its group, never by the relay\'s error alone', () => {
+    const pairing: Pairing = { relay: 'https://relay.test', mac: 'm', macName: 'studio', fingerprint: 'ABC123', pairedAt: 1 }
+    for (const code of ['not_paired', 'unknown_device', 'bad_secret']) {
+      const event = { type: 'relay_error', code } as const
+      expect(pairGoneFor(event, pairing, true)).toBe(false)
+      expect(reduce(state({ pairing, screen: 'list' }), event, NOW, true)).toEqual({})
     }
+    expect(pairGoneFor({ type: 'unpaired' }, pairing, true)).toBe(true)
+    expect(reduce(state({ pairing, screen: 'list' }), { type: 'unpaired' }, NOW, true)).toMatchObject({ screen: 'unpaired', unpaired: true })
   })
 
   it('ignores a relay error that says nothing about the pair', () => {
@@ -128,13 +103,79 @@ describe('reduce', () => {
   })
 })
 
+const source = (id: string, patch: Partial<FederatedSource> = {}): FederatedSource => ({
+  id, name: id, kind: 'desktop', os: 'macOS', online: true, ready: true, asOf: null, version: MIN_SERVER_VERSION,
+  capabilities: [], ...patch,
+})
+
+/** `state` with the federation's sources applied, as `setDevices` writes them. */
+function withSources(base: MobileState, sources: FederatedSource[]): MobileState {
+  return { ...base, ...applyDevices(base, sources) }
+}
+
+describe('per-device refusals', () => {
+  it("marks only the member that refused the app, and the rest keeps working", () => {
+    const s = withSources(state({ screen: 'list', pairing: PAIRING }), [source('studio'), source('laptop')])
+    const next = { ...s, ...reduceGroup(s, { type: 'bye', peer: 'studio', reason: 'app_too_old', needed: '0.5.0' }) }
+    expect(next.devices.find((d) => d.id === 'studio')?.refused).toEqual(APP_OLD)
+    expect(next.devices.find((d) => d.id === 'laptop')?.refused).toBeNull()
+    expect(next.screen).toBe('list')
+    expect(next.mismatch).toBeNull()
+  })
+
+  it('shows 9i once every device refuses, the app too old first', () => {
+    let s = withSources(state({ screen: 'list', pairing: PAIRING }), [source('studio', { version: '0.30.0' }), source('laptop')])
+    s = { ...s, ...reduceGroup(s, { type: 'bye', peer: 'studio', reason: 'protocol' }) }
+    expect(s.screen).toBe('list')
+    // A refused protocol names the version the device last said hello with.
+    expect(s.refusals.studio).toEqual({ cause: 'mac', theirs: '0.30.0', needed: MIN_SERVER_VERSION })
+    s = { ...s, ...reduceGroup(s, { type: 'bye', peer: 'laptop', reason: 'app_too_old', needed: '0.5.0' }) }
+    expect(s.screen).toBe('mismatch')
+    expect(s.mismatch).toEqual(APP_OLD)
+    expect(s.macName).toBe('laptop')
+  })
+
+  it('reads a device older than MIN_SERVER_VERSION as refusing, and blocks only when it is the only one', () => {
+    const alone = withSources(state({ screen: 'list' }), [source('studio', { version: '0.16.0' })])
+    expect(alone.screen).toBe('mismatch')
+    expect(alone.mismatch).toEqual(MAC_OLD)
+    const both = withSources(state({ screen: 'list' }), [source('studio', { version: '0.16.0' }), source('laptop', { version: null })])
+    expect(both.devices[0].refused).toEqual(MAC_OLD)
+    expect(both.screen).toBe('list')
+  })
+
+  it('leaves 9i once a device takes the app again, but never a relay too old', () => {
+    let s = withSources(state({ screen: 'list' }), [source('studio', { ready: false })])
+    s = { ...s, ...reduceGroup(s, { type: 'bye', peer: 'studio', reason: 'app_too_old', needed: '0.5.0' }) }
+    expect(s.screen).toBe('mismatch')
+    // Still down: the refusal stands.
+    expect(withSources(s, [source('studio', { ready: false })]).screen).toBe('mismatch')
+    const up = withSources(s, [source('studio')])
+    expect(up).toMatchObject({ screen: 'list', mismatch: null, refusals: {} })
+
+    const relay = withSources(state({ screen: 'mismatch', mismatch: RELAY_OLD }), [source('studio', { version: '0.16.0' })])
+    expect(relay.mismatch).toEqual(RELAY_OLD)
+    expect(withSources(relay, [source('studio')]).mismatch).toEqual(RELAY_OLD)
+  })
+
+  it('changes nothing on pairs lost or one member revoking', () => {
+    const s = withSources(state({ screen: 'list', pairing: PAIRING }), [source('studio')])
+    expect(reduceGroup(s, { type: 'pairs_lost' })).toEqual({})
+    expect(reduceGroup(s, { type: 'bye', peer: 'studio', reason: 'revoked' })).toEqual({})
+  })
+})
+
 describe('back', () => {
   it('walks session and settings back to the list, and leaves the app from the list', () => {
     expect(back(state({ screen: 'session', sessionId: 's1' }))).toEqual({ screen: 'list', sessionId: null, pushed: [], composerIntent: null })
-    expect(back(state({ screen: 'settings' }))).toEqual({ screen: 'list' })
+    expect(back(state({ screen: 'settings', pairing: PAIRING }))).toEqual({ screen: 'list' })
     expect(back(state({ screen: 'new' }))).toEqual({ screen: 'list' })
     expect(back(state({ screen: 'list' }))).toBe('exit')
     expect(back(state({ screen: 'mismatch' }))).toBe('exit')
+  })
+
+  it('from a standalone phone\'s Settings (the group ended), goes to the scanner: there is no list', () => {
+    expect(back(state({ screen: 'settings', pairing: null, previous: 'settings' }))).toEqual({ screen: 'pairing', previous: null })
   })
 
   it('returns from pairing to where it came from, and stays when there is nowhere to go', () => {

@@ -36,6 +36,24 @@ describe('Hub', () => {
     expect(last).toHaveBeenCalledWith('session:x');
     expect(hub.subscriberCount('session:x')).toBe(0);
   });
+  it('calls every subscriber hook, even after one throws', () => {
+    const hub = new Hub();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const second = vi.fn();
+    const secondLast = vi.fn();
+    hub.onFirstSubscriber(() => { throw new Error('boom'); });
+    hub.onFirstSubscriber(second);
+    hub.onLastUnsubscriber(() => { throw new Error('boom'); });
+    hub.onLastUnsubscriber(secondLast);
+    const a = fakeSocket();
+    hub.handleSocket(a);
+    a.emit('message', JSON.stringify({ type: 'subscribe', topic: 'session:x' }));
+    a.emit('close');
+    expect(second).toHaveBeenCalledWith('session:x');
+    expect(secondLast).toHaveBeenCalledWith('session:x');
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
   it('ignores malformed messages', () => {
     const hub = new Hub();
     const a = fakeSocket();

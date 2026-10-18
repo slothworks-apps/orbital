@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MIN_RELAY_VERSION, MIN_SERVER_VERSION, RELAY_VERSION_BEFORE_ANNOUNCING, compareVersions, isSupportedServer, phoneAppVersion,
-  relayTooOld,
+  RELAY_PHONE_GROUP_VERSION, relayBeforePhoneGroups, relayTooOld,
 } from '../src/remote/version.js';
 
 describe('compareVersions', () => {
@@ -51,5 +51,15 @@ describe('phoneAppVersion', () => {
     expect(phoneAppVersion('0.4.0')).toBe('0.4.0');
     expect(phoneAppVersion('orbital-mobile/test')).toBeNull();
     expect(phoneAppVersion('orbital-mobile/')).toBeNull();
+  });
+});
+
+describe('relayBeforePhoneGroups', () => {
+  it('holds a relay below RELAY_PHONE_GROUP_VERSION, or one that announces nothing, as older', () => {
+    expect(relayBeforePhoneGroups(RELAY_PHONE_GROUP_VERSION)).toBe(false);
+    expect(relayBeforePhoneGroups('dev')).toBe(false);
+    expect(relayBeforePhoneGroups(MIN_RELAY_VERSION)).toBe(true);
+    expect(relayBeforePhoneGroups(null)).toBe(true);
+    expect(relayBeforePhoneGroups(' ')).toBe(true);
   });
 });

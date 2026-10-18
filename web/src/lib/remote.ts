@@ -3,6 +3,7 @@
  * §§ 3, 6): the relay status line, the pairing code's countdown and what
  * committing a relay URL or a relay secret has to do.
  */
+import { parsePairingCode } from '@orbital/shared/remote/relayApi'
 import type { RemoteStatus } from './types'
 
 /**
@@ -107,6 +108,16 @@ export function codeLeft(expiresAt: number, now: number): CodeLeft {
   const seconds = Math.ceil(left / 1000)
   const label = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
   return { label, fraction: Math.min(1, left / PAIRING_WINDOW_MS), expired: left === 0 }
+}
+
+/**
+ * The quiet line under "Have another device's code?" (canvas 50a) once the
+ * field reads as a code: who it came from, and where to find it again. Null
+ * for an empty or unparseable field — there is nothing to name yet.
+ */
+export function pasteCodeHint(code: string): string | null {
+  const qr = parsePairingCode(code)
+  return qr ? `from ${qr.name} · Settings → Devices` : null
 }
 
 /**

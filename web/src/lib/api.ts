@@ -7,6 +7,7 @@ import type {
   ChatMessage,
   CommandContent,
   CompletionKey,
+  DirListing,
   FileEntry,
   ImageRefEntry,
   MediaItem,
@@ -40,9 +41,11 @@ import type {
   SessionHarness,
   HarnessEvent,
   HarnessOptions,
+  JoinAnswer,
   PairConfirmError,
   PairConfirmResult,
   RemoteStatus,
+  NotPrimary,
   SessionDefaults,
 } from './types'
 import { markUnauthorized } from './unauthorized'
@@ -101,6 +104,23 @@ export class ApiError extends Error {
     this.status = status
     this.url = url
   }
+}
+
+/**
+ * An `/api` path with every interpolated value encoded as one whole segment.
+ * Ids reach the web app from other devices of the group (a member's session
+ * ids, tag ids, refs), so none may add a segment, a query or a fragment. A
+ * value that is empty or a dot segment would still move the path, and is
+ * refused.
+ */
+export function apiPath(strings: TemplateStringsArray, ...values: (string | number)[]): string {
+  let out = strings[0]
+  values.forEach((value, i) => {
+    const segment = String(value)
+    if (segment === '' || segment === '.' || segment === '..') throw new ApiError(`invalid path segment: ${JSON.stringify(segment)}`, 400)
+    out += encodeURIComponent(segment) + strings[i + 1]
+  })
+  return out
 }
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
@@ -237,6 +257,7 @@ function applyCompletionKey(url: URL, key: CompletionKey): void {
   else {
     url.searchParams.set('cwd', key.cwd)
     if (key.claudeDir !== undefined) url.searchParams.set('claudeDir', String(key.claudeDir))
+    if (key.machine !== undefined) url.searchParams.set('machine', key.machine)
   }
 }
 
@@ -265,14 +286,14 @@ export const api = {
   },
 
   async getSession(id: string): Promise<{ session: ApiSession }> {
-    return request<{ session: ApiSession }>('GET', `/api/sessions/${id}`)
+    return request<{ session: ApiSession }>('GET', apiPath`/api/sessions/${id}`)
   },
 
   async getMessages(
     id: string,
     opts?: { before?: string; limit?: number }
   ): Promise<ChatMessage[]> {
-    const url = new URL(`/api/sessions/${id}/messages`, window.location.origin)
+    const url = new URL(apiPath`/api/sessions/${id}/messages`, window.location.origin)
     if (opts?.before !== undefined) url.searchParams.set('before', opts.before)
     if (opts?.limit !== undefined) url.searchParams.set('limit', String(opts.limit))
 
@@ -286,16 +307,16 @@ export const api = {
    * come through the image store and `/api/files/image`.
    */
   async sessionMedia(id: string): Promise<MediaItem[]> {
-    const data = await request<{ items: MediaItem[] }>('GET', `/api/sessions/${id}/media`)
+    const data = await request<{ items: MediaItem[] }>('GET', apiPath`/api/sessions/${id}/media`)
     return data.items
   },
 
   async getWalkthrough(id: string): Promise<{ session: ApiSession; walkthrough: Walkthrough }> {
-    return request('GET', `/api/sessions/${id}/walkthrough`)
+    return request('GET', apiPath`/api/sessions/${id}/walkthrough`)
   },
 
   async walkthroughSummary(id: string): Promise<WalkthroughSummary> {
-    return request('GET', `/api/sessions/${id}/walkthrough/summary`)
+    return request('GET', apiPath`/api/sessions/${id}/walkthrough/summary`)
   },
 
   /**
@@ -304,7 +325,7 @@ export const api = {
    * land as `walkthrough_narration` on the session's topic.
    */
   async narrateWalkthrough(id: string): Promise<{ ok: boolean }> {
-    return request('POST', `/api/sessions/${id}/walkthrough/narrate`, {})
+    return request('POST', apiPath`/api/sessions/${id}/walkthrough/narrate`, {})
   },
 
   /**
@@ -317,7 +338,7 @@ export const api = {
    */
   async subagentMessages(id: string, toolUseId: string): Promise<SubagentTranscript> {
     const limit = subagentPageSize === null ? '' : `?limit=${subagentPageSize}`
-    return request<SubagentTranscript>('GET', `/api/sessions/${id}/subagents/${toolUseId}/messages${limit}`)
+    return request<SubagentTranscript>('GET', apiPath`/api/sessions/${id}/subagents/${toolUseId}/messages` + limit)
   },
 
   /**
@@ -327,7 +348,7 @@ export const api = {
    * for a task that already ended, 404 for one the session does not know.
    */
   async stopTask(id: string, taskId: string): Promise<void> {
-    return request<void>('POST', `/api/sessions/${id}/tasks/${encodeURIComponent(taskId)}/stop`)
+    return request<void>('POST', apiPath`/api/sessions/${id}/tasks/${taskId}/stop`)
   },
 
   /**
@@ -335,23 +356,23 @@ export const api = {
    * § Routes), running and exited, in the order they were opened.
    */
   async listTerminals(sessionId: string): Promise<TerminalInfo[]> {
-    const data = await request<{ terminals: TerminalInfo[] }>('GET', `/api/sessions/${sessionId}/terminals`)
+    const data = await request<{ terminals: TerminalInfo[] }>('GET', apiPath`/api/sessions/${sessionId}/terminals`)
     return data.terminals
   },
 
   /** A new shell in the session's folder. 409 `cwd_missing` when the folder is gone. */
   async openTerminal(sessionId: string, size?: { cols: number; rows: number }): Promise<TerminalInfo> {
-    return request<TerminalInfo>('POST', `/api/sessions/${sessionId}/terminals`, size ?? {})
+    return request<TerminalInfo>('POST', apiPath`/api/sessions/${sessionId}/terminals`, size ?? {})
   },
 
   /** A new shell in an exited terminal's tab, its scrollback kept. 409 while the old one runs. */
   async restartTerminal(id: string, size?: { cols: number; rows: number }): Promise<TerminalInfo> {
-    return request<TerminalInfo>('POST', `/api/terminals/${id}/restart`, size ?? {})
+    return request<TerminalInfo>('POST', apiPath`/api/terminals/${id}/restart`, size ?? {})
   },
 
   /** Ends the shell, and everything started in it, and forgets the tab. */
   async closeTerminal(id: string): Promise<void> {
-    await request<{ ok: true }>('DELETE', `/api/terminals/${id}`)
+    await request<{ ok: true }>('DELETE', apiPath`/api/terminals/${id}`)
   },
 
   /**
@@ -360,7 +381,7 @@ export const api = {
    */
   async taskOutput(id: string, taskId: string): Promise<TaskOutputTail> {
     const bound = taskOutputMaxBytes === null ? '' : `?maxBytes=${taskOutputMaxBytes}`
-    return request<TaskOutputTail>('GET', `/api/sessions/${id}/tasks/${encodeURIComponent(taskId)}/output${bound}`)
+    return request<TaskOutputTail>('GET', apiPath`/api/sessions/${id}/tasks/${taskId}/output` + bound)
   },
 
   /**
@@ -368,8 +389,12 @@ export const api = {
    * from (spec 2026-10-02-mobile-app-design § 6.4) — one narrow route, so the
    * phone never needs the whole settings surface.
    */
-  async sessionDefaults(): Promise<SessionDefaults> {
-    return request<SessionDefaults>('GET', '/api/sessions/defaults')
+  /** `machine`: that member's defaults (the phone's New session on a chosen device); its Claude directory ids are its own. */
+  async sessionDefaults(machine?: string): Promise<SessionDefaults> {
+    return request<SessionDefaults>(
+      'GET',
+      machine === undefined ? '/api/sessions/defaults' : `/api/sessions/defaults?${new URLSearchParams({ machine })}`,
+    )
   },
 
   async createSession(body: {
@@ -394,6 +419,8 @@ export const api = {
     /** The answer to the `.mcp.json` question, recorded before the launch. Omitted, the
      * Mac keeps every undecided server out (spec 2026-10-08-mcpjson-approval-design). */
     mcpjson?: McpjsonDecisions
+    /** The member the session runs on (device federation); omitted, this device. */
+    machine?: string
   }): Promise<string> {
     const data = await request<{ sessionId: string }>('POST', '/api/sessions', body)
     return data.sessionId
@@ -412,7 +439,7 @@ export const api = {
   ): Promise<SendResult> {
     return request<SendResult>(
       'POST',
-      `/api/sessions/${id}/messages`,
+      apiPath`/api/sessions/${id}/messages`,
       attachments && attachments.length > 0 ? { text, attachments } : { text }
     )
   },
@@ -446,7 +473,7 @@ export const api = {
     opts?: { signal?: AbortSignal }
   ): Promise<AttachmentUpload> {
     if (uploadImpl) return uploadImpl(sessionId, file, opts)
-    const url = sessionId === null ? '/api/attachments' : `/api/sessions/${sessionId}/attachments`
+    const url = sessionId === null ? '/api/attachments' : apiPath`/api/sessions/${sessionId}/attachments`
     const body = new FormData()
     body.append('file', file, file.name)
 
@@ -471,6 +498,7 @@ export const api = {
       return { kind: 'not_image', mediaType: parsed.mediaType ?? 'unknown' }
     }
     if (response.status === 400 && parsed.error === 'empty_file') return { kind: 'empty' }
+    if (response.status === 422 && parsed.error === 'attachment_not_on_device') return { kind: 'not_on_device' }
 
     throw new ApiError(text || response.statusText, response.status, url)
   },
@@ -490,7 +518,7 @@ export const api = {
     decisionId: string,
     answers: Record<string, string>
   ): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('POST', `/api/sessions/${id}/decision/${decisionId}`, {
+    return request<{ ok: boolean }>('POST', apiPath`/api/sessions/${id}/decision/${decisionId}`, {
       answers,
     })
   },
@@ -510,13 +538,13 @@ export const api = {
   ): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>(
       'POST',
-      `/api/sessions/${id}/decision/${decisionId}`,
+      apiPath`/api/sessions/${id}/decision/${decisionId}`,
       verdict
     )
   },
 
   async interrupt(id: string): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('POST', `/api/sessions/${id}/interrupt`)
+    return request<{ ok: boolean }>('POST', apiPath`/api/sessions/${id}/interrupt`)
   },
 
   /**
@@ -529,12 +557,12 @@ export const api = {
     id: string,
     body: { uuid: string; hiddenCount: number; draft: string },
   ): Promise<{ text: string }> {
-    return request<{ text: string }>('POST', `/api/sessions/${id}/rewind`, body)
+    return request<{ text: string }>('POST', apiPath`/api/sessions/${id}/rewind`, body)
   },
 
   /** Cancels the pending rewind; answers with the draft the pick replaced. */
   async cancelRewind(id: string): Promise<{ draft: string }> {
-    return request<{ draft: string }>('DELETE', `/api/sessions/${id}/rewind`)
+    return request<{ draft: string }>('DELETE', apiPath`/api/sessions/${id}/rewind`)
   },
 
   /**
@@ -546,7 +574,7 @@ export const api = {
   async endSession(id: string, opts: { unpin?: boolean } = {}): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>(
       'POST',
-      `/api/sessions/${id}/end`,
+      apiPath`/api/sessions/${id}/end`,
       opts.unpin ? { unpin: true } : undefined,
     )
   },
@@ -557,7 +585,7 @@ export const api = {
    * `idle`; the server refuses a terminal session (409).
    */
   async reopenSession(id: string): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('POST', `/api/sessions/${id}/reopen`)
+    return request<{ ok: boolean }>('POST', apiPath`/api/sessions/${id}/reopen`)
   },
 
   /**
@@ -567,7 +595,7 @@ export const api = {
    * not answer in time.
    */
   async mcpServers(id: string): Promise<{ servers: McpServerRow[] }> {
-    return request('GET', `/api/sessions/${id}/mcp`)
+    return request('GET', apiPath`/api/sessions/${id}/mcp`)
   },
 
   /**
@@ -576,20 +604,20 @@ export const api = {
    * SDK's message.
    */
   async mcpLogin(id: string, name: string): Promise<{ authUrl: string }> {
-    return request('POST', `/api/sessions/${id}/mcp/${encodeURIComponent(name)}/login`)
+    return request('POST', apiPath`/api/sessions/${id}/mcp/${name}/login`)
   },
 
   async reconnectMcpServer(id: string, name: string): Promise<{ servers: McpServerRow[] }> {
-    return request('POST', `/api/sessions/${id}/mcp/${encodeURIComponent(name)}/reconnect`)
+    return request('POST', apiPath`/api/sessions/${id}/mcp/${name}/reconnect`)
   },
 
   /** Holds for the whole project, terminal sessions included (adr the-mcp-toggle-is-project-wide). */
   async setMcpServerEnabled(id: string, name: string, enabled: boolean): Promise<{ servers: McpServerRow[] }> {
-    return request('POST', `/api/sessions/${id}/mcp/${encodeURIComponent(name)}/enabled`, { enabled })
+    return request('POST', apiPath`/api/sessions/${id}/mcp/${name}/enabled`, { enabled })
   },
 
   async mcpServerConfig(id: string, name: string): Promise<McpServerDefinition> {
-    return request('GET', `/api/sessions/${id}/mcp/${encodeURIComponent(name)}/config`)
+    return request('GET', apiPath`/api/sessions/${id}/mcp/${name}/config`)
   },
 
   /**
@@ -597,21 +625,21 @@ export const api = {
    * it refuses — the body then carries its output and the masked command.
    */
   async addMcpServer(id: string, server: McpServerDefinition): Promise<McpMutationResult> {
-    return request('POST', `/api/sessions/${id}/mcp`, server)
+    return request('POST', apiPath`/api/sessions/${id}/mcp`, server)
   },
 
   /** `name` is the server's current name; a rename is `server.name`. */
   async updateMcpServer(id: string, name: string, server: McpServerDefinition): Promise<McpMutationResult> {
-    return request('PUT', `/api/sessions/${id}/mcp/${encodeURIComponent(name)}`, server)
+    return request('PUT', apiPath`/api/sessions/${id}/mcp/${name}`, server)
   },
 
   async removeMcpServer(id: string, name: string): Promise<McpMutationResult> {
-    return request('DELETE', `/api/sessions/${id}/mcp/${encodeURIComponent(name)}`)
+    return request('DELETE', apiPath`/api/sessions/${id}/mcp/${name}`)
   },
 
   /** The restart banner's Restart: the transcript is kept. 409 while a turn runs or a decision is pending. */
   async restartMcpSession(id: string): Promise<{ servers: McpServerRow[] }> {
-    return request('POST', `/api/sessions/${id}/mcp/restart`)
+    return request('POST', apiPath`/api/sessions/${id}/mcp/restart`)
   },
 
   /**
@@ -621,14 +649,14 @@ export const api = {
   async clearSession(
     id: string, startNew: boolean, opts: { carryHarness?: boolean } = {},
   ): Promise<{ ok: boolean; sessionId?: string; harnessCarried?: boolean }> {
-    return request('POST', `/api/sessions/${id}/clear`, {
+    return request('POST', apiPath`/api/sessions/${id}/clear`, {
       startNew,
       ...(opts.carryHarness ? { carryHarness: true } : {}),
     })
   },
 
   async renameSession(id: string, title: string): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('PATCH', `/api/sessions/${id}`, { title })
+    return request<{ ok: boolean }>('PATCH', apiPath`/api/sessions/${id}`, { title })
   },
 
   /**
@@ -640,16 +668,16 @@ export const api = {
    * there is nothing here to write into the store.
    */
   async retitleSession(id: string): Promise<{ title: string; changed: boolean }> {
-    return request<{ title: string; changed: boolean }>('POST', `/api/sessions/${id}/retitle`)
+    return request<{ title: string; changed: boolean }>('POST', apiPath`/api/sessions/${id}/retitle`)
   },
 
   async setSessionTags(id: string, tagIds: number[]): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('PUT', `/api/sessions/${id}/tags`, { tagIds })
+    return request<{ ok: boolean }>('PUT', apiPath`/api/sessions/${id}/tags`, { tagIds })
   },
 
   /** The pin — keeps an ended session on the map; `false` unpins. */
   async setSessionPinned(id: string, pinned: boolean): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('PUT', `/api/sessions/${id}/pinned`, { pinned })
+    return request<{ ok: boolean }>('PUT', apiPath`/api/sessions/${id}/pinned`, { pinned })
   },
 
   /** The whole index's session count — the hole's label; the list endpoint only ever returns a page. */
@@ -659,8 +687,12 @@ export const api = {
   },
 
   // Tags API
-  async listTags(): Promise<Tag[]> {
-    const data = await request<{ tags: Tag[] }>('GET', '/api/tags')
+  /** This device's tags, or `machine`'s — with that device's own ids. */
+  async listTags(machine?: string): Promise<Tag[]> {
+    const data = await request<{ tags: Tag[] }>(
+      'GET',
+      machine ? `/api/tags?machine=${encodeURIComponent(machine)}` : '/api/tags',
+    )
     return data.tags
   },
 
@@ -674,11 +706,11 @@ export const api = {
     // `anchor_*: null` clears the clump's stored home, so null and absent differ.
     body: Partial<{ name: string; hue: number; anchor_x: number | null; anchor_y: number | null }>
   ): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('PATCH', `/api/tags/${id}`, body)
+    return request<{ ok: boolean }>('PATCH', apiPath`/api/tags/${id}`, body)
   },
 
   async deleteTag(id: number): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('DELETE', `/api/tags/${id}`)
+    return request<{ ok: boolean }>('DELETE', apiPath`/api/tags/${id}`)
   },
 
   // Tag Rules API
@@ -706,17 +738,19 @@ export const api = {
       tag_id: number
     }>
   ): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('PATCH', `/api/tag-rules/${id}`, body)
+    return request<{ ok: boolean }>('PATCH', apiPath`/api/tag-rules/${id}`, body)
   },
 
   async deleteTagRule(id: number): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('DELETE', `/api/tag-rules/${id}`)
+    return request<{ ok: boolean }>('DELETE', apiPath`/api/tag-rules/${id}`)
   },
 
   async previewRule(body: {
     cwd: string
     title: string
     permissionMode: string | null
+    /** Another device of the group, whose rules answer; its tag and rule ids are its own. */
+    machine?: string
   }): Promise<{ tagId: number | null; ruleId: number | null }> {
     return request<{ tagId: number | null; ruleId: number | null }>(
       'POST',
@@ -753,24 +787,40 @@ export const api = {
    * question (spec 2026-10-08-mcpjson-approval-design). Through the relay on
    * the phone.
    */
-  async mcpjson(cwd: string, claudeDirId?: number): Promise<McpjsonServer[]> {
+  async mcpjson(cwd: string, claudeDirId?: number, machine?: string): Promise<McpjsonServer[]> {
     const params = new URLSearchParams({ cwd })
     if (claudeDirId !== undefined) params.set('claudeDirId', String(claudeDirId))
+    if (machine !== undefined) params.set('machine', machine)
     const data = await request<{ undecided: McpjsonServer[] }>('GET', `/api/mcpjson?${params}`)
     return data.undecided
   },
 
   /**
    * What a typed project directory is on the Mac, `~` expanded (spec
-   * 2026-10-12-new-session-missing-directory-design § Server).
+   * 2026-10-12-new-session-missing-directory-design § Server); on the member
+   * `machine` names, when it names one.
    */
-  async directoryState(path: string): Promise<{ path: string; state: DirectoryState }> {
-    return request<{ path: string; state: DirectoryState }>('GET', `/api/directory?${new URLSearchParams({ path })}`)
+  async directoryState(path: string, machine?: string): Promise<{ path: string; state: DirectoryState }> {
+    const params = new URLSearchParams({ path })
+    if (machine !== undefined) params.set('machine', machine)
+    return request<{ path: string; state: DirectoryState }>('GET', `/api/directory?${params}`)
+  },
+
+  /**
+   * One level of a device's folders: no path is home. `machine` names the
+   * member whose folders they are; absent, this device's.
+   */
+  async listDirs(path?: string, machine?: string): Promise<DirListing> {
+    const params = new URLSearchParams()
+    if (path !== undefined) params.set('path', path)
+    if (machine !== undefined) params.set('machine', machine)
+    const query = params.toString()
+    return request<DirListing>('GET', query ? `/api/dirs?${query}` : '/api/dirs')
   },
 
   /** Creates a missing project directory and its parents; answers the expanded path. */
-  async createDirectory(path: string): Promise<{ path: string }> {
-    return request<{ path: string }>('POST', '/api/directory', { path })
+  async createDirectory(path: string, machine?: string): Promise<{ path: string }> {
+    return request<{ path: string }>('POST', '/api/directory', machine === undefined ? { path } : { path, machine })
   },
 
   /**
@@ -778,8 +828,10 @@ export const api = {
    * question's *View file*: there is no session to read it through yet, so
    * the Mac reads the one file `.mcp.json` names for `server`.
    */
-  async mcpjsonFile(cwd: string, server: string): Promise<FilePreview> {
-    return readPreview(`/api/mcpjson/file?${new URLSearchParams({ cwd, server })}`)
+  async mcpjsonFile(cwd: string, server: string, machine?: string): Promise<FilePreview> {
+    const params = new URLSearchParams({ cwd, server })
+    if (machine !== undefined) params.set('machine', machine)
+    return readPreview(`/api/mcpjson/file?${params}`)
   },
 
   // IDE bridge — the two calls that talk back to the editor (spec:
@@ -794,7 +846,7 @@ export const api = {
    * of a machine, not a failure worth reporting.
    */
   async ideOpenFile(sessionId: string, path: string, line: number | null): Promise<boolean> {
-    const response = await apiFetch(`/api/sessions/${sessionId}/ide/open-file`, {
+    const response = await apiFetch(apiPath`/api/sessions/${sessionId}/ide/open-file`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path, ...(line !== null ? { line } : {}) }),
@@ -811,7 +863,7 @@ export const api = {
    * null when no editor covers the session.
    */
   async ideDiagnostics(sessionId: string, path?: string): Promise<IdeDiagnostic[] | null> {
-    const url = new URL(`/api/sessions/${sessionId}/ide/diagnostics`, window.location.origin)
+    const url = new URL(apiPath`/api/sessions/${sessionId}/ide/diagnostics`, window.location.origin)
     if (path) url.searchParams.set('path', path)
     const response = await apiFetch(url.pathname + url.search)
     if (response.status === 404) return null
@@ -856,30 +908,40 @@ export const api = {
   },
 
   // Projects API
-  /** `lastAt` is the newest session's `lastAt` in that directory — the phone's 9d rows read it as its last use. */
-  async listProjects(): Promise<Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>> {
+  /**
+   * `lastAt` is the newest session's `lastAt` in that directory — the phone's
+   * 9d rows read it as its last use. `machine` asks that member for its own.
+   */
+  async listProjects(machine?: string): Promise<Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>> {
     const data = await request<{
       projects: Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>
-    }>('GET', '/api/projects')
+    }>('GET', machine === undefined ? '/api/projects' : `/api/projects?${new URLSearchParams({ machine })}`)
     return data.projects
   },
 
   // Models API
   /** One Claude directory's catalog (each account has its own models); the default directory's without one. */
-  async listModels(claudeDir?: number): Promise<{ models: OrbitalModel[]; contextWindows: Record<string, number> }> {
+  async listModels(
+    claudeDir?: number,
+    machine?: string,
+  ): Promise<{ models: OrbitalModel[]; contextWindows: Record<string, number> }> {
+    const params = new URLSearchParams()
+    if (claudeDir !== undefined) params.set('claudeDir', String(claudeDir))
+    if (machine !== undefined) params.set('machine', machine)
+    const query = params.toString()
     const data = await request<{ models: OrbitalModel[]; contextWindows?: Record<string, number> }>(
       'GET',
-      claudeDir === undefined ? '/api/models' : `/api/models?claudeDir=${claudeDir}`
+      query ? `/api/models?${query}` : '/api/models',
     )
     return { models: data.models, contextWindows: data.contextWindows ?? {} }
   },
 
   async setSessionModel(id: string, model: string): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('POST', `/api/sessions/${id}/model`, { model })
+    return request<{ ok: boolean }>('POST', apiPath`/api/sessions/${id}/model`, { model })
   },
 
   async setSessionPermissionMode(id: string, mode: PermissionMode): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('POST', `/api/sessions/${id}/permission-mode`, { mode })
+    return request<{ ok: boolean }>('POST', apiPath`/api/sessions/${id}/permission-mode`, { mode })
   },
 
   /** Probes a model id the catalog does not list. An id Claude Code rejects is `ok: false`, not a throw. */
@@ -963,7 +1025,7 @@ export const api = {
     opts: { timeline?: boolean } = {}
   ): Promise<SessionStatsDetail> {
     const query = opts.timeline ? '?timeline=1' : ''
-    return request<SessionStatsDetail>('GET', `/api/stats/sessions/${encodeURIComponent(id)}${query}`)
+    return request<SessionStatsDetail>('GET', apiPath`/api/stats/sessions/${id}` + query)
   },
 
   // Claude directories (spec 2026-10-04-multiple-claude-directories-design § 6).
@@ -982,11 +1044,11 @@ export const api = {
     id: number,
     body: { name?: string; path?: string },
   ): Promise<{ claudeDir: ClaudeDirInfo } | { error: ClaudeDirRefusal }> {
-    return remoteCall('PATCH', `/api/claude-dirs/${id}`, body, CLAUDE_DIR_REFUSALS)
+    return remoteCall('PATCH', apiPath`/api/claude-dirs/${id}`, body, CLAUDE_DIR_REFUSALS)
   },
 
   async removeClaudeDir(id: number): Promise<void | { error: ClaudeDirRefusal }> {
-    return remoteCall('DELETE', `/api/claude-dirs/${id}`, undefined, CLAUDE_DIR_REFUSALS)
+    return remoteCall('DELETE', apiPath`/api/claude-dirs/${id}`, undefined, CLAUDE_DIR_REFUSALS)
   },
 
   // Plan limits (spec 2026-10-03-usage-limits-design § 2 "Transport")
@@ -1002,12 +1064,12 @@ export const api = {
 
   /** Cancel this wait's auto-continue; the reset time stays. */
   async cancelLimitWait(id: string): Promise<void> {
-    await request<unknown>('POST', `/api/sessions/${id}/limit-wait/cancel`)
+    await request<unknown>('POST', apiPath`/api/sessions/${id}/limit-wait/cancel`)
   },
 
   /** Undo a Cancel, until the reset. */
   async undoLimitWait(id: string): Promise<void> {
-    await request<unknown>('POST', `/api/sessions/${id}/limit-wait/undo`)
+    await request<unknown>('POST', apiPath`/api/sessions/${id}/limit-wait/undo`)
   },
 
   // Settings API
@@ -1099,16 +1161,16 @@ export const api = {
 
   /** Save: clears the draft mark (unless `draft: true`); a `scope` moves it, absent keeps it. */
   async updateHarnessTemplate(id: number, body: HarnessTemplateBody): Promise<HarnessTemplate> {
-    return request('PUT', `/api/harness/templates/${id}`, body)
+    return request('PUT', apiPath`/api/harness/templates/${id}`, body)
   },
 
   /** A saved copy, "(copy)" after the name; into `scope` when given. */
   async duplicateHarnessTemplate(id: number, scope?: HarnessTemplateBody['scope']): Promise<HarnessTemplate> {
-    return request('POST', `/api/harness/templates/${id}/duplicate`, scope ? { scope } : {})
+    return request('POST', apiPath`/api/harness/templates/${id}/duplicate`, scope ? { scope } : {})
   },
 
   async deleteHarnessTemplate(id: number): Promise<void> {
-    return request('DELETE', `/api/harness/templates/${id}`)
+    return request('DELETE', apiPath`/api/harness/templates/${id}`)
   },
 
   /** A model's draft of a template, not saved (spec 2026-09-30-assisted-harness-templates-design). Opus by default. */
@@ -1153,22 +1215,22 @@ export const api = {
     if (page.limit !== undefined) params.set('limit', String(page.limit))
     if (page.before !== undefined) params.set('before', String(page.before))
     const q = params.toString() ? `?${params}` : ''
-    return request('GET', `/api/sessions/${sessionId}/harness${q}`)
+    return request('GET', apiPath`/api/sessions/${sessionId}/harness` + q)
   },
 
   /** "Go back here", the checklist side: the step and the later ones keep their records as previous runs. */
   async goBackHarnessStep(sessionId: string, index: number): Promise<{ harness: SessionHarness }> {
-    return request('POST', `/api/sessions/${sessionId}/harness/steps/${index}/go-back`)
+    return request('POST', apiPath`/api/sessions/${sessionId}/harness/steps/${index}/go-back`)
   },
 
   /** "Decide myself": stops a running review; the gate waits for the user. */
   async decideHarnessStepMyself(sessionId: string, index: number): Promise<{ harness: SessionHarness }> {
-    return request('POST', `/api/sessions/${sessionId}/harness/steps/${index}/decide-myself`)
+    return request('POST', apiPath`/api/sessions/${sessionId}/harness/steps/${index}/decide-myself`)
   },
 
   /** Carries another session's harness into this one and sends it the current step. */
   async carryHarness(sessionId: string, fromSessionId: string): Promise<{ harness: SessionHarness }> {
-    return request('POST', `/api/sessions/${sessionId}/harness/carry`, { fromSessionId })
+    return request('POST', apiPath`/api/sessions/${sessionId}/harness/carry`, { fromSessionId })
   },
 
   async attachHarness(
@@ -1176,34 +1238,34 @@ export const api = {
     templateId: number,
     inputs: Record<string, string>,
   ): Promise<{ harness: SessionHarness }> {
-    return request('POST', `/api/sessions/${sessionId}/harness`, { templateId, inputs })
+    return request('POST', apiPath`/api/sessions/${sessionId}/harness`, { templateId, inputs })
   },
 
   async removeHarness(sessionId: string): Promise<void> {
-    return request('DELETE', `/api/sessions/${sessionId}/harness`)
+    return request('DELETE', apiPath`/api/sessions/${sessionId}/harness`)
   },
 
   async setHarnessPaused(sessionId: string, paused: boolean): Promise<{ harness: SessionHarness }> {
-    return request('PATCH', `/api/sessions/${sessionId}/harness`, { paused })
+    return request('PATCH', apiPath`/api/sessions/${sessionId}/harness`, { paused })
   },
 
   async setHarnessOptions(sessionId: string, options: Partial<HarnessOptions>): Promise<{ harness: SessionHarness }> {
-    return request('PATCH', `/api/sessions/${sessionId}/harness`, { options })
+    return request('PATCH', apiPath`/api/sessions/${sessionId}/harness`, { options })
   },
 
   async getHarnessStepDiff(
     sessionId: string,
     index: number,
   ): Promise<{ range: string; stat: string; patch: string; commits: number | null; pushed: boolean | null }> {
-    return request('GET', `/api/sessions/${sessionId}/harness/steps/${index}/diff`)
+    return request('GET', apiPath`/api/sessions/${sessionId}/harness/steps/${index}/diff`)
   },
 
   async approveHarnessStep(sessionId: string, index: number): Promise<{ harness: SessionHarness }> {
-    return request('POST', `/api/sessions/${sessionId}/harness/steps/${index}/approve`)
+    return request('POST', apiPath`/api/sessions/${sessionId}/harness/steps/${index}/approve`)
   },
 
   async reopenHarnessStep(sessionId: string, index: number): Promise<{ harness: SessionHarness }> {
-    return request('POST', `/api/sessions/${sessionId}/harness/steps/${index}/reopen`)
+    return request('POST', apiPath`/api/sessions/${sessionId}/harness/steps/${index}/reopen`)
   },
 
   // Mobile remote — Settings → Mobile and the pairing dialog (spec
@@ -1214,13 +1276,57 @@ export const api = {
     return request('GET', '/api/remote')
   },
 
-  /** A new code. 409 when the remote is off or the relay is not online right now. */
+  /**
+   * A new code. 409 when the remote is off or the relay is not online right
+   * now; 403 `not_primary`, naming the primary, from a member that is not
+   * its group's primary — only the primary adds a device.
+   */
   async startPairing(): Promise<
-    { qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' }
+    { qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' | 'joining' } | NotPrimary
   > {
-    return remoteCall('POST', '/api/remote/pair', undefined, {
-      409: ['disabled', 'offline', 'relay_error', 'relay_too_old'],
-    })
+    return remoteCall<{ qr: string; expiresAt: number }, 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' | 'joining' | 'not_primary'>(
+      'POST', '/api/remote/pair', undefined, {
+        403: ['not_primary'],
+        409: ['disabled', 'offline', 'relay_error', 'relay_too_old', 'joining'],
+      },
+    ) as Promise<{ qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' | 'joining' } | NotPrimary>
+  },
+
+  /**
+   * Redeems another device's code, as a phone does (spec
+   * 2026-10-16-device-group-design § 3): the answer is the code the user
+   * types on that device, `ok: false` carrying why not. Every HTTP answer
+   * maps to a value — 200 to `ok: true`, 400/409's named refusals to their
+   * `error`, and anything this route never names itself (a network failure,
+   * a status outside its contract) to `relay_error`, like the rest of the
+   * remote surface's refusals.
+   */
+  async joinGroup(code: string): Promise<JoinAnswer> {
+    try {
+      const res = await remoteCall<{ device: string; name: string; code: string }, JoinErrorCode>(
+        'POST',
+        '/api/remote/join',
+        { code },
+        JOIN_REFUSALS,
+      )
+      return ('error' in res ? { ok: false, ...res } : { ok: true, ...res }) as JoinAnswer
+    } catch {
+      return { ok: false, error: 'relay_error' }
+    }
+  },
+
+  /**
+   * Stops waiting for the device being joined; the relay's request expires
+   * with the code regardless, so a 404 (nothing to cancel) is not an error
+   * worth surfacing.
+   */
+  async cancelJoin(): Promise<void> {
+    try {
+      await request<{ ok: true }>('DELETE', '/api/remote/join')
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return
+      throw err
+    }
   },
 
   /**
@@ -1238,28 +1344,68 @@ export const api = {
       accept ? { accept, phone, code } : { accept, phone },
       {
         404: ['no_pending'],
-        409: ['mismatch', 'code_rejected'],
+        409: ['mismatch', 'code_rejected', 'group_full'],
         422: ['code_mismatch'],
         502: ['relay_error'],
       },
     ) as Promise<PairConfirmResult>
   },
 
-  /** `false` when the phone was already gone (404) — the next status drops its row either way. */
-  async removeDevice(id: string): Promise<boolean> {
-    try {
-      await request('DELETE', `/api/remote/devices/${encodeURIComponent(id)}`)
-      return true
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 404) return false
-      throw err
-    }
+  /**
+   * `false` when the device was already gone (404) — the next status drops
+   * its row either way. `not_primary` (403), naming the primary, from a
+   * member that is not its group's primary: only the primary removes a member.
+   */
+  async removeDevice(id: string): Promise<boolean | NotPrimary> {
+    const res = await remoteCall<{ ok: true }, 'not_found' | 'not_primary'>(
+      'DELETE', apiPath`/api/remote/devices/${id}`, undefined, { 403: ['not_primary'], 404: ['not_found'] },
+    )
+    if (!('error' in res)) return true
+    return res.error === 'not_primary' ? (res as NotPrimary) : false
+  },
+
+  /**
+   * This device leaves its group (spec 2026-10-16-device-group-design § 4).
+   * `offline`: the relay must be online for the others to hear of it.
+   */
+  async leaveGroup(): Promise<{ ok: true } | { ok: false; error: 'offline' | 'failed' }> {
+    const res = await remoteCall<{ ok: true }, 'offline' | 'failed'>(
+      'POST',
+      '/api/remote/leave',
+      undefined,
+      { 409: ['offline'], 500: ['failed'] },
+    )
+    return 'error' in res ? { ok: false, error: res.error } : res
+  },
+
+  /** The notice that the primary dissolved the group or removed this device was read (canvas 50m OK). */
+  async acknowledgeEnded(): Promise<void> {
+    await request<{ ok: true }>('POST', '/api/remote/ended/acknowledge')
+  },
+
+  /** The card saying a join was dropped, its primary's group never come, was read (canvas 50p B). */
+  async acknowledgeExpiredJoin(): Promise<void> {
+    await request<{ ok: true }>('POST', '/api/remote/join/expired/acknowledge')
   },
 
   /** "Try again": stops the remote and starts it with the same settings. */
   async restartRemote(): Promise<RemoteStatus> {
     return request('POST', '/api/remote/restart')
   },
+}
+
+/** The refusals `POST /api/remote/join` answers with instead of `{ device, name, code }`. */
+type JoinErrorCode =
+  | 'bad_code' | 'disabled' | 'offline' | 'already_paired' | 'in_group' | 'relay_error' | 'relay_too_old'
+  | 'other_relay' | 'peer_offline' | 'group_full' | 'not_primary' | 'joining'
+
+const JOIN_REFUSALS: Partial<Record<number, readonly JoinErrorCode[]>> = {
+  400: ['bad_code'],
+  403: ['not_primary'],
+  409: [
+    'disabled', 'offline', 'already_paired', 'in_group', 'relay_error', 'relay_too_old', 'other_relay', 'peer_offline',
+    'group_full', 'joining',
+  ],
 }
 
 /** What `/api/claude-dirs` refuses a change with. Mirrors `server/src/claudeDirs/service.ts`. */
@@ -1341,6 +1487,7 @@ export type {
   ImageProvenance,
   ImageRefEntry,
   CompletionKey,
+  DirListing,
   ErrorKind,
   FileCompletionEntry,
   SlashCommand,

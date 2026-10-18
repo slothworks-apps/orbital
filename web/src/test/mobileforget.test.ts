@@ -17,6 +17,10 @@ const io = vi.hoisted(() => {
     clearImageCache: step('clearImageCache'),
     clearPairing: step('clearPairing'),
     setUnpaired: step('setUnpaired'),
+    saveEnded: step('saveEnded'),
+    saveStandalone: step('saveStandalone'),
+    clearStandalone: step('clearStandalone'),
+    clearGroup: step('clearGroup'),
   }
 })
 vi.mock('../mobile/platform/cache', () => ({
@@ -24,17 +28,22 @@ vi.mock('../mobile/platform/cache', () => ({
 }))
 vi.mock('../mobile/platform/identity', () => ({ forgetIdentity: io.forgetIdentity }))
 vi.mock('../mobile/platform/imageCache', () => ({ clearImageCache: io.clearImageCache }))
-vi.mock('../mobile/platform/pairing', () => ({ clearPairing: io.clearPairing, setUnpaired: io.setUnpaired }))
+vi.mock('../mobile/platform/pairing', () => ({
+  clearPairing: io.clearPairing, setUnpaired: io.setUnpaired, saveEnded: io.saveEnded,
+  saveStandalone: io.saveStandalone, clearStandalone: io.clearStandalone,
+}))
+vi.mock('../mobile/platform/group', () => ({ clearGroup: io.clearGroup }))
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
 import type { ApiSession } from '../lib/types'
 import { cancelCacheWrite, persist, wireCache } from '../mobile/cacheWriter'
 import { CACHE_WRITE_DEBOUNCE_MS } from '../mobile/constants'
-import { forgetEverything } from '../mobile/forget'
+import { forgetEverything, leaveGroup } from '../mobile/forget'
 import type { Pairing } from '../mobile/platform/parse'
 import { useBanner } from '../mobile/notify'
 import { initialMobileState, useMobile } from '../mobile/state'
 import { clientRef } from '../mobile/transport/clientRef'
+import { groupRef, type GroupHandle } from '../mobile/transport/groupRef'
 import { useOrbital } from '../store/store'
 import { FakeClient } from './fakeRemoteClient'
 
@@ -103,6 +112,21 @@ describe('forgetEverything', () => {
     expect(useMobile.getState()).toMatchObject({ screen: 'unpaired', unpaired: true, pairing: null, macName: 'studio' })
   })
 
+  it('after the primary ended the group: keeps the key and the notice, and opens Settings standalone, not 9h', async () => {
+    useMobile.setState({ pairing: PAIRING, screen: 'list' })
+    const ended = { why: 'dissolved' as const, by: { id: 'm1', name: 'studio' } }
+    await forgetEverything({ unpaired: false, ended })
+    expect(io.saveEnded).toHaveBeenCalledWith(ended)
+    // The relay it stays on, standalone, apart from the notice: OK on the notice keeps it (canvas 50n).
+    expect(io.saveStandalone).toHaveBeenCalledWith({ relay: PAIRING.relay })
+    expect(io.clearStandalone).not.toHaveBeenCalled()
+    // The notice is kept before the group goes, as 9h's flag is.
+    expect(io.calls.indexOf('saveEnded')).toBeLessThan(io.calls.indexOf('clearGroup'))
+    expect(io.forgetIdentity).not.toHaveBeenCalled()
+    expect(io.setUnpaired).not.toHaveBeenCalled()
+    expect(useMobile.getState()).toMatchObject({ screen: 'settings', unpaired: false, pairing: null, groupEnded: ended })
+  })
+
   it('writes the unpaired flag before the pairing goes, so a kill in between still lands on 9h', async () => {
     useMobile.setState({ pairing: PAIRING })
     await forgetEverything({ unpaired: true })
@@ -125,10 +149,13 @@ describe('forgetEverything', () => {
     }
   })
 
-  it('goes to the scanner without the flag when the user chose to forget', async () => {
+  it('goes to the scanner without the flag when the user chose to forget, keeping the key', async () => {
     useMobile.setState({ pairing: PAIRING })
     await forgetEverything({ unpaired: false })
     expect(io.setUnpaired).not.toHaveBeenCalled()
+    // The key is this phone's id in any group; only a removal takes it, as before groups.
+    expect(io.forgetIdentity).not.toHaveBeenCalled()
+    expect(io.calls).toEqual(expect.arrayContaining(['clearGroup', 'clearPairing', 'clearCaches']))
     expect(useMobile.getState()).toMatchObject({ screen: 'pairing', unpaired: false, macName: null })
   })
 
@@ -159,5 +186,40 @@ describe('forgetEverything', () => {
     useMobile.setState({ pairing: PAIRING })
     await forgetEverything({ unpaired: false })
     expect(useBanner.getState().current).toBeNull()
+  })
+})
+
+describe('leaveGroup', () => {
+  function handle(leave: () => Promise<{ ok: true } | { error: 'not_found' | 'offline' | 'failed' }>) {
+    const federation = new FakeClient()
+    const close = vi.fn(async () => {
+      io.calls.push('close')
+    })
+    const h = { group: { leave: vi.fn(leave), endExits: vi.fn(async () => {}) }, federation, persist: vi.fn(async () => {}), close }
+    groupRef.set(h as unknown as GroupHandle)
+    return h
+  }
+
+  it('is refused while the relay is not reached, and forgets nothing', async () => {
+    const h = handle(async () => ({ error: 'offline' }))
+    useMobile.setState({ pairing: PAIRING, screen: 'settings' })
+    expect(await leaveGroup()).toEqual({ error: 'offline' })
+    expect(io.calls).toEqual([])
+    expect(groupRef.current).toBe(h)
+    expect(useMobile.getState()).toMatchObject({ pairing: PAIRING, screen: 'settings' })
+  })
+
+  it('leaves, stops storing the group, then clears it and goes to the scanner', async () => {
+    const h = handle(async () => ({ ok: true }))
+    useMobile.setState({ pairing: PAIRING, screen: 'settings' })
+    expect(await leaveGroup()).toEqual({ ok: true })
+    expect(h.group.leave).toHaveBeenCalled()
+    expect(h.group.endExits).toHaveBeenCalled()
+    // A write still waiting must not put the group back after the clear.
+    expect(io.calls.indexOf('close')).toBeLessThan(io.calls.indexOf('clearGroup'))
+    expect(io.forgetIdentity).not.toHaveBeenCalled()
+    expect(groupRef.current).toBeNull()
+    expect(clientRef.client).toBeNull()
+    expect(useMobile.getState()).toMatchObject({ pairing: null, screen: 'pairing', devices: [], members: [] })
   })
 })

@@ -499,11 +499,115 @@ export const remoteDevices = sqliteTable('remote_devices', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   platform: text('platform').notNull(),
+  kind: text('kind'),
   pairedAt: integer('paired_at').notNull(),
   lastSeenAt: integer('last_seen_at'),
   notifications: text('notifications').notNull(),
 });
 export type RemoteDeviceRow = typeof remoteDevices.$inferSelect;
+
+/**
+ * The roster this device holds of its group (ADR
+ * the-group-has-one-primary-device): the document the primary signs. At
+ * most one row; none while this device is alone. `remote_devices` holds only
+ * the devices this one has a relay pair with.
+ */
+export const groupRoster = sqliteTable('group_roster', {
+  /** The primary's id. */
+  groupId: text('group_id').primaryKey(),
+  /** The random id the primary chose when it founded this group. */
+  founding: text('founding').notNull(),
+  version: integer('version').notNull(),
+  dissolved: integer('dissolved', { mode: 'boolean' }).notNull(),
+  /** The primary's signature over the document. */
+  sig: text('sig').notNull(),
+});
+
+/** The members the document names, with the kind each one's pairing proved and the version that added it. */
+export const groupMembers = sqliteTable('group_members', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(),
+  addedAt: integer('added_at').notNull(),
+  addedVersion: integer('added_version').notNull(),
+});
+
+/**
+ * The group this device belongs to, or is joining by a ceremony, at most
+ * one row (`Membership`): its primary's id, its founding id (null while a
+ * ceremony named only the primary), the highest version taken of it, and
+ * whether this device is still a member. Kept apart from the document, so a
+ * device whose document was dropped takes only its own primary's, above that version.
+ */
+export const groupMembership = sqliteTable('group_membership', {
+  groupId: text('group_id').primaryKey(),
+  founding: text('founding'),
+  version: integer('version').notNull(),
+  member: integer('member', { mode: 'boolean' }).notNull(),
+  /** `Membership.left`: the founding and version of the group left before, joined again by a ceremony; both or neither. */
+  leftFounding: text('left_founding'),
+  leftVersion: integer('left_version'),
+  /** `Membership.ended`: why the primary ended this device's membership, and its id and name, until acknowledged; all or none. */
+  endedWhy: text('ended_why'),
+  endedBy: text('ended_by'),
+  endedByName: text('ended_by_name'),
+  /** `Membership.expires`: while a join waits for its primary's first roster, when its code stops working. */
+  joinExpires: integer('join_expires'),
+});
+
+/**
+ * Pairs that end once the document that ends them (`state`, a roster state
+ * as JSON) reached the device and it acknowledged it; nothing is served to
+ * it meanwhile.
+ */
+export const groupExits = sqliteTable('group_exits', {
+  id: text('id').primaryKey(),
+  state: text('state').notNull(),
+  /** When the exit began: past `EXIT_MAX_MS` the pair ends anyway. */
+  since: integer('since').notNull(),
+});
+
+/** Each member's description, signed by the member itself or by the primary. */
+export const groupDescriptions = sqliteTable('group_descriptions', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  os: text('os').notNull(),
+  links: integer('links', { mode: 'boolean' }).notNull(),
+  describedAt: integer('described_at').notNull(),
+  describedBy: text('described_by').notNull(),
+  sig: text('sig').notNull(),
+});
+
+/** The notices of members that left, each signed by the member that left, while they hold. */
+export const groupLeft = sqliteTable('group_left', {
+  id: text('id').primaryKey(),
+  groupId: text('group_id').notNull(),
+  founding: text('founding').notNull(),
+  version: integer('version').notNull(),
+  at: integer('at').notNull(),
+  sig: text('sig').notNull(),
+});
+
+/**
+ * Pairs this device revoked while the relay could not be told: each is
+ * posted to `/pair/revoke` at the next relay `ok`, and goes once the relay
+ * answers it.
+ */
+export const pendingRevokes = sqliteTable('pending_revokes', {
+  id: text('id').primaryKey(),
+});
+
+/**
+ * The last sessions and tags each group member showed this device, as the
+ * member sent them, so a member that is offline at a restart is still on
+ * the map, dimmed. `seen_at`: when the member was last heard from.
+ */
+export const memberSnapshots = sqliteTable('member_snapshots', {
+  memberId: text('member_id').primaryKey(),
+  sessions: text('sessions').notNull(),
+  tags: text('tags').notNull(),
+  seenAt: integer('seen_at').notNull(),
+  updatedAt: integer('updated_at').notNull(),
+});
 
 /**
  * Every failure Orbital caught, from either side of the wire. See

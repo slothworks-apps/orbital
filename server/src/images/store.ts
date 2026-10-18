@@ -37,6 +37,8 @@ export interface ImageStore {
    * images. Null for a ref that names nothing, as `read`.
    */
   entry(ref: string): ImageRefEntry | null;
+  /** A stored image's bytes and media type, as `read` without the base64: what goes to a member's store. */
+  bytes(ref: string): { mediaType: string; bytes: Uint8Array } | null;
 }
 
 /**
@@ -187,6 +189,11 @@ export function createImageStore(
     read(ref) {
       const stored = readStored(ref);
       return stored ? { mediaType: stored.mediaType, base64: stored.bytes.toString('base64') } : null;
+    },
+
+    bytes(ref) {
+      const stored = readStored(ref);
+      return stored ? { mediaType: stored.mediaType, bytes: new Uint8Array(stored.bytes) } : null;
     },
 
     entry(ref) {

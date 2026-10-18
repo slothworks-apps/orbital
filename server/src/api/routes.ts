@@ -11,7 +11,7 @@ import { expandHome } from '../paths.js';
 import { NamedPathCache, readFilePreview, readImageFile, readInSandboxes } from '../files/preview.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
 import { completeFilePath } from '../files/complete.js';
-import { createDirectory, directoryState } from '../files/directory.js';
+import { createDirectory, directoryState, listDirs } from '../files/directory.js';
 import { locateOnDisk } from '../media/items.js';
 import { SubagentMedia, sessionMedia, type SessionMediaContext } from '../media/sessionMedia.js';
 import { OpenTabsReader } from '../files/openTabs.js';
@@ -64,6 +64,7 @@ import { recordDecisions, serverFile, undecidedServers, type McpjsonDecisions } 
 import { dbFingerprints } from '../mcp/approvals.js';
 import type { McpConfig } from '../mcp/config.js';
 import { registerRemoteRoutes } from './remoteRoutes.js';
+import { DEVICE_HEADER } from '../remote/inject.js';
 import type { Presence } from '../remote/presence.js';
 import type { RemoteService } from '../remote/service.js';
 import { buildWalkthrough } from '../walkthrough/spine.js';
@@ -143,6 +144,8 @@ export interface RouteContext {
   remote: RemoteService;
   /** Whether the user is at the Mac, as the desktop app reports it. */
   presence?: Presence;
+  /** Whether a session is another group member's: its composer's uploads are stored here, then sent on. */
+  foreign?: (sessionId: string) => boolean;
   settings: { get(key: string): string; set(key: string, value: string): void };
   /** MCP config through `claude mcp`, and the read of `.claude.json` the edit form needs, for
    * one Claude directory (spec 2026-10-01-mcp-servers-in-the-session-design § Config). */
@@ -293,7 +296,7 @@ const ERROR_KINDS = new Set<string>([
 ]);
 
 /** Served type per stored extension (the store writes `jpg`, never `jpeg`). */
-const IMAGE_CONTENT_TYPES: Record<string, string> = {
+export const IMAGE_CONTENT_TYPES: Record<string, string> = {
   png: 'image/png',
   jpg: 'image/jpeg',
   gif: 'image/gif',
@@ -327,7 +330,7 @@ const MODEL_ID_MAX_LENGTH = 100;
  * is named by the client, so it is held to exactly this — nothing else can
  * traverse, and nothing else could have been written by the store.
  */
-const IMAGE_REF_RE = /^[a-f0-9]{64}\.(png|jpg|gif|webp)$/;
+export const IMAGE_REF_RE = /^[a-f0-9]{64}\.(png|jpg|gif|webp)$/;
 
 /**
  * The ceiling on one composer attachment.
@@ -779,7 +782,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   // honest — a ref's bytes can be pruned, never replaced.
   app.get('/api/images/:ref', (req, reply) => {
     const { ref } = req.params as { ref: string };
-    const match = /^[a-f0-9]{64}\.(png|jpg|gif|webp)$/.exec(ref);
+    const match = IMAGE_REF_RE.exec(ref);
     if (!match) return reply.code(404).send({ error: 'not found' });
     let bytes;
     try {
@@ -1086,8 +1089,12 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * Everything else — an `.xlsx`, an image too big for the API — goes into the
    * file store and answers a `FileEntry`, whose path the composer puts in the
    * turn's text (spec: 2026-10-01-file-attachments-design).
+   *
+   * `elsewhere`: the upload is for a session on another group member. Only an
+   * image reaches it (its store takes the bytes with the message); a path
+   * into this device's file store would name nothing there, so it is refused.
    */
-  async function storeAttachment(req: FastifyRequest, reply: FastifyReply) {
+  async function storeAttachment(req: FastifyRequest, reply: FastifyReply, elsewhere = false) {
     // Read past the ceiling but not without limit: the 413 names the size it
     // measured, and `truncated` says when even the wall was hit, so the size
     // in the body is never read as exact.
@@ -1109,6 +1116,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       const entry = ctx.images.putBytes(part.mimetype, bytes);
       if (entry) return reply.code(201).send(entry);
     }
+    if (elsewhere) return reply.code(422).send({ error: 'attachment_not_on_device' });
     const entry = ctx.files.putBytes(part.filename, bytes);
     if (!entry) return reply.code(400).send({ error: 'empty_file' });
     return reply.code(201).send(entry);
@@ -1129,13 +1137,18 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * ([[api-token-guards-the-local-port]]), the same umbrella that covers
    * `?cwd=` on `/api/commands` and `/api/files/complete`.
    */
-  app.post('/api/attachments', storeAttachment);
+  app.post('/api/attachments', async (req, reply) => {
+    // A spawn on another member names it; this device's own name was taken off by the federation's preHandler.
+    const { machine } = req.query as { machine?: unknown };
+    return storeAttachment(req, reply, typeof machine === 'string' && machine !== ctx.remote.selfId());
+  });
 
   app.post('/api/sessions/:id/attachments', async (req, reply) => {
     const { id } = req.params as { id: string };
     const row = db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get();
-    if (!row) return reply.code(404).send({ error: 'not_found' });
-    return storeAttachment(req, reply);
+    const elsewhere = !row && (ctx.foreign?.(id) ?? false);
+    if (!row && !elsewhere) return reply.code(404).send({ error: 'not_found' });
+    return storeAttachment(req, reply, elsewhere);
   });
 
   app.post('/api/sessions', async (req, reply) => {
@@ -1221,6 +1234,20 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const q = req.query as { path?: string };
     if (!q.path?.trim()) return reply.code(400).send({ error: 'path_required' });
     return directoryState(q.path);
+  });
+
+  /**
+   * One level of this device's folders, for the folder chooser another
+   * device opens on it (canvas 50g). No path is home.
+   */
+  app.get('/api/dirs', (req, reply) => {
+    const q = req.query as { path?: unknown };
+    // `?path=a&path=b` arrives as an array.
+    if (q.path !== undefined && typeof q.path !== 'string') return reply.code(400).send({ error: 'bad_path' });
+    const listed = listDirs(q.path);
+    if (listed.ok) return listed.listing;
+    const status = { not_absolute: 400, not_found: 404, unreadable: 403 }[listed.error];
+    return reply.code(status).send({ error: listed.error });
   });
 
   /** Creates a missing project directory, parents included — the form's *Create and start*. */
@@ -2501,16 +2528,32 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   const NOTIFICATION_ROW_KEYS: ReadonlySet<string> = new Set(Object.values(NOTIFICATION_SETTING_KEYS));
 
-  app.get('/api/settings', () => {
+  app.get('/api/settings', (req) => {
     const rows = db.select().from(settingsTable).all();
-    return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    // A member may not change the `remote_` keys (PATCH below), and the relay
+    // secret has no business travelling to another device.
+    const member = req.headers[DEVICE_HEADER] !== undefined;
+    return Object.fromEntries(rows.filter((r) => !member || !r.key.startsWith('remote_')).map((r) => [r.key, r.value]));
   });
   app.patch('/api/settings', (req, reply) => {
+    if (typeof req.body !== 'object' || req.body === null || Array.isArray(req.body)) {
+      return reply.code(400).send({ error: 'invalid_body' });
+    }
     // The default must name a configured directory; nothing is saved when it does not.
     const patch = req.body as Record<string, string>;
     if (DEFAULT_CLAUDE_DIR_KEY in patch && ctx.claudeDirs.resolveId(patch[DEFAULT_CLAUDE_DIR_KEY]) === null) {
       return reply.code(400).send({ error: 'unknown_claude_dir' });
     }
+    // One relay per group: while this device is in one the URL and secret
+    // stay, and moving a whole group is not built yet (idea move-a-group-to-another-relay).
+    const relayChange = ['remote_relay_url', 'remote_relay_secret']
+      .some((k) => k in patch && ctx.settings.get(k) !== String(patch[k]));
+    // The relay and the remote switch are the group's, not one member's to
+    // change on another (spec 2026-10-16-device-group-design § 6).
+    if (req.headers[DEVICE_HEADER] !== undefined && Object.keys(patch).some((k) => k.startsWith('remote_'))) {
+      return reply.code(403).send({ error: 'not_allowed' });
+    }
+    if (relayChange && ctx.remote.inGroup()) return reply.code(409).send({ error: 'in_group' });
     let branchSettings = false;
     let remoteRestart = false;
     let remoteName = false;

@@ -5,6 +5,8 @@
  * transcript shares (spec 2026-09-30-mobile-remote-design § 3 binary frame).
  */
 import { z } from 'zod';
+import { PAIR_NAME_MAX_CHARS } from './relayApi.js';
+import { ROSTER_KIND_MAX_CHARS, RosterStateSchema } from './roster.js';
 
 export const PROTOCOL_VERSION = 1;
 export const BLOB_CHUNK_BYTES = 65536;
@@ -100,8 +102,7 @@ const NO_CONTROL_CHARS = /^[^\u0000-\u001f\u007f]+$/;
 export const FileAs = z.enum(['image', 'text', 'pdf']);
 export type FileAs = z.infer<typeof FileAs>;
 
-export const PhoneMessage = z.discriminatedUnion('t', [
-  z.object({ t: z.literal('hello'), protocol: z.number().int(), app: z.string() }),
+export const AskMessage = z.discriminatedUnion('t', [
   z.object({ t: z.literal('ws'), type: z.enum(['subscribe', 'unsubscribe']), topic: z.string() }),
   z.object({
     t: z.literal('http'), id: z.number().int(), method: HttpMethod, path: z.string(),
@@ -139,15 +140,14 @@ export const PhoneMessage = z.discriminatedUnion('t', [
   z.object({ t: z.literal('notifications_set'), settings: NotificationSettingsSchema }),
   z.object({ t: z.literal('seen'), sessionId: z.string() }),
 ]);
-export type PhoneMessage = z.infer<typeof PhoneMessage>;
+export type AskMessage = z.infer<typeof AskMessage>;
 
 const ImageRefEntry = z.object({
   ref: ImageRef, w: z.number().nullable(), h: z.number().nullable(), bytes: z.number(),
 });
 export type ImageRefEntry = z.infer<typeof ImageRefEntry>;
 
-export const MacMessage = z.discriminatedUnion('t', [
-  z.object({ t: z.literal('hello'), protocol: z.number().int(), server: z.string(), macName: z.string() }),
+export const AnswerMessage = z.discriminatedUnion('t', [
   /**
    * `app_too_old`: the phone app is below the Mac's `MIN_PHONE_VERSION`, sent
    * with it as `needed`. A phone older than `PHONE_KNOWS_APP_TOO_OLD` cannot
@@ -174,4 +174,96 @@ export const MacMessage = z.discriminatedUnion('t', [
   }),
   z.object({ t: z.literal('notifications'), settings: NotificationSettingsSchema }),
 ]);
-export type MacMessage = z.infer<typeof MacMessage>;
+export type AnswerMessage = z.infer<typeof AnswerMessage>;
+
+/**
+ * The group's own messages (spec 2026-10-16-device-group-design § 2, § 4),
+ * sent only to a peer whose hello named the `group` capability: a shipped
+ * device never sees one. They change the group, so no route carries them.
+ * A `roster` is everything the sender holds of the group (`RosterState`):
+ * the primary's document, the descriptions and the left notices. A member
+ * removed hears it as a version that no longer names it; a member leaving
+ * sends only its left notice.
+ */
+export const GroupMessage = z.discriminatedUnion('t', [
+  z.object({ t: z.literal('roster_digest'), digest: z.string().max(128) }),
+  RosterStateSchema.extend({ t: z.literal('roster') }),
+  /** A `roster` heard, by its `exitDigest`: a pair waiting on that document to end ends now. */
+  z.object({ t: z.literal('roster_ack'), digest: z.string().max(128) }),
+]);
+export type GroupMessage = z.infer<typeof GroupMessage>;
+
+/** The longest `kind` and `os` a hello keeps: what the roster holds. */
+export const HELLO_KIND_MAX_CHARS = ROSTER_KIND_MAX_CHARS;
+/** The most capabilities a hello keeps, and the longest one it keeps at all. */
+export const HELLO_CAPABILITIES_MAX = 32;
+export const HELLO_CAPABILITY_MAX_CHARS = 32;
+
+/** A cosmetic string: cut to `max` when there is one, absent when it is not a string. */
+const helloText = (max?: number) =>
+  z.string().transform((s) => (max === undefined ? s : s.slice(0, max))).optional().catch(undefined);
+
+/**
+ * Every device's greeting, both ways, the initiator's first (spec
+ * 2026-10-16-device-group-design § 5). A shipped phone sends only
+ * `protocol` and `app`; a shipped Mac only `protocol`, `server` and
+ * `macName`, and a shipped phone requires those two of whatever serves it.
+ * `kind` and `capabilities` stay strings: a device from a later release may
+ * name one this one does not know.
+ *
+ * Only `t` and `protocol` can refuse a hello: a refused hello leaves the
+ * peer unreachable, and nothing else in it is worth that. Every other field
+ * is cut to its bound, and one of the wrong type is read as absent.
+ */
+export const HelloMessage = z.object({
+  t: z.literal('hello'),
+  protocol: z.number().int(),
+  app: helloText(),
+  server: helloText(),
+  macName: helloText(PAIR_NAME_MAX_CHARS),
+  version: helloText(),
+  kind: helloText(HELLO_KIND_MAX_CHARS),
+  os: helloText(HELLO_KIND_MAX_CHARS),
+  name: helloText(PAIR_NAME_MAX_CHARS),
+  capabilities: z.array(z.unknown())
+    .transform((list) => list
+      .filter((c): c is string => typeof c === 'string' && c.length <= HELLO_CAPABILITY_MAX_CHARS)
+      .slice(0, HELLO_CAPABILITIES_MAX))
+    .optional().catch(undefined),
+}).transform((hello) => {
+  // A field read as absent leaves no key behind, as if it had never been sent.
+  const out = { ...hello };
+  for (const key of Object.keys(out) as (keyof typeof out)[]) if (out[key] === undefined) delete out[key];
+  return out;
+});
+export type HelloMessage = z.output<typeof HelloMessage>;
+
+export type ChannelMessage =
+  | { kind: 'hello'; msg: HelloMessage }
+  | { kind: 'ask'; msg: AskMessage }
+  | { kind: 'answer'; msg: AnswerMessage }
+  | { kind: 'group'; msg: GroupMessage };
+
+/**
+ * One inner JSON message, sorted. `ws` is the one `t` both sides use: a
+ * subscribe names `type` and `topic`, a hub frame carries `frame`, so the
+ * ask is tried first.
+ */
+export function parseChannelMessage(value: unknown): ChannelMessage | null {
+  const t = (value as { t?: unknown } | null)?.t;
+  if (t === 'hello') {
+    const hello = HelloMessage.safeParse(value);
+    return hello.success ? { kind: 'hello', msg: hello.data } : null;
+  }
+  const ask = AskMessage.safeParse(value);
+  if (ask.success) return { kind: 'ask', msg: ask.data };
+  const answer = AnswerMessage.safeParse(value);
+  if (answer.success) return { kind: 'answer', msg: answer.data };
+  const group = GroupMessage.safeParse(value);
+  return group.success ? { kind: 'group', msg: group.data } : null;
+}
+
+/** Whether the peer runs sessions this device may ask about: by its capabilities, else a shipped Mac by its `server`. */
+export function peerServes(hello: HelloMessage): boolean {
+  return hello.capabilities ? hello.capabilities.includes('sessions') : hello.server !== undefined;
+}

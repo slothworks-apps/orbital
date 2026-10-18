@@ -1,5 +1,6 @@
 import { App } from '@capacitor/app'
-import type { RemoteClientEvent } from '@orbital/shared/remote/client'
+import { ALONE_GRACE_MS } from '@orbital/shared/remote/groupClient'
+import type { TunnelEvent } from '@orbital/shared/remote/tunnel'
 import { configureApi } from '../lib/api'
 import { configureImages } from '../lib/images'
 import { isPdfPath } from '../lib/pathLinks'
@@ -22,14 +23,19 @@ import { readNotificationsCache, readSessionsCache } from './platform/cache'
 import { readCachedImage, writeCachedImage } from './platform/imageCache'
 import { loadAppLock } from './platform/appLock'
 import { readDeviceLock } from './platform/deviceLock'
-import { loadPairing, loadUnpaired } from './platform/pairing'
+import { loadGroup } from './platform/group'
+import { loadOrCreateIdentity } from './platform/identity'
+import { loadEnded, loadStandalone, loadUnpaired } from './platform/pairing'
+import { goStandalone, standaloneRelay } from './standalone'
+import { pairingFromGroup, type GroupRecord, type Pairing } from './platform/parse'
 import { installNotificationChannels, installPushListeners, registerPush } from './platform/push'
 import { dismissTopSheet, isGated, lockEnabled, openFromNotice, pairGoneFor, useMobile } from './state'
 import { clientRef } from './transport/clientRef'
+import { groupRef, type GroupHandle } from './transport/groupRef'
 import { makeImageResolver } from './transport/imageResolver'
 import { makeTunnelFetch } from './transport/tunnelFetch'
 import { TunnelSocket } from './transport/tunnelSocket'
-import { macSupports } from './version'
+import { sessionSupports } from './version'
 import { makeTunnelUpload } from './transport/tunnelUpload'
 
 /**
@@ -68,13 +74,14 @@ export async function boot(): Promise<void> {
   configureSocket({ WebSocketImpl: () => new TunnelSocket(clientRef) as unknown as WebSocket })
   // Named files — reply thumbnails, the gallery's agent items, PDFs — come over `file_get`.
   const readNamed: ReadNamed = (req) => readPath({ client: clientRef, cache: fileCache }, req)
-  const macServesPdf = () => macSupports('media', useMobile.getState().macVersion)
+  // Each session's own device decides; a reply's files belong to the session open on screen.
+  const servesPdf = (sessionId: string | null) => sessionSupports('media', sessionId)
   configureImages({
     resolve: makeImageResolver(clientRef, { read: readCachedImage, write: writeCachedImage }),
     resolvePath: makeNamedFileResolver(readNamed),
-    canShowPath: (path) => !isPdfPath(path) || macServesPdf(),
+    canShowPath: (path) => !isPdfPath(path) || servesPdf(useOrbital.getState().ui.selectedId ?? useMobile.getState().sessionId),
   })
-  configurePdf({ load: makePdfLoader(readNamed, undefined, macServesPdf) })
+  configurePdf({ load: makePdfLoader(readNamed, undefined, servesPdf) })
   installFileOpen()
   clientRef.on(onClientEvent)
   wireSocket()
@@ -84,9 +91,11 @@ export async function boot(): Promise<void> {
 
   // The device lock is read before the first screen: without a screen lock
   // 9s stands in front of everything, pairing included.
-  const [pairing, unpaired, cached, rules, appLock, device] = await Promise.all([
-    loadPairing(), loadUnpaired(), readSessionsCache(), readNotificationsCache(), loadAppLock(), readDeviceLock(),
+  const [record, unpaired, ended, standalone, cached, rules, appLock, device] = await Promise.all([
+    loadGroup(), loadUnpaired(), loadEnded(), loadStandalone(), readSessionsCache(), readNotificationsCache(), loadAppLock(),
+    readDeviceLock(),
   ])
+  const pairing = record ? await groupPairing(record) : null
   if (rules) setRules(rules.value)
   if (cached) {
     useOrbital.getState().seatSessions(cached.value.sessions, cached.value.tags)
@@ -96,7 +105,10 @@ export async function boot(): Promise<void> {
     pairing,
     unpaired: unpaired !== null,
     macName: pairing?.macName ?? unpaired?.macName ?? null,
-    screen: unpaired ? 'unpaired' : pairing ? 'list' : 'pairing',
+    // The group's ending is told under THIS PHONE (canvas 50n) until OK.
+    groupEnded: pairing ? null : ended,
+    // Standalone after a group's ending, the phone opens on its standalone page (canvas 50m/50n).
+    screen: unpaired ? 'unpaired' : pairing ? 'list' : ended || standalone ? 'settings' : 'pairing',
     appLock,
     screenLock: !device.secure,
     lockLabel: device.label,
@@ -105,29 +117,77 @@ export async function boot(): Promise<void> {
   booted = true
   const open = pendingOpen
   pendingOpen = null
+  // Standalone after the group's ending: back on its relay while the notice is up (canvas 50n).
+  if (!pairing && !unpaired && standalone) {
+    goStandalone(standalone).catch((err: unknown) => console.warn('[mobile] could not stay on the relay', err))
+  }
   if (!pairing || unpaired) return
   // Only a paired phone has sessions to open; behind 9s or 9t the tap waits (`openFromNotice`).
   open?.()
   try {
-    await connect(pairing)
+    if (record) await connect(record)
   } finally {
     // Whatever connect met: the client keeps the token for the link the next connect builds.
     void registerPush()
   }
 }
 
-function onClientEvent(event: RemoteClientEvent): void {
+/**
+ * The stored group as "this phone is in a group" (`pairingFromGroup`). The
+ * fingerprint needs this phone's key; a key that cannot be read now leaves
+ * it empty rather than the phone out of its group.
+ */
+async function groupPairing(record: GroupRecord): Promise<Pairing | null> {
+  try {
+    return pairingFromGroup(record, (await loadOrCreateIdentity()).publicKey)
+  } catch (err) {
+    console.warn('[mobile] could not read this phone\'s key', err)
+    const first = record.group.paired.at(0)
+    if (!first) return null
+    return {
+      relay: record.relay, mac: first.id, macName: first.name, fingerprint: '', pairedAt: first.pairedAt,
+      ...(record.relaySecret !== undefined ? { relaySecret: record.relaySecret } : {}),
+    }
+  }
+}
+
+function onClientEvent(event: TunnelEvent): void {
   // Read before `apply`, which clears the pairing when the pair is gone.
-  const gone = pairGoneFor(event, useMobile.getState().pairing)
-  useMobile.getState().apply(event)
+  const handle = groupRef.current
+  const grouped = handle?.group.inGroup() ?? false
+  const gone = pairGoneFor(event, useMobile.getState().pairing, grouped)
+  // The primary dissolved the group or removed this phone: standalone, told under THIS PHONE (canvas 50n), not 9h.
+  const ended = gone && event.type === 'unpaired' ? handle?.group.ended() ?? null : null
+  if (ended) {
+    const pairing = useMobile.getState().pairing
+    forgetEverything({ unpaired: false, ended })
+      // Standalone, it stays on its relay with its key (canvas 50n): online, and able to show its code.
+      .then(() => (pairing ? goStandalone(standaloneRelay(pairing)) : undefined))
+      .catch((err: unknown) => console.warn('[mobile] could not forget the group', err))
+    return
+  }
+  useMobile.getState().apply(event, grouped)
   if (gone) {
     // Deleted on first contact, then 9h (spec § 4).
     forgetEverything({ unpaired: true }).catch((err: unknown) => console.warn('[mobile] could not forget the pair', err))
     return
   }
+  if (handle && grouped && event.type === 'relay_error' && event.code === 'bad_secret') unreachableAfterGrace(handle)
   if (event.type === 'hub') refetchDropped(event.frame)
-  // A new pair: the relay has a row for this device now, and the token can go to it.
-  if (event.type === 'paired') void registerPush()
+}
+
+/**
+ * A grouped phone's relay refused its secret and stopped its link: nothing
+ * more will come from the relay to say whether a member reaches it. As
+ * after `pairs_lost`, the unreachable card comes `ALONE_GRACE_MS` later —
+ * its Pair again is how a new secret arrives — unless the group was
+ * forgotten or replaced meanwhile, or a channel is up after all.
+ */
+function unreachableAfterGrace(handle: GroupHandle): void {
+  setTimeout(() => {
+    if (groupRef.current !== handle || clientRef.ready) return
+    useMobile.setState({ unreachable: true })
+  }, ALONE_GRACE_MS)
 }
 
 /** A hub frame too large for one relay frame arrives as `dropped` (parent § 7): read that session's page again. */

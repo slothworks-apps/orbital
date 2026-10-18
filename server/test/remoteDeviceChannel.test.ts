@@ -4,27 +4,40 @@ import { join } from 'node:path';
 import { generateIdentity, deviceId } from '@orbital/shared/remote/keys';
 import { startHandshake, type SessionCipher } from '@orbital/shared/remote/handshake';
 import {
-  BLOB_CHUNK_BYTES, FILE_PATH_MAX_CHARS, PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner, type MacMessage,
+  BLOB_CHUNK_BYTES, FILE_PATH_MAX_CHARS, PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner,
+  type AnswerMessage, type HelloMessage,
 } from '@orbital/shared/remote/messages';
 import { PHONE_KNOWS_APP_TOO_OLD } from '@orbital/shared/remote/version';
+import { PAIR_NAME_MAX_CHARS } from '@orbital/shared/remote/relayApi';
+import { MAX_INNER_BYTES, type Channel } from '@orbital/shared/remote/channel';
+import { capabilitiesOf, osName } from '@orbital/shared/remote/device';
 import { Hub } from '../src/api/hub.js';
 import { sessions } from '../src/db/schema.js';
 import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
 import { createImageStore } from '../src/images/store.js';
 import { DeviceWatcher } from '../src/remote/deviceWatcher.js';
 import { PHONE_TEXT_PREVIEW_MAX_BYTES, createPhoneFileReader, type PhoneFileReader } from '../src/remote/phoneFiles.js';
-import { MAX_INNER_BYTES, PhoneSession } from '../src/remote/phoneSession.js';
+import { openDeviceChannel } from '../src/remote/deviceChannel.js';
+import { serverHello } from '../src/remote/identity.js';
+import type { InjectFn } from '../src/remote/servingHalf.js';
 import { wakeToken } from '../src/remote/wake.js';
 import { makeTmpDir, openTmpDb } from './tmp.js';
 
 const allOn = { needsInput: true, sessionEnded: true, sessionFailed: true, onlyWhenBackground: true, sound: true };
 
+/** The server's hello in `build()`: what a shipped phone reads, and what names this device to one that knows groups. */
+const macHello = {
+  t: 'hello', protocol: PROTOCOL_VERSION, server: '0.15.0', macName: 'studio', app: 'orbital-desktop/0.15.0',
+  version: '0.15.0', kind: 'desktop', os: osName(process.platform), name: 'studio',
+  capabilities: capabilitiesOf('desktop'),
+};
+
 /** A phone on the other end: completes the handshake and speaks the inner codec. */
-function makePhone(mac: ReturnType<typeof generateIdentity>, session: () => PhoneSession) {
+function makePhone(mac: ReturnType<typeof generateIdentity>, session: () => Channel) {
   const me = generateIdentity();
   let hs = startHandshake(me, mac.publicKey, 'initiator');
   let cipher: SessionCipher | null = null;
-  const out: MacMessage[] = [];
+  const out: (AnswerMessage | HelloMessage)[] = [];
   const blobs: { id: number; seq: number; last: boolean; bytes: Uint8Array }[] = [];
   const onMacBody = (body: Uint8Array) => {
     if (!cipher) {
@@ -32,7 +45,7 @@ function makePhone(mac: ReturnType<typeof generateIdentity>, session: () => Phon
       return;
     }
     const inner = decodeInner(cipher.open(body)!)!;
-    if (inner.kind === 'json') out.push(inner.value as MacMessage);
+    if (inner.kind === 'json') out.push(inner.value as AnswerMessage | HelloMessage);
     else blobs.push(inner);
   };
   const send = (value: unknown) => session().receive(cipher!.seal(encodeInner({ kind: 'json', value })));
@@ -47,8 +60,8 @@ function makePhone(mac: ReturnType<typeof generateIdentity>, session: () => Phon
 }
 
 function build(opts: {
-  inject?: PhoneSession['opts']['inject']; handshake?: boolean; files?: PhoneFileReader; minPhoneVersion?: string;
-  atMac?: () => boolean;
+  inject?: InjectFn; handshake?: boolean; files?: PhoneFileReader; minPhoneVersion?: string;
+  atMac?: () => boolean; foreign?: (sessionId: string) => boolean;
 } = {}) {
   const mac = generateIdentity();
   const hub = new Hub({ heartbeatIntervalMs: 60_000 });
@@ -60,24 +73,40 @@ function build(opts: {
   const onSeen = vi.fn();
   const onClose = vi.fn();
   const onAppVersion = vi.fn();
-  const session: PhoneSession = new PhoneSession({
-    deviceId: deviceId(phone.me.publicKey), identity: mac, phonePublicKey: phone.me.publicKey, hub,
+  const session: Channel = openDeviceChannel({
+    deviceId: deviceId(phone.me.publicKey), identity: mac, peerKey: phone.me.publicKey, role: 'responder',
+    hello: serverHello({ serverVersion: '0.15.0', name: 'studio', kind: 'desktop' }), hub,
     inject: opts.inject ?? (async () => ({ statusCode: 500, body: '{}' })),
-    images, imagesDir: dir, files: opts.files ?? (() => ({ status: 404 })), serverVersion: '0.15.0', macName: 'studio',
-    notifications, send: phone.onMacBody, onSeen, onClose, onAppVersion, minPhoneVersion: opts.minPhoneVersion,
-    atMac: opts.atMac,
+    images, imagesDir: dir, files: opts.files ?? (() => ({ status: 404 })),
+    notifications, send: phone.onMacBody, onSeen, onAppVersion, minPhoneVersion: opts.minPhoneVersion,
+    atMac: opts.atMac, foreign: opts.foreign,
   });
+  session.on((e) => { if (e.type === 'closed') onClose(); });
   // The initiator's half exists from the start; only the responder's waits for `complete`.
   if (opts.handshake !== false) session.receive(phone.hs.message!);
   return { mac, hub, images, session, phone, notifications, onSeen, onClose, onAppVersion };
 }
 
-describe('PhoneSession', () => {
-  it('completes the handshake and answers hello with the protocol, server version and Mac name', () => {
+describe('device channel, served by this server', () => {
+  it('completes the handshake and answers hello with the protocol, server version, Mac name and its kind', () => {
     const { phone } = build();
     expect(phone.hasCipher()).toBe(true);
     phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'orbital-mobile/0.1.0' });
-    expect(phone.out).toEqual([{ t: 'hello', protocol: PROTOCOL_VERSION, server: '0.15.0', macName: 'studio' }]);
+    expect(phone.out).toEqual([{
+      t: 'hello', protocol: PROTOCOL_VERSION, server: '0.15.0', macName: 'studio', app: 'orbital-desktop/0.15.0',
+      version: '0.15.0', kind: 'desktop', os: osName(process.platform), name: 'studio',
+      capabilities: capabilitiesOf('desktop'),
+    }]);
+  });
+  it('legacy phone hello: a shipped phone greets, is served, and uploads from id 1', async () => {
+    const { phone, images } = build();
+    phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'orbital-mobile/0.4.0' });
+    expect(phone.out[0]).toMatchObject({ t: 'hello', server: '0.15.0', macName: 'studio' });
+    const png = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.alloc(100, 2)]);
+    phone.send({ t: 'blob_put', id: 1, mediaType: 'image/png', bytes: png.length });
+    for (const chunk of chunkBlob(1, new Uint8Array(png))) phone.sendBlob(chunk);
+    expect(phone.out.at(-1)).toMatchObject({ t: 'blob_put_done', id: 1 });
+    expect(images.read((phone.out.at(-1) as any).entry.ref)).not.toBeNull();
   });
   it('a protocol mismatch answers bye and closes', () => {
     const { phone, onClose } = build();
@@ -131,10 +160,11 @@ describe('PhoneSession', () => {
     const { phone } = build({ inject });
     phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' });
     phone.send({ t: 'http', id: 1, method: 'GET', path: '/api/sessions?limit=2' });
-    phone.send({ t: 'http', id: 2, method: 'GET', path: '/api/files?path=/etc/passwd' });
+    phone.send({ t: 'http', id: 2, method: 'GET', path: '/api/files/image?path=/etc/passwd' });
     await new Promise((r) => setTimeout(r, 0));
     expect(inject).toHaveBeenCalledTimes(1);
-    expect(inject.mock.calls[0][0]).toMatchObject({ method: 'GET', url: '/api/sessions?limit=2' });
+    // The asking device rides along, for `DEVICE_HEADER`.
+    expect(inject.mock.calls[0][0]).toMatchObject({ method: 'GET', url: '/api/sessions?limit=2', device: deviceId(phone.me.publicKey) });
     expect(phone.out).toContainEqual({ t: 'http_res', id: 1, status: 200, body: { url: '/api/sessions?limit=2' } });
     expect(phone.out).toContainEqual({ t: 'http_res', id: 2, status: 403, body: { error: 'not_allowed' } });
   });
@@ -144,11 +174,26 @@ describe('PhoneSession', () => {
     for (const topic of ['remote', 'settings', 'session:', 'sessionsX']) phone.send({ t: 'ws', type: 'subscribe', topic });
     for (const topic of ['remote', 'settings', 'session:', 'sessionsX']) expect(hub.subscriberCount(topic)).toBe(0);
     hub.publish('remote', { event: 'pair_request', phone: 'p' });
-    expect(phone.out).toEqual([{ t: 'hello', protocol: PROTOCOL_VERSION, server: '0.15.0', macName: 'studio' }]);
+    expect(phone.out).toEqual([macHello]);
     for (const topic of ['errors', 'session:s1', 'subagent:s1:a1', 'task-output:s1:t1']) {
       phone.send({ t: 'ws', type: 'subscribe', topic });
       expect(hub.subscriberCount(topic)).toBe(1);
     }
+  });
+  it('never passes on another member\'s session: no upsert with a machine, no frame or subscription about a foreign id', () => {
+    const { phone, hub } = build({ foreign: (id) => id === 'theirs' });
+    phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' });
+    phone.send({ t: 'ws', type: 'subscribe', topic: 'sessions' });
+    phone.send({ t: 'ws', type: 'subscribe', topic: 'session:theirs' });
+    phone.send({ t: 'ws', type: 'subscribe', topic: 'subagent:theirs:a1' });
+    expect(hub.subscriberCount('session:theirs')).toBe(0);
+    expect(hub.subscriberCount('subagent:theirs:a1')).toBe(0);
+    hub.publish('sessions', { event: 'upsert', session: { id: 'theirs', machine: { id: 'b' } } });
+    hub.publish('sessions', { event: 'status', sessionId: 'theirs', status: 'working' });
+    hub.publish('sessions', { event: 'remove', sessionId: 'theirs' });
+    expect(phone.out).toEqual([macHello]);
+    hub.publish('sessions', { event: 'status', sessionId: 'mine', status: 'working' });
+    expect(phone.out.at(-1)).toEqual({ t: 'ws', frame: { topic: 'sessions', event: 'status', sessionId: 'mine', status: 'working' } });
   });
   it('a hub frame too large for one relay frame becomes a dropped notice naming the message', () => {
     const { phone, hub } = build();
@@ -171,12 +216,12 @@ describe('PhoneSession', () => {
     phone.send({ t: 'ws', type: 'subscribe', topic: 'sessions' });
     expect(hub.subscriberCount('sessions')).toBe(0);
     phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' });
-    expect(phone.out).toEqual([{ t: 'hello', protocol: PROTOCOL_VERSION, server: '0.15.0', macName: 'studio' }]);
+    expect(phone.out).toEqual([macHello]);
     phone.send({ t: 'ws', type: 'subscribe', topic: 'sessions' });
     expect(hub.subscriberCount('sessions')).toBe(1);
     expect(session.ready).toBe(true);
   });
-  it('a handshake signed by another identity does not reset the session', () => {
+  it('a handshake signed by another identity does not reset the channel', () => {
     const { phone, mac, session } = build();
     phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' });
     session.receive(startHandshake(generateIdentity(), mac.publicKey, 'initiator').message!);
@@ -240,7 +285,7 @@ describe('PhoneSession', () => {
     expect(phone.out).toEqual([]);
     expect(hub.subscriberCount('sessions')).toBe(0);
   });
-  it('a first frame that is not a valid handshake closes the session', () => {
+  it('a first frame that is not a valid handshake closes the channel', () => {
     const { session, onClose, phone } = build({ handshake: false });
     session.receive(crypto.getRandomValues(new Uint8Array(96)));
     expect(onClose).toHaveBeenCalledTimes(1);
@@ -267,6 +312,33 @@ describe('PhoneSession', () => {
     expect(phone.out).toContainEqual({ t: 'blob_put_done', id: 1, error: 'too_large' });
     phone.sendBlob({ kind: 'blob', id: 2, seq: 0, last: true, bytes: new Uint8Array(9) });
     expect(phone.out).toContainEqual({ t: 'blob_put_done', id: 2, error: 'size_mismatch' });
+  });
+  it('names this server with its name cut to PAIR_NAME_MAX_CHARS, so its hello always parses', () => {
+    const long = 'm'.repeat(PAIR_NAME_MAX_CHARS + 20);
+    const hello = serverHello({ serverVersion: '0.15.0', name: long, kind: 'desktop' });
+    expect(hello.name).toBe(long.slice(0, PAIR_NAME_MAX_CHARS));
+    expect(hello.macName).toBe(long.slice(0, PAIR_NAME_MAX_CHARS));
+  });
+  it('logs a frame it could not send, naming the device, and carries on', () => {
+    const mac = generateIdentity();
+    const phone = makePhone(mac, () => channel);
+    let failing = false;
+    const channel: Channel = openDeviceChannel({
+      deviceId: 'dev1', identity: mac, peerKey: phone.me.publicKey, role: 'responder',
+      hello: serverHello({ serverVersion: '0.15.0', name: 'studio', kind: 'desktop' }), hub: new Hub({ heartbeatIntervalMs: 60_000 }),
+      inject: async () => ({ statusCode: 500, body: '{}' }), images: createImageStore(makeTmpDir('remote')), imagesDir: '',
+      files: () => ({ status: 404 }), notifications: { get: () => allOn, set: () => {} }, onSeen: () => {},
+      send: (body) => {
+        if (failing) throw new Error('socket gone');
+        phone.onMacBody(body);
+      },
+    });
+    channel.receive(phone.hs.message!);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    failing = true;
+    expect(() => phone.send({ t: 'hello', protocol: PROTOCOL_VERSION, app: 'x' })).not.toThrow();
+    expect(warn).toHaveBeenCalledWith('[remote] device dev1: send failed: socket gone');
+    warn.mockRestore();
   });
   it('a throwing hook answers the request instead of throwing out of receive', () => {
     const { phone, images, onSeen } = build();
@@ -329,7 +401,7 @@ function fileWorld() {
   return { cwd, outside, named, phone, get };
 }
 
-describe('PhoneSession file_get', () => {
+describe('device channel file_get', () => {
   it('reads a text file inside the cwd', () => {
     const { cwd, get } = fileWorld();
     writeFileSync(join(cwd, 'notes.md'), '# hi\n');
@@ -450,6 +522,36 @@ describe('DeviceWatcher', () => {
     expect(wakes).toHaveLength(3);
     w.stop();
     expect(hub.subscriberCount('sessions')).toBe(0);
+  });
+  it('wakes nobody for another member\'s session: that member wakes the phone for its own', () => {
+    const hub = new Hub({ heartbeatIntervalMs: 60_000 });
+    const wakes: string[] = [];
+    const w = new DeviceWatcher({
+      deviceId: 'p1', hub, settings: () => allOn, onWake: (id) => wakes.push(id), foreign: (id) => id === 'theirs' || id === 'seeded',
+    });
+    const machine = { id: 'b', name: 'laptop', kind: 'desktop', os: 'macos', online: true, asOf: null };
+    w.start([{ id: 'seeded', status: 'working', machine }]);
+    hub.publish('sessions', { event: 'upsert', session: { id: 'theirs', status: 'working', machine } });
+    hub.publish('sessions', { event: 'status', sessionId: 'theirs', status: 'needs_input' });
+    hub.publish('sessions', { event: 'upsert', session: { id: 'theirs', status: 'needs_input', machine } });
+    hub.publish('sessions', { event: 'status', sessionId: 'seeded', status: 'needs_input' });
+    expect(wakes).toEqual([]);
+    hub.publish('sessions', { event: 'upsert', session: { id: 'mine', status: 'working' } });
+    hub.publish('sessions', { event: 'status', sessionId: 'mine', status: 'needs_input' });
+    expect(wakes).toEqual(['mine']);
+    w.stop();
+  });
+  it('wakes nobody for a federated session it never saw an upsert of: a phone paired after the federation seeded', () => {
+    const hub = new Hub({ heartbeatIntervalMs: 60_000 });
+    const wakes: string[] = [];
+    const w = new DeviceWatcher({
+      deviceId: 'p1', hub, settings: () => allOn, onWake: (id) => wakes.push(id), foreign: (id) => id === 'theirs',
+    });
+    w.start([]);
+    hub.publish('sessions', { event: 'status', sessionId: 'theirs', status: 'needs_input' });
+    hub.publish('sessions', { event: 'status', sessionId: 'mine', status: 'needs_input' });
+    expect(wakes).toEqual(['mine']);
+    w.stop();
   });
   it('wakes nothing while the user is at the Mac, and sends nothing muted later', () => {
     const hub = new Hub({ heartbeatIntervalMs: 60_000 });

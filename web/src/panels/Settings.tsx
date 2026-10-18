@@ -94,7 +94,7 @@ import type { MapStatePills } from '../lib/stateStyle'
 import { TagsRulesSection } from './TagsRules'
 import { ShortcutsSection } from './ShortcutsSection'
 import { HarnessTemplatesSection } from './HarnessTemplates'
-import { MobileSection } from './MobileSection'
+import { DevicesSection } from './DevicesSection'
 import { UpdatesSection } from './UpdatesSection'
 import { useAppUpdate } from '../store/appUpdate'
 import { ClaudeDirsRows } from './ClaudeDirsRows'
@@ -213,8 +213,9 @@ const NAV_ITEMS = [
   { key: 'terminal', label: 'Terminal', disabled: false },
   { key: 'appearance', label: 'Appearance', disabled: false },
   // Always listed, not behind Experimental: the section is inert until its
-  // switch is on (spec 2026-10-01-settings-mobile-design).
-  { key: 'mobile', label: 'Mobile', disabled: false },
+  // switch is on (spec 2026-10-01-settings-mobile-design). Mobile's place
+  // since the device group (canvas 50a REPLACES MOBILE).
+  { key: 'devices', label: 'Devices', disabled: false },
   { key: 'shortcuts', label: 'Shortcuts', disabled: false },
   // The desktop app's own updates (canvas `Feature - App update`): listed
   // only where the update bridge is, so never in a browser or on the phone.
@@ -228,6 +229,9 @@ const NAV_ITEMS = [
 ] as const
 
 type SectionKey = (typeof NAV_ITEMS)[number]['key']
+
+/** Sections stored under a key that has since been renamed, by their new key. */
+const RENAMED_SECTIONS: Record<string, SectionKey> = { mobile: 'devices' }
 
 /**
  * Which section a visit opens on. The dialog used to hard-code "Sessions"
@@ -245,7 +249,7 @@ export function initialSection(
   settings: Record<string, string | undefined>,
   hasUpdates: boolean = useAppUpdate.getState().source !== null,
 ): SectionKey {
-  const stored = settings.settings_last_section
+  const stored = RENAMED_SECTIONS[settings.settings_last_section ?? ''] ?? settings.settings_last_section
   const match = visibleNavItems(settings, hasUpdates).find((item) => item.key === stored)
   return match && !match.disabled ? match.key : NAV_ITEMS[0].key
 }
@@ -551,7 +555,8 @@ export function Settings({ open, onClose }: SettingsProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  async function patchAndSet(patch: Record<string, string>) {
+  /** Saves `patch`; false when the save failed, which it has already reported. */
+  async function patchAndSet(patch: Record<string, string>): Promise<boolean> {
     try {
       await api.patchSettings(patch)
       useOrbital.setState((state) => ({ settings: { ...state.settings, ...patch } }))
@@ -561,8 +566,10 @@ export function Settings({ open, onClose }: SettingsProps) {
       // topic. Told here rather than inside `api.patchSettings` so the
       // sidebar's own writes do not make it re-read for nothing.
       notifyDesktopSettingsChanged()
+      return true
     } catch (err) {
       reportError(err, 'Failed to save settings')
+      return false
     }
   }
 
@@ -1035,8 +1042,8 @@ export function Settings({ open, onClose }: SettingsProps) {
                   onSaved={() => setSaved(true)}
                   onEditingChange={setHarnessEditing}
                 />
-              ) : section === 'mobile' ? (
-                <MobileSection patchAndSet={patchAndSet} onSaved={() => setSaved(true)} />
+              ) : section === 'devices' ? (
+                <DevicesSection patchAndSet={patchAndSet} onSaved={() => setSaved(true)} />
               ) : section === 'shortcuts' ? (
                 <ShortcutsSection />
               ) : section === 'updates' ? (

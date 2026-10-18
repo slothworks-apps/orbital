@@ -17,6 +17,7 @@ import type {
   IdeDiagnosticSeverity,
 } from '../lib/types'
 import { workingDirOf } from '../lib/types'
+import { ideHere } from '../lib/devices'
 import { Code, Pre } from './MessageView'
 import { IDE_MODIFIER_LABEL } from './PathButton'
 
@@ -318,7 +319,7 @@ export function FileViewer({ session }: FileViewerProps) {
       onClose={closeFile}
       read={read}
       ideSessionId={session.id}
-      ideName={session.ide?.ideName ?? null}
+      ideName={ideHere(session)?.ideName ?? null}
       outside={(cwd) => (
         <>
           Orbital reads inside{' '}
@@ -337,6 +338,8 @@ export interface ProjectFileViewerProps {
   /** The undecided `.mcp.json` server whose file is shown, or null while closed. */
   server: { name: string; file: string } | null
   onClose: () => void
+  /** The member the session would run on; absent, this device. */
+  machine?: string
 }
 
 /**
@@ -347,10 +350,10 @@ export interface ProjectFileViewerProps {
  * rather than through `ui.fileViewer`, which belongs to the selected
  * session, and it has no editor to talk to.
  */
-export function ProjectFileViewer({ cwd, server, onClose }: ProjectFileViewerProps) {
+export function ProjectFileViewer({ cwd, server, onClose, machine }: ProjectFileViewerProps) {
   const name = server?.name ?? null
   // Only called while open, so `name` is set.
-  const read = useCallback(() => api.mcpjsonFile(cwd, name ?? ''), [cwd, name])
+  const read = useCallback(() => api.mcpjsonFile(cwd, name ?? '', machine), [cwd, name, machine])
   return (
     <FileViewerSurface
       target={server ? { path: server.file, line: null } : null}

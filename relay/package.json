@@ -1,7 +1,7 @@
 {
   "name": "@orbital/relay",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "description": "The blind relay between a Mac running Orbital and its paired phones.",
   "exports": {

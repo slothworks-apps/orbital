@@ -2,6 +2,7 @@ import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, 
 import { createPortal } from 'react-dom'
 import type { Ref, RefObject } from 'react'
 import { api } from '../lib/api'
+import { completionKeyId } from '../lib/completionKey'
 import { matchCommands } from '../lib/commandMatch'
 import { formatBytes } from '../lib/format'
 import { useEscapeLayer } from '../ui/escapeLayer'
@@ -145,7 +146,7 @@ export function CompletionPopup({
   const { kind, prefix } = context
   // A stable string for the effect deps — the key object is rebuilt on every
   // render by the mount above, and its identity means nothing.
-  const keyId = 'session' in sessionKey ? `s:${sessionKey.session}` : `c:${sessionKey.cwd}`
+  const keyId = completionKeyId(sessionKey)
 
   /**
    * The last settled answer for a path prefix, prefix included. Keeping the

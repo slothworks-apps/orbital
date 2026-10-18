@@ -4,7 +4,7 @@ import type { SessionHarness, StepState } from '../../lib/types'
 import { confirmRewind, pickRewindTarget, useRewindUi } from '../../store/rewind'
 import { useOrbital } from '../../store/store'
 import { humanizeError } from '../composer'
-import { useMobile } from '../state'
+import { sessionDeviceName } from '../useDevice'
 
 /**
  * The gate card's answers (spec 2026-10-05-mobile-next § 1). The desktop's
@@ -21,7 +21,7 @@ async function answer(sessionId: string, call: () => Promise<{ harness: SessionH
     void useOrbital.getState().loadHarness(sessionId)
     return null
   } catch (err) {
-    return humanizeError(err instanceof Error ? err.message : String(err), useMobile.getState().macName)
+    return humanizeError(err instanceof Error ? err.message : String(err), sessionDeviceName(sessionId))
   }
 }
 

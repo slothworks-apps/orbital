@@ -95,6 +95,13 @@ export interface DialogProps {
    */
   variant?: 'frame' | 'card'
   /**
+   * Card variant only: content between the muted eyebrow and the title
+   * (canvas 50c: the kind tile above the join sentence; `cDone`: the
+   * checkmark above "<name> joined"). Unset everywhere else, so no other
+   * caller's layout changes.
+   */
+  beforeTitle?: ReactNode
+  /**
    * Paints the armed drop chrome over the frame (canvas 9c-1 / 9e drop state:
    * accent border `.45` over a matching inset ring `.12`). The caller owns the
    * drag itself and dims its own content.
@@ -197,6 +204,7 @@ export function Dialog({
   open,
   title,
   eyebrow,
+  beforeTitle,
   size = 'md',
   tone = 'accent',
   eyebrowPulse = false,
@@ -269,6 +277,7 @@ export function Dialog({
           {eyebrow && (
             <div className="font-mono text-[9.5px] tracking-[0.2em] text-[rgba(160,190,225,.55)]">{eyebrow}</div>
           )}
+          {beforeTitle}
           <h2 className="text-xl font-bold text-text-bright">{title}</h2>
           {children}
         </div>

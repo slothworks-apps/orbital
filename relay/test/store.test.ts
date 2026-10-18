@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { PAIRING_TOKEN_TTL_MS } from '@orbital/shared/remote/relayApi';
+import { MUTUAL_PAIR_TTL_MS, PAIRING_TOKEN_TTL_MS } from '@orbital/shared/remote/relayApi';
 import Database from 'better-sqlite3';
 import { Kysely, SqliteDialect } from 'kysely';
 import { Migrator } from 'kysely/migration';
@@ -20,6 +20,8 @@ describe.each(backends)('RelayStore (%s)', (_name, open) => {
   beforeEach(async () => {
     store = await open();
     await store.clearForTests();
+    // A half waits only for a device the relay knows.
+    for (const id of ['amy', 'zed', 'bob', 'cat']) await store.ensureDevice({ id, kind: 'mac' });
   });
   afterEach(async () => { await store.close(); });
 
@@ -58,6 +60,53 @@ describe.each(backends)('RelayStore (%s)', (_name, open) => {
     expect(await store.revokePair('mac1', 'phone1')).toBe(false);
     expect(await store.revokePair('mac1', 'never-paired')).toBe(false);
   });
+  it('a mutual pair forms once both halves are in, lower id as mac; a half expires', async () => {
+    const waiting = { linked: false, created: false };
+    expect(await store.offerMutual('zed', 'amy', 1000)).toEqual(waiting);
+    expect(await store.isPaired('amy', 'zed')).toBe(false);
+    expect(await store.offerMutual('zed', 'amy', 1000)).toEqual(waiting);
+    expect(await store.offerMutual('amy', 'zed', 2000)).toEqual({ linked: true, created: true });
+    expect(await store.phonesOf('amy')).toEqual(['zed']);
+    expect(await store.phonesOf('zed')).toEqual([]);
+    expect(await store.offerMutual('zed', 'amy', 3000)).toEqual({ linked: true, created: false });
+
+    expect(await store.offerMutual('bob', 'cat', 1000)).toEqual(waiting);
+    expect(await store.offerMutual('cat', 'bob', 1000 + MUTUAL_PAIR_TTL_MS + 1)).toEqual(waiting);
+    expect(await store.isPaired('bob', 'cat')).toBe(false);
+  });
+  it('two halves offered at once form the pair, created exactly once', async () => {
+    const both = await Promise.all([store.offerMutual('amy', 'zed', 1), store.offerMutual('zed', 'amy', 1)]);
+    expect(await store.isPaired('amy', 'zed')).toBe(true);
+    expect(both.filter((o) => o.created)).toHaveLength(1);
+    expect(both.some((o) => o.linked)).toBe(true);
+  });
+  it('a revoke takes the waiting halves with it, paired or not', async () => {
+    await store.offerMutual('amy', 'zed', 1);
+    expect(await store.revokePair('zed', 'amy')).toBe(false);
+    expect(await store.offerMutual('zed', 'amy', 2)).toEqual({ linked: false, created: false });
+  });
+  it('prune drops expired mutual halves too', async () => {
+    await store.offerMutual('amy', 'zed', 1);
+    await store.pruneExpiredTokens(1 + MUTUAL_PAIR_TTL_MS + 1);
+    expect(await store.offerMutual('zed', 'amy', 2)).toEqual({ linked: false, created: false });
+  });
+  it('ensureDevice adds a device once and keeps the kind it has', async () => {
+    await store.upsertDevice({ id: 'phone1', kind: 'phone' });
+    await store.ensureDevice({ id: 'phone1', kind: 'mac' });
+    await store.ensureDevice({ id: 'mac1', kind: 'mac' });
+    expect((await store.device('phone1'))?.kind).toBe('phone');
+    expect((await store.device('mac1'))?.kind).toBe('mac');
+  });
+  it('revoke removes a pair named in either order', async () => {
+    await store.offerMutual('amy', 'zed', 1);
+    await store.offerMutual('zed', 'amy', 1);
+    expect(await store.revokePair('zed', 'amy')).toBe(true);
+    expect(await store.isPaired('amy', 'zed')).toBe(false);
+    await store.offerMutual('amy', 'zed', 2);
+    await store.offerMutual('zed', 'amy', 2);
+    expect(await store.revokePair('amy', 'zed')).toBe(true);
+    expect(await store.revokePair('amy', 'zed')).toBe(false);
+  });
   it('devices keep a kind, a push token and a last-seen stamp, which a second upsert leaves alone', async () => {
     await store.upsertDevice({ id: 'phone1', kind: 'phone' });
     await store.setPushToken('phone1', 'fcm-abc');
@@ -75,6 +124,13 @@ describe.each(backends)('RelayStore (%s)', (_name, open) => {
     expect(await store.pending('mac1', 'phone1')).toBe(false);
     expect(await store.confirmPair('mac1', 'phone1', 102)).toBe(false);
     expect(await store.isPaired('mac1', 'phone2')).toBe(true);
+  });
+  it('a half to a device the relay does not know is not kept; one that completes a waiting half is', async () => {
+    const waiting = { linked: false, created: false };
+    expect(await store.offerMutual('amy', 'ghost', 1)).toEqual(waiting);
+    // Not kept: the ghost's own half finds nothing to complete.
+    expect(await store.offerMutual('ghost', 'amy', 1)).toEqual(waiting);
+    expect(await store.offerMutual('amy', 'ghost', 2)).toEqual({ linked: true, created: true });
   });
   it('migrations are idempotent: opening twice is fine', async () => {
     const again = await open();
@@ -117,5 +173,19 @@ describe('migration 0002_no_names', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('mutual halves, relay-wide', () => {
+  it('refuses a new half past halvesMax; one that completes a pair, or renews its own, still goes', async () => {
+    const store = await openRelayStore(':memory:', { halvesMax: 2 });
+    for (const id of ['a', 'b', 'c', 'd']) await store.ensureDevice({ id, kind: 'mac' });
+    expect(await store.offerMutual('a', 'b', 1)).toEqual({ linked: false, created: false });
+    expect(await store.offerMutual('a', 'c', 1)).toEqual({ linked: false, created: false });
+    expect(await store.offerMutual('a', 'd', 1)).toEqual({ linked: false, created: false, full: true });
+    expect(await store.offerMutual('a', 'b', 2)).toEqual({ linked: false, created: false });
+    expect(await store.offerMutual('b', 'a', 2)).toEqual({ linked: true, created: true });
+    expect(await store.offerMutual('a', 'd', 3)).toEqual({ linked: false, created: false });
+    await store.close();
   });
 });

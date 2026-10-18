@@ -54,7 +54,7 @@ relay can count ("2 sessions need your input") but not name.
        rate-limited, so a short secret can be ground down over days. Without
        it anyone who knows the URL can run their own pairs over your relay
        and your Firebase project ([[the-relay-takes-a-shared-secret]]).
-       Put the same value into Settings → Mobile → Advanced → Relay secret
+       Put the same value into Settings → Devices → Change relay → Relay secret
        on the Mac; the pairing code carries it to phones. Absent means an
        open relay — fine on a laptop, not on a server.
      - `RELAY_TRUST_PROXY=1` — **set it on Dokploy.** Traefik terminates
@@ -138,7 +138,7 @@ change, not built, because there is nothing to route to yet.
 
 ## Point Orbital at it
 
-Settings → Mobile → Advanced → Relay URL on the Mac (the `remote_relay_url`
+Settings → Devices → Change relay → Relay URL on the Mac (the `remote_relay_url`
 setting), and Relay secret next to it (`remote_relay_secret`, the relay's
 `RELAY_SECRET`). The pairing QR carries both to the phone, so they are set
 once, on the Mac. There is no default relay: until this is set, the
@@ -157,13 +157,20 @@ under `relay/data/`.
 ## Rotate or wipe
 
 **Change the secret:** set the new `RELAY_SECRET` on the relay and redeploy,
-then enter it under Settings → Mobile → Advanced on each Mac. Every phone
+then enter it under Settings → Devices → Change relay on each Mac. Every phone
 is refused as soon as the relay restarts and lands on its unpaired screen;
 saving the new secret on the Mac forgets its paired phones locally (its
 own link was refused, so the relay keeps their dead pair rows — harmless);
 each phone pairs again by scanning a fresh code, which carries the new
 secret. A phone built before 2026-10-03 does not know the refusal and shows
 the Mac as offline instead; update it.
+
+Rotating the secret on a device in a group — one with another desktop or
+server, or with a phone another member paired — means removing the other
+devices, or leaving the group, first: while it is in one, its relay URL
+and secret are read-only (one relay serves the whole group). A device on
+its own, or with only phones paired with it, changes them as before: the
+confirm removes those phones, and each pairs again with a fresh code.
 
 Deleting the relay's database unpairs every phone from every Mac: locally
 that is `relay/data/relay.db`; on Dokploy, whatever file or Postgres

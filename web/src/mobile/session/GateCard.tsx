@@ -10,6 +10,7 @@ import { setGateFold, useGateFold } from '../harness/gateFold'
 import { GoBackSheet } from '../harness/GoBackSheet'
 import { useHarness } from '../harness/useHarness'
 import { useMobile } from '../state'
+import { useSessionDeviceName, useSessionRefusedLine } from '../useDevice'
 import { AckLine, SheetPresence } from '../ui'
 import type { SlotKeyProps, SlotProps } from './slot'
 
@@ -246,15 +247,16 @@ function WaitingCard({ sessionId, card }: { sessionId: string; card: GateCardDat
 }
 
 /** 10c second phone's locked line: what stands in for the answers while the Mac sleeps. */
-function LockedLine() {
-  const macName = useMobile((s) => s.macName) ?? UNNAMED_MAC
+function LockedLine({ sessionId }: { sessionId: string }) {
+  const macName = useSessionDeviceName(sessionId) ?? UNNAMED_MAC
+  const refused = useSessionRefusedLine(sessionId)
   return (
     <div className="box-border flex min-h-13 items-center gap-2.5 rounded-[14px] border border-dashed border-[rgba(150,205,255,.18)] px-3.5 text-[13.5px] text-[rgba(160,190,225,.7)]">
       <span aria-hidden className="relative block h-[13px] w-[11px] shrink-0">
         <span className="absolute left-[1.5px] top-0 box-border block h-2 w-2 rounded-t-[4px] border-[1.5px] border-b-0 border-current" />
         <span className="absolute bottom-0 left-0 block h-[7px] w-[11px] rounded-[2px] bg-current" />
       </span>
-      Answer when {macName} wakes
+      {refused ?? `Answer when ${macName} wakes`}
     </div>
   )
 }
@@ -282,7 +284,7 @@ function AsleepCard({ sessionId, card }: { sessionId: string; card: GateCardData
       {/* Nothing can be fetched while the Mac sleeps: a cached copy shows, one not held is the dashed box. */}
       <GateThumbs sessionId={sessionId} paths={card.images} offline />
       <div className="m-3.5">
-        <LockedLine />
+        <LockedLine sessionId={sessionId} />
       </div>
     </div>
   )
@@ -322,7 +324,7 @@ function ReviewerCard({ sessionId, card, offline }: { sessionId: string; card: G
         )}
         {offline ? (
           <div className="mt-3.5">
-            <LockedLine />
+            <LockedLine sessionId={sessionId} />
           </div>
         ) : (
           <>

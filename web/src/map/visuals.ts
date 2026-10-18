@@ -132,6 +132,12 @@ export const DIMMED_OPACITY = 0.6
  */
 export const MUTED_OPACITY = 0.28
 
+/**
+ * Whole-body opacity of a planet (and its moons) whose device is offline:
+ * canvas 50e's `op: off ? .5 : 1`. It multiplies onto the other fades.
+ */
+export const OFFLINE_OPACITY = 0.5
+
 /** `orb-ring 2.4s` — the working halo's breathing period. */
 export const HALO_BREATH_SEC = 2.4
 /** `orb-ring` keyframes: opacity .55 at 0/100%, 1 at 50% — a multiplier on `haloOpacity`. */

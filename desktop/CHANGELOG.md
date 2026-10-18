@@ -4,6 +4,13 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.34.0] — 2026-10-17
+### Added
+- Settings → Mobile is now Settings → Devices: pair another desktop by code and see every device in your group. The device that started the group is its primary: only it adds and removes devices or dissolves the group; the others can leave.
+- The sessions of your other devices show on the map and in the sidebar, with a chip per device to show or hide each; open one and drive it as if it ran here.
+- New session can start a session on another device, with that device's recent projects and a browser for its folders.
+- A device that is offline keeps its sessions on the map, dimmed and still, with what it last sent still readable.
+
 ## [0.33.1] — 2026-10-17
 ### Fixed
 - Sessions that follow a harness are named after your first message (until then, after the harness) instead of all starting "This session follows the Orbital harness…". Sessions named that way before are renamed too.

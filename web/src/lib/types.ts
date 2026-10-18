@@ -1,3 +1,7 @@
+import type { GroupEnded, GroupStatus, MemberState as SharedMemberState, NotPrimary, PrimaryRef } from '@orbital/shared/remote/group'
+import type { JoinResult, Joining, PendingPair } from '@orbital/shared/remote/ceremony'
+import type { MachineRef } from '@orbital/shared/remote/device'
+
 export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended'
 export type SessionSource = 'terminal' | 'web'
 /** Ordered by escalating autonomy; `lib/permissionModes.ts` carries the copy
@@ -66,6 +70,9 @@ export interface RecentTool {
   summary: string | null
   at: number
 }
+
+/** The member of the device group a session runs on: `MachineRef` in `shared/src/remote/device.ts`. */
+export type { MachineRef }
 
 export interface ApiSession {
   id: string
@@ -144,6 +151,11 @@ export interface ApiSession {
    * other only what runs. An older Mac sends every agent in the list too.
    */
   subagents: Subagent[]
+  /**
+   * The other member of the device group this session runs on; absent for a
+   * session of this device (`deviceOf` in `lib/devices.ts`).
+   */
+  machine?: MachineRef
   /**
    * How many subagents the session has had, ended included, however many
    * `subagents` holds. Absent from an older Mac: fall back to
@@ -872,6 +884,8 @@ export type AttachmentUpload =
   | { kind: 'too_large'; size: number; truncated: boolean }
   | { kind: 'not_image'; mediaType: string }
   | { kind: 'empty' }
+  /** The session runs on another device of the group, which only an image reaches. */
+  | { kind: 'not_on_device' }
 
 /** One model as every Orbital surface consumes it. Duplicated from the
  * server's `server/src/models/catalog.ts` — this repo has no shared types
@@ -1239,7 +1253,8 @@ export type FilePreview =
  * A session, or the New session dialog's directory plus the Claude directory
  * it would run under — whose user and plugin commands the catalog lists.
  */
-export type CompletionKey = { session: string } | { cwd: string; claudeDir?: number }
+/** `machine`: the member the completions are read on (New session on another device); absent, this one. */
+export type CompletionKey = { session: string } | { cwd: string; claudeDir?: number; machine?: string }
 
 /** Where a slash command comes from — the popup's right-hand badge (canvas 9b). */
 export type CommandSource = 'user' | 'project' | 'plugin' | `plugin:${string}` | 'built-in'
@@ -1818,12 +1833,27 @@ export interface RemoteDevice {
   id: string
   name: string
   platform: string
+  /** `desktop`, `headless` or `phone`; null for a Mac paired through a code that named none. */
+  kind: string | null
   pairedAt: number
   lastSeenAt: number | null
   online: boolean
   /** The Mac refused this phone's app as too old when it last connected: its version, the minimum, and when (epoch ms). */
   needsUpdate: { version: string; needed: string; at: number } | null
 }
+
+/** How Settings shows a group member; `MemberState` in `shared/src/remote/group.ts`. */
+export type MemberState = SharedMemberState
+
+/** One member of the device group as the status lists it (`GroupStatus`). */
+export type GroupMember = GroupStatus['members'][number]
+
+/**
+ * The group's primary, which alone adds and removes devices (ADR
+ * the-group-has-one-primary-device), and why a device stopped being a
+ * member by the primary's hand (`GroupEnded`).
+ */
+export type { PrimaryRef, NotPrimary, GroupEnded }
 
 /**
  * The mobile remote as `GET /api/remote` answers it and the hub's `remote`
@@ -1846,20 +1876,52 @@ export interface RemoteStatus {
    * before the server rejects it. The code itself stays on the server: the
    * user types it from the phone (spec 2026-10-06-pairing-code-and-app-lock-design § 1).
    */
-  pendingPair: { phone: string; name: string; platform: string; attemptsLeft: number } | null
+  pendingPair: PendingPair | null
   pairing: { expiresAt: number } | null
+  /**
+   * A device whose code this server redeemed and which has not confirmed
+   * yet: `code` is what the user types on it, `expiresAt` when its code
+   * stops working, `kind` its kind as its code named it — null from a code
+   * without one (spec 2026-10-16-device-group-design § 3).
+   */
+  joining: Joining | null
   /** Why the last start failed; null while it is fine. */
   error: string | null
+  /** The device group (`GroupStatus` in shared/src/remote/group.ts). */
+  group: GroupStatus
 }
 
 /** The refusals `POST /api/remote/pair/confirm` answers with instead of `{ ok: true }`. */
-export type PairConfirmError = 'no_pending' | 'mismatch' | 'code_mismatch' | 'code_rejected' | 'relay_error'
+export type PairConfirmError = 'no_pending' | 'mismatch' | 'code_mismatch' | 'code_rejected' | 'relay_error' | 'group_full'
 
 /**
  * `code_mismatch`: a wrong code, the request still waits with `attemptsLeft`.
  * `code_rejected`: the last wrong code; the server rejected the request.
+ * `group_full`: the group holds as many devices as it can; the server rejected the request.
  */
 export type PairConfirmResult =
   | { ok: true }
   | { error: Exclude<PairConfirmError, 'code_mismatch'> }
   | { error: 'code_mismatch'; attemptsLeft: number }
+
+/**
+ * The answer to `api.joinGroup`: shared's `JoinResult`
+ * (`shared/src/remote/ceremony.ts`, spec 2026-10-16-device-group-design § 3)
+ * with `ok` added so a caller can narrow without checking for `error`'s
+ * absence. A refusal the server never names itself (a network failure, an
+ * unexpected status) reads as `relay_error`, like the rest of the remote
+ * surface's refusals. `phone_to_phone` is a phone's alone: a server is no phone.
+ */
+export type JoinAnswer =
+  | ({ ok: true } & Extract<JoinResult, { device: string }>)
+  | ({ ok: false } & Exclude<JoinResult, { device: string } | { error: 'phone_to_phone' }>)
+
+/** One level of a device's folders, for the folder chooser (`GET /api/dirs`). */
+export interface DirListing {
+  /** The absolute path listed. */
+  path: string
+  /** Sub-directories only, hidden ones left out, sorted case-insensitively. */
+  dirs: { name: string; hasChildren: boolean }[]
+  /** True when the server cut the list at its cap. */
+  truncated: boolean
+}

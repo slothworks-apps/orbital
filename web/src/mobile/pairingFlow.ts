@@ -26,8 +26,9 @@ export type RedeemVerdict = 'wait' | 'expired' | 'busy' | 'network'
 /**
  * What a `/pair/redeem` answer means for 9e (relay/src/pairing.ts): 200 only
  * says the relay passed it on, so the Mac's answer is still to come; 404
- * (unknown or used token), 409 (the Mac went offline, which also uses the
- * token up) and a refused signature cannot pair this code; 429 is the
+ * (unknown or used token), 409 (the Mac is offline; a relay from before
+ * 50d C used the token up with it) and a refused signature cannot pair
+ * this code now; 429 is the
  * relay's rate limit; anything else is the relay not being there.
  */
 export function redeemOutcome(status: number): RedeemVerdict {

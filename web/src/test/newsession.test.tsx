@@ -91,6 +91,18 @@ describe('NewSessionDialog', () => {
     expect(screen.getByRole('radio', { name: /^plan$/i })).toHaveAttribute('aria-checked', 'true')
   })
 
+  /** One device opens as it always did: the recent chips are offered, the field is not filled from them. */
+  it('leaves an empty field empty on this device, recent projects or not', async () => {
+    vi.mocked(api.listProjects).mockResolvedValue([{ cwd: '/home/tomin/recent', lastModel: null, lastAt: null }])
+    resetStore({ settings: {} })
+
+    render(<NewSessionDialog open onClose={vi.fn()} />)
+    // The chip shows once the list has landed, which is when a fill would have happened.
+    await screen.findByTitle('/home/tomin/recent')
+
+    expect(screen.getByLabelText(/project directory/i)).toHaveValue('')
+  })
+
   it('opens on the previous launch`s directory, mode and manual tag instead of the defaults', async () => {
     vi.mocked(api.previewRule).mockResolvedValue({ tagId: 2, ruleId: 10 })
     resetStore({
@@ -225,7 +237,7 @@ describe('NewSessionDialog', () => {
     fireEvent.click(await screen.findByRole('button', { name: /create and launch/i }))
 
     await waitFor(() => expect(api.createSession).toHaveBeenCalled())
-    expect(api.createDirectory).toHaveBeenCalledWith('/home/tomin/new')
+    expect(api.createDirectory).toHaveBeenCalledWith('/home/tomin/new', undefined)
     expect(vi.mocked(api.createDirectory).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(api.createSession).mock.invocationCallOrder[0],
     )
@@ -948,7 +960,7 @@ describe('NewSessionDialog — the Claude directory', () => {
     render(<NewSessionDialog open onClose={vi.fn()} />)
     await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
     expect(screen.getByRole('button', { name: 'Work' })).toHaveAttribute('aria-pressed', 'true')
-    await waitFor(() => expect(api.listModels).toHaveBeenCalledWith(2))
+    await waitFor(() => expect(api.listModels).toHaveBeenCalledWith(2, undefined))
 
     fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
     await waitFor(() =>

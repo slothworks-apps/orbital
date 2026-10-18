@@ -1,4 +1,7 @@
 import { compareVersions } from '@orbital/shared/remote/version'
+import { useOrbital } from '../store/store'
+import { useMobile, type DeviceView } from './state'
+import { groupRef } from './transport/groupRef'
 
 /** The phone's view of version compatibility lives in shared, beside the Mac's and the relay's. */
 export { MIN_SERVER_VERSION, compareVersions, isSupportedServer } from '@orbital/shared/remote/version'
@@ -8,7 +11,8 @@ export { MIN_SERVER_VERSION, compareVersions, isSupportedServer } from '@orbital
  * release on the Mac that serves it (adr `a-phone-feature-waits-for-the-mac-that-serves-it`).
  * `MIN_SERVER_VERSION` is the floor the whole app needs; a feature above it
  * goes here instead, and the phone leaves it out against an older Mac rather
- * than asking and waiting for an answer that never comes.
+ * than asking and waiting for an answer that never comes. Each device of the
+ * group is judged by its own version.
  */
 export const MAC_FEATURES = {
   /** Session media: `GET /api/sessions/:id/media` and `file_get` as `pdf` (spec 2026-10-09-session-media-design). */
@@ -19,7 +23,36 @@ export const MAC_FEATURES = {
 
 export type MacFeature = keyof typeof MAC_FEATURES
 
-/** Whether the Mac that said hello serves `feature`. False before any hello: nothing is asked of a Mac not yet known. */
-export function macSupports(feature: MacFeature, macVersion: string | null): boolean {
-  return macVersion !== null && compareVersions(macVersion, MAC_FEATURES[feature]) >= 0
+/** Whether a device running `version` serves `feature`. False before any hello: nothing is asked of a device not yet known. */
+export function macSupports(feature: MacFeature, version: string | null): boolean {
+  return version !== null && compareVersions(version, MAC_FEATURES[feature]) >= 0
+}
+
+/** Whether the device `deviceId` serves `feature`, by the version of its last hello. */
+export function deviceSupports(
+  feature: MacFeature,
+  deviceId: string,
+  devices: readonly DeviceView[] = useMobile.getState().devices,
+): boolean {
+  return macSupports(feature, devices.find((d) => d.id === deviceId)?.version ?? null)
+}
+
+/** Whether the device the app means when it means one (the default member) serves `feature`. */
+export function defaultSupports(feature: MacFeature, macVersion: string | null = useMobile.getState().macVersion): boolean {
+  return macSupports(feature, macVersion)
+}
+
+/** Which device a session runs on: the one that listed it, else the one the session names; null when neither is known. */
+export type OwnerOf = (sessionId: string) => string | null
+
+const currentOwner: OwnerOf = (sessionId) =>
+  groupRef.current?.federation.ownerOf(sessionId) ?? useOrbital.getState().sessions[sessionId]?.machine?.id ?? null
+
+/**
+ * Whether the device `sessionId` runs on serves `feature`. A session whose
+ * device is not known yet, or no session, is judged by the default member.
+ */
+export function sessionSupports(feature: MacFeature, sessionId: string | null, ownerOf: OwnerOf = currentOwner): boolean {
+  const owner = sessionId !== null ? ownerOf(sessionId) : null
+  return owner !== null ? deviceSupports(feature, owner) : defaultSupports(feature)
 }

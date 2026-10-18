@@ -4,10 +4,12 @@ import { compactingOf } from '../lib/compaction'
 import { contextFractionFor, contextLevel, type ContextLevel } from '../lib/usage'
 import { CONTEXT_GAUGE_OUTER, MOON_TICK_LENGTH, MOON_TICK_RADIUS, moonVisuals } from './visuals'
 import type { OrbitalState } from '../store/store'
+import { asOfLabel, deviceOf, machineOffline } from '../lib/devices'
 import {
   absorptionFor,
   mapSessions,
   matchesSidebarFilters,
+  hiddenDevices,
   parseContextThresholds,
   parsePlanetScale,
   PLANET_SCALE_MAX,
@@ -113,6 +115,45 @@ export interface ScenePlanet {
    */
   modelFamily: string | null
   /**
+   * The device the session runs on, by name, while names show on labels
+   * (`namesShown`, canvas 50e/50h) — this device's own name for a session of
+   * its own. Null while they do not.
+   */
+  deviceName: string | null
+  /**
+   * The session's device is offline and dated, so its labels close with
+   * `as of 2 h` (`asOfLabel`). The age itself is not here: it ticks on its
+   * own clock where it is drawn (`WithAge`), so the minute passing does not
+   * rebuild the scene.
+   */
+  dated: boolean
+  /**
+   * The planet's second label line, as drawn (`planetSecondLine`), short of
+   * the age `dated` adds: the family in capitals, then the device name — or
+   * null for none.
+   */
+  secondLine: string | null
+  /**
+   * The second line the layout measures (`planetOutline`): `secondLine` with
+   * the device name in it whenever the chip row shows, drawn or not, and
+   * without the age. Names come and go as chips are turned on and off, the
+   * age as a device drops and as the clock ticks; measuring the one always
+   * and the other never keeps the bodies where they are (canvas 50e:
+   * nothing reflows).
+   */
+  outlineLine: string | null
+  /**
+   * The session's device is offline: the planet keeps its place and its last
+   * state, at half opacity and without motion (canvas 50e).
+   */
+  offline: boolean
+  /**
+   * The chip of the session's device is off (`hiddenDevices`). The planet
+   * stays in the layout — nothing reflows when a chip goes off — and fades
+   * out where it stands; the renderer stops drawing it once it has.
+   */
+  deviceOff: boolean
+  /**
    * How full the session's context window is, for the arc around the planet
    * (spec `context-fill-arc`) — or null when there is nothing honest to
    * draw, which `contextFillFor` below enumerates. Null is "no gauge at
@@ -186,6 +227,10 @@ export interface SceneMoon {
   phase: number
   /** Its parent planet is muted by the sidebar filters — a muted planet's moons mute with it. */
   muted: boolean
+  /** Its parent's device is offline: the moon holds still, at half opacity, with its planet. */
+  offline: boolean
+  /** Its parent's device chip is off: the moon fades out with its planet. */
+  deviceOff: boolean
 }
 
 export interface SceneLabel {
@@ -195,6 +240,11 @@ export interface SceneLabel {
   x: number
   y: number
   hue: number
+  /**
+   * Every body the label counts is on a device whose chip is off: the label
+   * fades out with them, and Desk keeps the mat, empty (canvas 50h).
+   */
+  empty: boolean
 }
 
 /** A tag's home spot — what the simulation's home-anchor spring pulls toward. */
@@ -267,6 +317,40 @@ function withStableSessionOrder(clusters: Cluster[]): Cluster[] {
 }
 
 /**
+ * The device names a scene draws, while the chip row shows (`showDeviceRow`):
+ * this device's own name, and whether labels carry names now (`namesShown`).
+ */
+export interface DeviceNames {
+  self: string
+  shown: boolean
+}
+
+/**
+ * A planet's second label line (canvas 50e `p(dev, model)`): the family in
+ * capitals, then the device name while names show; `WithAge` closes it with
+ * `as of 2 h` while the device is offline. With the model line off the device
+ * name stands alone; null when there is nothing to say.
+ */
+export function planetSecondLine(modelFamily: string | null, deviceName: string | null): string | null {
+  const parts = [modelFamily?.toUpperCase(), deviceName].filter((part): part is string => Boolean(part))
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
+/**
+ * A Desk card's meta line (canvas 50h `card(o)`): the device name leads it
+ * while names show, then the branch and the family; `WithAge` closes it with
+ * `as of 2 h` while the device is offline. Null when there is nothing to say.
+ */
+export function deskCardMeta(
+  gitRef: string | null | undefined,
+  modelFamily: string | null,
+  deviceName: string | null,
+): string | null {
+  const parts = [deviceName, gitRef, modelFamily].filter((part): part is string => Boolean(part))
+  return parts.length > 0 ? parts.join(' · ') : null
+}
+
+/**
  * Builds the render model for the space map: the map's sessions
  * (`mapSessions` — the tag filter and search do not narrow them, they only
  * mute planets) laid out into clusters, their moons, cluster labels
@@ -289,18 +373,30 @@ function withStableSessionOrder(clusters: Cluster[]): Cluster[] {
  * Pure: same `state` and `nowMs` in, same model out, every time — no
  * Date.now, no Math.random, no mutation of `state`. The clock arrives as
  * `nowMs` precisely to keep that true; `useSceneModel` is what reads a real
- * clock and re-reads it on a slow tick.
+ * clock and re-reads it on a slow tick. `hidden` (the devices whose chip is
+ * off, `hiddenDevices`) and `names` (`DeviceNames`, null while the chip row
+ * does not show) are passed in for the same reason.
+ *
+ * A hidden device's sessions stay in the layout, marked `deviceOff`, so
+ * turning a chip off moves nothing else (canvas 50e); the counts and the
+ * cluster labels leave them out.
  */
-export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel {
-  const sessions = mapSessions(state, nowMs)
+export function buildSceneModel(
+  state: OrbitalState,
+  nowMs: number,
+  hidden: readonly string[] = hiddenDevices(state),
+  names: DeviceNames | null = null,
+): SceneModel {
+  const sessions = mapSessions(state, nowMs, [])
   const clusters = clusterSessions(sessions, state.tags)
   const stable = withStableSessionOrder(clusters)
   const positions = layoutClusters(stable)
   const anchorByTag = clusterAnchors(stable)
-  const counts = statusCounts(state, nowMs)
+  const counts = statusCounts(state, nowMs, hidden)
   const selectedId = state.ui.selectedId
   const isLeaving = (session: ApiSession) =>
     absorptionFor(session, nowMs, state.leavingSince[session.id]) === 'leaving'
+  const isDeviceOff = (session: ApiSession) => hidden.length > 0 && hidden.includes(deviceOf(session))
   const showModel = state.settings.map_show_model !== 'false'
   const planets: ScenePlanet[] = []
   const moons: SceneMoon[] = []
@@ -317,6 +413,8 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
       // function's own doc).
       const subagents = session.subagents.filter((a) => a.state !== 'ended')
       const muted = !matchesSidebarFilters(session, state.ui)
+      const offline = machineOffline(session)
+      const deviceOff = isDeviceOff(session)
 
       // Moons first: the planet's footprint is the outermost shell they
       // reach, and that is what the planet is then placed by.
@@ -333,6 +431,8 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
           orbitRadius,
           phase: i * MOON_PHASE_STEP,
           muted,
+          offline,
+          deviceOff,
         })
         // Measured to the moon's own edge, not to the dashed trail it rides,
         // and at the size the body is drawn.
@@ -340,6 +440,9 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
         if (shell > footprint) footprint = shell
       })
 
+      const modelFamily = showModel ? (matchModel(session, state.models)?.family ?? null) : null
+      const rowName = names === null ? null : (session.machine?.name ?? names.self)
+      const deviceName = names?.shown ? rowName : null
       planets.push({
         session,
         x: pos.x,
@@ -351,7 +454,14 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
         subagents,
         footprint,
         leaving: isLeaving(session),
-        modelFamily: showModel ? (matchModel(session, state.models)?.family ?? null) : null,
+        modelFamily,
+        deviceName,
+        dated: asOfLabel(session.machine, nowMs) !== null,
+        secondLine: planetSecondLine(modelFamily, deviceName),
+        // No age: going offline and the minute tick must not move a body.
+        outlineLine: planetSecondLine(modelFamily, rowName),
+        offline,
+        deviceOff,
         contextFill,
         muted,
         compactingSince: compactingOf(session)?.startedAt ?? null,
@@ -368,15 +478,20 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
     // space is clutter.
     const bonded = cluster.sessions.filter((s) => !isLeaving(s))
     if (bonded.length === 0) continue
+    // A body whose device chip is off is not counted either, but a cluster
+    // left with only such bodies keeps its label, `empty`, so it can fade
+    // with them and Desk keeps the mat in its place.
+    const on = bonded.filter((s) => !isDeviceOff(s))
     // Anchored above the topmost planet that stays, not above a fading one
     // — otherwise the label would jump when the fade ends.
-    const pos = clusterLabelPos({ ...cluster, sessions: bonded }, positions)
+    const pos = clusterLabelPos({ ...cluster, sessions: on.length > 0 ? on : bonded }, positions)
     labels.push({
       tagId: cluster.tagId,
-      text: `${cluster.label.toUpperCase()} · ${bonded.length}`,
+      text: `${cluster.label.toUpperCase()} · ${on.length}`,
       x: pos.x,
       y: pos.y,
       hue: cluster.hue,
+      empty: on.length === 0,
     })
   }
 
@@ -389,7 +504,8 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
   // The trash's label subtracts the bodies that stay from the index total: a
   // leaving body already counts as not drawn, and a stale total must never
   // read negative.
-  const bondedCount = planets.filter((p) => !p.leaving).length
+  // A body whose device chip is off is not drawn either.
+  const bondedCount = planets.filter((p) => !p.leaving && !p.deviceOff).length
   const holePos = holePosition(stable)
   const hole: SceneHole = {
     x: holePos.x,
@@ -398,4 +514,19 @@ export function buildSceneModel(state: OrbitalState, nowMs: number): SceneModel 
   }
 
   return { planets, moons, labels, counts, anchors, hole }
+}
+
+/**
+ * The model without the bodies whose device chip is off, for a renderer that
+ * draws no fade for them (Archipelago): they simply leave, and the labels
+ * of the clusters they emptied with them.
+ */
+export function withoutDeviceOff(model: SceneModel): SceneModel {
+  if (!model.planets.some((p) => p.deviceOff)) return model
+  return {
+    ...model,
+    planets: model.planets.filter((p) => !p.deviceOff),
+    moons: model.moons.filter((m) => !m.deviceOff),
+    labels: model.labels.filter((l) => !l.empty),
+  }
 }

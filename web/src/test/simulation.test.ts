@@ -643,7 +643,7 @@ describe('selection moves nothing', () => {
   it('measures the label where it hangs while selected, gauged or not, whether or not it is', () => {
     const spec: ClusterSpec = { id: 'p', status: 'working', title: LONG }
     for (const gauged of [false, true]) {
-      const planet = { session: session(spec), scale: ACTIVE_SCALE, modelFamily: 'Opus', gauged }
+      const planet = { session: session(spec), scale: ACTIVE_SCALE, secondLine: 'OPUS', gauged }
       const plain = planetOutline({ ...planet, selected: false } as typeof planet, 1, FONT, 'label')
       const selected = planetOutline({ ...planet, selected: true } as typeof planet, 1, FONT, 'label')
       expect(selected).toEqual(plain)
@@ -868,7 +868,7 @@ describe('the hole keeps bodies off its label', () => {
           y: at.y,
           r: ACTIVE_SCALE,
           outline: planetOutline(
-            { session: session(spec), scale: ACTIVE_SCALE, modelFamily: 'Opus', gauged: false },
+            { session: session(spec), scale: ACTIVE_SCALE, secondLine: 'OPUS', gauged: false },
             1,
             FONT,
             'label'
@@ -1025,7 +1025,7 @@ function clusterInput(specs: ClusterSpec[], mode: MapStatePills = 'label'): SimI
       const planet = {
         session: session(spec),
         scale,
-        modelFamily: 'Opus',
+        secondLine: 'OPUS',
         gauged: false,
         selected: spec.selected ?? false,
       }

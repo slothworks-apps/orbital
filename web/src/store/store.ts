@@ -17,6 +17,8 @@ import type { ContextThresholds } from '../lib/usage'
 import type { MapStatePills } from '../lib/stateStyle'
 import type { LinesMode } from '../lib/branchStatus'
 import { archipelagoEnabled } from '../lib/experimental'
+import type { MachineEvent } from '@orbital/shared/remote/device'
+import { deviceChips, deviceOf, devicesOn, ideHere, isMemberOffline, withMachine, withMachineOffline } from '../lib/devices'
 import type {
   ApiSession,
   AttachmentSource,
@@ -47,6 +49,8 @@ export type SessionsEvent =
   | { event: 'upsert'; session: ApiSession }
   | { event: 'status'; sessionId: string; status: SessionStatus }
   | { event: 'remove'; sessionId: string }
+  /** A member of the group came online, went offline or was renamed: every session of it takes `machine`. */
+  | MachineEvent
 
 /** Events delivered on the `session:<id>` topic. */
 export type SessionEvent =
@@ -197,6 +201,13 @@ export interface OrbitalUiState {
   filterTagIds: number[]
   search: string
   sourceFilter: 'all' | SessionSource
+  /**
+   * The device chips turned off (canvas 50e): `LOCAL_DEVICE` or a member's
+   * id. Empty (or absent) means every chip on, so a device that joins shows
+   * up on. Not persisted, like the tag filter. Read through `hiddenDevices`,
+   * which ignores ids no chip names any more.
+   */
+  hiddenDeviceIds?: string[]
   wsStatus: string
   dialog: null | 'new' | 'clear' | 'end' | 'stop' | 'settings' | 'errors'
   /**
@@ -309,6 +320,13 @@ export interface OrbitalState {
    * `select()` only ever fetches once per session regardless of how many
    * live messages have already arrived over the WS for that session. */
   historyLoaded: Record<string, boolean>
+  /**
+   * Sessions of an offline member whose history this device has no copy of:
+   * their first read answered 409 `member_offline` (spec 2026-10-16
+   * § 8). The transcript says so in one quiet line instead of staying blank.
+   * Optional, as absent and empty mean the same.
+   */
+  historyUnkept?: Record<string, true>
   /** Sessions that transitioned `working` -> `idle` on the `session:<id>`
    * topic without an intervening `turn_result` — the "SDK process crash"
    * error state from the spec (`docs/superpowers/specs/2026-09-15-orbital-design.md`
@@ -593,6 +611,8 @@ export interface OrbitalActions {
     claudeDirId?: number
     /** The `.mcp.json` question's answers (`api.createSession`); omitted, undecided servers stay out. */
     mcpjson?: McpjsonDecisions
+    /** The member the session runs on (`api.createSession`); omitted, this device. */
+    machine?: string
   }, images?: readonly SentAttachment[]): Promise<string>
   select(id: string): Promise<void>
   loadOlder(id: string): Promise<ChatMessage[] | null>
@@ -612,6 +632,13 @@ export interface OrbitalActions {
    */
   resolveDecision(sessionId: string, verdict: { approved: boolean; message?: string }): void
   /**
+   * A request about `sessionId` was refused because its device is offline
+   * (409 `member_offline`): every session of that device reads offline from
+   * here — the composer gives way to the lock — until the server republishes
+   * them. True when `err` was that refusal, so the caller shows no error.
+   */
+  refusedOffline(sessionId: string, err: unknown): boolean
+  /**
    * Drops the editor selection from THIS session's composer (the lip's ×).
    * `selectionId` is what the lip was standing over; a later selection has a
    * different one and raises the lip again by itself.
@@ -621,6 +648,7 @@ export interface OrbitalActions {
   setFilterTagIds(filterTagIds: number[]): void
   setSearch(search: string): void
   setSourceFilter(sourceFilter: 'all' | SessionSource): void
+  setHiddenDeviceIds(hiddenDeviceIds: string[]): void
   /** Pins (or unpins) a session — a pinned session stays on the map once it has ended. */
   setSessionPinned(id: string, pinned: boolean): Promise<void>
   /**
@@ -1022,6 +1050,7 @@ const initialUiState: OrbitalUiState = {
   filterTagIds: [],
   search: '',
   sourceFilter: 'all',
+  hiddenDeviceIds: [],
   wsStatus: 'connecting',
   dialog: null,
   fileViewer: null,
@@ -1850,8 +1879,18 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           historyLoaded: { ...state.historyLoaded, [id]: true },
         }
       })
-    } catch {
-      // Leave historyLoaded unset so a future select() can retry.
+      set((state) => {
+        if (!state.historyUnkept?.[id]) return {}
+        const { [id]: _unkept, ...historyUnkept } = state.historyUnkept
+        return { historyUnkept }
+      })
+    } catch (err) {
+      // Leave historyLoaded unset so a future select() can retry. An offline
+      // device with no copy kept here locks the composer and says so in the
+      // transcript, never in a toast.
+      if (get().refusedOffline(id, err)) {
+        set((state) => ({ historyUnkept: { ...state.historyUnkept, [id]: true } }))
+      }
     }
   },
 
@@ -1940,7 +1979,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // a new turn, and nothing rides on it. Nor on a slash command, which the
     // CLI runs only when it opens the turn.
     const session = get().sessions[id]
-    const selection = session?.ide?.selection ?? null
+    const selection = ideHere(session)?.selection ?? null
     const cwd = session?.cwd ?? ''
     const outgoing = isSlashCommand(text)
       ? text
@@ -2017,6 +2056,19 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           return { rewindSending }
         })
       }
+      // The device went offline before this tab heard: the turn did not go
+      // out, so it comes back off the transcript and into the draft, and the
+      // composer gives way to the lock.
+      if (get().refusedOffline(id, err)) {
+        set((state) => ({
+          transcripts: {
+            ...state.transcripts,
+            [id]: (state.transcripts[id] ?? []).filter((m) => m.id !== optimisticMessage.id),
+          },
+        }))
+        if (text && !get().composerDrafts[id]) get().setComposerDraft(id, text)
+        return
+      }
       if (err instanceof ApiError && err.status === 409) {
         set({
           toast: {
@@ -2077,6 +2129,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         else delete decisionAnswers[decision.id]
         return { decisionAnswers }
       })
+      if (get().refusedOffline(sessionId, err)) return
       const message = err instanceof Error ? err.message : 'Failed to send the answer'
       set({ toast: { kind: 'error', message } })
     })
@@ -2114,9 +2167,22 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         delete decisionVerdicts[decision.id]
         return { decisionVerdicts }
       })
+      if (get().refusedOffline(sessionId, err)) return
       const message = err instanceof Error ? err.message : 'Failed to send the answer'
       set({ toast: { kind: 'error', message } })
     })
+  },
+
+  refusedOffline(sessionId, err) {
+    if (!isMemberOffline(err)) return false
+    const machineId = get().sessions[sessionId]?.machine?.id
+    if (machineId) {
+      set((state) => {
+        const sessions = withMachineOffline(state.sessions, machineId, Date.now())
+        return sessions === state.sessions ? {} : { sessions }
+      })
+    }
+    return true
   },
 
   dismissIdeSelection(sessionId, selectionId) {
@@ -2142,6 +2208,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   setSourceFilter(sourceFilter) {
     set((state) => ({ ui: { ...state.ui, sourceFilter } }))
+  },
+
+  setHiddenDeviceIds(hiddenDeviceIds) {
+    set((state) => ({ ui: { ...state.ui, hiddenDeviceIds } }))
   },
 
   /**
@@ -2329,7 +2399,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   async openInIde(path, line) {
     const id = get().ui.selectedId
-    if (!id) return false
+    // Another device's session has no editor here to open a path in.
+    if (!id || !ideHere(get().sessions[id])) return false
     try {
       return await api.ideOpenFile(id, path, line ?? null)
     } catch {
@@ -2795,6 +2866,11 @@ function sessionsEventPatch(
     }
   }
 
+  if (msg.event === 'machine') {
+    const sessions = withMachine(state.sessions, msg.machine)
+    return sessions === state.sessions ? null : { sessions }
+  }
+
   if (msg.event === 'status') {
     const existing = state.sessions[msg.sessionId]
     if (!existing) {
@@ -2978,15 +3054,32 @@ export function matchesSearch(session: ApiSession, query: string): boolean {
 }
 
 /**
- * Whether a session passes both sidebar filters, the tag chip and the search
- * box — the one predicate the sidebar's lists and the map's muting both read.
+ * Whether a session passes the sidebar filters, the tag chip and the search
+ * box — the one predicate the sidebar's lists and the map's muting both read
+ * — and, given `hidden` (`hiddenDevices`), the device chips. The map drops a
+ * hidden device's sessions in `mapSessions` instead of muting them, so its
+ * muting leaves `hidden` out.
  */
 export function matchesSidebarFilters(
   session: ApiSession,
-  ui: Pick<OrbitalUiState, 'filterTagIds' | 'search'>
+  ui: Pick<OrbitalUiState, 'filterTagIds' | 'search'>,
+  hidden: readonly string[] = [],
 ): boolean {
+  if (hidden.length > 0 && hidden.includes(deviceOf(session))) return false
   const tagOk = ui.filterTagIds.length === 0 || session.tagIds.some((id) => ui.filterTagIds.includes(id))
   return tagOk && matchesSearch(session, ui.search)
+}
+
+/**
+ * The devices whose sessions are hidden: the chips turned off, of the chips
+ * there are now (canvas 50e). A session of a device with no chip is never
+ * hidden; with fewer than two chips nothing is (`devicesOn` never leaves
+ * none on).
+ */
+export function hiddenDevices(state: Partial<Pick<OrbitalState, 'remote'>> & Pick<OrbitalState, 'ui'>): string[] {
+  const chips = deviceChips(state.remote?.group?.members)
+  const on = devicesOn(chips, state.ui.hiddenDeviceIds ?? [])
+  return chips.filter((c) => !on.includes(c.id)).map((c) => c.id)
 }
 
 function newestFirst(sessions: Record<string, ApiSession>): ApiSession[] {
@@ -2998,8 +3091,26 @@ function newestFirst(sessions: Record<string, ApiSession>): ApiSession[] {
  * map does NOT derive from this — it keeps non-matching sessions in place and
  * mutes them (see `mapSessions`, ADR `search-mutes-planets-instead-of-hiding-them`).
  */
-export function visibleSessions(state: Pick<OrbitalState, 'sessions' | 'ui'>): ApiSession[] {
-  return listableSessions(state).filter((s) => matchesSidebarFilters(s, state.ui))
+export function visibleSessions(
+  state: Pick<OrbitalState, 'sessions' | 'ui'> & Partial<Pick<OrbitalState, 'remote'>>,
+): ApiSession[] {
+  const hidden = hiddenDevices(state)
+  return listableSessions(state).filter((s) => matchesSidebarFilters(s, state.ui, hidden))
+}
+
+/**
+ * HISTORY's paging offset: how many sessions the server has sent under the
+ * current tag filter and search. The server pages this device's own sessions
+ * only (a member's arrive whole with the first page) and knows nothing of the
+ * device chips, so the count is of local, listable sessions passing the tag
+ * filter and the search, whatever chips are off.
+ */
+export function historyPageOffset(
+  state: Pick<OrbitalState, 'sessions'> & { ui: Pick<OrbitalUiState, 'filterTagIds' | 'search'> },
+): number {
+  return Object.values(state.sessions).filter(
+    (s) => !s.machine && isListable(s) && matchesSidebarFilters(s, state.ui),
+  ).length
 }
 
 /**
@@ -3423,7 +3534,10 @@ export function mapTheme(settings: Record<string, string>): MapTheme {
 
 /**
  * What the space map draws: every session minus the ones the origin filter
- * excludes, minus every session that has left the map (`absorptionFor`). The
+ * excludes, minus the sessions of every device whose chip is off (`hidden`,
+ * `hiddenDevices` by default), minus every session that has left the map
+ * (`absorptionFor`). `buildSceneModel` passes no hidden devices: it keeps
+ * theirs in the layout and marks them `deviceOff` instead. The
  * sidebar's tag filter and search are deliberately NOT applied: narrowing
  * must not reflow the layout, so a non-matching session stays on the map and
  * `buildSceneModel` mutes it (ADR `search-mutes-planets-instead-of-hiding-them`).
@@ -3433,23 +3547,37 @@ export function mapTheme(settings: Record<string, string>): MapTheme {
  *
  * `nowMs` is a parameter rather than a `Date.now()` call so this stays pure
  * and `buildSceneModel` keeps its "same state in, same model out" contract.
+ * `hidden` likewise: `useSceneModel` resolves it once, from a `remote` it
+ * does not hand over.
  */
-export function mapSessions(state: OrbitalState, nowMs: number): ApiSession[] {
+export function mapSessions(
+  state: OrbitalState,
+  nowMs: number,
+  hidden: readonly string[] = hiddenDevices(state),
+): ApiSession[] {
   // The origin filter lives here rather than in `visibleSessions` so it can
   // narrow the map and the sidebar's ACTIVE list while leaving HISTORY whole
   // — see the ADR `origin-filter-scopes-to-map-and-active`. The map applies
   // it to ended planets too: it filters everything it draws, or the control
   // means nothing here.
   const origin = state.ui.sourceFilter
+  // A device chip turned off hides its sessions rather than muting them
+  // (canvas 50e: "Turning a chip off fades its planets out"); the fade is the
+  // renderer's, not this list's.
   const all = newestFirst(state.sessions)
-  const list = origin === 'all' ? all : all.filter((session) => session.source === origin)
+  const list = all.filter((session) =>
+    (origin === 'all' || session.source === origin) && !hidden.includes(deviceOf(session)))
 
   return list.filter(
     (session) => absorptionFor(session, nowMs, state.leavingSince[session.id]) !== 'gone',
   )
 }
 
-export function statusCounts(state: OrbitalState, nowMs: number): Record<SessionStatus, number> {
+export function statusCounts(
+  state: OrbitalState,
+  nowMs: number,
+  hidden: readonly string[] = hiddenDevices(state),
+): Record<SessionStatus, number> {
   const counts: Record<SessionStatus, number> = {
     working: 0,
     idle: 0,
@@ -3461,7 +3589,7 @@ export function statusCounts(state: OrbitalState, nowMs: number): Record<Session
   // planets matching the tag filter and the search. A muted planet is there
   // to hold its place, not to be counted, and the sidebar's lists already
   // leave it out.
-  for (const session of mapSessions(state, nowMs)) {
+  for (const session of mapSessions(state, nowMs, hidden)) {
     if (matchesSidebarFilters(session, state.ui)) counts[session.status] += 1
   }
   return counts
