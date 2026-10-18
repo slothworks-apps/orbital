@@ -5,6 +5,7 @@ status: in-force
 type: adr
 domain: remote
 related:
+  - the-group-has-one-primary-device
   - 2026-10-16-device-group-design
   - the-relay-pairs-two-devices-that-both-sign
 tags:
@@ -12,6 +13,10 @@ tags:
   - security
 ---
 # Pairing with one member joins the whole group, and a removal wins
+
+> Amended on 2026-10-18 by [[the-group-has-one-primary-device]]: the one
+> ceremony is with the group's primary, which alone writes the roster and
+> removes devices. Joining once still joins the whole group.
 
 ## Context
 

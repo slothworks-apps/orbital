@@ -1,10 +1,11 @@
 ---
 id: roster-entries-are-signed
 title: Roster entries are signed — a device describes itself, a member adds and removes
-status: in-force
+status: superseded
 type: adr
 domain: remote
 related:
+  - the-group-has-one-primary-device
   - joining-one-member-joins-the-group
   - 2026-10-16-device-group-design
   - every-member-reaches-one-literal-allowlist
@@ -13,6 +14,9 @@ tags:
   - security
 ---
 # Roster entries are signed
+
+> Superseded on 2026-10-18 by [[the-group-has-one-primary-device]]: one
+> primary signs the membership; devices still sign their own descriptions.
 
 ## Context
 
