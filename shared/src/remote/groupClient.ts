@@ -352,11 +352,6 @@ export class GroupClient {
     return this.group.exiting(id);
   }
 
-  /** Always false: a phone is never its group's primary. */
-  isPrimary(): boolean {
-    return this.group.isPrimary();
-  }
-
   /** Why this phone is no member of its group any more, when the primary did it (`GroupMember.ended`). */
   ended(): GroupEnded | null {
     return this.group.ended();

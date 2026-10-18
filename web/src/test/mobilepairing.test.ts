@@ -116,7 +116,6 @@ function fakeGroup(onStart: GroupClientEvent = { type: 'status', status: 'online
     cancelJoin: vi.fn(() => true),
     members: () => [],
     primary: () => null,
-    isPrimary: () => false,
     join: vi.fn(async (): Promise<JoinResult> => ({ device: mac, name: 'studio', code: 'ABC-123' })),
   }
   const federation = {

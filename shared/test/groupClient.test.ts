@@ -152,7 +152,6 @@ describe('GroupClient', () => {
     expect(memberIds(state)).toContain(g.client.id);
     expect(state.descriptions.find((d) => d.id === g.client.id)).toMatchObject({ by: g.client.id, name: 'Pixel', links: true });
     expect(g.client.primary()).toMatchObject({ name: 'primary' });
-    expect(g.client.isPrimary()).toBe(false);
   });
 
   it('opens a channel to every paired member online, and a silent one starts over alone', async () => {

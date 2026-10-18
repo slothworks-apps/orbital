@@ -150,10 +150,9 @@ export interface MobileState {
   members: MemberRow[]
   /**
    * The group's primary, which alone adds and removes devices (ADR
-   * the-group-has-one-primary-device), and whether this phone is it — never:
-   * a phone is never primary. `primary` is null while the phone holds no group.
+   * the-group-has-one-primary-device); never this phone. Null while the phone holds no group.
    */
-  group: { primary: PrimaryRef | null; isPrimary: boolean }
+  group: { primary: PrimaryRef | null }
   /** A device that redeemed this phone's code and waits for the user's code (canvas 50i's join request). */
   pendingPair: PendingPair | null
   /** This phone's code while one is open (`GroupClient.startPairing`): when it stops working. */
@@ -194,7 +193,7 @@ export const initialMobileState: MobileState = {
   screen: 'pairing', previous: null, sessionId: null, pushed: [], link: 'off', macOnline: false, ready: false,
   asOf: null, checkedAt: null, rechecking: null, listedAt: null, endedSummary: null, endedLoaded: false,
   mismatch: null, unpaired: false, groupEnded: null, standaloneRelay: null, unreachable: false, pairing: null, macName: null, macVersion: null, devices: [], refusals: {},
-  members: [], group: { primary: null, isPrimary: false }, pendingPair: null, ownCode: null, refusedPair: null, composerIntent: null,
+  members: [], group: { primary: null }, pendingPair: null, ownCode: null, refusedPair: null, composerIntent: null,
   screenLock: false, lock: 'open', appLock: true, lockLabel: 'screen lock', backgroundedAt: null, authenticating: false,
 }
 
