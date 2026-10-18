@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
+import { sha256 } from '@noble/hashes/sha2.js'
+import { bytesToHex } from '@noble/hashes/utils.js'
 import { TunnelError, type RemoteClientEvent, type TunnelResponse } from '@orbital/shared/remote/client'
 import type { GroupClientEvent, PeerInfo } from '@orbital/shared/remote/groupClient'
 import type { HelloMessage } from '@orbital/shared/remote/messages'
@@ -7,6 +9,8 @@ import { GroupFederation, RELIST_RETRY_MS, type FederatedGroup } from '../mobile
 type Answer = (method: string, path: string, body?: unknown) => TunnelResponse | Promise<TunnelResponse> | undefined
 
 const STUDIO = 'S'.repeat(43)
+/** A store ref naming exactly `bytes`. */
+const refOf = (bytes: number[]) => `${bytesToHex(sha256(new Uint8Array(bytes)))}.png`
 const LAPTOP = 'L'.repeat(43)
 const BOX = 'H'.repeat(43)
 
@@ -306,7 +310,22 @@ describe('GroupFederation', () => {
   it('reads an image from whichever member has it', async () => {
     const { fed, laptop } = await setup()
     laptop.getBlob.mockResolvedValueOnce({ status: 200, bytes: new Uint8Array([9]), mediaType: 'image/png' })
-    await expect(fed.getBlob('x.png')).resolves.toMatchObject({ status: 200, bytes: new Uint8Array([9]) })
+    await expect(fed.getBlob(refOf([9]))).resolves.toMatchObject({ status: 200, bytes: new Uint8Array([9]) })
+  })
+
+  it('a full image whose bytes are not the ref\'s does not end the search; a thumbnail is taken as answered', async () => {
+    const { fed, studio, laptop } = await setup()
+    const ref = refOf([9])
+    studio.getBlob.mockResolvedValueOnce({ status: 200, bytes: new Uint8Array([6, 6]), mediaType: 'image/png' })
+    laptop.getBlob.mockImplementationOnce(() => new Promise((r) => setTimeout(() => r({ status: 200, bytes: new Uint8Array([9]), mediaType: 'image/png' }), 5)))
+    await expect(fed.getBlob(ref)).resolves.toMatchObject({ status: 200, bytes: new Uint8Array([9]) })
+    // Nobody with the ref's bytes: not an answer.
+    studio.getBlob.mockResolvedValueOnce({ status: 200, bytes: new Uint8Array([6, 6]), mediaType: 'image/png' })
+    laptop.getBlob.mockResolvedValueOnce({ status: 200, bytes: new Uint8Array([7]), mediaType: 'image/png' })
+    await expect(fed.getBlob(ref)).rejects.toBeInstanceOf(TunnelError)
+    studio.getBlob.mockResolvedValueOnce({ status: 200, bytes: new Uint8Array([6, 6]), mediaType: 'image/png' })
+    laptop.getBlob.mockImplementationOnce(() => new Promise(() => {}))
+    await expect(fed.getBlob(ref, { edge: 1024 })).resolves.toMatchObject({ status: 200, bytes: new Uint8Array([6, 6]) })
   })
 
   it('answers offline with no member up, and reads as not ready', async () => {

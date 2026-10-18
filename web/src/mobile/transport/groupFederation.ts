@@ -2,7 +2,7 @@ import {
   TunnelError, type BlobResult, type FileResult, type GetFileOptions, type HttpMethod, type PutBlobResult,
   type TunnelEvent, type TunnelResponse,
 } from '@orbital/shared/remote/tunnel'
-import type { Channel } from '@orbital/shared/remote/channel'
+import { bytesMatchRef, type Channel } from '@orbital/shared/remote/channel'
 import type { GroupClient, GroupClientEvent, PeerInfo } from '@orbital/shared/remote/groupClient'
 import {
   NotificationSettingsSchema, peerServes, type FileAs, type HelloMessage, type NotificationSettings,
@@ -269,7 +269,12 @@ export class GroupFederation implements SwappableClient {
     return res
   }
 
-  /** Asked of every source that is up at once; the first that has it answers. */
+  /**
+   * Asked of every source that is up at once; the first that has it answers.
+   * A full image counts only when its bytes are the ref's (`bytesMatchRef`):
+   * a member answering other bytes does not end the search. A thumbnail
+   * (`edge`) cannot be checked, so the first one answered is taken as is.
+   */
   getBlob(ref: string, opts: { edge?: number } = {}): Promise<BlobResult> {
     const ready = this.readySources()
     if (ready.length === 0) return Promise.reject(new TunnelError('offline'))
@@ -282,6 +287,10 @@ export class GroupFederation implements SwappableClient {
           (res) => {
             if (res.status !== 200) {
               last = res
+              return
+            }
+            if (opts.edge === undefined && !bytesMatchRef(ref, res.bytes)) {
+              failure ??= new TunnelError('lost')
               return
             }
             this.addHome(ref, source.id)
