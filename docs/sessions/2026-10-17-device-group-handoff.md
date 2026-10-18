@@ -129,6 +129,10 @@ without plan documents, from task briefs. Open edges:
 
 ## For the maintainer to confirm in Claude Design
 
+- 50a draws "Reset to default" in the relay editor, but Orbital has no
+  default relay (`docs/ops/run-the-relay.md`), so it is not built. Drop
+  it from the canvas, or decide on a default relay first.
+
 - From part 2b: the "Request rejected" card body; the one-line join
   errors; "paired with <name>"; "Show code"; 50a's Relay description
   ("every online member moves with it") against the lock.
@@ -156,6 +160,8 @@ without plan documents, from task briefs. Open edges:
 - **Part 4, the headless server** (spec § 11): `ORBITAL_HEADLESS=1`,
   kind `headless`, `orbital devices add|join|list|rename|remove`, the
   Linux fixes, a systemd unit and a runbook.
+  With it, the phone's own-code sheet gains the canvas's line "On a
+  server: orbital join" (50i), left out until the command exists.
 - **Part 5, the orbital MCP on every member** (#93 rebuilt on part 3).
 
 ## How the work was run
