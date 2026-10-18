@@ -49,9 +49,9 @@ UI, the phone as a member); each is narrow or heals on its own.
   differ.
 - **A turn refused because the device went offline** goes back to the
   draft as text; its attached images are lost.
-- **"As of" before the server's republish.** While only the roster says
-  a device is offline, the detail panel's state line shows no `AS OF`
-  until the server republishes the session.
+- **"As of" before the server's `machine` event.** While only the roster
+  says a device is offline, the detail panel's state line shows no
+  `AS OF` until the server's `machine` event for that device arrives.
 - **Folder chooser.** No retry after an "offline" answer; the order in
   which Escape closes the chooser and the dialog is unverified.
 
@@ -59,10 +59,27 @@ UI, the phone as a member); each is narrow or heals on its own.
 
 - **Two relay clients.** The server's `RelayClient` and the phone's
   `RelayLink` implement the same protocol separately.
-- **The join request sheet's backdrop** rejects the request on a tap.
 - **A too-old device's rows** still look live in the session list (its
   session screen is read only).
 - **This phone's code** is the QR's JSON as one long word; canvas 50i
   draws a short code.
 - **Model switcher default.** The header's model switcher of another
   device's session starts from this Mac's `default_model`.
+
+## Roster rule (removed devices)
+
+A member refuses a roster entry in which the sender raises its own epoch,
+and a self-added higher epoch for a device it removed (`roster.ts`). Left:
+
+- **The joiner's placeholder.** A member that still holds the placeholder
+  for a device (written by the member when it joined that device, with
+  that device as `addedBy`) and never got that device's own entry can
+  take a self-raised entry from the device after it was removed; members
+  that heard of the removal refuse it. Needs a device that withheld its
+  roster before it was removed.
+- **Re-adding by redeeming the removed device's code** writes that device
+  as its own `addedBy`, which a member that removed it refuses. Narrow:
+  joining is refused while in a group unless the joiner is alone.
+- **A device whose own epoch is above a member's** never gets its own
+  entry taken there; renames still arrive through its hello, and each
+  channel open costs one extra roster exchange.

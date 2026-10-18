@@ -116,7 +116,9 @@ hello. #79's `MultiClient`, with no main Mac:
   refuses. `MAC_FEATURES` is checked per device (`deviceSupports`,
   `sessionSupports`).
 - **Screens:** Settings → Devices (canvas 50i), this phone's code, the
-  join request sheet (only behind no lock), the newcomer's "Type
+  join request sheet (only behind no lock; a tap beside it or back sets
+  the request aside, Settings → Devices brings it back, only Reject
+  rejects), the newcomer's "Type
   <code> on <name>"; the list's device chips, asleep per device, rows
   naming their device, New session's device picker (canvas 50j). A
   too-old device's sessions are read only.
@@ -138,4 +140,6 @@ checks the code's device is online before it uses the code, so a 409
 - The server's `RelayClient` and the phone's `RelayLink` are two
   implementations of the same relay protocol; a fix to one does not
   reach the other.
-- A tap on the join request sheet's backdrop rejects the request.
+- A desktop may pair several phones; the phones of one group never link
+  with each other (both would open the channel), and each lists the
+  other as paired with the desktop it joined through.
