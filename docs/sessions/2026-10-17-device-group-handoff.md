@@ -1,6 +1,6 @@
 ---
 id: 2026-10-17-device-group-handoff
-title: "Device group — handoff after parts 1–3 (next: part 4, the headless server)"
+title: "Device group — handoff: parts 1–3 in PR #97, security pass before merge, then part 4"
 type: session
 status: active
 domain: remote
@@ -12,6 +12,9 @@ related:
   - device-channel
   - device-group
   - device-group-linking-edges
+  - device-group-federation-edges
+  - device-federation
+  - phone-in-the-group
   - a-device-has-one-identity-and-one-channel-per-pair
   - joining-one-member-joins-the-group
   - the-relay-pairs-two-devices-that-both-sign
@@ -30,16 +33,72 @@ carry it.
 
 ## Where the work is
 
-- **Branch** `feat/device-group-spec`, **worktree**
-  `.claude/worktrees/device-group`. Parts 1–3 are done, merged with
-  `origin/main` and shipped in one PR with desktop 0.34.0, relay 0.6.0
-  and phone 0.15.0. The relay must be deployed before the Mac and the
-  phone: the phone reads a relay below `RELAY_PHONE_GROUP_VERSION` as
-  one without the group routes.
-- **PR #79** (peer Macs) is replaced by this work: close it. **#93** (MCP
-  on every Mac) is rebuilt on part 3 as part 5.
+- **PR #97** (`feat/device-group-spec`, worktree
+  `.claude/worktrees/device-group`), pushed at `acfdb2d9`, open, not
+  merged. It carries parts 1–3 with desktop 0.34.0, relay 0.6.0 and
+  phone app 0.15.0 (no native change), merged with `origin/main` up to
+  #95. Labels: desktop, relay, mobile, ui, site, enhancement. The
+  feature review is posted on the PR ("fits").
+- **`/orbital-code-review` ran on the PR** (8 agents). All 11 findings
+  were fixed, reviewed and pushed (commits `b119a41e` … `015c3448`),
+  plus the last round: two phones never link with each other.
+- **Before merge:**
+  1. A dedicated adversarial security pass over the whole PR (see
+     "Security posture" below) — the user asked whether it is
+     bulletproof; the answer is "solid for its threat model, not
+     bulletproof".
+  2. The four Demo screenshots in the PR description.
+  3. The maintainer's look at "For the maintainer to confirm in Claude
+     Design".
+  4. Deploy order: the relay (0.6.0) before the Mac and the phone — the
+     phone reads a relay below `RELAY_PHONE_GROUP_VERSION` as one without
+     the group routes.
+- **After merge:** close **#79** (peer Macs, replaced); **#93** (MCP on
+  every Mac) is rebuilt as part 5.
 - Run the server suite with the session's `ORBITAL_*` variables unset;
   four tests fail otherwise (`env | grep ORBITAL`, then `env -u …`).
+- Nothing runs in the background; the throwaway servers' data is in
+  `/tmp/fid-a`, `/tmp/fid-b`, `/tmp/fid-relay` (disposable).
+
+## Security posture (2026-10-18)
+
+Holds:
+- End to end: Ed25519 identities, X25519 + AES-GCM per channel; the
+  relay is blind and cannot invent a pair (`/pair/mutual` needs both
+  signatures).
+- Pairing: proof from the QR secret, six-character code with
+  `PAIR_CODE_ATTEMPTS`, single-use, expiring; a code tried while its
+  device is offline stays good.
+- One literal allowlist for every member (canonical string, restricted
+  segments); IDE, terminals, auth, remote never on it.
+  `x-orbital-device` only restricts (never forwarded, no `remote_*`).
+- No chaining: hub, `ServingHalf`, `DeviceWatcher`, merged lists, a new
+  `machine` event withheld from every peer.
+- Image fallback: sha256 of the bytes = the ref, type by extension,
+  `nosniff`. CORS only on signed pair routes.
+- A removed device cannot re-add itself directly: a member refuses a
+  roster entry in which the sender raises its own epoch, and a
+  self-added higher epoch for a device it removed.
+
+Not bulletproof, knowingly:
+- **The roster is unsigned.** Three edge cases of the rule remain
+  (`docs/fixes/device-group-federation-edges.md` → Roster rule). The
+  real fix is signed roster entries (the adder signs) — a future ADR.
+- **Trust is group-wide by design**: a paired device's kind and whether
+  it links are its own word; any member may run a session with
+  `bypassPermissions` or set `claude_executable_path` on another
+  (spec § 6, ADR `every-member-reaches-one-literal-allowlist`).
+- **A stolen device with its key** acts until removed; a removal reaches
+  a sleeping member late.
+- **The relay** sees metadata (pairs, presence, message sizes) and can
+  deny service.
+- **At rest**: other members' session snapshots are in SQLite,
+  unencrypted, like the rest of Orbital's data.
+
+Suggested next step: one `review-security` run on Opus with an
+attacker's brief (a stolen phone with its key; a malicious member; a
+malicious relay; a web page in the WebView's origin) over PR #97, then
+decide on signed roster entries.
 
 ## What is done
 
@@ -100,6 +159,7 @@ without plan documents, from task briefs. Open edges:
 
 ## Next
 
+- **Before merge**: the security pass and the rest of "Where the work is".
 - **Part 4, the headless server** (spec § 11): `ORBITAL_HEADLESS=1`,
   kind `headless`, `orbital devices add|join|list|rename|remove`, the
   Linux fixes, a systemd unit and a runbook.
