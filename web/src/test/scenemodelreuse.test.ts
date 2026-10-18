@@ -16,7 +16,7 @@ function planet(id: string, contextFill: ContextFill | null): ScenePlanet {
     leaving: false,
     modelFamily: null,
     deviceName: null,
-    asOf: null,
+    dated: false,
     secondLine: null,
     outlineLine: null,
     offline: false,

@@ -94,6 +94,7 @@ import type { ContextFill } from './sceneModel'
 import { DetachGlyph } from '../ui/UtilityButton'
 import { useClaudeDirMark } from '../ui/ClaudeDirMark'
 import { localClaudeDirId } from '../lib/devices'
+import { WithAge } from './WithAge'
 import {
   COMPACTED_CAPTION_MS,
   COMPACTING_SWITCH_MS,
@@ -554,10 +555,12 @@ export interface PlanetProps {
   muted?: boolean
   /**
    * Second label line as drawn (`ScenePlanet.secondLine`): the family in
-   * capitals (`OPUS`), then the device name and its age while those show
-   * (canvas 50e) — null for no second line.
+   * capitals (`OPUS`), then the device name while it shows (canvas 50e) —
+   * null for none.
    */
   secondLine?: string | null
+  /** The second line closes with the device's age (`ScenePlanet.dated`, `WithAge`). */
+  dated?: boolean
   /**
    * The session's device is offline (`ScenePlanet.offline`): the planet keeps
    * its last state at `OFFLINE_OPACITY` and holds still — no spin, no blink,
@@ -1477,6 +1480,7 @@ function PlanetBody({
   hidden = false,
   muted = false,
   secondLine = null,
+  dated = false,
   offline = false,
   deviceOff = false,
   labelTitlePx = 11,
@@ -2453,7 +2457,7 @@ function PlanetBody({
                   />
                   {limitPill}
                 </span>
-              ) : secondLine && (
+              ) : (secondLine || dated) && (
                 // canvas 4a, "Map label, second line under the planet title":
                 // mono 9.5px / .1em tracking, 5px below the title.
                 <span
@@ -2474,7 +2478,7 @@ function PlanetBody({
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {secondLine}
+                  {dated ? <WithAge text={secondLine} machine={session.machine} /> : secondLine}
                 </span>
               )}
               {captionMounted && (

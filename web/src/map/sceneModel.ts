@@ -121,12 +121,16 @@ export interface ScenePlanet {
    */
   deviceName: string | null
   /**
-   * `as of 2 h` while the session's device is offline (`asOfLabel`), else null.
+   * The session's device is offline and dated, so its labels close with
+   * `as of 2 h` (`asOfLabel`). The age itself is not here: it ticks on its
+   * own clock where it is drawn (`WithAge`), so the minute passing does not
+   * rebuild the scene.
    */
-  asOf: string | null
+  dated: boolean
   /**
-   * The planet's second label line, as drawn (`planetSecondLine`): the family
-   * in capitals, then the device name and the age — or null for none.
+   * The planet's second label line, as drawn (`planetSecondLine`), short of
+   * the age `dated` adds: the family in capitals, then the device name — or
+   * null for none.
    */
   secondLine: string | null
   /**
@@ -323,41 +327,27 @@ export interface DeviceNames {
 
 /**
  * A planet's second label line (canvas 50e `p(dev, model)`): the family in
- * capitals, then the device name while names show, then `as of 2 h` while
- * the device is offline. With the model line off the device name stands
- * alone; null when there is nothing to say.
+ * capitals, then the device name while names show; `WithAge` closes it with
+ * `as of 2 h` while the device is offline. With the model line off the device
+ * name stands alone; null when there is nothing to say.
  */
-export function planetSecondLine(
-  modelFamily: string | null,
-  deviceName: string | null,
-  asOf: string | null,
-): string | null {
-  const parts = [modelFamily?.toUpperCase(), deviceName, asOf].filter((part): part is string => Boolean(part))
+export function planetSecondLine(modelFamily: string | null, deviceName: string | null): string | null {
+  const parts = [modelFamily?.toUpperCase(), deviceName].filter((part): part is string => Boolean(part))
   return parts.length > 0 ? parts.join(' · ') : null
 }
 
 /**
  * A Desk card's meta line (canvas 50h `card(o)`): the device name leads it
- * while names show, then the branch and the family, then `as of 2 h` while
- * the device is offline. Null when there is nothing to say.
+ * while names show, then the branch and the family; `WithAge` closes it with
+ * `as of 2 h` while the device is offline. Null when there is nothing to say.
  */
 export function deskCardMeta(
   gitRef: string | null | undefined,
   modelFamily: string | null,
   deviceName: string | null,
-  asOf: string | null,
 ): string | null {
-  const parts = [deviceName, gitRef, modelFamily, asOf].filter((part): part is string => Boolean(part))
+  const parts = [deviceName, gitRef, modelFamily].filter((part): part is string => Boolean(part))
   return parts.length > 0 ? parts.join(' · ') : null
-}
-
-/**
- * Whether the scene draws an age that counts (`as of 2 h`): a planet of an
- * offline device whose chip is on. One behind a chip that is off is not
- * drawn, so its age needs no clock.
- */
-export function agesOnMap(model: Pick<SceneModel, 'planets'>): boolean {
-  return model.planets.some((p) => p.offline && !p.deviceOff && p.asOf !== null)
 }
 
 /**
@@ -453,7 +443,6 @@ export function buildSceneModel(
       const modelFamily = showModel ? (matchModel(session, state.models)?.family ?? null) : null
       const rowName = names === null ? null : (session.machine?.name ?? names.self)
       const deviceName = names?.shown ? rowName : null
-      const asOf = asOfLabel(session.machine, nowMs)
       planets.push({
         session,
         x: pos.x,
@@ -467,10 +456,10 @@ export function buildSceneModel(
         leaving: isLeaving(session),
         modelFamily,
         deviceName,
-        asOf,
-        secondLine: planetSecondLine(modelFamily, deviceName, asOf),
+        dated: asOfLabel(session.machine, nowMs) !== null,
+        secondLine: planetSecondLine(modelFamily, deviceName),
         // No age: going offline and the minute tick must not move a body.
-        outlineLine: planetSecondLine(modelFamily, rowName, null),
+        outlineLine: planetSecondLine(modelFamily, rowName),
         offline,
         deviceOff,
         contextFill,

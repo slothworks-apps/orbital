@@ -3,7 +3,6 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { ApiSession, OrbitalModel, Subagent, Tag } from '../lib/types'
 import { PLANET_SCALE_MAX, PLANET_SCALE_MIN, useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 import {
-  agesOnMap,
   buildSceneModel,
   contextFillFor,
   deskCardMeta,
@@ -457,22 +456,19 @@ describe('buildSceneModel model family', () => {
 })
 
 describe('label lines for another device (canvas 50e, 50h)', () => {
-  it('planetSecondLine: family, then the device name, then the age', () => {
-    expect(planetSecondLine('Opus', 'build-box', null)).toBe('OPUS · build-box')
-    expect(planetSecondLine('Sonnet', 'air-m3', 'as of 2 h')).toBe('SONNET · air-m3 · as of 2 h')
-    expect(planetSecondLine('Opus', null, 'as of 2 h')).toBe('OPUS · as of 2 h')
+  it('planetSecondLine: family, then the device name', () => {
+    expect(planetSecondLine('Opus', 'build-box')).toBe('OPUS · build-box')
     // The model line off: the device name alone.
-    expect(planetSecondLine(null, 'build-box', null)).toBe('build-box')
-    expect(planetSecondLine('Opus', null, null)).toBe('OPUS')
-    expect(planetSecondLine(null, null, null)).toBeNull()
+    expect(planetSecondLine(null, 'build-box')).toBe('build-box')
+    expect(planetSecondLine('Opus', null)).toBe('OPUS')
+    expect(planetSecondLine(null, null)).toBeNull()
   })
 
-  it('deskCardMeta: the device name leads, the age closes', () => {
-    expect(deskCardMeta('hotfix/checkout-5xx', 'Opus', 'build-box', null)).toBe('build-box · hotfix/checkout-5xx · Opus')
-    expect(deskCardMeta('astro-migration', 'Sonnet', 'air-m3', 'as of 2 h')).toBe('air-m3 · astro-migration · Sonnet · as of 2 h')
+  it('deskCardMeta: the device name leads', () => {
+    expect(deskCardMeta('hotfix/checkout-5xx', 'Opus', 'build-box')).toBe('build-box · hotfix/checkout-5xx · Opus')
     // One chip on: exactly as shipped.
-    expect(deskCardMeta('main', 'Sonnet', null, null)).toBe('main · Sonnet')
-    expect(deskCardMeta(undefined, null, null, null)).toBeNull()
+    expect(deskCardMeta('main', 'Sonnet', null)).toBe('main · Sonnet')
+    expect(deskCardMeta(undefined, null, null)).toBeNull()
   })
 })
 
@@ -530,19 +526,19 @@ describe('buildSceneModel for another device (canvas 50e)', () => {
     }
   })
 
-  it('ticks the age only while the map draws an offline planet whose chip is on', () => {
-    expect(agesOnMap(buildSceneModel(state, NOW, [], SHOWN))).toBe(true)
-    // Its chip off: the planet is not drawn, so its age needs no clock.
-    expect(agesOnMap(buildSceneModel(state, NOW, ['air'], SHOWN))).toBe(false)
-    const allUp = withSessions(sessions.filter((s) => s.id !== 'away'), { models: MODELS })
-    expect(agesOnMap(buildSceneModel(allUp, NOW, [], null))).toBe(false)
+  it('dates an offline planet without reading the age into the model', () => {
+    expect(planet(buildSceneModel(state, NOW, [], SHOWN), 'away').dated).toBe(true)
+    expect(planet(buildSceneModel(state, NOW, [], SHOWN), 'there').dated).toBe(false)
+    // The minute passing changes nothing the model holds.
+    expect(planet(buildSceneModel(state, NOW + 2 * HOUR, [], SHOWN), 'away').secondLine)
+      .toBe(planet(buildSceneModel(state, NOW, [], SHOWN), 'away').secondLine)
   })
 
   it('names every planet by its device while names show, this device by its own name', () => {
     const model = buildSceneModel(state, NOW, [], SHOWN)
     expect(planet(model, 'here').secondLine).toBe('OPUS · studio')
     expect(planet(model, 'there').secondLine).toBe('SONNET · build-box')
-    expect(planet(model, 'away').secondLine).toBe('SONNET · air-m3 · as of 2 h')
+    expect(planet(model, 'away').secondLine).toBe('SONNET · air-m3')
     expect(planet(model, 'away').deviceName).toBe('air-m3')
   })
 
@@ -550,7 +546,7 @@ describe('buildSceneModel for another device (canvas 50e)', () => {
     const model = buildSceneModel(state, NOW, [], UNSHOWN)
     expect(planet(model, 'here').secondLine).toBe('OPUS')
     expect(planet(model, 'there').secondLine).toBe('SONNET')
-    expect(planet(model, 'away').secondLine).toBe('SONNET · as of 2 h')
+    expect(planet(model, 'away').secondLine).toBe('SONNET')
     expect(planet(model, 'there').deviceName).toBeNull()
   })
 

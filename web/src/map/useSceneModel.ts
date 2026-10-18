@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { MAP_LEAVE_GRACE_MS, hiddenDevices, useOrbital } from '../store/store'
-import { agesOnMap, buildSceneModel, reuseContextFills, type DeviceNames, type SceneModel } from './sceneModel'
-import { AS_OF_TICK_MS, deviceChips, namesShown, showDeviceRow } from '../lib/devices'
+import { buildSceneModel, reuseContextFills, type DeviceNames, type SceneModel } from './sceneModel'
+import { deviceChips, namesShown, showDeviceRow } from '../lib/devices'
 
 /**
  * `<SpaceMap>`'s scene-model subscription. Deliberately NOT
@@ -160,13 +160,5 @@ export function useSceneModel(): SceneModel {
     previous.current = model
   }, [model])
 
-  // An offline member's age (`as of 2 h`) is read off `nowMs`, so the clock
-  // is re-read each minute while the map draws one.
-  const agesShown = agesOnMap(model)
-  useEffect(() => {
-    if (!agesShown) return
-    const timer = setInterval(() => setNowMs(Date.now()), AS_OF_TICK_MS)
-    return () => clearInterval(timer)
-  }, [agesShown])
   return model
 }

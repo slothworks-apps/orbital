@@ -1179,6 +1179,7 @@ export function SpaceMap() {
               hidden={planet.leaving}
               muted={planet.muted}
               secondLine={planet.secondLine}
+              dated={planet.dated}
               offline={planet.offline}
               deviceOff={planet.deviceOff}
               labelTitlePx={labelFont.title}

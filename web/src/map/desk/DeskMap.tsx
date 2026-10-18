@@ -27,6 +27,7 @@ import { useDocumentHidden, useWindowFocused } from '../../lib/useWindowFocused'
 import { StateDot } from '../../ui/StateDot'
 import { useSceneModel } from '../useSceneModel'
 import { deskCardMeta, type ScenePlanet } from '../sceneModel'
+import { WithAge } from '../WithAge'
 import { prefersReducedMotion } from '../transition'
 import { OFFLINE_OPACITY } from '../visuals'
 import { isMemberOffline } from '../../lib/devices'
@@ -571,7 +572,7 @@ const DeskCard = memo(function DeskCard({
     ? Math.max(0, Math.floor((now - planet.compactingSince) / 1000))
     : 0
   const needs = key === 'needs_input'
-  const meta = deskCardMeta(s.git?.ref, planet.modelFamily, planet.deviceName, planet.asOf)
+  const meta = deskCardMeta(s.git?.ref, planet.modelFamily, planet.deviceName)
   const cardRef = useRef<HTMLElement>(null)
   useFold(cardRef, planet.deviceOff)
 
@@ -667,9 +668,9 @@ const DeskCard = memo(function DeskCard({
             </div>
           </div>
 
-          {meta && (
+          {(meta || planet.dated) && (
             <div className="-mt-1 truncate pl-4 font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
-              {meta}
+              {planet.dated ? <WithAge text={meta} machine={s.machine} /> : meta}
             </div>
           )}
 
