@@ -1282,14 +1282,14 @@ export const api = {
    * its group's primary — only the primary adds a device.
    */
   async startPairing(): Promise<
-    { qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' } | NotPrimary
+    { qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' | 'joining' } | NotPrimary
   > {
-    return remoteCall<{ qr: string; expiresAt: number }, 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' | 'not_primary'>(
+    return remoteCall<{ qr: string; expiresAt: number }, 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' | 'joining' | 'not_primary'>(
       'POST', '/api/remote/pair', undefined, {
         403: ['not_primary'],
-        409: ['disabled', 'offline', 'relay_error', 'relay_too_old'],
+        409: ['disabled', 'offline', 'relay_error', 'relay_too_old', 'joining'],
       },
-    ) as Promise<{ qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' } | NotPrimary>
+    ) as Promise<{ qr: string; expiresAt: number } | { error: 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' | 'joining' } | NotPrimary>
   },
 
   /**
@@ -1392,14 +1392,14 @@ export const api = {
 /** The refusals `POST /api/remote/join` answers with instead of `{ device, name, code }`. */
 type JoinErrorCode =
   | 'bad_code' | 'disabled' | 'offline' | 'already_paired' | 'in_group' | 'relay_error' | 'relay_too_old'
-  | 'other_relay' | 'peer_offline' | 'group_full' | 'not_primary'
+  | 'other_relay' | 'peer_offline' | 'group_full' | 'not_primary' | 'joining'
 
 const JOIN_REFUSALS: Partial<Record<number, readonly JoinErrorCode[]>> = {
   400: ['bad_code'],
   403: ['not_primary'],
   409: [
     'disabled', 'offline', 'already_paired', 'in_group', 'relay_error', 'relay_too_old', 'other_relay', 'peer_offline',
-    'group_full',
+    'group_full', 'joining',
   ],
 }
 

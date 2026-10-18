@@ -1905,6 +1905,12 @@ export interface RemoteStatus {
    */
   group: {
     members: GroupMember[]; relayLocked: boolean; primary: PrimaryRef | null; isPrimary: boolean; ended?: GroupEnded | null
+    /**
+     * A join under way: a pairing made this device join `primary`'s group and its first roster has
+     * not come; dropped when its code runs out (`expiresAt`), cancelled by `DELETE /api/remote/join`.
+     * Absent from a server from before it.
+     */
+    pendingJoin?: { primary: string; expiresAt: number | null } | null
   }
 }
 

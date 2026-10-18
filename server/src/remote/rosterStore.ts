@@ -66,6 +66,7 @@ export class GroupMembershipStore {
     if (!row) return null;
     const m: Membership = { group: row.groupId, founding: row.founding, version: row.version, member: row.member };
     if (row.leftFounding !== null && row.leftVersion !== null) m.left = { founding: row.leftFounding, version: row.leftVersion };
+    if (row.joinExpires !== null) m.expires = row.joinExpires;
     if ((row.endedWhy === 'dissolved' || row.endedWhy === 'removed') && row.endedBy !== null && row.endedByName !== null) {
       m.ended = { why: row.endedWhy, by: { id: row.endedBy, name: row.endedByName } };
     }
@@ -80,6 +81,7 @@ export class GroupMembershipStore {
         groupId: m.group, founding: m.founding, version: m.version, member: m.member,
         leftFounding: m.left?.founding ?? null, leftVersion: m.left?.version ?? null,
         endedWhy: m.ended?.why ?? null, endedBy: m.ended?.by.id ?? null, endedByName: m.ended?.by.name ?? null,
+        joinExpires: m.expires ?? null,
       }).run();
     });
   }

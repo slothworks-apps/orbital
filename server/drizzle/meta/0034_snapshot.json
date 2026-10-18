@@ -565,6 +565,13 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "join_expires": {
+          "name": "join_expires",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {},

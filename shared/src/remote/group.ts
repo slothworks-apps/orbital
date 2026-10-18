@@ -342,14 +342,64 @@ export class GroupMember {
    * A pairing just made this device join `primary`'s group (the other side
    * adds it): from now on it takes that primary's roster, and no other group's.
    */
-  joinGroup(primary: string): void {
+  joinGroup(primary: string, expires?: number): () => void {
+    let previous: Membership | null = null;
+    let joined = false;
     this.tryRoster('remember the group joined', () => {
       const m = this.storage.membership.get();
+      previous = m;
       // The group it left before, joined again: any founding of that primary, but the versions of the
       // one it left, up to where it left, stay refused.
       const left = m && m.group === primary && !m.member && m.founding !== null ? { founding: m.founding, version: m.version } : null;
-      this.storage.membership.set({ group: primary, founding: null, version: 0, member: true, ...(left ? { left } : {}) });
+      this.storage.membership.set({
+        group: primary, founding: null, version: 0, member: true, ...(left ? { left } : {}),
+        ...(expires !== undefined ? { expires } : {}),
+      });
+      joined = true;
+      this.host.changed();
+      // The primary may have sent its roster before this was recorded: its digest asks for it again.
+      this.host.channel(primary)?.sendGroup({ t: 'roster_digest', digest: this.storage.roster.digest() });
     });
+    return () => {
+      if (joined) this.tryRoster('undo a join', () => this.storage.membership.set(previous));
+    };
+  }
+
+  /**
+   * The join under way: a ceremony named the primary, and its first roster
+   * has not come. One whose code stopped working is dropped here (the
+   * membership goes back to what the device left before, if anything).
+   */
+  pendingJoin(): Membership | null {
+    try {
+      const m = this.storage.membership.get();
+      if (!m || !m.member || m.founding !== null || this.storage.roster.read().roster) return null;
+      if (m.expires !== undefined && m.expires <= this.host.now()) {
+        this.dropJoin(m);
+        return null;
+      }
+      return m;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Gives up the join under way (the user cancelled it): the membership goes
+   * back to what it was, and the pair made with the primary for it ends.
+   * False when no join is under way.
+   */
+  abandonJoin(): boolean {
+    const m = this.pendingJoin();
+    if (!m) return false;
+    this.dropJoin(m);
+    if (this.storage.paired.get(m.group)) this.finishExit(m.group);
+    return true;
+  }
+
+  private dropJoin(m: Membership): void {
+    this.storage.membership.set(m.left ? { group: m.group, founding: m.left.founding, version: m.left.version, member: false } : null);
+    this.host.changed();
   }
 
   /** A device whose pair ends once the document that ends it reached it: nothing is served to it meanwhile. */
@@ -860,6 +910,8 @@ export class GroupMember {
       this.setRoster(state);
       return;
     }
+    // A join under way: this device founds nothing of its own meanwhile.
+    if (this.pendingJoin()) return;
     const { kind } = this.host.about();
     const phones = this.storage.paired.list().filter((d) => (d.kind ?? 'phone') === 'phone').slice(0, ROSTER_MAX_ENTRIES - 1);
     if (kind === 'phone' || phones.length === 0) return;
@@ -881,7 +933,7 @@ export class GroupMember {
    */
   canAdd(id: string): boolean {
     const self = this.ownId;
-    if (self === null) return false;
+    if (self === null || this.pendingJoin()) return false;
     try {
       const state = this.storage.roster.read();
       const doc = state.roster;
@@ -1001,6 +1053,7 @@ export class GroupMember {
     this.tryRoster('take a roster', () => {
       const self = this.ownId;
       if (self === null) return;
+      this.pendingJoin();
       const next = takeRoster(this.storage.roster.read(), theirs, {
         self, membership: this.storage.membership.get(), from,
       });

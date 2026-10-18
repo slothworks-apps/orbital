@@ -550,6 +550,8 @@ export const groupMembership = sqliteTable('group_membership', {
   endedWhy: text('ended_why'),
   endedBy: text('ended_by'),
   endedByName: text('ended_by_name'),
+  /** `Membership.expires`: while a join waits for its primary's first roster, when its code stops working. */
+  joinExpires: integer('join_expires'),
 });
 
 /**

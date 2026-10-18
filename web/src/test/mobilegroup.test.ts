@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { deviceId, fingerprint, generateIdentity } from '@orbital/shared/remote/keys'
 import { EMPTY_ROSTER, describeDevice, foundRoster, type RosterState } from '@orbital/shared/remote/roster'
 import type { Identity } from '@orbital/shared/remote/keys'
-import { migratePairing, pairingFromGroup, parseGroupRecord, reconcileGroup, type Pairing } from '../mobile/platform/parse'
+import { migratePairing, pairingFromGroup, parseGroupRecord, reconcileGroup, storedMembership, type Pairing } from '../mobile/platform/parse'
 import { PersistQueue } from '../mobile/platform/persistQueue'
 import { useMobile, type DeviceView } from '../mobile/state'
 import { MAC_FEATURES, deviceSupports, sessionSupports } from '../mobile/version'
@@ -97,14 +97,35 @@ describe('reconcileGroup', () => {
     expect(reconcileGroup(group, null)).toEqual({ record: null, stale: true })
   })
 
-  it('starts afresh from a pairing for a device the group does not hold: an older bundle paired another', () => {
+  it('starts afresh from a pairing for a device the group does not hold, keeping the group id the record held', () => {
     const fresh: Pairing = { ...PAIRING, mac: deviceId(generateIdentity().publicKey), macName: 'laptop' }
-    expect(reconcileGroup(group, fresh)).toEqual({ record: migratePairing(fresh), stale: true })
+    const membership = { group: other, founding: 'f', version: 4, member: true }
+    const withId = { ...group, group: { ...group.group, membership } }
+    const { record, stale } = reconcileGroup(withId, fresh)
+    expect(stale).toBe(true)
+    expect(record?.group.paired.map((d) => d.id)).toEqual([fresh.mac])
+    // Never the pairing's device as the group: that is only the first paired device since groups.
+    expect(record?.group.membership).toEqual(membership)
     // A device the roster no longer names is not held either, nor a device on another relay.
     const removed = { ...group, group: { ...group.group, paired: [], roster: rosterOf(generateIdentity()) } }
     expect(reconcileGroup(removed, { ...PAIRING, mac: other }).stale).toBe(true)
     expect(reconcileGroup(group, { ...PAIRING, relay: 'https://other.test' }).stale).toBe(true)
   })
+
+  it('migrates from the pairing only when no group record was ever written; one that does not read keeps its group id', () => {
+    // A record was written once (the marker), and is gone now: the pairing's device is a pair, not the group.
+    const gone = reconcileGroup(null, PAIRING, { seen: true, membership: null }).record!
+    expect(gone.group.paired.map((d) => d.id)).toEqual([mac])
+    expect(gone.group.membership).toBeUndefined()
+    // A record that does not read as a whole keeps the group id it still holds.
+    const kept = { group: other, founding: 'f', version: 2, member: true }
+    const raw = JSON.stringify({ relay: 'not a url', group: { membership: kept } })
+    expect(parseGroupRecord(raw)).toBeNull()
+    expect(storedMembership(raw)).toEqual(kept)
+    expect(reconcileGroup(null, PAIRING, { seen: true, membership: storedMembership(raw) }).record?.group.membership).toEqual(kept)
+    expect(storedMembership('nope')).toBeNull()
+  })
+
 })
 
 describe('PersistQueue', () => {

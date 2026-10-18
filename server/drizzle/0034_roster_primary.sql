@@ -20,7 +20,8 @@ CREATE TABLE `group_membership` (
 	`left_version` integer,
 	`ended_why` text,
 	`ended_by` text,
-	`ended_by_name` text
+	`ended_by_name` text,
+	`join_expires` integer
 );
 --> statement-breakpoint
 CREATE TABLE `group_exits` (

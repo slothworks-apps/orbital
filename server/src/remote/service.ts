@@ -111,6 +111,13 @@ export type RemoteStatus = {
     primary: PrimaryRef | null;
     isPrimary: boolean;
     ended: GroupEnded | null;
+    /**
+     * A join under way: a pairing made this device join `primary`'s group and
+     * its first roster has not come; `expiresAt`, when the code it was made
+     * with stops working and the join is dropped. `DELETE /api/remote/join`
+     * cancels it. Null otherwise.
+     */
+    pendingJoin: { primary: string; expiresAt: number | null } | null;
   };
 };
 
@@ -252,7 +259,9 @@ export class RemoteService {
       },
       pendingRevokes: { remove: (id) => this.group.pairedAfresh(id) },
       addPaired: (device) => this.group.addPaired(device),
-      joinGroup: (id) => this.group.joinGroup(id),
+      joinGroup: (id, expires) => this.group.joinGroup(id, expires),
+      joining: () => this.group.pendingJoin() !== null,
+      abandonJoin: () => this.group.abandonJoin(),
       revokeCancelled: (id) => this.group.tryRoster('revoke a cancelled join', () => this.group.revokeAtRelay(id)),
       watch: (id) => this.watch(id),
       abandon: (id) => {
@@ -468,11 +477,17 @@ export class RemoteService {
       return {
         members, relayLocked: this.group.inGroup(), primary, isPrimary: primary !== null && primary.id === this.ownId(),
         ended: this.group.ended(),
+        pendingJoin: this.pendingJoin(),
       };
     } catch (err) {
       console.warn(`[remote] could not list the roster: ${err instanceof Error ? err.message : String(err)}`);
-      return { members: [], relayLocked: false, primary: null, isPrimary: false, ended: null };
+      return { members: [], relayLocked: false, primary: null, isPrimary: false, ended: null, pendingJoin: null };
     }
+  }
+
+  private pendingJoin(): RemoteStatus['group']['pendingJoin'] {
+    const m = this.group.pendingJoin();
+    return m ? { primary: m.group, expiresAt: m.expires ?? null } : null;
   }
 
   /** See `GroupMember.inGroup`: it cannot join another group then, nor move to another relay. */

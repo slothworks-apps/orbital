@@ -308,6 +308,12 @@ export function descriptionOf(state: RosterState, id: string): Description | nul
 export type Membership = {
   group: string; founding: string | null; version: number; member: boolean; left?: { founding: string; version: number };
   ended?: GroupEnded;
+  /**
+   * While a join waits for its primary's first roster (`founding` null):
+   * when the code it was made with stops working (epoch ms); past it, the
+   * join is dropped (`GroupMember.pendingJoin`).
+   */
+  expires?: number;
 };
 
 /**

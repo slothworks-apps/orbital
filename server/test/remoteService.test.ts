@@ -665,6 +665,20 @@ describe('RemoteService join and the group', () => {
     expect(redeems(fake)).toHaveLength(1);
   });
 
+  it('a join under way shows in the status, blocks a code of its own, and is cancelled by cancelJoin', async () => {
+    const { service, fake } = build();
+    const joined = await service.join(codeFrom({ group: undefined }));
+    if (!('device' in joined)) throw new Error('join failed');
+    fake.emit('control', { type: 'paired', mac: joined.device });
+    expect(service.status().group.pendingJoin).toEqual({ primary: joined.device, expiresAt: NOW + 90_000 });
+    expect(await service.startPairing()).toEqual({ error: 'joining' });
+    expect(service.cancelJoin()).toBe(true);
+    expect(service.status().group.pendingJoin).toBeNull();
+    await tick();
+    expect(fake.posts.filter((p) => p.path === '/pair/revoke').map((p) => p.payload)).toEqual([{ phone: joined.device }]);
+    expect(service.cancelJoin()).toBe(false);
+  });
+
   it('no code waits longer than PAIRING_TOKEN_TTL_MS, whatever it says', async () => {
     const { service } = build();
     await service.join(codeFrom({ expiresAt: NOW + PAIRING_TOKEN_TTL_MS * 10 }));

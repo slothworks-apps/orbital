@@ -215,7 +215,9 @@ export class GroupClient {
       paired: this.storage.paired,
       pendingRevokes: { remove: (id) => this.group.pairedAfresh(id) },
       addPaired: (device) => this.group.addPaired(device),
-      joinGroup: (id) => this.group.joinGroup(id),
+      joinGroup: (id, expires) => this.group.joinGroup(id, expires),
+      joining: () => this.group.pendingJoin() !== null,
+      abandonJoin: () => this.group.abandonJoin(),
       revokeCancelled: (id) => this.group.tryRoster('revoke a cancelled join', () => this.group.revokeAtRelay(id)),
       watch: () => {},
       abandon: (id) => this.drop(id),
@@ -830,6 +832,7 @@ const MembershipSchema = z.object({
   group: z.string(), founding: z.string().nullable(), version: z.number().int().nonnegative(), member: z.boolean(),
   left: z.object({ founding: z.string(), version: z.number().int().nonnegative() }).optional(),
   ended: z.object({ why: z.enum(['dissolved', 'removed']), by: z.object({ id: z.string(), name: z.string() }) }).optional(),
+  expires: z.number().int().nonnegative().optional(),
 });
 const ExitSchema = z.object({ id: z.string(), state: RosterStateSchema });
 

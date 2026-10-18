@@ -28,6 +28,8 @@ function fakeRelay(answers: Record<string, Answer> = {}) {
 
 function build(opts: {
   kind?: string; inGroup?: boolean; members?: string[]; paired?: PairedDevice[]; answers?: Record<string, Answer>; full?: boolean; fills?: boolean;
+  /** A join under way waits for its primary's roster. */
+  joining?: boolean;
   /** This device is a member whose group's primary is this one. */
   primary?: PrimaryRef;
 } = {}) {
@@ -37,7 +39,7 @@ function build(opts: {
   const calls = {
     addPaired: [] as { id: string; kind: string; name: string; os: string; links: boolean }[],
     revoked: [] as string[], watched: [] as string[], opened: [] as string[], abandoned: [] as string[],
-    announced: [] as PendingPair[], unrevoked: [] as string[], joined: [] as string[],
+    announced: [] as PendingPair[], unrevoked: [] as string[], joined: [] as string[], undone: [] as string[],
   };
   let now = 1_000;
   const host: CeremonyHost = {
@@ -59,7 +61,12 @@ function build(opts: {
     },
     pendingRevokes: { remove: (id) => { calls.unrevoked.push(id); } },
     addPaired: (d) => { calls.addPaired.push(d); return !opts.fills; },
-    joinGroup: (id) => { calls.joined.push(id); },
+    joinGroup: (id) => {
+      calls.joined.push(id);
+      return () => { calls.undone.push(id); };
+    },
+    joining: () => opts.joining ?? false,
+    abandonJoin: () => { calls.abandoned.push('join'); return opts.joining ?? false; },
     revokeCancelled: (id) => { calls.revoked.push(id); },
     watch: (id) => { calls.watched.push(id); },
     abandon: (id) => { calls.abandoned.push(id); },
@@ -461,3 +468,38 @@ describe('PairingCeremony on a member that is not the primary', () => {
     expect(m.relay.posts).toEqual([]);
   });
 });
+
+describe('PairingCeremony while a join is under way', () => {
+  it('shows no code, redeems none and refuses a request: it adds and founds nothing until the join is done or cancelled', async () => {
+    const j = build({ joining: true });
+    expect(await j.ceremony.start()).toEqual({ error: 'joining' });
+    const qr = await showCode(build());
+    expect(await j.ceremony.join(JSON.stringify(qr))).toEqual({ error: 'joining' });
+    expect(j.relay.posts).toEqual([]);
+    // A cancel with no ceremony left gives the join under way up.
+    expect(j.ceremony.cancelJoin()).toBe(true);
+    expect(j.calls.abandoned).toEqual(['join']);
+    expect(build().ceremony.cancelJoin()).toBe(false);
+  });
+
+  it('the side the other adds records the join before its confirm goes out, and undoes it when the relay refuses', async () => {
+    const shower = build({ kind: 'phone' });
+    const qr = await showCode(shower);
+    const typer = build();
+    const res = await typer.ceremony.join(JSON.stringify(qr));
+    if (!('code' in res)) throw new Error('join failed');
+    const redeem = typer.relay.posts.find((p) => p.path === '/pair/redeem')!.payload as { proof: string; device: string };
+    shower.ceremony.onPairRequest({ type: 'pair_request', phone: typer.id, ...redeem });
+    let joinedAtPost: string[] = [];
+    const post = shower.relay.relay.post.bind(shower.relay.relay);
+    shower.relay.relay.post = async (path, action, payload) => {
+      if (path === '/pair/confirm') joinedAtPost = [...shower.calls.joined];
+      return post(path, action, payload);
+    };
+    shower.relay.answers['/pair/confirm'] = { status: 500, body: {} };
+    expect(await shower.ceremony.confirm(true, typer.id, res.code)).toEqual({ error: 'relay_error' });
+    expect(joinedAtPost).toEqual([typer.id]);
+    expect(shower.calls.undone).toEqual([typer.id]);
+  });
+});
+

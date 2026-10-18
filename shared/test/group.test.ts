@@ -763,6 +763,55 @@ describe('GroupMember with its stored roster dropped', () => {
   });
 });
 
+describe('GroupMember with a join under way', () => {
+  it('adds and founds nothing while its primary\'s roster has not come, and drops the join once its code ran out', () => {
+    const joining: Membership = { group: MAC, founding: null, version: 0, member: true, expires: NOW + 10 };
+    const g = build({ roster: EMPTY_ROSTER, membership: joining, paired: [row(MAC), row(PHONE, 'phone')] });
+    expect(g.group.pendingJoin()).toEqual(joining);
+    expect(g.group.canAdd(OTHER)).toBe(false);
+    expect(g.group.addPaired({ id: OTHER, kind: 'desktop', name: 'o', os: 'macos', links: true })).toBe(false);
+    g.group.addSelf();
+    expect(g.state()).toEqual(EMPTY_ROSTER);
+    // Its code ran out: the join is dropped, and the device may found again.
+    const late = build({ roster: EMPTY_ROSTER, membership: { ...joining, expires: NOW }, paired: [row(MAC)] });
+    expect(late.group.pendingJoin()).toBeNull();
+    expect(late.membership()).toBeNull();
+    expect(late.group.canAdd(OTHER)).toBe(true);
+  });
+
+  it('a cancelled join gives the membership back and ends the pair made for it', async () => {
+    const r = fakeRelay();
+    const before: Membership = { group: MAC, founding: 'f', version: 4, member: false };
+    const g = build({ roster: EMPTY_ROSTER, membership: before, paired: [row(MAC)], relay: r });
+    g.group.joinGroup(MAC, NOW + 1_000);
+    expect(g.membership()).toMatchObject({ founding: null, left: { founding: 'f', version: 4 } });
+    expect(g.group.abandonJoin()).toBe(true);
+    expect(g.membership()).toEqual(before);
+    expect(g.paired.has(MAC)).toBe(false);
+    await flush();
+    expect(revoked(r.posts)).toEqual([MAC]);
+    expect(g.group.abandonJoin()).toBe(false);
+  });
+
+  it('a roster the primary sent before the join was recorded is asked for again, and taken', () => {
+    const mac = build({ identity: MAC_KEY, roster: EMPTY_ROSTER, paired: [row(SELF)] });
+    expect(mac.group.addPaired({ id: SELF, kind: 'desktop', name: 'self', os: 'macos', links: true })).toBe(true);
+    const joiner = build({ roster: EMPTY_ROSTER, membership: null, paired: [row(MAC)] });
+    const w = wire(mac, joiner);
+    w.ready();
+    w.flush();
+    // Not joined yet: nothing taken.
+    expect(joiner.state()).toEqual(EMPTY_ROSTER);
+    const undo = joiner.group.joinGroup(MAC, NOW + 1_000);
+    w.flush();
+    expect(joiner.state().roster?.group).toBe(MAC);
+    expect(joiner.membership()).toMatchObject({ group: MAC, member: true, founding: mac.state().roster!.founding });
+    // An undo after the fact puts back what was there before the join.
+    undo();
+    expect(joiner.membership()).toBeNull();
+  });
+});
+
 describe('GroupMember and a re-founded group', () => {
   it('nothing of the group the primary dissolved holds in the group it founded next', () => {
     // A member of the Mac's first group, asleep through its dissolve and the founding of a second.

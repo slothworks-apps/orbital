@@ -64,6 +64,8 @@ function refusal(res: Exclude<JoinAnswer, { ok: true }>, name: string, code: str
     case 'group_full':
       return { kind: 'line', text: `This group can’t take more devices. Remove one under In this group, then pair ${name} again.` }
     // The status moved under the user: this device is a member now, and only its primary adds (canvas 50l).
+    case 'joining':
+      return { kind: 'line', text: 'A join is still under way. Cancel it first.' }
     case 'not_primary':
       return { kind: 'line', text: `${res.primary.name} manages this group — add devices there.` }
   }

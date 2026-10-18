@@ -95,10 +95,11 @@ export type PairConfirmResult =
  * one. `not_primary`: this device is a member of a group whose primary is
  * `primary`, and only the primary adds a device. `group_full`: this device
  * would add the other to a roster that holds `ROSTER_MAX_ENTRIES` already.
+ * `joining`: a join under way waits for its primary's roster; cancel it first.
  */
 export type JoinResult =
   | { device: string; name: string; code: string }
-  | { error: 'bad_code' | 'disabled' | 'offline' | 'already_paired' | 'in_group' | 'relay_error' | 'relay_too_old' | 'group_full' }
+  | { error: 'bad_code' | 'disabled' | 'offline' | 'already_paired' | 'in_group' | 'relay_error' | 'relay_too_old' | 'group_full' | 'joining' }
   | { error: 'phone_to_phone' }
   | { error: 'not_primary'; primary: PrimaryRef }
   | { error: 'other_relay'; relay: string }
@@ -108,11 +109,12 @@ export type JoinResult =
  * The answer to showing a code: the QR's JSON and when it stops working, or
  * why not. `not_primary`: this device is a member that is not its group's
  * primary, which alone shows a code — one that adds a device, or one that
- * pairs a member by hand.
+ * pairs a member by hand. `joining`: a join under way waits for its
+ * primary's roster, and this device adds no one meanwhile.
  */
 export type StartPairingResult =
   | { qr: string; expiresAt: number }
-  | { error: 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' }
+  | { error: 'disabled' | 'offline' | 'relay_error' | 'relay_too_old' | 'joining' }
   | { error: 'not_primary'; primary: PrimaryRef };
 
 /**
@@ -135,7 +137,7 @@ export type Joining = { device: string; name: string; kind: string | null; code:
  * another group; `not_primary`, a device that is no member, asking a member
  * that is not the primary. Kept until the next code.
  */
-export type RefusedPair = { phone: string; name: string; error: 'phone_to_phone' | 'in_group' | 'not_primary' };
+export type RefusedPair = { phone: string; name: string; error: 'phone_to_phone' | 'in_group' | 'not_primary' | 'joining' };
 
 /** What a status shows of the ceremonies. */
 export type CeremonyState = {
@@ -200,7 +202,11 @@ export interface CeremonyHost {
    * adds it, and its roster is the only one this device takes from now on
    * (`GroupMember.joinGroup`).
    */
-  joinGroup(primary: string): void;
+  joinGroup(primary: string, expires?: number): () => void;
+  /** A join under way waits for its primary's first roster (`GroupMember.pendingJoin`): this device adds and founds nothing meanwhile. */
+  joining(): boolean;
+  /** Gives up a join under way (`GroupMember.abandonJoin`); false when there is none. */
+  abandonJoin(): boolean;
   /** A pair that must not stand (a join the user cancelled, a device the roster cannot take): revoke it at the relay. */
   revokeCancelled(id: string): void;
   /** The adder paired a device: the host's own setup for a new pair (a phone's watcher). */
@@ -302,6 +308,7 @@ export class PairingCeremony {
     // Only the primary shows a code, pairing by hand included (canvas 50l: a member pairs no one by hand).
     const primary = this.host.notPrimary();
     if (primary) return { error: 'not_primary', primary };
+    if (this.host.joining()) return { error: 'joining' };
     if (client.status !== 'online') return { error: 'offline' };
     // No name: the relay knows none. The phone reads it from the QR.
     const res = await client.post<{ token: string; expiresAt: number }>('/pair/token', 'pair.token', {});
@@ -362,6 +369,10 @@ export class PairingCeremony {
     const theirGroup = sealedKind && device?.group === true;
     if (!member && this.host.notPrimary()) {
       this.refuse(msg.phone, name, 'not_primary');
+      return;
+    }
+    if (!member && this.host.joining()) {
+      this.refuse(msg.phone, name, 'joining');
       return;
     }
     if (!member && theirGroup && this.host.inGroup()) {
@@ -436,6 +447,9 @@ export class PairingCeremony {
     // phone handshakes the moment it hears that — so the device must exist
     // here first, or its handshake frame is dropped as from a stranger.
     const existed = this.host.paired.get(pending.phone) !== null;
+    // Joining its group: recorded before the confirm goes out, since the device may send its roster at
+    // once; undone if the relay does not take the confirm.
+    const undoJoin = accept && pending.joins ? this.host.joinGroup(pending.phone, this.pairing?.expiresAt) : null;
     if (accept) {
       this.host.paired.add({
         id: pending.phone, name: pending.name, platform: pending.platform, kind: pending.kind, pairedAt: this.host.now(),
@@ -444,6 +458,7 @@ export class PairingCeremony {
     }
     const res = await client.post('/pair/confirm', 'pair.confirm', { phone: pending.phone, accept });
     if (res.status !== 200) {
+      undoJoin?.();
       // The relay never paired it: undo what was added above. A device that
       // was already paired before this confirm is not ours to remove.
       if (accept && !existed) {
@@ -454,7 +469,6 @@ export class PairingCeremony {
     }
     // Paired afresh: a revoke still waiting from an earlier removal must not undo it.
     if (accept) this.host.pendingRevokes.remove(pending.phone);
-    if (accept && pending.joins) this.host.joinGroup(pending.phone);
     // A stop/start during the post replaced the state; leave the new one be.
     if (this.pendingPair === pending) {
       this.pendingPair = null;
@@ -498,6 +512,8 @@ export class PairingCeremony {
       if (primary) return { error: 'not_primary', primary };
       // Groups do not merge: the side in a group stays its primary, and two groups never pair.
       if (this.host.inGroup() && qr.group === true) return { error: 'in_group' };
+      // One join at a time: the one under way waits for its primary's roster, or is cancelled.
+      if (this.host.joining()) return { error: 'joining' };
     }
     // This side adds the other when it is in a group, or when both are alone and the other is a phone
     // or keeps no roster (a Mac from before groups names no kind) — never as a phone, which is never primary.
@@ -554,7 +570,8 @@ export class PairingCeremony {
    * other device confirms it before then, the pair is revoked (`cancelledJoin`).
    */
   cancelJoin(): boolean {
-    if (!this.joining) return false;
+    // Paired already, and the primary's roster not come: the join under way is given up there.
+    if (!this.joining) return this.host.abandonJoin();
     this.cancelledJoin = { device: this.joining.device, expiresAt: this.joining.expiresAt };
     this.joining = null;
     this.host.changed();
@@ -589,7 +606,7 @@ export class PairingCeremony {
         this.host.changed();
         return true;
       }
-      if (joined.joins) this.host.joinGroup(joined.device);
+      if (joined.joins) this.host.joinGroup(joined.device, joined.expiresAt);
       this.host.changed();
       this.host.open(joined.device);
       return true;

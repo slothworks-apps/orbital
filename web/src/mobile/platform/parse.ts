@@ -4,7 +4,7 @@ import {
 } from '@orbital/shared/remote/keys'
 import { MemoryGroupStorage, type StoredGroup } from '@orbital/shared/remote/groupClient'
 import { NotificationSettingsSchema, type NotificationSettings } from '@orbital/shared/remote/messages'
-import { EMPTY_ROSTER, memberIds, rosterMembers } from '@orbital/shared/remote/roster'
+import { EMPTY_ROSTER, memberIds, rosterMembers, type Membership } from '@orbital/shared/remote/roster'
 import type { ApiSession, ChatMessage, Tag } from '../../lib/types'
 
 /**
@@ -125,19 +125,30 @@ export function parseGroupRecord(raw: string | null): GroupRecord | null {
 }
 
 /**
- * A phone paired with one Mac before groups: a group whose one paired
- * device is that Mac, on the same relay with the same secret. The roster
- * starts empty; the phone adds itself, and a Mac that keeps one sends its own.
+ * A phone paired with one Mac before groups — no group record was ever
+ * written: a group whose one paired device is that Mac, on the same relay
+ * with the same secret. The roster starts empty; that Mac, which it paired
+ * with by its code, is the one whose group it joins (a Mac from before
+ * groups founds one at its next start).
  */
 export function migratePairing(pairing: Pairing): GroupRecord {
+  return pairOnly(pairing, { group: pairing.mac, founding: null, version: 0, member: true })
+}
+
+/**
+ * The pairing alone as a group record: its device as the one paired device,
+ * and `membership` — the group id kept from a group record — never one
+ * derived from the pairing, whose device since groups is only the first
+ * paired one (`saveGroup`).
+ */
+export function pairOnly(pairing: Pairing, membership: Membership | null): GroupRecord {
   const record: GroupRecord = {
     relay: pairing.relay,
     group: {
       roster: EMPTY_ROSTER,
       paired: [{ id: pairing.mac, name: pairing.macName, kind: null, platform: '', pairedAt: pairing.pairedAt, lastSeenAt: null }],
       pendingRevokes: [],
-      // The Mac it paired with by its code: the group it founds is the only one this phone takes.
-      membership: { group: pairing.mac, founding: null, version: 0, member: true },
+      ...(membership ? { membership } : {}),
     },
   }
   if (pairing.relaySecret !== undefined) record.relaySecret = pairing.relaySecret
@@ -145,22 +156,45 @@ export function migratePairing(pairing: Pairing): GroupRecord {
 }
 
 /**
+ * The group id kept in a group record that does not read as a whole: its
+ * `group.membership`, read alone. Null when even that does not read.
+ */
+export function storedMembership(raw: string | null): Membership | null {
+  const data = parseJson(raw)
+  if (!data || typeof data !== 'object') return null
+  const group = (data as { group?: unknown }).group
+  return group && typeof group === 'object' ? MemoryGroupStorage.fromJSON(group).membership.get() : null
+}
+
+/**
+ * What is known of the group records written before (`loadGroup`):
+ * `seen`, one was ever written (a marker no clear removes); `membership`,
+ * the group id kept in one that does not read.
+ */
+export type StoredMarks = { seen: boolean; membership: Membership | null }
+
+/**
  * Which stored group to boot into. Every bundle since groups writes
  * `orbital.pairing` beside `orbital.group`, and a bundle from before them
  * knows only the pairing: after an over-the-air rollback that forgot its
  * Mac or paired another, the group left behind is stale. So the pairing is
- * the truth where the two disagree: no pairing, no group (`stale`: drop
- * it); a pairing for a device the group does not hold, a group migrated
- * afresh from it.
+ * the truth for the pairs where the two disagree: no pairing, no group
+ * (`stale`: drop it). The group id never comes from the pairing once a group
+ * record was written (`marks.seen`): a record that does not read keeps the
+ * id it still holds (`marks.membership`), and one the pairing disagrees with
+ * keeps its own. Only a phone that never wrote one is migrated as paired
+ * with one Mac before groups.
  */
-export function reconcileGroup(record: GroupRecord | null, pairing: Pairing | null): { record: GroupRecord | null; stale: boolean } {
+export function reconcileGroup(
+  record: GroupRecord | null, pairing: Pairing | null, marks: StoredMarks = { seen: record !== null, membership: null },
+): { record: GroupRecord | null; stale: boolean } {
   if (!pairing) return { record: null, stale: record !== null }
-  if (!record) return { record: migratePairing(pairing), stale: false }
+  if (!record) return { record: marks.seen ? pairOnly(pairing, marks.membership) : migratePairing(pairing), stale: false }
   const holds = record.relay === pairing.relay && (
     record.group.paired.some((d) => d.id === pairing.mac) ||
     memberIds(record.group.roster).includes(pairing.mac)
   )
-  return holds ? { record, stale: false } : { record: migratePairing(pairing), stale: true }
+  return holds ? { record, stale: false } : { record: pairOnly(pairing, record.group.membership ?? null), stale: true }
 }
 
 /**
