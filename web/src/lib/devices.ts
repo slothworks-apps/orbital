@@ -49,15 +49,6 @@ export function memberStateWords(m: GroupMember, now: number): string {
   }
 }
 
-/**
- * The row's second line (canvas 50k `devRow`): `primary` for the group's
- * primary, which added every other member (ADR
- * the-group-has-one-primary-device), and nothing for any other.
- */
-export function addedByLine(m: GroupMember): string {
-  return m.primary ? 'primary' : ''
-}
-
 /** The device that paired a member: the group's primary, `this device` when it is the one reading the list. */
 function primaryName(members: GroupMember[]): string {
   const primary = members.find((x) => x.primary)
@@ -455,7 +446,7 @@ export function runsOn(
     const seen = member?.seenAt ?? machine.asOf
     return { name, kind, os, dot: 'offline', words: offlineWords(seen, now) }
   }
-  return { name, kind, os, dot: 'live', words: member?.primary ? `online · ${addedByLine(member)}` : 'online' }
+  return { name, kind, os, dot: 'live', words: member?.primary ? 'online · primary' : 'online' }
 }
 
 /** The device pill's words (canvas 50f `fTag`): the name, and why it cannot be driven when it cannot. */

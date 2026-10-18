@@ -68,7 +68,7 @@ import { SessionStatsRow } from './SessionStatsRow'
 import { HarnessPill } from './HarnessPill'
 import { DevicePill } from './DevicePill'
 import {
-  AS_OF_TICK_MS, deviceChips, deviceLock, ideHere, localClaudeDirId, machineOffline, namesShown, stateAsOf,
+  deviceChips, deviceLock, ideHere, localClaudeDirId, machineOffline, namesShown, stateAsOf,
   type DeviceLock,
 } from '../lib/devices'
 import { harnessUnfinished } from '../lib/harnessSession'
@@ -78,6 +78,7 @@ import { PIN_TOOLTIP_DELAY_MS, UtilityStrip } from './UtilityStrip'
 import { endedFootnote, formatContextWindow, formatTokens } from '../lib/format'
 import { contextWindowFor } from '../lib/models'
 import { COMPACTING_PLACEHOLDER, compactConfirmCount, compactingOf, formatElapsed } from '../lib/compaction'
+import { useAsOfNow } from '../lib/asOfClock'
 import { useNow } from '../lib/useNow'
 import { useCompactionUi } from '../store/compaction'
 import { harnessEnabled, walkthroughEnabled } from '../lib/experimental'
@@ -243,7 +244,7 @@ export function DetailPanel({
     const x = id ? s.sessions[id] : undefined
     return x ? machineOffline(x, s.remote?.group?.members) : false
   })
-  const deviceNow = useNow(deviceOffline, AS_OF_TICK_MS)
+  const deviceNow = useAsOfNow(deviceOffline)
   const lock: DeviceLock | null = useOrbital(
     useShallow((s) => {
       const x = id ? s.sessions[id] : undefined

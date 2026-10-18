@@ -21,6 +21,7 @@ import { useWindowFocused } from '../lib/useWindowFocused'
 import { useViewportWidth } from '../lib/useViewportWidth'
 import { awaitedCount, awaitedWork, gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
 import { compactingLabelOpacity, compactingOf, formatElapsed } from '../lib/compaction'
+import { useAsOfNow } from '../lib/asOfClock'
 import { useNow } from '../lib/useNow'
 import { OFFLINE_STATE_INK, stateColor, stateDot, stateWord, stillDot } from '../lib/stateStyle'
 import { StateDot } from '../ui/StateDot'
@@ -40,7 +41,7 @@ import { sessionViewTransitionName } from '../lib/viewTransition'
 import { timeAgo, shortenPath } from '../lib/format'
 import { KindGlyph } from '../ui/KindGlyph'
 import {
-  AS_OF_TICK_MS, asOfLabel, chipsOfKey, deviceChipsKey, devicesOn, localClaudeDirId, machineOffline, namesShown,
+  asOfLabel, chipsOfKey, deviceChipsKey, devicesOn, localClaudeDirId, machineOffline, namesShown,
   showDeviceRow, toggleDevice,
 } from '../lib/devices'
 import type { DeviceChip } from '../lib/devices'
@@ -353,7 +354,7 @@ function SessionRow({
   const dirMark = useClaudeDirMark(localClaudeDirId(session))
   const offline = machineOffline(session)
   // Re-read each minute while it shows an age, so `as of 2 h` keeps counting.
-  const now = useNow(offline, AS_OF_TICK_MS)
+  const now = useAsOfNow(offline)
   // Canvas 50e: `build-box · ~/oncall/runbooks · as of 2 h`.
   const meta = [deviceName, shortenPath(session.cwd), asOfLabel(session.machine, now)]
     .filter((part): part is string => Boolean(part))
@@ -658,8 +659,13 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
     setExhausted(false)
   }, [filterTagIds, search])
 
-  // What the server has sent so far, counted the way it pages (`historyPageOffset`).
-  const pagedCount = useOrbital(historyPageOffset)
+  // What the server has sent so far, counted the way it pages (`historyPageOffset`): once per
+  // change of the sessions or the filters, not on every store change.
+  const sessions = useOrbital((s) => s.sessions)
+  const pagedCount = useMemo(
+    () => historyPageOffset({ sessions, ui: { filterTagIds, search } }),
+    [sessions, filterTagIds, search]
+  )
 
   const loadMore = useCallback(async () => {
     if (loadingRef.current) return

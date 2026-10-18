@@ -3105,7 +3105,9 @@ export function visibleSessions(
  * device chips, so the count is of local, listable sessions passing the tag
  * filter and the search, whatever chips are off.
  */
-export function historyPageOffset(state: Pick<OrbitalState, 'sessions' | 'ui'>): number {
+export function historyPageOffset(
+  state: Pick<OrbitalState, 'sessions'> & { ui: Pick<OrbitalUiState, 'filterTagIds' | 'search'> },
+): number {
   return Object.values(state.sessions).filter(
     (s) => !s.machine && isListable(s) && matchesSidebarFilters(s, state.ui),
   ).length

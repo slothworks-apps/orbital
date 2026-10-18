@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  LOCAL_DEVICE, addedByLine, asOfLabel, canRemoveRow, deviceChips, deviceOf, deviceRows, devicesOn, groupView, kindOs,
+  LOCAL_DEVICE, asOfLabel, canRemoveRow, deviceChips, deviceOf, deviceRows, devicesOn, groupView, kindOs,
   memberStateWords,
   isMemberOffline, namesShown, osLabel, showDeviceRow, toggleDevice,
   agoWords, deviceLock, ideHere, pillWords, runsOn, stateAsOf, withMachine, withMachineOffline,
@@ -89,13 +89,6 @@ describe('kindOs', () => {
 
   it('drops the separator when the OS is unknown to this device yet', () => {
     expect(kindOs('headless', '')).toBe('headless')
-  })
-})
-
-describe('addedByLine', () => {
-  it('reads "primary" for the group\'s primary, and nothing for any other member', () => {
-    expect(addedByLine(member({ id: 'air-id', primary: true }))).toBe('primary')
-    expect(addedByLine(member({ id: 'air-id' }))).toBe('')
   })
 })
 
