@@ -3,7 +3,7 @@ import { parsePairingCode } from '@orbital/shared/remote/relayApi'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { checkedLabel } from '../lib/format'
-import { codeLeft, relayHostname } from '../lib/remote'
+import { codeLeft, pasteCodeHint, relayHostname } from '../lib/remote'
 import { kindOs } from '../lib/devices'
 import { managerWords } from '../lib/joinRequest'
 import { useOrbital } from '../store/store'
@@ -337,6 +337,7 @@ export function JoinArea({
 function JoinField({ join }: { join: Join }) {
   const code = join.paste.trim()
   const line = join.outcome?.kind === 'line' ? join.outcome.text : null
+  const hint = pasteCodeHint(join.paste)
   return (
     <div className="flex flex-col gap-[7px]">
       <span className="text-[13px] font-semibold text-text-bright">Have another device's code?</span>
@@ -360,6 +361,8 @@ function JoinField({ join }: { join: Join }) {
       </div>
       {/* The quiet line of canvas 50d A. */}
       {line && <span className="font-mono text-[11px] text-[rgba(160,190,225,.78)]">{line}</span>}
+      {/* Canvas 50a: whose code this is, once the field reads as one. */}
+      {hint && <span className="font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.55)]">{hint}</span>}
     </div>
   )
 }

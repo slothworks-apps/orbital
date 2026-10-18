@@ -1,10 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { api, ApiError } from '../lib/api'
+import { deviceId, generateIdentity, toBase64Url } from '@orbital/shared/remote/keys'
+import { encodePairingCode } from '@orbital/shared/remote/relayApi'
 import type { RemoteStatus } from '../lib/types'
 import {
   PAIRING_WINDOW_MS,
   RELAY_UNREACHABLE_AFTER_ATTEMPTS,
   codeLeft,
+  pasteCodeHint,
   relayCheckSettled,
   relayLine,
   relaySecretCommit,
@@ -144,6 +147,29 @@ describe('relaySecretCommit', () => {
 
   it('cannot decide a change before the phones are known', () => {
     expect(relaySecretCommit('old', 'new', null)).toBe('unknown')
+  })
+})
+
+describe('pasteCodeHint', () => {
+  function codeFor(name: string): string {
+    const mac = deviceId(generateIdentity().publicKey)
+    return encodePairingCode(JSON.stringify({
+      v: 1, relay: 'https://relay.test', mac, name, token: 'tok',
+      secret: toBase64Url(new Uint8Array(16)), kind: 'desktop', expiresAt: Date.now() + 80_000,
+    }))
+  }
+
+  it('names the device a valid code came from', () => {
+    expect(pasteCodeHint(codeFor('studio-mbp'))).toBe('from studio-mbp · Settings → Devices')
+  })
+
+  it('is null for an empty field', () => {
+    expect(pasteCodeHint('')).toBeNull()
+    expect(pasteCodeHint('   ')).toBeNull()
+  })
+
+  it('is null for text that is not a code', () => {
+    expect(pasteCodeHint('hello there')).toBeNull()
   })
 })
 

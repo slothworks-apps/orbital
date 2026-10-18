@@ -326,6 +326,17 @@ describe('DevicesSection — joining another device\'s group', () => {
     expect(api.joinGroup).not.toHaveBeenCalled()
   })
 
+  it('names the device under the field once a valid code is pasted, and nothing for empty or invalid text', () => {
+    renderWith(status([]))
+    const field = screen.getByLabelText("Another device's code")
+    fireEvent.change(field, { target: { value: codeFor() } })
+    expect(screen.getByText('from studio-mbp · Settings → Devices')).toBeInTheDocument()
+    fireEvent.change(field, { target: { value: 'not a code' } })
+    expect(screen.queryByText('from studio-mbp · Settings → Devices')).not.toBeInTheDocument()
+    fireEvent.change(field, { target: { value: '' } })
+    expect(screen.queryByText(/^from /)).not.toBeInTheDocument()
+  })
+
   it("knows this device's own code without asking the server", async () => {
     renderWith(status([], { macId: OWN }))
     await paste(codeFor({ mac: OWN }))
