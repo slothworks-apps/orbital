@@ -60,6 +60,16 @@ describe('phoneRows', () => {
     expect(phoneRows([self, studio], [app], NOW)[0].state).toBe('online')
   })
 
+  it('reads another phone of the group as paired with the desktop that added it, never linking', () => {
+    const studio = member({ id: 'studio', name: 'studio-mbp', addedBy: 'studio' })
+    // A phone names `group`, so it links; it still never links with this phone.
+    const other = member({
+      id: 'pixel', name: 'Pixel 7', kind: 'phone', os: 'android', addedBy: 'studio', linked: false, state: 'offline',
+    })
+    const [, row] = phoneRows([self, studio, other], [], NOW)
+    expect(row).toMatchObject({ state: 'elsewhere', words: 'paired with studio-mbp', notLinked: false })
+  })
+
   it('lists a paired Mac from before groups, which sends no roster', () => {
     const rows = phoneRows([self], [source({ id: 'old', name: 'old-mac', online: false, asOf: NOW - 3 * HOUR })], NOW)
     expect(rows).toHaveLength(1)
@@ -98,6 +108,11 @@ describe('removalLeavesAlone', () => {
     expect(removalLeavesAlone([self, studio, air], [], 'studio')).toBe(false)
     const paired = member({ id: 'old', name: 'old-mac', links: false, linked: true })
     expect(removalLeavesAlone([self, studio, paired], [], 'studio')).toBe(false)
+  })
+
+  it('counts another phone of the group as nobody to reach', () => {
+    const other = member({ id: 'pixel', name: 'Pixel 7', kind: 'phone', os: 'android', linked: false, state: 'offline' })
+    expect(removalLeavesAlone([self, studio, other], [], 'studio')).toBe(true)
   })
 
   it('counts a member that neither links nor is paired here as nobody to reach', () => {

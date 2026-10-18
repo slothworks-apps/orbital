@@ -158,6 +158,8 @@ export class GroupClient {
   private aloneTimer: ReturnType<typeof setTimeout> | null = null;
   /** See `unreachable`. */
   private alone = false;
+  /** Says `group` when this phone's code runs out: the ceremony drops it, and the request made with it, without a word. */
+  private codeTimer: ReturnType<typeof setTimeout> | null = null;
   /** The device the link's socket URL names now (`RelayLinkOptions.anchor`); null: this phone's own id. */
   private anchor: string | null;
 
@@ -274,6 +276,7 @@ export class GroupClient {
 
   stop(): void {
     this.clearAlone();
+    this.clearCodeTimer();
     this.group.stop();
     this.ceremony.reset();
     // The link's `off` closes every channel.
@@ -456,7 +459,10 @@ export class GroupClient {
    */
   private open(id: string, cameBack = false): void {
     if (this.link.status !== 'online' || !this.link.peersOnline.has(id)) return;
-    if (!this.storage.paired.get(id)) return;
+    const device = this.storage.paired.get(id);
+    if (!device) return;
+    // Another phone initiates too: no handshake between the two would ever be answered.
+    if ((this.storage.roster.entry(id)?.kind ?? device.kind) === 'phone') return;
     const existing = this.channels.get(id);
     if (existing && (!existing.keyed || !cameBack)) return;
     const peerKey = publicKeyOf(id);
@@ -566,6 +572,22 @@ export class GroupClient {
     this.aloneTimer = null;
   }
 
+  /** One timer for this phone's open code, at its expiry; it reads the state again, which drops the code. */
+  private watchCode(): void {
+    this.clearCodeTimer();
+    const pairing = this.ceremony.state().pairing;
+    if (!pairing) return;
+    this.codeTimer = setTimeout(() => {
+      this.codeTimer = null;
+      this.changed();
+    }, Math.max(0, pairing.expiresAt - this.now()));
+  }
+
+  private clearCodeTimer(): void {
+    if (this.codeTimer) clearTimeout(this.codeTimer);
+    this.codeTimer = null;
+  }
+
   /** The first paired device anchors the next socket; none left, this phone's own id. */
   private reanchor(): void {
     const first = this.storage.paired.list()[0]?.id ?? null;
@@ -632,6 +654,7 @@ export class GroupClient {
   }
 
   private changed(): void {
+    this.watchCode();
     this.emit({ type: 'group' });
     if (this.removedFromGroup && this.storage.paired.list().length === 0 && !this.grouped()) {
       this.removedFromGroup = false;

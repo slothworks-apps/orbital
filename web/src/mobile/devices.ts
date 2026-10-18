@@ -3,7 +3,7 @@
  * read through the desktop's own derivations (`lib/devices`) and worded as
  * the phone's canvas words them.
  */
-import type { MemberRow } from '@orbital/shared/remote/group'
+import { linksWith, type MemberRow } from '@orbital/shared/remote/group'
 import { codeLeft } from '../lib/remote'
 import { deviceRows, kindOs, type RowState } from '../lib/devices'
 import type { GroupMember, RemoteDevice } from '../lib/types'
@@ -69,11 +69,11 @@ export function ownCodeLeft(expiresAt: number, now: number): { line: string; fra
 
 /**
  * Whether removing `id` leaves this phone with no device to reach: no other
- * member that links or that it is paired with, and no other paired device.
- * A group of one shows nothing on a phone, so that removal is a leave.
+ * member it links with (never another phone, `linksWith`) or is paired
+ * with, and no other paired device. A group of one shows nothing on a phone, so that removal is a leave.
  */
 export function removalLeavesAlone(members: MemberRow[], devices: DeviceView[], id: string): boolean {
-  const others = members.some((m) => !m.self && m.id !== id && (m.links || m.linked))
+  const others = members.some((m) => !m.self && m.id !== id && (linksWith('phone', m) || m.linked))
   const unlisted = devices.some((d) => d.id !== id && !members.some((m) => m.id === d.id))
   return !others && !unlisted
 }

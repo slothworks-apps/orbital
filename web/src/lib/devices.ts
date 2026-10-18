@@ -4,6 +4,7 @@
  * form of a pairing code (canvas 50k); and the map's and sidebar's device
  * chips and filter (canvas 50e).
  */
+import { linksWith } from '@orbital/shared/remote/group'
 import { timeAgo } from './format'
 import type { ApiSession, GroupMember, IdeContext, MachineRef, MemberState, RemoteDevice, Tag } from './types'
 
@@ -67,13 +68,15 @@ function adderName(m: GroupMember, members: GroupMember[]): string {
 }
 
 /**
- * A phone paired with another member: it does not link and is not paired
- * here, so the relay's presence says nothing about it here. Only a phone: a
- * desktop or server in that state is a member still on its way to linking
- * (or the ghost of a cancelled join), and keeps its own state words.
+ * A phone paired with another member: it does not link with this device and
+ * is not paired here, so the relay's presence says nothing about it here.
+ * Only a phone: a desktop or server in that state is a member still on its
+ * way to linking (or the ghost of a cancelled join), and keeps its own state
+ * words. A phone that links still never links with another phone
+ * (`linksWith`), so seen from a phone it is paired elsewhere too.
  */
-function pairedElsewhere(m: GroupMember): boolean {
-  return !m.self && m.kind === 'phone' && !m.links && !m.linked
+function pairedElsewhere(m: GroupMember, selfKind: string | undefined): boolean {
+  return !m.self && m.kind === 'phone' && !m.linked && !linksWith(selfKind ?? '', m)
 }
 
 /**
@@ -110,9 +113,10 @@ export interface DeviceRow {
 export function deviceRows(members: GroupMember[], devices: RemoteDevice[], now: number): DeviceRow[] {
   const paired = new Map(devices.map((d) => [d.id, d]))
   const listed = new Set(members.map((m) => m.id))
+  const selfKind = members.find((m) => m.self)?.kind
   const fromRoster = members.filter((m) => !m.self).map((m): DeviceRow => {
     const needsUpdate = paired.get(m.id)?.needsUpdate ?? null
-    const elsewhere = !needsUpdate && pairedElsewhere(m)
+    const elsewhere = !needsUpdate && pairedElsewhere(m, selfKind)
     return {
       id: m.id, name: m.name, kind: m.kind, os: m.os,
       state: needsUpdate ? 'update' : elsewhere ? 'elsewhere' : m.state === 'self' ? 'online' : m.state,

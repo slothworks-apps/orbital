@@ -31,8 +31,8 @@ export const PLACEHOLDER_DESCRIBED_AT = 0;
 
 /**
  * How Settings shows a member. `self`: this device. `online`/`offline`: a
- * member paired here, or a member that does not link (a phone paired with
- * another member), by the relay's presence. `linking`: a member that links
+ * member paired here, or a member this device does not link with
+ * (`linksWith`: a phone paired with another member), by the relay's presence. `linking`: a member that links
  * and is not paired here yet; `notLinked`: one the relay cannot pair
  * (`pairByHand`), so only a pairing code links the two.
  */
@@ -126,6 +126,16 @@ export interface GroupHost {
 }
 
 /**
+ * Whether a device of `selfKind` links with `entry`: a member that links,
+ * unless both are phones. Two phones each open every channel (`initiates`),
+ * so a pair between them would never carry one: a phone never asks another
+ * for a mutual pair, and it reads another phone as paired elsewhere.
+ */
+export function linksWith(selfKind: string, entry: Pick<RosterEntry, 'kind' | 'links'>): boolean {
+  return entry.links && !(selfKind === 'phone' && entry.kind === 'phone');
+}
+
+/**
  * Whether `entries` holds a live member other than `self` that makes a
  * group: one that links, or one this device is not paired with (`paired`
  * holds the ids of every pair this device holds). A device paired here that
@@ -209,11 +219,12 @@ export class GroupMember {
   members(online: ReadonlySet<string>): MemberRow[] {
     const self = this.host.knownId();
     const rows = new Map(this.storage.paired.list().map((d) => [d.id, d]));
+    const selfKind = this.host.about().kind;
     return this.storage.roster.list().filter(isLive).map((e) => {
       const row = rows.get(e.id);
       const pairByHand = this.pairByHand.has(e.id);
       const state: MemberState = e.id === self ? 'self'
-        : row || !e.links ? (online.has(e.id) ? 'online' : 'offline')
+        : row || !linksWith(selfKind, e) ? (online.has(e.id) ? 'online' : 'offline')
           : pairByHand ? 'notLinked' : 'linking';
       return {
         ...e, self: e.id === self, linked: row !== undefined, online: online.has(e.id), pairByHand,
@@ -411,8 +422,9 @@ export class GroupMember {
   }
 
   /**
-   * Asks the relay for a mutual pair with every live member that links and
-   * is not paired with this device yet, each once per relay connection (ADR
+   * Asks the relay for a mutual pair with every live member this device
+   * links with (`linksWith`: never a phone from a phone) and is not paired
+   * with this device yet, each once per relay connection (ADR
    * the-relay-pairs-two-devices-that-both-sign). The pair forms when the
    * member asks too; the relay then says `linked`, and so may this answer.
    * `paired` asks for the members paired here as well: the relay answers
@@ -423,8 +435,9 @@ export class GroupMember {
     const relay = this.host.relay();
     if (self === null || !relay || relay.status !== 'online') return;
     const asked = this.mutualAsked;
+    const selfKind = this.host.about().kind;
     for (const e of this.storage.roster.list()) {
-      if (!isLive(e) || !e.links || e.id === self || asked.has(e.id) || (!paired && this.storage.paired.get(e.id))) continue;
+      if (!isLive(e) || !linksWith(selfKind, e) || e.id === self || asked.has(e.id) || (!paired && this.storage.paired.get(e.id))) continue;
       const id = e.id;
       asked.add(id);
       void relay.post<{ linked?: boolean }>('/pair/mutual', 'pair.mutual', { peer: id }).then((res) => {
@@ -489,6 +502,18 @@ export class GroupMember {
     // A member that does not link (a phone) is never asked for, so a `linked` for one is not ours.
     if (!entry || !entry.links) {
       this.host.log(`ignored a link with ${peer.slice(0, 8)}: no live member of the group that links`);
+      return;
+    }
+    // Two phones: neither answers a handshake, so the pair would only retry for ever. It goes,
+    // with a row a phone from before this rule may have kept for it.
+    if (!linksWith(this.host.about().kind, entry)) {
+      this.host.log(`revoked a link with ${peer.slice(0, 8)}: a phone does not link with a phone`);
+      if (this.storage.paired.get(peer)) {
+        this.host.forget(peer);
+        this.storage.paired.remove(peer);
+        this.host.changed();
+      }
+      this.revokeAtRelay(peer);
       return;
     }
     if (!this.storage.paired.get(peer)) {

@@ -36,7 +36,9 @@ function fakeChannel(groups = true) {
   return { channel, sent };
 }
 
-function build(opts: { roster?: RosterEntry[]; paired?: PairedDevice[]; relay?: ReturnType<typeof fakeRelay> } = {}) {
+function build(opts: {
+  roster?: RosterEntry[]; paired?: PairedDevice[]; relay?: ReturnType<typeof fakeRelay>; kind?: string;
+} = {}) {
   let roster = opts.roster ?? [entry(SELF)];
   const paired = new Map((opts.paired ?? []).map((d) => [d.id, d]));
   const pending = new Set<string>();
@@ -46,7 +48,7 @@ function build(opts: { roster?: RosterEntry[]; paired?: PairedDevice[]; relay?: 
   const opened: string[] = [];
   const host: GroupHost = {
     selfId: () => SELF,
-    about: () => ({ kind: 'desktop', name: 'self', os: 'macos', links: true }),
+    about: () => ({ kind: opts.kind ?? 'desktop', name: 'self', os: 'macos', links: true }),
     knownId: () => SELF,
     relay: () => relay,
     channels: () => channels,
@@ -183,6 +185,46 @@ describe('GroupMember linking', () => {
     await flush();
     expect(r.posts).toEqual([{ path: '/pair/revoke', payload: { phone: MAC } }]);
     expect(g.paired.size).toBe(0);
+  });
+
+  it('a phone never asks another phone of its group for a mutual pair, and reads it as paired elsewhere', async () => {
+    const OTHER = 'O'.repeat(43);
+    const r = fakeRelay();
+    const g = build({ kind: 'phone', relay: r });
+    g.group.setRoster([
+      entry(SELF, { kind: 'phone' }), entry(MAC), entry(OTHER, { kind: 'phone', addedBy: MAC }),
+    ]);
+    g.group.relayOk();
+    await flush();
+    expect(r.posts.filter((p) => p.path === '/pair/mutual').map((p) => p.payload)).toEqual([{ peer: MAC }, { peer: MAC }]);
+    const other = g.group.members(new Set([OTHER])).find((m) => m.id === OTHER);
+    expect(other).toMatchObject({ links: true, linked: false, state: 'online' });
+  });
+
+  it('linked for another phone, on a phone, revokes the pair and drops a row kept for it', async () => {
+    const OTHER = 'O'.repeat(43);
+    const r = fakeRelay();
+    const g = build({
+      kind: 'phone', relay: r,
+      roster: [entry(SELF, { kind: 'phone' }), entry(MAC), entry(OTHER, { kind: 'phone' })],
+      paired: [{ id: OTHER, name: 'pixel', platform: 'android', kind: 'phone', pairedAt: 1, lastSeenAt: null }],
+    });
+    g.group.relayLinked(OTHER);
+    await flush();
+    expect(r.posts).toEqual([{ path: '/pair/revoke', payload: { phone: OTHER } }]);
+    expect(g.paired.size).toBe(0);
+    expect(g.forgotten).toEqual([OTHER]);
+    expect(g.opened).toEqual([]);
+  });
+
+  it('a desktop links with a phone of its group as before', async () => {
+    const r = fakeRelay();
+    const g = build({ relay: r });
+    g.group.setRoster([entry(SELF), entry(PHONE, { kind: 'phone' })]);
+    await flush();
+    expect(r.posts).toEqual([{ path: '/pair/mutual', payload: { peer: PHONE } }]);
+    g.group.relayLinked(PHONE);
+    expect(g.opened).toEqual([PHONE]);
   });
 });
 

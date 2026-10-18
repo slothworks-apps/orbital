@@ -120,7 +120,7 @@ export async function forgetEverything(opts: { unpaired: boolean }): Promise<voi
     pairing: null, link: 'off', macOnline: false, ready: false,
     asOf: null, checkedAt: null, rechecking: null, listedAt: null, endedSummary: null, endedLoaded: false,
     sessionId: null, pushed: [], composerIntent: null, mismatch: null, previous: null,
-    devices: [], refusals: {}, members: [], pendingPair: null, ownCode: null, macVersion: null,
+    devices: [], refusals: {}, members: [], pendingPair: null, ownCode: null, refusedPair: null, macVersion: null,
     unpaired: opts.unpaired, unreachable: false,
     macName: opts.unpaired ? name : null,
     screen: opts.unpaired ? 'unpaired' : 'pairing',

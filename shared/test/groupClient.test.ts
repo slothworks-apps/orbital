@@ -4,7 +4,7 @@ import { ZERO_WAKE, decodeFrame, encodeFrame } from '../src/remote/frame.js';
 import { Channel } from '../src/remote/channel.js';
 import type { RelayToDevice } from '../src/remote/relayApi.js';
 import type { SocketLike } from '../src/remote/relayLink.js';
-import { RELAY_PHONE_GROUP_VERSION } from '../src/remote/version.js';
+import { RELAY_PHONE_GROUP_VERSION, RELAY_VERSION_HEADER } from '../src/remote/version.js';
 import { ALONE_GRACE_MS, GroupClient, MemoryGroupStorage, type GroupClientEvent } from '../src/remote/groupClient.js';
 
 /** The relay socket the test plays: frames the phone sends go to `route`, a microtask later. */
@@ -270,6 +270,48 @@ describe('GroupClient', () => {
     online(fresh.sock(), { peers: [] });
     expect(await fresh.client.startPairing()).toEqual({ error: 'relay_error' });
     expect(fresh.client.members().find((m) => m.id === b)?.state).toBe('linking');
+  });
+
+  it('never opens a channel to another phone, even one a phone from before the rule paired', () => {
+    const other = idOf();
+    const desktop = idOf();
+    const s = setup((storage) => {
+      pairWith(storage, desktop);
+      storage.paired.add({ id: other, name: 'pixel', platform: 'android', kind: 'phone', pairedAt: 1 });
+    });
+    const sent: string[] = [];
+    FakeSocket.route = (bytes) => {
+      const frame = decodeFrame(bytes);
+      if (frame) sent.push(deviceId(frame.peer));
+    };
+    online(s.sock(), { peers: [desktop, other], pairs: [desktop, other] });
+    s.sock().control({ type: 'presence', peer: other, online: true });
+    expect(s.client.channel(desktop)).not.toBeNull();
+    expect(s.client.channel(other)).toBeNull();
+  });
+
+  it('says group when its code runs out, and the code and the request made with it are gone', async () => {
+    vi.useFakeTimers();
+    let now = 1_000_000;
+    const expiresAt = now + 60_000;
+    const s = setup(() => {}, {
+      now: () => now,
+      fetchImpl: async () => new Response(JSON.stringify({ token: 't', expiresAt }), {
+        status: 200, headers: { [RELAY_VERSION_HEADER]: RELAY_PHONE_GROUP_VERSION },
+      }),
+    });
+    online(s.sock(), { peers: [] });
+    expect(await s.client.startPairing()).toMatchObject({ expiresAt });
+    expect(s.client.pairing).toEqual({ expiresAt });
+    const before = s.events.filter((e) => e.type === 'group').length;
+    now = expiresAt - 1;
+    vi.advanceTimersByTime(59_999);
+    expect(s.events.filter((e) => e.type === 'group')).toHaveLength(before);
+    now = expiresAt;
+    vi.advanceTimersByTime(1);
+    expect(s.events.filter((e) => e.type === 'group')).toHaveLength(before + 1);
+    expect(s.client.pairing).toBeNull();
+    s.client.stop();
   });
 
   it('the socket anchors on the first paired device there is; a new one takes over at the next connect', () => {

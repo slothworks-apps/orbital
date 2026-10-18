@@ -111,9 +111,14 @@ export function refreshGroupState(): void {
   if (handle) useMobile.setState(groupState(handle.group))
 }
 
-/** What the state shows of the group: its members, a device asking to join, this phone's open code. */
-export function groupState(group: GroupClient): Pick<MobileState, 'members' | 'pendingPair' | 'ownCode' | 'unreachable'> {
-  return { members: group.members(), pendingPair: group.pendingPair, ownCode: group.pairing, unreachable: group.unreachable }
+/** What the state shows of the group: its members, a device asking to join, this phone's open code and what it refused. */
+export function groupState(
+  group: GroupClient,
+): Pick<MobileState, 'members' | 'pendingPair' | 'ownCode' | 'refusedPair' | 'unreachable'> {
+  return {
+    members: group.members(), pendingPair: group.pendingPair, ownCode: group.pairing, refusedPair: group.refusedPair,
+    unreachable: group.unreachable,
+  }
 }
 
 /**

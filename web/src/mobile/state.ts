@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { PendingPair } from '@orbital/shared/remote/ceremony'
+import type { PendingPair, RefusedPair } from '@orbital/shared/remote/ceremony'
 import type { LinkStatus, TunnelEvent } from '@orbital/shared/remote/tunnel'
 import type { MemberRow } from '@orbital/shared/remote/group'
 import type { GroupClientEvent } from '@orbital/shared/remote/groupClient'
@@ -144,6 +144,8 @@ export interface MobileState {
   pendingPair: PendingPair | null
   /** This phone's code while one is open (`GroupClient.startPairing`): when it stops working. */
   ownCode: { expiresAt: number } | null
+  /** A request this phone's code refused without asking (another phone's), until the next code. */
+  refusedPair: RefusedPair | null
   /**
    * The open composer's standing intent and the session it belongs to;
    * `seq` grows with every request, so asking twice focuses twice. Cleared
@@ -178,7 +180,7 @@ export const initialMobileState: MobileState = {
   screen: 'pairing', previous: null, sessionId: null, pushed: [], link: 'off', macOnline: false, ready: false,
   asOf: null, checkedAt: null, rechecking: null, listedAt: null, endedSummary: null, endedLoaded: false,
   mismatch: null, unpaired: false, unreachable: false, pairing: null, macName: null, macVersion: null, devices: [], refusals: {},
-  members: [], pendingPair: null, ownCode: null, composerIntent: null,
+  members: [], pendingPair: null, ownCode: null, refusedPair: null, composerIntent: null,
   screenLock: false, lock: 'open', appLock: true, lockLabel: 'screen lock', backgroundedAt: null, authenticating: false,
 }
 

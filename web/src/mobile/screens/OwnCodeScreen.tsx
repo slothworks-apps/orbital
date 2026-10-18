@@ -16,6 +16,9 @@ function codeError(error: Extract<StartPairingResult, { error: string }>['error'
   return "The relay didn't answer. Try again."
 }
 
+/** What stands where the code was when another phone redeemed it: a phone joins through a desktop. */
+const REFUSED_PHONE = "A phone can't join another phone. Show this code on a desktop instead."
+
 /** How long Copy reads "Copied" after a copy. */
 const COPIED_MS = 1_500
 
@@ -29,6 +32,7 @@ export function OwnCodeScreen() {
   const goBack = useMobile((s) => s.goBack)
   const go = useMobile((s) => s.go)
   const open = useMobile((s) => s.ownCode)
+  const refusedPair = useMobile((s) => s.refusedPair)
   const [code, setCode] = useState<{ word: string; expiresAt: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -63,6 +67,8 @@ export function OwnCodeScreen() {
   // A device confirmed (or three wrong codes rejected it): the code is spent, whatever its clock says.
   const spent = code !== null && open?.expiresAt !== code.expiresAt
   const left = code ? ownCodeLeft(spent ? now : code.expiresAt, now) : null
+  // Another phone redeemed it, and the group refused it: the code is spent, and says why.
+  const refused = spent && refusedPair !== null
 
   const copy = async () => {
     if (!code) return
@@ -115,7 +121,13 @@ export function OwnCodeScreen() {
         {/* `min-h-[85px]` is not on the canvas (50i's box has no height): two
             lines of the code, so the box keeps its size while it is empty. */}
         <div className="min-h-[85px] select-all break-all rounded-[14px] border border-[rgba(150,205,255,.2)] bg-[rgba(4,8,16,.6)] p-4 font-mono text-[17px] leading-[1.5] tracking-[0.04em] text-text-bright">
-          {code && !left?.expired ? code.word : ''}
+          {refused ? (
+            <span className="font-sans text-[14px] tracking-normal break-normal text-[rgba(200,214,235,.85)]">{REFUSED_PHONE}</span>
+          ) : code && !left?.expired ? (
+            code.word
+          ) : (
+            ''
+          )}
         </div>
         {left?.expired || (!code && error) ? (
           <PrimaryButton disabled={busy} onClick={() => void ask()}>
@@ -139,7 +151,7 @@ export function OwnCodeScreen() {
         <p className="text-[13.5px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
           On a desktop: Settings → Devices → <span className="font-semibold text-text-bright">Have another device&apos;s code?</span>
         </p>
-        {left && (
+        {left && !refused && (
           <div className="flex flex-col gap-[7px]">
             <div aria-hidden className="h-[3px] overflow-hidden rounded-full bg-[rgba(150,205,255,.12)]">
               <div

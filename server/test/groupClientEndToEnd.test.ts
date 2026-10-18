@@ -24,7 +24,8 @@ vi.mock('../src/remote/identity.js', async (importOriginal) => {
   };
 });
 
-type Phone = { client: GroupClient; events: GroupClientEvent[]; posts: string[]; channels: Channel[] };
+/** `mutual`: the peer of every `/pair/mutual` the phone posted. */
+type Phone = { client: GroupClient; events: GroupClientEvent[]; posts: string[]; mutual: string[]; channels: Channel[] };
 
 describe('the phone as a member', () => {
   const closers: (() => unknown)[] = [];
@@ -36,12 +37,15 @@ describe('the phone as a member', () => {
 
   async function startPhone(relayUrl: string): Promise<Phone> {
     const posts: string[] = [];
+    const mutual: string[] = [];
     const channels: Channel[] = [];
     const client = new GroupClient({
       relayUrl, identity: generateIdentity(), WebSocketImpl: WebSocket,
       app: 'orbital-mobile/test', os: 'android', name: 'Pixel', storage: new MemoryGroupStorage(), log: () => {},
       fetchImpl: (input, init) => {
-        posts.push(new URL(input).pathname);
+        const path = new URL(input).pathname;
+        posts.push(path);
+        if (path === '/pair/mutual') mutual.push((JSON.parse(init.body as string) as { payload: { peer: string } }).payload.peer);
         return fetch(input, init);
       },
     });
@@ -53,7 +57,7 @@ describe('the phone as a member', () => {
     client.start();
     closers.push(() => client.stop());
     await until(() => client.status === 'online');
-    return { client, events, posts, channels };
+    return { client, events, posts, mutual, channels };
   }
 
   const statusOf = async (s: MacAndRelay) => (await s.api('GET', '/api/remote')).json();
@@ -140,6 +144,33 @@ describe('the phone as a member', () => {
       && a.remote.channel(idC)?.ready === true && c.remote.channel(idA)?.ready === true, 15_000);
     expect((await phone.client.channel(idC)!.request('GET', '/api/health')).status).toBe(200);
     expect((await a.remote.channel(idC)!.request('GET', '/api/health')).status).toBe(200);
+  }, 30_000);
+
+  it('two phones of one group never link with each other, and each reads the other as paired with the desktop', async () => {
+    const a = await startMacAndRelay(closers, { name: 'studio' });
+    const idA = (await statusOf(a)).macId as string;
+    const one = await startPhone(a.relayUrl);
+    await joinBy(one, a, idA);
+    const two = await startPhone(a.relayUrl);
+    await joinBy(two, a, idA);
+    // Both phones hear of each other through A's roster.
+    await until(() => one.client.members().length === 3 && two.client.members().length === 3);
+    // A reconnect asks every member again: still not the other phone.
+    one.client.stop();
+    one.client.start();
+    await until(() => one.client.status === 'online');
+    await until(() => one.client.channel(idA)?.ready === true);
+    for (const [phone, other] of [[one, two], [two, one]] as const) {
+      expect(phone.mutual).not.toContain(other.client.id);
+      expect(phone.client.peers().map((p) => p.id)).toEqual([idA]);
+      expect(phone.events.some((e) => e.type === 'channel' && e.peer === other.client.id)).toBe(false);
+      expect(phone.client.members().find((m) => m.id === other.client.id)).toMatchObject({
+        kind: 'phone', links: true, linked: false,
+      });
+      expect(phone.client.members().find((m) => m.id === other.client.id)?.state).not.toBe('linking');
+    }
+    // The desktop links with both, as it always did.
+    expect((await statusOf(a)).devices.map((d: any) => d.id).sort()).toEqual([one.client.id, two.client.id].sort());
   }, 30_000);
 
   it('removing the phone on B removes it everywhere', async () => {
