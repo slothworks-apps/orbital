@@ -387,10 +387,11 @@ export function Select<T extends string | number>({
               ].join(' ')
             : isDevice
               ? // 50g's DEVICE field: 9px/12px inside a 9px radius over the
-                // field fill; the border lights to the accent at .5 while open.
+                // field fill; the border lights to the accent at .5 while open,
+                // `border-color .18s ease`.
                 [
                   'rounded-[9px] border bg-[rgba(4,8,16,.6)] px-3 py-[9px] font-sans',
-                  'transition-[border-color] duration-[180ms] ease-out',
+                  'transition-[border-color] duration-[180ms] ease-[ease]',
                   open ? 'border-[oklch(85%_.12_205/.5)]' : 'border-[rgba(150,205,255,.18)]',
                 ].join(' ')
             : isTag
@@ -447,8 +448,8 @@ export function Select<T extends string | number>({
           data-caret
           className={
             isDevice
-              ? // 50g: 8px, inline, flips while open.
-                `block shrink-0 text-[8px] text-[rgba(160,190,225,.6)] transition-transform duration-200 ease-out ${open ? 'rotate-180' : ''}`
+              ? // 50g: 8px, inline, flips while open (`transform .2s ease`).
+                `block shrink-0 text-[8px] text-[rgba(160,190,225,.6)] transition-transform duration-200 ease-[ease] ${open ? 'rotate-180' : ''}`
               : isTag || isGhost
               ? // Inline, and it flips while the popup is open (1b, 3a).
                 `block shrink-0 text-[8px] opacity-70 transition-transform duration-200 ease-out ${open ? 'rotate-180' : ''}`

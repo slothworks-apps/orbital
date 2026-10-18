@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { create } from 'zustand'
 import type { PendingPair } from '@orbital/shared/remote/ceremony'
 import { codeLeft } from '../lib/remote'
 import { attemptsLine, joinSentence, kindTile, whereLine } from '../lib/joinRequest'
@@ -14,20 +15,24 @@ import { BottomSheet, PrimaryButton, SecondaryButton, SheetPresence } from './ui
  * A device asking to join through this phone's code (canvas 50i, the phone
  * as member; 50c's tile, sentence and six boxes): up wherever the user is,
  * while the group holds the request. The user types the code the device
- * shows; the group compares. Accept leads to the joined sheet; Reject, the
- * backdrop and the back button reject, as Esc does on the desktop.
+ * shows; the group compares. Accept leads to the joined sheet; only Reject
+ * rejects. The backdrop and the back button put the sheet away while the
+ * request stays open, and Settings → Devices brings it back (`useJoinSheet`).
  */
 export function JoinRequestSheet() {
   const pending = useMobile((s) => s.pendingPair)
   const ownCode = useMobile((s) => s.ownCode)
+  const setAside = useJoinSheet((s) => s.setAside)
   // The request stays drawn while the sheet sinks after the group drops it.
   const shown = useRef<PendingPair | null>(null)
   if (pending) shown.current = pending
   const [joined, setJoined] = useState<string | null>(null)
 
-  // A new request replaces a joined sheet still up.
+  // A new request replaces a joined sheet still up. A request gone takes
+  // its put-away mark with it, so the same device asking again is shown.
   useEffect(() => {
     if (pending) setJoined(null)
+    else useJoinSheet.setState({ setAside: null })
   }, [pending?.phone]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -35,13 +40,20 @@ export function JoinRequestSheet() {
       {joined !== null ? (
         <JoinedSheet name={joined} onDone={() => setJoined(null)} />
       ) : (
-        pending && (
+        pending && pending.phone !== setAside && (
           <RequestSheet key={pending.phone} request={pending} expiresAt={ownCode?.expiresAt ?? null} onJoined={setJoined} />
         )
       )}
     </SheetPresence>
   )
 }
+
+/**
+ * The join request whose sheet the user put away by the backdrop or the back
+ * button, by the asking device's id: the request stays open, and Settings →
+ * Devices offers it again until it is answered or gone.
+ */
+export const useJoinSheet = create<{ setAside: string | null }>(() => ({ setAside: null }))
 
 function RequestSheet({
   request,
@@ -98,7 +110,11 @@ function RequestSheet({
       : whereLine(request.kind, request.name)
 
   return (
-    <BottomSheet label={joinSentence(request)} onDismiss={() => void answer(false)} variant="device">
+    <BottomSheet
+      label={joinSentence(request)}
+      onDismiss={() => useJoinSheet.setState({ setAside: request.phone })}
+      variant="device"
+    >
       <div className="flex flex-col items-center gap-[13px] pb-2 text-center">
         <div className="font-mono text-[9.5px] tracking-[0.2em] text-[rgba(160,190,225,.55)]">{eyebrow}</div>
         {/* Canvas 50c "KIND, THREE TIMES": the glyph, the kind word and its meaning, then the sentence. */}

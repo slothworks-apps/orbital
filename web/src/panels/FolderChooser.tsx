@@ -70,12 +70,20 @@ export function FolderChooser({ machine, name, kind, start, recents, onChoose, o
   // The innermost layer while open: esc closes the chooser, not the dialog.
   useEscapeLayer(true, onCancel)
 
+  // It hangs over the fields below, past the dialog body's bottom in a short
+  // window, where the body's scroll would hide *Choose this folder*. Brought
+  // into view as it opens, the least distance that shows all of it.
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    box.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [])
+
   const now = Date.now()
   const crumbs = listing ? crumbsOf(listing.path) : []
 
   return (
     // canvas 50g: hung 70px below the field group's top, 8px wider on each side.
-    <div className="absolute -left-2 -right-2 top-[70px] z-[8] flex flex-col overflow-hidden rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.97)] shadow-[0_18px_44px_rgba(0,0,0,.6)] backdrop-blur-[12px]">
+    <div ref={box} className="absolute -left-2 -right-2 top-[70px] z-[8] flex flex-col overflow-hidden rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.97)] shadow-[0_18px_44px_rgba(0,0,0,.6)] backdrop-blur-[12px]">
       <div className="flex items-center gap-1.5 border-b border-[rgba(150,205,255,.1)] px-3 py-2.5 font-mono text-[11px] text-[rgba(160,190,225,.7)]">
         <span className="flex shrink-0 text-text-bright">
           <KindGlyph kind={kind} />

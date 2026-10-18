@@ -164,9 +164,9 @@ export function PairConfirmDialog() {
           <p className="text-[13px] leading-[1.55] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
             The other devices link to it on their own. It appears under Devices → In this group.
           </p>
-          {/* No canvas 50c button (its only control is the demo's RESET DEMO);
-              styled as the pending state's primary action, as 50i's phone
-              sheet has its own "Done". */}
+          {/* Not on the canvas: 50c draws no Done (its only control is the
+              demo's RESET DEMO); styled as the pending state's primary action,
+              as 50i's phone sheet has its own "Done". */}
           {/* In a row like Accept and Reject: `wide` grows along the row, and as a
               child of the dialog's column it would collapse to its text's height. */}
           <div className="flex w-full">

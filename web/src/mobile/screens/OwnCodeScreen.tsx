@@ -112,6 +112,8 @@ export function OwnCodeScreen() {
         <h2 className="text-[22px] font-bold leading-[1.25] tracking-[-0.01em] [text-wrap:balance]">
           Paste it on the device you&apos;re adding
         </h2>
+        {/* `min-h-[85px]` is not on the canvas (50i's box has no height): two
+            lines of the code, so the box keeps its size while it is empty. */}
         <div className="min-h-[85px] select-all break-all rounded-[14px] border border-[rgba(150,205,255,.2)] bg-[rgba(4,8,16,.6)] p-4 font-mono text-[17px] leading-[1.5] tracking-[0.04em] text-text-bright">
           {code && !left?.expired ? code.word : ''}
         </div>

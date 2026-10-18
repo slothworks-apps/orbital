@@ -230,7 +230,8 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
   )
 
   // An offline device whose history was never read while it was up: one
-  // quiet line where the transcript would be, never an error.
+  // quiet line where the transcript would be, never an error. Its styling is
+  // not on the canvas (50a–50k draw no such line).
   if (unkeptFrom !== null && messages.length === 0) {
     return (
       <div

@@ -5,6 +5,7 @@ import { useNow } from '../../lib/useNow'
 import { KindGlyph } from '../../ui/KindGlyph'
 import { MemberDot } from '../../ui/MemberDot'
 import { phoneRows, removalLeavesAlone, type PhoneRow } from '../devices'
+import { useJoinSheet } from '../JoinRequestSheet'
 import { forgetGroupHere, LEAVE_FAILED, LEAVE_OFFLINE, leaveGroup } from '../forget'
 import { relayHost } from '../format'
 import { thisDevice } from '../platform/device'
@@ -34,6 +35,9 @@ export function DevicesSection() {
   const link = useMobile((s) => s.link)
   const pairing = useMobile((s) => s.pairing)
   const go = useMobile((s) => s.go)
+  const pendingPair = useMobile((s) => s.pendingPair)
+  const setAside = useJoinSheet((s) => s.setAside)
+  const review = pendingPair && pendingPair.phone === setAside ? pendingPair : null
   const now = useNow(true, SEEN_TICK_MS)
   const rows = useMemo(() => phoneRows(members, devices, now), [members, devices, now])
   const self = members.find((m) => m.self)
@@ -122,6 +126,19 @@ export function DevicesSection() {
 
       <SectionLabel>ADD A DEVICE</SectionLabel>
       <div className={CARD}>
+        {review && (
+          // Not on the canvas: the way back to a join request whose sheet was
+          // put away (`useJoinSheet`), in ADD A DEVICE's row style.
+          <button
+            type="button"
+            onClick={() => useJoinSheet.setState({ setAside: null })}
+            className={`${LINK_ROW} border-b border-[rgba(150,205,255,.08)]`}
+          >
+            <span className="min-w-0 flex-1 truncate">{review.name} wants to join</span>
+            <span className="text-accent">Review</span>
+            <span aria-hidden className="text-[18px] text-[rgba(160,190,225,.5)]">›</span>
+          </button>
+        )}
         <button type="button" onClick={() => go('pairing')} className={LINK_ROW}>
           <span className="flex-1">Scan another device&apos;s code</span>
           <span aria-hidden className="text-[18px] text-[rgba(160,190,225,.5)]">›</span>

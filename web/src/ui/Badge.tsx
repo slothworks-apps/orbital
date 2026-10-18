@@ -197,7 +197,10 @@ export function Badge(props: BadgeProps) {
       <span
         data-variant="status"
         data-status={state}
-        className="inline-flex items-center gap-1.5 rounded-[5px] border px-[9px] py-1 font-mono text-[10.5px] tracking-[0.08em]"
+        // One line always: an offline device's ` · AS OF 12 MIN AGO` would
+        // otherwise wrap the chip in a crowded row. `min-w-0` lets the row
+        // shrink it, and the words end in an ellipsis instead.
+        className="inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap rounded-[5px] border px-[9px] py-1 font-mono text-[10.5px] tracking-[0.08em]"
         style={{ color: tone.ink, borderColor: tone.border }}
       >
         <StateDot
@@ -208,8 +211,10 @@ export function Badge(props: BadgeProps) {
           // WORKING keeps its glow; its dot is the state cyan now, not the tag hue.
           glow={state === 'working' && !asOf}
         />
-        {gate ? 'NEEDS YOUR OK' : stateWord(state, awaiting)}
-        {asOf && ` · ${asOf}`}
+        <span className="min-w-0 truncate">
+          {gate ? 'NEEDS YOUR OK' : stateWord(state, awaiting)}
+          {asOf && ` · ${asOf}`}
+        </span>
       </span>
     )
   }
