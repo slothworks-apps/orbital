@@ -235,4 +235,13 @@ describe('remote allowlist', () => {
   it('a member cannot make this device join another', () => {
     expect(isAllowed('POST', '/api/remote/join')).toBe(false);
   });
+  it('a member reads and starts this device\'s update, and nothing beside it', () => {
+    expect(isAllowed('GET', '/api/server/update')).toBe(true);
+    expect(isAllowed('POST', '/api/server/update')).toBe(true);
+    for (const [m, p] of [
+      ['PUT', '/api/server/update'], ['DELETE', '/api/server/update'], ['PATCH', '/api/server/update'],
+      ['GET', '/api/server'], ['POST', '/api/server'], ['POST', '/api/server/update/x'], ['POST', '/api/server/updates'],
+      ['POST', '/api/server/restart'], ['POST', '/api/server/update/'], ['POST', '/api/server/%75pdate'],
+    ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(false);
+  });
 });

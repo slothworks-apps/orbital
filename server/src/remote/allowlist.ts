@@ -149,6 +149,14 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['POST', '/api/limits/refresh', 'settings'],
   ['GET', '/api/stats/overview', 'settings'],
   ['GET', '/api/claude-dirs', 'settings'],
+  // Updating this device from any member, the phone included (spec
+  // 2026-10-19-headless-server-design § Updating from the group), under the
+  // settings grant: who may change this device's settings may update it.
+  // The POST reads nothing from the request and installs only what this
+  // device's own updater (apt's pinned package, electron-updater's release)
+  // offers.
+  ['GET', '/api/server/update', 'settings'],
+  ['POST', '/api/server/update', 'settings'],
 
   // manage group: this device's upkeep (off by default)
   ['POST', '/api/claude-dirs', 'manage'],

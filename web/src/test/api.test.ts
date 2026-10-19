@@ -911,3 +911,28 @@ describe('read bounds for the phone', () => {
     expect(fetchMock.mock.calls[3][0]).toBe('/api/sessions/s1/tasks/sh1/output?maxBytes=65536')
   })
 })
+
+describe('server update', () => {
+  const state = { installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 1 }
+
+  it('reads a member\'s state through ?machine=, and refuses a malformed one', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(state), { status: 200 }))
+    expect(await api.serverUpdate('m-1')).toEqual(state)
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/server/update?machine=m-1')
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...state, sessions: 'two' }), { status: 200 }))
+    await expect(api.serverUpdate()).rejects.toBeInstanceOf(ApiError)
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/server/update')
+  })
+
+  it('starts with no body, and maps each refusal to its code', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...state, updating: true }), { status: 202 }))
+    expect(await api.startServerUpdate('m-1')).toEqual({ ok: true, state: { ...state, updating: true } })
+    expect(fetchMock.mock.calls[0][1]?.body).toBeUndefined()
+    for (const [status, error] of [[409, 'no_update'], [409, 'updating'], [409, 'not_set_up'], [501, 'not_packaged']] as const) {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error }), { status }))
+      expect(await api.startServerUpdate()).toEqual({ ok: false, error })
+    }
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'member_offline' }), { status: 409 }))
+    await expect(api.startServerUpdate('m-1')).rejects.toBeInstanceOf(ApiError)
+  })
+})

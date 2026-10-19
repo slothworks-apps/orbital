@@ -67,6 +67,12 @@ import { registerFederationRoutes } from './federation/routes.js';
 import { FederationService } from './federation/service.js';
 import { MemberSnapshotStore } from './federation/store.js';
 import { remoteInjectOptions } from './remote/inject.js';
+import { registerServerUpdateRoutes } from './api/serverUpdate.js';
+import {
+  AptUpdateBackend, chooseUpdateBackend, DesktopUpdateBackend, NoUpdateBackend, PACKAGE_ROOT, type ParentPort,
+  type UpdateBackend,
+} from './update/backends.js';
+import { UPDATE_MARKER_FILE, UpdateService } from './update/service.js';
 import {
   API_TOKEN_COOKIE,
   loadOrCreateApiToken,
@@ -268,6 +274,8 @@ export async function buildServer(overrides: {
   exposeFederation?: (federation: FederationService) => void;
   /** Tests listen on the hub as a local window would. */
   exposeHub?: (hub: Hub) => void;
+  /** Where an update comes from; tests inject one. Unset, `chooseUpdateBackend` picks it from the environment. */
+  updateBackend?: UpdateBackend;
 } = {}): Promise<FastifyInstance> {
   const apiToken = overrides.apiToken;
   if (apiToken === undefined && !process.env.VITEST) {
@@ -1459,6 +1467,15 @@ export async function buildServer(overrides: {
   // Before the routes: a request for a member's session must never reach a
   // local handler, which would answer it as an unknown session of this device.
   registerFederationRoutes(app, federation, () => remote.selfId(), imagesDir, images);
+  // Updating this server from the group (spec 2026-10-19-headless-server-design § Updating from the group).
+  const updates = new UpdateService({
+    backend: overrides.updateBackend ?? startUpdateBackend(),
+    running: process.env.ORBITAL_VERSION ?? 'dev',
+    markerPath: join(dataDir, UPDATE_MARKER_FILE),
+    // What an update would stop: the sessions this server runs that are mid-turn, as the desktop's quit guard counts them.
+    sessions: () => runner.active().filter((id) => runner.status(id) === 'working').length,
+  });
+  registerServerUpdateRoutes(app, updates);
   registerRoutes(app, {
     db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, terminals, recentTools, errors,
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees,
@@ -1507,6 +1524,7 @@ export async function buildServer(overrides: {
       console.warn(`[remote] stop failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     limits.dispose();
+    updates.stop();
     presence.dispose();
     runner.dispose();
     registry.close();
@@ -1531,6 +1549,25 @@ export async function buildServer(overrides: {
 function desktopParentPid(): number | null {
   const pid = Number(process.env.ORBITAL_PARENT_PID);
   return Number.isInteger(pid) && pid > 0 ? pid : null;
+}
+
+/** The update backend this process runs under (`chooseUpdateBackend`), started. */
+function startUpdateBackend(): UpdateBackend {
+  const parentPort = (process as unknown as { parentPort?: ParentPort }).parentPort;
+  const kind = chooseUpdateBackend({
+    headless: process.env.ORBITAL_HEADLESS === '1',
+    entry: process.argv[1],
+    packageRoot: PACKAGE_ROOT,
+    desktopParent: desktopParentPid() !== null,
+    parentPort: parentPort !== undefined,
+  });
+  if (kind === 'apt') {
+    const apt = new AptUpdateBackend();
+    apt.start();
+    return apt;
+  }
+  if (kind === 'desktop' && parentPort) return new DesktopUpdateBackend(parentPort);
+  return new NoUpdateBackend();
 }
 
 /** How often a forked server checks that the desktop app that forked it is still there. */

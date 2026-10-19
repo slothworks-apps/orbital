@@ -444,6 +444,8 @@ export class RemoteService {
     try {
       const members = this.group.members(online).map((m) => ({
         ...m, tooOld: !m.self && memberTooOld(m.kind, this.hellos.get(m.id) ?? null),
+        // What `servesServerUpdate` reads before the update routes are asked of a member.
+        version: m.self ? this.opts.serverVersion : helloVersion(this.hellos.get(m.id) ?? null),
       }));
       const primary = this.group.primary();
       // Before `joinExpired`: reading the join under way is what drops one whose code ran out.
@@ -825,4 +827,9 @@ export class RemoteService {
       }
     }
   }
+}
+
+/** The version a hello names: a shipped Mac's `server`, else a newer device's `version`; null when neither. */
+function helloVersion(hello: HelloMessage | null): string | null {
+  return hello?.server ?? hello?.version ?? null;
 }

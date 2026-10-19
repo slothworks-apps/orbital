@@ -9,6 +9,8 @@
  * remember the skipped version, restart.
  */
 
+import type { MainUpdateStateMessage } from '@orbital/shared/remote/serverUpdate';
+
 /**
  * How often a running app looks for a newer release, after the check at
  * launch. A tester's app is open for days. The timer does not run while the
@@ -345,6 +347,13 @@ export class UpdateFlow {
   private downloadedVersion: string | null = null;
   /** A version downloading by itself (setting on), so a second check does not start it again. */
   private silentDownload: string | null = null;
+  /** The version the last check found, whatever the prompt did with it: what a member may ask to install. */
+  private found: string | null = null;
+  /**
+   * Another member of the group asked for the update (`update_start`): once
+   * it is downloaded it installs at once, rather than prompting here.
+   */
+  private remoteRequested = false;
 
   constructor(init: { skippedVersion?: string | null } = {}) {
     this.skipped = init.skippedVersion ?? null;
@@ -385,6 +394,7 @@ export class UpdateFlow {
       outcome,
     });
     if (this.phase === 'restarting') return found('none');
+    this.found = version;
     const shown = this.phase !== 'none' && this.version === version;
     if (shown) return found(this.phase === 'waiting' ? 'waiting' : 'offered');
     if (version === this.dismissedVersion) return found('installs-on-quit');
@@ -429,6 +439,7 @@ export class UpdateFlow {
    */
   downloadFailed(): UpdateStep {
     this.silentDownload = null;
+    this.remoteRequested = false;
     this.downloadedVersion = null;
     if (this.phase === 'none' || this.phase === 'available') return this.step();
     this.phase = 'available';
@@ -455,6 +466,10 @@ export class UpdateFlow {
     }
     const before = this.snapshot();
     this.downloadedVersion = version;
+    if (this.remoteRequested) {
+      this.remoteRequested = false;
+      return this.restart();
+    }
     // A newer version replaces whatever was on screen, a wait or a receipt
     // included, with a prompt for it.
     this.toReady(version);
@@ -523,6 +538,51 @@ export class UpdateFlow {
         return this.step();
     }
     return this.step({ changed: before !== this.snapshot(), download, skipChanged });
+  }
+
+  /**
+   * A member of the group asked for the update (spec
+   * 2026-10-19-headless-server-design § A Mac, too): what Download and then
+   * Restart would do, without waiting on this Mac's user, who did not ask.
+   * The member confirmed the running sessions before it asked. Downloaded
+   * already, it installs now; otherwise the version found downloads — shown
+   * as downloading here too, a skip of it undone — and installs once
+   * downloaded. With nothing found, or already restarting, nothing happens.
+   */
+  remoteStart(): UpdateStep {
+    if (this.phase === 'restarting') return this.step();
+    if (this.downloadedVersion !== null) return this.restart();
+    const version = this.phase !== 'none' ? this.version : (this.silentDownload ?? this.found);
+    if (version === null || version === '') return this.step();
+    this.remoteRequested = true;
+    if (this.phase === 'downloading' || this.silentDownload === version) return this.step();
+    const before = this.snapshot();
+    let skipChanged = false;
+    if (this.skipped === version) {
+      this.skipped = null;
+      skipChanged = true;
+    }
+    this.phase = 'downloading';
+    this.version = version;
+    this.percent = 0;
+    return this.step({ changed: before !== this.snapshot(), download: true, skipChanged });
+  }
+
+  /**
+   * What the forked server is told (`update_state`): the version a member
+   * would install — the one downloaded, else the one on screen or
+   * downloading, else the last found — and how far along it is.
+   */
+  serverState(installed: string): MainUpdateStateMessage {
+    const shown = this.phase !== 'none' && this.phase !== 'restarting' ? this.version : null;
+    const available = this.downloadedVersion ?? shown ?? this.silentDownload ?? this.found;
+    return {
+      t: 'update_state',
+      installed,
+      available: available !== null && available !== installed ? available : null,
+      downloading: this.phase === 'downloading' || this.silentDownload !== null,
+      downloaded: this.downloadedVersion !== null,
+    };
   }
 
   private toReady(version: string): void {

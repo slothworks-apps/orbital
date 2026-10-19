@@ -566,6 +566,84 @@ describe('UpdateFlow', () => {
   });
 });
 
+describe('an update a member of the group asked for', () => {
+  const INSTALLED = '0.25.0';
+
+  it('downloads the version on screen and installs it as soon as it is downloaded, without a prompt', () => {
+    const flow = new UpdateFlow();
+    flow.available('0.26.0', MB);
+    const start = flow.remoteStart();
+    expect(start).toMatchObject({ download: true, restart: false, changed: true });
+    expect(flow.view.phase).toBe('downloading');
+    expect(flow.serverState(INSTALLED)).toEqual({
+      t: 'update_state', installed: INSTALLED, available: '0.26.0', downloading: true, downloaded: false,
+    });
+    expect(flow.downloaded('0.26.0')).toMatchObject({ restart: true });
+    expect(flow.view.phase).toBe('restarting');
+  });
+
+  it('installs at once what is downloaded already, a closed receipt included', () => {
+    const ready = new UpdateFlow();
+    ready.setWorkingCount(3, true);
+    ready.downloaded('0.26.0');
+    expect(ready.remoteStart()).toMatchObject({ restart: true });
+
+    const closed = new UpdateFlow();
+    closed.downloaded('0.26.0');
+    closed.act('close');
+    closed.act('ok');
+    expect(closed.view.phase).toBe('none');
+    expect(closed.serverState(INSTALLED)).toMatchObject({ available: '0.26.0', downloaded: true });
+    expect(closed.remoteStart()).toMatchObject({ restart: true });
+  });
+
+  it('downloads a version skipped on this Mac, and takes the skip back', () => {
+    const flow = new UpdateFlow({ skippedVersion: '0.26.0' });
+    expect(flow.available('0.26.0', MB).outcome).toBe('skipped');
+    expect(flow.serverState(INSTALLED).available).toBe('0.26.0');
+    const start = flow.remoteStart();
+    expect(start).toMatchObject({ download: true, skipChanged: true });
+    expect(flow.skippedVersion).toBeNull();
+  });
+
+  it('joins a download already running, starting no second one', () => {
+    const asked = new UpdateFlow();
+    asked.available('0.26.0', MB);
+    asked.act('download');
+    expect(asked.remoteStart()).toMatchObject({ download: false, restart: false });
+    expect(asked.downloaded('0.26.0')).toMatchObject({ restart: true });
+
+    const silent = new UpdateFlow();
+    silent.setAutoDownload(true);
+    silent.available('0.26.0', MB);
+    expect(silent.serverState(INSTALLED)).toMatchObject({ available: '0.26.0', downloading: true });
+    expect(silent.remoteStart()).toMatchObject({ download: false, restart: false });
+    expect(silent.downloaded('0.26.0')).toMatchObject({ restart: true });
+  });
+
+  it('does nothing with nothing found, or while restarting', () => {
+    const flow = new UpdateFlow();
+    expect(flow.remoteStart()).toMatchObject({ download: false, restart: false, changed: false });
+    expect(flow.serverState(INSTALLED)).toEqual({
+      t: 'update_state', installed: INSTALLED, available: null, downloading: false, downloaded: false,
+    });
+    flow.downloaded('0.26.0');
+    flow.act('restart-now');
+    expect(flow.remoteStart()).toMatchObject({ restart: false, download: false });
+  });
+
+  it('a failed download leaves the request behind: the next download prompts as before', () => {
+    const flow = new UpdateFlow();
+    flow.available('0.26.0', MB);
+    flow.remoteStart();
+    flow.downloadFailed();
+    expect(flow.view.phase).toBe('available');
+    flow.act('download');
+    expect(flow.downloaded('0.26.0')).toMatchObject({ restart: false });
+    expect(flow.view.phase).toBe('ready');
+  });
+});
+
 describe('skipped version file', () => {
   it('round-trips a version and nothing', () => {
     expect(parseSkippedVersion(serializeSkippedVersion('0.26.0'))).toBe('0.26.0');

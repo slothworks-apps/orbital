@@ -49,6 +49,12 @@ import type {
   SessionDefaults,
 } from './types'
 import { markUnauthorized } from './unauthorized'
+import {
+  parseServerUpdateState,
+  SERVER_UPDATE_REFUSALS,
+  type ServerUpdateRefusal,
+  type ServerUpdateState,
+} from '@orbital/shared/remote/serverUpdate'
 import type { TerminalInfo } from '../terminal/types'
 
 /**
@@ -1337,6 +1343,36 @@ export const api = {
    * one 409 `code_rejected`. 404 means there is nothing left to answer, 502
    * that the relay did not take it.
    */
+  /**
+   * A member's update state (`GET /api/server/update`, spec
+   * 2026-10-19-headless-server-design § Updating from the group). `machine`
+   * names another member: on the desktop this server asks it through its
+   * channel, on the phone the request goes to that member directly; left
+   * out, this device's own. Ask only a member that serves the route
+   * (`servesServerUpdate`). A malformed answer throws.
+   */
+  async serverUpdate(machine?: string): Promise<ServerUpdateState> {
+    const url = machine === undefined ? '/api/server/update' : `/api/server/update?${new URLSearchParams({ machine })}`
+    const state = parseServerUpdateState(await request<unknown>('GET', url))
+    if (!state) throw new ApiError('malformed update state', 502, url)
+    return state
+  },
+
+  /**
+   * Starts that member's update: its state, now `updating`, or the refusal
+   * (`no_update`, `updating`, `not_set_up`, `not_packaged`). The caller
+   * confirms first when the state reported running sessions. Anything else
+   * throws.
+   */
+  async startServerUpdate(machine?: string): Promise<{ ok: true; state: ServerUpdateState } | { ok: false; error: ServerUpdateRefusal }> {
+    const url = machine === undefined ? '/api/server/update' : `/api/server/update?${new URLSearchParams({ machine })}`
+    const res = await remoteCall<unknown, ServerUpdateRefusal>('POST', url, undefined, UPDATE_REFUSALS)
+    if (typeof res === 'object' && res !== null && 'error' in res) return { ok: false, error: (res as { error: ServerUpdateRefusal }).error }
+    const state = parseServerUpdateState(res)
+    if (!state) throw new ApiError('malformed update state', 502, url)
+    return { ok: true, state }
+  },
+
   async confirmPairing(accept: boolean, phone: string, code?: string): Promise<PairConfirmResult> {
     return remoteCall<{ ok: true }, PairConfirmError>(
       'POST',
@@ -1450,6 +1486,15 @@ const CLAUDE_DIR_REFUSALS: Partial<Record<number, readonly ClaudeDirRefusal[]>> 
  * A refusal comes back as its whole JSON body, so one that carries more than
  * its `error` (422 `code_mismatch` and its `attemptsLeft`) keeps it.
  */
+/** `POST /api/server/update`'s refusals, by status, for `remoteCall`. */
+const UPDATE_REFUSALS: Partial<Record<number, readonly ServerUpdateRefusal[]>> = (() => {
+  const out: Partial<Record<number, ServerUpdateRefusal[]>> = {}
+  for (const [error, status] of Object.entries(SERVER_UPDATE_REFUSALS) as [ServerUpdateRefusal, number][]) {
+    ;(out[status] ??= []).push(error)
+  }
+  return out
+})()
+
 async function remoteCall<T, E extends string>(
   method: string,
   url: string,

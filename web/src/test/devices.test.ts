@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   LOCAL_DEVICE, asOfLabel, canRemoveRow, deviceChips, deviceOf, deviceRows, devicesOn, groupView, kindOs,
-  memberStateWords,
+  memberStateWords, memberServesUpdate,
   isMemberOffline, namesShown, osLabel, showDeviceRow, toggleDevice,
   agoWords, deviceLock, ideHere, pillWords, runsOn, stateAsOf, withMachine, withMachineOffline,
   childPath, crumbsOf, deviceOptions, openingDevice, recentAge,
@@ -567,5 +567,19 @@ describe('localClaudeDirId', () => {
       machine: { id: 'b', name: 'b', kind: 'headless', os: 'linux', online: true, asOf: null },
     })).toBeNull()
     expect(localClaudeDirId(undefined)).toBeNull()
+  })
+})
+
+describe('memberServesUpdate', () => {
+  it('asks this device, and another member only from the version that serves the route', () => {
+    expect(memberServesUpdate(member({ self: true, version: undefined }))).toBe(true)
+    expect(memberServesUpdate(member({ kind: 'headless', version: '0.35.0' }))).toBe(true)
+    expect(memberServesUpdate(member({ version: '0.34.2' }))).toBe(false)
+    expect(memberServesUpdate(member({ version: null }))).toBe(false)
+    expect(memberServesUpdate(member({ version: undefined }))).toBe(false)
+  })
+
+  it('never asks a phone, which has no server', () => {
+    expect(memberServesUpdate(member({ kind: 'phone', version: '9.0.0' }))).toBe(false)
   })
 })

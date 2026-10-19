@@ -20,6 +20,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { autoUpdater } from 'electron-updater';
+import { parseServerMessage } from '@orbital/shared/remote/serverUpdate';
 import { apiTokenPath, authCookies, bearerHeaders, parseApiToken } from './lib/apiToken';
 import { appMenuTemplate, parseMenuCommands, type MenuCommand } from './lib/appMenu';
 import { parseTerminalFocused, terminalKeyDecision } from './lib/terminalKeys';
@@ -366,6 +367,14 @@ function forkServer(): UtilityProcess {
     },
   });
 
+  // The server's one message (spec 2026-10-19-headless-server-design § A Mac,
+  // too): a member asked this Mac to update. Anything else is ignored.
+  lastServerUpdateState = null;
+  proc.on('message', (message: unknown) => {
+    if (proc !== child || !parseServerMessage(message)) return;
+    applyUpdateStep(updates.remoteStart());
+  });
+
   proc.on('exit', (code) => {
     switch (classifyChildExit({ quitting, current: child === proc, awaitingStart })) {
       case 'ignore':
@@ -483,7 +492,11 @@ async function bringServerUp(): Promise<HealthInfo | null> {
     const exitCode = readStartExit();
     awaitingStart = false;
     startExit = null;
-    if (health) return health;
+    if (health) {
+      // Answering, it listens: what the updater knows goes to it now, and on every change after.
+      pushServerUpdateState();
+      return health;
+    }
 
     // Either it died, or it is alive and silent — in both cases it is no use.
     await discardChild();
@@ -1222,7 +1235,30 @@ function applyUpdateStep(step: UpdateStep): void {
       applyUpdateStep(updates.idleSettled());
     }, IDLE_SETTLE_MS);
   }
+  pushServerUpdateState();
   if (step.restart) autoUpdater.quitAndInstall();
+}
+
+/** The last `update_state` sent to the current server, as JSON; null since it was forked. */
+let lastServerUpdateState: string | null = null;
+
+/**
+ * Tell the forked server what the updater knows (`update_state`), when it
+ * changed since the last message — so a member reading this Mac's
+ * `GET /api/server/update` sees what Settings › Updates shows. A server this
+ * app attached to rather than forked has no channel.
+ */
+function pushServerUpdateState(): void {
+  if (!forked || !child) return;
+  const message = updates.serverState(app.getVersion());
+  const json = JSON.stringify(message);
+  if (json === lastServerUpdateState) return;
+  try {
+    child.postMessage(message);
+    lastServerUpdateState = json;
+  } catch (err) {
+    console.error('Orbital could not tell its server the update state:', err);
+  }
 }
 
 /** Whether an IPC message came from one of Orbital's own windows. */

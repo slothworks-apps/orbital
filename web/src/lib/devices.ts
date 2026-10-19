@@ -6,6 +6,7 @@
  * chips and filter (canvas 50e).
  */
 import { linksWith } from '@orbital/shared/remote/group'
+import { servesServerUpdate } from '@orbital/shared/remote/serverUpdate'
 import { timeAgo } from './format'
 import type {
   ApiSession, GroupEnded, GroupMember, IdeContext, MachineRef, MemberState, RemoteDevice, RemoteStatus, Tag,
@@ -18,6 +19,19 @@ const OS_LABELS: Record<string, string> = {
 /** An OS as a roster entry names it, worded for people (canvas 50k "WORDING"); unknown passes through as is. */
 export function osLabel(os: string): string {
   return OS_LABELS[os] ?? os
+}
+
+/**
+ * Whether a member's update state may be asked of it (`api.serverUpdate`,
+ * spec 2026-10-19-headless-server-design § Updating from the group): this
+ * device always, a phone never — it has no server — and any other member
+ * only when its last hello named a version that serves the route. A member
+ * older than that is never asked.
+ */
+export function memberServesUpdate(m: Pick<GroupMember, 'self' | 'kind' | 'version'>): boolean {
+  if (m.self) return true
+  if (m.kind === 'phone') return false
+  return servesServerUpdate(m.version ?? null)
 }
 
 /** `desktop · macOS` (canvas 50k); the OS half drops with its separator while it is not known yet. */
