@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.15.3] — 2026-10-19
+### Fixed
+- The banner inside the app no longer says a session needs your input when it has only finished its turn. It says Done instead, and shows nothing if the session carries on by itself a moment later.
+
 ## [0.15.2] — 2026-10-19
 ### Changed
 - A session compacting its context shows it in the session list too: its planet goes quiet and grey rings draw in onto it, as on the Mac's map.

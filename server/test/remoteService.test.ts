@@ -8,7 +8,7 @@ import { startHandshake } from '@orbital/shared/remote/handshake';
 import {
   PAIRING_SECRET_BYTES, PAIRING_TOKEN_TTL_MS, PAIR_NAME_MAX_CHARS, QrPayload, pairingProof, sealPairingDevice,
 } from '@orbital/shared/remote/relayApi';
-import { parseNotificationSettings } from '@orbital/shared/notifications';
+import { NEEDS_INPUT_SETTLE_MS, parseNotificationSettings } from '@orbital/shared/notifications';
 import { PROTOCOL_VERSION, decodeInner, encodeInner } from '@orbital/shared/remote/messages';
 import { MIN_PHONE_VERSION, MIN_RELAY_VERSION } from '@orbital/shared/remote/version';
 import { describeDevice, exitDigest, foundRoster, memberIds, nextRoster, type RosterState } from '@orbital/shared/remote/roster';
@@ -1065,8 +1065,16 @@ describe('RemoteService data', () => {
       id: deviceId(phone.publicKey), name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({ notify_needs_input: 'true' }),
     }));
     await tick(); // the watcher starts once its seed fetch answers
-    hub.publish('sessions', { event: 'upsert', session: { id: 's1', title: 'one', status: 'working' } });
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    vi.useFakeTimers();
+    try {
+      hub.publish('sessions', { event: 'upsert', session: { id: 's1', title: 'one', status: 'working' } });
+      hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+      // A stop wakes the phone only once it has settled.
+      expect(fake.sent).toHaveLength(0);
+      vi.advanceTimersByTime(NEEDS_INPUT_SETTLE_MS);
+    } finally {
+      vi.useRealTimers();
+    }
     expect(fake.sent).toHaveLength(1);
     const frame = decodeFrame(fake.sent[0])!;
     expect(deviceId(frame.peer)).toBe(deviceId(phone.publicKey));
@@ -1083,12 +1091,19 @@ describe('RemoteService data', () => {
       id: deviceId(phone.publicKey), name: 'iPhone', platform: 'ios', kind: 'phone', pairedAt: 1, notifications: parseNotificationSettings({ notify_needs_input: 'true' }),
     }), { groupPresence: () => elsewhere });
     await tick();
-    hub.publish('sessions', { event: 'upsert', session: { id: 's1', title: 'one', status: 'working' } });
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
-    expect(fake.sent).toHaveLength(0);
-    elsewhere = false;
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'working' });
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    vi.useFakeTimers();
+    try {
+      hub.publish('sessions', { event: 'upsert', session: { id: 's1', title: 'one', status: 'working' } });
+      hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+      vi.advanceTimersByTime(NEEDS_INPUT_SETTLE_MS);
+      expect(fake.sent).toHaveLength(0);
+      elsewhere = false;
+      hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'working' });
+      hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+      vi.advanceTimersByTime(NEEDS_INPUT_SETTLE_MS);
+    } finally {
+      vi.useRealTimers();
+    }
     expect(fake.sent).toHaveLength(1);
   });
 });

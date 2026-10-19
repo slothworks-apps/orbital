@@ -284,7 +284,9 @@ Terminal sessions stay read-only, as on the web: the API already answers
   when the phone is not connected. A connected phone receives the frame,
   decrypts it and shows a local notification with full content.
 - Relay push text is generic: "Orbital: a session needs your input" plus
-  the Mac's name. Tapping opens the app, which connects and fetches the
+  the Mac's name. (Today the title is "Orbital" alone and the body "A
+  session has an update": [[2026-10-15-the-phone-is-quiet-while-you-are-at-the-mac-design]],
+  [[a-finished-turn-is-done-not-needs-input]].) Tapping opens the app, which connects and fetches the
   current state.
 - **Each phone has its own notification settings**, the desktop's five
   rows, stored on the Mac against the paired device and edited only from

@@ -1218,7 +1218,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       {/* Spec 2026-09-21-settings-sections-design § 5. The three
                     NOTIFY ME WHEN rows are the three transitions `SessionNotifier`
                     already folds for; DELIVERY is what `main.ts` does with what it
-                    gets back. Everything but background-only starts off
+                    reports. Everything but background-only starts off
                     (spec 2026-10-08-notifications-off-by-default-design). */}
                       {notifyAllOff && (
                         // Canvas `Feature - Notifications off` 1c: a page of
@@ -1230,7 +1230,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       <SectionLabel first>NOTIFY ME WHEN</SectionLabel>
                       <Row
                         title="Needs input"
-                        desc="A session is waiting on a permission or a question."
+                        desc="A session is waiting on a permission or a question, or has finished its turn."
                       >
                         <Toggle
                           aria-label="Needs input"
@@ -1240,7 +1240,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
                       <Row
                         title="Session ended"
-                        desc="A session finished its turn with nothing pending."
+                        desc="A session ended while it was still working."
                       >
                         <Toggle
                           aria-label="Session ended"

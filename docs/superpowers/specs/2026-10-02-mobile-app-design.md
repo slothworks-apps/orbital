@@ -627,7 +627,8 @@ the spec left open or that building corrected:
 - **The banner's second line** comes from the upsert that precedes the
   `needs_input` status frame, then the store's session row, then
   `pendingDecisions`; a sessionless failure gets a banner too. The "<title>
-  needs input" form keys on the shared `NEEDS_INPUT_BODY`.
+  needs input" form keys on the notification's `kind` being `needs_input`
+  ([[a-finished-turn-is-done-not-needs-input]]).
 - **Returning to the foreground rebuilds the link only when no tunnel is
   up**: with one up, the silence watchdog judges it. The 2a rebuild raced
   a photo's upload after the camera activity returned.

@@ -1,6 +1,7 @@
 import type { GroupEnded, GroupStatus, MemberState as SharedMemberState, NotPrimary, PrimaryRef } from '@orbital/shared/remote/group'
 import type { JoinResult, Joining, PendingPair } from '@orbital/shared/remote/ceremony'
 import type { MachineRef } from '@orbital/shared/remote/device'
+import { asksForHuman, gateWaits } from '@orbital/shared/parked'
 
 export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended'
 export type SessionSource = 'terminal' | 'web'
@@ -1146,25 +1147,16 @@ export const parkedLabel = (session: Pick<ApiSession, 'pendingDecision' | 'harne
   session.pendingDecision ? 'NEEDS INPUT' : gateWaits(session) ? 'NEEDS YOUR OK' : 'DONE'
 
 /**
- * A harness gate waits for the user's OK (spec 2026-10-02-harness-redesign-design
- * § 2, canvas 30a-d / 30i): the session is NEEDS INPUT, worded NEEDS YOUR OK,
- * with a steady dot — a gate can wait all night. A gate the reviewer is
- * reading is not: the reviewer is quiet, and the session keeps its own state.
+ * `gateWaits` — a harness gate waiting for the user's OK — and `asksForHuman`
+ * — the NEEDS INPUT half of `parkedLabel`, as a boolean, and the test
+ * `sessionStateKey` splits NEEDS INPUT from DONE with — live in shared, where
+ * the notifier reads the same split (ADR a-finished-turn-is-done-not-needs-input).
+ * The map's "you are being waited for" signals (the amber ripple ring, the
+ * breathing dot) follow that key, so a DONE or an interrupted planet goes
+ * without both (ADR what-a-session-waits-for-is-a-label). One predicate, so
+ * the pill's word, the planet's ring and the notification cannot disagree.
  */
-export const gateWaits = (session: Pick<ApiSession, 'harnessGate'>): boolean => session.harnessGate === 'waiting'
-
-/**
- * Whether a parked session is actually blocked on the human — the NEEDS INPUT
- * half of `parkedLabel`, as a boolean, and the test `sessionStateKey` splits
- * NEEDS INPUT from DONE with. The map's "you are being waited for" signals
- * (the amber ripple ring, the breathing dot) follow that key, so a DONE or
- * an interrupted planet goes without both (ADR
- * what-a-session-waits-for-is-a-label). One predicate, so the pill's word
- * and the planet's ring cannot disagree.
- */
-export function asksForHuman(session: Pick<ApiSession, 'pendingDecision' | 'harnessGate'>): boolean {
-  return Boolean(session.pendingDecision) || gateWaits(session)
-}
+export { asksForHuman, gateWaits }
 
 /**
  * Which of the seven state words a session wears — the one answer every

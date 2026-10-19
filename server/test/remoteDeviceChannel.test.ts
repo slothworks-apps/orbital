@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { generateIdentity, deviceId } from '@orbital/shared/remote/keys';
@@ -7,6 +7,7 @@ import {
   BLOB_CHUNK_BYTES, FILE_PATH_MAX_CHARS, PROTOCOL_VERSION, chunkBlob, decodeInner, encodeInner,
   type AnswerMessage, type HelloMessage,
 } from '@orbital/shared/remote/messages';
+import { NEEDS_INPUT_SETTLE_MS } from '@orbital/shared/notifications';
 import { PHONE_KNOWS_APP_TOO_OLD } from '@orbital/shared/remote/version';
 import { PAIR_NAME_MAX_CHARS } from '@orbital/shared/remote/relayApi';
 import { MAX_INNER_BYTES, type Channel } from '@orbital/shared/remote/channel';
@@ -502,23 +503,33 @@ describe('device channel file_get', () => {
 });
 
 describe('DeviceWatcher', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  /** A status frame, then the settle a stop waits out before it is reported. */
+  const settleTo = (hub: Hub, sessionId: string, status: string) => {
+    hub.publish('sessions', { event: 'status', sessionId, status });
+    vi.advanceTimersByTime(NEEDS_INPUT_SETTLE_MS);
+  };
+
   it('wakes once per session entering needs_input until seen, honouring the settings', () => {
     const hub = new Hub({ heartbeatIntervalMs: 60_000 });
     const wakes: string[] = [];
     let settings = allOn;
     const w = new DeviceWatcher({ deviceId: 'p1', hub, settings: () => settings, onWake: (id) => wakes.push(id) });
     w.start([{ id: 's1', title: 'one', status: 'working' }]);
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'working' });
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    settleTo(hub, 's1', 'needs_input');
+    settleTo(hub, 's1', 'working');
+    settleTo(hub, 's1', 'needs_input');
     expect(wakes).toEqual(['s1', 's1']);
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'working' });
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    settleTo(hub, 's1', 'working');
+    settleTo(hub, 's1', 'needs_input');
     hub.publish('sessions', { event: 'upsert', session: { id: 's1', title: 'one', status: 'needs_input' } });
+    vi.advanceTimersByTime(NEEDS_INPUT_SETTLE_MS);
     expect(wakes).toEqual(['s1', 's1', 's1']);
     settings = { ...allOn, needsInput: false };
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'working' });
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    settleTo(hub, 's1', 'working');
+    settleTo(hub, 's1', 'needs_input');
     expect(wakes).toHaveLength(3);
     w.stop();
     expect(hub.subscriberCount('sessions')).toBe(0);
@@ -535,9 +546,10 @@ describe('DeviceWatcher', () => {
     hub.publish('sessions', { event: 'status', sessionId: 'theirs', status: 'needs_input' });
     hub.publish('sessions', { event: 'upsert', session: { id: 'theirs', status: 'needs_input', machine } });
     hub.publish('sessions', { event: 'status', sessionId: 'seeded', status: 'needs_input' });
+    vi.advanceTimersByTime(NEEDS_INPUT_SETTLE_MS);
     expect(wakes).toEqual([]);
     hub.publish('sessions', { event: 'upsert', session: { id: 'mine', status: 'working' } });
-    hub.publish('sessions', { event: 'status', sessionId: 'mine', status: 'needs_input' });
+    settleTo(hub, 'mine', 'needs_input');
     expect(wakes).toEqual(['mine']);
     w.stop();
   });
@@ -549,9 +561,23 @@ describe('DeviceWatcher', () => {
     });
     w.start([]);
     hub.publish('sessions', { event: 'status', sessionId: 'theirs', status: 'needs_input' });
-    hub.publish('sessions', { event: 'status', sessionId: 'mine', status: 'needs_input' });
+    settleTo(hub, 'mine', 'needs_input');
     expect(wakes).toEqual(['mine']);
     w.stop();
+  });
+  it('wakes nothing for a turn that ends only for a moment, nor after stop', () => {
+    const hub = new Hub({ heartbeatIntervalMs: 60_000 });
+    const wakes: string[] = [];
+    const w = new DeviceWatcher({ deviceId: 'p1', hub, settings: () => allOn, onWake: (id) => wakes.push(id) });
+    w.start([{ id: 's1', title: 'one', status: 'working' }]);
+    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    expect(wakes).toEqual([]);
+    settleTo(hub, 's1', 'working');
+    expect(wakes).toEqual([]);
+    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    w.stop();
+    vi.advanceTimersByTime(NEEDS_INPUT_SETTLE_MS);
+    expect(wakes).toEqual([]);
   });
   it('wakes nothing while the user is at the Mac, and sends nothing muted later', () => {
     const hub = new Hub({ heartbeatIntervalMs: 60_000 });
@@ -559,14 +585,15 @@ describe('DeviceWatcher', () => {
     let quiet = true;
     const w = new DeviceWatcher({ deviceId: 'p1', hub, settings: () => allOn, quiet: () => quiet, onWake: (id) => wakes.push(id) });
     w.start([{ id: 's1', title: 'one', status: 'working' }]);
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    settleTo(hub, 's1', 'needs_input');
     hub.publish('errors', { event: 'error', error: { kind: 'session_failed', sessionId: 's1', message: 'boom' } });
     expect(wakes).toEqual([]);
     quiet = false;
     hub.publish('sessions', { event: 'upsert', session: { id: 's1', title: 'one', status: 'needs_input' } });
+    vi.advanceTimersByTime(NEEDS_INPUT_SETTLE_MS);
     expect(wakes).toEqual([]);
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'working' });
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    settleTo(hub, 's1', 'working');
+    settleTo(hub, 's1', 'needs_input');
     expect(wakes).toEqual(['s1']);
     w.stop();
   });
@@ -583,12 +610,13 @@ describe('DeviceWatcher', () => {
     const wakes: string[] = [];
     const w = new DeviceWatcher({ deviceId: 'p1', hub, settings: () => allOn, onWake: (id) => wakes.push(id) });
     w.start([{ id: 's1', title: 'one', status: 'working' }]);
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    settleTo(hub, 's1', 'needs_input');
     w.seen('s1');
     hub.publish('sessions', { event: 'upsert', session: { id: 's1', title: 'one', status: 'needs_input' } });
+    vi.advanceTimersByTime(NEEDS_INPUT_SETTLE_MS);
     expect(wakes).toEqual(['s1']);
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'working' });
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    settleTo(hub, 's1', 'working');
+    settleTo(hub, 's1', 'needs_input');
     expect(wakes).toEqual(['s1', 's1']);
     w.stop();
   });
@@ -597,7 +625,7 @@ describe('DeviceWatcher', () => {
     const wakes: string[] = [];
     const w = new DeviceWatcher({ deviceId: 'p1', hub, settings: () => allOn, onWake: (id) => wakes.push(id) });
     w.start([{ id: 's1', title: 'one', status: 'working' }]);
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    settleTo(hub, 's1', 'needs_input');
     hub.publish('errors', { event: 'error', error: { kind: 'session_failed', sessionId: 's1', message: 'boom' } });
     expect(wakes).toEqual(['s1', 's1']);
     w.stop();
@@ -613,9 +641,9 @@ describe('DeviceWatcher', () => {
     w.start([{ id: 's1', title: 'one', status: 'working' }]);
     w.start([]);
     expect(hub.subscriberCount('sessions')).toBe(1);
-    hub.publish('sessions', { event: 'status', sessionId: 's1', status: 'needs_input' });
+    settleTo(hub, 's1', 'needs_input');
     hub.publish('sessions', { event: 'upsert', session: { id: 's2', title: 'two', status: 'working' } });
-    hub.publish('sessions', { event: 'status', sessionId: 's2', status: 'needs_input' });
+    settleTo(hub, 's2', 'needs_input');
     expect(calls).toBe(2);
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();

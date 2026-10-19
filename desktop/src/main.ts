@@ -31,7 +31,7 @@ import {
   parseMainWindowPath,
   parseWindowButtonsVisible,
 } from './lib/mainWindow';
-import { SessionNotifier, parseNotificationSettings } from './lib/notifications';
+import { SessionNotifier, parseNotificationSettings, type SessionNotification } from './lib/notifications';
 import { PRESENCE_IDLE_SECONDS, PRESENCE_POLL_MS, presenceReport } from './lib/presence';
 import { NOTIFICATION_SETTINGS_URL, probeNotificationPermission } from './lib/notificationPermission';
 import { probeHealth, probeVite } from './lib/probe';
@@ -181,7 +181,7 @@ let tray: Tray | null = null;
 let child: UtilityProcess | null = null;
 let feed: { close(): void } | null = null;
 /** Every rule about what is worth saying lives in here, not in this file. */
-const notifier = new SessionNotifier();
+const notifier = new SessionNotifier({ notify: showNotification });
 /** What a quit would kill, folded off the same feed the notifier reads. */
 const working = new WorkingSessions();
 /** An update: whether to download it, and when it may restart the app (`lib/updates`). */
@@ -1015,43 +1015,52 @@ function startNotifications(): void {
       // cost (spec: 2026-09-22-desktop-background-mode-design § "Quit guard").
       working.onFrame(frame);
       onWorkingFrame(frame);
-      const d = notifier.onEvent(frame);
-      if (!d) return;
-      if (!win || win.isDestroyed()) return;
-      // "In the background" means no Orbital window has focus: a focused
-      // detached window already shows its session's state, as the map would
-      // (spec: 2026-09-23-detached-session-windows-design § "Edge cases").
-      if (notifier.current.onlyWhenBackground && BrowserWindow.getFocusedWindow()) return;
-
-      const n = new Notification({
-        title: d.title,
-        body: d.body,
-        silent: !notifier.current.sound,
-      });
-      n.on('click', () => {
-        // Decided here, not by the renderer's `select`: a detached session's
-        // window comes forward without a round trip through the map.
-        const click = decideNotificationClick(d.sessionId, sessionWindows);
-        if (click.kind === 'session-window') {
-          focusSessionWindow(click.sessionId);
-          return;
-        }
-        // The window the notification was raised over may be gone by the
-        // click (a crashed renderer), so it is looked up now, rebuilt if need
-        // be, and brought back from the Dock if it was minimized.
-        const main = showWindow();
-        if (!main || !click.select) return;
-        const select = click.select;
-        // A rebuilt window has no renderer to hear it yet.
-        if (main.webContents.isLoading()) {
-          main.webContents.once('did-finish-load', () => main.webContents.send('select-session', select));
-        } else {
-          main.webContents.send('select-session', select);
-        }
-      });
-      n.show();
+      // What it reports arrives at `showNotification` — a stop only once it
+      // has settled (ADR a-finished-turn-is-done-not-needs-input).
+      notifier.onEvent(frame);
     },
   });
+}
+
+/**
+ * Show one report as a native notification. Called by the notifier, which
+ * may be from a timer after the frame that caused it, so the window and the
+ * focus are judged now.
+ */
+function showNotification(d: SessionNotification): void {
+  if (!win || win.isDestroyed()) return;
+  // "In the background" means no Orbital window has focus: a focused
+  // detached window already shows its session's state, as the map would
+  // (spec: 2026-09-23-detached-session-windows-design § "Edge cases").
+  if (notifier.current.onlyWhenBackground && BrowserWindow.getFocusedWindow()) return;
+
+  const n = new Notification({
+    title: d.title,
+    body: d.body,
+    silent: !notifier.current.sound,
+  });
+  n.on('click', () => {
+    // Decided here, not by the renderer's `select`: a detached session's
+    // window comes forward without a round trip through the map.
+    const click = decideNotificationClick(d.sessionId, sessionWindows);
+    if (click.kind === 'session-window') {
+      focusSessionWindow(click.sessionId);
+      return;
+    }
+    // The window the notification was raised over may be gone by the
+    // click (a crashed renderer), so it is looked up now, rebuilt if need
+    // be, and brought back from the Dock if it was minimized.
+    const main = showWindow();
+    if (!main || !click.select) return;
+    const select = click.select;
+    // A rebuilt window has no renderer to hear it yet.
+    if (main.webContents.isLoading()) {
+      main.webContents.once('did-finish-load', () => main.webContents.send('select-session', select));
+    } else {
+      main.webContents.send('select-session', select);
+    }
+  });
+  n.show();
 }
 
 /** True once `startUpdates` found a build that updates itself. */
@@ -1580,6 +1589,7 @@ app.on('before-quit', (event) => {
   quitting = true;
   feed?.close();
   feed = null;
+  notifier.dispose();
   if (forked && child) {
     child.kill();
     child = null;

@@ -65,8 +65,8 @@ next touched.
   boot; the next boot registers.~~ — fixed 2026-10-08: registered in a
   `finally`; `clientRef` keeps the token for the next client.
 - ~~**The banner's title keys on the notifier's copy string**
-  (`web/src/mobile/notify.ts`).~~ — **done**: `NEEDS_INPUT_BODY` is
-  exported from `shared/src/notifications.ts` and the banner reads it.
+  (`web/src/mobile/notify.ts`).~~ — **done**: the banner reads the
+  notification's `kind` ([[a-finished-turn-is-done-not-needs-input]]).
 - ~~**The phone's photo pick has no in-flight guard**
   (`web/src/mobile/screens/SessionComposer.tsx`): a second tap while the
   picker is open, or a result arriving after leaving the session, is not

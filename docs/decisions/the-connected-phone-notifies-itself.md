@@ -21,7 +21,8 @@ tags:
 
 ## Context
 
-The relay is blind: it pushes a generic "a session needs your input" through
+The relay is blind: it pushes a generic line (then "a session needs your
+input", now "A session has an update": [[a-finished-turn-is-done-not-needs-input]]) through
 Firebase Cloud Messaging, and only for a phone that is not connected to it
 ([[2026-09-30-mobile-remote-design]] § 5). Android does not cut a
 backgrounded WebView's socket at once — it lives for a while, sometimes

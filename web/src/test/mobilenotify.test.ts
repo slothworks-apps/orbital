@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_NOTIFICATION_SETTINGS, type SessionNotification } from '@orbital/shared/notifications'
+import { DEFAULT_NOTIFICATION_SETTINGS, NEEDS_INPUT_SETTLE_MS, type SessionNotification } from '@orbital/shared/notifications'
 import type { ApiSession, PendingDecision } from '../lib/types'
 import { BANNER_MS } from '../mobile/constants'
 import {
@@ -18,7 +18,7 @@ vi.mock('../mobile/platform/localNotify', () => ({
 }))
 
 const RULES = DEFAULT_NOTIFICATION_SETTINGS
-const ASKS: SessionNotification = { title: 'orbital', body: 'Needs your input', sessionId: 's1' }
+const ASKS: SessionNotification = { kind: 'needs_input', title: 'orbital', body: 'Needs your input', sessionId: 's1' }
 
 describe('decideNotification', () => {
   it('shows only the banner in the foreground, on another screen, with the background rule on', () => {
@@ -46,7 +46,7 @@ describe('decideNotification', () => {
   })
 
   it('banners a failure that names no session even when no session is on screen', () => {
-    const failed = { title: 'Session', body: 'Session failed: boom', sessionId: null }
+    const failed: SessionNotification = { kind: 'failed', title: 'Session', body: 'Session failed: boom', sessionId: null }
     expect(decideNotification(failed, { active: true, viewing: null, rules: RULES, atMac: false }).banner).toBe(true)
   })
 })
@@ -147,6 +147,11 @@ describe('bannerLine', () => {
   it("says the notifier's body when nothing is pending", () => {
     expect(bannerLine(ASKS, undefined)).toBe('Needs your input')
   })
+
+  it('says Done for a finished turn, whatever decision the store still holds', () => {
+    const done: SessionNotification = { kind: 'done', title: 'orbital', body: 'Done', sessionId: 's1' }
+    expect(bannerLine(done, verdict({ input: { command: 'npm test' } }))).toBe('Done')
+  })
 })
 
 describe('wireNotifications', () => {
@@ -162,13 +167,17 @@ describe('wireNotifications', () => {
     id: 's1', cwd: '/x/orbital', title: 'orbital', firstAt: 1, lastAt: 1, messageCount: 1, source: 'web',
     permissionMode: null, model: null, resolvedModel: null, tagIds: [], status: 'working', subagents: [], ...patch,
   })
-  // The banner is reported a microtask after the frame.
-  const settled = () => new Promise<void>((resolve) => queueMicrotask(resolve))
+  // A stop is reported once it has settled; an end or a failure a microtask after its frame.
+  const settled = () => {
+    vi.advanceTimersByTime(NEEDS_INPUT_SETTLE_MS)
+    return new Promise<void>((resolve) => queueMicrotask(resolve))
+  }
 
   let client: FakeClient
   /** A new tunnel: the notifier is renewed and seeded from what the store holds now. */
   const open = () => client.emit({ type: 'ready', ready: true })
   beforeEach(() => {
+    vi.useFakeTimers()
     // Every event on: these tests are about what a notification says, not whether one is due.
     setRules({ needsInput: true, sessionEnded: true, sessionFailed: true, onlyWhenBackground: true, sound: true })
     wireNotifications()
@@ -179,6 +188,7 @@ describe('wireNotifications', () => {
   afterEach(() => {
     clientRef.set(null)
     useBanner.getState().dismiss()
+    vi.useRealTimers()
     useOrbital.setState({ pendingDecisions: {}, sessions: {} })
     useMobile.setState({ ...initialMobileState })
   })
@@ -203,13 +213,40 @@ describe('wireNotifications', () => {
     expect(useBanner.getState().current?.line).toBe('PERMISSION · npm test')
   })
 
-  it("falls back to the store's decision for a frame that carries none", async () => {
+  it('shows a finished turn as a plain Done banner, whatever decision the store still holds', async () => {
     open()
     useOrbital.setState({ pendingDecisions: { s1: ask } })
     client.emit({ type: 'hub', frame: upsert('working') })
     client.emit({ type: 'hub', frame: status('needs_input') })
     await settled()
-    expect(useBanner.getState().current?.line).toBe('PERMISSION · npm test')
+    expect(useBanner.getState().current).toMatchObject({ sessionId: 's1', needsInput: false, line: 'Done' })
+  })
+
+  it('shows nothing for a turn that ends only for a moment', async () => {
+    open()
+    client.emit({ type: 'hub', frame: upsert('working') })
+    client.emit({ type: 'hub', frame: status('needs_input') })
+    client.emit({ type: 'hub', frame: status('working') })
+    await settled()
+    expect(useBanner.getState().current).toBeNull()
+  })
+
+  it('shows nothing for a stop still settling when the tunnel drops', async () => {
+    open()
+    client.emit({ type: 'hub', frame: upsert('working') })
+    client.emit({ type: 'hub', frame: status('needs_input') })
+    client.emit({ type: 'ready', ready: false })
+    await settled()
+    expect(useBanner.getState().current).toBeNull()
+  })
+
+  it('reports an end at once, in step with its frame', async () => {
+    open()
+    client.emit({ type: 'hub', frame: upsert('working') })
+    client.emit({ type: 'hub', frame: status('ended') })
+    expect(useBanner.getState().current).toBeNull()
+    await new Promise<void>((resolve) => queueMicrotask(resolve))
+    expect(useBanner.getState().current).toMatchObject({ sessionId: 's1', needsInput: false, line: 'Session ended' })
   })
 
   it("reads the decision off the store's session row on a status frame", async () => {
@@ -225,7 +262,7 @@ describe('wireNotifications', () => {
     open()
     client.emit({ type: 'hub', frame: status('needs_input') })
     await settled()
-    expect(useBanner.getState().current).toMatchObject({ sessionId: 's1', title: 'orbital', needsInput: true })
+    expect(useBanner.getState().current).toMatchObject({ sessionId: 's1', title: 'orbital', needsInput: false, line: 'Done' })
   })
 
   it("seeds from the Mac's list once resync has read it", async () => {
@@ -236,11 +273,11 @@ describe('wireNotifications', () => {
     expect(useBanner.getState().current?.sessionId).toBe('s1')
   })
 
-  it('reports a question about an unseeded session — a status frame is never a replay', async () => {
+  it('reports a stop of an unseeded session — a status frame is never a replay', async () => {
     open()
     client.emit({ type: 'hub', frame: status('needs_input') })
     await settled()
-    expect(useBanner.getState().current).toMatchObject({ sessionId: 's1', needsInput: true })
+    expect(useBanner.getState().current).toMatchObject({ sessionId: 's1', needsInput: false })
   })
 
   it('reports nothing for an unseeded session whose first upsert is old news', async () => {
@@ -254,7 +291,7 @@ describe('wireNotifications', () => {
     open()
     client.emit({ type: 'hub', frame: upsert('working') })
     // The federation's relist of a member back from away: the session started asking meanwhile.
-    client.emit({ type: 'hub', frame: { ...upsert('needs_input'), replay: true } })
+    client.emit({ type: 'hub', frame: { ...upsert('needs_input', ask), replay: true } })
     await settled()
     expect(useBanner.getState().current).toBeNull()
     // What it says live afterwards is news.
