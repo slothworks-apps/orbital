@@ -25,6 +25,12 @@ describe('parseServerUpdateState', () => {
       .toBeLessThan(500);
   });
 
+  it('reads failedReason: kept when known, absent from an older server, null for one this side does not know', () => {
+    expect(parseServerUpdateState(state({ failed: '0.36.0', failedReason: 'sessions' }))?.failedReason).toBe('sessions');
+    expect(parseServerUpdateState(state())?.failedReason).toBeUndefined();
+    expect(parseServerUpdateState({ ...state(), failedReason: 'later' })?.failedReason).toBeNull();
+  });
+
   it('refuses a missing field, a negative count and a version that is not one', () => {
     const { sessions: _s, ...noSessions } = state();
     expect(parseServerUpdateState(noSessions)).toBeNull();
@@ -67,6 +73,8 @@ describe('main ↔ server messages', () => {
     expect(parseMainMessage({ ...msg, available: null })).not.toBeNull();
     expect(parseServerMessage({ t: 'update_start' })).toEqual({ t: 'update_start' });
     expect(parseServerMessage({ t: 'update_cancel' })).toEqual({ t: 'update_cancel' });
+    expect(parseMainMessage({ t: 'update_ended', reason: 'sessions' })).toEqual({ t: 'update_ended', reason: 'sessions' });
+    expect(parseMainMessage({ t: 'update_ended', reason: 'restart' })).not.toBeNull();
   });
 
   it('ignores anything malformed, extra or sent the wrong way', () => {
@@ -75,6 +83,8 @@ describe('main ↔ server messages', () => {
     expect(parseMainMessage({ ...msg, url: 'https://example.com/evil.zip' })).toBeNull();
     expect(parseMainMessage({ ...msg, available: '/tmp/evil' })).toBeNull();
     expect(parseMainMessage({ t: 'update_start' })).toBeNull();
+    expect(parseMainMessage({ t: 'update_ended' })).toBeNull();
+    expect(parseMainMessage({ t: 'update_ended', reason: 'bored' })).toBeNull();
     expect(parseServerMessage({ t: 'update_start', version: '9.9.9' })).toBeNull();
     expect(parseServerMessage({ t: 'update_cancel', url: 'https://example.com' })).toBeNull();
     expect(parseServerMessage({ t: 'update_restart' })).toBeNull();
@@ -106,10 +116,9 @@ describe('watching an update', () => {
     expect(watchVerdict(watch, state({ installed: '0.36.0' }), 1_000 + UPDATE_TIMEOUT_MS * 2)).toBe('updated');
   });
 
-  it('polls only while the page is open and a row is watched', () => {
-    expect(updatePollDelay({ pageOpen: true, watching: true })).toBe(UPDATE_POLL_MS);
-    expect(updatePollDelay({ pageOpen: true, watching: false })).toBeNull();
-    expect(updatePollDelay({ pageOpen: false, watching: true })).toBeNull();
+  it('polls only while a row is watched', () => {
+    expect(updatePollDelay({ watching: true })).toBe(UPDATE_POLL_MS);
+    expect(updatePollDelay({ watching: false })).toBeNull();
   });
 });
 

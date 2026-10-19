@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { UPDATE_KEEPALIVE_MS } from '@orbital/shared/remote/serverUpdate';
 import { WorkingSessions } from '../src/lib/background';
 import {
   AUTO_DOWNLOAD_KEY,
@@ -9,6 +10,7 @@ import {
   parseUpdateCheckAnswer,
   parseUpdateView,
   serializeSkippedVersion,
+  serverStateDue,
   shouldCheckForUpdates,
   updateSize,
   UpdateFlow,
@@ -571,6 +573,7 @@ describe('an update a member of the group asked for', () => {
 
   it('downloads the version on screen and installs it as soon as it is downloaded, without a prompt', () => {
     const flow = new UpdateFlow();
+    flow.setWorkingCount(0, true);
     flow.available('0.26.0', MB);
     const start = flow.remoteStart();
     expect(start).toMatchObject({ download: true, restart: false, changed: true });
@@ -578,8 +581,54 @@ describe('an update a member of the group asked for', () => {
     expect(flow.serverState(INSTALLED)).toEqual({
       t: 'update_state', installed: INSTALLED, available: '0.26.0', downloading: true, downloaded: false,
     });
-    expect(flow.downloaded('0.26.0')).toMatchObject({ restart: true });
+    expect(flow.downloaded('0.26.0')).toMatchObject({ restart: true, remoteEnded: null });
     expect(flow.view.phase).toBe('restarting');
+  });
+
+  it('installs over the sessions the member confirmed, but not over ones that started while it downloaded', () => {
+    const confirmed = new UpdateFlow();
+    confirmed.setWorkingCount(2, true);
+    confirmed.available('0.26.0', MB);
+    confirmed.remoteStart();
+    confirmed.setWorkingCount(1, true);
+    expect(confirmed.downloaded('0.26.0')).toMatchObject({ restart: true });
+
+    const started = new UpdateFlow();
+    started.setWorkingCount(1, true);
+    started.available('0.26.0', MB);
+    started.remoteStart();
+    started.setWorkingCount(2, true);
+    const landed = started.downloaded('0.26.0');
+    // This Mac's own Ready prompt, as without a request, and the server is told at once.
+    expect(landed).toMatchObject({ restart: false, changed: true, remoteEnded: 'sessions' });
+    expect(started.view).toMatchObject({ phase: 'ready', version: '0.26.0', buttons: 'two' });
+    expect(started.serverState(INSTALLED)).toMatchObject({ available: '0.26.0', downloaded: true });
+    // The request is over: Restart here is this Mac's user's.
+    expect(started.act('restart-when-idle')).toMatchObject({ restart: false });
+    expect(started.view.phase).toBe('waiting');
+  });
+
+  it('does not restart while the working count is not known when the download lands', () => {
+    const flow = new UpdateFlow();
+    flow.setWorkingCount(0, true);
+    flow.available('0.26.0', MB);
+    flow.remoteStart();
+    flow.setWorkingCount(0, false);
+    expect(flow.downloaded('0.26.0')).toMatchObject({ restart: false, remoteEnded: 'sessions' });
+    expect(flow.view.phase).toBe('ready');
+  });
+
+  it('installs a version whose receipt was OK\'d here, when a member asks for it', () => {
+    const flow = new UpdateFlow();
+    flow.setWorkingCount(0, true);
+    flow.downloaded('0.26.0');
+    flow.act('close');
+    flow.act('ok');
+    // Squirrel refused the staged zip later: it no longer counts as downloaded, but stays OK'd.
+    flow.downloadFailed();
+    flow.available('0.26.0', MB);
+    expect(flow.remoteStart()).toMatchObject({ download: true });
+    expect(flow.downloaded('0.26.0')).toMatchObject({ restart: true });
   });
 
   it('installs at once what is downloaded already, a closed receipt included', () => {
@@ -608,12 +657,14 @@ describe('an update a member of the group asked for', () => {
 
   it('joins a download already running, starting no second one', () => {
     const asked = new UpdateFlow();
+    asked.setWorkingCount(0, true);
     asked.available('0.26.0', MB);
     asked.act('download');
     expect(asked.remoteStart()).toMatchObject({ download: false, restart: false });
     expect(asked.downloaded('0.26.0')).toMatchObject({ restart: true });
 
     const silent = new UpdateFlow();
+    silent.setWorkingCount(0, true);
     silent.setAutoDownload(true);
     silent.available('0.26.0', MB);
     expect(silent.serverState(INSTALLED)).toMatchObject({ available: '0.26.0', downloading: true });
@@ -621,15 +672,21 @@ describe('an update a member of the group asked for', () => {
     expect(silent.downloaded('0.26.0')).toMatchObject({ restart: true });
   });
 
-  it('does nothing with nothing found, or while restarting', () => {
+  it('does nothing with nothing found', () => {
     const flow = new UpdateFlow();
-    expect(flow.remoteStart()).toMatchObject({ download: false, restart: false, changed: false });
+    expect(flow.remoteStart()).toMatchObject({ download: false, restart: false, changed: false, remoteEnded: null });
     expect(flow.serverState(INSTALLED)).toEqual({
       t: 'update_state', installed: INSTALLED, available: null, downloading: false, downloaded: false,
     });
+  });
+
+  it('asked while a restart has not got the app out: restarts once more, then ends the request at once', () => {
+    const flow = new UpdateFlow();
     flow.downloaded('0.26.0');
     flow.act('restart-now');
-    expect(flow.remoteStart()).toMatchObject({ restart: false, download: false });
+    expect(flow.remoteStart()).toMatchObject({ restart: true, remoteEnded: null });
+    expect(flow.remoteStart()).toMatchObject({ restart: false, download: false, remoteEnded: 'restart' });
+    expect(flow.view.phase).toBe('restarting');
   });
 
   it('a cancelled request lets a late download prompt instead of installing', () => {
@@ -650,6 +707,21 @@ describe('an update a member of the group asked for', () => {
     flow.act('download');
     expect(flow.downloaded('0.26.0')).toMatchObject({ restart: false });
     expect(flow.view.phase).toBe('ready');
+  });
+});
+
+describe('serverStateDue', () => {
+  const json = '{"t":"update_state"}';
+
+  it('sends the first state, and any change at once', () => {
+    expect(serverStateDue(null, json, false, 0)).toBe(true);
+    expect(serverStateDue({ json, at: 0 }, '{"other":1}', false, 1)).toBe(true);
+  });
+
+  it('sends the same state again only while downloading, once UPDATE_KEEPALIVE_MS has passed', () => {
+    expect(serverStateDue({ json, at: 0 }, json, false, UPDATE_KEEPALIVE_MS * 10)).toBe(false);
+    expect(serverStateDue({ json, at: 0 }, json, true, UPDATE_KEEPALIVE_MS - 1)).toBe(false);
+    expect(serverStateDue({ json, at: 0 }, json, true, UPDATE_KEEPALIVE_MS)).toBe(true);
   });
 });
 

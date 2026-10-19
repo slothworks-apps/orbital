@@ -17,7 +17,9 @@
 import { execFile } from 'node:child_process';
 import { closeSync, constants, lstatSync, openSync, readFileSync, statSync, unlinkSync, writeSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
-import { isUpdateVersion, parseMainMessage, type MainUpdateStateMessage } from '@orbital/shared/remote/serverUpdate';
+import {
+  isUpdateVersion, parseMainMessage, type MainUpdateStateMessage, type UpdateEndReason,
+} from '@orbital/shared/remote/serverUpdate';
 import { parseAptPolicy } from './aptPolicy.js';
 
 /** Where the package installs the server; its entry lives under it (`server/index.mjs`). */
@@ -50,8 +52,12 @@ const APT_CACHE = '/usr/bin/apt-cache';
 
 export type BackendKind = 'apt' | 'desktop' | 'none';
 
-/** How far the desktop's updater is with a download; apt and none report nothing. */
-export type UpdateProgress = 'downloading' | 'downloaded' | 'idle';
+/**
+ * How far the desktop's updater is with a download, or that the request
+ * ended there without the install (`ended`, with main's reason); apt and
+ * none report nothing.
+ */
+export type UpdateProgress = 'downloading' | 'downloaded' | 'idle' | { ended: UpdateEndReason };
 
 export interface UpdateBackend {
   readonly kind: BackendKind;
@@ -256,6 +262,10 @@ export class DesktopUpdateBackend implements UpdateBackend {
   private readonly listener = (event: { data: unknown }) => {
     const msg = parseMainMessage(event?.data);
     if (!msg) return;
+    if (msg.t === 'update_ended') {
+      this.progressListener?.({ ended: msg.reason });
+      return;
+    }
     this.latest = msg;
     this.progressListener?.(msg.downloaded ? 'downloaded' : msg.downloading ? 'downloading' : 'idle');
   };

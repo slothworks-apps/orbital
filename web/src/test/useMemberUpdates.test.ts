@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
-import type { ServerUpdateState } from '@orbital/shared/remote/serverUpdate'
+import { UPDATE_POLL_MS, type ServerUpdateState } from '@orbital/shared/remote/serverUpdate'
 import type { StartAnswer } from '../lib/memberUpdate'
 import { UPDATE_READ_TIMEOUT_MS, useMemberUpdates, type UpdateIo } from '../lib/useMemberUpdates'
 
@@ -48,6 +48,35 @@ describe('useMemberUpdates: pressing Update', () => {
     await expect(pressed).resolves.toBe('unreachable')
     expect(io.start).toHaveBeenCalledTimes(1)
     expect(result.current.starting).toBeNull()
+  })
+
+  it('a start that never answers still watches the member, so the next poll shows it updating', async () => {
+    const id = nextId()
+    let updating = false
+    const io: UpdateIo = {
+      read: vi.fn(async () => state({ updating })),
+      start: vi.fn(() => new Promise<StartAnswer | null>(() => {})),
+    }
+    const { result } = renderHook(() => useMemberUpdates([{ id, readable: true }], io))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    let pressed!: Promise<string>
+    act(() => {
+      pressed = result.current.press(id)
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(UPDATE_READ_TIMEOUT_MS)
+    })
+    await expect(pressed).resolves.toBe('unreachable')
+    expect(result.current.byId[id]?.watch).toMatchObject({ unconfirmed: true })
+    // The start landed after all: the next poll reads it updating.
+    updating = true
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(UPDATE_POLL_MS)
+    })
+    expect(result.current.byId[id]?.watch).not.toBeNull()
+    expect(result.current.byId[id]?.watch?.unconfirmed).toBeUndefined()
   })
 
   it('a double press runs one read and one start', async () => {

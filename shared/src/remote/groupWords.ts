@@ -191,3 +191,22 @@ export function managerWords(manager: GroupManager, name: string): ManagerWords 
     done: 'A group of two now, managed here. Add more devices from Devices → Add a device.',
   };
 }
+
+/** A member with a newer release, on its row's line (canvas 50q, 50t) and in the CLI's UPDATE column. */
+export function updateAvailableLine(candidate: string): string {
+  return `update available · ${candidate}`;
+}
+
+/** A member whose update ended without the new version, on its row's line (canvas 50t FAILED) and in the CLI. */
+export function updateFailedLine(installed: string): string {
+  return `update didn’t finish · still on ${installed}`;
+}
+
+/**
+ * Why, under a failed update, when the Mac said so (`failedReason:
+ * 'sessions'`): its sessions started working while it downloaded, so it did
+ * not restart over them and prompts there instead.
+ */
+export function updateSessionsStartedLine(name: string): string {
+  return `sessions started on ${name} — update it there or try again`;
+}

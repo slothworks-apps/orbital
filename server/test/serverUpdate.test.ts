@@ -183,7 +183,11 @@ describe('DesktopUpdateBackend', () => {
     port.emit({ ...msg, downloading: true });
     port.emit({ ...msg, downloaded: true });
     port.emit({ ...msg, downloading: 'yes' });
-    expect(seen).toEqual(['idle', 'downloading', 'downloaded']);
+    port.emit({ t: 'update_ended', reason: 'sessions' });
+    port.emit({ t: 'update_ended', reason: 'bored' });
+    expect(seen).toEqual(['idle', 'downloading', 'downloaded', { ended: 'sessions' }]);
+    // An end is no state: the versions stay what the last state said.
+    expect(desktop.versions()).toEqual({ installed: '0.35.0', candidate: '0.36.0' });
   });
 });
 
@@ -215,6 +219,7 @@ describe('UpdateService', () => {
     const { service } = make(backend);
     expect(service.state()).toEqual({
       installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 2, startedBy: null,
+      failedReason: null,
     });
     b.kind = 'none';
     expect(service.state().packaged).toBe(false);
@@ -351,6 +356,31 @@ describe('UpdateService', () => {
     expect(service.start()).toMatchObject({ ok: true });
     service.stop();
   });
+
+  it('a request that joins a download already running fails when that download stops', () => {
+    const { b, backend } = fakeBackend({ kind: 'desktop' });
+    const { service } = make(backend);
+    // Main was downloading by itself before anyone asked; nothing changes in its state when they do.
+    b.progress('downloading');
+    service.start();
+    b.progress('idle');
+    expect(service.state()).toMatchObject({ updating: false, failed: '0.36.0' });
+    service.stop();
+  });
+
+  it('fails at once, with the reason, when main ends the request because sessions started', () => {
+    const { b, backend } = fakeBackend({ kind: 'desktop' });
+    const { service } = make(backend);
+    service.start({ id: 'peer-1', name: 'Pixel 8' });
+    b.progress('downloading');
+    b.progress({ ended: 'sessions' });
+    expect(service.state()).toMatchObject({ updating: false, failed: '0.36.0', failedReason: 'sessions', startedBy: null });
+    expect(service.start()).toMatchObject({ ok: true, state: { failed: null, failedReason: null } });
+    // Any other end fails it too, with no reason the screens word.
+    b.progress({ ended: 'restart' });
+    expect(service.state()).toMatchObject({ updating: false, failed: '0.36.0', failedReason: null });
+    service.stop();
+  });
 });
 
 describe('updateAsker', () => {
@@ -424,6 +454,7 @@ describe('/api/server/update', () => {
       expect(got.statusCode).toBe(200);
       expect(got.json()).toEqual({
         installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 0, startedBy: null,
+        failedReason: null,
       });
       // A body is ignored, whatever it names.
       const started = await app.inject({ method: 'POST', url: '/api/server/update', payload: { version: '9.9.9', package: 'evil' } });

@@ -9,7 +9,9 @@
  * remember the skipped version, restart.
  */
 
-import type { MainUpdateStateMessage } from '@orbital/shared/remote/serverUpdate';
+import {
+  UPDATE_KEEPALIVE_MS, type MainUpdateStateMessage, type UpdateEndReason,
+} from '@orbital/shared/remote/serverUpdate';
 
 /**
  * How often a running app looks for a newer release, after the check at
@@ -298,8 +300,10 @@ export const IDLE_SETTLE_MS = 2_000;
 /**
  * What one input did, for `main.ts` to carry out: whether the view the web
  * app holds is stale, whether to call `downloadUpdate` or `quitAndInstall`
- * now, whether the skipped version changed and must be written, and whether
- * to call `idleSettled` after `IDLE_SETTLE_MS`.
+ * now, whether the skipped version changed and must be written, whether
+ * to call `idleSettled` after `IDLE_SETTLE_MS`, and whether to tell the
+ * server a member's request ended here without the install (`update_ended`,
+ * with the reason).
  */
 export type UpdateStep = {
   changed: boolean;
@@ -307,6 +311,7 @@ export type UpdateStep = {
   download: boolean;
   skipChanged: boolean;
   idleCheck: boolean;
+  remoteEnded: UpdateEndReason | null;
 };
 
 /** `available`'s step, with what it did with the version. */
@@ -354,6 +359,14 @@ export class UpdateFlow {
    * it is downloaded it installs at once, rather than prompting here.
    */
   private remoteRequested = false;
+  /**
+   * The working count when the member asked: the member confirmed those
+   * sessions before it asked, so only more than these, started while it
+   * downloaded, keep the download from installing.
+   */
+  private remoteBaseline = 0;
+  /** A member's request already retried a restart that had not got the app out (`remoteStart`). */
+  private restartRetried = false;
 
   constructor(init: { skippedVersion?: string | null } = {}) {
     this.skipped = init.skippedVersion ?? null;
@@ -440,6 +453,7 @@ export class UpdateFlow {
   downloadFailed(): UpdateStep {
     this.silentDownload = null;
     this.remoteRequested = false;
+    this.restartRetried = false;
     this.downloadedVersion = null;
     if (this.phase === 'none' || this.phase === 'available') return this.step();
     this.phase = 'available';
@@ -456,20 +470,31 @@ export class UpdateFlow {
     return this.phase === 'restarting' ? this.downloadFailed() : this.step();
   }
 
-  /** electron-updater finished downloading `version`. */
+  /**
+   * electron-updater finished downloading `version`. A member's request
+   * comes first, a version whose receipt was OK'd here included: it installs
+   * now, unless Orbital sessions started working while it downloaded (more
+   * than when the member asked, or a count not known) — then it does not
+   * restart over them, prompts here as this Mac's own download would, and
+   * tells the server the request ended (`remoteEnded`).
+   */
   downloaded(version: string): UpdateStep {
     if (this.phase === 'restarting') return this.step();
     if (version === this.silentDownload) this.silentDownload = null;
+    if (this.remoteRequested) {
+      this.remoteRequested = false;
+      const before = this.snapshot();
+      this.downloadedVersion = version;
+      if (this.countKnown && this.workingCount <= this.remoteBaseline) return this.restart();
+      this.toReady(version);
+      return this.step({ changed: before !== this.snapshot(), remoteEnded: 'sessions' });
+    }
     if (version === this.dismissedVersion) return this.step();
     if (version === this.downloadedVersion && this.phase !== 'available' && this.phase !== 'downloading') {
       return this.step();
     }
     const before = this.snapshot();
     this.downloadedVersion = version;
-    if (this.remoteRequested) {
-      this.remoteRequested = false;
-      return this.restart();
-    }
     // A newer version replaces whatever was on screen, a wait or a receipt
     // included, with a prompt for it.
     this.toReady(version);
@@ -547,14 +572,25 @@ export class UpdateFlow {
    * The member confirmed the running sessions before it asked. Downloaded
    * already, it installs now; otherwise the version found downloads — shown
    * as downloading here too, a skip of it undone — and installs once
-   * downloaded. With nothing found, or already restarting, nothing happens.
+   * downloaded. With nothing found, nothing happens.
+   *
+   * Asked while already restarting, the restart did not get the app out (no
+   * error came, or the quit was held): it is tried once more — a member
+   * asking is someone waiting on it, and a second `quitAndInstall` is
+   * harmless — and asked again after that, the request ends at once
+   * (`remoteEnded: 'restart'`) rather than waiting out the server's timeout.
    */
   remoteStart(): UpdateStep {
-    if (this.phase === 'restarting') return this.step();
+    if (this.phase === 'restarting') {
+      if (this.restartRetried) return this.step({ remoteEnded: 'restart' });
+      this.restartRetried = true;
+      return this.restart();
+    }
     if (this.downloadedVersion !== null) return this.restart();
     const version = this.phase !== 'none' ? this.version : (this.silentDownload ?? this.found);
     if (version === null || version === '') return this.step();
     this.remoteRequested = true;
+    this.remoteBaseline = this.countKnown ? this.workingCount : 0;
     if (this.phase === 'downloading' || this.silentDownload === version) return this.step();
     const before = this.snapshot();
     let skipChanged = false;
@@ -622,14 +658,32 @@ export class UpdateFlow {
 
   private restart(): UpdateStep {
     this.phase = 'restarting';
-    return { changed: true, restart: true, download: false, skipChanged: false, idleCheck: false };
+    return { changed: true, restart: true, download: false, skipChanged: false, idleCheck: false, remoteEnded: null };
   }
 
   private step(parts: Partial<Omit<UpdateStep, 'restart'>> = {}): UpdateStep {
-    return { changed: false, download: false, skipChanged: false, idleCheck: false, ...parts, restart: false };
+    return {
+      changed: false, download: false, skipChanged: false, idleCheck: false, remoteEnded: null, ...parts, restart: false,
+    };
   }
 
   private snapshot(): string {
     return JSON.stringify(this.view);
   }
+}
+
+/** The last `update_state` sent to the server: its JSON and when (epoch ms). */
+export type SentServerState = { json: string; at: number };
+
+/**
+ * Whether main sends the server `update_state` now: when it changed since the
+ * last one, and while it downloads, again every `UPDATE_KEEPALIVE_MS` even
+ * when it did not — the server's wait starts over with each word. Main calls
+ * this on every step, a download's progress included, so the word repeats
+ * only while the download moves; a download that stalls says nothing, and
+ * the server's wait runs out.
+ */
+export function serverStateDue(last: SentServerState | null, json: string, downloading: boolean, now: number): boolean {
+  if (last === null || last.json !== json) return true;
+  return downloading && now - last.at >= UPDATE_KEEPALIVE_MS;
 }

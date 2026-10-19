@@ -83,6 +83,10 @@ export type UpdateAsker = { id: string; name: string };
  *   for a request made on it (its web or the CLI). Null when nothing is
  *   updating, when the asker is not known, and from a server older than the
  *   field, which sends none.
+ * - `failedReason` — with `failed`, why, when the member knows:
+ *   `sessions`, a Mac whose sessions started working while the update
+ *   downloaded, so it did not restart over them and prompts there instead.
+ *   Null or absent otherwise; absent from a server older than the field.
  */
 export const ServerUpdateStateSchema = z.object({
   installed: VersionText,
@@ -95,6 +99,7 @@ export const ServerUpdateStateSchema = z.object({
     id: z.string().max(STARTED_BY_ID_MAX_CHARS),
     name: z.string().transform((s) => s.slice(0, STARTED_BY_NAME_MAX_CHARS)),
   }).nullable().catch(null),
+  failedReason: z.enum(['sessions']).nullable().optional().catch(null),
 });
 export type ServerUpdateState = z.infer<typeof ServerUpdateStateSchema>;
 
@@ -132,7 +137,8 @@ export type ServerUpdateRefusal = keyof typeof SERVER_UPDATE_REFUSALS;
 
 /**
  * Main → server: the state of the desktop's own updater (electron-updater),
- * sent once after the server starts and again whenever it changes.
+ * sent once after the server starts, again whenever it changes, and every
+ * `UPDATE_KEEPALIVE_MS` while it downloads.
  * `installed` is the app's version, `available` the newer version a check
  * found (null when none), `downloading` while it downloads, `downloaded`
  * once it is ready to install.
@@ -145,6 +151,34 @@ export const MainUpdateStateMessage = z.object({
   downloaded: z.boolean(),
 }).strict();
 export type MainUpdateStateMessage = z.infer<typeof MainUpdateStateMessage>;
+
+/**
+ * Main → server: a member's request ended on this Mac without the install,
+ * so the server reports it failed at once rather than at its timeout.
+ *
+ * - `sessions` — Orbital sessions started working while it downloaded: the
+ *   Mac prompts as for its own download instead of restarting over them;
+ * - `restart` — the app was asked again while a restart it was already
+ *   making had not got it out, and its one retry was spent.
+ */
+export const MainUpdateEndedMessage = z.object({
+  t: z.literal('update_ended'),
+  reason: z.enum(['sessions', 'restart']),
+}).strict();
+export type MainUpdateEndedMessage = z.infer<typeof MainUpdateEndedMessage>;
+export type UpdateEndReason = MainUpdateEndedMessage['reason'];
+
+/** Everything main sends the server. */
+export const MainMessage = z.discriminatedUnion('t', [MainUpdateStateMessage, MainUpdateEndedMessage]);
+export type MainMessage = z.infer<typeof MainMessage>;
+
+/**
+ * While main's updater downloads, how often it tells the server so again
+ * even when nothing else changed: the server's wait (`UPDATE_TIMEOUT_MS`)
+ * starts over with each word, so a slow download that is still moving is not
+ * taken for a failed one. Well below that wait.
+ */
+export const UPDATE_KEEPALIVE_MS = 60_000;
 
 /**
  * Server → main:
@@ -165,8 +199,8 @@ export const ServerUpdateMessage = z.discriminatedUnion('t', [
 export type ServerUpdateMessage = z.infer<typeof ServerUpdateMessage>;
 
 /** A message main sent the server; null for anything malformed, which the server ignores. */
-export function parseMainMessage(raw: unknown): MainUpdateStateMessage | null {
-  const parsed = MainUpdateStateMessage.safeParse(raw);
+export function parseMainMessage(raw: unknown): MainMessage | null {
+  const parsed = MainMessage.safeParse(raw);
   return parsed.success ? parsed.data : null;
 }
 
@@ -220,10 +254,10 @@ export function watchVerdict(watch: UpdateWatch, latest: ServerUpdateState | nul
 }
 
 /**
- * When to read the members' states again: null for no timer — the page reads
- * once when it opens, and nothing while it is closed — and `UPDATE_POLL_MS`
- * while it is open and a row is being watched.
+ * When an open Settings → Devices reads the members' states again: null for
+ * no timer — it read each once when it opened — and `UPDATE_POLL_MS` while a
+ * row is being watched. Closed, the page runs no timer at all.
  */
-export function updatePollDelay(o: { pageOpen: boolean; watching: boolean }): number | null {
-  return o.pageOpen && o.watching ? UPDATE_POLL_MS : null;
+export function updatePollDelay(o: { watching: boolean }): number | null {
+  return o.watching ? UPDATE_POLL_MS : null;
 }

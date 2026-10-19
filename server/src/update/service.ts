@@ -5,7 +5,8 @@
  *
  * `updating` is set when a request is accepted and lasts until the process
  * exits — the update restarts it — or until it is known to have failed: on a
- * Mac, main's download stops without the update downloaded; anywhere,
+ * Mac, main's download stops without the update downloaded, or main ends the
+ * request without installing (sessions started there meanwhile); anywhere,
  * `UPDATE_TIMEOUT_MS` passes with the process still here. The timeout starts
  * again with every word that the Mac is still downloading, and when it fires
  * the backend is told (`cancel`), so a download landing late does not install
@@ -55,6 +56,10 @@ export class UpdateService {
   private startedBy: UpdateAsker | null = null;
   /** The backend said it is downloading (or done) since the request: an idle word after it means the download failed. */
   private sawProgress = false;
+  /** The last progress the backend reported, request or not: a request that joins a running download has seen it. */
+  private lastProgress: UpdateProgress = 'idle';
+  /** Why the last request failed, when the backend said (`ServerUpdateState.failedReason`). */
+  private failedReason: 'sessions' | null = null;
 
   constructor(private readonly opts: {
     backend: UpdateBackend;
@@ -90,6 +95,7 @@ export class UpdateService {
       failed: this.failed,
       sessions: this.opts.sessions(),
       startedBy: this.updating ? this.startedBy : null,
+      failedReason: this.failed !== null ? this.failedReason : null,
     };
   }
 
@@ -107,7 +113,9 @@ export class UpdateService {
     if (this.opts.backend.request() === 'not_set_up') return refuse('not_set_up');
     this.updating = true;
     this.failed = null;
-    this.sawProgress = false;
+    this.failedReason = null;
+    // Main's download already running counts as progress, so its failing (`idle`) fails this request too.
+    this.sawProgress = this.lastProgress === 'downloading' || this.lastProgress === 'downloaded';
     const target = before.candidate as string;
     this.target = target;
     this.startedBy = startedBy;
@@ -128,14 +136,21 @@ export class UpdateService {
   }
 
   private progress(progress: UpdateProgress): void {
+    if (typeof progress === 'string') this.lastProgress = progress;
     if (!this.updating) return;
+    if (typeof progress === 'object') {
+      // Main ended the request without installing: failed now, not at the timeout.
+      this.fail(progress.ended === 'sessions' ? 'sessions' : null);
+      return;
+    }
     if (progress === 'idle') {
       // Main's download stopped without the update: failed, and nothing left installing to cancel.
       if (this.sawProgress) this.fail();
       return;
     }
     this.sawProgress = true;
-    // A slow download is not a failed one: the wait starts again while it runs.
+    // A slow download is not a failed one: the wait starts again with every
+    // word that it runs, which main repeats while it moves (`UPDATE_KEEPALIVE_MS`).
     if (progress === 'downloading') this.armTimer();
   }
 
@@ -154,10 +169,11 @@ export class UpdateService {
     this.timer = null;
   }
 
-  private fail(): void {
+  private fail(reason: 'sessions' | null = null): void {
     this.clearTimer();
     this.updating = false;
     this.failed = this.target;
+    this.failedReason = reason;
     this.startedBy = null;
     this.sawProgress = false;
   }

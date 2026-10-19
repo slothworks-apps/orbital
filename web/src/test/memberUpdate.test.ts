@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { UPDATE_TIMEOUT_MS, type ServerUpdateState } from '@orbital/shared/remote/serverUpdate'
 import {
-  applyRead, applyStart, selfUpdateAvailable, startDecision, updateNeedsConfirm, updatePhase, updateRow, type MemberUpdate,
+  applyRead, applyStart, applyStartUnanswered, selfUpdateAvailable, startDecision, updateNeedsConfirm, updatePhase, updateRow, type MemberUpdate,
   type UpdateRowInput,
 } from '../lib/memberUpdate'
 
@@ -109,6 +109,20 @@ describe('an update from start to end', () => {
     expect(updateRow(back, { ...SERVER, surface: 'phone' }).words).toBe('online · update didn’t finish')
   })
 
+  it('says why when the Mac did not install because sessions started there, and only while it reads failed', () => {
+    const MAC = { ...SERVER, name: 'studio', kind: 'desktop' }
+    const back = applyRead(started(), state({ failed: '0.36.0', failedReason: 'sessions' }), T0 + 30_000)
+    expect(updateRow(back, MAC).line).toMatchObject({
+      text: 'update didn’t finish · still on 0.35.2', sub: 'sessions started on studio — update it there or try again',
+      action: 'retry',
+    })
+    // Read again later, the member still says so; a new start forgets it.
+    const reread = applyRead(back, state({ failed: '0.36.0', failedReason: 'sessions' }), T0 + 60_000)
+    expect(updateRow(reread, MAC).line?.sub).toBe('sessions started on studio — update it there or try again')
+    const again = applyStart(reread, { ok: true, state: state({ updating: true }) }, T0 + 70_000).next
+    expect(again.failedReason).toBeNull()
+  })
+
   it('fails on the old version even when the member does not say so itself', () => {
     const back = applyRead(started(), state(), T0 + 60_000)
     expect(updatePhase(back, true)).toBe('failed')
@@ -162,6 +176,42 @@ describe('starting an update', () => {
     })
     // The next start forgets it.
     expect(applyStart(refused.next, { ok: false, error: 'updating' }, T0).next.refused).toBeNull()
+  })
+})
+
+describe('a start that was not answered', () => {
+  it('watches without showing updating, and shows it once a read says so', () => {
+    const u = applyStartUnanswered(applyRead(undefined, state(), T0), T0)
+    expect(u.watch).toMatchObject({ unconfirmed: true })
+    expect(updatePhase(u, true)).toBe('available')
+    // Not reachable meanwhile: still watched, so the poll goes on.
+    const away = applyRead(u, null, T0 + 5_000)
+    expect(away.watch).not.toBeNull()
+    expect(updatePhase(away, true)).toBe('available')
+    const landed = applyRead(away, state({ updating: true }), T0 + 10_000)
+    expect(landed.watch?.unconfirmed).toBeUndefined()
+    expect(updatePhase(landed, true)).toBe('installing')
+  })
+
+  it('a read that says it is not updating ends the watch and fails nothing', () => {
+    const u = applyStartUnanswered(applyRead(undefined, state(), T0), T0)
+    const read = applyRead(u, state(), T0 + 5_000)
+    expect(read.watch).toBeNull()
+    expect(read.failed).toBeNull()
+    expect(updatePhase(read, true)).toBe('available')
+  })
+
+  it('stops being watched when the wait runs out with no answer, without reading as timed out', () => {
+    const u = applyStartUnanswered(applyRead(undefined, state(), T0), T0)
+    const late = applyRead(u, null, T0 + UPDATE_TIMEOUT_MS)
+    expect(late.watch).toBeNull()
+    expect(late.timedOut).toBeNull()
+  })
+
+  it('leaves a member never read, or already watched, as it is', () => {
+    expect(applyStartUnanswered(undefined, T0).watch).toBeNull()
+    const watched = started()
+    expect(applyStartUnanswered(watched, T0 + 1)).toBe(watched)
   })
 })
 

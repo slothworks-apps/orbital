@@ -20,7 +20,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { autoUpdater } from 'electron-updater';
-import { parseServerMessage } from '@orbital/shared/remote/serverUpdate';
+import { parseServerMessage, type MainMessage } from '@orbital/shared/remote/serverUpdate';
 import { apiTokenPath, authCookies, bearerHeaders, parseApiToken } from './lib/apiToken';
 import { appMenuTemplate, parseMenuCommands, type MenuCommand } from './lib/appMenu';
 import { parseTerminalFocused, terminalKeyDecision } from './lib/terminalKeys';
@@ -71,11 +71,13 @@ import {
   parseSkippedVersion,
   parseUpdateAction,
   serializeSkippedVersion,
+  serverStateDue,
   shouldCheckForUpdates,
   SKIPPED_VERSION_FILE,
   UPDATE_CHECK_INTERVAL_MS,
   updateSize,
   UpdateFlow,
+  type SentServerState,
   type UpdateCheckAnswer,
   type UpdateStep,
 } from './lib/updates';
@@ -1238,28 +1240,37 @@ function applyUpdateStep(step: UpdateStep): void {
     }, IDLE_SETTLE_MS);
   }
   pushServerUpdateState();
+  if (step.remoteEnded) tellServer({ t: 'update_ended', reason: step.remoteEnded });
   if (step.restart) autoUpdater.quitAndInstall();
 }
 
-/** The last `update_state` sent to the current server, as JSON; null since it was forked. */
-let lastServerUpdateState: string | null = null;
+/** The last `update_state` sent to the current server; null since it was forked. */
+let lastServerUpdateState: SentServerState | null = null;
 
 /**
  * Tell the forked server what the updater knows (`update_state`), when it
- * changed since the last message — so a member reading this Mac's
- * `GET /api/server/update` sees what Settings › Updates shows. A server this
- * app attached to rather than forked has no channel.
+ * changed since the last message, or while it downloads and the server's
+ * wait wants hearing again (`serverStateDue`) — so a member reading this
+ * Mac's `GET /api/server/update` sees what Settings › Updates shows.
  */
 function pushServerUpdateState(): void {
   if (!forked || !child) return;
   const message = updates.serverState(app.getVersion());
   const json = JSON.stringify(message);
-  if (json === lastServerUpdateState) return;
+  const now = Date.now();
+  if (!serverStateDue(lastServerUpdateState, json, message.downloading, now)) return;
+  if (tellServer(message)) lastServerUpdateState = { json, at: now };
+}
+
+/** A message to the forked server; false when there is none, or it could not be sent. A server this app attached to rather than forked has no channel. */
+function tellServer(message: MainMessage): boolean {
+  if (!forked || !child) return false;
   try {
     child.postMessage(message);
-    lastServerUpdateState = json;
+    return true;
   } catch (err) {
     console.error('Orbital could not tell its server the update state:', err);
+    return false;
   }
 }
 

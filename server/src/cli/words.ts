@@ -5,7 +5,9 @@
  */
 import type { JoinResult, StartPairingResult } from '@orbital/shared/remote/ceremony';
 import { osName } from '@orbital/shared/remote/device';
-import { groupFullLine, notPrimaryAddLine, osLabel } from '@orbital/shared/remote/groupWords';
+import {
+  groupFullLine, notPrimaryAddLine, osLabel, updateAvailableLine, updateFailedLine, updateSessionsStartedLine,
+} from '@orbital/shared/remote/groupWords';
 import { updateIsNewer, type ServerUpdateState } from '@orbital/shared/remote/serverUpdate';
 import { BAD_SECRET_ERROR, NO_RELAY_URL_ERROR } from '../remote/errors.js';
 import type { RemoteStatus } from '../remote/service.js';
@@ -89,8 +91,8 @@ type Row = { name: string; kind: string; os: string; state: string; version: str
 export function updateNote(state: ServerUpdateState | undefined): string {
   if (!state) return '';
   if (state.updating) return `updating to ${state.candidate ?? 'a newer version'}`;
-  if (state.failed) return `update didn’t finish · still on ${state.installed}`;
-  if (updateIsNewer(state.installed, state.candidate)) return `update available · ${state.candidate}`;
+  if (state.failed) return updateFailedLine(state.installed);
+  if (updateIsNewer(state.installed, state.candidate)) return updateAvailableLine(state.candidate as string);
   return '';
 }
 
@@ -153,7 +155,10 @@ export function statusLines(remote: RemoteStatus, update: ServerUpdateState | nu
       lines.push(`Updating to ${update.candidate ?? 'a newer version'}${by}…`);
     }
     else if (updateIsNewer(update.installed, update.candidate)) lines.push(`Update: ${update.candidate} is out. Run orbital update.`);
-    if (update.failed) lines.push(`The update to ${update.failed} failed.`);
+    if (update.failed) {
+      const why = update.failedReason === 'sessions' ? `: ${updateSessionsStartedLine(remote.macName)}` : '.';
+      lines.push(`The update to ${update.failed} failed${why}`);
+    }
   }
   lines.push(`This device: ${remote.macName}`);
   const relayState = { off: 'off', connecting: 'connecting', online: 'online', too_old: 'too old: it needs an update' }[remote.relay];

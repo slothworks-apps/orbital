@@ -9,12 +9,19 @@
  * Only the words change. No spinner, no countdown, no percentage, and
  * nothing outside Settings → Devices.
  */
+import { updateAvailableLine, updateFailedLine, updateSessionsStartedLine } from '@orbital/shared/remote/groupWords'
 import {
-  updateIsNewer, watchVerdict, type ServerUpdateRefusal, type ServerUpdateState, type UpdateAsker, type UpdateWatch,
+  UPDATE_TIMEOUT_MS, updateIsNewer, watchUpdate, watchVerdict, type ServerUpdateRefusal, type ServerUpdateState,
+  type UpdateAsker, type UpdateWatch,
 } from '@orbital/shared/remote/serverUpdate'
 
-/** An update being watched from here: the version it started on, the one it brings, and who started it. */
-export type MemberWatch = UpdateWatch & { target: string; from: UpdateAsker | null }
+/**
+ * An update being watched from here: the version it started on, the one it
+ * brings, and who started it. `unconfirmed`: a start whose answer never came
+ * — it may have landed, or not — read again on the poll until a read says
+ * which; the row shows only what the reads say meanwhile.
+ */
+export type MemberWatch = UpdateWatch & { target: string; from: UpdateAsker | null; unconfirmed?: true }
 
 /** What this device knows of one member's update. */
 export interface MemberUpdate {
@@ -28,14 +35,18 @@ export interface MemberUpdate {
   timedOut: MemberWatch | null
   /** The version an update watched here was meant to bring, when it came back without it. */
   failed: string | null
+  /** Why it failed, when the member said (`ServerUpdateState.failedReason`). */
+  failedReason: 'sessions' | null
   /** A start the member refused for a reason no read shows, until the next start. */
   refused: Extract<ServerUpdateRefusal, 'not_set_up' | 'not_packaged'> | null
 }
 
-const NOTHING: MemberUpdate = { state: null, reachable: false, watch: null, timedOut: null, failed: null, refused: null }
+const NOTHING: MemberUpdate = {
+  state: null, reachable: false, watch: null, timedOut: null, failed: null, failedReason: null, refused: null,
+}
 
 function watchOf(state: ServerUpdateState, now: number): MemberWatch {
-  return { installed: state.installed, since: now, target: state.candidate ?? state.installed, from: state.startedBy }
+  return { ...watchUpdate(state, now), target: state.candidate ?? state.installed, from: state.startedBy }
 }
 
 /**
@@ -47,6 +58,13 @@ function watchOf(state: ServerUpdateState, now: number): MemberWatch {
  */
 export function applyRead(prev: MemberUpdate | undefined, latest: ServerUpdateState | null, now: number): MemberUpdate {
   const u = prev ?? NOTHING
+  if (u.watch?.unconfirmed) {
+    // Only an answer settles a start that was not answered; with none, it is read again until the wait runs out.
+    if (latest === null) {
+      return { ...u, reachable: false, watch: now - u.watch.since >= UPDATE_TIMEOUT_MS ? null : u.watch }
+    }
+    return applyRead({ ...u, watch: null }, latest, now)
+  }
   if (u.watch) {
     const verdict = watchVerdict(u.watch, latest, now)
     if (verdict === 'updating') {
@@ -57,9 +75,14 @@ export function applyRead(prev: MemberUpdate | undefined, latest: ServerUpdateSt
         watch: latest?.startedBy ? { ...u.watch, from: latest.startedBy } : u.watch,
       }
     }
-    if (verdict === 'updated') return { ...u, state: latest, reachable: true, watch: null, timedOut: null, failed: null }
+    if (verdict === 'updated') {
+      return { ...u, state: latest, reachable: true, watch: null, timedOut: null, failed: null, failedReason: null }
+    }
     if (latest === null) return { ...u, reachable: false, watch: null, timedOut: u.watch }
-    return { ...u, state: latest, reachable: true, watch: null, timedOut: null, failed: latest.failed ?? u.watch.target }
+    return {
+      ...u, state: latest, reachable: true, watch: null, timedOut: null,
+      failed: latest.failed ?? u.watch.target, failedReason: latest.failedReason ?? null,
+    }
   }
   if (latest === null) return { ...u, reachable: false }
   return {
@@ -69,7 +92,20 @@ export function applyRead(prev: MemberUpdate | undefined, latest: ServerUpdateSt
     watch: latest.updating ? watchOf(latest, now) : null,
     timedOut: null,
     failed: latest.failed,
+    failedReason: latest.failedReason ?? null,
   }
+}
+
+/**
+ * A start whose answer never came (its bound ran out): it may have reached
+ * the member. The member is watched, unconfirmed, so the poll reads it again
+ * and the row shows `updating` as soon as a read says so — or stays as it was
+ * when a read says it is not. A member never read has nothing to watch from.
+ */
+export function applyStartUnanswered(prev: MemberUpdate | undefined, now: number): MemberUpdate {
+  const u = prev ?? NOTHING
+  if (u.state === null || u.watch) return u
+  return { ...u, watch: { ...watchOf(u.state, now), from: null, unconfirmed: true } }
 }
 
 /** A start's answer: the start function's, which is null for a member that does not serve the route. */
@@ -86,7 +122,10 @@ export function applyStart(
   const u = { ...(prev ?? NOTHING), refused: null }
   if (answer.ok) {
     return {
-      next: { ...u, state: answer.state, reachable: true, watch: watchOf(answer.state, now), timedOut: null, failed: null },
+      next: {
+        ...u, state: answer.state, reachable: true, watch: watchOf(answer.state, now), timedOut: null, failed: null,
+        failedReason: null,
+      },
       reread: false,
     }
   }
@@ -105,7 +144,7 @@ export type UpdatePhase = 'idle' | 'available' | 'installing' | 'restarting' | '
  */
 export function updatePhase(u: MemberUpdate | undefined, online: boolean): UpdatePhase {
   if (!u) return 'idle'
-  if (u.watch) return online && u.reachable ? 'installing' : 'restarting'
+  if (u.watch && !u.watch.unconfirmed) return online && u.reachable ? 'installing' : 'restarting'
   if (u.timedOut) return 'timeout'
   if (u.failed !== null && u.state && !u.state.updating) return 'failed'
   if (u.state && updateIsNewer(u.state.installed, u.state.candidate)) return 'available'
@@ -249,7 +288,9 @@ export function updateRow(u: MemberUpdate | undefined, input: UpdateRowInput): U
         dot: null,
         dim: null,
         line: {
-          text: `update didn’t finish · still on ${failedOn}`, sub: whereToLook(name, kind), bright: false,
+          text: updateFailedLine(failedOn),
+          sub: u?.failedReason === 'sessions' ? updateSessionsStartedLine(name) : whereToLook(name, kind),
+          bright: false,
           head: `The update didn’t finish · still on ${failedOn}`, action: reach ? 'retry' : null,
         },
       }
@@ -263,7 +304,7 @@ export function updateRow(u: MemberUpdate | undefined, input: UpdateRowInput): U
         dot: null,
         dim: null,
         line: {
-          text: `update available · ${candidate}`,
+          text: updateAvailableLine(candidate),
           sub: !reach ? later : u!.refused ? refusedSub(u!.refused, name) : null,
           bright: true,
           head: `Update available · ${candidate}`,

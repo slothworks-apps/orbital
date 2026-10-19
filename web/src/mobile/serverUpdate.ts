@@ -8,20 +8,18 @@
  */
 import type { ServerUpdateRefusal, ServerUpdateState } from '@orbital/shared/remote/serverUpdate'
 import { api } from '../lib/api'
-import type { DeviceView } from './state'
 import { deviceSupports } from './version'
 
 /** The member's update state, or null when it does not serve the route. */
-export async function readDeviceUpdate(deviceId: string, devices?: readonly DeviceView[]): Promise<ServerUpdateState | null> {
-  if (!deviceSupports('serverUpdate', deviceId, devices)) return null
+export async function readDeviceUpdate(deviceId: string): Promise<ServerUpdateState | null> {
+  if (!deviceSupports('serverUpdate', deviceId)) return null
   return api.serverUpdate(deviceId)
 }
 
 /** Starts the member's update; null when it does not serve the route. */
 export async function startDeviceUpdate(
   deviceId: string,
-  devices?: readonly DeviceView[],
 ): Promise<{ ok: true; state: ServerUpdateState } | { ok: false; error: ServerUpdateRefusal } | null> {
-  if (!deviceSupports('serverUpdate', deviceId, devices)) return null
+  if (!deviceSupports('serverUpdate', deviceId)) return null
   return api.startServerUpdate(deviceId)
 }

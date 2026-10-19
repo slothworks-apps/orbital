@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { updatePollDelay, type ServerUpdateState } from '@orbital/shared/remote/serverUpdate'
-import { applyRead, applyStart, startDecision, type MemberUpdate, type StartAnswer } from './memberUpdate'
+import {
+  applyRead, applyStart, applyStartUnanswered, startDecision, type MemberUpdate, type StartAnswer,
+} from './memberUpdate'
 
 /**
  * How long one read may take before it counts as unanswered: a read that
@@ -10,9 +12,12 @@ import { applyRead, applyStart, startDecision, type MemberUpdate, type StartAnsw
  */
 export const UPDATE_READ_TIMEOUT_MS = 15_000
 
+/** A read or a start that got no answer within `UPDATE_READ_TIMEOUT_MS`. */
+class Unanswered extends Error {}
+
 function withTimeout<T>(promise: Promise<T>, ms = UPDATE_READ_TIMEOUT_MS): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('update read timed out')), ms)
+    const timer = setTimeout(() => reject(new Unanswered('update read timed out')), ms)
     promise.then(
       (value) => {
         clearTimeout(timer)
@@ -130,7 +135,7 @@ export function useMemberUpdates(targets: UpdateTarget[], io: UpdateIo) {
 
   const watched = targets.filter((t) => byId[t.id]?.watch).map((t) => t.id)
   const watchedKey = watched.join('\n')
-  const delay = updatePollDelay({ pageOpen: true, watching: watched.length > 0 })
+  const delay = updatePollDelay({ watching: watched.length > 0 })
   useEffect(() => {
     if (delay === null) return
     const timer = setTimeout(() => {
@@ -142,13 +147,17 @@ export function useMemberUpdates(targets: UpdateTarget[], io: UpdateIo) {
 
   /**
    * Starts the update, bounded as a read is; false when the member could not
-   * be reached or did not answer. Its answer is newer than any read asked before it.
+   * be reached or did not answer. Its answer is newer than any read asked
+   * before it. One that did not answer may still have started it: the member
+   * is watched, unconfirmed (`applyStartUnanswered`), so the poll shows it
+   * updating once a read says so.
    */
   const startNow = useCallback(async (id: string): Promise<boolean> => {
     let answer: StartAnswer | null
     try {
       answer = await withTimeout(ioRef.current.start(id))
-    } catch {
+    } catch (err) {
+      if (err instanceof Unanswered) land(id, ticket(id), (prev) => applyStartUnanswered(prev, Date.now()))
       return false
     }
     if (!answer) return false
