@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { ensureDataDir } from '@orbital/shared/dataDir';
 import { CONFIG } from './config.js';
 import { applyLoginShellPath } from './env/loginPath.js';
 import { FIRST_CLAUDE_DIR_ID, cliDefaultDir } from './claudeDirs/paths.js';
@@ -1616,6 +1617,8 @@ function exitWithParent(app: FastifyInstance, parentPid: number): void {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  // Before anything writes into it: a data dir an older build made open to the group is closed once, here.
+  ensureDataDir(CONFIG.dataDir);
   const apiToken = loadOrCreateApiToken(CONFIG.dataDir);
   const app = await buildServer({ apiToken });
   const parentPid = desktopParentPid();

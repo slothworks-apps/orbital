@@ -6,10 +6,11 @@
  * beside it.
  */
 import {
-  chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync,
+  chmodSync, existsSync, readFileSync, renameSync, writeFileSync,
 } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
+import { ensureDataDir } from '@orbital/shared/dataDir';
 import {
   fromBase64Url, generateIdentity, identityFromSecret, SECRET_KEY_BYTES, toBase64Url, type Identity,
 } from '@orbital/shared/remote/keys';
@@ -36,7 +37,7 @@ export function loadOrCreateIdentity(dataDir: string): { identity: Identity; reg
     regenerated = true;
   }
   const identity = generateIdentity();
-  mkdirSync(dataDir, { recursive: true });
+  ensureDataDir(dataDir);
   writeIdentity(path, identity);
   return { identity, regenerated };
 }

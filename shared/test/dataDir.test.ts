@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { orbitalDataDir } from '../src/dataDir.js';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { DATA_DIR_MODE, ensureDataDir, orbitalDataDir } from '../src/dataDir.js';
 
 describe('orbitalDataDir', () => {
   it('follows ORBITAL_DATA_DIR on any platform, over XDG_DATA_HOME too', () => {
@@ -32,5 +35,30 @@ describe('orbitalDataDir', () => {
     expect(orbitalDataDir({ env: { ORBITAL_DATA_DIR: '' }, home: '/home/x', platform: 'linux' })).toBe(
       '/home/x/.local/share/orbital',
     );
+  });
+});
+
+describe('ensureDataDir', () => {
+  const mode = (p: string) => statSync(p).mode & 0o777;
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'orbital-datadir-'));
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  it('makes a missing data dir, its parents too, for this user alone', () => {
+    const dir = join(root, 'share', 'orbital');
+    ensureDataDir(dir, 'linux');
+    expect(mode(dir)).toBe(DATA_DIR_MODE);
+  });
+
+  it('takes group and other bits off an existing one, except on a Mac', () => {
+    const dir = join(root, 'orbital');
+    mkdirSync(dir);
+    chmodSync(dir, 0o755);
+    ensureDataDir(dir, 'darwin');
+    expect(mode(dir)).toBe(0o755);
+    ensureDataDir(dir, 'linux');
+    expect(mode(dir)).toBe(DATA_DIR_MODE);
   });
 });
