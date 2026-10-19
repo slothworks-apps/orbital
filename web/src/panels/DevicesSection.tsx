@@ -616,6 +616,56 @@ function ThisDevice({
   )
 }
 
+/** Grant group labels and descriptions. */
+const GRANT_LABELS: Record<string, { label: string; desc: string }> = {
+  sessions: { label: 'Read and drive sessions', desc: "messages, decisions, interrupt, harness, a session's MCP servers" },
+  spawn: { label: 'Start sessions', desc: 'new sessions, folders, projects' },
+  settings: { label: 'Settings, tags and templates', desc: '' },
+  manage: { label: 'Upkeep of this Mac', desc: 'Claude directories, errors, branch status' },
+  ide: { label: 'IDE on this Mac', desc: "open files and diagnostics in this Mac's editor" },
+}
+
+/**
+ * Grant toggles for a member (spec 2026-10-19-member-grants-design § 2).
+ */
+function GrantToggles({
+  memberId,
+  grants,
+  saving,
+  onToggle,
+}: {
+  memberId: string
+  grants: Record<string, boolean> | undefined
+  saving: string | null
+  onToggle: (memberId: string, group: string, checked: boolean) => Promise<void>
+}) {
+  if (!grants) return null
+  const groups: Array<keyof typeof GRANT_LABELS> = ['sessions', 'spawn', 'settings', 'manage', 'ide']
+  return (
+    <div className="border-t border-[rgba(150,205,255,.08)] bg-[rgba(150,205,255,.02)] px-4 py-2.5">
+      <div className="space-y-2">
+        {groups.map((group) => {
+          const { label, desc } = GRANT_LABELS[group]
+          return (
+            <div key={group} className="flex items-start gap-3">
+              <Toggle
+                aria-label={label}
+                checked={grants[group] ?? false}
+                disabled={saving === `${memberId}-${group}`}
+                onChange={(checked) => void onToggle(memberId, group, checked)}
+              />
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[12px] text-text-bright">{label}</span>
+                {desc && <span className="text-[11px] text-[rgba(160,190,225,.55)]">{desc}</span>}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 /**
  * IN THIS GROUP's rows (canvas 50a ROWS, 50l): glyph, name with PRIMARY on
  * the primary's row, kind and OS on the quiet line under it, and the state
@@ -623,7 +673,8 @@ function ThisDevice({
  * offers it (`canRemoveRow`); a row not linked is a Pair by hand link only on
  * the primary. Remove stays available with the relay offline: the removal
  * applies here at once, and it is the only way out of a member that keeps
- * the relay locked.
+ * the relay locked. Under each other member, what it may do on this device
+ * (spec 2026-10-19-member-grants-design § 2).
  */
 function Members({
   rows,
@@ -642,6 +693,28 @@ function Members({
   const [removing, setRemoving] = useState(false)
   /** A removal the group refused, said under that row rather than as a toast (canvas 50p I). */
   const [refusal, setRefusal] = useState<{ id: string; text: string } | null>(null)
+  /** Member grants from /api/remote/grants. */
+  const [grants, setGrants] = useState<Record<string, Record<string, boolean>>>({})
+  /** Which grant is currently being saved. */
+  const [saving, setSaving] = useState<string | null>(null)
+  /** A grant save that failed, said under that member rather than as a toast. */
+  const [saveError, setSaveError] = useState<{ memberId: string; text: string } | null>(null)
+
+  const memberIds = rows.map((m) => m.id).join(',')
+  useEffect(() => {
+    let live = true
+    api
+      .getRemoteGrants()
+      .then((res) => {
+        if (live) setGrants(res.grants)
+      })
+      .catch(() => {
+        /* the toggles stay unrendered; see the state's comment */
+      })
+    return () => {
+      live = false
+    }
+  }, [memberIds])
 
   async function remove(id: string) {
     if (removing) return
@@ -656,6 +729,30 @@ function Members({
       reportError(err, 'Failed to remove the device')
     } finally {
       setRemoving(false)
+    }
+  }
+
+  async function toggleGrant(memberId: string, group: string, checked: boolean) {
+    if (saving === `${memberId}-${group}`) return
+    setSaving(`${memberId}-${group}`)
+    setSaveError(null)
+    // Optimistic update
+    const oldGrants = grants[memberId]
+    setGrants((g) => ({
+      ...g,
+      [memberId]: { ...g[memberId], [group]: checked },
+    }))
+    try {
+      const { grants: updated } = await api.updateRemoteGrants(memberId, { [group]: checked })
+      setGrants((g) => ({ ...g, [memberId]: updated }))
+      onSaved()
+    } catch (err) {
+      // Rollback on failure
+      if (oldGrants) setGrants((g) => ({ ...g, [memberId]: oldGrants }))
+      setSaveError({ memberId, text: 'Failed to save grant' })
+      reportError(err, 'Failed to update member grants')
+    } finally {
+      setSaving(null)
     }
   }
 
@@ -741,6 +838,14 @@ function Members({
             {refusal?.id === m.id && (
               <div role="alert" className="px-4 pb-2.5 text-[12.5px] leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
                 {refusal.text}
+              </div>
+            )}
+            {asking !== m.id && (
+              <GrantToggles memberId={m.id} grants={grants[m.id]} saving={saving} onToggle={toggleGrant} />
+            )}
+            {saveError?.memberId === m.id && (
+              <div role="alert" className="px-4 pb-2.5 text-[12.5px] leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+                {saveError.text}
               </div>
             )}
           </div>

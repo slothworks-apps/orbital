@@ -16,6 +16,8 @@ export interface SpawnInput {
   prompt: string;
   cwd?: string;
   model?: string;
+  /** Another group member's id: the session starts there (spec 2026-10-19-member-grants-design § 3). */
+  machine?: string;
 }
 
 export interface SpawnResult {
@@ -46,6 +48,7 @@ export function spawnSessionTool(parentId: string, spawn: Spawner) {
       prompt: z.string().min(1).describe('The new session\'s first message — the full task, since it shares no context with this session.'),
       cwd: z.string().optional().describe('Working directory for the new session. Defaults to this session\'s directory.'),
       model: z.string().optional().describe('Model for the new session. Defaults to this session\'s model; pass one only if the user asked for it.'),
+      machine: z.string().optional().describe('Start it on another group member (its id, from orbital_read list_devices) when the user asked for that device. Its cwd is a path on that device and is required.'),
     },
     async (args) => {
       try {
@@ -76,7 +79,7 @@ export function spawnSessionTool(parentId: string, spawn: Spawner) {
 export function orbitalMcpServer(
   parentId: string,
   backs: { spawn?: Spawner; keeper?: SessionKeeper; control?: ControlCall },
-  extra?: { tools: SdkMcpToolDefinition<any>[]; instructions?: string },
+  extra?: { tools?: SdkMcpToolDefinition<any>[]; instructions?: string; getDeviceName?: (id: string) => string | null },
 ) {
   const { spawn, keeper, control } = backs;
   return createSdkMcpServer({
@@ -85,7 +88,7 @@ export function orbitalMcpServer(
     tools: [
       ...(spawn ? [spawnSessionTool(parentId, spawn)] : []),
       ...(keeper ? [listSessionsTool(parentId, keeper), archiveSessionTool(parentId, keeper)] : []),
-      ...(control ? controlTools(parentId, control) : []),
+      ...(control ? controlTools(parentId, control, extra?.getDeviceName) : []),
       ...(extra?.tools ?? []),
     ],
   });

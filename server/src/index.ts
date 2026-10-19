@@ -945,6 +945,7 @@ export async function buildServer(overrides: {
         context,
       });
     },
+    getDeviceName: (id: string) => remote.status().group.members.find((m) => m.id === id)?.name ?? null,
   });
 
   // Transcript path for a session, once the indexer knows which project
@@ -1471,6 +1472,12 @@ export async function buildServer(overrides: {
       sweep: runRetentionSweep,
       preview: (value: string) =>
         countSweepable(db, retentionCutoff(parseRetentionDays(value), Date.now())),
+    },
+    spawnOnMember: async (machine, body) => {
+      const link = federation.link(machine);
+      if (!link) return { status: 404, body: { error: 'unknown_device' } };
+      const res = await federation.request(link, 'POST', '/api/sessions', body);
+      return res;
     },
   });
   // The session's own way into these routes (spec

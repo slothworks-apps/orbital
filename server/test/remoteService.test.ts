@@ -78,7 +78,10 @@ function build(
     db, hub, dataDir: dir, images: createImageStore(join(dir, 'images')), imagesDir: join(dir, 'images'),
     serverVersion: 'test',
     inject: async () => ({ statusCode: 200, body: JSON.stringify({ sessions: [] }) }),
-    settings: { get: (k) => settings[k] ?? '' },
+    settings: {
+      get: (k) => settings[k] ?? '',
+      set: (k, v) => { settings[k] = v; },
+    },
     allSettings: () => settings,
     now: () => now,
     clientFactory: opts.clientFactory ?? (() => fake as unknown as RelayClient),
@@ -158,6 +161,17 @@ describe('RemoteService roster', () => {
 });
 
 describe('RemoteService exits', () => {
+  it('a removed member takes its grants along; another member keeps its own', async () => {
+    const id = deviceId(generateIdentity().publicKey);
+    const { service, db, settings } = build((d) => d.add({
+      id, name: 'vps', platform: 'linux', kind: 'desktop', pairedAt: 1, notifications: parseNotificationSettings({}),
+    }));
+    withMembers(db, { id, name: 'vps' });
+    settings.remote_grants = JSON.stringify({ [id]: { ide: true }, other: { manage: true } });
+    expect(await service.remove(id)).toEqual({ ok: true });
+    expect(JSON.parse(settings.remote_grants)).toEqual({ other: { manage: true } });
+  });
+
   it('a member removed while asleep is served nothing when it comes back, only the version that ends its pair; its ack ends it', async () => {
     const peer = generateIdentity();
     const id = deviceId(peer.publicKey);

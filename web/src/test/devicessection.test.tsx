@@ -277,6 +277,36 @@ describe('DevicesSection', () => {
 
 // Joining from this device (canvas 50b, 50d B–D): the pasted code is read
 // here first, then the server's answer, then the joining status.
+describe('DevicesSection — what another member may do here', () => {
+  const GRANTS = { sessions: true, spawn: true, settings: true, manage: false, ide: false }
+
+  it('on a member that is not the primary too: toggles under each other member, none under this device', async () => {
+    vi.mocked(api.getRemoteGrants).mockResolvedValue({ grants: { b1: GRANTS } })
+    renderWith(asMember(status([member({ id: 'b1', name: 'build-box', primary: true })])))
+    const row = document.querySelector('[data-member="b1"]') as HTMLElement
+    expect(await within(row).findByRole('switch', { name: 'IDE on this Mac' })).not.toBeChecked()
+    expect(within(row).getByRole('switch', { name: 'Start sessions' })).toBeChecked()
+    expect(screen.getAllByRole('switch', { name: 'Start sessions' })).toHaveLength(1)
+  })
+
+  it('a toggle saves that one grant and shows what was saved; a failed save rolls back and says so under the row', async () => {
+    vi.mocked(api.getRemoteGrants).mockResolvedValue({ grants: { b1: GRANTS } })
+    vi.mocked(api.updateRemoteGrants).mockResolvedValueOnce({ grants: { ...GRANTS, ide: true } })
+    renderWith(status([member({ id: 'b1', name: 'build-box' })]))
+    const row = screen.getByText('build-box').closest('[data-member]') as HTMLElement
+    const ide = await within(row).findByRole('switch', { name: 'IDE on this Mac' })
+    await userEvent.click(ide)
+    expect(api.updateRemoteGrants).toHaveBeenCalledWith('b1', { ide: true })
+    await waitFor(() => expect(ide).toBeChecked())
+
+    vi.mocked(api.updateRemoteGrants).mockRejectedValueOnce(new Error('down'))
+    const manage = within(row).getByRole('switch', { name: 'Upkeep of this Mac' })
+    await userEvent.click(manage)
+    await waitFor(() => expect(manage).not.toBeChecked())
+    expect(await screen.findByText('Failed to save grant')).toBeInTheDocument()
+  })
+})
+
 describe('DevicesSection — joining another device\'s group', () => {
   const T0 = new Date('2026-10-17T12:00:00Z').getTime()
   const PEER = deviceId(generateIdentity().publicKey)

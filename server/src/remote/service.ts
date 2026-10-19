@@ -38,6 +38,7 @@ import { RelayClient, type RelayClientOptions, type RelayRefusal } from './relay
 import { wakeSecret, wakeToken } from './wake.js';
 import type { Presence } from './presence.js';
 import { memberTooOld } from './memberGate.js';
+import { parseGrants } from './grants.js';
 
 /** A phone refused at `hello` for an app too old: both versions, and when it was last refused. */
 export type PhoneRefusal = PhoneTooOld & { at: number };
@@ -120,7 +121,7 @@ export type RemoteServiceOptions = {
   trees?: Pick<WorkingTrees, 'sandboxes'>;
   serverVersion: string;
   inject: InjectFn;
-  settings: { get(key: string): string };
+  settings: { get(key: string): string; set(key: string, value: string): void };
   allSettings: () => Record<string, string>;
   now?: () => number;
   /** Whether the user is at the Mac; absent, they never are (spec 2026-10-15-the-phone-is-quiet-while-you-are-at-the-mac-design). */
@@ -511,8 +512,25 @@ export class RemoteService {
   }
 
   /** See `GroupMember.remove`: a member only on the primary (`not_primary`); this device's own id is `leave`. */
-  remove(id: string): Promise<RemoveResult> {
-    return this.group.remove(id);
+  async remove(id: string): Promise<RemoveResult> {
+    const result = await this.group.remove(id);
+    // A member removed from the group takes its grants along (spec 2026-10-19-member-grants-design § 1).
+    if (!('error' in result)) this.dropMemberGrants(id);
+    return result;
+  }
+
+  /** Remove a member's grants from the remote_grants setting. */
+  private dropMemberGrants(memberId: string): void {
+    try {
+      const raw = this.opts.settings.get('remote_grants');
+      const grants = parseGrants(raw);
+      if (delete grants[memberId]) {
+        this.opts.settings.set('remote_grants', JSON.stringify(grants));
+      }
+    } catch {
+      // If grant cleanup fails, log it but don't break removal.
+      console.warn(`[remote] failed to drop grants for removed member ${memberId}`);
+    }
   }
 
   /** See `GroupMember.leave`: only while the relay is online; the primary leaving dissolves the group. */
@@ -696,6 +714,8 @@ export class RemoteService {
       onAppVersion: (refusal) => this.markPhoneVersion(from, refusal),
       // A device whose pair is ending is served nothing: only the group messages of its exit pass.
       withdrawn: () => this.group.exiting(from),
+      // Get current grants for this device from settings (spec 2026-10-19-member-grants-design § 1).
+      getGrants: () => this.opts.settings.get('remote_grants'),
       ...(this.opts.foreign ? { foreign: this.opts.foreign } : {}),
     });
     opened.on((event) => {

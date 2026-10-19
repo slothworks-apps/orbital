@@ -827,6 +827,8 @@ export class Runner {
   private claudeDirPath?: (claudeDirId: number) => string | undefined;
   /** See the `mcpjsonFingerprints` dep. */
   private mcpjsonFingerprints?: McpjsonFingerprints;
+  /** See the `getDeviceName` dep. */
+  private getDeviceName?: (id: string) => string | null;
   /** The Claude directory each session this process started runs under. */
   private claudeDirs = new Map<string, number>();
   /**
@@ -1111,6 +1113,8 @@ export class Runner {
      * decide, as in the CLI.
      */
     mcpjsonFingerprints?: McpjsonFingerprints;
+    /** Look up a device's name by id for error messages in orbital tools (spec 2026-10-19-member-grants-design § 3). */
+    getDeviceName?: (id: string) => string | null;
   }) {
     this.hub = deps.hub;
     this.queryFn = deps.queryFn ?? (query as unknown as QueryFn);
@@ -1142,6 +1146,7 @@ export class Runner {
     this.claudeExecutablePath = deps.claudeExecutablePath;
     this.ide = deps.ide;
     this.onCompaction = deps.onCompaction;
+    this.getDeviceName = deps.getDeviceName;
     this.readContextUsed = deps.readContextUsed;
     this.appendix = deps.appendix;
     this.mcpConfig = deps.mcpConfig;
@@ -1496,7 +1501,10 @@ export class Runner {
     const { sessionKeeper: keeper, control } = this;
     if (this.spawner || keeper || control || harnessTools) {
       options.mcpServers = {
-        [ORBITAL_MCP_SERVER]: orbitalMcpServer(sessionId, { spawn: this.spawner, keeper, control }, harnessTools),
+        [ORBITAL_MCP_SERVER]: orbitalMcpServer(sessionId, { spawn: this.spawner, keeper, control }, {
+          ...(harnessTools ?? {}),
+          getDeviceName: this.getDeviceName,
+        }),
       };
     }
     const allowedTools = [

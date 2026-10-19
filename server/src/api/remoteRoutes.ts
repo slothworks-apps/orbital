@@ -1,9 +1,18 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { SettingsStore } from '../models/catalog.js';
 import type { Presence } from '../remote/presence.js';
 import type { RemoteService, RemoveResult } from '../remote/service.js';
+import { ALL_GRANT_GROUPS, getMemberGrants, parseGrants } from '../remote/grants.js';
+
+const REMOTE_GRANTS_KEY = 'remote_grants';
 
 /** Settings → Mobile and the desktop app talk to these; the phone never can (they are not allowlisted). */
-export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService, presence?: Presence): void {
+export function registerRemoteRoutes(
+  app: FastifyInstance,
+  remote: RemoteService,
+  presence?: Presence,
+  settings?: SettingsStore,
+): void {
   app.get('/api/remote', () => remote.status());
 
   // The desktop app's heartbeat while the user is at the Mac (spec
@@ -65,6 +74,23 @@ export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService
     }
   });
 
+  // The other group members, their kind and whether each is online (spec 2026-10-19-member-grants-design § 3).
+  app.get('/api/remote/devices', () => {
+    const status = remote.status();
+    const devices = status.group.members
+      .filter((m) => m.id !== status.macId) // exclude this device
+      .map((m) => {
+        const online = status.devices.some((d) => d.id === m.id && d.online);
+        return {
+          id: m.id,
+          name: m.name,
+          kind: m.kind,
+          online,
+        };
+      });
+    return { devices };
+  });
+
   // Only the primary removes a member (403 `not_primary` names it); this device's own id is leaving the group,
   // refused as `leave` is.
   app.delete('/api/remote/devices/:id', async (req, reply) => {
@@ -85,6 +111,53 @@ export function registerRemoteRoutes(app: FastifyInstance, remote: RemoteService
   app.post('/api/remote/join/expired/acknowledge', () => {
     remote.acknowledgeExpiredJoin();
     return { ok: true };
+  });
+
+  // Member grants: read and update (spec 2026-10-19-member-grants-design § 1).
+  // Every member of the group but this device.
+  app.get('/api/remote/grants', () => {
+    if (!settings) return { grants: {} };
+    const grantsRaw = settings.get(REMOTE_GRANTS_KEY);
+    const parsed = parseGrants(grantsRaw);
+    const status = remote.status();
+    const result: Record<string, Record<string, boolean>> = {};
+    for (const device of status.group.members) {
+      if (device.id === status.macId) continue; // not this device
+      result[device.id] = getMemberGrants(parsed, device.id);
+    }
+    return { grants: result };
+  });
+
+  // Update a member's grants.
+  app.put('/api/remote/grants/:id', (req, reply) => {
+    if (!settings) return reply.code(404).send({ error: 'not_found' });
+    const { id } = req.params as { id: string };
+    const body = (req.body ?? {}) as Record<string, unknown>;
+
+    // Validate the body: only known groups with boolean values.
+    for (const [key, value] of Object.entries(body)) {
+      if (!(ALL_GRANT_GROUPS as readonly string[]).includes(key)) {
+        return reply.code(400).send({ error: 'unknown_group', group: key });
+      }
+      if (typeof value !== 'boolean') {
+        return reply.code(400).send({ error: 'invalid_value', group: key });
+      }
+    }
+
+    // Check if the device is in the group (but not this device).
+    const status = remote.status();
+    const device = status.group.members.find((m) => m.id === id);
+    if (!device || id === status.macId) {
+      return reply.code(404).send({ error: 'not_found' });
+    }
+
+    // Update the grants.
+    const grantsRaw = settings.get(REMOTE_GRANTS_KEY);
+    const grants = parseGrants(grantsRaw);
+    if (!grants[id]) grants[id] = {};
+    Object.assign(grants[id], body);
+    settings.set(REMOTE_GRANTS_KEY, JSON.stringify(grants));
+    return { grants: getMemberGrants(grants, id) };
   });
 }
 

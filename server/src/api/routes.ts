@@ -64,6 +64,7 @@ import { recordDecisions, serverFile, undecidedServers, type McpjsonDecisions } 
 import { dbFingerprints } from '../mcp/approvals.js';
 import type { McpConfig } from '../mcp/config.js';
 import { registerRemoteRoutes } from './remoteRoutes.js';
+import { memberRefusal } from '../remote/grants.js';
 import { DEVICE_HEADER } from '../remote/inject.js';
 import type { Presence } from '../remote/presence.js';
 import type { RemoteService } from '../remote/service.js';
@@ -185,6 +186,8 @@ export interface RouteContext {
    * never accepted.
    */
   trees?: WorkingTrees;
+  /** `POST /api/sessions` on a group member, for `spawn_session`'s `machine` (spec 2026-10-19-member-grants-design § 3). */
+  spawnOnMember?: (machine: string, body: Record<string, unknown>) => Promise<{ status: number; body: unknown }>;
 }
 
 /** What the routes use of one Claude directory's running context. */
@@ -431,7 +434,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const { db } = ctx;
   const mcpjsonFingerprints = dbFingerprints(db);
   if (ctx.devTools) registerDevRoutes(app, ctx);
-  registerRemoteRoutes(app, ctx.remote, ctx.presence);
+  registerRemoteRoutes(app, ctx.remote, ctx.presence, ctx.settings);
   /**
    * One reader for the whole server, because its whole job is to hold a tab
    * list still for a moment across the burst of requests one `@` produces
@@ -1332,6 +1335,23 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       | SessionRow
       | undefined;
     if (!permissionMode || !parent) throw new Error('this session is no longer running');
+    if (input.machine) {
+      // The other member checks the directory and keeps the session; this one only asks.
+      if (!input.cwd) throw new Error('cwd is required on another device: a path on that device');
+      if (!ctx.spawnOnMember) throw new Error('this device is not in a group, or spawning on other devices is not available');
+      const model = input.model?.trim() || parent.model || undefined;
+      const res = await ctx.spawnOnMember(input.machine, {
+        cwd: input.cwd, prompt: input.prompt, permissionMode, requireDirectory: true, ...(model ? { model } : {}),
+      });
+      const answer = res.body as { sessionId?: unknown; error?: unknown; grant?: unknown } | null;
+      if (res.status >= 300 || typeof answer?.sessionId !== 'string') {
+        const name = ctx.remote.status().group.members.find((m) => m.id === input.machine)?.name ?? null;
+        const refusal = memberRefusal(res.status, answer, name, input.machine);
+        if (refusal) throw new Error(refusal);
+        throw new Error(`the other device did not start it: ${typeof answer?.error === 'string' ? answer.error : `HTTP ${res.status}`}`);
+      }
+      return { sessionId: answer.sessionId, cwd: input.cwd };
+    }
     const cwd = input.cwd ? expandHome(input.cwd) : parent.cwd;
     if (!isAbsolute(cwd)) throw new Error(`cwd must be an absolute path: ${input.cwd}`);
     if (!statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {

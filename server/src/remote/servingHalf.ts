@@ -20,6 +20,7 @@ import { ATTACHMENT_MAX_BYTES, IMAGE_CONTENT_TYPES } from '../api/routes.js';
 import type { ImageStore } from '../images/store.js';
 import { thumbnailOf } from '../images/thumbs.js';
 import { allowedPath } from './allowlist.js';
+import { memberHasGrant, parseGrants } from './grants.js';
 import type { PhoneFileReader } from './phoneFiles.js';
 
 export const BLOB_PUT_MAX_BYTES = ATTACHMENT_MAX_BYTES;
@@ -71,6 +72,10 @@ export type ServingHalfOptions = {
    * request, no topic, no frame. Absent, never.
    */
   withdrawn?: () => boolean;
+  /**
+   * Get the current remote_grants setting for checking member permissions.
+   */
+  getGrants?: () => string | undefined;
 };
 
 type VirtualSocket = EventEmitter & { send(data: string): void };
@@ -235,12 +240,19 @@ export class ServingHalf implements ChannelServer {
     // `allowedPath` returns the canonical string Fastify will route, or null;
     // the raw `msg.path` is never handed to `inject()` (Task 12 review: the
     // WHATWG parser would otherwise rewrite `\` and `#` into a denied route).
-    const path = allowedPath(msg.method, msg.path);
-    if (path === null) {
+    const allowed = allowedPath(msg.method, msg.path);
+    if (allowed === null) {
       return this.answer({ t: 'http_res', id: msg.id, status: 403, body: { error: 'not_allowed' } });
     }
+
+    // Check if the member has the grant for this route (spec 2026-10-19-member-grants-design § 1).
+    const grants = parseGrants(this.opts.getGrants?.());
+    if (!memberHasGrant(grants, this.opts.deviceId, allowed.group)) {
+      return this.answer({ t: 'http_res', id: msg.id, status: 403, body: { error: 'not_granted', grant: allowed.group } });
+    }
+
     try {
-      const res = await this.opts.inject({ method: msg.method, url: path, payload: msg.body, device: this.opts.deviceId });
+      const res = await this.opts.inject({ method: msg.method, url: allowed.path, payload: msg.body, device: this.opts.deviceId });
       let body: unknown = res.body;
       try {
         body = JSON.parse(res.body);
