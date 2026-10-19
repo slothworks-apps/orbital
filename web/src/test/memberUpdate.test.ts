@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { UPDATE_TIMEOUT_MS, type ServerUpdateState } from '@orbital/shared/remote/serverUpdate'
 import {
-  applyRead, applyStart, selfUpdateAvailable, updateNeedsConfirm, updatePhase, updateRow, type MemberUpdate,
+  applyRead, applyStart, selfUpdateAvailable, startDecision, updateNeedsConfirm, updatePhase, updateRow, type MemberUpdate,
   type UpdateRowInput,
 } from '../lib/memberUpdate'
 
@@ -136,6 +136,19 @@ describe('starting an update', () => {
     expect(updateNeedsConfirm(applyRead(undefined, state({ sessions: 0 }), T0))).toBe(false)
     expect(updateNeedsConfirm(applyRead(undefined, state({ sessions: 3 }), T0))).toBe(true)
     expect(updateNeedsConfirm(undefined)).toBe(false)
+  })
+
+  it('decides on the fresh read: its sessions now, nothing when it cannot be read or is no longer offered', () => {
+    // Read with no sessions earlier; the fresh read says three run now.
+    expect(startDecision(applyRead(undefined, state({ sessions: 3 }), T0), true)).toBe('confirm')
+    expect(startDecision(applyRead(undefined, state({ sessions: 0 }), T0), true)).toBe('start')
+    expect(startDecision(null, true)).toBe('unreachable')
+    expect(startDecision(applyRead(applyRead(undefined, state(), T0), null, T0), false)).toBe('unreachable')
+    // Someone else started it meanwhile, or it is current now: the row says so, nothing starts.
+    expect(startDecision(applyRead(undefined, state({ updating: true }), T0), true)).toBe('none')
+    expect(startDecision(applyRead(undefined, state({ installed: '0.36.0' }), T0), true)).toBe('none')
+    // Try again after a failure decides the same way.
+    expect(startDecision(applyRead(undefined, state({ failed: '0.36.0', sessions: 1 }), T0), true)).toBe('confirm')
   })
 
   it('reads again on a refusal a read shows, and keeps the two it does not', () => {

@@ -1,7 +1,33 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { updatePollDelay, type ServerUpdateState } from '@orbital/shared/remote/serverUpdate'
-import { applyRead, applyStart, type MemberUpdate, type StartAnswer } from './memberUpdate'
+import { applyRead, applyStart, startDecision, type MemberUpdate, type StartAnswer } from './memberUpdate'
+
+/**
+ * How long one read may take before it counts as unanswered: a read that
+ * hangs (a phone's request over a relay that went quiet) must not stop the
+ * polling it is part of, nor hold a press of Update.
+ */
+export const UPDATE_READ_TIMEOUT_MS = 15_000
+
+function withTimeout<T>(promise: Promise<T>, ms = UPDATE_READ_TIMEOUT_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('update read timed out')), ms)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (err: unknown) => {
+        clearTimeout(timer)
+        reject(err instanceof Error ? err : new Error(String(err)))
+      },
+    )
+  })
+}
+
+/** What a press of Update or Try again came to: the confirm to show, started, not reached, or nothing to do. */
+export type PressResult = 'confirm' | 'started' | 'unreachable' | 'none'
 
 /**
  * What this device knows of each member's update, by member id. Kept while
@@ -47,20 +73,25 @@ export function useMemberUpdates(targets: UpdateTarget[], io: UpdateIo) {
   /** The members read since they last became readable: one read each per return. */
   const readHere = useRef(new Set<string>())
 
+  /** One read, bounded by `UPDATE_READ_TIMEOUT_MS`; null when it failed or was not answered. */
+  const fetchOne = useCallback(async (id: string): Promise<ServerUpdateState | null> => {
+    try {
+      return (await withTimeout(ioRef.current.read(id))) ?? null
+    } catch {
+      return null
+    }
+  }, [])
+
+  /**
+   * A read applied. Every answer advances the entry — null too (unreadable,
+   * failed, not answered, or not served) — so a watch's next poll is armed
+   * and its timeout can fire.
+   */
   const readOne = useCallback(async (id: string) => {
     const readable = targetsRef.current.find((t) => t.id === id)?.readable ?? false
-    let latest: ServerUpdateState | null = null
-    if (readable) {
-      try {
-        latest = await ioRef.current.read(id)
-        // Not served after all (its hello changed under the read): nothing to know.
-        if (!latest) return
-      } catch {
-        latest = null
-      }
-    }
+    const latest = readable ? await fetchOne(id) : null
     put(id, (prev) => applyRead(prev, latest, Date.now()))
-  }, [])
+  }, [fetchOne])
 
   const readableKey = targets.filter((t) => t.readable).map((t) => t.id).sort().join('\n')
   useEffect(() => {
@@ -85,23 +116,57 @@ export function useMemberUpdates(targets: UpdateTarget[], io: UpdateIo) {
     // `byId` re-arms the timer after every read, so a watch is read every `delay`.
   }, [delay, watchedKey, byId, readOne])
 
-  const start = useCallback(async (id: string) => {
-    if (starting !== null) return
+  /** Starts the update; false when the member could not be reached. */
+  const startNow = useCallback(async (id: string): Promise<boolean> => {
+    let answer: StartAnswer | null
+    try {
+      answer = await ioRef.current.start(id)
+    } catch {
+      return false
+    }
+    if (!answer) return false
+    let reread = false
+    put(id, (prev) => {
+      const applied = applyStart(prev, answer, Date.now())
+      reread = applied.reread
+      return applied.next
+    })
+    if (reread) await readOne(id)
+    return true
+  }, [readOne])
+
+  /**
+   * Update or Try again pressed: the member is read again first, and that
+   * answer decides (`startDecision`) — the confirm when it runs sessions now,
+   * else the start at once. Nothing starts when it cannot be read.
+   */
+  const press = useCallback(async (id: string): Promise<PressResult> => {
+    if (starting !== null) return 'none'
     setStarting(id)
     try {
-      const answer = await ioRef.current.start(id)
-      if (!answer) return
-      let reread = false
-      put(id, (prev) => {
-        const applied = applyStart(prev, answer, Date.now())
-        reread = applied.reread
-        return applied.next
-      })
-      if (reread) await readOne(id)
+      const latest = await fetchOne(id)
+      if (latest === null) return 'unreachable'
+      const fresh = applyRead(useUpdates.getState().byId[id], latest, Date.now())
+      put(id, () => fresh)
+      const online = targetsRef.current.find((t) => t.id === id)?.readable ?? false
+      const decision = startDecision(fresh, online)
+      if (decision !== 'start') return decision
+      return (await startNow(id)) ? 'started' : 'unreachable'
     } finally {
       setStarting(null)
     }
-  }, [starting, readOne])
+  }, [starting, fetchOne, startNow])
 
-  return { byId, starting, start }
+  /** The confirm's Update: starts at once. */
+  const start = useCallback(async (id: string): Promise<'started' | 'unreachable' | 'none'> => {
+    if (starting !== null) return 'none'
+    setStarting(id)
+    try {
+      return (await startNow(id)) ? 'started' : 'unreachable'
+    } finally {
+      setStarting(null)
+    }
+  }, [starting, startNow])
+
+  return { byId, starting, press, start }
 }

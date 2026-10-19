@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { osName } from '@orbital/shared/remote/device'
 import type { GroupEnded } from '@orbital/shared/remote/group'
 import { endedNotice, kindOs, type RowState } from '../../lib/devices'
-import { updateNeedsConfirm, updateRow, type MemberUpdate, type UpdateRow } from '../../lib/memberUpdate'
-import { useMemberUpdates, type UpdateIo, type UpdateTarget } from '../../lib/useMemberUpdates'
+import { UPDATE_UNREACHABLE, updateRow, type MemberUpdate, type UpdateRow } from '../../lib/memberUpdate'
+import { useMemberUpdates, type PressResult, type UpdateIo, type UpdateTarget } from '../../lib/useMemberUpdates'
 import { useNow } from '../../lib/useNow'
 import { KindGlyph } from '../../ui/KindGlyph'
 import { MemberDot } from '../../ui/MemberDot'
@@ -16,7 +16,7 @@ import { thisDevice } from '../platform/device'
 import { clearEnded } from '../platform/pairing'
 import { useMobile } from '../state'
 import { groupRef } from '../transport/groupRef'
-import { BottomSheet, CARD, SecondaryButton, SectionLabel, SheetPresence } from '../ui'
+import { BottomSheet, CARD, PrimaryButton, SecondaryButton, SectionLabel, SheetPresence } from '../ui'
 import { relayLockedLine, updateSessionsWords } from '@orbital/shared/remote/groupWords'
 import { readDeviceUpdate, startDeviceUpdate } from '../serverUpdate'
 import type { DeviceView } from '../state'
@@ -276,7 +276,8 @@ export function DevicesSection() {
             update={updates.byId[sheet.id]}
             shown={rowUpdate(sheet, updates.byId[sheet.id], selfId)}
             starting={updates.starting !== null}
-            onUpdate={() => updates.start(sheet.id)}
+            onPress={() => updates.press(sheet.id)}
+            onConfirm={() => updates.start(sheet.id)}
           />
         )}
       </SheetPresence>
@@ -337,7 +338,7 @@ function EndedNotice({ ended }: { ended: GroupEnded }) {
  * leaving (`leaveGroup`): the phone forgets it and opens the scanner.
  */
 function DeviceSheet({
-  row, primary, alone, onClose, update, shown, starting, onUpdate,
+  row, primary, alone, onClose, update, shown, starting, onPress, onConfirm,
 }: {
   row: PhoneRow
   primary: string | null
@@ -346,10 +347,15 @@ function DeviceSheet({
   update: MemberUpdate | undefined
   shown: UpdateRow
   starting: boolean
-  onUpdate: () => Promise<void>
+  /** Update or Try again: reads the member again and starts, or asks for the confirm (`press`). */
+  onPress: () => Promise<PressResult>
+  /** The confirm's Update. */
+  onConfirm: () => Promise<'started' | 'unreachable' | 'none'>
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** A press that could not reach the member, said under the update's words. */
+  const [updateError, setUpdateError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
   const line = shown.line
 
@@ -372,15 +378,17 @@ function DeviceSheet({
     }
   }
 
-  const startUpdate = async () => {
-    setError(null)
-    try {
-      await onUpdate()
-    } catch {
-      setError(UPDATE_FAILED)
-    } finally {
-      setConfirming(false)
-    }
+  const pressUpdate = async () => {
+    setUpdateError(null)
+    const result = await onPress()
+    if (result === 'confirm') setConfirming(true)
+    else if (result === 'unreachable') setUpdateError(UPDATE_UNREACHABLE)
+  }
+
+  const confirmUpdate = async () => {
+    const result = await onConfirm()
+    setConfirming(false)
+    if (result === 'unreachable') setUpdateError(UPDATE_UNREACHABLE)
   }
 
   const sessions = updateSessionsWords(update?.state?.sessions ?? 0, row.name)
@@ -425,83 +433,71 @@ function DeviceSheet({
               <span className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)]">{sessions.body}</span>
             </div>
             {/* The canvas's light button, as Remove's: an update is no accent action. */}
-            <button
-              type="button"
-              disabled={starting}
-              onClick={() => void startUpdate()}
-              className="h-13 rounded-[14px] bg-[#e8eef8] text-[15px] font-bold text-[#05070d] disabled:opacity-40"
-            >
+            <PrimaryButton tone="light" disabled={starting} onClick={() => void confirmUpdate()}>
               Update {row.name}
-            </button>
+            </PrimaryButton>
             <SecondaryButton disabled={starting} onClick={() => setConfirming(false)}>Cancel</SecondaryButton>
-          </>
-        ) : line ? (
-          <>
-            <div className="flex flex-col gap-1 px-1 pt-0.5">
-              <span className="text-[14px] font-semibold text-text-bright">{line.head}</span>
-              {line.sub && (
-                <span className="font-mono text-[11px] leading-[1.5] text-[rgba(160,190,225,.65)]">{line.sub}</span>
-              )}
-            </div>
-            {error && (
-              <p role="alert" className="text-[13px] text-[rgba(200,214,235,.85)]">
-                {error}
-              </p>
-            )}
-            {line.action && (
-              <SecondaryButton
-                disabled={starting}
-                onClick={() => {
-                  if (updateNeedsConfirm(update)) setConfirming(true)
-                  else void startUpdate()
-                }}
-              >
-                {line.action === 'retry' ? 'Try again' : `Update ${row.name}`}
-              </SecondaryButton>
-            )}
-            {/* Close never cancels an update: it only puts the sheet away. */}
-            <SecondaryButton onClick={onClose}>Close</SecondaryButton>
-          </>
-        ) : primary !== null ? (
-          <>
-            <p className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
-              {row.primary
-                ? `${primary} is this group’s primary. Only it adds and removes devices.`
-                : `Only ${primary} can remove ${row.name} from the group.`}
-            </p>
-            <SecondaryButton onClick={onClose}>Close</SecondaryButton>
           </>
         ) : (
           <>
-            <p className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
-              {alone
-                ? `${row.name} is the last device this phone reaches. Removing it forgets it here and opens the scanner.`
-                : `Removing ${row.name} ends this phone's pair with it.`}
-            </p>
-            {error && (
-              <p role="alert" className="text-[13px] text-[rgba(200,214,235,.85)]">
-                {error}
-              </p>
+            {line && (
+              <>
+                <div className="flex flex-col gap-1 px-1 pt-0.5">
+                  <span className="text-[14px] font-semibold text-text-bright">{line.head}</span>
+                  {line.sub && (
+                    <span className="font-mono text-[11px] leading-[1.5] text-[rgba(160,190,225,.65)]">{line.sub}</span>
+                  )}
+                </div>
+                {updateError && (
+                  <p role="alert" className="text-[13px] text-[rgba(200,214,235,.85)]">
+                    {updateError}
+                  </p>
+                )}
+                {line.action && (
+                  <SecondaryButton disabled={starting} onClick={() => void pressUpdate()}>
+                    {line.action === 'retry' ? 'Try again' : `Update ${row.name}`}
+                  </SecondaryButton>
+                )}
+              </>
             )}
-            {/* The canvas's light button: a removal is no accent action. */}
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void remove()}
-              className="h-13 rounded-[14px] bg-[#e8eef8] text-[15px] font-bold text-[#05070d] disabled:opacity-40"
-            >
-              Remove
-            </button>
-            <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+            {primary !== null ? (
+              <>
+                {/* Canvas 50s: with an update to say, the sheet says that instead of who removes devices. */}
+                {!line && (
+                  <p className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+                    {row.primary
+                      ? `${primary} is this group’s primary. Only it adds and removes devices.`
+                      : `Only ${primary} can remove ${row.name} from the group.`}
+                  </p>
+                )}
+                {/* Close never cancels an update: it only puts the sheet away. */}
+                <SecondaryButton onClick={onClose}>Close</SecondaryButton>
+              </>
+            ) : (
+              <>
+                <p className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+                  {alone
+                    ? `${row.name} is the last device this phone reaches. Removing it forgets it here and opens the scanner.`
+                    : `Removing ${row.name} ends this phone's pair with it.`}
+                </p>
+                {error && (
+                  <p role="alert" className="text-[13px] text-[rgba(200,214,235,.85)]">
+                    {error}
+                  </p>
+                )}
+                {/* The canvas's light button: a removal is no accent action. */}
+                <PrimaryButton tone="light" disabled={busy} onClick={() => void remove()}>
+                  Remove
+                </PrimaryButton>
+                <SecondaryButton onClick={onClose}>Cancel</SecondaryButton>
+              </>
+            )}
           </>
         )}
       </div>
     </BottomSheet>
   )
 }
-
-/** A start that did not reach the member (not in the canvas). */
-const UPDATE_FAILED = "Couldn't reach it to start the update. Try again."
 
 /**
  * The sheet's state cell (canvas 50s `pv.s.stText`): `updating` while it
@@ -548,14 +544,9 @@ function LeaveSheet({ primary, onClose }: { primary: string; onClose: () => void
         )}
         <div className="flex flex-col gap-3">
           {/* The canvas's light button: leaving is no accent action. */}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void leave()}
-            className="h-13 rounded-[14px] bg-[#e8eef8] text-[15px] font-bold text-[#05070d] disabled:opacity-40"
-          >
+          <PrimaryButton tone="light" disabled={busy} onClick={() => void leave()}>
             Leave group
-          </button>
+          </PrimaryButton>
           {refused === 'offline' && (
             <>
               <SecondaryButton

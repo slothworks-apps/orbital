@@ -117,6 +117,27 @@ export function updateNeedsConfirm(u: MemberUpdate | undefined): boolean {
   return (u?.state?.sessions ?? 0) > 0
 }
 
+/** Said in place, never as a toast, when a press could not reach the member (not in the canvas). */
+export const UPDATE_UNREACHABLE = 'Couldn’t reach it to start the update. Try again.'
+
+/** What a press of Update or Try again does, decided on a fresh read. */
+export type StartDecision = 'confirm' | 'start' | 'unreachable' | 'none'
+
+/**
+ * Update and Try again read the member again first and decide on that
+ * answer, never on an older one: `fresh` null (the read failed) is
+ * `unreachable`, and nothing starts; a member that is no longer offered an
+ * update (someone else started it, or it is current now) is `none`, and its
+ * row already says why; otherwise the sessions it runs now decide whether
+ * to ask first.
+ */
+export function startDecision(fresh: MemberUpdate | null, online: boolean): StartDecision {
+  if (fresh === null || !fresh.reachable || fresh.state === null) return 'unreachable'
+  const phase = updatePhase(fresh, online)
+  if (phase !== 'available' && phase !== 'failed') return 'none'
+  return updateNeedsConfirm(fresh) ? 'confirm' : 'start'
+}
+
 export interface UpdateRowInput {
   name: string
   kind: string

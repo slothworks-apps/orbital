@@ -14,7 +14,7 @@ import {
   canRemoveRow, deviceRows, endedNotice, groupView, kindOs, memberServesUpdate, needsUpdateLine, readMemberUpdate,
   startMemberUpdate, type DeviceRow, type GroupView,
 } from '../lib/devices'
-import { selfUpdateAvailable, updateNeedsConfirm, updatePhase, updateRow, type MemberUpdate } from '../lib/memberUpdate'
+import { UPDATE_UNREACHABLE, selfUpdateAvailable, updatePhase, updateRow, type MemberUpdate } from '../lib/memberUpdate'
 import { useMemberUpdates, type UpdateIo, type UpdateTarget } from '../lib/useMemberUpdates'
 import { useNow } from '../lib/useNow'
 import {
@@ -848,14 +848,21 @@ function Members({
     }
   }
 
-  async function startUpdate(id: string) {
-    try {
-      await updates.start(id)
-    } catch (err) {
-      reportError(err, 'Failed to start the update')
-    } finally {
-      setAskingUpdate(null)
-    }
+  /** Update or Try again: the member is read again, and that answer decides whether to ask first. */
+  async function pressUpdate(id: string) {
+    setAsking(null)
+    setRefusal(null)
+    const result = await updates.press(id)
+    if (result === 'confirm') setAskingUpdate(id)
+    // Said under the row, as a refused removal is, never as a toast.
+    else if (result === 'unreachable') setRefusal({ id, text: UPDATE_UNREACHABLE })
+  }
+
+  /** The confirm's Update. */
+  async function confirmUpdate(id: string) {
+    const result = await updates.start(id)
+    setAskingUpdate(null)
+    if (result === 'unreachable') setRefusal({ id, text: UPDATE_UNREACHABLE })
   }
 
   return (
@@ -970,11 +977,7 @@ function Members({
                     variant="outline"
                     size="member-line"
                     disabled={updates.starting !== null}
-                    onClick={() => {
-                      setAsking(null)
-                      if (updateNeedsConfirm(u)) setAskingUpdate(m.id)
-                      else void startUpdate(m.id)
-                    }}
+                    onClick={() => void pressUpdate(m.id)}
                   >
                     {line.action === 'retry' ? 'Try again' : 'Update'}
                   </Button>
@@ -999,7 +1002,7 @@ function Members({
                   variant="ink"
                   size="member"
                   disabled={updates.starting !== null}
-                  onClick={() => void startUpdate(m.id)}
+                  onClick={() => void confirmUpdate(m.id)}
                 >
                   Update
                 </Button>

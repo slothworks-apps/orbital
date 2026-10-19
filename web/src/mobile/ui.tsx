@@ -65,10 +65,17 @@ type ButtonProps = {
  * user still has something to choose (canvas `Feature - MCP approval`
  * 47c/47d): an outline in the muted ink rather than the faded fill
  * `disabled` gives, announced as `aria-disabled`. A press does nothing.
+ *
+ * `tone="light"` is the confirming action that is no accent action — Remove,
+ * Leave group, Update <device> (canvas 50i, 50s): filled with the bright
+ * ink, dark text, no bloom.
  */
 export function PrimaryButton({
-  children, onClick, disabled, type = 'button', variant = 'screen', ready = true,
-}: ButtonProps & { ready?: boolean }) {
+  children, onClick, disabled, type = 'button', variant = 'screen', ready = true, tone = 'accent',
+}: ButtonProps & { ready?: boolean; tone?: 'accent' | 'light' }) {
+  const fill = tone === 'light'
+    ? 'bg-[#e8eef8] text-[#05070d] disabled:opacity-40'
+    : 'bg-[oklch(85%_.12_205)] text-[#03111a] disabled:opacity-35 disabled:shadow-none'
   return (
     <button
       type={type}
@@ -77,10 +84,8 @@ export function PrimaryButton({
       aria-disabled={ready ? undefined : true}
       className={[
         'flex h-13 w-full items-center justify-center gap-2.5 rounded-[14px] px-4 text-[15px] font-bold',
-        ready
-          ? 'bg-[oklch(85%_.12_205)] text-[#03111a] disabled:opacity-35 disabled:shadow-none'
-          : 'cursor-default border border-[rgba(150,205,255,.14)] bg-transparent text-[rgba(160,190,225,.5)]',
-        !ready ? '' : variant === 'sheet' ? 'shadow-[0_0_18px_oklch(85%_.12_205/.3)]' : 'shadow-[0_0_22px_oklch(85%_.12_205/.3)]',
+        ready ? fill : 'cursor-default border border-[rgba(150,205,255,.14)] bg-transparent text-[rgba(160,190,225,.5)]',
+        !ready || tone === 'light' ? '' : variant === 'sheet' ? 'shadow-[0_0_18px_oklch(85%_.12_205/.3)]' : 'shadow-[0_0_22px_oklch(85%_.12_205/.3)]',
       ].join(' ')}
     >
       {children}
