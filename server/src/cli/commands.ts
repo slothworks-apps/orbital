@@ -6,15 +6,16 @@
  * does not take.
  */
 import {
-  exitWords, notPrimaryRemoveLine, relayChangeWords, relayLockedLine, removeWords,
+  exitWords, notPrimaryRemoveLine, relayChangeWords, relayLockedLine, removeWords, updateSessionsWords,
 } from '@orbital/shared/remote/groupWords';
 import { PAIR_NAME_MAX_CHARS } from '@orbital/shared/remote/relayApi';
 import {
-  SERVER_UPDATE_REFUSALS, parseServerUpdateState, updateIsNewer, type ServerUpdateRefusal, type ServerUpdateState,
+  SERVER_UPDATE_REFUSALS, memberServesUpdate, parseServerUpdateState, updateIsNewer, type ServerUpdateRefusal,
+  type ServerUpdateState,
 } from '@orbital/shared/remote/serverUpdate';
 import type { RemoteStatus } from '../remote/service.js';
 import { HELP, parseArgs, type Command, type SecretSource } from './args.js';
-import { CliError, errorOf, type Call } from './client.js';
+import { CliError, errorOf, type Call, type Reply } from './client.js';
 import { addFlow, joinFlow, readStatus, type Deps } from './flows.js';
 import { confirm, type Io } from './io.js';
 import { listLines, remoteErrorLine, statusLines } from './words.js';
@@ -46,9 +47,11 @@ async function run(cmd: Command, deps: CliDeps): Promise<number> {
       for (const line of statusLines(remote, update, deps.port)) io.out(line);
       return 0;
     }
-    case 'list':
-      for (const line of listLines(await readStatus(call))) io.out(line);
+    case 'list': {
+      const remote = await readStatus(call);
+      for (const line of listLines(remote, await readMemberUpdates(call, remote))) io.out(line);
       return 0;
+    }
     case 'relay': {
       const remote = await readStatus(call);
       const saved = await readRelaySettings(call);
@@ -73,7 +76,7 @@ async function run(cmd: Command, deps: CliDeps): Promise<number> {
     case 'leave':
       return leave(deps, cmd.yes);
     case 'update':
-      return update(deps, cmd.yes);
+      return update(deps, cmd.target, cmd.yes);
   }
 }
 
@@ -294,68 +297,153 @@ async function leave({ call, io }: CliDeps, yes: boolean): Promise<number> {
   return 1;
 }
 
-/** The update state, or null from a server older than the route. */
-async function readUpdate(call: Call): Promise<ServerUpdateState | null> {
-  const reply = await call('GET', '/api/server/update');
-  if (reply.status === 404) return null;
+/** Where an update goes: this device (`machine` null), or a member through this one (`?machine=`). */
+export type UpdateTarget = { machine: string | null; name: string };
+
+/**
+ * Where `orbital update [name]` goes (the desktop's `startMemberUpdate`
+ * gate, spec 2026-10-19-headless-server-design § Updating from the group):
+ * no name, or this device's own, is this device; another member is asked
+ * through this server, but never a phone (its store updates it), a member
+ * that is not online, or one whose version does not serve the route.
+ */
+export function updateTarget(remote: Pick<RemoteStatus, 'group' | 'macName'>, name: string | null): UpdateTarget | { error: string } {
+  if (name === null) return { machine: null, name: remote.macName };
+  const found = findDevice({ group: remote.group, devices: [] }, name);
+  if ('error' in found) return found;
+  const m = remote.group.members.find((x) => x.id === found.id);
+  if (!m || m.self) return { machine: null, name: remote.macName };
+  if (m.kind === 'phone') return { error: `${m.name} is a phone: it updates from its store, not from here.` };
+  if (m.state !== 'online') return { error: `${m.name} is ${m.state === 'offline' ? 'offline' : 'not reachable from here'}. Update it once it is online.` };
+  if (m.tooOld || !memberServesUpdate(m)) {
+    return { error: `${m.name} runs ${m.version ? `Orbital ${m.version}` : 'an Orbital'} that can't be updated from the group. Update it on ${m.name} itself.` };
+  }
+  return { machine: m.id, name: m.name };
+}
+
+/** `path` asked of `machine`, or of this device for null. */
+function onMachine(path: string, machine: string | null): string {
+  return machine === null ? path : `${path}?machine=${encodeURIComponent(machine)}`;
+}
+
+/** Why a member could not be asked (the federation's refusals), in one line; null for an answer of the member's own. */
+function memberDownLine(reply: Reply, target: UpdateTarget): string | null {
+  if (target.machine === null) return null;
+  switch (errorOf(reply)) {
+    case 'member_offline': return `${target.name} is offline. Update it once it is online.`;
+    case 'unknown_device': return `${target.name} is not in this group any more.`;
+    case 'member_unreachable':
+    case 'member_refused': return `${target.name} didn't answer. Try again in a moment.`;
+    default: return reply.status >= 500 ? `${target.name} didn't answer. Try again in a moment.` : null;
+  }
+}
+
+/** The update state of `target`, or null from a server older than the route. */
+async function readUpdate(call: Call, target: UpdateTarget = { machine: null, name: '' }): Promise<ServerUpdateState | null> {
+  const reply = await call('GET', onMachine('/api/server/update', target.machine));
+  if (reply.status === 404 && errorOf(reply) !== 'unknown_device') return null;
+  const down = reply.status === 200 ? null : memberDownLine(reply, target);
+  if (down) throw new CliError(down);
   if (reply.status !== 200) throw new CliError(`Orbital answered ${reply.status} to /api/server/update.`);
   const state = parseServerUpdateState(reply.body);
   if (!state) throw new CliError('Orbital answered the update state in a shape this CLI does not read.');
   return state;
 }
 
-/** What each refusal of `POST /api/server/update` means here. */
-const UPDATE_REFUSAL_LINES: Record<ServerUpdateRefusal, string> = {
-  no_update: 'There is no newer version to install.',
-  updating: 'An update is under way already.',
-  not_set_up: 'Updates are not set up on this server yet. Run orbital setup.',
-  not_packaged: 'This Orbital was not installed from the package; update it the way it was installed.',
-};
+/** What each refusal of `POST /api/server/update` means; `name` for a member, null for this device. */
+function updateRefusalLine(error: ServerUpdateRefusal, name: string | null): string {
+  switch (error) {
+    case 'no_update': return 'There is no newer version to install.';
+    case 'updating': return 'An update is under way already.';
+    case 'not_set_up': return name === null
+      ? 'Updates are not set up on this server yet. Run orbital setup.'
+      : `Updates are not set up on ${name} yet. Run orbital setup there.`;
+    case 'not_packaged': return name === null
+      ? 'This Orbital was not installed from the package; update it the way it was installed.'
+      : `${name} was not installed from the package; update it the way it was installed.`;
+  }
+}
 
 function isRefusal(error: string | null): error is ServerUpdateRefusal {
   return error !== null && error in SERVER_UPDATE_REFUSALS;
 }
 
 /**
- * `update`: the Update button's update, for this device. With sessions
- * working here, it asks first: the restart stops them.
+ * `update [name]`: the Update button's update, for this device or the
+ * member named. With sessions running there, it asks first in the row's
+ * words: the restart stops them.
  */
-async function update({ call, io }: CliDeps, yes: boolean): Promise<number> {
-  const state = await readUpdate(call);
+async function update({ call, io }: CliDeps, name: string | null, yes: boolean): Promise<number> {
+  const target = updateTarget(await readStatus(call), name);
+  if ('error' in target) {
+    io.err(target.error);
+    return 1;
+  }
+  const member = target.machine === null ? null : target.name;
+  const state = await readUpdate(call, target);
   if (!state) {
-    io.err('This Orbital is older than updates from the group; update it the way it was installed.');
+    io.err(member === null
+      ? 'This Orbital is older than updates from the group; update it the way it was installed.'
+      : `${member} is older than updates from the group; update it on ${member} itself.`);
     return 1;
   }
   if (!state.packaged) {
-    io.err(UPDATE_REFUSAL_LINES.not_packaged);
+    io.err(updateRefusalLine('not_packaged', member));
     return 1;
   }
   if (state.updating) {
-    io.out(`Updating to ${state.candidate ?? 'a newer version'} already.`);
+    io.out(`${member === null ? 'Updating' : `${member} is updating`} to ${state.candidate ?? 'a newer version'} already.`);
     return 0;
   }
-  if (state.failed) io.err(`The last update, to ${state.failed}, failed.`);
+  if (state.failed) io.err(`The last update${member === null ? '' : ` of ${member}`}, to ${state.failed}, failed.`);
   if (!updateIsNewer(state.installed, state.candidate)) {
-    io.out(`Orbital ${state.installed} is the newest version.`);
+    io.out(member === null
+      ? `Orbital ${state.installed} is the newest version.`
+      : `${member} runs ${state.installed}, the newest version.`);
     return 0;
   }
   if (state.sessions > 0 && !yes) {
-    const n = state.sessions;
-    const question = `${n} session${n === 1 ? ' is' : 's are'} working here. The update restarts Orbital and stops ${n === 1 ? 'it' : 'them'}; ${n === 1 ? 'it' : 'they'} can be resumed after. Update to ${state.candidate} now?`;
-    if (!(await confirm(io, question))) {
+    const words = updateSessionsWords(state.sessions, target.name);
+    if (!(await confirm(io, `${words.question} ${words.body} Update ${target.name}?`))) {
       io.out('Nothing changed.');
       return 1;
     }
   }
-  const reply = await call('POST', '/api/server/update');
+  const reply = await call('POST', onMachine('/api/server/update', target.machine));
   if (reply.status === 202) {
-    io.out(`Updating ${state.installed} → ${state.candidate}. Orbital restarts on its own; orbital status shows the new version once it is back.`);
+    io.out(member === null
+      ? `Updating ${state.installed} → ${state.candidate}. Orbital restarts on its own; orbital status shows the new version once it is back.`
+      : `Updating ${member} ${state.installed} → ${state.candidate}. It restarts on its own; orbital devices list shows the new version once it is back.`);
     return 0;
   }
   const error = errorOf(reply);
   if (isRefusal(error)) {
-    io.err(UPDATE_REFUSAL_LINES[error]);
+    io.err(updateRefusalLine(error, member));
+    return 1;
+  }
+  const down = memberDownLine(reply, target);
+  if (down) {
+    io.err(down);
     return 1;
   }
   throw new CliError(`Orbital answered ${reply.status} to the update.`);
+}
+
+/**
+ * Every member's update state for `devices list`, through the same gate as
+ * `update` and the desktop's rows: this device, and each other member that
+ * is online and serves the route. A member that cannot be read is left out.
+ */
+async function readMemberUpdates(call: Call, remote: RemoteStatus): Promise<Map<string, ServerUpdateState>> {
+  const out = new Map<string, ServerUpdateState>();
+  await Promise.all(remote.group.members.map(async (m) => {
+    if (!memberServesUpdate(m) || (!m.self && (m.state !== 'online' || m.tooOld))) return;
+    try {
+      const state = await readUpdate(call, { machine: m.self ? null : m.id, name: m.name });
+      if (state) out.set(m.id, state);
+    } catch (err) {
+      if (!(err instanceof CliError)) throw err;
+    }
+  }));
+  return out;
 }

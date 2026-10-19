@@ -36,7 +36,7 @@ async function main(): Promise<number> {
     const drive = async (args: readonly string[]): Promise<number> => {
       const read = await readToken(target.tokenFile);
       if ('unreadable' in read) {
-        io.err(unreadableTokenLine(target.tokenFile));
+        io.err(unreadableTokenLine(target.tokenFile, await readServiceUser()));
         return 1;
       }
       // The server writes the token at its first start: without one, none has run here.

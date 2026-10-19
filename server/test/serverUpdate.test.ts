@@ -7,7 +7,12 @@ import {
   AptUpdateBackend, chooseUpdateBackend, DesktopUpdateBackend, PACKAGE_ROOT, PACKAGE_VERSION_FILE, runningVersion,
   UPDATE_REQUEST_FILE, type ParentPort, type UpdateBackend, type UpdateProgress,
 } from '../src/update/backends.js';
-import { UPDATE_MARKER_FILE, UpdateService } from '../src/update/service.js';
+import { UPDATE_MARKER_FILE, UpdateService, readMarker } from '../src/update/service.js';
+import { updateAsker } from '../src/api/serverUpdate.js';
+import { DEVICE_HEADER } from '../src/remote/inject.js';
+import { deviceId } from '@orbital/shared/remote/keys';
+import { loadOrCreateIdentity } from '../src/remote/identity.js';
+import BetterSqlite3 from 'better-sqlite3';
 import { makeTmpDir } from './tmp.js';
 
 const NEWER = `orbital:
@@ -200,7 +205,9 @@ describe('UpdateService', () => {
   it('reports the state, the running version standing in for an installed one not known', () => {
     const { b, backend } = fakeBackend({ installed: null });
     const { service } = make(backend);
-    expect(service.state()).toEqual({ installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 2 });
+    expect(service.state()).toEqual({
+      installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 2, startedBy: null,
+    });
     b.kind = 'none';
     expect(service.state().packaged).toBe(false);
   });
@@ -239,6 +246,46 @@ describe('UpdateService', () => {
     again.stop();
     expect(make(backend, '0.36.0', dir).service.state().failed).toBeNull();
     expect(existsSync(join(dir, UPDATE_MARKER_FILE))).toBe(false);
+  });
+
+  it('names who started an update while it runs, writes it into the marker, and forgets it when it ends', () => {
+    vi.useFakeTimers();
+    try {
+      const by = { id: 'peer-1', name: 'Pixel 8' };
+      const { backend } = fakeBackend();
+      const { dir, service } = make(backend, '0.35.0', undefined, 1_000);
+      expect(service.start(by)).toMatchObject({ ok: true, state: { updating: true, startedBy: by } });
+      expect(readMarker(join(dir, UPDATE_MARKER_FILE))).toMatchObject({ from: '0.35.0', to: '0.36.0', by });
+      vi.advanceTimersByTime(1_000);
+      expect(service.state()).toMatchObject({ updating: false, failed: '0.36.0', startedBy: null });
+      // A request with no known asker names no one.
+      expect(service.start(null)).toMatchObject({ ok: true, state: { startedBy: null } });
+      service.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a restart ends the update either way, so the marker\'s asker is not shown after it', () => {
+    const by = { id: 'peer-1', name: 'Pixel 8' };
+    const { backend } = fakeBackend();
+    const { dir, service } = make(backend);
+    service.start(by);
+    service.stop();
+    // Back on the old version: failed, and no one is updating it.
+    expect(make(backend, '0.35.0', dir).service.state()).toMatchObject({ updating: false, failed: '0.36.0', startedBy: null });
+    // Back on the new one: done, and the marker is gone with its asker.
+    expect(make(backend, '0.36.0', dir).service.state()).toMatchObject({ failed: null, startedBy: null });
+    expect(readMarker(join(dir, UPDATE_MARKER_FILE))).toBeNull();
+  });
+
+  it('reads a marker from before the asker as one with no asker, and an asker that is not one as none', () => {
+    const dir = makeTmpDir('update-marker-by');
+    const path = join(dir, UPDATE_MARKER_FILE);
+    writeFileSync(path, JSON.stringify({ from: '0.35.0', to: '0.36.0', at: 1 }));
+    expect(readMarker(path)).toEqual({ from: '0.35.0', to: '0.36.0', at: 1, by: null });
+    writeFileSync(path, JSON.stringify({ from: '0.35.0', to: '0.36.0', at: 1, by: { id: 3 } }));
+    expect(readMarker(path)?.by).toBeNull();
   });
 
   it('ignores a marker that is not one', () => {
@@ -300,16 +347,68 @@ describe('UpdateService', () => {
   });
 });
 
+describe('updateAsker', () => {
+  const dir = (self: string | null, names: Record<string, string> = {}) => ({
+    selfId: () => self, selfName: () => 'nuc', nameOf: (id: string) => names[id] ?? null,
+  });
+
+  it('is the channel\'s peer by its name here, else by the start of its id', () => {
+    expect(updateAsker('peer-1', dir('me', { 'peer-1': 'Pixel 8' }))).toEqual({ id: 'peer-1', name: 'Pixel 8' });
+    expect(updateAsker('abcdefghijkl', dir('me'))).toEqual({ id: 'abcdefghijkl', name: 'abcdefgh' });
+  });
+
+  it('is this device for a request made on it, and no one on a device without an id', () => {
+    expect(updateAsker(undefined, dir('me'))).toEqual({ id: 'me', name: 'nuc' });
+    expect(updateAsker('', dir('me'))).toEqual({ id: 'me', name: 'nuc' });
+    expect(updateAsker(['a', 'b'], dir('me'))).toEqual({ id: 'me', name: 'nuc' });
+    expect(updateAsker(undefined, dir(null))).toBeNull();
+  });
+});
+
 describe('/api/server/update', () => {
-  async function server(backend: UpdateBackend) {
-    const claudeDir = makeTmpDir('update-routes');
+  async function server(backend: UpdateBackend, dataDir = makeTmpDir('update-data'), claudeDir = makeTmpDir('update-routes')) {
     mkdirSync(join(claudeDir, 'projects'), { recursive: true });
     mkdirSync(join(claudeDir, 'sessions'), { recursive: true });
     return buildServer({
-      claudeDir, dbPath: join(claudeDir, 'index.db'), dataDir: makeTmpDir('update-data'), queryFn: (() => {}) as any,
-      updateBackend: backend,
+      claudeDir, dbPath: join(claudeDir, 'index.db'), dataDir, queryFn: (() => {}) as any,
+      updateBackend: backend, osVersion: null,
     });
   }
+
+  it('names who started it: this device locally, a channel\'s peer by its paired name; a restart forgets it', async () => {
+    const dataDir = makeTmpDir('update-asker');
+    const self = deviceId(loadOrCreateIdentity(dataDir).identity.publicKey);
+    const claudeDir = makeTmpDir('update-asker-claude');
+    let app = await server(fakeBackend().backend, dataDir, claudeDir);
+    try {
+      await app.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_mac_name: 'nuc' } });
+      const local = await app.inject({ method: 'POST', url: '/api/server/update' });
+      expect(local.json()).toMatchObject({ updating: true, startedBy: { id: self, name: 'nuc' } });
+      expect((await app.inject({ method: 'GET', url: '/api/server/update' })).json().startedBy).toEqual({ id: self, name: 'nuc' });
+    } finally {
+      await app.close();
+    }
+    expect(readMarker(join(dataDir, UPDATE_MARKER_FILE))?.by).toEqual({ id: self, name: 'nuc' });
+
+    // Restarted on the same version: the update failed, and it names no one any more.
+    app = await server(fakeBackend().backend, dataDir, claudeDir);
+    try {
+      const after = (await app.inject({ method: 'GET', url: '/api/server/update' })).json();
+      expect(after).toMatchObject({ updating: false, failed: '0.36.0', startedBy: null });
+
+      const db = new BetterSqlite3(join(claudeDir, 'index.db'));
+      db.prepare(`INSERT INTO remote_devices (id, name, platform, paired_at, notifications) VALUES ('p1', 'Pixel 8', 'android', 1, '{}')`).run();
+      db.close();
+      // A body naming someone else is not read: the channel's header is who asked.
+      const viaPeer = await app.inject({
+        method: 'POST', url: '/api/server/update', headers: { [DEVICE_HEADER]: 'p1' }, payload: { startedBy: { id: 'x', name: 'evil' } },
+      });
+      expect(viaPeer.statusCode).toBe(202);
+      expect(viaPeer.json().startedBy).toEqual({ id: 'p1', name: 'Pixel 8' });
+    } finally {
+      await app.close();
+    }
+  });
 
   it('GET answers the state; POST starts once and refuses a second', async () => {
     const { b, backend } = fakeBackend();
@@ -317,7 +416,9 @@ describe('/api/server/update', () => {
     try {
       const got = await app.inject({ method: 'GET', url: '/api/server/update' });
       expect(got.statusCode).toBe(200);
-      expect(got.json()).toEqual({ installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 0 });
+      expect(got.json()).toEqual({
+        installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 0, startedBy: null,
+      });
       // A body is ignored, whatever it names.
       const started = await app.inject({ method: 'POST', url: '/api/server/update', payload: { version: '9.9.9', package: 'evil' } });
       expect(started.statusCode).toBe(202);

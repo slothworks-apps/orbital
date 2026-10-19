@@ -19,6 +19,16 @@ export function osLabel(os: string): string {
 }
 
 /**
+ * A member's OS with its version, as its row reads it (canvas 50t, 50s):
+ * `macOS 14.6`, `Android 15`. `version` empty gives the OS alone.
+ */
+export function osVersionText(os: string, version: string): string {
+  const label = osLabel(os);
+  const v = version.trim();
+  return v === '' ? label : `${label} ${v}`;
+}
+
+/**
  * `imac-home (desktop, macOS 15.1) wants to join`: the kind a second time,
  * in its own short form — not the tile's fallback-to-desktop word; an
  * unrecognised kind passes through verbatim (canvas 50c `cK.short`).
@@ -108,6 +118,18 @@ export function exitWords(exit: 'dissolve' | 'leave', count: number, primary: st
     go: 'Leave',
     offline: 'Connect to the relay to leave — the others have to hear it.',
     failed: "Couldn't leave the group. Try again.",
+  };
+}
+
+/**
+ * The confirm before an update stops sessions (canvas 50t CONFIRM, 50s
+ * sheet): `3 sessions are running on nuc.` then `They stop when it
+ * restarts.` `name` is the member being updated, as its row names it.
+ */
+export function updateSessionsWords(count: number, name: string): { question: string; body: string } {
+  return {
+    question: `${count} session${count === 1 ? ' is' : 's are'} running on ${name}.`,
+    body: 'They stop when it restarts.',
   };
 }
 

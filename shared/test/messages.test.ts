@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   AnswerMessage, AskMessage, BLOB_CHUNK_BYTES, FILE_PATH_MAX_CHARS, HELLO_CAPABILITIES_MAX, HELLO_CAPABILITY_MAX_CHARS,
-  HELLO_KIND_MAX_CHARS, HelloMessage, PROTOCOL_VERSION, chunkBlob,
+  HELLO_KIND_MAX_CHARS, HELLO_OS_VERSION_MAX_CHARS, HelloMessage, PROTOCOL_VERSION, chunkBlob,
   decodeInner, encodeInner, parseChannelMessage, peerServes,
 } from '../src/remote/messages.js';
 import { PAIR_NAME_MAX_CHARS } from '../src/remote/relayApi.js';
@@ -112,6 +112,11 @@ describe('parseChannelMessage', () => {
       kind: tall.slice(0, HELLO_KIND_MAX_CHARS), os: tall.slice(0, HELLO_KIND_MAX_CHARS),
     });
   });
+  it('keeps an OS version, cut to its bound', () => {
+    expect(HelloMessage.parse({ t: 'hello', protocol: 1, osVersion: 'Ubuntu 24.04' }).osVersion).toBe('Ubuntu 24.04');
+    const long = 'u'.repeat(HELLO_OS_VERSION_MAX_CHARS + 9);
+    expect(HelloMessage.parse({ t: 'hello', protocol: 1, osVersion: long }).osVersion).toBe(long.slice(0, HELLO_OS_VERSION_MAX_CHARS));
+  });
   it('cuts an over-long capabilities list and drops a capability that is over long or not a string', () => {
     const many = Array.from({ length: HELLO_CAPABILITIES_MAX + 3 }, (_, i) => `c${i}`);
     const parsed = HelloMessage.parse({ t: 'hello', protocol: 1, capabilities: many });
@@ -124,6 +129,7 @@ describe('parseChannelMessage', () => {
   it('treats a cosmetic field of the wrong type as absent; only t and protocol refuse', () => {
     const parsed = HelloMessage.parse({
       t: 'hello', protocol: 1, app: 3, server: '1', macName: null, version: {}, kind: [], os: 9, name: true, capabilities: 'sessions',
+      osVersion: 24.04,
     });
     expect(parsed).toStrictEqual({ t: 'hello', protocol: 1, server: '1' });
     expect(HelloMessage.safeParse({ t: 'hello', protocol: '1', app: 'a' }).success).toBe(false);

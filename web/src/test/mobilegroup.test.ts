@@ -170,7 +170,7 @@ describe('PersistQueue', () => {
 
 describe('per-device features', () => {
   const device = (id: string, version: string | null): DeviceView => ({
-    id, name: id, kind: 'desktop', os: 'macOS', online: true, ready: true, asOf: null, version, capabilities: [], refused: null,
+    id, name: id, kind: 'desktop', os: 'macOS', online: true, ready: true, asOf: null, version, osVersion: null, capabilities: [], refused: null,
   })
   const devices = [device('new', MAC_FEATURES.media), device('old', '0.25.0'), device('quiet', null)]
 

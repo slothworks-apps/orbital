@@ -16,7 +16,7 @@ function member(over: Partial<MemberRow> & Pick<MemberRow, 'id' | 'name'>): Memb
 
 function source(over: Partial<DeviceView> & Pick<DeviceView, 'id' | 'name'>): DeviceView {
   return {
-    kind: 'desktop', os: 'macos', online: true, ready: true, asOf: null, version: '0.9.0', capabilities: [], refused: null,
+    kind: 'desktop', os: 'macos', online: true, ready: true, asOf: null, version: '0.9.0', osVersion: null, capabilities: [], refused: null,
     ...over,
   }
 }

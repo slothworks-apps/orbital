@@ -6,16 +6,17 @@ import { generateIdentity, deviceId } from '@orbital/shared/remote/keys';
 import { encodePairingCode } from '@orbital/shared/remote/relayApi';
 import {
   CODE_REJECTED, GROUP_FULL, JOIN_REACH, attemptsLine, exitWords, groupFullBody, groupFullLine, joinSentence, managerWords,
-  notPrimaryAddLine, relayChangeWords, relayLockedLine, removeWords,
+  notPrimaryAddLine, relayChangeWords, relayLockedLine, removeWords, updateSessionsWords,
 } from '@orbital/shared/remote/groupWords';
+import type { ServerUpdateState } from '@orbital/shared/remote/serverUpdate';
 import { ROSTER_MAX_ENTRIES } from '@orbital/shared/remote/roster';
 import { buildServer } from '../src/index.js';
 import { parseArgs } from '../src/cli/args.js';
 import { TokenRefused, httpCall, type Call, type Method, type Reply } from '../src/cli/client.js';
-import { findDevice, runCli } from '../src/cli/commands.js';
+import { findDevice, runCli, updateTarget } from '../src/cli/commands.js';
 import { REQUEST_EXPIRED, addFlow, addVerdict, joinFlow, joinVerdict } from '../src/cli/flows.js';
 import { TIMED_OUT, type Io } from '../src/cli/io.js';
-import { cliTarget, readToken, rootHint } from '../src/cli/target.js';
+import { cliTarget, readToken, rootHint, unreadableTokenLine } from '../src/cli/target.js';
 import { listLines, remoteDownLine, remoteErrorLine } from '../src/cli/words.js';
 import { BAD_SECRET_ERROR } from '../src/remote/errors.js';
 import { DEFAULT_PORT } from '../src/config.js';
@@ -36,7 +37,9 @@ describe('parseArgs', () => {
     expect(parseArgs(['devices', 'rename', 'gpu', 'box'])).toEqual({ kind: 'rename', name: 'gpu box' });
     expect(parseArgs(['devices', 'remove', 'mac'])).toEqual({ kind: 'remove', target: 'mac', yes: false });
     expect(parseArgs(['devices', 'leave', '--yes'])).toEqual({ kind: 'leave', yes: true });
-    expect(parseArgs(['-y', 'update'])).toEqual({ kind: 'update', yes: true });
+    expect(parseArgs(['-y', 'update'])).toEqual({ kind: 'update', target: null, yes: true });
+    expect(parseArgs(['update', 'nuc'])).toEqual({ kind: 'update', target: 'nuc', yes: false });
+    expect(parseArgs(['update', 'Pixel', '8', '--yes'])).toEqual({ kind: 'update', target: 'Pixel 8', yes: true });
   });
 
   it('takes --help anywhere, and a name that starts with a dash after --', () => {
@@ -138,6 +141,32 @@ describe('listLines', () => {
     ]);
   });
 
+  it('shows each member\'s OS version where it named one, and an UPDATE column only when one has something to say', () => {
+    const remote = status({}, {
+      members: [
+        member({ id: 'self-id', name: 'gpu-box', kind: 'headless', os: 'linux', osVersion: 'Ubuntu 24.04', self: true, state: 'self' }),
+        member({ id: 'mac', name: 'mac-studio', osVersion: 'macOS 14.6', version: '0.35.0' }),
+      ],
+    });
+    const up = (over: Partial<ServerUpdateState>): ServerUpdateState => ({
+      installed: '0.35.0', candidate: '0.35.0', packaged: true, updating: false, failed: null, sessions: 0, startedBy: null, ...over,
+    });
+    expect(listLines(remote, new Map([['self-id', up({})]]))).toEqual([
+      'NAME        KIND      OS            STATE   VERSION',
+      'gpu-box     headless  Ubuntu 24.04  online  0.35.0   this device',
+      'mac-studio  desktop   macOS 14.6    online  0.35.0',
+    ]);
+    const lines = listLines(remote, new Map([
+      ['self-id', up({ installed: '0.35.2', candidate: '0.36.0' })],
+      ['mac', up({ updating: true, candidate: '0.36.0' })],
+    ]));
+    expect(lines[0]).toMatch(/VERSION +UPDATE$/);
+    expect(lines[1]).toMatch(/0\.35\.2 +update available · 0\.36\.0 +this device$/);
+    expect(lines[2]).toMatch(/updating to 0\.36\.0$/);
+    expect(listLines(remote, new Map([['mac', up({ failed: '0.36.0', candidate: '0.36.0' })]]))[2])
+      .toMatch(/update didn’t finish · still on 0\.35\.0$/);
+  });
+
   it('shows this device offline while its relay is not on line', () => {
     expect(listLines(status({ relay: 'connecting' }))[1]).toMatch(/^gpu-box +headless +Linux +offline/);
   });
@@ -178,6 +207,10 @@ describe('cliTarget hints', () => {
     expect(rootHint(0, null)).not.toBeNull();
     // A file that names no user is not echoed.
     expect(rootHint(0, 'x; rm -rf /')).not.toContain('rm');
+    // The token is the service user's: name that user, for root and anyone else alike.
+    expect(unreadableTokenLine(file, 'orbital\n')).toContain('sudo -u orbital orbital');
+    expect(unreadableTokenLine(file, null)).not.toContain('sudo');
+    expect(unreadableTokenLine(file, '$(reboot)')).not.toContain('reboot');
   });
 });
 
@@ -558,7 +591,7 @@ describe('confirmations', () => {
   });
 
   it('asks before an update that stops working sessions', async () => {
-    const state = { installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 2 };
+    const state = { installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 2, startedBy: null };
     for (const [answer, posted] of [['n', false], ['y', true]] as const) {
       const s = fakeServer([status()], {
         'GET /api/server/update': { status: 200, body: state },
@@ -569,6 +602,108 @@ describe('confirmations', () => {
       expect(t.io.asked).toHaveLength(1);
       expect(s.calls.some((c) => c.method === 'POST')).toBe(posted);
     }
+  });
+});
+
+describe('updateTarget', () => {
+  const remote = status({}, {
+    members: [
+      member({ id: 'self-id', name: 'gpu-box', kind: 'headless', os: 'linux', self: true, state: 'self' }),
+      member({ id: 'nuc-id', name: 'nuc', kind: 'headless', os: 'linux' }),
+      member({ id: 'px', name: 'Pixel 8', kind: 'phone', os: 'android', version: null }),
+      member({ id: 'air', name: 'air-m3', state: 'offline' }),
+      member({ id: 'old', name: 'old-mac', version: '0.30.0' }),
+      member({ id: 'tooold', name: 'ancient', tooOld: true }),
+    ],
+  });
+
+  it('is this device with no name or its own name, and a member through this one by name or id', () => {
+    expect(updateTarget(remote, null)).toEqual({ machine: null, name: 'gpu-box' });
+    expect(updateTarget(remote, 'gpu-box')).toEqual({ machine: null, name: 'gpu-box' });
+    expect(updateTarget(remote, 'nuc')).toEqual({ machine: 'nuc-id', name: 'nuc' });
+    expect(updateTarget(remote, 'nuc-id')).toEqual({ machine: 'nuc-id', name: 'nuc' });
+  });
+
+  it('refuses a phone, a member not online, one too old for the route, and a name it does not know', () => {
+    expect(updateTarget(remote, 'Pixel 8')).toEqual({ error: expect.stringContaining('store') });
+    expect(updateTarget(remote, 'air-m3')).toEqual({ error: expect.stringContaining('offline') });
+    expect(updateTarget(remote, 'old-mac')).toEqual({ error: expect.stringContaining('0.30.0') });
+    expect(updateTarget(remote, 'ancient')).toHaveProperty('error');
+    expect(updateTarget(remote, 'nope')).toHaveProperty('error');
+  });
+});
+
+describe('update', () => {
+  const remote = status({}, {
+    members: [
+      member({ id: 'self-id', name: 'gpu-box', kind: 'headless', os: 'linux', self: true, state: 'self' }),
+      member({ id: 'nuc-id', name: 'nuc', kind: 'headless', os: 'linux' }),
+      member({ id: 'px', name: 'Pixel 8', kind: 'phone', os: 'android', version: null }),
+      member({ id: 'air', name: 'air-m3', state: 'offline' }),
+    ],
+  });
+  const state = {
+    installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 3, startedBy: null,
+  };
+  const run = (argv: string[], s: ReturnType<typeof fakeServer>, t: ReturnType<typeof scriptedIo>) =>
+    runCli(argv, { call: s.call, io: t.api, port: 1 });
+
+  it('updates a member through this server, asking first in the row\'s words', async () => {
+    const words = updateSessionsWords(3, 'nuc');
+    for (const [answer, posted] of [['n', false], ['y', true]] as const) {
+      const s = fakeServer([remote], {
+        'GET /api/server/update?machine=nuc-id': { status: 200, body: state },
+        'POST /api/server/update?machine=nuc-id': { status: 202, body: { ...state, updating: true } },
+      });
+      const t = scriptedIo([answer]);
+      expect(await run(['update', 'nuc'], s, t)).toBe(posted ? 0 : 1);
+      expect(t.io.asked[0]).toContain(`${words.question} ${words.body}`);
+      expect(s.calls.some((c) => c.method === 'POST' && c.path === '/api/server/update?machine=nuc-id')).toBe(posted);
+      expect(s.calls.some((c) => c.path === '/api/server/update')).toBe(false);
+    }
+  });
+
+  it('asks this device in the same words, by its own name', async () => {
+    const s = fakeServer([remote], {
+      'GET /api/server/update': { status: 200, body: state },
+      'POST /api/server/update': { status: 202, body: { ...state, updating: true } },
+    });
+    const t = scriptedIo(['y']);
+    expect(await run(['update'], s, t)).toBe(0);
+    const words = updateSessionsWords(3, 'gpu-box');
+    expect(t.io.asked[0]).toContain(`${words.question} ${words.body}`);
+    expect(s.calls.at(-1)).toMatchObject({ method: 'POST', path: '/api/server/update' });
+  });
+
+  it('asks nothing of a phone or an offline member, and says so when the member drops before it answers', async () => {
+    for (const name of ['Pixel 8', 'air-m3']) {
+      const s = fakeServer([remote]);
+      const t = scriptedIo();
+      expect(await run(['update', name], s, t)).toBe(1);
+      expect(s.calls.every((c) => c.path === '/api/remote')).toBe(true);
+    }
+    const s = fakeServer([remote], { 'GET /api/server/update?machine=nuc-id': { status: 409, body: { error: 'member_offline' } } });
+    // A CliError: main prints it and exits 1.
+    await expect(run(['update', 'nuc'], s, scriptedIo())).rejects.toThrow('nuc is offline. Update it once it is online.');
+  });
+
+  it('reads a member from before the route as too old, not as an error', async () => {
+    const s = fakeServer([remote], { 'GET /api/server/update?machine=nuc-id': { status: 404, body: { message: 'Route not found' } } });
+    const t = scriptedIo();
+    expect(await run(['update', 'nuc'], s, t)).toBe(1);
+    expect(t.io.err[0]).toContain('older than updates from the group');
+  });
+
+  it('devices list asks only the members that serve the route, this device without ?machine=', async () => {
+    const s = fakeServer([remote], {
+      'GET /api/server/update': { status: 200, body: { ...state, candidate: '0.35.0' } },
+      'GET /api/server/update?machine=nuc-id': { status: 200, body: state },
+    });
+    const t = scriptedIo();
+    expect(await run(['devices', 'list'], s, t)).toBe(0);
+    expect(s.calls.filter((c) => c.path.startsWith('/api/server/update')).map((c) => c.path).sort())
+      .toEqual(['/api/server/update', '/api/server/update?machine=nuc-id']);
+    expect(t.io.out.find((l) => l.startsWith('nuc '))).toContain('update available · 0.36.0');
   });
 });
 

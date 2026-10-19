@@ -15,21 +15,32 @@
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import {
   SERVER_UPDATE_REFUSALS, UPDATE_TIMEOUT_MS, updateIsNewer, type ServerUpdateRefusal, type ServerUpdateState,
+  type UpdateAsker,
 } from '@orbital/shared/remote/serverUpdate';
 import type { UpdateBackend, UpdateProgress } from './backends.js';
 
-/** In the data dir: the version that asked for an update, and the one it asked for. */
+/**
+ * In the data dir: the version that asked for an update, the one it asked
+ * for, and the member that asked (`by`, null when not known).
+ */
 export const UPDATE_MARKER_FILE = 'update-request.json';
 
-type Marker = { from: string; to: string; at: number };
+export type UpdateMarker = { from: string; to: string; at: number; by: UpdateAsker | null };
 
-function readMarker(path: string): Marker | null {
+function askerOf(raw: unknown): UpdateAsker | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const { id, name } = raw as Record<string, unknown>;
+  return typeof id === 'string' && typeof name === 'string' ? { id, name } : null;
+}
+
+/** The marker in `path`; null when there is none or it is malformed. A marker from before `by` reads as `by: null`. */
+export function readMarker(path: string): UpdateMarker | null {
   try {
     const raw: unknown = JSON.parse(readFileSync(path, 'utf8'));
     if (typeof raw !== 'object' || raw === null) return null;
-    const { from, to, at } = raw as Record<string, unknown>;
+    const { from, to, at, by } = raw as Record<string, unknown>;
     if (typeof from !== 'string' || typeof to !== 'string' || typeof at !== 'number') return null;
-    return { from, to, at };
+    return { from, to, at, by: askerOf(by) };
   } catch {
     return null;
   }
@@ -45,6 +56,8 @@ export class UpdateService {
   private timer: ReturnType<typeof setTimeout> | null = null;
   /** The version the running request is for. */
   private target: string | null = null;
+  /** Who asked for the running request; null when nothing runs, or the asker is not known. */
+  private startedBy: UpdateAsker | null = null;
   /** The backend said it is downloading (or done) since the request: an idle word after it means the download failed. */
   private sawProgress = false;
 
@@ -59,6 +72,9 @@ export class UpdateService {
     timeoutMs?: number;
   }) {
     opts.backend.onProgress((progress) => this.progress(progress));
+    // The marker's `by` is not taken back: a start always ends the request
+    // that wrote it — it came back on the new version, or on the old one,
+    // failed — and an update that has ended names no one.
     const marker = readMarker(opts.markerPath);
     if (marker === null) return;
     if (marker.from === opts.running) {
@@ -79,11 +95,16 @@ export class UpdateService {
       updating: this.updating,
       failed: this.failed,
       sessions: this.opts.sessions(),
+      startedBy: this.updating ? this.startedBy : null,
     };
   }
 
-  /** `POST /api/server/update`. Takes nothing from the caller. */
-  start(): StartAnswer {
+  /**
+   * `POST /api/server/update`. Takes nothing from the request itself:
+   * `startedBy` is the member the route knows asked (the channel's peer, or
+   * this device), shown to the others while it updates.
+   */
+  start(startedBy: UpdateAsker | null = null): StartAnswer {
     const refuse = (error: ServerUpdateRefusal): StartAnswer => ({ ok: false, error, status: SERVER_UPDATE_REFUSALS[error] });
     if (this.opts.backend.kind === 'none') return refuse('not_packaged');
     if (this.updating) return refuse('updating');
@@ -95,8 +116,9 @@ export class UpdateService {
     this.sawProgress = false;
     const target = before.candidate as string;
     this.target = target;
+    this.startedBy = startedBy;
     try {
-      const marker: Marker = { from: this.opts.running, to: target, at: Date.now() };
+      const marker: UpdateMarker = { from: this.opts.running, to: target, at: Date.now(), by: startedBy };
       writeFileSync(this.opts.markerPath, `${JSON.stringify(marker)}\n`);
     } catch (err) {
       // Costs only the `failed` line after a restart that brought the old version back.
@@ -142,6 +164,7 @@ export class UpdateService {
     this.clearTimer();
     this.updating = false;
     this.failed = this.target;
+    this.startedBy = null;
     this.sawProgress = false;
   }
 

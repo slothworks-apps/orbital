@@ -23,6 +23,19 @@ export function servesServerUpdate(version: string | null | undefined): boolean 
   return typeof version === 'string' && version !== '' && compareVersions(version, SERVER_UPDATE_VERSION) >= 0;
 }
 
+/**
+ * Whether `m` is asked for its update state at all: this device always, a
+ * phone never — it has no server, its store updates it — and any other
+ * member only when its last hello named a version that serves the route
+ * (`servesServerUpdate`). The desktop's Settings → Devices and the `orbital`
+ * CLI both gate on it.
+ */
+export function memberServesUpdate(m: { self: boolean; kind: string; version?: string | null }): boolean {
+  if (m.self) return true;
+  if (m.kind === 'phone') return false;
+  return servesServerUpdate(m.version ?? null);
+}
+
 /** The longest version string any side takes: apt's and electron-updater's are far shorter. */
 export const UPDATE_VERSION_MAX_CHARS = 64;
 
@@ -38,6 +51,18 @@ export function isUpdateVersion(s: string): boolean {
   return VersionText.safeParse(s).success;
 }
 
+/** The longest device id `startedBy` keeps: a device id is far shorter. */
+export const STARTED_BY_ID_MAX_CHARS = 128;
+/**
+ * Where `startedBy`'s name is cut: no shorter than the relay's
+ * `PAIR_NAME_MAX_CHARS`, which every name a member goes by is cut to. Not
+ * imported from there, so the desktop's main process does not bundle the relay's crypto.
+ */
+export const STARTED_BY_NAME_MAX_CHARS = 128;
+
+/** Who asked for an update: a member's id and the name it goes by. */
+export type UpdateAsker = { id: string; name: string };
+
 /**
  * `GET /api/server/update`:
  *
@@ -52,7 +77,12 @@ export function isUpdateVersion(s: string): boolean {
  *   without it (the member came back with the old version, or no restart
  *   came in time); null otherwise;
  * - `sessions` — how many sessions the member is running right now (an
- *   update stops them).
+ *   update stops them);
+ * - `startedBy` — while `updating`, the member that asked for the update
+ *   ("started on Pixel 8"): the asking peer through a channel, this device
+ *   for a request made on it (its web or the CLI). Null when nothing is
+ *   updating, when the asker is not known, and from a server older than the
+ *   field, which sends none.
  */
 export const ServerUpdateStateSchema = z.object({
   installed: VersionText,
@@ -61,6 +91,10 @@ export const ServerUpdateStateSchema = z.object({
   updating: z.boolean(),
   failed: VersionText.nullable(),
   sessions: z.number().int().min(0),
+  startedBy: z.object({
+    id: z.string().max(STARTED_BY_ID_MAX_CHARS),
+    name: z.string().transform((s) => s.slice(0, STARTED_BY_NAME_MAX_CHARS)),
+  }).nullable().catch(null),
 });
 export type ServerUpdateState = z.infer<typeof ServerUpdateStateSchema>;
 

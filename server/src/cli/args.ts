@@ -16,7 +16,7 @@ export type Command =
   | { kind: 'rename'; name: string }
   | { kind: 'remove'; target: string; yes: boolean }
   | { kind: 'leave'; yes: boolean }
-  | { kind: 'update'; yes: boolean };
+  | { kind: 'update'; target: string | null; yes: boolean };
 
 /**
  * Where a relay secret comes from: typed at a prompt that does not echo it,
@@ -42,7 +42,7 @@ Usage:
   orbital devices rename <name>       rename this device
   orbital devices remove <name|id>    remove a member (on the primary)
   orbital devices leave               leave the group (on the primary: dissolve it)
-  orbital update                      update this server when a newer version is out
+  orbital update [name]               update this server, or the member named, when a newer version is out
   orbital help                        this text
 
 Options:
@@ -101,8 +101,11 @@ function command(words: string[], flags: Flags): Command | Usage {
       return args.length === 0 ? { kind: 'setup' } : extra(args);
     case 'status':
       return args.length === 0 ? { kind: 'status' } : extra(args);
-    case 'update':
-      return args.length === 0 ? { kind: 'update', yes } : extra(args);
+    case 'update': {
+      // Unquoted words make one name, as `devices remove` reads one.
+      const target = args.join(' ').trim();
+      return { kind: 'update', target: target === '' ? null : target, yes };
+    }
     case 'relay':
       if (args.length === 0) return { kind: 'relay' };
       if (args[0] === 'secret') {

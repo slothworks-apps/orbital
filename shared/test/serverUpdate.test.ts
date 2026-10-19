@@ -1,17 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import {
   SERVER_UPDATE_VERSION, UPDATE_POLL_MS, UPDATE_TIMEOUT_MS, parseMainMessage, parseServerMessage, parseServerUpdateState,
-  servesServerUpdate, updateIsNewer, updatePollDelay, watchUpdate, watchVerdict, type ServerUpdateState,
+  memberServesUpdate, servesServerUpdate, updateIsNewer, updatePollDelay, watchUpdate, watchVerdict, type ServerUpdateState,
 } from '../src/remote/serverUpdate.js';
 
 const state = (over: Partial<ServerUpdateState> = {}): ServerUpdateState => ({
-  installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 0, ...over,
+  installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 0, startedBy: null, ...over,
 });
 
 describe('parseServerUpdateState', () => {
   it('takes a well-formed state', () => {
     expect(parseServerUpdateState(state())).toEqual(state());
     expect(parseServerUpdateState(state({ candidate: null, installed: 'dev', failed: '1:0.36.0-1' }))).not.toBeNull();
+  });
+
+  it('reads startedBy: kept when well-formed, null when absent (an older server) or malformed', () => {
+    const by = { id: 'abcd1234', name: 'Pixel 8' };
+    expect(parseServerUpdateState(state({ updating: true, startedBy: by }))?.startedBy).toEqual(by);
+    const { startedBy: _b, ...older } = state();
+    expect(parseServerUpdateState(older)?.startedBy).toBeNull();
+    expect(parseServerUpdateState({ ...state(), startedBy: { id: 7, name: 'x' } })?.startedBy).toBeNull();
+    expect(parseServerUpdateState({ ...state(), startedBy: { id: 'x'.repeat(500), name: 'x' } })?.startedBy).toBeNull();
+    expect(parseServerUpdateState({ ...state(), startedBy: { id: 'a', name: 'n'.repeat(500) } })?.startedBy?.name.length)
+      .toBeLessThan(500);
   });
 
   it('refuses a missing field, a negative count and a version that is not one', () => {
@@ -99,5 +110,15 @@ describe('watching an update', () => {
     expect(updatePollDelay({ pageOpen: true, watching: true })).toBe(UPDATE_POLL_MS);
     expect(updatePollDelay({ pageOpen: true, watching: false })).toBeNull();
     expect(updatePollDelay({ pageOpen: false, watching: true })).toBeNull();
+  });
+});
+
+describe('memberServesUpdate', () => {
+  it('asks this device always, a phone never, and another member by its version', () => {
+    expect(memberServesUpdate({ self: true, kind: 'desktop', version: null })).toBe(true);
+    expect(memberServesUpdate({ self: false, kind: 'phone', version: '9.0.0' })).toBe(false);
+    expect(memberServesUpdate({ self: false, kind: 'headless', version: SERVER_UPDATE_VERSION })).toBe(true);
+    expect(memberServesUpdate({ self: false, kind: 'desktop', version: '0.1.0' })).toBe(false);
+    expect(memberServesUpdate({ self: false, kind: 'desktop' })).toBe(false);
   });
 });

@@ -32,7 +32,7 @@ export function mobileApp(): string {
 export function newGroup(
   record: GroupRecord,
   identity: Identity,
-  device: { name: string; platform: string },
+  device: { name: string; platform: string; osVersion?: string },
   { persist }: { persist: boolean },
 ): GroupHandle {
   const storage = MemoryGroupStorage.fromJSON(record.group)
@@ -53,7 +53,7 @@ export function newGroup(
       lastStatus = res.status
       return res
     },
-    app: mobileApp(), os: osName(device.platform), name: device.name, storage,
+    app: mobileApp(), os: osName(device.platform), osVersion: device.osVersion, name: device.name, storage,
     onStored: () => {
       if (persisting) queue.push(snapshot())
     },

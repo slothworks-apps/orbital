@@ -576,7 +576,7 @@ describe('memberServesUpdate', () => {
       expect(await readMemberUpdate(member({ id: 'old', version: '0.34.0' }))).toBeNull()
       expect(await startMemberUpdate(member({ id: 'old', version: '0.34.0' }))).toBeNull()
       expect(fetchMock).not.toHaveBeenCalled()
-      const state = { installed: '0.35.0', candidate: null, packaged: true, updating: false, failed: null, sessions: 0 }
+      const state = { installed: '0.35.0', candidate: null, packaged: true, updating: false, failed: null, sessions: 0, startedBy: null }
       fetchMock.mockImplementation(async () => new Response(JSON.stringify(state), { status: 200 }))
       expect(await readMemberUpdate(member({ id: 'self-id', self: true }))).toEqual(state)
       expect(fetchMock.mock.calls[0][0]).toBe('/api/server/update')

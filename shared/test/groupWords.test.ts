@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { attemptsLine, exitWords, joinSentence, osLabel, relayChangeWords } from '../src/remote/groupWords.js';
+import {
+  attemptsLine, exitWords, joinSentence, osLabel, osVersionText, relayChangeWords, updateSessionsWords,
+} from '../src/remote/groupWords.js';
 
 describe('osLabel', () => {
   it('names the four known OSes', () => {
@@ -31,5 +33,15 @@ describe('counted words', () => {
     expect(relayChangeWords(3).body).toBe('3 devices will be removed and have to pair again on the new relay.');
     expect(exitWords('leave', 1, 'mac').body).toContain('forgets mac.');
     expect(exitWords('leave', 3, 'mac').body).toContain('forgets the other 3.');
+    expect(updateSessionsWords(1, 'nuc').question).toBe('1 session is running on nuc.');
+    expect(updateSessionsWords(3, 'nuc').question).toBe('3 sessions are running on nuc.');
+  });
+});
+
+describe('osVersionText', () => {
+  it('puts the version after the OS label, and gives the label alone without one', () => {
+    expect(osVersionText('macos', '14.6')).toBe('macOS 14.6');
+    expect(osVersionText('android', ' 15 ')).toBe('Android 15');
+    expect(osVersionText('ios', '')).toBe('iOS');
   });
 });

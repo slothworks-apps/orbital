@@ -104,7 +104,7 @@ describe('reduce', () => {
 })
 
 const source = (id: string, patch: Partial<FederatedSource> = {}): FederatedSource => ({
-  id, name: id, kind: 'desktop', os: 'macOS', online: true, ready: true, asOf: null, version: MIN_SERVER_VERSION,
+  id, name: id, kind: 'desktop', os: 'macOS', online: true, ready: true, asOf: null, version: MIN_SERVER_VERSION, osVersion: null,
   capabilities: [], ...patch,
 })
 

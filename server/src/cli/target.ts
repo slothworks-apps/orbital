@@ -42,8 +42,15 @@ export async function readToken(file: string): Promise<TokenRead> {
   }
 }
 
-export function unreadableTokenLine(file: string): string {
-  return `Can't read ${file}: it belongs to another user. Run orbital as the user Orbital runs as.`;
+/**
+ * The token file is another user's: name that user when the package
+ * recorded one (`/etc/orbital/user`), as `rootHint` does.
+ */
+export function unreadableTokenLine(file: string, serviceUser: string | null): string {
+  const user = serviceUser?.trim() ?? '';
+  return USER_NAME.test(user)
+    ? `Can't read ${file}: it belongs to another user. Orbital runs as ${user}: sudo -u ${user} orbital …`
+    : `Can't read ${file}: it belongs to another user. Run orbital as the user Orbital runs as.`;
 }
 
 /** Where the package records the user the server runs as (`orbital setup`). */

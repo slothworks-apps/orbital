@@ -112,6 +112,8 @@ export type RemoteServiceOptions = {
   /** Where each session works now, for `file_get`'s `cwd`; without it the home alone confines. */
   trees?: Pick<WorkingTrees, 'sandboxes'>;
   serverVersion: string;
+  /** This host's OS and its version (`hostOsVersion`), for its hello and its own row; null when not known. */
+  osVersion?: string | null;
   inject: InjectFn;
   settings: { get(key: string): string; set(key: string, value: string): void };
   allSettings: () => Record<string, string>;
@@ -377,6 +379,25 @@ export class RemoteService {
     }
   }
 
+  /** The name every member sees for this device (THIS DEVICE in Settings → Devices). */
+  selfName(): string {
+    return this.macName;
+  }
+
+  /**
+   * The name `id` goes by here: its description in the roster, else the
+   * device paired here, else its last hello; null for a device this one
+   * does not know.
+   */
+  nameOf(id: string): string | null {
+    const member = this.liveMembers().find((m) => m.id === id);
+    if (member) return member.name;
+    const paired = this.listDevices().find((d) => d.id === id);
+    if (paired) return paired.name;
+    const hello = this.hellos.get(id);
+    return hello?.name ?? hello?.macName ?? null;
+  }
+
   /** The last hello `id` sent this device, on any channel since it started; null before one. */
   peerHello(id: string): HelloMessage | null {
     return this.hellos.get(id) ?? null;
@@ -438,6 +459,7 @@ export class RemoteService {
         ...m, tooOld: !m.self && memberTooOld(m.kind, this.hellos.get(m.id) ?? null),
         // What `servesServerUpdate` reads before the update routes are asked of a member.
         version: m.self ? this.opts.serverVersion : helloVersion(this.hellos.get(m.id) ?? null),
+        osVersion: m.self ? this.opts.osVersion ?? null : this.hellos.get(m.id)?.osVersion ?? null,
       }));
       const primary = this.group.primary();
       // Before `joinExpired`: reading the join under way is what drops one whose code ran out.
@@ -695,7 +717,9 @@ export class RemoteService {
     const peerKey = publicKeyOf(from)!;
     const opened = openDeviceChannel({
       deviceId: from, identity, peerKey, role,
-      hello: serverHello({ serverVersion: this.opts.serverVersion, name: this.macName, kind: serverDeviceKind() }),
+      hello: serverHello({
+        serverVersion: this.opts.serverVersion, name: this.macName, kind: serverDeviceKind(), osVersion: this.opts.osVersion ?? null,
+      }),
       hub: this.opts.hub, inject: this.opts.inject, images: this.opts.images, imagesDir: this.opts.imagesDir,
       files: this.files,
       notifications: {

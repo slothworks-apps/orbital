@@ -195,6 +195,8 @@ export type GroupMessage = z.infer<typeof GroupMessage>;
 
 /** The longest `kind` and `os` a hello keeps: what the roster holds. */
 export const HELLO_KIND_MAX_CHARS = ROSTER_KIND_MAX_CHARS;
+/** The longest `osVersion` a hello keeps: `Ubuntu 24.04`, `macOS 14.6`, a distro's longer name. */
+export const HELLO_OS_VERSION_MAX_CHARS = 32;
 /** The most capabilities a hello keeps, and the longest one it keeps at all. */
 export const HELLO_CAPABILITIES_MAX = 32;
 export const HELLO_CAPABILITY_MAX_CHARS = 32;
@@ -225,6 +227,13 @@ export const HelloMessage = z.object({
   kind: helloText(HELLO_KIND_MAX_CHARS),
   os: helloText(HELLO_KIND_MAX_CHARS),
   name: helloText(PAIR_NAME_MAX_CHARS),
+  /**
+   * The OS with its version, worded for its row (`macOS 14.6`, `Ubuntu
+   * 24.04`, `Android 15`); absent where the sender does not know it, and
+   * from every device older than the field. Cosmetic: not in the signed
+   * description, so nothing is signed or stored for it.
+   */
+  osVersion: helloText(HELLO_OS_VERSION_MAX_CHARS),
   capabilities: z.array(z.unknown())
     .transform((list) => list
       .filter((c): c is string => typeof c === 'string' && c.length <= HELLO_CAPABILITY_MAX_CHARS)

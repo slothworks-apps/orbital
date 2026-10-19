@@ -8,7 +8,7 @@
 import { linksWith } from '@orbital/shared/remote/group'
 import { osLabel } from '@orbital/shared/remote/groupWords'
 import {
-  servesServerUpdate, type ServerUpdateRefusal, type ServerUpdateState,
+  memberServesUpdate, type ServerUpdateRefusal, type ServerUpdateState,
 } from '@orbital/shared/remote/serverUpdate'
 import { api } from './api'
 import { timeAgo } from './format'
@@ -16,18 +16,8 @@ import type {
   ApiSession, GroupEnded, GroupMember, IdeContext, MachineRef, MemberState, RemoteDevice, RemoteStatus, Tag,
 } from './types'
 
-/**
- * Whether a member's update state may be asked of it (`api.serverUpdate`,
- * spec 2026-10-19-headless-server-design § Updating from the group): this
- * device always, a phone never — it has no server — and any other member
- * only when its last hello named a version that serves the route. A member
- * older than that is never asked.
- */
-export function memberServesUpdate(m: Pick<GroupMember, 'self' | 'kind' | 'version'>): boolean {
-  if (m.self) return true
-  if (m.kind === 'phone') return false
-  return servesServerUpdate(m.version ?? null)
-}
+/** In shared, so the `orbital` CLI gates on the same rule. */
+export { memberServesUpdate }
 
 type UpdateMember = Pick<GroupMember, 'id' | 'self' | 'kind' | 'version'>
 

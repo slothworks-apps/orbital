@@ -913,7 +913,7 @@ describe('read bounds for the phone', () => {
 })
 
 describe('server update', () => {
-  const state = { installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 1 }
+  const state = { installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 1, startedBy: null }
 
   it('reads a member\'s state through ?machine=, and refuses a malformed one', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(state), { status: 200 }))

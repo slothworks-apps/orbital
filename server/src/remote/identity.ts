@@ -16,6 +16,7 @@ import {
 import type { DeviceKind } from '@orbital/shared/remote/device';
 import { capabilitiesOf, osName } from '@orbital/shared/remote/device';
 import type { OwnHello } from '@orbital/shared/remote/channel';
+import { HELLO_OS_VERSION_MAX_CHARS } from '@orbital/shared/remote/messages';
 import { PAIR_NAME_MAX_CHARS } from '@orbital/shared/remote/relayApi';
 
 export const IDENTITY_FILE = 'remote-identity.json';
@@ -104,12 +105,17 @@ export function serverDeviceKind(env: NodeJS.ProcessEnv = process.env): DeviceKi
  * This server's hello. `server` and `macName` are what a shipped phone
  * requires of whatever serves it; the rest names this device to one that
  * knows groups. The name is cut to `PAIR_NAME_MAX_CHARS`, the bound every
- * hello's names are read within.
+ * hello's names are read within. `osVersion` rides along when it is known
+ * (`hostOsVersion`).
  */
-export function serverHello(o: { serverVersion: string; name: string; kind: DeviceKind }): OwnHello {
+export function serverHello(o: {
+  serverVersion: string; name: string; kind: DeviceKind; osVersion?: string | null;
+}): OwnHello {
   const name = o.name.slice(0, PAIR_NAME_MAX_CHARS);
+  const osVersion = o.osVersion?.slice(0, HELLO_OS_VERSION_MAX_CHARS);
   return {
     app: `orbital-${o.kind}/${o.serverVersion}`, server: o.serverVersion, macName: name, version: o.serverVersion,
     kind: o.kind, os: osName(process.platform), name, capabilities: capabilitiesOf(o.kind),
+    ...(osVersion ? { osVersion } : {}),
   };
 }

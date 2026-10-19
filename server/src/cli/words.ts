@@ -83,21 +83,36 @@ export function otherRelayLine(name: string, relay: string, remote: Pick<RemoteS
   return `${name} uses another relay: it's on ${relay}; ${here}. Both need the same one. ${fix}`;
 }
 
-type Row = { name: string; kind: string; os: string; state: string; version: string; marks: string };
+type Row = { name: string; kind: string; os: string; state: string; version: string; update: string; marks: string };
+
+/** A member's update, as its row's line says it (canvas 50t); empty when there is nothing to say. */
+export function updateNote(state: ServerUpdateState | undefined): string {
+  if (!state) return '';
+  if (state.updating) return `updating to ${state.candidate ?? 'a newer version'}`;
+  if (state.failed) return `update didn’t finish · still on ${state.installed}`;
+  if (updateIsNewer(state.installed, state.candidate)) return `update available · ${state.candidate}`;
+  return '';
+}
 
 /**
- * `devices list`: one line per member — name, kind, OS, online or offline,
- * version, and PRIMARY / THIS DEVICE — in aligned columns. Devices paired
- * here outside the group follow, marked so.
+ * `devices list`: one line per member — name, kind, OS (with its version
+ * where the member named one), online or offline, version, its update, and
+ * PRIMARY / THIS DEVICE — in aligned columns. `updates`: the members whose
+ * update state was read (`memberServesUpdate`); the UPDATE column shows
+ * only when one of them has something to say. Devices paired here outside
+ * the group follow, marked so.
  */
-export function listLines(remote: Pick<RemoteStatus, 'group' | 'devices' | 'relay'>): string[] {
+export function listLines(
+  remote: Pick<RemoteStatus, 'group' | 'devices' | 'relay'>, updates: ReadonlyMap<string, ServerUpdateState> = new Map(),
+): string[] {
   const rows: Row[] = remote.group.members.map((m) => ({
     name: m.name,
     kind: m.kind,
-    os: osLabel(m.os) || '—',
+    os: m.osVersion || osLabel(m.os) || '—',
     // This device is on line while its relay is.
     state: m.self ? (remote.relay === 'online' ? 'online' : 'offline') : memberState(m.state, m.tooOld),
-    version: m.version ?? '—',
+    version: updates.get(m.id)?.installed ?? m.version ?? '—',
+    update: updateNote(updates.get(m.id)),
     marks: [m.primary ? 'primary' : '', m.self ? 'this device' : ''].filter(Boolean).join(', '),
   }));
   const named = new Set(remote.group.members.map((m) => m.id));
@@ -105,13 +120,14 @@ export function listLines(remote: Pick<RemoteStatus, 'group' | 'devices' | 'rela
     if (named.has(d.id)) continue;
     rows.push({
       name: d.name, kind: d.kind ?? 'desktop', os: osLabel(osName(d.platform)) || '—',
-      state: d.online ? 'online' : 'offline', version: '—', marks: 'paired here, not in the group',
+      state: d.online ? 'online' : 'offline', version: '—', update: '', marks: 'paired here, not in the group',
     });
   }
-  const head: Row = { name: 'NAME', kind: 'KIND', os: 'OS', state: 'STATE', version: 'VERSION', marks: '' };
+  const head: Row = { name: 'NAME', kind: 'KIND', os: 'OS', state: 'STATE', version: 'VERSION', update: 'UPDATE', marks: '' };
   const all = [head, ...rows];
   const width = (k: keyof Row) => Math.max(...all.map((r) => r[k].length));
   const cols: (keyof Row)[] = ['name', 'kind', 'os', 'state', 'version'];
+  if (rows.some((r) => r.update !== '')) cols.push('update');
   const widths = cols.map(width);
   return all.map((r) => [...cols.map((k, i) => r[k].padEnd(widths[i])), r.marks].join('  ').trimEnd());
 }
@@ -132,7 +148,10 @@ export function statusLines(remote: RemoteStatus, update: ServerUpdateState | nu
   const version = update?.installed ?? self?.version ?? null;
   const lines = [version === null ? `Orbital is running on port ${port}.` : `Orbital ${version} is running on port ${port}.`];
   if (update) {
-    if (update.updating) lines.push(`Updating to ${update.candidate ?? 'a newer version'}…`);
+    if (update.updating) {
+      const by = update.startedBy ? `, started on ${update.startedBy.name}` : '';
+      lines.push(`Updating to ${update.candidate ?? 'a newer version'}${by}…`);
+    }
     else if (updateIsNewer(update.installed, update.candidate)) lines.push(`Update: ${update.candidate} is out. Run orbital update.`);
     if (update.failed) lines.push(`The update to ${update.failed} failed.`);
   }

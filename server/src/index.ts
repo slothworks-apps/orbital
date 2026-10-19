@@ -62,6 +62,7 @@ import { LIMITS_TOPIC, LimitsService } from './limits/service.js';
 import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
 import { Presence } from './remote/presence.js';
+import { hostOsVersion } from './remote/osVersion.js';
 import { RemoteService } from './remote/service.js';
 import { registerFederationRoutes } from './federation/routes.js';
 import { FederationService } from './federation/service.js';
@@ -268,6 +269,8 @@ export async function buildServer(overrides: {
   terminals?: TerminalStoreOptions;
   /** The full index pass, in slices. Tests wrap it to hold the boot pass back. */
   indexProjectsSliced?: typeof indexProjectsSliced;
+  /** This host's OS version for the hello; tests set it instead of reading the host's. */
+  osVersion?: string | null;
   /** Tests reach the remote service directly; nothing in the app uses it. */
   exposeRemote?: (remote: RemoteService) => void;
   /** Tests reach the federation directly, as they do the remote. */
@@ -294,6 +297,8 @@ export async function buildServer(overrides: {
   if (billing !== 'api-key') delete process.env.ANTHROPIC_API_KEY;
   // Which build this is: the desktop's `ORBITAL_VERSION`, or the package's own file.
   const version = runningVersion({ env: process.env, entry: process.argv[1], packageRoot: PACKAGE_ROOT });
+  // What this device's hello names as its OS (`Ubuntu 24.04`): read once, before anything starts.
+  const osVersion = overrides.osVersion !== undefined ? overrides.osVersion : await hostOsVersion();
   // The other half of the environment this server depends on: launched from
   // Finder it inherits `/usr/bin:/bin:/usr/sbin:/sbin`, where neither `claude`
   // nor the git/npm a session shells out to can be found. Gated, so only the
@@ -1449,6 +1454,7 @@ export async function buildServer(overrides: {
   const remote = new RemoteService({
     db, hub, dataDir, images, imagesDir, transcriptPath, trees, presence,
     serverVersion: version ?? 'dev',
+    osVersion,
     inject: async (req) => {
       const res = await app.inject(remoteInjectOptions(req, apiToken));
       return { statusCode: res.statusCode, body: res.body };
@@ -1477,7 +1483,7 @@ export async function buildServer(overrides: {
     // What an update would cut off: a turn running or a decision waiting.
     sessions: () => runner.busyCount(),
   });
-  registerServerUpdateRoutes(app, updates);
+  registerServerUpdateRoutes(app, updates, remote);
   registerRoutes(app, {
     db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, terminals, recentTools, errors,
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees,
@@ -1615,11 +1621,16 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const parentPid = desktopParentPid();
   if (parentPid !== null) exitWithParent(app, parentPid);
   await app.listen({ host: '127.0.0.1', port: CONFIG.port });
-  console.log(`orbital server on http://127.0.0.1:${CONFIG.port}`);
-  // The link that sets the cookie: on this server when it serves the web app,
-  // on vite's port in dev, where vite proxies `/api` here.
-  const webOrigin = process.env.ORBITAL_STATIC_DIR
-    ? `http://127.0.0.1:${CONFIG.port}`
-    : `http://localhost:${DEV_WEB_PORT}`;
-  console.log(`orbital: open ${webOrigin}/api/auth?token=${apiToken}`);
+  if (process.env.ORBITAL_HEADLESS === '1') {
+    // Stdout is the journal here, which other users may read: no token, no link carrying one.
+    console.log(`orbital: listening on 127.0.0.1:${CONFIG.port}; orbital status for more`);
+  } else {
+    console.log(`orbital server on http://127.0.0.1:${CONFIG.port}`);
+    // The link that sets the cookie: on this server when it serves the web app,
+    // on vite's port in dev, where vite proxies `/api` here.
+    const webOrigin = process.env.ORBITAL_STATIC_DIR
+      ? `http://127.0.0.1:${CONFIG.port}`
+      : `http://localhost:${DEV_WEB_PORT}`;
+    console.log(`orbital: open ${webOrigin}/api/auth?token=${apiToken}`);
+  }
 }

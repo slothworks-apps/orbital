@@ -43,6 +43,8 @@ export type FederatedSource = {
   /** When it was last ready, while it is not; null while it is, or before it ever was. */
   asOf: number | null
   version: string | null
+  /** The OS and its version its hello named (`Ubuntu 24.04`); null from a device that names none. */
+  osVersion: string | null
   capabilities: string[]
 }
 
@@ -151,7 +153,7 @@ export class GroupFederation implements SwappableClient {
       return {
         id: s.id, name: info?.name ?? '', kind: info?.kind ?? hello?.kind ?? 'desktop', os: info?.os ?? '',
         online: info?.online ?? false, ready: s.ready, asOf: s.asOf,
-        version: helloVersion(hello), capabilities: hello?.capabilities ?? [],
+        version: helloVersion(hello), osVersion: hello?.osVersion ?? null, capabilities: hello?.capabilities ?? [],
       }
     })
   }
