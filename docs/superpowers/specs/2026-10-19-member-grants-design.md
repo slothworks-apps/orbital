@@ -79,3 +79,18 @@ them too: a phone is a member like any other.
 - A refusal is put in words the session can act on: `not_granted` names
   the device and the grant to turn on there in Settings → Devices;
   `member_offline` says the device is offline.
+
+## Scope
+
+- For: anyone with more than one device in a group.
+- Lives: on by default; inert without a group.
+- An existing user notices: five toggles under each other device in
+  Settings → Devices. What members could do before stays on; upkeep and
+  IDE are new and off.
+- Can be set: each grant, per member, on the device it protects.
+
+## Phone
+
+A phone is a member like any other, so its grants show on the Mac and the
+Mac enforces them; nothing changes in the phone app. The phone runs no
+sessions of its own and has no grants to give, so it gets no toggles.
