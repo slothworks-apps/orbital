@@ -6,6 +6,9 @@ name: Release
 # ships to; the jobs after it build and publish only what is missing:
 #
 #   mac         desktop/package.json  → a published GitHub Release v<version>
+#   deb         desktop/package.json  → orbital <version> in the apt repository
+#                                       at apt.slothworks.io, and its .deb on
+#                                       the Release v<version>
 #   ota         mobile/package.json   → the phone's bundle <version> on Beam,
 #                                       encrypted and signed
 #   ios         build.gradle          → TestFlight, then the tag
@@ -20,7 +23,8 @@ name: Release
 # build number it already has counts as shipped (scripts/store-duplicate.mjs),
 # so a build that reached the store without its tag is recorded, not stuck.
 # The secrets each job reads are in the runbooks run-the-desktop-app,
-# build-the-ios-app, build-the-android-app and ship-the-phone-over-the-air.
+# build-the-ios-app, build-the-android-app, ship-the-phone-over-the-air and
+# run-orbital-on-an-ubuntu-server.
 on:
   push:
     branches: [main]
@@ -44,11 +48,13 @@ jobs:
       packages: read
     outputs:
       mac: ${{ steps.plan.outputs.mac }}
+      deb: ${{ steps.plan.outputs.deb }}
       ota: ${{ steps.plan.outputs.ota }}
       ios: ${{ steps.plan.outputs.ios }}
       android: ${{ steps.plan.outputs.android }}
       relay: ${{ steps.plan.outputs.relay }}
       mac-version: ${{ steps.plan.outputs.mac-version }}
+      deb-version: ${{ steps.plan.outputs.deb-version }}
       ota-version: ${{ steps.plan.outputs.ota-version }}
       ios-version: ${{ steps.plan.outputs.ios-version }}
       android-version: ${{ steps.plan.outputs.android-version }}
@@ -161,6 +167,128 @@ jobs:
         run: |
           rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/cert.p12"
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+
+  deb:
+    # The server for Ubuntu (spec 2026-10-19-headless-server-design → The
+    # package, The apt repository). After `mac`, and only once the desktop's
+    # Release for the same version is published, so a server is never offered
+    # a version with no DMG. When `mac` was skipped because the DMG had
+    # shipped, the Release is there and this runs; when it failed, this does
+    # not. Built on 22.04, so its native modules load on 22.04 and 24.04.
+    needs: [plan, mac]
+    if: ${{ !cancelled() && needs.plan.outputs.deb == 'true' && needs.mac.result != 'failure' }}
+    runs-on: ubuntu-22.04
+    # write: the .deb on the Release.
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.plan.outputs.deb-version }}
+    steps:
+      - name: Check the secrets are there
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          missing=""
+          for name in APT_GPG_PRIVATE_KEY R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET; do
+            [ -n "$(printenv "$name")" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing secrets:$missing (runbook run-orbital-on-an-ubuntu-server)"
+            exit 1
+          fi
+
+      - name: Check the desktop's release is published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          draft="$(gh release view "v$VERSION" --json isDraft --jq .isDraft 2>/dev/null || true)"
+          if [ "$draft" != false ]; then
+            echo "::error::The Release v$VERSION is not published, so the package does not ship. A later run retries."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w server
+      - name: Build the package
+        run: |
+          node scripts/build-deb.mjs --out "$RUNNER_TEMP/deb"
+          echo "DEB=$RUNNER_TEMP/deb/orbital_${VERSION}_amd64.deb" >> "$GITHUB_ENV"
+
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "v$VERSION" "$DEB" --clobber
+
+      # The repository's current Packages file is read from the bucket, not
+      # from apt.slothworks.io, which a cache may hold back; only the new
+      # files go up. The pool first, then the index, then the signed Release
+      # files, so a client never reads an index that names a file not there
+      # yet. The checksum settings are what R2 takes from the AWS CLI.
+      - name: Add it to the repository
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          command -v dpkg-scanpackages >/dev/null || { sudo apt-get update && sudo apt-get install -y dpkg-dev; }
+          s3() { aws s3 --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com" "$@"; }
+          bucket="s3://$R2_BUCKET"
+          index=dists/stable/main/binary-amd64/Packages
+          current="$RUNNER_TEMP/Packages"
+          if ! answer="$(aws s3api head-object --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com" \
+                --bucket "$R2_BUCKET" --key "$index" 2>&1)"; then
+            if printf '%s' "$answer" | grep -q '(404)'; then
+              echo "No Packages file yet: the repository's first release."
+              : > "$current"
+            else
+              echo "$answer"
+              exit 1
+            fi
+          else
+            s3 cp "$bucket/$index" "$current"
+          fi
+
+          repo="$RUNNER_TEMP/repo"
+          node scripts/apt-repo.mjs add --deb "$DEB" --packages "$current" --out "$repo"
+
+          if [ -d "$repo/pool" ]; then
+            s3 cp "$repo/pool" "$bucket/pool" --recursive --cache-control 'public, max-age=31536000, immutable'
+          fi
+          for f in Packages Packages.gz; do
+            s3 cp "$repo/dists/stable/main/binary-amd64/$f" "$bucket/dists/stable/main/binary-amd64/$f" --cache-control 'no-cache'
+          done
+          for f in Release Release.gpg InRelease; do
+            s3 cp "$repo/dists/stable/$f" "$bucket/dists/stable/$f" --cache-control 'no-cache'
+          done
+          s3 cp "$repo/orbital.gpg" "$bucket/orbital.gpg" --cache-control 'no-cache'
+
+      # Through apt.slothworks.io, as `plan` asks next time; its cache may
+      # take a moment to let the new index through.
+      - name: Check the repository lists it
+        run: |
+          for _ in 1 2 3 4 5 6; do
+            node scripts/apt-repo.mjs --check "$VERSION" && exit 0
+            sleep 30
+          done
+          echo "::error::apt.slothworks.io does not list orbital $VERSION after the upload"
+          exit 1
 
   ios:
     needs: plan

@@ -10,13 +10,17 @@
 //                                              unless named), or nothing
 //
 // The desktop app has shipped when its GitHub Release `v<version>` is
-// published (a draft is a release whose upload did not finish), the relay
+// published (a draft is a release whose upload did not finish), the Linux
+// package (the desktop's version, spec 2026-10-19-headless-server-design →
+// The package) when the apt repository lists it, the relay
 // when its image is in GHCR, the phone's app version when Beam has its bundle
 // (spec 2026-10-09-phone-ota-updates-design → Releasing), the phone's native
 // version on iOS and on Android each when the tag its store job writes once
 // that store has the build exists. A lookup that fails for any other reason than "not there" stops the
 // run: read as "not shipped", an outage of GitHub or Beam would ship a version
-// again.
+// again. The apt repository is the exception: a failed lookup reads as not
+// shipped, because shipping the package again is harmless — scripts/apt-repo.mjs
+// keeps a listed version's entry and .deb, and only signs the index again.
 //
 // Everything above the CLI is pure and takes the lookups as arguments, so
 // scripts/release-plan.test.mjs runs without gh, git, docker or Beam.
@@ -24,6 +28,7 @@
 import { execFile } from 'node:child_process'
 import { appendFileSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { check as aptLists } from './apt-repo.mjs'
 import { BEAM_CONFIG, bundleExists, readBeam } from './beam.mjs'
 
 export const DESKTOP_PACKAGE = 'desktop/package.json'
@@ -64,8 +69,11 @@ export function phoneVersion(gradle) {
 // each tracked on its own.
 export function readVersions(read) {
   const native = phoneVersion(read(GRADLE))
+  const mac = packageVersion(read(DESKTOP_PACKAGE), DESKTOP_PACKAGE)
   return {
-    mac: packageVersion(read(DESKTOP_PACKAGE), DESKTOP_PACKAGE),
+    mac,
+    // The same server as the DMG, so the same version.
+    deb: mac,
     ota: packageVersion(read(MOBILE_PACKAGE), MOBILE_PACKAGE),
     ios: native,
     android: native,
@@ -83,6 +91,7 @@ export function names(versions, owner) {
     throw new Error('no repository owner (GITHUB_REPOSITORY_OWNER) to name the relay image by')
   return {
     mac: `v${versions.mac}`,
+    deb: `orbital=${versions.deb}`,
     ota: versions.ota,
     ios: `mobile-ios-v${versions.ios}`,
     android: `mobile-android-v${versions.android}`,
@@ -102,8 +111,9 @@ export const HELD = {}
 export async function plan({ read, owner, lookups, held = HELD }) {
   const versions = readVersions(read)
   const asked = names(versions, owner)
-  const [mac, ota, ios, android, relay] = await Promise.all([
+  const [mac, deb, ota, ios, android, relay] = await Promise.all([
     lookups.release(asked.mac),
+    lookups.apt(versions.deb).catch(() => false),
     lookups.bundle(asked.ota).then(
       (answer) => answer,
       (error) => ({ error }),
@@ -116,13 +126,14 @@ export async function plan({ read, owner, lookups, held = HELD }) {
   if (ota && typeof ota === 'object' && 'error' in ota) {
     errors.ota = ota.error instanceof Error ? ota.error.message : String(ota.error)
   }
-  const shipped = { mac, ios, android, relay, ...(errors.ota ? {} : { ota }) }
+  const shipped = { mac, deb, ios, android, relay, ...(errors.ota ? {} : { ota }) }
   for (const [app, answer] of Object.entries(shipped)) {
     if (typeof answer !== 'boolean')
       throw new Error(`the ${app} lookup answered ${String(answer)}, not true or false`)
   }
   const ship = {
     mac: !mac,
+    deb: !deb,
     ota: errors.ota ? 'error' : !ota,
     ios: !ios,
     android: !android,
@@ -135,11 +146,13 @@ export async function plan({ read, owner, lookups, held = HELD }) {
 export function outputs(result) {
   return [
     `mac=${result.ship.mac}`,
+    `deb=${result.ship.deb}`,
     `ota=${result.ship.ota}`,
     `ios=${result.ship.ios}`,
     `android=${result.ship.android}`,
     `relay=${result.ship.relay}`,
     `mac-version=${result.versions.mac}`,
+    `deb-version=${result.versions.deb}`,
     `ota-version=${result.versions.ota}`,
     `ios-version=${result.versions.ios}`,
     `android-version=${result.versions.android}`,
@@ -152,6 +165,7 @@ export function summary(result) {
     `${label.padEnd(15)}${result.versions[app].padEnd(10)}${result.held?.[app] ? 'held' : result.ship[app] === 'error' ? 'error' : result.ship[app] ? 'ship' : 'shipped'}  (${result.held?.[app] ?? result.errors?.[app] ?? result.names[app]})`
   return [
     line('mac', 'desktop'),
+    line('deb', 'Linux package'),
     line('ota', 'phone app'),
     line('ios', 'iOS shell'),
     line('android', 'Android shell'),
@@ -186,6 +200,8 @@ function run(command, args, notThere) {
 }
 
 export const realLookups = {
+  // The repository's Packages file, over HTTPS (scripts/apt-repo.mjs).
+  apt: (version) => aptLists(version),
   // Beam's version lookup, behind the app's upload key (scripts/beam.mjs).
   async bundle(version) {
     const beam = readBeam(readFileSync(new URL(`../${BEAM_CONFIG}`, import.meta.url), 'utf8'))

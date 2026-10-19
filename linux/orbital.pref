@@ -1,0 +1,7 @@
+# Installed by the orbital package (spec 2026-10-19-headless-server-design →
+# Only our package). An `orbital` from any other source never wins over the
+# Orbital repository's: those have the default 500, this one 990, which is
+# below 1000 so it never downgrades an installed version either.
+Package: orbital
+Pin: origin "apt.slothworks.io"
+Pin-Priority: 990

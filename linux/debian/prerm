@@ -1,0 +1,26 @@
+#!/bin/sh
+# The orbital package's prerm: on removal (not on an upgrade), the updater
+# and the server stop, and neither starts again.
+set -e
+
+service_user() {
+  [ -r /etc/orbital/user ] || return 0
+  u="$(head -n 1 /etc/orbital/user | tr -d '[:space:]')"
+  case "$u" in
+    '' | -* | *[!A-Za-z0-9_.-]*) return 0 ;;
+  esac
+  if id -u "$u" >/dev/null 2>&1; then printf '%s\n' "$u"; fi
+}
+
+if [ "$1" = remove ]; then
+  if [ -d /run/systemd/system ]; then
+    systemctl stop orbital-update.path orbital-update.service || true
+    user="$(service_user)"
+    if [ -n "$user" ]; then
+      systemctl --user -M "$user@" disable --now orbital.service || true
+    fi
+  fi
+  systemctl disable orbital-update.path >/dev/null 2>&1 || true
+fi
+
+exit 0

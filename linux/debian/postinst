@@ -1,0 +1,35 @@
+#!/bin/sh
+# The orbital package's postinst (spec 2026-10-19-headless-server-design →
+# The package, The root updater).
+set -e
+
+# The user `orbital setup` recorded, when it is a user on this machine.
+service_user() {
+  [ -r /etc/orbital/user ] || return 0
+  u="$(head -n 1 /etc/orbital/user | tr -d '[:space:]')"
+  case "$u" in
+    '' | -* | *[!A-Za-z0-9_.-]*) return 0 ;;
+  esac
+  if id -u "$u" >/dev/null 2>&1; then printf '%s\n' "$u"; fi
+}
+
+if [ "$1" = configure ]; then
+  user="$(service_user)"
+  if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+    if [ -n "$user" ]; then
+      # Reload first, so a changed orbital.service is what restarts. Only an
+      # enabled unit: one its user turned off stays off. A user manager that
+      # is not running (no linger, no login) is not an error.
+      systemctl --user -M "$user@" daemon-reload || true
+      if systemctl --user -M "$user@" is-enabled --quiet orbital.service 2>/dev/null; then
+        systemctl --user -M "$user@" restart orbital.service || true
+      fi
+    fi
+  fi
+  if [ -z "$user" ]; then
+    echo "Run as yourself: orbital setup"
+  fi
+fi
+
+exit 0

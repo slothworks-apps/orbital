@@ -1,0 +1,47 @@
+#!/bin/sh
+# /usr/lib/orbital/update — run as root by orbital-update.service, never by
+# hand. Upgrades the `orbital` package and nothing else; the request file's
+# content is never read.
+set -eu
+
+REQUEST=/var/lib/orbital/update/request
+# The source the runbook writes. When it is there, only it is refreshed; any
+# other name falls back to refreshing every source.
+SOURCE=/etc/apt/sources.list.d/orbital.sources
+
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export LC_ALL=C
+export DEBIAN_FRONTEND=noninteractive
+
+# Consumed before apt runs: a failed upgrade must not leave the request for
+# the path unit to start this again, and a request made during the run is a
+# new one. -L too: a symlink is removed, never followed.
+if [ ! -e "$REQUEST" ] && [ ! -L "$REQUEST" ]; then
+  echo "No update request; nothing to do."
+  exit 0
+fi
+rm -f "$REQUEST"
+
+# Until orbital setup has run, the updater does nothing.
+if [ ! -s /etc/orbital/user ]; then
+  echo "orbital setup has not run; nothing to do."
+  exit 0
+fi
+
+# DPkg::Lock::Timeout waits for apt-daily or a person's apt run rather than
+# failing on the lock.
+if [ -f "$SOURCE" ]; then
+  apt-get update -o DPkg::Lock::Timeout=600 \
+    -o Dir::Etc::sourcelist="$SOURCE" \
+    -o Dir::Etc::sourceparts=- \
+    -o APT::Get::List-Cleanup=0
+else
+  echo "$SOURCE not found: refreshing every source."
+  apt-get update -o DPkg::Lock::Timeout=600
+fi
+
+# The package's own conffile (the apt pin) keeps a local change without asking.
+apt-get install --only-upgrade -y -o DPkg::Lock::Timeout=600 \
+  -o Dpkg::Options::=--force-confdef \
+  -o Dpkg::Options::=--force-confold \
+  orbital

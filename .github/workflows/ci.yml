@@ -64,6 +64,15 @@ jobs:
               - 'server/**'
               - 'desktop/**'
             relay-image: *relay
+            # The Linux package: the server, its build script and the
+            # package's own files; its version is the desktop's.
+            deb:
+              - *shared
+              - 'server/**'
+              - 'linux/**'
+              - scripts/build-deb.mjs
+              - scripts/release-plan.mjs
+              - desktop/package.json
             mobile-bundle: *web
             site:
               - *shared
@@ -153,6 +162,76 @@ jobs:
           file: relay/Dockerfile
           push: false
           cache-from: type=gha,scope=relay
+
+  deb:
+    # The Linux package release.yml ships, built and installed on the Ubuntu
+    # it is built for, then run: the one place the server runs on real Linux
+    # from the package (spec 2026-10-19-headless-server-design → The
+    # package). The server's tests already run on Linux in `check (server)`.
+    name: build (linux package)
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.filters), 'deb')
+    runs-on: ubuntu-22.04
+    env:
+      PORT: '4747'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build -w server
+      - run: node scripts/build-deb.mjs --out "$RUNNER_TEMP/deb"
+      - run: dpkg-deb --info "$RUNNER_TEMP"/deb/orbital_*_amd64.deb
+      - run: sudo apt-get install -y "$RUNNER_TEMP"/deb/orbital_*_amd64.deb
+      - run: orbital --help
+
+      # The server under the bundled Node, as the unit starts it, on a port
+      # and data dir of its own.
+      - name: Start the server by hand and ask it
+        run: |
+          version="$(cat /usr/lib/orbital/VERSION)"
+          data="$RUNNER_TEMP/orbital-data"
+          ORBITAL_HEADLESS=1 ORBITAL_PORT="$PORT" ORBITAL_DATA_DIR="$data" \
+            ORBITAL_MIGRATIONS_DIR=/usr/lib/orbital/server/drizzle \
+            /usr/lib/orbital/node /usr/lib/orbital/server/index.mjs > "$RUNNER_TEMP/server.log" 2>&1 &
+          echo "SERVER_PID=$!" >> "$GITHUB_ENV"
+          for _ in $(seq 60); do
+            curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1 && break
+            sleep 1
+          done
+          token="$(cat "$data/api-token")"
+          ask() { curl -fsS -H "Authorization: Bearer $token" "http://127.0.0.1:$PORT$1"; }
+          ask /api/health | jq -e --arg v "$version" '.app == "orbital" and .version == $v'
+          ask /api/server/update | jq -e --arg v "$version" '.packaged == true and .installed == $v and .updating == false'
+          ORBITAL_PORT="$PORT" ORBITAL_DATA_DIR="$data" orbital status
+
+      - name: The server's log
+        if: always()
+        run: |
+          cat "$RUNNER_TEMP/server.log" || true
+          kill "$SERVER_PID" 2>/dev/null || true
+
+      # What a user runs after installing: the root steps through sudo, the
+      # user unit with lingering, then the status. A second run changes nothing.
+      - name: orbital setup
+        run: |
+          orbital setup
+          orbital setup | tee "$RUNNER_TEMP/setup-again.log"
+          grep -q 'nothing changed' "$RUNNER_TEMP/setup-again.log"
+          test "$(cat /etc/orbital/user)" = "$(id -un)"
+          test "$(stat -c '%U:%G %a' /var/lib/orbital/update)" = "root:$(id -gn) 770"
+          systemctl is-active orbital-update.path
+
+      - name: The service's log
+        if: always()
+        run: XDG_RUNTIME_DIR="/run/user/$(id -u)" journalctl --user -u orbital --no-pager || true
+
+      - name: Purge it
+        run: |
+          sudo apt-get purge -y orbital
+          test ! -e /etc/orbital && test ! -e /var/lib/orbital && test ! -e /usr/bin/orbital
 
   mobile-bundle:
     # The web bundle the phone app wraps, and the guard that keeps three.js
@@ -287,7 +366,7 @@ jobs:
     # not.
     name: ci passed
     if: always()
-    needs: [changes, check, desktop-app, relay-image, mobile-bundle, site, versions, scripts, docs, secrets, dependencies]
+    needs: [changes, check, desktop-app, relay-image, deb, mobile-bundle, site, versions, scripts, docs, secrets, dependencies]
     runs-on: ubuntu-latest
     steps:
       - env:

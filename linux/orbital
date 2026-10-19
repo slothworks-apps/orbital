@@ -1,0 +1,3 @@
+#!/bin/sh
+# /usr/bin/orbital: the CLI, on the Node runtime the package carries.
+exec /usr/lib/orbital/node /usr/lib/orbital/cli.mjs "$@"
