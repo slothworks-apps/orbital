@@ -233,17 +233,30 @@ export class UpdateService {
     }
     if (this.when === 'idle' && this.opts.backend.waitsItself && !this.installing) {
       if (this.opts.backend.waiting() !== null) {
-        // Main waits for its sessions: no time runs out on that.
         this.sawWaiting = true;
-        if (progress !== 'idle') this.sawProgress = true;
-        this.clearTimer();
+        if (progress === 'downloading') {
+          // Still downloading: a stalled download fails as for `now`, wait or no wait.
+          this.sawProgress = true;
+          this.armTimer();
+        } else {
+          // Downloaded, main waits for its sessions: no time runs out on that.
+          if (progress === 'downloaded') this.sawProgress = true;
+          this.clearTimer();
+        }
         return;
       }
-      if (this.sawWaiting) {
-        // Its wait ended in the install: from here as for `now`.
+      if (progress === 'idle') {
+        // Its download stopped without the update: failed, and nothing installs to remember.
+        if (this.sawProgress || this.sawWaiting) this.fail();
+        return;
+      }
+      if (this.sawWaiting || progress === 'downloaded') {
+        // Its wait ended in the install — or there was none to wait for: downloaded, nothing
+        // busy, it restarts at once. From here as for `now`; a cancel finds nothing to stop.
         this.installing = true;
         this.remember();
         this.armTimer();
+        return;
       }
     }
     if (progress === 'idle') {

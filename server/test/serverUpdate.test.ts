@@ -531,11 +531,59 @@ describe('UpdateService · update when sessions finish', () => {
       b.waiting = 2;
       b.progress('downloading');
       expect(service.state().waiting).toEqual({ sessions: 2 });
+      // While it still downloads, the download's own wait runs, wait or no wait.
+      vi.advanceTimersByTime(900);
+      b.progress('downloading');
+      vi.advanceTimersByTime(900);
+      expect(service.state().updating).toBe(true);
+      b.progress('downloaded');
       vi.advanceTimersByTime(60 * 60_000);
       expect(service.state()).toMatchObject({ updating: true, waiting: { sessions: 2 } });
       expect(existsSync(join(dir, UPDATE_MARKER_FILE))).toBe(false);
       // The wait ends in the install: remembered, and the timeout runs.
       b.waiting = null;
+      b.progress('downloaded');
+      expect(service.state()).toMatchObject({ updating: true, waiting: null });
+      expect(readMarker(join(dir, UPDATE_MARKER_FILE))).toMatchObject({ to: '0.36.0' });
+      expect(service.cancel()).toMatchObject({ ok: false, error: 'not_waiting' });
+      vi.advanceTimersByTime(1_000);
+      expect(service.state()).toMatchObject({ updating: false, failed: '0.36.0' });
+      service.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a Mac\'s download that stalls during its wait fails at the timeout; one that fails leaves no marker', () => {
+    vi.useFakeTimers();
+    try {
+      const { b, backend } = fakeBackend({ kind: 'desktop' });
+      const { dir, service } = make(backend, () => 1);
+      service.start(null, { when: 'idle' });
+      b.waiting = 1;
+      b.progress('downloading');
+      vi.advanceTimersByTime(1_000);
+      expect(service.state()).toMatchObject({ updating: false, failed: '0.36.0' });
+      expect(b.cancels).toBe(1);
+
+      service.start(null, { when: 'idle' });
+      b.progress('downloading');
+      b.waiting = null;
+      b.progress('idle');
+      expect(service.state()).toMatchObject({ updating: false, failed: '0.36.0' });
+      expect(existsSync(join(dir, UPDATE_MARKER_FILE))).toBe(false);
+      service.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a Mac that restarts at once (downloaded, nothing busy) is installing: remembered, timed, not cancellable', () => {
+    vi.useFakeTimers();
+    try {
+      const { b, backend } = fakeBackend({ kind: 'desktop' });
+      const { dir, service } = make(backend, () => 0);
+      service.start(null, { when: 'idle' });
       b.progress('downloaded');
       expect(service.state()).toMatchObject({ updating: true, waiting: null });
       expect(readMarker(join(dir, UPDATE_MARKER_FILE))).toMatchObject({ to: '0.36.0' });
@@ -558,7 +606,7 @@ describe('UpdateService · update when sessions finish', () => {
     expect(b.cancels).toBe(1);
 
     service.start(null, { when: 'idle' });
-    b.progress('downloaded');
+    b.progress('downloading');
     b.progress({ ended: 'cancelled' });
     expect(service.state()).toMatchObject({ updating: false, failed: null, failedReason: null, waiting: null });
     expect(b.cancels).toBe(1);
