@@ -37,7 +37,7 @@ export function loadOrCreateIdentity(dataDir: string): { identity: Identity; reg
     regenerated = true;
   }
   const identity = generateIdentity();
-  ensureDataDir(dataDir, process.platform);
+  ensureDataDir(dataDir, process.platform, process.getuid?.());
   writeIdentity(path, identity);
   return { identity, regenerated };
 }

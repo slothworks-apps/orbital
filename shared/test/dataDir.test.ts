@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { DATA_DIR_MODE, ensureDataDir, orbitalDataDir } from '../src/dataDir.js';
+import { DATA_DIR_MODE, DataDirNotOwned, ensureDataDir, orbitalDataDir } from '../src/dataDir.js';
 
 describe('orbitalDataDir', () => {
   it('follows ORBITAL_DATA_DIR on any platform, over XDG_DATA_HOME too', () => {
@@ -60,5 +60,23 @@ describe('ensureDataDir', () => {
     expect(mode(dir)).toBe(0o755);
     ensureDataDir(dir, 'linux');
     expect(mode(dir)).toBe(DATA_DIR_MODE);
+  });
+});
+
+describe('ensureDataDir: whose it is, and a filesystem without modes', () => {
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'orbital-datadir-'));
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  it('refuses a data dir another uid owns, before changing anything', () => {
+    const dir = join(root, 'orbital');
+    mkdirSync(dir);
+    chmodSync(dir, 0o755);
+    const mine = statSync(dir).uid;
+    expect(() => ensureDataDir(dir, 'linux', mine + 1)).toThrow(DataDirNotOwned);
+    expect(statSync(dir).mode & 0o777).toBe(0o755);
+    expect(ensureDataDir(dir, 'linux', mine)).toBeNull();
   });
 });

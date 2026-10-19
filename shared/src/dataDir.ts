@@ -7,7 +7,7 @@
  *
  * Node-only: nothing on the phone imports this.
  */
-import { chmodSync, mkdirSync, statSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 
 export type DataDirInput = {
@@ -32,15 +32,35 @@ export function orbitalDataDir({ env, home, platform }: DataDirInput): string {
 /** The data dir's mode: the token, the keys and the database are this user's alone. */
 export const DATA_DIR_MODE = 0o700;
 
+/** The data dir belongs to another user: Orbital must not keep this user's token and keys in it. */
+export class DataDirNotOwned extends Error {}
+
 /**
  * Makes the data dir with `DATA_DIR_MODE`, and, where it already exists
  * with any group or other bit set, takes those away — except on a Mac,
  * whose Application Support is the user's already and where the desktop app
  * is the threat model. Every creator of the data dir goes through this, so
  * none makes it readable to the machine's other users.
+ *
+ * `uid` is this process's (none where the platform has no uids). The dir
+ * itself, not what a link points at (`lstat`), owned by another uid throws
+ * `DataDirNotOwned`. A chmod the filesystem refuses (vfat, CIFS) is not
+ * fatal: the warning to say is returned, null when there is none.
  */
-export function ensureDataDir(dir: string, platform: NodeJS.Platform): void {
+export function ensureDataDir(dir: string, platform: NodeJS.Platform, uid?: number): string | null {
   mkdirSync(dir, { recursive: true, mode: DATA_DIR_MODE });
-  if (platform === 'darwin') return;
-  if ((statSync(dir).mode & 0o077) !== 0) chmodSync(dir, DATA_DIR_MODE);
+  const st = lstatSync(dir);
+  if (uid !== undefined && st.uid !== uid) {
+    throw new DataDirNotOwned(
+      `The data dir ${dir} belongs to another user (uid ${st.uid}). Run Orbital as that user, or point ORBITAL_DATA_DIR at a directory of your own.`,
+    );
+  }
+  if (platform === 'darwin' || (st.mode & 0o077) === 0) return null;
+  try {
+    chmodSync(dir, DATA_DIR_MODE);
+    return null;
+  } catch (err) {
+    const why = (err as { code?: string }).code ?? (err instanceof Error ? err.message : String(err));
+    return `could not make ${dir} private (${why}); other users on this machine may read it.`;
+  }
 }

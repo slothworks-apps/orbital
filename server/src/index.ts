@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
-import { ensureDataDir } from '@orbital/shared/dataDir';
+import { DataDirNotOwned, ensureDataDir } from '@orbital/shared/dataDir';
 import { CONFIG } from './config.js';
 import { applyLoginShellPath } from './env/loginPath.js';
 import { isExecutableFile } from './env/shell.js';
@@ -1618,8 +1618,16 @@ function exitWithParent(app: FastifyInstance, parentPid: number): void {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  // Before anything writes into it: a data dir an older build made open to the group is closed once, here.
-  ensureDataDir(CONFIG.dataDir, process.platform);
+  // Before anything writes into it: a data dir an older build made open to the
+  // group is closed once, here; one that is another user's stops the start.
+  try {
+    const warning = ensureDataDir(CONFIG.dataDir, process.platform, process.getuid?.());
+    if (warning) console.warn(`orbital: ${warning}`);
+  } catch (err) {
+    if (!(err instanceof DataDirNotOwned)) throw err;
+    console.error(`orbital: ${err.message}`);
+    process.exit(1);
+  }
   const apiToken = loadOrCreateApiToken(CONFIG.dataDir);
   const app = await buildServer({ apiToken });
   const parentPid = desktopParentPid();
