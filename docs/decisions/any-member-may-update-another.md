@@ -30,9 +30,11 @@ an SSH session or a walk to the machine
   - The `POST` body carries one choice: `when`, either now or when
     sessions finish.
   - `DELETE` cancels a wait.
-  - Nothing a caller sends names a version, a package or a path. Any member may call them through its channel, the
-  phone included. This is not a primary-only action: an update changes no
-  membership, and the phone is never the primary.
+  - Nothing a caller sends names a version, a package or a path.
+
+  Any member may call them through its channel, the phone included. This
+  is not a primary-only action: an update changes no membership, and the
+  phone is never the primary.
 - **A server** installs through apt. The unprivileged service writes a
   request file, and a root systemd unit runs only
   `apt-get install --only-upgrade orbital`, from a repository bound to
