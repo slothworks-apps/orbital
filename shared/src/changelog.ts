@@ -61,6 +61,20 @@ function plain(line: string): string {
 }
 
 /**
+ * The part of `markdown` that is `version`'s, from its heading up to the
+ * next version's, as written; empty when there is none. A build hands the
+ * client only this (web `changelogSection.ts`), and `releaseNotes` reads the
+ * same notes from it as from the whole file.
+ */
+export function releaseSection(markdown: string, version: string): string {
+  const lines = markdown.split(/\r?\n/);
+  const start = lines.findIndex((line) => VERSION_HEADING.exec(line)?.[1] === version);
+  if (start === -1) return '';
+  const next = lines.findIndex((line, i) => i > start && /^##\s/.test(line));
+  return lines.slice(start, next === -1 ? undefined : next).join('\n');
+}
+
+/**
  * The notes of `version` in `markdown`, or null when the changelog has no
  * section for it or the section has no lines. A line that wraps onto the
  * next (indented, no bullet) joins its item.

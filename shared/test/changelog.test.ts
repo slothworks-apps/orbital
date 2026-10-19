@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { firstReleaseNotes, releaseNotes } from '../src/changelog.js';
+import { firstReleaseNotes, releaseNotes, releaseSection } from '../src/changelog.js';
 
 // Samples as they stand in desktop/CHANGELOG.md and mobile/CHANGELOG.md.
 const DESKTOP = `# Changelog — Orbital for Mac
@@ -135,5 +135,21 @@ describe('firstReleaseNotes', () => {
       'The Needs input setting now says that it also covers a finished turn.',
     ]);
     expect(firstReleaseNotes(releaseNotes(DESKTOP, '0.34.1')!)).toHaveLength(1);
+  });
+});
+
+describe('releaseSection', () => {
+  it('cuts out one version as written, from which the same notes read', () => {
+    for (const [md, v] of [[DESKTOP, '0.35.0'], [DESKTOP, '0.34.2'], [DESKTOP, '0.34.1'], [MOBILE, '0.16.0'], [MOBILE, '0.15.3']] as const) {
+      const section = releaseSection(md, v);
+      expect(section.split('\n')[0]).toMatch(new RegExp(`^## \\[${v.replace(/\./g, '\\.')}\\]`));
+      expect(section).not.toMatch(/\n## /);
+      expect(releaseNotes(section, v)).toEqual(releaseNotes(md, v));
+    }
+  });
+
+  it('is empty for a version the file does not list', () => {
+    expect(releaseSection(DESKTOP, '9.9.9')).toBe('');
+    expect(releaseNotes(releaseSection(DESKTOP, '9.9.9'), '9.9.9')).toBeNull();
   });
 });

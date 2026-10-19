@@ -1,6 +1,7 @@
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
+import { changelogSection } from './changelogSection.ts'
 
 /**
  * Which server this dev frontend talks to. `npm run dev` exports 4838 so the
@@ -13,7 +14,7 @@ const SERVER_PORT = process.env.ORBITAL_PORT ?? '4737'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [tailwindcss(), react()],
+  plugins: [tailwindcss(), react(), changelogSection()],
   server: {
     // `DEV_WEB_PORT` in server/src/index.ts, the one web origin the server's
     // socket accepts besides its own. Strict: a taken port fails here, loudly,
