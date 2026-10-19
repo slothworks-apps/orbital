@@ -167,6 +167,8 @@ describe('an update another member started on this Mac', () => {
     expect(line(wait(2))).toBe('Waiting for 2 sessions to finish · then restarts on 0.36.0 · started on Pixel 8')
     expect(line(downloading)).toBe('Waiting for 2 sessions to finish · then restarts on 0.36.0 · started on Pixel 8')
     expect(selfUpdateStrip(wait(2))).toEqual({ to: null, line: 'waiting for 2 sessions to finish · then 0.36.0', link: true })
+    expect(selfUpdateStrip(wait(0))?.line).toBe('waiting for the sessions here to finish · then 0.36.0')
+    expect(line(wait(0))).toBe('Waiting for the sessions here to finish · then restarts on 0.36.0 · started on Pixel 8')
   })
 
   it('03 a session started here: the normal Ready, and the lines say it waits for this Mac', () => {

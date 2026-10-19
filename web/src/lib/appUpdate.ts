@@ -222,7 +222,11 @@ export function selfUpdateStrip(
   const remote = state.remote ?? null
   if (remote && remoteWaits(state)) {
     // Canvas 50v 02 `me`: no arrow while it waits; the line points at Settings › Updates.
-    return { to: null, line: updateWaitingWords(remote.working, state.version).line, link: true }
+    // At none, the words of Settings › Updates on the same Mac (`updateCheckLine`), not a member's `its sessions`.
+    const line = remote.working <= 0
+      ? `waiting for the sessions here to finish · then ${state.version}`
+      : updateWaitingWords(remote.working, state.version).line
+    return { to: null, line, link: true }
   }
   if (state.phase === 'downloading' && remote) {
     return { to: state.version, line: `updating to ${state.version} · started on ${remote.by}`, link: true }
