@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -78,5 +78,19 @@ describe('ensureDataDir: whose it is, and a filesystem without modes', () => {
     expect(() => ensureDataDir(dir, 'linux', mine + 1)).toThrow(DataDirNotOwned);
     expect(statSync(dir).mode & 0o777).toBe(0o755);
     expect(ensureDataDir(dir, 'linux', mine)).toBeNull();
+  });
+
+  it('judges a link by the directory it points at too', () => {
+    const target = join(root, 'elsewhere');
+    mkdirSync(target);
+    chmodSync(target, 0o755);
+    const dir = join(root, 'orbital');
+    symlinkSync(target, dir);
+    const mine = statSync(target).uid;
+    // A link this user made, to a directory that is not theirs (stood in for by another uid): refused.
+    expect(() => ensureDataDir(dir, 'linux', mine + 1)).toThrow(DataDirNotOwned);
+    // Theirs: the mode is the target's, and it is the target that is closed.
+    expect(ensureDataDir(dir, 'linux', mine)).toBeNull();
+    expect(statSync(target).mode & 0o777).toBe(DATA_DIR_MODE);
   });
 });

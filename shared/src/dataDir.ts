@@ -7,7 +7,7 @@
  *
  * Node-only: nothing on the phone imports this.
  */
-import { chmodSync, lstatSync, mkdirSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 
 export type DataDirInput = {
@@ -43,16 +43,19 @@ export class DataDirNotOwned extends Error {}
  * none makes it readable to the machine's other users.
  *
  * `uid` is this process's (none where the platform has no uids). The dir
- * itself, not what a link points at (`lstat`), owned by another uid throws
- * `DataDirNotOwned`. A chmod the filesystem refuses (vfat, CIFS) is not
+ * owned by another uid throws `DataDirNotOwned` — the path itself (`lstat`)
+ * and, where it is a link, the directory it points at (`stat`), which is
+ * where the files land and what the mode is taken from. A chmod the filesystem refuses (vfat, CIFS) is not
  * fatal: the warning to say is returned, null when there is none.
  */
 export function ensureDataDir(dir: string, platform: NodeJS.Platform, uid?: number): string | null {
   mkdirSync(dir, { recursive: true, mode: DATA_DIR_MODE });
-  const st = lstatSync(dir);
-  if (uid !== undefined && st.uid !== uid) {
+  const link = lstatSync(dir);
+  const st = statSync(dir);
+  const foreign = uid === undefined ? undefined : [link.uid, st.uid].find((owner) => owner !== uid);
+  if (foreign !== undefined) {
     throw new DataDirNotOwned(
-      `The data dir ${dir} belongs to another user (uid ${st.uid}). Run Orbital as that user, or point ORBITAL_DATA_DIR at a directory of your own.`,
+      `The data dir ${dir} belongs to another user (uid ${foreign}). Run Orbital as that user, or point ORBITAL_DATA_DIR at a directory of your own.`,
     );
   }
   if (platform === 'darwin' || (st.mode & 0o077) === 0) return null;
