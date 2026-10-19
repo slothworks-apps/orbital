@@ -169,11 +169,11 @@ both read one copy.
   DMG. The job builds the package and attaches the `.deb` to that
   Release. It then adds the package to the repository, signs the
   repository's `Release` file with the repository key, and uploads it.
-- **The apt repository.** It lives in a Cloudflare R2 bucket served at
-  `apt.slothworks.io`. It has one component and one architecture
+- **The apt repository.** It lives in a bucket on the shared MinIO on
+  Dokploy (the one Beam uses), served at `apt.slothworks.io`. It has one component and one architecture
   (`amd64`), and keeps every released version, so a downgrade stays
   possible (`apt install orbital=<version>`). It is signed by a key
-  generated for it. The private key and an R2 token scoped to that one
+  generated for it. The private key and a MinIO key scoped to that one
   bucket are GitHub Actions secrets, and the public key is published in
   the bucket. The maintainer creates the bucket, the domain, the token and
   the key. The runbook says how, and gives the two commands that add the
@@ -181,8 +181,8 @@ both read one copy.
 - **As built.** The release has two jobs:
   - `deb` builds from the desktop's tag, with no secrets, and runs
     `npm ci --ignore-scripts`.
-  - `deb-publish` is the only job that holds the signing key and the R2
-    token. It runs no npm and receives the `.deb` as an artifact.
+  - `deb-publish` is the only job that holds the signing key and the
+    bucket's key. It runs no npm and receives the `.deb` as an artifact.
 
   The index is fetched by hash (`Acquire-By-Hash`). `Release` carries
   `Valid-Until`, `APT_VALID_DAYS` ahead. The monthly `apt-resign.yml`
@@ -404,7 +404,8 @@ The CLI's wording follows the dialog it mirrors. It has no canvas.
 - An apt repository plus a root updater that can only upgrade `orbital`.
 - Any member may press Update, including the phone.
 - No automatic updates. Only on the button, or `apt upgrade`.
-- The apt repository is hosted on Cloudflare R2.
+- The apt repository is hosted on the shared MinIO on Dokploy (first R2;
+  changed to MinIO before anything was released).
 - A Mac can be updated from the phone or another member the same way, in
   this same work.
 

@@ -240,7 +240,7 @@ jobs:
 
   deb-publish:
     # Adds the package `deb` built to the repository, signs it, uploads it to
-    # R2 and attaches the .deb to the Release. The only job that sees the
+    # the S3 bucket (MinIO) and attaches the .deb to the Release. The only job that sees the
     # repository's key and the bucket's token, and it runs no npm: Node's
     # built-ins, gpg, dpkg-scanpackages and the AWS CLI. When `deb` found the
     # version listed, nothing is added: the index is signed again, which also
@@ -259,13 +259,14 @@ jobs:
       - name: Check the secrets are there
         env:
           APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
+          aws configure set default.s3.addressing_style path
           missing=""
-          for name in APT_GPG_PRIVATE_KEY R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET; do
+          for name in APT_GPG_PRIVATE_KEY S3_ENDPOINT S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY S3_BUCKET; do
             [ -n "$(printenv "$name")" ] || missing="$missing $name"
           done
           if [ -n "$missing" ]; then
@@ -289,28 +290,30 @@ jobs:
       # The repository's current Packages file is read from the bucket, not
       # from apt.slothworks.io, which a cache may hold back; only new files
       # go up, in the order apt-repo.mjs names: the pool, the by-hash copies
-      # and the Packages files, then the signed Release files. The checksum
-      # settings are what R2 takes from the AWS CLI.
+      # and the Packages files, then the signed Release files. The bucket is
+      # MinIO, addressed path-style; the checksum settings keep the AWS CLI
+      # from sending headers an S3-compatible store may refuse.
       - name: Add it to the repository
         id: add
         env:
           APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
           APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
+          aws configure set default.s3.addressing_style path
           command -v dpkg-scanpackages >/dev/null || { sudo apt-get update && sudo apt-get install -y dpkg-dev; }
-          endpoint="https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com"
+          endpoint="$S3_ENDPOINT"
           s3() { aws s3 --endpoint-url "$endpoint" "$@"; }
-          bucket="s3://$R2_BUCKET"
+          bucket="s3://$S3_BUCKET"
           index=dists/stable/main/binary-amd64
           current="$RUNNER_TEMP/Packages"
-          if ! answer="$(aws s3api head-object --endpoint-url "$endpoint" --bucket "$R2_BUCKET" --key "$index/Packages" 2>&1)"; then
+          if ! answer="$(aws s3api head-object --endpoint-url "$endpoint" --bucket "$S3_BUCKET" --key "$index/Packages" 2>&1)"; then
             if printf '%s' "$answer" | grep -q '(404)'; then
               echo "No Packages file yet: the repository's first release."
               : > "$current"
@@ -352,20 +355,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           ADDED: ${{ steps.add.outputs.added }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
+          aws configure set default.s3.addressing_style path
           deb="orbital_${VERSION}_amd64.deb"
           if [ "$ADDED" = true ]; then
             gh release upload "$TAG" "$RUNNER_TEMP/deb/$deb" --clobber
           elif ! gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qxF "$deb"; then
-            aws s3 cp --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com" \
-              "s3://$R2_BUCKET/pool/main/o/orbital/$deb" "$RUNNER_TEMP/$deb"
+            aws s3 cp --endpoint-url "$S3_ENDPOINT" \
+              "s3://$S3_BUCKET/pool/main/o/orbital/$deb" "$RUNNER_TEMP/$deb"
             gh release upload "$TAG" "$RUNNER_TEMP/$deb"
           fi
 

@@ -3,7 +3,7 @@
 // 2026-10-19-headless-server-design → The apt repository): one suite
 // (`stable`), one component (`main`), one architecture (`amd64`), every
 // released version kept, the Release file signed with the repository's key.
-// It lives in an R2 bucket served at apt.slothworks.io.
+// It lives in an S3 bucket (a MinIO) served at apt.slothworks.io.
 //
 //   node scripts/apt-repo.mjs add --deb <file> --packages <file|-> --out <dir>
 //       The repository's new files in <dir>, to upload over the bucket:

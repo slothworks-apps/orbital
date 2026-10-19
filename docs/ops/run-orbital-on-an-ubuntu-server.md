@@ -33,30 +33,37 @@ running while the Mac sleeps. Spec: [[2026-10-19-headless-server-design]].
 
 ## Once, by the maintainer: the apt repository
 
-The release job publishes to an R2 bucket served at `apt.slothworks.io`.
+The release job publishes to a bucket on the shared MinIO on Dokploy (the
+one Beam uses), served at `apt.slothworks.io`.
 Before the first release:
 
 1. **Check the package name.** No `orbital` package may exist in Ubuntu's
    archives. Run `apt-cache policy orbital` on a 22.04 and a 24.04 box,
    and search packages.ubuntu.com.
-2. **Create the bucket.** Make an R2 bucket and make it public through the
-   custom domain `apt.slothworks.io`.
-3. **Create a token.** Make an R2 API token scoped to that bucket, with
-   object read and write.
-4. **Create the signing key.** It signs this repository only:
+2. **Create the bucket.** Make a bucket on the shared MinIO, say
+   `orbital-apt`, and let anyone read it:
+   `mc anonymous set download <alias>/orbital-apt`.
+3. **Serve it.** In Dokploy, route `apt.slothworks.io` (HTTPS) to MinIO's
+   S3 port. Prefix every path with the bucket, so that
+   `https://apt.slothworks.io/dists/…` reads `/orbital-apt/dists/…`.
+   Check it with
+   `curl -I https://apt.slothworks.io/orbital.gpg` after the first release.
+4. **Create a key for CI.** Make a MinIO user, or a service account,
+   whose policy allows read and write on `orbital-apt` only.
+5. **Create the signing key.** It signs this repository only:
    ```sh
    gpg --quick-gen-key "Orbital apt repository <orbital@slothworks.io>" ed25519 sign never
    gpg --armor --export-secret-keys <fingerprint>
    ```
-5. **Add the repository secrets:**
+6. **Add the repository secrets:**
 
    | secret | value |
    |---|---|
-   | `APT_GPG_PRIVATE_KEY` | the armored secret key from step 4 |
+   | `APT_GPG_PRIVATE_KEY` | the armored secret key from step 5 |
    | `APT_GPG_PASSPHRASE` | its passphrase, if it has one |
-   | `R2_ACCOUNT_ID` | the Cloudflare account id |
-   | `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | the token from step 3 |
-   | `R2_BUCKET` | the bucket name |
+   | `S3_ENDPOINT` | MinIO's S3 API URL, e.g. `https://minio.example` (not the `apt.` domain) |
+   | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | the key from step 4 |
+   | `S3_BUCKET` | `orbital-apt` |
 
    Without them the `deb-publish` job in `release.yml` stops at its first step and
    names the missing secrets.
@@ -71,7 +78,7 @@ What the job does on each new desktop version:
 - A run that failed is retried on the next push to `main`, because the
   plan checks whether the repository lists the version yet.
 
-Only the `deb-publish` job holds the key and the R2 token. It runs no npm
+Only the `deb-publish` job holds the signing key and the bucket's key. It runs no npm
 and gets the `.deb` from the `deb` job, which builds it from the
 desktop's tag.
 

@@ -30,13 +30,14 @@ jobs:
       - name: Check the secrets are there
         env:
           APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
+          aws configure set default.s3.addressing_style path
           missing=""
-          for name in APT_GPG_PRIVATE_KEY R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET; do
+          for name in APT_GPG_PRIVATE_KEY S3_ENDPOINT S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY S3_BUCKET; do
             [ -n "$(printenv "$name")" ] || missing="$missing $name"
           done
           if [ -n "$missing" ]; then
@@ -54,22 +55,23 @@ jobs:
         env:
           APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
           APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
         run: |
-          s3() { aws s3 --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com" "$@"; }
-          bucket="s3://$R2_BUCKET"
+          aws configure set default.s3.addressing_style path
+          s3() { aws s3 --endpoint-url "$S3_ENDPOINT" "$@"; }
+          bucket="s3://$S3_BUCKET"
           index=dists/stable/main/binary-amd64
           current="$RUNNER_TEMP/Packages"
           repo="$RUNNER_TEMP/repo"
           if ! s3 cp "$bucket/$index/Packages" "$current"; then
-            if aws s3api --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com" \
-                head-object --bucket "$R2_BUCKET" --key "$index/Packages" >/dev/null 2>&1; then
+            if aws s3api --endpoint-url "$S3_ENDPOINT" \
+                head-object --bucket "$S3_BUCKET" --key "$index/Packages" >/dev/null 2>&1; then
               echo "::error::Could not read the repository's Packages file."
               exit 1
             fi
