@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { parsePairingCode } from '@orbital/shared/remote/relayApi'
+import { sameRelay } from '@orbital/shared/remote/relaySettings'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { checkedLabel } from '../lib/format'
@@ -30,11 +31,6 @@ type Outcome =
 type Joining = NonNullable<RemoteStatus['joining']>
 
 const NOT_A_CODE = "That isn't a device code."
-
-/** A relay URL as two devices compare it: a trailing slash does not make it another relay. */
-function sameRelay(a: string, b: string): boolean {
-  return a.replace(/\/+$/, '') === b.replace(/\/+$/, '')
-}
 
 /** One join, told apart from the next one with the same device by its code's expiry. */
 function joinKey(j: Joining | null | undefined): string | null {

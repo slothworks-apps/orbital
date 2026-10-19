@@ -27,7 +27,8 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'hairline'
     | 'outline'
     | 'ink'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'check' | 'member' | 'member-line' | 'beside-field' | 'over-code' | 'chooser'
+    | 'dashed-link'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'check' | 'member' | 'member-line' | 'beside-field' | 'over-code' | 'chooser' | 'inline' | 'link-mono'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -104,6 +105,9 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   outline: 'bg-transparent text-text-bright font-semibold border border-[rgba(150,205,255,.2)] hover:bg-[rgba(150,205,255,.08)]',
   // Canvas 50a's confirming Remove and Leave: filled with the bright ink, dark text, no hue.
   ink: 'bg-text-bright text-space font-semibold hover:bg-text-soft',
+  // Canvas 50a's Pair by hand and 50u's Settings → Updates ›: a quiet text link
+  // underlined by a dashed hairline, no box — ink and type from its size or its line.
+  'dashed-link': 'cursor-pointer bg-transparent border-b border-dashed border-[rgba(160,190,225,.5)] text-left',
 }
 
 // `lg` is the dialog footer button (1d: 9px/18px at 13px); `sm` is 1b's
@@ -145,6 +149,10 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   // Canvas 50g's folder chooser footer (Cancel, Choose this folder): 7px/14px
   // at 12.5px. 50g gives the hairlined Cancel 13px sides; one size is kept for both.
   chooser: 'px-3.5 py-[7px] text-[12.5px]',
+  // A link inside a line of text (50a's Pair by hand): no padding, the line's own type and ink.
+  inline: '',
+  // 50u's Settings → Updates › under this device: mono 10.5 with its tracking, in the row's brighter ink.
+  'link-mono': 'font-mono text-[10.5px] tracking-[0.04em] text-[rgba(200,220,245,.85)]',
 }
 
 export function Button({
@@ -158,8 +166,11 @@ export function Button({
   // resolves same-property utilities by stylesheet order, not by the order
   // they appear in `class`, so a variant and a size both naming a radius
   // would pick a winner arbitrarily.
-  const rounding =
-    variant === 'cta' || variant.startsWith('pill')
+  const link = variant === 'dashed-link'
+  // A link has no box to round: a radius would bend its underline at the ends.
+  const rounding = link
+    ? ''
+    : variant === 'cta' || variant.startsWith('pill')
       ? 'rounded-full'
       : size === 'strip'
         ? 'rounded-[6px]'
@@ -172,7 +183,8 @@ export function Button({
               : 'rounded-lg'
   // The same for the family: the strip chip is mono, and two font utilities
   // on one element would be settled by stylesheet order.
-  const family = size === 'strip' ? 'font-mono' : 'font-sans'
+  // A link takes the family of its line, or of its size.
+  const family = size === 'strip' ? 'font-mono' : link ? '' : 'font-sans'
 
   return (
     <button
@@ -180,7 +192,8 @@ export function Button({
       data-variant={variant}
       data-size={size}
       className={[
-        'inline-flex items-center justify-center gap-2 transition-colors',
+        // A link stays a button's own inline box, so it sits in its line of text.
+        link ? '' : 'inline-flex items-center justify-center gap-2 transition-colors',
         family,
         'disabled:cursor-not-allowed disabled:opacity-40',
         rounding,

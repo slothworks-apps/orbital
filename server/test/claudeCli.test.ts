@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { delimiter, dirname, join } from 'node:path';
+import { isExecutableFile } from '../src/env/shell.js';
 import {
   findClaudeOnDisk,
-  isExecutableFile,
   parseClaudeVersionOutput,
   resolveClaudeCli,
   sdkPlatformPackage,

@@ -21,9 +21,8 @@ import { IDENTITY_FILE, readIdentity } from '../src/remote/identity.js';
 import { RelayClient } from '../src/remote/relayClient.js';
 import { PAIR_CODE_ATTEMPTS, UNKNOWN_PHONE_NAME } from '@orbital/shared/remote/ceremony';
 import { MUTUAL_RETRY_MS } from '@orbital/shared/remote/group';
-import {
-  BAD_SECRET_ERROR, NO_RELAY_URL_ERROR, RELAY_TOO_OLD_RECHECK_MS, RemoteService, type RemoteServiceOptions,
-} from '../src/remote/service.js';
+import { BAD_SECRET_ERROR, NO_RELAY_URL_ERROR } from '../src/remote/errors.js';
+import { RELAY_TOO_OLD_RECHECK_MS, RemoteService, type RemoteServiceOptions } from '../src/remote/service.js';
 import { pairingCode, wrongCode } from './remoteHarness.js';
 import { makeTmpDir } from './tmp.js';
 

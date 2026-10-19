@@ -2,12 +2,13 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import qrcode from 'qrcode-generator'
 import { useShallow } from 'zustand/react/shallow'
 import { encodePairingCode } from '@orbital/shared/remote/relayApi'
+import { relaySecretCommit, relayUrlCommit } from '@orbital/shared/remote/relaySettings'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { checkedLabel } from '../lib/format'
 import {
-  RELAY_CHECK_WINDOW_MS, codeLeft, relayCheckSettled, relayLine, relaySecretCommit, relayUrlCommit, relayHostname,
+  RELAY_CHECK_WINDOW_MS, codeLeft, relayCheckSettled, relayLine, relayHostname,
   statusDuringCheck, type RelayLineKind,
 } from '../lib/remote'
 import {
@@ -18,7 +19,8 @@ import { UPDATE_UNREACHABLE, selfUpdateAvailable, updatePhase, updateRow, type M
 import { useMemberUpdates, type UpdateIo, type UpdateTarget } from '../lib/useMemberUpdates'
 import { useNow } from '../lib/useNow'
 import {
-  exitWords, notPrimaryAddLine, notPrimaryRemoveLine, relayChangeWords, relayLockedLine, removeWords, updateSessionsWords,
+  exitWords, notPrimaryAddLine, notPrimaryRemoveLine, relayChangeWords, relayLockedLine, removeWords, updateAvailableLine,
+  updateSessionsWords,
 } from '@orbital/shared/remote/groupWords'
 import type { GroupEnded, GroupMember, RemoteStatus } from '../lib/types'
 import { Toggle } from '../ui/Checkbox'
@@ -681,15 +683,11 @@ function ThisDevice({
       </div>
       {available && (
         <div className="-mt-1 flex items-center gap-2.5 pb-3 pl-[42px] pr-4">
-          <span className="flex-1 font-mono text-[11px] text-[rgba(200,220,245,.85)]">update available · {available}</span>
+          <span className="flex-1 font-mono text-[11px] text-[rgba(200,220,245,.85)]">{updateAvailableLine(available)}</span>
           {onOpenUpdates && (
-            <button
-              type="button"
-              onClick={onOpenUpdates}
-              className="cursor-pointer border-b border-dashed border-[rgba(160,190,225,.5)] font-mono text-[10.5px] tracking-[0.04em] text-[rgba(200,220,245,.85)]"
-            >
+            <Button variant="dashed-link" size="link-mono" onClick={onOpenUpdates}>
               Settings → Updates ›
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -921,13 +919,9 @@ function Members({
                     {/* A phone paired with another member has no presence here, so no dot. */}
                     {state !== 'elsewhere' && <MemberDot state={update.dot ?? state} sizePx={7} />}
                     {state === 'notLinked' && view.pairsByHand ? (
-                      <button
-                        type="button"
-                        onClick={() => onPairByHand(m)}
-                        className="cursor-pointer border-b border-dashed border-[rgba(160,190,225,.5)] text-left"
-                      >
+                      <Button variant="dashed-link" size="inline" onClick={() => onPairByHand(m)}>
                         {update.words}
-                      </button>
+                      </Button>
                     ) : (
                       <span>{update.words}</span>
                     )}

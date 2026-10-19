@@ -9,6 +9,7 @@ import {
   exitWords, notPrimaryRemoveLine, relayChangeWords, relayLockedLine, removeWords, updateSessionsWords,
 } from '@orbital/shared/remote/groupWords';
 import { PAIR_NAME_MAX_CHARS } from '@orbital/shared/remote/relayApi';
+import { relaySecretCommit, relayUrlCommit } from '@orbital/shared/remote/relaySettings';
 import {
   SERVER_UPDATE_REFUSALS, memberServesUpdate, parseServerUpdateState, updateIsNewer, type ServerUpdateRefusal,
   type ServerUpdateState,
@@ -154,16 +155,19 @@ async function relaySet(deps: CliDeps, url: string, source: 'keep' | SecretSourc
     return 1;
   }
   const saved = await readRelaySettings(call);
-  const urlChanged = saved.url !== url;
-  const secretChanged = secret !== null && secret !== saved.secret;
-  if (!urlChanged && !secretChanged && remote.enabled) {
+  const paired = remote.devices.length;
+  const urlCommit = relayUrlCommit(saved.url, url, paired);
+  const secretCommit = secret === null ? 'none' : relaySecretCommit(saved.secret, secret, paired);
+  const secretChanged = secretCommit !== 'none';
+  if (urlCommit === 'none' && !secretChanged && remote.enabled) {
     io.out(`The relay is ${url} already.`);
     return 0;
   }
   const patch: Record<string, string> = { remote_relay_url: url };
-  if (secretChanged) patch.remote_relay_secret = secret;
+  if (secretChanged) patch.remote_relay_secret = secret as string;
   if (!remote.enabled) patch.remote_enabled = 'true';
-  const code = await saveRelay(deps, remote, patch, urlChanged ? 'url' : secretChanged ? 'secret' : null, yes);
+  const ask = urlCommit === 'ask' ? 'url' : secretCommit === 'ask' ? 'secret' : null;
+  const code = await saveRelay(deps, remote, patch, ask, yes);
   if (code !== 0) return code;
   io.out(`Relay set: ${url}${secretChanged ? ', with its secret' : ''}. orbital status shows when it is online.`);
   return 0;
@@ -183,11 +187,12 @@ async function relaySecret(deps: CliDeps, source: SecretSource | 'clear', yes: b
     return 1;
   }
   const saved = await readRelaySettings(call);
-  if (secret === saved.secret) {
+  const commit = relaySecretCommit(saved.secret, secret, remote.devices.length);
+  if (commit === 'none') {
     io.out(secret === '' ? 'No relay secret is set.' : 'The relay secret is that already.');
     return 0;
   }
-  const code = await saveRelay(deps, remote, { remote_relay_secret: secret }, secret === '' ? null : 'secret', yes);
+  const code = await saveRelay(deps, remote, { remote_relay_secret: secret }, commit === 'ask' ? 'secret' : null, yes);
   if (code !== 0) return code;
   io.out(secret === '' ? 'Relay secret removed.' : 'Relay secret set.');
   return 0;

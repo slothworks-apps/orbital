@@ -31,6 +31,7 @@ import {
   sealPairingDevice, verifyPairingProof, type QrPayload, type RelayAction, type RelayToDevice,
 } from './relayApi.js';
 import type { LinkStatus } from './relayLink.js';
+import { sameRelay } from './relaySettings.js';
 import type { RelayTooOld } from './version.js';
 
 /**
@@ -548,7 +549,7 @@ export class PairingCeremony {
     if (qr.mac === self) return { error: 'bad_code' };
     if (this.host.paired.get(qr.mac)) return { error: 'already_paired' };
     // One relay per group (§ 4), and this device's socket is on its own.
-    if (qr.relay.replace(/\/+$/, '') !== this.host.relayUrl().replace(/\/+$/, '')) return { error: 'other_relay', relay: qr.relay };
+    if (!sameRelay(qr.relay, this.host.relayUrl())) return { error: 'other_relay', relay: qr.relay };
     const secret = fromBase64Url(qr.secret);
     // A code that names a kind is from a device of this release, which checks the proof that
     // binds the sealed kind; a Mac from before kinds checks only the plain one.

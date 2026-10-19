@@ -13,6 +13,7 @@ import {
 } from '@orbital/shared/remote/groupWords';
 import { ROSTER_MAX_ENTRIES } from '@orbital/shared/remote/roster';
 import { encodePairingCode, parsePairingCode } from '@orbital/shared/remote/relayApi';
+import { sameRelay } from '@orbital/shared/remote/relaySettings';
 import type { RemoteStatus } from '../remote/service.js';
 import { CliError, errorOf, type Call } from './client.js';
 import { TIMED_OUT, type Io, type Trap } from './io.js';
@@ -29,11 +30,6 @@ export async function readStatus(call: Call): Promise<RemoteStatus> {
   const reply = await call('GET', '/api/remote');
   if (reply.status !== 200) throw new CliError(`Orbital answered ${reply.status} to /api/remote.`);
   return reply.body as RemoteStatus;
-}
-
-/** A relay URL as two devices compare it: a trailing slash does not make it another relay. */
-function sameRelay(a: string, b: string): boolean {
-  return a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
 }
 
 /**

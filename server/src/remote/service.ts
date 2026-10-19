@@ -95,8 +95,6 @@ export type RemoteStatus = {
   group: GroupStatus;
 };
 
-export { BAD_SECRET_ERROR, NO_RELAY_URL_ERROR } from './errors.js';
-
 export type RemoteServiceOptions = {
   db: OrbitalDb;
   hub: Hub;
