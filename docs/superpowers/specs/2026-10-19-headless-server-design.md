@@ -314,8 +314,18 @@ hello reports at least this change's version. Gate it in `MAC_FEATURES`
 
 ## Scope
 
-- **For whom:** people who keep a Linux server running and want their
-  sessions there to outlive the Mac's sleep.
+- **For whom:** two groups.
+  - The server: people who keep a Linux server running and want their
+    sessions there to outlive the Mac's sleep. That is a small part of
+    those who run several sessions at once, and the server adds the most
+    upkeep of anything here: an apt repository, its signing key and
+    monthly re-sign, a root updater, two Ubuntu releases and a CLI. It is
+    built because the always-on member is what the phone needs while the
+    Mac sleeps. The runbook marks the package as a preview until its
+    reception is known.
+  - Remote update: anyone with more than one device in a group, a Mac
+    and a phone included. It lets them update a device they are not
+    sitting at.
 - **Where it lives:** a separate package. Nothing changes on a Mac or a
   phone unless a server joins the group. Then it appears as one more
   member. Remote update is on by default for every member, in the

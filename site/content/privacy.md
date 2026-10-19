@@ -1,6 +1,6 @@
 # Privacy
 
-Last updated: 9 October 2026
+Last updated: 19 October 2026
 
 Orbital is built to keep your work on your own machines. This page says
 exactly what the Mac app, the phone app, the relay and this website do with
@@ -50,7 +50,17 @@ terms and privacy policy, not this one.
 it starts and every few hours, by asking GitHub for the latest release of
 Orbital's public repository, and downloads it from there. GitHub sees what
 it sees of any download from GitHub, such as your IP address. No Orbital
-data goes with it, and nothing reaches us.
+data goes with it, and nothing reaches us. Another device in your group can
+start this update on your Mac; it goes the same way.
+
+**Orbital on a Linux server.** If you install the `orbital` package on an
+Ubuntu server, that server runs Orbital the way your Mac does, under your own
+account, and keeps its data in your home folder there. Updates come through
+the system's package manager from Orbital's package repository at
+`apt.slothworks.io`, which is a set of static files: like any download, it sees
+the server's IP address and which files it asks for, and nothing else. The
+server reads the version it is offered from what the package manager has
+already fetched; it does not contact the repository itself.
 
 ## Your devices and the relay
 

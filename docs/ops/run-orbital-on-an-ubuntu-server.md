@@ -23,6 +23,8 @@ account, as a member of kind `headless` of the device group. The Mac and
 the phone see and drive its sessions through the relay, so they keep
 running while the Mac sleeps. Spec: [[2026-10-19-headless-server-design]].
 
+- **Preview:** the package is new. Expect rough edges until it has run
+  on a few servers.
 - **Supported:** Ubuntu 22.04 and 24.04 on x64 (amd64).
 - **Not bundled:** Claude Code. Install it and log in on the server
   yourself.
@@ -87,7 +89,11 @@ same secrets.
 
 On the server, as the account Orbital should run as (not root).
 
-1. **Install Claude Code** and log in by running `claude` once.
+1. **Install Claude Code** with its native installer, and log in by
+   running `claude` once. The native installer puts `claude` in
+   `~/.local/bin`, where the service finds it. A `claude` installed with
+   npm under nvm is not found: the service starts without an interactive
+   shell, and Ubuntu's `~/.bashrc` stops before it loads nvm.
 2. **Add the source and install.** The source file must be named
    `orbital.sources`: the updater refreshes only that file.
    ```sh
