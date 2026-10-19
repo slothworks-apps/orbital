@@ -28,7 +28,7 @@
 import { execFile } from 'node:child_process'
 import { appendFileSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { check as aptLists } from './apt-repo.mjs'
+import { check as aptLists, debVersion } from './apt-repo.mjs'
 import { BEAM_CONFIG, bundleExists, readBeam } from './beam.mjs'
 
 export const DESKTOP_PACKAGE = 'desktop/package.json'
@@ -72,8 +72,8 @@ export function readVersions(read) {
   const mac = packageVersion(read(DESKTOP_PACKAGE), DESKTOP_PACKAGE)
   return {
     mac,
-    // The same server as the DMG, so the same version.
-    deb: mac,
+    // The same server as the DMG, so the same version, as Debian writes it.
+    deb: debVersion(mac),
     ota: packageVersion(read(MOBILE_PACKAGE), MOBILE_PACKAGE),
     ios: native,
     android: native,
@@ -200,7 +200,7 @@ function run(command, args, notThere) {
 }
 
 export const realLookups = {
-  // The repository's Packages file, over HTTPS (scripts/apt-repo.mjs).
+  // The repository's Packages file and its InRelease, over HTTPS (scripts/apt-repo.mjs).
   apt: (version) => aptLists(version),
   // Beam's version lookup, behind the app's upload key (scripts/beam.mjs).
   async bundle(version) {

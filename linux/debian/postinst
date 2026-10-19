@@ -27,7 +27,17 @@ if [ "$1" = configure ]; then
       fi
     fi
   fi
+  # Setup is due on a first install, and again after a remove and an
+  # install: prerm turned the updater and the user's unit off.
+  set_up=yes
   if [ -z "$user" ]; then
+    set_up=no
+  elif ! systemctl is-enabled --quiet orbital-update.path 2>/dev/null; then
+    set_up=no
+  elif ! systemctl --user -M "$user@" is-enabled --quiet orbital.service 2>/dev/null; then
+    set_up=no
+  fi
+  if [ "$set_up" = no ]; then
     echo "Run as yourself: orbital setup"
   fi
 fi

@@ -71,6 +71,7 @@ jobs:
               - 'server/**'
               - 'linux/**'
               - scripts/build-deb.mjs
+              - scripts/apt-repo.mjs
               - scripts/release-plan.mjs
               - desktop/package.json
             mobile-bundle: *web
@@ -167,31 +168,54 @@ jobs:
     # The Linux package release.yml ships, built and installed on the Ubuntu
     # it is built for, then run: the one place the server runs on real Linux
     # from the package (spec 2026-10-19-headless-server-design → The
-    # package). The server's tests already run on Linux in `check (server)`.
+    # package). It is installed from a local, signed repository made by
+    # scripts/apt-repo.mjs with a key made here, so apt sees a candidate and
+    # the root updater has a source to refresh. The server's tests already
+    # run on Linux in `check (server)`.
     name: build (linux package)
     needs: changes
     if: contains(fromJSON(needs.changes.outputs.filters), 'deb')
     runs-on: ubuntu-22.04
     env:
       PORT: '4747'
+      REPO: /srv/orbital-apt
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      # As release.yml builds it: no install scripts.
+      - run: npm ci --ignore-scripts
       - run: npm run build -w server
       - run: node scripts/build-deb.mjs --out "$RUNNER_TEMP/deb"
       - run: dpkg-deb --info "$RUNNER_TEMP"/deb/orbital_*_amd64.deb
-      - run: sudo apt-get install -y "$RUNNER_TEMP"/deb/orbital_*_amd64.deb
-      - run: orbital --help
+
+      - name: A local repository with the package, signed with a key made for this run
+        run: |
+          command -v dpkg-scanpackages >/dev/null || { sudo apt-get update && sudo apt-get install -y dpkg-dev; }
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -m 700 "$GNUPGHOME"
+          gpg --batch --passphrase '' --quick-gen-key "Orbital CI <ci@example.invalid>" ed25519 sign 1d
+          APT_GPG_PRIVATE_KEY="$(gpg --batch --armor --export-secret-keys)" \
+            node scripts/apt-repo.mjs add --deb "$(ls "$RUNNER_TEMP"/deb/orbital_*_amd64.deb)" --packages - --out "$RUNNER_TEMP/repo"
+          sudo cp -r "$RUNNER_TEMP/repo" "$REPO"
+          sudo install -d -m 0755 /etc/apt/keyrings
+          sudo cp "$REPO/orbital.gpg" /etc/apt/keyrings/orbital.gpg
+          printf 'Types: deb\nURIs: file:%s\nSuites: stable\nComponents: main\nArchitectures: amd64\nSigned-By: /etc/apt/keyrings/orbital.gpg\n' "$REPO" \
+            | sudo tee /etc/apt/sources.list.d/orbital.sources
+          sudo apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/orbital.sources \
+            -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0
+          sudo apt-get install -y orbital
+          orbital --help
 
       # The server under the bundled Node, as the unit starts it, on a port
-      # and data dir of its own.
+      # and data dir of its own. Its apt read is done once the candidate
+      # shows: the local repository lists the installed version.
       - name: Start the server by hand and ask it
         run: |
           version="$(cat /usr/lib/orbital/VERSION)"
+          debversion="$(dpkg-query -W -f='${Version}' orbital)"
           data="$RUNNER_TEMP/orbital-data"
           ORBITAL_HEADLESS=1 ORBITAL_PORT="$PORT" ORBITAL_DATA_DIR="$data" \
             ORBITAL_MIGRATIONS_DIR=/usr/lib/orbital/server/drizzle \
@@ -204,7 +228,12 @@ jobs:
           token="$(cat "$data/api-token")"
           ask() { curl -fsS -H "Authorization: Bearer $token" "http://127.0.0.1:$PORT$1"; }
           ask /api/health | jq -e --arg v "$version" '.app == "orbital" and .version == $v'
-          ask /api/server/update | jq -e --arg v "$version" '.packaged == true and .installed == $v and .updating == false'
+          for _ in $(seq 30); do
+            ask /api/server/update | jq -e --arg v "$debversion" '.candidate == $v' >/dev/null && break
+            sleep 1
+          done
+          ask /api/server/update | jq -e --arg v "$debversion" \
+            '.packaged == true and .installed == $v and .candidate == $v and .updating == false'
           ORBITAL_PORT="$PORT" ORBITAL_DATA_DIR="$data" orbital status
 
       - name: The server's log
@@ -221,12 +250,33 @@ jobs:
           orbital setup | tee "$RUNNER_TEMP/setup-again.log"
           grep -q 'nothing changed' "$RUNNER_TEMP/setup-again.log"
           test "$(cat /etc/orbital/user)" = "$(id -un)"
-          test "$(stat -c '%U:%G %a' /var/lib/orbital/update)" = "root:$(id -gn) 770"
+          test "$(stat -c '%U:%G %a' /var/lib/orbital)" = "root:root 755"
+          test "$(stat -c '%U:%G %a' /var/lib/orbital/update)" = "$(id -un):root 700"
           systemctl is-active orbital-update.path
 
-      - name: The service's log
+      # One request through the root updater, written as the user the way
+      # the server writes it: the path unit starts the service, which takes
+      # the request and runs apt to its end.
+      - name: A request through the root updater
+        run: |
+          request=/var/lib/orbital/update/request
+          date +%s > "$request"
+          for _ in $(seq 180); do
+            state="$(systemctl show orbital-update.service -p ActiveState --value)"
+            ran="$(systemctl show orbital-update.service -p ExecMainExitTimestampMonotonic --value)"
+            if [ ! -e "$request" ] && [ "$state" = inactive ] && [ "$ran" != 0 ]; then break; fi
+            sleep 1
+          done
+          systemctl show orbital-update.service -p Result -p ExecMainStatus
+          test ! -e "$request"
+          test "$(systemctl show orbital-update.service -p Result --value)" = success
+          test "$(systemctl show orbital-update.service -p ExecMainStatus --value)" = 0
+
+      - name: The service's and the updater's logs
         if: always()
-        run: XDG_RUNTIME_DIR="/run/user/$(id -u)" journalctl --user -u orbital --no-pager || true
+        run: |
+          XDG_RUNTIME_DIR="/run/user/$(id -u)" journalctl --user -u orbital --no-pager || true
+          sudo journalctl -u orbital-update.service --no-pager || true
 
       - name: Purge it
         run: |

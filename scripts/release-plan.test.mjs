@@ -244,3 +244,11 @@ test("Beam not answering stops only the phone app, as an error, never as not shi
   assert.match(outputs(result), /^ota=error$/m)
   assert.match(summary(result), /phone app\s+0\.7\.2\s+error\s+\(Beam answered 503\)/)
 })
+
+test('a prerelease desktop version is asked of the repository as Debian writes it', async () => {
+  const { asked, lookups: l } = lookups({ release: true, apt: false, bundle: true, tag: true, image: true })
+  const read = files({ [DESKTOP_PACKAGE]: JSON.stringify({ version: '0.35.0-beta.1' }) })
+  const result = await plan({ read, owner: 'o', lookups: l })
+  assert.equal(result.versions.deb, '0.35.0~beta.1')
+  assert.deepEqual(asked.find(([kind]) => kind === 'apt'), ['apt', '0.35.0~beta.1'])
+})

@@ -15,7 +15,9 @@ export DEBIAN_FRONTEND=noninteractive
 
 # Consumed before apt runs: a failed upgrade must not leave the request for
 # the path unit to start this again, and a request made during the run is a
-# new one. -L too: a symlink is removed, never followed.
+# new one. The directory is the service user's (orbital setup makes it
+# <user>:root 0700), so whatever is there is only tested and unlinked: -L
+# too, and rm removes a symlink, never what it points to.
 if [ ! -e "$REQUEST" ] && [ ! -L "$REQUEST" ]; then
   echo "No update request; nothing to do."
   exit 0
@@ -29,19 +31,21 @@ if [ ! -s /etc/orbital/user ]; then
 fi
 
 # DPkg::Lock::Timeout waits for apt-daily or a person's apt run rather than
-# failing on the lock.
+# failing on the lock: 120 s for each of the two apt runs, so the waits and
+# the download stay well inside the 10 minutes after which the server gives
+# up on an update (UPDATE_TIMEOUT_MS) and reports it failed.
 if [ -f "$SOURCE" ]; then
-  apt-get update -o DPkg::Lock::Timeout=600 \
+  apt-get update -o DPkg::Lock::Timeout=120 \
     -o Dir::Etc::sourcelist="$SOURCE" \
     -o Dir::Etc::sourceparts=- \
     -o APT::Get::List-Cleanup=0
 else
   echo "$SOURCE not found: refreshing every source."
-  apt-get update -o DPkg::Lock::Timeout=600
+  apt-get update -o DPkg::Lock::Timeout=120
 fi
 
 # The package's own conffile (the apt pin) keeps a local change without asking.
-apt-get install --only-upgrade -y -o DPkg::Lock::Timeout=600 \
+apt-get install --only-upgrade -y -o DPkg::Lock::Timeout=120 \
   -o Dpkg::Options::=--force-confdef \
   -o Dpkg::Options::=--force-confold \
   orbital

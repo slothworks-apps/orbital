@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildServer } from '../src/index.js';
 import { parseAptPolicy } from '../src/update/aptPolicy.js';
@@ -120,6 +120,14 @@ describe('AptUpdateBackend', () => {
     const apt = new AptUpdateBackend({ requestDir: dir, run: async () => NEWER });
     expect(apt.request()).toBe('ok');
     expect(readFileSync(join(dir, UPDATE_REQUEST_FILE), 'utf8')).toMatch(/^\d+\n$/);
+    // A symlink planted at the request's path is replaced, never written through.
+    const target = join(makeTmpDir('update-target'), 'victim');
+    writeFileSync(target, 'keep');
+    rmSync(join(dir, UPDATE_REQUEST_FILE));
+    symlinkSync(target, join(dir, UPDATE_REQUEST_FILE));
+    expect(apt.request()).toBe('ok');
+    expect(readFileSync(target, 'utf8')).toBe('keep');
+    expect(lstatSync(join(dir, UPDATE_REQUEST_FILE)).isSymbolicLink()).toBe(false);
     expect(new AptUpdateBackend({ requestDir: join(dir, 'missing') }).request()).toBe('not_set_up');
     writeFileSync(join(dir, 'file'), '');
     expect(new AptUpdateBackend({ requestDir: join(dir, 'file') }).request()).toBe('not_set_up');

@@ -43,6 +43,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { debVersion } from './apt-repo.mjs'
 import { DESKTOP_PACKAGE, packageVersion } from './release-plan.mjs'
 
 // The Node the desktop's Electron 44.5.1 embeds (process.versions.node), so
@@ -63,19 +64,21 @@ export function nodeTarball(version = NODE.version) {
 }
 
 export function debName(version) {
-  return `${PACKAGE}_${version}_${ARCH}.deb`
+  return `${PACKAGE}_${debVersion(version)}_${ARCH}.deb`
 }
 
 // glibc 2.35 is Ubuntu 22.04's, where the package is built and the oldest
 // release it supports; the Node runtime and the prebuilt addons need less.
+// The runtime and the addons are C++ and link libstdc++ and libgcc_s.
+// `version` is the desktop's; the control file writes it as Debian sorts it.
 export function controlFile({ version, installedSize }) {
   return [
     `Package: ${PACKAGE}`,
-    `Version: ${version}`,
+    `Version: ${debVersion(version)}`,
     `Architecture: ${ARCH}`,
     `Maintainer: ${MAINTAINER}`,
     `Installed-Size: ${installedSize}`,
-    'Depends: libc6 (>= 2.35), ca-certificates',
+    'Depends: libc6 (>= 2.35), libstdc++6, libgcc-s1, ca-certificates',
     'Recommends: git',
     'Section: devel',
     'Priority: optional',

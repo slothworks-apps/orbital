@@ -8,6 +8,8 @@
 import { execFile, spawn } from 'node:child_process';
 import { access, readFile, stat } from 'node:fs/promises';
 import { userInfo } from 'node:os';
+import { dirname } from 'node:path';
+import { DEFAULT_PORT } from '../config.js';
 import { UPDATE_REQUEST_DIR } from '../update/backends.js';
 import type { Io } from './io.js';
 import { SERVICE_USER_FILE, USER_NAME } from './target.js';
@@ -21,19 +23,30 @@ export const SETUP_START_TIMEOUT_MS = 60_000;
 /** How long the user's systemd manager, which lingering starts, may take to answer. */
 export const USER_MANAGER_WAIT_MS = 15_000;
 const POLL_MS = 500;
-/** The request directory's mode: the user writes requests, root reads the directory. */
-const REQUEST_DIR_MODE = 0o770;
+/**
+ * The request directory is the user's alone (`<user>:root`, this mode), so no
+ * one sharing the user's group can ask for an update; root acts on it
+ * regardless. Its parent is root's and writable by no one else.
+ */
+const REQUEST_DIR_MODE = 0o700;
+const STATE_DIR = dirname(UPDATE_REQUEST_DIR);
+const STATE_DIR_MODE = 0o755;
+
+type DirFacts = { uid: number; gid: number; mode: number; isDirectory: boolean } | null;
+
+const octal = (mode: number) => mode.toString(8).padStart(4, '0');
 
 /** What setup finds before it changes anything. */
 export type SetupFacts = {
   platform: NodeJS.Platform;
   uid: number;
   user: string;
-  gid: number;
   /** `/etc/orbital/user` as written, trimmed; null without the file. */
   recordedUser: string | null;
   unitInstalled: boolean;
-  requestDir: { uid: number; gid: number; mode: number; isDirectory: boolean } | null;
+  /** `/var/lib/orbital`, the request directory's parent. */
+  stateDir: DirFacts;
+  requestDir: DirFacts;
   pathUnit: { enabled: boolean; active: boolean };
   linger: boolean;
 };
@@ -71,11 +84,18 @@ export function setupPlan(f: SetupFacts): { error: string } | { steps: RootStep[
       { why: `record ${f.user} as the user Orbital runs as`, argv: ['tee', SERVICE_USER_FILE], input: `${f.user}\n` },
     );
   }
-  const dir = f.requestDir;
-  if (!dir || !dir.isDirectory || dir.uid !== 0 || dir.gid !== f.gid || (dir.mode & 0o7777) !== REQUEST_DIR_MODE) {
+  const is = (d: DirFacts, uid: number, gid: number, mode: number) =>
+    d !== null && d.isDirectory && d.uid === uid && d.gid === gid && (d.mode & 0o7777) === mode;
+  if (!is(f.stateDir, 0, 0, STATE_DIR_MODE)) {
     steps.push({
-      why: 'make the directory the server writes update requests to',
-      argv: ['install', '-d', '-o', 'root', '-g', String(f.gid), '-m', REQUEST_DIR_MODE.toString(8).padStart(4, '0'), UPDATE_REQUEST_DIR],
+      why: "make root's directory for Orbital's state",
+      argv: ['install', '-d', '-o', 'root', '-g', 'root', '-m', octal(STATE_DIR_MODE), STATE_DIR],
+    });
+  }
+  if (!is(f.requestDir, f.uid, 0, REQUEST_DIR_MODE)) {
+    steps.push({
+      why: 'make the directory only you write update requests to',
+      argv: ['install', '-d', '-o', f.user, '-g', 'root', '-m', octal(REQUEST_DIR_MODE), UPDATE_REQUEST_DIR],
     });
   }
   if (!f.pathUnit.enabled || !f.pathUnit.active) {
@@ -99,17 +119,28 @@ export interface SetupSys {
   sudo(step: RootStep): Promise<number>;
   /** Whether Orbital answers its health route on the port. */
   healthy(port: number): Promise<boolean>;
+  /** `systemctl --user show orbital -p Environment`'s output. */
+  unitEnvironment(): Promise<string>;
 }
 
 export type SetupDeps = {
   io: Io;
   sys: SetupSys;
-  port: number;
-  /** `orbital status`, once the server answers. */
-  status: () => Promise<number>;
+  /** `orbital status` against the port the unit uses, once the server answers. */
+  status: (port: number) => Promise<number>;
 };
 
-export async function runSetup({ io, sys, port, status }: SetupDeps): Promise<number> {
+/**
+ * The port the unit runs the server on: its `ORBITAL_PORT` (an override,
+ * `systemctl --user edit orbital`), else `DEFAULT_PORT`.
+ */
+export function unitPort(show: string): number {
+  const m = /(?:^|[\s=])ORBITAL_PORT=(\d{1,5})(?=\s|$)/.exec(show.trim());
+  const n = m ? Number(m[1]) : NaN;
+  return n >= 1 && n <= 65535 ? n : DEFAULT_PORT;
+}
+
+export async function runSetup({ io, sys, status }: SetupDeps): Promise<number> {
   const facts = await sys.facts();
   const plan = setupPlan(facts);
   if ('error' in plan) {
@@ -153,13 +184,14 @@ export async function runSetup({ io, sys, port, status }: SetupDeps): Promise<nu
     changed = true;
   }
 
+  const port = unitPort(await sys.unitEnvironment());
   if (!(await waitHealthy(io, sys, port))) {
     io.err(`Orbital did not answer on port ${port} within ${SETUP_START_TIMEOUT_MS / 1000} s. Its log: journalctl --user -u orbital`);
     return 1;
   }
   io.out(changed ? `Orbital is set up for ${facts.user}.` : `Orbital is set up for ${facts.user} already; nothing changed.`);
   io.out('');
-  return status();
+  return status(port);
 }
 
 async function waitHealthy(io: Io, sys: SetupSys, port: number): Promise<boolean> {
@@ -186,7 +218,7 @@ export class SystemSetup implements SetupSys {
     const me = userInfo();
     const exists = (path: string) => access(path).then(() => true, () => false);
     const recordedUser = await readFile(SERVICE_USER_FILE, 'utf8').then((s) => s.trim(), () => null);
-    const dir = await stat(UPDATE_REQUEST_DIR).then(
+    const dir = (path: string): Promise<DirFacts> => stat(path).then(
       (s) => ({ uid: s.uid, gid: s.gid, mode: s.mode, isDirectory: s.isDirectory() }),
       () => null,
     );
@@ -195,10 +227,10 @@ export class SystemSetup implements SetupSys {
       platform: process.platform,
       uid: process.getuid?.() ?? -1,
       user: me.username,
-      gid: me.gid,
       recordedUser,
       unitInstalled: await exists(USER_UNIT_FILE),
-      requestDir: dir,
+      stateDir: await dir(STATE_DIR),
+      requestDir: await dir(UPDATE_REQUEST_DIR),
       pathUnit: {
         enabled: (await word(['systemctl', 'is-enabled', 'orbital-update.path'])) === 'enabled',
         active: (await word(['systemctl', 'is-active', 'orbital-update.path'])) === 'active',
@@ -232,6 +264,10 @@ export class SystemSetup implements SetupSys {
       child.on('error', () => resolve(127));
       child.on('close', (code) => resolve(code ?? 1));
     });
+  }
+
+  async unitEnvironment(): Promise<string> {
+    return (await this.run(['systemctl', '--user', 'show', 'orbital', '-p', 'Environment'])).stdout;
   }
 
   async healthy(port: number): Promise<boolean> {

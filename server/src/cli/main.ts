@@ -33,7 +33,7 @@ async function main(): Promise<number> {
       if (hint) io.err(hint);
     };
     /** `argv` against the server, with the token read now: setup reads it only once the server has written it. */
-    const drive = async (args: readonly string[]): Promise<number> => {
+    const drive = async (args: readonly string[], port = target.port): Promise<number> => {
       const read = await readToken(target.tokenFile);
       if ('unreadable' in read) {
         io.err(unreadableTokenLine(target.tokenFile, await readServiceUser()));
@@ -45,17 +45,17 @@ async function main(): Promise<number> {
         return 1;
       }
       try {
-        return await runCli(args, { call: httpCall(target.port, read.token), io, port: target.port });
+        return await runCli(args, { call: httpCall(port, read.token), io, port });
       } catch (err) {
         if (err instanceof NotRunning) await notRunning();
-        else if (err instanceof TokenRefused) io.err(`Orbital on port ${target.port} refused the token in ${target.tokenFile}.`);
+        else if (err instanceof TokenRefused) io.err(`Orbital on port ${port} refused the token in ${target.tokenFile}.`);
         else if (err instanceof CliError) io.err(err.message);
         else throw err;
         return 1;
       }
     };
     if (parsed.kind === 'setup') {
-      return await runSetup({ io, sys: new SystemSetup(), port: target.port, status: () => drive(['status']) });
+      return await runSetup({ io, sys: new SystemSetup(), status: (port) => drive(['status'], port) });
     }
     return await drive(argv);
   } finally {

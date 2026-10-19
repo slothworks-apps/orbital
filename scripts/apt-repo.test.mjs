@@ -2,7 +2,16 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { test } from 'node:test'
-import { check, listsVersion, mergePackages, parsePackages, releaseFile } from './apt-repo.mjs'
+import {
+  APT_VALID_DAYS,
+  check,
+  debVersion,
+  listsVersion,
+  mergePackages,
+  parsePackages,
+  parseRelease,
+  releaseFile,
+} from './apt-repo.mjs'
 
 const entry = (version, pkg = 'orbital') =>
   [
@@ -57,20 +66,55 @@ test('the new entry must be one entry', () => {
   assert.throws(() => mergePackages('', `${entry('1')}\n\n${entry('2')}`), /got 2/)
 })
 
-test('the Release file lists each index with its size and hashes', () => {
+test('the Release file lists each index by SHA256, by hash, valid for APT_VALID_DAYS', () => {
   const data = Buffer.from('Package: orbital\n')
   const text = releaseFile([{ name: 'main/binary-amd64/Packages', data }], new Date(Date.UTC(2026, 9, 19, 8, 0, 0)))
   assert.match(text, /^Date: Mon, 19 Oct 2026 08:00:00 UTC$/m)
+  assert.equal(APT_VALID_DAYS, 90)
+  assert.match(text, /^Valid-Until: Sun, 17 Jan 2027 08:00:00 UTC$/m)
+  assert.match(text, /^Acquire-By-Hash: yes$/m)
   assert.match(text, /^Suite: stable$/m)
-  assert.match(text, /^Architectures: amd64$/m)
-  const sha256 = createHash('sha256').update(data).digest('hex')
-  assert.match(text, new RegExp(`^SHA256:\\n ${sha256} +${data.length} main/binary-amd64/Packages$`, 'm'))
+  assert.doesNotMatch(text, /^(MD5Sum|SHA1|SHA512):/m)
+  const hash = createHash('sha256').update(data).digest('hex')
+  assert.match(text, new RegExp(`^SHA256:\\n ${hash} +${data.length} main/binary-amd64/Packages$`, 'm'))
+  // What --check reads back from it.
+  const read = parseRelease(text)
+  assert.equal(read.sha256.get('main/binary-amd64/Packages'), hash)
+  assert.equal(read.validUntil.toISOString(), '2027-01-17T08:00:00.000Z')
 })
 
-test('--check: listed, not listed, no index yet, and a failure', async () => {
-  const answer = (status, body = '') => async () => new Response(body, { status })
-  assert.equal(await check('0.34.0', 'u', answer(200, `${entry('0.34.0')}\n`)), true)
-  assert.equal(await check('0.35.0', 'u', answer(200, `${entry('0.34.0')}\n`)), false)
-  assert.equal(await check('0.34.0', 'u', answer(404)), false)
-  await assert.rejects(check('0.34.0', 'u', answer(503)), /503/)
+test('a prerelease is written with ~ in the Debian version', () => {
+  assert.equal(debVersion('0.35.0'), '0.35.0')
+  assert.equal(debVersion('0.35.0-beta.1'), '0.35.0~beta.1')
+  assert.equal(debVersion('1.0.0-rc.1-2'), '1.0.0~rc.1-2')
+})
+
+// A repository at `base` answering Packages and an InRelease over `vouched`.
+function repo({ packages, vouched = packages, validUntil, now = new Date(Date.UTC(2026, 9, 19)) }) {
+  const data = Buffer.from(vouched ?? '')
+  let release = releaseFile([{ name: 'main/binary-amd64/Packages', data }], now)
+  if (validUntil) release = release.replace(/^Valid-Until: .*$/m, `Valid-Until: ${validUntil}`)
+  const signed = `-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA512\n\n${release}-----BEGIN PGP SIGNATURE-----\n\nabc\n-----END PGP SIGNATURE-----\n`
+  return async (url) => {
+    if (url.endsWith('/binary-amd64/Packages')) {
+      return packages === null ? new Response('', { status: 404 }) : new Response(packages)
+    }
+    if (url.endsWith('/InRelease')) return vouched === null ? new Response('', { status: 404 }) : new Response(signed)
+    return new Response('', { status: 404 })
+  }
+}
+
+test('--check: listed only in a Packages file the valid InRelease vouches for', async () => {
+  const now = new Date(Date.UTC(2026, 9, 20))
+  const listed = `${entry('0.34.0')}\n`
+  assert.equal(await check('0.34.0', { fetchFn: repo({ packages: listed }), now }), true)
+  assert.equal(await check('0.35.0', { fetchFn: repo({ packages: listed }), now }), false)
+  // Packages uploaded, InRelease not yet: the index does not match.
+  assert.equal(await check('0.34.0', { fetchFn: repo({ packages: listed, vouched: '' }), now }), false)
+  // Past its Valid-Until.
+  const expired = repo({ packages: listed, validUntil: 'Thu, 01 Oct 2026 00:00:00 UTC' })
+  assert.equal(await check('0.34.0', { fetchFn: expired, now }), false)
+  // No repository yet.
+  assert.equal(await check('0.34.0', { fetchFn: repo({ packages: null, vouched: null }), now }), false)
+  await assert.rejects(check('0.34.0', { fetchFn: async () => new Response('', { status: 503 }), now }), /503/)
 })

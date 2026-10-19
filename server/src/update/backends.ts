@@ -15,7 +15,7 @@
  * names no version.
  */
 import { execFile } from 'node:child_process';
-import { readFileSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, lstatSync, openSync, readFileSync, statSync, unlinkSync, writeSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { isUpdateVersion, parseMainMessage, type MainUpdateStateMessage } from '@orbital/shared/remote/serverUpdate';
 import { parseAptPolicy } from './aptPolicy.js';
@@ -120,6 +120,33 @@ export function runningVersion(o: {
   }
 }
 
+/**
+ * Writes a fresh request file: whatever is at the path is unlinked first
+ * (`lstat`, so a symlink is removed, never followed), and the new file is
+ * created exclusively without following a link. A request another writer
+ * made between the two is a request all the same.
+ */
+export function writeRequest(path: string, content: string): void {
+  try {
+    lstatSync(path);
+    unlinkSync(path);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  let fd: number;
+  try {
+    fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') return;
+    throw err;
+  }
+  try {
+    writeSync(fd, content);
+  } finally {
+    closeSync(fd);
+  }
+}
+
 export class NoUpdateBackend implements UpdateBackend {
   readonly kind = 'none';
   versions() {
@@ -196,7 +223,7 @@ export class AptUpdateBackend implements UpdateBackend {
     const dir = this.opts.requestDir ?? UPDATE_REQUEST_DIR;
     try {
       if (!statSync(dir).isDirectory()) return 'not_set_up';
-      writeFileSync(join(dir, UPDATE_REQUEST_FILE), `${Date.now()}\n`);
+      writeRequest(join(dir, UPDATE_REQUEST_FILE), `${Date.now()}\n`);
       return 'ok';
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
