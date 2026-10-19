@@ -6,6 +6,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [0.16.0] — 2026-10-20
 ### Added
+- After an update, a WHAT'S NEW message above the session list shows what changed in the phone app.
 - Devices shows each device's version, and a device with a newer version gets Update in its sheet: update your server or your Mac from the phone.
 - The phone's own code says how to add a server: `orbital join` on the server.
 
