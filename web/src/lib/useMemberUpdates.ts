@@ -186,26 +186,31 @@ export function useMemberUpdates(targets: UpdateTarget[], io: UpdateIo) {
   }, [])
 
   /**
-   * Update or Try again pressed: the member is read again first, and that
-   * answer decides (`startDecision`) — the confirm when it runs sessions now,
-   * else the start at once. Nothing starts when it cannot be read.
+   * Reads the member again and decides with `decide`; starts when it says so.
+   * When a newer answer landed while this read ran (a poll), the newest
+   * state in the store decides instead of this read — never nothing.
    */
-  /** Reads the member again and decides on that answer with `decide`; starts when it says so. */
   const decideFresh = useCallback(async (
     id: string, decide: (fresh: MemberUpdate, online: boolean) => StartDecision,
   ): Promise<PressResult> => {
     const n = ticket(id)
     const latest = await fetchOne(id)
     if (latest === null) return 'unreachable'
-    const fresh = applyRead(useUpdates.getState().byId[id], latest, Date.now())
+    const read = applyRead(useUpdates.getState().byId[id], latest, Date.now())
     // A newer answer landed meanwhile (a start elsewhere on this screen cannot: this one holds it): it decides.
-    if (!land(id, n, () => fresh)) return 'none'
+    const fresh = land(id, n, () => read) ? read : useUpdates.getState().byId[id]
+    if (!fresh) return 'none'
     const online = targetsRef.current.find((t) => t.id === id)?.readable ?? false
     const decision = decide(fresh, online)
     if (decision !== 'start') return decision
     return (await startNow(id)) ? 'started' : 'unreachable'
   }, [ticket, fetchOne, land, startNow])
 
+  /**
+   * Update or Try again pressed: the member is read again first, and that
+   * answer decides (`startDecision`) — the confirm when it runs sessions now,
+   * else the start at once. Nothing starts when it cannot be read.
+   */
   const press = useCallback((id: string): Promise<PressResult> => exclusive(id, () => decideFresh(id, startDecision)), [
     exclusive, decideFresh,
   ])

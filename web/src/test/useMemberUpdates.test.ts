@@ -103,6 +103,39 @@ describe('useMemberUpdates: pressing Update', () => {
     expect(io.start).toHaveBeenCalledTimes(1)
   })
 
+  it("the confirm's Update overtaken by a newer read decides on that one, not on nothing", async () => {
+    const id = nextId()
+    const slow = deferred<ServerUpdateState>()
+    const reads: Array<Promise<ServerUpdateState>> = [
+      Promise.resolve(state({ sessions: 1 })), slow.promise, Promise.resolve(state({ sessions: 3 })),
+    ]
+    const io: UpdateIo = {
+      read: vi.fn(() => reads.shift() ?? Promise.resolve(state({ sessions: 3 }))),
+      start: vi.fn(async (): Promise<StartAnswer> => ({ ok: true, state: state({ updating: true }) })),
+    }
+    const { result, rerender } = renderHook(({ readable }) => useMemberUpdates([{ id, readable }], io), {
+      initialProps: { readable: false },
+    })
+    await act(async () => {
+      await expect(result.current.press(id)).resolves.toBe('confirm')
+    })
+    let confirmed!: Promise<string>
+    act(() => {
+      confirmed = result.current.start(id)
+    })
+    // The member comes online meanwhile: its read is asked after the confirm's, and lands first.
+    await act(async () => {
+      rerender({ readable: true })
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    await act(async () => {
+      slow.resolve(state({ sessions: 1 }))
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    await expect(confirmed).resolves.toBe('confirm')
+    expect(io.start).not.toHaveBeenCalled()
+  })
+
   it('a double press runs one read and one start', async () => {
     const id = nextId()
     const read = deferred<ServerUpdateState>()
