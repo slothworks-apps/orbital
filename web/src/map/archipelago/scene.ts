@@ -1,10 +1,13 @@
 import type { ScenePlanet, SceneModel } from '../sceneModel'
 import type { CameraState } from '../camera'
 import { bodyZoomFactor } from '../camera'
-import { sessionStateKey, statePill, type SessionStateKey, type Subagent } from '../../lib/types'
-import { stateColor } from '../../lib/stateStyle'
-import { truncateLabel } from '../visuals'
+import { gateWaits, sessionStateKey, statePill, type ApiSession, type SessionStateKey, type Subagent } from '../../lib/types'
+import { OFFLINE_STATE_INK, stateColor } from '../../lib/stateStyle'
+import { OFFLINE_OPACITY, truncateLabel } from '../visuals'
 import { decisionHeadline } from '../../lib/decisionCard'
+import { limitPillText } from '../../lib/limits'
+import { asOfLabel } from '../../lib/devices'
+import { MAP_MARK_MIN_ZOOM } from '../Planet'
 import {
   SHIP_LENGTH,
   angleDiff,
@@ -55,6 +58,8 @@ export interface SceneInput {
   statePills: 'dot' | 'label'
   showCompactBadge: boolean
   reduced: boolean
+  /** The session's Claude directory monogram, or null with one directory (`useClaudeDirMark`). */
+  dirMark: (session: ApiSession) => string | null
 }
 
 export type DropState = 'none' | 'eligible' | 'armed' | 'refused'
@@ -535,6 +540,10 @@ export class ArchipelagoScene {
     const s = p.session
     const key = sessionStateKey(s)
     const pill = statePill(s)
+    const limit = s.limitWait ? limitPillText(s.limitWait) : null
+    // The planet's second line: family and device name, closed by the offline device's age.
+    const second = [p.secondLine, p.dated ? asOfLabel(s.machine, Date.now()) : null].filter(Boolean).join(' · ')
+    const mark = input.dirMark(s)
     const tool = s.recentTools?.length ? s.recentTools[s.recentTools.length - 1] : null
     const detached = input.detachedIds.includes(s.id)
     const fill = p.contextFill
@@ -553,11 +562,12 @@ export class ArchipelagoScene {
           : tool
             ? `${tool.name}${tool.summary ? ` · ${tool.summary}` : ''}`
             : pill?.label ?? ''
-    const parts = [s.title, key, sub, p.modelFamily, detached, compactBadge, failed, input.statePills, p.muted, p.selected, p.compactingSince ? 'c' : '']
+    const parts = [s.title, key, sub, second, limit, mark, p.offline, detached, compactBadge, failed, input.statePills, p.muted, p.selected, p.compactingSince ? 'c' : '']
     const labelKey = JSON.stringify(parts)
     if (labelKey === v.labelKey) return
     v.labelKey = labelKey
-    const colour = stateColor(key)
+    // An offline device's state is not live: its word and dot drop to the muted ink (canvas 50e).
+    const colour = p.offline ? OFFLINE_STATE_INK : stateColor(key)
     const word = input.statePills === 'label' && pill ? `<span class="ml-1 font-mono text-[9.5px] tracking-[0.1em]" style="color:${colour}">${escape(pill.label)}</span>` : ''
     const title = truncateLabel(s.title)
     v.label.title = s.title
@@ -565,16 +575,19 @@ export class ArchipelagoScene {
       'group pointer-events-auto absolute left-0 top-0 max-w-[260px] cursor-pointer rounded-lg border bg-[rgba(9,14,24,.84)] px-2.5 py-1.5 transition-[opacity,border-color] duration-700',
       p.selected ? 'border-[rgba(220,235,255,.35)]' : 'border-[rgba(255,255,255,.07)] hover:border-[rgba(255,255,255,.22)]',
     ].join(' ')
-    v.label.style.opacity = String((p.muted ? 0.28 : 1) * (key === 'ended' ? 0.6 : 1))
+    v.label.style.opacity = String((p.muted ? 0.28 : 1) * (key === 'ended' ? 0.6 : 1) * (p.offline ? OFFLINE_OPACITY : 1))
     v.label.innerHTML = `
       <div class="flex items-center gap-1.5 whitespace-nowrap">
         <i class="inline-block h-[7px] w-[7px] shrink-0 rounded-full" style="background:${key === 'idle' || key === 'ended' ? 'transparent' : colour};box-shadow:inset 0 0 0 1.5px ${colour}"></i>
+        ${mark ? `<span data-dir-mark class="inline-grid h-[14px] min-w-[14px] flex-none place-items-center rounded-[4px] bg-[rgba(200,215,235,.2)] px-[2.5px] font-mono text-[8.5px] font-semibold leading-none text-[#eef4fc]">${escape(mark)}</span>` : ''}
         <span class="font-mono text-[11.5px] font-medium text-text-bright">${escape(title)}</span>
         ${word}
         ${detached ? '<span class="ml-1 text-[10px] text-text-muted" title="Open in its own window">⧉</span>' : ''}
       </div>
       <div data-detail class="mt-0.5 max-w-[240px] truncate font-mono text-[10.5px]" style="color:${pill && key !== 'waiting' ? colour : 'rgb(160 190 225 / .7)'}">${escape(sub)}</div>
-      ${p.modelFamily ? `<div data-detail class="font-mono text-[9.5px] uppercase tracking-[0.12em] text-text-muted/70">${escape(p.modelFamily)}</div>` : ''}
+      ${limit
+        ? `<div data-limit-pill class="mt-1 flex w-max items-center gap-1.5 rounded-full border border-[rgba(150,205,255,.26)] bg-[rgba(6,10,20,.9)] px-2 py-0.5 font-mono text-[9.5px] tracking-[0.06em] text-[rgba(214,230,248,.9)]"><i class="block h-[6px] w-[6px] rounded-full border border-current"></i>${escape(limit)}</div>`
+        : second ? `<div data-detail class="font-mono text-[9.5px] tracking-[0.12em] text-text-muted/70">${escape(second)}</div>` : ''}
       ${p.compactingSince ? `<div class="mt-1 font-mono text-[9.5px] tracking-[0.1em] text-[#bee1ff]" data-compacting="${p.compactingSince}">COMPACTING</div>` : ''}
       ${compactBadge ? `<button type="button" data-action="compact" class="mt-1 rounded border border-[#fa8880]/50 px-1.5 py-0.5 font-mono text-[9.5px] text-[#fa8880]">${Math.round((fill?.fraction ?? 0) * 100)}% · /compact</button>` : ''}
       ${failed ? `<button type="button" data-action="compact-failed" class="mt-1 rounded border border-[#fa8880]/50 px-1.5 py-0.5 font-mono text-[9.5px] text-[#fa8880]">COMPACT FAILED · ${Math.round((fill?.fraction ?? 0) * 100)}%</button>` : ''}`
@@ -687,9 +700,14 @@ export class ArchipelagoScene {
     }
 
     // ships
+    const tick = t % 1 < dt
     for (const v of this.ships.values()) {
       const p = v.planet
       const key = sessionStateKey(p.session)
+      // An offline device's ship keeps its place and its last state, without motion (canvas 50e).
+      const still = reduced || p.offline
+      // The age and a limit's reset time go on ticking in the label.
+      if (tick && (p.dated || p.session.limitWait)) this.syncShipLabel(v)
       const view = this.islands.get(p.tagId)
       if (!view) continue
       const isl = this.dragged?.kind === 'island' && this.dragged.tagId === p.tagId
@@ -704,6 +722,8 @@ export class ArchipelagoScene {
       let heading: number | null = null
       if (drag) {
         want = drag
+      } else if (p.offline) {
+        want = { x: v.x, y: v.y }
       } else if (berth.kind === 'orbit') {
         if (!reduced) v.phase += (berth.direction * SHIP_SPEED * 0.8 * dt) / berth.radius
         const ahead = polar(isl, v.phase + berth.direction * 0.22, berth.radius)
@@ -713,8 +733,8 @@ export class ArchipelagoScene {
         want = routeStep(isl, v, berth.at)
         if (Math.hypot(berth.at.x - v.x, berth.at.y - v.y) < 0.5) heading = berth.heading
       }
-      if (drag || reduced) {
-        if (reduced && !drag) {
+      if (drag || still) {
+        if (reduced && !drag && !p.offline) {
           const settled = berth.kind === 'orbit' ? polar(isl, v.phase, berth.radius) : berth.at
           v.x = settled.x
           v.y = settled.y
@@ -732,8 +752,8 @@ export class ArchipelagoScene {
       }
 
       const sailTarget = p.compactingSince ? 0 : key === 'working' ? 1 : key === 'waiting' ? 0.45 : 0
-      v.k = reduced ? sailTarget : v.k + (sailTarget - v.k) * ease(dt, 0.7)
-      const bil = reduced ? 0 : Math.sin(t * 0.9 + v.bob) * 0.8
+      v.k = still ? sailTarget : v.k + (sailTarget - v.k) * ease(dt, 0.7)
+      const bil = still ? 0 : Math.sin(t * 0.9 + v.bob) * 0.8
       v.sails.forEach((sl) => {
         const L = sl.len * (0.45 + 0.55 * v.k)
         const bw = 1.5 + 3.5 * v.k + bil * 0.5 * v.k
@@ -741,16 +761,18 @@ export class ArchipelagoScene {
         sl.path.setAttribute('fill', v.k > 0.5 ? '#ebe5d4' : '#b8b2a2')
       })
       const flag = flagFor(key)
-      const wav = reduced ? 0 : Math.sin(t * 1.3 + v.bob) * 2.2
+      const wav = still ? 0 : Math.sin(t * 1.3 + v.bob) * 2.2
       const fl = key === 'needs_input' ? 22 : 15
       v.pennant.setAttribute('d', flag ? `M-7 -1.6 Q${-7 - fl / 2} ${fmt(wav)} ${-7 - fl} ${fmt(wav * 0.6)} Q${-7 - fl / 2} ${fmt(wav + 2.6)} -7 1.6 Z` : '')
       if (flag) v.pennant.setAttribute('fill', flag)
       // The lantern breathes slowly; nothing on the map blinks (why-orbital § Calm).
-      v.halo.setAttribute('opacity', key === 'needs_input' ? fmt(0.7 + (reduced ? 0 : Math.sin(t * 0.8 + v.bob) * 0.18)) : '0')
-      v.wins.forEach((r, i) => r.setAttribute('opacity', key === 'working' ? fmt(0.5 + (reduced ? 0 : 0.4 * Math.sin(t * 0.45 + i * 2 + v.bob))) : '0'))
+      // A waiting harness gate keeps it steady, as its dot is (canvas 30i): a gate can wait all night.
+      const breath = still || gateWaits(p.session) ? 0 : Math.sin(t * 0.8 + v.bob) * 0.18
+      v.halo.setAttribute('opacity', key === 'needs_input' ? fmt(0.7 + breath) : '0')
+      v.wins.forEach((r, i) => r.setAttribute('opacity', key === 'working' ? fmt(0.5 + (still ? 0 : 0.4 * Math.sin(t * 0.45 + i * 2 + v.bob))) : '0'))
       v.hull.setAttribute('stroke', hsl(p.hue, 55, 62))
 
-      let opacity = p.muted ? 0.28 : 1
+      let opacity = (p.muted ? 0.28 : 1) * (p.offline ? OFFLINE_OPACITY : 1)
       if (key === 'ended') opacity *= 0.55
       if (v.leaveAt !== null) opacity *= Math.max(0, 1 - (t - v.leaveAt) / LEAVE_FADE_SEC)
       v.g.style.opacity = String(opacity)
@@ -759,7 +781,7 @@ export class ArchipelagoScene {
       v.g.style.pointerEvents = v.leaveAt !== null ? 'none' : ''
 
       const deg = (v.h * 180) / Math.PI
-      const roll = reduced ? 1 : 1 + Math.sin(t * 0.8 + v.bob) * 0.025
+      const roll = still ? 1 : 1 + Math.sin(t * 0.8 + v.bob) * 0.025
       v.g.setAttribute('transform', `translate(${fmt(v.x)} ${fmt(v.y)}) scale(${fmt(shipScale)})`)
       v.body.setAttribute('transform', `rotate(${deg.toFixed(2)}) scale(1 ${fmt(roll)})`)
       v.shadow.setAttribute('transform', `translate(${fmt(v.x + 0.06 * factor)} ${fmt(v.y - 0.09 * factor)}) scale(${fmt(shipScale)}) rotate(${deg.toFixed(2)})`)
@@ -776,19 +798,19 @@ export class ArchipelagoScene {
         }
         v.ring.setAttribute('d', d)
         v.ring.setAttribute('stroke', p.compactingSince ? '#bee1ff' : CONTEXT_COLOURS[fill.level])
-        const pulse = fill.level === 'critical' && !reduced ? 0.7 + 0.3 * Math.sin((t * Math.PI * 2) / 1.6) : 1
+        const pulse = fill.level === 'critical' && !still ? 0.7 + 0.3 * Math.sin((t * Math.PI * 2) / 1.6) : 1
         v.ring.setAttribute('opacity', fmt((p.compactingSince ? 0.3 : fill.level === 'ok' ? 0.6 : 0.9) * pulse))
       } else v.ring.setAttribute('d', '')
       v.compactRings.forEach((c, i) => {
-        if (!p.compactingSince || reduced) return c.setAttribute('opacity', '0')
+        if (!p.compactingSince || still) return c.setAttribute('opacity', '0')
         const ph = ((t / 3.2 + i * 0.5) % 1)
         c.setAttribute('r', fmt(56 - ph * 26))
         c.setAttribute('opacity', fmt(0.35 * Math.sin(ph * Math.PI)))
       })
       v.select.setAttribute('opacity', p.selected ? '1' : '0')
-      if (p.selected) v.select.firstElementChild!.setAttribute('transform', `rotate(${fmt(reduced ? 0 : (t * 360) / 160)})`)
+      if (p.selected) v.select.firstElementChild!.setAttribute('transform', `rotate(${fmt(still ? 0 : (t * 360) / 160)})`)
 
-      this.wake(v, t, factor, 0.68 * factor, reduced)
+      this.wake(v, t, factor, 0.68 * factor, still)
 
       const lp = toScreen({ x: v.x, y: v.y })
       const below = (SHIP_LENGTH / 2) * factor * z * (0.4 + 0.6 * Math.abs(Math.sin(v.h))) + 10
@@ -800,6 +822,9 @@ export class ArchipelagoScene {
       v.label.style.display = v.leaveAt !== null ? 'none' : ''
       if (compact) v.label.dataset.compact = ''
       else delete v.label.dataset.compact
+      const markEl = v.label.querySelector<HTMLElement>('[data-dir-mark]')
+      // The directory mark follows the zoom, as on the planet (44b).
+      if (markEl) markEl.style.display = z >= MAP_MARK_MIN_ZOOM ? '' : 'none'
       const comp = v.label.querySelector<HTMLElement>('[data-compacting]')
       if (comp && t % 0.5 < dt) {
         const since = Number(comp.dataset.compacting)
@@ -817,6 +842,8 @@ export class ArchipelagoScene {
       }
       const isl = this.islands.get(ship.planet.tagId)?.island
       const state = b.subagent.state
+      // A boat of an offline device's ship holds still with it.
+      const held = ship.planet.offline
       if (state === 'ended') b.mode = 'back'
       let goal: Point
       if (b.mode === 'back') goal = ship
@@ -830,7 +857,9 @@ export class ArchipelagoScene {
       }
       if (state === 'materializing') goal = polar(ship, ship.h + Math.PI / 2, 0.45 * factor)
       const next = isl && b.mode !== 'back' ? routeStep(isl, b, goal) : goal
-      if (reduced) {
+      if (held) {
+        b.vx = b.vy = 0
+      } else if (reduced) {
         b.x = next.x
         b.y = next.y
       } else steer(b, next, dt, b.mode === 'scout' || state === 'needs_input' ? 0.06 : BOAT_SPEED)
@@ -853,7 +882,7 @@ export class ArchipelagoScene {
       b.g.setAttribute('transform', `translate(${fmt(b.x)} ${fmt(b.y)}) scale(${fmt(bs)})`)
       b.body.setAttribute('transform', `rotate(${deg.toFixed(2)})`)
       b.shadow.setAttribute('transform', `translate(${fmt(b.x + 0.04 * factor)} ${fmt(b.y - 0.05 * factor)}) scale(${fmt(bs)}) rotate(${deg.toFixed(2)})`)
-      const muted = ship.planet.muted ? 0.28 : 1
+      const muted = (ship.planet.muted ? 0.28 : 1) * (held ? OFFLINE_OPACITY : 1)
       b.g.style.opacity = String(Math.max(0, b.opacity) * muted)
       b.shadow.style.opacity = String(Math.max(0, b.opacity) * muted * 0.45)
       b.lantern.setAttribute('opacity', state === 'needs_input' ? '0.8' : '0')

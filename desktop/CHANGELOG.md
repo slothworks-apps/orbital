@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.35.1] — 2026-10-19
+### Changed
+- The Archipelago map (Experimental) catches up with Planets: ships show the Claude directory mark, the device name and an offline device's age, a waiting limit's pill and a steady NEEDS YOUR OK; an offline device's ship rests at half strength, and the camera follows the selected ship when its island moves.
+
 ## [0.35.0] — 2026-10-19
 ### Added
 - Settings → Devices: under each other device in your group, what it may do on this Mac — read and drive sessions, start sessions, settings, upkeep of this Mac (Claude directories, errors, branch status) and the IDE. The first three are on as before; upkeep and IDE are new and off until you turn them on.
