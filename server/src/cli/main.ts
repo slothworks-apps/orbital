@@ -22,7 +22,12 @@ async function main(): Promise<number> {
     if (parsed.kind === 'help' || parsed.kind === 'usage') {
       return await runCli(argv, { call: () => Promise.reject(new NotRunning()), io, port: 0 });
     }
-    const target = cliTarget({ env: process.env, home: homedir(), platform: process.platform });
+    // The port the user unit runs the server on, where there is one: the same
+    // answer `orbital setup` reads, so every command finds the server it started.
+    const unitEnvironment = process.platform === 'linux' && !process.env.ORBITAL_PORT
+      ? await new SystemSetup().unitEnvironment().catch(() => null)
+      : null;
+    const target = cliTarget({ env: process.env, home: homedir(), platform: process.platform, unitEnvironment });
     if ('error' in target) {
       io.err(target.error);
       return 1;

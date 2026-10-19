@@ -85,6 +85,18 @@ describe('cliTarget', () => {
     });
   });
 
+  it("takes the shell's port first, then the user unit's, then the default", () => {
+    const unitEnvironment = 'Environment=ORBITAL_HEADLESS=1 ORBITAL_PORT=4800\n';
+    expect(cliTarget({ env: {}, home, platform: 'linux', unitEnvironment })).toMatchObject({ port: 4800 });
+    expect(cliTarget({ env: { ORBITAL_PORT: '4900' }, home, platform: 'linux', unitEnvironment })).toMatchObject({ port: 4900 });
+    expect(cliTarget({ env: { ORBITAL_PORT: '' }, home, platform: 'linux', unitEnvironment })).toMatchObject({ port: 4800 });
+    for (const none of ['Environment=ORBITAL_HEADLESS=1\n', 'Environment=ORBITAL_PORT=99999', '', null]) {
+      expect(cliTarget({ env: {}, home, platform: 'linux', unitEnvironment: none })).toMatchObject({ port: DEFAULT_PORT });
+    }
+    // A shell port that is no port is refused even with the unit's at hand.
+    expect(cliTarget({ env: { ORBITAL_PORT: 'abc' }, home, platform: 'linux', unitEnvironment })).toHaveProperty('error');
+  });
+
   it('refuses a port that is no port', () => {
     for (const p of ['0', '65536', 'abc', '12.5', '-1', '0x10']) {
       expect(cliTarget({ env: { ORBITAL_PORT: p }, home, platform: 'linux' })).toHaveProperty('error');

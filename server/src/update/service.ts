@@ -20,27 +20,22 @@ import {
 import type { UpdateBackend, UpdateProgress } from './backends.js';
 
 /**
- * In the data dir: the version that asked for an update, the one it asked
- * for, and the member that asked (`by`, null when not known).
+ * In the data dir: the version that asked for an update and the one it
+ * asked for. Who asked is not kept: a start always ends the request that
+ * wrote it, and an update that has ended names no one.
  */
 export const UPDATE_MARKER_FILE = 'update-request.json';
 
-export type UpdateMarker = { from: string; to: string; at: number; by: UpdateAsker | null };
+export type UpdateMarker = { from: string; to: string; at: number };
 
-function askerOf(raw: unknown): UpdateAsker | null {
-  if (typeof raw !== 'object' || raw === null) return null;
-  const { id, name } = raw as Record<string, unknown>;
-  return typeof id === 'string' && typeof name === 'string' ? { id, name } : null;
-}
-
-/** The marker in `path`; null when there is none or it is malformed. A marker from before `by` reads as `by: null`. */
+/** The marker in `path`; null when there is none or it is malformed. Fields it does not know are ignored. */
 export function readMarker(path: string): UpdateMarker | null {
   try {
     const raw: unknown = JSON.parse(readFileSync(path, 'utf8'));
     if (typeof raw !== 'object' || raw === null) return null;
-    const { from, to, at, by } = raw as Record<string, unknown>;
+    const { from, to, at } = raw as Record<string, unknown>;
     if (typeof from !== 'string' || typeof to !== 'string' || typeof at !== 'number') return null;
-    return { from, to, at, by: askerOf(by) };
+    return { from, to, at };
   } catch {
     return null;
   }
@@ -72,9 +67,8 @@ export class UpdateService {
     timeoutMs?: number;
   }) {
     opts.backend.onProgress((progress) => this.progress(progress));
-    // The marker's `by` is not taken back: a start always ends the request
-    // that wrote it — it came back on the new version, or on the old one,
-    // failed — and an update that has ended names no one.
+    // A start always ends the request that wrote the marker: it came back
+    // on the new version, or on the old one, failed.
     const marker = readMarker(opts.markerPath);
     if (marker === null) return;
     if (marker.from === opts.running) {
@@ -118,7 +112,7 @@ export class UpdateService {
     this.target = target;
     this.startedBy = startedBy;
     try {
-      const marker: UpdateMarker = { from: this.opts.running, to: target, at: Date.now(), by: startedBy };
+      const marker: UpdateMarker = { from: this.opts.running, to: target, at: Date.now() };
       writeFileSync(this.opts.markerPath, `${JSON.stringify(marker)}\n`);
     } catch (err) {
       // Costs only the `failed` line after a restart that brought the old version back.

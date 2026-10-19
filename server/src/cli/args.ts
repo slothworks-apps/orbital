@@ -52,7 +52,8 @@ Options:
   --clear          remove the relay secret (relay secret)
   -h, --help       this text
 
-It talks to the server at 127.0.0.1:$ORBITAL_PORT with the token in its data dir.`;
+It talks to the server on 127.0.0.1 with the token in its data dir: on the port in
+$ORBITAL_PORT, else the one the orbital user unit sets, else the default.`;
 
 /** Commands that ask before they act, and so take `--yes`. */
 const CONFIRMS: ReadonlySet<Command['kind']> = new Set(['relaySet', 'relaySecret', 'remove', 'leave', 'update']);

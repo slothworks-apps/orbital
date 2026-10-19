@@ -12,7 +12,7 @@ import { dirname } from 'node:path';
 import { DEFAULT_PORT } from '../config.js';
 import { UPDATE_REQUEST_DIR } from '../update/backends.js';
 import type { Io } from './io.js';
-import { SERVICE_USER_FILE, USER_NAME } from './target.js';
+import { SERVICE_USER_FILE, USER_NAME, unitPortSetting } from './target.js';
 
 /** The user unit the package installs. */
 export const USER_UNIT_FILE = '/usr/lib/systemd/user/orbital.service';
@@ -135,9 +135,7 @@ export type SetupDeps = {
  * `systemctl --user edit orbital`), else `DEFAULT_PORT`.
  */
 export function unitPort(show: string): number {
-  const m = /(?:^|[\s=])ORBITAL_PORT=(\d{1,5})(?=\s|$)/.exec(show.trim());
-  const n = m ? Number(m[1]) : NaN;
-  return n >= 1 && n <= 65535 ? n : DEFAULT_PORT;
+  return unitPortSetting(show) ?? DEFAULT_PORT;
 }
 
 export async function runSetup({ io, sys, status }: SetupDeps): Promise<number> {

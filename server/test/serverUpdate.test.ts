@@ -256,14 +256,14 @@ describe('UpdateService', () => {
     expect(existsSync(join(dir, UPDATE_MARKER_FILE))).toBe(false);
   });
 
-  it('names who started an update while it runs, writes it into the marker, and forgets it when it ends', () => {
+  it('names who started an update while it runs, and forgets it when it ends', () => {
     vi.useFakeTimers();
     try {
       const by = { id: 'peer-1', name: 'Pixel 8' };
       const { backend } = fakeBackend();
       const { dir, service } = make(backend, '0.35.0', undefined, 1_000);
       expect(service.start(by)).toMatchObject({ ok: true, state: { updating: true, startedBy: by } });
-      expect(readMarker(join(dir, UPDATE_MARKER_FILE))).toMatchObject({ from: '0.35.0', to: '0.36.0', by });
+      expect(readMarker(join(dir, UPDATE_MARKER_FILE))).toMatchObject({ from: '0.35.0', to: '0.36.0' });
       vi.advanceTimersByTime(1_000);
       expect(service.state()).toMatchObject({ updating: false, failed: '0.36.0', startedBy: null });
       // A request with no known asker names no one.
@@ -287,13 +287,11 @@ describe('UpdateService', () => {
     expect(readMarker(join(dir, UPDATE_MARKER_FILE))).toBeNull();
   });
 
-  it('reads a marker from before the asker as one with no asker, and an asker that is not one as none', () => {
+  it('reads a marker that also names an asker (written before the asker was dropped) as a marker', () => {
     const dir = makeTmpDir('update-marker-by');
     const path = join(dir, UPDATE_MARKER_FILE);
-    writeFileSync(path, JSON.stringify({ from: '0.35.0', to: '0.36.0', at: 1 }));
-    expect(readMarker(path)).toEqual({ from: '0.35.0', to: '0.36.0', at: 1, by: null });
-    writeFileSync(path, JSON.stringify({ from: '0.35.0', to: '0.36.0', at: 1, by: { id: 3 } }));
-    expect(readMarker(path)?.by).toBeNull();
+    writeFileSync(path, JSON.stringify({ from: '0.35.0', to: '0.36.0', at: 1, by: { id: 'p', name: 'Pixel 8' } }));
+    expect(readMarker(path)).toEqual({ from: '0.35.0', to: '0.36.0', at: 1 });
   });
 
   it('ignores a marker that is not one', () => {
@@ -396,7 +394,7 @@ describe('/api/server/update', () => {
     } finally {
       await app.close();
     }
-    expect(readMarker(join(dataDir, UPDATE_MARKER_FILE))?.by).toEqual({ id: self, name: 'nuc' });
+    expect(readMarker(join(dataDir, UPDATE_MARKER_FILE))).toMatchObject({ to: '0.36.0' });
 
     // Restarted on the same version: the update failed, and it names no one any more.
     app = await server(fakeBackend().backend, dataDir, claudeDir);

@@ -13,12 +13,28 @@ import { DEFAULT_PORT } from '../config.js';
 export type CliTarget = { port: number; tokenFile: string };
 
 /**
- * `ORBITAL_PORT` when set, else `DEFAULT_PORT`; the token under the data dir
- * `orbitalDataDir` names. A port that is no port is an error, not a guess.
+ * The port a systemd unit's environment sets (`systemctl --user show
+ * orbital -p Environment`'s output, an override from `systemctl --user edit
+ * orbital` included); null when it sets none, or none that is a port.
  */
-export function cliTarget(input: DataDirInput & { env: { ORBITAL_PORT?: string } }): CliTarget | { error: string } {
+export function unitPortSetting(show: string): number | null {
+  const m = /(?:^|[\s=])ORBITAL_PORT=(\d{1,5})(?=\s|$)/.exec(show.trim());
+  const n = m ? Number(m[1]) : NaN;
+  return n >= 1 && n <= 65535 ? n : null;
+}
+
+/**
+ * The port, the same way for every command: the shell's `ORBITAL_PORT` when
+ * set, else the one the user unit runs the server on (`unitEnvironment`,
+ * read only where there is a unit), else `DEFAULT_PORT`. The token is under
+ * the data dir `orbitalDataDir` names. A shell port that is no port is an
+ * error, not a guess.
+ */
+export function cliTarget(
+  input: DataDirInput & { env: { ORBITAL_PORT?: string }; unitEnvironment?: string | null },
+): CliTarget | { error: string } {
   const raw = input.env.ORBITAL_PORT;
-  let port = DEFAULT_PORT;
+  let port = (input.unitEnvironment ? unitPortSetting(input.unitEnvironment) : null) ?? DEFAULT_PORT;
   if (raw !== undefined && raw !== '') {
     const n = /^\d{1,5}$/.test(raw) ? Number(raw) : NaN;
     if (!(n >= 1 && n <= 65535)) return { error: `ORBITAL_PORT is not a port: ${raw}` };
