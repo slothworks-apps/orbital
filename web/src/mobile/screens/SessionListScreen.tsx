@@ -1,8 +1,8 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { timeAgo } from '../../lib/format'
 import { toggleTag } from '../../lib/tagFilter'
-import { isReadOnly, sessionStateKey, tagColor, type ApiSession, type Tag } from '../../lib/types'
+import { isReadOnly, tagColor, waitingCount, type ApiSession, type Tag } from '../../lib/types'
 import { useNow } from '../../lib/useNow'
 import { ClaudeDirMark, useClaudeDirMark } from '../../ui/ClaudeDirMark'
 import { useOrbital } from '../../store/store'
@@ -200,19 +200,14 @@ export function SessionListScreen() {
             const latest = heading?.latest ?? null
             return (
               <section key="ended">
-                <button
-                  type="button"
-                  aria-expanded={endedOpen}
-                  onClick={() => {
+                <FoldButton
+                  open={endedOpen}
+                  onToggle={() => {
                     // Read from the Mac the first time it opens (`loadEndedFold`).
                     if (!endedOpen) void loadEndedFold()
                     setEndedOpen(!endedOpen)
                   }}
-                  className="mx-3 mt-2.5 flex h-12 w-[calc(100%-24px)] items-center gap-2.5 rounded-[12px] px-2 text-left font-mono text-[10.5px] tracking-[0.16em] text-[rgba(160,190,225,.6)]"
                 >
-                  <span aria-hidden className="text-[9px]">
-                    {endedOpen ? '▾' : '▸'}
-                  </span>
                   <span aria-hidden className="block h-2 w-2 rounded-full border border-[rgba(200,215,235,.45)]" />
                   <span>
                     {GROUP_LABEL.ended}
@@ -221,7 +216,7 @@ export function SessionListScreen() {
                   {latest !== null && (
                     <span className="ml-auto tracking-[0.04em] text-[rgba(160,190,225,.45)]">latest {agoLabel(latest, now)}</span>
                   )}
-                </button>
+                </FoldButton>
                 {endedOpen && group.sessions.map((s) => <EndedRow key={s.id} session={s} tag={tagById.get(s.tagIds[0])} device={withNames ? s.machine?.name : undefined} now={now} onOpen={openSession} />)}
               </section>
             )
@@ -261,23 +256,15 @@ export function SessionListScreen() {
           if (group.key === 'docked') {
             // A fold like ENDED's, its rows already in the list. Waiting shows
             // in the heading's own ink: put away, it asks nothing of you now.
-            const waiting = group.sessions.filter((s) => sessionStateKey(s) === 'needs_input').length
+            const waiting = waitingCount(group.sessions)
             return (
               <section key="docked">
-                <button
-                  type="button"
-                  aria-expanded={dockedOpen}
-                  onClick={() => setDockedOpen(!dockedOpen)}
-                  className="mx-3 mt-2.5 flex h-12 w-[calc(100%-24px)] items-center gap-2.5 rounded-[12px] px-2 text-left font-mono text-[10.5px] tracking-[0.16em] text-[rgba(160,190,225,.6)]"
-                >
-                  <span aria-hidden className="text-[9px]">
-                    {dockedOpen ? '▾' : '▸'}
-                  </span>
+                <FoldButton open={dockedOpen} onToggle={() => setDockedOpen(!dockedOpen)}>
                   <span>
                     {GROUP_LABEL.docked} · {group.sessions.length}
                     {waiting > 0 && <> · {waiting} waiting</>}
                   </span>
-                </button>
+                </FoldButton>
                 {dockedOpen && rows}
               </section>
             )
@@ -775,6 +762,23 @@ function Moon({ color, running, small = false }: { color: string; running: boole
       ].join(' ')}
       style={{ borderColor: running ? color : 'rgba(200,215,235,.35)' }}
     />
+  )
+}
+
+/** A folded group's heading (ENDED, DOCKED): a chevron and whatever the group says of itself. */
+function FoldButton({ open, onToggle, children }: { open: boolean; onToggle: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      onClick={onToggle}
+      className="mx-3 mt-2.5 flex h-12 w-[calc(100%-24px)] items-center gap-2.5 rounded-[12px] px-2 text-left font-mono text-[10.5px] tracking-[0.16em] text-[rgba(160,190,225,.6)]"
+    >
+      <span aria-hidden className="text-[9px]">
+        {open ? '▾' : '▸'}
+      </span>
+      {children}
+    </button>
   )
 }
 

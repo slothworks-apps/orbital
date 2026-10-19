@@ -83,20 +83,21 @@ right-click menu.
 
 ### What brings a docked session back
 
-- **Only the user writing to it.** `deliverToSession` already reopens an
-  ended session. It clears `docked_at` in the same `reopen` step, so it
-  works the same from the desktop composer, the phone, a detached window, or
-  a session opened from DOCKED.
+- **Only the user writing to it.** The user's message route
+  (`POST /api/sessions/:id/messages`) clears `docked_at` once the message is
+  taken, delivered or queued for a limit reset, so it works the same from the
+  desktop composer, the phone, a detached window, or a session opened from
+  DOCKED. Not `deliverToSession` itself: a limit's continuation and a
+  harness step go through it on their own. A delivery that fails leaves the
+  session docked.
 - Agent activity never undocks. A session docked mid-turn finishes in
   DOCKED and stays there. One that stops on a question or a permission
   request also stays docked and waits quietly. Its row shows it, and so does
   the DOCKED heading.
-- A live terminal session can be docked. An ended one cannot: nothing
-  reopens it, so it can only be pinned. Typing into its terminal does not
-  undock it, because Orbital only watches terminal sessions
-  (`why-orbital.md` → Terminal sessions are shown, not driven). Writing to
-  it through Orbital does, through the same path. *(Builder's call, by the
-  author.)*
+- A terminal session cannot be docked (the route answers 409, as reopen
+  does): it ends when its CLI exits, which no stamp stops, and a docked
+  session is never ended. Undocking stays open to every row. *(Changed after
+  review; the first cut let a live terminal session dock.)*
 
 ### Notifications
 
@@ -119,8 +120,9 @@ right-click menu.
 
 Order: **PINNED · ACTIVE · DOCKED · HISTORY**.
 
-- DOCKED, like PINNED, is absent while it is empty. Both appear as drop
-  targets while a row is being dragged.
+- DOCKED, like PINNED, is absent while it is empty. While a row is
+  dragged, an empty one shows as a band floating over the list (no height
+  of its own), so nothing moves under the pointer.
 - Every heading is a toggle that collapses its section. Collapse state is
   kept per section in one setting (`sidebar_sections_collapsed`, a JSON
   set of section keys) and survives reload.
@@ -176,7 +178,8 @@ On a sidebar row and on a planet, built on `web/src/ui/Menu.tsx`:
 - Clear and start over
 - End session (Reopen on an ended row)
 
-Only what fits the row is shown: an ended row shows Reopen, Pin (as today)
+A session from another Mac in the group that does not dock yet (its rows
+carry no `dockedAt`) is offered no Dock. Only what fits the row is shown: an ended row shows Reopen, Pin (as today)
 and Rename / Change tag, and no Dock until it is reopened. A live terminal
 session shows Pin, Dock, Rename and Change tag. Clear and End go through the
 same dialogs and rules as the detail panel. Keyboard: the context-menu key
@@ -190,8 +193,9 @@ or ⇧F10 on a focused row opens it.
   the upsert. `docked: true` clears `pinned_at` and `ended_at`.
   `pinned: true` clears `docked_at`.
 - `dockedAt: number | null` joins the API session shape.
-- `GET /api/sessions` ordering is unchanged. Docked rows are few and live,
-  so they come with the live rows.
+- `GET /api/sessions` orders pinned rows first, then docked rows (in dock
+  order), then the rest by recency. A docked session goes stale by
+  `last_at`, and DOCKED must not depend on HISTORY paging it in.
 - Retention ("Delete sessions older than") spares a docked session, as it
   spares a pinned one: work that comes back weekly is exactly what an age
   cutoff would otherwise catch.
@@ -224,7 +228,9 @@ Built for the phone too.
   uses it: DOCKED is absent while empty, the other sections start open, and
   the menu and drag are new gestures, not changed ones.
 - **What a current user notices:** the section headings can be clicked to
-  collapse, and they show counts. Right-click now opens a menu.
+  collapse, and they show counts, with a muted `· N waiting` on PINNED and
+  ACTIVE while a session waits for them. Every sidebar row can be dragged.
+  Right-click now opens a menu.
 - **Settings:** none new. Collapse state is remembered, not configured.
 
 ## Tests

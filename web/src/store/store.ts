@@ -249,9 +249,9 @@ export interface OrbitalUiState {
   /**
    * An action the right-click menu asked of the detail panel, which owns the
    * title field and the Clear/End dialogs: the panel runs it once it shows
-   * session `id`, then clears it. `nonce` lets the same ask land twice.
+   * session `id`, then clears it.
    */
-  panelRequest?: { id: string; action: 'rename' | 'clear' | 'end'; nonce: number } | null
+  panelRequest?: { id: string; action: 'rename' | 'clear' | 'end' } | null
   /**
    * Set once by `lib/sessionUrl.ts` when the `?session=` restore has settled
    * (immediately, when the URL names nothing to restore). Until then the page
@@ -677,7 +677,7 @@ export interface OrbitalActions {
    * took a pin, puts the pin back. Optimistic; a failure rolls back and
    * reports through the toast.
    */
-  reopenSession(id: string, restore?: 'pin' | 'dock'): Promise<void>
+  reopenSession(id: string, repin?: boolean): Promise<void>
   /**
    * Docks (or undocks) a session (spec 2026-10-19-docked-sessions-design):
    * off the map and silent until undocked or written to. Docking takes the
@@ -2355,13 +2355,17 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         run: () =>
           void (alreadyEnded
             ? get().setSessionPinned(id, true)
-            : get().reopenSession(id, wasPinned ? 'pin' : wasDocked ? 'dock' : undefined)),
+            : wasDocked
+              // One write: docking reopens on the server too, so the
+              // planet does not come back for the moment between two.
+              ? get().setSessionDocked(id, true)
+              : get().reopenSession(id, wasPinned)),
       },
     }
     set({ toast })
   },
 
-  async reopenSession(id, restore) {
+  async reopenSession(id, repin = false) {
     const session = get().sessions[id]
     if (!session) return
     const previousStatus = session.status
@@ -2376,26 +2380,26 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       set({ toast: { kind: 'error', message } })
       return
     }
-    if (restore === 'pin') await get().setSessionPinned(id, true)
-    if (restore === 'dock') await get().setSessionDocked(id, true)
+    if (repin) await get().setSessionPinned(id, true)
   },
 
   async setSessionDocked(id, docked) {
     const session = get().sessions[id]
     if (!session) return
-    const previous = {
-      status: session.status, pinnedAt: session.pinnedAt ?? null, dockedAt: session.dockedAt ?? null,
+    // Docking an ended session reopens it: `idle`, as the server will read it.
+    // Only then is the status ours to put back on a failure — otherwise an
+    // upsert that landed meanwhile knows it better.
+    const reopens = docked && session.status === 'ended'
+    const previous: Partial<ApiSession> = {
+      pinnedAt: session.pinnedAt ?? null,
+      dockedAt: session.dockedAt ?? null,
+      ...(reopens ? { status: session.status } : {}),
     }
     const stamp = (fields: Partial<ApiSession>) =>
       withViewTransition(() => set((state) => withSessionPatch(state, id, fields)))
     stamp(
       docked
-        ? {
-            dockedAt: Date.now(),
-            pinnedAt: null,
-            // Docking an ended session reopens it: `idle`, as the server will read it.
-            ...(session.status === 'ended' ? { status: 'idle' as const } : {}),
-          }
+        ? { dockedAt: Date.now(), pinnedAt: null, ...(reopens ? { status: 'idle' as const } : {}) }
         : { dockedAt: null },
     )
     try {
@@ -2412,9 +2416,17 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     if (!session) return
     if (to === 'pinned') return get().setSessionPinned(id, true)
     if (to === 'docked') return get().setSessionDocked(id, true)
-    // Into ACTIVE: whatever held it elsewhere lets go — the pin, the dock, the end.
-    if (session.pinnedAt != null) await get().setSessionPinned(id, false)
-    if (session.dockedAt != null) await get().setSessionDocked(id, false)
+    // Into ACTIVE: whatever held it elsewhere lets go — the pin, the dock, the
+    // end. Each setter rolls itself back and reports a failure, so a step
+    // that did not hold stops the rest rather than leave the move half-done.
+    if (session.pinnedAt != null) {
+      await get().setSessionPinned(id, false)
+      if (get().sessions[id]?.pinnedAt != null) return
+    }
+    if (session.dockedAt != null) {
+      await get().setSessionDocked(id, false)
+      if (get().sessions[id]?.dockedAt != null) return
+    }
     if (session.status === 'ended') await get().reopenSession(id)
   },
 
@@ -2503,8 +2515,12 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   async requestPanelAction(id, action) {
     await get().select(id)
+    // A detached session went to its own window, where this panel request
+    // would never be read; left pending, it would fire the next time the
+    // main panel showed the session.
+    if (get().detachedIds.includes(id)) return
     set((state) => ({
-      ui: { ...state.ui, panelRequest: { id, action, nonce: (state.ui.panelRequest?.nonce ?? 0) + 1 } },
+      ui: { ...state.ui, panelRequest: { id, action } },
     }))
   },
 

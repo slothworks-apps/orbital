@@ -1191,6 +1191,13 @@ export function sessionStateKey(
   return session.status
 }
 
+/** How many of `sessions` wait on the user — a section heading's `· N waiting`. */
+export function waitingCount(
+  sessions: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'harnessGate'>[],
+): number {
+  return sessions.filter((s) => sessionStateKey(s) === 'needs_input').length
+}
+
 /**
  * The map's state pill for a session: which state it is and its word, or
  * null when the planet wears none. One function for the pill `Planet` draws

@@ -33,7 +33,7 @@ export function SessionContextMenu() {
   )
 }
 
-export function sessionMenuEntries(session: ApiSession, tags: Tag[]): MenuEntry[] {
+function sessionMenuEntries(session: ApiSession, tags: Tag[]): MenuEntry[] {
   const store = useOrbital.getState()
   const id = session.id
   const section = sectionOf(session)

@@ -11,7 +11,7 @@ import type { ApiSession } from './types'
 export type SectionKey = 'pinned' | 'active' | 'docked' | 'history'
 
 /** The sidebar's order, top to bottom. */
-export const SECTION_ORDER: readonly SectionKey[] = ['pinned', 'active', 'docked', 'history']
+const SECTION_ORDER: readonly SectionKey[] = ['pinned', 'active', 'docked', 'history']
 
 type MoveFields = Pick<ApiSession, 'status' | 'source' | 'pinnedAt' | 'dockedAt'>
 
@@ -42,8 +42,12 @@ export function moveFor(session: MoveFields, to: SectionKey): Move | null {
     const drop = trashDropFor(session.source, session.status)
     return drop === 'refuse' ? null : { kind: 'end', drop }
   }
+  // Only Orbital's own sessions dock: a terminal session ends when its CLI
+  // exits, and a docked session is never ended. A Mac that does not dock
+  // sends no `dockedAt` at all (a member of the group on an older Orbital).
+  if (to === 'docked' && (session.source !== 'web' || session.dockedAt === undefined)) return null
   // An ended terminal session is over because its CLI exited; nothing here
-  // reopens it, so it can be pinned but not brought back or docked.
+  // reopens it, so it can be pinned but not brought back.
   if (session.status === 'ended' && session.source !== 'web' && to !== 'pinned') return null
   return { kind: 'move', to }
 }

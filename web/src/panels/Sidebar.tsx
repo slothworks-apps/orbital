@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent, ReactNode, Ref } from 'react'
+import type { DragEvent as ReactDragEvent, HTMLAttributes, PointerEvent as ReactPointerEvent, ReactNode, Ref } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   SIDEBAR_DEFAULT_PX,
@@ -21,7 +21,7 @@ import { TopGlint } from '../ui/TopGlint'
 import { useWindowBand } from '../lib/windowChrome'
 import { useWindowFocused } from '../lib/useWindowFocused'
 import { useViewportWidth } from '../lib/useViewportWidth'
-import { awaitedCount, awaitedWork, gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
+import { awaitedCount, awaitedWork, gateWaits, isReadOnly, sessionStateKey, tagColor, waitingCount } from '../lib/types'
 import { compactingLabelOpacity, compactingOf, formatElapsed } from '../lib/compaction'
 import { useAsOfNow } from '../lib/asOfClock'
 import { useNow } from '../lib/useNow'
@@ -482,6 +482,40 @@ function deviceChipTitle(chip: DeviceChip): string {
   return `${chip.name} · ${chip.kind} · ${state}`
 }
 
+/**
+ * A drop target for a section that is not drawn because it is empty (PINNED,
+ * DOCKED): no height of its own, a band over the list's edge while a row is
+ * dragged.
+ */
+function EmptyDropZone({
+  label,
+  between = false,
+  className,
+  ...handlers
+}: {
+  label: string
+  /** Straddle the gap between two sections rather than hang from the list's top. */
+  between?: boolean
+  className: string
+} & Omit<HTMLAttributes<HTMLDivElement>, 'className'>) {
+  return (
+    <div className="relative h-0">
+      <div
+        {...handlers}
+        className={[
+          'absolute inset-x-2 z-10 flex h-8 items-center justify-center',
+          between ? 'top-0 -translate-y-1/2' : 'top-1',
+          'border border-dashed border-[rgba(150,205,255,.25)] bg-[rgba(10,16,28,.92)]',
+          'font-mono text-[10px] tracking-[0.18em] text-text-muted',
+          className,
+        ].join(' ')}
+      >
+        {label.toUpperCase()}
+      </div>
+    </div>
+  )
+}
+
 /** The `dataTransfer` type a dragged sidebar row carries its session id under. */
 const SESSION_DRAG_TYPE = 'application/x-orbital-session'
 
@@ -721,6 +755,25 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
     setDropOver(null)
   }
 
+  // A row that remounts mid-drag (an upsert moved it to another section)
+  // takes its `dragend` with it. The first mouse move after a drag — none
+  // arrive during one — clears what it left behind.
+  useEffect(() => {
+    if (dragging === null) return
+    const clear = () => {
+      setDragging(null)
+      setDropOver(null)
+    }
+    window.addEventListener('mousemove', clear, { once: true })
+    return () => window.removeEventListener('mousemove', clear)
+  }, [dragging])
+
+  // Set a tick after `dragstart`: Chromium can cancel a drag whose page
+  // changes inside the event that starts it.
+  const startDrag = (id: string) => {
+    window.setTimeout(() => setDragging(id), 0)
+  }
+
   const dropProps = (key: SectionKey) => {
     const move = draggedSession ? moveFor(draggedSession, key) : null
     return {
@@ -751,7 +804,6 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
     }
   }
 
-  const waitingIn = (rows: ApiSession[]) => rows.filter((s) => sessionStateKey(s) === 'needs_input').length
 
   const rowProps = (s: ApiSession) => ({
     session: s,
@@ -760,7 +812,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
     detached: detachedIds.includes(s.id),
     onSelect: handleSelect,
     onTogglePin: handleTogglePin,
-    onDragStart: setDragging,
+    onDragStart: startDrag,
     onDragEnd: endDrag,
     deviceName: deviceNameOf(s),
   })
@@ -1008,12 +1060,18 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
             not using — except as a drop target while a row is dragged. A live
             pinned row keeps its blinking dot, weight and WORKING/IDLE label:
             only its section changed. */}
-        {(pinned.length > 0 || dragging !== null) && (
+        {/* An empty PINNED or DOCKED is a drop target only while a row is
+            dragged, and then floats over the list instead of pushing it
+            down under the pointer. */}
+        {pinned.length === 0 && draggedSession && moveFor(draggedSession, 'pinned') && (
+          <EmptyDropZone label="Drop to pin" {...dropProps('pinned')} />
+        )}
+        {pinned.length > 0 && (
           <section {...dropProps('pinned')}>
             <SectionHeading
               label="PINNED"
               count={pinned.length}
-              waiting={waitingIn(pinned)}
+              waiting={waitingCount(pinned)}
               first
               folded={isFolded('pinned')}
               onToggle={() => toggleFold('pinned')}
@@ -1047,8 +1105,8 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           <SectionHeading
             label="ACTIVE"
             count={active.length}
-            waiting={waitingIn(active)}
-            first={pinned.length === 0 && dragging === null}
+            waiting={waitingCount(active)}
+            first={pinned.length === 0}
             folded={isFolded('active')}
             onToggle={() => toggleFold('active')}
           >
@@ -1073,12 +1131,15 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
 
         {/* DOCKED: live work put away (spec 2026-10-19-docked-sessions-design).
             Absent while empty, like PINNED, and folded by default. */}
-        {(docked.length > 0 || dragging !== null) && (
+        {docked.length === 0 && draggedSession && moveFor(draggedSession, 'docked') && (
+          <EmptyDropZone label="Drop to dock" between {...dropProps('docked')} />
+        )}
+        {docked.length > 0 && (
           <section {...dropProps('docked')}>
             <SectionHeading
               label="DOCKED"
               count={docked.length}
-              waiting={waitingIn(docked)}
+              waiting={waitingCount(docked)}
               folded={isFolded('docked')}
               onToggle={() => toggleFold('docked')}
             />

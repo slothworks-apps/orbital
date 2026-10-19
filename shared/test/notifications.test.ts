@@ -424,6 +424,13 @@ describe('a docked session', () => {
       h.say(upsert({ ...docked, dockedAt: null }), status('s1', 'working'), status('s1', 'needs_input')),
     ).toEqual([done('Weekly')]);
   });
+
+  it('reports no failure while docked', () => {
+    const h = harness();
+    h.say(upsert({ id: 's1', title: 'Weekly', status: 'idle', dockedAt: 5 }))
+    const failed = { topic: 'errors', event: 'error', error: { kind: 'session_failed', message: 'boom', sessionId: 's1' } };
+    expect(h.say(failed)).toEqual([]);
+  });
 });
 
 describe('notification settings', () => {

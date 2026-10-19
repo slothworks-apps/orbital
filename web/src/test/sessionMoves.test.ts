@@ -43,6 +43,11 @@ describe('moveFor', () => {
     expect(moveFor(at({ status: 'ended', pinnedAt: 1, source: 'terminal' }), 'history')).toEqual({ kind: 'end', drop: 'end' })
   })
 
+  it('docks only an Orbital session, on a Mac that knows docking', () => {
+    expect(moveFor(at({ source: 'terminal' }), 'docked')).toBeNull()
+    expect(moveFor({ ...at({}), dockedAt: undefined }, 'docked')).toBeNull()
+  })
+
   it('only pins an ended terminal session, since nothing reopens it', () => {
     const over = at({ status: 'ended', source: 'terminal' })
     expect(moveFor(over, 'pinned')).toEqual({ kind: 'move', to: 'pinned' })
@@ -54,7 +59,7 @@ describe('moveFor', () => {
 describe('partitionSessions with docked rows', () => {
   const session = (id: string, fields: Partial<ApiSession>) =>
     ({ id, cwd: '/w', title: id, firstAt: 1, lastAt: 1, messageCount: 1, source: 'web', permissionMode: null,
-       model: null, resolvedModel: null, tagIds: [], status: 'idle', subagents: [], ...fields }) as ApiSession
+       model: null, resolvedModel: null, tagIds: [], status: 'idle', subagents: [], ...fields })
 
   it('takes docked rows out of active, in dock order', () => {
     const parts = partitionSessions(

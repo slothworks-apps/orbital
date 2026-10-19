@@ -23,6 +23,12 @@ type Gesture =
   | { kind: 'ship'; pointerId: number; id: string; startX: number; startY: number; moved: boolean }
   | { kind: 'island'; pointerId: number; tagId: number; grab: { x: number; y: number }; startX: number; startY: number; moved: boolean }
 
+/** The session a ship (or its label) under `target` stands for, or null. */
+function shipIdAt(target: Element): string | null {
+  const ship = target.closest<HTMLElement | SVGElement>('[data-ship], [data-ship-label]')
+  return ship ? ((ship as HTMLElement).dataset.ship ?? (ship as HTMLElement).dataset.shipLabel ?? null) : null
+}
+
 /**
  * The Archipelago theme (spec 2026-10-01-map-themes-design § 3): tag clusters
  * as islands, sessions as ships, subagents as rowboats, history as a
@@ -183,9 +189,8 @@ export function ArchipelagoMap() {
       const target = e.target as Element
       if (target.closest('button, [data-action]')) return
       const base = { pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, moved: false }
-      const ship = target.closest<HTMLElement | SVGElement>('[data-ship], [data-ship-label]')
-      if (ship) {
-        const id = (ship as HTMLElement).dataset.ship ?? (ship as HTMLElement).dataset.shipLabel!
+      const id = shipIdAt(target)
+      if (id) {
         gestureRef.current = { kind: 'ship', id, ...base }
         return
       }
@@ -325,8 +330,7 @@ export function ArchipelagoMap() {
       onClick={handleClick}
       onContextMenu={(e) => {
         // A ship's right-click: the session's menu (spec 2026-10-19-docked-sessions-design).
-        const ship = (e.target as Element).closest<HTMLElement | SVGElement>('[data-ship], [data-ship-label]')
-        const id = ship && ((ship as HTMLElement).dataset.ship ?? (ship as HTMLElement).dataset.shipLabel)
+        const id = shipIdAt(e.target as Element)
         if (!id) return
         e.preventDefault()
         useOrbital.getState().openSessionMenu(id, e.clientX, e.clientY)

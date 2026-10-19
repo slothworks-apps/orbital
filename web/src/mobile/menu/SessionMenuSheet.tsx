@@ -60,16 +60,10 @@ export function SessionMenuSheet({
     })
   }
 
-  // The desktop panel's `selectTag`: one tag, replacing whatever the session wore.
+  // The store's one-tag write, as the desktop panel and menu make it.
   const pickTag = (tagId: number) => {
     onClose()
-    const previous = session.tagIds
-    if (previous.length === 1 && previous[0] === tagId) return
-    patchSession(id, { tagIds: [tagId] })
-    api.setSessionTags(id, [tagId]).catch((err) => {
-      patchSession(id, { tagIds: previous })
-      reportError(err, 'Failed to change the session tag')
-    })
+    useOrbital.getState().setSessionTag(id, tagId).catch((err) => reportError(err, 'Failed to change the session tag'))
   }
 
   // The store's own pin: optimistic, rolled back with its toast.
@@ -310,7 +304,7 @@ function PinGlyph() {
   )
 }
 
-/** canvas 10i: the dock — a rounded rectangle. */
+/** The dock: a rounded rectangle, drawn by eye — no canvas has a dock glyph yet. */
 function DockGlyph() {
   return (
     <span className="block h-3 w-4 rounded-[2px] border-[1.5px] border-[rgba(200,220,245,.75)]" />

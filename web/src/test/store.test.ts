@@ -1761,7 +1761,7 @@ describe('trashSession', () => {
     await useOrbital.getState().trashSession('sd', { undo: true })
     vi.mocked(api.reopenSession).mockRejectedValueOnce(new Error('reopen server down'))
 
-    await useOrbital.getState().reopenSession('sd')
+    await useOrbital.getState().reopenSession('sd', false)
 
     expect(useOrbital.getState().sessions.sd.status).toBe('ended')
     expect(useOrbital.getState().toast).toEqual({ kind: 'error', message: 'reopen server down' })

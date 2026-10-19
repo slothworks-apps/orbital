@@ -424,7 +424,11 @@ export class SessionNotifier {
     if (!message) return;
 
     const sessionId = str(error.sessionId);
-    const name = sessionId ? this.seen.get(sessionId)?.name : null;
+    const known = sessionId ? this.seen.get(sessionId) : undefined;
+    // A docked session is silent, its failure included (spec
+    // 2026-10-19-docked-sessions-design § Notifications).
+    if (known?.docked) return;
+    const name = known?.name ?? null;
     this.notify({
       kind: 'failed',
       title: name ?? FALLBACK_TITLE,

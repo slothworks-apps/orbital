@@ -2332,6 +2332,8 @@ describe('docked sessions', () => {
 
   beforeEach(() => {
     ({ app, db, hub } = makeApp());
+    // Only Orbital's own sessions dock; the fixture's s2 starts as a terminal one.
+    db.update(sessions).set({ source: 'web' }).where(eq(sessions.id, 's2')).run();
   });
 
   const rowOf = (id: string) =>
@@ -2361,6 +2363,27 @@ describe('docked sessions', () => {
     const bad = await dock('s2', 'yes');
     expect(bad.statusCode).toBe(400);
     expect(bad.json()).toEqual({ error: 'docked must be a boolean' });
+  });
+
+  it('refuses to dock a terminal session, and still undocks one', async () => {
+    const res = await dock('s1', true);
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: 'terminal_session' });
+    db.update(sessions).set({ dockedAt: 5 }).where(eq(sessions.id, 's1')).run();
+    expect((await dock('s1', false)).statusCode).toBe(200);
+    expect(rowOf('s1').docked_at).toBeNull();
+  });
+
+  // Put away, a docked row goes stale by last_at; it must still arrive with
+  // the first page, right after the pinned ones.
+  it('GET /api/sessions puts docked rows after pinned ones, ahead of newer rows', async () => {
+    db.insert(sessions)
+      .values({ id: 's3', projectDir: 'p', cwd: '/w/z', title: 'newest', lastAt: 300, source: 'web' })
+      .run();
+    db.update(sessions).set({ pinnedAt: 1 }).where(eq(sessions.id, 's1')).run();
+    db.update(sessions).set({ dockedAt: 2 }).where(eq(sessions.id, 's2')).run();
+    const listed = res200(await app.inject({ method: 'GET', url: '/api/sessions' }));
+    expect(listed.sessions.map((s: any) => s.id)).toEqual(['s1', 's2', 's3']);
   });
 
   it('pinning a docked session undocks it', async () => {

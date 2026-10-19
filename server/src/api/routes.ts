@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
@@ -489,7 +489,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       // `offset: visible.length` arithmetic only stays valid while client
       // accumulation matches server order (spec
       // 2026-09-20-pinned-sessions-design § Server).
-      .orderBy(sql`${sessions.pinnedAt} IS NULL`, sessions.pinnedAt, desc(sessions.lastAt))
+      // Docked rows next, for the same reason: put away, they go stale by
+      // `last_at`, and DOCKED must not depend on HISTORY paging them in
+      // (spec 2026-10-19-docked-sessions-design § Server).
+      .orderBy(
+        sql`${sessions.pinnedAt} IS NULL`, sessions.pinnedAt,
+        sql`${sessions.dockedAt} IS NULL`, sessions.dockedAt,
+        desc(sessions.lastAt),
+      )
       .limit(limit * 4 + offset) // over-fetch, filter, then page
       .all() as SessionRow[];
     // A harness drafting conversation that has ended is gone from everywhere
@@ -1520,6 +1527,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (typeof docked !== 'boolean') {
       return reply.code(400).send({ error: 'docked must be a boolean' });
     }
+    // A terminal session is not docked: it ends when its CLI exits, which
+    // no stamp here can stop, and a docked session is never ended. Undocking
+    // stays open to every row.
+    if (docked) {
+      const row = db.select({ source: sessions.source }).from(sessions).where(eq(sessions.id, id)).get();
+      if (!row) return reply.code(404).send({ error: 'not found' });
+      if (row.source !== 'web') return reply.code(409).send({ error: 'terminal_session' });
+    }
     const result = db
       .update(sessions)
       .set(docked ? { dockedAt: Date.now(), pinnedAt: null, endedAt: null } : { dockedAt: null })
@@ -1549,9 +1564,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // the message — a session someone is typing into is evidently not over
     // (spec 2026-09-24-sessions-end-only-by-hand-design § 1). Only once it
     // was delivered, though: a revive that throws leaves the session ended.
-    // It undocks it too: writing to a docked session is the user taking it
-    // back up (spec 2026-10-19-docked-sessions-design § What brings it back).
-    const reopen = () => db.update(sessions).set({ endedAt: null, dockedAt: null }).where(eq(sessions.id, id)).run();
+    const reopen = () => db.update(sessions).set({ endedAt: null }).where(eq(sessions.id, id)).run();
     // A pending rewind before anything else: until a turn lands, the file's
     // newest leaf is still the old branch, and a plain send or revive would
     // carry on from it (spec 2026-09-29-rewind-design § Runner).
@@ -1772,6 +1785,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // is held and sent at the reset, in place of the continuation text (spec
     // 2026-10-03-usage-limits-design § Writing to a waiting session).
     if (ctx.limits?.queue(id, typeof text === 'string' ? text : '', attachments)) {
+      undock(id);
       return { ok: true, queued: true };
     }
     let delivery: Delivery;
@@ -1781,9 +1795,27 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       if (err instanceof RewindStopError) return reply.code(504).send({ error: 'stop_timeout', message: err.message });
       throw err;
     }
+    if (delivery.outcome === 'sent' || delivery.outcome === 'revived') undock(id);
     if (delivery.uuid) publishSentTurn(id, delivery.uuid, text, attachments);
     return deliveryReply(delivery, reply, 'session is live in a terminal');
   });
+
+  /**
+   * The user writing to a docked session takes it back up (spec
+   * 2026-10-19-docked-sessions-design § What brings it back). Here, in the
+   * user's own message route, and not in `deliverToSession`: a limit's
+   * continuation and a harness step deliver on their own, and agent activity
+   * never undocks. Only a message that was taken: a failed delivery leaves
+   * the session docked.
+   */
+  function undock(id: string): void {
+    const result = db
+      .update(sessions)
+      .set({ dockedAt: null })
+      .where(and(eq(sessions.id, id), isNotNull(sessions.dockedAt)))
+      .run();
+    if (result.changes > 0) publishRow(id);
+  }
 
   /**
    * Puts a turn the composer sent on the session's topic. The SDK does not
