@@ -32,15 +32,22 @@ line to it after another device updated this Mac.
 - **After a remote update** (50v step 04), the body starts with
   `<Device> updated this Mac at <HH:MM>. The <n> sessions running then
   were stopped.`, and the three lines follow.
-- **The dialog** (desktop, canvas 1b) or **the sheet** (phone, canvas 2b):
-  - head `WHAT'S NEW` and `Orbital <version> installed today`;
+- **The dialog** (desktop, canvas 1b):
+  - head `WHAT'S NEW` and `Orbital <version> installed today`, or the day
+    this Mac first ran the version;
   - the version's sections with their titles;
   - `Release notes on GitHub ↗` and `Done`.
-
-  Closing the dialog or sheet ends the message.
+- **The sheet** (phone, canvas 2b): the sections and `Done`, with no
+  install line and no GitHub link. The phone's version is not a GitHub
+  release.
+- **Closing** the dialog or the sheet ends the message.
 - **When it shows.** It shows once after the version changes. It does not
   show on a first install, nor when the changelog has no section for the
   running version. A message for a version left behind drops out unseen.
+- **The first release that carries it.** An existing install has no
+  remembered version yet, so a migration (on the phone, existing app
+  state) marks it as an update. People already using Orbital therefore
+  see it on that release too.
 
 ## Where the words come from
 
