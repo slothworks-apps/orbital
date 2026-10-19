@@ -76,7 +76,8 @@ const PLAIN_BLOCK =
  * A fenced block with a copy button in its top-right corner. The button stays
  * out of the way until the block is hovered or the button has focus, so a
  * transcript full of code does not turn into a column of buttons; it fades
- * with opacity, so hovering never reflows the text.
+ * with opacity, so hovering never reflows the text. A device that cannot
+ * hover (the phone) shows it always — there it would otherwise stay hidden.
  *
  * The button is a right float at the head of the block, not an overlay:
  * lines wrap, so any line can reach the right edge, and an absolutely
@@ -101,7 +102,7 @@ function CodeFrame({ code, children }: { code: string; children: ReactNode }) {
 
   return (
     <div className="group/code flow-root">
-      <span className="float-right ml-2 mr-1.5 mt-1.5 opacity-0 transition-opacity group-hover/code:opacity-100 focus-within:opacity-100">
+      <span className="float-right ml-2 mr-1.5 mt-1.5 opacity-0 transition-opacity group-hover/code:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
         <Button
           variant="pill-muted"
           size="pill"

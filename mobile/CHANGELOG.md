@@ -4,6 +4,11 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.15.1] — 2026-10-19
+### Fixed
+- The Copy button on code blocks in a transcript is always shown; before, it appeared only on hover, which a phone does not have.
+- The "Cleared" and "Ended" line at the end of a transcript goes away after a few seconds instead of staying until you leave the session.
+
 ## [0.15.0] — 2026-10-17
 ### Added
 - The phone joins your group of devices: it reaches every desktop and server in the group on its own, so a sleeping Mac takes away only its own sessions. Pairing with one device links the phone with the rest. Needs the Mac update that brings device groups; with an older Mac the phone works as before.
