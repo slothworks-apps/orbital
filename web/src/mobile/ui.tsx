@@ -349,7 +349,7 @@ export function BottomSheet({
 }
 
 /** How long a closing sheet stays mounted while it sinks (`--sheet-exit` in `mobile.css`). */
-const SHEET_EXIT_MS = 200
+export const SHEET_EXIT_MS = 200
 
 function present(node: ReactNode): boolean {
   return node !== null && node !== undefined && node !== false

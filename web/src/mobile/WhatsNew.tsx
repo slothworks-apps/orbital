@@ -9,7 +9,7 @@ import { ReleaseNoteSections } from '../ui/ReleaseNotes'
 import { usePhoneNotices } from './notices'
 import { NoticeButton, PinnedNotice, PinnedNoticeList } from './PinnedNotice'
 import { readWhatsNew, writeWhatsNew } from './platform/whatsNew'
-import { BottomSheet, SheetPresence } from './ui'
+import { BottomSheet, SHEET_EXIT_MS, SheetPresence } from './ui'
 
 /**
  * WHAT'S NEW on the phone (spec 2026-10-19-whats-new-design § The phone;
@@ -44,7 +44,15 @@ function remember(seen: SeenVersion): void {
   )
 }
 
-async function decide(): Promise<void> {
+/**
+ * Decides once per launch, from what boot read before any screen: whether
+ * this phone was in use already (`usedBefore`: a group or pairing, or what a
+ * pairing that ended leaves behind). With nothing remembered, such a phone
+ * was updated from a version before WHAT'S NEW, not installed afresh. Read at
+ * boot, not when the list first shows, so a first pairing is not taken for
+ * an update.
+ */
+export async function decideWhatsNew(usedBefore: boolean): Promise<void> {
   if (deciding) return
   deciding = true
   const version = appVersion()
@@ -56,7 +64,7 @@ async function decide(): Promise<void> {
     return
   }
   const launch = whatsNewOnLaunch({
-    stored: parseSeenVersion(stored),
+    stored: parseSeenVersion(stored, usedBefore),
     version,
     hasNotes: releaseNotes(changelog, version) !== null,
     now: Date.now(),
@@ -65,12 +73,9 @@ async function decide(): Promise<void> {
   if (launch.write) remember(launch.write)
 }
 
-/** Decides once per launch, and keeps the message in the phone's queue while it is due. Mounted by the session list. */
+/** Keeps the message in the phone's queue while it is due. Mounted by the session list. */
 export function usePhoneWhatsNew(): void {
   const due = usePhoneWhatsNewState((s) => s.launch?.due ?? false)
-  useEffect(() => {
-    void decide()
-  }, [])
   useEffect(() => {
     const notices = usePhoneNotices.getState()
     if (due) notices.push({ id: WHATS_NEW_NOTICE_ID, kind: 'changelog', Body: WhatsNewNotice })
@@ -90,12 +95,17 @@ function WhatsNewNotice({ close }: { close: () => void }) {
   const notes = launch ? releaseNotes(changelog, launch.version) : null
   if (!launch || !notes) return null
 
-  // × on the toast, or the sheet closed by Done, ×, the backdrop or back: gone for good.
+  // × on the toast, or the sheet closed by Done, ×, the backdrop or back:
+  // gone for good. A closing sheet sinks first; the toast leaves after it.
   const end = () => {
-    setOpen(false)
     remember(endedSeenVersion(launch.version, launch.installedAt))
-    usePhoneWhatsNewState.setState({ launch: { ...launch, due: false } })
-    close()
+    const leave = () => {
+      usePhoneWhatsNewState.setState({ launch: { ...launch, due: false } })
+      close()
+    }
+    if (!open) return leave()
+    setOpen(false)
+    setTimeout(leave, SHEET_EXIT_MS)
   }
 
   return (
