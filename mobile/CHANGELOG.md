@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+
+## [0.16.0] — 2026-10-20
 ### Added
 - Devices shows each device's version, and a device with a newer version gets Update in its sheet: update your server or your Mac from the phone.
 - The phone's own code says how to add a server: `orbital join` on the server.
