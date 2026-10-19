@@ -367,12 +367,14 @@ function forkServer(): UtilityProcess {
     },
   });
 
-  // The server's one message (spec 2026-10-19-headless-server-design § A Mac,
-  // too): a member asked this Mac to update. Anything else is ignored.
+  // The server's messages (spec 2026-10-19-headless-server-design § A Mac,
+  // too): a member asked this Mac to update, or the server gave up waiting
+  // on it. Anything else is ignored.
   lastServerUpdateState = null;
-  proc.on('message', (message: unknown) => {
-    if (proc !== child || !parseServerMessage(message)) return;
-    applyUpdateStep(updates.remoteStart());
+  proc.on('message', (raw: unknown) => {
+    const message = parseServerMessage(raw);
+    if (proc !== child || !message) return;
+    applyUpdateStep(message.t === 'update_start' ? updates.remoteStart() : updates.remoteCancel());
   });
 
   proc.on('exit', (code) => {

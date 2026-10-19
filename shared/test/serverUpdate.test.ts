@@ -55,6 +55,7 @@ describe('main ↔ server messages', () => {
     expect(parseMainMessage(msg)).toEqual(msg);
     expect(parseMainMessage({ ...msg, available: null })).not.toBeNull();
     expect(parseServerMessage({ t: 'update_start' })).toEqual({ t: 'update_start' });
+    expect(parseServerMessage({ t: 'update_cancel' })).toEqual({ t: 'update_cancel' });
   });
 
   it('ignores anything malformed, extra or sent the wrong way', () => {
@@ -64,6 +65,8 @@ describe('main ↔ server messages', () => {
     expect(parseMainMessage({ ...msg, available: '/tmp/evil' })).toBeNull();
     expect(parseMainMessage({ t: 'update_start' })).toBeNull();
     expect(parseServerMessage({ t: 'update_start', version: '9.9.9' })).toBeNull();
+    expect(parseServerMessage({ t: 'update_cancel', url: 'https://example.com' })).toBeNull();
+    expect(parseServerMessage({ t: 'update_restart' })).toBeNull();
     expect(parseServerMessage(msg)).toBeNull();
     expect(parseServerMessage('update_start')).toBeNull();
   });

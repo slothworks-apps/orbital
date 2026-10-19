@@ -569,6 +569,16 @@ export class UpdateFlow {
   }
 
   /**
+   * The server gave up on a member's request (`update_cancel`) and told the
+   * members it failed: a download still running lands as any download does,
+   * with the prompt, rather than installing by itself.
+   */
+  remoteCancel(): UpdateStep {
+    this.remoteRequested = false;
+    return this.step();
+  }
+
+  /**
    * What the forked server is told (`update_state`): the version a member
    * would install — the one downloaded, else the one on screen or
    * downloading, else the last found — and how far along it is.

@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   LOCAL_DEVICE, asOfLabel, canRemoveRow, deviceChips, deviceOf, deviceRows, devicesOn, groupView, kindOs,
-  memberStateWords, memberServesUpdate,
+  memberStateWords, memberServesUpdate, readMemberUpdate, startMemberUpdate,
   isMemberOffline, namesShown, osLabel, showDeviceRow, toggleDevice,
   agoWords, deviceLock, ideHere, pillWords, runsOn, stateAsOf, withMachine, withMachineOffline,
   childPath, crumbsOf, deviceOptions, openingDevice, recentAge,
@@ -581,5 +581,23 @@ describe('memberServesUpdate', () => {
 
   it('never asks a phone, which has no server', () => {
     expect(memberServesUpdate(member({ kind: 'phone', version: '9.0.0' }))).toBe(false)
+  })
+
+  it('the gated reads ask nothing of an older member, and this device without ?machine=', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      expect(await readMemberUpdate(member({ id: 'old', version: '0.34.0' }))).toBeNull()
+      expect(await startMemberUpdate(member({ id: 'old', version: '0.34.0' }))).toBeNull()
+      expect(fetchMock).not.toHaveBeenCalled()
+      const state = { installed: '0.35.0', candidate: null, packaged: true, updating: false, failed: null, sessions: 0 }
+      fetchMock.mockImplementation(async () => new Response(JSON.stringify(state), { status: 200 }))
+      expect(await readMemberUpdate(member({ id: 'self-id', self: true }))).toEqual(state)
+      expect(fetchMock.mock.calls[0][0]).toBe('/api/server/update')
+      await readMemberUpdate(member({ id: 'm 2', version: '0.35.0' }))
+      expect(fetchMock.mock.calls[1][0]).toBe('/api/server/update?machine=m+2')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

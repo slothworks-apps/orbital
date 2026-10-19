@@ -31,7 +31,12 @@ export const UPDATE_VERSION_MAX_CHARS = 64;
  * separators Debian allows (`.`, `+`, `~`, `-`, `:`). Nothing that could
  * be read as a path or an option.
  */
-const VersionText = z.string().regex(/^[0-9A-Za-z][0-9A-Za-z.+~:-]*$/).max(UPDATE_VERSION_MAX_CHARS);
+export const VersionText = z.string().regex(/^[0-9A-Za-z][0-9A-Za-z.+~:-]*$/).max(UPDATE_VERSION_MAX_CHARS);
+
+/** Whether `s` is a version as `VersionText` takes one: what apt's output is read through. */
+export function isUpdateVersion(s: string): boolean {
+  return VersionText.safeParse(s).success;
+}
 
 /**
  * `GET /api/server/update`:
@@ -108,12 +113,22 @@ export const MainUpdateStateMessage = z.object({
 export type MainUpdateStateMessage = z.infer<typeof MainUpdateStateMessage>;
 
 /**
- * Server → main: start the update a member asked for — download it when it
- * is not downloaded, then install it and relaunch. It names no version: main
- * installs only what its own updater found and verified.
+ * Server → main:
+ *
+ * - `update_start` — start the update a member asked for: download it when
+ *   it is not downloaded, then install it and relaunch;
+ * - `update_cancel` — the server gave up waiting (`UPDATE_TIMEOUT_MS`) and
+ *   told the members it failed: a download still running must not install
+ *   by itself when it lands; it prompts on this Mac as any download does.
+ *
+ * Neither names a version: main installs only what its own updater found
+ * and verified.
  */
-export const ServerUpdateStartMessage = z.object({ t: z.literal('update_start') }).strict();
-export type ServerUpdateStartMessage = z.infer<typeof ServerUpdateStartMessage>;
+export const ServerUpdateMessage = z.discriminatedUnion('t', [
+  z.object({ t: z.literal('update_start') }).strict(),
+  z.object({ t: z.literal('update_cancel') }).strict(),
+]);
+export type ServerUpdateMessage = z.infer<typeof ServerUpdateMessage>;
 
 /** A message main sent the server; null for anything malformed, which the server ignores. */
 export function parseMainMessage(raw: unknown): MainUpdateStateMessage | null {
@@ -122,8 +137,8 @@ export function parseMainMessage(raw: unknown): MainUpdateStateMessage | null {
 }
 
 /** A message the server sent main; null for anything malformed, which main ignores. */
-export function parseServerMessage(raw: unknown): ServerUpdateStartMessage | null {
-  const parsed = ServerUpdateStartMessage.safeParse(raw);
+export function parseServerMessage(raw: unknown): ServerUpdateMessage | null {
+  const parsed = ServerUpdateMessage.safeParse(raw);
   return parsed.success ? parsed.data : null;
 }
 

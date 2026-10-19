@@ -6,7 +6,10 @@
  * chips and filter (canvas 50e).
  */
 import { linksWith } from '@orbital/shared/remote/group'
-import { servesServerUpdate } from '@orbital/shared/remote/serverUpdate'
+import {
+  servesServerUpdate, type ServerUpdateRefusal, type ServerUpdateState,
+} from '@orbital/shared/remote/serverUpdate'
+import { api } from './api'
 import { timeAgo } from './format'
 import type {
   ApiSession, GroupEnded, GroupMember, IdeContext, MachineRef, MemberState, RemoteDevice, RemoteStatus, Tag,
@@ -32,6 +35,27 @@ export function memberServesUpdate(m: Pick<GroupMember, 'self' | 'kind' | 'versi
   if (m.self) return true
   if (m.kind === 'phone') return false
   return servesServerUpdate(m.version ?? null)
+}
+
+type UpdateMember = Pick<GroupMember, 'id' | 'self' | 'kind' | 'version'>
+
+/**
+ * A member's update state, asked of it through this server (`?machine=`,
+ * this device's own without); null for a member that does not serve the
+ * route (`memberServesUpdate`), which is never asked. What Settings →
+ * Devices calls; `api.serverUpdate` itself does not gate.
+ */
+export async function readMemberUpdate(m: UpdateMember): Promise<ServerUpdateState | null> {
+  if (!memberServesUpdate(m)) return null
+  return api.serverUpdate(m.self ? undefined : m.id)
+}
+
+/** Starts a member's update; null for a member that does not serve the route. */
+export async function startMemberUpdate(
+  m: UpdateMember,
+): Promise<{ ok: true; state: ServerUpdateState } | { ok: false; error: ServerUpdateRefusal } | null> {
+  if (!memberServesUpdate(m)) return null
+  return api.startServerUpdate(m.self ? undefined : m.id)
 }
 
 /** `desktop · macOS` (canvas 50k); the OS half drops with its separator while it is not known yet. */

@@ -41,12 +41,19 @@ const APT_CACHE = '/usr/bin/apt-cache';
 
 export type BackendKind = 'apt' | 'desktop' | 'none';
 
+/** How far the desktop's updater is with a download; apt and none report nothing. */
+export type UpdateProgress = 'downloading' | 'downloaded' | 'idle';
+
 export interface UpdateBackend {
   readonly kind: BackendKind;
   /** The installed version and the one an update would install, as last known; installed null when not known. */
   versions(): { installed: string | null; candidate: string | null };
   /** Ask for the update. `not_set_up`: a headless server whose request directory is missing. */
   request(): 'ok' | 'not_set_up';
+  /** The service gave up on the request: nothing may install by itself on its account any more. */
+  cancel(): void;
+  /** Called with the progress every time the backend hears of it. */
+  onProgress(listener: (progress: UpdateProgress) => void): void;
   stop(): void;
 }
 
@@ -87,6 +94,8 @@ export class NoUpdateBackend implements UpdateBackend {
     // Never reached: the service refuses `not_packaged` first.
     return 'not_set_up';
   }
+  cancel(): void {}
+  onProgress(): void {}
   stop(): void {}
 }
 
@@ -162,6 +171,11 @@ export class AptUpdateBackend implements UpdateBackend {
     }
   }
 
+  /** The root updater, once it has the request, runs to its end; there is nothing to call back. */
+  cancel(): void {}
+  /** apt says nothing until the restart. */
+  onProgress(): void {}
+
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
@@ -176,9 +190,12 @@ export class AptUpdateBackend implements UpdateBackend {
 export class DesktopUpdateBackend implements UpdateBackend {
   readonly kind = 'desktop';
   private latest: MainUpdateStateMessage | null = null;
+  private progressListener: ((progress: UpdateProgress) => void) | null = null;
   private readonly listener = (event: { data: unknown }) => {
     const msg = parseMainMessage(event?.data);
-    if (msg) this.latest = msg;
+    if (!msg) return;
+    this.latest = msg;
+    this.progressListener?.(msg.downloaded ? 'downloaded' : msg.downloading ? 'downloading' : 'idle');
   };
 
   constructor(private readonly port: ParentPort) {
@@ -192,6 +209,14 @@ export class DesktopUpdateBackend implements UpdateBackend {
   request(): 'ok' {
     this.port.postMessage({ t: 'update_start' });
     return 'ok';
+  }
+
+  cancel(): void {
+    this.port.postMessage({ t: 'update_cancel' });
+  }
+
+  onProgress(listener: (progress: UpdateProgress) => void): void {
+    this.progressListener = listener;
   }
 
   stop(): void {

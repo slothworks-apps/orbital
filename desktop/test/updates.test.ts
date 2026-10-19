@@ -632,6 +632,15 @@ describe('an update a member of the group asked for', () => {
     expect(flow.remoteStart()).toMatchObject({ restart: false, download: false });
   });
 
+  it('a cancelled request lets a late download prompt instead of installing', () => {
+    const flow = new UpdateFlow();
+    flow.available('0.26.0', MB);
+    flow.remoteStart();
+    flow.remoteCancel();
+    expect(flow.downloaded('0.26.0')).toMatchObject({ restart: false });
+    expect(flow.view.phase).toBe('ready');
+  });
+
   it('a failed download leaves the request behind: the next download prompts as before', () => {
     const flow = new UpdateFlow();
     flow.available('0.26.0', MB);

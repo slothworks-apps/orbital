@@ -1336,20 +1336,16 @@ export const api = {
   },
 
   /**
-   * The answer to the pending request. `phone` is the request the dialog
-   * showed; the server refuses any other (409 `mismatch`). An accept carries
-   * the `code` the user typed from the phone, which the server compares: a
-   * wrong one is 422 `code_mismatch` with the attempts left, the last wrong
-   * one 409 `code_rejected`. 404 means there is nothing left to answer, 502
-   * that the relay did not take it.
-   */
-  /**
    * A member's update state (`GET /api/server/update`, spec
    * 2026-10-19-headless-server-design § Updating from the group). `machine`
    * names another member: on the desktop this server asks it through its
    * channel, on the phone the request goes to that member directly; left
    * out, this device's own. Ask only a member that serves the route
    * (`servesServerUpdate`). A malformed answer throws.
+   *
+   * Not the entry point for a screen: the desktop calls `readMemberUpdate`
+   * (`lib/devices`) and the phone `readDeviceUpdate` (`mobile/serverUpdate`),
+   * which never ask a member below the gate.
    */
   async serverUpdate(machine?: string): Promise<ServerUpdateState> {
     const url = machine === undefined ? '/api/server/update' : `/api/server/update?${new URLSearchParams({ machine })}`
@@ -1362,7 +1358,7 @@ export const api = {
    * Starts that member's update: its state, now `updating`, or the refusal
    * (`no_update`, `updating`, `not_set_up`, `not_packaged`). The caller
    * confirms first when the state reported running sessions. Anything else
-   * throws.
+   * throws. Through `startMemberUpdate` / `startDeviceUpdate`, as above.
    */
   async startServerUpdate(machine?: string): Promise<{ ok: true; state: ServerUpdateState } | { ok: false; error: ServerUpdateRefusal }> {
     const url = machine === undefined ? '/api/server/update' : `/api/server/update?${new URLSearchParams({ machine })}`
@@ -1373,6 +1369,14 @@ export const api = {
     return { ok: true, state }
   },
 
+  /**
+   * The answer to the pending request. `phone` is the request the dialog
+   * showed; the server refuses any other (409 `mismatch`). An accept carries
+   * the `code` the user typed from the phone, which the server compares: a
+   * wrong one is 422 `code_mismatch` with the attempts left, the last wrong
+   * one 409 `code_rejected`. 404 means there is nothing left to answer, 502
+   * that the relay did not take it.
+   */
   async confirmPairing(accept: boolean, phone: string, code?: string): Promise<PairConfirmResult> {
     return remoteCall<{ ok: true }, PairConfirmError>(
       'POST',
@@ -1478,14 +1482,6 @@ const CLAUDE_DIR_REFUSALS: Partial<Record<number, readonly ClaudeDirRefusal[]>> 
   409: ['last_directory'],
 }
 
-/**
- * A remote route whose listed statuses answer `{ error }` as part of its
- * contract: those come back as values, anything else throws `ApiError`.
- */
-/**
- * A refusal comes back as its whole JSON body, so one that carries more than
- * its `error` (422 `code_mismatch` and its `attemptsLeft`) keeps it.
- */
 /** `POST /api/server/update`'s refusals, by status, for `remoteCall`. */
 const UPDATE_REFUSALS: Partial<Record<number, readonly ServerUpdateRefusal[]>> = (() => {
   const out: Partial<Record<number, ServerUpdateRefusal[]>> = {}
@@ -1495,6 +1491,14 @@ const UPDATE_REFUSALS: Partial<Record<number, readonly ServerUpdateRefusal[]>> =
   return out
 })()
 
+/**
+ * A remote route whose listed statuses answer `{ error }` as part of its
+ * contract: those come back as values, anything else throws `ApiError`.
+ */
+/**
+ * A refusal comes back as its whole JSON body, so one that carries more than
+ * its `error` (422 `code_mismatch` and its `attemptsLeft`) keeps it.
+ */
 async function remoteCall<T, E extends string>(
   method: string,
   url: string,

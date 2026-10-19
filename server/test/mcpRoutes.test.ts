@@ -57,6 +57,7 @@ function makeApp(opts: { cliPath?: string | null; cli?: Array<{ ok: boolean; out
     mcpLogin: vi.fn(async (_id: string, _name: string): Promise<{ authUrl: string }> => ({ authUrl: '' })),
     stopAndWait: vi.fn(async () => {}),
     start: vi.fn(async () => 'run'),
+    busy: vi.fn((id: string): boolean => runner.status(id) === 'working' || runner.pendingDecision(id) !== null),
   };
   const registry = { get: vi.fn((_id: string): any => undefined) };
   const app = Fastify();

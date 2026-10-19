@@ -263,6 +263,11 @@ export function parseChannelMessage(value: unknown): ChannelMessage | null {
   return group.success ? { kind: 'group', msg: group.data } : null;
 }
 
+/** The Orbital version a hello names: a shipped Mac's `server`, else a newer device's `version`; null when neither. */
+export function helloVersion(hello: HelloMessage | null | undefined): string | null {
+  return hello?.server ?? hello?.version ?? null;
+}
+
 /** Whether the peer runs sessions this device may ask about: by its capabilities, else a shipped Mac by its `server`. */
 export function peerServes(hello: HelloMessage): boolean {
   return hello.capabilities ? hello.capabilities.includes('sessions') : hello.server !== undefined;

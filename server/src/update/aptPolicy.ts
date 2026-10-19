@@ -5,9 +5,7 @@
  * the labels are English; in any other language nothing is found, and the
  * server knows no candidate rather than a wrong one.
  */
-
-/** A version as apt spells one; anything else is not taken. */
-const APT_VERSION = /^[0-9A-Za-z][0-9A-Za-z.+~:-]{0,63}$/;
+import { isUpdateVersion } from '@orbital/shared/remote/serverUpdate';
 
 export type AptPolicy = { installed: string | null; candidate: string | null };
 
@@ -28,7 +26,8 @@ export function parseAptPolicy(output: string, pkg = 'orbital'): AptPolicy {
     if (!inBlock) continue;
     const m = /^\s+(Installed|Candidate):\s*(\S+)\s*$/.exec(line);
     if (!m) continue;
-    const value = APT_VERSION.test(m[2]) ? m[2] : null;
+    // A version as apt spells one (`isUpdateVersion`); anything else is not taken.
+    const value = isUpdateVersion(m[2]) ? m[2] : null;
     if (m[1] === 'Installed') out.installed = value;
     else out.candidate = value;
   }

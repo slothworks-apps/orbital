@@ -4,16 +4,19 @@
  * back), over whichever backend `chooseUpdateBackend` picked.
  *
  * `updating` is set when a request is accepted and lasts until the process
- * exits — the update restarts it — or until `UPDATE_TIMEOUT_MS` passes with
- * the process still here, when the update counts as failed and a new one may
- * be asked for. The request is remembered in the data dir, so the next start
+ * exits — the update restarts it — or until it is known to have failed: on a
+ * Mac, main's download stops without the update downloaded; anywhere,
+ * `UPDATE_TIMEOUT_MS` passes with the process still here. The timeout starts
+ * again with every word that the Mac is still downloading, and when it fires
+ * the backend is told (`cancel`), so a download landing late does not install
+ * after the members were told it failed. Failed, a new request may be made. The request is remembered in the data dir, so the next start
  * can tell whether it came back with the old version (`failed`).
  */
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import {
   SERVER_UPDATE_REFUSALS, UPDATE_TIMEOUT_MS, updateIsNewer, type ServerUpdateRefusal, type ServerUpdateState,
 } from '@orbital/shared/remote/serverUpdate';
-import type { UpdateBackend } from './backends.js';
+import type { UpdateBackend, UpdateProgress } from './backends.js';
 
 /** In the data dir: the version that asked for an update, and the one it asked for. */
 export const UPDATE_MARKER_FILE = 'update-request.json';
@@ -40,6 +43,10 @@ export class UpdateService {
   private updating = false;
   private failed: string | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** The version the running request is for. */
+  private target: string | null = null;
+  /** The backend said it is downloading (or done) since the request: an idle word after it means the download failed. */
+  private sawProgress = false;
 
   constructor(private readonly opts: {
     backend: UpdateBackend;
@@ -51,6 +58,7 @@ export class UpdateService {
     sessions: () => number;
     timeoutMs?: number;
   }) {
+    opts.backend.onProgress((progress) => this.progress(progress));
     const marker = readMarker(opts.markerPath);
     if (marker === null) return;
     if (marker.from === opts.running) {
@@ -84,7 +92,9 @@ export class UpdateService {
     if (this.opts.backend.request() === 'not_set_up') return refuse('not_set_up');
     this.updating = true;
     this.failed = null;
+    this.sawProgress = false;
     const target = before.candidate as string;
+    this.target = target;
     try {
       const marker: Marker = { from: this.opts.running, to: target, at: Date.now() };
       writeFileSync(this.opts.markerPath, `${JSON.stringify(marker)}\n`);
@@ -92,19 +102,47 @@ export class UpdateService {
       // Costs only the `failed` line after a restart that brought the old version back.
       console.warn(`[update] could not remember the request: ${err instanceof Error ? err.message : String(err)}`);
     }
-    this.timer = setTimeout(() => {
-      this.timer = null;
-      this.updating = false;
-      this.failed = target;
-    }, this.opts.timeoutMs ?? UPDATE_TIMEOUT_MS);
-    this.timer.unref?.();
+    this.armTimer();
     return { ok: true, state: this.state() };
   }
 
   stop(): void {
+    this.clearTimer();
+    this.opts.backend.stop();
+  }
+
+  private progress(progress: UpdateProgress): void {
+    if (!this.updating) return;
+    if (progress === 'idle') {
+      // Main's download stopped without the update: failed, and nothing left installing to cancel.
+      if (this.sawProgress) this.fail();
+      return;
+    }
+    this.sawProgress = true;
+    // A slow download is not a failed one: the wait starts again while it runs.
+    if (progress === 'downloading') this.armTimer();
+  }
+
+  private armTimer(): void {
+    this.clearTimer();
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      this.fail();
+      this.opts.backend.cancel();
+    }, this.opts.timeoutMs ?? UPDATE_TIMEOUT_MS);
+    this.timer.unref?.();
+  }
+
+  private clearTimer(): void {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
-    this.opts.backend.stop();
+  }
+
+  private fail(): void {
+    this.clearTimer();
+    this.updating = false;
+    this.failed = this.target;
+    this.sawProgress = false;
   }
 
   private forgetMarker(): void {

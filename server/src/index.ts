@@ -1472,8 +1472,8 @@ export async function buildServer(overrides: {
     backend: overrides.updateBackend ?? startUpdateBackend(),
     running: process.env.ORBITAL_VERSION ?? 'dev',
     markerPath: join(dataDir, UPDATE_MARKER_FILE),
-    // What an update would stop: the sessions this server runs that are mid-turn, as the desktop's quit guard counts them.
-    sessions: () => runner.active().filter((id) => runner.status(id) === 'working').length,
+    // What an update would cut off: a turn running or a decision waiting.
+    sessions: () => runner.busyCount(),
   });
   registerServerUpdateRoutes(app, updates);
   registerRoutes(app, {

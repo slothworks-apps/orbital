@@ -13,7 +13,7 @@ import { initiates, osName } from '@orbital/shared/remote/device';
 import type { Role } from '@orbital/shared/remote/handshake';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import type { Channel } from '@orbital/shared/remote/channel';
-import type { HelloMessage } from '@orbital/shared/remote/messages';
+import { helloVersion, type HelloMessage } from '@orbital/shared/remote/messages';
 import { EMPTY_ROSTER, ROSTER_KIND_MAX_CHARS, type MemberView, type RosterState } from '@orbital/shared/remote/roster';
 import {
   GroupMember, type GroupStatus, type GroupStorage, type RemoveResult, type SelfAbout,
@@ -827,9 +827,4 @@ export class RemoteService {
       }
     }
   }
-}
-
-/** The version a hello names: a shipped Mac's `server`, else a newer device's `version`; null when neither. */
-function helloVersion(hello: HelloMessage | null): string | null {
-  return hello?.server ?? hello?.version ?? null;
 }

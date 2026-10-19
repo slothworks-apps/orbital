@@ -5,7 +5,7 @@ import { buildServer } from '../src/index.js';
 import { parseAptPolicy } from '../src/update/aptPolicy.js';
 import {
   AptUpdateBackend, chooseUpdateBackend, DesktopUpdateBackend, PACKAGE_ROOT, UPDATE_REQUEST_FILE, type ParentPort,
-  type UpdateBackend,
+  type UpdateBackend, type UpdateProgress,
 } from '../src/update/backends.js';
 import { UPDATE_MARKER_FILE, UpdateService } from '../src/update/service.js';
 import { makeTmpDir } from './tmp.js';
@@ -128,19 +128,40 @@ describe('DesktopUpdateBackend', () => {
     port.emit('garbage');
     expect(desktop.versions()).toEqual({ installed: '0.35.0', candidate: '0.36.0' });
     expect(desktop.request()).toBe('ok');
-    expect(port.sent).toEqual([{ t: 'update_start' }]);
+    desktop.cancel();
+    expect(port.sent).toEqual([{ t: 'update_start' }, { t: 'update_cancel' }]);
     desktop.stop();
     expect(port.listeners.size).toBe(0);
+  });
+
+  it('reports main\'s progress with every valid state', () => {
+    const port = new FakePort();
+    const desktop = new DesktopUpdateBackend(port);
+    const seen: UpdateProgress[] = [];
+    desktop.onProgress((p) => seen.push(p));
+    const msg = { t: 'update_state', installed: '0.35.0', available: '0.36.0', downloading: false, downloaded: false };
+    port.emit(msg);
+    port.emit({ ...msg, downloading: true });
+    port.emit({ ...msg, downloaded: true });
+    port.emit({ ...msg, downloading: 'yes' });
+    expect(seen).toEqual(['idle', 'downloading', 'downloaded']);
   });
 });
 
 /** A backend whose versions and answer the test sets. */
 function fakeBackend(over: Partial<{ kind: UpdateBackend['kind']; installed: string | null; candidate: string | null; answer: 'ok' | 'not_set_up' }> = {}) {
-  const b = { kind: 'apt' as UpdateBackend['kind'], installed: '0.35.0' as string | null, candidate: '0.36.0' as string | null, answer: 'ok' as 'ok' | 'not_set_up', requests: 0, stopped: false, ...over };
+  const b = {
+    kind: 'apt' as UpdateBackend['kind'], installed: '0.35.0' as string | null, candidate: '0.36.0' as string | null,
+    answer: 'ok' as 'ok' | 'not_set_up', requests: 0, cancels: 0, stopped: false,
+    progress: (_p: UpdateProgress) => {},
+    ...over,
+  };
   const backend: UpdateBackend = {
     get kind() { return b.kind; },
     versions: () => ({ installed: b.installed, candidate: b.candidate }),
     request: () => { b.requests++; return b.answer; },
+    cancel: () => { b.cancels++; },
+    onProgress: (l) => { b.progress = l; },
     stop: () => { b.stopped = true; },
   };
   return { b, backend };
@@ -208,6 +229,7 @@ describe('UpdateService', () => {
       service.start();
       vi.advanceTimersByTime(1_000);
       expect(service.state()).toMatchObject({ updating: false, failed: '0.36.0' });
+      expect(b.cancels).toBe(1);
       expect(service.start()).toMatchObject({ ok: true });
       expect(b.requests).toBe(2);
       service.stop();
@@ -215,6 +237,40 @@ describe('UpdateService', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('waits on while the Mac is still downloading', () => {
+    vi.useFakeTimers();
+    try {
+      const { b, backend } = fakeBackend({ kind: 'desktop' });
+      const { service } = make(backend, '0.35.0', undefined, 1_000);
+      service.start();
+      vi.advanceTimersByTime(900);
+      b.progress('downloading');
+      vi.advanceTimersByTime(900);
+      expect(service.state().updating).toBe(true);
+      vi.advanceTimersByTime(100);
+      expect(service.state()).toMatchObject({ updating: false, failed: '0.36.0' });
+      expect(b.cancels).toBe(1);
+      service.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fails at once when the Mac\'s download stops without the update, and not on a word from before it began', () => {
+    const { b, backend } = fakeBackend({ kind: 'desktop' });
+    const { service } = make(backend);
+    service.start();
+    // Main's state from before it took the request: nothing has started yet.
+    b.progress('idle');
+    expect(service.state().updating).toBe(true);
+    b.progress('downloading');
+    b.progress('idle');
+    expect(service.state()).toMatchObject({ updating: false, failed: '0.36.0' });
+    expect(b.cancels).toBe(0);
+    expect(service.start()).toMatchObject({ ok: true });
+    service.stop();
   });
 });
 

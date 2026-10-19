@@ -2994,4 +2994,18 @@ export class Runner {
   active(): string[] {
     return [...this.sessions.keys()];
   }
+
+  /**
+   * True while stopping this session's process would cut something off: a
+   * turn running, or a decision waiting for the user. What the MCP restart
+   * refuses, and what an update counts (`busyCount`).
+   */
+  busy(sessionId: string): boolean {
+    return this.status(sessionId) === 'working' || this.pendingDecision(sessionId) !== null;
+  }
+
+  /** How many sessions this Runner holds are `busy`: what an update of this server would cut off. */
+  busyCount(): number {
+    return this.active().filter((id) => this.busy(id)).length;
+  }
 }
