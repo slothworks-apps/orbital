@@ -39,6 +39,12 @@ describe('counted words', () => {
     expect(updateSessionsWords(3, 'nuc').body).toBe('Update now stops them when it restarts.');
     expect(updateWaitingWords(1, '0.36.0').line).toBe('waiting for 1 session to finish · then 0.36.0');
     expect(updateWaitingWords(2, '0.36.0').phoneState).toBe('online · waiting for 2 sessions');
+    // Never "0 sessions".
+    expect(updateWaitingWords(0, '0.36.0')).toEqual({
+      line: 'waiting for its sessions to finish · then 0.36.0',
+      head: 'Waiting for its sessions to finish · then 0.36.0',
+      phoneState: 'online · waiting for its sessions',
+    });
   });
 
   it('a confirm that named fewer sessions than run now says how many started since', () => {

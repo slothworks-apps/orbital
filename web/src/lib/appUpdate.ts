@@ -279,7 +279,8 @@ export function updateCheckLine({
   const remote = prompt.remote ?? null
   if (remote && remoteWaits(prompt)) {
     const n = remote.working
-    return `Waiting for ${n} session${n === 1 ? '' : 's'} to finish · then restarts on ${prompt.version} · started on ${remote.by}`
+    const what = n <= 0 ? 'the sessions here' : `${n} session${n === 1 ? '' : 's'}`
+    return `Waiting for ${what} to finish · then restarts on ${prompt.version} · started on ${remote.by}`
   }
   if (prompt.phase === 'downloading' && remote) {
     const readout = downloadReadout(prompt.percent, prompt.totalMB)

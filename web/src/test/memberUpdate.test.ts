@@ -131,7 +131,7 @@ describe('an update from start to end', () => {
     const MAC = { ...SERVER, name: 'studio', kind: 'desktop' }
     const unknown = applyRead(started(), state({ failed: '0.36.0', failedReason: 'unknown' }), T0 + 30_000)
     expect(updateRow(unknown, MAC).line).toEqual({
-      text: 'couldn’t check for sessions on studio', sub: 'nothing was started', bright: false,
+      text: 'couldn’t check for sessions on studio', sub: 'it’s downloaded there · restart it on studio', bright: false,
       head: 'Couldn’t check for sessions on studio', action: 'retry',
     })
     // The phone row reads as update available, as before it was asked.
@@ -197,9 +197,24 @@ describe('an update when sessions finish', () => {
     expect(updatePhase(applyRead(u, null, T0 + UPDATE_TIMEOUT_MS * 4 + 5_000), false)).toBe('timeout')
   })
 
-  it('a waiting member that stops answering reads as restarting, its wait most likely ended', () => {
-    const u = applyRead(applyRead(undefined, waiting(1), T0), null, T0 + 5_000)
-    expect(updatePhase(u, true)).toBe('restarting')
+  it('a waiting member that goes away keeps its normal row, says it was waiting, and runs no timeout', () => {
+    let u = applyRead(applyRead(undefined, waiting(1), T0), null, T0 + 5_000)
+    u = applyRead(u, null, T0 + UPDATE_TIMEOUT_MS * 5)
+    const away = { ...SERVER, online: false, words: 'offline · seen 2 h ago' }
+    const row = updateRow(u, away)
+    expect(row).toMatchObject({ phase: 'waiting', words: 'offline · seen 2 h ago', dot: null, dim: null, version: '0.35.2' })
+    expect(row.line).toEqual({
+      text: 'update available · 0.36.0', sub: 'was waiting for sessions to finish', bright: true,
+      head: 'Update available · 0.36.0', action: null,
+    })
+    expect(updateRow(u, { ...away, surface: 'phone' }).words).toBe('offline · seen 2 h ago · update available')
+    expect(u.timedOut).toBeNull()
+    // Back and installing: from here the install's timeout runs.
+    u = applyRead(u, state({ updating: true }), T0 + UPDATE_TIMEOUT_MS * 5 + 1)
+    expect(updatePhase(u, true)).toBe('installing')
+    // Back, still waiting: the waiting row again.
+    const again = applyRead(applyRead(applyRead(undefined, waiting(2), T0), null, T0 + 1), waiting(2), T0 + 2)
+    expect(updateRow(again, SERVER).line?.action).toBe('cancel')
   })
 
   it('cancelled — here, on another member, or dropped by a restart — goes back to update available, not failed', () => {

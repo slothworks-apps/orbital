@@ -281,6 +281,12 @@ export function parseServerMessage(raw: unknown): ServerUpdateMessage | null {
 export const UPDATE_POLL_MS = 5_000;
 
 /**
+ * How often a member that waits for its sessions to finish is read again: a
+ * wait may last hours, and only its count changes meanwhile.
+ */
+export const UPDATE_WAIT_POLL_MS = 30_000;
+
+/**
  * How long an update may take, from the request to the member answering
  * with the new version: apt's lists and the package, or the desktop's
  * download, then a restart. Past it the update counts as failed — on the
@@ -330,9 +336,12 @@ export function watchVerdict(
 
 /**
  * When an open Settings → Devices reads the members' states again: null for
- * no timer — it read each once when it opened — and `UPDATE_POLL_MS` while a
- * row is being watched. Closed, the page runs no timer at all.
+ * no timer — it read each once when it opened — `UPDATE_POLL_MS` while a row
+ * is being watched installing or restarting, and `UPDATE_WAIT_POLL_MS` while
+ * every watched row waits for its sessions (`waiting`). Closed, the page
+ * runs no timer at all.
  */
-export function updatePollDelay(o: { watching: boolean }): number | null {
-  return o.watching ? UPDATE_POLL_MS : null;
+export function updatePollDelay(o: { watching: boolean; waiting?: boolean }): number | null {
+  if (!o.watching) return null;
+  return o.waiting ? UPDATE_WAIT_POLL_MS : UPDATE_POLL_MS;
 }

@@ -147,8 +147,9 @@ export function updateSessionsWords(count: number, name: string, shown?: number)
 export const UPDATE_WHEN_IDLE = 'Update when sessions finish';
 export const UPDATE_NOW = 'Update now';
 
-/** `2 sessions`, `1 session`. */
+/** `2 sessions`, `1 session`; never `0 sessions` — a wait at none (a moment while it settles) is `its sessions`. */
 function sessionCount(n: number): string {
+  if (n <= 0) return 'its sessions';
   return `${n} session${n === 1 ? '' : 's'}`;
 }
 
@@ -157,7 +158,7 @@ function sessionCount(n: number): string {
  * WAITING FOR SESSIONS TO FINISH, 50s): `line` under its row on the desktop,
  * `head` heading the phone's sheet, `phoneState` the phone row's state
  * words. `sessions` is the live count there, `target` the version it then
- * installs. The CLI says the same.
+ * installs; at 0 the words name no count. The CLI says the same.
  */
 export function updateWaitingWords(sessions: number, target: string): { line: string; head: string; phoneState: string } {
   return {
@@ -261,12 +262,14 @@ export function updateWaitsWords(name: string): { line: string; sub: string; hea
  * A Mac that could not tell which of its sessions worked as the download
  * landed (`failedReason: 'unknown'`; canvas 50t COULDN’T CHECK FOR
  * SESSIONS), and so did not install: `line` and `sub` under its row, `head`
- * heading the phone's sheet, with Try again. The CLI says the same.
+ * heading the phone's sheet, with Try again. The download did happen, so
+ * the sub is the one a session started there says (canvas 50t busy). The
+ * CLI says the same.
  */
 export function updateNoCountWords(name: string): { line: string; sub: string; head: string } {
   return {
     line: `couldn’t check for sessions on ${name}`,
-    sub: 'nothing was started',
+    sub: `it’s downloaded there · restart it on ${name}`,
     head: `Couldn’t check for sessions on ${name}`,
   };
 }

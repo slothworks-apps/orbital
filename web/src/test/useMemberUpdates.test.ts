@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
-import { UPDATE_POLL_MS, type ServerUpdateState } from '@orbital/shared/remote/serverUpdate'
+import { UPDATE_POLL_MS, UPDATE_WAIT_POLL_MS, type ServerUpdateState } from '@orbital/shared/remote/serverUpdate'
 import type { CancelAnswer, StartAnswer } from '../lib/memberUpdate'
 import { UPDATE_READ_TIMEOUT_MS, useMemberUpdates, type UpdateIo } from '../lib/useMemberUpdates'
 
@@ -228,6 +228,15 @@ describe('useMemberUpdates: a wait for the sessions', () => {
       await vi.advanceTimersByTimeAsync(0)
     })
     expect(result.current.byId[id]?.watch).toMatchObject({ waited: true })
+    // Read at the slower pace while it only waits.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(UPDATE_POLL_MS)
+    })
+    expect(io.read).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(UPDATE_WAIT_POLL_MS - UPDATE_POLL_MS)
+    })
+    expect(io.read).toHaveBeenCalledTimes(2)
     left = 1
     // Far past UPDATE_TIMEOUT_MS: a wait does not time out.
     for (let i = 0; i < 200; i++) {

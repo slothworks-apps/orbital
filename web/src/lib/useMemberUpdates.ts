@@ -71,9 +71,10 @@ export interface UpdateIo {
 /**
  * Settings → Devices' reads of the members' updates, while it is open: each
  * member once as it opens, and again whenever it comes back online; every
- * `UPDATE_POLL_MS` while one is updating or waits for its sessions
- * (`updatePollDelay`), until it is back or the wait runs out — the count a
- * wait names changes in place. Nothing is read once it closes.
+ * `UPDATE_POLL_MS` while one is updating, `UPDATE_WAIT_POLL_MS` while the
+ * ones watched only wait for their sessions (`updatePollDelay`), until it is
+ * back or the wait runs out — the count a wait names changes in place.
+ * Nothing is read once it closes.
  */
 export function useMemberUpdates(targets: UpdateTarget[], io: UpdateIo) {
   const byId = useUpdates((s) => s.byId)
@@ -142,7 +143,11 @@ export function useMemberUpdates(targets: UpdateTarget[], io: UpdateIo) {
 
   const watched = targets.filter((t) => byId[t.id]?.watch).map((t) => t.id)
   const watchedKey = watched.join('\n')
-  const delay = updatePollDelay({ watching: watched.length > 0 })
+  // A wait is read slowly; an install or restart anywhere on the page at the quick pace.
+  const delay = updatePollDelay({
+    watching: watched.length > 0,
+    waiting: watched.every((id) => !!byId[id]?.state?.updating && !!byId[id]?.state?.waiting),
+  })
   useEffect(() => {
     if (delay === null) return
     const timer = setTimeout(() => {

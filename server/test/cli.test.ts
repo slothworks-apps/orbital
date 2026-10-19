@@ -210,7 +210,7 @@ describe('listLines', () => {
       'The update to 0.36.0 didn’t install · a session started working on studio: it’s downloaded there · restart it on studio.',
     );
     expect(statusLines(remote, { ...update, failedReason: 'unknown' }, 4848)).toContain(
-      'The update to 0.36.0 didn’t install: couldn’t check for sessions on studio · nothing was started.',
+      'The update to 0.36.0 didn’t install: couldn’t check for sessions on studio · it’s downloaded there · restart it on studio.',
     );
     const waiting = { ...update, failed: null, failedReason: null, updating: true, waiting: { sessions: 1 }, startedBy: { id: 'p', name: 'Pixel 8' } };
     expect(statusLines(remote, waiting, 4848)).toContain(

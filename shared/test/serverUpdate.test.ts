@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  SERVER_UPDATE_VERSION, STARTED_BY_NAME_MAX_CHARS, UPDATE_POLL_MS, UPDATE_TIMEOUT_MS, parseMainMessage, parseServerMessage, parseServerUpdateState,
+  SERVER_UPDATE_VERSION, STARTED_BY_NAME_MAX_CHARS, UPDATE_POLL_MS, UPDATE_WAIT_POLL_MS, UPDATE_TIMEOUT_MS, parseMainMessage, parseServerMessage, parseServerUpdateState,
   parseUpdateStartBody,
   memberServesUpdate, servesServerUpdate, updateIsNewer, updatePollDelay, watchUpdate, watchVerdict, type ServerUpdateState,
 } from '../src/remote/serverUpdate.js';
@@ -175,6 +175,8 @@ describe('watching an update', () => {
   it('polls only while a row is watched', () => {
     expect(updatePollDelay({ watching: true })).toBe(UPDATE_POLL_MS);
     expect(updatePollDelay({ watching: false })).toBeNull();
+    expect(updatePollDelay({ watching: true, waiting: true })).toBe(UPDATE_WAIT_POLL_MS);
+    expect(updatePollDelay({ watching: false, waiting: true })).toBeNull();
   });
 });
 

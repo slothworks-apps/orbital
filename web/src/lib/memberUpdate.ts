@@ -84,6 +84,11 @@ export function applyRead(prev: MemberUpdate | undefined, latest: ServerUpdateSt
     return applyRead({ ...u, watch: null }, latest, now)
   }
   if (u.watch) {
+    if (latest === null && u.state?.updating && u.state.waiting) {
+      // Last seen waiting, gone now: not taken for a restart or a failure, and
+      // no time runs out until it is seen installing.
+      return { ...u, reachable: false, watch: { ...u.watch, since: now } }
+    }
     const verdict = watchVerdict(u.watch, latest, now)
     if (verdict === 'waiting' && latest) {
       // No time runs out on a wait: the wait for the install starts again with every read that says so.
@@ -175,18 +180,18 @@ export function applyCancel(
 export type UpdatePhase = 'idle' | 'available' | 'waiting' | 'installing' | 'restarting' | 'failed' | 'timeout'
 
 /**
- * `waiting` while the member answers that it waits for its sessions (canvas
- * 50t WAITING); `installing` while the member still answers, `restarting`
- * once it does not (canvas 50t UPDATING) — a waiting member that stops
- * answering most likely ended its wait in the restart; `timeout` after the
+ * `waiting` while the member's last answer said it waits for its sessions
+ * (canvas 50t WAITING), whether it still answers or not; `installing` while
+ * the member still answers, `restarting` once it does not (canvas 50t
+ * UPDATING); `timeout` after the
  * wait; `failed` when it came back on the old version; `available` when it
  * has a newer release. `online`: the member's presence lets it be asked now.
  */
 export function updatePhase(u: MemberUpdate | undefined, online: boolean): UpdatePhase {
   if (!u) return 'idle'
   if (u.watch && !u.watch.unconfirmed) {
-    if (!online || !u.reachable) return 'restarting'
-    return u.state?.updating && u.state.waiting ? 'waiting' : 'installing'
+    if (u.state?.updating && u.state.waiting) return 'waiting'
+    return online && u.reachable ? 'installing' : 'restarting'
   }
   if (u.timedOut) return 'timeout'
   if (u.failed !== null && u.state && !u.state.updating) return 'failed'
@@ -201,6 +206,9 @@ export function updateNeedsConfirm(u: MemberUpdate | undefined): boolean {
 
 /** Said in place, never as a toast, when a press could not reach the member (not in the canvas). */
 export const UPDATE_UNREACHABLE = 'Couldn’t reach it to start the update. Try again.'
+
+/** Under a member last seen waiting for its sessions, now away (not in the canvas). */
+export const WAS_WAITING = 'was waiting for sessions to finish'
 
 /** Said in place when Cancel on a waiting member could not reach it (not in the canvas). */
 export const UPDATE_UNREACHABLE_CANCEL = 'Couldn’t reach it to cancel the update. Try again.'
@@ -308,6 +316,20 @@ export function updateRow(u: MemberUpdate | undefined, input: UpdateRowInput): U
 
   switch (phase) {
     case 'waiting': {
+      if (!reach) {
+        // Gone while it waited: its normal row, offered the update as any away member is.
+        return {
+          phase,
+          version: installed,
+          words: surface === 'phone' ? `${words} · update available` : words,
+          dot: null,
+          dim: null,
+          line: {
+            text: updateAvailableLine(watch!.target), sub: WAS_WAITING, bright: true,
+            head: `Update available · ${watch!.target}`, action: null,
+          },
+        }
+      }
       const waiting = updateWaitingWords(u!.state!.waiting!.sessions, watch!.target)
       return {
         phase,
