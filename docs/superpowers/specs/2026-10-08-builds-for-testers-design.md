@@ -337,8 +337,10 @@ quiet message box, except when the prompt on the map is the answer
 working end mid-turn and are marked `interrupted`, as on any restart.
 **Restart when sessions finish** moves to `waiting`: main calls
 `quitAndInstall` the first moment no Orbital session is working, a
-session started meanwhile waited for too. **Cancel** goes back to the
-two-button choice.
+session started meanwhile waited for too. The choice is made, so the
+prompt leaves the map while it waits; the wait shows in Settings › Updates'
+result line, and its **Cancel** there goes back to the two-button choice
+on the map.
 
 The count is `WorkingSessions.count`, folded from `sessionsFeed`, which
 main already keeps for notifications — the same count the quit guard reads:
@@ -367,9 +369,10 @@ the map, neutral ink only, fades in and nothing moves after but the
 download line. It replaces the toast's earlier, never-built UPDATE
 message ("A new version is out", Get it on GitHub). One message carries
 the whole update; its states swap their words in place, and only the last
-one — skip, or OK on the receipt — ends it. While it is downloading or
-waiting it keeps the slot, and the messages behind it wait with their
-dots. Downloading and Waiting have no ×. There is no badge anywhere. It
+one — skip, or OK on the receipt — ends it. While it is downloading it
+keeps the slot, and the messages behind it wait with their dots.
+Downloading has no ×. Waiting is not on the map at all: whoever chose it
+has nothing left to decide there. There is no badge anywhere. It
 exists only in the desktop app's main window, where the preload exposes
 the update calls.
 
@@ -379,7 +382,8 @@ A tab of its own, last after Shortcuts, desktop only:
 
 - **VERSION** — the installed version with **Check now**, the result line
   (when it last checked, "Checking…", or what it found), and the release
-  notes of the installed version on GitHub.
+  notes of the installed version on GitHub. While a restart waits for
+  sessions to finish, the result line says so, with **Cancel** beside it.
 - **DOWNLOADS** — **Download updates automatically**, off by default.
 
 ## The phone

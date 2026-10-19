@@ -379,6 +379,8 @@ describe('UpdateFlow', () => {
       ready('0.26.0', 2);
       expect(flow.act('restart-when-idle').restart).toBe(false);
       expect(flow.view).toMatchObject({ phase: 'waiting', version: '0.26.0', workingCount: 2 });
+      // Nothing is on the map while it waits, so a check says it waits.
+      expect(flow.available('0.26.0', 130 * MB, { manual: true }).outcome).toBe('waiting');
       expect(settle(1, true).restart).toBe(false);
       expect(settle(0, true).restart).toBe(true);
     });
@@ -662,6 +664,7 @@ describe('checkAnswerMessage', () => {
       detail: 'It installs when you quit Orbital.',
     });
     expect(found('held')?.detail).toContain('after Orbital restarts');
+    expect(found('waiting')?.detail).toContain('when the working sessions finish');
   });
 
   it('answers every other result of the menu item', () => {

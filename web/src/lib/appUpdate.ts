@@ -45,11 +45,26 @@ export interface UpdateNoticeContent {
 const workingSessions = (n: number): string => (n === 1 ? '1 working session' : `${n} working sessions`)
 
 /**
- * The canvas's six states. Null for `none`, and for `restarting`, where the
- * toast keeps what it last showed until the app quits.
+ * Whether the UPDATE message is on the map. Not while waiting: whoever chose
+ * to restart when sessions finish has decided, and the wait — with its
+ * Cancel — lives in Settings › Updates instead.
+ */
+export function updateNoticeOnMap(prompt: UpdatePrompt): boolean {
+  return prompt.phase !== 'none' && prompt.phase !== 'waiting'
+}
+
+/** "the last working session finishes" — what a waiting restart waits for. */
+function waitingFor(workingCount: number): string {
+  return workingCount <= 1 ? 'the last working session finishes' : `the ${workingCount} working sessions finish`
+}
+
+/**
+ * The canvas's states on the map. Null for `none` and `waiting`, which are
+ * not on it, and for `restarting`, where the toast keeps what it last showed
+ * until the app quits.
  */
 export function updateNoticeContent(prompt: UpdatePrompt): UpdateNoticeContent | null {
-  if (prompt.phase === 'none' || prompt.phase === 'restarting') return null
+  if (prompt.phase === 'none' || prompt.phase === 'waiting' || prompt.phase === 'restarting') return null
   const v = prompt.version
   const head = `UPDATE · ORBITAL ${v}`
   const closeReady: UpdateNoticeButton = {
@@ -96,14 +111,6 @@ export function updateNoticeContent(prompt: UpdatePrompt): UpdateNoticeContent |
         primary: { label: 'Restart when sessions finish', action: 'restart-when-idle' },
         close: closeReady,
       }
-    case 'waiting':
-      return {
-        label: `${head} · WAITING`,
-        text: `Orbital restarts when ${
-          prompt.workingCount <= 1 ? 'the last working session finishes' : `the ${prompt.workingCount} working sessions finish`
-        }.`,
-        secondary: { label: 'Cancel', action: 'cancel-wait' },
-      }
     case 'closed':
       return {
         label: head,
@@ -124,8 +131,8 @@ function ago(ms: number): string {
 
 /**
  * Settings › Updates' result line under Check now: what this visit's check
- * found and what became of it, the one running now, a prompt already on the
- * map, or when the last check was.
+ * found and what became of it, the one running now, a restart waiting for
+ * sessions to finish, a prompt already on the map, or when the last check was.
  */
 export function updateCheckLine({
   checking,
@@ -154,11 +161,18 @@ export function updateCheckLine({
       case 'held':
       case 'skipped':
         return `Orbital ${v} found · offered after Orbital restarts`
+      // The version the prompt is about: where the prompt has gone since —
+      // waiting, restarting — wins; the answer can land before the prompt.
       case 'offered':
       case 'none':
-        return `Orbital ${v} found · offered on the map`
+        if (prompt.phase !== 'waiting' && prompt.phase !== 'restarting') return `Orbital ${v} found · offered on the map`
+        break
+      case 'waiting':
+        break
     }
   }
+  if (prompt.phase === 'restarting') return `Orbital ${prompt.version} · restarting`
+  if (prompt.phase === 'waiting') return `Orbital ${prompt.version} restarts when ${waitingFor(prompt.workingCount)}`
   if (prompt.phase !== 'none') return `Orbital ${prompt.version} found · offered on the map`
   if (checkedAt === null) return 'Not checked yet'
   const elapsed = Math.max(0, now - checkedAt)
