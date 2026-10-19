@@ -56,7 +56,7 @@ Before the first release:
    | `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | the token from step 3 |
    | `R2_BUCKET` | the bucket name |
 
-   Without them the `deb` job in `release.yml` stops at its first step and
+   Without them the `deb-publish` job in `release.yml` stops at its first step and
    names the missing secrets.
 
 What the job does on each new desktop version:
@@ -68,6 +68,20 @@ What the job does on each new desktop version:
 - It publishes the public key as `https://apt.slothworks.io/orbital.gpg`.
 - A run that failed is retried on the next push to `main`, because the
   plan checks whether the repository lists the version yet.
+
+Only the `deb-publish` job holds the key and the R2 token. It runs no npm
+and gets the `.deb` from the `deb` job, which builds it from the
+desktop's tag.
+
+The signed index carries `Valid-Until`, `APT_VALID_DAYS` ahead.
+`apt-resign.yml` signs it again on the first of every month, using the
+same secrets.
+- **GitHub turns scheduled workflows off** after 60 days with no
+  activity in the repository. Check Actions now and then, and turn it
+  back on there.
+- **After a failure,** start it by hand with Run workflow.
+- **If the index expires,** `apt update` on the servers says the Release
+  file is expired, and Update fails. Running the workflow fixes it.
 
 ## Install
 
@@ -117,7 +131,7 @@ On the server, as the account Orbital should run as (not root).
 | state | `orbital status`, `orbital devices list` |
 | server logs | `journalctl --user -u orbital` |
 | restart | `systemctl --user restart orbital` |
-| port or data dir | `systemctl --user edit orbital`, then `Environment=ORBITAL_PORT=…` |
+| port or data dir | `systemctl --user edit orbital`, then `Environment=ORBITAL_PORT=…` (the CLI reads the unit's port too) |
 | rename this server | `orbital devices rename <name>` |
 | leave the group | `orbital devices leave` |
 
@@ -136,7 +150,8 @@ server itself, run `orbital update`, or `orbital update <name>` to update
 another member.
 
 How it works:
-- The service writes a request file.
+- The service writes a request file into `/var/lib/orbital/update`.
+  `orbital setup` makes that directory owned by the user, mode `0700`.
 - The root unit `orbital-update.path` sees it and starts
   `orbital-update.service`.
 - That service runs `apt-get update` for `orbital.sources` only, then

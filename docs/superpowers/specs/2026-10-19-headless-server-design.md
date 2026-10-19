@@ -127,7 +127,7 @@ pairing, so the CLI and the UI cannot drift apart.
 | `orbital devices rename <name>` | renames this device (its self-signed description) |
 | `orbital devices remove <name-or-id>` | primary only; the same confirmation as the UI |
 | `orbital devices leave` | leaves the group; on the primary, the dissolve confirmation |
-| `orbital update` | the same update as the Update button, for a session on the server |
+| `orbital update [<name>]` | the same update as the Update button: this server, or another member by name (as built, from canvas 50t) |
 
 Errors are written as the UI writes them (`not_primary` names the
 primary, and so on), to stderr, with a non-zero exit code. Every command
@@ -178,6 +178,17 @@ both read one copy.
   the bucket. The maintainer creates the bucket, the domain, the token and
   the key. The runbook says how, and gives the two commands that add the
   source.
+- **As built.** The release has two jobs:
+  - `deb` builds from the desktop's tag, with no secrets, and runs
+    `npm ci --ignore-scripts`.
+  - `deb-publish` is the only job that holds the signing key and the R2
+    token. It runs no npm and receives the `.deb` as an artifact.
+
+  The index is fetched by hash (`Acquire-By-Hash`). `Release` carries
+  `Valid-Until`, `APT_VALID_DAYS` ahead. The monthly `apt-resign.yml`
+  signs it again between releases, so a stale index cannot be served
+  forever. A version counts as shipped only when `InRelease` matches the
+  published `Packages` and lists it.
 
 ## Updating from the group
 
@@ -215,7 +226,11 @@ The caller confirms first when the `GET` reported running sessions.
 **One user per machine.** A machine runs one Orbital user. `orbital setup`
 (which asks for sudo) records that user in `/etc/orbital/user`. It also
 creates the request directory `/var/lib/orbital/update`, owned by
-`root:<user>` with mode `0770`, and enables the `.path` unit. Until setup
+`<user>:root` with mode `0700`, inside the root-owned `/var/lib/orbital`
+(`0755`). The directory is not given to the user's group, which may be
+shared. Setup also enables the `.path` unit. The server writes the
+request without following a symlink (`O_NOFOLLOW | O_EXCL`, after
+removing whatever is there). Until setup
 has run, the updater does nothing. Uninstall (`apt purge`) removes both.
 
 **The root updater.** `orbital-update.path` watches the request file in
