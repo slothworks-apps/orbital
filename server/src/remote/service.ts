@@ -37,6 +37,7 @@ import type { InjectFn } from './servingHalf.js';
 import { RelayClient, type RelayClientOptions, type RelayRefusal } from './relayClient.js';
 import { wakeSecret, wakeToken } from './wake.js';
 import type { Presence } from './presence.js';
+import { BAD_SECRET_ERROR, NO_RELAY_URL_ERROR } from './errors.js';
 import { memberTooOld } from './memberGate.js';
 import { parseGrants } from './grants.js';
 
@@ -94,17 +95,7 @@ export type RemoteStatus = {
   group: GroupStatus;
 };
 
-/**
- * A failed start's reason while `remote_relay_url` is empty: there is no
- * default relay, every Mac names its own.
- */
-export const NO_RELAY_URL_ERROR = 'no relay URL — set one under Advanced';
-
-/**
- * Why the remote stopped after the relay closed with `CLOSE_BAD_SECRET`: the
- * client does not retry, since only the user can change the secret.
- */
-export const BAD_SECRET_ERROR = 'The relay refused the relay secret. Check it under Advanced.';
+export { BAD_SECRET_ERROR, NO_RELAY_URL_ERROR } from './errors.js';
 
 export type RemoteServiceOptions = {
   db: OrbitalDb;

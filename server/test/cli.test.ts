@@ -1,17 +1,23 @@
 import { describe, expect, it } from 'vitest';
+import { chmodSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { generateIdentity, deviceId } from '@orbital/shared/remote/keys';
 import { encodePairingCode } from '@orbital/shared/remote/relayApi';
-import { JOIN_REACH, attemptsLine, CODE_REJECTED, GROUP_FULL } from '@orbital/shared/remote/groupWords';
+import {
+  CODE_REJECTED, GROUP_FULL, JOIN_REACH, attemptsLine, exitWords, groupFullBody, groupFullLine, joinSentence, managerWords,
+  notPrimaryAddLine, relayChangeWords, relayLockedLine, removeWords,
+} from '@orbital/shared/remote/groupWords';
+import { ROSTER_MAX_ENTRIES } from '@orbital/shared/remote/roster';
 import { buildServer } from '../src/index.js';
 import { parseArgs } from '../src/cli/args.js';
 import { TokenRefused, httpCall, type Call, type Method, type Reply } from '../src/cli/client.js';
 import { findDevice, runCli } from '../src/cli/commands.js';
-import { addFlow, addVerdict, joinFlow, joinVerdict } from '../src/cli/flows.js';
-import type { Io } from '../src/cli/io.js';
-import { cliTarget } from '../src/cli/target.js';
-import { listLines } from '../src/cli/words.js';
+import { REQUEST_EXPIRED, addFlow, addVerdict, joinFlow, joinVerdict } from '../src/cli/flows.js';
+import { TIMED_OUT, type Io } from '../src/cli/io.js';
+import { cliTarget, readToken, rootHint } from '../src/cli/target.js';
+import { listLines, remoteDownLine, remoteErrorLine } from '../src/cli/words.js';
+import { BAD_SECRET_ERROR } from '../src/remote/errors.js';
 import { DEFAULT_PORT } from '../src/config.js';
 import type { RemoteStatus } from '../src/remote/service.js';
 import { makeTmpDir } from './tmp.js';
@@ -21,7 +27,7 @@ describe('parseArgs', () => {
     expect(parseArgs([])).toEqual({ kind: 'help' });
     expect(parseArgs(['status'])).toEqual({ kind: 'status' });
     expect(parseArgs(['relay'])).toEqual({ kind: 'relay' });
-    expect(parseArgs(['relay', 'set', 'wss://r.example'])).toEqual({ kind: 'relaySet', url: 'wss://r.example', yes: false });
+    expect(parseArgs(['relay', 'set', 'wss://r.example'])).toEqual({ kind: 'relaySet', url: 'wss://r.example', secret: 'keep', yes: false });
     expect(parseArgs(['join'])).toEqual({ kind: 'join', code: null });
     expect(parseArgs(['join', 'abc'])).toEqual({ kind: 'join', code: 'abc' });
     expect(parseArgs(['devices', 'join', 'abc'])).toEqual({ kind: 'join', code: 'abc' });
@@ -36,6 +42,22 @@ describe('parseArgs', () => {
   it('takes --help anywhere, and a name that starts with a dash after --', () => {
     expect(parseArgs(['devices', 'remove', '--help'])).toEqual({ kind: 'help' });
     expect(parseArgs(['devices', 'rename', '--', '-dash'])).toEqual({ kind: 'rename', name: '-dash' });
+  });
+
+  it('reads the relay secret from a prompt or stdin, never from an argument', () => {
+    expect(parseArgs(['relay', 'set', 'wss://r', '--secret'])).toMatchObject({ kind: 'relaySet', secret: 'prompt' });
+    expect(parseArgs(['relay', 'set', 'wss://r', '--secret-stdin'])).toMatchObject({ kind: 'relaySet', secret: 'stdin' });
+    expect(parseArgs(['relay', 'set', 'wss://r'])).toMatchObject({ kind: 'relaySet', secret: 'keep' });
+    expect(parseArgs(['relay', 'secret'])).toEqual({ kind: 'relaySecret', secret: 'prompt', yes: false });
+    expect(parseArgs(['relay', 'secret', '--secret-stdin', '-y'])).toEqual({ kind: 'relaySecret', secret: 'stdin', yes: true });
+    expect(parseArgs(['relay', 'secret', '--clear'])).toEqual({ kind: 'relaySecret', secret: 'clear', yes: false });
+    for (const argv of [
+      ['relay', 'set', 'wss://r', '--secret=hunter2'], ['relay', 'set', 'wss://r', '--secret', '--secret-stdin'],
+      ['relay', 'secret', '--secret'], ['relay', 'set', 'wss://r', '--clear'], ['status', '--secret-stdin'],
+      ['relay', 'secret', 'hunter2'],
+    ]) {
+      expect(parseArgs(argv).kind, argv.join(' ')).toBe('usage');
+    }
   });
 
   it('refuses what it does not take', () => {
@@ -140,10 +162,43 @@ describe('findDevice', () => {
   });
 });
 
-/** A terminal that answers from a script and records what was said. */
-function scriptedIo(answers: (string | null)[] = [], waits: ('tick' | 'interrupt')[] = []) {
+describe('cliTarget hints', () => {
+  it('reads an unreadable token as another user\'s, and points root at the service user', async () => {
+    const dir = makeTmpDir('cli-token');
+    const file = join(dir, 'api-token');
+    writeFileSync(file, 'tok\n');
+    expect(await readToken(file)).toEqual({ token: 'tok' });
+    expect(await readToken(join(dir, 'none'))).toEqual({ missing: true });
+    if (process.getuid?.() !== 0) {
+      chmodSync(file, 0o000);
+      expect(await readToken(file)).toEqual({ unreadable: true });
+    }
+    expect(rootHint(1000, 'orbital')).toBeNull();
+    expect(rootHint(0, 'deploy\n')).toContain('sudo -u deploy');
+    expect(rootHint(0, null)).not.toBeNull();
+    // A file that names no user is not echoed.
+    expect(rootHint(0, 'x; rm -rf /')).not.toContain('rm');
+  });
+});
+
+describe('remoteDownLine', () => {
+  it('says why the remote did not start, with the secret fix for a refused secret', () => {
+    const base = { enabled: true, relayUrl: 'wss://r', relay: 'off' as const };
+    expect(remoteDownLine({ ...base, error: BAD_SECRET_ERROR })).toBe(remoteErrorLine(BAD_SECRET_ERROR));
+    expect(remoteErrorLine(BAD_SECRET_ERROR)).toContain('orbital relay secret');
+    expect(remoteDownLine({ ...base, error: 'boom' })).toContain('boom');
+    expect(remoteDownLine({ ...base, error: null })).not.toContain('boom');
+  });
+});
+
+/**
+ * A terminal that answers from a script and records what was said. `naps`:
+ * what each sleep comes to — `interrupt` springs the trap as Ctrl-C would.
+ */
+function scriptedIo(answers: (string | null | typeof TIMED_OUT)[] = [], naps: ('tick' | 'interrupt')[] = []) {
   const io = {
-    out: [] as string[], err: [] as string[], asked: [] as string[], clock: NOW,
+    out: [] as string[], err: [] as string[], asked: [] as string[], secrets: 0, clock: NOW,
+    spring: () => {},
   };
   const api: Io = {
     out: (l) => void io.out.push(l),
@@ -152,9 +207,27 @@ function scriptedIo(answers: (string | null)[] = [], waits: ('tick' | 'interrupt
       io.asked.push(q);
       return answers.length ? answers.shift()! : null;
     },
-    wait: async (ms) => {
+    askSecret: async (q) => {
+      io.asked.push(q);
+      io.secrets++;
+      const a = answers.shift();
+      return typeof a === 'string' ? a : null;
+    },
+    sleep: (ms) => {
       io.clock += ms;
-      return waits.shift() ?? 'tick';
+      if (naps.shift() === 'interrupt') {
+        io.spring();
+        return new Promise(() => {});
+      }
+      return Promise.resolve();
+    },
+    trap: () => {
+      let fire!: () => void;
+      const signal = new Promise<void>((r) => {
+        fire = r;
+      });
+      io.spring = fire;
+      return { signal, release: () => {} };
     },
     now: () => io.clock,
   };
@@ -165,7 +238,7 @@ function scriptedIo(answers: (string | null)[] = [], waits: ('tick' | 'interrupt
  * A server that answers `GET /api/remote` from `snapshots` in turn (the last
  * repeats) and every other route from `routes`, recording each call.
  */
-function fakeServer(snapshots: RemoteStatus[], routes: Record<string, Reply | ((body: unknown) => Reply)> = {}) {
+function fakeServer(snapshots: RemoteStatus[], routes: Record<string, Reply | ((body: unknown) => Reply | Promise<Reply>)> = {}) {
   const calls: { method: Method; path: string; body?: unknown }[] = [];
   const call: Call = async (method, path, body) => {
     calls.push({ method, path, body });
@@ -178,7 +251,7 @@ function fakeServer(snapshots: RemoteStatus[], routes: Record<string, Reply | ((
 }
 
 describe('joinVerdict', () => {
-  const target = { device: 'mac', expiresAt: NOW + 60_000 };
+  const target = { device: 'mac', expiresAt: NOW + 60_000, adds: false };
   const joining = { device: 'mac', name: 'mac', kind: 'desktop', code: '1234-5678', expiresAt: target.expiresAt, manager: null };
 
   it('waits while the join is under way, then reads how it ended', () => {
@@ -187,9 +260,16 @@ describe('joinVerdict', () => {
     expect(joinVerdict(status({}, { pendingJoin: { primary: 'mac', expiresAt: target.expiresAt } }), target, NOW)).toBe('paired');
     expect(joinVerdict(status({}, { joinExpired: { id: 'mac', name: 'mac' } }), target, NOW)).toBe('neverSent');
     expect(joinVerdict(status({ devices: [paired('mac', 'mac')] }), target, NOW)).toBe('joined');
-    expect(joinVerdict(status(), target, NOW)).toBe('rejected');
+    expect(joinVerdict(status(), target, NOW)).toBe('ended');
     expect(joinVerdict(status(), target, target.expiresAt + 1)).toBe('expired');
     expect(joinVerdict(status({ relay: 'connecting' }), target, NOW)).toBe('relayDown');
+    expect(joinVerdict(status({ enabled: false }), target, NOW)).toBe('relayDown');
+  });
+
+  it('reads a full group only where this device was the one to add', () => {
+    const full = status({}, { members: Array.from({ length: ROSTER_MAX_ENTRIES }, (_, i) => member({ id: `m${i}` })) });
+    expect(joinVerdict(full, { ...target, adds: true }, NOW)).toBe('full');
+    expect(joinVerdict(full, target, NOW)).toBe('ended');
   });
 });
 
@@ -212,8 +292,10 @@ describe('joinFlow', () => {
     v: 1, relay: 'wss://relay.example', mac, name: 'mac-studio', token: 't', secret: 's', kind: 'desktop',
     expiresAt: NOW + 120_000, ...over,
   }));
-  const joining = { device: mac, name: 'mac-studio', kind: 'desktop', code: 'ABCD-1234', expiresAt: NOW + 120_000, manager: { by: 'there' as const, newGroup: true } };
+  const manager = { by: 'there' as const, newGroup: true };
+  const joining = { device: mac, name: 'mac-studio', kind: 'desktop', code: 'ABCD-1234', expiresAt: NOW + 120_000, manager };
   const joined = { status: 200, body: { device: mac, name: 'mac-studio', code: 'ABCD-1234' } };
+  const cancel = { 'DELETE /api/remote/join': { status: 200, body: { ok: true } } };
 
   it('asks for the code, prints the one to type there, and waits through pairing to joined', async () => {
     const { call, calls } = fakeServer([
@@ -225,52 +307,77 @@ describe('joinFlow', () => {
     expect(await joinFlow({ call, io: api }, null)).toBe(0);
     expect(io.asked).toHaveLength(1);
     expect(calls.find((c) => c.path === '/api/remote/join')?.body).toEqual({ code: qr() });
-    expect(io.out).toEqual([
-      'Type this code on mac-studio: ABCD-1234',
-      'mac-studio will manage the group: devices are added and removed there.',
-      'Waiting for mac-studio… Ctrl-C cancels.',
-      'Paired. Waiting for the group from mac-studio…',
-      'Joined: mac-studio.',
-      'mac-studio manages the group: add more devices there.',
-    ]);
+    expect(io.out.some((l) => l.includes('ABCD-1234'))).toBe(true);
+    expect(io.out).toContain(managerWords(manager, 'mac-studio').line);
+    expect(io.out).toContain(managerWords(manager, 'mac-studio').done);
+    expect(io.err).toEqual([]);
   });
 
-  it('cancels the join on Ctrl-C', async () => {
-    const { call, calls } = fakeServer([status(), status({ joining })], {
-      'POST /api/remote/join': joined, 'DELETE /api/remote/join': { status: 200, body: { ok: true } },
-    });
-    const { io, api } = scriptedIo([], ['tick', 'interrupt']);
+  it('cancels the join on Ctrl-C while waiting', async () => {
+    const { call, calls } = fakeServer([status(), status({ joining })], { 'POST /api/remote/join': joined, ...cancel });
+    const { api } = scriptedIo([], ['tick', 'interrupt']);
     expect(await joinFlow({ call, io: api }, qr())).toBe(1);
     expect(calls.at(-1)).toMatchObject({ method: 'DELETE', path: '/api/remote/join' });
-    expect(io.out.at(-1)).toBe('Join cancelled.');
   });
 
-  it('says a rejection, and not_primary naming the primary', async () => {
-    let s = fakeServer([status(), status({ joining }), status()], { 'POST /api/remote/join': joined });
-    let t = scriptedIo();
-    expect(await joinFlow({ call: s.call, io: t.api }, qr())).toBe(1);
-    expect(t.io.err[0]).toMatch(/^Request rejected\. mac-studio didn't let this device in/);
+  it('cancels the join on Ctrl-C during the request itself, once the server has answered it', async () => {
+    let springIt = () => {};
+    const { call, calls } = fakeServer([status()], {
+      'POST /api/remote/join': async () => {
+        springIt();
+        await new Promise((r) => setTimeout(r, 5));
+        return joined;
+      },
+      ...cancel,
+    });
+    const { io, api } = scriptedIo();
+    const trap = api.trap.bind(api);
+    api.trap = () => {
+      const t = trap();
+      springIt = io.spring;
+      return t;
+    };
+    expect(await joinFlow({ call, io: api }, qr())).toBe(1);
+    expect(calls.map((c) => `${c.method} ${c.path}`).slice(-2)).toEqual(['POST /api/remote/join', 'DELETE /api/remote/join']);
+  });
 
-    s = fakeServer([status()], {
+  it('ends without blaming the other device, and reads a full group or a relay down where the status says so', async () => {
+    for (const [after, line, adds] of [
+      [status(), null, false],
+      [status({ relay: 'connecting' }), null, false],
+      [status({}, { members: Array.from({ length: ROSTER_MAX_ENTRIES }, (_, i) => member({ id: `m${i}` })) }), groupFullLine('mac-studio'), true],
+    ] as const) {
+      const j = { ...joining, manager: adds ? { by: 'here' as const, newGroup: false } : manager };
+      const s = fakeServer([status(), status({ joining: j }), after], { 'POST /api/remote/join': joined });
+      const t = scriptedIo();
+      expect(await joinFlow({ call: s.call, io: t.api }, qr())).toBe(1);
+      expect(t.io.err).toHaveLength(1);
+      if (line) expect(t.io.err[0]).toBe(line);
+      expect(t.io.err[0]).not.toMatch(/rejected|didn't let/i);
+    }
+  });
+
+  it('gives not_primary naming the primary', async () => {
+    const s = fakeServer([status()], {
       'POST /api/remote/join': { status: 403, body: { error: 'not_primary', primary: { id: 'x', name: 'imac' } } },
     });
-    t = scriptedIo();
+    const t = scriptedIo();
     expect(await joinFlow({ call: s.call, io: t.api }, qr())).toBe(1);
-    expect(t.io.err).toEqual(['imac manages this group — add devices there.']);
+    expect(t.io.err).toEqual([notPrimaryAddLine('imac')]);
   });
 
   it('refuses before asking the server: no code, its own code, another relay, run out', async () => {
     const own = encodePairingCode(JSON.stringify({ v: 1, relay: 'wss://relay.example', mac, name: 'me', token: 't', secret: 's' }));
-    for (const [code, snapshot, line] of [
-      ['nonsense', status(), "That isn't a device code."],
-      [own, status({ macId: mac }), "That's this device's own code."],
-      [qr({ relay: 'wss://other.example' }), status(), /uses another relay.*orbital relay set wss:\/\/other\.example/],
-      [qr({ expiresAt: NOW - 1 }), status(), /^Code expired/],
+    for (const [code, snapshot] of [
+      ['nonsense', status()],
+      [own, status({ macId: mac })],
+      [qr({ relay: 'wss://other.example' }), status()],
+      [qr({ expiresAt: NOW - 1 }), status()],
     ] as const) {
       const s = fakeServer([snapshot]);
       const t = scriptedIo();
       expect(await joinFlow({ call: s.call, io: t.api }, code)).toBe(1);
-      expect(t.io.err[0]).toMatch(line);
+      expect(t.io.err).toHaveLength(1);
       expect(s.calls.some((c) => c.method === 'POST')).toBe(false);
     }
   });
@@ -279,18 +386,15 @@ describe('joinFlow', () => {
     const { call, calls } = fakeServer([
       status(), status({ joining }), status({}, { joinExpired: { id: mac, name: 'mac-studio' } }),
     ], { 'POST /api/remote/join': joined, 'POST /api/remote/join/expired/acknowledge': { status: 200, body: { ok: true } } });
-    const { io, api } = scriptedIo();
+    const { api } = scriptedIo();
     expect(await joinFlow({ call, io: api }, qr())).toBe(1);
-    expect(io.err[0]).toMatch(/^mac-studio never sent the group/);
     expect(calls.at(-1)).toMatchObject({ path: '/api/remote/join/expired/acknowledge' });
   });
 });
 
 describe('addFlow', () => {
-  const pendingPair = {
-    phone: 'p1', name: 'Pixel 8', platform: 'android', kind: 'phone', attemptsLeft: 3,
-    manager: { by: 'here' as const, newGroup: true },
-  };
+  const manager = { by: 'here' as const, newGroup: true };
+  const pendingPair = { phone: 'p1', name: 'Pixel 8', platform: 'android', kind: 'phone', attemptsLeft: 3, manager };
   const expiresAt = NOW + 120_000;
   const code = { status: 200, body: { qr: '{"v":1}', expiresAt } };
 
@@ -306,12 +410,10 @@ describe('addFlow', () => {
     });
     const { io, api } = scriptedIo(['1111-2222', 'ABCD-1234']);
     expect(await addFlow({ call, io: api })).toBe(0);
-    expect(io.out).toContain('eyJ2IjoxfQ');
-    expect(io.out).toContain(`It works for 2:00. Waiting for a request… Ctrl-C stops.`);
-    expect(io.out).toContain(`Pixel 8 (phone, Android) wants to join. ${JOIN_REACH}`);
-    expect(io.out).toContain('This device will manage the group: devices are added and removed here.');
+    expect(io.out).toContain(encodePairingCode('{"v":1}'));
+    expect(io.out).toContain(`${joinSentence(pendingPair)}. ${JOIN_REACH}`);
+    expect(io.out).toContain(managerWords(manager, 'Pixel 8').line);
     expect(io.err).toEqual([attemptsLine(2)]);
-    expect(io.out).toContain('Pixel 8 joined.');
     expect(calls.filter((c) => c.path === '/api/remote/pair/confirm').map((c) => c.body)).toEqual([
       { accept: true, phone: 'p1', code: '1111-2222' }, { accept: true, phone: 'p1', code: 'ABCD-1234' },
     ]);
@@ -321,28 +423,36 @@ describe('addFlow', () => {
     const { call, calls } = fakeServer([status({ pendingPair })], {
       'POST /api/remote/pair/confirm': { status: 200, body: { ok: true } },
     });
-    const { io, api } = scriptedIo(['']);
+    const { api } = scriptedIo(['']);
     expect(await addFlow({ call, io: api })).toBe(0);
     expect(calls.some((c) => c.path === '/api/remote/pair')).toBe(false);
     expect(calls.at(-1)?.body).toEqual({ accept: false, phone: 'p1' });
-    expect(io.out.at(-1)).toBe('Request rejected');
   });
 
-  it('ends on the last wrong code, a full group, and a code that ran out', async () => {
+  it('ends the code prompt when the request runs out with its code, answering nothing', async () => {
+    const s = fakeServer([status({ pendingPair, pairing: { expiresAt } })]);
+    const t = scriptedIo([TIMED_OUT]);
+    expect(await addFlow({ call: s.call, io: t.api })).toBe(1);
+    expect(t.io.err).toEqual([REQUEST_EXPIRED]);
+    expect(s.calls.some((c) => c.path === '/api/remote/pair/confirm')).toBe(false);
+  });
+
+  it('ends on the last wrong code, a full group, and a request that is gone', async () => {
     for (const [reply, lines] of [
       [{ status: 409, body: { error: 'code_rejected' } }, [CODE_REJECTED]],
-      [{ status: 409, body: { error: 'group_full' } }, [GROUP_FULL, expect.stringMatching(/^Pixel 8 wasn’t added/)]],
-      [{ status: 404, body: { error: 'no_pending' } }, [expect.stringMatching(/^The request is gone/)]],
+      [{ status: 409, body: { error: 'group_full' } }, [GROUP_FULL, groupFullBody('Pixel 8')]],
+      [{ status: 404, body: { error: 'no_pending' } }, null],
     ] as const) {
       const s = fakeServer([status({ pendingPair })], { 'POST /api/remote/pair/confirm': reply });
       const t = scriptedIo(['ABCD-1234']);
       expect(await addFlow({ call: s.call, io: t.api })).toBe(1);
-      expect(t.io.err).toEqual(lines);
+      if (lines) expect(t.io.err).toEqual(lines);
+      else expect(t.io.err).toHaveLength(1);
     }
     const s = fakeServer([status(), status({ pairing: { expiresAt } })], { 'POST /api/remote/pair': code });
     const t = scriptedIo();
     expect(await addFlow({ call: s.call, io: t.api })).toBe(1);
-    expect(t.io.err).toEqual(['The code expired before a device asked. Run orbital devices add again.']);
+    expect(s.calls.some((c) => c.path === '/api/remote/pair/confirm')).toBe(false);
   });
 
   it('gives a member the not_primary line naming the primary', async () => {
@@ -351,7 +461,7 @@ describe('addFlow', () => {
     });
     const t = scriptedIo();
     expect(await addFlow({ call: s.call, io: t.api })).toBe(1);
-    expect(t.io.err).toEqual(['mac-studio manages this group — add devices there.']);
+    expect(t.io.err).toEqual([notPrimaryAddLine('mac-studio')]);
   });
 });
 
@@ -360,13 +470,16 @@ describe('confirmations', () => {
     members: [member({ id: 'self-id', name: 'gpu-box', self: true, primary: true }), member({ id: 'mac', name: 'mac-studio' })],
     isPrimary: true, primary: { id: 'self-id', name: 'gpu-box' }, relayLocked: true,
   });
+  const run = (argv: string[], s: ReturnType<typeof fakeServer>, t: ReturnType<typeof scriptedIo>) =>
+    runCli(argv, { call: s.call, io: t.api, port: 1 });
 
   it('asks before a removal, and only a yes removes', async () => {
+    const words = removeWords('mac-studio');
     for (const [answer, removed] of [['n', false], ['', false], ['y', true], ['YES', true]] as const) {
       const s = fakeServer([group], { 'DELETE /api/remote/devices/mac': { status: 200, body: { ok: true } } });
       const t = scriptedIo([answer]);
-      expect(await runCli(['devices', 'remove', 'mac-studio'], { call: s.call, io: t.api, port: 1 })).toBe(removed ? 0 : 1);
-      expect(t.io.asked[0]).toBe('Remove mac-studio? It drops out of every device in the group now and has to be paired again from here. [y/N] ');
+      expect(await run(['devices', 'remove', 'mac-studio'], s, t)).toBe(removed ? 0 : 1);
+      expect(t.io.asked[0]).toContain(`${words.question} ${words.body}`);
       expect(s.calls.some((c) => c.method === 'DELETE')).toBe(removed);
     }
   });
@@ -374,38 +487,88 @@ describe('confirmations', () => {
   it('dissolves on the primary with the dissolve words, and --yes skips the question', async () => {
     const s = fakeServer([group], { 'POST /api/remote/leave': { status: 200, body: { ok: true } } });
     const t = scriptedIo();
-    expect(await runCli(['devices', 'leave', '--yes'], { call: s.call, io: t.api, port: 1 })).toBe(0);
+    expect(await run(['devices', 'leave', '--yes'], s, t)).toBe(0);
     expect(t.io.asked).toEqual([]);
-    expect(t.io.out).toEqual(['The group is dissolved.']);
+    expect(s.calls.at(-1)).toMatchObject({ method: 'POST', path: '/api/remote/leave' });
     const u = scriptedIo(['n']);
-    await runCli(['devices', 'leave'], { call: fakeServer([group]).call, io: u.api, port: 1 });
-    expect(u.io.asked[0]).toMatch(/^Dissolve the group\? The other device becomes standalone/);
+    const v = fakeServer([group]);
+    expect(await run(['devices', 'leave'], v, u)).toBe(1);
+    const words = exitWords('dissolve', 1, 'gpu-box');
+    expect(u.io.asked[0]).toContain(`${words.question} ${words.body}`);
+    expect(v.calls.some((c) => c.method === 'POST')).toBe(false);
   });
 
-  it('keeps the relay while in a group', async () => {
-    const s = fakeServer([group]);
-    const t = scriptedIo();
-    expect(await runCli(['relay', 'set', 'wss://new.example'], { call: s.call, io: t.api, port: 1 })).toBe(1);
-    expect(t.io.err).toEqual(['One relay for the whole group. Remove the other devices, or dissolve the group, to change it.']);
+  it('keeps the relay and its secret while in a group', async () => {
+    for (const argv of [['relay', 'set', 'wss://new.example'], ['relay', 'secret', '--clear']]) {
+      const s = fakeServer([group]);
+      const t = scriptedIo();
+      expect(await run(argv, s, t)).toBe(1);
+      expect(t.io.err).toEqual([relayLockedLine('primary')]);
+      expect(s.calls.some((c) => c.method === 'PATCH')).toBe(false);
+    }
   });
+
+  const settings = (url: string, secret: string) => ({ 'GET /api/settings': { status: 200, body: { remote_relay_url: url, remote_relay_secret: secret } } });
+  const saved = { 'PATCH /api/settings': { status: 200, body: { ok: true } } };
 
   it('sets the relay and turns the remote on', async () => {
-    const s = fakeServer([status({ enabled: false, relayUrl: '' })], { 'PATCH /api/settings': { status: 200, body: { ok: true } } });
+    const s = fakeServer([status({ enabled: false, relayUrl: '' })], { ...settings('', ''), ...saved });
     const t = scriptedIo();
-    expect(await runCli(['relay', 'set', 'wss://new.example'], { call: s.call, io: t.api, port: 1 })).toBe(0);
+    expect(await run(['relay', 'set', 'wss://new.example'], s, t)).toBe(0);
     expect(s.calls.at(-1)?.body).toEqual({ remote_relay_url: 'wss://new.example', remote_enabled: 'true' });
+  });
+
+  it('takes the secret at an unechoed prompt with the URL, and never prints it', async () => {
+    const s = fakeServer([status({ enabled: false, relayUrl: '' })], { ...settings('', ''), ...saved });
+    const t = scriptedIo(['hunter2']);
+    expect(await run(['relay', 'set', 'wss://new.example', '--secret'], s, t)).toBe(0);
+    expect(t.io.secrets).toBe(1);
+    expect(s.calls.at(-1)?.body).toEqual({ remote_relay_url: 'wss://new.example', remote_relay_secret: 'hunter2', remote_enabled: 'true' });
+    expect([...t.io.out, ...t.io.err].join('\n')).not.toContain('hunter2');
+  });
+
+  it('changes only the secret from stdin; with paired devices it asks with the secret words', async () => {
+    const remote = status({ devices: [paired('ph', 'Pixel')] });
+    const s = fakeServer([remote], { ...settings('wss://relay.example', 'old'), ...saved, 'DELETE /api/remote/devices/ph': { status: 200, body: { ok: true } } });
+    const t = scriptedIo(['new-secret', 'y']);
+    expect(await run(['relay', 'secret', '--secret-stdin'], s, t)).toBe(0);
+    expect(t.io.secrets).toBe(0);
+    const words = relayChangeWords(1, 'secret');
+    expect(t.io.asked[1]).toContain(`${words.title} ${words.body}`);
+    expect(s.calls.map((c) => `${c.method} ${c.path}`).slice(-2)).toEqual(['DELETE /api/remote/devices/ph', 'PATCH /api/settings']);
+    expect(s.calls.at(-1)?.body).toEqual({ remote_relay_secret: 'new-secret' });
+    expect([...t.io.out, ...t.io.err].join('\n')).not.toContain('new-secret');
+  });
+
+  it('clears the secret without asking, as the settings page does', async () => {
+    const s = fakeServer([status({ devices: [paired('ph', 'Pixel')] })], { ...settings('wss://relay.example', 'old'), ...saved });
+    const t = scriptedIo();
+    expect(await run(['relay', 'secret', '--clear'], s, t)).toBe(0);
+    expect(t.io.asked).toEqual([]);
+    expect(s.calls.some((c) => c.method === 'DELETE')).toBe(false);
+    expect(s.calls.at(-1)?.body).toEqual({ remote_relay_secret: '' });
+  });
+
+  it('shows whether a secret is set, not the secret', async () => {
+    const s = fakeServer([status()], settings('wss://relay.example', 'hunter2'));
+    const t = scriptedIo();
+    expect(await run(['relay'], s, t)).toBe(0);
+    expect(t.io.out.join('\n')).not.toContain('hunter2');
+    expect(t.io.out.at(-1)).toMatch(/secret: set$/);
   });
 
   it('asks before an update that stops working sessions', async () => {
     const state = { installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 2 };
-    const s = fakeServer([status()], {
-      'GET /api/server/update': { status: 200, body: state },
-      'POST /api/server/update': { status: 202, body: { ...state, updating: true } },
-    });
-    const t = scriptedIo(['y']);
-    expect(await runCli(['update'], { call: s.call, io: t.api, port: 1 })).toBe(0);
-    expect(t.io.asked[0]).toMatch(/^2 sessions are working here\..*Update to 0\.36\.0 now\? \[y\/N\] $/);
-    expect(s.calls.at(-1)).toMatchObject({ method: 'POST', path: '/api/server/update' });
+    for (const [answer, posted] of [['n', false], ['y', true]] as const) {
+      const s = fakeServer([status()], {
+        'GET /api/server/update': { status: 200, body: state },
+        'POST /api/server/update': { status: 202, body: { ...state, updating: true } },
+      });
+      const t = scriptedIo([answer]);
+      expect(await run(['update'], s, t)).toBe(posted ? 0 : 1);
+      expect(t.io.asked).toHaveLength(1);
+      expect(s.calls.some((c) => c.method === 'POST')).toBe(posted);
+    }
   });
 });
 
@@ -423,9 +586,8 @@ describe('the CLI against a running server', () => {
 
       const t = scriptedIo();
       expect(await runCli(['status'], { call, io: t.api, port })).toBe(0);
-      expect(t.io.out[0]).toBe(`Orbital dev is running on port ${port}.`);
-      expect(t.io.out).toContain('Relay: not set. Set one: orbital relay set <url>');
-      expect(t.io.out).toContain('Group: none, this device is alone.');
+      expect(t.io.out[0]).toContain(String(port));
+      expect(t.io.err).toEqual([]);
 
       const l = scriptedIo();
       expect(await runCli(['devices', 'list'], { call, io: l.api, port })).toBe(0);

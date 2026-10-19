@@ -15,7 +15,7 @@ import {
 } from '../lib/devices'
 import { useNow } from '../lib/useNow'
 import {
-  deviceCount, exitWords, notPrimaryAddLine, notPrimaryRemoveLine, relayChangeWords, relayLockedLine, removeWords,
+  exitWords, notPrimaryAddLine, notPrimaryRemoveLine, relayChangeWords, relayLockedLine, removeWords,
 } from '@orbital/shared/remote/groupWords'
 import type { GroupEnded, GroupMember, RemoteStatus } from '../lib/types'
 import { Toggle } from '../ui/Checkbox'
@@ -1036,15 +1036,12 @@ function RelayTooOldCard({
 /** The two relay settings Change relay opens; a change to either removes the paired devices first. */
 type RelaySetting = 'remote_relay_url' | 'remote_relay_secret'
 
-/** The 9r confirm's words for each setting. The secret's are provisional copy: the canvas draws no such dialog yet. */
+/** The 9r confirm's words for each setting. */
 const ASK: Record<RelaySetting, { title: string; body: (count: number) => string }> = {
-  remote_relay_url: {
-    title: relayChangeWords(0).title,
-    body: (count) => relayChangeWords(count).body,
-  },
+  remote_relay_url: { title: relayChangeWords(0).title, body: (count) => relayChangeWords(count).body },
   remote_relay_secret: {
-    title: 'Change the relay secret?',
-    body: (count) => `${deviceCount(count)} will be removed and ${count === 1 ? 'has' : 'have'} to pair again with the new secret.`,
+    title: relayChangeWords(0, 'secret').title,
+    body: (count) => relayChangeWords(count, 'secret').body,
   },
 }
 

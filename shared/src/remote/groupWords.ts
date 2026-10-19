@@ -123,12 +123,16 @@ export function deviceCount(n: number): string {
   return n === 1 ? '1 device' : `${n} devices`;
 }
 
-/** The 9r confirm before a new relay URL removes the paired devices. */
-export function relayChangeWords(count: number): { title: string; body: string } {
-  return {
-    title: 'Change the relay?',
-    body: `${deviceCount(count)} will be removed and ${count === 1 ? 'has' : 'have'} to pair again on the new relay.`,
-  };
+/**
+ * The 9r confirm before a new relay URL, or a new relay secret, removes the
+ * paired devices. The secret's words are provisional: the canvas draws no
+ * such dialog yet.
+ */
+export function relayChangeWords(count: number, setting: 'url' | 'secret' = 'url'): { title: string; body: string } {
+  const have = count === 1 ? 'has' : 'have';
+  return setting === 'url'
+    ? { title: 'Change the relay?', body: `${deviceCount(count)} will be removed and ${have} to pair again on the new relay.` }
+    : { title: 'Change the relay secret?', body: `${deviceCount(count)} will be removed and ${have} to pair again with the new secret.` };
 }
 
 /**

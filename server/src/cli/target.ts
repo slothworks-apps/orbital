@@ -27,13 +27,49 @@ export function cliTarget(input: DataDirInput & { env: { ORBITAL_PORT?: string }
   return { port, tokenFile: join(orbitalDataDir(input), API_TOKEN_FILE) };
 }
 
-/** The token, or null when the file is not there: the server mints it at its first start. */
-export async function readToken(file: string): Promise<string | null> {
+/** The token; `missing` before the server's first start; `unreadable` when the file is another user's. */
+export type TokenRead = { token: string } | { missing: true } | { unreadable: true };
+
+export async function readToken(file: string): Promise<TokenRead> {
   try {
     const token = (await readFile(file, 'utf8')).trim();
-    return token === '' ? null : token;
+    return token === '' ? { missing: true } : { token };
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT') return { missing: true };
+    if (code === 'EACCES' || code === 'EPERM') return { unreadable: true };
     throw err;
+  }
+}
+
+export function unreadableTokenLine(file: string): string {
+  return `Can't read ${file}: it belongs to another user. Run orbital as the user Orbital runs as.`;
+}
+
+/** Where the package records the user the server runs as (`orbital setup`). */
+export const SERVICE_USER_FILE = '/etc/orbital/user';
+
+/** A user name as `/etc/orbital/user` may hold one; anything else is not shown. */
+const USER_NAME = /^[a-z_][a-z0-9_.-]{0,31}\$?$/i;
+
+/**
+ * Said after "not running" when the CLI runs as root: the server runs as a
+ * user, so root's data dir has no token and its port finds no server of its
+ * own. Names that user when the package recorded one. Null for anyone else.
+ */
+export function rootHint(uid: number | null, serviceUser: string | null): string | null {
+  if (uid !== 0) return null;
+  const user = serviceUser?.trim() ?? '';
+  return USER_NAME.test(user)
+    ? `Orbital runs as ${user}, not root: sudo -u ${user} orbital …`
+    : 'Orbital runs as a user, not root: run orbital as that user.';
+}
+
+/** The user `/etc/orbital/user` names, or null when there is no such file. */
+export async function readServiceUser(file = SERVICE_USER_FILE): Promise<string | null> {
+  try {
+    return (await readFile(file, 'utf8')).trim();
+  } catch {
+    return null;
   }
 }

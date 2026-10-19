@@ -7,7 +7,8 @@ export type Command =
   | { kind: 'help' }
   | { kind: 'status' }
   | { kind: 'relay' }
-  | { kind: 'relaySet'; url: string; yes: boolean }
+  | { kind: 'relaySet'; url: string; secret: 'keep' | SecretSource; yes: boolean }
+  | { kind: 'relaySecret'; secret: SecretSource | 'clear'; yes: boolean }
   | { kind: 'join'; code: string | null }
   | { kind: 'add' }
   | { kind: 'list' }
@@ -15,6 +16,13 @@ export type Command =
   | { kind: 'remove'; target: string; yes: boolean }
   | { kind: 'leave'; yes: boolean }
   | { kind: 'update'; yes: boolean };
+
+/**
+ * Where a relay secret comes from: typed at a prompt that does not echo it,
+ * or one line of stdin for scripts. Never an argument: the process list
+ * shows those to every user.
+ */
+export type SecretSource = 'prompt' | 'stdin';
 
 /** A command line that names no command the CLI has: printed with a pointer to `--help`, exit 2. */
 export type Usage = { kind: 'usage'; message: string };
@@ -24,7 +32,8 @@ export const HELP = `orbital — drive the Orbital server on this machine
 Usage:
   orbital status                      the server, its version, relay and group
   orbital relay                       show the relay
-  orbital relay set <url>             set the relay (before pairing)
+  orbital relay set <url> [--secret]  set the relay (before pairing), and its secret
+  orbital relay secret [--clear]      set, change or remove the relay secret
   orbital join [code]                 join the group whose primary shows the code
   orbital devices add                 show a code another device joins with
   orbital devices list                the group's members
@@ -35,35 +44,52 @@ Usage:
   orbital help                        this text
 
 Options:
-  -y, --yes    skip the confirmation (relay set, remove, leave, update)
-  -h, --help   this text
+  -y, --yes        skip the confirmation (relay, remove, leave, update)
+  --secret         ask for the relay secret, not echoed (relay set)
+  --secret-stdin   read the relay secret from one line of stdin (relay set, relay secret)
+  --clear          remove the relay secret (relay secret)
+  -h, --help       this text
 
 It talks to the server at 127.0.0.1:$ORBITAL_PORT with the token in its data dir.`;
 
 /** Commands that ask before they act, and so take `--yes`. */
-const CONFIRMS: ReadonlySet<Command['kind']> = new Set(['relaySet', 'remove', 'leave', 'update']);
+const CONFIRMS: ReadonlySet<Command['kind']> = new Set(['relaySet', 'relaySecret', 'remove', 'leave', 'update']);
+
+type Flags = { yes: boolean; secret: boolean; secretStdin: boolean; clear: boolean };
 
 export function parseArgs(argv: readonly string[]): Command | Usage {
   const words: string[] = [];
-  let yes = false;
+  const flags: Flags = { yes: false, secret: false, secretStdin: false, clear: false };
   let help = false;
   let rest = false;
   for (const arg of argv) {
     if (rest || !arg.startsWith('-') || arg === '-') words.push(arg);
     else if (arg === '--') rest = true;
-    else if (arg === '-y' || arg === '--yes') yes = true;
+    else if (arg === '-y' || arg === '--yes') flags.yes = true;
     else if (arg === '-h' || arg === '--help') help = true;
+    else if (arg === '--secret') flags.secret = true;
+    else if (arg === '--secret-stdin') flags.secretStdin = true;
+    else if (arg === '--clear') flags.clear = true;
+    else if (arg.startsWith('--secret=')) return { kind: 'usage', message: 'The secret is never an argument: use --secret, or --secret-stdin.' };
     else return { kind: 'usage', message: `Unknown option: ${arg}` };
   }
   if (help) return { kind: 'help' };
-  const cmd = command(words, yes);
-  if (cmd.kind !== 'usage' && yes && !CONFIRMS.has(cmd.kind)) {
-    return { kind: 'usage', message: `--yes does nothing for this command.` };
+  const cmd = command(words, flags);
+  if (cmd.kind === 'usage') return cmd;
+  if (flags.yes && !CONFIRMS.has(cmd.kind)) return { kind: 'usage', message: '--yes does nothing for this command.' };
+  if ([flags.secret, flags.secretStdin, flags.clear].filter(Boolean).length > 1) {
+    return { kind: 'usage', message: 'Use one of --secret, --secret-stdin and --clear.' };
+  }
+  if (flags.secret && cmd.kind !== 'relaySet') return { kind: 'usage', message: '--secret is for orbital relay set.' };
+  if (flags.clear && cmd.kind !== 'relaySecret') return { kind: 'usage', message: '--clear is for orbital relay secret.' };
+  if (flags.secretStdin && cmd.kind !== 'relaySet' && cmd.kind !== 'relaySecret') {
+    return { kind: 'usage', message: '--secret-stdin is for orbital relay set and orbital relay secret.' };
   }
   return cmd;
 }
 
-function command(words: string[], yes: boolean): Command | Usage {
+function command(words: string[], flags: Flags): Command | Usage {
+  const { yes } = flags;
   const [head, ...args] = words;
   switch (head) {
     case undefined:
@@ -75,9 +101,15 @@ function command(words: string[], yes: boolean): Command | Usage {
       return args.length === 0 ? { kind: 'update', yes } : extra(args);
     case 'relay':
       if (args.length === 0) return { kind: 'relay' };
+      if (args[0] === 'secret') {
+        if (args.length !== 1) return extra(args.slice(1));
+        return { kind: 'relaySecret', secret: flags.clear ? 'clear' : flags.secretStdin ? 'stdin' : 'prompt', yes };
+      }
       if (args[0] !== 'set') return { kind: 'usage', message: `Unknown relay command: ${args[0]}` };
-      if (args.length !== 2 || args[1].trim() === '') return { kind: 'usage', message: 'Usage: orbital relay set <url>' };
-      return { kind: 'relaySet', url: args[1].trim(), yes };
+      if (args.length !== 2 || args[1].trim() === '') return { kind: 'usage', message: 'Usage: orbital relay set <url> [--secret]' };
+      return {
+        kind: 'relaySet', url: args[1].trim(), secret: flags.secret ? 'prompt' : flags.secretStdin ? 'stdin' : 'keep', yes,
+      };
     case 'join':
       return join(args);
     case 'devices':

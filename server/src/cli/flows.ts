@@ -8,12 +8,14 @@
  */
 import type { JoinResult, Joining, PairConfirmResult, StartPairingResult } from '@orbital/shared/remote/ceremony';
 import {
-  CODE_REJECTED, GROUP_FULL, JOIN_REACH, REQUEST_REJECTED, attemptsLine, groupFullBody, joinSentence, managerWords,
+  CODE_REJECTED, GROUP_FULL, JOIN_REACH, REQUEST_REJECTED, attemptsLine, groupFullBody, groupFullLine, joinSentence,
+  managerWords,
 } from '@orbital/shared/remote/groupWords';
+import { ROSTER_MAX_ENTRIES } from '@orbital/shared/remote/roster';
 import { encodePairingCode, parsePairingCode } from '@orbital/shared/remote/relayApi';
 import type { RemoteStatus } from '../remote/service.js';
 import { CliError, errorOf, type Call } from './client.js';
-import type { Io } from './io.js';
+import { TIMED_OUT, type Io, type Trap } from './io.js';
 import {
   NOT_A_CODE, RELAY_NO_ANSWER, codeExpiredLine, joinRefusal, otherRelayLine, pendingPrimaryName, startPairingRefusal,
 } from './words.js';
@@ -37,28 +39,46 @@ function sameRelay(a: string, b: string): boolean {
 /**
  * Where a join stands, read from one status (the screens' `useJoin`):
  * `waiting` for the other device to confirm; `paired`, waiting for the
- * primary's first roster; `joined`; `rejected` by the other device;
- * `expired`, its code ran out; `neverSent`, paired but the roster never
- * came before the code ran out; `relayDown`, the join ended while the relay
- * was not there to carry an answer.
+ * primary's first roster; `joined`; `expired`, its code ran out;
+ * `neverSent`, paired but the roster never came before the code ran out;
+ * `full`, this device was to add the other and its group had no room;
+ * `relayDown`, the join ended while the relay was not there to carry an
+ * answer; `ended`, anything else — the other device rejected it, or the
+ * remote restarted under it — which one the status cannot tell.
  */
-export type JoinVerdict = 'waiting' | 'paired' | 'joined' | 'rejected' | 'expired' | 'neverSent' | 'relayDown';
+export type JoinVerdict = 'waiting' | 'paired' | 'joined' | 'expired' | 'neverSent' | 'full' | 'relayDown' | 'ended';
 
-export function joinVerdict(status: RemoteStatus, target: { device: string; expiresAt: number }, now: number): JoinVerdict {
+/** The join being watched: the device whose code it is, its code's expiry, and whether this device adds it. */
+export type JoinTarget = { device: string; expiresAt: number; adds: boolean };
+
+export function joinVerdict(status: RemoteStatus, target: JoinTarget, now: number): JoinVerdict {
   if (status.joining?.device === target.device) return now >= target.expiresAt ? 'expired' : 'waiting';
   if (status.group.pendingJoin) return 'paired';
   if (status.group.joinExpired) return 'neverSent';
   // Paired: in the roster now, or paired by hand with a member it already was.
   if (status.devices.some((d) => d.id === target.device)) return 'joined';
   if (now >= target.expiresAt) return 'expired';
-  // Only a relay that is still up can have carried a rejection.
-  return status.enabled && status.relay === 'online' ? 'rejected' : 'relayDown';
+  // The pair formed and was undone: the roster that was to take it is at its bound.
+  if (target.adds && status.group.members.length >= ROSTER_MAX_ENTRIES) return 'full';
+  if (!status.enabled || status.relay !== 'online') return 'relayDown';
+  return 'ended';
 }
 
-/** `orbital join [code]`: 0 once in, 1 otherwise. Ctrl-C while waiting cancels the join. */
+const INTERRUPTED = Symbol('interrupted');
+
+/** `p`, or `INTERRUPTED` once the trap springs first. */
+function held<T>(trap: Trap, p: Promise<T>): Promise<T | typeof INTERRUPTED> {
+  return Promise.race([p, trap.signal.then((): typeof INTERRUPTED => INTERRUPTED)]);
+}
+
+/**
+ * `orbital join [code]`: 0 once in, 1 otherwise. From the moment the join
+ * is asked for, Ctrl-C cancels it — during the request itself too: the
+ * answer is awaited, then the join is cancelled on the server.
+ */
 export async function joinFlow({ call, io }: Deps, codeArg: string | null): Promise<number> {
   const typed = codeArg ?? (await io.ask('The code the other device shows: '));
-  if (typed === null || typed.trim() === '') {
+  if (typeof typed !== 'string' || typed === '') {
     io.err('No code given.');
     return 1;
   }
@@ -84,59 +104,87 @@ export async function joinFlow({ call, io }: Deps, codeArg: string | null): Prom
   // An old join's "never sent" notice would read as this join's end; the user starts afresh.
   if (status.group.joinExpired) await call('POST', '/api/remote/join/expired/acknowledge');
 
-  const reply = await call('POST', '/api/remote/join', { code: typed.trim() });
-  const res = reply.body as JoinResult;
-  if (reply.status !== 200 || 'error' in res) {
-    const error = errorOf(reply);
-    if (!error) throw new CliError(`Orbital answered ${reply.status} to the join.`);
-    io.err(joinRefusal(res as Extract<JoinResult, { error: string }>, qr.name, status));
-    return 1;
-  }
-  status = await readStatus(call);
-  const joining: Joining | null = status.joining?.device === res.device ? status.joining : null;
-  const target = { device: res.device, expiresAt: joining?.expiresAt ?? qr.expiresAt ?? Number.POSITIVE_INFINITY };
-  const manager = managerWords(joining?.manager ?? null, res.name);
-  io.out(`Type this code on ${res.name}: ${res.code}`);
-  if (manager.line) io.out(manager.line);
-  io.out(`Waiting for ${res.name}… Ctrl-C cancels.`);
-
-  let saidPaired = false;
-  for (;;) {
-    if ((await io.wait(CLI_POLL_MS)) === 'interrupt') {
-      const cancelled = await call('DELETE', '/api/remote/join');
-      io.out(cancelled.status === 200 ? 'Join cancelled.' : 'Nothing to cancel: the join had ended.');
-      return 1;
-    }
-    status = await readStatus(call);
-    switch (joinVerdict(status, target, io.now())) {
-      case 'waiting':
-        continue;
-      case 'paired':
-        if (!saidPaired) io.out(`Paired. Waiting for the group from ${pendingPrimaryName(status)}…`);
-        saidPaired = true;
-        continue;
-      case 'joined':
-        io.out(`Joined: ${res.name}.`);
-        if (manager.done) io.out(manager.done);
-        return 0;
-      case 'rejected':
-        io.err(`${REQUEST_REJECTED}. ${res.name} didn't let this device in. Make a new code on ${res.name} and run orbital join again.`);
-        return 1;
-      case 'expired':
-        io.err(codeExpiredLine(res.name));
-        return 1;
-      case 'neverSent': {
-        const primary = status.group.joinExpired?.name ?? res.name;
-        io.err(`${primary} never sent the group before the code ran out. This device is still standalone. Pair it with ${primary} again when ${primary} is online.`);
-        // Said here, so the notice is read.
-        await call('POST', '/api/remote/join/expired/acknowledge');
+  const trap = io.trap();
+  try {
+    const request = call('POST', '/api/remote/join', { code: typed });
+    let reply = await held(trap, request);
+    if (reply === INTERRUPTED) {
+      // The server records the join before it asks the relay; cancel it once it answers.
+      reply = await request;
+      if (reply.status !== 200) {
+        io.out('Join cancelled.');
         return 1;
       }
-      case 'relayDown':
-        io.err('The join ended while the relay was not connected. Run orbital join again once orbital status shows it online.');
-        return 1;
+      return cancelJoin(call, io);
     }
+    const res = reply.body as JoinResult;
+    if (reply.status !== 200 || 'error' in res) {
+      const error = errorOf(reply);
+      if (!error) throw new CliError(`Orbital answered ${reply.status} to the join.`);
+      io.err(joinRefusal(res as Extract<JoinResult, { error: string }>, qr.name, status));
+      return 1;
+    }
+    const read = await held(trap, readStatus(call));
+    if (read === INTERRUPTED) return cancelJoin(call, io);
+    status = read;
+    const joining: Joining | null = status.joining?.device === res.device ? status.joining : null;
+    const target: JoinTarget = {
+      device: res.device,
+      expiresAt: joining?.expiresAt ?? qr.expiresAt ?? Number.POSITIVE_INFINITY,
+      adds: joining?.manager?.by === 'here',
+    };
+    const manager = managerWords(joining?.manager ?? null, res.name);
+    io.out(`Type this code on ${res.name}: ${res.code}`);
+    if (manager.line) io.out(manager.line);
+    io.out(`Waiting for ${res.name}… Ctrl-C cancels.`);
+
+    let saidPaired = false;
+    for (;;) {
+      if ((await held(trap, io.sleep(CLI_POLL_MS))) === INTERRUPTED) return cancelJoin(call, io);
+      const next = await held(trap, readStatus(call));
+      if (next === INTERRUPTED) return cancelJoin(call, io);
+      status = next;
+      switch (joinVerdict(status, target, io.now())) {
+        case 'waiting':
+          continue;
+        case 'paired':
+          if (!saidPaired) io.out(`Paired. Waiting for the group from ${pendingPrimaryName(status)}…`);
+          saidPaired = true;
+          continue;
+        case 'joined':
+          io.out(`Joined: ${res.name}.`);
+          if (manager.done) io.out(manager.done);
+          return 0;
+        case 'expired':
+          io.err(codeExpiredLine(res.name));
+          return 1;
+        case 'full':
+          io.err(groupFullLine(res.name));
+          return 1;
+        case 'neverSent': {
+          const primary = status.group.joinExpired?.name ?? res.name;
+          io.err(`${primary} never sent the group before the code ran out. This device is still standalone. Pair it with ${primary} again when ${primary} is online.`);
+          // Said here, so the notice is read.
+          await call('POST', '/api/remote/join/expired/acknowledge');
+          return 1;
+        }
+        case 'relayDown':
+          io.err('The join ended while the relay was not connected. Run orbital join again once orbital status shows it online.');
+          return 1;
+        case 'ended':
+          io.err(`The join ended without this device in the group. Make a new code on ${res.name} and run orbital join again.`);
+          return 1;
+      }
+    }
+  } finally {
+    trap.release();
   }
+}
+
+async function cancelJoin(call: Call, io: Io): Promise<number> {
+  const cancelled = await call('DELETE', '/api/remote/join');
+  io.out(cancelled.status === 200 ? 'Join cancelled.' : 'Nothing to cancel: the join had ended.');
+  return 1;
 }
 
 /**
@@ -178,34 +226,43 @@ export async function addFlow({ call, io }: Deps): Promise<number> {
     io.out(encodePairingCode(res.qr));
     io.out('');
     io.out(`It works for ${left(res.expiresAt, io.now())}. Waiting for a request… Ctrl-C stops.`);
-    for (;;) {
-      if ((await io.wait(CLI_POLL_MS)) === 'interrupt') {
-        io.out('Stopped. The code stops working when its time runs out.');
+    const trap = io.trap();
+    try {
+      for (;;) {
+        const next = (await held(trap, io.sleep(CLI_POLL_MS))) === INTERRUPTED ? INTERRUPTED : await held(trap, readStatus(call));
+        if (next === INTERRUPTED) {
+          io.out('Stopped. The code stops working when its time runs out.');
+          return 1;
+        }
+        status = next;
+        const verdict = addVerdict(status, res.expiresAt, io.now());
+        if (verdict === 'request') break;
+        if (verdict === 'waiting') continue;
+        io.err(ADD_ENDED[verdict]);
         return 1;
       }
-      status = await readStatus(call);
-      const verdict = addVerdict(status, res.expiresAt, io.now());
-      if (verdict === 'request') break;
-      if (verdict === 'waiting') continue;
-      io.err({
-        expired: 'The code expired before a device asked. Run orbital devices add again.',
-        refused: 'The code was spent on a device that cannot join here. Run orbital devices add again.',
-        replaced: 'A newer code was made on this device; it takes the requests now.',
-      }[verdict]);
-      return 1;
+    } finally {
+      trap.release();
     }
   }
-  return answerRequest({ call, io }, status.pendingPair!);
+  return answerRequest({ call, io }, status.pendingPair!, status.pairing?.expiresAt ?? null);
 }
 
 /** The request (canvas 50c): its sentence, then the code the requester shows, until it is in or out. */
-async function answerRequest({ call, io }: Deps, pending: NonNullable<RemoteStatus['pendingPair']>): Promise<number> {
+async function answerRequest(
+  { call, io }: Deps, pending: NonNullable<RemoteStatus['pendingPair']>, expiresAt: number | null,
+): Promise<number> {
   const { name } = pending;
   const manager = managerWords(pending.manager ?? null, name);
   io.out(`${joinSentence(pending)}. ${JOIN_REACH}`);
   if (manager.line) io.out(manager.line);
   for (;;) {
-    const answer = await io.ask(`Type the code ${name} shows (Enter or n to reject): `);
+    const answer = await io.ask(`Type the code ${name} shows (Enter or n to reject): `, expiresAt ?? undefined);
+    // The request lives as long as its code (the dialog closes then too).
+    if (answer === TIMED_OUT) {
+      io.err(REQUEST_EXPIRED);
+      return 1;
+    }
     if (answer === null || answer === '' || /^no?$/i.test(answer)) {
       const reply = await call('POST', '/api/remote/pair/confirm', { accept: false, phone: pending.phone });
       if (reply.status === 200) {
@@ -242,6 +299,15 @@ async function answerRequest({ call, io }: Deps, pending: NonNullable<RemoteStat
     }
   }
 }
+
+/** How a shown code ended without a request (`addVerdict`). */
+const ADD_ENDED: Record<Exclude<AddVerdict, 'request' | 'waiting'>, string> = {
+  expired: 'The code expired before a device asked. Run orbital devices add again.',
+  refused: 'The code was spent on a device that cannot join here. Run orbital devices add again.',
+  replaced: 'A newer code was made on this device; it takes the requests now.',
+};
+
+export const REQUEST_EXPIRED = 'The request ran out with its code. Run orbital devices add again.';
 
 /** `no_pending` / `mismatch`: the request is gone — its code ran out, or another window answered it. */
 function endedLine(error: string | null): string {

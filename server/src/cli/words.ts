@@ -7,6 +7,7 @@ import type { JoinResult, StartPairingResult } from '@orbital/shared/remote/cere
 import { osName } from '@orbital/shared/remote/device';
 import { groupFullLine, notPrimaryAddLine, osLabel } from '@orbital/shared/remote/groupWords';
 import { updateIsNewer, type ServerUpdateState } from '@orbital/shared/remote/serverUpdate';
+import { BAD_SECRET_ERROR, NO_RELAY_URL_ERROR } from '../remote/errors.js';
 import type { RemoteStatus } from '../remote/service.js';
 
 /** No server on the port: how to start one, where the CLI runs. */
@@ -21,10 +22,21 @@ export const RELAY_NO_ANSWER = "The relay didn't answer. Try again.";
 const JOIN_UNDER_WAY = 'A join is still under way. Cancel it first.';
 const RELAY_TOO_OLD = 'The relay needs an update first.';
 
-/** Why the remote cannot pair right now: no relay, the switch off, or not connected yet. */
-export function remoteDownLine(remote: Pick<RemoteStatus, 'enabled' | 'relayUrl'>): string {
-  if (remote.relayUrl === '') return 'No relay is set. Set one first: orbital relay set <url>';
+const NO_RELAY = 'No relay is set. Set one first: orbital relay set <url>';
+
+/** Why the remote did not start (`RemoteStatus.error`), with the command that fixes it where there is one. */
+export function remoteErrorLine(error: string): string {
+  if (error === BAD_SECRET_ERROR) return 'The relay refused the relay secret. Set the one it expects: orbital relay secret';
+  if (error === NO_RELAY_URL_ERROR) return NO_RELAY;
+  return `The remote could not start: ${error}`;
+}
+
+/** Why the remote cannot pair right now: no relay, the switch off, a failed start, or not connected yet. */
+export function remoteDownLine(remote: Pick<RemoteStatus, 'enabled' | 'relayUrl' | 'error' | 'relay'>): string {
+  if (remote.relayUrl === '') return NO_RELAY;
   if (!remote.enabled) return 'The remote is off. Turn it on: orbital relay set <url>';
+  if (remote.error) return remoteErrorLine(remote.error);
+  if (remote.relay === 'too_old') return RELAY_TOO_OLD;
   return 'Not connected to the relay yet. Try again in a moment; orbital status shows it.';
 }
 
@@ -128,7 +140,7 @@ export function statusLines(remote: RemoteStatus, update: ServerUpdateState | nu
   const relayState = { off: 'off', connecting: 'connecting', online: 'online', too_old: 'too old: it needs an update' }[remote.relay];
   if (remote.relayUrl === '') lines.push('Relay: not set. Set one: orbital relay set <url>');
   else lines.push(`Relay: ${remote.relayUrl} (${remote.enabled ? relayState : 'remote off'})`);
-  if (remote.error) lines.push(`Remote error: ${remote.error}`);
+  if (remote.error) lines.push(remoteErrorLine(remote.error));
   const others = remote.group.members.filter((m) => !m.self);
   const primary = remote.group.primary;
   if (others.length === 0) lines.push('Group: none, this device is alone.');

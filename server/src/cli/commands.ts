@@ -13,11 +13,11 @@ import {
   SERVER_UPDATE_REFUSALS, parseServerUpdateState, updateIsNewer, type ServerUpdateRefusal, type ServerUpdateState,
 } from '@orbital/shared/remote/serverUpdate';
 import type { RemoteStatus } from '../remote/service.js';
-import { HELP, parseArgs, type Command } from './args.js';
+import { HELP, parseArgs, type Command, type SecretSource } from './args.js';
 import { CliError, errorOf, type Call } from './client.js';
 import { addFlow, joinFlow, readStatus, type Deps } from './flows.js';
-import { confirm } from './io.js';
-import { listLines, statusLines } from './words.js';
+import { confirm, type Io } from './io.js';
+import { listLines, remoteErrorLine, statusLines } from './words.js';
 
 export type CliDeps = Deps & { port: number };
 
@@ -48,12 +48,17 @@ async function run(cmd: Command, deps: CliDeps): Promise<number> {
       return 0;
     case 'relay': {
       const remote = await readStatus(call);
+      const saved = await readRelaySettings(call);
       if (remote.relayUrl === '') io.out('No relay is set. Set one: orbital relay set <url>');
       else io.out(`${remote.relayUrl} (${remote.enabled ? remote.relay.replace('_', ' ') : 'remote off'})`);
+      io.out(`secret: ${saved.secret === '' ? 'not set' : 'set'}`);
+      if (remote.error) io.err(remoteErrorLine(remote.error));
       return 0;
     }
     case 'relaySet':
-      return relaySet(deps, cmd.url, cmd.yes);
+      return relaySet(deps, cmd.url, cmd.secret, cmd.yes);
+    case 'relaySecret':
+      return relaySecret(deps, cmd.secret, cmd.yes);
     case 'join':
       return joinFlow(deps, cmd.code);
     case 'add':
@@ -78,13 +83,56 @@ export function isRelayUrl(url: string): boolean {
   }
 }
 
+/** The relay settings as saved: the URL, and the secret (never printed). */
+async function readRelaySettings(call: Call): Promise<{ url: string; secret: string }> {
+  const reply = await call('GET', '/api/settings');
+  if (reply.status !== 200) throw new CliError(`Orbital answered ${reply.status} to /api/settings.`);
+  const body = reply.body as Record<string, string | undefined>;
+  return { url: (body.remote_relay_url ?? '').trim(), secret: (body.remote_relay_secret ?? '').trim() };
+}
+
+/** The secret from where the command line said; null when none came. */
+async function readSecret(io: Io, source: SecretSource): Promise<string | null> {
+  const typed = source === 'prompt' ? await io.askSecret('Relay secret (not shown): ') : await io.ask('');
+  return typeof typed === 'string' && typed !== '' ? typed : null;
+}
+
 /**
- * `relay set <url>`, with the settings page's rules: locked while in a group;
- * with devices paired outside one, they are removed first, after the 9r
- * confirmation. The remote is turned on with it — on a server there is no
- * other switch, and a relay is set to be used.
+ * Saves relay settings with the settings page's rules (Change relay, 9r):
+ * locked while in a group; with devices paired outside one, a change that
+ * strands them asks first and removes them — but clearing the secret strands
+ * no one (`relaySecretCommit`). `ask` names the setting whose words the
+ * confirmation uses.
  */
-async function relaySet({ call, io }: CliDeps, url: string, yes: boolean): Promise<number> {
+async function saveRelay(
+  { call, io }: CliDeps, remote: RemoteStatus, patch: Record<string, string>, ask: 'url' | 'secret' | null, yes: boolean,
+): Promise<number> {
+  if (ask !== null && remote.devices.length > 0) {
+    const words = relayChangeWords(remote.devices.length, ask);
+    if (!yes && !(await confirm(io, `${words.title} ${words.body}`))) {
+      io.out('Nothing changed.');
+      return 1;
+    }
+    // One by one, while this device is still on the old relay, so each revoke reaches it.
+    for (const d of remote.devices) await call('DELETE', `/api/remote/devices/${encodeURIComponent(d.id)}`);
+  }
+  // The route restarts the remote on any change of these, so the relay is asked again with them.
+  const reply = await call('PATCH', '/api/settings', patch);
+  if (reply.status === 409 && errorOf(reply) === 'in_group') {
+    io.err(relayLockedLine(remote.group.isPrimary ? 'primary' : 'member'));
+    return 1;
+  }
+  if (reply.status !== 200) throw new CliError(`Orbital answered ${reply.status} to the setting.`);
+  return 0;
+}
+
+/**
+ * `relay set <url> [--secret | --secret-stdin]`. The remote is turned on
+ * with it — on a server there is no other switch, and a relay is set to be
+ * used.
+ */
+async function relaySet(deps: CliDeps, url: string, source: 'keep' | SecretSource, yes: boolean): Promise<number> {
+  const { call, io } = deps;
   if (!isRelayUrl(url)) {
     io.err(`That isn't a relay URL: ${url}`);
     return 1;
@@ -94,29 +142,48 @@ async function relaySet({ call, io }: CliDeps, url: string, yes: boolean): Promi
     io.err(relayLockedLine(remote.group.isPrimary ? 'primary' : 'member'));
     return 1;
   }
-  const same = remote.relayUrl.trim() === url;
-  if (same && remote.enabled) {
+  const secret = source === 'keep' ? null : await readSecret(io, source);
+  if (source !== 'keep' && secret === null) {
+    io.err('No secret given. To remove the secret: orbital relay secret --clear');
+    return 1;
+  }
+  const saved = await readRelaySettings(call);
+  const urlChanged = saved.url !== url;
+  const secretChanged = secret !== null && secret !== saved.secret;
+  if (!urlChanged && !secretChanged && remote.enabled) {
     io.out(`The relay is ${url} already.`);
     return 0;
   }
-  if (!same && remote.devices.length > 0) {
-    const words = relayChangeWords(remote.devices.length);
-    if (!yes && !(await confirm(io, `${words.title} ${words.body}`))) {
-      io.out('Nothing changed.');
-      return 1;
-    }
-    // One by one, while this device is still on the old relay, so each revoke reaches it.
-    for (const d of remote.devices) await call('DELETE', `/api/remote/devices/${encodeURIComponent(d.id)}`);
-  }
   const patch: Record<string, string> = { remote_relay_url: url };
+  if (secretChanged) patch.remote_relay_secret = secret;
   if (!remote.enabled) patch.remote_enabled = 'true';
-  const reply = await call('PATCH', '/api/settings', patch);
-  if (reply.status === 409 && errorOf(reply) === 'in_group') {
+  const code = await saveRelay(deps, remote, patch, urlChanged ? 'url' : secretChanged ? 'secret' : null, yes);
+  if (code !== 0) return code;
+  io.out(`Relay set: ${url}${secretChanged ? ', with its secret' : ''}. orbital status shows when it is online.`);
+  return 0;
+}
+
+/** `relay secret [--secret-stdin | --clear]`: the secret alone, with the URL's lock rules. */
+async function relaySecret(deps: CliDeps, source: SecretSource | 'clear', yes: boolean): Promise<number> {
+  const { call, io } = deps;
+  const remote = await readStatus(call);
+  if (remote.group.relayLocked) {
     io.err(relayLockedLine(remote.group.isPrimary ? 'primary' : 'member'));
     return 1;
   }
-  if (reply.status !== 200) throw new CliError(`Orbital answered ${reply.status} to the setting.`);
-  io.out(`Relay set: ${url}. orbital status shows when it is online.`);
+  const secret = source === 'clear' ? '' : await readSecret(io, source);
+  if (secret === null) {
+    io.err('No secret given. To remove the secret: orbital relay secret --clear');
+    return 1;
+  }
+  const saved = await readRelaySettings(call);
+  if (secret === saved.secret) {
+    io.out(secret === '' ? 'No relay secret is set.' : 'The relay secret is that already.');
+    return 0;
+  }
+  const code = await saveRelay(deps, remote, { remote_relay_secret: secret }, secret === '' ? null : 'secret', yes);
+  if (code !== 0) return code;
+  io.out(secret === '' ? 'Relay secret removed.' : 'Relay secret set.');
   return 0;
 }
 

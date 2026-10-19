@@ -9,7 +9,7 @@ import { parseArgs } from './args.js';
 import { CliError, NotRunning, TokenRefused, httpCall } from './client.js';
 import { runCli } from './commands.js';
 import { TerminalIo } from './io.js';
-import { cliTarget, readToken } from './target.js';
+import { cliTarget, readServiceUser, readToken, rootHint, unreadableTokenLine } from './target.js';
 import { notRunningLine } from './words.js';
 
 async function main(): Promise<number> {
@@ -26,16 +26,25 @@ async function main(): Promise<number> {
       io.err(target.error);
       return 1;
     }
-    const token = await readToken(target.tokenFile);
-    // The server writes the token at its first start: without one, none has run here.
-    if (token === null) {
+    const notRunning = async () => {
       io.err(notRunningLine(process.platform));
+      const hint = rootHint(process.getuid?.() ?? null, await readServiceUser());
+      if (hint) io.err(hint);
+    };
+    const read = await readToken(target.tokenFile);
+    if ('unreadable' in read) {
+      io.err(unreadableTokenLine(target.tokenFile));
+      return 1;
+    }
+    // The server writes the token at its first start: without one, none has run here.
+    if ('missing' in read) {
+      await notRunning();
       return 1;
     }
     try {
-      return await runCli(argv, { call: httpCall(target.port, token), io, port: target.port });
+      return await runCli(argv, { call: httpCall(target.port, read.token), io, port: target.port });
     } catch (err) {
-      if (err instanceof NotRunning) io.err(notRunningLine(process.platform));
+      if (err instanceof NotRunning) await notRunning();
       else if (err instanceof TokenRefused) io.err(`Orbital on port ${target.port} refused the token in ${target.tokenFile}.`);
       else if (err instanceof CliError) io.err(err.message);
       else throw err;
