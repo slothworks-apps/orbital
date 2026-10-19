@@ -98,6 +98,10 @@ the Keep a Changelog format. Keep them yourself; do not wait to be asked.
 (wired by `npm install`) refuse a commit on `main` and a push to it, and
 scan every commit with gitleaks. Do the work on a branch, push the branch
 and open a PR with `gh pr create`; a version bump goes into the same PR.
+Before opening the PR, `git fetch origin` and rebase the branch onto
+`origin/main`: the local `main` is often behind, and a branch cut from it
+opens a PR against a stale base (a changelog line lands under a version
+already released, say).
 Do not pass `--no-verify` to get around a hook: if gitleaks flags a
 stand-in value in a test, add it to `.gitleaks.toml`; if it flags a real
 secret, take it out.
