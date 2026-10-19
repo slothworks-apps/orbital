@@ -4,6 +4,11 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.35.1] — 2026-10-19
+### Fixed
+- Images an agent saved to disk reach the phone's gallery and transcript thumbnails as small previews instead of at full size, so they load much faster there.
+- The previews the phone gets of images are about a third of their old size.
+
 ## [0.35.0] — 2026-10-19
 ### Added
 - Settings → Devices: under each other device in your group, what it may do on this Mac — read and drive sessions, start sessions, settings, upkeep of this Mac (Claude directories, errors, branch status) and the IDE. The first three are on as before; upkeep and IDE are new and off until you turn them on.

@@ -149,6 +149,15 @@ describe('the file resolver', () => {
     expect((await d.cache.get(pathKey('s1', req.path)))?.bytes.length).toBe(5)
   })
 
+  it('asks a thumbnail with its edge and keeps it apart from the file’s copy', async () => {
+    const getFile = vi.fn(async () => file(200, { bytes: bytes(2), w: 4, h: 2, mediaType: 'image/jpeg' }))
+    const d = deps({ getFile })
+    await d.cache.put(pathKey('s1', req.path), bytes(9), { w: 4, h: 2, mediaType: 'image/png' })
+    expect(await readPath(d, { ...req, edge: 512 })).toMatchObject({ kind: 'ready', cached: false })
+    expect(getFile).toHaveBeenCalledWith('s1', req.path, 'image', expect.objectContaining({ edge: 512 }))
+    expect((await d.cache.get(pathKey('s1', req.path)))?.bytes.length).toBe(9)
+  })
+
   it('shows the copy with its age while the Mac is away', async () => {
     const d = deps({ getFile: vi.fn().mockRejectedValue(new TunnelError('offline')) })
     await d.cache.put(pathKey('s1', req.path), bytes(3), { w: 4, h: 2, mediaType: 'image/png' })

@@ -3,6 +3,7 @@ import type { FileResolver } from '../../lib/images'
 import type { PdfBytesLoader } from '../../lib/pdf'
 import { isPdfPath } from '../../lib/pathLinks'
 import { IMAGE_URL_CACHE_MAX } from '../constants'
+import { PHONE_THUMB_EDGE } from '../transport/imageResolver'
 import type { FileOutcome } from './fileResolver'
 
 /**
@@ -13,7 +14,8 @@ import type { FileOutcome } from './fileResolver'
  *
  * An image answers with a `blob:` URL, kept like the image store's
  * (`makeImageResolver`): an LRU of at most `max`, one read in flight shared,
- * a failure not remembered so the next ask tries again.
+ * a failure not remembered so the next ask tries again. A thumbnail is asked
+ * at `PHONE_THUMB_EDGE`, and the full image, once here, serves it too.
  *
  * A PDF answers at once with an `orbital-pdf:` address naming the file, and
  * the bytes are read only when pdf.js asks the loader for them — a gallery of
@@ -24,7 +26,7 @@ import type { FileOutcome } from './fileResolver'
  * once to can't-show.
  */
 
-export type ReadNamed = (req: { sessionId: string; path: string; as: FileAs; cwd?: string }) => Promise<FileOutcome>
+export type ReadNamed = (req: { sessionId: string; path: string; as: FileAs; cwd?: string; edge?: number }) => Promise<FileOutcome>
 
 const PDF_SCHEME = 'orbital-pdf:'
 
@@ -77,18 +79,22 @@ export function makeNamedFileResolver(
       revoke(stale)
     }
   }
-  return (sessionId, path, cwd) => {
+  return (sessionId, path, cwd, opts) => {
     if (isPdfPath(path)) return pdfAddress({ sessionId, path, cwd })
-    const key = `${sessionId}\n${cwd ?? ''}\n${path}`
-    const known = urls.get(key)
+    const thumb = opts?.thumb === true
+    const full = `${sessionId}\n${cwd ?? ''}\n${path}`
+    const key = thumb ? `thumb\n${full}` : full
+    const known = urls.get(key) ?? (thumb ? urls.get(full) : undefined)
     if (known) {
-      remember(key, known)
+      remember(urls.has(key) ? key : full, known)
       return known
     }
     const running = inflight.get(key)
     if (running) return running
     const loading = (async () => {
-      const ready = bytesOf(await read({ sessionId, path, as: 'image', ...(cwd ? { cwd } : {}) }))
+      const ready = bytesOf(await read({
+        sessionId, path, as: 'image', ...(cwd ? { cwd } : {}), ...(thumb ? { edge: PHONE_THUMB_EDGE } : {}),
+      }))
       const url = toUrl(ready.bytes, ready.mediaType ?? 'application/octet-stream')
       remember(key, url)
       return url

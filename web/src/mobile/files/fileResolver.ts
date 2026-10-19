@@ -54,10 +54,12 @@ export async function readPath(
     as: FileAs
     /** The `cwd` of the transcript entry the link came from; the Mac reads the path against it. */
     cwd?: string
+    /** An image's thumbnail at this edge, kept apart from the file itself. */
+    edge?: number
     onProgress?: (received: number, total: number | null) => void
   },
 ): Promise<FileOutcome> {
-  const key = pathKey(req.sessionId, req.path, req.cwd)
+  const key = (req.edge !== undefined ? `thumb${req.edge}:` : '') + pathKey(req.sessionId, req.path, req.cwd)
   const cachedCopy = () => copyOf(deps, key, true)
   let received = 0
   let answer: FileResult
@@ -65,6 +67,7 @@ export async function readPath(
     answer = await deps.client.getFile(req.sessionId, req.path, req.as, {
       idleTimeoutMs: FILE_IDLE_TIMEOUT_MS,
       ...(req.cwd ? { cwd: req.cwd } : {}),
+      ...(req.edge !== undefined ? { edge: req.edge } : {}),
       onProgress: (bytes, total) => {
         received = bytes
         req.onProgress?.(bytes, total)

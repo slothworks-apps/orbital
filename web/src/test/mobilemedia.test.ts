@@ -4,6 +4,7 @@ import type { FileOutcome } from '../mobile/files/fileResolver'
 import { mediaItemFor, stepMedia } from '../mobile/files/mediaPaging'
 import { makeNamedFileResolver, makePdfLoader, parsePdfAddress, pdfAddress, type ReadNamed } from '../mobile/files/namedFiles'
 import { MAC_FEATURES, macSupports } from '../mobile/version'
+import { PHONE_THUMB_EDGE } from '../mobile/transport/imageResolver'
 
 function ready(bytes: number[], mediaType: string | null = 'image/png'): FileOutcome {
   return { kind: 'ready', bytes: new Uint8Array(bytes), mediaType, w: null, h: null, readAt: 0, cached: false }
@@ -41,6 +42,19 @@ describe('the phone’s named files', () => {
     // The same path from another tree is another file.
     await resolve('s', 'out/a.png', '/w/.worktrees/b')
     expect(read).toHaveBeenCalledTimes(2)
+  })
+
+  it('asks a thumbnail at the phone’s edge, apart from the image, which serves it once here', async () => {
+    let n = 0
+    const read = vi.fn<ReadNamed>(async () => ready([1]))
+    const resolve = makeNamedFileResolver(read, () => `blob:${++n}`, () => undefined)
+    expect(await resolve('s', 'a.png', '/w', { thumb: true })).toBe('blob:1')
+    expect(read).toHaveBeenLastCalledWith({ sessionId: 's', path: 'a.png', as: 'image', cwd: '/w', edge: PHONE_THUMB_EDGE })
+    expect(await resolve('s', 'a.png', '/w')).toBe('blob:2')
+    expect(read).toHaveBeenLastCalledWith({ sessionId: 's', path: 'a.png', as: 'image', cwd: '/w' })
+    expect(await resolve('s', 'b.png', undefined)).toBe('blob:3')
+    expect(resolve('s', 'b.png', undefined, { thumb: true })).toBe('blob:3')
+    expect(read).toHaveBeenCalledTimes(3)
   })
 
   it('fails an image the Mac did not hand over, and asks again next time', async () => {
