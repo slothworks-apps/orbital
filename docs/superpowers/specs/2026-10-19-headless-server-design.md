@@ -271,6 +271,28 @@ the work goes to the desktop's existing updater
   as it does today, and offers no Update.
 - Settings → Updates on that Mac reflects an update started from another
   member, because it reads the same updater state.
+- **As built (canvas 50v, the Mac being updated):**
+  - **While it downloads,** App update's map prompt says
+    `<Device> is updating this Mac to <v>` and has no actions. Settings →
+    Updates and this device's Devices row say the same.
+  - **Before the restart,** a last line stays for
+    `REMOTE_RESTART_HOLD_MS`, then the Mac restarts.
+  - **If a new turn started on the Mac during the download,** it does not
+    install. A new turn is a session working now that was not working
+    when the request arrived, judged by session id; that includes a new
+    prompt in an existing idle session. The Mac falls back to its own
+    Ready prompt, and the members' rows say
+    `didn’t install · a session started on <Mac>`.
+  - **If the Mac cannot tell which sessions were working,** it declines
+    with its own reason.
+  - **After the restart,** WHAT'S NEW
+    ([[2026-10-19-whats-new-design]]) starts with who updated the Mac,
+    when, and how many sessions stopped.
+  - **The rule above is the Mac's only.** A server installs regardless.
+  - **Who started it:** the server names the asking member to the Mac in
+    `update_start` (`by`, from the channel peer, never from a body).
+- **Decided, not built yet:** a remote Update also offers "when sessions
+  finish", as the local Restart does. It waits for its canvas.
 
 **Coming back.** Members see the server go offline and return with the new
 version, and the row's `updating` clears. If the server returns with the

@@ -244,7 +244,16 @@ Any member updates any other through `GET`/`POST /api/server/update`
 - A headless server reads apt (`apt-cache policy orbital`). A request
   file starts the root `orbital-update.path` unit.
 - A Mac asks Electron's main process over the server's `parentPort`
-  (`update_state`, `update_start`, `update_cancel`).
+  (`update_state`, `update_start` with `by`, the asking member, and
+  `update_cancel`). Main answers `update_ended` with a reason when it
+  will not install:
+  - `sessions`: a session became working during the download that was
+    not working when the request arrived, judged by id;
+  - `unknown`: the working list was not known;
+  - `restart`: the restart did not happen.
+
+  The Mac shows the update in App update's own prompt (canvas 50v) and
+  holds a last line for `REMOTE_RESTART_HOLD_MS` before restarting.
 - Anything else answers `not_packaged`.
 
 **On restart:** the server reads its version from the package's `VERSION`

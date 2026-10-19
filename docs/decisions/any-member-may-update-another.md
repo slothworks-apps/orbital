@@ -38,6 +38,11 @@ an SSH session or a walk to the machine
   installs only a signed, notarized release. This Mac's own row in
   Settings → Devices links to Settings → Updates instead of offering a
   second install path.
+- **A person at the Mac wins.** A Mac does not install a remote update
+  when a new turn started there during the download. It keeps its own
+  Ready prompt instead, and the members are told why. Turns that were
+  running when the update was confirmed do not stop it. This rule is the
+  Mac's only: on a server nobody is at the keyboard.
 - No member updates on its own. An update restarts the member and stops
   its running sessions, so it happens only when someone presses Update.
   The caller confirms first when sessions are running.
