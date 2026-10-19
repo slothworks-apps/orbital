@@ -270,6 +270,16 @@ const SHEET_VARIANTS = {
       'rounded-t-[26px] border-t border-[rgba(150,205,255,.18)] bg-[rgba(10,16,28,.98)] px-4 shadow-[0_-20px_60px_rgba(0,0,0,.5)]',
     handle: 'h-5',
   },
+  /**
+   * `Feature - Notice toast` 2b: WHAT'S NEW's sheet, 84% of the screen tall,
+   * a column whose middle scrolls between a fixed head and Done.
+   */
+  notes: {
+    backdrop: 'bg-[rgba(2,4,9,.55)]',
+    panel:
+      'flex h-[84%] flex-col rounded-t-[26px] border-t border-[rgba(150,205,255,.2)] bg-[linear-gradient(180deg,rgba(16,22,38,.98),rgba(8,12,22,.99))]',
+    handle: 'h-5 shrink-0',
+  },
 } as const
 
 export function BottomSheet({
