@@ -3,7 +3,16 @@ import Fastify from 'fastify';
 import { isAllowed, allowedPath, ALLOWED_ROUTES } from '../src/remote/allowlist.js';
 
 describe('remote allowlist', () => {
-  it('allows the session, decision, spawn and catalogue routes', () => {
+  it('every route has exactly one grant group', () => {
+    const routes = new Map<string, string>();
+    for (const [m, p, g] of ALLOWED_ROUTES) {
+      const key = `${m} ${p}`;
+      expect(routes.has(key), `${key} defined twice`).toBe(false);
+      routes.set(key, g);
+    }
+  });
+
+  it('allows the session, spawn and catalogue routes', () => {
     for (const [m, p] of [
       ['GET', '/api/sessions'], ['GET', '/api/sessions/abc'], ['GET', '/api/sessions/abc/messages'],
       ['GET', '/api/sessions/abc/messages?limit=30&before=x'],
@@ -48,17 +57,37 @@ describe('remote allowlist', () => {
       ['GET', '/api/limits'], ['POST', '/api/limits/refresh'], ['GET', '/api/stats/overview'], ['GET', '/api/claude-dirs'],
     ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(true);
   });
+  it('allows IDE and manage routes which require grants', () => {
+    for (const [m, p, expectedGroup] of [
+      ['GET', '/api/sessions/abc/ide/open-files', 'ide'],
+      ['POST', '/api/sessions/abc/ide/open-file', 'ide'],
+      ['GET', '/api/sessions/abc/ide/diagnostics', 'ide'],
+      ['GET', '/api/errors', 'manage'],
+      ['POST', '/api/errors/seen', 'manage'],
+      ['GET', '/api/claude-dirs', 'settings'],
+      ['POST', '/api/claude-dirs', 'manage'],
+      ['PATCH', '/api/claude-dirs/2', 'manage'],
+      ['DELETE', '/api/claude-dirs/2', 'manage'],
+      ['POST', '/api/models/validate', 'manage'],
+      ['POST', '/api/branch-status/refresh', 'manage'],
+      ['GET', '/api/sessions/retention-preview', 'manage'],
+      ['GET', '/api/session-instructions/tips', 'manage'],
+      ['POST', '/api/limits/refresh', 'settings'],
+      ['GET', '/api/stats/overview', 'settings'],
+      ['GET', '/api/gh-status', 'manage'],
+    ] as const) {
+      const result = allowedPath(m, p);
+      expect(result, `${m} ${p}`).not.toBeNull();
+      if (result) expect(result.group).toBe(expectedGroup);
+    }
+  });
+
   it('denies what acts on that machine\'s screen, the dev tools, auth, remote, presence, terminals and binary reads', () => {
     for (const [m, p] of [
       ['GET', '/api/files/image'], ['GET', '/api/files/image?session=abc&path=a.png'], ['GET', '/api/images/abc.png'],
-      ['GET', '/api/sessions/abc/ide/open-files'], ['POST', '/api/sessions/abc/ide/open-file'],
-      ['GET', '/api/sessions/abc/ide/diagnostics'],
       ['PATCH', '/api/settings/'],
-      ['GET', '/api/errors'], ['POST', '/api/errors'], ['POST', '/api/dev/sessions/abc/simulate-compaction'],
+      ['POST', '/api/dev/sessions/abc/simulate-compaction'],
       ['POST', '/api/attachments'], ['POST', '/api/sessions/abc/attachments'],
-      ['POST', '/api/models/validate'],
-      ['POST', '/api/branch-status/refresh'], ['GET', '/api/sessions/retention-preview'],
-      ['POST', '/api/claude-dirs'], ['PATCH', '/api/claude-dirs/2'], ['DELETE', '/api/claude-dirs/2'],
       ['GET', '/api/auth'], ['PUT', '/api/presence'],
       ['GET', '/api/remote'], ['POST', '/api/remote/pair'], ['DELETE', '/api/remote/devices/x'],
       ['POST', '/api/remote/leave'], ['POST', '/api/remote/restart'], ['POST', '/api/remote/pair/confirm'],
@@ -142,15 +171,15 @@ describe('remote allowlist', () => {
      */
     function buildRouterApp() {
       const app = Fastify();
+      // ALLOWED_ROUTES now includes ide and manage routes (with grant groups).
+      // Extract just the method and template from ALLOWED_ROUTES (skip the group).
+      const allowed: ReadonlyArray<readonly [string, string]> = ALLOWED_ROUTES.map(([m, t]) => [m, t]);
       const routes: ReadonlyArray<readonly [string, string]> = [
-        ...ALLOWED_ROUTES,
+        ...allowed,
         ['GET', '/api/files/image'],
         ['GET', '/api/images/:ref'],
         ['GET', '/api/sessions/:id/terminals'],
-        ['GET', '/api/sessions/:id/ide/diagnostics'],
-        ['POST', '/api/sessions/:id/ide/open-file'],
         ['POST', '/api/remote/pair'],
-        ['GET', '/api/sessions/retention-preview'],
         ['POST', '/api/dev/sessions/:id/simulate-compaction'],
       ];
       for (const [method, url] of routes) {
@@ -180,11 +209,11 @@ describe('remote allowlist', () => {
     it('routes every allowed template to itself, and nowhere else', async () => {
       const app = buildRouterApp();
       try {
-        for (const [method, template] of ALLOWED_ROUTES) {
+        for (const [method, template] of ALLOWED_ROUTES.map(([m, t]) => [m, t] as const)) {
           const path = template.replace(/:[^/]+/g, 'abc');
           const approved = allowedPath(method, path);
-          expect(approved, `${method} ${template}`).toBe(path);
-          const res = await app.inject({ method: method as any, url: approved! });
+          expect(approved?.path, `${method} ${template}`).toBe(path);
+          const res = await app.inject({ method: method as any, url: approved!.path });
           expect(res.json().url, `${method} ${template}`).toBe(template);
         }
 
@@ -194,8 +223,8 @@ describe('remote allowlist', () => {
           ['GET', '/api/sessions?cwd=%2Ftmp', '/api/sessions'],
         ] as const) {
           const approved = allowedPath(method, path);
-          expect(approved, `${method} ${path}`).toBe(path);
-          const res = await app.inject({ method, url: approved! });
+          expect(approved?.path, `${method} ${path}`).toBe(path);
+          const res = await app.inject({ method, url: approved!.path });
           expect(res.json().url, `${method} ${path}`).toBe(template);
         }
       } finally {

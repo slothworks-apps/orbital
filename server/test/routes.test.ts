@@ -81,13 +81,22 @@ const stubTitler = () =>
  * `remoteRoutes.test.ts`.
  */
 const stubRemote = (
-  db: OrbitalDb, hub: Hub, images: ImageStore, imagesDir: string, settings: { get(key: string): string },
-) =>
-  new RemoteService({
-    db, hub, images, imagesDir, dataDir: imagesDir, serverVersion: 'test', settings,
+  db: OrbitalDb,
+  hub: Hub,
+  images: ImageStore,
+  imagesDir: string,
+  settings: { get(key: string): string; set?(key: string, value: string): void },
+) => {
+  const settingsWithSet = {
+    get: settings.get,
+    set: settings.set ?? (() => {}),
+  };
+  return new RemoteService({
+    db, hub, images, imagesDir, dataDir: imagesDir, serverVersion: 'test', settings: settingsWithSet,
     inject: async () => ({ statusCode: 404, body: '' }),
     allSettings: () => ({}),
   });
+};
 
 /**
  * One git store for the whole suite. These tests use invented cwds like

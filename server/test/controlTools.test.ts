@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildServer } from '../src/index.js';
 import { CONTROL_OPERATIONS, type ControlOperation } from '../src/control/catalog.js';
-import { controlRequest, controlTools } from '../src/runner/controlTools.js';
+import { type ControlRequest, controlRequest, controlTools, onMachine } from '../src/runner/controlTools.js';
 import { remoteInjectOptions } from '../src/remote/inject.js';
 import { makeTmpDir } from './tmp.js';
 
@@ -54,6 +54,90 @@ describe('controlRequest', () => {
   it('will not stop the calling session, but will stop another', () => {
     expect(req('end_session', { id: 'caller' }, 'act').ok).toBe(false);
     expect(req('end_session', { id: 'other' }, 'act').ok).toBe(true);
+  });
+
+  it('strips machine parameter before path processing', () => {
+    // machine is not a path param, so it should be removed in controlRequest
+    // then onMachine adds it back to the request
+    const baseReq = req('get_session', { id: 'abc', machine: 'device-2' });
+    expect(baseReq.ok).toBe(true);
+    expect(baseReq).toMatchObject({ url: '/api/sessions/abc' });
+    expect(onMachine(baseReq, 'device-2')).toMatchObject({ url: '/api/sessions/abc?machine=device-2' });
+  });
+});
+
+describe('onMachine', () => {
+  it('adds machine to GET request as query param', () => {
+    const req: ControlRequest = { ok: true, method: 'GET', url: '/api/sessions?limit=10' };
+    const result = onMachine(req, 'device-2');
+    expect(result).toMatchObject({ url: '/api/sessions?limit=10&machine=device-2' });
+  });
+
+  it('adds machine to DELETE request as query param', () => {
+    const req: ControlRequest = { ok: true, method: 'DELETE', url: '/api/tags/3' };
+    const result = onMachine(req, 'device-2');
+    expect(result).toMatchObject({ url: '/api/tags/3?machine=device-2' });
+  });
+
+  it('adds machine to POST request in payload', () => {
+    const req: ControlRequest = { ok: true, method: 'POST', url: '/api/sessions', payload: { prompt: 'hello' } };
+    const result = onMachine(req, 'device-2');
+    expect(result).toMatchObject({ payload: { prompt: 'hello', machine: 'device-2' } });
+  });
+
+  it('ignores undefined machine', () => {
+    const req: ControlRequest = { ok: true, method: 'GET', url: '/api/sessions' };
+    const result = onMachine(req, undefined);
+    expect(result).toEqual(req);
+  });
+
+  it('ignores failed requests', () => {
+    const req: ControlRequest = { ok: false, error: 'something' };
+    const result = onMachine(req, 'device-2');
+    expect(result).toEqual(req);
+  });
+});
+
+describe('error message formatting in control tools', () => {
+  it('formats not_granted errors with device name', async () => {
+    await withServer(async (_app) => {
+      const getDeviceName = (id: string) => id === 'device-2' ? 'laptop' : null;
+      const tools = controlTools('caller', async () => {
+        return { statusCode: 403, body: JSON.stringify({ error: 'not_granted', grant: 'manage' }) };
+      }, getDeviceName);
+      const [, , act] = tools.map((t) => (args: any) => t.handler(args, undefined));
+      const result = await act({ operation: 'end_session', params: { id: 'other' }, machine: 'device-2' });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as any).text).toContain('laptop has not granted this device');
+      expect((result.content[0] as any).text).toContain('manage');
+      expect((result.content[0] as any).text).toContain('Settings → Devices');
+    });
+  });
+
+  it('formats member_offline errors with device name', async () => {
+    await withServer(async (_app) => {
+      const getDeviceName = (id: string) => id === 'device-3' ? 'phone' : null;
+      const tools = controlTools('caller', async () => {
+        return { statusCode: 409, body: JSON.stringify({ error: 'member_offline' }) };
+      }, getDeviceName);
+      const [, read] = tools.map((t) => (args: any) => t.handler(args, undefined));
+      const result = await read({ operation: 'list_sessions', machine: 'device-3' });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as any).text).toEqual('phone is offline');
+    });
+  });
+
+  it('formats unknown_device errors', async () => {
+    await withServer(async (_app) => {
+      const getDeviceName = (id: string) => id === 'device-4' ? 'desktop' : null;
+      const tools = controlTools('caller', async () => {
+        return { statusCode: 404, body: JSON.stringify({ error: 'unknown_device' }) };
+      }, getDeviceName);
+      const [, read] = tools.map((t) => (args: any) => t.handler(args, undefined));
+      const result = await read({ operation: 'list_sessions', machine: 'nobody' });
+      expect(result.isError).toBe(true);
+      expect((result.content[0] as any).text).toEqual('No device in the group has id nobody');
+    });
   });
 });
 

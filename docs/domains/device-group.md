@@ -258,6 +258,18 @@ primary's own phones after it joined another group) is listed under
   record.
 - On the relay: `mutual_halves`; a formed pair lives in `pairs`.
 
+## Member grants
+
+Every member of the group reaches one literal allowlist: the routes a member may call on this device. The allowlist partitions the routes into five **grant groups** (spec `2026-10-19-member-grants-design`; ADR `a-member-is-granted-groups-of-the-allowlist`):
+
+- `sessions` (default on): read and drive sessions.
+- `spawn` (default on): start sessions.
+- `settings` (default on): settings, tags, tag rules, harness templates.
+- `manage` (default off): this device's upkeep (Claude directories, errors, branch status, model validation, retention preview, session tips).
+- `ide` (default off): the IDE bridge of this device's sessions.
+
+The device grants each member the groups it trusts, set in Settings → Devices per member. A call to a route whose group the member lacks is answered `403 { error: 'not_granted', grant: <group> }`. A member removed from the group takes its grants along (they are dropped from the `remote_grants` setting).
+
 ## Where each piece lives
 
 | piece | file |
@@ -269,3 +281,4 @@ primary's own phones after it joined another group) is listed under
 | the server's host and status | `server/src/remote/service.ts` |
 | storage | `server/src/remote/rosterStore.ts`, `web/src/mobile/platform/group.ts` |
 | the relay's mutual pair | `relay/src/pairing.ts`, `relay/src/store.ts` |
+| member grants | `server/src/remote/grants.ts` |

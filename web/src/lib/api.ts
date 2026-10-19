@@ -1392,6 +1392,23 @@ export const api = {
   async restartRemote(): Promise<RemoteStatus> {
     return request('POST', '/api/remote/restart')
   },
+
+  /**
+   * Get member grants for all members except this device
+   * (spec 2026-10-19-member-grants-design § 2).
+   */
+  async getRemoteGrants(): Promise<{ grants: Record<string, Record<string, boolean>> }> {
+    return request('GET', '/api/remote/grants')
+  },
+
+  /**
+   * Update grants for a member (spec 2026-10-19-member-grants-design § 2).
+   * `memberId` is the member's id, `grants` is a partial object with group toggles.
+   * Answers the member's full grants; a 404 when the member is not in the group.
+   */
+  async updateRemoteGrants(memberId: string, grants: Record<string, boolean>): Promise<{ grants: Record<string, boolean> }> {
+    return request('PUT', apiPath`/api/remote/grants/${memberId}`, grants)
+  },
 }
 
 /** The refusals `POST /api/remote/join` answers with instead of `{ device, name, code }`. */

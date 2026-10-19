@@ -18,15 +18,24 @@ drive each feature through its `orbital` MCP server. Operations are the names
 in `server/src/control/catalog.ts`, called through `orbital_read` (reads, no
 permission card) and `orbital_act` (changes, the usual card). The dedicated
 tools — `spawn_session`, `list_sessions`, `archive_session`, the harness's
-`harness_*` — are listed where they belong.
+`harness_*` — are listed where they belong. A session in a device group can
+pass `machine` (another group member's id) to most operations to run them on
+that member; `list_devices` names the group's other members.
+
+## Devices
+
+A session in a device group can run operations on other members. `list_devices`
+names them; pass one's id as `machine` to `orbital_read`, `orbital_act` or
+`spawn_session`.
 
 ## Sessions
 
 | feature | how a session reaches it |
 |---|---|
+| list other devices in a group | `list_devices` |
 | list, count, search and filter sessions | `list_sessions` tool; `list_sessions`, `count_sessions` |
 | one session with its history | `get_session` |
-| start a session (new planet), resume one | `spawn_session` tool; `start_session` |
+| start a session (new planet), resume one | `spawn_session` tool; `start_session`; pass `machine` to start it on another group member |
 | New Session defaults, recent projects, missing folder | `session_defaults`, `list_projects`, `check_directory`, `create_directory` |
 | rename, retitle with the titler | `rename_session`, `retitle_session` |
 | pin | `pin_session` |

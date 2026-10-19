@@ -14,7 +14,7 @@
 export type ControlArea =
   | 'sessions' | 'conversation' | 'decisions' | 'harness' | 'tags' | 'tag_rules' | 'settings'
   | 'mcp' | 'claude_dirs' | 'models' | 'commands' | 'files' | 'ide' | 'stats' | 'limits'
-  | 'errors' | 'walkthrough' | 'system';
+  | 'errors' | 'walkthrough' | 'system' | 'devices';
 
 export interface ControlOperation {
   name: string;
@@ -35,6 +35,9 @@ const PERMISSION_MODES = 'plan | acceptEdits | auto | bypassPermissions';
 const ID = 'id: string — the session id, from list_sessions';
 
 export const CONTROL_OPERATIONS: readonly ControlOperation[] = [
+  // devices (spec 2026-10-19-member-grants-design § 3)
+  { name: 'list_devices', area: 'devices', method: 'GET', path: '/api/remote/devices',
+    does: 'The other group members, their kind and whether each is online. Pass one\'s id as `machine` to orbital_read, orbital_act or spawn_session to run there.' },
   // sessions
   { name: 'list_sessions', area: 'sessions', method: 'GET', path: '/api/sessions',
     does: 'Sessions on the map, pinned first, then by last activity.',

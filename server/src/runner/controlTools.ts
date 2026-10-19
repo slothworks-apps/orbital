@@ -1,6 +1,7 @@
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import * as z from 'zod/v4';
 import { CONTROL_OPERATIONS, type ControlOperation } from '../control/catalog.js';
+import { memberRefusal } from '../remote/grants.js';
 
 /**
  * The `orbital` server's tools for driving Orbital itself (spec
@@ -45,6 +46,7 @@ export function controlRequest(
     return { ok: false, error: `${name} ${kind === 'read' ? 'changes Orbital; call it with orbital_act' : 'only reads; call it with orbital_read'}` };
   }
   const rest: Record<string, unknown> = { ...(params ?? {}) };
+  delete rest.machine; // Machine is never a path param; onMachine handles it.
   const segments: string[] = [];
   for (const part of op.path.split('/')) {
     if (!part.startsWith(':')) {
@@ -76,6 +78,20 @@ export function controlRequest(
   const denied = op.deniedKeys ? Object.keys(rest).filter(op.deniedKeys) : [];
   if (denied.length > 0) return { ok: false, error: `${name} cannot change ${denied.join(', ')}; only the user can` };
   return { ok: true, method: op.method, url, payload: rest };
+}
+
+/**
+ * The request aimed at another group member (spec 2026-10-19-member-grants-design § 3):
+ * `machine` in the query of a read or a delete, in the body of the rest,
+ * which is where the federation's preHandler looks for it.
+ */
+export function onMachine(req: ControlRequest, machine: string | undefined): ControlRequest {
+  if (!req.ok || !machine) return req;
+  if (req.method === 'GET' || req.method === 'DELETE') {
+    return { ...req, url: `${req.url}${req.url.includes('?') ? '&' : '?'}${new URLSearchParams({ machine })}` };
+  }
+  const body = req.payload && typeof req.payload === 'object' ? req.payload : {};
+  return { ...req, payload: { ...body, machine } };
 }
 
 const OPERATIONS_DESCRIPTION = [
@@ -121,7 +137,13 @@ export function operationsTool() {
   );
 }
 
-function runTool(name: 'orbital_read' | 'orbital_act', description: string, callerId: string, call: ControlCall) {
+function runTool(
+  name: 'orbital_read' | 'orbital_act',
+  description: string,
+  callerId: string,
+  call: ControlCall,
+  getDeviceName?: (id: string) => string | null,
+) {
   const kind = name === 'orbital_read' ? 'read' : 'act';
   return tool(
     name,
@@ -129,13 +151,24 @@ function runTool(name: 'orbital_read' | 'orbital_act', description: string, call
     {
       operation: z.string().min(1).describe('The operation\'s name, from orbital_operations.'),
       params: z.record(z.string(), z.unknown()).optional().describe('Its params, by name, as orbital_operations lists them.'),
+      machine: z.string().optional().describe('Another group member\'s id, from list_devices, to run the operation there. Not needed for an operation on a session: it runs on that session\'s device.'),
     },
     async (args) => {
-      const req = controlRequest(callerId, args.operation, args.params, kind);
+      const req = onMachine(controlRequest(callerId, args.operation, args.params, kind), args.machine);
       if (!req.ok) return text(req.error, true);
       try {
         const res = await call(req);
         const failed = res.statusCode >= 400;
+        if (failed && args.machine) {
+          let body: unknown = null;
+          try {
+            body = JSON.parse(res.body);
+          } catch {
+            /* not JSON: said as it came */
+          }
+          const refusal = memberRefusal(res.statusCode, body, getDeviceName?.(args.machine) ?? null, args.machine);
+          if (refusal) return text(refusal, true);
+        }
         return text(`${failed ? `HTTP ${res.statusCode}: ` : ''}${res.body || '{}'}`, failed);
       } catch (err) {
         return text(`Failed: ${(err as Error).message}`, true);
@@ -144,10 +177,14 @@ function runTool(name: 'orbital_read' | 'orbital_act', description: string, call
   );
 }
 
-export function controlTools(callerId: string, call: ControlCall) {
+export function controlTools(
+  callerId: string,
+  call: ControlCall,
+  getDeviceName?: (id: string) => string | null,
+) {
   return [
     operationsTool(),
-    runTool('orbital_read', READ_DESCRIPTION, callerId, call),
-    runTool('orbital_act', ACT_DESCRIPTION, callerId, call),
+    runTool('orbital_read', READ_DESCRIPTION, callerId, call, getDeviceName),
+    runTool('orbital_act', ACT_DESCRIPTION, callerId, call, getDeviceName),
   ];
 }

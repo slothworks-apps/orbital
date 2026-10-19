@@ -4,6 +4,13 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.35.0] — 2026-10-19
+### Added
+- Settings → Devices: under each other device in your group, what it may do on this Mac — read and drive sessions, start sessions, settings, upkeep of this Mac (Claude directories, errors, branch status) and the IDE. The first three are on as before; upkeep and IDE are new and off until you turn them on.
+- A session's orbital tools reach the other devices in your group: `list_devices`, and `machine` on `orbital_read`, `orbital_act` and `spawn_session` to run there or start a session there. A refusal says which device to turn what on.
+### Fixed
+- A window left on a session of another Mac in your group opens again when that Mac is offline, instead of showing only `{"error":"member_offline"}`, also after a restart.
+
 ## [0.34.2] — 2026-10-19
 ### Changed
 - Orbital's built-in session tips are shorter, and sessions are told they run in Orbital rather than a terminal.

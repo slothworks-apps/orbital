@@ -33,6 +33,8 @@ export function registerFederationRoutes(
   const unmerged = new WeakSet<FastifyRequest>();
   app.addHook('preHandler', async (req, reply) => {
     const [path, search = ''] = req.url.split('?', 2);
+    // A page of the web app is this device's own, whatever session its `?session=` opens.
+    if (!path.startsWith('/api/')) return;
     const query = new URLSearchParams(search);
     if (req.headers[DEVICE_HEADER] !== undefined) {
       // Never forwarded (no chaining): a request that names another device is refused, not answered here.
