@@ -381,7 +381,7 @@ function forkServer(): UtilityProcess {
   proc.on('message', (raw: unknown) => {
     const message = parseServerMessage(raw);
     if (proc !== child || !message) return;
-    applyUpdateStep(message.t === 'update_start' ? updates.remoteStart(message.by?.name ?? null) : updates.remoteCancel());
+    applyUpdateStep(message.t === 'update_start' ? updates.remoteStart(message.by?.name ?? null, message.when) : updates.remoteCancel());
   });
 
   proc.on('exit', (code) => {

@@ -6,13 +6,14 @@
  * does not take.
  */
 import {
-  exitWords, notPrimaryRemoveLine, relayChangeWords, relayLockedLine, removeWords, updateSessionsWords,
+  UPDATE_NOW, UPDATE_WHEN_IDLE, exitWords, notPrimaryRemoveLine, relayChangeWords, relayLockedLine, removeWords,
+  updateSessionsWords, updateWaitingWords,
 } from '@orbital/shared/remote/groupWords';
 import { PAIR_NAME_MAX_CHARS } from '@orbital/shared/remote/relayApi';
 import { relaySecretCommit, relayUrlCommit } from '@orbital/shared/remote/relaySettings';
 import {
   SERVER_UPDATE_REFUSALS, memberServesUpdate, parseServerUpdateState, updateIsNewer, type ServerUpdateRefusal,
-  type ServerUpdateState,
+  type ServerUpdateState, type UpdateWhen,
 } from '@orbital/shared/remote/serverUpdate';
 import type { RemoteStatus } from '../remote/service.js';
 import { HELP, parseArgs, type Command, type SecretSource } from './args.js';
@@ -77,7 +78,9 @@ async function run(cmd: Command, deps: CliDeps): Promise<number> {
     case 'leave':
       return leave(deps, cmd.yes);
     case 'update':
-      return update(deps, cmd.target, cmd.yes);
+      return update(deps, cmd.target, cmd.yes, cmd.when);
+    case 'updateCancel':
+      return updateCancel(deps, cmd.target);
   }
 }
 
@@ -374,11 +377,38 @@ function isRefusal(error: string | null): error is ServerUpdateRefusal {
 }
 
 /**
+ * The confirm's three choices (canvas 50q, 50t CONFIRM) as a terminal
+ * answers them: `w` waits for the sessions, `u` updates now, anything else —
+ * Enter included — cancels. Not `y`/`n`: a habitual `n` must not stop the
+ * sessions.
+ */
+export function whenAnswer(answer: string | null | symbol): UpdateWhen | null {
+  if (typeof answer !== 'string') return null;
+  if (/^w(ait)?$/i.test(answer)) return 'idle';
+  if (/^u(pdate)?$/i.test(answer) || /^now$/i.test(answer)) return 'now';
+  return null;
+}
+
+/** Where `target` stands after an update or a wait started: what the CLI says, for this device or a member. */
+function startedLine(state: ServerUpdateState, member: string | null, from: string): string {
+  if (state.waiting) {
+    const words = updateWaitingWords(state.waiting.sessions, state.candidate ?? 'a newer version');
+    const cancel = member === null ? 'orbital update --cancel' : `orbital update --cancel ${member}`;
+    return `${member === null ? '' : `${member}: `}${words.head}. ${cancel} stops the wait.`;
+  }
+  return member === null
+    ? `Updating ${from} → ${state.candidate}. Orbital restarts on its own; orbital status shows the new version once it is back.`
+    : `Updating ${member} ${from} → ${state.candidate}. It restarts on its own; orbital devices list shows the new version once it is back.`;
+}
+
+/**
  * `update [name]`: the Update button's update, for this device or the
  * member named. With sessions running there, it asks first in the row's
- * words: the restart stops them.
+ * words, with its three choices: wait for them to finish, update now
+ * (stopping them), or nothing. `--yes` is now without asking; `--when-idle`
+ * waits without asking.
  */
-async function update({ call, io }: CliDeps, name: string | null, yes: boolean): Promise<number> {
+async function update({ call, io }: CliDeps, name: string | null, yes: boolean, when: UpdateWhen): Promise<number> {
   const target = updateTarget(await readStatus(call), name);
   if ('error' in target) {
     io.err(target.error);
@@ -396,6 +426,10 @@ async function update({ call, io }: CliDeps, name: string | null, yes: boolean):
     io.err(updateRefusalLine('not_packaged', member));
     return 1;
   }
+  if (state.updating && state.waiting) {
+    io.out(startedLine(state, member, state.installed));
+    return 0;
+  }
   if (state.updating) {
     io.out(`${member === null ? 'Updating' : `${member} is updating`} to ${state.candidate ?? 'a newer version'} already.`);
     return 0;
@@ -407,18 +441,23 @@ async function update({ call, io }: CliDeps, name: string | null, yes: boolean):
       : `${member} runs ${state.installed}, the newest version.`);
     return 0;
   }
-  if (state.sessions > 0 && !yes) {
+  let chosen = when;
+  if (state.sessions > 0 && !yes && when === 'now') {
     const words = updateSessionsWords(state.sessions, target.name);
-    if (!(await confirm(io, `${words.question} ${words.body} Update ${target.name}?`))) {
+    const answer = await io.ask(
+      `${words.question} ${words.body} ${UPDATE_WHEN_IDLE} [w], ${UPDATE_NOW.toLowerCase()} [u], or cancel? [w/u/C] `,
+    );
+    const picked = whenAnswer(answer);
+    if (picked === null) {
       io.out('Nothing changed.');
       return 1;
     }
+    chosen = picked;
   }
-  const reply = await call('POST', onMachine('/api/server/update', target.machine));
+  const reply = await call('POST', onMachine('/api/server/update', target.machine), chosen === 'idle' ? { when: 'idle' } : undefined);
   if (reply.status === 202) {
-    io.out(member === null
-      ? `Updating ${state.installed} → ${state.candidate}. Orbital restarts on its own; orbital status shows the new version once it is back.`
-      : `Updating ${member} ${state.installed} → ${state.candidate}. It restarts on its own; orbital devices list shows the new version once it is back.`);
+    const started = parseServerUpdateState(reply.body) ?? state;
+    io.out(startedLine(started, member, state.installed));
     return 0;
   }
   const error = errorOf(reply);
@@ -432,6 +471,41 @@ async function update({ call, io }: CliDeps, name: string | null, yes: boolean):
     return 1;
   }
   throw new CliError(`Orbital answered ${reply.status} to the update.`);
+}
+
+/**
+ * `update --cancel [name]`: ends an update that waits for the sessions on
+ * this device or the member named, as Cancel on its row does. One that
+ * installs already cannot be called back.
+ */
+async function updateCancel({ call, io }: CliDeps, name: string | null): Promise<number> {
+  const target = updateTarget(await readStatus(call), name);
+  if ('error' in target) {
+    io.err(target.error);
+    return 1;
+  }
+  const member = target.machine === null ? null : target.name;
+  const reply = await call('DELETE', onMachine('/api/server/update', target.machine));
+  if (reply.status === 200) {
+    io.out(member === null ? 'The update was cancelled. Nothing was installed.' : `The update of ${member} was cancelled. Nothing was installed.`);
+    return 0;
+  }
+  if (reply.status === 409 && errorOf(reply) === 'not_waiting') {
+    io.err(member === null ? 'No update is waiting here.' : `No update is waiting on ${member}.`);
+    return 1;
+  }
+  if (reply.status === 404 && errorOf(reply) !== 'unknown_device') {
+    io.err(member === null
+      ? 'This Orbital is older than updates from the group.'
+      : `${member} is older than updates from the group.`);
+    return 1;
+  }
+  const down = memberDownLine(reply, target);
+  if (down) {
+    io.err(down);
+    return 1;
+  }
+  throw new CliError(`Orbital answered ${reply.status} to the cancel.`);
 }
 
 /**

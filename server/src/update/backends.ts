@@ -19,7 +19,7 @@ import { closeSync, constants, lstatSync, openSync, readFileSync, statSync, unli
 import { join, resolve, sep } from 'node:path';
 import {
   STARTED_BY_ID_MAX_CHARS, STARTED_BY_NAME_MAX_CHARS, isUpdateVersion, parseMainMessage, type MainUpdateStateMessage,
-  type ServerUpdateMessage, type UpdateAsker, type UpdateEndReason,
+  type ServerUpdateMessage, type UpdateAsker, type UpdateEndReason, type UpdateWhen,
 } from '@orbital/shared/remote/serverUpdate';
 import { parseAptPolicy } from './aptPolicy.js';
 
@@ -62,16 +62,35 @@ export type UpdateProgress = 'downloading' | 'downloaded' | 'idle' | { ended: Up
 
 export interface UpdateBackend {
   readonly kind: BackendKind;
+  /**
+   * The backend waits for the sessions itself when asked for `idle` (the
+   * desktop's updater, which waits after its download, canvas 50v 02); else
+   * the service holds the request until no session is busy, then asks for it
+   * `now`.
+   */
+  readonly waitsItself: boolean;
   /** The installed version and the one an update would install, as last known; installed null when not known. */
   versions(): { installed: string | null; candidate: string | null };
   /**
+   * Whether a request could be made now: `not_set_up` for a headless server
+   * whose request directory is missing. Asked before a wait is accepted, so a
+   * wait does not last hours to fail at its end.
+   */
+  ready(): 'ok' | 'not_set_up';
+  /**
    * Ask for the update. `by`: the member that asked through its channel,
    * null for a request made on this device; only the desktop's updater uses
-   * it, to name that member on its prompt. `not_set_up`: a headless server
+   * it, to name that member on its prompt. `when`: only a backend that
+   * `waitsItself` is ever asked for `idle`. `not_set_up`: a headless server
    * whose request directory is missing.
    */
-  request(by: UpdateAsker | null): 'ok' | 'not_set_up';
-  /** The service gave up on the request: nothing may install by itself on its account any more. */
+  request(by: UpdateAsker | null, when: UpdateWhen): 'ok' | 'not_set_up';
+  /**
+   * While a request asked for `idle` waits in the backend, how many sessions
+   * it waits for; null when none waits there (or the backend never waits).
+   */
+  waiting(): number | null;
+  /** The service gave up on the request, or a member cancelled its wait: nothing may install by itself on its account any more. */
   cancel(): void;
   /** Called with the progress every time the backend hears of it. */
   onProgress(listener: (progress: UpdateProgress) => void): void;
@@ -161,8 +180,15 @@ export function writeRequest(path: string, content: string): void {
 
 export class NoUpdateBackend implements UpdateBackend {
   readonly kind = 'none';
+  readonly waitsItself = false;
   versions() {
     return { installed: null, candidate: null };
+  }
+  ready(): 'not_set_up' {
+    return 'not_set_up';
+  }
+  waiting(): null {
+    return null;
   }
   request(): 'not_set_up' {
     // Never reached: the service refuses `not_packaged` first.
@@ -192,6 +218,7 @@ export const runAptCache: AptCacheRun = () =>
 
 export class AptUpdateBackend implements UpdateBackend {
   readonly kind = 'apt';
+  readonly waitsItself = false;
   private installed: string | null = null;
   private candidate: string | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -231,11 +258,25 @@ export class AptUpdateBackend implements UpdateBackend {
     return { installed: this.installed, candidate: this.candidate };
   }
 
+  ready(): 'ok' | 'not_set_up' {
+    return this.inDir(() => undefined);
+  }
+
   request(): 'ok' | 'not_set_up' {
+    return this.inDir((dir) => writeRequest(join(dir, UPDATE_REQUEST_FILE), `${Date.now()}\n`));
+  }
+
+  /** The service waits for the sessions (`waitsItself` false): nothing waits here. */
+  waiting(): null {
+    return null;
+  }
+
+  /** `act` in the request directory: `not_set_up` when setup has not made it, or not for this user. */
+  private inDir(act: (dir: string) => void): 'ok' | 'not_set_up' {
     const dir = this.opts.requestDir ?? UPDATE_REQUEST_DIR;
     try {
       if (!statSync(dir).isDirectory()) return 'not_set_up';
-      writeRequest(join(dir, UPDATE_REQUEST_FILE), `${Date.now()}\n`);
+      act(dir);
       return 'ok';
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
@@ -263,6 +304,8 @@ export class AptUpdateBackend implements UpdateBackend {
  */
 export class DesktopUpdateBackend implements UpdateBackend {
   readonly kind = 'desktop';
+  /** Main waits after its download, with the words of the Mac being updated (canvas 50v 02). */
+  readonly waitsItself = true;
   private latest: MainUpdateStateMessage | null = null;
   private progressListener: ((progress: UpdateProgress) => void) | null = null;
   private readonly listener = (event: { data: unknown }) => {
@@ -284,10 +327,18 @@ export class DesktopUpdateBackend implements UpdateBackend {
     return { installed: this.latest?.installed ?? null, candidate: this.latest?.available ?? null };
   }
 
-  request(by: UpdateAsker | null): 'ok' {
-    const message: ServerUpdateMessage = { t: 'update_start', by: by && askerForMain(by) };
+  ready(): 'ok' {
+    return 'ok';
+  }
+
+  request(by: UpdateAsker | null, when: UpdateWhen): 'ok' {
+    const message: ServerUpdateMessage = { t: 'update_start', by: by && askerForMain(by), when };
     this.port.postMessage(message);
     return 'ok';
+  }
+
+  waiting(): number | null {
+    return this.latest?.waiting ?? null;
   }
 
   cancel(): void {

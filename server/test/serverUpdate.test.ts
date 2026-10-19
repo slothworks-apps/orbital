@@ -7,7 +7,9 @@ import {
   AptUpdateBackend, chooseUpdateBackend, DesktopUpdateBackend, PACKAGE_ROOT, PACKAGE_VERSION_FILE, runningVersion,
   UPDATE_REQUEST_FILE, type ParentPort, type UpdateBackend, type UpdateProgress,
 } from '../src/update/backends.js';
-import { UPDATE_MARKER_FILE, UpdateService, readMarker } from '../src/update/service.js';
+import {
+  UPDATE_IDLE_SETTLE_MS, UPDATE_MARKER_FILE, UPDATE_WAIT_CHECK_MS, UpdateService, readMarker,
+} from '../src/update/service.js';
 import { updateAsker } from '../src/api/serverUpdate.js';
 import { DEVICE_HEADER } from '../src/remote/inject.js';
 import { deviceId } from '@orbital/shared/remote/keys';
@@ -167,11 +169,12 @@ describe('DesktopUpdateBackend', () => {
     port.emit({ t: 'update_state', installed: '0.35.0', available: 'https://evil', downloading: false, downloaded: false });
     port.emit('garbage');
     expect(desktop.versions()).toEqual({ installed: '0.35.0', candidate: '0.36.0' });
-    expect(desktop.request(null)).toBe('ok');
+    expect(desktop.request(null, 'now')).toBe('ok');
     desktop.cancel();
-    desktop.request({ id: 'p1', name: 'Pixel 8' });
+    desktop.request({ id: 'p1', name: 'Pixel 8' }, 'idle');
     expect(port.sent).toEqual([
-      { t: 'update_start', by: null }, { t: 'update_cancel' }, { t: 'update_start', by: { id: 'p1', name: 'Pixel 8' } },
+      { t: 'update_start', by: null, when: 'now' }, { t: 'update_cancel' },
+      { t: 'update_start', by: { id: 'p1', name: 'Pixel 8' }, when: 'idle' },
     ]);
     // Every start it sends is one main takes.
     for (const sent of port.sent) expect(parseServerMessage(sent)).toEqual(sent);
@@ -182,11 +185,11 @@ describe('DesktopUpdateBackend', () => {
   it('names the peer so main takes it: a long name cut, an empty one by the start of its id', () => {
     const port = new FakePort();
     const desktop = new DesktopUpdateBackend(port);
-    desktop.request({ id: 'abcdefghijkl', name: 'x'.repeat(STARTED_BY_NAME_MAX_CHARS + 20) });
-    desktop.request({ id: 'abcdefghijkl', name: '  ' });
+    desktop.request({ id: 'abcdefghijkl', name: 'x'.repeat(STARTED_BY_NAME_MAX_CHARS + 20) }, 'now');
+    desktop.request({ id: 'abcdefghijkl', name: '  ' }, 'now');
     expect(port.sent).toEqual([
-      { t: 'update_start', by: { id: 'abcdefghijkl', name: 'x'.repeat(STARTED_BY_NAME_MAX_CHARS) } },
-      { t: 'update_start', by: { id: 'abcdefghijkl', name: 'abcdefgh' } },
+      { t: 'update_start', by: { id: 'abcdefghijkl', name: 'x'.repeat(STARTED_BY_NAME_MAX_CHARS) }, when: 'now' },
+      { t: 'update_start', by: { id: 'abcdefghijkl', name: 'abcdefgh' }, when: 'now' },
     ]);
     for (const sent of port.sent) expect(parseServerMessage(sent)).toEqual(sent);
   });
@@ -207,6 +210,20 @@ describe('DesktopUpdateBackend', () => {
     // An end is no state: the versions stay what the last state said.
     expect(desktop.versions()).toEqual({ installed: '0.35.0', candidate: '0.36.0' });
   });
+
+  it('says how many sessions main waits for, and nothing once it stops waiting', () => {
+    const port = new FakePort();
+    const desktop = new DesktopUpdateBackend(port);
+    expect(desktop.waiting()).toBeNull();
+    const msg = { t: 'update_state', installed: '0.35.0', available: '0.36.0', downloading: false, downloaded: true };
+    port.emit({ ...msg, waiting: 2 });
+    expect(desktop.waiting()).toBe(2);
+    port.emit({ ...msg, waiting: null });
+    expect(desktop.waiting()).toBeNull();
+    port.emit({ ...msg, waiting: 1 });
+    port.emit(msg);
+    expect(desktop.waiting()).toBeNull();
+  });
 });
 
 /** A backend whose versions and answer the test sets. */
@@ -214,13 +231,17 @@ function fakeBackend(over: Partial<{ kind: UpdateBackend['kind']; installed: str
   const b = {
     kind: 'apt' as UpdateBackend['kind'], installed: '0.35.0' as string | null, candidate: '0.36.0' as string | null,
     answer: 'ok' as 'ok' | 'not_set_up', requests: 0, cancels: 0, stopped: false, askedBy: [] as (UpdateAsker | null)[],
+    askedWhen: [] as string[], waiting: null as number | null,
     progress: (_p: UpdateProgress) => {},
     ...over,
   };
   const backend: UpdateBackend = {
     get kind() { return b.kind; },
+    get waitsItself() { return b.kind === 'desktop'; },
     versions: () => ({ installed: b.installed, candidate: b.candidate }),
-    request: (by) => { b.requests++; b.askedBy.push(by); return b.answer; },
+    ready: () => b.answer,
+    waiting: () => b.waiting,
+    request: (by, when) => { b.requests++; b.askedBy.push(by); b.askedWhen.push(when); return b.answer; },
     cancel: () => { b.cancels++; },
     onProgress: (l) => { b.progress = l; },
     stop: () => { b.stopped = true; },
@@ -229,15 +250,16 @@ function fakeBackend(over: Partial<{ kind: UpdateBackend['kind']; installed: str
 }
 
 describe('UpdateService', () => {
-  const make = (backend: UpdateBackend, running = '0.35.0', dir = makeTmpDir('update-service'), timeoutMs?: number) =>
-    ({ dir, service: new UpdateService({ backend, running, markerPath: join(dir, UPDATE_MARKER_FILE), sessions: () => 2, timeoutMs }) });
+  const make = (
+    backend: UpdateBackend, running = '0.35.0', dir = makeTmpDir('update-service'), timeoutMs?: number, sessions = () => 2,
+  ) => ({ dir, service: new UpdateService({ backend, running, markerPath: join(dir, UPDATE_MARKER_FILE), sessions, timeoutMs }) });
 
   it('reports the state, the running version standing in for an installed one not known', () => {
     const { b, backend } = fakeBackend({ installed: null });
     const { service } = make(backend);
     expect(service.state()).toEqual({
       installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 2, startedBy: null,
-      failedReason: null,
+      failedReason: null, waiting: null,
     });
     b.kind = 'none';
     expect(service.state().packaged).toBe(false);
@@ -405,6 +427,145 @@ describe('UpdateService', () => {
   });
 });
 
+describe('UpdateService · update when sessions finish', () => {
+  const make = (backend: UpdateBackend, sessions: () => number, dir = makeTmpDir('update-wait'), timeoutMs = 1_000) =>
+    ({ dir, service: new UpdateService({ backend, running: '0.35.0', markerPath: join(dir, UPDATE_MARKER_FILE), sessions, timeoutMs }) });
+
+  it('a server holds the request while sessions are busy, then installs once none has been for the settle', () => {
+    vi.useFakeTimers();
+    try {
+      let busy = 2;
+      const by = { id: 'p1', name: 'Pixel 8' };
+      const { b, backend } = fakeBackend();
+      const { dir, service } = make(backend, () => busy);
+      expect(service.start(by, { fromPeer: true, when: 'idle' })).toMatchObject({
+        ok: true, state: { updating: true, waiting: { sessions: 2 }, startedBy: by },
+      });
+      // Nothing asked of apt, nothing remembered, and no time runs out on the wait.
+      expect(b.requests).toBe(0);
+      expect(existsSync(join(dir, UPDATE_MARKER_FILE))).toBe(false);
+      vi.advanceTimersByTime(60 * 60_000);
+      expect(service.state()).toMatchObject({ updating: true, failed: null, waiting: { sessions: 2 } });
+      // The count is live.
+      busy = 1;
+      expect(service.state().waiting).toEqual({ sessions: 1 });
+      // A moment at none, then busy again: still waiting.
+      busy = 0;
+      vi.advanceTimersByTime(UPDATE_WAIT_CHECK_MS);
+      busy = 1;
+      vi.advanceTimersByTime(UPDATE_IDLE_SETTLE_MS);
+      expect(b.requests).toBe(0);
+      busy = 0;
+      vi.advanceTimersByTime(UPDATE_IDLE_SETTLE_MS + UPDATE_WAIT_CHECK_MS);
+      expect(b.requests).toBe(1);
+      expect(b.askedWhen).toEqual(['now']);
+      expect(b.askedBy).toEqual([by]);
+      expect(service.state()).toMatchObject({ updating: true, waiting: null, startedBy: by });
+      expect(readMarker(join(dir, UPDATE_MARKER_FILE))).toMatchObject({ from: '0.35.0', to: '0.36.0' });
+      // From the install on, the timeout runs as for Update now.
+      vi.advanceTimersByTime(1_000);
+      expect(service.state()).toMatchObject({ updating: false, failed: '0.36.0' });
+      service.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('with no session busy, Update when sessions finish starts at once', () => {
+    const { b, backend } = fakeBackend();
+    const { service } = make(backend, () => 0);
+    expect(service.start(null, { when: 'idle' })).toMatchObject({ ok: true, state: { updating: true, waiting: null } });
+    expect(b.askedWhen).toEqual(['now']);
+    service.stop();
+  });
+
+  it('refuses a wait on a server not set up, before it waits', () => {
+    const { b, backend } = fakeBackend({ answer: 'not_set_up' });
+    const { service } = make(backend, () => 3);
+    expect(service.start(null, { when: 'idle' })).toMatchObject({ ok: false, error: 'not_set_up' });
+    expect(service.state().updating).toBe(false);
+    expect(b.requests).toBe(0);
+  });
+
+  it('a held wait cancelled ends with nothing failed and nothing asked; there is nothing to cancel then', () => {
+    vi.useFakeTimers();
+    try {
+      const { b, backend } = fakeBackend();
+      const { service } = make(backend, () => 2);
+      expect(service.cancel()).toEqual({ ok: false, error: 'not_waiting', status: 409 });
+      service.start(null, { when: 'idle' });
+      expect(service.cancel()).toMatchObject({ ok: true, state: { updating: false, failed: null, waiting: null, startedBy: null } });
+      vi.advanceTimersByTime(60_000);
+      expect(b.requests).toBe(0);
+      expect(b.cancels).toBe(0);
+      expect(service.cancel()).toMatchObject({ ok: false, error: 'not_waiting' });
+      // An install already under way is not a wait.
+      service.start();
+      expect(service.cancel()).toMatchObject({ ok: false, error: 'not_waiting' });
+      service.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a restart of the server drops a wait it held: not failed, just gone', () => {
+    const { backend } = fakeBackend();
+    const { dir, service } = make(backend, () => 2);
+    service.start(null, { when: 'idle' });
+    service.stop();
+    expect(make(backend, () => 2, dir).service.state()).toMatchObject({ updating: false, failed: null, waiting: null });
+  });
+
+  it('a Mac waits itself: main is asked for idle, its count is the wait, and no time runs out until its install starts', () => {
+    vi.useFakeTimers();
+    try {
+      const { b, backend } = fakeBackend({ kind: 'desktop' });
+      const { dir, service } = make(backend, () => 3);
+      service.start({ id: 'p1', name: 'Pixel 8' }, { fromPeer: true, when: 'idle' });
+      expect(b.askedWhen).toEqual(['idle']);
+      // Until main says, the busy sessions here stand in.
+      expect(service.state().waiting).toEqual({ sessions: 3 });
+      // Main's word from before it took the request changes nothing.
+      b.progress('idle');
+      expect(service.state().updating).toBe(true);
+      b.waiting = 2;
+      b.progress('downloading');
+      expect(service.state().waiting).toEqual({ sessions: 2 });
+      vi.advanceTimersByTime(60 * 60_000);
+      expect(service.state()).toMatchObject({ updating: true, waiting: { sessions: 2 } });
+      expect(existsSync(join(dir, UPDATE_MARKER_FILE))).toBe(false);
+      // The wait ends in the install: remembered, and the timeout runs.
+      b.waiting = null;
+      b.progress('downloaded');
+      expect(service.state()).toMatchObject({ updating: true, waiting: null });
+      expect(readMarker(join(dir, UPDATE_MARKER_FILE))).toMatchObject({ to: '0.36.0' });
+      expect(service.cancel()).toMatchObject({ ok: false, error: 'not_waiting' });
+      vi.advanceTimersByTime(1_000);
+      expect(service.state()).toMatchObject({ updating: false, failed: '0.36.0' });
+      service.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a Mac\'s wait cancelled by a member tells main; cancelled at the Mac it is no failure either', () => {
+    const { b, backend } = fakeBackend({ kind: 'desktop' });
+    const { service } = make(backend, () => 1);
+    service.start(null, { when: 'idle' });
+    b.waiting = 1;
+    b.progress('downloaded');
+    expect(service.cancel()).toMatchObject({ ok: true, state: { updating: false, failed: null } });
+    expect(b.cancels).toBe(1);
+
+    service.start(null, { when: 'idle' });
+    b.progress('downloaded');
+    b.progress({ ended: 'cancelled' });
+    expect(service.state()).toMatchObject({ updating: false, failed: null, failedReason: null, waiting: null });
+    expect(b.cancels).toBe(1);
+    service.stop();
+  });
+});
+
 describe('updateAsker', () => {
   const dir = (self: string | null, names: Record<string, string> = {}) => ({
     selfId: () => self, selfName: () => 'nuc', nameOf: (id: string) => names[id] ?? null,
@@ -461,10 +622,12 @@ describe('/api/server/update', () => {
       const db = new BetterSqlite3(join(claudeDir, 'index.db'));
       db.prepare(`INSERT INTO remote_devices (id, name, platform, paired_at, notifications) VALUES ('p1', 'Pixel 8', 'android', 1, '{}')`).run();
       db.close();
-      // A body naming someone else is not read: the channel's header is who asked.
-      const viaPeer = await app.inject({
+      // A body naming someone else is refused: only the channel's header says who asked.
+      const naming = await app.inject({
         method: 'POST', url: '/api/server/update', headers: { [DEVICE_HEADER]: 'p1' }, payload: { startedBy: { id: 'x', name: 'evil' } },
       });
+      expect(naming.statusCode).toBe(400);
+      const viaPeer = await app.inject({ method: 'POST', url: '/api/server/update', headers: { [DEVICE_HEADER]: 'p1' } });
       expect(viaPeer.statusCode).toBe(202);
       expect(viaPeer.json().startedBy).toEqual({ id: 'p1', name: 'Pixel 8' });
       expect(second.b.askedBy).toEqual([{ id: 'p1', name: 'Pixel 8' }]);
@@ -481,10 +644,14 @@ describe('/api/server/update', () => {
       expect(got.statusCode).toBe(200);
       expect(got.json()).toEqual({
         installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 0, startedBy: null,
-        failedReason: null,
+        failedReason: null, waiting: null,
       });
-      // A body is ignored, whatever it names.
-      const started = await app.inject({ method: 'POST', url: '/api/server/update', payload: { version: '9.9.9', package: 'evil' } });
+      // A body that names anything but when is refused, and starts nothing.
+      const named = await app.inject({ method: 'POST', url: '/api/server/update', payload: { version: '9.9.9', package: 'evil' } });
+      expect(named.statusCode).toBe(400);
+      expect(named.json()).toEqual({ error: 'bad_request' });
+      expect(b.requests).toBe(0);
+      const started = await app.inject({ method: 'POST', url: '/api/server/update' });
       expect(started.statusCode).toBe(202);
       expect(started.json()).toMatchObject({ updating: true });
       const again = await app.inject({ method: 'POST', url: '/api/server/update' });
@@ -495,6 +662,43 @@ describe('/api/server/update', () => {
       await app.close();
     }
     expect(b.stopped).toBe(true);
+  });
+
+  it('POST reads when from its body, strictly; DELETE ends the wait', async () => {
+    const { b, backend } = fakeBackend();
+    const app = await server(backend);
+    try {
+      for (const payload of [{ when: 'later' }, { when: 'idle', version: '9.9.9' }, { when: ['idle'] }, 'idle', [1], null]) {
+        const res = await app.inject({
+          method: 'POST', url: '/api/server/update', payload: JSON.stringify(payload), headers: { 'content-type': 'application/json' },
+        });
+        expect(res.statusCode, JSON.stringify(payload)).toBe(400);
+      }
+      expect(b.requests).toBe(0);
+      expect((await app.inject({ method: 'DELETE', url: '/api/server/update' })).json()).toEqual({ error: 'not_waiting' });
+      // No session runs on this test server: idle starts at once.
+      const idle = await app.inject({ method: 'POST', url: '/api/server/update', payload: { when: 'idle' } });
+      expect(idle.statusCode).toBe(202);
+      expect(b.askedWhen).toEqual(['now']);
+      const cancel = await app.inject({ method: 'DELETE', url: '/api/server/update' });
+      expect(cancel.statusCode).toBe(409);
+      expect(cancel.json()).toEqual({ error: 'not_waiting' });
+    } finally {
+      await app.close();
+    }
+
+    const mac = fakeBackend({ kind: 'desktop' });
+    const macApp = await server(mac.backend);
+    try {
+      const idle = await macApp.inject({ method: 'POST', url: '/api/server/update', payload: { when: 'idle' } });
+      expect(idle.json()).toMatchObject({ updating: true, waiting: { sessions: 0 } });
+      const cancel = await macApp.inject({ method: 'DELETE', url: '/api/server/update', headers: { [DEVICE_HEADER]: 'p1' } });
+      expect(cancel.statusCode).toBe(200);
+      expect(cancel.json()).toMatchObject({ updating: false, failed: null, waiting: null });
+      expect(mac.b.cancels).toBe(1);
+    } finally {
+      await macApp.close();
+    }
   });
 
   it('POST answers each refusal with its status', async () => {
@@ -525,6 +729,7 @@ describe('/api/server/update', () => {
     try {
       expect((await app.inject({ method: 'GET', url: '/api/server/update' })).statusCode).toBe(401);
       expect((await app.inject({ method: 'POST', url: '/api/server/update' })).statusCode).toBe(401);
+      expect((await app.inject({ method: 'DELETE', url: '/api/server/update' })).statusCode).toBe(401);
     } finally {
       await app.close();
     }

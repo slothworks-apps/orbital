@@ -64,6 +64,31 @@ export const STARTED_BY_NAME_MAX_CHARS = 128;
 export type UpdateAsker = { id: string; name: string };
 
 /**
+ * When an update asked for installs (canvas 50q–50t, the confirm's three
+ * choices): `now`, which stops the sessions running there, or `idle`, the
+ * first moment no session there is mid-turn or waiting on a decision.
+ */
+export type UpdateWhen = 'now' | 'idle';
+
+/**
+ * The one thing `POST /api/server/update` reads from its body: `when`. No
+ * other field is taken, and nothing that names a version or a package.
+ * Strict: an unknown field, or any other value, is refused.
+ */
+export const UpdateStartBody = z.object({ when: z.enum(['now', 'idle']).optional() }).strict();
+
+/**
+ * When a `POST /api/server/update` body asks to install: an absent body, or
+ * one without `when`, is `now`; null for anything else (the route answers
+ * 400 and starts nothing).
+ */
+export function parseUpdateStartBody(body: unknown): UpdateWhen | null {
+  if (body === undefined) return 'now';
+  const parsed = UpdateStartBody.safeParse(body);
+  return parsed.success ? (parsed.data.when ?? 'now') : null;
+}
+
+/**
  * `GET /api/server/update`:
  *
  * - `installed` — the version installed on the member (`dev` for a server
@@ -83,6 +108,10 @@ export type UpdateAsker = { id: string; name: string };
  *   for a request made on it (its web or the CLI). Null when nothing is
  *   updating, when the asker is not known, and from a server older than the
  *   field, which sends none.
+ * - `waiting` — while `updating`, an update asked for `idle` that has not
+ *   started installing yet: how many sessions there it waits for (live). It
+ *   installs the first moment that is none. Null otherwise; absent from a
+ *   server older than the field, which never waits.
  * - `failedReason` — with `failed`, why, when the member knows:
  *   `sessions`, a Mac whose sessions started working while the update
  *   downloaded, so it did not restart over them and prompts there instead;
@@ -103,6 +132,7 @@ export const ServerUpdateStateSchema = z.object({
     name: z.string().transform((s) => s.slice(0, STARTED_BY_NAME_MAX_CHARS)),
   }).nullable().catch(null),
   failedReason: z.enum(['sessions', 'unknown']).nullable().optional().catch(null),
+  waiting: z.object({ sessions: z.number().int().min(0) }).nullable().optional().catch(null),
 });
 export type ServerUpdateState = z.infer<typeof ServerUpdateStateSchema>;
 
@@ -136,6 +166,14 @@ export const SERVER_UPDATE_REFUSALS = {
 } as const;
 export type ServerUpdateRefusal = keyof typeof SERVER_UPDATE_REFUSALS;
 
+/**
+ * What `DELETE /api/server/update` refuses with: `not_waiting` (409) — no
+ * update waits there for its sessions; one that installs already cannot be
+ * called back.
+ */
+export const SERVER_UPDATE_CANCEL_REFUSALS = { not_waiting: 409 } as const;
+export type ServerUpdateCancelRefusal = keyof typeof SERVER_UPDATE_CANCEL_REFUSALS;
+
 // ── The desktop's main process and the server it forks ──────────────────
 
 /**
@@ -144,7 +182,9 @@ export type ServerUpdateRefusal = keyof typeof SERVER_UPDATE_REFUSALS;
  * `UPDATE_KEEPALIVE_MS` while it downloads.
  * `installed` is the app's version, `available` the newer version a check
  * found (null when none), `downloading` while it downloads, `downloaded`
- * once it is ready to install.
+ * once it is ready to install. `waiting`: while a request asked for `idle`
+ * runs and has not started installing, how many sessions here it waits for;
+ * null (or absent) otherwise.
  */
 export const MainUpdateStateMessage = z.object({
   t: z.literal('update_state'),
@@ -152,6 +192,7 @@ export const MainUpdateStateMessage = z.object({
   available: VersionText.nullable(),
   downloading: z.boolean(),
   downloaded: z.boolean(),
+  waiting: z.number().int().min(0).nullable().optional(),
 }).strict();
 export type MainUpdateStateMessage = z.infer<typeof MainUpdateStateMessage>;
 
@@ -164,11 +205,14 @@ export type MainUpdateStateMessage = z.infer<typeof MainUpdateStateMessage>;
  * - `unknown` — the Mac could not tell which sessions work (its session
  *   list was being re-read) and did not restart either;
  * - `restart` — the app was asked again while a restart it was already
- *   making had not got it out, and its one retry was spent.
+ *   making had not got it out, and its one retry was spent;
+ * - `cancelled` — the person at the Mac cancelled a request that waited for
+ *   its sessions to finish: not a failure, the members go back to `update
+ *   available`.
  */
 export const MainUpdateEndedMessage = z.object({
   t: z.literal('update_ended'),
-  reason: z.enum(['sessions', 'unknown', 'restart']),
+  reason: z.enum(['sessions', 'unknown', 'restart', 'cancelled']),
 }).strict();
 export type MainUpdateEndedMessage = z.infer<typeof MainUpdateEndedMessage>;
 export type UpdateEndReason = MainUpdateEndedMessage['reason'];
@@ -194,10 +238,14 @@ export const UPDATE_KEEPALIVE_MS = 60_000;
  *   it is not downloaded, then install it and relaunch. `by` is the member
  *   that asked through its channel, which the Mac names on its prompt
  *   (canvas 50v); null for a request made on this Mac (its web, the CLI),
- *   which shows as the Mac's own update;
+ *   which shows as the Mac's own update. `when`: `now` installs once
+ *   downloaded; `idle` waits, after the download, for the sessions here to
+ *   finish;
  * - `update_cancel` — the server gave up waiting (`UPDATE_TIMEOUT_MS`) and
- *   told the members it failed: a download still running must not install
- *   by itself when it lands; it prompts on this Mac as any download does.
+ *   told the members it failed, or a member cancelled a request that waits
+ *   for the sessions here: a download still running must not install by
+ *   itself when it lands, and a wait ends; it prompts on this Mac as any
+ *   download does.
  *
  * Neither names a version: main installs only what its own updater found
  * and verified.
@@ -209,6 +257,7 @@ export const ServerUpdateMessage = z.discriminatedUnion('t', [
       id: z.string().min(1).max(STARTED_BY_ID_MAX_CHARS),
       name: z.string().min(1).max(STARTED_BY_NAME_MAX_CHARS),
     }).strict().nullable(),
+    when: z.enum(['now', 'idle']),
   }).strict(),
   z.object({ t: z.literal('update_cancel') }).strict(),
 ]);
@@ -256,15 +305,25 @@ export function watchUpdate(state: ServerUpdateState, now: number): UpdateWatch 
  * for a while).
  *
  * - `updated` — it answers with a different version;
+ * - `waiting` — it says it waits for its sessions (`waiting`): no time runs
+ *   out on that, the wait may last hours;
+ * - `ended` — it answers with the old version, not updating and not failed,
+ *   after it was seen waiting (`waited`): the wait was cancelled, or a
+ *   restart of the member dropped it — not a failure;
  * - `failed` — it answers with the old version and is no longer updating,
  *   or says so itself (`failed`), or `UPDATE_TIMEOUT_MS` passed;
  * - `updating` — anything else: keep reading.
+ *
+ * `waited`: the watch saw the member waiting.
  */
-export type WatchVerdict = 'updating' | 'updated' | 'failed';
+export type WatchVerdict = 'updating' | 'waiting' | 'updated' | 'ended' | 'failed';
 
-export function watchVerdict(watch: UpdateWatch, latest: ServerUpdateState | null, now: number): WatchVerdict {
+export function watchVerdict(
+  watch: UpdateWatch & { waited?: boolean }, latest: ServerUpdateState | null, now: number,
+): WatchVerdict {
   if (latest !== null && latest.installed !== watch.installed) return 'updated';
-  if (latest !== null && !latest.updating) return 'failed';
+  if (latest !== null && latest.updating && latest.waiting) return 'waiting';
+  if (latest !== null && !latest.updating) return watch.waited && latest.failed === null ? 'ended' : 'failed';
   if (now - watch.since >= UPDATE_TIMEOUT_MS) return 'failed';
   return 'updating';
 }

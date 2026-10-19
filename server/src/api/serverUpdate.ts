@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { UpdateAsker } from '@orbital/shared/remote/serverUpdate';
+import { parseUpdateStartBody, type UpdateAsker } from '@orbital/shared/remote/serverUpdate';
 import { DEVICE_HEADER } from '../remote/inject.js';
 import type { UpdateService } from '../update/service.js';
 
@@ -33,18 +33,32 @@ export function updateAsker(device: string | string[] | undefined, dir: AskerDir
  * § Updating from the group). Both routes are on the members' allowlist;
  * any member may call them, there is no primary check.
  *
- * `POST` reads nothing from the request but who sent it (`updateAsker`): no
- * body, no query. 202 with the state when the update starts; 409
- * `no_update`, `updating` or `not_set_up`; 501 `not_packaged`.
+ * `POST` reads nothing from the request but who sent it (`updateAsker`) and
+ * when to install (`parseUpdateStartBody`: an absent body, or `{ when:
+ * 'now' | 'idle' }` and no other field — anything else is 400 `bad_request`
+ * and starts nothing); no query, no version, no package. 202 with the state
+ * when the update starts or waits; 409 `no_update`, `updating` or
+ * `not_set_up`; 501 `not_packaged`.
+ *
+ * `DELETE` ends a wait for the sessions (`UpdateService.cancel`); it reads
+ * nothing from the request. 200 with the state; 409 `not_waiting`.
  */
 export function registerServerUpdateRoutes(app: FastifyInstance, updates: UpdateService, dir: AskerDirectory): void {
   app.get('/api/server/update', () => updates.state());
 
   app.post('/api/server/update', (req, reply) => {
+    const when = parseUpdateStartBody(req.body);
+    if (when === null) return reply.code(400).send({ error: 'bad_request' });
     const device = req.headers[DEVICE_HEADER];
     const fromPeer = typeof device === 'string' && device !== '';
-    const answer = updates.start(updateAsker(device, dir), { fromPeer });
+    const answer = updates.start(updateAsker(device, dir), { fromPeer, when });
     if (!answer.ok) return reply.code(answer.status).send({ error: answer.error });
     return reply.code(202).send(answer.state);
+  });
+
+  app.delete('/api/server/update', (_req, reply) => {
+    const answer = updates.cancel();
+    if (!answer.ok) return reply.code(answer.status).send({ error: answer.error });
+    return reply.send(answer.state);
   });
 }

@@ -585,7 +585,7 @@ describe('an update a member of the group asked for', () => {
     expect(start).toMatchObject({ download: true, restart: false, changed: true });
     expect(flow.view.phase).toBe('downloading');
     expect(flow.serverState(INSTALLED)).toEqual({
-      t: 'update_state', installed: INSTALLED, available: '0.26.0', downloading: true, downloaded: false,
+      t: 'update_state', installed: INSTALLED, available: '0.26.0', downloading: true, downloaded: false, waiting: null,
     });
     expect(flow.downloaded('0.26.0')).toMatchObject({ restart: true, remoteEnded: null });
     expect(flow.view.phase).toBe('restarting');
@@ -703,7 +703,7 @@ describe('an update a member of the group asked for', () => {
     const flow = new UpdateFlow();
     expect(flow.remoteStart()).toMatchObject({ download: false, restart: false, changed: false, remoteEnded: null });
     expect(flow.serverState(INSTALLED)).toEqual({
-      t: 'update_state', installed: INSTALLED, available: null, downloading: false, downloaded: false,
+      t: 'update_state', installed: INSTALLED, available: null, downloading: false, downloaded: false, waiting: null,
     });
   });
 
@@ -753,7 +753,7 @@ describe('an update another member started, as this Mac shows it (canvas 50v)', 
     expect(start).toMatchObject({ download: true, changed: true });
     expect(flow.view).toMatchObject({ phase: 'downloading', remote: { by: 'Pixel 8', working: 2 } });
     expect(flow.setWorkingCount(1, true, ['a']).changed).toBe(true);
-    expect(flow.view.remote).toEqual({ by: 'Pixel 8', working: 1 });
+    expect(flow.view.remote).toEqual({ by: 'Pixel 8', working: 1, wait: false });
   });
 
   it('02: holds the last line, then restarts, counting what it stops at the restart itself', () => {
@@ -890,6 +890,107 @@ describe('an update another member started, as this Mac shows it (canvas 50v)', 
   });
 });
 
+describe('a member\'s update when sessions finish (canvas 50v 02)', () => {
+  const AT = 1_760_000_000_000;
+  /** A Mac with 0.26.0 found and `ids` working, asked by Pixel 8 to update when they finish. */
+  function waits(ids: string[], by: string | null = 'Pixel 8') {
+    const flow = new UpdateFlow({ now: () => AT });
+    flow.setWorkingCount(ids.length, true, ids);
+    flow.available('0.26.0', MB);
+    const start = flow.remoteStart(by, 'idle');
+    return { flow, start };
+  }
+
+  it('downloads, then waits for every session — a new turn included — and restarts the first moment none works', () => {
+    const { flow, start } = waits(['a', 'b']);
+    expect(start).toMatchObject({ download: true });
+    // The wait is shown, and told to the server, from the download on.
+    expect(flow.view).toMatchObject({ phase: 'downloading', remote: { by: 'Pixel 8', working: 2, wait: true } });
+    expect(flow.serverState('0.25.0')).toMatchObject({ downloading: true, waiting: 2 });
+    // A session that starts during the download is no reason to stop: it is waited for too.
+    flow.setWorkingCount(3, true, ['a', 'b', 'c']);
+    expect(flow.downloaded('0.26.0')).toMatchObject({ restart: false, holdMs: 0, remoteEnded: null });
+    expect(flow.view).toMatchObject({ phase: 'waiting', remote: { by: 'Pixel 8', working: 3, wait: true } });
+    expect(flow.serverState('0.25.0')).toMatchObject({ downloaded: true, waiting: 3 });
+    flow.setWorkingCount(1, true, ['c']);
+    expect(flow.serverState('0.25.0').waiting).toBe(1);
+    // None works: after the settle, the last line is held, then it installs.
+    expect(flow.setWorkingCount(0, true, [])).toMatchObject({ idleCheck: true });
+    expect(flow.idleSettled()).toMatchObject({ restart: false, holdMs: REMOTE_RESTART_HOLD_MS });
+    expect(flow.view).toMatchObject({ phase: 'restarting', remote: { by: 'Pixel 8', working: 0, wait: false } });
+    expect(flow.serverState('0.25.0').waiting).toBeNull();
+    expect(flow.holdEnded()).toMatchObject({ restart: true, receipt: { by: 'Pixel 8', stopped: 0 } });
+  });
+
+  it('downloaded already: waits at once; with nothing working, restarts at once', () => {
+    const flow = new UpdateFlow({ now: () => AT });
+    flow.setWorkingCount(2, true, ['a', 'b']);
+    flow.downloaded('0.26.0');
+    expect(flow.remoteStart('Pixel 8', 'idle')).toMatchObject({ restart: false, holdMs: 0, changed: true });
+    expect(flow.view).toMatchObject({ phase: 'waiting', remote: { wait: true } });
+
+    const idle = new UpdateFlow({ now: () => AT });
+    idle.setWorkingCount(0, true, []);
+    idle.downloaded('0.26.0');
+    expect(idle.remoteStart('Pixel 8', 'idle')).toMatchObject({ holdMs: REMOTE_RESTART_HOLD_MS });
+  });
+
+  it('Cancel here while it waits: this Mac\'s own Ready, and the members told it was cancelled, not failed', () => {
+    const { flow } = waits(['a']);
+    flow.downloaded('0.26.0');
+    expect(flow.act('cancel-wait')).toMatchObject({ changed: true, remoteEnded: 'cancelled', restart: false });
+    expect(flow.view).toMatchObject({ phase: 'ready', remote: null, sessionStarted: false, buttons: 'two' });
+    expect(flow.serverState('0.25.0').waiting).toBeNull();
+    // No longer waiting: a zero restarts nothing.
+    flow.setWorkingCount(0, true, []);
+    expect(flow.idleSettled()).toMatchObject({ restart: false });
+  });
+
+  it('Cancel here while it still downloads: the download goes on as this Mac\'s own and lands as its Ready', () => {
+    const { flow } = waits(['a']);
+    expect(flow.act('cancel-wait')).toMatchObject({ remoteEnded: 'cancelled' });
+    expect(flow.view).toMatchObject({ phase: 'downloading', remote: null });
+    expect(flow.downloaded('0.26.0')).toMatchObject({ restart: false, remoteEnded: null });
+    expect(flow.view.phase).toBe('ready');
+    // A download of this Mac's own is no wait to cancel.
+    const own = new UpdateFlow();
+    own.available('0.26.0', MB);
+    own.act('download');
+    expect(own.act('cancel-wait')).toMatchObject({ changed: false, remoteEnded: null });
+  });
+
+  it('cancelled from a member: Ready while it waits, this Mac\'s own download while it downloads; nothing told back', () => {
+    const waiting = waits(['a']).flow;
+    waiting.downloaded('0.26.0');
+    expect(waiting.remoteCancel()).toMatchObject({ changed: true, remoteEnded: null });
+    expect(waiting.view).toMatchObject({ phase: 'ready', remote: null });
+    waiting.setWorkingCount(0, true, []);
+    expect(waiting.idleSettled()).toMatchObject({ restart: false });
+
+    const downloading = waits(['a']).flow;
+    expect(downloading.remoteCancel()).toMatchObject({ remoteEnded: null });
+    expect(downloading.view).toMatchObject({ phase: 'downloading', remote: null });
+    expect(downloading.serverState('0.25.0').waiting).toBeNull();
+    expect(downloading.downloaded('0.26.0')).toMatchObject({ restart: false });
+    expect(downloading.view.phase).toBe('ready');
+  });
+
+  it('asked on this Mac (the CLI): its own wait, off the map, and its Cancel ends the request too', () => {
+    const { flow } = waits(['a'], null);
+    flow.downloaded('0.26.0');
+    expect(flow.view).toMatchObject({ phase: 'waiting', remote: null });
+    expect(flow.serverState('0.25.0').waiting).toBe(1);
+    expect(flow.act('cancel-wait')).toMatchObject({ remoteEnded: 'cancelled' });
+  });
+
+  it('a failed download ends the wait', () => {
+    const { flow } = waits(['a']);
+    flow.downloadFailed();
+    expect(flow.serverState('0.25.0').waiting).toBeNull();
+    expect(flow.view).toMatchObject({ phase: 'available', remote: null });
+  });
+});
+
 describe('update receipt file', () => {
   const receipt = { by: 'Pixel 8', at: 1_760_000_000_000, stopped: 2, version: '0.26.0' };
 
@@ -966,7 +1067,7 @@ describe('parseUpdateView', () => {
   });
 
   it('passes a member\'s update through where it belongs, and drops it anywhere else or malformed', () => {
-    const remote = { by: 'Pixel 8', working: 2 };
+    const remote = { by: 'Pixel 8', working: 2, wait: false };
     const receipt = { by: 'Pixel 8', at: 5, stopped: 2, version: '0.26.0' };
     const dl = { phase: 'downloading', version: '0.26.0', percent: 40, totalMB: 130, checkedAt: null };
     expect(parseUpdateView({ ...dl, remote, sessionStarted: false, receipt })).toEqual({ ...dl, remote, sessionStarted: false, receipt });
@@ -974,7 +1075,11 @@ describe('parseUpdateView', () => {
     expect(parseUpdateView({ ...restarting, remote })).toMatchObject({ remote });
     const ready = { phase: 'ready', version: '0.26.0', workingCount: 3, buttons: 'two', checkedAt: null };
     expect(parseUpdateView({ ...ready, remote, sessionStarted: true })).toEqual({ ...ready, ...OWN, sessionStarted: true });
-    // Only Ready waits for this Mac's user; only a download or a restart is a member's.
+    // A member's wait, with or without its flag.
+    const waiting = { phase: 'waiting', version: '0.26.0', workingCount: 2, checkedAt: null };
+    expect(parseUpdateView({ ...waiting, remote: { ...remote, wait: true } }).remote).toEqual({ ...remote, wait: true });
+    expect(parseUpdateView({ ...dl, remote: { by: 'Pixel 8', working: 2 } }).remote).toEqual(remote);
+    // Only Ready waits for this Mac's user; only a download, a wait or a restart is a member's.
     expect(parseUpdateView({ ...dl, sessionStarted: true }).sessionStarted).toBe(false);
     for (const bad of [{ by: '', working: 1 }, { by: 'Pixel 8', working: -1 }, { by: 3, working: 1 }, 'Pixel 8']) {
       expect(parseUpdateView({ ...dl, remote: bad }).remote).toBeNull();

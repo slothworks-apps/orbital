@@ -6,7 +6,8 @@
 import type { JoinResult, StartPairingResult } from '@orbital/shared/remote/ceremony';
 import { osName } from '@orbital/shared/remote/device';
 import {
-  groupFullLine, notPrimaryAddLine, osLabel, updateAvailableLine, updateFailedLine, updateFailedWhy, updateWaitsWords,
+  groupFullLine, notPrimaryAddLine, osLabel, updateAvailableLine, updateFailedLine, updateNoCountWords, updateWaitingWords,
+  updateWaitsWords,
 } from '@orbital/shared/remote/groupWords';
 import { updateIsNewer, type ServerUpdateState } from '@orbital/shared/remote/serverUpdate';
 import { BAD_SECRET_ERROR, NO_RELAY_URL_ERROR } from '../remote/errors.js';
@@ -90,8 +91,10 @@ type Row = { name: string; kind: string; os: string; state: string; version: str
 /** A member's update, as its row's line says it (canvas 50t); empty when there is nothing to say. `name`: the member's. */
 export function updateNote(state: ServerUpdateState | undefined, name: string): string {
   if (!state) return '';
+  if (state.updating && state.waiting) return updateWaitingWords(state.waiting.sessions, state.candidate ?? 'a newer version').line;
   if (state.updating) return `updating to ${state.candidate ?? 'a newer version'}`;
   if (state.failed && state.failedReason === 'sessions') return updateWaitsWords(name).line;
+  if (state.failed && state.failedReason === 'unknown') return updateNoCountWords(name).line;
   if (state.failed) return updateFailedLine(state.installed);
   if (updateIsNewer(state.installed, state.candidate)) return updateAvailableLine(state.candidate as string);
   return '';
@@ -151,18 +154,22 @@ export function statusLines(remote: RemoteStatus, update: ServerUpdateState | nu
   const version = update?.installed ?? self?.version ?? null;
   const lines = [version === null ? `Orbital is running on port ${port}.` : `Orbital ${version} is running on port ${port}.`];
   if (update) {
-    if (update.updating) {
-      const by = update.startedBy ? `, started on ${update.startedBy.name}` : '';
+    const by = update.startedBy ? `, started on ${update.startedBy.name}` : '';
+    if (update.updating && update.waiting) {
+      const waiting = updateWaitingWords(update.waiting.sessions, update.candidate ?? 'a newer version');
+      lines.push(`${waiting.head}${by}. orbital update --cancel stops the wait.`);
+    } else if (update.updating) {
       lines.push(`Updating to ${update.candidate ?? 'a newer version'}${by}…`);
     }
     else if (updateIsNewer(update.installed, update.candidate)) lines.push(`Update: ${update.candidate} is out. Run orbital update.`);
     if (update.failed && update.failedReason === 'sessions') {
       const waits = updateWaitsWords(remote.macName);
       lines.push(`The update to ${update.failed} ${waits.line}: ${waits.sub}.`);
+    } else if (update.failed && update.failedReason === 'unknown') {
+      const words = updateNoCountWords(remote.macName);
+      lines.push(`The update to ${update.failed} didn’t install: ${words.line} · ${words.sub}.`);
     } else if (update.failed) {
-      const said = updateFailedWhy(update.failedReason, remote.macName);
-      const why = said === null ? '.' : `: ${said}`;
-      lines.push(`The update to ${update.failed} failed${why}`);
+      lines.push(`The update to ${update.failed} failed.`);
     }
   }
   lines.push(`This device: ${remote.macName}`);

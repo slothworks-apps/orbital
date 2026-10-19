@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  attemptsLine, exitWords, joinSentence, osLabel, osVersionText, relayChangeWords, updateSessionsWords,
+  attemptsLine, exitWords, joinSentence, osLabel, osVersionText, relayChangeWords, updateSessionsWords, updateWaitingWords,
 } from '../src/remote/groupWords.js';
 
 describe('osLabel', () => {
@@ -35,6 +35,19 @@ describe('counted words', () => {
     expect(exitWords('leave', 3, 'mac').body).toContain('forgets the other 3.');
     expect(updateSessionsWords(1, 'nuc').question).toBe('1 session is running on nuc.');
     expect(updateSessionsWords(3, 'nuc').question).toBe('3 sessions are running on nuc.');
+    expect(updateSessionsWords(1, 'nuc').body).toBe('Update now stops it when it restarts.');
+    expect(updateSessionsWords(3, 'nuc').body).toBe('Update now stops them when it restarts.');
+    expect(updateWaitingWords(1, '0.36.0').line).toBe('waiting for 1 session to finish · then 0.36.0');
+    expect(updateWaitingWords(2, '0.36.0').phoneState).toBe('online · waiting for 2 sessions');
+  });
+
+  it('a confirm that named fewer sessions than run now says how many started since', () => {
+    expect(updateSessionsWords(4, 'nuc', 3)).toEqual({
+      question: '4 sessions are running on nuc now.',
+      body: '1 started since you pressed Update. Update now stops them when it restarts.',
+    });
+    // The same count or fewer: the plain words.
+    expect(updateSessionsWords(2, 'nuc', 3).question).toBe('2 sessions are running on nuc.');
   });
 });
 

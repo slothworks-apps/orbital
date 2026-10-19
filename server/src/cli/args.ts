@@ -16,7 +16,8 @@ export type Command =
   | { kind: 'rename'; name: string }
   | { kind: 'remove'; target: string; yes: boolean }
   | { kind: 'leave'; yes: boolean }
-  | { kind: 'update'; target: string | null; yes: boolean };
+  | { kind: 'update'; target: string | null; yes: boolean; when: 'now' | 'idle' }
+  | { kind: 'updateCancel'; target: string | null };
 
 /**
  * Where a relay secret comes from: typed at a prompt that does not echo it,
@@ -43,10 +44,13 @@ Usage:
   orbital devices remove <name|id>    remove a member (on the primary)
   orbital devices leave               leave the group (on the primary: dissolve it)
   orbital update [name]               update this server, or the member named, when a newer version is out
+  orbital update --cancel [name]      cancel an update waiting for sessions to finish
   orbital help                        this text
 
 Options:
-  -y, --yes        skip the confirmation (relay, remove, leave, update)
+  -y, --yes        skip the confirmation (relay, remove, leave, update): update now
+  --when-idle      update once no session there is working or waiting for you (update)
+  --cancel         cancel an update waiting for sessions to finish (update)
   --secret         ask for the relay secret, not echoed (relay set)
   --secret-stdin   read the relay secret from one line of stdin (relay set, relay secret)
   --clear          remove the relay secret (relay secret)
@@ -58,11 +62,11 @@ $ORBITAL_PORT, else the one the orbital user unit sets, else the default.`;
 /** Commands that ask before they act, and so take `--yes`. */
 const CONFIRMS: ReadonlySet<Command['kind']> = new Set(['relaySet', 'relaySecret', 'remove', 'leave', 'update']);
 
-type Flags = { yes: boolean; secret: boolean; secretStdin: boolean; clear: boolean };
+type Flags = { yes: boolean; secret: boolean; secretStdin: boolean; clear: boolean; whenIdle: boolean; cancel: boolean };
 
 export function parseArgs(argv: readonly string[]): Command | Usage {
   const words: string[] = [];
-  const flags: Flags = { yes: false, secret: false, secretStdin: false, clear: false };
+  const flags: Flags = { yes: false, secret: false, secretStdin: false, clear: false, whenIdle: false, cancel: false };
   let help = false;
   let rest = false;
   for (const arg of argv) {
@@ -73,6 +77,8 @@ export function parseArgs(argv: readonly string[]): Command | Usage {
     else if (arg === '--secret') flags.secret = true;
     else if (arg === '--secret-stdin') flags.secretStdin = true;
     else if (arg === '--clear') flags.clear = true;
+    else if (arg === '--when-idle') flags.whenIdle = true;
+    else if (arg === '--cancel') flags.cancel = true;
     else if (arg.startsWith('--secret=')) return { kind: 'usage', message: 'The secret is never an argument: use --secret, or --secret-stdin.' };
     else return { kind: 'usage', message: `Unknown option: ${arg}` };
   }
@@ -88,6 +94,10 @@ export function parseArgs(argv: readonly string[]): Command | Usage {
   if (flags.secretStdin && cmd.kind !== 'relaySet' && cmd.kind !== 'relaySecret') {
     return { kind: 'usage', message: '--secret-stdin is for orbital relay set and orbital relay secret.' };
   }
+  if ((flags.whenIdle || flags.cancel) && cmd.kind !== 'update' && cmd.kind !== 'updateCancel') {
+    return { kind: 'usage', message: `${flags.cancel ? '--cancel' : '--when-idle'} is for orbital update.` };
+  }
+  if (cmd.kind === 'updateCancel' && flags.whenIdle) return { kind: 'usage', message: 'Use one of --cancel and --when-idle.' };
   return cmd;
 }
 
@@ -104,8 +114,10 @@ function command(words: string[], flags: Flags): Command | Usage {
       return args.length === 0 ? { kind: 'status' } : extra(args);
     case 'update': {
       // Unquoted words make one name, as `devices remove` reads one.
-      const target = args.join(' ').trim();
-      return { kind: 'update', target: target === '' ? null : target, yes };
+      const named = args.join(' ').trim();
+      const target = named === '' ? null : named;
+      if (flags.cancel) return yes ? { kind: 'usage', message: '--yes does nothing for orbital update --cancel.' } : { kind: 'updateCancel', target };
+      return { kind: 'update', target, yes, when: flags.whenIdle ? 'idle' : 'now' };
     }
     case 'relay':
       if (args.length === 0) return { kind: 'relay' };

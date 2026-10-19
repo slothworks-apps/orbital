@@ -37,9 +37,21 @@ describe('parseArgs', () => {
     expect(parseArgs(['devices', 'rename', 'gpu', 'box'])).toEqual({ kind: 'rename', name: 'gpu box' });
     expect(parseArgs(['devices', 'remove', 'mac'])).toEqual({ kind: 'remove', target: 'mac', yes: false });
     expect(parseArgs(['devices', 'leave', '--yes'])).toEqual({ kind: 'leave', yes: true });
-    expect(parseArgs(['-y', 'update'])).toEqual({ kind: 'update', target: null, yes: true });
-    expect(parseArgs(['update', 'nuc'])).toEqual({ kind: 'update', target: 'nuc', yes: false });
-    expect(parseArgs(['update', 'Pixel', '8', '--yes'])).toEqual({ kind: 'update', target: 'Pixel 8', yes: true });
+    expect(parseArgs(['-y', 'update'])).toEqual({ kind: 'update', target: null, yes: true, when: 'now' });
+    expect(parseArgs(['update', 'nuc'])).toEqual({ kind: 'update', target: 'nuc', yes: false, when: 'now' });
+    expect(parseArgs(['update', 'Pixel', '8', '--yes'])).toEqual({ kind: 'update', target: 'Pixel 8', yes: true, when: 'now' });
+    expect(parseArgs(['update', '--when-idle', 'nuc'])).toEqual({ kind: 'update', target: 'nuc', yes: false, when: 'idle' });
+    expect(parseArgs(['update', '--cancel'])).toEqual({ kind: 'updateCancel', target: null });
+    expect(parseArgs(['update', 'gpu', 'box', '--cancel'])).toEqual({ kind: 'updateCancel', target: 'gpu box' });
+  });
+
+  it('takes --when-idle and --cancel only for update, and not together', () => {
+    for (const argv of [
+      ['status', '--when-idle'], ['devices', 'list', '--cancel'], ['update', '--cancel', '--when-idle'],
+      ['update', '--cancel', '--yes'], ['devices', 'remove', 'nuc', '--cancel'],
+    ]) {
+      expect(parseArgs(argv).kind, argv.join(' ')).toBe('usage');
+    }
   });
 
   it('takes --help anywhere, and a name that starts with a dash after --', () => {
@@ -179,7 +191,13 @@ describe('listLines', () => {
       .toMatch(/update didn’t finish · still on 0\.35\.0$/);
     // A Mac where a session started while it downloaded: the update waits there.
     expect(listLines(remote, new Map([['mac', up({ failed: '0.36.0', candidate: '0.36.0', failedReason: 'sessions' })]]))[2])
-      .toMatch(/didn’t install · a session started on mac-studio$/);
+      .toMatch(/didn’t install · a session started working on mac-studio$/);
+    // Could not tell which sessions worked there.
+    expect(listLines(remote, new Map([['mac', up({ failed: '0.36.0', candidate: '0.36.0', failedReason: 'unknown' })]]))[2])
+      .toMatch(/couldn’t check for sessions on mac-studio$/);
+    // Waiting for its sessions, with the live count.
+    expect(listLines(remote, new Map([['mac', up({ updating: true, candidate: '0.36.0', waiting: { sessions: 2 } })]]))[2])
+      .toMatch(/waiting for 2 sessions to finish · then 0\.36\.0$/);
   });
 
   it('status says a Mac\'s update waits on it, in the words its rows say', () => {
@@ -189,10 +207,14 @@ describe('listLines', () => {
     };
     const remote = status({ macName: 'studio' });
     expect(statusLines(remote, update, 4848)).toContain(
-      'The update to 0.36.0 didn’t install · a session started on studio: it’s downloaded there · restart it on studio.',
+      'The update to 0.36.0 didn’t install · a session started working on studio: it’s downloaded there · restart it on studio.',
     );
     expect(statusLines(remote, { ...update, failedReason: 'unknown' }, 4848)).toContain(
-      'The update to 0.36.0 failed: couldn’t tell whether sessions run on studio — try again',
+      'The update to 0.36.0 didn’t install: couldn’t check for sessions on studio · nothing was started.',
+    );
+    const waiting = { ...update, failed: null, failedReason: null, updating: true, waiting: { sessions: 1 }, startedBy: { id: 'p', name: 'Pixel 8' } };
+    expect(statusLines(remote, waiting, 4848)).toContain(
+      'Waiting for 1 session to finish · then 0.36.0, started on Pixel 8. orbital update --cancel stops the wait.',
     );
   });
 
@@ -621,7 +643,7 @@ describe('confirmations', () => {
 
   it('asks before an update that stops working sessions', async () => {
     const state = { installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 2, startedBy: null };
-    for (const [answer, posted] of [['n', false], ['y', true]] as const) {
+    for (const [answer, posted] of [['n', false], ['u', true], ['w', true]] as const) {
       const s = fakeServer([status()], {
         'GET /api/server/update': { status: 200, body: state },
         'POST /api/server/update': { status: 202, body: { ...state, updating: true } },
@@ -677,9 +699,9 @@ describe('update', () => {
   const run = (argv: string[], s: ReturnType<typeof fakeServer>, t: ReturnType<typeof scriptedIo>) =>
     runCli(argv, { call: s.call, io: t.api, port: 1 });
 
-  it('updates a member through this server, asking first in the row\'s words', async () => {
+  it('updates a member through this server, asking first in the row\'s words with its three choices', async () => {
     const words = updateSessionsWords(3, 'nuc');
-    for (const [answer, posted] of [['n', false], ['y', true]] as const) {
+    for (const [answer, posted] of [['n', null], ['y', null], ['', null], ['u', 'now'], ['w', 'idle']] as const) {
       const s = fakeServer([remote], {
         'GET /api/server/update?machine=nuc-id': { status: 200, body: state },
         'POST /api/server/update?machine=nuc-id': { status: 202, body: { ...state, updating: true } },
@@ -687,9 +709,37 @@ describe('update', () => {
       const t = scriptedIo([answer]);
       expect(await run(['update', 'nuc'], s, t)).toBe(posted ? 0 : 1);
       expect(t.io.asked[0]).toContain(`${words.question} ${words.body}`);
-      expect(s.calls.some((c) => c.method === 'POST' && c.path === '/api/server/update?machine=nuc-id')).toBe(posted);
+      expect(t.io.asked[0]).toContain('Update when sessions finish');
+      const post = s.calls.find((c) => c.method === 'POST' && c.path === '/api/server/update?machine=nuc-id');
+      expect(post !== undefined, answer).toBe(posted !== null);
+      if (post) expect(post.body).toEqual(posted === 'idle' ? { when: 'idle' } : undefined);
       expect(s.calls.some((c) => c.path === '/api/server/update')).toBe(false);
     }
+  });
+
+  it('--when-idle waits without asking, and says what it waits for', async () => {
+    const s = fakeServer([remote], {
+      'GET /api/server/update?machine=nuc-id': { status: 200, body: state },
+      'POST /api/server/update?machine=nuc-id': { status: 202, body: { ...state, updating: true, waiting: { sessions: 3 } } },
+    });
+    const t = scriptedIo();
+    expect(await run(['update', 'nuc', '--when-idle'], s, t)).toBe(0);
+    expect(t.io.asked).toEqual([]);
+    expect(s.calls.at(-1)).toMatchObject({ method: 'POST', body: { when: 'idle' } });
+    expect(t.io.out.at(-1)).toBe('nuc: Waiting for 3 sessions to finish · then 0.36.0. orbital update --cancel nuc stops the wait.');
+  });
+
+  it('--cancel ends a wait on this device or a member, and says when there is none', async () => {
+    const s = fakeServer([remote], {
+      'DELETE /api/server/update?machine=nuc-id': { status: 200, body: state },
+      'DELETE /api/server/update': { status: 409, body: { error: 'not_waiting' } },
+    });
+    const t = scriptedIo();
+    expect(await run(['update', '--cancel', 'nuc'], s, t)).toBe(0);
+    expect(t.io.out.at(-1)).toBe('The update of nuc was cancelled. Nothing was installed.');
+    expect(await run(['update', '--cancel'], s, t)).toBe(1);
+    expect(t.io.err.at(-1)).toBe('No update is waiting here.');
+    expect(s.calls.filter((c) => c.method === 'DELETE').map((c) => c.body)).toEqual([undefined, undefined]);
   });
 
   it('asks this device in the same words, by its own name', async () => {
@@ -697,7 +747,7 @@ describe('update', () => {
       'GET /api/server/update': { status: 200, body: state },
       'POST /api/server/update': { status: 202, body: { ...state, updating: true } },
     });
-    const t = scriptedIo(['y']);
+    const t = scriptedIo(['u']);
     expect(await run(['update'], s, t)).toBe(0);
     const words = updateSessionsWords(3, 'gpu-box');
     expect(t.io.asked[0]).toContain(`${words.question} ${words.body}`);

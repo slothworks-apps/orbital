@@ -123,15 +123,52 @@ export function exitWords(exit: 'dissolve' | 'leave', count: number, primary: st
 
 /**
  * The confirm before an update stops sessions (canvas 50t CONFIRM, 50s
- * sheet): `3 sessions are running on nuc.` then `They stop when it
- * restarts.` `name` is the member being updated, as its row names it.
+ * sheet), with the local Restart's three choices after it: `3 sessions are
+ * running on nuc.` then `Update now stops them when it restarts.` `name` is
+ * the member being updated, as its row names it. `shown`: the count the
+ * confirm named before, when more run there now (50t CONFIRM · MORE
+ * SESSIONS STARTED): `4 sessions are running on nuc now.` then how many
+ * started since.
  */
-export function updateSessionsWords(count: number, name: string): { question: string; body: string } {
+export function updateSessionsWords(count: number, name: string, shown?: number): { question: string; body: string } {
+  if (shown !== undefined && count > shown) {
+    return {
+      question: `${count} sessions are running on ${name} now.`,
+      body: `${count - shown} started since you pressed Update. Update now stops them when it restarts.`,
+    };
+  }
   return {
     question: `${count} session${count === 1 ? ' is' : 's are'} running on ${name}.`,
-    body: 'They stop when it restarts.',
+    body: `Update now stops ${count === 1 ? 'it' : 'them'} when it restarts.`,
   };
 }
+
+/** The confirm's three choices (canvas 50q, 50s): the safe one, the one that stops sessions, and none. */
+export const UPDATE_WHEN_IDLE = 'Update when sessions finish';
+export const UPDATE_NOW = 'Update now';
+
+/** `2 sessions`, `1 session`. */
+function sessionCount(n: number): string {
+  return `${n} session${n === 1 ? '' : 's'}`;
+}
+
+/**
+ * A member whose update waits for its sessions to finish (canvas 50t
+ * WAITING FOR SESSIONS TO FINISH, 50s): `line` under its row on the desktop,
+ * `head` heading the phone's sheet, `phoneState` the phone row's state
+ * words. `sessions` is the live count there, `target` the version it then
+ * installs. The CLI says the same.
+ */
+export function updateWaitingWords(sessions: number, target: string): { line: string; head: string; phoneState: string } {
+  return {
+    line: `waiting for ${sessionCount(sessions)} to finish · then ${target}`,
+    head: `Waiting for ${sessionCount(sessions)} to finish · then ${target}`,
+    phoneState: `online · waiting for ${sessionCount(sessions)}`,
+  };
+}
+
+/** The phone sheet's button while a member waits (canvas 50s `pBtn`). */
+export const CANCEL_THE_UPDATE = 'Cancel the update';
 
 /** Canvas 50a `relayLock`, 50p C: in a group the relay cannot change, and this says how it can again. */
 export function relayLockedLine(role: 'primary' | 'member'): string {
@@ -204,36 +241,32 @@ export function updateFailedLine(installed: string): string {
 
 /**
  * A Mac that did not install the update a member asked for, because a
- * session started on it while it downloaded (`failedReason: 'sessions'`;
- * canvas 50t FAILED · A SESSION STARTED THERE, 50v 03): the update waits
- * there, downloaded, and restarting it is that Mac's choice now. `line` and
- * `sub` under its row on the desktop, `head` heads the phone's sheet,
- * `phoneState` is the phone row's state words. The CLI says the same.
+ * session started working on it while it downloaded (`failedReason:
+ * 'sessions'`; canvas 50t FAILED · A SESSION STARTED THERE, 50v 04): the
+ * update waits there, downloaded, and restarting it is that Mac's choice
+ * now. `line` and `sub` under its row on the desktop, `head` heads the
+ * phone's sheet, `phoneState` is the phone row's state words. The CLI says
+ * the same.
  */
 export function updateWaitsWords(name: string): { line: string; sub: string; head: string; phoneState: string } {
   return {
-    line: `didn’t install · a session started on ${name}`,
+    line: `didn’t install · a session started working on ${name}`,
     sub: `it’s downloaded there · restart it on ${name}`,
-    head: `Didn’t install · a session started on ${name}`,
+    head: `Didn’t install · a session started working on ${name}`,
     phoneState: `online · update waits on ${name}`,
   };
 }
 
 /**
- * Why, under a failed update, when the Mac could not tell which sessions
- * worked as the download landed (`failedReason: 'unknown'`), and did not
- * restart for that.
+ * A Mac that could not tell which of its sessions worked as the download
+ * landed (`failedReason: 'unknown'`; canvas 50t COULDN’T CHECK FOR
+ * SESSIONS), and so did not install: `line` and `sub` under its row, `head`
+ * heading the phone's sheet, with Try again. The CLI says the same.
  */
-export function updateSessionsUnknownLine(name: string): string {
-  return `couldn’t tell whether sessions run on ${name} — try again`;
-}
-
-/**
- * The line under a failed update for the reason the member named; null for
- * none, for one this side does not know, and for `sessions`, which is not
- * a failure line but its own (`updateWaitsWords`).
- */
-export function updateFailedWhy(reason: string | null | undefined, name: string): string | null {
-  if (reason === 'unknown') return updateSessionsUnknownLine(name);
-  return null;
+export function updateNoCountWords(name: string): { line: string; sub: string; head: string } {
+  return {
+    line: `couldn’t check for sessions on ${name}`,
+    sub: 'nothing was started',
+    head: `Couldn’t check for sessions on ${name}`,
+  };
 }
