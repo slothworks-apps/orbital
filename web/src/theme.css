@@ -725,8 +725,34 @@ body {
   animation: orbital-shimmer 2.4s ease-in-out infinite;
 }
 
+/* The phone list's compacting planet: a grey ring drawn in from the tick
+   ring onto the body's edge, as the map's condensing rings (26b
+   `orb-condense`). The caller sets where it ends, `--condense-end`, and
+   staggers the second ring half a cycle. */
+@keyframes orbital-condense {
+  0% {
+    opacity: 0;
+    transform: scale(1);
+  }
+  18% {
+    opacity: 0.9;
+  }
+  70% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(var(--condense-end));
+  }
+}
+
+.orbital-condense {
+  animation: orbital-condense 3.2s cubic-bezier(0.45, 0, 0.7, 0.5) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .orbital-compact-label-in,
+  .orbital-condense,
   .orbital-shimmer {
     animation: none;
   }

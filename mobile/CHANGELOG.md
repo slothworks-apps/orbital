@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.15.2] — 2026-10-19
+### Changed
+- A session compacting its context shows it in the session list too: its planet goes quiet and grey rings draw in onto it, as on the Mac's map.
+
 ## [0.15.1] — 2026-10-19
 ### Fixed
 - The Copy button on code blocks in a transcript is always shown; before, it appeared only on hover, which a phone does not have.
