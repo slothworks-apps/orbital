@@ -10,20 +10,22 @@
  * nothing outside Settings → Devices.
  */
 import {
-  updateAvailableLine, updateFailedLine, updateFailedWhy, updateWaitsWords,
+  updateAvailableLine, updateFailedLine, updateNoCountWords, updateWaitingWords, updateWaitsWords,
 } from '@orbital/shared/remote/groupWords'
 import {
-  UPDATE_TIMEOUT_MS, updateIsNewer, watchUpdate, watchVerdict, type ServerUpdateRefusal, type ServerUpdateState,
-  type UpdateAsker, type UpdateFailReason, type UpdateWatch,
+  UPDATE_TIMEOUT_MS, updateIsNewer, watchUpdate, watchVerdict, type ServerUpdateCancelRefusal, type ServerUpdateRefusal,
+  type ServerUpdateState, type UpdateAsker, type UpdateFailReason, type UpdateWatch,
 } from '@orbital/shared/remote/serverUpdate'
 
 /**
  * An update being watched from here: the version it started on, the one it
  * brings, and who started it. `unconfirmed`: a start whose answer never came
  * — it may have landed, or not — read again on the poll until a read says
- * which; the row shows only what the reads say meanwhile.
+ * which; the row shows only what the reads say meanwhile. `waited`: a read
+ * said it waits for its sessions, so its end without the update and without
+ * a failure is a cancelled (or dropped) wait, not a failed update.
  */
-export type MemberWatch = UpdateWatch & { target: string; from: UpdateAsker | null; unconfirmed?: true }
+export type MemberWatch = UpdateWatch & { target: string; from: UpdateAsker | null; unconfirmed?: true; waited?: true }
 
 /** What this device knows of one member's update. */
 export interface MemberUpdate {
@@ -48,7 +50,21 @@ const NOTHING: MemberUpdate = {
 }
 
 function watchOf(state: ServerUpdateState, now: number): MemberWatch {
-  return { ...watchUpdate(state, now), target: state.candidate ?? state.installed, from: state.startedBy }
+  const watch: MemberWatch = { ...watchUpdate(state, now), target: state.candidate ?? state.installed, from: state.startedBy }
+  return state.waiting ? { ...watch, waited: true } : watch
+}
+
+/** A member's own answer, nothing watched: the truth as it says it. */
+function plainRead(u: MemberUpdate, latest: ServerUpdateState, now: number): MemberUpdate {
+  return {
+    ...u,
+    state: latest,
+    reachable: true,
+    watch: latest.updating ? watchOf(latest, now) : null,
+    timedOut: null,
+    failed: latest.failed,
+    failedReason: latest.failedReason ?? null,
+  }
 }
 
 /**
@@ -69,6 +85,15 @@ export function applyRead(prev: MemberUpdate | undefined, latest: ServerUpdateSt
   }
   if (u.watch) {
     const verdict = watchVerdict(u.watch, latest, now)
+    if (verdict === 'waiting' && latest) {
+      // No time runs out on a wait: the wait for the install starts again with every read that says so.
+      return {
+        ...u, state: latest, reachable: true,
+        watch: { ...u.watch, since: now, waited: true, from: latest.startedBy ?? u.watch.from },
+      }
+    }
+    // The wait was cancelled, here or elsewhere, or a restart of the member dropped it: no failure.
+    if (verdict === 'ended' && latest) return plainRead({ ...u, watch: null }, latest, now)
     if (verdict === 'updating') {
       return {
         ...u,
@@ -87,15 +112,7 @@ export function applyRead(prev: MemberUpdate | undefined, latest: ServerUpdateSt
     }
   }
   if (latest === null) return { ...u, reachable: false }
-  return {
-    ...u,
-    state: latest,
-    reachable: true,
-    watch: latest.updating ? watchOf(latest, now) : null,
-    timedOut: null,
-    failed: latest.failed,
-    failedReason: latest.failedReason ?? null,
-  }
+  return plainRead(u, latest, now)
 }
 
 /**
@@ -135,18 +152,42 @@ export function applyStart(
   return { next: { ...u, refused: answer.error }, reread: false }
 }
 
-/** Where an update stands as the row says it. */
-export type UpdatePhase = 'idle' | 'available' | 'installing' | 'restarting' | 'failed' | 'timeout'
+/** A cancel's answer: the cancel function's, which is null for a member that does not serve the route. */
+export type CancelAnswer = { ok: true; state: ServerUpdateState } | { ok: false; error: ServerUpdateCancelRefusal }
 
 /**
- * `installing` while the member still answers, `restarting` once it does
- * not (canvas 50t UPDATING); `timeout` after the wait; `failed` when it came
- * back on the old version; `available` when it has a newer release.
- * `online`: the member's presence lets it be asked now.
+ * A cancel's answer applied: the member's state, nothing watched and
+ * nothing failed — it offers the update again. `not_waiting` (it installs
+ * already, or the wait ended elsewhere) is shown by reading it again.
+ */
+export function applyCancel(
+  prev: MemberUpdate | undefined, answer: CancelAnswer,
+): { next: MemberUpdate; reread: boolean } {
+  const u = prev ?? NOTHING
+  if (!answer.ok) return { next: u, reread: true }
+  return {
+    next: { ...u, state: answer.state, reachable: true, watch: null, timedOut: null, failed: null, failedReason: null, refused: null },
+    reread: false,
+  }
+}
+
+/** Where an update stands as the row says it. */
+export type UpdatePhase = 'idle' | 'available' | 'waiting' | 'installing' | 'restarting' | 'failed' | 'timeout'
+
+/**
+ * `waiting` while the member answers that it waits for its sessions (canvas
+ * 50t WAITING); `installing` while the member still answers, `restarting`
+ * once it does not (canvas 50t UPDATING) — a waiting member that stops
+ * answering most likely ended its wait in the restart; `timeout` after the
+ * wait; `failed` when it came back on the old version; `available` when it
+ * has a newer release. `online`: the member's presence lets it be asked now.
  */
 export function updatePhase(u: MemberUpdate | undefined, online: boolean): UpdatePhase {
   if (!u) return 'idle'
-  if (u.watch && !u.watch.unconfirmed) return online && u.reachable ? 'installing' : 'restarting'
+  if (u.watch && !u.watch.unconfirmed) {
+    if (!online || !u.reachable) return 'restarting'
+    return u.state?.updating && u.state.waiting ? 'waiting' : 'installing'
+  }
   if (u.timedOut) return 'timeout'
   if (u.failed !== null && u.state && !u.state.updating) return 'failed'
   if (u.state && updateIsNewer(u.state.installed, u.state.candidate)) return 'available'
@@ -160,6 +201,9 @@ export function updateNeedsConfirm(u: MemberUpdate | undefined): boolean {
 
 /** Said in place, never as a toast, when a press could not reach the member (not in the canvas). */
 export const UPDATE_UNREACHABLE = 'Couldn’t reach it to start the update. Try again.'
+
+/** Said in place when Cancel on a waiting member could not reach it (not in the canvas). */
+export const UPDATE_UNREACHABLE_CANCEL = 'Couldn’t reach it to cancel the update. Try again.'
 
 /** What a press of Update or Try again does, decided on a fresh read. */
 export type StartDecision = 'confirm' | 'start' | 'unreachable' | 'none'
@@ -216,7 +260,8 @@ export interface UpdateLine {
   bright: boolean
   /** The phone sheet's heading for the same state. */
   head: string
-  action: 'update' | 'retry' | null
+  /** Update, Try again, or Cancel (a wait for the sessions, canvas 50t WAITING); none while it cannot be asked. */
+  action: 'update' | 'retry' | 'cancel' | null
 }
 
 export interface UpdateRow {
@@ -262,6 +307,18 @@ export function updateRow(u: MemberUpdate | undefined, input: UpdateRowInput): U
   const failedOn = u?.state?.installed ?? installed ?? ''
 
   switch (phase) {
+    case 'waiting': {
+      const waiting = updateWaitingWords(u!.state!.waiting!.sessions, watch!.target)
+      return {
+        phase,
+        version: installed,
+        words: surface === 'phone' ? waiting.phoneState : words,
+        dot: null,
+        dim: null,
+        // Cancel sits on every member's row, with no confirm.
+        line: { text: waiting.line, sub: from, bright: false, head: waiting.head, action: reach ? 'cancel' : null },
+      }
+    }
     case 'installing':
     case 'restarting': {
       const target = watch!.target
@@ -296,8 +353,22 @@ export function updateRow(u: MemberUpdate | undefined, input: UpdateRowInput): U
         },
       }
     case 'failed':
+      if (u?.failedReason === 'unknown') {
+        // Canvas 50t COULDN’T CHECK FOR SESSIONS: nothing installed; Try again asks again.
+        const nocount = updateNoCountWords(name)
+        const candidate = u.state?.candidate ?? null
+        const offered = u.state !== null && updateIsNewer(u.state.installed, candidate)
+        return {
+          phase,
+          version: installed,
+          words: surface === 'phone' && offered ? `${words} · update available${reach ? ` · ${candidate}` : ''}` : words,
+          dot: null,
+          dim: null,
+          line: { text: nocount.line, sub: nocount.sub, bright: false, head: nocount.head, action: reach ? 'retry' : null },
+        }
+      }
       if (u?.failedReason === 'sessions') {
-        // Canvas 50t FAILED · A SESSION STARTED THERE, 50v 03: it waits on
+        // Canvas 50t FAILED · A SESSION STARTED THERE, 50v 04: it waits on
         // that Mac, downloaded; no Try again — the restart is its own now.
         const waits = updateWaitsWords(name)
         return {
@@ -317,7 +388,7 @@ export function updateRow(u: MemberUpdate | undefined, input: UpdateRowInput): U
         dim: null,
         line: {
           text: updateFailedLine(failedOn),
-          sub: updateFailedWhy(u?.failedReason, name) ?? whereToLook(name, kind),
+          sub: whereToLook(name, kind),
           bright: false,
           head: `The update didn’t finish · still on ${failedOn}`, action: reach ? 'retry' : null,
         },

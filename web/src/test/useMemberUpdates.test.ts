@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 import { UPDATE_POLL_MS, type ServerUpdateState } from '@orbital/shared/remote/serverUpdate'
-import type { StartAnswer } from '../lib/memberUpdate'
+import type { CancelAnswer, StartAnswer } from '../lib/memberUpdate'
 import { UPDATE_READ_TIMEOUT_MS, useMemberUpdates, type UpdateIo } from '../lib/useMemberUpdates'
 
 function state(patch: Partial<ServerUpdateState> = {}): ServerUpdateState {
@@ -33,6 +33,7 @@ describe('useMemberUpdates: pressing Update', () => {
     const io: UpdateIo = {
       read: vi.fn(async () => state()),
       start: vi.fn(() => new Promise<StartAnswer | null>(() => {})),
+      cancel: vi.fn(async () => null),
     }
     // Not readable: nothing is read when the hook mounts, only by the press.
     const { result } = renderHook(() => useMemberUpdates([{ id, readable: false }], io))
@@ -56,6 +57,7 @@ describe('useMemberUpdates: pressing Update', () => {
     const io: UpdateIo = {
       read: vi.fn(async () => state({ updating })),
       start: vi.fn(() => new Promise<StartAnswer | null>(() => {})),
+      cancel: vi.fn(async () => null),
     }
     const { result } = renderHook(() => useMemberUpdates([{ id, readable: true }], io))
     await act(async () => {
@@ -85,6 +87,7 @@ describe('useMemberUpdates: pressing Update', () => {
     const io: UpdateIo = {
       read: vi.fn(async () => reads.shift() ?? state({ sessions: 3 })),
       start: vi.fn(async (): Promise<StartAnswer> => ({ ok: true, state: state({ updating: true, sessions: 3 }) })),
+      cancel: vi.fn(async () => null),
     }
     const { result } = renderHook(() => useMemberUpdates([{ id, readable: false }], io))
     await act(async () => {
@@ -112,6 +115,7 @@ describe('useMemberUpdates: pressing Update', () => {
     const io: UpdateIo = {
       read: vi.fn(() => reads.shift() ?? Promise.resolve(state({ sessions: 3 }))),
       start: vi.fn(async (): Promise<StartAnswer> => ({ ok: true, state: state({ updating: true }) })),
+      cancel: vi.fn(async () => null),
     }
     const { result, rerender } = renderHook(({ readable }) => useMemberUpdates([{ id, readable }], io), {
       initialProps: { readable: false },
@@ -142,6 +146,7 @@ describe('useMemberUpdates: pressing Update', () => {
     const io: UpdateIo = {
       read: vi.fn(() => read.promise),
       start: vi.fn(async (): Promise<StartAnswer> => ({ ok: true, state: state({ updating: true }) })),
+      cancel: vi.fn(async () => null),
     }
     const { result } = renderHook(() => useMemberUpdates([{ id, readable: false }], io))
 
@@ -171,6 +176,7 @@ describe('useMemberUpdates: pressing Update', () => {
       // The first read (on mount) hangs; the press's own read answers at once.
       read: vi.fn(() => reads.shift() ?? Promise.resolve(state())),
       start: vi.fn(async (): Promise<StartAnswer> => ({ ok: true, state: state({ updating: true }) })),
+      cancel: vi.fn(async () => null),
     }
     const { result } = renderHook(() => useMemberUpdates([{ id, readable: true }], io))
     await act(async () => {
@@ -184,5 +190,80 @@ describe('useMemberUpdates: pressing Update', () => {
     })
     expect(result.current.byId[id]?.watch).not.toBeNull()
     expect(result.current.byId[id]?.failed).toBeNull()
+  })
+
+  it("the confirm's Update when sessions finish waits for however many run now, without asking again", async () => {
+    const id = nextId()
+    const reads = [state({ sessions: 1 }), state({ sessions: 3 })]
+    const io: UpdateIo = {
+      read: vi.fn(async () => reads.shift() ?? state({ sessions: 3 })),
+      start: vi.fn(async (): Promise<StartAnswer> => ({
+        ok: true, state: state({ updating: true, sessions: 3, waiting: { sessions: 3 } }),
+      })),
+      cancel: vi.fn(async () => null),
+    }
+    const { result } = renderHook(() => useMemberUpdates([{ id, readable: false }], io))
+    await act(async () => {
+      await expect(result.current.press(id)).resolves.toBe('confirm')
+    })
+    await act(async () => {
+      await expect(result.current.start(id, 'idle')).resolves.toBe('started')
+    })
+    expect(io.start).toHaveBeenCalledWith(id, 'idle')
+    expect(result.current.byId[id]?.watch).toMatchObject({ waited: true })
+  })
+})
+
+describe('useMemberUpdates: a wait for the sessions', () => {
+  it('is read on every poll, however long it lasts, and its count changes in place', async () => {
+    const id = nextId()
+    let left = 3
+    const io: UpdateIo = {
+      read: vi.fn(async () => state({ updating: true, sessions: left, waiting: { sessions: left } })),
+      start: vi.fn(async () => null),
+      cancel: vi.fn(async () => null),
+    }
+    const { result } = renderHook(() => useMemberUpdates([{ id, readable: true }], io))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(result.current.byId[id]?.watch).toMatchObject({ waited: true })
+    left = 1
+    // Far past UPDATE_TIMEOUT_MS: a wait does not time out.
+    for (let i = 0; i < 200; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(UPDATE_POLL_MS)
+      })
+    }
+    expect(result.current.byId[id]).toMatchObject({ state: { waiting: { sessions: 1 } }, timedOut: null, failed: null })
+    expect(result.current.byId[id]?.watch).not.toBeNull()
+  })
+
+  it('Cancel ends it with nothing failed; one that finds no wait reads the member again', async () => {
+    const id = nextId()
+    const waiting = state({ updating: true, sessions: 2, waiting: { sessions: 2 } })
+    const answers: CancelAnswer[] = [{ ok: true, state: state({ sessions: 2 }) }, { ok: false, error: 'not_waiting' }]
+    let latest = waiting
+    const io: UpdateIo = {
+      read: vi.fn(async () => latest),
+      start: vi.fn(async () => null),
+      cancel: vi.fn(async () => answers.shift() ?? null),
+    }
+    const { result } = renderHook(() => useMemberUpdates([{ id, readable: true }], io))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    await act(async () => {
+      await expect(result.current.cancel(id)).resolves.toBe('cancelled')
+    })
+    expect(result.current.byId[id]).toMatchObject({ watch: null, failed: null, state: { updating: false } })
+
+    // A second Cancel finds no wait (it installs already): the read shows why.
+    latest = state({ updating: true, sessions: 0 })
+    await act(async () => {
+      await expect(result.current.cancel(id)).resolves.toBe('none')
+    })
+    expect(io.read).toHaveBeenLastCalledWith(id)
+    expect(result.current.byId[id]?.state?.waiting).toBeUndefined()
   })
 })

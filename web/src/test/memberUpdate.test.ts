@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { UPDATE_TIMEOUT_MS, type ServerUpdateState } from '@orbital/shared/remote/serverUpdate'
 import {
-  applyRead, applyStart, applyStartUnanswered, confirmDecision, selfUpdateAvailable, startDecision, updateNeedsConfirm, updatePhase, updateRow, type MemberUpdate,
+  applyCancel, applyRead, applyStart, applyStartUnanswered, confirmDecision, selfUpdateAvailable, startDecision, updateNeedsConfirm, updatePhase, updateRow, type MemberUpdate,
   type UpdateRowInput,
 } from '../lib/memberUpdate'
 
@@ -115,22 +115,29 @@ describe('an update from start to end', () => {
     const row = updateRow(back, MAC)
     expect(row).toMatchObject({ phase: 'failed', version: '0.35.2', words: 'online' })
     expect(row.line).toEqual({
-      text: 'didn’t install · a session started on studio', sub: 'it’s downloaded there · restart it on studio',
-      bright: false, head: 'Didn’t install · a session started on studio', action: null,
+      text: 'didn’t install · a session started working on studio', sub: 'it’s downloaded there · restart it on studio',
+      bright: false, head: 'Didn’t install · a session started working on studio', action: null,
     })
     expect(updateRow(back, { ...MAC, surface: 'phone' }).words).toBe('online · update waits on studio')
     expect(updateRow(back, { ...MAC, surface: 'phone', online: false, words: 'asleep' }).words).toBe('asleep')
     // Read again later, the member still says so; a new start forgets it.
     const reread = applyRead(back, state({ failed: '0.36.0', failedReason: 'sessions' }), T0 + 60_000)
-    expect(updateRow(reread, MAC).line?.text).toBe('didn’t install · a session started on studio')
+    expect(updateRow(reread, MAC).line?.text).toBe('didn’t install · a session started working on studio')
     const again = applyStart(reread, { ok: true, state: state({ updating: true }) }, T0 + 70_000).next
     expect(again.failedReason).toBeNull()
   })
 
-  it('says so when the Mac could not tell which sessions run, and keeps where to look for no reason it knows', () => {
+  it('says so when the Mac could not check for its sessions, with Try again; keeps where to look for no reason it knows', () => {
     const MAC = { ...SERVER, name: 'studio', kind: 'desktop' }
     const unknown = applyRead(started(), state({ failed: '0.36.0', failedReason: 'unknown' }), T0 + 30_000)
-    expect(updateRow(unknown, MAC).line?.sub).toBe('couldn’t tell whether sessions run on studio — try again')
+    expect(updateRow(unknown, MAC).line).toEqual({
+      text: 'couldn’t check for sessions on studio', sub: 'nothing was started', bright: false,
+      head: 'Couldn’t check for sessions on studio', action: 'retry',
+    })
+    // The phone row reads as update available, as before it was asked.
+    expect(updateRow(unknown, { ...MAC, surface: 'phone' }).words).toBe('online · update available · 0.36.0')
+    expect(updateRow(unknown, { ...MAC, online: false }).line?.action).toBeNull()
+    expect(startDecision(unknown, true)).toBe('start')
     const plain = applyRead(started(), state({ failed: '0.36.0', failedReason: null }), T0 + 30_000)
     expect(updateRow(plain, MAC).line?.sub).toBe('on studio: Settings → Updates')
   })
@@ -154,6 +161,68 @@ describe('an update from start to end', () => {
     // Back on the new one: the line goes.
     const done = applyRead(u, state({ installed: '0.36.0' }), T0 + UPDATE_TIMEOUT_MS + 60_000)
     expect(updateRow(done, SERVER).phase).toBe('idle')
+  })
+})
+
+describe('an update when sessions finish', () => {
+  const PIXEL = { id: 'px', name: 'Pixel 8' }
+  const waiting = (n: number, by = PIXEL) => state({ updating: true, sessions: n, waiting: { sessions: n }, startedBy: by })
+
+  it('reads as waiting on every member, with the live count, who started it, and Cancel', () => {
+    const u = applyRead(undefined, waiting(2), T0)
+    const row = updateRow(u, SERVER)
+    expect(row).toMatchObject({ phase: 'waiting', version: '0.35.2', words: 'online', dot: null, dim: null })
+    expect(row.line).toEqual({
+      text: 'waiting for 2 sessions to finish · then 0.36.0', sub: 'started on Pixel 8', bright: false,
+      head: 'Waiting for 2 sessions to finish · then 0.36.0', action: 'cancel',
+    })
+    expect(updateRow(u, { ...SERVER, surface: 'phone' }).words).toBe('online · waiting for 2 sessions')
+    const one = applyRead(u, waiting(1), T0 + 5_000)
+    expect(updateRow(one, SERVER).line?.text).toBe('waiting for 1 session to finish · then 0.36.0')
+    // Started here: not named.
+    expect(updateRow(applyRead(undefined, waiting(1, { id: 'me', name: 'studio' }), T0), SERVER).line?.sub).toBeNull()
+    // Nothing more to start meanwhile.
+    expect(startDecision(u, true)).toBe('none')
+  })
+
+  it('never times out while it waits; ends in the install as any update does', () => {
+    let u = applyRead(undefined, waiting(2), T0)
+    u = applyRead(u, waiting(2), T0 + UPDATE_TIMEOUT_MS * 3)
+    expect(updatePhase(u, true)).toBe('waiting')
+    // The install began: the timeout counts from the last read that said it waited.
+    u = applyRead(u, state({ updating: true }), T0 + UPDATE_TIMEOUT_MS * 3 + 5_000)
+    expect(updatePhase(u, true)).toBe('installing')
+    u = applyRead(u, null, T0 + UPDATE_TIMEOUT_MS * 3 + 10_000)
+    expect(updatePhase(u, false)).toBe('restarting')
+    expect(updatePhase(applyRead(u, null, T0 + UPDATE_TIMEOUT_MS * 4 + 5_000), false)).toBe('timeout')
+  })
+
+  it('a waiting member that stops answering reads as restarting, its wait most likely ended', () => {
+    const u = applyRead(applyRead(undefined, waiting(1), T0), null, T0 + 5_000)
+    expect(updatePhase(u, true)).toBe('restarting')
+  })
+
+  it('cancelled — here, on another member, or dropped by a restart — goes back to update available, not failed', () => {
+    const u = applyRead(undefined, waiting(2), T0)
+    const elsewhere = applyRead(u, state({ sessions: 2 }), T0 + 5_000)
+    expect(elsewhere).toMatchObject({ watch: null, failed: null, timedOut: null })
+    expect(updateRow(elsewhere, SERVER).phase).toBe('available')
+
+    const here = applyCancel(u, { ok: true, state: state({ sessions: 2 }) })
+    expect(here).toEqual({ next: expect.objectContaining({ watch: null, failed: null }), reread: false })
+    expect(updateRow(here.next, SERVER).phase).toBe('available')
+    expect(applyCancel(u, { ok: false, error: 'not_waiting' })).toEqual({ next: u, reread: true })
+
+    // A member that says it failed did fail.
+    const failed = applyRead(u, state({ failed: '0.36.0' }), T0 + 5_000)
+    expect(updateRow(failed, SERVER).phase).toBe('failed')
+  })
+
+  it('a wait started here is watched as waiting from its own answer', () => {
+    const read = applyRead(undefined, state({ sessions: 2 }), T0)
+    const next = applyStart(read, { ok: true, state: waiting(2) }, T0).next
+    expect(next.watch).toMatchObject({ waited: true })
+    expect(updatePhase(next, true)).toBe('waiting')
   })
 })
 

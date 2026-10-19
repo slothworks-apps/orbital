@@ -2,8 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { osName } from '@orbital/shared/remote/device'
 import type { GroupEnded } from '@orbital/shared/remote/group'
 import { endedNotice, kindOs, type RowState } from '../../lib/devices'
-import { UPDATE_UNREACHABLE, updateRow, type MemberUpdate, type UpdateRow } from '../../lib/memberUpdate'
-import { useMemberUpdates, type PressResult, type UpdateIo, type UpdateTarget } from '../../lib/useMemberUpdates'
+import {
+  UPDATE_UNREACHABLE, UPDATE_UNREACHABLE_CANCEL, updateRow, type MemberUpdate, type UpdateRow,
+} from '../../lib/memberUpdate'
+import {
+  useMemberUpdates, type CancelResult, type PressResult, type UpdateIo, type UpdateTarget,
+} from '../../lib/useMemberUpdates'
 import { useNow } from '../../lib/useNow'
 import { KindGlyph } from '../../ui/KindGlyph'
 import { MemberDot } from '../../ui/MemberDot'
@@ -17,8 +21,11 @@ import { clearEnded } from '../platform/pairing'
 import { useMobile } from '../state'
 import { groupRef } from '../transport/groupRef'
 import { BottomSheet, CARD, PrimaryButton, SecondaryButton, SectionLabel, SheetPresence } from '../ui'
-import { relayLockedLine, updateSessionsWords } from '@orbital/shared/remote/groupWords'
-import { readDeviceUpdate, startDeviceUpdate } from '../serverUpdate'
+import {
+  CANCEL_THE_UPDATE, UPDATE_WHEN_IDLE, relayLockedLine, updateSessionsWords,
+} from '@orbital/shared/remote/groupWords'
+import type { UpdateWhen } from '@orbital/shared/remote/serverUpdate'
+import { cancelDeviceUpdate, readDeviceUpdate, startDeviceUpdate } from '../serverUpdate'
 import type { DeviceView } from '../state'
 import { macSupports } from '../version'
 
@@ -33,12 +40,14 @@ function Dot({ state }: { state: RowState | 'linking' | 'offline' }) {
 
 /**
  * The phone asks a member about its update only through `readDeviceUpdate`
- * / `startDeviceUpdate`, gated by `MAC_FEATURES.serverUpdate`; a member is
- * readable while its channel is up (canvas 50s).
+ * / `startDeviceUpdate` / `cancelDeviceUpdate`, gated by
+ * `MAC_FEATURES.serverUpdate`; a member is readable while its channel is up
+ * (canvas 50s).
  */
 const PHONE_UPDATE_IO: UpdateIo = {
   read: (id) => readDeviceUpdate(id),
-  start: (id) => startDeviceUpdate(id),
+  start: (id, when) => startDeviceUpdate(id, when),
+  cancel: (id) => cancelDeviceUpdate(id),
 }
 
 /** Every member whose hello serves the routes; readable while its channel is up. A phone has no entry in `devices`. */
@@ -277,7 +286,8 @@ export function DevicesSection() {
             shown={rowUpdate(sheet, updates.byId[sheet.id], selfId)}
             starting={updates.starting !== null}
             onPress={() => updates.press(sheet.id)}
-            onConfirm={() => updates.start(sheet.id)}
+            onConfirm={(when) => updates.start(sheet.id, when)}
+            onCancelUpdate={() => updates.cancel(sheet.id)}
           />
         )}
       </SheetPresence>
@@ -329,8 +339,9 @@ function EndedNotice({ ended }: { ended: GroupEnded }) {
 /**
  * A device's sheet (canvas 50i `pS`, 50s): its state, its version and when
  * it joined. A member's update follows the table in the words of the
- * desktop's line, with Update or Try again only while it can be asked; with
- * sessions running there, Update asks in place first. The sheet stays open
+ * desktop's line, with Update, Try again or Cancel the update (a wait for
+ * its sessions) only while it can be asked; with sessions running there,
+ * Update asks in place first, with the three choices. The sheet stays open
  * while it updates, and Close never cancels an update. In a group a phone
  * removes no one, so the sheet says who does and only closes. Out of one —
  * a Mac from before groups this phone paired with — Remove ends that pair;
@@ -338,7 +349,7 @@ function EndedNotice({ ended }: { ended: GroupEnded }) {
  * leaving (`leaveGroup`): the phone forgets it and opens the scanner.
  */
 function DeviceSheet({
-  row, primary, alone, onClose, update, shown, starting, onPress, onConfirm,
+  row, primary, alone, onClose, update, shown, starting, onPress, onConfirm, onCancelUpdate,
 }: {
   row: PhoneRow
   primary: string | null
@@ -349,14 +360,19 @@ function DeviceSheet({
   starting: boolean
   /** Update or Try again: reads the member again and starts, or asks for the confirm (`press`). */
   onPress: () => Promise<PressResult>
-  /** The confirm's Update; `confirm` when it must ask again, with the count read now. */
-  onConfirm: () => Promise<PressResult>
+  /** The confirm's Update now or Update when sessions finish; `confirm` when Update now must ask again, with the count read now. */
+  onConfirm: (when: UpdateWhen) => Promise<PressResult>
+  /** Cancel the update: ends a wait for the sessions there, with no confirm. */
+  onCancelUpdate: () => Promise<CancelResult>
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   /** A press that could not reach the member, said under the update's words. */
   const [updateError, setUpdateError] = useState<string | null>(null)
-  const [confirming, setConfirming] = useState(false)
+  /** The confirm, with the count it first named; `recount` once Update now found more (canvas 50t). */
+  const [confirming, setConfirmingState] = useState<{ shown: number; recount: boolean } | null>(null)
+  const setConfirming = (on: boolean) =>
+    setConfirmingState(on ? { shown: update?.state?.sessions ?? 0, recount: false } : null)
   const line = shown.line
 
   /** Any new action on the sheet clears what the last one said, whichever it was. */
@@ -391,16 +407,26 @@ function DeviceSheet({
     else if (result === 'unreachable') setUpdateError(UPDATE_UNREACHABLE)
   }
 
-  const confirmUpdate = async () => {
+  const confirmUpdate = async (when: UpdateWhen) => {
     clearLines()
-    const result = await onConfirm()
-    // More sessions there than it named: it stays, naming the new count.
-    if (result === 'confirm') return
+    const result = await onConfirm(when)
+    // More sessions there than it named: it stays, naming the new count and how many are new.
+    if (result === 'confirm') {
+      setConfirmingState((c) => (c ? { ...c, recount: true } : c))
+      return
+    }
     setConfirming(false)
     if (result === 'unreachable') setUpdateError(UPDATE_UNREACHABLE)
   }
 
-  const sessions = updateSessionsWords(update?.state?.sessions ?? 0, row.name)
+  const cancelUpdate = async () => {
+    clearLines()
+    if ((await onCancelUpdate()) === 'unreachable') setUpdateError(UPDATE_UNREACHABLE_CANCEL)
+  }
+
+  const sessions = updateSessionsWords(
+    update?.state?.sessions ?? 0, row.name, confirming?.recount ? confirming.shown : undefined,
+  )
 
   return (
     <BottomSheet label={row.name} onDismiss={onClose} variant="device">
@@ -441,10 +467,13 @@ function DeviceSheet({
               <span className="text-[15px] font-bold text-text-bright">{sessions.question}</span>
               <span className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)]">{sessions.body}</span>
             </div>
-            {/* The canvas's light button, as Remove's: an update is no accent action. */}
-            <PrimaryButton tone="light" disabled={starting} onClick={() => void confirmUpdate()}>
-              Update {row.name}
+            {/* Canvas 50s: the safe choice is the light, filled one; an update is no accent action. */}
+            <PrimaryButton tone="light" disabled={starting} onClick={() => void confirmUpdate('idle')}>
+              {UPDATE_WHEN_IDLE}
             </PrimaryButton>
+            <SecondaryButton disabled={starting} onClick={() => void confirmUpdate('now')}>
+              Update {row.name} now
+            </SecondaryButton>
             <SecondaryButton disabled={starting} onClick={() => setConfirming(false)}>Cancel</SecondaryButton>
           </>
         ) : (
@@ -463,8 +492,11 @@ function DeviceSheet({
                   </p>
                 )}
                 {line.action && (
-                  <SecondaryButton disabled={starting} onClick={() => void pressUpdate()}>
-                    {line.action === 'retry' ? 'Try again' : `Update ${row.name}`}
+                  <SecondaryButton
+                    disabled={starting}
+                    onClick={() => void (line.action === 'cancel' ? cancelUpdate() : pressUpdate())}
+                  >
+                    {line.action === 'retry' ? 'Try again' : line.action === 'cancel' ? CANCEL_THE_UPDATE : `Update ${row.name}`}
                   </SecondaryButton>
                 )}
               </>

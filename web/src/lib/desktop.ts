@@ -56,15 +56,16 @@ export type UpdatePrompt =
  * An update another member of the group started on this Mac (canvas 50v;
  * `desktop/src/lib/updates.ts` `UpdateView` has the same fields):
  *
- * - `remote` — while it downloads and restarts: the member's name, and how
- *   many Orbital sessions work now, which the restart stops.
+ * - `remote` — while it downloads, waits and restarts: the member's name,
+ *   how many Orbital sessions work now, which the restart stops, and `wait`
+ *   when it installs once they finish (canvas 50v 02).
  * - `sessionStarted` — Ready, because a session started here while it
  *   downloaded: it waits for this Mac's user.
  * - `receipt` — after the restart it made, until × on its line.
  *
  * Optional: a state without them is this Mac's own update.
  */
-export type UpdateRemote = { by: string; working: number }
+export type UpdateRemote = { by: string; working: number; wait?: boolean }
 export type UpdateReceipt = { by: string; at: number; stopped: number; version: string }
 export type UpdateExtras = {
   remote?: UpdateRemote | null

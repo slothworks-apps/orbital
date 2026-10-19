@@ -8,7 +8,7 @@
 import { linksWith } from '@orbital/shared/remote/group'
 import { osLabel } from '@orbital/shared/remote/groupWords'
 import {
-  memberServesUpdate, type ServerUpdateRefusal, type ServerUpdateState,
+  memberServesUpdate, type ServerUpdateCancelRefusal, type ServerUpdateRefusal, type ServerUpdateState, type UpdateWhen,
 } from '@orbital/shared/remote/serverUpdate'
 import { api } from './api'
 import { timeAgo } from './format'
@@ -32,12 +32,20 @@ export async function readMemberUpdate(m: UpdateMember): Promise<ServerUpdateSta
   return api.serverUpdate(m.self ? undefined : m.id)
 }
 
-/** Starts a member's update; null for a member that does not serve the route. */
+/** Starts a member's update, now or once its sessions finish; null for a member that does not serve the route. */
 export async function startMemberUpdate(
-  m: UpdateMember,
+  m: UpdateMember, when: UpdateWhen = 'now',
 ): Promise<{ ok: true; state: ServerUpdateState } | { ok: false; error: ServerUpdateRefusal } | null> {
   if (!memberServesUpdate(m)) return null
-  return api.startServerUpdate(m.self ? undefined : m.id)
+  return api.startServerUpdate(m.self ? undefined : m.id, when)
+}
+
+/** Ends a member's wait for its sessions; null for a member that does not serve the route. */
+export async function cancelMemberUpdate(
+  m: UpdateMember,
+): Promise<{ ok: true; state: ServerUpdateState } | { ok: false; error: ServerUpdateCancelRefusal } | null> {
+  if (!memberServesUpdate(m)) return null
+  return api.cancelServerUpdate(m.self ? undefined : m.id)
 }
 
 /**

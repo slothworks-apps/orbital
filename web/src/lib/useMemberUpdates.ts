@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
-import { updatePollDelay, type ServerUpdateState } from '@orbital/shared/remote/serverUpdate'
+import { updatePollDelay, type ServerUpdateState, type UpdateWhen } from '@orbital/shared/remote/serverUpdate'
 import {
-  applyRead, applyStart, applyStartUnanswered, confirmDecision, startDecision, type MemberUpdate, type StartAnswer,
-  type StartDecision,
+  applyCancel, applyRead, applyStart, applyStartUnanswered, confirmDecision, startDecision, type CancelAnswer,
+  type MemberUpdate, type StartAnswer, type StartDecision,
 } from './memberUpdate'
 
 /**
@@ -35,6 +35,9 @@ function withTimeout<T>(promise: Promise<T>, ms = UPDATE_READ_TIMEOUT_MS): Promi
 /** What a press of Update or Try again came to: the confirm to show, started, not reached, or nothing to do. */
 export type PressResult = 'confirm' | 'started' | 'unreachable' | 'none'
 
+/** What Cancel on a waiting member came to: the wait ended, not reached, or there was none to end. */
+export type CancelResult = 'cancelled' | 'unreachable' | 'none'
+
 /**
  * What this device knows of each member's update, by member id. Kept while
  * Settings → Devices is closed, so a member read once still says `update
@@ -54,20 +57,23 @@ export interface UpdateTarget {
 
 /**
  * How a surface asks: the desktop through `readMemberUpdate` /
- * `startMemberUpdate`, the phone through `readDeviceUpdate` /
- * `startDeviceUpdate`. Each answers null for a member that does not serve
- * the routes; a read that throws is a member that could not be reached.
+ * `startMemberUpdate` / `cancelMemberUpdate`, the phone through
+ * `readDeviceUpdate` / `startDeviceUpdate` / `cancelDeviceUpdate`. Each
+ * answers null for a member that does not serve the routes; a read that
+ * throws is a member that could not be reached.
  */
 export interface UpdateIo {
   read(id: string): Promise<ServerUpdateState | null>
-  start(id: string): Promise<StartAnswer | null>
+  start(id: string, when: UpdateWhen): Promise<StartAnswer | null>
+  cancel(id: string): Promise<CancelAnswer | null>
 }
 
 /**
  * Settings → Devices' reads of the members' updates, while it is open: each
  * member once as it opens, and again whenever it comes back online; every
- * `UPDATE_POLL_MS` while one is updating (`updatePollDelay`), until it is
- * back or the wait runs out. Nothing is read once it closes.
+ * `UPDATE_POLL_MS` while one is updating or waits for its sessions
+ * (`updatePollDelay`), until it is back or the wait runs out — the count a
+ * wait names changes in place. Nothing is read once it closes.
  */
 export function useMemberUpdates(targets: UpdateTarget[], io: UpdateIo) {
   const byId = useUpdates((s) => s.byId)
@@ -153,10 +159,10 @@ export function useMemberUpdates(targets: UpdateTarget[], io: UpdateIo) {
    * is watched, unconfirmed (`applyStartUnanswered`), so the poll shows it
    * updating once a read says so.
    */
-  const startNow = useCallback(async (id: string): Promise<boolean> => {
+  const startNow = useCallback(async (id: string, when: UpdateWhen = 'now'): Promise<boolean> => {
     let answer: StartAnswer | null
     try {
-      answer = await withTimeout(ioRef.current.start(id))
+      answer = await withTimeout(ioRef.current.start(id, when))
     } catch (err) {
       if (err instanceof Unanswered) land(id, ticket(id), (prev) => applyStartUnanswered(prev, Date.now()))
       return false
@@ -191,7 +197,7 @@ export function useMemberUpdates(targets: UpdateTarget[], io: UpdateIo) {
    * state in the store decides instead of this read — never nothing.
    */
   const decideFresh = useCallback(async (
-    id: string, decide: (fresh: MemberUpdate, online: boolean) => StartDecision,
+    id: string, decide: (fresh: MemberUpdate, online: boolean) => StartDecision, when: UpdateWhen = 'now',
   ): Promise<PressResult> => {
     const n = ticket(id)
     const latest = await fetchOne(id)
@@ -203,7 +209,7 @@ export function useMemberUpdates(targets: UpdateTarget[], io: UpdateIo) {
     const online = targetsRef.current.find((t) => t.id === id)?.readable ?? false
     const decision = decide(fresh, online)
     if (decision !== 'start') return decision
-    return (await startNow(id)) ? 'started' : 'unreachable'
+    return (await startNow(id, when)) ? 'started' : 'unreachable'
   }, [ticket, fetchOne, land, startNow])
 
   /**
@@ -216,14 +222,49 @@ export function useMemberUpdates(targets: UpdateTarget[], io: UpdateIo) {
   ])
 
   /**
-   * The confirm's Update: the member is read again too, and when it runs
-   * more sessions than the confirm named, the answer is `confirm` again —
-   * the screen keeps the confirm open, and it names the new count.
+   * The confirm's Update now or Update when sessions finish: the member is
+   * read again too. Update now, when it runs more sessions than the confirm
+   * named, answers `confirm` again — the screen keeps the confirm open, and
+   * it names the new count. Update when sessions finish waits for however
+   * many run, so more of them ask nothing.
    */
-  const start = useCallback((id: string): Promise<PressResult> => exclusive(id, () => {
+  const start = useCallback((id: string, when: UpdateWhen = 'now'): Promise<PressResult> => exclusive(id, () => {
     const shown = useUpdates.getState().byId[id]?.state?.sessions ?? 0
-    return decideFresh(id, (fresh, online) => confirmDecision(shown, fresh, online))
+    const decide = when === 'idle'
+      ? (fresh: MemberUpdate, online: boolean) => {
+        const decision = startDecision(fresh, online)
+        return decision === 'confirm' ? 'start' : decision
+      }
+      : (fresh: MemberUpdate, online: boolean) => confirmDecision(shown, fresh, online)
+    return decideFresh(id, decide, when)
   }), [exclusive, decideFresh])
 
-  return { byId, starting, press, start }
+  /**
+   * Cancel on a member that waits for its sessions: no confirm (canvas 50t
+   * WAITING). Its answer is newer than any read asked before it; one that
+   * says nothing waits (it installs already, or another member cancelled
+   * first) is shown by reading it again.
+   */
+  const cancel = useCallback((id: string): Promise<CancelResult> => exclusive(id, async () => {
+    let answer: CancelAnswer | null
+    try {
+      answer = await withTimeout(ioRef.current.cancel(id))
+    } catch {
+      return 'unreachable'
+    }
+    if (!answer) return 'none'
+    let reread = false
+    land(id, ticket(id), (prev) => {
+      const next = applyCancel(prev, answer)
+      reread = next.reread
+      return next.next
+    })
+    if (reread) {
+      await readOne(id)
+      return 'none'
+    }
+    return 'cancelled'
+  }), [exclusive, land, ticket, readOne])
+
+  return { byId, starting, press, start, cancel }
 }

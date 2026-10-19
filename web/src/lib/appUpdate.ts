@@ -1,4 +1,4 @@
-import { updateAvailableLine } from '@orbital/shared/remote/groupWords'
+import { updateAvailableLine, updateWaitingWords } from '@orbital/shared/remote/groupWords'
 import type { UpdateAction, UpdateCheckAnswer, UpdateExtras, UpdatePrompt, UpdateReceipt } from './desktop'
 
 /**
@@ -48,10 +48,20 @@ const workingSessions = (n: number): string => (n === 1 ? '1 working session' : 
 /**
  * Whether the UPDATE message is on the map. Not while waiting: whoever chose
  * to restart when sessions finish has decided, and the wait — with its
- * Cancel — lives in Settings › Updates instead.
+ * Cancel — lives in Settings › Updates instead. Except a wait another
+ * member started (canvas 50v 02): nobody here chose it, so the map says so,
+ * with Cancel.
  */
-export function updateNoticeOnMap(prompt: UpdatePrompt): boolean {
-  return prompt.phase !== 'none' && prompt.phase !== 'waiting'
+export function updateNoticeOnMap(prompt: UpdatePrompt & UpdateExtras): boolean {
+  if (prompt.phase === 'waiting') return !!prompt.remote
+  return prompt.phase !== 'none'
+}
+
+/** Whether a wait another member asked for runs here, its download included (canvas 50v 02). */
+export function remoteWaits(
+  prompt: UpdatePrompt & UpdateExtras,
+): prompt is Extract<UpdatePrompt, { phase: 'downloading' | 'waiting' }> & UpdateExtras {
+  return !!prompt.remote?.wait && (prompt.phase === 'downloading' || prompt.phase === 'waiting')
 }
 
 /** "the last working session finishes" — what a waiting restart waits for. */
@@ -74,7 +84,17 @@ function stopsHere(working: number): string | null {
   return working === 1 ? 'the running session here stops' : `the ${working} running sessions here stop`
 }
 
-/** 50v 02's second sentence: ` The 2 running sessions stop now.`; empty when nothing works. */
+/**
+ * What a member's wait waits for here (canvas 50v 02): `the 2 working
+ * sessions here finish`. Zero — a moment while it settles, or before the
+ * count is known — says what it waits for without a number.
+ */
+function finishHere(working: number): string {
+  if (working <= 0) return 'no session here is working'
+  return working === 1 ? 'the working session here finishes' : `the ${working} working sessions here finish`
+}
+
+/** 50v 03's second sentence: ` The 2 running sessions stop now.`; empty when nothing works. */
 function stopsNow(working: number): string {
   if (working <= 0) return ''
   return working === 1 ? ' The running session stops now.' : ` The ${working} running sessions stop now.`
@@ -95,6 +115,17 @@ export function updateNoticeContent(prompt: UpdatePrompt & UpdateExtras): Update
     return {
       label: `UPDATE · ORBITAL ${prompt.version} · RESTARTING`,
       text: `Restarting on ${prompt.version} · started on ${remote.by}.${stopsNow(remote.working)}`,
+    }
+  }
+  if (remote && remoteWaits(prompt)) {
+    // Canvas 50v 02: the member's wait, with Cancel and no ×; while it still downloads, the progress line under it.
+    return {
+      label: `UPDATE · ORBITAL ${prompt.version} · STARTED ON ${remote.by.toUpperCase()} · WAITING`,
+      text: `${remote.by} is updating this Mac to ${prompt.version}. Orbital restarts when ${finishHere(remote.working)}.`,
+      ...(prompt.phase === 'downloading'
+        ? { progress: { percent: prompt.percent, readout: downloadReadout(prompt.percent, prompt.totalMB) } }
+        : {}),
+      secondary: { label: 'Cancel', action: 'cancel-wait' },
     }
   }
   if (prompt.phase === 'none' || prompt.phase === 'waiting' || prompt.phase === 'restarting') return null
@@ -189,6 +220,10 @@ export function selfUpdateStrip(
 ): { to: string | null; line: string; link: boolean } | null {
   if (!state) return null
   const remote = state.remote ?? null
+  if (remote && remoteWaits(state)) {
+    // Canvas 50v 02 `me`: no arrow while it waits; the line points at Settings › Updates.
+    return { to: null, line: updateWaitingWords(remote.working, state.version).line, link: true }
+  }
   if (state.phase === 'downloading' && remote) {
     return { to: state.version, line: `updating to ${state.version} · started on ${remote.by}`, link: true }
   }
@@ -242,6 +277,10 @@ export function updateCheckLine({
   if (answer?.kind === 'error') return 'Could not check · try again later'
   if (answer?.kind === 'unsupported') return 'This build does not update itself'
   const remote = prompt.remote ?? null
+  if (remote && remoteWaits(prompt)) {
+    const n = remote.working
+    return `Waiting for ${n} session${n === 1 ? '' : 's'} to finish · then restarts on ${prompt.version} · started on ${remote.by}`
+  }
   if (prompt.phase === 'downloading' && remote) {
     const readout = downloadReadout(prompt.percent, prompt.totalMB)
     return `Updating to ${prompt.version} · started on ${remote.by}${readout ? ` · ${readout}` : ''}`

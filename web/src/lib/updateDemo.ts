@@ -15,8 +15,10 @@ import type { UpdateAction, UpdateBridge, UpdateExtras, UpdatePrompt, UpdateStat
  *                       { version?, n?, percent?, mb?, by? })
  *
  * and an update another member started (canvas 50v): 'remote-dl',
- * 'remote-last', 'remote-busy' (a session started here), 'receipt' (after
- * the restart: WHAT'S NEW with who updated this Mac heading it).
+ * 'remote-wait' (Update when sessions finish), 'remote-wait-dl' (the same
+ * while it still downloads), 'remote-last', 'remote-busy' (a session started
+ * here), 'receipt' (after the restart: WHAT'S NEW with who updated this Mac
+ * heading it).
  *
  *   __orbitalWhatsNew()
  *
@@ -29,7 +31,7 @@ import type { UpdateAction, UpdateBridge, UpdateExtras, UpdatePrompt, UpdateStat
 
 type DemoName =
   | 'avail' | 'dl' | 'one' | 'two' | 'wait' | 'closed' | 'none'
-  | 'remote-dl' | 'remote-last' | 'remote-busy' | 'receipt'
+  | 'remote-dl' | 'remote-wait' | 'remote-wait-dl' | 'remote-last' | 'remote-busy' | 'receipt'
 type DemoOptions = { version?: string; n?: number; percent?: number; mb?: number; by?: string }
 type DemoState = UpdatePrompt & UpdateExtras
 
@@ -44,6 +46,10 @@ export function installUpdateDemo(): void {
     switch (name) {
       case 'remote-dl':
         return { phase: 'downloading', version, percent, totalMB: mb, remote: { by, working: n } }
+      case 'remote-wait':
+        return { phase: 'waiting', version, workingCount: n, remote: { by, working: n, wait: true } }
+      case 'remote-wait-dl':
+        return { phase: 'downloading', version, percent, totalMB: mb, remote: { by, working: n, wait: true } }
       case 'remote-last':
         return { phase: 'restarting', version, remote: { by, working: n } }
       case 'remote-busy':
@@ -86,7 +92,8 @@ export function installUpdateDemo(): void {
       'restart-now': () => ({ phase: 'restarting', version: opts.version }),
       'restart-when-idle': () =>
         opts.n === 0 ? { phase: 'restarting', version: opts.version } : prompt('wait'),
-      'cancel-wait': () => prompt('two'),
+      // A member's wait cancelled while it downloads goes on as this Mac's own download.
+      'cancel-wait': () => (current.phase === 'downloading' ? prompt('dl') : prompt('two')),
       'receipt-close': () => ({ phase: 'none' }),
     }
     show(next[action]())

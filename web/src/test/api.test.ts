@@ -935,4 +935,22 @@ describe('server update', () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'member_offline' }), { status: 409 }))
     await expect(api.startServerUpdate('m-1')).rejects.toBeInstanceOf(ApiError)
   })
+
+  it('asks to wait for the sessions with when, and nothing else', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...state, updating: true, waiting: { sessions: 1 } }), { status: 202 }))
+    expect(await api.startServerUpdate('m-1', 'idle')).toMatchObject({ ok: true, state: { waiting: { sessions: 1 } } })
+    expect(fetchMock.mock.calls[0][1]?.body).toBe('{"when":"idle"}')
+  })
+
+  it('cancels a wait with DELETE and no body; not_waiting is an answer, anything else throws', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(state), { status: 200 }))
+    expect(await api.cancelServerUpdate('m-1')).toEqual({ ok: true, state })
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/server/update?machine=m-1')
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'DELETE' })
+    expect(fetchMock.mock.calls[0][1]?.body).toBeUndefined()
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'not_waiting' }), { status: 409 }))
+    expect(await api.cancelServerUpdate()).toEqual({ ok: false, error: 'not_waiting' })
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'updating' }), { status: 409 }))
+    await expect(api.cancelServerUpdate()).rejects.toBeInstanceOf(ApiError)
+  })
 })

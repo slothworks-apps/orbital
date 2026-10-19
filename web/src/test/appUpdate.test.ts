@@ -146,6 +146,29 @@ describe('an update another member started on this Mac', () => {
     expect(selfUpdateStrip(last(2))).toEqual({ to: v, line: 'restarting on 0.36.0 · sessions here stop now', link: false })
   })
 
+  it('02 waiting (Update when sessions finish): on the map with Cancel, the progress under it while it downloads', () => {
+    const wait = (working: number) =>
+      ({ phase: 'waiting', version: v, workingCount: working, remote: { by: 'Pixel 8', working, wait: true } }) as const
+    expect(updateNoticeContent(wait(2))).toEqual({
+      label: 'UPDATE · ORBITAL 0.36.0 · STARTED ON PIXEL 8 · WAITING',
+      text: 'Pixel 8 is updating this Mac to 0.36.0. Orbital restarts when the 2 working sessions here finish.',
+      secondary: { label: 'Cancel', action: 'cancel-wait' },
+    })
+    expect(updateNoticeContent(wait(1))?.text).toContain('Orbital restarts when the working session here finishes.')
+    expect(updateNoticeOnMap(wait(2))).toBe(true)
+    // This Mac's own wait stays off the map.
+    expect(updateNoticeOnMap({ phase: 'waiting', version: v, workingCount: 2 })).toBe(false)
+    const downloading = { ...dl(2), remote: { by: 'Pixel 8', working: 2, wait: true } }
+    expect(updateNoticeContent(downloading)).toMatchObject({
+      label: 'UPDATE · ORBITAL 0.36.0 · STARTED ON PIXEL 8 · WAITING',
+      progress: { percent: 41, readout: '38 of 92 MB' },
+      secondary: { action: 'cancel-wait' },
+    })
+    expect(line(wait(2))).toBe('Waiting for 2 sessions to finish · then restarts on 0.36.0 · started on Pixel 8')
+    expect(line(downloading)).toBe('Waiting for 2 sessions to finish · then restarts on 0.36.0 · started on Pixel 8')
+    expect(selfUpdateStrip(wait(2))).toEqual({ to: null, line: 'waiting for 2 sessions to finish · then 0.36.0', link: true })
+  })
+
   it('03 a session started here: the normal Ready, and the lines say it waits for this Mac', () => {
     const c = updateNoticeContent(busy)
     expect(c?.text).toBe('Orbital 0.36.0 is downloaded. Restarting now interrupts 3 working sessions.')

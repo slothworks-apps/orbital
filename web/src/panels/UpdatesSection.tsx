@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { version as orbitalVersion } from '../../../desktop/package.json'
-import { AUTO_DOWNLOAD_KEY, autoDownloadOn, releaseNotesUrl, updateCheckLine } from '../lib/appUpdate'
+import { AUTO_DOWNLOAD_KEY, autoDownloadOn, releaseNotesUrl, remoteWaits, updateCheckLine } from '../lib/appUpdate'
 import type { UpdateCheckAnswer } from '../lib/desktop'
 import { useNow } from '../lib/useNow'
 import { useAppUpdate } from '../store/appUpdate'
@@ -69,7 +69,8 @@ export function UpdatesSection({ patchAndSet }: { patchAndSet: (patch: Record<st
             <div aria-live="polite" className="font-mono text-[11px] leading-[1.5] text-[rgba(160,190,225,.65)]">
               {line}
             </div>
-            {state?.phase === 'waiting' && (
+            {/* A wait here, this Mac's own or another member's (canvas 50v 02), its download included. */}
+            {state && (state.phase === 'waiting' || remoteWaits(state)) && (
               <Button variant="hairline" size="check" onClick={() => source?.updateAction('cancel-wait')}>
                 Cancel
               </Button>

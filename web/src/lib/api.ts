@@ -51,9 +51,12 @@ import type {
 import { markUnauthorized } from './unauthorized'
 import {
   parseServerUpdateState,
+  SERVER_UPDATE_CANCEL_REFUSALS,
   SERVER_UPDATE_REFUSALS,
+  type ServerUpdateCancelRefusal,
   type ServerUpdateRefusal,
   type ServerUpdateState,
+  type UpdateWhen,
 } from '@orbital/shared/remote/serverUpdate'
 import type { TerminalInfo } from '../terminal/types'
 
@@ -1355,15 +1358,40 @@ export const api = {
   },
 
   /**
-   * Starts that member's update: its state, now `updating`, or the refusal
-   * (`no_update`, `updating`, `not_set_up`, `not_packaged`). The caller
-   * confirms first when the state reported running sessions. Anything else
-   * throws. Through `startMemberUpdate` / `startDeviceUpdate`, as above.
+   * Starts that member's update: its state, now `updating` (and `waiting`
+   * for `idle` while sessions run there), or the refusal (`no_update`,
+   * `updating`, `not_set_up`, `not_packaged`). The caller confirms first
+   * when the state reported running sessions. `when` `now` sends no body,
+   * `idle` sends `{ when: 'idle' }` and nothing else. Anything else throws.
+   * Through `startMemberUpdate` / `startDeviceUpdate`, as above.
    */
-  async startServerUpdate(machine?: string): Promise<{ ok: true; state: ServerUpdateState } | { ok: false; error: ServerUpdateRefusal }> {
+  async startServerUpdate(
+    machine?: string, when: UpdateWhen = 'now',
+  ): Promise<{ ok: true; state: ServerUpdateState } | { ok: false; error: ServerUpdateRefusal }> {
     const url = machine === undefined ? '/api/server/update' : `/api/server/update?${new URLSearchParams({ machine })}`
-    const res = await remoteCall<unknown, ServerUpdateRefusal>('POST', url, undefined, UPDATE_REFUSALS)
+    const res = await remoteCall<unknown, ServerUpdateRefusal>(
+      'POST', url, when === 'idle' ? { when: 'idle' } : undefined, UPDATE_REFUSALS,
+    )
     if (typeof res === 'object' && res !== null && 'error' in res) return { ok: false, error: (res as { error: ServerUpdateRefusal }).error }
+    const state = parseServerUpdateState(res)
+    if (!state) throw new ApiError('malformed update state', 502, url)
+    return { ok: true, state }
+  },
+
+  /**
+   * Ends that member's wait for its sessions (`DELETE /api/server/update`):
+   * its state, no longer updating, or `not_waiting` when nothing waits there
+   * (it installs already, or the wait ended). Anything else throws. Through
+   * `cancelMemberUpdate` / `cancelDeviceUpdate`, as above.
+   */
+  async cancelServerUpdate(
+    machine?: string,
+  ): Promise<{ ok: true; state: ServerUpdateState } | { ok: false; error: ServerUpdateCancelRefusal }> {
+    const url = machine === undefined ? '/api/server/update' : `/api/server/update?${new URLSearchParams({ machine })}`
+    const res = await remoteCall<unknown, ServerUpdateCancelRefusal>('DELETE', url, undefined, UPDATE_CANCEL_REFUSALS)
+    if (typeof res === 'object' && res !== null && 'error' in res) {
+      return { ok: false, error: (res as { error: ServerUpdateCancelRefusal }).error }
+    }
     const state = parseServerUpdateState(res)
     if (!state) throw new ApiError('malformed update state', 502, url)
     return { ok: true, state }
@@ -1483,6 +1511,10 @@ const CLAUDE_DIR_REFUSALS: Partial<Record<number, readonly ClaudeDirRefusal[]>> 
 }
 
 /** `POST /api/server/update`'s refusals, by status, for `remoteCall`. */
+const UPDATE_CANCEL_REFUSALS: Partial<Record<number, readonly ServerUpdateCancelRefusal[]>> = {
+  [SERVER_UPDATE_CANCEL_REFUSALS.not_waiting]: ['not_waiting'],
+}
+
 const UPDATE_REFUSALS: Partial<Record<number, readonly ServerUpdateRefusal[]>> = (() => {
   const out: Partial<Record<number, ServerUpdateRefusal[]>> = {}
   for (const [error, status] of Object.entries(SERVER_UPDATE_REFUSALS) as [ServerUpdateRefusal, number][]) {

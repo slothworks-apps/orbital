@@ -14,17 +14,20 @@ import {
   statusDuringCheck, type RelayLineKind,
 } from '../lib/remote'
 import {
-  canRemoveRow, deviceRows, endedNotice, groupView, kindOs, memberServesUpdate, needsUpdateLine, readMemberUpdate,
-  startMemberUpdate, type DeviceRow, type GroupView,
+  canRemoveRow, cancelMemberUpdate, deviceRows, endedNotice, groupView, kindOs, memberServesUpdate, needsUpdateLine,
+  readMemberUpdate, startMemberUpdate, type DeviceRow, type GroupView,
 } from '../lib/devices'
-import { UPDATE_UNREACHABLE, selfUpdateAvailable, updatePhase, updateRow, type MemberUpdate } from '../lib/memberUpdate'
+import {
+  UPDATE_UNREACHABLE, UPDATE_UNREACHABLE_CANCEL, selfUpdateAvailable, updatePhase, updateRow, type MemberUpdate,
+} from '../lib/memberUpdate'
 import { useMemberUpdates, type UpdateIo, type UpdateTarget } from '../lib/useMemberUpdates'
 import { useNow } from '../lib/useNow'
 import {
-  exitWords, notPrimaryAddLine, notPrimaryRemoveLine, relayChangeWords, relayLockedLine, removeWords, updateAvailableLine,
-  updateSessionsWords,
+  UPDATE_NOW, UPDATE_WHEN_IDLE, exitWords, notPrimaryAddLine, notPrimaryRemoveLine, relayChangeWords, relayLockedLine,
+  removeWords, updateAvailableLine, updateSessionsWords,
 } from '@orbital/shared/remote/groupWords'
 import type { GroupEnded, GroupMember, RemoteStatus } from '../lib/types'
+import type { UpdateWhen } from '@orbital/shared/remote/serverUpdate'
 import { Toggle } from '../ui/Checkbox'
 import { Button } from '../ui/Button'
 import { Dialog } from '../ui/Dialog'
@@ -475,7 +478,7 @@ function updateTargets(members: GroupMember[]): UpdateTarget[] {
     .map((m) => ({ id: m.id, readable: m.self || (m.state === 'online' && !m.tooOld) }))
 }
 
-/** The desktop asks only through the gated `readMemberUpdate` / `startMemberUpdate`. */
+/** The desktop asks only through the gated `readMemberUpdate` / `startMemberUpdate` / `cancelMemberUpdate`. */
 function memberUpdateIo(members: GroupMember[]): UpdateIo {
   const find = (id: string) => members.find((m) => m.id === id)
   return {
@@ -483,9 +486,13 @@ function memberUpdateIo(members: GroupMember[]): UpdateIo {
       const m = find(id)
       return m ? readMemberUpdate(m) : null
     },
-    start: async (id) => {
+    start: async (id, when) => {
       const m = find(id)
-      return m ? startMemberUpdate(m) : null
+      return m ? startMemberUpdate(m, when) : null
+    },
+    cancel: async (id) => {
+      const m = find(id)
+      return m ? cancelMemberUpdate(m) : null
     },
   }
 }
@@ -764,9 +771,10 @@ function GrantToggles({
  * may do on this device (spec 2026-10-19-member-grants-design § 2).
  *
  * A member's update (canvas 50q, 50t; `updateRow`): one line under the row —
- * available, installing, restarting, failed — with Update or Try again only
- * while it can be asked. With sessions running there, Update first asks in
- * place, as Remove does.
+ * available, waiting, installing, restarting, failed — with Update, Try
+ * again or Cancel (a wait) only while it can be asked. With sessions running
+ * there, Update first asks in place, as Remove does, with the local
+ * Restart's three choices.
  */
 function Members({
   rows,
@@ -787,8 +795,15 @@ function Members({
 }) {
   const [asking, setAsking] = useState<string | null>(null)
   const [removing, setRemoving] = useState(false)
-  /** The member whose Update waits on the sessions confirm. */
-  const [askingUpdate, setAskingUpdate] = useState<string | null>(null)
+  /**
+   * The member whose Update waits on the sessions confirm, and the count it
+   * first named: once Update now found more running, it says how many
+   * started since (canvas 50t CONFIRM · MORE SESSIONS STARTED).
+   */
+  const [confirm, setConfirm] = useState<{ id: string; shown: number; recount: boolean } | null>(null)
+  const askingUpdate = confirm?.id ?? null
+  const setAskingUpdate = (id: string | null) =>
+    setConfirm(id === null ? null : { id, shown: updates.byId[id]?.state?.sessions ?? 0, recount: false })
   /** A removal the group refused, said under that row rather than as a toast (canvas 50p I). */
   const [refusal, setRefusal] = useState<{ id: string; text: string } | null>(null)
   /** Member grants from /api/remote/grants. */
@@ -864,12 +879,22 @@ function Members({
     else if (result === 'unreachable') setRefusal({ id, text: UPDATE_UNREACHABLE })
   }
 
-  /** The confirm's Update; asked again, with the new count, when more sessions run there now. */
-  async function confirmUpdate(id: string) {
-    const result = await updates.start(id)
-    if (result === 'confirm') return
+  /** The confirm's Update now or Update when sessions finish; Update now asks again, with the new count, when more sessions run there now. */
+  async function confirmUpdate(id: string, when: UpdateWhen) {
+    const result = await updates.start(id, when)
+    if (result === 'confirm') {
+      setConfirm((c) => (c?.id === id ? { ...c, recount: true } : c))
+      return
+    }
     setAskingUpdate(null)
     if (result === 'unreachable') setRefusal({ id, text: UPDATE_UNREACHABLE })
+  }
+
+  /** Cancel on a member that waits for its sessions: no confirm (canvas 50t WAITING). */
+  async function cancelUpdate(id: string) {
+    setRefusal(null)
+    const result = await updates.cancel(id)
+    if (result === 'unreachable') setRefusal({ id, text: UPDATE_UNREACHABLE_CANCEL })
   }
 
   return (
@@ -884,7 +909,9 @@ function Members({
         const away = update.dim ?? state === 'offline'
         const nameInk = away ? 'text-[rgba(232,238,248,.62)]' : 'text-text-bright'
         const confirming = askingUpdate === m.id
-        const sessionsWords = updateSessionsWords(u?.state?.sessions ?? 0, m.name)
+        const sessionsWords = updateSessionsWords(
+          u?.state?.sessions ?? 0, m.name, confirming && confirm?.recount ? confirm.shown : undefined,
+        )
         const line = confirming ? null : update.line
         return (
           <div
@@ -980,35 +1007,46 @@ function Members({
                     variant="outline"
                     size="member-line"
                     disabled={updates.starting !== null}
-                    onClick={() => void pressUpdate(m.id)}
+                    onClick={() => void (line.action === 'cancel' ? cancelUpdate(m.id) : pressUpdate(m.id))}
                   >
-                    {line.action === 'retry' ? 'Try again' : 'Update'}
+                    {line.action === 'retry' ? 'Try again' : line.action === 'cancel' ? 'Cancel' : 'Update'}
                   </Button>
                 )}
               </div>
             )}
             {asking !== m.id && confirming && (
-              <div className="-mt-0.5 flex items-center gap-2.5 pb-2.5 pl-[42px] pr-3">
-                <span className="flex-1 text-[12.5px] leading-[1.45] text-text-bright [text-wrap:pretty]">
+              // Canvas 50q/50t CONFIRM: the words, then the local Restart's three choices under them.
+              <div className="-mt-0.5 flex flex-col gap-2 pb-3 pl-[42px] pr-3">
+                <span className="text-[12.5px] leading-[1.45] text-text-bright [text-wrap:pretty]">
                   {sessionsWords.question}{' '}
                   <span className="text-[rgba(160,190,225,.7)]">{sessionsWords.body}</span>
                 </span>
-                <Button
-                  variant="outline"
-                  size="member"
-                  disabled={updates.starting !== null}
-                  onClick={() => setAskingUpdate(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="ink"
-                  size="member"
-                  disabled={updates.starting !== null}
-                  onClick={() => void confirmUpdate(m.id)}
-                >
-                  Update
-                </Button>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="quiet"
+                    size="member-quiet"
+                    disabled={updates.starting !== null}
+                    onClick={() => setAskingUpdate(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="member"
+                    disabled={updates.starting !== null}
+                    onClick={() => void confirmUpdate(m.id, 'now')}
+                  >
+                    {UPDATE_NOW}
+                  </Button>
+                  <Button
+                    variant="ink"
+                    size="member"
+                    disabled={updates.starting !== null}
+                    onClick={() => void confirmUpdate(m.id, 'idle')}
+                  >
+                    {UPDATE_WHEN_IDLE}
+                  </Button>
+                </div>
               </div>
             )}
             {refusal?.id === m.id && (
