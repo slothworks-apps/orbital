@@ -436,12 +436,12 @@ export type FoundStep = UpdateStep & { outcome: FoundOutcome };
 type Phase = UpdatePrompt['phase'];
 
 /**
- * The update's state machine. The working count is `WorkingSessions.count`,
- * the quit guard's, which counts only Orbital-run sessions that are
- * `working`: a terminal session belongs to a CLI in someone's shell, and
- * restarting the app does not touch it; a session parked on a decision (a
- * permission prompt, a question) does not hold the restart — it is
- * interrupted and continued after the update. A count that is not known yet
+ * The update's state machine. The working count is
+ * `WorkingSessions.busyCount`: Orbital-run sessions mid-turn or waiting on a
+ * decision (a permission prompt, a question), the server's `Runner.busy`
+ * rule — a wait for the sessions to finish waits for those too. A terminal
+ * session belongs to a CLI in someone's shell, and restarting the app does
+ * not touch it. A count that is not known yet
  * counts as "not idle": waiting is safe, a restart over a working session
  * is not.
  *

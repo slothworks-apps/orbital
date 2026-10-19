@@ -55,6 +55,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 export class WorkingSessions {
   private ids = new Set<string>();
+  /**
+   * Orbital-run sessions parked on a decision (a permission prompt, a
+   * question): `pendingDecision` on their upsert or in the list. Not
+   * working, so a quit does not count them; busy, so an update waiting for
+   * the sessions to finish does (as the server's `Runner.busy`).
+   */
+  private deciding = new Set<string>();
   /** Sessions a frame has spoken for since the last reset; they outrank the list. */
   private touched = new Set<string>();
   private generation = 0;
@@ -70,6 +77,19 @@ export class WorkingSessions {
     return [...this.ids];
   }
 
+  /**
+   * The sessions an update waiting for them to finish waits for: mid-turn,
+   * or waiting on a decision — the server's `Runner.busy` rule, from the
+   * same frames. The quit guard keeps `count`.
+   */
+  get busyIds(): string[] {
+    return [...new Set([...this.ids, ...this.deciding])];
+  }
+
+  get busyCount(): number {
+    return this.busyIds.length;
+  }
+
   /** Whether `count` covers sessions that were working before the socket opened. */
   get seeded(): boolean {
     return this.isSeeded;
@@ -80,7 +100,10 @@ export class WorkingSessions {
     if (!isRecord(frame) || frame.topic !== 'sessions') return;
 
     if (frame.event === 'remove') {
-      if (typeof frame.sessionId === 'string') this.mark(frame.sessionId, false);
+      if (typeof frame.sessionId === 'string') {
+        this.mark(frame.sessionId, false);
+        this.deciding.delete(frame.sessionId);
+      }
       return;
     }
 
@@ -104,6 +127,9 @@ export class WorkingSessions {
     const id = session.id;
     if (typeof id !== 'string' || id === '') return;
     this.mark(id, isWorkingOrbitalSession(session));
+    // A status frame carries no decision; the upsert that every decision edge publishes does.
+    if (isDecidingOrbitalSession(session)) this.deciding.add(id);
+    else this.deciding.delete(id);
   }
 
   /**
@@ -129,6 +155,7 @@ export class WorkingSessions {
       const id = session.id;
       if (typeof id !== 'string' || id === '' || this.touched.has(id)) continue;
       if (isWorkingOrbitalSession(session)) this.ids.add(id);
+      if (isDecidingOrbitalSession(session)) this.deciding.add(id);
     }
     this.isSeeded = true;
   }
@@ -136,6 +163,7 @@ export class WorkingSessions {
   /** Forget everything (called on WS reconnect — the world replays). */
   reset(): void {
     this.ids.clear();
+    this.deciding.clear();
     this.touched.clear();
     this.generation += 1;
     this.isSeeded = false;
@@ -151,4 +179,9 @@ export class WorkingSessions {
 /** The one rule, for an upsert and a listed session alike. */
 function isWorkingOrbitalSession(session: Record<string, unknown>): boolean {
   return session.source === 'web' && session.status === 'working';
+}
+
+/** An Orbital-run session parked on a decision: its `pendingDecision` is set. */
+function isDecidingOrbitalSession(session: Record<string, unknown>): boolean {
+  return session.source === 'web' && isRecord(session.pendingDecision);
 }

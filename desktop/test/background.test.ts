@@ -139,6 +139,40 @@ describe('WorkingSessions', () => {
   });
 });
 
+describe('WorkingSessions: busy, for an update waiting for the sessions', () => {
+  it('counts a session waiting on a decision as busy, though not as working, until its upsert clears it', () => {
+    const working = new WorkingSessions();
+    const decision = { id: 'd1', kind: 'permission' };
+    working.onFrame(upsert({ id: 's1', source: 'web', status: 'working' }));
+    working.onFrame(upsert({ id: 's2', source: 'web', status: 'needs_input', pendingDecision: decision }));
+    working.onFrame(upsert({ id: 't1', source: 'terminal', status: 'needs_input', pendingDecision: decision }));
+    expect(working.count).toBe(1);
+    expect(working.busyCount).toBe(2);
+    expect(working.busyIds.sort()).toEqual(['s1', 's2']);
+    // A status frame says nothing of the decision: it stays busy until its upsert says it is answered.
+    working.onFrame({ topic: 'sessions', event: 'status', sessionId: 's2', status: 'working' });
+    expect(working.busyCount).toBe(2);
+    working.onFrame(upsert({ id: 's2', source: 'web', status: 'working', pendingDecision: null }));
+    expect(working.busyIds.sort()).toEqual(['s1', 's2']);
+    working.onFrame({ topic: 'sessions', event: 'status', sessionId: 's2', status: 'needs_input' });
+    working.onFrame(upsert({ id: 's2', source: 'web', status: 'needs_input', pendingDecision: null }));
+    expect(working.busyIds).toEqual(['s1']);
+    working.onFrame(upsert({ id: 's3', source: 'web', status: 'needs_input', pendingDecision: decision }));
+    working.onFrame({ topic: 'sessions', event: 'remove', sessionId: 's3' });
+    expect(working.busyIds).toEqual(['s1']);
+  });
+
+  it('reads decisions from the list too, and forgets them on a reset', () => {
+    const working = new WorkingSessions();
+    working.seed(working.beginSeed(), {
+      sessions: [{ id: 'd', source: 'web', status: 'needs_input', pendingDecision: { id: 'x' } }, { id: 'i', source: 'web', status: 'idle' }],
+    });
+    expect(working.busyIds).toEqual(['d']);
+    working.reset();
+    expect(working.busyCount).toBe(0);
+  });
+});
+
 describe('WorkingSessions seeding', () => {
   let working: WorkingSessions;
 
