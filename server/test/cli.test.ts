@@ -17,7 +17,7 @@ import { findDevice, runCli, updateTarget } from '../src/cli/commands.js';
 import { REQUEST_EXPIRED, addFlow, addVerdict, joinFlow, joinVerdict } from '../src/cli/flows.js';
 import { TIMED_OUT, type Io } from '../src/cli/io.js';
 import { cliTarget, readToken, rootHint, unreadableTokenLine } from '../src/cli/target.js';
-import { listLines, remoteDownLine, remoteErrorLine } from '../src/cli/words.js';
+import { listLines, remoteDownLine, remoteErrorLine, statusLines } from '../src/cli/words.js';
 import { BAD_SECRET_ERROR } from '../src/remote/errors.js';
 import { DEFAULT_PORT } from '../src/config.js';
 import type { RemoteStatus } from '../src/remote/service.js';
@@ -177,6 +177,23 @@ describe('listLines', () => {
     expect(lines[2]).toMatch(/updating to 0\.36\.0$/);
     expect(listLines(remote, new Map([['mac', up({ failed: '0.36.0', candidate: '0.36.0' })]]))[2])
       .toMatch(/update didn’t finish · still on 0\.35\.0$/);
+    // A Mac where a session started while it downloaded: the update waits there.
+    expect(listLines(remote, new Map([['mac', up({ failed: '0.36.0', candidate: '0.36.0', failedReason: 'sessions' })]]))[2])
+      .toMatch(/didn’t install · a session started on mac-studio$/);
+  });
+
+  it('status says a Mac\'s update waits on it, in the words its rows say', () => {
+    const update: ServerUpdateState = {
+      installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: '0.36.0', sessions: 1, startedBy: null,
+      failedReason: 'sessions',
+    };
+    const remote = status({ macName: 'studio' });
+    expect(statusLines(remote, update, 4848)).toContain(
+      'The update to 0.36.0 didn’t install · a session started on studio: it’s downloaded there · restart it on studio.',
+    );
+    expect(statusLines(remote, { ...update, failedReason: 'unknown' }, 4848)).toContain(
+      'The update to 0.36.0 failed: couldn’t tell whether sessions run on studio — try again',
+    );
   });
 
   it('shows this device offline while its relay is not on line', () => {

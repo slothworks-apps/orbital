@@ -9,7 +9,9 @@
  * Only the words change. No spinner, no countdown, no percentage, and
  * nothing outside Settings → Devices.
  */
-import { updateAvailableLine, updateFailedLine, updateFailedWhy } from '@orbital/shared/remote/groupWords'
+import {
+  updateAvailableLine, updateFailedLine, updateFailedWhy, updateWaitsWords,
+} from '@orbital/shared/remote/groupWords'
 import {
   UPDATE_TIMEOUT_MS, updateIsNewer, watchUpdate, watchVerdict, type ServerUpdateRefusal, type ServerUpdateState,
   type UpdateAsker, type UpdateFailReason, type UpdateWatch,
@@ -294,6 +296,19 @@ export function updateRow(u: MemberUpdate | undefined, input: UpdateRowInput): U
         },
       }
     case 'failed':
+      if (u?.failedReason === 'sessions') {
+        // Canvas 50t FAILED · A SESSION STARTED THERE, 50v 03: it waits on
+        // that Mac, downloaded; no Try again — the restart is its own now.
+        const waits = updateWaitsWords(name)
+        return {
+          phase,
+          version: installed,
+          words: surface === 'phone' && online ? waits.phoneState : words,
+          dot: null,
+          dim: null,
+          line: { text: waits.line, sub: waits.sub, bright: false, head: waits.head, action: null },
+        }
+      }
       return {
         phase,
         version: installed,

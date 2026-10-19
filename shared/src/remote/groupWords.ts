@@ -203,12 +203,20 @@ export function updateFailedLine(installed: string): string {
 }
 
 /**
- * Why, under a failed update, when the Mac said so (`failedReason:
- * 'sessions'`): its sessions started working while it downloaded, so it did
- * not restart over them and prompts there instead.
+ * A Mac that did not install the update a member asked for, because a
+ * session started on it while it downloaded (`failedReason: 'sessions'`;
+ * canvas 50t FAILED · A SESSION STARTED THERE, 50v 03): the update waits
+ * there, downloaded, and restarting it is that Mac's choice now. `line` and
+ * `sub` under its row on the desktop, `head` heads the phone's sheet,
+ * `phoneState` is the phone row's state words. The CLI says the same.
  */
-export function updateSessionsStartedLine(name: string): string {
-  return `sessions started on ${name} — update it there or try again`;
+export function updateWaitsWords(name: string): { line: string; sub: string; head: string; phoneState: string } {
+  return {
+    line: `didn’t install · a session started on ${name}`,
+    sub: `it’s downloaded there · restart it on ${name}`,
+    head: `Didn’t install · a session started on ${name}`,
+    phoneState: `online · update waits on ${name}`,
+  };
 }
 
 /**
@@ -220,9 +228,12 @@ export function updateSessionsUnknownLine(name: string): string {
   return `couldn’t tell whether sessions run on ${name} — try again`;
 }
 
-/** The line under a failed update for the reason the member named; null for none (or one this side does not know). */
+/**
+ * The line under a failed update for the reason the member named; null for
+ * none, for one this side does not know, and for `sessions`, which is not
+ * a failure line but its own (`updateWaitsWords`).
+ */
 export function updateFailedWhy(reason: string | null | undefined, name: string): string | null {
-  if (reason === 'sessions') return updateSessionsStartedLine(name);
   if (reason === 'unknown') return updateSessionsUnknownLine(name);
   return null;
 }

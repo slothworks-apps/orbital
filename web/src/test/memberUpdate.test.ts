@@ -109,16 +109,20 @@ describe('an update from start to end', () => {
     expect(updateRow(back, { ...SERVER, surface: 'phone' }).words).toBe('online · update didn’t finish')
   })
 
-  it('says why when the Mac did not install because sessions started there, and only while it reads failed', () => {
+  it('says the update waits on the Mac when a session started there, with no Try again, while it reads so', () => {
     const MAC = { ...SERVER, name: 'studio', kind: 'desktop' }
     const back = applyRead(started(), state({ failed: '0.36.0', failedReason: 'sessions' }), T0 + 30_000)
-    expect(updateRow(back, MAC).line).toMatchObject({
-      text: 'update didn’t finish · still on 0.35.2', sub: 'sessions started on studio — update it there or try again',
-      action: 'retry',
+    const row = updateRow(back, MAC)
+    expect(row).toMatchObject({ phase: 'failed', version: '0.35.2', words: 'online' })
+    expect(row.line).toEqual({
+      text: 'didn’t install · a session started on studio', sub: 'it’s downloaded there · restart it on studio',
+      bright: false, head: 'Didn’t install · a session started on studio', action: null,
     })
+    expect(updateRow(back, { ...MAC, surface: 'phone' }).words).toBe('online · update waits on studio')
+    expect(updateRow(back, { ...MAC, surface: 'phone', online: false, words: 'asleep' }).words).toBe('asleep')
     // Read again later, the member still says so; a new start forgets it.
     const reread = applyRead(back, state({ failed: '0.36.0', failedReason: 'sessions' }), T0 + 60_000)
-    expect(updateRow(reread, MAC).line?.sub).toBe('sessions started on studio — update it there or try again')
+    expect(updateRow(reread, MAC).line?.text).toBe('didn’t install · a session started on studio')
     const again = applyStart(reread, { ok: true, state: state({ updating: true }) }, T0 + 70_000).next
     expect(again.failedReason).toBeNull()
   })

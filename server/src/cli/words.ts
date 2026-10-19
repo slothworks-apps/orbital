@@ -6,7 +6,7 @@
 import type { JoinResult, StartPairingResult } from '@orbital/shared/remote/ceremony';
 import { osName } from '@orbital/shared/remote/device';
 import {
-  groupFullLine, notPrimaryAddLine, osLabel, updateAvailableLine, updateFailedLine, updateFailedWhy,
+  groupFullLine, notPrimaryAddLine, osLabel, updateAvailableLine, updateFailedLine, updateFailedWhy, updateWaitsWords,
 } from '@orbital/shared/remote/groupWords';
 import { updateIsNewer, type ServerUpdateState } from '@orbital/shared/remote/serverUpdate';
 import { BAD_SECRET_ERROR, NO_RELAY_URL_ERROR } from '../remote/errors.js';
@@ -87,10 +87,11 @@ export function otherRelayLine(name: string, relay: string, remote: Pick<RemoteS
 
 type Row = { name: string; kind: string; os: string; state: string; version: string; update: string; marks: string };
 
-/** A member's update, as its row's line says it (canvas 50t); empty when there is nothing to say. */
-export function updateNote(state: ServerUpdateState | undefined): string {
+/** A member's update, as its row's line says it (canvas 50t); empty when there is nothing to say. `name`: the member's. */
+export function updateNote(state: ServerUpdateState | undefined, name: string): string {
   if (!state) return '';
   if (state.updating) return `updating to ${state.candidate ?? 'a newer version'}`;
+  if (state.failed && state.failedReason === 'sessions') return updateWaitsWords(name).line;
   if (state.failed) return updateFailedLine(state.installed);
   if (updateIsNewer(state.installed, state.candidate)) return updateAvailableLine(state.candidate as string);
   return '';
@@ -114,7 +115,7 @@ export function listLines(
     // This device is on line while its relay is.
     state: m.self ? (remote.relay === 'online' ? 'online' : 'offline') : memberState(m.state, m.tooOld),
     version: updates.get(m.id)?.installed ?? m.version ?? '—',
-    update: updateNote(updates.get(m.id)),
+    update: updateNote(updates.get(m.id), m.name),
     marks: [m.primary ? 'primary' : '', m.self ? 'this device' : ''].filter(Boolean).join(', '),
   }));
   const named = new Set(remote.group.members.map((m) => m.id));
@@ -155,7 +156,10 @@ export function statusLines(remote: RemoteStatus, update: ServerUpdateState | nu
       lines.push(`Updating to ${update.candidate ?? 'a newer version'}${by}…`);
     }
     else if (updateIsNewer(update.installed, update.candidate)) lines.push(`Update: ${update.candidate} is out. Run orbital update.`);
-    if (update.failed) {
+    if (update.failed && update.failedReason === 'sessions') {
+      const waits = updateWaitsWords(remote.macName);
+      lines.push(`The update to ${update.failed} ${waits.line}: ${waits.sub}.`);
+    } else if (update.failed) {
       const said = updateFailedWhy(update.failedReason, remote.macName);
       const why = said === null ? '.' : `: ${said}`;
       lines.push(`The update to ${update.failed} failed${why}`);
