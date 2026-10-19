@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+
+## [0.16.0] — 2026-10-19
 ### Added
 - Dock sessions from their menu to put them away in a folded DOCKED group until you write to them; docked sessions send no notifications. Needs Orbital 0.36 on the Mac.
 

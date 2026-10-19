@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.36.0] — 2026-10-19
 ### Added
 - Dock a session to put away work you come back to now and then: it leaves the map, waits in its own DOCKED section of the sidebar, sends no notifications, and comes back when you write to it.
 - Right-click a session in the sidebar or on the map for its menu: pin, dock, rename, change tag, clear, end or reopen.
