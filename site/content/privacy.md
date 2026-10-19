@@ -97,8 +97,8 @@ on without being able to read them, and does not keep them.
 
 It also sees, without storing them: when your devices are online, the
 size and timing of the encrypted messages, and an anonymous token per
-session that lets it count how many sessions are waiting for you without
-knowing which ones. While a phone is offline it keeps up to a small, fixed
+session that lets a later notification for the same session replace the
+earlier one, without the relay knowing which session it is. While a phone is offline it keeps up to a small, fixed
 number of these tokens in memory, and forgets them when the phone
 reconnects or the relay restarts. To limit abuse, it keeps the IP
 addresses of recent pairing requests and refused connection attempts in
@@ -107,8 +107,8 @@ and counts - never names, message contents, or full IDs or tokens.
 
 **Push notifications** go through Google's Firebase Cloud Messaging (and,
 on an iPhone, Apple's push service). They carry only the title "Orbital"
-and how many sessions are waiting, for example "A session needs your
-input" - no Mac name, no session title, nothing you wrote.
+and the same fixed line every time, "A session has an update" - no Mac
+name, no session title, nothing you wrote.
 
 **How long the relay keeps it.** Unused pairing codes and pairing
 requests are deleted when they expire. Everything else is kept until it is
@@ -187,9 +187,9 @@ created on your Mac and go nowhere else.
   Nothing extra leaves your devices for these.
 - **While the app is closed**, the relay sends a push notification through
   Google's Firebase Cloud Messaging; on iPhone, Google passes it on through
-  Apple's push service. The push says "Orbital" and "A session needs your
-  input" (or how many sessions do). It carries nothing else: no Mac name, no
-  session names, no content. Which events trigger it follows the
+  Apple's push service. The push says "Orbital" and "A session has an
+  update", the same for every session and every event. It carries nothing
+  else: no Mac name, no session names, no content. Which events trigger it follows the
   notification settings you choose for that phone. Google, and on iPhone
   Apple, handle the push under their own privacy terms.
 

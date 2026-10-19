@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import {
-  DEFAULT_NOTIFICATION_SETTINGS, NEEDS_INPUT_BODY, SessionNotifier, type NotificationSettings, type SessionNotification,
+  DEFAULT_NOTIFICATION_SETTINGS, SessionNotifier, type NotificationSettings, type SessionNotification,
 } from '@orbital/shared/notifications'
 import { PRESENCE_TOPIC, presenceFromFrame } from '@orbital/shared/presence'
 import { decisionChipLabel, decisionHeadline, inputSummary } from '../lib/decisionCard'
@@ -71,9 +71,13 @@ function oneLine(text: string): string {
   return flat.length > BANNER_LINE_MAX ? `${flat.slice(0, BANNER_LINE_MAX - 1)}…` : flat
 }
 
-/** The ask under the banner's title: the pending decision when the store has it, else the notifier's body. */
+/**
+ * The line under the banner's title: for a session that needs input, the
+ * pending decision when the store has it; else the notifier's body — a Done
+ * has no ask to name, whatever the store still holds.
+ */
 export function bannerLine(n: SessionNotification, pending: PendingDecision | undefined): string {
-  if (!pending) return n.body
+  if (n.kind !== 'needs_input' || !pending) return n.body
   if (pending.kind === 'question') {
     const header = pending.input.questions[0]?.header?.trim()
     return header ? oneLine(`Question · ${header}`) : n.body
@@ -83,7 +87,9 @@ export function bannerLine(n: SessionNotification, pending: PendingDecision | un
 
 /**
  * `needsInput` draws 9g's needs-input form: the state glyph, the amber edge,
- * and " needs input" after a title that truncates before it.
+ * and " needs input" after a title that truncates before it. Only a
+ * `needs_input` report wears it; a Done is a plain banner (ADR
+ * a-finished-turn-is-done-not-needs-input).
  */
 export type BannerContent = { sessionId: string | null; title: string; needsInput: boolean; line: string }
 
@@ -119,14 +125,18 @@ export const useBanner = create<BannerState>()((set) => ({
 }))
 
 let rules: NotificationSettings = DEFAULT_NOTIFICATION_SETTINGS
-let notifier = new SessionNotifier()
+/** True while the notifier folds a hub frame: what it reports then is reported in step with that frame. */
+let folding = false
+
+let notifier = newNotifier()
 let active = true
 let wired = false
 /** What the Mac last said about the user being at it; false until it says, and again once the tunnel is gone. */
 let atMac = false
 /**
- * The sessions whose "needs your input" is on the shade: one leaving
- * `needs_input` takes it off, so the shade shows each session's latest state.
+ * The sessions whose "needs your input" or "Done" is on the shade: one
+ * leaving `needs_input` takes it off, so the shade shows each session's
+ * latest state.
  */
 const askingOnShade = new Set<string>()
 
@@ -168,6 +178,10 @@ export function wireNotifications(): void {
         // An older Mac drops a topic it does not allow, and atMac stays false.
         clientRef.subscribe(PRESENCE_TOPIC)
         renew()
+      } else {
+        // The tunnel is gone: a stop held for its settle would be judged on
+        // state no longer heard. The next tunnel renews the notifier.
+        notifier.dispose()
       }
     } else if (event.type === 'hub') {
       const presence = presenceFromFrame(event.frame)
@@ -177,12 +191,18 @@ export function wireNotifications(): void {
       }
       remember(event.frame)
       retireAnswered(event.frame)
-      const n = notifier.onEvent(event.frame)
       // A replay (a member that came back relists, one that went keeps its last) is folded
-      // in as a seed is: what changed while that member was away was its push's to report.
-      if (isReplay(event.frame)) return
-      // After the listeners still to hear this frame (the tunnel socket hands it to the store).
-      if (n) queueMicrotask(() => report(n))
+      // in as a seed: what changed while that member was away was its push's to report.
+      if (isReplay(event.frame)) {
+        notifier.seed((event.frame as { session?: unknown }).session)
+        return
+      }
+      folding = true
+      try {
+        notifier.onEvent(event.frame)
+      } finally {
+        folding = false
+      }
     }
   })
 }
@@ -190,6 +210,18 @@ export function wireNotifications(): void {
 /** A frame the federation marks as something already known, not news (`GroupFederation`). */
 function isReplay(frame: unknown): boolean {
   return typeof frame === 'object' && frame !== null && (frame as { replay?: unknown }).replay === true
+}
+
+function newNotifier(): SessionNotifier {
+  return new SessionNotifier({
+    notify: (n) => {
+      // Reported by the frame itself (an end, a failure): after the listeners
+      // still to hear it (the tunnel socket hands it to the store). A settled
+      // stop comes from a timer, after every frame it waited for.
+      if (folding) queueMicrotask(() => report(n))
+      else report(n)
+    },
+  })
 }
 
 type SessionsFrame = {
@@ -217,7 +249,7 @@ function remember(frame: unknown): void {
   }
 }
 
-/** Takes a session's "needs your input" off the shade once the session has moved on. */
+/** Takes a session's "needs your input" or "Done" off the shade once the session has moved on. */
 function retireAnswered(frame: unknown): void {
   const f = frame as (SessionsFrame & { status?: unknown; session?: { status?: unknown } }) | null
   if (f?.topic !== 'sessions') return
@@ -234,13 +266,13 @@ function retireAnswered(frame: unknown): void {
  * cached list when a tunnel opens, the Mac's list once `resync` has read it.
  * The Mac's `ServingHalf` replays nothing on subscribe, so without this a
  * fresh notifier would spend each session's first transition learning that
- * the session exists. What the notifier makes of a seed is discarded:
- * anything that changed while the tunnel was down was the push's to report.
+ * the session exists. A seed never reports: anything that changed while the
+ * tunnel was down was the push's to report.
  */
 export function seedNotifications(sessions: readonly ApiSession[]): void {
   for (const session of sessions) {
     if (heard.has(session.id)) continue
-    notifier.onEvent({ topic: 'sessions', event: 'upsert', session })
+    notifier.seed(session)
   }
 }
 
@@ -250,7 +282,9 @@ export function seedNotifications(sessions: readonly ApiSession[]): void {
  * again with it.
  */
 function renew(): void {
-  notifier = new SessionNotifier()
+  // What the old tunnel's notifier still holds is that tunnel's to report.
+  notifier.dispose()
+  notifier = newNotifier()
   notifier.setSettings(rules)
   heard.clear()
   asks.clear()
@@ -285,13 +319,13 @@ function report(n: SessionNotification): void {
     useBanner.getState().show({
       sessionId: n.sessionId,
       title: n.title,
-      needsInput: n.body === NEEDS_INPUT_BODY,
+      needsInput: n.kind === 'needs_input',
       line: bannerLine(n, pending),
     })
   }
   if (audience.system) {
     if (n.sessionId !== null) {
-      if (n.body === NEEDS_INPUT_BODY) askingOnShade.add(n.sessionId)
+      if (n.kind === 'needs_input' || n.kind === 'done') askingOnShade.add(n.sessionId)
       else askingOnShade.delete(n.sessionId)
     }
     void postLocalNotification({

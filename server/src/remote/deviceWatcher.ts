@@ -4,10 +4,12 @@
  * notification rules (`SessionNotifier`) are the judge, with the phone's
  * settings; this class only adds the debounce: one wake per session until
  * the phone opens it or the session moves on (spec
- * 2026-09-30-mobile-remote-design § 3 Wake flag, § 5).
+ * 2026-09-30-mobile-remote-design § 3 Wake flag, § 5). A stop is reported
+ * only once it has settled (ADR a-finished-turn-is-done-not-needs-input), so
+ * a wake can come from a timer rather than from the frame that caused it.
  */
 import { EventEmitter } from 'node:events';
-import { SessionNotifier, type NotificationSettings } from '@orbital/shared/notifications';
+import { SessionNotifier, type NotificationSettings, type SessionNotification } from '@orbital/shared/notifications';
 import type { Hub } from '../api/hub.js';
 import { carriesMachine } from './servingHalf.js';
 
@@ -30,7 +32,7 @@ export type DeviceWatcherOptions = {
 };
 
 export class DeviceWatcher {
-  private readonly notifier = new SessionNotifier();
+  private readonly notifier = new SessionNotifier({ notify: (note) => this.onNote(note) });
   private readonly pending = new Set<string>();
   private socket: (EventEmitter & { send(data: string): void }) | null = null;
 
@@ -42,7 +44,7 @@ export class DeviceWatcher {
     if (this.socket) return;
     for (const session of initialSessions) {
       if (this.isForeign({ topic: 'sessions', event: 'upsert', session })) continue;
-      this.notifier.onEvent({ topic: 'sessions', event: 'upsert', session });
+      this.notifier.seed(session);
     }
     const socket = Object.assign(new EventEmitter(), { send: (data: string) => this.onFrame(data) });
     this.socket = socket;
@@ -58,6 +60,8 @@ export class DeviceWatcher {
   stop(): void {
     this.socket?.emit('close');
     this.socket = null;
+    // A stop held for its settle would otherwise wake a phone no longer watched.
+    this.notifier.dispose();
   }
 
   /** Whether a `sessions` frame is about another member's session: one carrying `machine`, or an id the federation holds. */
@@ -92,12 +96,15 @@ export class DeviceWatcher {
       if (frame.event === 'remove' && id) this.pending.delete(id);
     }
     this.notifier.setSettings(this.opts.settings());
-    const note = this.notifier.onEvent(frame);
-    if (!note?.sessionId) return;
+    this.notifier.onEvent(frame);
+  }
+
+  private onNote(note: SessionNotification): void {
+    if (!note.sessionId) return;
     if (this.opts.quiet?.()) return;
     // A failure is news even while a needs_input wake for the same session
     // is unopened, and it has no "leaving" event to retire a debounce with.
-    const debounced = frame.topic !== 'errors';
+    const debounced = note.kind !== 'failed';
     if (debounced && this.pending.has(note.sessionId)) return;
     try {
       this.opts.onWake(note.sessionId);

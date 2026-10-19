@@ -75,8 +75,10 @@ Every change of presence is published on the hub topic `presence` as
   HMAC the relay already receives and cannot read, so a later push for the
   same session replaces the earlier one and the relay learns nothing new.
   Since every push now stands for one session, the text no longer counts:
-  "A session needs your input". The relay's per-phone count (`WakeTracker`)
-  goes with it.
+  "A session needs your input" — since made neutral, "A session has an
+  update", once a wake could also be a finished turn
+  ([[a-finished-turn-is-done-not-needs-input]]). The relay's per-phone count
+  (`WakeTracker`) goes with it.
 - **Local notification.** It already replaces per session. In addition,
   when a session leaves `needs_input` (answered at the Mac, or moving on),
   the phone takes that session's notification off the shade.

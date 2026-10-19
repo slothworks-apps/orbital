@@ -29,8 +29,14 @@ export class LogPushSender implements PushSender {
   }
 }
 
-/** A phone pairs with one Mac, so the title names none: it would tell the user nothing, and tell FCM and APNs a name. */
-export const PUSH_TEXT = { title: 'Orbital', body: 'A session needs your input' } as const;
+/**
+ * A phone pairs with one Mac, so the title names none: it would tell the user
+ * nothing, and tell FCM and APNs a name. The body is one fixed line true for
+ * every wake — a session waiting on the user, one that finished its turn,
+ * stopped or failed — since the relay cannot read which it was (ADR
+ * a-finished-turn-is-done-not-needs-input).
+ */
+export const PUSH_TEXT = { title: 'Orbital', body: 'A session has an update' } as const;
 
 export function wakeHook(store: RelayStore, sender: PushSender): WakeHook {
   return async (_from, to, wake) => {

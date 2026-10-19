@@ -47,7 +47,7 @@ describe('FcmPushSender', () => {
     ]);
     const sent = JSON.parse(calls[1].init.body as string);
     expect(sent.message.token).toBe('fcm-1');
-    expect(sent.message.notification).toEqual({ title: 'Orbital', body: 'A session needs your input' });
+    expect(sent.message.notification).toEqual({ title: 'Orbital', body: 'A session has an update' });
     expect(sent.message.android.notification.tag).toBe('aa');
     expect(sent.message.apns.headers['apns-collapse-id']).toBe('aa');
     expect((calls[1].init.headers as Record<string, string>).authorization).toBe('Bearer tok');

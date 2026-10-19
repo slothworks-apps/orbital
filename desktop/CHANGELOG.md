@@ -3,8 +3,13 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.34.2] — 2026-10-19
 ### Changed
 - Orbital's built-in session tips are shorter, and sessions are told they run in Orbital rather than a terminal.
+### Fixed
+- A session that only finishes its turn is no longer announced as needing your input: the notification says Done, and nothing is sent when the session carries on by itself a moment later, as it does under a harness or when a background agent reports back.
+- The Needs input setting now says that it also covers a finished turn.
 
 ## [0.34.1] — 2026-10-19
 ### Changed

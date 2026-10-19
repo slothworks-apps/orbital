@@ -203,6 +203,11 @@ The three `WHEN` rows are the three notifications
 | ends | `bodyFor` on `working → ended` |
 | fails | `onErrorEvent`, `error.kind === 'session_failed'` |
 
+Since [[a-finished-turn-is-done-not-needs-input]] the needs-input row covers
+a finished turn too: a `working → needs_input` that settles is reported as
+"Needs your input" when something is parked on the user, and as "Done"
+otherwise. The row's description says both.
+
 All three are on by default, which is today's behaviour. The fold stays
 pure — `SessionNotifier` may not import electron — so the settings arrive
 as a plain object passed in. A disabled event still folds; it just returns
