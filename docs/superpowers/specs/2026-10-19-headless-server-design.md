@@ -1,7 +1,7 @@
 ---
 id: 2026-10-19-headless-server-design
 title: Orbital on an Ubuntu server — a .deb, a systemd service, a terminal CLI, and updating any member from the group
-status: draft
+status: active
 type: spec
 domain: remote
 related:
