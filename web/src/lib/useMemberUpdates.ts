@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { updatePollDelay, type ServerUpdateState } from '@orbital/shared/remote/serverUpdate'
 import {
-  applyRead, applyStart, applyStartUnanswered, startDecision, type MemberUpdate, type StartAnswer,
+  applyRead, applyStart, applyStartUnanswered, confirmDecision, startDecision, type MemberUpdate, type StartAnswer,
+  type StartDecision,
 } from './memberUpdate'
 
 /**
@@ -189,7 +190,10 @@ export function useMemberUpdates(targets: UpdateTarget[], io: UpdateIo) {
    * answer decides (`startDecision`) — the confirm when it runs sessions now,
    * else the start at once. Nothing starts when it cannot be read.
    */
-  const press = useCallback((id: string): Promise<PressResult> => exclusive(id, async (): Promise<PressResult> => {
+  /** Reads the member again and decides on that answer with `decide`; starts when it says so. */
+  const decideFresh = useCallback(async (
+    id: string, decide: (fresh: MemberUpdate, online: boolean) => StartDecision,
+  ): Promise<PressResult> => {
     const n = ticket(id)
     const latest = await fetchOne(id)
     if (latest === null) return 'unreachable'
@@ -197,15 +201,24 @@ export function useMemberUpdates(targets: UpdateTarget[], io: UpdateIo) {
     // A newer answer landed meanwhile (a start elsewhere on this screen cannot: this one holds it): it decides.
     if (!land(id, n, () => fresh)) return 'none'
     const online = targetsRef.current.find((t) => t.id === id)?.readable ?? false
-    const decision = startDecision(fresh, online)
+    const decision = decide(fresh, online)
     if (decision !== 'start') return decision
     return (await startNow(id)) ? 'started' : 'unreachable'
-  }), [exclusive, ticket, fetchOne, land, startNow])
+  }, [ticket, fetchOne, land, startNow])
 
-  /** The confirm's Update: starts at once. */
-  const start = useCallback((id: string): Promise<'started' | 'unreachable' | 'none'> => exclusive(id, async () => (
-    (await startNow(id)) ? 'started' as const : 'unreachable' as const
-  )), [exclusive, startNow])
+  const press = useCallback((id: string): Promise<PressResult> => exclusive(id, () => decideFresh(id, startDecision)), [
+    exclusive, decideFresh,
+  ])
+
+  /**
+   * The confirm's Update: the member is read again too, and when it runs
+   * more sessions than the confirm named, the answer is `confirm` again —
+   * the screen keeps the confirm open, and it names the new count.
+   */
+  const start = useCallback((id: string): Promise<PressResult> => exclusive(id, () => {
+    const shown = useUpdates.getState().byId[id]?.state?.sessions ?? 0
+    return decideFresh(id, (fresh, online) => confirmDecision(shown, fresh, online))
+  }), [exclusive, decideFresh])
 
   return { byId, starting, press, start }
 }

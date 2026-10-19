@@ -79,6 +79,30 @@ describe('useMemberUpdates: pressing Update', () => {
     expect(result.current.byId[id]?.watch?.unconfirmed).toBeUndefined()
   })
 
+  it("the confirm's Update asks again, without starting, when more sessions run there than it named", async () => {
+    const id = nextId()
+    const reads = [state({ sessions: 1 }), state({ sessions: 3 }), state({ sessions: 3 })]
+    const io: UpdateIo = {
+      read: vi.fn(async () => reads.shift() ?? state({ sessions: 3 })),
+      start: vi.fn(async (): Promise<StartAnswer> => ({ ok: true, state: state({ updating: true, sessions: 3 }) })),
+    }
+    const { result } = renderHook(() => useMemberUpdates([{ id, readable: false }], io))
+    await act(async () => {
+      await expect(result.current.press(id)).resolves.toBe('confirm')
+    })
+    // The confirm named 1; there are 3 now.
+    await act(async () => {
+      await expect(result.current.start(id)).resolves.toBe('confirm')
+    })
+    expect(io.start).not.toHaveBeenCalled()
+    expect(result.current.byId[id]?.state?.sessions).toBe(3)
+    // Confirmed again for 3: it starts.
+    await act(async () => {
+      await expect(result.current.start(id)).resolves.toBe('started')
+    })
+    expect(io.start).toHaveBeenCalledTimes(1)
+  })
+
   it('a double press runs one read and one start', async () => {
     const id = nextId()
     const read = deferred<ServerUpdateState>()

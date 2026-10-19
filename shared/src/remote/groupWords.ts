@@ -210,3 +210,19 @@ export function updateFailedLine(installed: string): string {
 export function updateSessionsStartedLine(name: string): string {
   return `sessions started on ${name} — update it there or try again`;
 }
+
+/**
+ * Why, under a failed update, when the Mac could not tell which sessions
+ * worked as the download landed (`failedReason: 'unknown'`), and did not
+ * restart for that.
+ */
+export function updateSessionsUnknownLine(name: string): string {
+  return `couldn’t tell whether sessions run on ${name} — try again`;
+}
+
+/** The line under a failed update for the reason the member named; null for none (or one this side does not know). */
+export function updateFailedWhy(reason: string | null | undefined, name: string): string | null {
+  if (reason === 'sessions') return updateSessionsStartedLine(name);
+  if (reason === 'unknown') return updateSessionsUnknownLine(name);
+  return null;
+}

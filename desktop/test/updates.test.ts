@@ -585,37 +585,58 @@ describe('an update a member of the group asked for', () => {
     expect(flow.view.phase).toBe('restarting');
   });
 
-  it('installs over the sessions the member confirmed, but not over ones that started while it downloaded', () => {
+  it('installs over the sessions working when the request arrived, but not over one that started while it downloaded', () => {
     const confirmed = new UpdateFlow();
-    confirmed.setWorkingCount(2, true);
+    confirmed.setWorkingCount(2, true, ['a', 'b']);
     confirmed.available('0.26.0', MB);
     confirmed.remoteStart();
-    confirmed.setWorkingCount(1, true);
-    expect(confirmed.downloaded('0.26.0')).toMatchObject({ restart: true });
+    confirmed.setWorkingCount(1, true, ['b']);
+    expect(confirmed.downloaded('0.26.0')).toMatchObject({ restart: true, remoteEnded: null });
 
-    const started = new UpdateFlow();
-    started.setWorkingCount(1, true);
-    started.available('0.26.0', MB);
-    started.remoteStart();
-    started.setWorkingCount(2, true);
-    const landed = started.downloaded('0.26.0');
+    // As many as when it was asked, but one of them is new: by id, not by count.
+    const swapped = new UpdateFlow();
+    swapped.setWorkingCount(1, true, ['a']);
+    swapped.available('0.26.0', MB);
+    swapped.remoteStart();
+    swapped.setWorkingCount(1, true, ['c']);
+    const landed = swapped.downloaded('0.26.0');
     // This Mac's own Ready prompt, as without a request, and the server is told at once.
     expect(landed).toMatchObject({ restart: false, changed: true, remoteEnded: 'sessions' });
-    expect(started.view).toMatchObject({ phase: 'ready', version: '0.26.0', buttons: 'two' });
-    expect(started.serverState(INSTALLED)).toMatchObject({ available: '0.26.0', downloaded: true });
+    expect(swapped.view).toMatchObject({ phase: 'ready', version: '0.26.0', buttons: 'two' });
+    expect(swapped.serverState(INSTALLED)).toMatchObject({ available: '0.26.0', downloaded: true });
     // The request is over: Restart here is this Mac's user's.
-    expect(started.act('restart-when-idle')).toMatchObject({ restart: false });
-    expect(started.view.phase).toBe('waiting');
+    expect(swapped.act('restart-when-idle')).toMatchObject({ restart: false });
+    expect(swapped.view.phase).toBe('waiting');
   });
 
-  it('does not restart while the working count is not known when the download lands', () => {
-    const flow = new UpdateFlow();
-    flow.setWorkingCount(0, true);
-    flow.available('0.26.0', MB);
-    flow.remoteStart();
-    flow.setWorkingCount(0, false);
-    expect(flow.downloaded('0.26.0')).toMatchObject({ restart: false, remoteEnded: 'sessions' });
-    expect(flow.view.phase).toBe('ready');
+  it('declines as unknown when the working sessions cannot be told apart at the landing', () => {
+    const reconnecting = new UpdateFlow();
+    reconnecting.setWorkingCount(0, true);
+    reconnecting.available('0.26.0', MB);
+    reconnecting.remoteStart();
+    reconnecting.setWorkingCount(0, false);
+    expect(reconnecting.downloaded('0.26.0')).toMatchObject({ restart: false, remoteEnded: 'unknown' });
+    expect(reconnecting.view.phase).toBe('ready');
+
+    // A count given without its ids is no list of sessions.
+    const countOnly = new UpdateFlow();
+    countOnly.setWorkingCount(0, true);
+    countOnly.available('0.26.0', MB);
+    countOnly.remoteStart();
+    countOnly.setWorkingCount(1, true);
+    expect(countOnly.downloaded('0.26.0')).toMatchObject({ restart: false, remoteEnded: 'unknown' });
+
+    // Not known when the request arrived: sessions working at the landing cannot be told confirmed or new.
+    const unseeded = new UpdateFlow();
+    unseeded.available('0.26.0', MB);
+    unseeded.remoteStart();
+    unseeded.setWorkingCount(1, true, ['a']);
+    expect(unseeded.downloaded('0.26.0')).toMatchObject({ restart: false, remoteEnded: 'unknown' });
+    const idle = new UpdateFlow();
+    idle.available('0.26.0', MB);
+    idle.remoteStart();
+    idle.setWorkingCount(0, true, []);
+    expect(idle.downloaded('0.26.0')).toMatchObject({ restart: true });
   });
 
   it('installs a version whose receipt was OK\'d here, when a member asks for it', () => {

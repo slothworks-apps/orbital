@@ -85,8 +85,11 @@ export type UpdateAsker = { id: string; name: string };
  *   field, which sends none.
  * - `failedReason` — with `failed`, why, when the member knows:
  *   `sessions`, a Mac whose sessions started working while the update
- *   downloaded, so it did not restart over them and prompts there instead.
- *   Null or absent otherwise; absent from a server older than the field.
+ *   downloaded, so it did not restart over them and prompts there instead;
+ *   `unknown`, a Mac that could not tell which sessions worked when it
+ *   landed, and did not restart either. Null or absent otherwise; absent
+ *   from a server older than the field.
+ *   A reader that does not know a reason reads null.
  */
 export const ServerUpdateStateSchema = z.object({
   installed: VersionText,
@@ -99,7 +102,7 @@ export const ServerUpdateStateSchema = z.object({
     id: z.string().max(STARTED_BY_ID_MAX_CHARS),
     name: z.string().transform((s) => s.slice(0, STARTED_BY_NAME_MAX_CHARS)),
   }).nullable().catch(null),
-  failedReason: z.enum(['sessions']).nullable().optional().catch(null),
+  failedReason: z.enum(['sessions', 'unknown']).nullable().optional().catch(null),
 });
 export type ServerUpdateState = z.infer<typeof ServerUpdateStateSchema>;
 
@@ -156,17 +159,21 @@ export type MainUpdateStateMessage = z.infer<typeof MainUpdateStateMessage>;
  * Main → server: a member's request ended on this Mac without the install,
  * so the server reports it failed at once rather than at its timeout.
  *
- * - `sessions` — Orbital sessions started working while it downloaded: the
- *   Mac prompts as for its own download instead of restarting over them;
+ * - `sessions` — an Orbital session started working while it downloaded: the
+ *   Mac prompts as for its own download instead of restarting over it;
+ * - `unknown` — the Mac could not tell which sessions work (its session
+ *   list was being re-read) and did not restart either;
  * - `restart` — the app was asked again while a restart it was already
  *   making had not got it out, and its one retry was spent.
  */
 export const MainUpdateEndedMessage = z.object({
   t: z.literal('update_ended'),
-  reason: z.enum(['sessions', 'restart']),
+  reason: z.enum(['sessions', 'unknown', 'restart']),
 }).strict();
 export type MainUpdateEndedMessage = z.infer<typeof MainUpdateEndedMessage>;
 export type UpdateEndReason = MainUpdateEndedMessage['reason'];
+/** The reasons a failed update names to the members (`ServerUpdateState.failedReason`). */
+export type UpdateFailReason = NonNullable<ServerUpdateState['failedReason']>;
 
 /** Everything main sends the server. */
 export const MainMessage = z.discriminatedUnion('t', [MainUpdateStateMessage, MainUpdateEndedMessage]);

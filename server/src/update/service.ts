@@ -16,7 +16,7 @@
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import {
   SERVER_UPDATE_REFUSALS, UPDATE_TIMEOUT_MS, updateIsNewer, type ServerUpdateRefusal, type ServerUpdateState,
-  type UpdateAsker,
+  type UpdateAsker, type UpdateFailReason,
 } from '@orbital/shared/remote/serverUpdate';
 import type { UpdateBackend, UpdateProgress } from './backends.js';
 
@@ -59,7 +59,7 @@ export class UpdateService {
   /** The last progress the backend reported, request or not: a request that joins a running download has seen it. */
   private lastProgress: UpdateProgress = 'idle';
   /** Why the last request failed, when the backend said (`ServerUpdateState.failedReason`). */
-  private failedReason: 'sessions' | null = null;
+  private failedReason: UpdateFailReason | null = null;
 
   constructor(private readonly opts: {
     backend: UpdateBackend;
@@ -140,7 +140,7 @@ export class UpdateService {
     if (!this.updating) return;
     if (typeof progress === 'object') {
       // Main ended the request without installing: failed now, not at the timeout.
-      this.fail(progress.ended === 'sessions' ? 'sessions' : null);
+      this.fail(progress.ended === 'restart' ? null : progress.ended);
       return;
     }
     if (progress === 'idle') {
@@ -169,7 +169,7 @@ export class UpdateService {
     this.timer = null;
   }
 
-  private fail(reason: 'sessions' | null = null): void {
+  private fail(reason: UpdateFailReason | null = null): void {
     this.clearTimer();
     this.updating = false;
     this.failed = this.target;

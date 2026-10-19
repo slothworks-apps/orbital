@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { UPDATE_TIMEOUT_MS, type ServerUpdateState } from '@orbital/shared/remote/serverUpdate'
 import {
-  applyRead, applyStart, applyStartUnanswered, selfUpdateAvailable, startDecision, updateNeedsConfirm, updatePhase, updateRow, type MemberUpdate,
+  applyRead, applyStart, applyStartUnanswered, confirmDecision, selfUpdateAvailable, startDecision, updateNeedsConfirm, updatePhase, updateRow, type MemberUpdate,
   type UpdateRowInput,
 } from '../lib/memberUpdate'
 
@@ -123,6 +123,14 @@ describe('an update from start to end', () => {
     expect(again.failedReason).toBeNull()
   })
 
+  it('says so when the Mac could not tell which sessions run, and keeps where to look for no reason it knows', () => {
+    const MAC = { ...SERVER, name: 'studio', kind: 'desktop' }
+    const unknown = applyRead(started(), state({ failed: '0.36.0', failedReason: 'unknown' }), T0 + 30_000)
+    expect(updateRow(unknown, MAC).line?.sub).toBe('couldn’t tell whether sessions run on studio — try again')
+    const plain = applyRead(started(), state({ failed: '0.36.0', failedReason: null }), T0 + 30_000)
+    expect(updateRow(plain, MAC).line?.sub).toBe('on studio: Settings → Updates')
+  })
+
   it('fails on the old version even when the member does not say so itself', () => {
     const back = applyRead(started(), state(), T0 + 60_000)
     expect(updatePhase(back, true)).toBe('failed')
@@ -176,6 +184,24 @@ describe('starting an update', () => {
     })
     // The next start forgets it.
     expect(applyStart(refused.next, { ok: false, error: 'updating' }, T0).next.refused).toBeNull()
+  })
+})
+
+describe("the confirm's Update", () => {
+  const read = (sessions: number) => applyRead(undefined, state({ sessions }), T0)
+
+  it('starts with as many sessions as it named, or fewer', () => {
+    expect(confirmDecision(2, read(2), true)).toBe('start')
+    expect(confirmDecision(2, read(0), true)).toBe('start')
+  })
+
+  it('asks again when more run there now than it named', () => {
+    expect(confirmDecision(1, read(3), true)).toBe('confirm')
+  })
+
+  it('does nothing it cannot read, or no longer offered', () => {
+    expect(confirmDecision(1, null, true)).toBe('unreachable')
+    expect(confirmDecision(1, applyRead(undefined, state({ updating: true, sessions: 4 }), T0), true)).toBe('none')
   })
 })
 

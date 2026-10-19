@@ -376,7 +376,11 @@ describe('UpdateService', () => {
     b.progress({ ended: 'sessions' });
     expect(service.state()).toMatchObject({ updating: false, failed: '0.36.0', failedReason: 'sessions', startedBy: null });
     expect(service.start()).toMatchObject({ ok: true, state: { failed: null, failedReason: null } });
-    // Any other end fails it too, with no reason the screens word.
+    // Could not tell which sessions work: failed at once too, with that reason.
+    b.progress({ ended: 'unknown' });
+    expect(service.state()).toMatchObject({ updating: false, failedReason: 'unknown' });
+    service.start();
+    // A restart that did not get out fails it with no reason the screens word.
     b.progress({ ended: 'restart' });
     expect(service.state()).toMatchObject({ updating: false, failed: '0.36.0', failedReason: null });
     service.stop();

@@ -349,8 +349,8 @@ function DeviceSheet({
   starting: boolean
   /** Update or Try again: reads the member again and starts, or asks for the confirm (`press`). */
   onPress: () => Promise<PressResult>
-  /** The confirm's Update. */
-  onConfirm: () => Promise<'started' | 'unreachable' | 'none'>
+  /** The confirm's Update; `confirm` when it must ask again, with the count read now. */
+  onConfirm: () => Promise<PressResult>
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -394,6 +394,8 @@ function DeviceSheet({
   const confirmUpdate = async () => {
     clearLines()
     const result = await onConfirm()
+    // More sessions there than it named: it stays, naming the new count.
+    if (result === 'confirm') return
     setConfirming(false)
     if (result === 'unreachable') setUpdateError(UPDATE_UNREACHABLE)
   }

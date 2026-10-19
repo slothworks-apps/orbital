@@ -6,7 +6,7 @@
 import type { JoinResult, StartPairingResult } from '@orbital/shared/remote/ceremony';
 import { osName } from '@orbital/shared/remote/device';
 import {
-  groupFullLine, notPrimaryAddLine, osLabel, updateAvailableLine, updateFailedLine, updateSessionsStartedLine,
+  groupFullLine, notPrimaryAddLine, osLabel, updateAvailableLine, updateFailedLine, updateFailedWhy,
 } from '@orbital/shared/remote/groupWords';
 import { updateIsNewer, type ServerUpdateState } from '@orbital/shared/remote/serverUpdate';
 import { BAD_SECRET_ERROR, NO_RELAY_URL_ERROR } from '../remote/errors.js';
@@ -156,7 +156,8 @@ export function statusLines(remote: RemoteStatus, update: ServerUpdateState | nu
     }
     else if (updateIsNewer(update.installed, update.candidate)) lines.push(`Update: ${update.candidate} is out. Run orbital update.`);
     if (update.failed) {
-      const why = update.failedReason === 'sessions' ? `: ${updateSessionsStartedLine(remote.macName)}` : '.';
+      const said = updateFailedWhy(update.failedReason, remote.macName);
+      const why = said === null ? '.' : `: ${said}`;
       lines.push(`The update to ${update.failed} failed${why}`);
     }
   }

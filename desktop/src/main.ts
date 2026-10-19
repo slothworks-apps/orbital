@@ -991,7 +991,7 @@ async function seedWorkingSessions(): Promise<void> {
     });
     if (res.ok) {
       working.seed(token, await res.json());
-      applyUpdateStep(updates.setWorkingCount(working.count, working.seeded));
+      applyUpdateStep(updates.setWorkingCount(working.count, working.seeded, working.workingIds));
     }
   } catch {
     /* server still coming up, or gone: retried below */
@@ -1023,7 +1023,7 @@ function startNotifications(): void {
       working.reset();
       // The update flow forgets the count too, so a restart waiting for
       // sessions to finish cannot take the one from before the drop.
-      applyUpdateStep(updates.setWorkingCount(working.count, working.seeded));
+      applyUpdateStep(updates.setWorkingCount(working.count, working.seeded, working.workingIds));
       void seedWorkingSessions();
       void loadSettings();
     },
@@ -1205,7 +1205,7 @@ async function checkForUpdatesFromMenu(): Promise<void> {
 function onWorkingFrame(frame: unknown): void {
   if (typeof frame !== 'object' || frame === null) return;
   if ((frame as { topic?: unknown }).topic !== 'sessions') return;
-  applyUpdateStep(updates.setWorkingCount(working.count, working.seeded));
+  applyUpdateStep(updates.setWorkingCount(working.count, working.seeded, working.workingIds));
 }
 
 /** The pending `idleSettled` call after the working count reached zero in a wait. */

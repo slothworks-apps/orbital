@@ -65,6 +65,11 @@ export class WorkingSessions {
     return this.ids.size;
   }
 
+  /** The working sessions' ids; `count` of them. */
+  get workingIds(): string[] {
+    return [...this.ids];
+  }
+
   /** Whether `count` covers sessions that were working before the socket opened. */
   get seeded(): boolean {
     return this.isSeeded;

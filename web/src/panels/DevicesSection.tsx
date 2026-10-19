@@ -856,9 +856,10 @@ function Members({
     else if (result === 'unreachable') setRefusal({ id, text: UPDATE_UNREACHABLE })
   }
 
-  /** The confirm's Update. */
+  /** The confirm's Update; asked again, with the new count, when more sessions run there now. */
   async function confirmUpdate(id: string) {
     const result = await updates.start(id)
+    if (result === 'confirm') return
     setAskingUpdate(null)
     if (result === 'unreachable') setRefusal({ id, text: UPDATE_UNREACHABLE })
   }

@@ -9,10 +9,10 @@
  * Only the words change. No spinner, no countdown, no percentage, and
  * nothing outside Settings → Devices.
  */
-import { updateAvailableLine, updateFailedLine, updateSessionsStartedLine } from '@orbital/shared/remote/groupWords'
+import { updateAvailableLine, updateFailedLine, updateFailedWhy } from '@orbital/shared/remote/groupWords'
 import {
   UPDATE_TIMEOUT_MS, updateIsNewer, watchUpdate, watchVerdict, type ServerUpdateRefusal, type ServerUpdateState,
-  type UpdateAsker, type UpdateWatch,
+  type UpdateAsker, type UpdateFailReason, type UpdateWatch,
 } from '@orbital/shared/remote/serverUpdate'
 
 /**
@@ -36,7 +36,7 @@ export interface MemberUpdate {
   /** The version an update watched here was meant to bring, when it came back without it. */
   failed: string | null
   /** Why it failed, when the member said (`ServerUpdateState.failedReason`). */
-  failedReason: 'sessions' | null
+  failedReason: UpdateFailReason | null
   /** A start the member refused for a reason no read shows, until the next start. */
   refused: Extract<ServerUpdateRefusal, 'not_set_up' | 'not_packaged'> | null
 }
@@ -177,6 +177,19 @@ export function startDecision(fresh: MemberUpdate | null, online: boolean): Star
   return updateNeedsConfirm(fresh) ? 'confirm' : 'start'
 }
 
+/**
+ * The confirm's Update, decided on a fresh read as a press is: `shown` is
+ * the session count the confirm named. More sessions there now than it
+ * named is `confirm` again, with the new count, rather than a start the
+ * user agreed to for fewer; the same or fewer starts. The member decides at
+ * the landing only against the sessions working when the request arrived.
+ */
+export function confirmDecision(shown: number, fresh: MemberUpdate | null, online: boolean): StartDecision {
+  const decision = startDecision(fresh, online)
+  if (decision === 'unreachable' || decision === 'none') return decision
+  return (fresh?.state?.sessions ?? 0) > shown ? 'confirm' : 'start'
+}
+
 export interface UpdateRowInput {
   name: string
   kind: string
@@ -289,7 +302,7 @@ export function updateRow(u: MemberUpdate | undefined, input: UpdateRowInput): U
         dim: null,
         line: {
           text: updateFailedLine(failedOn),
-          sub: u?.failedReason === 'sessions' ? updateSessionsStartedLine(name) : whereToLook(name, kind),
+          sub: updateFailedWhy(u?.failedReason, name) ?? whereToLook(name, kind),
           bright: false,
           head: `The update didn’t finish · still on ${failedOn}`, action: reach ? 'retry' : null,
         },

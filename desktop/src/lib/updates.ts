@@ -340,6 +340,8 @@ export class UpdateFlow {
   private percent = 0;
   private buttons: 'one' | 'two' = 'one';
   private workingCount = 0;
+  /** The working sessions' ids, as last given with the count; their number is the count when both are known. */
+  private workingIds: readonly string[] = [];
   /** False until the working count has been seeded, and again after a reconnect. */
   private countKnown = false;
   private autoDownload = false;
@@ -360,11 +362,13 @@ export class UpdateFlow {
    */
   private remoteRequested = false;
   /**
-   * The working count when the member asked: the member confirmed those
-   * sessions before it asked, so only more than these, started while it
-   * downloaded, keep the download from installing.
+   * The sessions working when the member's request arrived, by id: the
+   * member confirmed the sessions running before it asked, so only a session
+   * working at the landing that is not among these — one that started while
+   * it downloaded — keeps the download from installing. Null when they were
+   * not known then.
    */
-  private remoteBaseline = 0;
+  private remoteBaseline: ReadonlySet<string> | null = null;
   /** A member's request already retried a restart that had not got the app out (`remoteStart`). */
   private restartRetried = false;
 
@@ -473,10 +477,10 @@ export class UpdateFlow {
   /**
    * electron-updater finished downloading `version`. A member's request
    * comes first, a version whose receipt was OK'd here included: it installs
-   * now, unless Orbital sessions started working while it downloaded (more
-   * than when the member asked, or a count not known) — then it does not
-   * restart over them, prompts here as this Mac's own download would, and
-   * tells the server the request ended (`remoteEnded`).
+   * now, unless a session is working that was not when the request arrived
+   * (`sessions`), or which sessions work cannot be told (`unknown`) — then it
+   * does not restart over them, prompts here as this Mac's own download
+   * would, and tells the server the request ended (`remoteEnded`).
    */
   downloaded(version: string): UpdateStep {
     if (this.phase === 'restarting') return this.step();
@@ -485,9 +489,10 @@ export class UpdateFlow {
       this.remoteRequested = false;
       const before = this.snapshot();
       this.downloadedVersion = version;
-      if (this.countKnown && this.workingCount <= this.remoteBaseline) return this.restart();
+      const ended = this.remoteVerdict();
+      if (ended === null) return this.restart();
       this.toReady(version);
-      return this.step({ changed: before !== this.snapshot(), remoteEnded: 'sessions' });
+      return this.step({ changed: before !== this.snapshot(), remoteEnded: ended });
     }
     if (version === this.dismissedVersion) return this.step();
     if (version === this.downloadedVersion && this.phase !== 'available' && this.phase !== 'downloading') {
@@ -507,13 +512,15 @@ export class UpdateFlow {
    * short — the socket reconnected and the session list has not been read
    * yet — so it is not taken, and a zero never ends a wait. A zero during a
    * wait asks for `idleSettled` after `IDLE_SETTLE_MS` rather than
-   * restarting at once.
+   * restarting at once. `ids` are the working sessions themselves
+   * (`WorkingSessions.workingIds`), which a member's request is judged by.
    */
-  setWorkingCount(count: number, seeded: boolean): UpdateStep {
+  setWorkingCount(count: number, seeded: boolean, ids: readonly string[] = []): UpdateStep {
     this.countKnown = seeded;
     if (!seeded) return this.step();
     const before = this.snapshot();
     this.workingCount = count;
+    this.workingIds = ids;
     const changed = before !== this.snapshot();
     return this.step({ changed, idleCheck: this.phase === 'waiting' && count === 0 });
   }
@@ -590,7 +597,7 @@ export class UpdateFlow {
     const version = this.phase !== 'none' ? this.version : (this.silentDownload ?? this.found);
     if (version === null || version === '') return this.step();
     this.remoteRequested = true;
-    this.remoteBaseline = this.countKnown ? this.workingCount : 0;
+    this.remoteBaseline = this.idsKnown() ? new Set(this.workingIds) : null;
     if (this.phase === 'downloading' || this.silentDownload === version) return this.step();
     const before = this.snapshot();
     let skipChanged = false;
@@ -629,6 +636,23 @@ export class UpdateFlow {
       downloading: this.phase === 'downloading' || this.silentDownload !== null,
       downloaded: this.downloadedVersion !== null,
     };
+  }
+
+  /** Whether the working sessions are known by id: seeded, and the ids given with the count. */
+  private idsKnown(): boolean {
+    return this.countKnown && this.workingIds.length === this.workingCount;
+  }
+
+  /**
+   * Whether a member's download that just landed may install: null when it
+   * may — nothing works that did not when the request arrived — else why not.
+   */
+  private remoteVerdict(): Exclude<UpdateEndReason, 'restart'> | null {
+    if (!this.idsKnown()) return 'unknown';
+    if (this.workingIds.length === 0) return null;
+    if (this.remoteBaseline === null) return 'unknown';
+    const baseline = this.remoteBaseline;
+    return this.workingIds.every((id) => baseline.has(id)) ? null : 'sessions';
   }
 
   private toReady(version: string): void {

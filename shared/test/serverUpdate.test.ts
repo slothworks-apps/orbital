@@ -27,6 +27,7 @@ describe('parseServerUpdateState', () => {
 
   it('reads failedReason: kept when known, absent from an older server, null for one this side does not know', () => {
     expect(parseServerUpdateState(state({ failed: '0.36.0', failedReason: 'sessions' }))?.failedReason).toBe('sessions');
+    expect(parseServerUpdateState(state({ failed: '0.36.0', failedReason: 'unknown' }))?.failedReason).toBe('unknown');
     expect(parseServerUpdateState(state())?.failedReason).toBeUndefined();
     expect(parseServerUpdateState({ ...state(), failedReason: 'later' })?.failedReason).toBeNull();
   });
@@ -75,6 +76,7 @@ describe('main ↔ server messages', () => {
     expect(parseServerMessage({ t: 'update_cancel' })).toEqual({ t: 'update_cancel' });
     expect(parseMainMessage({ t: 'update_ended', reason: 'sessions' })).toEqual({ t: 'update_ended', reason: 'sessions' });
     expect(parseMainMessage({ t: 'update_ended', reason: 'restart' })).not.toBeNull();
+    expect(parseMainMessage({ t: 'update_ended', reason: 'unknown' })).not.toBeNull();
   });
 
   it('ignores anything malformed, extra or sent the wrong way', () => {
