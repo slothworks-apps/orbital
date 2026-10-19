@@ -60,7 +60,8 @@ export function UpdatesSection({ patchAndSet }: { patchAndSet: (patch: Record<st
         <div className="flex flex-col items-start gap-2">
           <div className="flex items-center gap-3">
             <span className="font-mono text-[12px] text-text-bright">Orbital {orbitalVersion}</span>
-            <Button variant="hairline" size="check" disabled={checking} onClick={() => void checkNow()}>
+            {/* Canvas 50v 01–02: nothing to check while another member's update runs here. */}
+            <Button variant="hairline" size="check" disabled={checking || !!state?.remote} onClick={() => void checkNow()}>
               Check now
             </Button>
           </div>

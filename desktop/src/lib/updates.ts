@@ -76,6 +76,66 @@ export function serializeSkippedVersion(version: string | null): string {
 }
 
 /**
+ * How long the last line of an update another member started (canvas 50v
+ * 02, "Restarting on … · started on …") stays on this Mac before Orbital
+ * quits into the update: long enough to be read by someone at the Mac, never
+ * shown as a number. A session started meanwhile does not hold it.
+ */
+export const REMOTE_RESTART_HOLD_MS = 3_000;
+
+/**
+ * The file in `userData`, beside `SKIPPED_VERSION_FILE`, that carries an
+ * update another member started across the restart it made: who, when, how
+ * many sessions it stopped, and the version it installed. The relaunched
+ * app says so once (canvas 50v 04) and removes it when that is dismissed.
+ * Main is its only reader and writer.
+ */
+export const UPDATE_RECEIPT_FILE = 'update-receipt.json';
+
+/** An update another member made of this Mac, as the relaunched app tells it (`UPDATE_RECEIPT_FILE`). */
+export type UpdateReceipt = {
+  /** The member's name, as the request named it. */
+  by: string;
+  /** When the restart was made (epoch ms). */
+  at: number;
+  /** How many Orbital sessions were working then, and stopped. */
+  stopped: number;
+  /** The version it restarted into. */
+  version: string;
+};
+
+function isReceipt(raw: unknown): raw is UpdateReceipt {
+  if (typeof raw !== 'object' || raw === null) return false;
+  const { by, at, stopped, version } = raw as Record<string, unknown>;
+  return typeof by === 'string' && by !== '' && isCount(at) && isCount(stopped) && typeof version === 'string' && version !== '';
+}
+
+export function parseUpdateReceipt(raw: string): UpdateReceipt | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isReceipt(parsed)) return null;
+    const { by, at, stopped, version } = parsed;
+    return { by, at, stopped, version };
+  } catch {
+    return null;
+  }
+}
+
+export function serializeUpdateReceipt(receipt: UpdateReceipt): string {
+  return `${JSON.stringify(receipt)}\n`;
+}
+
+/**
+ * The receipt a launch tells, from the file it found: only one for the
+ * version this launch runs. Another version means the restart did not bring
+ * it — the install failed, or it is older than an update since — and it is
+ * dropped unsaid.
+ */
+export function receiptAtLaunch(receipt: UpdateReceipt | null, running: string): UpdateReceipt | null {
+  return receipt !== null && receipt.version === running ? receipt : null;
+}
+
+/**
  * A dev build has no release to compare with, and a build from `dist:local`
  * or `dist:self` carries no `app-update.yml` — it does not know where its
  * releases are, and must not replace itself with a published one.
@@ -110,6 +170,8 @@ function toMB(bytes: number): number {
  *   restarts at once when nothing is working.
  * - `close` — × on Ready: the receipt that it installs on quit.
  * - `ok` — the receipt's OK, which ends the prompt for that version.
+ * - `receipt-close` — × on the line saying another member updated this Mac
+ *   (`UpdateView.receipt`): it is not said again.
  */
 export type UpdateAction =
   | 'download'
@@ -118,7 +180,8 @@ export type UpdateAction =
   | 'restart-when-idle'
   | 'cancel-wait'
   | 'close'
-  | 'ok';
+  | 'ok'
+  | 'receipt-close';
 
 const ACTIONS: readonly UpdateAction[] = [
   'download',
@@ -128,6 +191,7 @@ const ACTIONS: readonly UpdateAction[] = [
   'cancel-wait',
   'close',
   'ok',
+  'receipt-close',
 ];
 
 /** An action off IPC, or null for anything a renderer should not have sent. */
@@ -149,6 +213,16 @@ export function parseUpdateAction(raw: unknown): UpdateAction | null {
  * - `restarting` — `quitAndInstall` has been called.
  *
  * `checkedAt` is when a check last completed (epoch ms), or null.
+ *
+ * An update another member of the group started (canvas 50v) adds:
+ *
+ * - `remote` — while it downloads and restarts here: the member's name and
+ *   how many Orbital sessions work now (live), which the restart stops.
+ *   Null otherwise, and for an update started on this Mac (its web, the CLI).
+ * - `sessionStarted` — on Ready, when that update did not install because a
+ *   session started here while it downloaded: it waits for this Mac's user.
+ * - `receipt` — after the restart it made, until × on its line: who, when,
+ *   how many sessions it stopped.
  */
 export type UpdatePrompt =
   | { phase: 'none' }
@@ -159,7 +233,14 @@ export type UpdatePrompt =
   | { phase: 'closed'; version: string }
   | { phase: 'restarting'; version: string };
 
-export type UpdateView = UpdatePrompt & { checkedAt: number | null };
+export type UpdateRemote = { by: string; working: number };
+
+export type UpdateView = UpdatePrompt & {
+  checkedAt: number | null;
+  remote: UpdateRemote | null;
+  sessionStarted: boolean;
+  receipt: UpdateReceipt | null;
+};
 
 const isCount = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0;
 
@@ -186,12 +267,35 @@ function parsePrompt(raw: Record<string, unknown>): UpdatePrompt | null {
   }
 }
 
-/** A view off IPC; anything malformed reads as no prompt, never as one. */
+function parseRemote(raw: unknown): UpdateRemote | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const { by, working } = raw as Record<string, unknown>;
+  return typeof by === 'string' && by !== '' && isCount(working) ? { by, working } : null;
+}
+
+const NO_UPDATE: UpdateView = { phase: 'none', checkedAt: null, remote: null, sessionStarted: false, receipt: null };
+
+/**
+ * A view off IPC; anything malformed reads as no prompt, never as one. A
+ * malformed `remote` or `receipt` reads as none: the prompt is then this
+ * Mac's own, and the receipt unsaid.
+ */
 export function parseUpdateView(raw: unknown): UpdateView {
-  if (typeof raw !== 'object' || raw === null) return { phase: 'none', checkedAt: null };
+  if (typeof raw !== 'object' || raw === null) return NO_UPDATE;
   const record = raw as Record<string, unknown>;
   const checkedAt = isCount(record.checkedAt) ? record.checkedAt : null;
-  return { ...(parsePrompt(record) ?? { phase: 'none' }), checkedAt };
+  const prompt = parsePrompt(record);
+  if (prompt === null) return { ...NO_UPDATE, checkedAt };
+  const receipt = isReceipt(record.receipt)
+    ? { by: record.receipt.by, at: record.receipt.at, stopped: record.receipt.stopped, version: record.receipt.version }
+    : null;
+  return {
+    ...prompt,
+    checkedAt,
+    remote: prompt.phase === 'downloading' || prompt.phase === 'restarting' ? parseRemote(record.remote) : null,
+    sessionStarted: prompt.phase === 'ready' && record.sessionStarted === true,
+    receipt,
+  };
 }
 
 /**
@@ -304,14 +408,21 @@ export const IDLE_SETTLE_MS = 2_000;
  * to call `idleSettled` after `IDLE_SETTLE_MS`, and whether to tell the
  * server a member's request ended here without the install (`update_ended`,
  * with the reason).
+ *
+ * `holdMs`: with `restart`, how long to wait before `quitAndInstall` — 0 for
+ * at once, `REMOTE_RESTART_HOLD_MS` while the last line of a member's update
+ * is read. `receipt`: write this receipt to `UPDATE_RECEIPT_FILE`, or remove
+ * the file (`clear`); null leaves it.
  */
 export type UpdateStep = {
   changed: boolean;
   restart: boolean;
+  holdMs: number;
   download: boolean;
   skipChanged: boolean;
   idleCheck: boolean;
   remoteEnded: UpdateEndReason | null;
+  receipt: UpdateReceipt | 'clear' | null;
 };
 
 /** `available`'s step, with what it did with the version. */
@@ -371,13 +482,37 @@ export class UpdateFlow {
   private remoteBaseline: ReadonlySet<string> | null = null;
   /** A member's request already retried a restart that had not got the app out (`remoteStart`). */
   private restartRetried = false;
+  /**
+   * The member a running request came from, by name, for the prompt (canvas
+   * 50v); null for a request made on this Mac and when none runs.
+   */
+  private remoteBy: string | null = null;
+  /** Ready came from a member's request that a session started here declined (canvas 50v 03). */
+  private sessionStarted = false;
+  /** The receipt this launch tells (`UpdateView.receipt`), until × on it. */
+  private receipt: UpdateReceipt | null;
+  /** A receipt was written for a restart that has not got the app out yet. */
+  private receiptWritten = false;
+  private readonly now: () => number;
 
-  constructor(init: { skippedVersion?: string | null } = {}) {
+  constructor(init: { skippedVersion?: string | null; receipt?: UpdateReceipt | null; now?: () => number } = {}) {
     this.skipped = init.skippedVersion ?? null;
+    this.receipt = init.receipt ?? null;
+    this.now = init.now ?? Date.now;
   }
 
   get view(): UpdateView {
-    return { ...this.prompt(), checkedAt: this.checkedAt };
+    const prompt = this.prompt();
+    const remote = this.remoteBy !== null && (prompt.phase === 'downloading' || prompt.phase === 'restarting')
+      ? { by: this.remoteBy, working: this.workingCount }
+      : null;
+    return {
+      ...prompt,
+      checkedAt: this.checkedAt,
+      remote,
+      sessionStarted: this.sessionStarted && prompt.phase === 'ready',
+      receipt: this.receipt,
+    };
   }
 
   get skippedVersion(): string | null {
@@ -459,9 +594,13 @@ export class UpdateFlow {
     this.remoteRequested = false;
     this.restartRetried = false;
     this.downloadedVersion = null;
-    if (this.phase === 'none' || this.phase === 'available') return this.step();
+    this.remoteBy = null;
+    // A restart that did not happen made no update to tell of.
+    const receipt = this.receiptWritten ? 'clear' : null;
+    this.receiptWritten = false;
+    if (this.phase === 'none' || this.phase === 'available') return this.step({ receipt });
     this.phase = 'available';
-    return this.step({ changed: true });
+    return this.step({ changed: true, receipt });
   }
 
   /**
@@ -490,8 +629,15 @@ export class UpdateFlow {
       const before = this.snapshot();
       this.downloadedVersion = version;
       const ended = this.remoteVerdict();
-      if (ended === null) return this.restart();
+      if (ended === null) {
+        this.version = version;
+        return this.restart();
+      }
+      // From here it is this Mac's own update, waiting for its user.
+      const fromMember = this.remoteBy !== null;
+      this.remoteBy = null;
       this.toReady(version);
+      this.sessionStarted = fromMember && ended === 'sessions';
       return this.step({ changed: before !== this.snapshot(), remoteEnded: ended });
     }
     if (version === this.dismissedVersion) return this.step();
@@ -533,6 +679,11 @@ export class UpdateFlow {
 
   /** A button in the prompt; one that is not on screen in this state does nothing. */
   act(action: UpdateAction): UpdateStep {
+    if (action === 'receipt-close') {
+      if (this.receipt === null) return this.step();
+      this.receipt = null;
+      return this.step({ changed: true, receipt: 'clear' });
+    }
     const before = this.snapshot();
     let download = false;
     let skipChanged = false;
@@ -569,6 +720,8 @@ export class UpdateFlow {
       default:
         return this.step();
     }
+    // Whatever the user chose on the prompt, it is their own update now.
+    this.sessionStarted = false;
     return this.step({ changed: before !== this.snapshot(), download, skipChanged });
   }
 
@@ -586,20 +739,39 @@ export class UpdateFlow {
    * asking is someone waiting on it, and a second `quitAndInstall` is
    * harmless — and asked again after that, the request ends at once
    * (`remoteEnded: 'restart'`) rather than waiting out the server's timeout.
+   *
+   * `by` names the member that asked through its channel (canvas 50v): the
+   * download shows as theirs here, a silent one included, and its restart
+   * holds its last line `REMOTE_RESTART_HOLD_MS` and leaves a receipt for
+   * the relaunched app. Null — asked on this Mac — shows as its own update.
    */
-  remoteStart(): UpdateStep {
+  remoteStart(by: string | null = null): UpdateStep {
     if (this.phase === 'restarting') {
       if (this.restartRetried) return this.step({ remoteEnded: 'restart' });
       this.restartRetried = true;
+      return this.restart({ retry: true });
+    }
+    this.sessionStarted = false;
+    if (this.downloadedVersion !== null) {
+      this.remoteBy = by;
+      this.version = this.downloadedVersion;
       return this.restart();
     }
-    if (this.downloadedVersion !== null) return this.restart();
     const version = this.phase !== 'none' ? this.version : (this.silentDownload ?? this.found);
     if (version === null || version === '') return this.step();
-    this.remoteRequested = true;
-    this.remoteBaseline = this.idsKnown() ? new Set(this.workingIds) : null;
-    if (this.phase === 'downloading' || this.silentDownload === version) return this.step();
     const before = this.snapshot();
+    this.remoteRequested = true;
+    this.remoteBy = by;
+    this.remoteBaseline = this.idsKnown() ? new Set(this.workingIds) : null;
+    if (this.phase === 'downloading') return this.step({ changed: before !== this.snapshot() });
+    if (this.silentDownload === version) {
+      // Downloading by itself, unseen: a member's download is shown here, so it is from now on.
+      if (by === null) return this.step();
+      this.phase = 'downloading';
+      this.version = version;
+      this.percent = 0;
+      return this.step({ changed: true });
+    }
     let skipChanged = false;
     if (this.skipped === version) {
       this.skipped = null;
@@ -618,7 +790,10 @@ export class UpdateFlow {
    */
   remoteCancel(): UpdateStep {
     this.remoteRequested = false;
-    return this.step();
+    if (this.remoteBy === null || this.phase === 'restarting') return this.step();
+    // Still downloading: from here it is this Mac's own download, and says so.
+    this.remoteBy = null;
+    return this.step({ changed: true });
   }
 
   /**
@@ -659,6 +834,7 @@ export class UpdateFlow {
     this.phase = 'ready';
     this.version = version;
     this.buttons = this.countKnown && this.workingCount === 0 ? 'one' : 'two';
+    this.sessionStarted = false;
   }
 
   private prompt(): UpdatePrompt {
@@ -680,14 +856,36 @@ export class UpdateFlow {
     }
   }
 
-  private restart(): UpdateStep {
+  /**
+   * Into the update. One a member started holds its last line first and
+   * leaves the receipt the relaunched app tells; a retry of a restart already
+   * made goes at once, its receipt already written.
+   */
+  private restart({ retry = false }: { retry?: boolean } = {}): UpdateStep {
     this.phase = 'restarting';
-    return { changed: true, restart: true, download: false, skipChanged: false, idleCheck: false, remoteEnded: null };
+    this.sessionStarted = false;
+    const step: UpdateStep = {
+      changed: true, restart: true, holdMs: 0, download: false, skipChanged: false, idleCheck: false,
+      remoteEnded: null, receipt: null,
+    };
+    if (retry || this.remoteBy === null) return step;
+    this.receiptWritten = true;
+    return {
+      ...step,
+      holdMs: REMOTE_RESTART_HOLD_MS,
+      receipt: {
+        by: this.remoteBy,
+        at: this.now(),
+        stopped: this.countKnown ? this.workingCount : 0,
+        version: this.version,
+      },
+    };
   }
 
-  private step(parts: Partial<Omit<UpdateStep, 'restart'>> = {}): UpdateStep {
+  private step(parts: Partial<Omit<UpdateStep, 'restart' | 'holdMs'>> = {}): UpdateStep {
     return {
-      changed: false, download: false, skipChanged: false, idleCheck: false, remoteEnded: null, ...parts, restart: false,
+      changed: false, download: false, skipChanged: false, idleCheck: false, remoteEnded: null, receipt: null, ...parts,
+      restart: false, holdMs: 0,
     };
   }
 

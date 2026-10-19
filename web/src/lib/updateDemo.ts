@@ -1,5 +1,5 @@
 import { useAppUpdate } from '../store/appUpdate'
-import type { UpdateAction, UpdateBridge, UpdatePrompt, UpdateState } from './desktop'
+import type { UpdateAction, UpdateBridge, UpdateExtras, UpdatePrompt, UpdateState } from './desktop'
 
 /**
  * A stand-in for the desktop app's update bridge, for checking the UPDATE
@@ -11,24 +11,39 @@ import type { UpdateAction, UpdateBridge, UpdatePrompt, UpdateState } from './de
  * Drive it from the console or Playwright:
  *
  *   __orbitalUpdateDemo('avail' | 'dl' | 'one' | 'two' | 'wait' | 'closed' | 'none',
- *                       { version?, n?, percent?, mb? })
+ *                       { version?, n?, percent?, mb?, by? })
+ *
+ * and an update another member started (canvas 50v): 'remote-dl',
+ * 'remote-last', 'remote-busy' (a session started here), 'receipt' (after
+ * the restart).
  *
  * The buttons move it the way main would, roughly; Check now answers
  * "up to date".
  */
 
-type DemoName = 'avail' | 'dl' | 'one' | 'two' | 'wait' | 'closed' | 'none'
-type DemoOptions = { version?: string; n?: number; percent?: number; mb?: number }
+type DemoName =
+  | 'avail' | 'dl' | 'one' | 'two' | 'wait' | 'closed' | 'none'
+  | 'remote-dl' | 'remote-last' | 'remote-busy' | 'receipt'
+type DemoOptions = { version?: string; n?: number; percent?: number; mb?: number; by?: string }
+type DemoState = UpdatePrompt & UpdateExtras
 
 export function installUpdateDemo(): void {
-  let opts: Required<DemoOptions> = { version: '0.26.0', n: 2, percent: 42, mb: 131 }
+  let opts: Required<DemoOptions> = { version: '0.26.0', n: 2, percent: 42, mb: 131, by: 'Pixel 8' }
   let checkedAt = Date.now() - 2 * 60 * 60 * 1000
   let listener: (state: UpdateState) => void = () => {}
   let current: UpdateState = { phase: 'none', checkedAt }
 
-  const prompt = (name: DemoName): UpdatePrompt => {
-    const { version, n, percent, mb } = opts
+  const prompt = (name: DemoName): DemoState => {
+    const { version, n, percent, mb, by } = opts
     switch (name) {
+      case 'remote-dl':
+        return { phase: 'downloading', version, percent, totalMB: mb, remote: { by, working: n } }
+      case 'remote-last':
+        return { phase: 'restarting', version, remote: { by, working: n } }
+      case 'remote-busy':
+        return { phase: 'ready', version, workingCount: n, buttons: 'two', sessionStarted: true }
+      case 'receipt':
+        return { phase: 'none', receipt: { by, at: Date.now(), stopped: n, version } }
       case 'avail':
         return { phase: 'available', version, totalMB: mb }
       case 'dl':
@@ -46,7 +61,7 @@ export function installUpdateDemo(): void {
     }
   }
 
-  const show = (next: UpdatePrompt) => {
+  const show = (next: DemoState) => {
     current = { ...next, checkedAt }
     listener(current)
   }
@@ -57,7 +72,7 @@ export function installUpdateDemo(): void {
   }
 
   const act = (action: UpdateAction) => {
-    const next: Record<UpdateAction, () => UpdatePrompt> = {
+    const next: Record<UpdateAction, () => DemoState> = {
       download: () => ({ phase: 'downloading', version: opts.version, percent: 0, totalMB: opts.mb }),
       skip: () => ({ phase: 'none' }),
       ok: () => ({ phase: 'none' }),
@@ -66,6 +81,7 @@ export function installUpdateDemo(): void {
       'restart-when-idle': () =>
         opts.n === 0 ? { phase: 'restarting', version: opts.version } : prompt('wait'),
       'cancel-wait': () => prompt('two'),
+      'receipt-close': () => ({ phase: 'none' }),
     }
     show(next[action]())
   }

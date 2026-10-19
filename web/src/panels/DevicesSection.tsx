@@ -3,8 +3,10 @@ import qrcode from 'qrcode-generator'
 import { useShallow } from 'zustand/react/shallow'
 import { encodePairingCode } from '@orbital/shared/remote/relayApi'
 import { relaySecretCommit, relayUrlCommit } from '@orbital/shared/remote/relaySettings'
+import { useAppUpdate } from '../store/appUpdate'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
+import { selfUpdateStrip } from '../lib/appUpdate'
 import { reportError } from '../lib/errors'
 import { checkedLabel } from '../lib/format'
 import {
@@ -651,7 +653,12 @@ function ThisDevice({
   const kind = self?.kind ?? 'desktop'
   const version = update?.state?.installed ?? self?.version ?? null
   // Canvas 50u A: this Mac's own update is Settings → Updates'; the row only points there.
+  // Canvas 50v: an update another member started here, as the map prompt says it.
+  const appUpdate = useAppUpdate((s) => s.state)
+  const strip = selfUpdateStrip(appUpdate)
   const available = selfUpdateAvailable(update)
+  const line = strip ? strip.line : available ? updateAvailableLine(available) : null
+  const link = strip ? strip.link : true
   return (
     <div className={CARD}>
       <div className="box-border flex min-h-[60px] items-center gap-3.5 px-4 py-2">
@@ -677,14 +684,15 @@ function ThisDevice({
           <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
             {kindOs(kind, self?.os ?? '', self?.osVersion)}
             {version ? ` · ${version}` : ''}
+            {version && strip?.to ? ` → ${strip.to}` : ''}
           </span>
         </span>
         <span className={ASIDE}>EVERY DEVICE SEES THIS NAME</span>
       </div>
-      {available && (
+      {line && (
         <div className="-mt-1 flex items-center gap-2.5 pb-3 pl-[42px] pr-4">
-          <span className="flex-1 font-mono text-[11px] text-[rgba(200,220,245,.85)]">{updateAvailableLine(available)}</span>
-          {onOpenUpdates && (
+          <span className="flex-1 font-mono text-[11px] text-[rgba(200,220,245,.85)]">{line}</span>
+          {link && onOpenUpdates && (
             <Button variant="dashed-link" size="link-mono" onClick={onOpenUpdates}>
               Settings → Updates ›
             </Button>

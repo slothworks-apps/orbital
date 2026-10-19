@@ -16,7 +16,7 @@ import {
   type UtilityProcess,
   type WebContents,
 } from 'electron';
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { autoUpdater } from 'electron-updater';
@@ -70,15 +70,20 @@ import {
   parseAutoDownload,
   parseSkippedVersion,
   parseUpdateAction,
+  parseUpdateReceipt,
+  receiptAtLaunch,
   serializeSkippedVersion,
+  serializeUpdateReceipt,
   serverStateDue,
   shouldCheckForUpdates,
   SKIPPED_VERSION_FILE,
   UPDATE_CHECK_INTERVAL_MS,
+  UPDATE_RECEIPT_FILE,
   updateSize,
   UpdateFlow,
   type SentServerState,
   type UpdateCheckAnswer,
+  type UpdateReceipt,
   type UpdateStep,
 } from './lib/updates';
 import {
@@ -188,7 +193,7 @@ const notifier = new SessionNotifier({ notify: showNotification });
 /** What a quit would kill, folded off the same feed the notifier reads. */
 const working = new WorkingSessions();
 /** An update: whether to download it, and when it may restart the app (`lib/updates`). */
-const updates = new UpdateFlow({ skippedVersion: readSkippedVersion() });
+const updates = new UpdateFlow({ skippedVersion: readSkippedVersion(), receipt: readUpdateReceipt() });
 /** True only when this process forked the server — shutdown kills only that. */
 let forked = false;
 let quitting = false;
@@ -376,7 +381,7 @@ function forkServer(): UtilityProcess {
   proc.on('message', (raw: unknown) => {
     const message = parseServerMessage(raw);
     if (proc !== child || !message) return;
-    applyUpdateStep(message.t === 'update_start' ? updates.remoteStart() : updates.remoteCancel());
+    applyUpdateStep(message.t === 'update_start' ? updates.remoteStart(message.by?.name ?? null) : updates.remoteCancel());
   });
 
   proc.on('exit', (code) => {
@@ -1101,6 +1106,37 @@ function readSkippedVersion(): string | null {
   }
 }
 
+function updateReceiptPath(): string {
+  return join(app.getPath('userData'), UPDATE_RECEIPT_FILE);
+}
+
+/**
+ * The update another member made of this Mac, carried across the restart it
+ * made (canvas 50v 04): told once by this launch when it runs the version
+ * it was for; any other is dropped, and its file with it.
+ */
+function readUpdateReceipt(): UpdateReceipt | null {
+  let raw: string;
+  try {
+    raw = readFileSync(updateReceiptPath(), 'utf8');
+  } catch {
+    return null; // no file: no member updated this Mac
+  }
+  const receipt = receiptAtLaunch(parseUpdateReceipt(raw), app.getVersion());
+  if (receipt === null) writeUpdateReceipt('clear');
+  return receipt;
+}
+
+function writeUpdateReceipt(receipt: UpdateReceipt | 'clear'): void {
+  try {
+    if (receipt === 'clear') rmSync(updateReceiptPath(), { force: true });
+    else writeFileSync(updateReceiptPath(), serializeUpdateReceipt(receipt));
+  } catch (err) {
+    // Costs the line after the restart, or says it once more after the next launch.
+    console.error('Orbital could not remember who updated it:', err);
+  }
+}
+
 function writeSkippedVersion(version: string | null): void {
   try {
     writeFileSync(skippedVersionPath(), serializeSkippedVersion(version));
@@ -1213,8 +1249,8 @@ let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Carry out what the flow decided: tell every Orbital window what changed,
- * remember a skip, start a download, look again once a zero has settled,
- * restart.
+ * remember a skip or who updated this Mac, start a download, look again
+ * once a zero has settled, restart — at once, or after a member's last line.
  */
 function applyUpdateStep(step: UpdateStep): void {
   if (step.changed) {
@@ -1224,6 +1260,7 @@ function applyUpdateStep(step: UpdateStep): void {
     }
   }
   if (step.skipChanged) writeSkippedVersion(updates.skippedVersion);
+  if (step.receipt) writeUpdateReceipt(step.receipt);
   if (step.download) {
     // Resolves only once Squirrel.Mac has staged the update, so a refusal
     // after `update-downloaded` lands here too.
@@ -1241,7 +1278,16 @@ function applyUpdateStep(step: UpdateStep): void {
   }
   pushServerUpdateState();
   if (step.remoteEnded) tellServer({ t: 'update_ended', reason: step.remoteEnded });
-  if (step.restart) autoUpdater.quitAndInstall();
+  if (step.restart && step.holdMs > 0) {
+    // The last line of a member's update is read first (canvas 50v 02). A
+    // session starting meanwhile does not hold it; only the restart failing
+    // in between — the flow no longer restarting — does.
+    setTimeout(() => {
+      if (updates.view.phase === 'restarting') autoUpdater.quitAndInstall();
+    }, step.holdMs);
+  } else if (step.restart) {
+    autoUpdater.quitAndInstall();
+  }
 }
 
 /** The last `update_state` sent to the current server; null since it was forked. */

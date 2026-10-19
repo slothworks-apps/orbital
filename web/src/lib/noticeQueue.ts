@@ -23,7 +23,11 @@ import { create } from 'zustand'
  * - No notice goes by itself; only a reply may (`ui/FeedbackNotice`).
  */
 
-/** In the order they show. `feedback`, `update` and `tip` have messages so far; the rest are reserved. */
+/**
+ * In the order they show. `feedback`, `update`, `changelog` (so far only the
+ * line after another member updated this Mac) and `tip` have messages; the
+ * rest are reserved.
+ */
 export const NOTICE_KINDS = ['feedback', 'update', 'changelog', 'pairing', 'usage', 'tip'] as const
 export type NoticeKind = (typeof NOTICE_KINDS)[number]
 
