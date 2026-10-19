@@ -14,6 +14,9 @@ import {
   canRemoveRow, deviceRows, endedNotice, groupView, kindOs, needsUpdateLine, type DeviceRow, type GroupView,
 } from '../lib/devices'
 import { useNow } from '../lib/useNow'
+import {
+  deviceCount, exitWords, notPrimaryAddLine, notPrimaryRemoveLine, relayChangeWords, relayLockedLine, removeWords,
+} from '@orbital/shared/remote/groupWords'
 import type { GroupEnded, GroupMember, RemoteStatus } from '../lib/types'
 import { Toggle } from '../ui/Checkbox'
 import { Button } from '../ui/Button'
@@ -71,10 +74,6 @@ function qrSvg(text: string): string {
 
 function longDate(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
-}
-
-function deviceCount(n: number): string {
-  return n === 1 ? '1 device' : `${n} devices`
 }
 
 /** Settings → Devices' "Try again" (canvas 11b), shared by the too-old card and the add-a-device box. */
@@ -191,7 +190,7 @@ function usePairingCode(remote: RemoteStatus | null): PairingCode {
         // Paired with a primary whose first roster has not come: one join at a time.
         else if (res.error === 'joining') setError('A join is still under way. Cancel it first.')
         // The status moved under the user: this device is a member now (canvas 50p I).
-        else if (res.error === 'not_primary') setError(`${res.primary.name} manages this group — add devices there.`)
+        else if (res.error === 'not_primary') setError(notPrimaryAddLine(res.primary.name))
         return
       }
       setCode({ expiresAt: res.expiresAt, svg: qrSvg(res.qr), word: encodePairingCode(res.qr) })
@@ -314,9 +313,7 @@ export function DevicesSection({
         {relayLocked ? (
           // Canvas 50a `relayLock`, 50p C: in a group the relay cannot change, and this says how it can again.
           <span className="max-w-[300px] text-[11.5px] leading-[1.5] text-[rgba(160,190,225,.65)] [text-wrap:pretty]">
-            {view.role === 'member'
-              ? 'One relay for the whole group. Leave the group to change it.'
-              : 'One relay for the whole group. Remove the other devices, or dissolve the group, to change it.'}
+            {relayLockedLine(view.role === 'member' ? 'member' : 'primary')}
           </span>
         ) : (
           // canvas 50a: a dashed text link, not a button's box.
@@ -723,7 +720,7 @@ function Members({
       const res = await api.removeDevice(id)
       setAsking(null)
       // The status moved under the user: this device is no primary any more.
-      if (typeof res === 'object') setRefusal({ id, text: `Only ${res.primary.name} removes devices from this group.` })
+      if (typeof res === 'object') setRefusal({ id, text: notPrimaryRemoveLine(res.primary.name) })
       else onSaved()
     } catch (err) {
       reportError(err, 'Failed to remove the device')
@@ -822,10 +819,8 @@ function Members({
             ) : (
               <div className="box-border flex min-h-[58px] items-center gap-2.5 bg-[rgba(150,205,255,.05)] py-2 pl-4 pr-3">
                 <span className="flex-1 text-[12.5px] leading-[1.45] text-text-bright [text-wrap:pretty]">
-                  Remove {m.name}?{' '}
-                  <span className="text-[rgba(160,190,225,.7)]">
-                    It drops out of every device in the group now and has to be paired again from here.
-                  </span>
+                  {removeWords(m.name).question}{' '}
+                  <span className="text-[rgba(160,190,225,.7)]">{removeWords(m.name).body}</span>
                 </span>
                 <Button variant="outline" size="member" disabled={removing} onClick={() => setAsking(null)}>
                   Cancel
@@ -907,37 +902,6 @@ function Managed({ primary }: { primary: string }) {
       </span>
     </div>
   )
-}
-
-/** Dissolve on the primary, Leave on a member (canvas 50a, 50l `leave*`, 50p F–H): the box's words, and its confirmation's. */
-function exitWords(exit: 'dissolve' | 'leave', count: number, primary: string) {
-  if (exit === 'dissolve') {
-    return {
-      title: 'Dissolve this group',
-      sub: 'Sessions on every device keep running.',
-      button: 'Dissolve…',
-      question: 'Dissolve the group?',
-      body: count === 1
-        ? 'The other device becomes standalone and its pair with this one ends. To form a new group, pair devices again from here.'
-        : `All ${count} other devices become standalone and every pair between them ends. To form a new group, pair devices again from here.`,
-      go: 'Dissolve',
-      offline: 'Connect to the relay to dissolve the group — the others have to hear it.',
-      failed: "Couldn't dissolve the group. Try again.",
-    }
-  }
-  return {
-    title: 'Leave this group',
-    sub: 'Sessions here keep running.',
-    button: 'Leave…',
-    question: 'Leave the group?',
-    // With one other device, that device is the primary (canvas 50p H).
-    body: count === 1
-      ? `This device becomes standalone and forgets ${primary}. To join again, pair it with ${primary}.`
-      : `This device becomes standalone and forgets the other ${count}. To join again, pair it with ${primary}.`,
-    go: 'Leave',
-    offline: 'Connect to the relay to leave — the others have to hear it.',
-    failed: "Couldn't leave the group. Try again.",
-  }
 }
 
 /**
@@ -1073,14 +1037,14 @@ function RelayTooOldCard({
 type RelaySetting = 'remote_relay_url' | 'remote_relay_secret'
 
 /** The 9r confirm's words for each setting. The secret's are provisional copy: the canvas draws no such dialog yet. */
-const ASK: Record<RelaySetting, { title: string; body: (devices: string, have: string) => string }> = {
+const ASK: Record<RelaySetting, { title: string; body: (count: number) => string }> = {
   remote_relay_url: {
-    title: 'Change the relay?',
-    body: (devices, have) => `${devices} will be removed and ${have} to pair again on the new relay.`,
+    title: relayChangeWords(0).title,
+    body: (count) => relayChangeWords(count).body,
   },
   remote_relay_secret: {
     title: 'Change the relay secret?',
-    body: (devices, have) => `${devices} will be removed and ${have} to pair again with the new secret.`,
+    body: (count) => `${deviceCount(count)} will be removed and ${count === 1 ? 'has' : 'have'} to pair again with the new secret.`,
   },
 }
 
@@ -1275,7 +1239,7 @@ function RelaySettings({
         }
       >
         <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
-          {ask.body(deviceCount(count), count === 1 ? 'has' : 'have')}
+          {ask.body(count)}
         </p>
       </Dialog>
     </>

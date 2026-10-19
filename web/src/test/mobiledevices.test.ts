@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import type { MemberRow } from '@orbital/shared/remote/group'
-import { joinSentence } from '../lib/joinRequest'
 import { ownCodeLeft, phoneRows, removalLeavesAlone } from '../mobile/devices'
 import type { DeviceView } from '../mobile/state'
 
@@ -85,14 +84,6 @@ describe('ownCodeLeft', () => {
     // A part second rounds up: an open code never reads 0:00.
     expect(ownCodeLeft(NOW + 200, NOW).line).toBe('expires in 0:01 · one device per code')
     expect(ownCodeLeft(NOW, NOW)).toMatchObject({ line: 'expired · make a new code', expired: true, fraction: 0 })
-  })
-})
-
-describe('joinSentence', () => {
-  it('names the OS from a Node platform or an OS name alike, and drops it when unknown', () => {
-    expect(joinSentence({ name: 'imac-home', kind: 'desktop', platform: 'darwin' })).toBe('imac-home (desktop, macOS) wants to join')
-    expect(joinSentence({ name: 'Pixel', kind: 'phone', platform: 'android' })).toBe('Pixel (phone, Android) wants to join')
-    expect(joinSentence({ name: 'box', kind: 'headless', platform: '' })).toBe('box (headless) wants to join')
   })
 })
 

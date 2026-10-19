@@ -15,6 +15,7 @@ import { clearEnded } from '../platform/pairing'
 import { useMobile } from '../state'
 import { groupRef } from '../transport/groupRef'
 import { BottomSheet, CARD, SecondaryButton, SectionLabel, SheetPresence } from '../ui'
+import { relayLockedLine } from '@orbital/shared/remote/groupWords'
 
 /** "asleep · seen …" moves in minutes at the finest, so the rows are re-read that often. */
 const SEEN_TICK_MS = 60_000
@@ -209,7 +210,7 @@ export function DevicesSection() {
       </div>
       {inGroup && (
         <p className="px-1 pt-2 text-[12px] leading-[1.5] text-[rgba(160,190,225,.65)] [text-wrap:pretty]">
-          One relay for the whole group. Leave the group to change it.
+          {relayLockedLine('member')}
         </p>
       )}
 

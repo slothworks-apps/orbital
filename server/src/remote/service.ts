@@ -19,7 +19,7 @@ import {
   GroupMember, type GroupStatus, type GroupStorage, type RemoveResult, type SelfAbout,
 } from '@orbital/shared/remote/group';
 import {
-  PairingCeremony, type JoinResult, type PairConfirmResult, type StartPairingResult,
+  PairingCeremony, type JoinResult, type Joining, type PairConfirmResult, type PendingPair, type StartPairingResult,
 } from '@orbital/shared/remote/ceremony';
 import type { RelayTooOld } from '@orbital/shared/remote/version';
 import type { Hub } from '../api/hub.js';
@@ -79,14 +79,15 @@ export type RemoteStatus = {
    * user types it from the phone and the server compares (spec
    * 2026-10-06-pairing-code-and-app-lock-design § 1).
    */
-  pendingPair: { phone: string; name: string; platform: string; kind: string; attemptsLeft: number } | null;
+  pendingPair: PendingPair | null;
   pairing: { expiresAt: number } | null;
   /**
    * A device whose code this server redeemed and which has not confirmed
    * yet: `code` is what the user types on it, `expiresAt` when its code stops working,
-   * `kind` its kind as its code named it (null from a code without one).
+   * `kind` its kind as its code named it (null from a code without one),
+   * `manager` who manages the group once it confirms.
    */
-  joining: { device: string; name: string; kind: string | null; code: string; expiresAt: number } | null;
+  joining: Joining | null;
   /** Why the last `start` failed; null while it is fine. */
   error: string | null;
   /** The device group (`GroupStatus`). */

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { managerWords } from '../lib/joinRequest'
+import { managerWords } from '@orbital/shared/remote/groupWords'
 
 // Who will manage the group, as a pairing's screens say it (canvas 50b, 50c,
 // 50i): each line only where it is true.

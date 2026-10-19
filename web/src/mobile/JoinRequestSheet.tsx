@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import type { PendingPair } from '@orbital/shared/remote/ceremony'
-import { attemptsLine, joinSentence, kindTile, managerWords, whereLine } from '../lib/joinRequest'
+import { kindTile, whereLine } from '../lib/joinRequest'
+import { GROUP_FULL, JOIN_REACH, attemptsLine, joinSentence, managerWords } from '@orbital/shared/remote/groupWords'
 import { KindGlyph } from '../ui/KindGlyph'
 import { PAIRING_CODE_LENGTH, PairingCodeInput } from '../ui/PairingCodeInput'
 import { refreshGroupState } from './connect'
@@ -145,7 +146,7 @@ function RequestSheet({
         </div>
         <h2 className="text-[19px] font-bold leading-[1.3] [text-wrap:balance]">{joinSentence(request)}</h2>
         <p className="text-[13px] leading-[1.5] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
-          Once in, it sees and drives every session on every device in this group.
+          {JOIN_REACH}
         </p>
         {/* Canvas 50i: a boxed line says who will manage the group, a role the pairing makes permanent. */}
         {manager.line && (
@@ -197,9 +198,9 @@ function JoinedSheet({ name, done, onDone }: { name: string; done: string | null
  */
 function FullSheet({ name, onDone }: { name: string; onDone: () => void }) {
   return (
-    <BottomSheet label="This group can’t take more devices." onDismiss={onDone} variant="device">
+    <BottomSheet label={GROUP_FULL} onDismiss={onDone} variant="device">
       <div className="flex flex-col items-center gap-3 pb-2 pt-3 text-center">
-        <h2 className="text-[18px] font-bold [text-wrap:balance]">This group can’t take more devices.</h2>
+        <h2 className="text-[18px] font-bold [text-wrap:balance]">{GROUP_FULL}</h2>
         <p className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
           {name} wasn’t added and keeps running on its own.
         </p>

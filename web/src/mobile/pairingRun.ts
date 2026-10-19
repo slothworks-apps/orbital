@@ -17,6 +17,7 @@ import { isStandalone, resumeStandalone } from './standalone'
 import { usePhoneTip } from './phoneTip'
 import { useMobile } from './state'
 import { groupRef, type GroupHandle } from './transport/groupRef'
+import { GROUP_FULL, notPrimaryAddLine } from '@orbital/shared/remote/groupWords'
 
 /** A refusal told as canvas 50d tells it: a card with a title over its explanation. */
 export type ErrorCard = { title: string; body: string }
@@ -176,13 +177,13 @@ export function joinRefused(
       return { kind: 'scan', error: alreadyPaired(qr.name) }
     // A phone in a group scanned a device outside it: only the primary adds one (canvas 50i's line).
     case 'not_primary':
-      return { kind: 'scan', error: `${answer.primary.name} manages this group — add devices there.` }
+      return { kind: 'scan', error: notPrimaryAddLine(answer.primary.name) }
     // Paired with a primary whose first roster has not come: one join at a time.
     case 'joining':
       return { kind: 'scan', error: 'This phone is still joining a group. Try again once it has.' }
     // The typer adds only as a primary, which a phone never is; said as 50o says it, should a group ever answer it.
     case 'group_full':
-      return { kind: 'scan', error: 'This group can’t take more devices.' }
+      return { kind: 'scan', error: GROUP_FULL }
     case 'offline':
       return { kind: 'scan', error: RELAY_UNREACHABLE }
     case 'relay_error':

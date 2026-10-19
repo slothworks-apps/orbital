@@ -6,6 +6,7 @@
  * chips and filter (canvas 50e).
  */
 import { linksWith } from '@orbital/shared/remote/group'
+import { osLabel } from '@orbital/shared/remote/groupWords'
 import {
   servesServerUpdate, type ServerUpdateRefusal, type ServerUpdateState,
 } from '@orbital/shared/remote/serverUpdate'
@@ -14,15 +15,6 @@ import { timeAgo } from './format'
 import type {
   ApiSession, GroupEnded, GroupMember, IdeContext, MachineRef, MemberState, RemoteDevice, RemoteStatus, Tag,
 } from './types'
-
-const OS_LABELS: Record<string, string> = {
-  macos: 'macOS', linux: 'Linux', ios: 'iOS', android: 'Android',
-}
-
-/** An OS as a roster entry names it, worded for people (canvas 50k "WORDING"); unknown passes through as is. */
-export function osLabel(os: string): string {
-  return OS_LABELS[os] ?? os
-}
 
 /**
  * Whether a member's update state may be asked of it (`api.serverUpdate`,

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   LOCAL_DEVICE, asOfLabel, canRemoveRow, deviceChips, deviceOf, deviceRows, devicesOn, groupView, kindOs,
   memberStateWords, memberServesUpdate, readMemberUpdate, startMemberUpdate,
-  isMemberOffline, namesShown, osLabel, showDeviceRow, toggleDevice,
+  isMemberOffline, namesShown, showDeviceRow, toggleDevice,
   agoWords, deviceLock, ideHere, pillWords, runsOn, stateAsOf, withMachine, withMachineOffline,
   childPath, crumbsOf, deviceOptions, openingDevice, recentAge,
   chipsOfKey, deviceChipsKey, localClaudeDirId, localTagOf, machineOffline,
@@ -64,20 +64,6 @@ describe('memberStateWords', () => {
     expect(memberStateWords(member({ name: 'gpu-01', state: 'online', tooOld: true }), NOW)).toBe('update Orbital on gpu-01')
     expect(memberStateWords(member({ name: 'gpu-01', state: 'offline', seenAt: NOW, tooOld: true }), NOW))
       .toBe('update Orbital on gpu-01')
-  })
-})
-
-describe('osLabel', () => {
-  it('names the four known OSes', () => {
-    expect(osLabel('macos')).toBe('macOS')
-    expect(osLabel('linux')).toBe('Linux')
-    expect(osLabel('ios')).toBe('iOS')
-    expect(osLabel('android')).toBe('Android')
-  })
-
-  it('leaves an unknown OS as is', () => {
-    expect(osLabel('windows')).toBe('windows')
-    expect(osLabel('')).toBe('')
   })
 })
 
