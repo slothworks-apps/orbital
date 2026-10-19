@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { delimiter, dirname, join } from 'node:path';
 import {
   findClaudeOnDisk,
   isExecutableFile,
   parseClaudeVersionOutput,
   resolveClaudeCli,
+  sdkPlatformPackage,
 } from '../src/runner/claudeCli.js';
 import { makeTmpDir } from './tmp.js';
 
@@ -162,5 +164,23 @@ describe('isExecutableFile', () => {
 
   it('rejects a path that does not exist', () => {
     expect(isExecutableFile(join(dir, 'nothing-here'))).toBe(false);
+  });
+});
+
+describe('sdkPlatformPackage', () => {
+  // The names are the SDK's, not ours: read them from its manifest, so an SDK
+  // that renames its platform packages fails here rather than in a dev checkout.
+  // The SDK's exports map hides its package.json; its entry sits beside it.
+  const sdkEntry = createRequire(import.meta.url).resolve('@anthropic-ai/claude-agent-sdk');
+  const sdkManifest = join(dirname(sdkEntry), 'package.json');
+  const optional = Object.keys(
+    (JSON.parse(readFileSync(sdkManifest, 'utf8')) as { optionalDependencies?: Record<string, string> })
+      .optionalDependencies ?? {},
+  );
+
+  it('names a package the SDK ships, for the Mac and for a Linux server', () => {
+    expect(optional).toContain(sdkPlatformPackage('darwin', 'arm64'));
+    expect(optional).toContain(sdkPlatformPackage('linux', 'x64'));
+    expect(optional).toContain(sdkPlatformPackage('linux', 'arm64'));
   });
 });

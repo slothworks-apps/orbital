@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { spawn as spawnPty, type IPty } from 'node-pty';
 import type { RawData, WebSocket } from 'ws';
+import { userShell } from '../env/shell.js';
 import { Scrollback } from './scrollback.js';
 import { folderLabel, readStatus, type TerminalStatus } from './label.js';
 
@@ -80,7 +81,7 @@ export class TerminalStore {
   constructor(opts: TerminalStoreOptions = {}) {
     // A login shell, so `.zprofile` and what it sets up (nvm, Homebrew) are
     // there, as in a terminal app.
-    this.shell = opts.shell ?? { file: process.env.SHELL || '/bin/zsh', args: ['-l'] };
+    this.shell = opts.shell ?? { file: userShell(), args: ['-l'] };
     this.env = opts.env ?? process.env;
   }
 

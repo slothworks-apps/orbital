@@ -1,9 +1,9 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { orbitalDataDir } from '@orbital/shared/dataDir';
 
 const claudeDir = process.env.ORBITAL_CLAUDE_DIR ?? join(homedir(), '.claude');
-const dataDir =
-  process.env.ORBITAL_DATA_DIR ?? join(homedir(), 'Library', 'Application Support', 'orbital');
+const dataDir = orbitalDataDir({ env: process.env, home: homedir(), platform: process.platform });
 
 export const CONFIG = {
   claudeDir,

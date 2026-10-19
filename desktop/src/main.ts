@@ -311,7 +311,7 @@ function readStartExit(): number | null {
 function readApiToken(): string | null {
   let text: string | null = null;
   try {
-    text = readFileSync(apiTokenPath(process.env, homedir()), 'utf8');
+    text = readFileSync(apiTokenPath({ env: process.env, home: homedir(), platform: process.platform }), 'utf8');
   } catch {
     /* not minted yet, or a server too old to have a guard */
   }

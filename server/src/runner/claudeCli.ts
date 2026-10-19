@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process';
-import { accessSync, constants, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { delimiter, join } from 'node:path';
 import { fallbackPathDirs } from '../env/loginPath.js';
+import { isExecutableFile } from '../env/shell.js';
+
+export { isExecutableFile };
 
 /** How the CLI Orbital will spawn was arrived at; `missing` is a designed state. */
 export type ClaudeCliSource = 'settings' | 'path' | 'bundled' | 'missing';
@@ -10,6 +12,18 @@ export type ClaudeCliResolution = { path: string | null; source: ClaudeCliSource
 
 /** How long `claude --version` may take before the version stays unknown. */
 const VERSION_TIMEOUT_MS = 5000;
+
+/**
+ * The SDK's platform binary package for a platform and architecture, in the
+ * SDK's own naming (its `optionalDependencies`). Glibc only: a musl Linux
+ * gets the glibc name, misses, and finds the CLI on PATH instead.
+ */
+export function sdkPlatformPackage(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+): string {
+  return `@anthropic-ai/claude-agent-sdk-${platform}-${arch}`;
+}
 
 /**
  * True when the SDK's platform binary package is resolvable (dev).
@@ -21,9 +35,7 @@ const VERSION_TIMEOUT_MS = 5000;
  */
 export function sdkBundledCliAvailable(): boolean {
   try {
-    createRequire(import.meta.url).resolve(
-      '@anthropic-ai/claude-agent-sdk-darwin-arm64/package.json',
-    );
+    createRequire(import.meta.url).resolve(`${sdkPlatformPackage()}/package.json`);
     return true;
   } catch {
     return false;
@@ -38,24 +50,9 @@ export function sdkBundledCliAvailable(): boolean {
  */
 export function sdkBundledCliPath(): string | null {
   try {
-    return createRequire(import.meta.url).resolve('@anthropic-ai/claude-agent-sdk-darwin-arm64/claude');
+    return createRequire(import.meta.url).resolve(`${sdkPlatformPackage()}/claude`);
   } catch {
     return null;
-  }
-}
-
-/**
- * True when `p` is a regular file this process may execute. Existence alone is
- * not enough: a directory, or a file without the executable bit, would resolve
- * as the CLI and fail only when the first session spawns it.
- */
-export function isExecutableFile(p: string): boolean {
-  try {
-    if (!statSync(p).isFile()) return false;
-    accessSync(p, constants.X_OK);
-    return true;
-  } catch {
-    return false;
   }
 }
 
