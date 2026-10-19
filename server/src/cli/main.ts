@@ -8,7 +8,8 @@ import { homedir } from 'node:os';
 import { parseArgs } from './args.js';
 import { CliError, NotRunning, TokenRefused, httpCall } from './client.js';
 import { runCli } from './commands.js';
-import { TerminalIo } from './io.js';
+import { checkListener, foreignListenerLine, unknownListenerLine } from './listener.js';
+import { TerminalIo, printable } from './io.js';
 import { SystemSetup, runSetup } from './setup.js';
 import { cliTarget, readServiceUser, readToken, rootHint, unreadableTokenLine } from './target.js';
 import { notRunningLine } from './words.js';
@@ -49,6 +50,16 @@ async function main(): Promise<number> {
         await notRunning();
         return 1;
       }
+      // The token goes only to a listener that is this user's (`listener.ts`); health, which needs none, is not asked here.
+      const owner = await checkListener(port);
+      if (owner.kind === 'none') {
+        await notRunning();
+        return 1;
+      }
+      if (owner.kind === 'other' || owner.kind === 'unknown') {
+        io.err(owner.kind === 'other' ? foreignListenerLine(port, owner.uid) : unknownListenerLine(port));
+        return 1;
+      }
       try {
         return await runCli(args, { call: httpCall(port, read.token), io, port });
       } catch (err) {
@@ -74,6 +85,6 @@ function exit(code: number): void {
 }
 
 main().then(exit, (err: unknown) => {
-  process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+  process.stderr.write(`${printable(err instanceof Error ? err.message : String(err))}\n`);
   exit(1);
 });

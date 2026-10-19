@@ -1,7 +1,8 @@
 /**
  * The CLI's one way to the server: the routes the web UI uses, over
  * `http://127.0.0.1:<port>` with the API token as a bearer (spec
- * 2026-10-19-headless-server-design § The CLI).
+ * 2026-10-19-headless-server-design § The CLI). `main` makes a call only
+ * once the listener on the port is known to be this user's (`listener.ts`).
  */
 
 export type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';

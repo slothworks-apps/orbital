@@ -4,6 +4,18 @@
  */
 import { createInterface, type Interface } from 'node:readline';
 
+/**
+ * `s` with every C0 and C1 control character and DEL taken out. Names, OS
+ * words and codes come from other devices, and an escape sequence in one
+ * would move the cursor, recolour or retitle the terminal, or forge a line.
+ * The CLI prints no control character of its own, so everything it prints
+ * goes through this (`TerminalIo`).
+ */
+export function printable(s: string): string {
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/[\u0000-\u001f\u007f-\u009f]/g, '');
+}
+
 /** What `ask` answers when its deadline passed before a line came. */
 export const TIMED_OUT = Symbol('timed out');
 
@@ -58,11 +70,11 @@ export class TerminalIo implements Io {
   }
 
   out(line: string): void {
-    process.stdout.write(`${line}\n`);
+    process.stdout.write(`${printable(line)}\n`);
   }
 
   err(line: string): void {
-    process.stderr.write(`${line}\n`);
+    process.stderr.write(`${printable(line)}\n`);
   }
 
   now(): number {
@@ -83,7 +95,7 @@ export class TerminalIo implements Io {
   }
 
   ask(question: string, until?: number): Promise<string | null | typeof TIMED_OUT> {
-    process.stdout.write(question);
+    process.stdout.write(printable(question));
     const line = this.readLine();
     if (until === undefined) return line;
     let timer: NodeJS.Timeout | undefined;
@@ -101,14 +113,14 @@ export class TerminalIo implements Io {
   async askSecret(question: string): Promise<string | null> {
     const stdin = process.stdin;
     if (!stdin.isTTY) {
-      process.stdout.write(question);
+      process.stdout.write(printable(question));
       return this.readLine();
     }
     // Raw, unechoed: the line reader would echo nothing either, but it must not see these keys.
     const rl = this.rl;
     this.rl = null;
     rl?.close();
-    process.stdout.write(question);
+    process.stdout.write(printable(question));
     stdin.setRawMode(true);
     stdin.resume();
     try {
