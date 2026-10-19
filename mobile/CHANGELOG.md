@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.15.4] — 2026-10-19
+### Fixed
+- On iPhone, attaching a photo works again: it used to fail with "Couldn't take that photo" before the camera or the library opened. Needs this update from TestFlight.
+
 ## [0.15.3] — 2026-10-19
 ### Fixed
 - The banner inside the app no longer says a session needs your input when it has only finished its turn. It says Done instead, and shows nothing if the session carries on by itself a moment later.
