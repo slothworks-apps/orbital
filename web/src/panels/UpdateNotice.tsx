@@ -1,7 +1,5 @@
 import { useEffect } from 'react'
-import {
-  receiptNoticeContent, updateNoticeContent, updateNoticeOnMap, type UpdateNoticeButton,
-} from '../lib/appUpdate'
+import { updateNoticeContent, updateNoticeOnMap, type UpdateNoticeButton } from '../lib/appUpdate'
 import { useAppUpdate } from '../store/appUpdate'
 import { useMapNotices } from '../store/mapNotices'
 import { Button } from '../ui/Button'
@@ -12,7 +10,8 @@ import { MapNotice, MapNoticeProgress, MapNoticeText } from '../ui/MapNotice'
  * `Feature - App update`; spec 2026-10-08-builds-for-testers-design § The
  * desktop app updates itself). One message for the whole life of an update,
  * whose states swap their words in place — Available, Downloading, Ready,
- * the receipt — and only the last of them ends it. While it is downloading,
+ * the receipt — and only the last of them ends it. After a restart another
+ * member made, the line that says so heads WHAT'S NEW (`panels/WhatsNew`). While it is downloading,
  * the messages behind it wait too. Restart when sessions finish takes it off
  * the map; Cancel in Settings › Updates brings Ready back.
  *
@@ -21,7 +20,6 @@ import { MapNotice, MapNoticeProgress, MapNoticeText } from '../ui/MapNotice'
  */
 
 const UPDATE_NOTICE_ID = 'app-update'
-const RECEIPT_NOTICE_ID = 'app-update-receipt'
 
 /**
  * Keeps the UPDATE message in the map's queue for as long as main has a
@@ -37,27 +35,6 @@ export function useAppUpdateNotice(): void {
     if (showing) notices.push({ id: UPDATE_NOTICE_ID, kind: 'update', Body: UpdateNotice })
     else notices.dismiss(UPDATE_NOTICE_ID)
   }, [showing])
-
-  // After a restart another member made (canvas 50v 04), WHAT’S NEW says
-  // who and when, until its × — which main remembers.
-  const receipt = useAppUpdate((s) => (s.state?.receipt ? true : false))
-  useEffect(() => {
-    const notices = useMapNotices.getState()
-    if (receipt) notices.push({ id: RECEIPT_NOTICE_ID, kind: 'changelog', Body: ReceiptNotice })
-    else notices.dismiss(RECEIPT_NOTICE_ID)
-  }, [receipt])
-}
-
-function ReceiptNotice() {
-  const receipt = useAppUpdate((s) => s.state?.receipt ?? null)
-  const source = useAppUpdate((s) => s.source)
-  if (!receipt || !source) return null
-  const shown = receiptNoticeContent(receipt)
-  return (
-    <MapNotice label={shown.label} onClose={() => source.updateAction('receipt-close')}>
-      <MapNoticeText>{shown.text}</MapNoticeText>
-    </MapNotice>
-  )
 }
 
 function UpdateNotice() {

@@ -24,9 +24,8 @@ import { create } from 'zustand'
  */
 
 /**
- * In the order they show. `feedback`, `update`, `changelog` (so far only the
- * line after another member updated this Mac) and `tip` have messages; the
- * rest are reserved.
+ * In the order they show. `feedback`, `update`, `changelog` (WHAT'S NEW) and
+ * `tip` have messages; the rest are reserved.
  */
 export const NOTICE_KINDS = ['feedback', 'update', 'changelog', 'pairing', 'usage', 'tip'] as const
 export type NoticeKind = (typeof NOTICE_KINDS)[number]

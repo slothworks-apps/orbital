@@ -315,6 +315,12 @@ export interface OrbitalState {
   defaultClaudeDir: number | null
   lastClaudeDir: number | null
   settings: Record<string, string>
+  /**
+   * Whether `settings` holds the server's rows — `loadInitial` landed — and
+   * not only what was patched in before it. What is decided from a key's
+   * absence (WHAT'S NEW: nothing remembered is a first install) waits for it.
+   */
+  settingsLoaded?: boolean
   transcripts: Record<string, ChatMessage[]>
   /** Tracks which sessions have had their initial message history fetched, so
    * `select()` only ever fetches once per session regardless of how many
@@ -1188,6 +1194,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       tags,
       rules,
       settings,
+      settingsLoaded: true,
       models: modelsPayload.models,
       contextWindows: modelsPayload.contextWindows,
       errors: errorPage?.errors ?? [],

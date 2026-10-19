@@ -1,3 +1,4 @@
+import { showWhatsNewDemo } from '../panels/WhatsNew'
 import { useAppUpdate } from '../store/appUpdate'
 import type { UpdateAction, UpdateBridge, UpdateExtras, UpdatePrompt, UpdateState } from './desktop'
 
@@ -15,7 +16,12 @@ import type { UpdateAction, UpdateBridge, UpdateExtras, UpdatePrompt, UpdateStat
  *
  * and an update another member started (canvas 50v): 'remote-dl',
  * 'remote-last', 'remote-busy' (a session started here), 'receipt' (after
- * the restart).
+ * the restart: WHAT'S NEW with who updated this Mac heading it).
+ *
+ *   __orbitalWhatsNew()
+ *
+ * shows WHAT'S NEW for the running version as after a local update, whatever
+ * this Mac remembers (`panels/WhatsNew`).
  *
  * The buttons move it the way main would, roughly; Check now answers
  * "up to date".
@@ -102,4 +108,5 @@ export function installUpdateDemo(): void {
 
   useAppUpdate.getState().connect(bridge)
   ;(window as { __orbitalUpdateDemo?: typeof set }).__orbitalUpdateDemo = set
+  ;(window as { __orbitalWhatsNew?: () => void }).__orbitalWhatsNew = showWhatsNewDemo
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  autoDownloadOn, receiptNoticeContent, selfUpdateStrip, updateCheckLine, updateNoticeContent, updateNoticeOnMap,
+  autoDownloadOn, receiptLine, selfUpdateStrip, updateCheckLine, updateNoticeContent, updateNoticeOnMap,
 } from '../lib/appUpdate'
 import type { FoundOutcome, UpdateBridge, UpdateState } from '../lib/desktop'
 import { useAppUpdate } from '../store/appUpdate'
@@ -158,14 +158,11 @@ describe('an update another member started on this Mac', () => {
 
   it('04 after the restart: who and when heads WHAT’S NEW, and Settings › Updates says it', () => {
     const receipt = { by: 'Pixel 8', at: 1, stopped: 2, version: v }
-    expect(receiptNoticeContent(receipt, at1402)).toEqual({
-      label: 'WHAT’S NEW · ORBITAL 0.36.0',
-      text: 'Pixel 8 updated this Mac at 14:02. The 2 sessions running then were stopped.',
-    })
-    expect(receiptNoticeContent({ ...receipt, stopped: 1 }, at1402).text).toBe(
+    expect(receiptLine(receipt, at1402)).toBe('Pixel 8 updated this Mac at 14:02. The 2 sessions running then were stopped.')
+    expect(receiptLine({ ...receipt, stopped: 1 }, at1402)).toBe(
       'Pixel 8 updated this Mac at 14:02. The session running then was stopped.',
     )
-    expect(receiptNoticeContent({ ...receipt, stopped: 0 }, at1402).text).toBe('Pixel 8 updated this Mac at 14:02.')
+    expect(receiptLine({ ...receipt, stopped: 0 }, at1402)).toBe('Pixel 8 updated this Mac at 14:02.')
     expect(line({ phase: 'none', receipt })).toBe('Up to date · updated from Pixel 8 at 14:02')
     expect(selfUpdateStrip({ phase: 'none', receipt })).toBeNull()
   })

@@ -168,18 +168,13 @@ export function clockTime(at: number): string {
 /**
  * The line heading WHAT’S NEW after an update another member made (canvas
  * 50v 04): who, when, and how many sessions it stopped — the second
- * sentence only when it stopped any. Its × (`receipt-close`) ends it for good.
+ * sentence only when it stopped any. The release notes follow it
+ * (`panels/WhatsNew`), whose end clears the receipt (`receipt-close`).
  */
-export function receiptNoticeContent(
-  receipt: UpdateReceipt,
-  clock: (at: number) => string = clockTime,
-): Pick<UpdateNoticeContent, 'label' | 'text'> {
+export function receiptLine(receipt: UpdateReceipt, clock: (at: number) => string = clockTime): string {
   const n = receipt.stopped
   const stopped = n <= 0 ? '' : n === 1 ? ' The session running then was stopped.' : ` The ${n} sessions running then were stopped.`
-  return {
-    label: `WHAT’S NEW · ORBITAL ${receipt.version}`,
-    text: `${receipt.by} updated this Mac at ${clock(receipt.at)}.${stopped}`,
-  }
+  return `${receipt.by} updated this Mac at ${clock(receipt.at)}.${stopped}`
 }
 
 /**
