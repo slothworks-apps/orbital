@@ -33,7 +33,7 @@ export const PACKAGE_ROOT = '/usr/lib/orbital';
 export const PACKAGE_VERSION_FILE = 'VERSION';
 
 /**
- * The directory `orbital setup` makes (root:<user>, mode 0770) and the file
+ * The directory `orbital setup` makes (<user>:root, mode 0700) and the file
  * in it the root `orbital-update.path` unit watches. Its content is ignored.
  */
 export const UPDATE_REQUEST_DIR = '/var/lib/orbital/update';

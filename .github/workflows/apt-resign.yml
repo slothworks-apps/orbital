@@ -67,7 +67,15 @@ jobs:
           index=dists/stable/main/binary-amd64
           current="$RUNNER_TEMP/Packages"
           repo="$RUNNER_TEMP/repo"
-          s3 cp "$bucket/$index/Packages" "$current"
+          if ! s3 cp "$bucket/$index/Packages" "$current"; then
+            if aws s3api --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com" \
+                head-object --bucket "$R2_BUCKET" --key "$index/Packages" >/dev/null 2>&1; then
+              echo "::error::Could not read the repository's Packages file."
+              exit 1
+            fi
+            echo "::notice::The repository has no release yet; nothing to sign."
+            exit 0
+          fi
           node scripts/apt-repo.mjs resign --packages "$current" --out "$repo"
           s3 cp "$repo/$index/by-hash" "$bucket/$index/by-hash" --recursive \
             --cache-control 'public, max-age=31536000, immutable'

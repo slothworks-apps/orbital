@@ -86,7 +86,8 @@ test('the Release file lists each index by SHA256, by hash, valid for APT_VALID_
 test('a prerelease is written with ~ in the Debian version', () => {
   assert.equal(debVersion('0.35.0'), '0.35.0')
   assert.equal(debVersion('0.35.0-beta.1'), '0.35.0~beta.1')
-  assert.equal(debVersion('1.0.0-rc.1-2'), '1.0.0~rc.1-2')
+  assert.equal(debVersion('1.0.0-rc-1'), '1.0.0~rc~1')
+  assert.equal(debVersion('1.0.0-rc.1-2'), '1.0.0~rc.1~2')
 })
 
 // A repository at `base` answering Packages and an InRelease over `vouched`.

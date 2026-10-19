@@ -204,6 +204,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
+          persist-credentials: false
 
       # A repository that lists the version already needs no new package:
       # `deb-publish` only signs its index again. One that cannot be asked
@@ -275,6 +276,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
+          persist-credentials: false
       - uses: actions/setup-node@v7
         with:
           node-version: 24

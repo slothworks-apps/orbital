@@ -114,8 +114,7 @@ export const APT_VALID_DAYS = 90
 // The Debian version of a desktop version: a semver prerelease (`-beta.1`)
 // sorts after its release in Debian unless it is written with `~`.
 export function debVersion(version) {
-  const dash = version.indexOf('-')
-  return dash === -1 ? version : `${version.slice(0, dash)}~${version.slice(dash + 1)}`
+  return version.replaceAll('-', '~')
 }
 
 const rfc2822 = (date) => date.toUTCString().replace(/GMT$/, 'UTC')
