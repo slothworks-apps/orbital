@@ -1,3 +1,5 @@
+import { WHATS_NEW_BEFORE } from '@orbital/shared/changelog'
+
 /**
  * WHAT'S NEW, as decisions (spec 2026-10-19-whats-new-design; canvas
  * `Feature - Notice toast` 1a, 1b, 2a, 2b): the notice-toast message of kind
@@ -17,24 +19,35 @@ export interface SeenVersion {
   ended: boolean
 }
 
-export function parseSeenVersion(raw: string | null | undefined): SeenVersion | null {
-  if (!raw) return null
-  try {
-    const value = JSON.parse(raw) as Partial<SeenVersion> | null
-    if (
-      value &&
-      typeof value.version === 'string' &&
-      value.version !== '' &&
-      typeof value.at === 'number' &&
-      Number.isFinite(value.at) &&
-      typeof value.ended === 'boolean'
-    ) {
-      return { version: value.version, at: value.at, ended: value.ended }
+/**
+ * What a device remembers, as read: its `SeenVersion`; `before`, an install
+ * that was in use before WHAT'S NEW existed (the Mac's migration wrote
+ * `WHATS_NEW_BEFORE`, or the phone found its own state with nothing
+ * remembered); or null, a first install. A value that does not read counts as
+ * nothing remembered.
+ */
+export type StoredSeen = SeenVersion | 'before' | null
+
+export function parseSeenVersion(raw: string | null | undefined, usedBefore = false): StoredSeen {
+  if (raw === WHATS_NEW_BEFORE) return 'before'
+  if (raw) {
+    try {
+      const value = JSON.parse(raw) as Partial<SeenVersion> | null
+      if (
+        value &&
+        typeof value.version === 'string' &&
+        value.version !== '' &&
+        typeof value.at === 'number' &&
+        Number.isFinite(value.at) &&
+        typeof value.ended === 'boolean'
+      ) {
+        return { version: value.version, at: value.at, ended: value.ended }
+      }
+    } catch {
+      // Not ours: as if nothing were remembered.
     }
-  } catch {
-    // Not ours: as if nothing were remembered.
   }
-  return null
+  return usedBefore ? 'before' : null
 }
 
 export function serializeSeenVersion(seen: SeenVersion): string {
@@ -53,7 +66,7 @@ export interface WhatsNewLaunch {
 /**
  * At launch, from what the device remembers and the version it runs:
  * - nothing remembered (a first install) — remember it silently;
- * - another version — the message is due, unless the changelog has nothing
+ * - another version, or an install from before WHAT'S NEW — the message is due, unless the changelog has nothing
  *   for this one, which is remembered as ended;
  * - the same version — due again only while its message has not ended.
  */
@@ -63,13 +76,13 @@ export function whatsNewOnLaunch({
   hasNotes,
   now,
 }: {
-  stored: SeenVersion | null
+  stored: StoredSeen
   version: string
   hasNotes: boolean
   now: number
 }): WhatsNewLaunch {
   if (stored === null) return { show: false, installedAt: now, write: { version, at: now, ended: true } }
-  if (stored.version !== version) {
+  if (stored === 'before' || stored.version !== version) {
     return { show: hasNotes, installedAt: now, write: { version, at: now, ended: !hasNotes } }
   }
   return { show: hasNotes && !stored.ended, installedAt: stored.at, write: null }

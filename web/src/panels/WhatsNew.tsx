@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { create } from 'zustand'
-import { firstReleaseNotes, releaseNotes } from '@orbital/shared/changelog'
+import { WHATS_NEW_SEEN_KEY, firstReleaseNotes, releaseNotes } from '@orbital/shared/changelog'
 import changelog from '../../../desktop/CHANGELOG.md?raw'
 import { version as orbitalVersion } from '../../../desktop/package.json'
 import { api } from '../lib/api'
@@ -31,11 +31,10 @@ import { usePresence } from '../ui/usePresence'
  * See all changes for the rest. After another member updated this Mac, who
  * and when heads it, and its end clears that receipt.
  *
- * What this Mac has seen is a server setting, beside the notifications tip's.
+ * What this Mac has seen is a server setting (`WHATS_NEW_SEEN_KEY`), beside
+ * the notifications tip's; the server's migration marks an install from
+ * before WHAT'S NEW, so it is told too.
  */
-
-/** The server setting this Mac remembers its last version in (`lib/whatsNew` `SeenVersion`). */
-export const WHATS_NEW_KEY = 'whats_new_seen'
 
 const WHATS_NEW_NOTICE_ID = 'whats-new'
 
@@ -55,9 +54,9 @@ const useWhatsNew = create<WhatsNewState>()(() => ({ decided: false, due: false,
 
 function remember(seen: SeenVersion): void {
   const value = serializeSeenVersion(seen)
-  useOrbital.setState((state) => ({ settings: { ...state.settings, [WHATS_NEW_KEY]: value } }))
+  useOrbital.setState((state) => ({ settings: { ...state.settings, [WHATS_NEW_SEEN_KEY]: value } }))
   // A failed write costs the message once more next launch, not an error.
-  api.patchSettings({ [WHATS_NEW_KEY]: value }).catch(() => {})
+  api.patchSettings({ [WHATS_NEW_SEEN_KEY]: value }).catch(() => {})
 }
 
 /**
@@ -69,7 +68,7 @@ export function useWhatsNewNotice(): void {
   useEffect(() => {
     if (!loaded || useWhatsNew.getState().decided) return
     const launch = whatsNewOnLaunch({
-      stored: parseSeenVersion(useOrbital.getState().settings[WHATS_NEW_KEY]),
+      stored: parseSeenVersion(useOrbital.getState().settings[WHATS_NEW_SEEN_KEY]),
       version: orbitalVersion,
       hasNotes: NOTES !== null,
       now: Date.now(),
@@ -100,13 +99,18 @@ function WhatsNewNotice({ close }: { close: () => void }) {
   const installedAt = useWhatsNew((s) => s.installedAt)
   const [open, setOpen] = useState(false)
 
-  // × on the toast or the dialog closed: gone for good, and the receipt with it.
+  // × on the toast or the dialog closed: gone for good, and the receipt with
+  // it. A closing dialog plays its exit first; the toast leaves after it.
   const end = () => {
-    setOpen(false)
     remember(endedSeenVersion(orbitalVersion, installedAt))
-    useWhatsNew.setState({ due: false })
-    if (receipt) source?.updateAction('receipt-close')
-    close()
+    const leave = () => {
+      useWhatsNew.setState({ due: false })
+      if (receipt) source?.updateAction('receipt-close')
+      close()
+    }
+    if (!open) return leave()
+    setOpen(false)
+    setTimeout(leave, MODAL_EXIT_MS)
   }
 
   return (

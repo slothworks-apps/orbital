@@ -6,6 +6,21 @@
  * version that runs.
  */
 
+/**
+ * The Mac's server setting where WHAT'S NEW remembers the last version this
+ * Mac ran (web `lib/whatsNew` `SeenVersion`, serialized). Missing is a fresh
+ * install.
+ */
+export const WHATS_NEW_SEEN_KEY = 'whats_new_seen';
+
+/**
+ * What `WHATS_NEW_SEEN_KEY` holds on an install from before WHAT'S NEW
+ * (server migration 0030): it was updated, so the message for the running
+ * version shows once. The phone stands for the same with its own existing
+ * state (`mobile/WhatsNew`).
+ */
+export const WHATS_NEW_BEFORE = 'before-whats-new';
+
 /** The titles WHAT'S NEW shows (canvas `Feature - Notice toast` 1b), in its order. */
 export const RELEASE_NOTE_TITLES = ['NEW', 'CHANGED', 'FIXED'] as const;
 export type ReleaseNoteTitle = (typeof RELEASE_NOTE_TITLES)[number];

@@ -76,3 +76,27 @@ describe('installedLine', () => {
     expect(installedLine(at, new Date(2026, 9, 13, 0, 1).getTime(), day)).toBe('installed 12 Oct')
   })
 })
+
+describe('an install from before WHAT’S NEW', () => {
+  it('reads the Mac’s sentinel, or a phone in use with nothing remembered, as one', () => {
+    expect(parseSeenVersion('before-whats-new')).toBe('before')
+    expect(parseSeenVersion(null, true)).toBe('before')
+    expect(parseSeenVersion('garbage', true)).toBe('before')
+    // What it remembered wins over the phone's state.
+    expect(parseSeenVersion(serializeSeenVersion({ version: '1', at: 1, ended: true }), true)).toEqual({
+      version: '1', at: 1, ended: true,
+    })
+  })
+
+  it('shows the running version once, remembered as not ended', () => {
+    expect(whatsNewOnLaunch({ stored: 'before', version: '0.36.0', hasNotes: true, now: NOW })).toEqual({
+      show: true,
+      installedAt: NOW,
+      write: { version: '0.36.0', at: NOW, ended: false },
+    })
+    expect(whatsNewOnLaunch({ stored: 'before', version: '0.36.0', hasNotes: false, now: NOW })).toMatchObject({
+      show: false,
+      write: { ended: true },
+    })
+  })
+})
