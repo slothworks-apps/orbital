@@ -991,6 +991,58 @@ describe('a member\'s update when sessions finish (canvas 50v 02)', () => {
   });
 });
 
+describe('working and busy: the words count the working, the restart waits for the busy', () => {
+  it('a session waiting on a decision holds a wait, and is told to the server, but is not counted as working', () => {
+    const flow = new UpdateFlow();
+    flow.setWorkingCount(1, true, ['w'], ['w', 'd']);
+    flow.downloaded('0.26.0');
+    // The prompt counts what working sessions a restart interrupts.
+    expect(flow.view).toMatchObject({ phase: 'ready', workingCount: 1, buttons: 'two' });
+    flow.act('restart-when-idle');
+    expect(flow.view.phase).toBe('waiting');
+    // The working one finishes; the one waiting on a decision still holds it.
+    expect(flow.setWorkingCount(0, true, [], ['d'])).toMatchObject({ idleCheck: false });
+    expect(flow.idleSettled()).toMatchObject({ restart: false });
+    expect(flow.view).toMatchObject({ phase: 'waiting', workingCount: 0 });
+    expect(flow.setWorkingCount(0, true, [], [])).toMatchObject({ idleCheck: true });
+    expect(flow.idleSettled()).toMatchObject({ restart: true });
+  });
+
+  it('Ready with nothing working offers one button, and its Restart still waits for a decision', () => {
+    const flow = new UpdateFlow();
+    flow.setWorkingCount(0, true, [], ['d']);
+    flow.downloaded('0.26.0');
+    expect(flow.view).toMatchObject({ phase: 'ready', workingCount: 0, buttons: 'one' });
+    expect(flow.act('restart-when-idle')).toMatchObject({ restart: false });
+    expect(flow.view.phase).toBe('waiting');
+  });
+
+  it("a member's wait reports the busy count; the receipt counts the working ones it stopped", () => {
+    const flow = new UpdateFlow({ now: () => 5 });
+    flow.setWorkingCount(1, true, ['w'], ['w', 'd']);
+    flow.downloaded('0.26.0');
+    flow.remoteStart('Pixel 8', 'idle');
+    expect(flow.serverState('0.25.0').waiting).toBe(2);
+    expect(flow.view.remote).toMatchObject({ working: 1 });
+    // A member's Update now judges by the busy ones: a new decision is a new turn.
+    const now = new UpdateFlow();
+    now.setWorkingCount(1, true, ['w'], ['w']);
+    now.available('0.26.0', MB);
+    now.remoteStart('Pixel 8');
+    now.setWorkingCount(1, true, ['w'], ['w', 'd']);
+    expect(now.downloaded('0.26.0')).toMatchObject({ remoteEnded: 'sessions' });
+  });
+
+  it('the receipt counts the working sessions the restart stopped, not those waiting on a decision', () => {
+    const flow = new UpdateFlow({ now: () => 5 });
+    flow.setWorkingCount(1, true, ['w'], ['w']);
+    flow.downloaded('0.26.0');
+    flow.remoteStart('Pixel 8');
+    flow.setWorkingCount(1, true, ['w'], ['w', 'd']);
+    expect(flow.holdEnded()).toMatchObject({ receipt: { stopped: 1 } });
+  });
+});
+
 describe('update receipt file', () => {
   const receipt = { by: 'Pixel 8', at: 1_760_000_000_000, stopped: 2, version: '0.26.0' };
 

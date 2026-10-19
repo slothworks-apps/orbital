@@ -436,12 +436,20 @@ export type FoundStep = UpdateStep & { outcome: FoundOutcome };
 type Phase = UpdatePrompt['phase'];
 
 /**
- * The update's state machine. The working count is
- * `WorkingSessions.busyCount`: Orbital-run sessions mid-turn or waiting on a
- * decision (a permission prompt, a question), the server's `Runner.busy`
- * rule — a wait for the sessions to finish waits for those too. A terminal
- * session belongs to a CLI in someone's shell, and restarting the app does
- * not touch it. A count that is not known yet
+ * The update's state machine. Two counts come from `WorkingSessions`, both
+ * of Orbital-run sessions only (a terminal session belongs to a CLI in
+ * someone's shell, and restarting the app does not touch it):
+ *
+ * - the working count (`count`), sessions mid-turn: what the prompt says
+ *   ("interrupts 3 working sessions"), its one-or-two-buttons choice, and
+ *   the receipt's `stopped`;
+ * - the busy ones (`busyIds`), mid-turn or waiting on a decision (a
+ *   permission prompt, a question), the server's `Runner.busy` rule: what
+ *   decides when a restart is safe — a wait for the sessions to finish
+ *   waits for those too — what the server is told a member's wait waits for,
+ *   and what a member's request is judged by.
+ *
+ * A count that is not known yet
  * counts as "not idle": waiting is safe, a restart over a working session
  * is not.
  *
@@ -455,9 +463,17 @@ export class UpdateFlow {
   private totalMB = 0;
   private percent = 0;
   private buttons: 'one' | 'two' = 'one';
+  /** Orbital sessions mid-turn: what the prompt's words and the receipt count. */
   private workingCount = 0;
-  /** The working sessions' ids, as last given with the count; their number is the count when both are known. */
-  private workingIds: readonly string[] = [];
+  /**
+   * The busy sessions — mid-turn or waiting on a decision (`Runner.busy`) —
+   * by id: what decides when it is safe to restart (a wait, Restart when
+   * sessions finish) and what a member's request is judged by. Null when
+   * they were not given by id (a count alone).
+   */
+  private busyIds: readonly string[] | null = [];
+  /** How many sessions are busy: `busyIds`' number, or the working count when no ids were given. */
+  private busyCount = 0;
   /** False until the working count has been seeded, and again after a reconnect. */
   private countKnown = false;
   private autoDownload = false;
@@ -478,11 +494,11 @@ export class UpdateFlow {
    */
   private remoteRequested = false;
   /**
-   * The sessions working when the member's request arrived, by id: the
+   * The sessions busy when the member's request arrived, by id: the
    * member confirmed the sessions running before it asked, so only a session
-   * working at the landing that is not among these — one that started while
-   * it downloaded — keeps the download from installing. Null when they were
-   * not known then.
+   * busy at the landing that is not among these — one that started a turn
+   * while it downloaded — keeps the download from installing. Null when they
+   * were not known then.
    */
   private remoteBaseline: ReadonlySet<string> | null = null;
   /** A member's request already retried a restart that had not got the app out (`remoteStart`). */
@@ -704,28 +720,39 @@ export class UpdateFlow {
   }
 
   /**
-   * The number of Orbital sessions mid-turn changed (or was re-read).
-   * `seeded` is `WorkingSessions.seeded`: while it is false the count may be
+   * The Orbital sessions mid-turn, or waiting on a decision, changed (or
+   * were re-read). `count` is the working ones (`WorkingSessions.count`);
+   * `busyIds` the busy ones by id (`WorkingSessions.busyIds`, the working ones
+   * and those waiting on a decision). Without `busyIds`, `ids` (the working
+   * ones by id) stand in, and are known only when there are `count` of them.
+   * `seeded` is `WorkingSessions.seeded`: while it is false the counts may be
    * short — the socket reconnected and the session list has not been read
-   * yet — so it is not taken, and a zero never ends a wait. A zero during a
-   * wait asks for `idleSettled` after `IDLE_SETTLE_MS` rather than
-   * restarting at once. `ids` are the working sessions themselves
-   * (`WorkingSessions.workingIds`), which a member's request is judged by.
+   * yet — so they are not taken, and a zero never ends a wait. No busy
+   * session during a wait asks for `idleSettled` after `IDLE_SETTLE_MS`
+   * rather than restarting at once.
    */
-  setWorkingCount(count: number, seeded: boolean, ids: readonly string[] = []): UpdateStep {
+  setWorkingCount(
+    count: number, seeded: boolean, ids: readonly string[] = [], busyIds?: readonly string[],
+  ): UpdateStep {
     this.countKnown = seeded;
     if (!seeded) return this.step();
     const before = this.snapshot();
     this.workingCount = count;
-    this.workingIds = ids;
+    this.busyIds = busyIds ?? (ids.length === count ? ids : null);
+    this.busyCount = busyIds ? busyIds.length : count;
     const changed = before !== this.snapshot();
-    return this.step({ changed, idleCheck: this.phase === 'waiting' && count === 0 });
+    return this.step({ changed, idleCheck: this.phase === 'waiting' && this.busyCount === 0 });
   }
 
-  /** `IDLE_SETTLE_MS` after a zero: restart if the wait is still on and still nothing works. */
+  /** `IDLE_SETTLE_MS` after a zero: restart if the wait is still on and still nothing is busy. */
   idleSettled(): UpdateStep {
-    if (this.phase === 'waiting' && this.countKnown && this.workingCount === 0) return this.restart();
+    if (this.phase === 'waiting' && this.idle()) return this.restart();
     return this.step();
+  }
+
+  /** Known, and no session busy: a restart now cuts nothing off. */
+  private idle(): boolean {
+    return this.countKnown && this.busyCount === 0;
   }
 
   /** A button in the prompt; one that is not on screen in this state does nothing. */
@@ -753,7 +780,7 @@ export class UpdateFlow {
       case 'waiting:restart-now':
         return this.restart();
       case 'ready:restart-when-idle':
-        if (this.countKnown && this.workingCount === 0) return this.restart();
+        if (this.idle()) return this.restart();
         this.phase = 'waiting';
         break;
       case 'waiting:cancel-wait': {
@@ -813,9 +840,10 @@ export class UpdateFlow {
    *
    * `when` `idle` (Update when sessions finish, canvas 50v 02): once
    * downloaded it waits, as Restart when sessions finish does, for every
-   * working session here — a new turn meanwhile is waited for, not a reason
-   * to stop — and restarts the first moment none works. Its Cancel, here or
-   * on any member, leaves the download as this Mac's own Ready.
+   * busy session here — mid-turn or waiting on a decision; a new turn
+   * meanwhile is waited for, not a reason to stop — and restarts the first
+   * moment none is. Its Cancel, here or on any member, leaves the download
+   * as this Mac's own Ready.
    */
   remoteStart(by: string | null = null, when: UpdateWhen = 'now'): UpdateStep {
     if (this.phase === 'restarting') {
@@ -842,7 +870,7 @@ export class UpdateFlow {
     this.remoteRequested = true;
     this.remoteWait = when === 'idle';
     this.remoteBy = by;
-    this.remoteBaseline = this.idsKnown() ? new Set(this.workingIds) : null;
+    this.remoteBaseline = this.idsKnown() ? new Set(this.busyIds) : null;
     if (this.phase === 'downloading') return this.step({ changed: before !== this.snapshot() });
     if (this.silentDownload === version) {
       // Downloading by itself, unseen: a member's download is shown here, so it is from now on.
@@ -902,7 +930,7 @@ export class UpdateFlow {
       available: available !== null && available !== installed ? available : null,
       downloading: this.phase === 'downloading' || this.silentDownload !== null,
       downloaded: this.downloadedVersion !== null,
-      waiting: this.remoteWait ? this.workingCount : null,
+      waiting: this.remoteWait ? this.busyCount : null,
     };
   }
 
@@ -915,13 +943,13 @@ export class UpdateFlow {
     this.remoteWait = true;
     this.phase = 'waiting';
     this.version = version;
-    if (this.countKnown && this.workingCount === 0) return this.restart();
+    if (this.idle()) return this.restart();
     return this.step({ changed: before !== this.snapshot() });
   }
 
-  /** Whether the working sessions are known by id: seeded, and the ids given with the count. */
+  /** Whether the busy sessions are known by id: seeded, and the ids given. */
   private idsKnown(): boolean {
-    return this.countKnown && this.workingIds.length === this.workingCount;
+    return this.countKnown && this.busyIds !== null;
   }
 
   /**
@@ -929,11 +957,12 @@ export class UpdateFlow {
    * may — nothing works that did not when the request arrived — else why not.
    */
   private remoteVerdict(): Exclude<UpdateEndReason, 'restart'> | null {
-    if (!this.idsKnown()) return 'unknown';
-    if (this.workingIds.length === 0) return null;
+    const busy = this.idsKnown() ? this.busyIds : null;
+    if (busy === null) return 'unknown';
+    if (busy.length === 0) return null;
     if (this.remoteBaseline === null) return 'unknown';
     const baseline = this.remoteBaseline;
-    return this.workingIds.every((id) => baseline.has(id)) ? null : 'sessions';
+    return busy.every((id) => baseline.has(id)) ? null : 'sessions';
   }
 
   private toReady(version: string): void {

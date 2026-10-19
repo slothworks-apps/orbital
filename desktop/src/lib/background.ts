@@ -62,6 +62,8 @@ export class WorkingSessions {
    * the sessions to finish does (as the server's `Runner.busy`).
    */
   private deciding = new Set<string>();
+  /** Sessions an upsert or a remove has spoken for since the last reset: their decision outranks the list. */
+  private decisionTouched = new Set<string>();
   /** Sessions a frame has spoken for since the last reset; they outrank the list. */
   private touched = new Set<string>();
   private generation = 0;
@@ -102,6 +104,7 @@ export class WorkingSessions {
     if (frame.event === 'remove') {
       if (typeof frame.sessionId === 'string') {
         this.mark(frame.sessionId, false);
+        this.decisionTouched.add(frame.sessionId);
         this.deciding.delete(frame.sessionId);
       }
       return;
@@ -128,6 +131,7 @@ export class WorkingSessions {
     if (typeof id !== 'string' || id === '') return;
     this.mark(id, isWorkingOrbitalSession(session));
     // A status frame carries no decision; the upsert that every decision edge publishes does.
+    this.decisionTouched.add(id);
     if (isDecidingOrbitalSession(session)) this.deciding.add(id);
     else this.deciding.delete(id);
   }
@@ -153,9 +157,11 @@ export class WorkingSessions {
     for (const session of raw.sessions) {
       if (!isRecord(session)) continue;
       const id = session.id;
-      if (typeof id !== 'string' || id === '' || this.touched.has(id)) continue;
+      if (typeof id !== 'string' || id === '') continue;
+      // A decision is spoken for only by an upsert: a status frame carries none.
+      if (!this.decisionTouched.has(id) && isDecidingOrbitalSession(session)) this.deciding.add(id);
+      if (this.touched.has(id)) continue;
       if (isWorkingOrbitalSession(session)) this.ids.add(id);
-      if (isDecidingOrbitalSession(session)) this.deciding.add(id);
     }
     this.isSeeded = true;
   }
@@ -164,6 +170,7 @@ export class WorkingSessions {
   reset(): void {
     this.ids.clear();
     this.deciding.clear();
+    this.decisionTouched.clear();
     this.touched.clear();
     this.generation += 1;
     this.isSeeded = false;

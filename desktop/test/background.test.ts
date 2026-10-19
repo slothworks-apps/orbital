@@ -162,6 +162,22 @@ describe('WorkingSessions: busy, for an update waiting for the sessions', () => 
     expect(working.busyIds).toEqual(['s1']);
   });
 
+  it('the list\'s decision counts unless an upsert spoke for it; a status frame alone does not', () => {
+    const working = new WorkingSessions();
+    const token = working.beginSeed();
+    // A turn's status frame lands before the list: it says nothing of the decision.
+    working.onFrame({ topic: 'sessions', event: 'status', sessionId: 'a', status: 'needs_input' });
+    // An upsert says the decision was answered before the (older) list arrives.
+    working.onFrame(upsert({ id: 'b', source: 'web', status: 'idle', pendingDecision: null }));
+    working.seed(token, {
+      sessions: [
+        { id: 'a', source: 'web', status: 'needs_input', pendingDecision: { id: 'x' } },
+        { id: 'b', source: 'web', status: 'needs_input', pendingDecision: { id: 'y' } },
+      ],
+    });
+    expect(working.busyIds).toEqual(['a']);
+  });
+
   it('reads decisions from the list too, and forgets them on a reset', () => {
     const working = new WorkingSessions();
     working.seed(working.beginSeed(), {
