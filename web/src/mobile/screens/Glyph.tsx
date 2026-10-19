@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import { compactingOf } from '../../lib/compaction'
 import { dotMotionClass, stateColor } from '../../lib/stateStyle'
 import { sessionStateKey, type ApiSession, type SessionStateKey } from '../../lib/types'
 import { StateDot } from '../../ui/StateDot'
@@ -30,7 +31,7 @@ const CORE_HOLLOW_PX = 7
 const CORE_DIAMOND_PX = 8
 const CORE_DIAMOND_RADIUS_PX = 1.5
 
-type PlanetFields = StateFields & Pick<ApiSession, 'harnessGate' | 'source' | 'limitWait' | 'pinnedAt'>
+type PlanetFields = StateFields & Pick<ApiSession, 'harnessGate' | 'source' | 'limitWait' | 'pinnedAt' | 'compacting'>
 
 /**
  * Which states turn their tick ring (9p: "ring turns"), and how slowly — a
@@ -45,6 +46,17 @@ const RING_SPIN: Partial<Record<SessionStateKey, string>> = {
 
 /** The tick ring: a dashed conic band masked down to a thin circle around the body. */
 const RING_MASK = 'radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px))'
+/** How far the tick ring stands out from the body, px. */
+const RING_OUTSET_PX = 5
+
+/**
+ * The map's compacting look (26b): the condensing rings' 1.5px border in
+ * `rgba(214,228,246,.8)`, and the hollow core's opacity. The second ring
+ * runs half of `orbital-condense`'s cycle behind the first.
+ */
+const CONDENSE_BORDER = '1.5px solid rgba(214,228,246,.8)'
+const CONDENSE_STAGGER = '-1.6s'
+const COMPACT_CORE_OPACITY = 0.75
 
 /**
  * A session's planet in the list (9a, 9p "STATE GLYPH · 28 PX"): a tick
@@ -54,11 +66,16 @@ const RING_MASK = 'radial-gradient(farthest-side, transparent calc(100% - 3px), 
  * Two rows of 10a differ: a harness gate is NEEDS INPUT's planet held still
  * — no ring turn, a diamond at its core that does not breathe — and a limit
  * wait is IDLE's planet with a hollow core, still and never amber.
+ *
+ * A compacting session takes the map's compacting planet (26b): IDLE's body
+ * with its ticks still, a hollow core, and two grey rings drawn in from the
+ * tick ring onto the body.
  */
 export function PlanetGlyph({ session, offline }: { session: PlanetFields; offline: boolean }) {
   const key = sessionStateKey(session)
   const gate = isGateRow(session)
   const limit = !gate && waitsForLimit(session)
+  const compacting = compactingOf(session) !== null
   if (key === 'ended') {
     return (
       <span aria-hidden className="grid h-11 w-11 shrink-0 place-items-center">
@@ -69,9 +86,9 @@ export function PlanetGlyph({ session, offline }: { session: PlanetFields; offli
       </span>
     )
   }
-  const quiet = key === 'idle' || limit
+  const quiet = key === 'idle' || limit || compacting
   const color = quiet ? 'rgba(200,215,235,.7)' : stateColor(key)
-  const dot = limit
+  const dot = limit || compacting
     ? { shape: 'hollow' as const, motion: 'steady' as const }
     : gate
       ? { ...glyphFor(key, offline), motion: 'steady' as const }
@@ -81,11 +98,11 @@ export function PlanetGlyph({ session, offline }: { session: PlanetFields; offli
   // oklab, not oklch: mixing amber into a blue-black through oklch hue swings it green.
   const mix = (share: number, onto: string) => `color-mix(in oklab, ${color} ${share}%, ${onto})`
   const ring: CSSProperties = {
-    inset: -5,
+    inset: -RING_OUTSET_PX,
     background: `repeating-conic-gradient(${quiet ? 'rgba(200,215,235,.32)' : mix(offline ? 55 : 78, 'transparent')} 0 1.5deg, transparent 1.5deg 8deg)`,
     WebkitMask: RING_MASK,
     mask: RING_MASK,
-    animation: offline || gate ? undefined : RING_SPIN[key],
+    animation: offline || gate || compacting ? undefined : RING_SPIN[key],
   }
   const body: CSSProperties = {
     background: `radial-gradient(circle at 50% 42%, ${mix(quiet ? 12 : 22, 'oklch(22% .02 230)')}, ${mix(quiet ? 4 : 10, 'oklch(14% .015 230)')} 72%)`,
@@ -97,6 +114,22 @@ export function PlanetGlyph({ session, offline }: { session: PlanetFields; offli
       <span className="relative block" style={{ width: size, height: size }}>
         <span className="absolute rounded-full" style={ring} />
         <span className="absolute inset-0 rounded-full" style={body} />
+        {compacting &&
+          !offline &&
+          [0, 1].map((i) => (
+            <span
+              key={i}
+              className="orbital-condense absolute rounded-full opacity-0"
+              style={
+                {
+                  inset: -RING_OUTSET_PX,
+                  border: CONDENSE_BORDER,
+                  animationDelay: i ? CONDENSE_STAGGER : undefined,
+                  '--condense-end': size / (size + 2 * RING_OUTSET_PX),
+                } as CSSProperties
+              }
+            />
+          ))}
         {dot.shape !== 'none' && (
           <span
             className={['absolute left-1/2 top-1/2 box-border', gate ? '' : 'rounded-full', dotMotionClass(dot.motion)].join(' ')}
@@ -108,6 +141,7 @@ export function PlanetGlyph({ session, offline }: { session: PlanetFields; offli
               ...(dot.shape === 'solid'
                 ? { background: offline ? mix(78, 'transparent') : color }
                 : { border: `1.5px solid ${color}` }),
+              ...(compacting ? { opacity: COMPACT_CORE_OPACITY } : {}),
             }}
           />
         )}

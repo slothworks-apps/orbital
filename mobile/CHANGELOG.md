@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Changed
+- A session compacting its context shows it in the session list too: its planet goes quiet and grey rings draw in onto it, as on the Mac's map.
 
 ## [0.15.1] — 2026-10-19
 ### Fixed
