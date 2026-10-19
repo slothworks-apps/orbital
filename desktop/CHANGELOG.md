@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- Images an agent saved to disk reach the phone's gallery and transcript thumbnails as small previews instead of at full size, so they load much faster there.
 
 ## [0.35.0] — 2026-10-19
 ### Added

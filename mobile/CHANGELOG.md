@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Fixed
+- A session's Media and the thumbnails in replies load much faster: images an agent saved come as small previews, and open at full size only in the viewer. Needs Orbital for Mac with the same fix; an older Mac sends them whole, as before.
 
 ## [0.15.4] — 2026-10-19
 ### Fixed

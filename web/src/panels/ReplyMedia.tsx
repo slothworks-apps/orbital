@@ -93,7 +93,7 @@ function ReplyThumb({
 }) {
   const pdf = isPdfPath(path)
   const [failed, setFailed] = useState(false)
-  const { url } = useMediaSourceUrl(sessionId, { path, cwd })
+  const { url } = useMediaSourceUrl(sessionId, { path, cwd }, { thumb: true })
   const thumb = usePdfThumbnail(pdf && !(item && isGone(item)) ? url : null, url ? pdfKey(url, item ?? {}) : '')
   const gone = (item ? isGone(item) : false) || failed || thumb.failed
 

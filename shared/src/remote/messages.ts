@@ -132,6 +132,8 @@ export const AskMessage = z.discriminatedUnion('t', [
      * none, and an older Mac ignores it.
      */
     cwd: z.string().max(FILE_PATH_MAX_CHARS).regex(NO_CONTROL_CHARS).optional(),
+    /** `as: 'image'` only: a thumbnail of at most this many pixels on its longest side, as `blob_get`'s. An older Mac ignores it and sends the file. */
+    edge: z.number().int().positive().max(4096).optional(),
   }),
   z.object({
     t: z.literal('blob_put'), id: z.number().int(), mediaType: z.string(), bytes: z.number().int().nonnegative(),

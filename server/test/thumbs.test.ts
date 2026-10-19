@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
-import { THUMB_EDGES, sweep, thumbnailOf, thumbsDir } from '../src/images/thumbs.js';
+import {
+  FILE_THUMB_MAX_AGE_MS, THUMB_EDGES, fileThumbsDir, sweep, thumbnailOf, thumbnailOfBytes, thumbsDir,
+} from '../src/images/thumbs.js';
 import { makeTmpDir } from './tmp.js';
 
 const hasSips = (() => {
@@ -86,5 +88,36 @@ describe('thumbnails for the phone', () => {
   it.skipIf(!hasSips)('sends the image itself when the thumbnail would be no smaller', async () => {
     const { dir, ref } = store(png(16, 16));
     expect(await thumbnailOf(dir, ref, 512)).toBeNull();
+  });
+});
+
+describe('thumbnails of files named by path', () => {
+  it.skipIf(!hasSips)('brings a file down from its bytes, made once, and leaves nothing of the file behind', async () => {
+    const dir = makeTmpDir('file-thumbs');
+    const bytes = png(2400, 1600);
+    const thumb = await thumbnailOfBytes(dir, bytes, 512);
+    expect(thumb?.mediaType).toBe('image/jpeg');
+    expect(thumb!.bytes.length).toBeLessThan(bytes.length);
+    expect(readdirSync(join(fileThumbsDir(dir), '512'))).toEqual([expect.stringMatching(/^[a-f0-9]{64}\.jpg$/)]);
+    expect((await thumbnailOfBytes(dir, bytes, 512))?.bytes.length).toBe(thumb!.bytes.length);
+  });
+
+  it('makes none at an edge it does not offer, or of bytes that are no image', async () => {
+    const dir = makeTmpDir('file-thumbs');
+    expect(await thumbnailOfBytes(dir, png(64, 64), 333)).toBeNull();
+    expect(await thumbnailOfBytes(dir, Buffer.from('not an image'), 512)).toBeNull();
+  });
+
+  it.skipIf(!hasSips)('drops a file thumbnail once it is past its age', async () => {
+    const dir = makeTmpDir('file-thumbs');
+    await thumbnailOfBytes(dir, png(2400, 1600), 512);
+    const [name] = readdirSync(join(fileThumbsDir(dir), '512'));
+    const made = join(fileThumbsDir(dir), '512', name);
+    sweep(dir);
+    expect(existsSync(made)).toBe(true);
+    const old = (Date.now() - FILE_THUMB_MAX_AGE_MS - 1000) / 1000;
+    utimesSync(made, old, old);
+    sweep(dir);
+    expect(existsSync(made)).toBe(false);
   });
 });
