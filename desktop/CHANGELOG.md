@@ -7,6 +7,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ## [0.35.1] — 2026-10-19
 ### Fixed
 - Images an agent saved to disk reach the phone's gallery and transcript thumbnails as small previews instead of at full size, so they load much faster there.
+- The previews the phone gets of images are about a third of their old size.
 
 ## [0.35.0] — 2026-10-19
 ### Added
