@@ -2323,6 +2323,67 @@ describe('pinned sessions', () => {
   });
 });
 
+// Docked sessions: live work put away. Spec:
+// docs/superpowers/specs/2026-10-19-docked-sessions-design.md § Server.
+describe('docked sessions', () => {
+  let app: FastifyInstance;
+  let db: ReturnType<typeof makeApp>['db'];
+  let hub: Hub;
+
+  beforeEach(() => {
+    ({ app, db, hub } = makeApp());
+  });
+
+  const rowOf = (id: string) =>
+    db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
+  const dock = (id: string, docked: unknown) =>
+    app.inject({ method: 'PUT', url: `/api/sessions/${id}/docked`, payload: { docked } });
+
+  it('PUT /api/sessions/:id/docked stamps docked_at, clears pin and end, and publishes the upsert', async () => {
+    db.update(sessions).set({ pinnedAt: 5, endedAt: 6 }).where(eq(sessions.id, 's2')).run();
+    const received = subscribeFake(hub, 'sessions');
+    expect((await dock('s2', true)).statusCode).toBe(200);
+    const row = rowOf('s2');
+    expect(typeof row.docked_at).toBe('number');
+    expect(row.pinned_at).toBeNull();
+    expect(row.ended_at).toBeNull();
+    expect(received[0]).toMatchObject({ event: 'upsert', session: { id: 's2', dockedAt: row.docked_at, pinnedAt: null } });
+  });
+
+  it('docked:false clears the stamp', async () => {
+    await dock('s2', true);
+    await dock('s2', false);
+    expect(rowOf('s2').docked_at).toBeNull();
+  });
+
+  it('404s an unknown session and 400s a non-boolean body', async () => {
+    expect((await dock('nope', true)).statusCode).toBe(404);
+    const bad = await dock('s2', 'yes');
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json()).toEqual({ error: 'docked must be a boolean' });
+  });
+
+  it('pinning a docked session undocks it', async () => {
+    await dock('s2', true);
+    await app.inject({ method: 'PUT', url: '/api/sessions/s2/pinned', payload: { pinned: true } });
+    expect(rowOf('s2').docked_at).toBeNull();
+    expect(typeof rowOf('s2').pinned_at).toBe('number');
+  });
+
+  it('a delivered message undocks it', async () => {
+    await dock('s2', true);
+    await app.inject({ method: 'POST', url: '/api/sessions/s2/messages', payload: { text: 'continue' } });
+    expect(rowOf('s2').docked_at).toBeNull();
+  });
+
+  it('ending a docked session undocks it', async () => {
+    await dock('s2', true);
+    await app.inject({ method: 'POST', url: '/api/sessions/s2/end', payload: {} });
+    expect(rowOf('s2').ended_at).not.toBeNull();
+    expect(rowOf('s2').docked_at).toBeNull();
+  });
+});
+
 // The file viewer's read (spec 2026-09-19-file-viewer-design § Server). The
 // seeded sessions carry fake cwds like /w/x, so these tests add a session
 // whose cwd is a real tmpdir and put the fixtures there.

@@ -131,6 +131,15 @@ export const sessions = sqliteTable(
      * Declared last for the same reason as `runnerStatus`.
      */
     claudeDirId: integer('claude_dir_id').notNull().default(1),
+    /**
+     * When the user docked this session (epoch ms), null when it is not docked
+     * (spec 2026-10-19-docked-sessions-design): live work put away, off the
+     * map, in the sidebar's DOCKED. Never set together with `pinnedAt` or
+     * `endedAt` — docking clears both, pinning and ending clear it — and only
+     * the user undocks it, by hand or by writing to it. Declared last for the
+     * same reason as `runnerStatus`.
+     */
+    dockedAt: integer('docked_at'),
   },
   (table) => [index('idx_sessions_last_at').on(sql`${table.lastAt} DESC`)],
 );

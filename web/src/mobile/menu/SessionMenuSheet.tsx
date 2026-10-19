@@ -2,11 +2,13 @@ import { useState, type ReactNode } from 'react'
 import { api } from '../../lib/api'
 import { reportError } from '../../lib/errors'
 import { tagColor, type ApiSession } from '../../lib/types'
+import { moveFor } from '../../lib/sessionMoves'
 import { useMedia } from '../../store/media'
 import { useOrbital } from '../../store/store'
 import { patchSession } from '../session/patchSession'
 import { useMobile } from '../state'
 import { useSessionDeviceName, useSessionRefusedLine } from '../useDevice'
+import { sessionSupports } from '../version'
 import { BottomSheet, ConfirmBody } from '../ui'
 import { noteOutcome } from './MenuOutcome'
 import { RenameSheet } from './RenameSheet'
@@ -74,6 +76,16 @@ export function SessionMenuSheet({
   const togglePin = () => {
     onClose()
     void useOrbital.getState().setSessionPinned(id, !pinned)
+  }
+
+  const docked = session.dockedAt != null
+  const canDock = moveFor(session, 'docked') !== null
+  const supportsDocked = sessionSupports('docked', id)
+
+  // Dock undoes the pin and puts the session away; undock brings it back.
+  const toggleDock = () => {
+    onClose()
+    void useOrbital.getState().setSessionDocked(id, !docked)
   }
 
   const end = async () => {
@@ -155,6 +167,15 @@ export function SessionMenuSheet({
       </>
     )
   } else {
+    const dockRow = supportsDocked && (docked || canDock) ? (
+      <Row
+        key="dock"
+        glyph={<DockGlyph />}
+        label={docked ? 'Undock' : 'Dock'}
+        onPress={toggleDock}
+      />
+    ) : null
+
     const rows: Record<MenuItem, ReactNode> = {
       rename: <Row key="rename" glyph={<span className="text-[rgba(200,220,245,.7)]">{TEXT_PENCIL}</span>} label="Rename" onPress={() => setView('rename')} />,
       tag: (
@@ -214,6 +235,7 @@ export function SessionMenuSheet({
           </>
         )}
         {quick.map((item) => rows[item])}
+        {dockRow}
         {(deliberate.length > 0 || shape.terminalNote) && <div className="mx-2.5 my-1.5 h-px bg-[rgba(150,205,255,.1)]" />}
         {deliberate.map((item) => rows[item])}
       </>
@@ -285,6 +307,13 @@ function PinGlyph() {
       <span className="absolute left-[6.5px] top-0 box-border block h-[7px] w-[7px] rounded-full border-[1.5px] border-[rgba(200,220,245,.75)]" />
       <span className="absolute left-[9.3px] top-[7px] block h-[7px] w-[1.4px] rounded-[1px] bg-[rgba(200,220,245,.75)]" />
     </span>
+  )
+}
+
+/** canvas 10i: the dock — a rounded rectangle. */
+function DockGlyph() {
+  return (
+    <span className="block h-3 w-4 rounded-[2px] border-[1.5px] border-[rgba(200,220,245,.75)]" />
   )
 }
 

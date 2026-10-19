@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { timeAgo } from '../../lib/format'
 import { toggleTag } from '../../lib/tagFilter'
-import { isReadOnly, tagColor, type ApiSession, type Tag } from '../../lib/types'
+import { isReadOnly, sessionStateKey, tagColor, type ApiSession, type Tag } from '../../lib/types'
 import { useNow } from '../../lib/useNow'
 import { ClaudeDirMark, useClaudeDirMark } from '../../ui/ClaudeDirMark'
 import { useOrbital } from '../../store/store'
@@ -47,6 +47,8 @@ export function SessionListScreen() {
   const go = useMobile((s) => s.go)
   const [tagIds, setTagIds] = useState<number[]>([])
   const [endedOpen, setEndedOpen] = useState(false)
+  // DOCKED starts folded: it holds what was put away (spec 2026-10-19-docked-sessions-design § Phone).
+  const [dockedOpen, setDockedOpen] = useState(false)
   const [checking, setChecking] = useState(false)
   const now = useNow(true, CLOCK_TICK_MS)
   // The notifications tip, queued once after pairing (spec
@@ -256,6 +258,30 @@ export function SessionListScreen() {
               {listOffline && <span className="tracking-[0.06em] text-[rgba(160,190,225,.45)]"> · last known</span>}
             </>
           )
+          if (group.key === 'docked') {
+            // A fold like ENDED's, its rows already in the list. Waiting shows
+            // in the heading's own ink: put away, it asks nothing of you now.
+            const waiting = group.sessions.filter((s) => sessionStateKey(s) === 'needs_input').length
+            return (
+              <section key="docked">
+                <button
+                  type="button"
+                  aria-expanded={dockedOpen}
+                  onClick={() => setDockedOpen(!dockedOpen)}
+                  className="mx-3 mt-2.5 flex h-12 w-[calc(100%-24px)] items-center gap-2.5 rounded-[12px] px-2 text-left font-mono text-[10.5px] tracking-[0.16em] text-[rgba(160,190,225,.6)]"
+                >
+                  <span aria-hidden className="text-[9px]">
+                    {dockedOpen ? '▾' : '▸'}
+                  </span>
+                  <span>
+                    {GROUP_LABEL.docked} · {group.sessions.length}
+                    {waiting > 0 && <> · {waiting} waiting</>}
+                  </span>
+                </button>
+                {dockedOpen && rows}
+              </section>
+            )
+          }
           if (group.key === 'input') {
             return (
               <section

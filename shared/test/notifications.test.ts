@@ -413,6 +413,19 @@ describe('SessionNotifier', () => {
 // Settings → Notifications (spec 2026-09-21-settings-sections-design § 5)
 // ---------------------------------------------------------------------------
 
+describe('a docked session', () => {
+  // Spec 2026-10-19-docked-sessions-design § Notifications: put away means silent.
+  it('reports nothing while docked, and speaks again once undocked', () => {
+    const h = harness();
+    const docked = { id: 's1', title: 'Weekly', status: 'working', dockedAt: 5 };
+    expect(h.say(upsert(docked), status('s1', 'needs_input'))).toEqual([]);
+    expect(h.say(status('s1', 'working'), status('s1', 'ended'))).toEqual([]);
+    expect(
+      h.say(upsert({ ...docked, dockedAt: null }), status('s1', 'working'), status('s1', 'needs_input')),
+    ).toEqual([done('Weekly')]);
+  });
+});
+
 describe('notification settings', () => {
   const failure = (sessionId: string) => ({
     topic: 'errors',

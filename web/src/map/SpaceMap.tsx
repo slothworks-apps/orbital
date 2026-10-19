@@ -633,6 +633,7 @@ export function SpaceMap() {
   /** The session a drop on the trash wants to end mid-turn — its End dialog is open. */
   const [confirmEndId, setConfirmEndId] = useState<string | null>(null)
   const closeConfirmEnd = useCallback(() => setConfirmEndId(null), [])
+  const openSessionMenu = useOrbital((s) => s.openSessionMenu)
   const endFromConfirm = useCallback(
     (id: string) => trashSession(id, { undo: false }),
     [trashSession]
@@ -1196,6 +1197,7 @@ export function SpaceMap() {
               detached={detachedIds.includes(planet.session.id)}
               simBody={sim.bodies.get(planet.session.id)}
               onBodyPointerDown={handleBodyPointerDown}
+              onContextMenu={openSessionMenu}
             />
           ))}
 

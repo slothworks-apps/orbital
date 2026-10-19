@@ -75,6 +75,8 @@ export interface MenuButtonProps {
    * its content's height.
    */
   maxRows?: number
+  /** Open from the first render — a context menu, whose trigger is the right-click itself. */
+  defaultOpen?: boolean
 }
 
 /** Trigger to popup, the same 4px as `Select`'s (23c: the menu starts 4px under the ⋯). */
@@ -123,6 +125,7 @@ export function MenuButton({
   gapPx = POPUP_GAP,
   footer,
   maxRows,
+  defaultOpen = false,
   ...aria
 }: MenuButtonProps) {
   const menuId = useId()
@@ -132,7 +135,7 @@ export function MenuButton({
   const search = useRef({ query: '', at: 0 })
   /** The key of the row that last took focus while open; see the re-focus effect. */
   const focusedKey = useRef<string | null>(null)
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   /** Which row takes focus when the menu has just opened. */
   const [initial, setInitial] = useState<'first' | 'last'>('first')
 
@@ -429,5 +432,57 @@ export function MenuButton({
           document.body,
         )}
     </>
+  )
+}
+
+export interface ContextMenuProps {
+  entries: readonly MenuEntry[]
+  'aria-label': string
+  /** The viewport point the right-click landed on; the menu hangs from it. */
+  x: number
+  y: number
+  onClose: () => void
+  widthPx?: number
+  maxRows?: number
+}
+
+/**
+ * A `MenuButton` opened by a right-click: its trigger is an invisible point
+ * where the pointer was, so the menu places, flips and dismisses exactly as
+ * every other menu does. Mount it to open it; `onClose` is the owner's cue to
+ * unmount it. Focus goes back to whatever held it before the menu opened.
+ */
+export function ContextMenu({ x, y, onClose, ...rest }: ContextMenuProps) {
+  const returnTo = useRef<Element | null>(typeof document === 'undefined' ? null : document.activeElement)
+  // A close is acted on a microtask later, and only if nothing reopened the
+  // menu meanwhile: StrictMode's rehearsal unmount reports a close that the
+  // remount takes back in the same tick.
+  const closing = useRef(false)
+  return (
+    <MenuButton
+      {...rest}
+      defaultOpen
+      align="left"
+      gapPx={0}
+      onOpenChange={(open) => {
+        closing.current = !open
+        if (open) return
+        queueMicrotask(() => {
+          if (!closing.current) return
+          onClose()
+          if (returnTo.current instanceof HTMLElement) returnTo.current.focus({ preventScroll: true })
+        })
+      }}
+      renderTrigger={(props) => (
+        <button
+          {...props}
+          type="button"
+          tabIndex={-1}
+          aria-hidden
+          className="pointer-events-none fixed h-0 w-0 opacity-0"
+          style={{ left: x, top: y }}
+        />
+      )}
+    />
   )
 }

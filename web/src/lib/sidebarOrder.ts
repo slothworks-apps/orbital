@@ -1,6 +1,6 @@
 /**
  * The sidebar's session order, as data: which rows the sidebar draws in
- * PINNED, ACTIVE and HISTORY, and the flat PINNED-then-ACTIVE list the
+ * PINNED, ACTIVE, DOCKED and HISTORY, and the flat PINNED-then-ACTIVE list the
  * session-cycling shortcuts walk (spec: 2026-09-23-shortcuts-design § 4).
  * `Sidebar` draws from `partitionSessions` and the shortcuts read
  * `sidebarOrder`, which is built from the same two calls — so ⌃⇥ can never
@@ -17,11 +17,13 @@ export interface SidebarSections {
   /** Unpinned live rows before the origin filter, which is what ACTIVE counts. */
   live: ApiSession[]
   active: ApiSession[]
+  /** Live work put away, oldest dock first (spec 2026-10-19-docked-sessions-design). */
+  docked: ApiSession[]
   history: ApiSession[]
 }
 
 /**
- * The sidebar's three sections. A pinned session appears under PINNED only —
+ * The sidebar's four sections. A pinned session appears under PINNED only —
  * never in two places — which is why the pinned rows come out of the list
  * before ACTIVE and HISTORY are cut from what is left (spec
  * 2026-09-20-pinned-sessions-design).
@@ -38,20 +40,25 @@ export function partitionSessions(
   for (const session of visible) (session.pinnedAt != null ? pinned : rest).push(session)
   pinned.sort((a, b) => (a.pinnedAt ?? 0) - (b.pinnedAt ?? 0))
 
-  const live = rest.filter((s) => s.status !== 'ended')
+  // Docked next, out of ACTIVE and HISTORY alike: the server never lets a
+  // session be docked and ended at once.
+  const docked = rest.filter((s) => s.dockedAt != null).sort((a, b) => (a.dockedAt ?? 0) - (b.dockedAt ?? 0))
+  const undocked = rest.filter((s) => s.dockedAt == null)
+  const live = undocked.filter((s) => s.status !== 'ended')
   return {
     pinned,
     live,
     active: sourceFilter === 'all' ? live : live.filter((s) => s.source === sourceFilter),
-    history: rest.filter((s) => s.status === 'ended'),
+    docked,
+    history: undocked.filter((s) => s.status === 'ended'),
   }
 }
 
 /**
  * PINNED rows then ACTIVE rows, top to bottom, with the tag filter, the
  * search and the origin filter applied exactly as the sidebar applies them.
- * HISTORY is left out: the cycling shortcuts move between sessions you are
- * working with, not through the archive.
+ * DOCKED and HISTORY are left out: the cycling shortcuts move between
+ * sessions you are working with, not through what you put away.
  */
 export function sidebarOrder(state: Pick<OrbitalState, 'sessions' | 'ui'>): ApiSession[] {
   const { pinned, active } = partitionSessions(visibleSessions(state), state.ui.sourceFilter)

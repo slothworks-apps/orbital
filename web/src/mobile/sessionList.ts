@@ -11,19 +11,20 @@ import { isListable } from '../lib/harnessSession'
 /**
  * `pinned` is 10a's headless band of ended sessions kept above the ENDED
  * fold by their pin (spec 2026-10-05-mobile-next-design § 4).
+ * `docked` is a fold of live sessions put away (spec 2026-10-19-docked-sessions-design).
  */
-export type GroupKey = 'input' | 'working' | 'limit' | 'idle' | 'pinned' | 'ended'
+export type GroupKey = 'input' | 'working' | 'limit' | 'idle' | 'docked' | 'pinned' | 'ended'
 
 /**
  * 10a's order (spec 2026-10-05-mobile-next-design § 4, § 5): what asks for
- * you first, a limit wait between WORKING and IDLE, the pinned ended rows
- * above the fold, what is over last.
+ * you first, a limit wait between WORKING and IDLE, docked sessions, the pinned
+ * ended rows above the fold, what is over last.
  */
-export const GROUP_ORDER: readonly GroupKey[] = ['input', 'working', 'limit', 'idle', 'pinned', 'ended']
+export const GROUP_ORDER: readonly GroupKey[] = ['input', 'working', 'limit', 'idle', 'docked', 'pinned', 'ended']
 
 /** The band's heading; the pinned band has none (canvas 10a). */
 export const GROUP_LABEL: Record<GroupKey, string> = {
-  input: 'NEEDS INPUT', working: 'WORKING', limit: 'WAITING FOR LIMIT', idle: 'IDLE', pinned: '', ended: 'ENDED',
+  input: 'NEEDS INPUT', working: 'WORKING', limit: 'WAITING FOR LIMIT', idle: 'IDLE', docked: 'DOCKED', pinned: '', ended: 'ENDED',
 }
 
 type StateFields = Pick<
@@ -31,7 +32,7 @@ type StateFields = Pick<
   'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'harnessGate'
 >
 
-type GroupFields = StateFields & Pick<ApiSession, 'source' | 'limitWait' | 'pinnedAt'>
+type GroupFields = StateFields & Pick<ApiSession, 'source' | 'limitWait' | 'pinnedAt' | 'dockedAt'>
 
 /**
  * A harness gate waiting on the user, and nothing else parked: the row that
@@ -56,10 +57,12 @@ export function waitsForLimit(session: GroupFields): boolean {
 /**
  * The state word decides the group. WAITING is work (its moons run); DONE
  * and INTERRUPTED ask nobody anything, so they sit with IDLE, wearing their
- * own word on the row. A limit wait is its own neutral group (10a); an ended
- * session the user pinned stays out of the fold (10a, spec § 4).
+ * own word on the row. A limit wait is its own neutral group (10a); a docked
+ * session is out of sight (spec § 4); an ended session the user pinned stays
+ * out of the fold (10a, spec § 4).
  */
 export function groupOf(session: GroupFields): GroupKey {
+  if (session.dockedAt != null) return 'docked'
   const key = sessionStateKey(session)
   if (key === 'needs_input') return 'input'
   if (key === 'working' || key === 'waiting') return 'working'

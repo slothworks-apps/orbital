@@ -46,6 +46,8 @@ export interface SessionRow {
   context_used_tokens: number | null;
   /** When the user pinned this session (epoch ms), or null. See db/schema.ts. */
   pinned_at: number | null;
+  /** When the user docked this session (epoch ms), or null. See db/schema.ts. */
+  docked_at: number | null;
   /** The Runner's claim on this session, null when it holds none. See db/schema.ts. */
   runner_status: SessionStatus | null;
   /** When a restart cut a turn short (epoch ms), null otherwise. See db/schema.ts. */

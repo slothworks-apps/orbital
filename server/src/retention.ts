@@ -19,6 +19,9 @@
  * - **A pinned session is exempt**, the same exemption the map's release
  *   timer honours ([[the-hole-subsumes-map-declutter]]): a pin is the user
  *   saying "keep this", and a clock must not overrule it.
+ * - **A docked session is exempt** for the same reason: docking is "I will
+ *   come back to this", and work that comes back weekly is exactly what an
+ *   age cutoff would otherwise catch (spec 2026-10-19-docked-sessions-design).
  * - **A session the Runner still owns is exempt.** `runnerStatus` is non-null
  *   only while this server holds it, and deleting the row under a live
  *   process would leave the Runner writing to a session that no longer
@@ -76,6 +79,7 @@ function sweepable(cutoff: number) {
   return and(
     lt(sessions.lastAt, cutoff),
     isNull(sessions.pinnedAt),
+    isNull(sessions.dockedAt),
     isNull(sessions.runnerStatus),
   );
 }

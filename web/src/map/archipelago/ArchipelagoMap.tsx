@@ -323,6 +323,14 @@ export function ArchipelagoMap() {
       onPointerCancel={handlePointerUp}
       onWheel={handleWheel}
       onClick={handleClick}
+      onContextMenu={(e) => {
+        // A ship's right-click: the session's menu (spec 2026-10-19-docked-sessions-design).
+        const ship = (e.target as Element).closest<HTMLElement | SVGElement>('[data-ship], [data-ship-label]')
+        const id = ship && ((ship as HTMLElement).dataset.ship ?? (ship as HTMLElement).dataset.shipLabel)
+        if (!id) return
+        e.preventDefault()
+        useOrbital.getState().openSessionMenu(id, e.clientX, e.clientY)
+      }}
     >
       <div ref={hostRef} className="absolute inset-0" />
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_45%_50%,transparent_55%,rgba(3,7,14,.55))]" />

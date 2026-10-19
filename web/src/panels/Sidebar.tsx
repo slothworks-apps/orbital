@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent, ReactNode, Ref } from 'react'
+import type { DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent, ReactNode, Ref } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   SIDEBAR_DEFAULT_PX,
@@ -13,6 +13,8 @@ import { api } from '../lib/api'
 import { shortcutLabel } from '../lib/keymap'
 import { useCommand } from '../lib/commands'
 import { partitionSessions } from '../lib/sidebarOrder'
+import { moveFor, parseFoldedSections, type SectionKey } from '../lib/sessionMoves'
+import { EndDialog } from './EndDialog'
 import { reportError } from '../lib/errors'
 import { hasDesktopBridge } from '../lib/desktop'
 import { TopGlint } from '../ui/TopGlint'
@@ -331,6 +333,8 @@ function SessionRow({
   selected,
   onSelect,
   onTogglePin,
+  onDragStart,
+  onDragEnd,
   right,
   history = false,
   detached = false,
@@ -345,6 +349,9 @@ function SessionRow({
   detached?: boolean
   onSelect: (id: string) => void
   onTogglePin: (id: string, pinned: boolean) => void
+  /** Picked up to move between sections (spec 2026-10-19-docked-sessions-design § Moves). */
+  onDragStart?: (id: string) => void
+  onDragEnd?: () => void
   right: ReactNode
   /** History rows sit a notch tighter and lighter than active ones (1a). */
   history?: boolean
@@ -370,6 +377,24 @@ function SessionRow({
       // A style prop rather than a class: the name is per session, and
       // Tailwind cannot build a utility from a runtime value.
       style={{ viewTransitionName: sessionViewTransitionName(session.id) }}
+      draggable={onDragStart !== undefined}
+      onDragStart={(e) => {
+        e.dataTransfer.setData(SESSION_DRAG_TYPE, session.id)
+        e.dataTransfer.effectAllowed = 'move'
+        onDragStart?.(session.id)
+      }}
+      onDragEnd={onDragEnd}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        useOrbital.getState().openSessionMenu(session.id, e.clientX, e.clientY)
+      }}
+      onKeyDown={(e) => {
+        // The keyboard's way to the same menu: the context-menu key, or ⇧F10.
+        if (e.key !== 'ContextMenu' && !(e.key === 'F10' && e.shiftKey)) return
+        e.preventDefault()
+        const box = e.currentTarget.getBoundingClientRect()
+        useOrbital.getState().openSessionMenu(session.id, box.left + 24, box.bottom)
+      }}
       className={[
         'group/row relative rounded-lg transition-colors hover:bg-white/5',
         // 1a dims ended rows; per-row rather than on the list, because 4c
@@ -457,21 +482,51 @@ function deviceChipTitle(chip: DeviceChip): string {
   return `${chip.name} · ${chip.kind} · ${state}`
 }
 
-/** ACTIVE/PINNED/HISTORY heading, per canvas 1a with 4a's accent count. */
+/** The `dataTransfer` type a dragged sidebar row carries its session id under. */
+const SESSION_DRAG_TYPE = 'application/x-orbital-session'
+
+/**
+ * A section heading, per canvas 1a with 4a's accent count. With `onToggle`
+ * the label is the section's fold (spec 2026-10-19-docked-sessions-design
+ * § Sidebar sections): a chevron, the label, the count, and — while any row
+ * waits on the user — a muted `· N waiting` in the heading's own ink, never
+ * an alarm. `children` sit outside the fold button (ACTIVE's origin filter).
+ */
 function SectionHeading({
   label,
   count,
+  waiting = 0,
   first,
+  folded,
+  onToggle,
   children,
   headingRef,
 }: {
   label: string
   count?: number
+  waiting?: number
   /** The first heading in the scroller sits tighter under the chip row (1a). */
   first?: boolean
+  folded?: boolean
+  onToggle?: () => void
   children?: ReactNode
   headingRef?: Ref<HTMLHeadingElement>
 }) {
+  const content = (
+    <>
+      {onToggle && (
+        <span
+          aria-hidden
+          className={['inline-block text-[8px] transition-transform', folded ? '-rotate-90' : ''].join(' ')}
+        >
+          ▾
+        </span>
+      )}
+      {label}
+      {count !== undefined && <span className="tracking-normal text-accent">{count}</span>}
+      {waiting > 0 && <span className="tracking-normal">· {waiting} waiting</span>}
+    </>
+  )
   return (
     <h3
       ref={headingRef}
@@ -480,8 +535,18 @@ function SectionHeading({
         first ? 'pt-3.5' : 'pt-[18px]',
       ].join(' ')}
     >
-      {label}
-      {count !== undefined && <span className="tracking-normal text-accent">{count}</span>}
+      {onToggle ? (
+        <button
+          type="button"
+          aria-expanded={!folded}
+          onClick={onToggle}
+          className="flex items-center gap-2 rounded hover:text-text-bright"
+        >
+          {content}
+        </button>
+      ) : (
+        content
+      )}
       {children}
     </h3>
   )
@@ -603,7 +668,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
   // The origin filter narrows ACTIVE and the map; HISTORY ignores it. See
   // the ADR `origin-filter-scopes-to-map-and-active` — an ended terminal
   // session is not read-only, so the distinction has nothing to say there.
-  const { pinned, live, active, history } = useMemo(
+  const { pinned, live, active, docked, history } = useMemo(
     () => partitionSessions(visible, sourceFilter),
     [visible, sourceFilter]
   )
@@ -634,6 +699,71 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
     },
     [setSessionPinned]
   )
+
+  // Sections fold, and rows move between them by drag (spec
+  // 2026-10-19-docked-sessions-design § Sidebar sections, § Moves).
+  // `sessionMoves` decides which drops mean something; a section lights up
+  // only for those.
+  const folded = useMemo(() => parseFoldedSections(settings), [settings])
+  const isFolded = (key: SectionKey) => folded.includes(key)
+  const setSectionFolded = useOrbital((s) => s.setSectionFolded)
+  const toggleFold = (key: SectionKey) => setSectionFolded(key, !isFolded(key))
+  const moveSession = useOrbital((s) => s.moveSession)
+  const trashSession = useOrbital((s) => s.trashSession)
+  const sessionsById = useOrbital((s) => s.sessions)
+  const [dragging, setDragging] = useState<string | null>(null)
+  const [dropOver, setDropOver] = useState<SectionKey | null>(null)
+  const [confirmEndId, setConfirmEndId] = useState<string | null>(null)
+  const draggedSession = dragging === null ? undefined : sessionsById[dragging]
+
+  const endDrag = () => {
+    setDragging(null)
+    setDropOver(null)
+  }
+
+  const dropProps = (key: SectionKey) => {
+    const move = draggedSession ? moveFor(draggedSession, key) : null
+    return {
+      'data-drop': move && dropOver === key ? 'over' : undefined,
+      className: [
+        'rounded-lg transition-colors',
+        move && dropOver === key ? 'bg-[rgba(150,205,255,.07)]' : '',
+      ].join(' '),
+      onDragOver: (e: ReactDragEvent) => {
+        if (!move) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        if (dropOver !== key) setDropOver(key)
+      },
+      onDragLeave: (e: ReactDragEvent) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+        if (dropOver === key) setDropOver(null)
+      },
+      onDrop: (e: ReactDragEvent) => {
+        e.preventDefault()
+        const id = draggedSession?.id
+        endDrag()
+        if (!move || !id) return
+        if (move.kind === 'move') void moveSession(id, move.to)
+        else if (move.drop === 'confirm') setConfirmEndId(id)
+        else trashSession(id, { undo: true }).catch((err) => reportError(err, 'Failed to end the session'))
+      },
+    }
+  }
+
+  const waitingIn = (rows: ApiSession[]) => rows.filter((s) => sessionStateKey(s) === 'needs_input').length
+
+  const rowProps = (s: ApiSession) => ({
+    session: s,
+    tags,
+    selected: s.id === selectedId,
+    detached: detachedIds.includes(s.id),
+    onSelect: handleSelect,
+    onTogglePin: handleTogglePin,
+    onDragStart: setDragging,
+    onDragEnd: endDrag,
+    deviceName: deviceNameOf(s),
+  })
 
   // `global.search` reaches past an open dialog (it is a global command), but
   // pulling focus into the sidebar behind a modal would strand the keyboard
@@ -688,15 +818,17 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
 
   // Infinite scroll: observe the sentinel at the bottom of the session
   // lists and fetch the next page once it enters the viewport.
+  // A folded HISTORY shows no rows, so it pages none in either.
+  const historyFolded = isFolded('history')
   useEffect(() => {
     const el = sentinelRef.current
-    if (!el || exhausted) return
+    if (!el || exhausted || historyFolded) return
     const observer = observerFactory((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) void loadMore()
     })
     observer.observe(el)
     return () => observer.disconnect()
-  }, [observerFactory, loadMore, exhausted])
+  }, [observerFactory, loadMore, exhausted, historyFolded])
 
   // Both layers stay mounted inside one width-animating Panel and cross-fade,
   // per the canvas export's collapse transition (width .42s cubic-bezier +
@@ -871,90 +1003,126 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {/* PINNED above ACTIVE (4a). Absent entirely while nothing is
-            pinned — an empty section would be a standing reminder of a
-            feature you are not using. A live pinned row keeps its blinking
-            dot, weight and WORKING/IDLE label: only its section changed. */}
-        {pinned.length > 0 && (
-          <>
-            <SectionHeading label="PINNED" count={pinned.length} first />
-            <ul className="flex flex-col gap-0.5 px-2" aria-label="Pinned sessions">
-              {pinned.map((s) => (
-                <SessionRow
-                  key={s.id}
-                  session={s}
-                  tags={tags}
-                  selected={s.id === selectedId}
-                  detached={detachedIds.includes(s.id)}
-                  onSelect={handleSelect}
-                  onTogglePin={handleTogglePin}
-                  deviceName={deviceNameOf(s)}
-                  history={s.status === 'ended'}
-                  right={
-                    s.status === 'ended' ? (
-                      <span className="font-mono text-[10px] text-text-muted">
-                        {timeAgo(s.lastAt ?? Date.now())}
-                      </span>
-                    ) : (
-                      <RowStatus session={s} />
-                    )
-                  }
-                />
-              ))}
-            </ul>
-          </>
+        {/* PINNED above ACTIVE (4a). Absent while nothing is pinned — an
+            empty section would be a standing reminder of a feature you are
+            not using — except as a drop target while a row is dragged. A live
+            pinned row keeps its blinking dot, weight and WORKING/IDLE label:
+            only its section changed. */}
+        {(pinned.length > 0 || dragging !== null) && (
+          <section {...dropProps('pinned')}>
+            <SectionHeading
+              label="PINNED"
+              count={pinned.length}
+              waiting={waitingIn(pinned)}
+              first
+              folded={isFolded('pinned')}
+              onToggle={() => toggleFold('pinned')}
+            />
+            {!isFolded('pinned') && (
+              <ul className="flex flex-col gap-0.5 px-2" aria-label="Pinned sessions">
+                {pinned.map((s) => (
+                  <SessionRow
+                    key={s.id}
+                    {...rowProps(s)}
+                    history={s.status === 'ended'}
+                    right={
+                      s.status === 'ended' ? (
+                        <span className="font-mono text-[10px] text-text-muted">
+                          {timeAgo(s.lastAt ?? Date.now())}
+                        </span>
+                      ) : (
+                        <RowStatus session={s} />
+                      )
+                    }
+                  />
+                ))}
+              </ul>
+            )}
+          </section>
         )}
 
         {/* 3a puts the origin filter in this heading rather than in a chip
             row of its own: it narrows the list the heading counts. */}
-        <SectionHeading label="ACTIVE" count={active.length} first={pinned.length === 0}>
-          <span className="flex-1" />
-          <Select
-            variant="ghost"
-            active={sourceFilter !== 'all'}
-            aria-label="Filter sessions by origin"
-            options={originItems}
-            value={sourceFilter}
-            onChange={setSourceFilter}
-          />
-        </SectionHeading>
-        <ul className="flex flex-col gap-0.5 px-2" aria-label="Active sessions">
-          {active.map((s) => (
-            <SessionRow
-              key={s.id}
-              session={s}
-              tags={tags}
-              selected={s.id === selectedId}
-              detached={detachedIds.includes(s.id)}
-              onSelect={handleSelect}
-              onTogglePin={handleTogglePin}
-              deviceName={deviceNameOf(s)}
-              right={<RowStatus session={s} />}
+        <section {...dropProps('active')}>
+          <SectionHeading
+            label="ACTIVE"
+            count={active.length}
+            waiting={waitingIn(active)}
+            first={pinned.length === 0 && dragging === null}
+            folded={isFolded('active')}
+            onToggle={() => toggleFold('active')}
+          >
+            <span className="flex-1" />
+            <Select
+              variant="ghost"
+              active={sourceFilter !== 'all'}
+              aria-label="Filter sessions by origin"
+              options={originItems}
+              value={sourceFilter}
+              onChange={setSourceFilter}
             />
-          ))}
-        </ul>
+          </SectionHeading>
+          {!isFolded('active') && (
+            <ul className="flex flex-col gap-0.5 px-2" aria-label="Active sessions">
+              {active.map((s) => (
+                <SessionRow key={s.id} {...rowProps(s)} right={<RowStatus session={s} />} />
+              ))}
+            </ul>
+          )}
+        </section>
 
-        <SectionHeading label="HISTORY" headingRef={historyHeadingRef} />
-        <ul className="flex flex-col gap-0.5 px-2" aria-label="Session history">
-          {history.map((s) => (
-            <SessionRow
-              key={s.id}
-              session={s}
-              tags={tags}
-              selected={s.id === selectedId}
-              detached={detachedIds.includes(s.id)}
-              onSelect={handleSelect}
-              onTogglePin={handleTogglePin}
-              deviceName={deviceNameOf(s)}
-              history
-              right={
-                <span className="font-mono text-[10px] text-text-muted">
-                  {timeAgo(s.lastAt ?? Date.now())}
-                </span>
-              }
+        {/* DOCKED: live work put away (spec 2026-10-19-docked-sessions-design).
+            Absent while empty, like PINNED, and folded by default. */}
+        {(docked.length > 0 || dragging !== null) && (
+          <section {...dropProps('docked')}>
+            <SectionHeading
+              label="DOCKED"
+              count={docked.length}
+              waiting={waitingIn(docked)}
+              folded={isFolded('docked')}
+              onToggle={() => toggleFold('docked')}
             />
-          ))}
-        </ul>
+            {!isFolded('docked') && (
+              <ul className="flex flex-col gap-0.5 px-2" aria-label="Docked sessions">
+                {docked.map((s) => (
+                  <SessionRow key={s.id} {...rowProps(s)} right={<RowStatus session={s} />} />
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+
+        <section {...dropProps('history')}>
+          <SectionHeading
+            label="HISTORY"
+            headingRef={historyHeadingRef}
+            folded={isFolded('history')}
+            onToggle={() => toggleFold('history')}
+          />
+          {!isFolded('history') && (
+            <ul className="flex flex-col gap-0.5 px-2" aria-label="Session history">
+              {history.map((s) => (
+                <SessionRow
+                  key={s.id}
+                  {...rowProps(s)}
+                  history
+                  right={
+                    <span className="font-mono text-[10px] text-text-muted">
+                      {timeAgo(s.lastAt ?? Date.now())}
+                    </span>
+                  }
+                />
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <EndDialog
+          open={confirmEndId !== null}
+          sessionId={confirmEndId}
+          onClose={() => setConfirmEndId(null)}
+          onEnd={(id) => trashSession(id, { undo: false })}
+        />
 
         <div ref={sentinelRef} data-testid="sidebar-sentinel" aria-hidden className="h-px" />
       </div>

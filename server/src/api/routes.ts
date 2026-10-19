@@ -1403,6 +1403,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
           id: row.id, title: row.title, cwd: row.cwd, source: row.source, status,
           alive: ctx.runner.status(row.id) !== undefined || ctx.registry.get(row.id) !== undefined,
           pinned: row.pinned_at !== null,
+          docked: row.docked_at !== null,
           lastAt: row.last_at === null ? null : new Date(row.last_at).toISOString(),
           archivedAt: row.ended_at === null ? null : new Date(row.ended_at).toISOString(),
           self: row.id === callerId,
@@ -1496,12 +1497,36 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
     const result = db
       .update(sessions)
-      .set({ pinnedAt: pinned ? Date.now() : null })
+      // A pin brings a docked session back (spec 2026-10-19-docked-sessions-design).
+      .set(pinned ? { pinnedAt: Date.now(), dockedAt: null } : { pinnedAt: null })
       .where(eq(sessions.id, id))
       .run();
     if (result.changes === 0) return reply.code(404).send({ error: 'not found' });
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
     ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
+    return { ok: true };
+  });
+
+  /**
+   * The dock — live work put away, off the map and out of the notifications
+   * (spec 2026-10-19-docked-sessions-design). `docked: true` stamps now and
+   * clears the pin and the end: docking an ended session reopens it, and a
+   * session is never pinned and docked at once. Only this route with `false`
+   * and a delivered message undock it.
+   */
+  app.put('/api/sessions/:id/docked', (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { docked } = (req.body ?? {}) as { docked?: unknown };
+    if (typeof docked !== 'boolean') {
+      return reply.code(400).send({ error: 'docked must be a boolean' });
+    }
+    const result = db
+      .update(sessions)
+      .set(docked ? { dockedAt: Date.now(), pinnedAt: null, endedAt: null } : { dockedAt: null })
+      .where(eq(sessions.id, id))
+      .run();
+    if (result.changes === 0) return reply.code(404).send({ error: 'not found' });
+    publishRow(id);
     return { ok: true };
   });
 
@@ -1524,7 +1549,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // the message — a session someone is typing into is evidently not over
     // (spec 2026-09-24-sessions-end-only-by-hand-design § 1). Only once it
     // was delivered, though: a revive that throws leaves the session ended.
-    const reopen = () => db.update(sessions).set({ endedAt: null }).where(eq(sessions.id, id)).run();
+    // It undocks it too: writing to a docked session is the user taking it
+    // back up (spec 2026-10-19-docked-sessions-design § What brings it back).
+    const reopen = () => db.update(sessions).set({ endedAt: null, dockedAt: null }).where(eq(sessions.id, id)).run();
     // A pending rewind before anything else: until a turn lands, the file's
     // newest leaf is still the old branch, and a plain send or revive would
     // carry on from it (spec 2026-09-29-rewind-design § Runner).
@@ -2090,7 +2117,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    */
   async function endSession(id: string, opts: { unpin?: boolean } = {}): Promise<void> {
     db.update(sessions)
-      .set(opts.unpin ? { endedAt: Date.now(), pinnedAt: null } : { endedAt: Date.now() })
+      .set(opts.unpin ? { endedAt: Date.now(), pinnedAt: null, dockedAt: null } : { endedAt: Date.now(), dockedAt: null })
       .where(eq(sessions.id, id))
       .run();
     // A harness with steps left pauses, "session ended in step N", ready to be

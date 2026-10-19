@@ -112,6 +112,14 @@ export interface ApiSession {
    */
   pinnedAt?: number | null
   /**
+   * When the user docked this session (epoch ms), or null: live work put
+   * away, off the map and silent, in the sidebar's DOCKED until the user
+   * undocks it or writes to it (spec 2026-10-19-docked-sessions-design).
+   * Never set together with `pinnedAt` or `endedAt`. Absent from a Mac older
+   * than the feature. Mirrors `server/src/api/shape.ts`.
+   */
+  dockedAt?: number | null
+  /**
    * When the user ended this session (epoch ms), null while it is open and
    * for every terminal session, whose end is its CLI exiting rather than a
    * stamp (spec 2026-09-24-sessions-end-only-by-hand-design § 1).

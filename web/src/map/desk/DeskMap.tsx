@@ -613,6 +613,11 @@ const DeskCard = memo(function DeskCard({
       onClick={(e) => {
         if ((e.target as Element).closest('button, input')) e.stopPropagation()
       }}
+      onContextMenu={(e) => {
+        // The card's right-click: the session's menu (spec 2026-10-19-docked-sessions-design).
+        e.preventDefault()
+        useOrbital.getState().openSessionMenu(s.id, e.clientX, e.clientY)
+      }}
     >
       {/* 41b: a hairline glint in the tag hue along the top edge marks a live
           session — working, waiting or asking. NEEDS INPUT adds its amber

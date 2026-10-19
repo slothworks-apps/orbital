@@ -490,6 +490,18 @@ export function DetailPanel({
     () => setDialog('end'),
     shown?.source === 'web' && shown.status !== 'ended'
   )
+  // What the right-click menu asked of this panel (`ui.panelRequest`): run
+  // once the panel shows that session, then let it go.
+  const panelRequest = useOrbital((s) => s.ui.panelRequest ?? null)
+  const shownId = shown?.id
+  useEffect(() => {
+    if (!panelRequest || panelRequest.id !== shownId) return
+    useOrbital.setState((state) => ({ ui: { ...state.ui, panelRequest: null } }))
+    if (panelRequest.action === 'rename') beginTitleEdit()
+    else if (panelRequest.action === 'clear') handleClearClick()
+    else setDialog('end')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panelRequest, shownId])
   useCommand(
     'session.pin',
     () => {
@@ -571,23 +583,8 @@ export function DetailPanel({
    * manual row and a `manual_removed` row for every rule tag it displaces.
    */
   function selectTag(tagId: number) {
-    if (!id || !session) return
-    const previousTagIds = session.tagIds
-    if (previousTagIds.length === 1 && previousTagIds[0] === tagId) return
-    const nextIds = [tagId]
-    useOrbital.setState((state) => {
-      const current = state.sessions[id]
-      if (!current) return state
-      return { sessions: { ...state.sessions, [id]: { ...current, tagIds: nextIds } } }
-    })
-    api.setSessionTags(id, nextIds).catch((err) => {
-      useOrbital.setState((state) => {
-        const current = state.sessions[id]
-        if (!current) return state
-        return { sessions: { ...state.sessions, [id]: { ...current, tagIds: previousTagIds } } }
-      })
-      reportError(err, 'Failed to change the session tag')
-    })
+    if (!id) return
+    useOrbital.getState().setSessionTag(id, tagId).catch((err) => reportError(err, 'Failed to change the session tag'))
   }
 
   function handleClearClick() {

@@ -506,11 +506,14 @@ export function buildSceneModel(
   // read negative.
   // A body whose device chip is off is not drawn either.
   const bondedCount = planets.filter((p) => !p.leaving && !p.deviceOff).length
+  // Docked sessions are off the map but not history: the label leaves them out
+  // (spec 2026-10-19-docked-sessions-design § Map).
+  const dockedCount = Object.values(state.sessions).filter((s) => s.dockedAt != null).length
   const holePos = holePosition(stable)
   const hole: SceneHole = {
     x: holePos.x,
     y: holePos.y,
-    count: Math.max(0, state.sessionsTotal - bondedCount),
+    count: Math.max(0, state.sessionsTotal - bondedCount - dockedCount),
   }
 
   return { planets, moons, labels, counts, anchors, hole }

@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `docked_at` integer;

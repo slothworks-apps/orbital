@@ -61,6 +61,8 @@ export const CONTROL_OPERATIONS: readonly ControlOperation[] = [
   { name: 'retitle_session', area: 'sessions', method: 'POST', path: '/api/sessions/:id/retitle',
     does: 'Asks the titler for a new title now.', params: [ID] },
   { name: 'pin_session', area: 'sessions', method: 'PUT', path: '/api/sessions/:id/pinned', does: 'Pins or unpins a session.', params: [ID, 'pinned: boolean'] },
+  { name: 'dock_session', area: 'sessions', method: 'PUT', path: '/api/sessions/:id/docked',
+    does: 'Docks or undocks a session: a docked one is off the map and silent until the user writes to it.', params: [ID, 'docked: boolean'] },
   { name: 'end_session', area: 'sessions', method: 'POST', path: '/api/sessions/:id/end', notOnCaller: true,
     does: 'Ends (archives) a session: its process stops and it leaves the map. reopen_session undoes it.', params: [ID, 'unpin?: boolean'] },
   { name: 'reopen_session', area: 'sessions', method: 'POST', path: '/api/sessions/:id/reopen',

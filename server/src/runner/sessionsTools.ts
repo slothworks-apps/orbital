@@ -18,6 +18,8 @@ export interface ListedSession {
   /** A process holds the session now: the Runner's, or a terminal CLI. */
   alive: boolean;
   pinned: boolean;
+  /** Put away by the user: off the map, in the sidebar's DOCKED. */
+  docked: boolean;
   /** ISO time of the last activity, null for a session that has none yet. */
   lastAt: string | null;
   /** ISO time the session was archived (ended), null while it is not. */
