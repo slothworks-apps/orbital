@@ -299,7 +299,7 @@ const HOVER_LABEL_SCRIM = 'rgba(4,8,16,.85)'
  * "Map"): shown from this zoom up, dropped below it, where it would only add
  * clutter. `camera.zoom` is the percentage the map's corner reads out.
  */
-const MAP_MARK_MIN_ZOOM = 70
+export const MAP_MARK_MIN_ZOOM = 70
 
 /**
  * 44f "Sizes", the map's mark: 12px, an opaque fill and a 1.5px dark ring so
