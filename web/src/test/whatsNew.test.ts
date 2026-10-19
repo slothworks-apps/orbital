@@ -100,3 +100,18 @@ describe('an install from before WHAT’S NEW', () => {
     })
   })
 })
+
+describe('a version going backwards', () => {
+  it('shows nothing and keeps the newer version remembered', () => {
+    const newer = { version: '0.36.0', at: 5, ended: true }
+    expect(whatsNewOnLaunch({ stored: newer, version: '0.35.2', hasNotes: true, now: NOW })).toEqual({
+      show: false,
+      installedAt: NOW,
+      write: null,
+    })
+    // Forward again to the version already told: nothing.
+    expect(whatsNewOnLaunch({ stored: newer, version: '0.36.0', hasNotes: true, now: NOW }).show).toBe(false)
+    // Numbers, not text: 0.10.0 is newer than 0.9.0.
+    expect(whatsNewOnLaunch({ stored: { version: '0.9.0', at: 1, ended: true }, version: '0.10.0', hasNotes: true, now: NOW }).show).toBe(true)
+  })
+})

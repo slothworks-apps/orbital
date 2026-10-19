@@ -48,9 +48,15 @@ interface WhatsNewState {
   due: boolean
   /** When this Mac first ran this version. */
   installedAt: number
+  /**
+   * × or Done was pressed: the message stays out of the queue, although main
+   * clears the receipt a moment later — without it the receipt still there
+   * would queue it again.
+   */
+  ended: boolean
 }
 
-const useWhatsNew = create<WhatsNewState>()(() => ({ decided: false, due: false, installedAt: Date.now() }))
+const useWhatsNew = create<WhatsNewState>()(() => ({ decided: false, due: false, installedAt: Date.now(), ended: false }))
 
 function remember(seen: SeenVersion): void {
   const value = serializeSeenVersion(seen)
@@ -78,19 +84,20 @@ export function useWhatsNewNotice(): void {
   }, [loaded])
 
   const due = useWhatsNew((s) => s.due)
+  const ended = useWhatsNew((s) => s.ended)
   // After a restart another member made (canvas 50v 04), even with no notes
   // to show, until the message ends — which main remembers.
   const receipt = useAppUpdate((s) => (s.state?.receipt ? true : false))
   useEffect(() => {
     const notices = useMapNotices.getState()
-    if (due || receipt) notices.push({ id: WHATS_NEW_NOTICE_ID, kind: 'changelog', Body: WhatsNewNotice })
+    if (!ended && (due || receipt)) notices.push({ id: WHATS_NEW_NOTICE_ID, kind: 'changelog', Body: WhatsNewNotice })
     else notices.dismiss(WHATS_NEW_NOTICE_ID)
-  }, [due, receipt])
+  }, [due, receipt, ended])
 }
 
 /** For the update demo: the message as after an update, whatever this Mac remembers. */
 export function showWhatsNewDemo(): void {
-  useWhatsNew.setState({ decided: true, due: true, installedAt: Date.now() })
+  useWhatsNew.setState({ decided: true, due: true, installedAt: Date.now(), ended: false })
 }
 
 function WhatsNewNotice({ close }: { close: () => void }) {
@@ -104,7 +111,7 @@ function WhatsNewNotice({ close }: { close: () => void }) {
   const end = () => {
     remember(endedSeenVersion(orbitalVersion, installedAt))
     const leave = () => {
-      useWhatsNew.setState({ due: false })
+      useWhatsNew.setState({ due: false, ended: true })
       if (receipt) source?.updateAction('receipt-close')
       close()
     }

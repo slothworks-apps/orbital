@@ -1,4 +1,5 @@
 import { WHATS_NEW_BEFORE } from '@orbital/shared/changelog'
+import { compareVersions } from '@orbital/shared/remote/version'
 
 /**
  * WHAT'S NEW, as decisions (spec 2026-10-19-whats-new-design; canvas
@@ -66,8 +67,12 @@ export interface WhatsNewLaunch {
 /**
  * At launch, from what the device remembers and the version it runs:
  * - nothing remembered (a first install) — remember it silently;
- * - another version, or an install from before WHAT'S NEW — the message is due, unless the changelog has nothing
- *   for this one, which is remembered as ended;
+ * - an older version than remembered (a bundle rolled back, a Mac
+ *   downgraded) — nothing: its notes are not news, and the newer version
+ *   stays remembered, so going forward again does not tell it twice;
+ * - a newer version, or an install from before WHAT'S NEW — the message is
+ *   due, unless the changelog has nothing for this one, which is remembered
+ *   as ended;
  * - the same version — due again only while its message has not ended.
  */
 export function whatsNewOnLaunch({
@@ -82,6 +87,9 @@ export function whatsNewOnLaunch({
   now: number
 }): WhatsNewLaunch {
   if (stored === null) return { show: false, installedAt: now, write: { version, at: now, ended: true } }
+  if (stored !== 'before' && compareVersions(version, stored.version) < 0) {
+    return { show: false, installedAt: now, write: null }
+  }
   if (stored === 'before' || stored.version !== version) {
     return { show: hasNotes, installedAt: now, write: { version, at: now, ended: !hasNotes } }
   }
