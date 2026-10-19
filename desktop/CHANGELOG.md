@@ -9,8 +9,8 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - After an update, a WHAT'S NEW message on the map lists what changed, with all changes one click away.
 - When another device updates this Mac, the map says so while it downloads and just before it restarts; if you start a session here meanwhile, it waits for you instead.
 - Orbital runs on an Ubuntu server too: install the `orbital` package, join your group with `orbital join`, and its sessions keep running while your Mac sleeps.
-- Settings → Devices shows each device's version and, when a newer one is out, an Update you can press for that device from here; this Mac's own update stays in Settings → Updates.
-- Another device in your group can update this Mac: it downloads and restarts the same way Restart in Settings → Updates does.
+- Settings → Devices shows each device's version and, when a newer one is out, an Update you can press for that device from here, now or when its sessions finish; this Mac's own update stays in Settings → Updates.
+- Another device in your group can update this Mac: it downloads and restarts the same way Restart in Settings → Updates does, now or once the sessions running there finish.
 
 ## [0.35.0] — 2026-10-19
 ### Added
