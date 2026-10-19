@@ -566,6 +566,31 @@ describe('FederationService', () => {
     }
   });
 
+  it('a page that opens a member\'s session is this device\'s own, the member offline or not', async () => {
+    const { remote, federation } = setup();
+    const b = new FakeChannel((_method, path) => {
+      if (path === '/api/tags') return { status: 200, body: { tags: [] } };
+      if (path.startsWith('/api/sessions?limit=')) return { status: 200, body: { sessions: [{ id: 's1' }] } };
+      return { status: 200, body: { member: true } };
+    });
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    const app = Fastify();
+    app.decorateRequest('isMultipart', () => false);
+    registerFederationRoutes(app, federation, () => SELF, makeTmpDir('federation-routes'), { bytes: () => null });
+    app.get('/', async () => ({ page: true }));
+    try {
+      expect((await app.inject({ method: 'GET', url: '/?session=s1' })).json()).toEqual({ page: true });
+      b.down();
+      const res = await app.inject({ method: 'GET', url: '/?session=s1' });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ page: true });
+    } finally {
+      await app.close();
+    }
+  });
+
   it('stop forgets every member and listens no more', async () => {
     const { hub, remote, federation } = setup();
     const b = memberB();
