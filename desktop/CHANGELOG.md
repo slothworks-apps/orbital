@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.34.3] — 2026-10-19
+### Fixed
+- A window left on a session of another Mac in your group opens again when that Mac is offline, instead of showing only `{"error":"member_offline"}`, also after a restart.
+
 ## [0.34.2] — 2026-10-19
 ### Changed
 - Orbital's built-in session tips are shorter, and sessions are told they run in Orbital rather than a terminal.
