@@ -359,11 +359,17 @@ function DeviceSheet({
   const [confirming, setConfirming] = useState(false)
   const line = shown.line
 
+  /** Any new action on the sheet clears what the last one said, whichever it was. */
+  const clearLines = () => {
+    setError(null)
+    setUpdateError(null)
+  }
+
   const remove = async () => {
     const group = groupRef.current?.group
     if (!group || busy) return
     setBusy(true)
-    setError(null)
+    clearLines()
     try {
       if (alone) {
         const left = await leaveGroup()
@@ -379,13 +385,14 @@ function DeviceSheet({
   }
 
   const pressUpdate = async () => {
-    setUpdateError(null)
+    clearLines()
     const result = await onPress()
     if (result === 'confirm') setConfirming(true)
     else if (result === 'unreachable') setUpdateError(UPDATE_UNREACHABLE)
   }
 
   const confirmUpdate = async () => {
+    clearLines()
     const result = await onConfirm()
     setConfirming(false)
     if (result === 'unreachable') setUpdateError(UPDATE_UNREACHABLE)

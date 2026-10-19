@@ -66,12 +66,35 @@ export interface UpdateIo {
 export function useMemberUpdates(targets: UpdateTarget[], io: UpdateIo) {
   const byId = useUpdates((s) => s.byId)
   const [starting, setStarting] = useState<string | null>(null)
+  /** The press or start under way, set before any await: a second press while it runs does nothing. */
+  const busy = useRef<string | null>(null)
   const ioRef = useRef(io)
   ioRef.current = io
   const targetsRef = useRef(targets)
   targetsRef.current = targets
   /** The members read since they last became readable: one read each per return. */
   const readHere = useRef(new Set<string>())
+  /**
+   * Per member, the number of the last answer asked for and of the last one
+   * applied. An answer older than one already applied is dropped: a poll
+   * that lands after a newer read, or after a start, would undo it.
+   */
+  const asked = useRef(new Map<string, number>())
+  const applied = useRef(new Map<string, number>())
+
+  const ticket = useCallback((id: string): number => {
+    const n = (asked.current.get(id) ?? 0) + 1
+    asked.current.set(id, n)
+    return n
+  }, [])
+
+  /** Applies `next` when answer `n` is not older than one already applied; false when it was dropped. */
+  const land = useCallback((id: string, n: number, next: (prev: MemberUpdate | undefined) => MemberUpdate): boolean => {
+    if (n < (applied.current.get(id) ?? 0)) return false
+    applied.current.set(id, n)
+    put(id, next)
+    return true
+  }, [])
 
   /** One read, bounded by `UPDATE_READ_TIMEOUT_MS`; null when it failed or was not answered. */
   const fetchOne = useCallback(async (id: string): Promise<ServerUpdateState | null> => {
@@ -88,10 +111,11 @@ export function useMemberUpdates(targets: UpdateTarget[], io: UpdateIo) {
    * and its timeout can fire.
    */
   const readOne = useCallback(async (id: string) => {
+    const n = ticket(id)
     const readable = targetsRef.current.find((t) => t.id === id)?.readable ?? false
     const latest = readable ? await fetchOne(id) : null
-    put(id, (prev) => applyRead(prev, latest, Date.now()))
-  }, [fetchOne])
+    land(id, n, (prev) => applyRead(prev, latest, Date.now()))
+  }, [fetchOne, ticket, land])
 
   const readableKey = targets.filter((t) => t.readable).map((t) => t.id).sort().join('\n')
   useEffect(() => {
@@ -116,57 +140,63 @@ export function useMemberUpdates(targets: UpdateTarget[], io: UpdateIo) {
     // `byId` re-arms the timer after every read, so a watch is read every `delay`.
   }, [delay, watchedKey, byId, readOne])
 
-  /** Starts the update; false when the member could not be reached. */
+  /**
+   * Starts the update, bounded as a read is; false when the member could not
+   * be reached or did not answer. Its answer is newer than any read asked before it.
+   */
   const startNow = useCallback(async (id: string): Promise<boolean> => {
     let answer: StartAnswer | null
     try {
-      answer = await ioRef.current.start(id)
+      answer = await withTimeout(ioRef.current.start(id))
     } catch {
       return false
     }
     if (!answer) return false
     let reread = false
-    put(id, (prev) => {
-      const applied = applyStart(prev, answer, Date.now())
-      reread = applied.reread
-      return applied.next
+    land(id, ticket(id), (prev) => {
+      const next = applyStart(prev, answer, Date.now())
+      reread = next.reread
+      return next.next
     })
     if (reread) await readOne(id)
     return true
-  }, [readOne])
+  }, [readOne, ticket, land])
+
+  /** Runs `job` for `id` unless a press or start is under way; `starting` names it meanwhile. */
+  const exclusive = useCallback(async <R>(id: string, job: () => Promise<R>): Promise<R | 'none'> => {
+    if (busy.current !== null) return 'none'
+    busy.current = id
+    setStarting(id)
+    try {
+      return await job()
+    } finally {
+      busy.current = null
+      setStarting(null)
+    }
+  }, [])
 
   /**
    * Update or Try again pressed: the member is read again first, and that
    * answer decides (`startDecision`) — the confirm when it runs sessions now,
    * else the start at once. Nothing starts when it cannot be read.
    */
-  const press = useCallback(async (id: string): Promise<PressResult> => {
-    if (starting !== null) return 'none'
-    setStarting(id)
-    try {
-      const latest = await fetchOne(id)
-      if (latest === null) return 'unreachable'
-      const fresh = applyRead(useUpdates.getState().byId[id], latest, Date.now())
-      put(id, () => fresh)
-      const online = targetsRef.current.find((t) => t.id === id)?.readable ?? false
-      const decision = startDecision(fresh, online)
-      if (decision !== 'start') return decision
-      return (await startNow(id)) ? 'started' : 'unreachable'
-    } finally {
-      setStarting(null)
-    }
-  }, [starting, fetchOne, startNow])
+  const press = useCallback((id: string): Promise<PressResult> => exclusive(id, async (): Promise<PressResult> => {
+    const n = ticket(id)
+    const latest = await fetchOne(id)
+    if (latest === null) return 'unreachable'
+    const fresh = applyRead(useUpdates.getState().byId[id], latest, Date.now())
+    // A newer answer landed meanwhile (a start elsewhere on this screen cannot: this one holds it): it decides.
+    if (!land(id, n, () => fresh)) return 'none'
+    const online = targetsRef.current.find((t) => t.id === id)?.readable ?? false
+    const decision = startDecision(fresh, online)
+    if (decision !== 'start') return decision
+    return (await startNow(id)) ? 'started' : 'unreachable'
+  }), [exclusive, ticket, fetchOne, land, startNow])
 
   /** The confirm's Update: starts at once. */
-  const start = useCallback(async (id: string): Promise<'started' | 'unreachable' | 'none'> => {
-    if (starting !== null) return 'none'
-    setStarting(id)
-    try {
-      return (await startNow(id)) ? 'started' : 'unreachable'
-    } finally {
-      setStarting(null)
-    }
-  }, [starting, startNow])
+  const start = useCallback((id: string): Promise<'started' | 'unreachable' | 'none'> => exclusive(id, async () => (
+    (await startNow(id)) ? 'started' as const : 'unreachable' as const
+  )), [exclusive, startNow])
 
   return { byId, starting, press, start }
 }
