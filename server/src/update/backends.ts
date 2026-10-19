@@ -15,13 +15,22 @@
  * names no version.
  */
 import { execFile } from 'node:child_process';
-import { statSync, writeFileSync } from 'node:fs';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
-import { parseMainMessage, type MainUpdateStateMessage } from '@orbital/shared/remote/serverUpdate';
+import { isUpdateVersion, parseMainMessage, type MainUpdateStateMessage } from '@orbital/shared/remote/serverUpdate';
 import { parseAptPolicy } from './aptPolicy.js';
 
 /** Where the package installs the server; its entry lives under it (`server/index.mjs`). */
 export const PACKAGE_ROOT = '/usr/lib/orbital';
+
+/**
+ * The file under `PACKAGE_ROOT` that holds the package's version. The
+ * server reads it at start instead of the unit carrying `ORBITAL_VERSION`:
+ * `postinst` restarts the user unit, and a value in the unit would stay the
+ * old one until a `daemon-reload`, so a successful update would read as
+ * failed.
+ */
+export const PACKAGE_VERSION_FILE = 'VERSION';
 
 /**
  * The directory `orbital setup` makes (root:<user>, mode 0770) and the file
@@ -80,9 +89,35 @@ export function chooseUpdateBackend(o: {
   desktopParent: boolean;
   parentPort: boolean;
 }): BackendKind {
-  if (o.headless && o.entry !== undefined && resolve(o.entry).startsWith(resolve(o.packageRoot) + sep)) return 'apt';
+  if (o.headless && isPackageEntry(o.entry, o.packageRoot)) return 'apt';
   if (o.desktopParent && o.parentPort) return 'desktop';
   return 'none';
+}
+
+/** Whether the entry script lies under the package root, so this server runs from the package. */
+export function isPackageEntry(entry: string | undefined, packageRoot: string): boolean {
+  return entry !== undefined && resolve(entry).startsWith(resolve(packageRoot) + sep);
+}
+
+/**
+ * The version this server runs: `ORBITAL_VERSION` when set (the desktop app
+ * sets it), else, for a server run from the package, the package's
+ * `PACKAGE_VERSION_FILE`; null for anything else (a dev server).
+ */
+export function runningVersion(o: {
+  env: { ORBITAL_VERSION?: string };
+  entry: string | undefined;
+  packageRoot: string;
+  read?: (path: string) => string;
+}): string | null {
+  if (o.env.ORBITAL_VERSION) return o.env.ORBITAL_VERSION;
+  if (!isPackageEntry(o.entry, o.packageRoot)) return null;
+  try {
+    const text = (o.read ?? ((path) => readFileSync(path, 'utf8')))(join(o.packageRoot, PACKAGE_VERSION_FILE)).trim();
+    return isUpdateVersion(text) ? text : null;
+  } catch {
+    return null;
+  }
 }
 
 export class NoUpdateBackend implements UpdateBackend {

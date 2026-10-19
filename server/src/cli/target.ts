@@ -50,7 +50,7 @@ export function unreadableTokenLine(file: string): string {
 export const SERVICE_USER_FILE = '/etc/orbital/user';
 
 /** A user name as `/etc/orbital/user` may hold one; anything else is not shown. */
-const USER_NAME = /^[a-z_][a-z0-9_.-]{0,31}\$?$/i;
+export const USER_NAME = /^[a-z_][a-z0-9_.-]{0,31}\$?$/i;
 
 /**
  * Said after "not running" when the CLI runs as root: the server runs as a

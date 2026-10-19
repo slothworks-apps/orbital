@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { buildServer } from '../src/index.js';
 import { parseAptPolicy } from '../src/update/aptPolicy.js';
 import {
-  AptUpdateBackend, chooseUpdateBackend, DesktopUpdateBackend, PACKAGE_ROOT, UPDATE_REQUEST_FILE, type ParentPort,
-  type UpdateBackend, type UpdateProgress,
+  AptUpdateBackend, chooseUpdateBackend, DesktopUpdateBackend, PACKAGE_ROOT, PACKAGE_VERSION_FILE, runningVersion,
+  UPDATE_REQUEST_FILE, type ParentPort, type UpdateBackend, type UpdateProgress,
 } from '../src/update/backends.js';
 import { UPDATE_MARKER_FILE, UpdateService } from '../src/update/service.js';
 import { makeTmpDir } from './tmp.js';
@@ -80,6 +80,32 @@ describe('chooseUpdateBackend', () => {
     expect(chooseUpdateBackend({ ...base, desktopParent: true, parentPort: true })).toBe('desktop');
     expect(chooseUpdateBackend({ ...base, desktopParent: true })).toBe('none');
     expect(chooseUpdateBackend({ ...base, parentPort: true })).toBe('none');
+  });
+});
+
+describe('runningVersion', () => {
+  const entry = `${PACKAGE_ROOT}/server/index.mjs`;
+  const files = (map: Record<string, string>) => (path: string) => {
+    if (path in map) return map[path];
+    throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+  };
+  const versionFile = join(PACKAGE_ROOT, PACKAGE_VERSION_FILE);
+
+  it('takes ORBITAL_VERSION first, as the desktop sets it', () => {
+    const read = files({ [versionFile]: '0.40.0\n' });
+    expect(runningVersion({ env: { ORBITAL_VERSION: '0.39.0' }, entry, packageRoot: PACKAGE_ROOT, read })).toBe('0.39.0');
+  });
+
+  it("reads the package's file for a server run from the package", () => {
+    const read = files({ [versionFile]: '0.40.0\n' });
+    expect(runningVersion({ env: {}, entry, packageRoot: PACKAGE_ROOT, read })).toBe('0.40.0');
+  });
+
+  it('is null off the package, without the file, or with something that is no version in it', () => {
+    const read = files({ [versionFile]: '0.40.0' });
+    expect(runningVersion({ env: {}, entry: '/home/u/orbital/server/dist/index.mjs', packageRoot: PACKAGE_ROOT, read })).toBeNull();
+    expect(runningVersion({ env: {}, entry, packageRoot: PACKAGE_ROOT, read: files({}) })).toBeNull();
+    expect(runningVersion({ env: {}, entry, packageRoot: PACKAGE_ROOT, read: files({ [versionFile]: '../../x y' }) })).toBeNull();
   });
 });
 

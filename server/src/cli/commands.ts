@@ -37,6 +37,9 @@ async function run(cmd: Command, deps: CliDeps): Promise<number> {
     case 'help':
       io.out(HELP);
       return 0;
+    case 'setup':
+      // It runs before there is a server to call: main.ts starts it on its own.
+      throw new CliError('orbital setup does not run through the server.');
     case 'status': {
       const remote = await readStatus(call);
       const update = await readUpdate(call);

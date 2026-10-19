@@ -5,6 +5,7 @@
 
 export type Command =
   | { kind: 'help' }
+  | { kind: 'setup' }
   | { kind: 'status' }
   | { kind: 'relay' }
   | { kind: 'relaySet'; url: string; secret: 'keep' | SecretSource; yes: boolean }
@@ -30,6 +31,7 @@ export type Usage = { kind: 'usage'; message: string };
 export const HELP = `orbital — drive the Orbital server on this machine
 
 Usage:
+  orbital setup                       set this machine up once after installing (asks for sudo)
   orbital status                      the server, its version, relay and group
   orbital relay                       show the relay
   orbital relay set <url> [--secret]  set the relay (before pairing), and its secret
@@ -95,6 +97,8 @@ function command(words: string[], flags: Flags): Command | Usage {
     case undefined:
     case 'help':
       return args.length === 0 ? { kind: 'help' } : extra(args);
+    case 'setup':
+      return args.length === 0 ? { kind: 'setup' } : extra(args);
     case 'status':
       return args.length === 0 ? { kind: 'status' } : extra(args);
     case 'update':

@@ -9,6 +9,7 @@ import { parseArgs } from './args.js';
 import { CliError, NotRunning, TokenRefused, httpCall } from './client.js';
 import { runCli } from './commands.js';
 import { TerminalIo } from './io.js';
+import { SystemSetup, runSetup } from './setup.js';
 import { cliTarget, readServiceUser, readToken, rootHint, unreadableTokenLine } from './target.js';
 import { notRunningLine } from './words.js';
 
@@ -31,25 +32,32 @@ async function main(): Promise<number> {
       const hint = rootHint(process.getuid?.() ?? null, await readServiceUser());
       if (hint) io.err(hint);
     };
-    const read = await readToken(target.tokenFile);
-    if ('unreadable' in read) {
-      io.err(unreadableTokenLine(target.tokenFile));
-      return 1;
+    /** `argv` against the server, with the token read now: setup reads it only once the server has written it. */
+    const drive = async (args: readonly string[]): Promise<number> => {
+      const read = await readToken(target.tokenFile);
+      if ('unreadable' in read) {
+        io.err(unreadableTokenLine(target.tokenFile));
+        return 1;
+      }
+      // The server writes the token at its first start: without one, none has run here.
+      if ('missing' in read) {
+        await notRunning();
+        return 1;
+      }
+      try {
+        return await runCli(args, { call: httpCall(target.port, read.token), io, port: target.port });
+      } catch (err) {
+        if (err instanceof NotRunning) await notRunning();
+        else if (err instanceof TokenRefused) io.err(`Orbital on port ${target.port} refused the token in ${target.tokenFile}.`);
+        else if (err instanceof CliError) io.err(err.message);
+        else throw err;
+        return 1;
+      }
+    };
+    if (parsed.kind === 'setup') {
+      return await runSetup({ io, sys: new SystemSetup(), port: target.port, status: () => drive(['status']) });
     }
-    // The server writes the token at its first start: without one, none has run here.
-    if ('missing' in read) {
-      await notRunning();
-      return 1;
-    }
-    try {
-      return await runCli(argv, { call: httpCall(target.port, read.token), io, port: target.port });
-    } catch (err) {
-      if (err instanceof NotRunning) await notRunning();
-      else if (err instanceof TokenRefused) io.err(`Orbital on port ${target.port} refused the token in ${target.tokenFile}.`);
-      else if (err instanceof CliError) io.err(err.message);
-      else throw err;
-      return 1;
-    }
+    return await drive(argv);
   } finally {
     io.close();
   }
