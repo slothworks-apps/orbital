@@ -223,6 +223,50 @@ primary's own phones after it joined another group) is listed under
 `devices` only. Settings → Devices shows a phone not paired here as
 `paired with <its desktop>`.
 
+Each member row also carries what that member's last hello named:
+- `version`, its Orbital version;
+- `osVersion`, its OS with version, such as `Ubuntu 24.04`.
+
+Both are absent on a member from before updates from the group.
+
+## Updating a member
+
+Any member updates any other through `GET`/`POST /api/server/update`
+(ADR `any-member-may-update-another`, spec
+`2026-10-19-headless-server-design`). It is not a primary-only action.
+
+**The state** (`ServerUpdateState` in shared) is `installed`, `candidate`,
+`packaged`, `updating`, `failed`, `sessions` and `startedBy`:
+- `sessions` counts busy sessions: working, or waiting on a decision.
+- `startedBy` is taken from the channel's peer, never from the body.
+
+**Where the update comes from:**
+- A headless server reads apt (`apt-cache policy orbital`). A request
+  file starts the root `orbital-update.path` unit.
+- A Mac asks Electron's main process over the server's `parentPort`
+  (`update_state`, `update_start`, `update_cancel`).
+- Anything else answers `not_packaged`.
+
+**On restart:** the server reads its version from the package's `VERSION`
+file or from `ORBITAL_VERSION`.
+- If it still runs the version it ran when the update was asked for, it
+  reports `failed`.
+- With no restart after `UPDATE_TIMEOUT_MS`, it reports `failed` too.
+
+**Who is asked:**
+- The desktop asks a member only through `readMemberUpdate` /
+  `startMemberUpdate` (`web/src/lib/devices.ts`).
+- The phone asks through `readDeviceUpdate` / `startDeviceUpdate`.
+- Both ask only a member whose version is at least `SERVER_UPDATE_VERSION`
+  (`MAC_FEATURES.serverUpdate`).
+
+**When it is read:** the state is read while Settings → Devices is open,
+and polled every `UPDATE_POLL_MS` while a row is updating. Nothing about
+an update shows outside Settings → Devices.
+
+**From a terminal:** the CLI's `orbital update [<name>]` does the same on
+a server.
+
 ## Known limits
 
 - **A member asleep at a removal** still links with the removed device

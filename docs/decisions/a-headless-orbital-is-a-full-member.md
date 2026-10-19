@@ -1,7 +1,7 @@
 ---
 id: a-headless-orbital-is-a-full-member
 title: Orbital on a Linux server is a full member of the group, without a map
-status: draft
+status: in-force
 type: adr
 domain: remote
 related:
