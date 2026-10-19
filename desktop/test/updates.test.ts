@@ -756,28 +756,46 @@ describe('an update another member started, as this Mac shows it (canvas 50v)', 
     expect(flow.view.remote).toEqual({ by: 'Pixel 8', working: 1 });
   });
 
-  it('02: holds the last line before the restart, and leaves the receipt for the relaunched app', () => {
-    const { flow } = asked(['a', 'b']);
+  it('02: holds the last line, then restarts, counting what it stops at the restart itself', () => {
+    let now = AT;
+    const flow = new UpdateFlow({ now: () => now });
+    flow.setWorkingCount(2, true, ['a', 'b']);
+    flow.available('0.26.0', MB);
+    flow.remoteStart('Pixel 8');
     const landed = flow.downloaded('0.26.0');
-    expect(landed).toMatchObject({
-      restart: true, holdMs: REMOTE_RESTART_HOLD_MS, remoteEnded: null,
-      receipt: { by: 'Pixel 8', at: AT, stopped: 2, version: '0.26.0' },
-    });
+    // Not yet: the last line is read first, and nothing is written.
+    expect(landed).toMatchObject({ restart: false, holdMs: REMOTE_RESTART_HOLD_MS, remoteEnded: null, receipt: null, changed: true });
     expect(flow.view).toMatchObject({ phase: 'restarting', version: '0.26.0', remote: { by: 'Pixel 8', working: 2 } });
-    // A session starting during the hold changes nothing: the restart goes ahead.
-    const during = flow.setWorkingCount(3, true, ['a', 'b', 'c']);
-    expect(during).toMatchObject({ restart: false, receipt: null });
+    expect(flow.restartingInto).toBe('0.26.0');
+    // A session starting during the hold does not hold it, and is counted as stopped.
+    expect(flow.setWorkingCount(3, true, ['a', 'b', 'c'])).toMatchObject({ restart: false });
+    now = AT + REMOTE_RESTART_HOLD_MS;
+    expect(flow.holdEnded()).toMatchObject({
+      restart: true, holdMs: 0, receipt: { by: 'Pixel 8', at: AT + REMOTE_RESTART_HOLD_MS, stopped: 3, version: '0.26.0' },
+    });
+    expect(flow.holdEnded()).toMatchObject({ restart: false, receipt: null });
+  });
+
+  it('an updater error during the hold is a check\'s, not the install\'s; after it, the install failed', () => {
+    const { flow } = asked(['a']);
+    flow.downloaded('0.26.0');
+    expect(flow.updaterError()).toMatchObject({ changed: false, receipt: null, remoteEnded: null });
     expect(flow.view.phase).toBe('restarting');
+    expect(flow.holdEnded()).toMatchObject({ restart: true });
+    // quitAndInstall called: an error now is the install's — the members are told at once.
+    expect(flow.updaterError()).toMatchObject({ receipt: 'clear', remoteEnded: 'restart' });
+    expect(flow.view).toMatchObject({ phase: 'available', remote: null });
   });
 
   it('holds the last line too when the update was downloaded already', () => {
     const flow = new UpdateFlow({ now: () => AT });
     flow.setWorkingCount(1, true, ['a']);
     flow.downloaded('0.26.0');
-    expect(flow.remoteStart('Pixel 8')).toMatchObject({
-      restart: true, holdMs: REMOTE_RESTART_HOLD_MS, receipt: { by: 'Pixel 8', stopped: 1, version: '0.26.0' },
-    });
+    expect(flow.remoteStart('Pixel 8')).toMatchObject({ restart: false, holdMs: REMOTE_RESTART_HOLD_MS });
     expect(flow.view).toMatchObject({ phase: 'restarting', remote: { by: 'Pixel 8' } });
+    // Asked again during the hold: it goes by itself, nothing sooner.
+    expect(flow.remoteStart('Pixel 8')).toMatchObject({ restart: false, remoteEnded: null });
+    expect(flow.holdEnded()).toMatchObject({ restart: true, receipt: { by: 'Pixel 8', stopped: 1, version: '0.26.0' } });
   });
 
   it('asked on this Mac, it is the Mac\'s own update: no member named, no hold, no receipt', () => {
@@ -812,8 +830,9 @@ describe('an update another member started, as this Mac shows it (canvas 50v)', 
     const { flow } = asked(['a']);
     flow.setWorkingCount(2, true, ['a', 'c']);
     flow.downloaded('0.26.0');
-    expect(flow.remoteStart('nuc')).toMatchObject({ restart: true, holdMs: REMOTE_RESTART_HOLD_MS, receipt: { by: 'nuc' } });
+    expect(flow.remoteStart('nuc')).toMatchObject({ restart: false, holdMs: REMOTE_RESTART_HOLD_MS });
     expect(flow.view).toMatchObject({ phase: 'restarting', sessionStarted: false, remote: { by: 'nuc' } });
+    expect(flow.holdEnded()).toMatchObject({ restart: true, receipt: { by: 'nuc' } });
   });
 
   it('shows a download running by itself once a member asks for it', () => {
@@ -828,18 +847,33 @@ describe('an update another member started, as this Mac shows it (canvas 50v)', 
     expect(flow.view).toMatchObject({ percent: 40, totalMB: 92 });
   });
 
-  it('a retried restart goes at once and writes no second receipt', () => {
-    const { flow } = asked([]);
+  it('a restart that did not get the app out: retried once at once, then this Mac\'s Ready, not a false last line', () => {
+    const { flow } = asked(['a']);
     flow.downloaded('0.26.0');
+    flow.holdEnded();
     expect(flow.remoteStart('Pixel 8')).toMatchObject({ restart: true, holdMs: 0, receipt: null });
+    const spent = flow.remoteStart('Pixel 8');
+    expect(spent).toMatchObject({ restart: false, changed: true, remoteEnded: 'restart', receipt: 'clear' });
+    expect(flow.view).toMatchObject({ phase: 'ready', version: '0.26.0', remote: null, sessionStarted: false });
+    expect(flow.restartingInto).toBeNull();
   });
 
-  it('a restart that fails takes its receipt back; a cancelled request is this Mac\'s own download', () => {
-    const failed = asked([]).flow;
-    failed.downloaded('0.26.0');
-    expect(failed.updaterError()).toMatchObject({ receipt: 'clear' });
-    expect(failed.view).toMatchObject({ phase: 'available', remote: null });
+  it('the server giving up on a restart that did not happen brings this Mac\'s Ready back, its receipt taken back', () => {
+    const { flow } = asked([]);
+    flow.downloaded('0.26.0');
+    flow.holdEnded();
+    expect(flow.remoteCancel()).toMatchObject({ changed: true, receipt: 'clear', remoteEnded: null });
+    expect(flow.view).toMatchObject({ phase: 'ready', version: '0.26.0', remote: null });
 
+    // Given up on during the hold: no install at its end.
+    const holding = asked([]).flow;
+    holding.downloaded('0.26.0');
+    expect(holding.remoteCancel()).toMatchObject({ changed: true, receipt: null });
+    expect(holding.holdEnded()).toMatchObject({ restart: false });
+    expect(holding.view.phase).toBe('ready');
+  });
+
+  it('a cancelled download is this Mac\'s own download', () => {
     const cancelled = asked([]).flow;
     expect(cancelled.remoteCancel()).toMatchObject({ changed: true });
     expect(cancelled.view).toMatchObject({ phase: 'downloading', remote: null });

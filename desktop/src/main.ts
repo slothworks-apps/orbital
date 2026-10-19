@@ -1208,6 +1208,10 @@ function startUpdates(): void {
  */
 async function checkForUpdates(manual: boolean): Promise<UpdateCheckAnswer> {
   if (!updatesEnabled) return { kind: 'unsupported' };
+  // Restarting into an update, a member's hold included: a check's error must
+  // not be taken for the install's, and the prompt already answers.
+  const restartingInto = updates.restartingInto;
+  if (restartingInto !== null) return { kind: 'found', version: restartingInto, outcome: 'none' };
   await loadSettings();
   try {
     const result = await autoUpdater.checkForUpdates();
@@ -1278,16 +1282,13 @@ function applyUpdateStep(step: UpdateStep): void {
   }
   pushServerUpdateState();
   if (step.remoteEnded) tellServer({ t: 'update_ended', reason: step.remoteEnded });
-  if (step.restart && step.holdMs > 0) {
+  if (step.holdMs > 0) {
     // The last line of a member's update is read first (canvas 50v 02). A
-    // session starting meanwhile does not hold it; only the restart failing
-    // in between — the flow no longer restarting — does.
-    setTimeout(() => {
-      if (updates.view.phase === 'restarting') autoUpdater.quitAndInstall();
-    }, step.holdMs);
-  } else if (step.restart) {
-    autoUpdater.quitAndInstall();
+    // session starting meanwhile does not hold it; the flow says whether it
+    // still goes, and counts what it stops then.
+    setTimeout(() => applyUpdateStep(updates.holdEnded()), step.holdMs);
   }
+  if (step.restart) autoUpdater.quitAndInstall();
 }
 
 /** The last `update_state` sent to the current server; null since it was forked. */

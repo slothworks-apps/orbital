@@ -409,10 +409,10 @@ export const IDLE_SETTLE_MS = 2_000;
  * server a member's request ended here without the install (`update_ended`,
  * with the reason).
  *
- * `holdMs`: with `restart`, how long to wait before `quitAndInstall` — 0 for
- * at once, `REMOTE_RESTART_HOLD_MS` while the last line of a member's update
- * is read. `receipt`: write this receipt to `UPDATE_RECEIPT_FILE`, or remove
- * the file (`clear`); null leaves it.
+ * `holdMs`: above 0, a member's restart is holding its last line — call
+ * `holdEnded` after that long, which says `restart` (`quitAndInstall` now).
+ * `receipt`: write this receipt to `UPDATE_RECEIPT_FILE`, or remove the file
+ * (`clear`); null leaves it.
  */
 export type UpdateStep = {
   changed: boolean;
@@ -493,6 +493,11 @@ export class UpdateFlow {
   private receipt: UpdateReceipt | null;
   /** A receipt was written for a restart that has not got the app out yet. */
   private receiptWritten = false;
+  /**
+   * A member's restart is holding its last line (`REMOTE_RESTART_HOLD_MS`):
+   * restarting, but `quitAndInstall` not called yet (`holdEnded`).
+   */
+  private holding = false;
   private readonly now: () => number;
 
   constructor(init: { skippedVersion?: string | null; receipt?: UpdateReceipt | null; now?: () => number } = {}) {
@@ -590,27 +595,58 @@ export class UpdateFlow {
    * Either way it no longer counts as downloaded.
    */
   downloadFailed(): UpdateStep {
+    // A member's restart abandoned: the members are told at once, not at the server's timeout.
+    const remoteEnded = this.phase === 'restarting' && this.remoteBy !== null ? 'restart' : null;
     this.silentDownload = null;
     this.remoteRequested = false;
     this.restartRetried = false;
+    this.holding = false;
     this.downloadedVersion = null;
     this.remoteBy = null;
     // A restart that did not happen made no update to tell of.
     const receipt = this.receiptWritten ? 'clear' : null;
     this.receiptWritten = false;
-    if (this.phase === 'none' || this.phase === 'available') return this.step({ receipt });
+    if (this.phase === 'none' || this.phase === 'available') return this.step({ receipt, remoteEnded });
     this.phase = 'available';
-    return this.step({ changed: true, receipt });
+    return this.step({ changed: true, receipt, remoteEnded });
   }
 
   /**
    * electron-updater reported an error. A failed check changes nothing; but
    * while restarting it means `quitAndInstall` did not get the app out, and
    * waiting on it would hold the prompt forever — so it counts as a failed
-   * download, and the version is offered again.
+   * download, and the version is offered again. Not while a member's
+   * restart holds its last line: `quitAndInstall` has not been called, so
+   * the error is a check's, not the install's.
    */
   updaterError(): UpdateStep {
-    return this.phase === 'restarting' ? this.downloadFailed() : this.step();
+    return this.phase === 'restarting' && !this.holding ? this.downloadFailed() : this.step();
+  }
+
+  /** The version the app is restarting into, its hold included, else null: no check runs then. */
+  get restartingInto(): string | null {
+    return this.phase === 'restarting' ? this.version : null;
+  }
+
+  /**
+   * `REMOTE_RESTART_HOLD_MS` after a member's restart began: `quitAndInstall`
+   * now, and the receipt for the relaunched app, counting the sessions this
+   * restart stops. Nothing when the hold was abandoned meanwhile.
+   */
+  holdEnded(): UpdateStep {
+    if (!this.holding || this.phase !== 'restarting' || this.remoteBy === null) return this.step();
+    this.holding = false;
+    this.receiptWritten = true;
+    return {
+      ...this.step(),
+      restart: true,
+      receipt: {
+        by: this.remoteBy,
+        at: this.now(),
+        stopped: this.countKnown ? this.workingCount : 0,
+        version: this.version,
+      },
+    };
   }
 
   /**
@@ -747,7 +783,13 @@ export class UpdateFlow {
    */
   remoteStart(by: string | null = null): UpdateStep {
     if (this.phase === 'restarting') {
-      if (this.restartRetried) return this.step({ remoteEnded: 'restart' });
+      // The hold ends in the install by itself.
+      if (this.holding) return this.step();
+      if (this.restartRetried) {
+        // A member's restart that never got the app out: no false last line, this Mac's Ready instead.
+        if (this.remoteBy !== null) return this.abandonRemoteRestart('restart');
+        return this.step({ remoteEnded: 'restart' });
+      }
       this.restartRetried = true;
       return this.restart({ retry: true });
     }
@@ -790,7 +832,10 @@ export class UpdateFlow {
    */
   remoteCancel(): UpdateStep {
     this.remoteRequested = false;
-    if (this.remoteBy === null || this.phase === 'restarting') return this.step();
+    if (this.remoteBy === null) return this.step();
+    // The members were told it failed: a restart that has not got the app out
+    // (or is still holding) gives way to this Mac's Ready.
+    if (this.phase === 'restarting') return this.abandonRemoteRestart(null);
     // Still downloading: from here it is this Mac's own download, and says so.
     this.remoteBy = null;
     return this.step({ changed: true });
@@ -857,9 +902,10 @@ export class UpdateFlow {
   }
 
   /**
-   * Into the update. One a member started holds its last line first and
-   * leaves the receipt the relaunched app tells; a retry of a restart already
-   * made goes at once, its receipt already written.
+   * Into the update. One a member started holds its last line first: no
+   * `quitAndInstall` yet, `holdEnded` after `holdMs` makes it and writes the
+   * receipt. A retry of a restart already made goes at once, its receipt
+   * already written.
    */
   private restart({ retry = false }: { retry?: boolean } = {}): UpdateStep {
     this.phase = 'restarting';
@@ -869,23 +915,29 @@ export class UpdateFlow {
       remoteEnded: null, receipt: null,
     };
     if (retry || this.remoteBy === null) return step;
-    this.receiptWritten = true;
-    return {
-      ...step,
-      holdMs: REMOTE_RESTART_HOLD_MS,
-      receipt: {
-        by: this.remoteBy,
-        at: this.now(),
-        stopped: this.countKnown ? this.workingCount : 0,
-        version: this.version,
-      },
-    };
+    this.holding = true;
+    return { ...step, restart: false, holdMs: REMOTE_RESTART_HOLD_MS };
   }
 
-  private step(parts: Partial<Omit<UpdateStep, 'restart' | 'holdMs'>> = {}): UpdateStep {
+  /**
+   * A member's restart that will not happen — its retry spent, or the server
+   * gave up on it: the downloaded version back as this Mac's own Ready, the
+   * receipt taken back, and the server told when it does not know yet.
+   */
+  private abandonRemoteRestart(remoteEnded: UpdateEndReason | null): UpdateStep {
+    const receipt = this.receiptWritten ? 'clear' : null;
+    this.receiptWritten = false;
+    this.holding = false;
+    this.restartRetried = false;
+    this.remoteBy = null;
+    this.toReady(this.downloadedVersion ?? this.version);
+    return this.step({ changed: true, receipt, remoteEnded });
+  }
+
+  private step(parts: Partial<Omit<UpdateStep, 'restart'>> = {}): UpdateStep {
     return {
-      changed: false, download: false, skipChanged: false, idleCheck: false, remoteEnded: null, receipt: null, ...parts,
-      restart: false, holdMs: 0,
+      changed: false, download: false, skipChanged: false, idleCheck: false, remoteEnded: null, receipt: null,
+      holdMs: 0, ...parts, restart: false,
     };
   }
 
