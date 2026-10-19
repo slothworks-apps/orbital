@@ -21,19 +21,34 @@ export interface SessionTip {
 /**
  * Orbital's tips, shipped with the app rather than stored: they change
  * with the version and the user never edits them (spec § 2). The array's
- * order is the order they reach the session. Each says "do X, because
+ * order is the order they reach the session: the background tips first, so
+ * they follow the rule about background shells. Each says "do X, because
  * Orbital does Y" and nothing more.
  */
 export const SESSION_TIPS: readonly SessionTip[] = [
   {
+    id: 'long-commands-in-background',
+    title: 'Long commands in the background',
+    text:
+      'Run test suites, builds, dev servers and watchers in the background. Orbital lists ' +
+      'background tasks with their live output and lets the user stop each one; a foreground ' +
+      'command shows nothing until it ends.',
+  },
+  {
+    id: 'stop-background-tasks-when-done',
+    title: 'Stop background tasks when done',
+    text:
+      'When the work is finished, stop the background tasks you started. Orbital lists every ' +
+      'running task under its session, so a forgotten server stays there long after the work is ' +
+      'done. Leave one running only if the user asked for it.',
+  },
+  {
     id: 'ask-user-question',
     title: 'Choices through AskUserQuestion',
     text:
-      'When you offer the user a choice between options, call the AskUserQuestion tool. ' +
-      'Do not write a numbered list and ask for a number: Orbital shows the tool call as a card ' +
-      'with buttons, and a list in prose is not clickable. Whatever the user has to read before ' +
-      'answering goes in a text block of the same message: your thinking is not shown as part of ' +
-      'the reply, and a question about a proposal that exists only there cannot be answered.',
+      'Offer a choice between options through the AskUserQuestion tool, not as a numbered list: ' +
+      'Orbital shows the tool call as a card with buttons. Put whatever the user must read before ' +
+      'answering in a text block of the same message; your thinking is not shown to them.',
   },
   {
     id: 'paths-in-code-spans',
@@ -43,24 +58,16 @@ export const SESSION_TIPS: readonly SessionTip[] = [
       'Orbital turns such a span into a link that opens the file; a path inside a sentence or a ' +
       'command is plain text.',
   },
-  {
-    id: 'long-commands-in-background',
-    title: 'Long commands in the background',
-    text:
-      'Run commands that take more than a moment — test suites, builds, dev servers, watchers — ' +
-      'in the background. Orbital lists background tasks with their live output and lets the user ' +
-      'stop each one; a foreground command shows nothing until it ends.',
-  },
-  {
-    id: 'stop-background-tasks-when-done',
-    title: 'Stop background tasks when done',
-    text:
-      'When the work is finished — typically after the final commit or after merging the branch — ' +
-      'stop the background tasks you started: dev servers, watchers, anything still running. ' +
-      'Orbital lists every running background task under its session, so a forgotten server ' +
-      'stays there long after the work is done. Leave one running only if the user asked for it.',
-  },
 ];
+
+/**
+ * Opens every appendix: the preset tells the model its output is shown in
+ * a terminal, and the tips and rules that follow name Orbital without
+ * saying what it is.
+ */
+export const SESSION_CONTEXT =
+  'This session runs in Orbital, an app that shows Claude Code sessions in a window instead of a ' +
+  'terminal; the user reads your replies and answers your questions there.';
 
 /**
  * What every session is told whatever the switches say: rules Orbital
@@ -97,14 +104,15 @@ export interface AppendixInput {
 }
 
 /**
- * Orbital's rules, then the tips, then the commentary, then the user's text,
+ * The context line, Orbital's rules, then the tips, then the commentary, then the user's text,
  * a blank line between blocks; the user's text goes last so that where it
  * contradicts a tip it wins. The rules are on whatever the switches say:
  * Orbital enforces them either way, so they only spare the agent a refusal.
- * `null` when no block survives, so the runner sends the bare preset.
+ * The return type keeps `null` for a bare preset, though the context line
+ * means a block always survives.
  */
 export function composeAppendix(input: AppendixInput): string | null {
-  const blocks: string[] = [...SESSION_RULES];
+  const blocks: string[] = [SESSION_CONTEXT, ...SESSION_RULES];
   if (input.tipsOn) {
     const off = new Set(input.tipsOff ?? []);
     for (const tip of SESSION_TIPS) if (!off.has(tip.id)) blocks.push(tip.text);

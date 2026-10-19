@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Changed
+- Orbital's built-in session tips are shorter, and sessions are told they run in Orbital rather than a terminal.
 
 ## [0.34.1] — 2026-10-19
 ### Changed

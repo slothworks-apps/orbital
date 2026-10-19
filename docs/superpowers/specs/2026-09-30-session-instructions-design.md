@@ -123,10 +123,20 @@ emits them as written and the preview shows the same sequence.
 
 | id | title | text |
 |---|---|---|
-| `ask-user-question` | Choices through AskUserQuestion | When you offer the user a choice between options, call the AskUserQuestion tool. Do not write a numbered list and ask for a number: Orbital shows the tool call as a card with buttons, and a list in prose is not clickable. Whatever the user has to read before answering goes in a text block of the same message: your thinking is not shown as part of the reply, and a question about a proposal that exists only there cannot be answered. |
+| `long-commands-in-background` | Long commands in the background | Run test suites, builds, dev servers and watchers in the background. Orbital lists background tasks with their live output and lets the user stop each one; a foreground command shows nothing until it ends. |
+| `stop-background-tasks-when-done` | Stop background tasks when done | When the work is finished, stop the background tasks you started. Orbital lists every running task under its session, so a forgotten server stays there long after the work is done. Leave one running only if the user asked for it. |
+| `ask-user-question` | Choices through AskUserQuestion | Offer a choice between options through the AskUserQuestion tool, not as a numbered list: Orbital shows the tool call as a card with buttons. Put whatever the user must read before answering in a text block of the same message; your thinking is not shown to them. |
 | `paths-in-code-spans` | Clickable file paths | Refer to a file as its path, optionally with `:line`, alone inside an inline code span. Orbital turns such a span into a link that opens the file; a path inside a sentence or a command is plain text. |
-| `long-commands-in-background` | Long commands in the background | Run commands that take more than a moment — test suites, builds, dev servers, watchers — in the background. Orbital lists background tasks with their live output and lets the user stop each one; a foreground command shows nothing until it ends. |
-| `stop-background-tasks-when-done` | Stop background tasks when done | When the work is finished — typically after the final commit or after merging the branch — stop the background tasks you started: dev servers, watchers, anything still running. Orbital shows a session with a live background task as still working, so a forgotten server keeps a finished session looking busy. Leave one running only if the user asked for it. |
+
+The background tips come first so that they sit right after the rule
+about background shells ([[2026-10-08-kept-shells-design]] § 3), which
+every appendix carries.
+
+**The context line.** Every appendix opens, before the rules, with one
+sentence that says what Orbital is (`SESSION_CONTEXT`): the preset tells
+the model its output is shown in a terminal, and the tips name Orbital
+without explaining it. Like the rules it is not a tip, the switch does
+not remove it and the preview does not list it.
 
 Wording is part of the implementation, not of this spec: the texts above
 are the first draft and may be tightened while building, as long as each

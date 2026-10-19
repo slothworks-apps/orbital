@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  SESSION_CONTEXT,
   SESSION_RULES,
   SESSION_TIPS,
   NARRATE_COMMENTARY_PROMPT,
@@ -10,8 +11,8 @@ import {
 // spec 2026-10-08-kept-shells-design § 3.
 const allOff = { tipsOn: false, commentary: false, customOn: false, customText: '' };
 const tipsText = SESSION_TIPS.map((t) => t.text).join('\n\n');
-const rules = SESSION_RULES.join('\n\n');
-/** What follows the rules, which every appendix opens with. */
+const rules = [SESSION_CONTEXT, ...SESSION_RULES].join('\n\n');
+/** What follows the context line and the rules, which every appendix opens with. */
 const afterRules = (text: string) => `${rules}\n\n${text}`;
 
 describe('SESSION_TIPS', () => {
@@ -22,16 +23,16 @@ describe('SESSION_TIPS', () => {
 
   it('ships the tips the spec names, in its order', () => {
     expect(SESSION_TIPS.map((t) => t.id)).toEqual([
-      'ask-user-question',
-      'paths-in-code-spans',
       'long-commands-in-background',
       'stop-background-tasks-when-done',
+      'ask-user-question',
+      'paths-in-code-spans',
     ]);
   });
 });
 
 describe('composeAppendix', () => {
-  it('keeps the rules when every switch is off', () => {
+  it('keeps the context line and the rules when every switch is off', () => {
     expect(composeAppendix(allOff)).toBe(rules);
     expect(composeAppendix({ ...allOff, customOn: true, customText: '' })).toBe(rules);
     expect(composeAppendix({ ...allOff, customOn: true, customText: '  \n\r\n\t ' })).toBe(rules);
