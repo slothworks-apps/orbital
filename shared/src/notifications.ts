@@ -124,6 +124,11 @@ type Known = {
   asks: boolean;
   /** The last upsert's harness gate is with its reviewer, who comes back to the session on its own. */
   reviewing: boolean;
+  /**
+   * The last upsert says the user docked it: put away, and silent whatever
+   * the settings say (spec 2026-10-19-docked-sessions-design § Notifications).
+   */
+  docked: boolean;
   /** Cancels the held `needs_input` report, while one is held. */
   held: (() => void) | null;
 };
@@ -334,7 +339,7 @@ export class SessionNotifier {
       // Unknown status on a first sighting: remember the name, but do not
       // invent a state we would later report a transition away from.
       if (!status || !STATUSES.has(status)) return;
-      known = { status, name, asks: false, reviewing: false, held: null };
+      known = { status, name, asks: false, reviewing: false, docked: false, held: null };
       this.seen.set(id, known);
       if (session) this.wants(known, session);
       // Only a question: a first sighting that is already `ended` has no
@@ -365,7 +370,7 @@ export class SessionNotifier {
     // Muted AFTER the fold, and gated on the transition rather than on the
     // body text: `seen` stays current either way, so turning a row back on
     // reports the next transition instead of replaying a stale one.
-    else if (change === 'ended' && this.settings.sessionEnded) {
+    else if (change === 'ended' && this.settings.sessionEnded && !known.docked) {
       this.notify({ kind: 'ended', title: known.name ?? FALLBACK_TITLE, body: ENDED_BODY, sessionId: id });
     }
   }
@@ -374,6 +379,7 @@ export class SessionNotifier {
   private wants(known: Known, session: Record<string, unknown>): void {
     known.asks = asksForHuman(session);
     known.reviewing = session.harnessGate === 'reviewing';
+    known.docked = typeof session.dockedAt === 'number';
   }
 
   /** Hold a `needs_input` report until it settles; one held report per session. */
@@ -396,7 +402,7 @@ export class SessionNotifier {
    * other turn merely finished, and is Done. Both answer to the needsInput row.
    */
   private settled(id: string, known: Known): void {
-    if (!this.settings.needsInput) return;
+    if (!this.settings.needsInput || known.docked) return;
     const title = known.name ?? FALLBACK_TITLE;
     if (known.asks) {
       this.notify({ kind: 'needs_input', title, body: NEEDS_INPUT_BODY, sessionId: id });
@@ -418,7 +424,11 @@ export class SessionNotifier {
     if (!message) return;
 
     const sessionId = str(error.sessionId);
-    const name = sessionId ? this.seen.get(sessionId)?.name : null;
+    const known = sessionId ? this.seen.get(sessionId) : undefined;
+    // A docked session is silent, its failure included (spec
+    // 2026-10-19-docked-sessions-design § Notifications).
+    if (known?.docked) return;
+    const name = known?.name ?? null;
     this.notify({
       kind: 'failed',
       title: name ?? FALLBACK_TITLE,

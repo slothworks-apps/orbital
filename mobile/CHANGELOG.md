@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-10-19
+### Added
+- Dock sessions from their menu to put them away in a folded DOCKED group until you write to them; docked sessions send no notifications. Needs Orbital 0.36 on the Mac.
+
 ## [0.15.4] — 2026-10-19
 ### Fixed
 - On iPhone, attaching a photo works again: it used to fail with "Couldn't take that photo" before the camera or the library opened. Needs this update from TestFlight.

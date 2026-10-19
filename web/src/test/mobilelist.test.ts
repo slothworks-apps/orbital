@@ -211,6 +211,36 @@ describe('10a groups', () => {
       ['ended', ['gone']],
     ])
   })
+
+  it('groups docked sessions together, in their own fold before pinned and ended', () => {
+    const groups = groupSessions(
+      [
+        session('idle', { lastAt: 1 }),
+        session('docked-idle', { dockedAt: 1, lastAt: 2 }),
+        session('docked-asking', { dockedAt: 1, lastAt: 3, status: 'needs_input', pendingDecision: question }),
+        session('ended', { status: 'ended', lastAt: 4 }),
+      ],
+      [],
+    )
+    expect(groups.map((g) => [g.key, g.sessions.map((s) => s.id)])).toEqual([
+      ['idle', ['idle']],
+      ['docked', ['docked-asking', 'docked-idle']],
+      ['ended', ['ended']],
+    ])
+  })
+
+  it('ignores dockedAt when it is absent (older Mac)', () => {
+    const groups = groupSessions(
+      [
+        session('new', { lastAt: 5 }),
+        // A session without dockedAt field (undefined, not null)
+        session('old', { lastAt: 1 }),
+      ],
+      [],
+    )
+    expect(groups.map((g) => g.key)).toEqual(['idle'])
+    expect(groups[0].sessions.map((s) => s.id)).toEqual(['new', 'old'])
+  })
 })
 
 describe('10a rows', () => {

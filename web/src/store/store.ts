@@ -5,6 +5,7 @@ import { getSocket } from '../lib/socket'
 import { completedAnswers, openQuestion, type AnswerMap } from '../lib/questionCard'
 import { isAttachable, isSlashCommand, promptWithOpenFile, promptWithSelection, selectionId } from '../lib/ideSelection'
 import { withViewTransition } from '../lib/viewTransition'
+import { parseFoldedSections, type SectionKey } from '../lib/sessionMoves'
 import { focusSession } from '../lib/desktop'
 import { MAX_SUBAGENT_MESSAGES } from '../lib/types'
 import { EMPTY_OUTPUT, appendOutput, type OutputLines } from '../lib/backgroundTasks'
@@ -239,6 +240,18 @@ export interface OrbitalUiState {
    * never revealed.
    */
   historyRevealNonce?: number
+  /**
+   * The right-click menu over a session (spec 2026-10-19-docked-sessions-design
+   * § Right-click menu): which session, and the viewport point it opens at.
+   * One at a time, drawn by `SessionContextMenu`. Optional — absent is closed.
+   */
+  sessionMenu?: { id: string; x: number; y: number } | null
+  /**
+   * An action the right-click menu asked of the detail panel, which owns the
+   * title field and the Clear/End dialogs: the panel runs it once it shows
+   * session `id`, then clears it.
+   */
+  panelRequest?: { id: string; action: 'rename' | 'clear' | 'end' } | null
   /**
    * Set once by `lib/sessionUrl.ts` when the `?session=` restore has settled
    * (immediately, when the URL names nothing to restore). Until then the page
@@ -664,7 +677,19 @@ export interface OrbitalActions {
    * took a pin, puts the pin back. Optimistic; a failure rolls back and
    * reports through the toast.
    */
-  reopenSession(id: string, repin: boolean): Promise<void>
+  reopenSession(id: string, repin?: boolean): Promise<void>
+  /**
+   * Docks (or undocks) a session (spec 2026-10-19-docked-sessions-design):
+   * off the map and silent until undocked or written to. Docking takes the
+   * pin and reopens an ended session, as the server does. Optimistic; a
+   * failure rolls back and reports through the toast.
+   */
+  setSessionDocked(id: string, docked: boolean): Promise<void>
+  /**
+   * A sidebar move into PINNED, ACTIVE or DOCKED (`sessionMoves`). A move into
+   * HISTORY is an End and goes through `trashSession` and its confirm.
+   */
+  moveSession(id: string, to: 'pinned' | 'active' | 'docked'): Promise<void>
   /**
    * Ends a session Orbital runs (spec 2026-09-23-end-session-design). Nothing
    * is written here: the server publishes the `ended` status on the
@@ -676,6 +701,18 @@ export interface OrbitalActions {
   setTagAnchor(tagId: number, anchor: { x: number; y: number } | null): Promise<void>
   /** The hole's click: un-collapse the sidebar and scroll it to HISTORY. */
   revealHistory(): void
+  /** Folds or unfolds one sidebar section; saved in `sidebar_sections_collapsed`. */
+  setSectionFolded(key: SectionKey, folded: boolean): void
+  openSessionMenu(id: string, x: number, y: number): void
+  /**
+   * Gives a session its one tag (canvas 1b): picking replaces rather than
+   * adds. Optimistic; a failure rolls back and rejects, for the caller to
+   * report (`reportError`, which also logs it).
+   */
+  setSessionTag(id: string, tagId: number): Promise<void>
+  closeSessionMenu(): void
+  /** Opens the session and asks its panel to run `action` (`panelRequest`). */
+  requestPanelAction(id: string, action: 'rename' | 'clear' | 'end'): Promise<void>
   setDialog(dialog: OrbitalUiState['dialog']): void
   /**
    * Takes the detached list the desktop app pushed. A selected session that
@@ -2235,10 +2272,11 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   async setSessionPinned(id, pinned) {
     const session = get().sessions[id]
     if (!session) return
-    const previous = session.pinnedAt ?? null
-    const stamp = (pinnedAt: number | null) =>
-      withViewTransition(() => set((state) => withSessionPatch(state, id, { pinnedAt })))
-    stamp(pinned ? Date.now() : null)
+    const previous = { pinnedAt: session.pinnedAt ?? null, dockedAt: session.dockedAt ?? null }
+    const stamp = (fields: Partial<ApiSession>) =>
+      withViewTransition(() => set((state) => withSessionPatch(state, id, fields)))
+    // A pin brings a docked session back, as the server's write does.
+    stamp(pinned ? { pinnedAt: Date.now(), dockedAt: null } : { pinnedAt: null })
     try {
       await api.setSessionPinned(id, pinned)
     } catch (err) {
@@ -2274,7 +2312,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     if (!session) return
     const previousStatus = session.status
     const previousPin = session.pinnedAt ?? null
+    const previousDock = session.dockedAt ?? null
     const wasPinned = previousPin != null
+    const wasDocked = previousDock != null
     const alreadyEnded = previousStatus === 'ended'
     const write = (fields: Partial<ApiSession>) => {
       const apply = () => set((state) => withSessionPatch(state, id, fields))
@@ -2282,15 +2322,15 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // unpinned session changes the map and its status dot, and the row
       // stays in its section. So the view transition is spent on the case
       // that has something to animate.
-      if (wasPinned) withViewTransition(apply)
+      if (wasPinned || wasDocked) withViewTransition(apply)
       else apply()
     }
-    write({ status: 'ended', pinnedAt: null })
+    write({ status: 'ended', pinnedAt: null, dockedAt: null })
     if (!alreadyEnded) {
       try {
         await api.endSession(id, { unpin: wasPinned })
       } catch (err) {
-        write({ status: previousStatus, pinnedAt: previousPin })
+        write({ status: previousStatus, pinnedAt: previousPin, dockedAt: previousDock })
         throw err
       }
     } else if (wasPinned) {
@@ -2315,13 +2355,17 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         run: () =>
           void (alreadyEnded
             ? get().setSessionPinned(id, true)
-            : get().reopenSession(id, wasPinned)),
+            : wasDocked
+              // One write: docking reopens on the server too, so the
+              // planet does not come back for the moment between two.
+              ? get().setSessionDocked(id, true)
+              : get().reopenSession(id, wasPinned)),
       },
     }
     set({ toast })
   },
 
-  async reopenSession(id, repin) {
+  async reopenSession(id, repin = false) {
     const session = get().sessions[id]
     if (!session) return
     const previousStatus = session.status
@@ -2337,6 +2381,53 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       return
     }
     if (repin) await get().setSessionPinned(id, true)
+  },
+
+  async setSessionDocked(id, docked) {
+    const session = get().sessions[id]
+    if (!session) return
+    // Docking an ended session reopens it: `idle`, as the server will read it.
+    // Only then is the status ours to put back on a failure — otherwise an
+    // upsert that landed meanwhile knows it better.
+    const reopens = docked && session.status === 'ended'
+    const previous: Partial<ApiSession> = {
+      pinnedAt: session.pinnedAt ?? null,
+      dockedAt: session.dockedAt ?? null,
+      ...(reopens ? { status: session.status } : {}),
+    }
+    const stamp = (fields: Partial<ApiSession>) =>
+      withViewTransition(() => set((state) => withSessionPatch(state, id, fields)))
+    stamp(
+      docked
+        ? { dockedAt: Date.now(), pinnedAt: null, ...(reopens ? { status: 'idle' as const } : {}) }
+        : { dockedAt: null },
+    )
+    try {
+      await api.setSessionDocked(id, docked)
+    } catch (err) {
+      stamp(previous)
+      const message = err instanceof Error ? err.message : 'Failed to dock the session'
+      set({ toast: { kind: 'error', message } })
+    }
+  },
+
+  async moveSession(id, to) {
+    const session = get().sessions[id]
+    if (!session) return
+    if (to === 'pinned') return get().setSessionPinned(id, true)
+    if (to === 'docked') return get().setSessionDocked(id, true)
+    // Into ACTIVE: whatever held it elsewhere lets go — the pin, the dock, the
+    // end. Each setter rolls itself back and reports a failure, so a step
+    // that did not hold stops the rest rather than leave the move half-done.
+    if (session.pinnedAt != null) {
+      await get().setSessionPinned(id, false)
+      if (get().sessions[id]?.pinnedAt != null) return
+    }
+    if (session.dockedAt != null) {
+      await get().setSessionDocked(id, false)
+      if (get().sessions[id]?.dockedAt != null) return
+    }
+    if (session.status === 'ended') await get().reopenSession(id)
   },
 
   /**
@@ -2369,6 +2460,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // The un-collapse goes through the persisting setter on purpose: the
     // click is the user opening the sidebar, same as the rail's own button.
     get().setSidebarCollapsed(false)
+    get().setSectionFolded('history', false)
     set((state) => ({
       ui: { ...state.ui, historyRevealNonce: (state.ui.historyRevealNonce ?? 0) + 1 },
     }))
@@ -2376,6 +2468,60 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   setDialog(dialog) {
     set((state) => ({ ui: { ...state.ui, dialog } }))
+  },
+
+  setSectionFolded(key, folded) {
+    const previous = get().settings.sidebar_sections_collapsed
+    const current = parseFoldedSections(get().settings)
+    if (current.includes(key) === folded) return
+    const next = JSON.stringify(folded ? [...current, key] : current.filter((k) => k !== key))
+    const write = (value: string | undefined) =>
+      set((state) => {
+        const settings = { ...state.settings }
+        if (value === undefined) delete settings.sidebar_sections_collapsed
+        else settings.sidebar_sections_collapsed = value
+        return { settings }
+      })
+    write(next)
+    api.patchSettings({ sidebar_sections_collapsed: next }).catch((err) => {
+      write(previous)
+      const message = err instanceof Error ? err.message : 'Failed to save the sidebar state'
+      set({ toast: { kind: 'error', message } })
+    })
+  },
+
+  openSessionMenu(id, x, y) {
+    set((state) => ({ ui: { ...state.ui, sessionMenu: { id, x, y } } }))
+  },
+
+  async setSessionTag(id, tagId) {
+    const session = get().sessions[id]
+    if (!session) return
+    const previousTagIds = session.tagIds
+    if (previousTagIds.length === 1 && previousTagIds[0] === tagId) return
+    const nextIds = [tagId]
+    set((state) => withSessionPatch(state, id, { tagIds: nextIds }))
+    try {
+      await api.setSessionTags(id, nextIds)
+    } catch (err) {
+      set((state) => withSessionPatch(state, id, { tagIds: previousTagIds }))
+      throw err
+    }
+  },
+
+  closeSessionMenu() {
+    set((state) => ({ ui: { ...state.ui, sessionMenu: null } }))
+  },
+
+  async requestPanelAction(id, action) {
+    await get().select(id)
+    // A detached session went to its own window, where this panel request
+    // would never be read; left pending, it would fire the next time the
+    // main panel showed the session.
+    if (get().detachedIds.includes(id)) return
+    set((state) => ({
+      ui: { ...state.ui, panelRequest: { id, action } },
+    }))
   },
 
   setDetached(ids) {
@@ -3139,7 +3285,7 @@ export const MAP_LEAVE_GRACE_MS = 2 * ENDED_HIDE_MS
  * ended pinned session lives in the sidebar's PINNED only.
  */
 export function holdsMapPlace(session: ApiSession): boolean {
-  return session.status !== 'ended'
+  return session.status !== 'ended' && session.dockedAt == null
 }
 
 /**

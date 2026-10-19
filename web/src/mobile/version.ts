@@ -19,6 +19,8 @@ export const MAC_FEATURES = {
   media: '0.26.0',
   /** New Session's missing-directory line and *Create and start*: `GET`/`POST /api/directory` (spec 2026-10-12-new-session-missing-directory-design). */
   directoryCheck: '0.29.0',
+  /** Docked sessions: `PUT /api/sessions/:id/docked` and docked grouping (spec 2026-10-19-docked-sessions-design). */
+  docked: '0.36.0',
 } as const
 
 export type MacFeature = keyof typeof MAC_FEATURES

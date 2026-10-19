@@ -59,6 +59,7 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['POST', '/api/sessions/:id/tasks/:taskId/stop', 'sessions'],
   ['GET', '/api/sessions/:id/tasks/:taskId/output', 'sessions'],
   ['PUT', '/api/sessions/:id/pinned', 'sessions'],
+  ['PUT', '/api/sessions/:id/docked', 'sessions'],
   ['PUT', '/api/sessions/:id/tags', 'sessions'],
   ['POST', '/api/sessions/:id/decision/:decisionId', 'sessions'],
   ['POST', '/api/sessions/:id/interrupt', 'sessions'],

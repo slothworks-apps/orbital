@@ -21,7 +21,7 @@ describe('remote allowlist', () => {
       ['POST', '/api/sessions/abc/decision/d1'], ['POST', '/api/sessions/abc/interrupt'],
       ['POST', '/api/sessions/abc/model'], ['POST', '/api/sessions/abc/permission-mode'],
       ['POST', '/api/sessions/abc/end'], ['POST', '/api/sessions/abc/reopen'], ['POST', '/api/sessions/abc/clear'],
-      ['PATCH', '/api/sessions/abc'], ['PUT', '/api/sessions/abc/pinned'], ['PUT', '/api/sessions/abc/tags'],
+      ['PATCH', '/api/sessions/abc'], ['PUT', '/api/sessions/abc/pinned'], ['PUT', '/api/sessions/abc/docked'], ['PUT', '/api/sessions/abc/tags'],
       ['POST', '/api/sessions/abc/tasks/t1/stop'], ['GET', '/api/sessions/abc/tasks/t1/output'],
       ['GET', '/api/tags'], ['GET', '/api/projects'], ['GET', '/api/models'], ['GET', '/api/commands'],
       ['GET', '/api/sessions/abc/walkthrough'], ['GET', '/api/sessions/abc/walkthrough/summary'],

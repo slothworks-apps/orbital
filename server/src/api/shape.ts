@@ -98,6 +98,12 @@ export interface ApiSession {
    */
   pinnedAt: number | null;
   /**
+   * When the user docked this session (epoch ms), or null. A docked session
+   * is off the map, notifies nothing and sits in the sidebar's DOCKED until
+   * the user undocks it or writes to it (spec 2026-10-19-docked-sessions-design).
+   */
+  dockedAt: number | null;
+  /**
    * When the user ended this session (epoch ms), null while it is open and
    * for every terminal session, whose end is its CLI exiting rather than a
    * stamp (spec 2026-09-24-sessions-end-only-by-hand-design § 1).
@@ -376,6 +382,7 @@ export function toApiSession(
     model: row.model, resolvedModel: row.resolved_model,
     contextUsedTokens: row.context_used_tokens,
     pinnedAt: row.pinned_at,
+    dockedAt: row.docked_at,
     endedAt: row.ended_at,
     interruptedAt: row.interrupted_at,
     tagIds: effectiveTagIds(ctx.db, row.id),

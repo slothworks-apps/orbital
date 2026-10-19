@@ -2323,6 +2323,90 @@ describe('pinned sessions', () => {
   });
 });
 
+// Docked sessions: live work put away. Spec:
+// docs/superpowers/specs/2026-10-19-docked-sessions-design.md § Server.
+describe('docked sessions', () => {
+  let app: FastifyInstance;
+  let db: ReturnType<typeof makeApp>['db'];
+  let hub: Hub;
+
+  beforeEach(() => {
+    ({ app, db, hub } = makeApp());
+    // Only Orbital's own sessions dock; the fixture's s2 starts as a terminal one.
+    db.update(sessions).set({ source: 'web' }).where(eq(sessions.id, 's2')).run();
+  });
+
+  const rowOf = (id: string) =>
+    db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
+  const dock = (id: string, docked: unknown) =>
+    app.inject({ method: 'PUT', url: `/api/sessions/${id}/docked`, payload: { docked } });
+
+  it('PUT /api/sessions/:id/docked stamps docked_at, clears pin and end, and publishes the upsert', async () => {
+    db.update(sessions).set({ pinnedAt: 5, endedAt: 6 }).where(eq(sessions.id, 's2')).run();
+    const received = subscribeFake(hub, 'sessions');
+    expect((await dock('s2', true)).statusCode).toBe(200);
+    const row = rowOf('s2');
+    expect(typeof row.docked_at).toBe('number');
+    expect(row.pinned_at).toBeNull();
+    expect(row.ended_at).toBeNull();
+    expect(received[0]).toMatchObject({ event: 'upsert', session: { id: 's2', dockedAt: row.docked_at, pinnedAt: null } });
+  });
+
+  it('docked:false clears the stamp', async () => {
+    await dock('s2', true);
+    await dock('s2', false);
+    expect(rowOf('s2').docked_at).toBeNull();
+  });
+
+  it('404s an unknown session and 400s a non-boolean body', async () => {
+    expect((await dock('nope', true)).statusCode).toBe(404);
+    const bad = await dock('s2', 'yes');
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json()).toEqual({ error: 'docked must be a boolean' });
+  });
+
+  it('refuses to dock a terminal session, and still undocks one', async () => {
+    const res = await dock('s1', true);
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: 'terminal_session' });
+    db.update(sessions).set({ dockedAt: 5 }).where(eq(sessions.id, 's1')).run();
+    expect((await dock('s1', false)).statusCode).toBe(200);
+    expect(rowOf('s1').docked_at).toBeNull();
+  });
+
+  // Put away, a docked row goes stale by last_at; it must still arrive with
+  // the first page, right after the pinned ones.
+  it('GET /api/sessions puts docked rows after pinned ones, ahead of newer rows', async () => {
+    db.insert(sessions)
+      .values({ id: 's3', projectDir: 'p', cwd: '/w/z', title: 'newest', lastAt: 300, source: 'web' })
+      .run();
+    db.update(sessions).set({ pinnedAt: 1 }).where(eq(sessions.id, 's1')).run();
+    db.update(sessions).set({ dockedAt: 2 }).where(eq(sessions.id, 's2')).run();
+    const listed = res200(await app.inject({ method: 'GET', url: '/api/sessions' }));
+    expect(listed.sessions.map((s: any) => s.id)).toEqual(['s1', 's2', 's3']);
+  });
+
+  it('pinning a docked session undocks it', async () => {
+    await dock('s2', true);
+    await app.inject({ method: 'PUT', url: '/api/sessions/s2/pinned', payload: { pinned: true } });
+    expect(rowOf('s2').docked_at).toBeNull();
+    expect(typeof rowOf('s2').pinned_at).toBe('number');
+  });
+
+  it('a delivered message undocks it', async () => {
+    await dock('s2', true);
+    await app.inject({ method: 'POST', url: '/api/sessions/s2/messages', payload: { text: 'continue' } });
+    expect(rowOf('s2').docked_at).toBeNull();
+  });
+
+  it('ending a docked session undocks it', async () => {
+    await dock('s2', true);
+    await app.inject({ method: 'POST', url: '/api/sessions/s2/end', payload: {} });
+    expect(rowOf('s2').ended_at).not.toBeNull();
+    expect(rowOf('s2').docked_at).toBeNull();
+  });
+});
+
 // The file viewer's read (spec 2026-09-19-file-viewer-design § Server). The
 // seeded sessions carry fake cwds like /w/x, so these tests add a session
 // whose cwd is a real tmpdir and put the fixtures there.

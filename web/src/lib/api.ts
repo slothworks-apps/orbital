@@ -680,6 +680,10 @@ export const api = {
     return request<{ ok: boolean }>('PUT', apiPath`/api/sessions/${id}/pinned`, { pinned })
   },
 
+  async setSessionDocked(id: string, docked: boolean): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('PUT', apiPath`/api/sessions/${id}/docked`, { docked })
+  },
+
   /** The whole index's session count — the hole's label; the list endpoint only ever returns a page. */
   async sessionCount(): Promise<number> {
     const data = await request<{ total: number }>('GET', '/api/sessions/count')

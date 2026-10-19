@@ -37,6 +37,7 @@ import { MapNoticeHost } from './ui/MapNoticeHost'
 import { useNotificationsTip } from './panels/NotificationsTip'
 import { useAppUpdateNotice } from './panels/UpdateNotice'
 import { ErrorBoundary } from './ui/ErrorBoundary'
+import { SessionContextMenu } from './panels/SessionContextMenu'
 import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
 import {
   openSettingsSection,
@@ -325,6 +326,7 @@ export default function App() {
           <Sidebar />
         </ErrorBoundary>
       </div>
+      <SessionContextMenu />
 
       {/* `right` eases on the same 420ms curve `Panel.tsx` already animates
           this panel's WIDTH on, and `SpaceMap`'s own right-anchored overlays

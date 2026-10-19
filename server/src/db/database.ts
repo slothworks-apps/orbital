@@ -67,6 +67,13 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    * the collapse feel broken. */
   sidebar_collapsed: 'false',
   /**
+   * Which sidebar sections are folded, as a JSON array of section keys
+   * (`pinned`, `active`, `docked`, `history`; spec
+   * 2026-10-19-docked-sessions-design § Sidebar sections). DOCKED starts
+   * folded — it holds what you put away — and the rest open, as before.
+   */
+  sidebar_sections_collapsed: '["docked"]',
+  /**
    * Sidebar width in CSS px, dragged via the panel's inner-edge handle — the
    * mirror of `detail_panel_width`. The export's 300px is the default and the
    * double-click reset. Clamped client-side ([280, 45% of the viewport]) —

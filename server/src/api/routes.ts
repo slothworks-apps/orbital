@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, ne, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
@@ -489,7 +489,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       // `offset: visible.length` arithmetic only stays valid while client
       // accumulation matches server order (spec
       // 2026-09-20-pinned-sessions-design § Server).
-      .orderBy(sql`${sessions.pinnedAt} IS NULL`, sessions.pinnedAt, desc(sessions.lastAt))
+      // Docked rows next, for the same reason: put away, they go stale by
+      // `last_at`, and DOCKED must not depend on HISTORY paging them in
+      // (spec 2026-10-19-docked-sessions-design § Server).
+      .orderBy(
+        sql`${sessions.pinnedAt} IS NULL`, sessions.pinnedAt,
+        sql`${sessions.dockedAt} IS NULL`, sessions.dockedAt,
+        desc(sessions.lastAt),
+      )
       .limit(limit * 4 + offset) // over-fetch, filter, then page
       .all() as SessionRow[];
     // A harness drafting conversation that has ended is gone from everywhere
@@ -1403,6 +1410,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
           id: row.id, title: row.title, cwd: row.cwd, source: row.source, status,
           alive: ctx.runner.status(row.id) !== undefined || ctx.registry.get(row.id) !== undefined,
           pinned: row.pinned_at !== null,
+          docked: row.docked_at !== null,
           lastAt: row.last_at === null ? null : new Date(row.last_at).toISOString(),
           archivedAt: row.ended_at === null ? null : new Date(row.ended_at).toISOString(),
           self: row.id === callerId,
@@ -1496,12 +1504,44 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
     const result = db
       .update(sessions)
-      .set({ pinnedAt: pinned ? Date.now() : null })
+      // A pin brings a docked session back (spec 2026-10-19-docked-sessions-design).
+      .set(pinned ? { pinnedAt: Date.now(), dockedAt: null } : { pinnedAt: null })
       .where(eq(sessions.id, id))
       .run();
     if (result.changes === 0) return reply.code(404).send({ error: 'not found' });
     const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
     ctx.hub.publish('sessions', { event: 'upsert', session: toApiSession(ctx, row) });
+    return { ok: true };
+  });
+
+  /**
+   * The dock — live work put away, off the map and out of the notifications
+   * (spec 2026-10-19-docked-sessions-design). `docked: true` stamps now and
+   * clears the pin and the end: docking an ended session reopens it, and a
+   * session is never pinned and docked at once. Only this route with `false`
+   * and a delivered message undock it.
+   */
+  app.put('/api/sessions/:id/docked', (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { docked } = (req.body ?? {}) as { docked?: unknown };
+    if (typeof docked !== 'boolean') {
+      return reply.code(400).send({ error: 'docked must be a boolean' });
+    }
+    // A terminal session is not docked: it ends when its CLI exits, which
+    // no stamp here can stop, and a docked session is never ended. Undocking
+    // stays open to every row.
+    if (docked) {
+      const row = db.select({ source: sessions.source }).from(sessions).where(eq(sessions.id, id)).get();
+      if (!row) return reply.code(404).send({ error: 'not found' });
+      if (row.source !== 'web') return reply.code(409).send({ error: 'terminal_session' });
+    }
+    const result = db
+      .update(sessions)
+      .set(docked ? { dockedAt: Date.now(), pinnedAt: null, endedAt: null } : { dockedAt: null })
+      .where(eq(sessions.id, id))
+      .run();
+    if (result.changes === 0) return reply.code(404).send({ error: 'not found' });
+    publishRow(id);
     return { ok: true };
   });
 
@@ -1745,6 +1785,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // is held and sent at the reset, in place of the continuation text (spec
     // 2026-10-03-usage-limits-design § Writing to a waiting session).
     if (ctx.limits?.queue(id, typeof text === 'string' ? text : '', attachments)) {
+      undock(id);
       return { ok: true, queued: true };
     }
     let delivery: Delivery;
@@ -1754,9 +1795,27 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       if (err instanceof RewindStopError) return reply.code(504).send({ error: 'stop_timeout', message: err.message });
       throw err;
     }
+    if (delivery.outcome === 'sent' || delivery.outcome === 'revived') undock(id);
     if (delivery.uuid) publishSentTurn(id, delivery.uuid, text, attachments);
     return deliveryReply(delivery, reply, 'session is live in a terminal');
   });
+
+  /**
+   * The user writing to a docked session takes it back up (spec
+   * 2026-10-19-docked-sessions-design § What brings it back). Here, in the
+   * user's own message route, and not in `deliverToSession`: a limit's
+   * continuation and a harness step deliver on their own, and agent activity
+   * never undocks. Only a message that was taken: a failed delivery leaves
+   * the session docked.
+   */
+  function undock(id: string): void {
+    const result = db
+      .update(sessions)
+      .set({ dockedAt: null })
+      .where(and(eq(sessions.id, id), isNotNull(sessions.dockedAt)))
+      .run();
+    if (result.changes > 0) publishRow(id);
+  }
 
   /**
    * Puts a turn the composer sent on the session's topic. The SDK does not
@@ -2090,7 +2149,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    */
   async function endSession(id: string, opts: { unpin?: boolean } = {}): Promise<void> {
     db.update(sessions)
-      .set(opts.unpin ? { endedAt: Date.now(), pinnedAt: null } : { endedAt: Date.now() })
+      .set(opts.unpin ? { endedAt: Date.now(), pinnedAt: null, dockedAt: null } : { endedAt: Date.now(), dockedAt: null })
       .where(eq(sessions.id, id))
       .run();
     // A harness with steps left pauses, "session ended in step N", ready to be

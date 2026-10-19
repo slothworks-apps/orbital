@@ -107,7 +107,7 @@ export const ROUTES: Route[] = [
       const s = server.session(params.id)
       if (!s) return undefined
       const unpin = (body as { unpin?: boolean } | undefined)?.unpin === true
-      server.upsert({ ...s, status: 'ended', endedAt: Date.now(), ...(unpin ? { pinnedAt: null } : {}) })
+      server.upsert({ ...s, status: 'ended', endedAt: Date.now(), dockedAt: null, ...(unpin ? { pinnedAt: null } : {}) })
       return { ok: true } satisfies Answer<'endSession'>
     },
   },
@@ -180,8 +180,24 @@ export const ROUTES: Route[] = [
       const s = server.session(params.id)
       if (!s) return undefined
       const pinned = (body as { pinned?: boolean } | undefined)?.pinned === true
-      server.upsert({ ...s, pinnedAt: pinned ? Date.now() : null })
+      server.upsert({ ...s, pinnedAt: pinned ? Date.now() : null, ...(pinned ? { dockedAt: null } : {}) })
       return { ok: true } satisfies Answer<'setSessionPinned'>
+    },
+  },
+  {
+    method: 'PUT',
+    path: '/api/sessions/:id/docked',
+    calledBy: 'the sidebar’s drag and the right-click menu’s Dock',
+    answer: ({ server, params, body }) => {
+      const s = server.session(params.id)
+      if (!s) return undefined
+      const docked = (body as { docked?: boolean } | undefined)?.docked === true
+      server.upsert(
+        docked
+          ? { ...s, dockedAt: Date.now(), pinnedAt: null, endedAt: null, status: s.status === 'ended' ? 'idle' : s.status }
+          : { ...s, dockedAt: null },
+      )
+      return { ok: true } satisfies Answer<'setSessionDocked'>
     },
   },
   {

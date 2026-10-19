@@ -56,6 +56,8 @@ function makeDb() {
       { id: 'old', projectDir: 'p', lastAt: NOW - 100 * DAY },
       // Old, but the user pinned it.
       { id: 'pinned', projectDir: 'p', lastAt: NOW - 100 * DAY, pinnedAt: NOW - 50 * DAY },
+      // Old, but the user docked it to come back to.
+      { id: 'docked', projectDir: 'p', lastAt: NOW - 100 * DAY, dockedAt: NOW - 50 * DAY },
       // Old, but this server still owns it.
       { id: 'owned', projectDir: 'p', lastAt: NOW - 100 * DAY, runnerStatus: 'working' },
       // Old, but never dated — there is nothing to compare.
@@ -90,10 +92,10 @@ describe('sweeping', () => {
     const db = makeDb();
     expect(countSweepable(db, null)).toBe(0);
     expect(sweepSessions(db, null, NOW)).toEqual([]);
-    expect(db.select().from(sessions).all()).toHaveLength(6);
+    expect(db.select().from(sessions).all()).toHaveLength(7);
   });
 
-  it('spares pinned, runner-owned, undated, recent and boundary sessions', () => {
+  it('spares pinned, docked, runner-owned, undated, recent and boundary sessions', () => {
     const db = makeDb();
     sweepSessions(db, cutoff, NOW);
     const left = db
@@ -102,7 +104,7 @@ describe('sweeping', () => {
       .all()
       .map((r) => r.id)
       .sort();
-    expect(left).toEqual(['boundary', 'owned', 'pinned', 'recent', 'undated']);
+    expect(left).toEqual(['boundary', 'docked', 'owned', 'pinned', 'recent', 'undated']);
   });
 
   /**

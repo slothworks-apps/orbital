@@ -642,6 +642,8 @@ export interface PlanetProps {
    * `SpaceMap`, which owns the pointer and the camera.
    */
   onBodyPointerDown?: (sessionId: string, e: ThreeEvent<PointerEvent>) => void
+  /** A right-click on the planet: the session's menu, at the pointer (spec 2026-10-19-docked-sessions-design). */
+  onContextMenu?: (sessionId: string, x: number, y: number) => void
 }
 
 /**
@@ -1497,6 +1499,7 @@ function PlanetBody({
   detached = false,
   simBody,
   onBodyPointerDown,
+  onContextMenu,
 }: PlanetProps) {
   /**
    * A compaction borrows the idle body — ticks still, no halo, no glow (26b:
@@ -2167,6 +2170,13 @@ function PlanetBody({
     onBodyPointerDown?.(session.id, event)
   }
 
+  const handleContextMenu = (event: ThreeEvent<MouseEvent>) => {
+    if (hidden || deviceOff) return
+    event.stopPropagation()
+    event.nativeEvent.preventDefault()
+    onContextMenu?.(session.id, event.nativeEvent.clientX, event.nativeEvent.clientY)
+  }
+
   const handleHoverOver = () => {
     hoverTypeElapsed.current = 0
     setLabelHovered(true)
@@ -2182,6 +2192,7 @@ function PlanetBody({
       scale={scaleTween.value * scaleMultiplier}
       onClick={onClick ? handleClick : undefined}
       onPointerDown={onBodyPointerDown ? handlePointerDown : undefined}
+      onContextMenu={onContextMenu ? handleContextMenu : undefined}
     >
       {hasGlowTexture && (
         <mesh position={[0, 0, HALO_Z]} material={materials.glow}>

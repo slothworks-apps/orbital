@@ -8,6 +8,7 @@ import { ErrorLog } from '../../../web/src/panels/ErrorLog'
 import { NewSessionDialog } from '../../../web/src/panels/NewSessionDialog'
 import { Settings } from '../../../web/src/panels/Settings'
 import { Sidebar } from '../../../web/src/panels/Sidebar'
+import { SessionContextMenu } from '../../../web/src/panels/SessionContextMenu'
 import { SubagentPanel } from '../../../web/src/panels/SubagentPanel'
 import {
   PANEL_GUTTER_PX,
@@ -81,6 +82,7 @@ export function MapDemo() {
               <Sidebar />
             </ErrorBoundary>
           </div>
+          <SessionContextMenu />
           <div
             className="absolute inset-y-4 z-10 transition-[right] duration-[420ms] ease-[cubic-bezier(.2,.8,.2,1)]"
             style={{ right: detailPanelRightPx }}
