@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { create } from 'zustand'
-import { firstReleaseNotes, releaseNotes } from '@orbital/shared/changelog'
+import { firstReleaseNotes, releaseNotes, type ReleaseNotes } from '@orbital/shared/changelog'
 import changelog from '../../../mobile/CHANGELOG.md?raw'
 import {
   endedSeenVersion, parseSeenVersion, serializeSeenVersion, whatsNewHead, whatsNewOnLaunch, type SeenVersion,
@@ -31,6 +31,13 @@ const appVersion = (): string => __MOBILE_VERSION__
 interface PhoneWhatsNewState {
   /** This launch's decision: undefined until read, then whether it is due and since when. */
   launch: { version: string; due: boolean; installedAt: number } | undefined
+}
+
+/** The running version's notes, parsed once: `notesFor` keeps the last answer. */
+let parsed: { version: string; notes: ReleaseNotes | null } | undefined
+function notesFor(version: string): ReleaseNotes | null {
+  if (parsed?.version !== version) parsed = { version, notes: releaseNotes(changelog, version) }
+  return parsed.notes
 }
 
 const usePhoneWhatsNewState = create<PhoneWhatsNewState>()(() => ({ launch: undefined }))
@@ -66,7 +73,7 @@ export async function decideWhatsNew(usedBefore: boolean): Promise<void> {
   const launch = whatsNewOnLaunch({
     stored: parseSeenVersion(stored, usedBefore),
     version,
-    hasNotes: releaseNotes(changelog, version) !== null,
+    hasNotes: notesFor(version) !== null,
     now: Date.now(),
   })
   usePhoneWhatsNewState.setState({ launch: { version, due: launch.show, installedAt: launch.installedAt } })
@@ -92,7 +99,7 @@ export function showPhoneWhatsNewDemo(): void {
 function WhatsNewNotice({ close }: { close: () => void }) {
   const launch = usePhoneWhatsNewState((s) => s.launch)
   const [open, setOpen] = useState(false)
-  const notes = launch ? releaseNotes(changelog, launch.version) : null
+  const notes = launch ? notesFor(launch.version) : null
   if (!launch || !notes) return null
 
   // × on the toast, or the sheet closed by Done, ×, the backdrop or back:
