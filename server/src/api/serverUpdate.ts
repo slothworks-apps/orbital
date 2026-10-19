@@ -41,7 +41,9 @@ export function registerServerUpdateRoutes(app: FastifyInstance, updates: Update
   app.get('/api/server/update', () => updates.state());
 
   app.post('/api/server/update', (req, reply) => {
-    const answer = updates.start(updateAsker(req.headers[DEVICE_HEADER], dir));
+    const device = req.headers[DEVICE_HEADER];
+    const fromPeer = typeof device === 'string' && device !== '';
+    const answer = updates.start(updateAsker(device, dir), { fromPeer });
     if (!answer.ok) return reply.code(answer.status).send({ error: answer.error });
     return reply.code(202).send(answer.state);
   });

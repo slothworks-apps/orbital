@@ -18,7 +18,8 @@ import { execFile } from 'node:child_process';
 import { closeSync, constants, lstatSync, openSync, readFileSync, statSync, unlinkSync, writeSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import {
-  isUpdateVersion, parseMainMessage, type MainUpdateStateMessage, type UpdateEndReason,
+  STARTED_BY_ID_MAX_CHARS, STARTED_BY_NAME_MAX_CHARS, isUpdateVersion, parseMainMessage, type MainUpdateStateMessage,
+  type ServerUpdateMessage, type UpdateAsker, type UpdateEndReason,
 } from '@orbital/shared/remote/serverUpdate';
 import { parseAptPolicy } from './aptPolicy.js';
 
@@ -63,8 +64,13 @@ export interface UpdateBackend {
   readonly kind: BackendKind;
   /** The installed version and the one an update would install, as last known; installed null when not known. */
   versions(): { installed: string | null; candidate: string | null };
-  /** Ask for the update. `not_set_up`: a headless server whose request directory is missing. */
-  request(): 'ok' | 'not_set_up';
+  /**
+   * Ask for the update. `by`: the member that asked through its channel,
+   * null for a request made on this device; only the desktop's updater uses
+   * it, to name that member on its prompt. `not_set_up`: a headless server
+   * whose request directory is missing.
+   */
+  request(by: UpdateAsker | null): 'ok' | 'not_set_up';
   /** The service gave up on the request: nothing may install by itself on its account any more. */
   cancel(): void;
   /** Called with the progress every time the backend hears of it. */
@@ -278,8 +284,9 @@ export class DesktopUpdateBackend implements UpdateBackend {
     return { installed: this.latest?.installed ?? null, candidate: this.latest?.available ?? null };
   }
 
-  request(): 'ok' {
-    this.port.postMessage({ t: 'update_start' });
+  request(by: UpdateAsker | null): 'ok' {
+    const message: ServerUpdateMessage = { t: 'update_start', by: by && askerForMain(by) };
+    this.port.postMessage(message);
     return 'ok';
   }
 
@@ -294,4 +301,16 @@ export class DesktopUpdateBackend implements UpdateBackend {
   stop(): void {
     this.port.removeListener('message', this.listener);
   }
+}
+
+/**
+ * The asker as main takes it (`ServerUpdateMessage`): main refuses a name
+ * that is empty or too long, and with it the whole start, so it is cut here
+ * and an empty one goes by the start of the id, as the roster names an
+ * undescribed member.
+ */
+export function askerForMain(by: UpdateAsker): UpdateAsker {
+  const id = by.id.slice(0, STARTED_BY_ID_MAX_CHARS);
+  const name = (by.name.trim() === '' ? id.slice(0, 8) : by.name).slice(0, STARTED_BY_NAME_MAX_CHARS);
+  return { id, name };
 }

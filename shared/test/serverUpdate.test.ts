@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  SERVER_UPDATE_VERSION, UPDATE_POLL_MS, UPDATE_TIMEOUT_MS, parseMainMessage, parseServerMessage, parseServerUpdateState,
+  SERVER_UPDATE_VERSION, STARTED_BY_NAME_MAX_CHARS, UPDATE_POLL_MS, UPDATE_TIMEOUT_MS, parseMainMessage, parseServerMessage, parseServerUpdateState,
   memberServesUpdate, servesServerUpdate, updateIsNewer, updatePollDelay, watchUpdate, watchVerdict, type ServerUpdateState,
 } from '../src/remote/serverUpdate.js';
 
@@ -72,7 +72,9 @@ describe('main ↔ server messages', () => {
     const msg = { t: 'update_state', installed: '0.35.0', available: '0.36.0', downloading: true, downloaded: false };
     expect(parseMainMessage(msg)).toEqual(msg);
     expect(parseMainMessage({ ...msg, available: null })).not.toBeNull();
-    expect(parseServerMessage({ t: 'update_start' })).toEqual({ t: 'update_start' });
+    expect(parseServerMessage({ t: 'update_start', by: null })).toEqual({ t: 'update_start', by: null });
+    const by = { id: 'p1', name: 'Pixel 8' };
+    expect(parseServerMessage({ t: 'update_start', by })).toEqual({ t: 'update_start', by });
     expect(parseServerMessage({ t: 'update_cancel' })).toEqual({ t: 'update_cancel' });
     expect(parseMainMessage({ t: 'update_ended', reason: 'sessions' })).toEqual({ t: 'update_ended', reason: 'sessions' });
     expect(parseMainMessage({ t: 'update_ended', reason: 'restart' })).not.toBeNull();
@@ -87,7 +89,15 @@ describe('main ↔ server messages', () => {
     expect(parseMainMessage({ t: 'update_start' })).toBeNull();
     expect(parseMainMessage({ t: 'update_ended' })).toBeNull();
     expect(parseMainMessage({ t: 'update_ended', reason: 'bored' })).toBeNull();
-    expect(parseServerMessage({ t: 'update_start', version: '9.9.9' })).toBeNull();
+    expect(parseServerMessage({ t: 'update_start', by: null, version: '9.9.9' })).toBeNull();
+    // Who asked is said, null or a member, and nothing else rides along with it.
+    expect(parseServerMessage({ t: 'update_start' })).toBeNull();
+    expect(parseServerMessage({ t: 'update_start', by: { id: 'p1' } })).toBeNull();
+    expect(parseServerMessage({ t: 'update_start', by: { id: 'p1', name: '' } })).toBeNull();
+    expect(parseServerMessage({ t: 'update_start', by: { id: '', name: 'Pixel 8' } })).toBeNull();
+    expect(parseServerMessage({ t: 'update_start', by: { id: 'p1', name: 'x'.repeat(STARTED_BY_NAME_MAX_CHARS + 1) } })).toBeNull();
+    expect(parseServerMessage({ t: 'update_start', by: { id: 'p1', name: 'Pixel 8', url: 'https://example.com' } })).toBeNull();
+    expect(parseServerMessage({ t: 'update_start', by: 'Pixel 8' })).toBeNull();
     expect(parseServerMessage({ t: 'update_cancel', url: 'https://example.com' })).toBeNull();
     expect(parseServerMessage({ t: 'update_restart' })).toBeNull();
     expect(parseServerMessage(msg)).toBeNull();

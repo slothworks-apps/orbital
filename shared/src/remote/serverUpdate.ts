@@ -191,7 +191,10 @@ export const UPDATE_KEEPALIVE_MS = 60_000;
  * Server → main:
  *
  * - `update_start` — start the update a member asked for: download it when
- *   it is not downloaded, then install it and relaunch;
+ *   it is not downloaded, then install it and relaunch. `by` is the member
+ *   that asked through its channel, which the Mac names on its prompt
+ *   (canvas 50v); null for a request made on this Mac (its web, the CLI),
+ *   which shows as the Mac's own update;
  * - `update_cancel` — the server gave up waiting (`UPDATE_TIMEOUT_MS`) and
  *   told the members it failed: a download still running must not install
  *   by itself when it lands; it prompts on this Mac as any download does.
@@ -200,7 +203,13 @@ export const UPDATE_KEEPALIVE_MS = 60_000;
  * and verified.
  */
 export const ServerUpdateMessage = z.discriminatedUnion('t', [
-  z.object({ t: z.literal('update_start') }).strict(),
+  z.object({
+    t: z.literal('update_start'),
+    by: z.object({
+      id: z.string().min(1).max(STARTED_BY_ID_MAX_CHARS),
+      name: z.string().min(1).max(STARTED_BY_NAME_MAX_CHARS),
+    }).strict().nullable(),
+  }).strict(),
   z.object({ t: z.literal('update_cancel') }).strict(),
 ]);
 export type ServerUpdateMessage = z.infer<typeof ServerUpdateMessage>;

@@ -14,6 +14,7 @@ import { deviceId } from '@orbital/shared/remote/keys';
 import { loadOrCreateIdentity } from '../src/remote/identity.js';
 import BetterSqlite3 from 'better-sqlite3';
 import { makeTmpDir } from './tmp.js';
+import { STARTED_BY_NAME_MAX_CHARS, parseServerMessage, type UpdateAsker } from '@orbital/shared/remote/serverUpdate';
 
 const NEWER = `orbital:
   Installed: 0.35.0
@@ -158,7 +159,7 @@ class FakePort implements ParentPort {
 }
 
 describe('DesktopUpdateBackend', () => {
-  it('takes main\'s state, ignores anything malformed, and asks main with a bare update_start', () => {
+  it('takes main\'s state, ignores anything malformed, and asks main with update_start naming the peer', () => {
     const port = new FakePort();
     const desktop = new DesktopUpdateBackend(port);
     expect(desktop.versions()).toEqual({ installed: null, candidate: null });
@@ -166,11 +167,28 @@ describe('DesktopUpdateBackend', () => {
     port.emit({ t: 'update_state', installed: '0.35.0', available: 'https://evil', downloading: false, downloaded: false });
     port.emit('garbage');
     expect(desktop.versions()).toEqual({ installed: '0.35.0', candidate: '0.36.0' });
-    expect(desktop.request()).toBe('ok');
+    expect(desktop.request(null)).toBe('ok');
     desktop.cancel();
-    expect(port.sent).toEqual([{ t: 'update_start' }, { t: 'update_cancel' }]);
+    desktop.request({ id: 'p1', name: 'Pixel 8' });
+    expect(port.sent).toEqual([
+      { t: 'update_start', by: null }, { t: 'update_cancel' }, { t: 'update_start', by: { id: 'p1', name: 'Pixel 8' } },
+    ]);
+    // Every start it sends is one main takes.
+    for (const sent of port.sent) expect(parseServerMessage(sent)).toEqual(sent);
     desktop.stop();
     expect(port.listeners.size).toBe(0);
+  });
+
+  it('names the peer so main takes it: a long name cut, an empty one by the start of its id', () => {
+    const port = new FakePort();
+    const desktop = new DesktopUpdateBackend(port);
+    desktop.request({ id: 'abcdefghijkl', name: 'x'.repeat(STARTED_BY_NAME_MAX_CHARS + 20) });
+    desktop.request({ id: 'abcdefghijkl', name: '  ' });
+    expect(port.sent).toEqual([
+      { t: 'update_start', by: { id: 'abcdefghijkl', name: 'x'.repeat(STARTED_BY_NAME_MAX_CHARS) } },
+      { t: 'update_start', by: { id: 'abcdefghijkl', name: 'abcdefgh' } },
+    ]);
+    for (const sent of port.sent) expect(parseServerMessage(sent)).toEqual(sent);
   });
 
   it('reports main\'s progress with every valid state', () => {
@@ -195,14 +213,14 @@ describe('DesktopUpdateBackend', () => {
 function fakeBackend(over: Partial<{ kind: UpdateBackend['kind']; installed: string | null; candidate: string | null; answer: 'ok' | 'not_set_up' }> = {}) {
   const b = {
     kind: 'apt' as UpdateBackend['kind'], installed: '0.35.0' as string | null, candidate: '0.36.0' as string | null,
-    answer: 'ok' as 'ok' | 'not_set_up', requests: 0, cancels: 0, stopped: false,
+    answer: 'ok' as 'ok' | 'not_set_up', requests: 0, cancels: 0, stopped: false, askedBy: [] as (UpdateAsker | null)[],
     progress: (_p: UpdateProgress) => {},
     ...over,
   };
   const backend: UpdateBackend = {
     get kind() { return b.kind; },
     versions: () => ({ installed: b.installed, candidate: b.candidate }),
-    request: () => { b.requests++; return b.answer; },
+    request: (by) => { b.requests++; b.askedBy.push(by); return b.answer; },
     cancel: () => { b.cancels++; },
     onProgress: (l) => { b.progress = l; },
     stop: () => { b.stopped = true; },
@@ -419,11 +437,14 @@ describe('/api/server/update', () => {
     const dataDir = makeTmpDir('update-asker');
     const self = deviceId(loadOrCreateIdentity(dataDir).identity.publicKey);
     const claudeDir = makeTmpDir('update-asker-claude');
-    let app = await server(fakeBackend().backend, dataDir, claudeDir);
+    const first = fakeBackend();
+    let app = await server(first.backend, dataDir, claudeDir);
     try {
       await app.inject({ method: 'PATCH', url: '/api/settings', payload: { remote_mac_name: 'nuc' } });
       const local = await app.inject({ method: 'POST', url: '/api/server/update' });
       expect(local.json()).toMatchObject({ updating: true, startedBy: { id: self, name: 'nuc' } });
+      // Made on this device: the backend is not told of anyone, so a Mac shows its own update.
+      expect(first.b.askedBy).toEqual([null]);
       expect((await app.inject({ method: 'GET', url: '/api/server/update' })).json().startedBy).toEqual({ id: self, name: 'nuc' });
     } finally {
       await app.close();
@@ -431,7 +452,8 @@ describe('/api/server/update', () => {
     expect(readMarker(join(dataDir, UPDATE_MARKER_FILE))).toMatchObject({ to: '0.36.0' });
 
     // Restarted on the same version: the update failed, and it names no one any more.
-    app = await server(fakeBackend().backend, dataDir, claudeDir);
+    const second = fakeBackend();
+    app = await server(second.backend, dataDir, claudeDir);
     try {
       const after = (await app.inject({ method: 'GET', url: '/api/server/update' })).json();
       expect(after).toMatchObject({ updating: false, failed: '0.36.0', startedBy: null });
@@ -445,6 +467,7 @@ describe('/api/server/update', () => {
       });
       expect(viaPeer.statusCode).toBe(202);
       expect(viaPeer.json().startedBy).toEqual({ id: 'p1', name: 'Pixel 8' });
+      expect(second.b.askedBy).toEqual([{ id: 'p1', name: 'Pixel 8' }]);
     } finally {
       await app.close();
     }

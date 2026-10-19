@@ -102,15 +102,17 @@ export class UpdateService {
   /**
    * `POST /api/server/update`. Takes nothing from the request itself:
    * `startedBy` is the member the route knows asked (the channel's peer, or
-   * this device), shown to the others while it updates.
+   * this device), shown to the others while it updates. `fromPeer`: it came
+   * through a member's channel, so the backend is told who (a Mac names it
+   * on its prompt); a request made on this device is its own update there.
    */
-  start(startedBy: UpdateAsker | null = null): StartAnswer {
+  start(startedBy: UpdateAsker | null = null, { fromPeer = false }: { fromPeer?: boolean } = {}): StartAnswer {
     const refuse = (error: ServerUpdateRefusal): StartAnswer => ({ ok: false, error, status: SERVER_UPDATE_REFUSALS[error] });
     if (this.opts.backend.kind === 'none') return refuse('not_packaged');
     if (this.updating) return refuse('updating');
     const before = this.state();
     if (!updateIsNewer(before.installed, before.candidate)) return refuse('no_update');
-    if (this.opts.backend.request() === 'not_set_up') return refuse('not_set_up');
+    if (this.opts.backend.request(fromPeer ? startedBy : null) === 'not_set_up') return refuse('not_set_up');
     this.updating = true;
     this.failed = null;
     this.failedReason = null;
