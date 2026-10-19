@@ -5,9 +5,10 @@
 import { createInterface, type Interface } from 'node:readline';
 
 /**
- * `s` with every C0 and C1 control character and DEL taken out, and the
- * Unicode controls that reorder or break a line (bidi embeddings, overrides
- * and isolates, LRM/RLM, the line and paragraph separators). Names, OS
+ * `s` with every C0 and C1 control character and DEL taken out, every
+ * Unicode format character (`Cf`: bidi embeddings, overrides and isolates,
+ * LRM/RLM, zero-width characters and the like) and the line and paragraph
+ * separators. Names, OS
  * words and codes come from other devices, and an escape sequence in one
  * would move the cursor, recolour or retitle the terminal, or forge a line;
  * a bidi override would make one read as something else.
@@ -16,7 +17,7 @@ import { createInterface, type Interface } from 'node:readline';
  */
 export function printable(s: string): string {
   // eslint-disable-next-line no-control-regex
-  return s.replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, '');
+  return s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\p{Cf}]/gu, '');
 }
 
 /** What `ask` answers when its deadline passed before a line came. */

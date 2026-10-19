@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CliError, NotRunning, httpCall } from '../src/cli/client.js';
-import { checkListener, listenerOwner, listenerUids, type ListenerOwner } from '../src/cli/listener.js';
+import { createServer } from 'node:net';
+import {
+  checkListener, listenerOwner, listenerUids, portTakesConnection, type ListenerOwner,
+} from '../src/cli/listener.js';
 
 /**
  * Who listens on the port before the CLI sends its token (`listener.ts`).
@@ -95,6 +98,14 @@ describe('checkListener', () => {
     })).resolves.toEqual({ kind: 'own' });
   });
 
+  it('tables that list no listener: asks the port, without a token — refused is not running, taken is unverifiable', async () => {
+    const empty = tables({ '/proc/net/tcp': HEAD, '/proc/net/tcp6': HEAD6 });
+    await expect(checkListener(PORT, { platform: 'linux', uid: 1000, read: empty, connects: async () => false }))
+      .resolves.toEqual({ kind: 'none' });
+    await expect(checkListener(PORT, { platform: 'linux', uid: 1000, read: empty, connects: async () => true }))
+      .resolves.toEqual({ kind: 'unverifiable' });
+  });
+
   it('is unknown when /proc/net/tcp cannot be read', async () => {
     await expect(checkListener(PORT, { platform: 'linux', uid: 1000, read: tables({}) })).resolves.toEqual({ kind: 'unknown' });
   });
@@ -121,5 +132,16 @@ describe('httpCall', () => {
     const blind = httpCall(PORT, 'secret', fetchFn, async () => ({ kind: 'unverifiable' }));
     await expect(blind('GET', '/api/remote')).rejects.toThrow(`Can't verify who listens on port ${PORT} on this system`);
     expect(fetchFn).not.toHaveBeenCalled();
+  });
+});
+
+describe('portTakesConnection', () => {
+  it('is true for a port something listens on, false once it is gone', async () => {
+    const server = createServer((socket) => socket.destroy());
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as { port: number };
+    await expect(portTakesConnection(port)).resolves.toBe(true);
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await expect(portTakesConnection(port)).resolves.toBe(false);
   });
 });

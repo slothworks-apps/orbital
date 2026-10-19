@@ -9,6 +9,7 @@
  * is, and one whose tables cannot be read, or list nothing, gets no token.
  */
 import { readFile } from 'node:fs/promises';
+import { connect } from 'node:net';
 
 /** `st` of a socket in LISTEN, as the tables print it. */
 const LISTEN = '0A';
@@ -77,11 +78,19 @@ const TABLES = ['/proc/net/tcp', '/proc/net/tcp6'];
 /**
  * The owner of `port` on this machine; always `own` on a Mac, which the CLI
  * does not check (see above). Anywhere else `tcp6` may be missing (IPv6
- * off); `tcp` may not, nor a uid for this process.
+ * off); `tcp` may not, nor a uid for this process. Tables that list no
+ * listener at all are asked no further, but the port is: a connection
+ * refused is plainly `none` (Orbital is not running), one taken is
+ * `unverifiable` — someone listens, and who cannot be told.
  */
 export async function checkListener(
   port: number,
-  o: { platform?: NodeJS.Platform; uid?: number; read?: (path: string) => Promise<string> } = {},
+  o: {
+    platform?: NodeJS.Platform;
+    uid?: number;
+    read?: (path: string) => Promise<string>;
+    connects?: (port: number) => Promise<boolean>;
+  } = {},
 ): Promise<ListenerOwner> {
   const platform = o.platform ?? process.platform;
   const uid = o.uid ?? process.getuid?.();
@@ -95,7 +104,30 @@ export async function checkListener(
     return { kind: 'unknown' };
   }
   const v6 = await read(TABLES[1]).catch(() => '');
-  return listenerOwner([v4, v6], port, uid);
+  const owner = listenerOwner([v4, v6], port, uid);
+  if (owner.kind !== 'unverifiable') return owner;
+  return (await (o.connects ?? portTakesConnection)(port)) ? owner : { kind: 'none' };
+}
+
+/** How long the token-free connect may take before it counts as taken: something may be there. */
+const CONNECT_PROBE_MS = 2_000;
+
+/**
+ * Whether something accepts a TCP connection on `127.0.0.1:<port>`. Nothing
+ * is sent: the socket closes as soon as it opens. Refused (or any error) is
+ * false; a connect that neither opens nor fails in time is true.
+ */
+export function portTakesConnection(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect({ host: '127.0.0.1', port });
+    const done = (taken: boolean) => {
+      socket.destroy();
+      resolve(taken);
+    };
+    socket.setTimeout(CONNECT_PROBE_MS, () => done(true));
+    socket.once('connect', () => done(true));
+    socket.once('error', () => done(false));
+  });
 }
 
 /** Why the token was not sent, for an owner that is neither this user's nor nobody. */
