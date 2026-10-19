@@ -1,9 +1,12 @@
 /**
  * The CLI's one way to the server: the routes the web UI uses, over
  * `http://127.0.0.1:<port>` with the API token as a bearer (spec
- * 2026-10-19-headless-server-design § The CLI). `main` makes a call only
- * once the listener on the port is known to be this user's (`listener.ts`).
+ * 2026-10-19-headless-server-design § The CLI). Every request checks first
+ * that the listener on the port is this user's (`listener.ts`): the token
+ * goes to no one else, even if Orbital stops and another process takes the
+ * port between two requests.
  */
+import { checkListener, listenerRefusalLine, type ListenerOwner } from './listener.js';
 
 export type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
@@ -27,8 +30,16 @@ export class CliError extends Error {}
  */
 const CALL_TIMEOUT_MS = 60_000;
 
-export function httpCall(port: number, token: string, fetchFn: typeof fetch = fetch): Call {
+export function httpCall(
+  port: number,
+  token: string,
+  fetchFn: typeof fetch = fetch,
+  owner: () => Promise<ListenerOwner> = () => checkListener(port),
+): Call {
   return async (method, path, body) => {
+    const held = await owner();
+    if (held.kind === 'none') throw new NotRunning();
+    if (held.kind !== 'own') throw new CliError(listenerRefusalLine(port, held));
     let res: Response;
     try {
       res = await fetchFn(`http://127.0.0.1:${port}${path}`, {

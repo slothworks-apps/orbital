@@ -5,7 +5,8 @@
  * Linux the kernel's socket tables (`/proc/net/tcp`, `/proc/net/tcp6`) say
  * which uid owns each listening socket. A Mac has no `/proc`, and there the
  * desktop app, on a machine with one user, is the threat model: the CLI
- * sends the token as it always did.
+ * sends the token as it always did. Every other system is checked as Linux
+ * is, and one whose tables cannot be read, or list nothing, gets no token.
  */
 import { readFile } from 'node:fs/promises';
 
@@ -43,14 +44,28 @@ export function listenerUids(table: string, port: number): number[] {
   return uids;
 }
 
+/** How many sockets of any port a table lists as listening. */
+function listening(table: string): number {
+  let n = 0;
+  for (const line of table.split('\n')) {
+    const cols = line.trim().split(/\s+/);
+    if (cols.length >= 8 && /^\d+:$/.test(cols[0]) && cols[3].toUpperCase() === LISTEN) n++;
+  }
+  return n;
+}
+
 /**
  * Who holds the port: `own` when every listener reachable at 127.0.0.1 is
- * this user's, `none` when nothing listens, `other` with the first foreign
- * uid, `unknown` when the tables could not be read.
+ * this user's, `none` when nothing listens on it, `other` with the first
+ * foreign uid, `unknown` when the tables could not be read, `unverifiable`
+ * when they read but list no listening socket at all — a system (WSL1,
+ * gVisor) whose tables do not show its sockets, where `none` would be a lie.
  */
-export type ListenerOwner = { kind: 'own' } | { kind: 'none' } | { kind: 'other'; uid: number } | { kind: 'unknown' };
+export type ListenerOwner =
+  | { kind: 'own' } | { kind: 'none' } | { kind: 'other'; uid: number } | { kind: 'unknown' } | { kind: 'unverifiable' };
 
 export function listenerOwner(tables: readonly string[], port: number, uid: number): ListenerOwner {
+  if (tables.every((t) => listening(t) === 0)) return { kind: 'unverifiable' };
   const uids = tables.flatMap((t) => listenerUids(t, port));
   if (uids.length === 0) return { kind: 'none' };
   const other = uids.find((u) => u !== uid);
@@ -60,8 +75,9 @@ export function listenerOwner(tables: readonly string[], port: number, uid: numb
 const TABLES = ['/proc/net/tcp', '/proc/net/tcp6'];
 
 /**
- * The owner of `port` on this machine; always `own` off Linux, where the CLI
- * does not check (see above). `tcp6` may be missing (IPv6 off); `tcp` may not.
+ * The owner of `port` on this machine; always `own` on a Mac, which the CLI
+ * does not check (see above). Anywhere else `tcp6` may be missing (IPv6
+ * off); `tcp` may not, nor a uid for this process.
  */
 export async function checkListener(
   port: number,
@@ -69,7 +85,8 @@ export async function checkListener(
 ): Promise<ListenerOwner> {
   const platform = o.platform ?? process.platform;
   const uid = o.uid ?? process.getuid?.();
-  if (platform !== 'linux' || uid === undefined) return { kind: 'own' };
+  if (platform === 'darwin') return { kind: 'own' };
+  if (uid === undefined) return { kind: 'unknown' };
   const read = o.read ?? ((path: string) => readFile(path, 'utf8'));
   let v4: string;
   try {
@@ -81,12 +98,14 @@ export async function checkListener(
   return listenerOwner([v4, v6], port, uid);
 }
 
-/** Refusing to send the token: who holds the port instead. */
-export function foreignListenerLine(port: number, uid: number): string {
-  return `Another user's process (uid ${uid}) is listening on port ${port}, not your Orbital. The token was not sent.`;
-}
-
-/** The tables could not be read, so the owner of the port is not known. */
-export function unknownListenerLine(port: number): string {
-  return `Could not tell whose process listens on port ${port} (${TABLES[0]} unreadable). The token was not sent.`;
+/** Why the token was not sent, for an owner that is neither this user's nor nobody. */
+export function listenerRefusalLine(port: number, owner: Exclude<ListenerOwner, { kind: 'own' | 'none' }>): string {
+  switch (owner.kind) {
+    case 'other':
+      return `Another user's process (uid ${owner.uid}) is listening on port ${port}, not your Orbital. The token was not sent.`;
+    case 'unknown':
+      return `Could not tell whose process listens on port ${port} (${TABLES[0]} unreadable). The token was not sent.`;
+    case 'unverifiable':
+      return `Can't verify who listens on port ${port} on this system. The token was not sent.`;
+  }
 }

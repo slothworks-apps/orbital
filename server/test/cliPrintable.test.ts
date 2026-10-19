@@ -13,6 +13,11 @@ describe('printable', () => {
     expect(printable('Pixel\r\nOrbital is not running.\t\u0000\u007f')).toBe('PixelOrbital is not running.');
   });
 
+  it('takes out bidi overrides and isolates, LRM/RLM and the Unicode line separators', () => {
+    expect(printable('nuc\u202eexe.txt\u202c')).toBe('nucexe.txt');
+    expect(printable('a\u2066b\u2069c\u200e\u200fd\u2028e\u2029f\u202ag\u202bh\u202di\u2067\u2068')).toBe('abcdefghi');
+  });
+
   it('keeps every printable character, accents, arrows and emoji included', () => {
     const s = 'Tomášův Mac · update didn’t finish → 0.36.0 🚀';
     expect(printable(s)).toBe(s);

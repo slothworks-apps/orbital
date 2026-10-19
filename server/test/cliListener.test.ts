@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { checkListener, listenerOwner, listenerUids } from '../src/cli/listener.js';
+import { describe, expect, it, vi } from 'vitest';
+import { CliError, NotRunning, httpCall } from '../src/cli/client.js';
+import { checkListener, listenerOwner, listenerUids, type ListenerOwner } from '../src/cli/listener.js';
 
 /**
  * Who listens on the port before the CLI sends its token (`listener.ts`).
@@ -55,8 +56,15 @@ describe('listenerOwner', () => {
     expect(listenerOwner(both, PORT, 1000)).toEqual({ kind: 'other', uid: 0 });
   });
 
-  it('is none when nothing listens', () => {
-    expect(listenerOwner([HEAD, HEAD6], PORT, 1000)).toEqual({ kind: 'none' });
+  it('is none when nothing listens on the port, while other sockets listen', () => {
+    const ssh = [HEAD, row(0, '00000000:0016', '0A', 0)].join('\n');
+    expect(listenerOwner([ssh, HEAD6], PORT, 1000)).toEqual({ kind: 'none' });
+  });
+
+  it('is unverifiable when the tables read but list no listening socket at all (WSL1, gVisor)', () => {
+    expect(listenerOwner([HEAD, HEAD6], PORT, 1000)).toEqual({ kind: 'unverifiable' });
+    expect(listenerOwner([[HEAD, row(0, '0100007F:128B', '01', 1000)].join('\n'), ''], PORT, 1000))
+      .toEqual({ kind: 'unverifiable' });
   });
 });
 
@@ -66,8 +74,15 @@ describe('checkListener', () => {
     return files[path];
   };
 
-  it('does not look off Linux', async () => {
+  it('does not look on a Mac', async () => {
     await expect(checkListener(PORT, { platform: 'darwin', uid: 501, read: tables({}) })).resolves.toEqual({ kind: 'own' });
+  });
+
+  it('looks on any other system, and refuses one without the tables', async () => {
+    const tcp = [HEAD, row(0, '0100007F:128B', '0A', 1000)].join('\n');
+    await expect(checkListener(PORT, { platform: 'freebsd', uid: 1000, read: tables({ '/proc/net/tcp': tcp }) }))
+      .resolves.toEqual({ kind: 'own' });
+    await expect(checkListener(PORT, { platform: 'freebsd', uid: 1000, read: tables({}) })).resolves.toEqual({ kind: 'unknown' });
   });
 
   it('reads both tables on Linux, and goes on without tcp6', async () => {
@@ -82,5 +97,29 @@ describe('checkListener', () => {
 
   it('is unknown when /proc/net/tcp cannot be read', async () => {
     await expect(checkListener(PORT, { platform: 'linux', uid: 1000, read: tables({}) })).resolves.toEqual({ kind: 'unknown' });
+  });
+});
+
+describe('httpCall', () => {
+  const answer = () => vi.fn(async () => new Response('{"ok":true}', { status: 200 }));
+
+  it('checks the listener before every request, and sends the token only to this user\'s', async () => {
+    const fetchFn = answer();
+    const owners: ListenerOwner[] = [{ kind: 'own' }, { kind: 'other', uid: 1001 }];
+    const owner = vi.fn(async () => owners.shift()!);
+    const call = httpCall(PORT, 'secret', fetchFn, owner);
+    await expect(call('GET', '/api/remote')).resolves.toMatchObject({ status: 200 });
+    await expect(call('GET', '/api/remote')).rejects.toThrow(CliError);
+    expect(owner).toHaveBeenCalledTimes(2);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads nothing listening as not running, and an unverifiable system as a refusal', async () => {
+    const fetchFn = answer();
+    const none = httpCall(PORT, 'secret', fetchFn, async () => ({ kind: 'none' }));
+    await expect(none('GET', '/api/remote')).rejects.toBeInstanceOf(NotRunning);
+    const blind = httpCall(PORT, 'secret', fetchFn, async () => ({ kind: 'unverifiable' }));
+    await expect(blind('GET', '/api/remote')).rejects.toThrow(`Can't verify who listens on port ${PORT} on this system`);
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 });
