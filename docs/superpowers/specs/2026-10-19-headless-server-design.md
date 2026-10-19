@@ -1,6 +1,6 @@
 ---
 id: 2026-10-19-headless-server-design
-title: Orbital on an Ubuntu server — a .deb, a systemd service, a terminal CLI and updates from the group
+title: Orbital on an Ubuntu server — a .deb, a systemd service, a terminal CLI, and updating any member from the group
 status: draft
 type: spec
 domain: remote
@@ -46,7 +46,8 @@ started from the Mac or the phone.
    `shared/src/remote/device.ts` and `serverDeviceKind`).
 6. Any member of the group (Mac or phone) sees that the server has a newer
    version available and can start the update. The server installs it and
-   comes back.
+   comes back. The same works for a Mac: the phone, or another Mac, can
+   update it.
 7. The Linux fixes from § 11 of the group spec.
 
 ## Non-goals
@@ -232,6 +233,30 @@ preferences file that pins `orbital` to the repository's origin, so an
 `orbital` from any other source never wins. Before the first release,
 check that no package named `orbital` exists in Ubuntu's archives.
 
+**A Mac, too.** The same routes and the same row serve a Mac. On a Mac,
+the work goes to the desktop's existing updater
+(`electron-updater`, `startUpdates`/`applyUpdateStep` in
+`desktop/src/main.ts`), which already checks GitHub Releases every
+`UPDATE_CHECK_INTERVAL_MS`:
+- The main process and its forked server get a message channel
+  (Electron's `utilityProcess` `postMessage` / `process.parentPort`).
+  Today they have none. Main tells the server the update state it already
+  tracks: installed, available version, and downloading/downloaded. The
+  server asks main to start an update.
+- On a Mac, `GET /api/server/update` reports that state. `packaged` is
+  true when the server runs under the desktop app. A dev server, or a
+  server with no parent, reports `not_packaged`.
+- `POST /api/server/update` on a Mac asks main to download the update
+  and, once downloaded, to install it and relaunch (`quitAndInstall`). This
+  is the same step a click on Restart in Settings → Updates takes. Only a
+  signed, notarized release from the app's own GitHub Releases can be
+  installed this way, which is the same guarantee the apt pin gives the
+  server.
+- A Mac that sleeps cannot take the request. Its row shows it offline,
+  as it does today, and offers no Update.
+- Settings → Updates on that Mac reflects an update started from another
+  member, because it reads the same updater state.
+
 **Coming back.** Members see the server go offline and return with the new
 version, and the row's `updating` clears. If the server returns with the
 old version, or does not return within `UPDATE_TIMEOUT_MS`, the row shows
@@ -264,13 +289,13 @@ From § 11 of the group spec, with what the code shows today:
 Built for the phone too:
 - the server appears as a member, which part 3 already covers;
 - the line "On a server: orbital join" in the own-code sheet (50i);
-- the server row's version, "update available", Update and "updating",
-  through the new member fields and the new allowlisted route.
+- each member row (server or Mac) shows the version, "update available",
+  Update and "updating", through the new allowlisted routes.
 
-The phone updates before the Mac. The Update button shows only for a
-member that reports `updateAvailable`, and an older server reports
-nothing, so no `MAC_FEATURES` gate is needed. The route is new on the
-server, which ships in this same change.
+The phone updates before the Mac. A Mac from before this change has no
+`/api/server/update`. The phone asks that route only of a member whose
+hello reports at least this change's version. Gate it in `MAC_FEATURES`
+(`mobile/CLAUDE.md`).
 
 ## Scope
 
@@ -278,16 +303,19 @@ server, which ships in this same change.
   sessions there to outlive the Mac's sleep.
 - **Where it lives:** a separate package. Nothing changes on a Mac or a
   phone unless a server joins the group. Then it appears as one more
-  member, and its row offers Update when there is one.
-- **What someone already using Orbital notices:** nothing, until they
-  install the package. The phone's own-code sheet gains one line.
+  member. Remote update is on by default for every member, in the
+  member's row.
+- **What someone already using Orbital notices:** in a group, a member
+  row with a newer version available offers Update. The phone's own-code
+  sheet gains one line. Nothing else changes until they install the
+  package.
 - **What can be set:** the relay (CLI), the device name (CLI), and the
   port and data dir (environment, in a unit override).
 
 ## Design
 
 New UI for Claude Design, in the device-group canvas files:
-- the server's row on desktop and phone: version, "update available ·
+- a member's row (server or Mac) on desktop and phone: version, "update available ·
   <version>", Update, the confirmation when sessions run, "updating", and
   "update failed";
 - the 50i line, already drawn.
@@ -300,8 +328,9 @@ The CLI's wording follows the dialog it mirrors. It has no canvas.
   Claude Code, add the apt source, install, `orbital setup`, set the
   relay, join, update, logs (`journalctl --user -u orbital`), uninstall.
 - The ADR [[a-headless-orbital-is-a-full-member]] moves to `in-force`, and
-  a new ADR records the update path (an apt repository, a root unit
-  limited to upgrading `orbital`, and any member may start it).
+  a new ADR records the update path (any member may update another; a
+  server through an apt repository and a root unit limited to upgrading
+  `orbital`, a Mac through its own updater).
 - `docs/domains/device-group.md` gains the headless member and the update
   fields.
 
@@ -315,6 +344,8 @@ The CLI's wording follows the dialog it mirrors. It has no canvas.
 - Any member may press Update, including the phone.
 - No automatic updates. Only on the button, or `apt upgrade`.
 - The apt repository is hosted on Cloudflare R2.
+- A Mac can be updated from the phone or another member the same way, in
+  this same work.
 
 ## Calls made while writing, open to change
 
