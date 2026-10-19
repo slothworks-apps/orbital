@@ -9,7 +9,7 @@
 
 import { execFile, spawn } from 'node:child_process';
 import { resolve } from 'node:path';
-import { userShell } from '../env/shell.js';
+import { verifyShell } from '../env/shell.js';
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { and, desc, eq, gte, isNull, lt, ne } from 'drizzle-orm';
 import { z } from 'zod';
@@ -185,7 +185,7 @@ function runShell(cwd: string, command: string): Promise<VerifyResult> {
   return new Promise((resolveResult) => {
     // A login shell, so the user's PATH (node, npm, yarn) is there even when
     // the server was started by the desktop app.
-    const child = spawn(userShell(), ['-lc', command], { cwd, env: process.env });
+    const child = spawn(verifyShell(), ['-lc', command], { cwd, env: process.env });
     let output = '';
     const keep = (chunk: Buffer) => {
       output = (output + chunk.toString()).slice(-VERIFY_OUTPUT_CHARS);
