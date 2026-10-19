@@ -7,6 +7,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 ## [0.15.1] — 2026-10-19
 ### Fixed
 - The Copy button on code blocks in a transcript is always shown; before, it appeared only on hover, which a phone does not have.
+- The "Cleared" and "Ended" line at the end of a transcript goes away after a few seconds instead of staying until you leave the session.
 
 ## [0.15.0] — 2026-10-17
 ### Added
