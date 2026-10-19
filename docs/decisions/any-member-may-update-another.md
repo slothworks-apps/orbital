@@ -25,8 +25,12 @@ an SSH session or a walk to the machine
 
 ## Decision
 
-- Every member serves `GET /api/server/update` and `POST /api/server/update`
-  on the allowlist. Any member may call them through its channel, the
+- Every member serves `GET`, `POST` and `DELETE /api/server/update` on
+  the allowlist.
+  - The `POST` body carries one choice: `when`, either now or when
+    sessions finish.
+  - `DELETE` cancels a wait.
+  - Nothing a caller sends names a version, a package or a path. Any member may call them through its channel, the
   phone included. This is not a primary-only action: an update changes no
   membership, and the phone is never the primary.
 - **A server** installs through apt. The unprivileged service writes a
@@ -43,6 +47,9 @@ an SSH session or a walk to the machine
   Ready prompt instead, and the members are told why. Turns that were
   running when the update was confirmed do not stop it. This rule is the
   Mac's only: on a server nobody is at the keyboard.
+- **Or the caller waits.** The caller may choose "when sessions finish".
+  The member then waits until no session there is busy, and any member,
+  or the person at the Mac, may cancel the wait.
 - No member updates on its own. An update restarts the member and stops
   its running sessions, so it happens only when someone presses Update.
   The caller confirms first when sessions are running.

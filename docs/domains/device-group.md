@@ -231,12 +231,18 @@ Both are absent on a member from before updates from the group.
 
 ## Updating a member
 
-Any member updates any other through `GET`/`POST /api/server/update`
+Any member updates any other through `GET`/`POST`/`DELETE /api/server/update`
 (ADR `any-member-may-update-another`, spec
 `2026-10-19-headless-server-design`). It is not a primary-only action.
 
+- **Starting:** `POST` takes `{ when: 'now' | 'idle' }`, strictly. With
+  `idle` the member waits until no session is busy. A server holds the
+  request; a Mac runs its own restart-when-idle.
+- **Cancelling:** `DELETE` cancels a wait.
+
 **The state** (`ServerUpdateState` in shared) is `installed`, `candidate`,
-`packaged`, `updating`, `failed`, `sessions` and `startedBy`:
+`packaged`, `updating`, `waiting` (`{ sessions }` or null), `failed`,
+`sessions` and `startedBy`:
 - `sessions` counts busy sessions: working, or waiting on a decision.
 - `startedBy` is taken from the channel's peer, never from the body.
 

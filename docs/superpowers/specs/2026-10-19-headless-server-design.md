@@ -291,8 +291,22 @@ the work goes to the desktop's existing updater
   - **The rule above is the Mac's only.** A server installs regardless.
   - **Who started it:** the server names the asking member to the Mac in
     `update_start` (`by`, from the channel peer, never from a body).
-- **Decided, not built yet:** a remote Update also offers "when sessions
-  finish", as the local Restart does. It waits for its canvas.
+- **When sessions finish** (as built, canvas 50q–50v): a remote Update
+  offers the local Restart's three choices.
+  - **The confirm** reads `Cancel` · `Update now` · `Update when sessions
+    finish`.
+  - **The body:** `POST` takes one optional field, `{ when: 'now' |
+    'idle' }`, under a strict schema. Anything else gets 400, so the
+    request still cannot name a version or a package.
+  - **The wait:** with `idle` the member waits. A server holds the request
+    until no session is busy (working, or waiting on a decision). A Mac
+    runs its own "restart when sessions finish". The state carries
+    `waiting: { sessions }`, and every member's row reads `waiting for
+    <n> sessions to finish`.
+  - **Cancel:** `DELETE /api/server/update` (allowlisted) cancels a wait.
+    Any member may cancel, and so may the person at the Mac.
+  - **No timeout while waiting.** The update timeout starts with the
+    install. A server restart drops a wait.
 
 **Coming back.** Members see the server go offline and return with the new
 version, and the row's `updating` clears. If the server returns with the

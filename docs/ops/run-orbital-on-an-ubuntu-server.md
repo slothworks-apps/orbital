@@ -155,6 +155,14 @@ installs it. Any member may press it, and the phone can too. From the
 server itself, run `orbital update`, or `orbital update <name>` to update
 another member.
 
+When sessions are running there, the confirm also offers **when sessions
+finish**:
+- the member waits until none is mid-turn or waiting on a decision;
+- `orbital update [<name>] --when-idle` does the same from the server;
+- any member cancels the wait, or run `orbital update --cancel [<name>]`.
+
+A restart of the server drops a wait.
+
 How it works:
 - The service writes a request file into `/var/lib/orbital/update`.
   `orbital setup` makes that directory owned by the user, mode `0700`.
