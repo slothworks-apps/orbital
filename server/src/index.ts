@@ -11,6 +11,7 @@ import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { ensureDataDir } from '@orbital/shared/dataDir';
 import { CONFIG } from './config.js';
 import { applyLoginShellPath } from './env/loginPath.js';
+import { isExecutableFile } from './env/shell.js';
 import { FIRST_CLAUDE_DIR_ID, cliDefaultDir } from './claudeDirs/paths.js';
 import { ClaudeDirsService, seedClaudeDirs, type ClaudeDir } from './claudeDirs/service.js';
 import {
@@ -31,7 +32,7 @@ import { recordPermissionWait } from './stats/store.js';
 import { Hub } from './api/hub.js';
 import { Runner, type QueryFn } from './runner/runner.js';
 import { resolveClaudeCodeVersion } from './runner/version.js';
-import { claudeCliVersion, isExecutableFile, resolveClaudeCli, sdkBundledCliAvailable, sdkBundledCliPath } from './runner/claudeCli.js';
+import { claudeCliVersion, resolveClaudeCli, sdkBundledCliAvailable, sdkBundledCliPath } from './runner/claudeCli.js';
 import { McpConfig } from './mcp/config.js';
 import { claudeJsonPath } from './mcp/claudeJson.js';
 import { dbFingerprints } from './mcp/approvals.js';
@@ -1618,7 +1619,7 @@ function exitWithParent(app: FastifyInstance, parentPid: number): void {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // Before anything writes into it: a data dir an older build made open to the group is closed once, here.
-  ensureDataDir(CONFIG.dataDir);
+  ensureDataDir(CONFIG.dataDir, process.platform);
   const apiToken = loadOrCreateApiToken(CONFIG.dataDir);
   const app = await buildServer({ apiToken });
   const parentPid = desktopParentPid();

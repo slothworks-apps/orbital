@@ -2,9 +2,6 @@ import { execFile } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { delimiter, join } from 'node:path';
 import { fallbackPathDirs } from '../env/loginPath.js';
-import { isExecutableFile } from '../env/shell.js';
-
-export { isExecutableFile };
 
 /** How the CLI Orbital will spawn was arrived at; `missing` is a designed state. */
 export type ClaudeCliSource = 'settings' | 'path' | 'bundled' | 'missing';

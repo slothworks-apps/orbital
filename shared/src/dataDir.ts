@@ -39,7 +39,7 @@ export const DATA_DIR_MODE = 0o700;
  * is the threat model. Every creator of the data dir goes through this, so
  * none makes it readable to the machine's other users.
  */
-export function ensureDataDir(dir: string, platform: NodeJS.Platform = process.platform): void {
+export function ensureDataDir(dir: string, platform: NodeJS.Platform): void {
   mkdirSync(dir, { recursive: true, mode: DATA_DIR_MODE });
   if (platform === 'darwin') return;
   if ((statSync(dir).mode & 0o077) !== 0) chmodSync(dir, DATA_DIR_MODE);

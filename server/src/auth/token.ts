@@ -26,7 +26,7 @@ export function loadOrCreateApiToken(dataDir: string): string {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }
-  ensureDataDir(dataDir);
+  ensureDataDir(dataDir, process.platform);
   const token = randomBytes(32).toString('base64url');
   writeFileSync(file, `${token}\n`, { mode: 0o600 });
   return token;
