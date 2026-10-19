@@ -11,11 +11,14 @@ import {
   statusDuringCheck, type RelayLineKind,
 } from '../lib/remote'
 import {
-  canRemoveRow, deviceRows, endedNotice, groupView, kindOs, needsUpdateLine, type DeviceRow, type GroupView,
+  canRemoveRow, deviceRows, endedNotice, groupView, kindOs, memberServesUpdate, needsUpdateLine, readMemberUpdate,
+  startMemberUpdate, type DeviceRow, type GroupView,
 } from '../lib/devices'
+import { selfUpdateAvailable, updateNeedsConfirm, updatePhase, updateRow, type MemberUpdate } from '../lib/memberUpdate'
+import { useMemberUpdates, type UpdateIo, type UpdateTarget } from '../lib/useMemberUpdates'
 import { useNow } from '../lib/useNow'
 import {
-  exitWords, notPrimaryAddLine, notPrimaryRemoveLine, relayChangeWords, relayLockedLine, removeWords,
+  exitWords, notPrimaryAddLine, notPrimaryRemoveLine, relayChangeWords, relayLockedLine, removeWords, updateSessionsWords,
 } from '@orbital/shared/remote/groupWords'
 import type { GroupEnded, GroupMember, RemoteStatus } from '../lib/types'
 import { Toggle } from '../ui/Checkbox'
@@ -39,6 +42,10 @@ const ASIDE = 'font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.
 const CARD = 'rounded-[12px] border border-[rgba(150,205,255,.12)] bg-[rgba(6,10,20,.55)]'
 /** "offline · seen …" moves in minutes at the finest (`timeAgo`), so it is re-read that often. */
 const SEEN_TICK_MS = 60_000
+/** How much of the code `orbital join …` shows under the field (canvas 50a, 50q: `orb1q7kf…`). */
+const SERVER_CODE_SHOWN = 8
+/** The quiet mono line under a row's state or name (canvas 50q). */
+const SUBLINE = 'font-mono text-[10.5px] text-[rgba(160,190,225,.5)]'
 
 /** The status line's dot (canvas 9q). Static: it never pulses, whatever the state. */
 const DOT: Record<RelayLineKind, string> = {
@@ -244,9 +251,12 @@ function usePairingCode(remote: RemoteStatus | null): PairingCode {
 export function DevicesSection({
   patchAndSet,
   onSaved,
+  onOpenUpdates,
 }: {
   patchAndSet: (patch: Record<string, string>) => Promise<boolean>
   onSaved: () => void
+  /** Settings → Updates, where this Mac's own update lives (canvas 50u A); absent where there is no such section. */
+  onOpenUpdates?: () => void
 }) {
   const settings = useOrbital(useShallow((s) => s.settings))
   const liveRemote = useOrbital((s) => s.remote)
@@ -272,6 +282,11 @@ export function DevicesSection({
   const relayLocked = liveRemote?.group.relayLocked ?? false
   // Only while that member still waits on a hand pairing: once it links, the box is everyone's again.
   const pairTarget = others.find((m) => m.id === pairFor && m.state === 'notLinked') ?? null
+  const updates = useMemberUpdates(updateTargets(members), memberUpdateIo(members))
+  const primaryMember = members.find((m) => m.primary && !m.self) ?? null
+  const primaryPhase = primaryMember
+    ? updatePhase(updates.byId[primaryMember.id], primaryMember.state === 'online')
+    : 'idle'
 
   function pairByHand(m: DeviceRow) {
     setPairFor(m.id)
@@ -361,6 +376,8 @@ export function DevicesSection({
               self={self}
               savedName={settings.remote_mac_name ?? ''}
               networkName={liveRemote.macName}
+              update={self ? updates.byId[self.id] : undefined}
+              onOpenUpdates={onOpenUpdates}
             />
             <div className="flex items-baseline gap-2.5 pb-2 pt-5">
               <span className={KICKER}>IN THIS GROUP · {rows.length}</span>
@@ -381,7 +398,15 @@ export function DevicesSection({
                 </span>
               </div>
             ) : (
-              <Members rows={rows} view={view} now={now} onPairByHand={pairByHand} onSaved={onSaved} />
+              <Members
+                rows={rows}
+                view={view}
+                now={now}
+                onPairByHand={pairByHand}
+                onSaved={onSaved}
+                updates={updates}
+                selfId={self?.id ?? null}
+              />
             )}
           </div>
           <div className={`flex min-w-0 flex-col ${enabled ? '' : 'pointer-events-none'}`}>
@@ -389,7 +414,11 @@ export function DevicesSection({
               {view.canAdd && pairTarget ? `ADD A DEVICE · FOR ${pairTarget.name.toUpperCase()}` : 'ADD A DEVICE'}
             </div>
             {view.managedBy !== null ? (
-              <Managed primary={view.managedBy} />
+              <Managed
+                primary={view.managedBy}
+                kind={primaryMember?.kind ?? 'desktop'}
+                updating={primaryPhase === 'installing' || primaryPhase === 'restarting'}
+              />
             ) : (
               <JoinArea
                 remote={liveRemote}
@@ -428,6 +457,33 @@ export function DevicesSection({
       )}
     </div>
   )
+}
+
+/**
+ * The members Settings → Devices asks about their updates: every member that
+ * serves the routes (`memberServesUpdate` — never a phone), readable now
+ * while it is this device or online and not too old. One that is not
+ * readable is still watched while it updates, read as unreachable.
+ */
+function updateTargets(members: GroupMember[]): UpdateTarget[] {
+  return members
+    .filter((m) => memberServesUpdate(m))
+    .map((m) => ({ id: m.id, readable: m.self || (m.state === 'online' && !m.tooOld) }))
+}
+
+/** The desktop asks only through the gated `readMemberUpdate` / `startMemberUpdate`. */
+function memberUpdateIo(members: GroupMember[]): UpdateIo {
+  const find = (id: string) => members.find((m) => m.id === id)
+  return {
+    read: async (id) => {
+      const m = find(id)
+      return m ? readMemberUpdate(m) : null
+    },
+    start: async (id) => {
+      const m = find(id)
+      return m ? startMemberUpdate(m) : null
+    },
+  }
 }
 
 function TryAgain({ check }: { check: RelayCheck }) {
@@ -525,9 +581,11 @@ function CodeArea({ pairing }: { pairing: PairingCode }) {
             {copied ? 'Copied' : 'Copy'}
           </Button>
         </div>
-        {/* 50a also draws `on a server: orbital join …`; it comes back with the headless server's command. */}
+        {/* Canvas 50a, 50q: the code's start stands for it in the server's command. */}
         <span className="font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.55)]">
-          paste it in Devices there
+          paste it in Devices there · on a server:
+          <br />
+          orbital join{code ? ` ${code.word.slice(0, SERVER_CODE_SHOWN)}…` : ''}
         </span>
       </div>
       <div className="flex flex-col gap-1.5">
@@ -557,11 +615,15 @@ function ThisDevice({
   self,
   savedName,
   networkName,
+  update,
+  onOpenUpdates,
 }: {
   patchAndSet: (patch: Record<string, string>) => Promise<boolean>
   self: GroupMember | null
   savedName: string
   networkName: string
+  update: MemberUpdate | undefined
+  onOpenUpdates?: () => void
 }) {
   const [draft, setDraft] = useState(savedName)
   /** The last name this field saved, so its own save landing is not mistaken for a change from elsewhere. */
@@ -585,30 +647,52 @@ function ThisDevice({
 
   // Before this device has an identity it has no roster entry: it is a desktop, its OS not known yet.
   const kind = self?.kind ?? 'desktop'
+  const version = update?.state?.installed ?? self?.version ?? null
+  // Canvas 50u A: this Mac's own update is Settings → Updates'; the row only points there.
+  const available = selfUpdateAvailable(update)
   return (
-    <div className={`${CARD} box-border flex min-h-[60px] items-center gap-3.5 px-4 py-2`}>
-      <span className="flex text-text-bright">
-        <KindGlyph kind={kind} />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-        <label className="flex cursor-text items-center gap-2 self-start border-b border-dashed border-[rgba(150,205,255,.35)] pb-px">
-          <span className="block w-[170px]">
-            <Input
-              variant="bare"
-              aria-label="This device's name"
-              spellCheck={false}
-              value={draft}
-              placeholder={networkName}
-              onChange={(e) => setDraft(e.target.value)}
-            />
+    <div className={CARD}>
+      <div className="box-border flex min-h-[60px] items-center gap-3.5 px-4 py-2">
+        <span className="flex text-text-bright">
+          <KindGlyph kind={kind} />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+          <label className="flex cursor-text items-center gap-2 self-start border-b border-dashed border-[rgba(150,205,255,.35)] pb-px">
+            <span className="block w-[170px]">
+              <Input
+                variant="bare"
+                aria-label="This device's name"
+                spellCheck={false}
+                value={draft}
+                placeholder={networkName}
+                onChange={(e) => setDraft(e.target.value)}
+              />
+            </span>
+            <span aria-hidden className="text-[11px] text-[rgba(160,190,225,.6)]">
+              ✎
+            </span>
+          </label>
+          <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+            {kindOs(kind, self?.os ?? '', self?.osVersion)}
+            {version ? ` · ${version}` : ''}
           </span>
-          <span aria-hidden className="text-[11px] text-[rgba(160,190,225,.6)]">
-            ✎
-          </span>
-        </label>
-        <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{kindOs(kind, self?.os ?? '')}</span>
-      </span>
-      <span className={ASIDE}>EVERY DEVICE SEES THIS NAME</span>
+        </span>
+        <span className={ASIDE}>EVERY DEVICE SEES THIS NAME</span>
+      </div>
+      {available && (
+        <div className="-mt-1 flex items-center gap-2.5 pb-3 pl-[42px] pr-4">
+          <span className="flex-1 font-mono text-[11px] text-[rgba(200,220,245,.85)]">update available · {available}</span>
+          {onOpenUpdates && (
+            <button
+              type="button"
+              onClick={onOpenUpdates}
+              className="cursor-pointer border-b border-dashed border-[rgba(160,190,225,.5)] font-mono text-[10.5px] tracking-[0.04em] text-[rgba(200,220,245,.85)]"
+            >
+              Settings → Updates ›
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -664,14 +748,19 @@ function GrantToggles({
 }
 
 /**
- * IN THIS GROUP's rows (canvas 50a ROWS, 50l): glyph, name with PRIMARY on
- * the primary's row, kind and OS on the quiet line under it, and the state
- * as a dot and words. Remove asks in place first, and only where `view`
- * offers it (`canRemoveRow`); a row not linked is a Pair by hand link only on
- * the primary. Remove stays available with the relay offline: the removal
- * applies here at once, and it is the only way out of a member that keeps
- * the relay locked. Under each other member, what it may do on this device
- * (spec 2026-10-19-member-grants-design § 2).
+ * IN THIS GROUP's rows (canvas 50a ROWS, 50l, 50q): glyph, name with PRIMARY
+ * on the primary's row, kind and OS on the quiet line under it, and the
+ * state as a dot and words with the version under them. Remove asks in place
+ * first, and only where `view` offers it (`canRemoveRow`); a row not linked
+ * is a Pair by hand link only on the primary. Remove stays available with the
+ * relay offline: the removal applies here at once, and it is the only way out
+ * of a member that keeps the relay locked. Under each other member, what it
+ * may do on this device (spec 2026-10-19-member-grants-design § 2).
+ *
+ * A member's update (canvas 50q, 50t; `updateRow`): one line under the row —
+ * available, installing, restarting, failed — with Update or Try again only
+ * while it can be asked. With sessions running there, Update first asks in
+ * place, as Remove does.
  */
 function Members({
   rows,
@@ -679,15 +768,21 @@ function Members({
   now,
   onPairByHand,
   onSaved,
+  updates,
+  selfId,
 }: {
   rows: DeviceRow[]
   view: GroupView
   now: number
   onPairByHand: (m: DeviceRow) => void
   onSaved: () => void
+  updates: ReturnType<typeof useMemberUpdates>
+  selfId: string | null
 }) {
   const [asking, setAsking] = useState<string | null>(null)
   const [removing, setRemoving] = useState(false)
+  /** The member whose Update waits on the sessions confirm. */
+  const [askingUpdate, setAskingUpdate] = useState<string | null>(null)
   /** A removal the group refused, said under that row rather than as a toast (canvas 50p I). */
   const [refusal, setRefusal] = useState<{ id: string; text: string } | null>(null)
   /** Member grants from /api/remote/grants. */
@@ -753,17 +848,40 @@ function Members({
     }
   }
 
+  async function startUpdate(id: string) {
+    try {
+      await updates.start(id)
+    } catch (err) {
+      reportError(err, 'Failed to start the update')
+    } finally {
+      setAskingUpdate(null)
+    }
+  }
+
   return (
     <div className={`${CARD} overflow-hidden`}>
       {rows.map((m, i) => {
-        const { state, words } = m
-        const nameInk = state === 'offline' ? 'text-[rgba(232,238,248,.62)]' : 'text-text-bright'
+        const u = m.member ? updates.byId[m.id] : undefined
+        const update = updateRow(u, {
+          name: m.name, kind: m.kind, online: m.state === 'online', words: m.words,
+          helloVersion: m.version, selfId, surface: 'desktop',
+        })
+        const { state } = m
+        const away = update.dim ?? state === 'offline'
+        const nameInk = away ? 'text-[rgba(232,238,248,.62)]' : 'text-text-bright'
+        const confirming = askingUpdate === m.id
+        const sessionsWords = updateSessionsWords(u?.state?.sessions ?? 0, m.name)
+        const line = confirming ? null : update.line
         return (
           <div
             key={m.id}
             data-member={m.id}
             title={`joined ${longDate(m.addedAt)}`}
-            className={i === 0 ? '' : 'border-t border-[rgba(150,205,255,.08)]'}
+            className={[
+              i === 0 ? '' : 'border-t border-[rgba(150,205,255,.08)]',
+              // Canvas 50q: the confirm tints the whole row, as Remove's does.
+              confirming ? 'bg-[rgba(150,205,255,.05)]' : '',
+            ].join(' ')}
           >
             {asking !== m.id ? (
               <div className="box-border flex min-h-[58px] items-center gap-3.5 py-2 pl-4 pr-3">
@@ -777,31 +895,37 @@ function Members({
                     </span>
                     {m.primary && <PrimaryLabel />}
                   </span>
-                  <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{kindOs(m.kind, m.os)}</span>
+                  <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{kindOs(m.kind, m.os, m.osVersion)}</span>
                   {m.needsUpdate && (
                     <span className="font-mono text-[10px] text-[rgba(160,190,225,.6)]">
                       {needsUpdateLine(m.needsUpdate, now)}
                     </span>
                   )}
                 </span>
-                <span
-                  className={`flex w-[172px] flex-none items-center gap-[7px] font-mono text-[11px] ${
-                    state === 'online' ? 'text-[rgba(200,220,245,.85)]' : 'text-[rgba(160,190,225,.72)]'
-                  }`}
-                >
-                  {/* A phone paired with another member has no presence here, so no dot. */}
-                  {state !== 'elsewhere' && <MemberDot state={state} sizePx={7} />}
-                  {state === 'notLinked' && view.pairsByHand ? (
-                    <button
-                      type="button"
-                      onClick={() => onPairByHand(m)}
-                      className="cursor-pointer border-b border-dashed border-[rgba(160,190,225,.5)] text-left"
-                    >
-                      {words}
-                    </button>
-                  ) : (
-                    <span>{words}</span>
-                  )}
+                {/* Canvas 50q: the version under the state, at the height of the kind · OS line. */}
+                <span className="flex w-[172px] flex-none flex-col gap-0.5">
+                  <span
+                    className={`flex items-center gap-[7px] font-mono text-[11px] ${
+                      !away && (state === 'online' || update.dim === false)
+                        ? 'text-[rgba(200,220,245,.85)]'
+                        : 'text-[rgba(160,190,225,.72)]'
+                    }`}
+                  >
+                    {/* A phone paired with another member has no presence here, so no dot. */}
+                    {state !== 'elsewhere' && <MemberDot state={update.dot ?? state} sizePx={7} />}
+                    {state === 'notLinked' && view.pairsByHand ? (
+                      <button
+                        type="button"
+                        onClick={() => onPairByHand(m)}
+                        className="cursor-pointer border-b border-dashed border-[rgba(160,190,225,.5)] text-left"
+                      >
+                        {update.words}
+                      </button>
+                    ) : (
+                      <span>{update.words}</span>
+                    )}
+                  </span>
+                  {update.version && <span className={`pl-3.5 ${SUBLINE}`}>{update.version}</span>}
                 </span>
                 {canRemoveRow(view, m) && (
                   <Button
@@ -809,6 +933,7 @@ function Members({
                     size="member"
                     onClick={() => {
                       setRefusal(null)
+                      setAskingUpdate(null)
                       setAsking(m.id)
                     }}
                   >
@@ -827,6 +952,56 @@ function Members({
                 </Button>
                 <Button variant="ink" size="member" disabled={removing} onClick={() => void remove(m.id)}>
                   Remove
+                </Button>
+              </div>
+            )}
+            {asking !== m.id && line && (
+              <div className="-mt-1 flex min-h-8 items-center gap-2.5 pb-2.5 pl-[42px] pr-3">
+                <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+                  <span
+                    className={`font-mono text-[11px] ${line.bright ? 'text-[rgba(200,220,245,.85)]' : 'text-[rgba(160,190,225,.72)]'}`}
+                  >
+                    {line.text}
+                  </span>
+                  {line.sub && <span className={SUBLINE}>{line.sub}</span>}
+                </span>
+                {line.action && (
+                  <Button
+                    variant="outline"
+                    size="member-line"
+                    disabled={updates.starting !== null}
+                    onClick={() => {
+                      setAsking(null)
+                      if (updateNeedsConfirm(u)) setAskingUpdate(m.id)
+                      else void startUpdate(m.id)
+                    }}
+                  >
+                    {line.action === 'retry' ? 'Try again' : 'Update'}
+                  </Button>
+                )}
+              </div>
+            )}
+            {asking !== m.id && confirming && (
+              <div className="-mt-0.5 flex items-center gap-2.5 pb-2.5 pl-[42px] pr-3">
+                <span className="flex-1 text-[12.5px] leading-[1.45] text-text-bright [text-wrap:pretty]">
+                  {sessionsWords.question}{' '}
+                  <span className="text-[rgba(160,190,225,.7)]">{sessionsWords.body}</span>
+                </span>
+                <Button
+                  variant="outline"
+                  size="member"
+                  disabled={updates.starting !== null}
+                  onClick={() => setAskingUpdate(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="ink"
+                  size="member"
+                  disabled={updates.starting !== null}
+                  onClick={() => void startUpdate(m.id)}
+                >
+                  Update
                 </Button>
               </div>
             )}
@@ -890,16 +1065,33 @@ function EndedNotice({ ended }: { ended: GroupEnded }) {
   )
 }
 
-/** ADD A DEVICE on a member (canvas 50l): no code and no field, only who adds and removes devices. */
-function Managed({ primary }: { primary: string }) {
+/**
+ * ADD A DEVICE on a member (canvas 50l, 50r): no code and no field, only who
+ * adds and removes devices — on a server primary, with the command that does
+ * it there — and, while the primary updates, that adding and removing waits.
+ */
+function Managed({ primary, kind, updating }: { primary: string; kind: string; updating: boolean }) {
   return (
-    <div className="flex items-start gap-3 rounded-[12px] border border-dashed border-[rgba(150,205,255,.16)] p-4">
-      <span className="flex pt-1 text-[rgba(232,238,248,.7)]">
-        <KindGlyph kind="desktop" />
-      </span>
-      <span className="flex-1 text-[12.5px] leading-[1.5] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
-        <span className="font-semibold text-text-bright">{primary}</span> manages this group — add and remove devices there.
-      </span>
+    <div className="flex flex-col gap-2.5 rounded-[12px] border border-dashed border-[rgba(150,205,255,.16)] p-4">
+      <div className="flex items-start gap-3">
+        <span className="flex pt-1 text-[rgba(232,238,248,.7)]">
+          <KindGlyph kind={kind} />
+        </span>
+        <span className="flex flex-1 flex-col gap-[5px]">
+          <span className="text-[12.5px] leading-[1.5] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
+            <span className="font-semibold text-text-bright">{primary}</span> manages this group — add and remove devices there.
+          </span>
+          {/* Canvas 50r: a server primary adds and removes in its terminal. */}
+          {kind === 'headless' && (
+            <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">on {primary}: orbital devices</span>
+          )}
+        </span>
+      </div>
+      {updating && (
+        <span className="border-t border-[rgba(150,205,255,.08)] pl-6 pt-2.5 text-[12px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+          {primary} is updating. Adding and removing devices waits until it’s back; everything else keeps working.
+        </span>
+      )}
     </div>
   )
 }

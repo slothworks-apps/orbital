@@ -27,7 +27,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'hairline'
     | 'outline'
     | 'ink'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'check' | 'member' | 'beside-field' | 'over-code' | 'chooser'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'check' | 'member' | 'member-line' | 'beside-field' | 'over-code' | 'chooser'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -136,6 +136,8 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   check: 'px-3 py-1.5 text-[12.5px]',
   // Canvas 50a's row actions (Remove, Cancel, Leave…): 32px tall, 14px sides, 12.5px.
   member: 'h-8 px-3.5 text-[12.5px]',
+  // `Feature - Remote update` 50q's Update and Try again on the line under a row: 30px tall, 12px sides, 12px.
+  'member-line': 'h-[30px] px-3 text-xs',
   // Canvas 50a's Copy, Join and New code beside a field: 31px tall, 12px sides, 12px.
   'beside-field': 'h-[31px] px-3 text-xs',
   // Canvas 50a's Show code / New code over the QR: 30px tall, 12px sides, 12px.

@@ -8,12 +8,13 @@
 
 /**
  * The kind tile's word and meaning line (canvas 50c `cK.word`/`cK.note` in
- * logic.js). An unrecognised kind reads as `desktop`, the fallback
- * `KindGlyph` itself draws.
+ * logic.js; the headless tile's as `Feature - Remote update` 50t redraws
+ * it). An unrecognised kind reads as `desktop`, the fallback `KindGlyph`
+ * itself draws.
  */
 const KIND_TILE = {
   desktop: { word: 'DESKTOP', note: 'A computer with Orbital open on it.' },
-  headless: { word: 'HEADLESS SERVER', note: 'No screen of its own. It runs sessions for the group.' },
+  headless: { word: 'HEADLESS', note: 'A server with no map. Managed from a terminal.' },
   phone: { word: 'PHONE', note: 'Reads and drives sessions; runs none of its own.' },
 } satisfies Record<string, { word: string; note: string }>
 

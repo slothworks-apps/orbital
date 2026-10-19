@@ -40,9 +40,13 @@ export async function startMemberUpdate(
   return api.startServerUpdate(m.self ? undefined : m.id)
 }
 
-/** `desktop · macOS` (canvas 50k); the OS half drops with its separator while it is not known yet. */
-export function kindOs(kind: string, os: string): string {
-  const label = osLabel(os)
+/**
+ * `desktop · macOS` (canvas 50k), or `headless · Ubuntu 24.04` with the OS
+ * version its hello named (canvas 50t, `osVersion`, already a whole label);
+ * the OS half drops with its separator while it is not known yet.
+ */
+export function kindOs(kind: string, os: string, osVersion?: string | null): string {
+  const label = osVersion || osLabel(os)
   return label === '' ? kind : `${kind} · ${label}`
 }
 
@@ -111,6 +115,10 @@ export interface DeviceRow {
   addedAt: number
   /** What the refusal said, while `state` is `update`. */
   needsUpdate: RemoteDevice['needsUpdate']
+  /** The OS and its version its hello named (`Ubuntu 24.04`); null when not known. */
+  osVersion: string | null
+  /** The Orbital version its hello named; null when not known. */
+  version: string | null
 }
 
 /**
@@ -142,6 +150,8 @@ export function deviceRows(
       member: true,
       addedAt: m.addedAt,
       needsUpdate,
+      osVersion: m.osVersion ?? null,
+      version: m.version ?? null,
     }
   })
   const unlisted = devices.filter((d) => !listed.has(d.id)).map((d): DeviceRow => ({
@@ -152,6 +162,8 @@ export function deviceRows(
     member: false,
     addedAt: d.pairedAt,
     needsUpdate: d.needsUpdate,
+    osVersion: null,
+    version: null,
   }))
   return [...fromRoster, ...unlisted]
 }

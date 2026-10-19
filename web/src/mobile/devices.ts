@@ -18,8 +18,10 @@ export interface PhoneRow {
   state: RowState
   /** The second line: `online`, `asleep · seen 2 h ago`, `not linked`… */
   words: string
-  /** The quiet third line: `desktop · macOS`. */
+  /** The quiet third line without the version: `desktop · macOS 15.1` (canvas 50s; the version is the update's to say). */
   kindOs: string
+  /** The Orbital version its hello named; null when not known. */
+  version: string | null
   /** The group's primary: the PRIMARY label beside its name (canvas 50i). */
   primary: boolean
   /** When it joined the group, for the sheet's `joined`; null for a device the roster does not list. */
@@ -42,6 +44,7 @@ export function phoneRows(members: MemberRow[], devices: DeviceView[], now: numb
     id: d.id, name: d.name, platform: d.os, kind: d.kind, pairedAt: 0, lastSeenAt: d.asOf, online: d.online,
     needsUpdate: null,
   }))
+  const views = new Map(devices.map((d) => [d.id, d]))
   return deviceRows(group, paired, now, false).map((row) => ({
     id: row.id,
     name: row.name,
@@ -50,7 +53,8 @@ export function phoneRows(members: MemberRow[], devices: DeviceView[], now: numb
     words: tooOld.has(row.id)
       ? `update Orbital on ${row.name}`
       : row.words.replace(/^offline\b/, 'asleep').replace(/ this device$/, ' this phone'),
-    kindOs: kindOs(row.kind, row.os),
+    kindOs: kindOs(row.kind, row.os, views.get(row.id)?.osVersion ?? row.osVersion),
+    version: views.get(row.id)?.version ?? row.version,
     primary: row.primary,
     joinedAt: row.member ? row.addedAt : null,
   }))

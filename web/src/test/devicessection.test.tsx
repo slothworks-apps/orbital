@@ -185,12 +185,6 @@ describe('DevicesSection', () => {
     expect(patchAndSet).toHaveBeenCalledWith({ remote_relay_url: 'https://other.test' })
   })
 
-  it('the add box offers no server command until one exists', () => {
-    renderWith(status([]))
-    expect(screen.queryByText(/orbital join/)).not.toBeInTheDocument()
-    expect(screen.getByText(/paste it in Devices there/)).toBeInTheDocument()
-  })
-
   it('on a member, a row not linked reads not linked, with no Pair by hand: only the primary pairs by hand', () => {
     renderWith(asMember(status([member({ id: 'n1', name: 'mini-office', state: 'notLinked', pairByHand: true, linked: false })])))
     const row = screen.getByText('mini-office').closest('[data-member]') as HTMLElement

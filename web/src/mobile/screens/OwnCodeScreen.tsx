@@ -159,7 +159,9 @@ export function OwnCodeScreen() {
           </p>
         )}
         <p className="text-[13.5px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
-          On a desktop: Settings → Devices → <span className="font-semibold text-text-bright">Have another device&apos;s code?</span>
+          On a desktop: Settings → Devices → <span className="font-semibold text-text-bright">Have another device&apos;s code?</span>{' '}
+          {/* Canvas 50i (Device group) own-code sheet. */}
+          On a server: <span className="font-mono text-[12px]">orbital join</span> and the code.
         </p>
         {left && !refused && (
           <div className="flex flex-col gap-[7px]">

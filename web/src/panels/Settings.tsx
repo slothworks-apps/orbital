@@ -1043,7 +1043,11 @@ export function Settings({ open, onClose }: SettingsProps) {
                   onEditingChange={setHarnessEditing}
                 />
               ) : section === 'devices' ? (
-                <DevicesSection patchAndSet={patchAndSet} onSaved={() => setSaved(true)} />
+                <DevicesSection
+                  patchAndSet={patchAndSet}
+                  onSaved={() => setSaved(true)}
+                  onOpenUpdates={hasUpdates ? () => selectSection('updates') : undefined}
+                />
               ) : section === 'shortcuts' ? (
                 <ShortcutsSection />
               ) : section === 'updates' ? (

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { osName } from '@orbital/shared/remote/device'
 import type { GroupEnded } from '@orbital/shared/remote/group'
 import { endedNotice, kindOs, type RowState } from '../../lib/devices'
+import { updateNeedsConfirm, updateRow, type MemberUpdate, type UpdateRow } from '../../lib/memberUpdate'
+import { useMemberUpdates, type UpdateIo, type UpdateTarget } from '../../lib/useMemberUpdates'
 import { useNow } from '../../lib/useNow'
 import { KindGlyph } from '../../ui/KindGlyph'
 import { MemberDot } from '../../ui/MemberDot'
@@ -15,15 +17,44 @@ import { clearEnded } from '../platform/pairing'
 import { useMobile } from '../state'
 import { groupRef } from '../transport/groupRef'
 import { BottomSheet, CARD, SecondaryButton, SectionLabel, SheetPresence } from '../ui'
-import { relayLockedLine } from '@orbital/shared/remote/groupWords'
+import { relayLockedLine, updateSessionsWords } from '@orbital/shared/remote/groupWords'
+import { readDeviceUpdate, startDeviceUpdate } from '../serverUpdate'
+import type { DeviceView } from '../state'
+import { macSupports } from '../version'
 
 /** "asleep · seen …" moves in minutes at the finest, so the rows are re-read that often. */
 const SEEN_TICK_MS = 60_000
 
 /** A member's state dot, 6 px on the phone (canvas 50i); none for a phone paired with another member. */
-function Dot({ state }: { state: RowState }) {
+function Dot({ state }: { state: RowState | 'linking' | 'offline' }) {
   if (state === 'elsewhere') return null
   return <MemberDot state={state} sizePx={6} />
+}
+
+/**
+ * The phone asks a member about its update only through `readDeviceUpdate`
+ * / `startDeviceUpdate`, gated by `MAC_FEATURES.serverUpdate`; a member is
+ * readable while its channel is up (canvas 50s).
+ */
+const PHONE_UPDATE_IO: UpdateIo = {
+  read: (id) => readDeviceUpdate(id),
+  start: (id) => startDeviceUpdate(id),
+}
+
+/** Every member whose hello serves the routes; readable while its channel is up. A phone has no entry in `devices`. */
+function updateTargets(rows: PhoneRow[], devices: DeviceView[]): UpdateTarget[] {
+  const served = new Map(devices.filter((d) => macSupports('serverUpdate', d.version)).map((d) => [d.id, d]))
+  return rows
+    .filter((r) => r.kind !== 'phone' && served.has(r.id))
+    .map((r) => ({ id: r.id, readable: r.state === 'online' && served.get(r.id)!.ready }))
+}
+
+/** A row as its update says it (canvas 50s `pState`, `kindOsV`). */
+function rowUpdate(row: PhoneRow, u: MemberUpdate | undefined, selfId: string | null): UpdateRow {
+  return updateRow(u, {
+    name: row.name, kind: row.kind, online: row.state === 'online', words: row.words,
+    helloVersion: row.version, selfId, surface: 'phone',
+  })
 }
 
 /** The relay link as REMOTE's state line says it. */
@@ -61,9 +92,11 @@ export function DevicesSection() {
   const now = useNow(true, SEEN_TICK_MS)
   const rows = useMemo(() => phoneRows(members, devices, now), [members, devices, now])
   const self = members.find((m) => m.self)
-  const [device, setDevice] = useState<{ name: string; platform: string } | null>(null)
+  const [device, setDevice] = useState<{ name: string; platform: string; osVersion?: string } | null>(null)
   const [open, setOpen] = useState<string | null>(null)
   const [leaving, setLeaving] = useState(false)
+  const updates = useMemberUpdates(updateTargets(rows, devices), PHONE_UPDATE_IO)
+  const selfId = self?.id ?? null
 
   // The name this phone gives itself (`thisDevice`), before the roster lists it.
   useEffect(() => {
@@ -94,7 +127,10 @@ export function DevicesSection() {
           </span>
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="truncate text-[14.5px] font-semibold">{name}</span>
-            <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">{kindOs('phone', os)}</span>
+            {/* Canvas 50s: this phone's own version, and no Update — its store updates it. */}
+            <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+              {kindOs('phone', os, device?.osVersion)} · {__MOBILE_VERSION__}
+            </span>
           </span>
         </div>
       </div>
@@ -105,47 +141,51 @@ export function DevicesSection() {
       {(inGroup || rows.length > 0) && <SectionLabel>IN THIS GROUP · {rows.length}</SectionLabel>}
       {rows.length > 0 && (
         <div className={CARD}>
-          {rows.map((row, i) => (
-            <button
-              key={row.id}
-              type="button"
-              onClick={() => setOpen(row.id)}
-              className={[
-                'flex min-h-[68px] w-full items-center gap-3.5 py-[9px] pl-3.5 pr-1.5 text-left',
-                i > 0 ? 'border-t border-[rgba(150,205,255,.08)]' : '',
-              ].join(' ')}
-            >
-              <span className={['flex', row.state === 'offline' ? 'text-[rgba(232,238,248,.62)]' : 'text-text-bright'].join(' ')}>
-                <KindGlyph kind={row.kind} untitled />
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                <span className="flex min-w-0 items-center gap-2">
+          {rows.map((row, i) => {
+            const update = rowUpdate(row, updates.byId[row.id], selfId)
+            const away = update.dim ?? row.state === 'offline'
+            const nameInk = away ? 'text-[rgba(232,238,248,.62)]' : 'text-text-bright'
+            return (
+              <button
+                key={row.id}
+                type="button"
+                onClick={() => setOpen(row.id)}
+                className={[
+                  'flex min-h-[68px] w-full items-center gap-3.5 py-[9px] pl-3.5 pr-1.5 text-left',
+                  i > 0 ? 'border-t border-[rgba(150,205,255,.08)]' : '',
+                ].join(' ')}
+              >
+                <span className={['flex', nameInk].join(' ')}>
+                  <KindGlyph kind={row.kind} untitled />
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className={['truncate text-[14.5px] font-semibold', nameInk].join(' ')}>{row.name}</span>
+                    {row.primary && <PrimaryLabel />}
+                  </span>
                   <span
                     className={[
-                      'truncate text-[14.5px] font-semibold',
-                      row.state === 'offline' ? 'text-[rgba(232,238,248,.62)]' : 'text-text-bright',
+                      'flex items-center gap-[7px] font-mono text-[10.5px]',
+                      !away && (row.state === 'online' || update.dim === false)
+                        ? 'text-[rgba(200,220,245,.85)]'
+                        : 'text-[rgba(160,190,225,.72)]',
                     ].join(' ')}
                   >
-                    {row.name}
+                    <Dot state={update.dot ?? row.state} />
+                    <span className="truncate">{update.words}</span>
                   </span>
-                  {row.primary && <PrimaryLabel />}
+                  {/* Canvas 50s: the version at the end of the kind · OS line. */}
+                  <span className="truncate font-mono text-[10px] text-[rgba(160,190,225,.42)]">
+                    {row.kindOs}
+                    {update.version ? ` · ${update.version}` : ''}
+                  </span>
                 </span>
-                <span
-                  className={[
-                    'flex items-center gap-[7px] font-mono text-[10.5px]',
-                    row.state === 'online' ? 'text-[rgba(200,220,245,.85)]' : 'text-[rgba(160,190,225,.72)]',
-                  ].join(' ')}
-                >
-                  <Dot state={row.state} />
-                  <span className="truncate">{row.words}</span>
+                <span aria-hidden className="grid h-11 w-8 place-items-center text-[18px] text-[rgba(160,190,225,.5)]">
+                  ›
                 </span>
-                <span className="truncate font-mono text-[10px] text-[rgba(160,190,225,.42)]">{row.kindOs}</span>
-              </span>
-              <span aria-hidden className="grid h-11 w-8 place-items-center text-[18px] text-[rgba(160,190,225,.5)]">
-                ›
-              </span>
-            </button>
-          ))}
+              </button>
+            )
+          })}
         </div>
       )}
 
@@ -233,6 +273,10 @@ export function DevicesSection() {
             primary={primary?.name ?? null}
             alone={removalLeavesAlone(members, devices, sheet.id)}
             onClose={() => setOpen(null)}
+            update={updates.byId[sheet.id]}
+            shown={rowUpdate(sheet, updates.byId[sheet.id], selfId)}
+            starting={updates.starting !== null}
+            onUpdate={() => updates.start(sheet.id)}
           />
         )}
       </SheetPresence>
@@ -282,17 +326,32 @@ function EndedNotice({ ended }: { ended: GroupEnded }) {
 }
 
 /**
- * A device's sheet (canvas 50i `pS`): its state and when it joined. In a
- * group a phone removes no one, so the sheet says who does and only closes.
- * Out of one — a Mac from before groups this phone paired with — Remove ends
- * that pair; `alone`: it is the last device this phone reaches, so removing
- * it is leaving (`leaveGroup`): the phone forgets it and opens the scanner.
+ * A device's sheet (canvas 50i `pS`, 50s): its state, its version and when
+ * it joined. A member's update follows the table in the words of the
+ * desktop's line, with Update or Try again only while it can be asked; with
+ * sessions running there, Update asks in place first. The sheet stays open
+ * while it updates, and Close never cancels an update. In a group a phone
+ * removes no one, so the sheet says who does and only closes. Out of one —
+ * a Mac from before groups this phone paired with — Remove ends that pair;
+ * `alone`: it is the last device this phone reaches, so removing it is
+ * leaving (`leaveGroup`): the phone forgets it and opens the scanner.
  */
 function DeviceSheet({
-  row, primary, alone, onClose,
-}: { row: PhoneRow; primary: string | null; alone: boolean; onClose: () => void }) {
+  row, primary, alone, onClose, update, shown, starting, onUpdate,
+}: {
+  row: PhoneRow
+  primary: string | null
+  alone: boolean
+  onClose: () => void
+  update: MemberUpdate | undefined
+  shown: UpdateRow
+  starting: boolean
+  onUpdate: () => Promise<void>
+}) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const line = shown.line
 
   const remove = async () => {
     const group = groupRef.current?.group
@@ -313,6 +372,19 @@ function DeviceSheet({
     }
   }
 
+  const startUpdate = async () => {
+    setError(null)
+    try {
+      await onUpdate()
+    } catch {
+      setError(UPDATE_FAILED)
+    } finally {
+      setConfirming(false)
+    }
+  }
+
+  const sessions = updateSessionsWords(update?.state?.sessions ?? 0, row.name)
+
   return (
     <BottomSheet label={row.name} onDismiss={onClose} variant="device">
       <div className="flex flex-col gap-3 pb-2">
@@ -321,22 +393,76 @@ function DeviceSheet({
             <KindGlyph kind={row.kind} scale={2} untitled />
           </span>
           <span className="flex min-w-0 flex-col gap-[3px]">
-            <span className="truncate text-[18px] font-bold">{row.name}</span>
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-[18px] font-bold">{row.name}</span>
+              {row.primary && <PrimaryLabel />}
+            </span>
             <span className="font-mono text-[11px] text-[rgba(160,190,225,.65)]">{row.kindOs}</span>
           </span>
         </div>
         <dl className="flex flex-col rounded-[14px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.5)] font-mono text-[11.5px] text-[rgba(160,190,225,.65)]">
           <div className="flex items-center gap-2 px-3.5 py-3">
             <dt className="flex-1">state</dt>
-            <Dot state={row.state} />
-            <dd className="min-w-0 truncate text-text-bright">{row.words}</dd>
+            <Dot state={shown.dot ?? row.state} />
+            {/* Canvas 50s: the sheet's state is the desktop's word (`updating`), the row's longer line is the list's. */}
+            <dd className="min-w-0 truncate text-text-bright">{sheetState(shown, row)}</dd>
           </div>
+          {shown.version && (
+            <div className="flex gap-2 border-t border-[rgba(150,205,255,.08)] px-3.5 py-3">
+              <dt className="flex-1">version</dt>
+              <dd className="min-w-0 truncate text-text-bright">{shown.version}</dd>
+            </div>
+          )}
           <div className="flex gap-2 border-t border-[rgba(150,205,255,.08)] px-3.5 py-3">
             <dt className="flex-1">joined</dt>
             <dd className="min-w-0 truncate text-text-bright">{joinedDate(row.joinedAt)}</dd>
           </div>
         </dl>
-        {primary !== null ? (
+        {confirming ? (
+          <>
+            <div className="flex flex-col gap-1 px-1 pt-0.5">
+              <span className="text-[15px] font-bold text-text-bright">{sessions.question}</span>
+              <span className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)]">{sessions.body}</span>
+            </div>
+            {/* The canvas's light button, as Remove's: an update is no accent action. */}
+            <button
+              type="button"
+              disabled={starting}
+              onClick={() => void startUpdate()}
+              className="h-13 rounded-[14px] bg-[#e8eef8] text-[15px] font-bold text-[#05070d] disabled:opacity-40"
+            >
+              Update {row.name}
+            </button>
+            <SecondaryButton disabled={starting} onClick={() => setConfirming(false)}>Cancel</SecondaryButton>
+          </>
+        ) : line ? (
+          <>
+            <div className="flex flex-col gap-1 px-1 pt-0.5">
+              <span className="text-[14px] font-semibold text-text-bright">{line.head}</span>
+              {line.sub && (
+                <span className="font-mono text-[11px] leading-[1.5] text-[rgba(160,190,225,.65)]">{line.sub}</span>
+              )}
+            </div>
+            {error && (
+              <p role="alert" className="text-[13px] text-[rgba(200,214,235,.85)]">
+                {error}
+              </p>
+            )}
+            {line.action && (
+              <SecondaryButton
+                disabled={starting}
+                onClick={() => {
+                  if (updateNeedsConfirm(update)) setConfirming(true)
+                  else void startUpdate()
+                }}
+              >
+                {line.action === 'retry' ? 'Try again' : `Update ${row.name}`}
+              </SecondaryButton>
+            )}
+            {/* Close never cancels an update: it only puts the sheet away. */}
+            <SecondaryButton onClick={onClose}>Close</SecondaryButton>
+          </>
+        ) : primary !== null ? (
           <>
             <p className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
               {row.primary
@@ -372,6 +498,19 @@ function DeviceSheet({
       </div>
     </BottomSheet>
   )
+}
+
+/** A start that did not reach the member (not in the canvas). */
+const UPDATE_FAILED = "Couldn't reach it to start the update. Try again."
+
+/**
+ * The sheet's state cell (canvas 50s `pv.s.stText`): `updating` while it
+ * updates, `offline` after the wait ran out, else the row's own words.
+ */
+function sheetState(shown: UpdateRow, row: PhoneRow): string {
+  if (shown.phase === 'installing' || shown.phase === 'restarting') return 'updating'
+  if (shown.phase === 'timeout') return 'offline'
+  return row.words
 }
 
 /**
