@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.16.1] — 2026-10-20
+### Fixed
+- A session no longer fails to open with an error when its harness log holds an entry this version of the app does not know.
+
 ## [0.16.0] — 2026-10-20
 ### Added
 - After an update, a WHAT'S NEW message above the session list shows what changed in the phone app.

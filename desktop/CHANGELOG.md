@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.36.1] — 2026-10-20
+### Fixed
+- A session's panel no longer fails to open with an error when its harness log holds an entry this version does not know.
+
 ## [0.36.0] — 2026-10-20
 ### Added
 - After an update, a WHAT'S NEW message on the map lists what changed, with all changes one click away.
