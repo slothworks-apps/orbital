@@ -2570,7 +2570,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const refusal = issueDraftRefusal(body);
     if (refusal) return reply.code(400).send({ error: refusal });
     // A model id or alias, as the composer's picker sends it; never a flag.
-    if (typeof body.model !== 'string' || !/^[A-Za-z0-9][\w.:\[\]-]{0,99}$/.test(body.model)) {
+    if (typeof body.model !== 'string' || !/^[A-Za-z0-9][\w.:[\]-]{0,99}$/.test(body.model)) {
       return reply.code(400).send({ error: 'model is invalid' });
     }
     if (!ctx.checkDuplicates) return reply.code(503).send({ error: 'unavailable' });
