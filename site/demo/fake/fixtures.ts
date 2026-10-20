@@ -1,6 +1,8 @@
 import type {
   ApiSession,
   ChatMessage,
+  LimitsSnapshot,
+  LimitWindow,
   OrbitalModel,
   PendingVerdictDecision,
   PermissionMode,
@@ -336,5 +338,50 @@ export function launchedSession(fields: {
     model: fields.model?.value ?? null,
     resolvedModel: fields.model?.resolvedModel ?? null,
     tagIds: fields.tagIds,
+  }
+}
+
+const HOUR = 60 * MINUTE
+
+/**
+ * What `GET /api/limits` answers: two Claude accounts, one directory each,
+ * both windows read just now — the work account warm and set to run out of
+ * its 5-hour window before the reset, the personal one quiet. Built at each
+ * read so the reading is never stale however long the page stays open.
+ */
+export function limitsSnapshot(now: number = Date.now()): LimitsSnapshot {
+  const at = (ms: number) => new Date(now + ms).toISOString()
+  const window = (kind: string, label: string, percent: number, resetsIn: number, runsOutIn: number | null): LimitWindow => ({
+    kind,
+    label,
+    percent,
+    resetsAt: at(resetsIn),
+    severity: percent >= 90 ? 'critical' : percent >= 70 ? 'warning' : 'normal',
+    estimate: { runsOutAt: runsOutIn === null ? null : at(runsOutIn), basis: 'recent' },
+  })
+  const dir = (id: number, name: string, account: string, plan: string, windows: LimitWindow[]) => ({
+    id,
+    name,
+    account,
+    accountId: `${account}:demo-org`,
+    plan,
+    tracked: true,
+    readAt: at(-2 * MINUTE),
+    stale: false,
+    windows,
+    extraUsage: null,
+    waits: [],
+  })
+  return {
+    dirs: [
+      dir(1, 'Work', 'work@example.com', 'max', [
+        window('session', '5-hour window', 72, 2 * HOUR + 10 * MINUTE, HOUR + 30 * MINUTE),
+        window('weekly_all', 'Weekly', 41, 3 * 24 * HOUR, null),
+      ]),
+      dir(2, 'Personal', 'me@example.com', 'pro', [
+        window('session', '5-hour window', 18, 4 * HOUR, null),
+        window('weekly_all', 'Weekly', 9, 5 * 24 * HOUR, null),
+      ]),
+    ],
   }
 }

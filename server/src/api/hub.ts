@@ -1,6 +1,8 @@
 type Socket = {
   send(data: string): void;
   on(ev: string, cb: (...args: any[]) => void): void;
+  /** Set on a paired device's view of this hub (`ServingHalf`): not one of this device's own windows. */
+  peer?: string;
 };
 
 export type HubOptions = {
@@ -20,6 +22,8 @@ export class Hub {
   private topics = new Map<string, Set<Socket>>();
   private readonly firstCbs: ((topic: string) => void)[] = [];
   private readonly lastCbs: ((topic: string) => void)[] = [];
+  private readonly firstLocalCbs: ((topic: string) => void)[] = [];
+  private readonly lastLocalCbs: ((topic: string) => void)[] = [];
   private heartbeatIntervalMs: number;
 
   constructor(opts: HubOptions = {}) {
@@ -33,6 +37,21 @@ export class Hub {
 
   onLastUnsubscriber(cb: (topic: string) => void): void {
     this.lastCbs.push(cb);
+  }
+
+  /**
+   * Like `onFirstSubscriber`, counting only this device's own windows: a
+   * paired device watching a topic (`Socket.peer`) is not one. What one
+   * member asks of the others on behalf of its windows must not be asked
+   * on behalf of a member that asked it, or two members would keep each
+   * other watching for good.
+   */
+  onFirstLocalSubscriber(cb: (topic: string) => void): void {
+    this.firstLocalCbs.push(cb);
+  }
+
+  onLastLocalSubscriber(cb: (topic: string) => void): void {
+    this.lastLocalCbs.push(cb);
   }
 
   /** One listener throwing must not keep the topic from the others. */
@@ -52,18 +71,23 @@ export class Hub {
       set = new Set();
       this.topics.set(topic, set);
     }
+    if (set.has(socket)) return;
     const wasEmpty = set.size === 0;
+    const firstLocal = socket.peer === undefined && !hasLocal(set);
     set.add(socket);
     if (wasEmpty) this.notify(this.firstCbs, topic);
+    if (firstLocal) this.notify(this.firstLocalCbs, topic);
   }
 
   private unsubscribe(socket: Socket, topic: string): void {
     const set = this.topics.get(topic);
     if (!set?.delete(socket)) return;
+    const lastLocal = socket.peer === undefined && !hasLocal(set);
     if (set.size === 0) {
       this.topics.delete(topic);
       this.notify(this.lastCbs, topic);
     }
+    if (lastLocal) this.notify(this.lastLocalCbs, topic);
   }
 
   handleSocket(socket: Socket): void {
@@ -118,4 +142,9 @@ export class Hub {
   subscriberCount(topic: string): number {
     return this.topics.get(topic)?.size ?? 0;
   }
+}
+
+function hasLocal(set: Set<Socket>): boolean {
+  for (const socket of set) if (socket.peer === undefined) return true;
+  return false;
 }

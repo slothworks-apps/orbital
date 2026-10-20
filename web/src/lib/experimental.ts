@@ -35,6 +35,17 @@ export const TERMINAL_ENABLED_KEY = 'terminal_enabled'
 export const TERMINAL_PLACEMENT_KEY = 'terminal_placement'
 export const TERMINAL_CURSOR_KEY = 'terminal_cursor'
 export const TERMINAL_CURSOR_BLINK_KEY = 'terminal_cursor_blink'
+/**
+ * One sun per Claude account on the map, dimming as its plan's usage runs
+ * out (spec 2026-10-20-limit-suns-design § 4; Labs). Off, the map draws none.
+ */
+export const LIMIT_SUNS_ENABLED_KEY = 'limit_suns_enabled'
+/** Where each sun sits: JSON, account key to map coordinates. The server's default is `{}`. */
+export const LIMIT_SUN_POSITIONS_KEY = 'map_limit_sun_positions'
+/** The suns' style, `eclipse` (the server's default) or `dim` (canvas 60e). */
+export const LIMIT_SUN_STYLE_KEY = 'map_limit_sun_style'
+/** Each account's star colour: JSON, account key to colour name. The server's default is `{}`. */
+export const LIMIT_SUN_COLORS_KEY = 'map_limit_sun_colors'
 
 export type TerminalPlacement = 'dock' | 'side'
 export type TerminalCursor = 'block' | 'bar' | 'underline'
@@ -67,6 +78,10 @@ export function archipelagoEnabled(settings: Settings): boolean {
 
 export function terminalEnabled(settings: Settings): boolean {
   return settings[TERMINAL_ENABLED_KEY] === 'true'
+}
+
+export function limitSunsEnabled(settings: Settings): boolean {
+  return settings[LIMIT_SUNS_ENABLED_KEY] === 'true'
 }
 
 /** The dock unless the side panel was picked. */

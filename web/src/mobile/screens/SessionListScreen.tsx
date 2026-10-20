@@ -7,6 +7,7 @@ import { useNow } from '../../lib/useNow'
 import { ClaudeDirMark, useClaudeDirMark } from '../../ui/ClaudeDirMark'
 import { useOrbital } from '../../store/store'
 import { KindGlyph } from '../../ui/KindGlyph'
+import { LimitsGlyph } from '../../ui/LimitsGlyph'
 import { devicesOn, namesShown, showDeviceRow, toggleDevice } from '../../lib/devices'
 import { asleepCards, onDevices, phoneChips, useDeviceFilter, type AsleepCard, type PhoneChip } from '../deviceList'
 import { recheckMac } from '../connect'
@@ -19,6 +20,7 @@ import {
 } from '../sessionList'
 import { countedBySummary, loadEndedFold } from '../endedFold'
 import { isMacAsleep, useMobile } from '../state'
+import { anySupports } from '../version'
 import { opensTask } from '../subagents/model'
 import { MobileScreen, PrimaryButton } from '../ui'
 import { WhereLine } from '../where/WhereLine'
@@ -33,9 +35,9 @@ export function SessionListScreen() {
     useShallow((s) => s.order.map((id) => s.sessions[id]).filter((x): x is ApiSession => x !== undefined)),
   )
   const tags = useOrbital((s) => s.tags)
-  const { offline, link, macName, asOf, checkedAt, devices, rechecking } = useMobile(
+  const { offline, link, macName, macVersion, asOf, checkedAt, devices, rechecking } = useMobile(
     useShallow((s) => ({
-      offline: isMacAsleep(s), link: s.link, macName: s.macName, asOf: s.asOf, checkedAt: s.checkedAt,
+      offline: isMacAsleep(s), link: s.link, macName: s.macName, macVersion: s.macVersion, asOf: s.asOf, checkedAt: s.checkedAt,
       devices: s.devices, rechecking: s.rechecking,
     })),
   )
@@ -103,6 +105,18 @@ export function SessionListScreen() {
             </>
           )}
         </span>
+        {/* 60d: the Limits ring, between the Mac and Settings — the desktop shortcut's ¾ ring, never a state;
+            left out while no device of the group serves the limits (`MAC_FEATURES.limitsRoutes`). */}
+        {anySupports('limitsRoutes', devices, macVersion) && (
+          <button
+            type="button"
+            aria-label="Limits"
+            onClick={() => go('limits')}
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] bg-[rgba(150,205,255,.08)] text-[rgba(214,230,248,.85)] shadow-[inset_0_0_0_1px_rgba(150,205,255,.26)]"
+          >
+            <LimitsGlyph size="phone" />
+          </button>
+        )}
         <button type="button" aria-label="Settings" onClick={() => go('settings')} className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px]">
           <span aria-hidden className="block h-4 w-4 rounded-full border-[1.5px] border-dashed border-[oklch(85%_.12_205)]" />
         </button>

@@ -1,7 +1,7 @@
 import type { FetchLike, SessionListPage, api } from '../../../web/src/lib/api'
 import type { ApiSession, ChatMessage, OrbitalModel, PermissionMode, Tag } from '../../../web/src/lib/types'
 import { FakeHub } from './fakeSocket'
-import { SESSION_DEFAULTS, launchedSession, projects } from './fixtures'
+import { SESSION_DEFAULTS, launchedSession, limitsSnapshot, projects } from './fixtures'
 
 /** Everything a demo's fake server answers from. */
 export interface DemoWorld {
@@ -306,6 +306,25 @@ export const ROUTES: Route[] = [
     path: '/api/models',
     calledBy: 'store.loadInitial (model chips)',
     answer: ({ server }) => ({ models: server.world.models, contextWindows: {} }) satisfies Answer<'listModels'>,
+  },
+  {
+    method: 'GET',
+    path: '/api/limits',
+    calledBy: 'the map’s limit suns, Settings → Labs → Limit suns, the phone’s Limits screen',
+    answer: () => limitsSnapshot() satisfies Answer<'getLimits'>,
+  },
+  {
+    method: 'POST',
+    path: '/api/limits/refresh',
+    calledBy: 'Read again on the phone’s Limits screen',
+    answer: () => limitsSnapshot() satisfies Answer<'refreshLimits'>,
+  },
+  {
+    method: 'GET',
+    path: '/api/directory',
+    calledBy: 'the phone’s new-session screen (the missing-directory line), against a Mac that serves it',
+    // Every directory the demo names is there.
+    answer: ({ url }) => ({ path: url.searchParams.get('path') ?? '', state: 'directory' }) satisfies Answer<'directoryState'>,
   },
   {
     method: 'GET',

@@ -93,15 +93,25 @@ export function PrimaryButton({
   )
 }
 
-export function SecondaryButton({ children, onClick, disabled, type = 'button', variant = 'screen' }: ButtonProps) {
+/**
+ * `variant="compact"` is the one inside a row (60d's Read again): as tall as
+ * a touch target, as wide as its word.
+ */
+export function SecondaryButton({
+  children, onClick, disabled, type = 'button', variant = 'screen',
+}: Omit<ButtonProps, 'variant'> & { variant?: ButtonProps['variant'] | 'compact' }) {
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
       className={[
-        'flex h-13 w-full items-center justify-center rounded-[14px] border px-4 font-semibold text-text-bright disabled:opacity-40',
-        variant === 'sheet' ? 'border-[rgba(150,205,255,.22)] text-[14px]' : 'border-[rgba(150,205,255,.2)] text-[15px]',
+        'flex items-center justify-center border font-semibold text-text-bright disabled:opacity-40',
+        variant === 'compact'
+          ? 'h-11 shrink-0 rounded-[10px] border-[rgba(150,205,255,.2)] px-3 text-[13px]'
+          : variant === 'sheet'
+            ? 'h-13 w-full rounded-[14px] border-[rgba(150,205,255,.22)] px-4 text-[14px]'
+            : 'h-13 w-full rounded-[14px] border-[rgba(150,205,255,.2)] px-4 text-[15px]',
       ].join(' ')}
     >
       {children}

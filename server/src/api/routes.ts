@@ -1556,13 +1556,18 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // sent if the Runner holds it, revived by resuming if not.
     limits.deliver = (id, text, attachments) => deliverToSession(id, text, attachments.length ? attachments : undefined);
 
+    // The other members' directories are merged in for this device's own
+    // windows; a request that came over a channel gets this device's alone
+    // (spec 2026-10-20-limit-suns-design § 1).
+
     /** The cached snapshot at once; a read behind it when it is older than the interval. */
-    app.get('/api/limits', () => limits.get());
+    app.get('/api/limits', (req) => limits.get(req.headers[DEVICE_HEADER] !== undefined));
 
     /** Read again, and answer with what was read. */
-    app.post('/api/limits/refresh', async () => {
-      await limits.refresh();
-      return limits.snapshot();
+    app.post('/api/limits/refresh', async (req) => {
+      const own = req.headers[DEVICE_HEADER] !== undefined;
+      await limits.refreshAll(own);
+      return limits.snapshot(own);
     });
 
     /** Cancel and Undo apply to this wait only; the setting is untouched. */

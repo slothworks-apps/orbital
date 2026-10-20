@@ -109,3 +109,27 @@ describe('Hub heartbeat', () => {
     expect(a.send).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('Hub local subscribers', () => {
+  it('counts only this device\'s own windows, not a paired device\'s view of the hub', () => {
+    const hub = new Hub();
+    const first = vi.fn();
+    const last = vi.fn();
+    hub.onFirstLocalSubscriber(first);
+    hub.onLastLocalSubscriber(last);
+    const peer = Object.assign(fakeSocket(), { peer: 'phone' });
+    const win = fakeSocket();
+    hub.handleSocket(peer);
+    hub.handleSocket(win);
+    peer.emit('message', JSON.stringify({ type: 'subscribe', topic: 'limits' }));
+    expect(first).not.toHaveBeenCalled();
+    win.emit('message', JSON.stringify({ type: 'subscribe', topic: 'limits' }));
+    win.emit('message', JSON.stringify({ type: 'subscribe', topic: 'limits' }));
+    expect(first).toHaveBeenCalledTimes(1);
+    win.emit('close');
+    expect(last).toHaveBeenCalledWith('limits');
+    expect(hub.subscriberCount('limits')).toBe(1);
+    peer.emit('close');
+    expect(last).toHaveBeenCalledTimes(1);
+  });
+});

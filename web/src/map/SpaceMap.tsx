@@ -35,6 +35,12 @@ import { COMPACT_COMMAND, Planet } from './Planet'
 import { sendCompactAware, useCompactionUi } from '../store/compaction'
 import { Moon } from './Moon'
 import { Hole } from './Hole'
+import { LimitSunCard, LimitSuns, SUN_REACH, endSunDrag, startSunDrag, useSunState, type SunPress } from './LimitSun'
+import { DRAG_THRESHOLD_PX, sunPressMoved, type MapSun } from './sunModel'
+import { limitSunsEnabled, LIMIT_SUN_POSITIONS_KEY } from '../lib/experimental'
+import { sunPositions, withSunMoveUndone, withSunPosition } from '../lib/limitSuns'
+import { limitsPathFor } from '../limits/route'
+import { api } from '../lib/api'
 import { useSceneModel } from './useSceneModel'
 import { FrameBudget, useMapFrame } from './FrameBudget'
 import { FrameScheduler, frameCap, parseMapFps } from './frameSchedule'
@@ -111,8 +117,6 @@ const ZOOM_STEP_MS = 420
  * four times in a row — pressing fit again lands on the same frame.
  */
 const FIT_FLIGHT_MS = BODY_MOVE_MS
-/** Below this many screen px of movement, a pointer down+up is treated as a click, not a drag-pan. */
-const DRAG_THRESHOLD_PX = 3
 
 /**
  * Sloth's resting position, expressed as a percentage of the map viewport
@@ -630,6 +634,11 @@ export function SpaceMap() {
   // Appearance → Show trash (spec 2026-09-24-sessions-end-only-by-hand-design
   // § 3). Off: no trash drawn, no halo in the physics, no drop-to-end.
   const trashShown = showTrash(settings)
+  // Labs → Limit suns (spec 2026-10-20-limit-suns-design § 4). Off: no sun,
+  // no `limits` subscription, nothing else changes.
+  const sunsOn = limitSunsEnabled(settings)
+  /** The DOM layer under the canvas the suns are drawn into, so the planets draw over them. */
+  const sunLayerRef = useRef<HTMLDivElement>(null)
   /** The session a drop on the trash wants to end mid-turn — its End dialog is open. */
   const [confirmEndId, setConfirmEndId] = useState<string | null>(null)
   const closeConfirmEnd = useCallback(() => setConfirmEndId(null), [])
@@ -725,6 +734,26 @@ export function SpaceMap() {
     engaged: boolean
   } | null>(null)
 
+  /**
+   * A press on a limit sun: a click (it opens Limits at the account) until it
+   * moves `DRAG_THRESHOLD_PX`, then a drag that moves the sun and never
+   * the camera. The sun's own pointer-down runs first, as a planet's does.
+   */
+  const sunPressRef = useRef<SunPress | null>(null)
+  const handleSunPress = useCallback((sun: MapSun, e: ThreeEvent<PointerEvent>) => {
+    sunPressRef.current = {
+      key: sun.key,
+      pointerId: e.nativeEvent.pointerId,
+      startX: e.nativeEvent.clientX,
+      startY: e.nativeEvent.clientY,
+      origin: sun.position,
+      grab: { x: e.point.x, y: e.point.y },
+      engaged: false,
+      x: sun.position.x,
+      y: sun.position.y,
+    }
+  }, [])
+
   // A planet click is also the way back from a subagent's (or background
   // task's) panel to its parent session. Selecting another planet already
   // closes that panel (the store's selection subscription); clicking the
@@ -811,6 +840,26 @@ export function SpaceMap() {
     [handleSelect]
   )
 
+  /**
+   * Stores where a sun was dropped, optimistically like the other settings
+   * the map writes: the sun stays where it was put while the save runs, and
+   * goes back if the save fails — unless it has been moved again since.
+   */
+  const placeSun = useCallback(async (key: string, position: Position) => {
+    const before = sunPositions(useOrbital.getState().settings).get(key)
+    const value = withSunPosition(useOrbital.getState().settings, key, position)
+    useOrbital.setState((s) => ({ settings: { ...s.settings, [LIMIT_SUN_POSITIONS_KEY]: value } }))
+    try {
+      await api.patchSettings({ [LIMIT_SUN_POSITIONS_KEY]: value })
+    } catch (err) {
+      useOrbital.setState((s) => {
+        const undone = withSunMoveUndone(s.settings, key, position, before)
+        return undone === null ? s : { settings: { ...s.settings, [LIMIT_SUN_POSITIONS_KEY]: undone } }
+      })
+      reportError(err, 'Failed to save where the sun was put')
+    }
+  }, [])
+
   const handleBodyPointerDown = useCallback((id: string, e: ThreeEvent<PointerEvent>) => {
     if (e.nativeEvent.button !== 0) return
     bodyDragRef.current = {
@@ -841,6 +890,8 @@ export function SpaceMap() {
       // child of this container): that pointer is dragging a BODY, so the
       // map must not also pan under it.
       if (bodyDragRef.current?.pointerId === e.pointerId) return
+      // …and one on a sun moves the sun, never the camera.
+      if (sunPressRef.current?.pointerId === e.pointerId) return
       dragRef.current = { pointerId: e.pointerId, lastX: e.clientX, lastY: e.clientY, captured: false }
     },
     [cancelCameraMotion]
@@ -848,6 +899,23 @@ export function SpaceMap() {
 
   const handlePointerMove = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
+      const sunPress = sunPressRef.current
+      if (sunPress && sunPress.pointerId === e.pointerId) {
+        if (!sunPress.engaged) {
+          if (!sunPressMoved(e.clientX - sunPress.startX, e.clientY - sunPress.startY)) return
+          sunPress.engaged = true
+          draggedRef.current = true
+          e.currentTarget.setPointerCapture(e.pointerId)
+          startSunDrag(sunPress.key)
+        }
+        const at = pointerToWorld(e)
+        sunPress.x = sunPress.origin.x + at.x - sunPress.grab.x
+        sunPress.y = sunPress.origin.y + at.y - sunPress.grab.y
+        // The sun moves under the pointer without a render to ask for it.
+        scheduler.request()
+        return
+      }
+
       const bodyDrag = bodyDragRef.current
       if (bodyDrag && bodyDrag.pointerId === e.pointerId) {
         if (!bodyDrag.engaged) {
@@ -898,6 +966,21 @@ export function SpaceMap() {
 
   const handlePointerUp = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
+      const sunPress = sunPressRef.current
+      if (sunPress && sunPress.pointerId === e.pointerId) {
+        sunPressRef.current = null
+        if (!sunPress.engaged) {
+          // A cancelled press is neither a click nor a drag.
+          if (e.type === 'pointerup') window.location.assign(limitsPathFor(sunPress.key))
+          return
+        }
+        e.currentTarget.releasePointerCapture(e.pointerId)
+        endSunDrag()
+        void placeSun(sunPress.key, { x: sunPress.x, y: sunPress.y })
+        scheduler.request()
+        return
+      }
+
       const bodyDrag = bodyDragRef.current
       if (bodyDrag && bodyDrag.pointerId === e.pointerId) {
         bodyDragRef.current = null
@@ -940,7 +1023,7 @@ export function SpaceMap() {
       if (drag.captured) e.currentTarget.releasePointerCapture(e.pointerId)
       dragRef.current = null
     },
-    [reduced, trashSession, setTagAnchor, scheduler]
+    [reduced, trashSession, setTagAnchor, scheduler, placeSun]
   )
 
   const handleWheel = useCallback(
@@ -990,10 +1073,13 @@ export function SpaceMap() {
       const { left, right, bottom, top } = body.extent
       planets.push({ x: body.x + left, y: body.y + bottom }, { x: body.x + right, y: body.y + top })
     }
-    const bodiesAt = (zoom: number): FitBody[] =>
-      trashShown
-        ? [{ x: model.hole.x, y: model.hole.y, r: HOLE_DROP_RADIUS * bodyZoomFactor(zoom) }, ...planets]
-        : planets
+    // The suns are part of the map too, while they are on.
+    const suns = sunsOn ? useSunState.getState().suns : []
+    const bodiesAt = (zoom: number): FitBody[] => [
+      ...(trashShown ? [{ x: model.hole.x, y: model.hole.y, r: HOLE_DROP_RADIUS * bodyZoomFactor(zoom) }] : []),
+      ...suns.map((sun) => ({ ...sun.position, r: SUN_REACH * bodyZoomFactor(zoom) * planetScale })),
+      ...planets,
+    ]
     const rect = containerRef.current?.getBoundingClientRect()
     const viewport = {
       width: rect?.width ?? window.innerWidth,
@@ -1003,7 +1089,7 @@ export function SpaceMap() {
     // everything" that parks half the sessions under the sidebar or the
     // detail panel has not shown them.
     return fitViewTo(bodiesAt, viewport, mapInsets)
-  }, [sim, model.hole.x, model.hole.y, mapInsets, leavingIds, trashShown])
+  }, [sim, model.hole.x, model.hole.y, mapInsets, leavingIds, trashShown, sunsOn, planetScale])
 
   const handleFit = useCallback(() => {
     cancelCameraMotion()
@@ -1143,6 +1229,10 @@ export function SpaceMap() {
       onWheel={handleWheel}
     >
       <SpaceBackdrop />
+      {/* The limit suns' layer: under the canvas, so the planets draw over
+          the suns (canvas 60f SIZE & LAYER). Its own stacking context keeps
+          the suns' `Html` under the canvas whatever z-index drei gives it. */}
+      <div ref={sunLayerRef} aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden" />
       {/* `flat` is R3F's name for `NoToneMapping`. Without it R3F defaults the
           renderer to ACES Filmic, whose signature — saturated bright colours
           desaturating near the top of the range — greyed out every hue the
@@ -1223,6 +1313,16 @@ export function SpaceMap() {
             <ClusterLabel key={label.tagId} label={label} simRef={simRef} leaving={leavingIds} />
           ))}
 
+          {sunsOn && (
+            <LimitSuns
+              hole={model.hole}
+              planetScale={planetScale}
+              layerRef={sunLayerRef}
+              pressRef={sunPressRef}
+              onPress={handleSunPress}
+            />
+          )}
+
           {trashShown && (
             <Hole
               hole={model.hole}
@@ -1253,6 +1353,8 @@ export function SpaceMap() {
           button and the zoom stack. Still under the z-10 panels and z-50
           dialogs. */}
       <div className="pointer-events-none absolute inset-0 z-[6]">
+        {sunsOn && <LimitSunCard camera={camera} planetScale={planetScale} containerRef={containerRef} />}
+
         {/* Aggregate readout (1a, right:24px/top:24px), plain text end to end.
             It tracks the detail panel on the same 420ms curve as the zoom
             stack below — otherwise the panel slides in over the top of it. */}

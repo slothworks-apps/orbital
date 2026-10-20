@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { parseGrants, getMemberGrants, memberHasGrant, memberRefusal, ALL_GRANT_GROUPS } from '../src/remote/grants.js';
 import { Hub } from '../src/api/hub.js';
 import { createImageStore } from '../src/images/store.js';
-import { ServingHalf } from '../src/remote/servingHalf.js';
+import { LIMITS_TOPIC } from '@orbital/shared/limits';
+import { allowedPath } from '../src/remote/allowlist.js';
+import { LIMITS_GRANT, ServingHalf, memberMayWatch, ownLimitsFrame } from '../src/remote/servingHalf.js';
 import { makeTmpDir } from './tmp.js';
 
 describe('grants', () => {
@@ -189,12 +191,12 @@ describe('member grants', () => {
 });
 
 describe('ServingHalf and grants', () => {
-  function serve(grants: () => string) {
+  function serve(grants: () => string, hub = new Hub()) {
     const dir = makeTmpDir('grants');
     const asked: string[] = [];
     const out: any[] = [];
     const serving = new ServingHalf({
-      deviceId: 'm1', hub: new Hub(), images: createImageStore(dir), imagesDir: dir,
+      deviceId: 'm1', hub, images: createImageStore(dir), imagesDir: dir,
       inject: async (req) => { asked.push(`${req.method} ${req.url}`); return { statusCode: 200, body: '{}' }; },
       files: () => ({ status: 404 }), notifications: { get: () => ({}) as never, set: () => {} }, onSeen: () => {},
       getGrants: grants,
@@ -205,7 +207,7 @@ describe('ServingHalf and grants', () => {
       await new Promise((r) => setTimeout(r, 0));
       return out.find((m) => m.t === 'http_res' && m.id === id);
     };
-    return { ask, asked, serving };
+    return { ask, asked, serving, out };
   }
 
   it('serves a default-on group, refuses a default-off one as not_granted, and serves it once granted, live', async () => {
@@ -225,5 +227,45 @@ describe('ServingHalf and grants', () => {
     const { ask, serving } = serve(() => '');
     expect(await ask(1, 'GET', '/api/remote')).toMatchObject({ status: 403, body: { error: 'not_allowed' } });
     serving.reset();
+  });
+
+  it('the limits topic follows the grant of GET /api/limits, on subscribe and on every frame', () => {
+    expect(allowedPath('GET', '/api/limits')?.group).toBe(LIMITS_GRANT);
+    const hub = new Hub();
+    let raw = JSON.stringify({ m1: { [LIMITS_GRANT]: false } });
+    const { serving, out } = serve(() => raw, hub);
+    const frames = () => out.filter((m) => m.t === 'ws' && m.frame.topic === LIMITS_TOPIC);
+    serving.ask({ t: 'ws', type: 'subscribe', topic: LIMITS_TOPIC } as never);
+    hub.publish(LIMITS_TOPIC, { event: 'limits', limits: { dirs: [] } });
+    expect(frames()).toHaveLength(0);
+
+    raw = '';
+    serving.ask({ t: 'ws', type: 'subscribe', topic: LIMITS_TOPIC } as never);
+    hub.publish(LIMITS_TOPIC, { event: 'limits', limits: { dirs: [] } });
+    expect(frames()).toHaveLength(1);
+
+    // Taken back while the subscription stands: the next frame stays here.
+    raw = JSON.stringify({ m1: { [LIMITS_GRANT]: false } });
+    hub.publish(LIMITS_TOPIC, { event: 'limits', limits: { dirs: [] } });
+    expect(frames()).toHaveLength(1);
+    serving.reset();
+  });
+});
+
+describe('the limits topic for a member', () => {
+  it('may be watched', () => {
+    expect(memberMayWatch(LIMITS_TOPIC)).toBe(true);
+  });
+
+  it('carries only this device\'s own directories; any other frame is left as it is', () => {
+    const own = { id: 1, account: 'a@example.com' };
+    const theirs = { id: 1, account: 'b@example.com', machine: { id: 'm2', name: 'Studio' } };
+    const frame = { topic: LIMITS_TOPIC, event: 'limits', limits: { dirs: [own, theirs, { id: 2, machine: null }] } };
+    expect(ownLimitsFrame(frame)).toEqual({ ...frame, limits: { dirs: [own, { id: 2, machine: null }] } });
+    const sessions = { topic: 'sessions', event: 'upsert', limits: { dirs: [theirs] } };
+    expect(ownLimitsFrame(sessions)).toBe(sessions);
+    const odd = { topic: LIMITS_TOPIC, event: 'limits', limits: null };
+    expect(ownLimitsFrame(odd)).toBe(odd);
+    expect(ownLimitsFrame(null)).toBeNull();
   });
 });

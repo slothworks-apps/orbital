@@ -803,7 +803,7 @@ export class Runner {
   private onTaskOutputPath?: (sessionId: string, toolUseId: string, path: string) => void;
   private onTurnBoundary?: (sessionId: string, ended: boolean) => void;
   private onDecision?: (sessionId: string) => void;
-  private onRateLimit?: (sessionId: string) => void;
+  private onRateLimit?: (sessionId: string, info: unknown) => void;
   private onLimitHit?: (sessionId: string, rejected: RejectedLimit, turnError: string | null) => unknown;
   private isLimitWaiting?: (sessionId: string) => boolean;
   private onPermissionMode?: (sessionId: string, mode: PermissionMode) => void;
@@ -1004,8 +1004,12 @@ export class Runner {
      * both edges; the status alone cannot carry it, both being `needs_input`.
      */
     onDecision?: (sessionId: string) => void;
-    /** A `rate_limit_event` arrived, whatever its status — the limits view reads again. */
-    onRateLimit?: (sessionId: string) => void;
+    /**
+     * A `rate_limit_event` arrived, whatever its status — the limits view
+     * reads again, and keeps the use the event carries (`info`, its
+     * `rate_limit_info` as it came).
+     */
+    onRateLimit?: (sessionId: string, info: unknown) => void;
     /**
      * A main turn ended after a `rejected` `rate_limit_event`; `turnError` is
      * the error its last main-loop frame carried. Awaited before the status
@@ -1720,7 +1724,7 @@ export class Runner {
     if (msg.type === 'rate_limit_event') {
       const read = readRateLimitInfo(msg.rate_limit_info);
       if (read && read !== 'allowed') state.limitRejected = read;
-      this.onRateLimit?.(sessionId);
+      this.onRateLimit?.(sessionId, msg.rate_limit_info);
       return;
     }
     if (msg.type === 'system' && msg.subtype === 'commands_changed') {

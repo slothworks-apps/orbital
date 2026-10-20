@@ -9,6 +9,7 @@ import { statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { DataDirNotOwned, ensureDataDir } from '@orbital/shared/dataDir';
+import { LIMITS_TOPIC } from '@orbital/shared/limits';
 import { CONFIG } from './config.js';
 import { applyLoginShellPath } from './env/loginPath.js';
 import { isExecutableFile } from './env/shell.js';
@@ -60,7 +61,7 @@ import type { HarnessGate } from './harness/types.js';
 import { Narrator, type NarrateQueryFn } from './walkthrough/narrator.js';
 import { composeAppendix } from './runner/sessionInstructions.js';
 import { ModelCatalog, catalogKeyFor, recordContextWindows } from './models/catalog.js';
-import { LIMITS_TOPIC, LimitsService } from './limits/service.js';
+import { LimitsService } from './limits/service.js';
 import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
 import { Presence } from './remote/presence.js';
@@ -410,6 +411,17 @@ export async function buildServer(overrides: {
       list: () => claudeDirs.list().map(({ id, name }) => ({ id, name })),
       envFor: envForDir,
       dirOf: dirOfSession,
+      // Directories of one account share one plan, and one probe reads it.
+      accountOf: (claudeDirId) => claudeDirs.accountOf(claudeDirId),
+    },
+    // Read in the background while a session works, Orbital's or a terminal's.
+    workingDirs: () => {
+      const working = new Set<number>();
+      for (const id of runner.active()) if (runner.status(id) === 'working') working.add(dirOfSession(id));
+      for (const live of registry.all()) {
+        if (live.status === 'working') working.add(live.claudeDirId ?? dirOfSession(live.sessionId));
+      }
+      return working;
     },
     republish: (sessionId) => republish(sessionId),
     onError: (err, during, sessionId) =>
@@ -871,7 +883,7 @@ export async function buildServer(overrides: {
     onDecision: (sessionId) => republish(sessionId),
     // Usage limits: every event reads the limits again, a turn ended on the
     // limit may become a wait, and a waiting session settles to `idle`.
-    onRateLimit: (sessionId) => limits.rateLimitEvent(sessionId),
+    onRateLimit: (sessionId, info) => limits.rateLimitEvent(sessionId, info),
     onLimitHit: (sessionId, rejected, turnError) => limits.limitHit(sessionId, rejected, turnError),
     isLimitWaiting: (sessionId) => limits.isWaiting(sessionId),
     // An approved plan left plan mode. Stored on the row, so the panel's mode
@@ -1119,9 +1131,18 @@ export async function buildServer(overrides: {
     follower.start();
   }
 
-  hub.onFirstSubscriber((topic) => {
-    // The probe runs only while someone has the limits view open.
+  // The probe reads on its interval only while a window of this device has
+  // the limits open. A member watching them is no such window: it gets every
+  // read that happens here anyway (the background reading, a session's
+  // events, its own `GET`'s read of an old answer), and would otherwise keep
+  // this device probing for as long as it is up.
+  hub.onFirstLocalSubscriber((topic) => {
     if (topic === LIMITS_TOPIC) limits.watch();
+  });
+  hub.onLastLocalSubscriber((topic) => {
+    if (topic === LIMITS_TOPIC) limits.unwatch();
+  });
+  hub.onFirstSubscriber((topic) => {
     startTail(topic);
     startFollower(topic);
     // An ended session nobody had open was skipped by `republishCwds`, so its
@@ -1137,7 +1158,6 @@ export async function buildServer(overrides: {
     }
   });
   hub.onLastUnsubscriber((topic) => {
-    if (topic === LIMITS_TOPIC) limits.unwatch();
     stopTail(topic);
     stopFollower(topic);
     if (topic.startsWith('session:')) {
@@ -1471,7 +1491,10 @@ export async function buildServer(overrides: {
   const federation: FederationService = new FederationService({
     hub, remote, localTags: () => db.select().from(tagsTable).all(), snapshots: new MemberSnapshotStore(db),
     localSession: (id) => db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get() !== undefined,
+    onLimits: () => limits.membersChanged(),
   });
+  // Every member's limits beside this device's own (spec 2026-10-20-limit-suns-design § 1).
+  limits.members = federation;
   overrides.exposeFederation?.(federation);
   overrides.exposeHub?.(hub);
   // Before the routes: a request for a member's session must never reach a

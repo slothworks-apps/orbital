@@ -355,6 +355,21 @@ export interface LimitWindow {
   percent: number
   resetsAt: string | null
   severity: string
+  /** When it runs out at the current pace; absent from an older Mac, null when there is none to give. */
+  estimate?: LimitEstimate | null
+}
+
+/**
+ * A window's run-out estimate (spec 2026-10-20-limit-suns-design § 2).
+ * `runsOutAt` is ISO when the limit runs out before the reset at this pace,
+ * null when it lasts until the reset. `basis`: `recent` is the slope over
+ * the recent readings, `window` the window's average so far.
+ */
+export interface LimitEstimate {
+  runsOutAt: string | null
+  basis: 'recent' | 'window'
+  /** A spent window: ISO of the first reading that found it at the limit. */
+  ranOutAt?: string
 }
 
 /** Extra usage; money in the currency's minor units. */
@@ -387,9 +402,21 @@ export interface LimitsSnapshot {
 
 /** One Claude directory's plan limits. */
 export interface ClaudeDirLimits {
-  /** `claude_dirs.id`. */
+  /** `claude_dirs.id`, on the device the directory is on. */
   id: number
   name: string
+  /** The account's e-mail, lower-cased; null when unknown, absent from an older Mac. */
+  account?: string | null
+  /**
+   * The account and its organization, `accountUuid:organizationUuid`: one
+   * e-mail can belong to two organizations, each with its own plan. Null
+   * when unknown, absent from an older Mac.
+   */
+  accountId?: string | null
+  /** The account's plan (`pro`, `max`, …); null when unknown, absent from an older Mac. */
+  plan?: string | null
+  /** Another member's directory, merged into this Mac's answer; absent on the Mac's own. */
+  machine?: MachineRef
   /** False under an API key, or for an account with no plan windows (billed by usage). */
   tracked: boolean
   readAt: string | null

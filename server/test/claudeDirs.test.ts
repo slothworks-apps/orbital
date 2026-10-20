@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   claudeDirEnv,
   normalizeClaudeDirPath,
+  readAccount,
   readAccountEmail,
   UNOWNED_CLAUDE_DIR_ID,
   validateClaudeDirPath,
@@ -83,6 +84,20 @@ describe('the account of a directory', () => {
     expect(readAccountEmail(join(home, 'nowhere'), home)).toBeNull();
     writeFileSync(join(work, '.claude.json'), JSON.stringify({ oauthAccount: {} }));
     expect(readAccountEmail(work, home)).toBeNull();
+  });
+
+  it('reads the account and its organization together, and no id without both', () => {
+    const home = makeTmpDir('claude-home');
+    const work = join(home, '.claude-work');
+    mkdirSync(work);
+    const write = (oauthAccount: unknown) => writeFileSync(join(work, '.claude.json'), JSON.stringify({ oauthAccount }));
+    write({ emailAddress: 'me@work.example', accountUuid: 'u1', organizationUuid: 'o1' });
+    expect(readAccount(work, home)).toEqual({ email: 'me@work.example', id: 'u1:o1' });
+    write({ emailAddress: 'me@work.example', accountUuid: 'u1' });
+    expect(readAccount(work, home)).toEqual({ email: 'me@work.example', id: null });
+    write({ accountUuid: 'u1', organizationUuid: ' ' });
+    expect(readAccount(work, home)).toEqual({ email: null, id: null });
+    expect(readAccount(join(home, 'nowhere'), home)).toEqual({ email: null, id: null });
   });
 });
 

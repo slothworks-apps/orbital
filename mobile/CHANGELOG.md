@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-10-20
+### Added
+- Limits, from the ring in the session list header: every Claude account's plan windows across your devices, with when each runs out at your current pace.
+
 ## [0.16.0] — 2026-10-20
 ### Added
 - After an update, a WHAT'S NEW message above the session list shows what changed in the phone app.

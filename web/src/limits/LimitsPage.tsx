@@ -1,80 +1,70 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '../lib/api'
-import { getSocket } from '../lib/socket'
+import { limitSunsEnabled } from '../lib/experimental'
 import {
+  estimateLine,
   extraUsageValue,
   formatResetAt,
   formatResetCell,
   limitSettings,
   limitSeverity,
   severityWord,
+  windowScopeLine,
 } from '../lib/limits'
+import { sunColors, sunDiscGradient, sunTiles, type SunColor } from '../lib/limitSuns'
 import { settingsHref } from '../lib/sessionUrl'
+import { useLimitsSnapshot } from '../lib/useLimitsSnapshot'
 import { useNow } from '../lib/useNow'
-import type { ClaudeDirInfo, ClaudeDirLimits, LimitSeverity, LimitsSnapshot, LimitsWaitRow } from '../lib/types'
-import { claudeDirDisplayPath, claudeDirMonograms } from '../lib/claudeDirs'
+import type { ClaudeDirInfo, ClaudeDirLimits, LimitSeverity, LimitsWaitRow } from '../lib/types'
+import { claudeDirMonograms } from '../lib/claudeDirs'
 import { ClaudeDirMark } from '../ui/ClaudeDirMark'
+import { KindGlyph } from '../ui/KindGlyph'
 import { mapHref } from '../walkthrough/route'
 import { PageBar } from '../ui/PageBar'
 import { StatsShell } from '../stats/StatsShell'
+import {
+  accountViews,
+  estimateWords,
+  paceExplanation,
+  sunAccountKeys,
+  thisDevice,
+  type AccountDevice,
+  type AccountView,
+  type EstimateWords,
+} from './accounts'
 
 /**
  * `/limits` — the plan's usage windows (spec 2026-10-03-usage-limits-design
- * § 2; canvas `Feature - Plan limits` 31a). Its own screen, mounted instead
- * of `App` like `/stats`, but with the socket: the server pushes a fresh
- * read on the `limits` topic, and it probes only while someone is
- * subscribed to it — so the subscription is what keeps the view current, and
- * leaving the page is what stops the probe.
+ * § 2; canvas `Feature - Plan limits` 31a), one group per Claude account
+ * (spec 2026-10-20-limit-suns-design § 3; canvas `Feature - Limit sun` 60c).
+ * Its own screen, mounted instead of `App` like `/stats`, but with the
+ * socket: the server pushes a fresh read on the `limits` topic, and it
+ * probes only while someone is subscribed to it — so the subscription
+ * (`useLimitsSnapshot`) is what keeps the view current, and leaving or
+ * hiding the page is what stops the probe.
+ *
+ * `account` is the key of the account whose sun opened the page
+ * (`/limits/<key>`): the page scrolls to it and lights its head for
+ * `OPENED_FROM_MAP_LIT_MS`.
  */
-export function LimitsPage() {
-  const [snapshot, setSnapshot] = useState<LimitsSnapshot | null>(null)
-  const [failed, setFailed] = useState<string | null>(null)
-  const [reading, setReading] = useState(false)
+export function LimitsPage({ account = null }: { account?: string | null }) {
+  const { snapshot, failed, reading, refresh: readAgain } = useLimitsSnapshot()
   const [settings, setSettings] = useState<Record<string, string>>({})
   const [apiKey, setApiKey] = useState(true)
   /** The directories' paths, accounts and presence for the group heads (Mac only; null until read). */
   const [dirInfo, setDirInfo] = useState<ClaudeDirInfo[] | null>(null)
+  /** This device's name for the devices line, as the device chips read it. */
+  const [self, setSelf] = useState<AccountDevice | null>(null)
   // Re-read each minute so "today" stops being today at midnight.
   const now = useNow(true, 60_000)
-
-  // Only the newest answer may land: a GET started before a pushed frame
-  // must not overwrite it with an older read.
-  const seq = useRef(0)
-  const load = useCallback(() => {
-    const mine = ++seq.current
-    api.getLimits().then(
-      (data) => {
-        if (seq.current !== mine) return
-        setSnapshot(data)
-        setFailed(null)
-      },
-      (err: unknown) => {
-        if (seq.current === mine) setFailed(err instanceof Error ? err.message || 'request failed' : String(err))
-      },
-    )
-  }, [])
-
-  useEffect(() => {
-    const socket = getSocket()
-    const off = socket.subscribe('limits', (msg: { event?: string; limits?: LimitsSnapshot }) => {
-      if (msg.event !== 'limits' || !msg.limits) return
-      seq.current++
-      setSnapshot(msg.limits)
-      setFailed(null)
-    })
-    // The first open is the initial fetch; every reopen may have missed a frame.
-    const offStatus = socket.onStatusChange((status) => {
-      if (status === 'open') load()
-    })
-    return () => {
-      off()
-      offStatus()
-    }
-  }, [load])
 
   useEffect(() => {
     void api.getSettings().then(setSettings).catch(() => {})
     void api.listClaudeDirs().then(setDirInfo).catch(() => {})
+    void api
+      .getRemote()
+      .then((remote) => setSelf(thisDevice(remote)))
+      .catch(() => {})
     // Which "not tracked" a directory is: the API key's, or an account
     // without plan windows. Unknown reads as the API key's, the old copy.
     void api
@@ -83,27 +73,13 @@ export function LimitsPage() {
       .catch(() => {})
   }, [])
 
-  const readAgain = () => {
-    if (reading) return
-    setReading(true)
-    const mine = ++seq.current
-    api
-      .refreshLimits()
-      .then((data) => {
-        if (seq.current === mine) setSnapshot(data)
-      })
-      .catch(() => {
-        // The server records a failed read and marks the answer stale; the
-        // page says so through the snapshot, not through a banner.
-      })
-      .finally(() => setReading(false))
-  }
-
-  const dirs = snapshot?.dirs ?? []
-  // With one directory the page is 31a as it was; with more, each directory
-  // is a group under its own name (spec 2026-10-04-multiple-claude-directories-design § 5).
-  const grouped = dirs.length >= 2
-  const single = !grouped ? (dirs[0] ?? null) : null
+  // Every directory the server knows, the other members' included, grouped
+  // by account (spec 2026-10-20-limit-suns-design § 1).
+  const dirs = useMemo(() => snapshot?.dirs ?? [], [snapshot])
+  const views = useMemo(() => accountViews(dirs, { dirInfo, self, now }), [dirs, dirInfo, self, now])
+  // One account in one directory is 31a as it was: nothing is labelled.
+  const single = views.length === 1 && views[0].group.entries.length === 1 ? views[0] : null
+  const grouped = !single && views.length > 0
   const headerLine = !snapshot
     ? failed
       ? `limits unavailable — ${failed}`
@@ -111,24 +87,49 @@ export function LimitsPage() {
     : single
       ? readLineOf(single, now)
       : ''
-  const waits = dirs.flatMap((d) => d.waits)
+  // The waits stay this device's own: a member's session opens on its own map.
+  const localDirs = dirs.filter((d) => !d.machine)
+  const waits = localDirs.flatMap((d) => d.waits)
   const nothingTracked = dirs.length > 0 && dirs.every((d) => !d.tracked)
   const { autoContinue, text } = limitSettings(settings)
   // 44e: an API key outranks every directory's login, so none has windows —
   // one page-wide note, not one per group.
   const apiKeyForAll = grouped && apiKey && nothingTracked
-  const monograms = claudeDirMonograms(dirs)
-  const infoOf = (id: number) => dirInfo?.find((d) => d.id === id)
-  const dirOfWait = new Map(dirs.flatMap((d) => d.waits.map((w) => [w.sessionId, d.id] as const)))
+  // A wait wears its directory's mark with two or more directories here (44e).
+  const localMarks = localDirs.length >= 2 ? claudeDirMonograms(localDirs) : null
+  const dirOfWait = new Map(localDirs.flatMap((d) => d.waits.map((w) => [w.sessionId, d.id] as const)))
+  // The tiles are worth showing once there are two directories to tell apart.
+  const showTiles = dirs.length >= 2
+  // 60c: the colour dot says which sun is whose, so only while the suns are on.
+  const colors = limitSunsEnabled(settings) && !apiKey ? sunColors(sunAccountKeys(views), settings) : null
+
+  // Opened from a sun: scroll to its account once, light the head, let it fade.
+  const [lit, setLit] = useState<string | null>(null)
+  const landed = useRef(false)
+  const litTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(litTimer.current), [])
+  useEffect(() => {
+    if (!account || landed.current || !snapshot) return
+    landed.current = true
+    if (single || !views.some((v) => v.group.key === account)) return
+    const head = [...document.querySelectorAll<HTMLElement>('[data-limits-account]')].find(
+      (el) => el.dataset.limitsAccount === account,
+    )
+    head?.scrollIntoView({ block: 'start' })
+    setLit(account)
+    litTimer.current = setTimeout(() => setLit(null), OPENED_FROM_MAP_LIT_MS)
+  }, [account, snapshot, single, views])
 
   return (
     <StatsShell sky="limits" bar={<PageBar route={{ page: 'limits' }} surface="sky" />}>
       <div className="flex min-h-0 flex-1 gap-[18px]">
-        {/* 31a: the windows' panel. */}
+        {/* 31a / 60c: the windows' panel. */}
         <section className="flex min-w-0 flex-1 flex-col overflow-y-auto rounded-[13px] border border-[rgba(150,205,255,.12)] bg-[rgba(6,10,20,.55)] px-7 pb-2 pt-6">
-          <div className="flex items-baseline gap-3 pb-[18px]">
+          <div className={`flex items-baseline gap-3 ${grouped ? 'pb-2.5' : 'pb-[18px]'}`}>
             <span className="text-[19px] font-bold text-text-bright">Plan limits</span>
-            <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">as reported by Claude</span>
+            <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
+              {single?.group.account ? `as reported by Claude · ${single.group.account}` : 'as reported by Claude'}
+            </span>
             <span className="flex-1" />
             <span
               className="font-mono text-[10.5px]"
@@ -136,68 +137,36 @@ export function LimitsPage() {
             >
               {headerLine}
             </span>
-            {single && single.tracked && single.stale && <ReadAgain onClick={readAgain} disabled={reading} />}
+            {single && single.group.reading.tracked && single.stale && (
+              <ReadAgain onClick={readAgain} disabled={reading} />
+            )}
           </div>
 
-          {single && <DirWindows dir={single} now={now} apiKey={apiKey} />}
+          {single && <DirWindows dir={single.group.reading} stale={single.stale} now={now} apiKey={apiKey} />}
 
           {apiKeyForAll && <NotTracked apiKey several />}
 
-          {grouped &&
-            !apiKeyForAll &&
-            dirs.map((dir) => {
-              const info = infoOf(dir.id)
-              return (
-                <div key={dir.id} data-limits-dir={dir.id} className="flex flex-col">
-                  {/* 44e's group head: the mark, the name, the account and the path.
-                      The read line takes the head's free right end — each
-                      directory is read on its own. */}
-                  <div className="flex items-center gap-2.5 border-t border-[rgba(150,205,255,.14)] pb-2.5 pt-4">
-                    <ClaudeDirMark mono={monograms.get(dir.id) ?? '?'} size="phone" />
-                    <span className="min-w-0 truncate text-[14.5px] font-bold text-text-bright">{dir.name}</span>
-                    {info && (
-                      <span className="flex-none font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
-                        {[info.account, claudeDirDisplayPath(info.path)].filter(Boolean).join(' · ')}
-                      </span>
-                    )}
-                    <span className="flex-1" />
-                    {info?.exists !== false && (
-                      <span
-                        className="font-mono text-[10.5px]"
-                        style={{ color: dir.stale ? 'rgba(220,235,255,.85)' : 'rgba(160,190,225,.55)' }}
-                      >
-                        {readLineOf(dir, now)}
-                      </span>
-                    )}
-                    {info?.exists !== false && dir.tracked && dir.stale && (
-                      <ReadAgain onClick={readAgain} disabled={reading} />
-                    )}
-                  </div>
-                  {info?.exists === false ? (
-                    <QuietRow
-                      ring="rgba(200,215,235,.25)"
-                      title="Not found on disk"
-                      titleInk="rgba(232,238,248,.7)"
-                      mono
-                      text={`${claudeDirDisplayPath(info.path)} · nothing to read`}
-                    />
-                  ) : !dir.tracked ? (
-                    <QuietRow
-                      ring="rgba(200,215,235,.35)"
-                      title="Limits not tracked"
-                      titleInk="rgba(232,238,248,.85)"
-                      text="Claude reports no plan windows for this account. Its sessions never wait for a reset."
-                    />
-                  ) : (
-                    <DirWindows dir={dir} now={now} apiKey={apiKey} compact />
-                  )}
-                </div>
-              )
-            })}
+          {grouped && !apiKeyForAll && (
+            <div className="flex flex-col gap-2">
+              {views.map((view) => (
+                <AccountGroup
+                  key={view.group.key}
+                  view={view}
+                  now={now}
+                  apiKey={apiKey}
+                  showTiles={showTiles}
+                  color={colors?.get(view.group.key) ?? null}
+                  lit={lit === view.group.key}
+                  reading={reading}
+                  onReadAgain={readAgain}
+                />
+              ))}
+            </div>
+          )}
         </section>
 
-        {/* 31a: the right column. */}
-        <div className="flex w-[380px] flex-none flex-col gap-[18px]">
+        {/* 31a / 60c: the right column. */}
+        <div className="flex w-[360px] flex-none flex-col gap-[18px]">
           {nothingTracked ? (
             <Card label="WAITING FOR A RESET">
               <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">— not tracked</div>
@@ -206,23 +175,30 @@ export function LimitsPage() {
             waits.length > 0 && (
               <Card label="WAITING FOR A RESET">
                 {waits.map((wait) => {
-                  const dirId = grouped ? dirOfWait.get(wait.sessionId) : undefined
+                  const dirId = dirOfWait.get(wait.sessionId)
                   return (
                     <WaitRow
                       key={wait.sessionId}
                       wait={wait}
                       now={now}
-                      mono={dirId === undefined ? undefined : monograms.get(dirId)}
+                      mono={localMarks && dirId !== undefined ? localMarks.get(dirId) : undefined}
                     />
                   )
                 })}
-                {grouped && (
+                {localMarks && (
                   <div className="font-mono text-[10px] leading-[1.7] text-[rgba(160,190,225,.5)]">
                     a session waits on its own directory's window only
                   </div>
                 )}
               </Card>
             )
+          )}
+          {!nothingTracked && (
+            <Card label="AT THIS PACE" gap={10}>
+              <div className="text-[12.5px] leading-[1.6] text-[rgba(190,212,238,.8)] [text-wrap:pretty]">
+                {paceExplanation()}
+              </div>
+            </Card>
           )}
           <Card label="AFTER A RESET" gap={10}>
             <div className="text-[12.5px] leading-[1.6] text-[rgba(190,212,238,.8)] [text-wrap:pretty]">
@@ -243,11 +219,118 @@ export function LimitsPage() {
   )
 }
 
-/** One directory's read line: when it was read, or that it may be out of date. Empty when not tracked. */
-function readLineOf(dir: ClaudeDirLimits, now: number): string {
+/** How long the head of the account a sun opened stays lit before it fades (60f, CLICK / DRAG). */
+const OPENED_FROM_MAP_LIT_MS = 3000
+
+/**
+ * One account (60c): the head — the sun's colour dot, the directory tiles,
+ * the e-mail and plan, the read line, the directories and devices it covers
+ * — over its windows, or a quiet line in their place.
+ */
+function AccountGroup({
+  view,
+  now,
+  apiKey,
+  showTiles,
+  color,
+  lit,
+  reading,
+  onReadAgain,
+}: {
+  view: AccountView
+  now: number
+  apiKey: boolean
+  showTiles: boolean
+  color: SunColor | null
+  lit: boolean
+  reading: boolean
+  onReadAgain: () => void
+}) {
+  const dir = view.group.reading
+  const missing = view.dirs.every((d) => d.missing)
+  const { tiles, more } = sunTiles(view.dirs.map((d) => d.mono))
+  return (
+    <div data-limits-account={view.group.key} className="flex scroll-mt-2 flex-col">
+      <div
+        className="-mx-3 flex flex-col gap-[7px] rounded-lg border-t border-[rgba(150,205,255,.14)] px-3 pb-3 pt-4 transition-[background] duration-1000 ease-[ease]"
+        style={{ background: lit ? 'rgba(150,205,255,.07)' : 'transparent' }}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            title={color ? 'sun colour' : undefined}
+            className="block h-3 w-3 flex-none rounded-full"
+            style={{ background: color ? sunDiscGradient(color) : 'transparent' }}
+          />
+          {showTiles && tiles.map((mono, i) => <ClaudeDirMark key={i} mono={mono} size="phone" />)}
+          {showTiles && more > 0 && <ClaudeDirMark mono={`+${more}`} size="phone" />}
+          <span className="min-w-0 truncate text-[14.5px] font-bold text-text-bright">{view.title}</span>
+          {view.plan && (
+            <span className="flex-none font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">{view.plan}</span>
+          )}
+          <span className="flex-1" />
+          {lit && <span className="font-mono text-[10px] text-[rgba(160,190,225,.5)]">opened from the map ·</span>}
+          {!missing && (
+            <span
+              className="font-mono text-[10.5px]"
+              style={{ color: view.stale ? 'rgba(220,235,255,.85)' : 'rgba(160,190,225,.55)' }}
+            >
+              {readLineOf(view, now)}
+            </span>
+          )}
+          {!missing && dir.tracked && view.stale && <ReadAgain onClick={onReadAgain} disabled={reading} />}
+        </div>
+        <div className="flex flex-wrap items-center gap-[18px] font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+          <span className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[rgba(160,190,225,.45)]">directories</span>
+            {view.dirs.map((d, i) => (
+              <Fragment key={d.key}>
+                <span className="text-[rgba(214,230,248,.88)]">{d.name}</span>
+                {d.path && <span>{d.path}</span>}
+                {i < view.dirs.length - 1 && <span className="text-[rgba(150,205,255,.25)]">·</span>}
+              </Fragment>
+            ))}
+          </span>
+          {view.devices.length > 0 && (
+            <span className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[rgba(160,190,225,.45)]">devices</span>
+              {view.devices.map((device) => (
+                <span key={device.id} className="flex items-center gap-[5px] text-[rgba(214,230,248,.8)]">
+                  <KindGlyph kind={device.kind} />
+                  {device.name}
+                </span>
+              ))}
+            </span>
+          )}
+        </div>
+      </div>
+      {missing ? (
+        <QuietRow
+          ring="rgba(200,215,235,.25)"
+          title="Not found on disk"
+          titleInk="rgba(232,238,248,.7)"
+          mono
+          text={`${view.dirs.map((d) => d.path).filter(Boolean).join(' · ')} · nothing to read`}
+        />
+      ) : !dir.tracked ? (
+        <QuietRow
+          ring="rgba(200,215,235,.35)"
+          title="Limits not tracked"
+          titleInk="rgba(232,238,248,.85)"
+          text="Claude reports no plan windows for this account. Its sessions never wait for a reset."
+        />
+      ) : (
+        <DirWindows dir={dir} stale={view.stale} now={now} apiKey={apiKey} compact />
+      )}
+    </div>
+  )
+}
+
+/** One account's read line: when it was read, or that it may be out of date. Empty when not tracked. */
+function readLineOf(view: AccountView, now: number): string {
+  const dir = view.group.reading
   if (!dir.tracked) return ''
   if (dir.readAt === null) return 'reading…'
-  return dir.stale
+  return view.stale
     ? `last read ${formatResetAt(dir.readAt, now)} — may be out of date`
     : `read ${formatResetAt(dir.readAt, now)}`
 }
@@ -265,14 +348,16 @@ function ReadAgain({ onClick, disabled }: { onClick: () => void; disabled: boole
   )
 }
 
-/** One directory's windows, or its "not tracked" note. */
+/** One account's windows, or its "not tracked" note. `stale` is the reading's (`limitsReadingStale`). */
 function DirWindows({
   dir,
+  stale,
   now,
   apiKey,
   compact = false,
 }: {
   dir: ClaudeDirLimits
+  stale: boolean
   now: number
   apiKey: boolean
   compact?: boolean
@@ -281,17 +366,18 @@ function DirWindows({
   return (
     <div
       className="flex flex-col transition-opacity duration-[250ms] ease-[ease]"
-      style={{ opacity: dir.stale ? 0.55 : 1 }}
+      style={{ opacity: stale ? 0.55 : 1 }}
     >
       {dir.windows.map((w, i) => (
         <WindowRow
           key={`${w.kind}:${w.label}:${i}`}
           name={w.label}
-          sub={w.scope ?? null}
+          sub={w.scope ?? windowScopeLine(w.kind)}
           percent={w.percent}
           severity={limitSeverity(w.severity)}
           value={`${Math.round(w.percent)}%`}
           resetsAt={w.resetsAt}
+          estimate={estimateOf(w, stale, now)}
           now={now}
           compact={compact}
         />
@@ -305,12 +391,18 @@ function DirWindows({
           value={extraUsageValue(dir.extraUsage) ?? '—'}
           money
           resetsAt={null}
+          estimate={null}
           now={now}
           compact={compact}
         />
       )}
     </div>
   )
+}
+
+function estimateOf(window: ClaudeDirLimits['windows'][number], stale: boolean, now: number): EstimateWords | null {
+  const line = estimateLine(window, stale, now)
+  return line && estimateWords(line)
 }
 
 /** 31d: three steps of one neutral ink — the fill brightens, nothing takes a hue. */
@@ -329,6 +421,7 @@ function WindowRow({
   value,
   money = false,
   resetsAt,
+  estimate,
   now,
   compact = false,
 }: {
@@ -339,6 +432,8 @@ function WindowRow({
   value: string
   money?: boolean
   resetsAt: string | null
+  /** 60c: the run-out estimate under the bar; null for none. */
+  estimate: EstimateWords | null
   now: number
   /** 44e: a window inside a directory group, a notch smaller than 31a's page of one. */
   compact?: boolean
@@ -360,8 +455,20 @@ function WindowRow({
           <div className={`${compact ? 'mt-[3px]' : 'mt-1'} font-mono text-[10.5px] text-[rgba(160,190,225,.6)]`}>{sub}</div>
         )}
       </div>
-      <div className="relative h-1 overflow-hidden rounded-[2px] bg-[rgba(150,205,255,.1)]">
-        <span className="block h-full rounded-[2px]" style={{ width: `${width}%`, background: FILL[severity] }} />
+      <div className="flex min-w-0 flex-col gap-2">
+        <div className="relative h-1 overflow-hidden rounded-[2px] bg-[rgba(150,205,255,.1)]">
+          <span className="block h-full rounded-[2px]" style={{ width: `${width}%`, background: FILL[severity] }} />
+        </div>
+        {estimate && (
+          <span
+            className="font-mono text-[10.5px]"
+            style={{ color: estimate.lit ? 'rgba(160,190,225,.75)' : 'rgba(160,190,225,.55)' }}
+          >
+            {estimate.before}
+            {estimate.at && <span className="text-text-bright">{estimate.at}</span>}
+            {estimate.after}
+          </span>
+        )}
       </div>
       <div className="flex flex-col items-end gap-[5px]">
         <span

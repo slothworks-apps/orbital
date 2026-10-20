@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ApiSession, LimitWait, OrbitalModel } from '../lib/types'
+import type { ApiSession, ClaudeDirLimits, LimitWait, OrbitalModel } from '../lib/types'
 import {
   CONTEXT_BRIGHTER_AT,
   CONTEXT_FULL_INK_AT,
@@ -10,6 +10,8 @@ import {
   sheetHeadline,
 } from '../mobile/limits/context'
 import { limitNoticeKey, phoneLimitNotice } from '../mobile/limits/limitCopy'
+import { phoneLimitsView } from '../mobile/limits/limitsView'
+import { memberLimitDirs } from '../mobile/limits/members'
 
 // Local time, so the clock words read the same whatever the machine's zone.
 const NOW = new Date(2026, 9, 5, 13, 41).getTime()
@@ -193,5 +195,70 @@ describe('limitNoticeKey', () => {
     expect(limitNoticeKey(wait({ resetsAt: new Date(2026, 9, 5, 15).toISOString() }), false)).not.toBe(base)
     expect(limitNoticeKey(wait({ autoContinue: false }), false)).not.toBe(base)
     expect(limitNoticeKey(wait(), true)).not.toBe(base)
+  })
+})
+
+describe('phoneLimitsView', () => {
+  const at = (h: number, m = 0) => new Date(2026, 9, 5, h, m).toISOString()
+  const machine = (id: string, name: string, online = true) => ({ id, name, kind: 'desktop', os: 'macos', online, asOf: null })
+  const dir = (patch: Partial<ClaudeDirLimits>): ClaudeDirLimits => ({
+    id: 1, name: 'Personal', account: 'jan@acme.com', plan: 'pro', tracked: true, readAt: at(13, 30), stale: false,
+    windows: [{
+      kind: 'session', label: '5-hour window', percent: 85, resetsAt: at(15), severity: 'warning',
+      estimate: { runsOutAt: at(14, 18), basis: 'recent' },
+    }],
+    extraUsage: null, waits: [], ...patch,
+  })
+
+  it('one account on two devices is one section, its directory and its devices named once', () => {
+    const view = phoneLimitsView([
+      dir({ machine: machine('a', 'studio-mbp') }),
+      dir({ machine: machine('b', 'air-m3'), readAt: at(13, 0) }),
+    ], NOW)
+    expect(view.groups).toHaveLength(1)
+    expect(view.groups[0]).toMatchObject({ title: 'jan@acme.com', plan: 'Pro', tiles: [], meta: 'Personal · on studio-mbp, air-m3' })
+    expect(view.groups[0].rows[0]).toMatchObject({ value: '85%', word: 'WARNING', reset: 'today 15:00' })
+    expect(view.groups[0].rows[0].estimate).toMatchObject({ before: 'runs out ', at: '~14:20', after: ' at this pace' })
+    expect(view).toMatchObject({ read: 'read 13:30', stale: null })
+  })
+
+  it('an offline device\'s reading is out of date: the stale line names it and the oldest read, the estimate goes', () => {
+    const view = phoneLimitsView([
+      dir({ machine: machine('a', 'studio-mbp', false), stale: true, readAt: at(9, 12) }),
+      dir({ id: 2, name: 'Work', account: 'work@acme.com', machine: machine('a', 'studio-mbp', false), stale: true, readAt: at(10) }),
+    ], NOW)
+    expect(view.read).toBeNull()
+    expect(view.stale).toBe('last read 09:12 · studio-mbp offline')
+    expect(view.groups.map((g) => g.stale)).toEqual([true, true])
+    expect(view.groups[0].rows[0].estimate?.before).toBe('no estimate · reading is out of date')
+    // Two accounts: each wears its directories' tiles.
+    expect(view.groups.map((g) => g.tiles)).toEqual([['P'], ['W']])
+  })
+
+  it('an older Mac\'s directories, with no account and no estimate, are a section each with no estimate line', () => {
+    const old = (id: number, name: string) => dir({
+      id, name, account: undefined, plan: undefined, machine: machine('a', 'studio-mbp'),
+      windows: [{ kind: 'session', label: '5-hour window', percent: 20, resetsAt: at(15), severity: 'normal' }],
+    })
+    const view = phoneLimitsView([old(1, 'Personal'), old(2, 'Work')], NOW)
+    expect(view.groups.map((g) => g.title)).toEqual(['Personal', 'Work'])
+    expect(view.groups[0].rows[0].estimate).toBeNull()
+  })
+})
+
+describe('memberLimitDirs', () => {
+  const machine = { id: 'a', name: 'studio-mbp', kind: 'desktop', os: 'macos', online: true, asOf: null }
+  it('tags each directory with its member, lower-cases the account and leaves out what is not its own', () => {
+    const dirs = memberLimitDirs({
+      machine, failed: false,
+      dirs: [{ id: 1, name: 'W', account: 'Jan@Acme.com', readAt: null, stale: false }, { id: 2, machine: { id: 'b' } }, 'junk', { name: 'no id' }],
+    })
+    expect(dirs).toHaveLength(1)
+    expect(dirs[0]).toMatchObject({ id: 1, account: 'jan@acme.com', machine, stale: false, windows: [], tracked: true })
+  })
+  it('marks a member\'s reading stale when it is offline or its last read failed', () => {
+    const raw = [{ id: 1, readAt: null, stale: false }]
+    expect(memberLimitDirs({ machine: { ...machine, online: false }, failed: false, dirs: raw })[0].stale).toBe(true)
+    expect(memberLimitDirs({ machine, failed: true, dirs: raw })[0].stale).toBe(true)
   })
 })

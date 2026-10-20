@@ -51,7 +51,20 @@ export function reportError(err: unknown, fallback: string): void {
   }
   const message = err instanceof Error ? err.message : fallback
   useOrbital.setState({ toast: { kind: 'error', message } })
+  record(err, message)
+}
 
+/**
+ * Records a failure in the shared error log without the toast: for a read
+ * nobody asked for by hand (a background refresh), whose view already says
+ * it failed in its own place.
+ */
+export function recordError(err: unknown, fallback: string): void {
+  if (isUnauthorized()) return
+  record(err, err instanceof Error ? err.message || fallback : fallback)
+}
+
+function record(err: unknown, message: string): void {
   const context: Record<string, unknown> = {}
   if (err instanceof ApiError) {
     context.status = err.status

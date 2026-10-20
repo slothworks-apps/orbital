@@ -10,7 +10,9 @@ import {
   claudeDirEnv,
   cliDefaultDir,
   fsPathProbe,
+  readAccount,
   readAccountEmail,
+  type ClaudeAccount,
   validateClaudeDirPath,
   type ClaudeDirPathError,
   type PathProbe,
@@ -145,6 +147,12 @@ export class ClaudeDirsService<C extends ClaudeDirContext = ClaudeDirContext> {
   /** The running context of a directory, while it is configured. */
   context(id: number): C | undefined {
     return this.contexts.get(id);
+  }
+
+  /** The account the directory is signed in to, read off disk now (`readAccount`); null when there is no such directory. */
+  accountOf(id: number): ClaudeAccount | null {
+    const dir = this.get(id);
+    return dir ? readAccount(dir.path, this.home) : null;
   }
 
   /** The list `GET /api/claude-dirs` answers, with what is read off disk now. */
