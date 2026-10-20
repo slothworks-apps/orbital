@@ -21,7 +21,7 @@ import { ATTACHMENT_MAX_BYTES, IMAGE_CONTENT_TYPES } from '../api/routes.js';
 import type { ImageStore } from '../images/store.js';
 import { thumbnailOf } from '../images/thumbs.js';
 import { allowedPath } from './allowlist.js';
-import { memberHasGrant, parseGrants } from './grants.js';
+import { memberHasGrant, parseGrants, type GrantGroup } from './grants.js';
 import type { PhoneFileReader } from './phoneFiles.js';
 
 export const BLOB_PUT_MAX_BYTES = ATTACHMENT_MAX_BYTES;
@@ -38,6 +38,9 @@ export const MAX_OPEN_UPLOADS = 4;
 export const MEMBER_ALLOWED_TOPICS: ReadonlySet<string> = new Set(['sessions', 'errors', PRESENCE_TOPIC, LIMITS_TOPIC]);
 /** Per-id topics, by prefix: `session:<id>`, `subagent:<session>:<agent>`, `task-output:<session>:<task>`. */
 export const MEMBER_ALLOWED_TOPIC_PREFIXES: readonly string[] = ['session:', 'subagent:', 'task-output:'];
+
+/** The grant group the `limits` topic follows: the one `GET /api/limits` is in (`allowlist.ts`). */
+export const LIMITS_GRANT: GrantGroup = 'settings';
 
 export function memberMayWatch(topic: string): boolean {
   return MEMBER_ALLOWED_TOPICS.has(topic) || MEMBER_ALLOWED_TOPIC_PREFIXES.some((p) => topic.startsWith(p) && topic.length > p.length);
@@ -174,7 +177,7 @@ export class ServingHalf implements ChannelServer {
         } catch {
           return; // not JSON: nothing the asker could read
         }
-        if (this.withheld(frame)) return;
+        if (this.withheld(frame) || this.limitsWithheld(frame)) return;
         this.answer({ t: 'ws', frame: ownLimitsFrame(frame) });
       },
     });
@@ -197,6 +200,20 @@ export class ServingHalf implements ChannelServer {
     return session !== null && this.isForeign(session);
   }
 
+  /**
+   * `limits` is what `GET /api/limits` answers, so it follows that route's
+   * grant group: a member without it gets no frame of it. Checked on every
+   * frame, not only on subscribe: the grant can be taken back while the
+   * subscription stands.
+   */
+  private limitsWithheld(frame: unknown): boolean {
+    return (frame as { topic?: unknown } | null)?.topic === LIMITS_TOPIC && !this.mayReadLimits();
+  }
+
+  private mayReadLimits(): boolean {
+    return memberHasGrant(parseGrants(this.opts.getGrants?.()), this.opts.deviceId, LIMITS_GRANT);
+  }
+
   private isForeign(sessionId: string): boolean {
     return this.opts.foreign?.(sessionId) ?? false;
   }
@@ -210,6 +227,7 @@ export class ServingHalf implements ChannelServer {
         // Another member's session is that member's to serve, over its own channel.
         const session = sessionOfTopic(msg.topic);
         if (msg.type === 'subscribe' && session !== null && this.isForeign(session)) return;
+        if (msg.type === 'subscribe' && msg.topic === LIMITS_TOPIC && !this.mayReadLimits()) return;
         socket.emit('message', JSON.stringify({ type: msg.type, topic: msg.topic }));
         // The hub replays nothing on subscribe, so the phone would not know
         // presence until it next changed.
