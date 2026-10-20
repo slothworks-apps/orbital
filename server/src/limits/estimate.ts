@@ -6,15 +6,17 @@
  * enough of them. Pure: the readings come in, nothing is read or stored.
  */
 
+// The lookbacks live in `shared/`: the limits page and the phone say how
+// far back the pace looks.
+import { FIVE_HOUR_PACE_LOOKBACK_MS, WEEKLY_PACE_LOOKBACK_MS } from '@orbital/shared/limits';
+
+export { FIVE_HOUR_PACE_LOOKBACK_MS, WEEKLY_PACE_LOOKBACK_MS };
+
 /** The 5-hour window's length. */
 export const FIVE_HOUR_WINDOW_MS = 5 * 3_600_000;
 /** The weekly windows' length. */
 export const WEEKLY_WINDOW_MS = 7 * 86_400_000;
 
-/** How far back the recent pace of the 5-hour window looks. */
-export const FIVE_HOUR_PACE_LOOKBACK_MS = 60 * 60_000;
-/** How far back the recent pace of a weekly window looks. */
-export const WEEKLY_PACE_LOOKBACK_MS = 12 * 3_600_000;
 /** The fewest readings within the lookback a slope is drawn from. */
 export const PACE_MIN_READINGS = 3;
 /** The share of the lookback the readings of a slope must span, first to last. */
@@ -49,10 +51,13 @@ export interface PercentReading {
  * ISO when the limit runs out before the reset at this pace, null when it
  * lasts until the reset. `basis` says which pace: `recent`, the slope over
  * the readings within the lookback; `window`, the window's average so far.
+ * A window already spent has `ranOutAt` instead: ISO of the first reading
+ * that found it at the limit (canvas 60c, "ran out at 13:05").
  */
 export interface LimitEstimate {
   runsOutAt: string | null;
   basis: 'recent' | 'window';
+  ranOutAt?: string;
 }
 
 /** What is estimated: the window as last read, and when. */
@@ -88,12 +93,13 @@ export function sameWindow(a: number | null, b: number | null): boolean {
 
 /**
  * The estimate for one window, or null when there is none to give: a stale
- * or old reading, no reset, a kind of unknown length, the limit already
- * reached, or a run-out that would already be past.
+ * or old reading, no reset, a kind of unknown length, a run-out that would
+ * already be past, or a limit reached with no reading below it in this
+ * window to say since when.
  */
 export function estimateRunOut(input: EstimateInput, history: readonly PercentReading[]): LimitEstimate | null {
   const { percent, resetsAt, readAt, now } = input;
-  if (input.stale || resetsAt === null || !Number.isFinite(percent) || percent < 0 || percent >= 100) return null;
+  if (input.stale || resetsAt === null || !Number.isFinite(percent) || percent < 0) return null;
   if (now - readAt > ESTIMATE_MAX_AGE_MS || readAt >= resetsAt) return null;
   const length = windowLengthOf(input.kind);
   if (length === null) return null;
@@ -108,6 +114,7 @@ export function estimateRunOut(input: EstimateInput, history: readonly PercentRe
     ...history.filter((r) => r.at >= start && r.at < readAt && sameWindow(r.resetsAt, resetsAt) && Number.isFinite(r.percent)),
     { percent, at: readAt, resetsAt },
   ]);
+  if (percent >= 100) return ranOut(points);
   const lookback = lookbackOf(length);
   const recent = points.filter((r) => r.at >= readAt - lookback);
   const span = recent.length > 0 ? recent[recent.length - 1].at - recent[0].at : 0;
@@ -126,6 +133,17 @@ export function estimateRunOut(input: EstimateInput, history: readonly PercentRe
   if (runsOut >= resetsAt) return { runsOutAt: null, basis };
   if (runsOut <= now) return null;
   return { runsOutAt: new Date(Math.round(runsOut)).toISOString(), basis };
+}
+
+/**
+ * A spent window's estimate: when the first reading found it at the limit.
+ * Only once a reading below the limit came before it; without one the
+ * moment is not known.
+ */
+function ranOut(points: PercentReading[]): LimitEstimate | null {
+  const first = points.findIndex((r) => r.percent >= 100);
+  if (first <= 0) return null;
+  return { runsOutAt: null, basis: 'recent', ranOutAt: new Date(points[first].at).toISOString() };
 }
 
 /** The readings in time order, from the last drop on (`PERCENT_DROP_TOLERANCE`). */

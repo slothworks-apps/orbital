@@ -368,6 +368,8 @@ export interface LimitWindow {
 export interface LimitEstimate {
   runsOutAt: string | null
   basis: 'recent' | 'window'
+  /** A spent window: ISO of the first reading that found it at the limit. */
+  ranOutAt?: string
 }
 
 /** Extra usage; money in the currency's minor units. */
@@ -405,6 +407,8 @@ export interface ClaudeDirLimits {
   name: string
   /** The account's e-mail, lower-cased; null when unknown, absent from an older Mac. */
   account?: string | null
+  /** The account's plan (`pro`, `max`, …); null when unknown, absent from an older Mac. */
+  plan?: string | null
   /** Another member's directory, merged into this Mac's answer; absent on the Mac's own. */
   machine?: MachineRef
   /** False under an API key, or for an account with no plan windows (billed by usage). */

@@ -66,7 +66,7 @@ describe('readUsageAnswer', () => {
 
   it('reads rate_limits_available: false as not tracked', () => {
     expect(readUsageAnswer({ rate_limits_available: false, rate_limits: null }))
-      .toEqual({ tracked: false, windows: [], extraUsage: null, weeklyStartedAt: null });
+      .toEqual({ tracked: false, windows: [], extraUsage: null, weeklyStartedAt: null, plan: null });
   });
 
   it('reads when the weekly window started, as an ISO time or an epoch, and nothing from garbage', () => {

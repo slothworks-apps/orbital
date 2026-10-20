@@ -9,6 +9,33 @@
 /** The hub topic the limits snapshot is published on. */
 export const LIMITS_TOPIC = 'limits';
 
+/**
+ * How far back the recent pace of the 5-hour window looks (spec
+ * 2026-10-20-limit-suns-design § 2): long enough for the slope to rest on
+ * several probe reads, short enough to follow a burst.
+ */
+export const FIVE_HOUR_PACE_LOOKBACK_MS = 60 * 60_000;
+/**
+ * How far back the recent pace of a weekly window looks: a whole day, so
+ * the night's pause and the working day's pace average out.
+ */
+export const WEEKLY_PACE_LOOKBACK_MS = 24 * 3_600_000;
+
+/**
+ * A reading older than this is out of date wherever it is shown (canvas
+ * 60f, STALE): the sun gives no light and the estimates are hidden. With
+ * the suns or the limits view open the server reads far more often, so
+ * only a read that keeps failing, or a member gone offline, gets here.
+ */
+export const LIMITS_STALE_AFTER_MS = 15 * 60_000;
+
+/** Whether an entry's reading is out of date: a failed read, never read, or older than `LIMITS_STALE_AFTER_MS`. */
+export function limitsReadingStale(entry: Pick<LimitsEntry, 'readAt' | 'stale'>, now: number): boolean {
+  if (entry.stale) return true;
+  const at = entry.readAt === null ? NaN : Date.parse(entry.readAt);
+  return !Number.isFinite(at) || now - at > LIMITS_STALE_AFTER_MS;
+}
+
 /** Who a directory's reading came from when it is another member's: `MachineRef`'s fields that matter here. */
 export interface LimitsMachine {
   id: string;

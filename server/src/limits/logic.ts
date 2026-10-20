@@ -113,6 +113,8 @@ export interface ClaudeDirLimits {
    * (spec 2026-10-20-limit-suns-design § 1).
    */
   account: string | null;
+  /** The account's plan as the answer named it (`pro`, `max`, …); null when not read or not given. */
+  plan: string | null;
   /**
    * Another member's directory, merged into this device's answer: the member
    * it is on, as its sessions name it. Absent on this device's own, and on
@@ -375,6 +377,8 @@ export interface ProbeReading {
   extraUsage: ExtraUsage | null;
   /** When the weekly window started, epoch ms, when the answer said (`seven_day_breakdown.window_started_at`). */
   weeklyStartedAt: number | null;
+  /** The answer's `subscription_type` (`pro`, `max`, …); null when it gave none. */
+  plan: string | null;
 }
 
 /** The weekly windows `weeklyStartedAt` is the start of: the all-models one, by either name. */
@@ -389,7 +393,7 @@ export function readUsageAnswer(answer: unknown): ProbeReading {
   const a = (answer && typeof answer === 'object' ? answer : {}) as Record<string, unknown>;
   const limits = a.rate_limits && typeof a.rate_limits === 'object' ? (a.rate_limits as Record<string, unknown>) : null;
   if (a.rate_limits_available === false || !limits) {
-    return { tracked: a.rate_limits_available !== false, windows: [], extraUsage: null, weeklyStartedAt: null };
+    return { tracked: a.rate_limits_available !== false, windows: [], extraUsage: null, weeklyStartedAt: null, plan: planOf(a.subscription_type) };
   }
 
   const windows: LimitWindow[] = [];
@@ -434,7 +438,11 @@ export function readUsageAnswer(answer: unknown): ProbeReading {
   }
   const breakdown = limits.seven_day_breakdown;
   const started = breakdown && typeof breakdown === 'object' ? (breakdown as Record<string, unknown>).window_started_at : undefined;
-  return { tracked: true, windows, extraUsage, weeklyStartedAt: timeMsOf(started) };
+  return { tracked: true, windows, extraUsage, weeklyStartedAt: timeMsOf(started), plan: planOf(a.subscription_type) };
+}
+
+function planOf(raw: unknown): string | null {
+  return typeof raw === 'string' && raw.trim() ? raw.trim().toLowerCase() : null;
 }
 
 /** An ISO time or an epoch (seconds or ms, as `epochMsOf` tells them) as epoch ms; null for anything else. */

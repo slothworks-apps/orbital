@@ -98,8 +98,19 @@ describe('estimateRunOut', () => {
     expect(estimateRunOut({ ...weekly, startedAt: T0 - 3 * 24 * H }, [])).toEqual(estimateRunOut(weekly, []));
   });
 
-  it('gives none at the limit, for an unknown window, a stale or old reading, or without a reset', () => {
+  it('at the limit, says when the first reading found it there, once one below came before', () => {
+    const reset = T0 + FIVE_HOUR_WINDOW_MS;
+    const history = [
+      { percent: 96, at: T0 + 1.5 * H, resetsAt: reset },
+      { percent: 100, at: T0 + 1.75 * H, resetsAt: reset },
+    ];
+    expect(estimateRunOut(fiveHour(100, 2), history)).toEqual({ runsOutAt: null, basis: 'recent', ranOutAt: iso(T0 + 1.75 * H) });
+    // Found at the limit by the first reading: since when is not known.
     expect(estimateRunOut(fiveHour(100, 2), [])).toBeNull();
+    expect(estimateRunOut(fiveHour(100, 2), [history[1]])).toBeNull();
+  });
+
+  it('gives none for an unknown window, a stale or old reading, or without a reset', () => {
     expect(estimateRunOut(fiveHour(50, 2, { kind: 'monthly_burst' }), [])).toBeNull();
     expect(estimateRunOut(fiveHour(50, 2, { stale: true }), [])).toBeNull();
     expect(estimateRunOut(fiveHour(50, 2, { resetsAt: null }), [])).toBeNull();

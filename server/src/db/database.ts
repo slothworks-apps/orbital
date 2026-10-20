@@ -49,6 +49,17 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    */
   map_limit_sun_positions: '{}',
   /**
+   * The suns' style (canvas 60a, 60e): `eclipse`, a shadow covering the
+   * middle, or `dim`, the middle darkening. Read as `eclipse` unless `dim`.
+   */
+  map_limit_sun_style: 'eclipse',
+  /**
+   * Each account's star colour (canvas 60e): a JSON object from the account
+   * key to `yellow`, `white`, `blue` or `red`. An account without one takes
+   * the first colour no other account holds, in the accounts' order.
+   */
+  map_limit_sun_colors: '{}',
+  /**
    * Appearance → whether ending a session with the detail header's End
    * button also closes the panel. The map's trash leaves the selection
    * alone. Default-on convention: read client-side as `!== 'false'`.

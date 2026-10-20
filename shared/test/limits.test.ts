@@ -52,3 +52,15 @@ describe('groupLimitsByAccount', () => {
     expect(groupLimitsByAccount([offlineToo, offline])[0].reading).toBe(offline);
   });
 });
+
+describe('limitsReadingStale', () => {
+  it('is stale after a failed read, without a read, or once the read is older than the limit', async () => {
+    const { LIMITS_STALE_AFTER_MS, limitsReadingStale } = await import('../src/limits');
+    const now = Date.parse('2026-10-20T12:00:00Z');
+    const readAt = (ago: number) => new Date(now - ago).toISOString();
+    expect(limitsReadingStale({ readAt: readAt(60_000), stale: false }, now)).toBe(false);
+    expect(limitsReadingStale({ readAt: readAt(60_000), stale: true }, now)).toBe(true);
+    expect(limitsReadingStale({ readAt: null, stale: false }, now)).toBe(true);
+    expect(limitsReadingStale({ readAt: readAt(LIMITS_STALE_AFTER_MS + 1), stale: false }, now)).toBe(true);
+  });
+});

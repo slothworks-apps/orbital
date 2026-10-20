@@ -92,6 +92,8 @@ interface AccountReading {
   stale: boolean;
   /** `ProbeReading.weeklyStartedAt` of the last good read. */
   weeklyStartedAt: number | null;
+  /** `ProbeReading.plan` of the last good read. */
+  plan: string | null;
   refreshing: Promise<void> | null;
 }
 
@@ -250,6 +252,7 @@ export class LimitsService {
       id,
       name,
       account: this.accountOf(id),
+      plan: r.plan,
       tracked,
       readAt: r.readAt === null ? null : new Date(r.readAt).toISOString(),
       stale: r.stale,
@@ -320,6 +323,7 @@ export class LimitsService {
         r.windows = reading.windows;
         r.extraUsage = reading.extraUsage;
         r.weeklyStartedAt = reading.weeklyStartedAt;
+        r.plan = reading.plan;
         r.readAt = at;
         r.stale = false;
         this.recordWindows(key, reading.windows, at);
@@ -354,7 +358,7 @@ export class LimitsService {
     let r = this.readings.get(key);
     if (!r) {
       r = {
-        windows: [], extraUsage: null, serverTracked: true, readAt: null, attemptedAt: null, stale: false,
+        windows: [], extraUsage: null, serverTracked: true, readAt: null, attemptedAt: null, stale: false, plan: null,
         weeklyStartedAt: null, refreshing: null,
       };
       this.readings.set(key, r);
@@ -710,6 +714,7 @@ export function memberDirs({ machine, dirs }: MemberLimits): ClaudeDirLimits[] {
       id: d.id,
       name: typeof d.name === 'string' ? d.name : '',
       account: typeof d.account === 'string' && d.account ? d.account.toLowerCase() : null,
+      plan: typeof d.plan === 'string' && d.plan ? d.plan : null,
       machine,
       tracked: d.tracked !== false,
       readAt: typeof d.readAt === 'string' ? d.readAt : null,

@@ -192,6 +192,8 @@ describe('openDb', () => {
       map_show_model: 'true',
       map_show_trash: 'true',
       map_limit_sun_positions: '{}',
+      map_limit_sun_style: 'eclipse',
+      map_limit_sun_colors: '{}',
       end_closes_panel: 'true',
       planet_scale: '1',
       map_scale_labels: 'false',
