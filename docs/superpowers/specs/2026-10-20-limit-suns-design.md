@@ -276,14 +276,19 @@ Prompt for `Feature - Plan limits.dc.html` (new artboards next to 31a–31e):
 
 ## As built
 
-The server half, `shared/` and the web types; the map sun, the `/limits`
-page by account and the phone overview wait for the design.
+Built against the canvas `Feature - Limit sun.dc.html`, artboards 60a–60f.
+Where the canvas decided something this spec had left open, the canvas
+holds: accounts are told apart by a star colour (yellow, white, blue,
+red, in the accounts' order, changeable in Labs), not by monogram alone,
+and colour never shows state; the sun comes in two styles, Eclipse
+(default) and Dim.
 
 **The snapshot.** Each `ClaudeDirLimits` gains two fields; nothing else
 changes, so an older client still reads it:
 
 ```ts
 account: string | null        // the e-mail, lower-cased
+plan: string | null           // the answer's subscription_type: pro, max, …
 machine?: MachineRef          // set on another member's directory only
 ```
 
@@ -294,11 +299,13 @@ Each `LimitWindow` gains `estimate?: LimitEstimate | null`
 interface LimitEstimate {
   runsOutAt: string | null    // ISO; null = lasts until the reset
   basis: 'recent' | 'window'  // the recent slope, or the window's average
+  ranOutAt?: string           // a spent window: the first reading at the limit
 }
 ```
 
 `estimate: null` is "none to give" (the table in § 2, plus a run-out
-already past). An older server sends no `estimate` at all.
+already past, and a spent window with no reading below the limit before
+it). An older server sends no `estimate` at all.
 
 **Accounts.** The account is read off each directory's `.claude.json`
 again once `ACCOUNT_RECHECK_MS` old, and before every probe. One reading
@@ -322,7 +329,11 @@ exceeds 1 past the limit, so it is always scaled by 100.
 **The estimate.** Pace over the readings within
 `FIVE_HOUR_PACE_LOOKBACK_MS` or `WEEKLY_PACE_LOOKBACK_MS` when there are
 at least `PACE_MIN_READINGS` spanning `PACE_MIN_SPAN_SHARE` of the
-lookback (least squares); else the window's average. None for a reading
+lookback (least squares); else the window's average. The lookbacks are
+in `shared/src/limits.ts`, since the limits page words them. They are
+Orbital's own choice, not the canvas's: a whole day for the weekly
+windows, so the night's pause averages out, and an hour for the 5-hour
+window, so the slope rests on several reads. None for a reading
 older than `ESTIMATE_MAX_AGE_MS`. `seven_day_breakdown.window_started_at`
 (ISO or epoch) starts the all-models weekly window (`WEEKLY_ALL_KINDS`)
 when it is plausible; the scoped weekly windows keep reset minus 7 days.
@@ -346,8 +357,7 @@ merged after the device's own by `LimitsService.snapshot`, tagged with
 `POST /api/limits/refresh` asks every live member too. A request with
 `DEVICE_HEADER` gets the device's own directories only, and
 `ServingHalf` strips every directory carrying `machine` from a `limits`
-frame to a peer. Until the page groups by account, `/limits` filters the
-members' directories out.
+frame to a peer.
 
 **Grouping.** `groupLimitsByAccount` and `limitsAccountKey` in
 `shared/src/limits.ts`. A directory of unknown account is keyed
@@ -360,4 +370,41 @@ with names built from the e-mail; it stays there.
 account key to `{ x, y }` in map coordinates. The Labs switch is
 `limit_suns_enabled`, read as `=== 'true'` like Harness's
 (`LIMIT_SUNS_ENABLED_KEY` in `web/src/lib/experimental.ts`); no server
-default. The settings route takes any key.
+default. The settings route takes any key. `map_limit_sun_style`
+(`eclipse`, default, or `dim`) and `map_limit_sun_colors` (JSON, account
+key to colour) sit beside the positions.
+
+**Stale.** `limitsReadingStale` (`shared/`): a failed read, no read, or
+one older than `LIMITS_STALE_AFTER_MS`. Stale, a sun gives no light and
+every estimate is hidden, on the map, the page and the phone.
+
+**The map** (`web/src/map/LimitSun.tsx`, `sunModel.ts`, `sunVisual.ts`;
+the snapshot through `useLimitsSnapshot`, subscribed only while the Labs
+switch is on). Each sun is the canvas's CSS in a drei `Html` layer under
+the WebGL canvas, so it sits under the planets and its cross-fades run
+without the map drawing frames. It follows the planets' counter-zoom and
+the Appearance planet size, so it stays smaller than the smallest planet.
+Default places: a row above the planets' field, from its left edge,
+opposite the trash, spaced so the labels clear each other at the map's
+default zoom. The press area is the disc and the week arc. A lone
+account's sun is yellow without tiles (`sunColors`).
+
+**The page** (`web/src/limits/accounts.ts`, `LimitsPage.tsx`). One
+section per account, its heading omitted only for one account in one
+directory. `/limits/<key>` (`parseLimitsRoute`) scrolls to the account and
+lights its head once per load. Window rows carry the canvas's sub-line
+(`windowScopeLine`). The tab switch the canvas draws in the header is not
+built: the app has no such switch.
+
+**Labs** (`web/src/panels/LimitSunsLabs.tsx`). The canvas's rows in the
+app's own Labs layout and segmented control. Sun colours is hidden with a
+single account; Reset positions is disabled while nothing was moved.
+
+**The phone** (`web/src/mobile/limits/`, `screens/LimitsScreen.tsx`,
+`transport/groupFederation.ts`). The phone asks every member it is
+linked to and merges with `groupLimitsByAccount`; a member offline or
+failing keeps its last reading as stale. It subscribes to a member's
+`limits` topic only from `MAC_FEATURES.limitsTopic` on, otherwise it
+reads on open and on Read again. Additions the canvas does not draw: an
+Extra usage row, a "not tracked" card, and lines before the first answer.
+Directory paths are left out: the phone does not know another member's.

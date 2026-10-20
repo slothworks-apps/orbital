@@ -3,6 +3,9 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Limits says, under each window, when it runs out at your current pace, or that it lasts until the reset, and groups the windows by Claude account, the accounts of your other devices included.
+- Labs → Show plan limits as suns on the map: one sun per Claude account that dims as its plan is used, with the week as a ring around it; drag it anywhere, click it for Limits.
 
 ## [0.36.0] — 2026-10-20
 ### Added

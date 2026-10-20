@@ -66,9 +66,11 @@ function isSunColor(value: unknown): value is SunColor {
  * Each account's colour, for the accounts in their order. A stored colour
  * holds while no earlier account holds it too; any other account takes the
  * first colour still free. Past four accounts the colours repeat, and the
- * directory tiles tell the suns apart (60f).
+ * directory tiles tell the suns apart (60f). A lone account is always the
+ * first colour: there is nothing to tell it apart from (60f, LABEL).
  */
 export function sunColors(keys: readonly string[], settings: Settings): Map<string, SunColor> {
+  if (keys.length === 1) return new Map([[keys[0], SUN_COLORS[0]]])
   const stored = parseObject(settings[LIMIT_SUN_COLORS_KEY])
   const out = new Map<string, SunColor>()
   const taken = new Set<SunColor>()

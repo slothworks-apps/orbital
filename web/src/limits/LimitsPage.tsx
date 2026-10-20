@@ -10,6 +10,7 @@ import {
   limitSettings,
   limitSeverity,
   severityWord,
+  windowScopeLine,
 } from '../lib/limits'
 import { sunColors, sunDiscGradient, sunTiles, type SunColor } from '../lib/limitSuns'
 import { settingsHref } from '../lib/sessionUrl'
@@ -423,7 +424,7 @@ function DirWindows({
         <WindowRow
           key={`${w.kind}:${w.label}:${i}`}
           name={w.label}
-          sub={w.scope ?? null}
+          sub={w.scope ?? windowScopeLine(w.kind)}
           percent={w.percent}
           severity={limitSeverity(w.severity)}
           value={`${Math.round(w.percent)}%`}

@@ -19,10 +19,14 @@ describe('sunColors', () => {
     expect(Object.fromEntries(sunColors(['a', 'b', 'c'], stored))).toEqual({ b: 'yellow', a: 'white', c: 'blue' })
   })
 
+  it('keeps a lone account on the first colour, whatever is stored', () => {
+    expect(sunColors(['a'], { [LIMIT_SUN_COLORS_KEY]: '{"a":"red"}' }).get('a')).toBe('yellow')
+  })
+
   it('repeats the colours past four accounts, and ignores what it cannot read', () => {
     expect(sunColors(['a', 'b', 'c', 'd', 'e'], {}).get('e')).toBe('yellow')
-    expect(sunColors(['a'], { [LIMIT_SUN_COLORS_KEY]: '{not json' }).get('a')).toBe('yellow')
-    expect(sunColors(['a'], { [LIMIT_SUN_COLORS_KEY]: '{"a":"green"}' }).get('a')).toBe('yellow')
+    expect(sunColors(['a', 'b'], { [LIMIT_SUN_COLORS_KEY]: '{not json' }).get('a')).toBe('yellow')
+    expect(sunColors(['a', 'b'], { [LIMIT_SUN_COLORS_KEY]: '{"b":"green"}' }).get('b')).toBe('white')
   })
 
   it('swaps two accounts when one picks the colour the other wears', () => {

@@ -233,6 +233,17 @@ export function isWeeklyAllKind(kind: string): boolean {
 }
 
 /**
+ * The line under a window's name on the limits page (60c): `all models` for
+ * the 5-hour and the all-models weekly window, `model window` for a weekly
+ * window of one model, none for a kind Orbital does not know.
+ */
+export function windowScopeLine(kind: string): string | null {
+  if (isFiveHourKind(kind) || isWeeklyAllKind(kind)) return 'all models'
+  if (kind === 'weekly_scoped' || kind === 'seven_day_opus' || kind === 'seven_day_sonnet') return 'model window'
+  return null
+}
+
+/**
  * What a window's estimate line says. `runs` and `ran` carry the time as it
  * is written: `~14:20` today and `~Wed 16:00` on another day for `runs`
  * (rounded, it is an estimate), `13:05` or `Wed 13:05` for `ran`.

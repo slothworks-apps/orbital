@@ -115,53 +115,55 @@ export function LimitSunsLabs({
               onChange={(value) => void patchAndSet({ [LIMIT_SUN_STYLE_KEY]: value })}
             />
           </SubRow>
-          <SubRow
-            title="Sun colours"
-            desc="Each account gets a star colour in the order it was signed in: yellow, white, blue, red. The colour only says whose sun it is. It never changes with usage. Picking a colour that is taken swaps the two."
-          >
-            {accounts.length === 0 ? (
-              <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
-                {views === null ? 'reading…' : 'no account read yet'}
-              </span>
-            ) : (
-              <div className="flex w-full flex-col gap-1.5">
-                {accounts.map((view) => {
-                  const { tiles, more } = sunTiles(view.dirs.map((d) => d.mono))
-                  const current = colors.get(view.group.key)
-                  return (
-                    <div key={view.group.key} className="flex min-h-[30px] items-center gap-2">
-                      {showTiles && tiles.map((mono, i) => <ClaudeDirMark key={i} mono={mono} />)}
-                      {showTiles && more > 0 && <ClaudeDirMark mono={`+${more}`} />}
-                      <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[rgba(214,230,248,.88)]">
-                        {view.title}
-                      </span>
-                      <span className="flex flex-none gap-[9px]">
-                        {SUN_COLORS.map((color) => (
-                          <button
-                            key={color}
-                            type="button"
-                            title={color}
-                            aria-label={color}
-                            aria-pressed={current === color}
-                            onClick={() =>
-                              void patchAndSet({
-                                [LIMIT_SUN_COLORS_KEY]: pickSunColor(keys, settings, view.group.key, color),
-                              })
-                            }
-                            className="block h-[18px] w-[18px] cursor-pointer rounded-full border-0 p-0"
-                            style={{
-                              background: sunDiscGradient(color),
-                              boxShadow: current === color ? PICKED_RING : UNPICKED_RING,
-                            }}
-                          />
-                        ))}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </SubRow>
+          {accounts.length !== 1 && (
+            <SubRow
+              title="Sun colours"
+              desc="Each account gets a star colour in the order it was signed in: yellow, white, blue, red. The colour only says whose sun it is. It never changes with usage. Picking a colour that is taken swaps the two."
+            >
+              {accounts.length === 0 ? (
+                <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
+                  {views === null ? 'reading…' : 'no account read yet'}
+                </span>
+              ) : (
+                <div className="flex w-full flex-col gap-1.5">
+                  {accounts.map((view) => {
+                    const { tiles, more } = sunTiles(view.dirs.map((d) => d.mono))
+                    const current = colors.get(view.group.key)
+                    return (
+                      <div key={view.group.key} className="flex min-h-[30px] items-center gap-2">
+                        {showTiles && tiles.map((mono, i) => <ClaudeDirMark key={i} mono={mono} />)}
+                        {showTiles && more > 0 && <ClaudeDirMark mono={`+${more}`} />}
+                        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[rgba(214,230,248,.88)]">
+                          {view.title}
+                        </span>
+                        <span className="flex flex-none gap-[9px]">
+                          {SUN_COLORS.map((color) => (
+                            <button
+                              key={color}
+                              type="button"
+                              title={color}
+                              aria-label={color}
+                              aria-pressed={current === color}
+                              onClick={() =>
+                                void patchAndSet({
+                                  [LIMIT_SUN_COLORS_KEY]: pickSunColor(keys, settings, view.group.key, color),
+                                })
+                              }
+                              className="block h-[18px] w-[18px] cursor-pointer rounded-full border-0 p-0"
+                              style={{
+                                background: sunDiscGradient(color),
+                                boxShadow: current === color ? PICKED_RING : UNPICKED_RING,
+                              }}
+                            />
+                          ))}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </SubRow>
+          )}
           <SubRow
             title="Sun positions"
             desc="Kept for each account after you drag a sun. Reset puts every sun back at the top left of the map."
