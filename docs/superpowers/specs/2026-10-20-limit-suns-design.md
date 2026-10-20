@@ -367,9 +367,11 @@ every read that happens anyway, pushed on the topic: the background
 reading, a session's `rate_limit_event`, and its own `GET /api/limits`,
 which reads an answer `LIMITS_REFRESH_INTERVAL_MS` old again
 (`LimitsService.get`). Otherwise a map open on one Mac kept every other
-member probing all day. So an account used only on an idle member reads
-stale on the others once `LIMITS_STALE_AFTER_MS` passes without a read
-there.
+member probing all day. While a window of this device watches, it reads
+every member again each `LIMITS_REFRESH_INTERVAL_MS`
+(`FederationService`), so an account used only on an idle member stays
+fresh here at the cost of one probe there per interval, and only while
+someone here is looking.
 
 **Federation.** `limits` is on `MEMBER_ALLOWED_TOPICS`, under the grant
 of `GET /api/limits` (`LIMITS_GRANT`, `settings`): `ServingHalf` refuses
