@@ -342,7 +342,7 @@ describe('limits routes — the device group', () => {
     });
     const watcher = (peer?: string) => {
       const socket = Object.assign(new EventEmitter(), { send: () => {}, ...(peer ? { peer } : {}) });
-      hub!.handleSocket(socket as never);
+      hub!.handleSocket(socket);
       socket.emit('message', JSON.stringify({ type: 'subscribe', topic: LIMITS_TOPIC }));
       return socket;
     };
