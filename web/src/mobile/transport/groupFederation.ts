@@ -27,6 +27,12 @@ export type FederationOptions = {
    * are read only when asked for.
    */
   servesLimits?: (version: string | null) => boolean
+  /**
+   * Whether a member that runs `version` has the limits routes on its
+   * allowlist (`MAC_FEATURES.limitsRoutes`); absent, every member does. One
+   * that does not is never asked, so its refusal is no answer.
+   */
+  readsLimits?: (version: string | null) => boolean
 }
 
 /** What the federation needs of the group: its peers, their channels, and what it delegates. */
@@ -99,6 +105,9 @@ type Lookup = { source: Source } | { missing: TunnelResponse } | { offline: true
 
 const NOT_FOUND: TunnelResponse = { status: 404, body: { error: 'not_found' } }
 
+/** Read again: a member reads its limits now. */
+const LIMITS_REFRESH_PATH = '/api/limits/refresh'
+
 /**
  * The phone's one client over every member of its group (spec
  * 2026-10-16-device-group-design § 7): each member that serves sessions is
@@ -143,6 +152,7 @@ export class GroupFederation implements SwappableClient {
   private adopting = false
   private readonly onNotifications: (settings: NotificationSettings) => void
   private readonly servesLimits: (version: string | null) => boolean
+  private readonly readsLimits: (version: string | null) => boolean
 
   // Plain fields, not parameter properties: `erasableSyntaxOnly`.
   constructor(group: FederatedGroup, opts: FederationOptions = {}) {
@@ -151,6 +161,7 @@ export class GroupFederation implements SwappableClient {
     this.chosen = opts.notifications ?? null
     this.onNotifications = opts.onNotifications ?? (() => {})
     this.servesLimits = opts.servesLimits ?? (() => false)
+    this.readsLimits = opts.readsLimits ?? (() => true)
     group.on((event) => this.onGroup(event))
     this.refresh()
   }
@@ -214,7 +225,7 @@ export class GroupFederation implements SwappableClient {
     if (method === 'GET' && url.pathname === '/api/sessions') return this.list(url)
     if (method === 'GET' && url.pathname === '/api/tags') return this.listTags()
     if (method === 'GET' && url.pathname === '/api/sessions/count') return this.count(url)
-    if ((method === 'GET' && url.pathname === '/api/limits') || (method === 'POST' && url.pathname === '/api/limits/refresh')) {
+    if ((method === 'GET' && url.pathname === '/api/limits') || (method === 'POST' && url.pathname === LIMITS_REFRESH_PATH)) {
       return this.readAllLimits(method, url.pathname)
     }
     const tagPath = /^\/api\/tags\/(\d+)$/.exec(url.pathname)
@@ -1023,9 +1034,10 @@ export class GroupFederation implements SwappableClient {
    * request gets nothing else), and the answer is every member's, each
    * tagged with its member; one that is not up, or whose read failed, keeps
    * its last, stale. Read again asks every member that is up to read again.
+   * A member without the routes is left out, as if it had no directories.
    */
   private async readAllLimits(method: HttpMethod, path: string): Promise<TunnelResponse> {
-    const ready = this.readySources()
+    const ready = this.readySources().filter(([source]) => this.readsLimits(helloVersion(this.helloOf(source.id))))
     const answers = await Promise.allSettled(ready.map(([source, channel]) => this.readLimits(source, channel, method, path)))
     if (![...this.sourcesById.values()].some((s) => s.limits)) {
       const refused = answers.find((a): a is PromiseFulfilledResult<TunnelResponse> => a.status === 'fulfilled' && a.value !== null)
@@ -1036,11 +1048,17 @@ export class GroupFederation implements SwappableClient {
     return { status: 200, body: { dirs: this.limitsDirs() } }
   }
 
-  /** One member's limits, kept; its answer when it was not a list of its directories, else null. */
+  /**
+   * One member's limits, kept; its answer when it was not a list of its
+   * directories, else null. A member that does not serve the topic is not
+   * probing for anyone: what its `GET` returns is its last probe, possibly
+   * hours old, so it is asked to read now instead.
+   */
   private async readLimits(source: Source, channel: PeerChannel, method: HttpMethod, path: string): Promise<TunnelResponse | null> {
+    const fresh = method === 'GET' && !this.servesLimits(helloVersion(this.helloOf(source.id)))
     let res: TunnelResponse
     try {
-      res = await channel.request(method, path)
+      res = await (fresh ? channel.request('POST', LIMITS_REFRESH_PATH) : channel.request(method, path))
     } catch (err) {
       source.limitsFailed = true
       throw err
@@ -1058,7 +1076,7 @@ export class GroupFederation implements SwappableClient {
   /** A member that came up while the limits are watched: read once, and the app told. */
   private async readLimitsOf(source: Source): Promise<void> {
     const channel = this.channelOf(source.id)
-    if (!channel) return
+    if (!channel || !this.readsLimits(helloVersion(this.helloOf(source.id)))) return
     try {
       await this.readLimits(source, channel, 'GET', '/api/limits')
     } catch {

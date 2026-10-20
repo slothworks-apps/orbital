@@ -5,7 +5,7 @@ import type { Identity } from '@orbital/shared/remote/keys'
 import { migratePairing, pairingFromGroup, parseGroupRecord, reconcileGroup, storedMembership, type Pairing } from '../mobile/platform/parse'
 import { PersistQueue } from '../mobile/platform/persistQueue'
 import { useMobile, type DeviceView } from '../mobile/state'
-import { MAC_FEATURES, deviceSupports, sessionSupports } from '../mobile/version'
+import { MAC_FEATURES, anySupports, deviceSupports, sessionSupports } from '../mobile/version'
 
 const phone = generateIdentity()
 const macKey = generateIdentity().publicKey
@@ -193,5 +193,11 @@ describe('per-device features', () => {
     expect(sessionSupports('media', null, ownerOf)).toBe(true)
     useMobile.setState({ macVersion: '0.25.0' })
     expect(sessionSupports('media', 'c', ownerOf)).toBe(false)
+  })
+
+  it('shows a group-wide feature while any device, or the default member, serves it', () => {
+    expect(anySupports('media', devices, null)).toBe(true)
+    expect(anySupports('media', [device('old', '0.25.0'), device('quiet', null)], null)).toBe(false)
+    expect(anySupports('media', [], MAC_FEATURES.media)).toBe(true)
   })
 })

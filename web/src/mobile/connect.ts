@@ -63,6 +63,7 @@ export function newGroup(
   const federation = new GroupFederation(group, {
     notifications: notifications ?? null,
     servesLimits: (version) => macSupports('limitsTopic', version),
+    readsLimits: (version) => macSupports('limitsRoutes', version),
     onNotifications: (chosen) => {
       notifications = chosen
       if (persisting) queue.push(snapshot())

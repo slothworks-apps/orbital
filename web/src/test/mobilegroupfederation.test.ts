@@ -600,9 +600,9 @@ describe('GroupFederation: plan limits across the group', () => {
   type Dir = ReturnType<typeof dir> & { machine?: { id: string; online: boolean } }
 
   /** Two members, each answering its own directories; the studio passes one of the laptop's on as well. */
-  function limitsSetup(opts: { laptopVersion?: string; laptopLimits?: Answer } = {}) {
+  function limitsSetup(opts: { laptopVersion?: string; laptopLimits?: Answer; studioVersion?: string } = {}) {
     const group = new FakeGroup()
-    const studio = fakeChannel({ ...hello('studio'), server: '0.37.0' }, { tags: [], sessions: [] }, (_method, path) =>
+    const studio = fakeChannel({ ...hello('studio'), server: opts.studioVersion ?? '0.37.0' }, { tags: [], sessions: [] }, (_method, path) =>
       path.startsWith('/api/limits')
         ? { status: 200, body: { dirs: [dir(1, 'jan@acme.com'), dir(9, null, { machine: { id: LAPTOP } })] } }
         : undefined)
@@ -611,7 +611,7 @@ describe('GroupFederation: plan limits across the group', () => {
       (path.startsWith('/api/limits') ? { status: 200, body: { dirs: [dir(1, 'JAN@acme.com'), dir(2, null)] } } : undefined))
     group.add(STUDIO, 'studio', studio)
     group.add(LAPTOP, 'laptop', laptop)
-    const fed = new GroupFederation(group, { servesLimits: (v) => v === '0.37.0' })
+    const fed = new GroupFederation(group, { servesLimits: (v) => v === '0.37.0', readsLimits: (v) => v !== '0.33.0' })
     const frames: Record<string, unknown>[] = []
     fed.on((e) => {
       if (e.type === 'hub' && (e.frame as { topic?: string }).topic === 'limits') frames.push(e.frame as Record<string, unknown>)
@@ -660,9 +660,33 @@ describe('GroupFederation: plan limits across the group', () => {
     const studio = fakeChannel(hello('studio'), { tags: [], sessions: [] }, (_m, path) =>
       path === '/api/limits' ? { status: 403, body: { error: 'forbidden' } } : undefined)
     group.add(STUDIO, 'studio', studio)
-    const fed = new GroupFederation(group)
+    const fed = new GroupFederation(group, { servesLimits: () => true })
     await settle()
     expect(await fed.request('GET', '/api/limits')).toEqual({ status: 403, body: { error: 'forbidden' } })
+  })
+
+  it('opens a member without the topic with a fresh read, not its last probe', async () => {
+    const { fed, studio, laptop } = limitsSetup({ laptopVersion: '0.36.0' })
+    await settle()
+    await fed.request('GET', '/api/limits')
+    expect(studio.request).toHaveBeenCalledWith('GET', '/api/limits')
+    expect(laptop.request).toHaveBeenCalledWith('POST', '/api/limits/refresh')
+    expect(laptop.request).not.toHaveBeenCalledWith('GET', '/api/limits')
+  })
+
+  it('leaves out a member without the limits routes, and its refusal is no answer', async () => {
+    const { fed, laptop } = limitsSetup({ laptopVersion: '0.33.0' })
+    await settle()
+    const dirs = dirsOf((await fed.request('GET', '/api/limits')).body)
+    expect(dirs.map((d) => d.machine?.id)).toEqual([STUDIO])
+    expect(laptop.request).not.toHaveBeenCalledWith('GET', '/api/limits')
+    expect(laptop.request).not.toHaveBeenCalledWith('POST', '/api/limits/refresh')
+  })
+
+  it('says no device answered when every member up is too old to ask', async () => {
+    const { fed } = limitsSetup({ laptopVersion: '0.33.0', studioVersion: '0.33.0' })
+    await settle()
+    await expect(fed.request('GET', '/api/limits')).rejects.toThrow()
   })
 
   it('subscribes `limits` on each member that serves it, and passes on one frame of the whole group', async () => {
@@ -693,7 +717,8 @@ describe('GroupFederation: plan limits across the group', () => {
     laptop.ready = true
     group.emit({ type: 'peer', peer: LAPTOP })
     await settle()
-    expect(laptop.request).toHaveBeenCalledWith('GET', '/api/limits')
+    // It does not serve the topic: what it returns on a GET is its last probe, so it reads now.
+    expect(laptop.request).toHaveBeenCalledWith('POST', '/api/limits/refresh')
     const frame = frames.at(-1) as { limits: { dirs: Dir[] } }
     expect(frame.limits.dirs.filter((d) => d.machine?.id === LAPTOP).map((d) => d.stale)).toEqual([false, false])
   })
