@@ -39,10 +39,15 @@ overview of the limits it has not had so far.
   - On `/limits`, a line with the run-out estimate under each window.
   - On `/limits`, one group per account instead of one per Claude
     directory (it is the same for anyone with a single directory).
-  - On the phone, a limits overview.
+  - On the phone, a limits overview, from a ring in the session list
+    header.
   - Nothing on the map until they turn the suns on.
-- **What can be set:** the Labs switch, and where each sun sits on the map
-  (by dragging it).
+  - Nothing they see, but the server now also reads the limits while a
+    session works and shortly after (one short CLI process per account and
+    interval, no tokens), so the estimate has a recent pace.
+- **What can be set:** the Labs switch; with it on, the sun style (Eclipse
+  or Dim), each account's star colour, Reset positions, and where each sun
+  sits on the map (by dragging it).
 
 ## 1. Accounts, not directories
 
