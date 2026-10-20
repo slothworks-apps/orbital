@@ -273,3 +273,90 @@ Prompt for `Feature - Plan limits.dc.html` (new artboards next to 31a–31e):
 - Suns on the phone, and in the Desk and Archipelago themes.
 - Notifications about limits.
 - Any change to how waits are made or fired.
+
+## As built
+
+The server half, `shared/` and the web types; the map sun, the `/limits`
+page by account and the phone overview wait for the design.
+
+**The snapshot.** Each `ClaudeDirLimits` gains two fields; nothing else
+changes, so an older client still reads it:
+
+```ts
+account: string | null        // the e-mail, lower-cased
+machine?: MachineRef          // set on another member's directory only
+```
+
+Each `LimitWindow` gains `estimate?: LimitEstimate | null`
+(`server/src/limits/estimate.ts`):
+
+```ts
+interface LimitEstimate {
+  runsOutAt: string | null    // ISO; null = lasts until the reset
+  basis: 'recent' | 'window'  // the recent slope, or the window's average
+}
+```
+
+`estimate: null` is "none to give" (the table in § 2, plus a run-out
+already past). An older server sends no `estimate` at all.
+
+**Accounts.** The account is read off each directory's `.claude.json`
+again once `ACCOUNT_RECHECK_MS` old, and before every probe. One reading
+per account key (the e-mail, or `dir:<id>` when unknown) is shared by
+the account's directories and probed once, under the login of the
+directory that asked first.
+
+**History.** Table `limit_readings` (migration `0031_limit_readings`),
+`LimitHistory` in `server/src/limits/history.ts`. A window is keyed by
+`windowKeyOf` (kind and label, so two scoped weekly rows stay apart). A
+reset more than `SAME_WINDOW_TOLERANCE_MS` from the stored one, or a
+percent more than `PERCENT_DROP_TOLERANCE` below the last, drops what
+came before; anything older than `HISTORY_MAX_AGE_MS` goes. Fed by every
+good probe and by every `rate_limit_event` carrying `utilization` and
+`rateLimitType` (`readEventUsage`; the event's window is matched to a
+probe row through `EVENT_TO_PROBE`, so an event before any probe is not
+kept). The SDK does not say the unit of the event's `utilization`: a
+value up to 1 is read as a fraction, anything above as a percent.
+
+**The estimate.** Pace over the readings within
+`FIVE_HOUR_PACE_LOOKBACK_MS` or `WEEKLY_PACE_LOOKBACK_MS` when there are
+at least `PACE_MIN_READINGS` spanning `PACE_MIN_SPAN_SHARE` of the
+lookback (least squares); else the window's average. None for a reading
+older than `ESTIMATE_MAX_AGE_MS`. `seven_day_breakdown.window_started_at`
+(ISO or epoch) starts the all-models weekly window (`WEEKLY_ALL_KINDS`)
+when it is plausible; the scoped weekly windows keep reset minus 7 days.
+
+**Background reading.** A tick every `LIMITS_BACKGROUND_TICK_MS` notes
+the directories with a session working (the Runner's and the live CLI
+registry's) and reads each one seen working within
+`LIMITS_TRAILING_READ_MS` whose last read started
+`LIMITS_REFRESH_INTERVAL_MS` ago (`backgroundReadDue`). Not with an API
+key.
+
+**Federation.** `limits` is on `MEMBER_ALLOWED_TOPICS`. While a window
+of this device watches `limits`, `FederationService` subscribes to every
+member's and reads `GET /api/limits` once per ready channel. The hub
+tells this device's own windows from a paired device's view of it
+(`onFirstLocalSubscriber`, `Socket.peer`): a member watching our limits
+is not asked on to the others, or two members would keep each other
+watching for good. Each member's last directories are kept in memory and
+merged after the device's own by `LimitsService.snapshot`, tagged with
+`machine`, stale and without an estimate while the member is offline.
+`POST /api/limits/refresh` asks every live member too. A request with
+`DEVICE_HEADER` gets the device's own directories only, and
+`ServingHalf` strips every directory carrying `machine` from a `limits`
+frame to a peer. Until the page groups by account, `/limits` filters the
+members' directories out.
+
+**Grouping.** `groupLimitsByAccount` and `limitsAccountKey` in
+`shared/src/limits.ts`. A directory of unknown account is keyed
+`<machine id>:<dir id>`, `self` for this device's own. A directory never
+read loses to any reading, a stale one to any fresh one. The account's
+monogram can reuse `claudeDirMonograms` (`web/src/lib/claudeDirs.ts`) fed
+with names built from the e-mail; it stays there.
+
+**Settings.** `map_limit_sun_positions`, default `{}`: JSON from the
+account key to `{ x, y }` in map coordinates. The Labs switch is
+`limit_suns_enabled`, read as `=== 'true'` like Harness's
+(`LIMIT_SUNS_ENABLED_KEY` in `web/src/lib/experimental.ts`); no server
+default. The settings route takes any key.

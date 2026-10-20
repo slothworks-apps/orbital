@@ -37,7 +37,8 @@ travel as `blob_get`/`file_get` asks. A segment must match `SAFE_SEGMENT`,
 so an MCP server whose name has a `.`, `:` or space is managed only on
 its own device.
 
-Topics: `memberMayWatch` in `servingHalf.ts`, one list for every member.
+Topics: `memberMayWatch` in `servingHalf.ts`, one list for every member
+(`sessions`, `errors`, `presence`, `limits`, and the per-session ones).
 
 Every request a channel injects carries `DEVICE_HEADER`
 (`x-orbital-device`, the asking device's id, `inject.ts`). It only ever
@@ -181,6 +182,22 @@ is ready. A phone's watcher stays quiet while the user is at this device
 or at any such member (`groupPresence` in `RemoteServiceOptions`). What
 this server answers a peer's own `presence` subscription is its own
 presence only.
+
+## Limits across the group
+
+Spec `2026-10-20-limit-suns-design` § 1. While a window of this device
+watches `limits` — the hub's `onFirstLocalSubscriber`, which does not
+count a paired device's view of the hub (`Socket.peer`, set by
+`ServingHalf`) — every member's `limits` topic is subscribed to and
+`GET /api/limits` read once per ready channel. Each member's last
+directories are kept in memory (`MemberLink.limits`), an offline
+member's too, and `LimitsService.snapshot` appends them to this
+device's own, tagged with `machine`, stale and without an estimate while
+the member is offline. `POST /api/limits/refresh` asks every live member
+as well. A request with `DEVICE_HEADER` gets this device's directories
+only, and `ServingHalf` strips every directory carrying `machine` from a
+`limits` frame to a peer. A member watching this device's limits makes
+it probe (`LimitsService.watch`) but is not asked on to the others.
 
 ## Known limits
 
