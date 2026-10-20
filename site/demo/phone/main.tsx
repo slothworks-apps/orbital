@@ -8,6 +8,7 @@ import { getSocket } from '../../../web/src/lib/socket'
 import { TRANSCRIPT_PAGE_SIZE } from '../../../web/src/mobile/constants'
 import { MobileApp } from '../../../web/src/mobile/MobileApp'
 import { useMobile } from '../../../web/src/mobile/state'
+import { MAC_FEATURES } from '../../../web/src/mobile/version'
 import { ComposerLockContext } from '../../../web/src/panels/Composer'
 import { configureTranscriptPages, useOrbital, type SessionsEvent } from '../../../web/src/store/store'
 import { ErrorBoundary } from '../../../web/src/ui/ErrorBoundary'
@@ -45,6 +46,8 @@ useMobile.setState({
   macOnline: true,
   ready: true,
   macName: 'MacBook Pro',
+  // A Mac new enough to serve the limits the session list's ring opens.
+  macVersion: MAC_FEATURES.limitsTopic,
   asOf: now,
   listedAt: now,
   // Every session is in the list already: there is no ENDED fold to read.

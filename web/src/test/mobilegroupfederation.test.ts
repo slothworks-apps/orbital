@@ -592,3 +592,134 @@ describe('GroupFederation and a device whose pair is ending', () => {
   })
 })
 
+
+describe('GroupFederation: plan limits across the group', () => {
+  const dir = (id: number, account: string | null, extra: Record<string, unknown> = {}) => ({
+    id, name: `dir${id}`, account, tracked: true, readAt: '2026-10-20T10:00:00.000Z', stale: false, windows: [], extraUsage: null, waits: [], ...extra,
+  })
+  type Dir = ReturnType<typeof dir> & { machine?: { id: string; online: boolean } }
+
+  /** Two members, each answering its own directories; the studio passes one of the laptop's on as well. */
+  function limitsSetup(opts: { laptopVersion?: string; laptopLimits?: Answer; studioVersion?: string } = {}) {
+    const group = new FakeGroup()
+    const studio = fakeChannel({ ...hello('studio'), server: opts.studioVersion ?? '0.37.0' }, { tags: [], sessions: [] }, (_method, path) =>
+      path.startsWith('/api/limits')
+        ? { status: 200, body: { dirs: [dir(1, 'jan@acme.com'), dir(9, null, { machine: { id: LAPTOP } })] } }
+        : undefined)
+    const laptop = fakeChannel({ ...hello('laptop'), server: opts.laptopVersion ?? '0.37.0' }, { tags: [], sessions: [] }, (method, path, body) =>
+      opts.laptopLimits?.(method, path, body) ??
+      (path.startsWith('/api/limits') ? { status: 200, body: { dirs: [dir(1, 'JAN@acme.com'), dir(2, null)] } } : undefined))
+    group.add(STUDIO, 'studio', studio)
+    group.add(LAPTOP, 'laptop', laptop)
+    const fed = new GroupFederation(group, { servesLimits: (v) => v === '0.37.0', readsLimits: (v) => v !== '0.33.0' })
+    const frames: Record<string, unknown>[] = []
+    fed.on((e) => {
+      if (e.type === 'hub' && (e.frame as { topic?: string }).topic === 'limits') frames.push(e.frame as Record<string, unknown>)
+    })
+    return { group, studio, laptop, fed, frames }
+  }
+  const dirsOf = (body: unknown) => (body as { dirs: Dir[] }).dirs
+
+  it('asks every member for its own and tags each directory with its member, never one passed on', async () => {
+    const { fed, studio, laptop } = limitsSetup()
+    await settle()
+    const res = await fed.request('GET', '/api/limits')
+    expect(res.status).toBe(200)
+    const dirs = dirsOf(res.body)
+    expect(dirs.map((d) => [d.machine?.id, d.id])).toEqual([[STUDIO, 1], [LAPTOP, 1], [LAPTOP, 2]])
+    expect(dirs[1].account).toBe('jan@acme.com')
+    expect(dirs.every((d) => !d.stale)).toBe(true)
+    expect(studio.request).toHaveBeenCalledWith('GET', '/api/limits')
+    expect(laptop.request).toHaveBeenCalledWith('GET', '/api/limits')
+  })
+
+  it('Read again asks every member to read again', async () => {
+    const { fed, studio, laptop } = limitsSetup()
+    await settle()
+    await fed.request('POST', '/api/limits/refresh')
+    expect(studio.request).toHaveBeenCalledWith('POST', '/api/limits/refresh')
+    expect(laptop.request).toHaveBeenCalledWith('POST', '/api/limits/refresh')
+  })
+
+  it('keeps a member\'s last reading, stale, once it is offline or its read fails', async () => {
+    let fail = false
+    const { fed, group } = limitsSetup({ laptopLimits: (_m, path) => (fail && path.startsWith('/api/limits') ? { status: 500, body: {} } : undefined) })
+    await settle()
+    await fed.request('GET', '/api/limits')
+    fail = true
+    const failed = dirsOf((await fed.request('GET', '/api/limits')).body)
+    expect(failed.filter((d) => d.machine?.id === LAPTOP).every((d) => d.stale)).toBe(true)
+    expect(failed.find((d) => d.machine?.id === STUDIO)?.stale).toBe(false)
+    group.down(LAPTOP)
+    const offline = dirsOf((await fed.request('GET', '/api/limits')).body)
+    expect(offline.filter((d) => d.machine?.id === LAPTOP).map((d) => [d.id, d.stale, d.machine?.online])).toEqual([[1, true, false], [2, true, false]])
+  })
+
+  it('answers a member\'s refusal when no member was ever read', async () => {
+    const group = new FakeGroup()
+    const studio = fakeChannel(hello('studio'), { tags: [], sessions: [] }, (_m, path) =>
+      path === '/api/limits' ? { status: 403, body: { error: 'forbidden' } } : undefined)
+    group.add(STUDIO, 'studio', studio)
+    const fed = new GroupFederation(group, { servesLimits: () => true })
+    await settle()
+    expect(await fed.request('GET', '/api/limits')).toEqual({ status: 403, body: { error: 'forbidden' } })
+  })
+
+  it('opens a member without the topic with a fresh read, not its last probe', async () => {
+    const { fed, studio, laptop } = limitsSetup({ laptopVersion: '0.36.0' })
+    await settle()
+    await fed.request('GET', '/api/limits')
+    expect(studio.request).toHaveBeenCalledWith('GET', '/api/limits')
+    expect(laptop.request).toHaveBeenCalledWith('POST', '/api/limits/refresh')
+    expect(laptop.request).not.toHaveBeenCalledWith('GET', '/api/limits')
+  })
+
+  it('leaves out a member without the limits routes, and its refusal is no answer', async () => {
+    const { fed, laptop } = limitsSetup({ laptopVersion: '0.33.0' })
+    await settle()
+    const dirs = dirsOf((await fed.request('GET', '/api/limits')).body)
+    expect(dirs.map((d) => d.machine?.id)).toEqual([STUDIO])
+    expect(laptop.request).not.toHaveBeenCalledWith('GET', '/api/limits')
+    expect(laptop.request).not.toHaveBeenCalledWith('POST', '/api/limits/refresh')
+  })
+
+  it('says no device answered when every member up is too old to ask', async () => {
+    const { fed } = limitsSetup({ laptopVersion: '0.33.0', studioVersion: '0.33.0' })
+    await settle()
+    await expect(fed.request('GET', '/api/limits')).rejects.toThrow()
+  })
+
+  it('subscribes `limits` on each member that serves it, and passes on one frame of the whole group', async () => {
+    const { fed, studio, laptop, group, frames } = limitsSetup({ laptopVersion: '0.36.0' })
+    await settle()
+    fed.subscribe('limits')
+    expect(studio.topics.has('limits')).toBe(true)
+    // An older Mac drops the subscription: it is not sent at all.
+    expect(laptop.topics.has('limits')).toBe(false)
+    await fed.request('GET', '/api/limits')
+    group.emit({ type: 'hub', peer: STUDIO, frame: { topic: 'limits', event: 'limits', limits: { dirs: [dir(1, 'jan@acme.com', { readAt: '2026-10-20T11:00:00.000Z' })] } } })
+    const frame = frames.at(-1) as { limits: { dirs: Dir[] } }
+    expect(frame.limits.dirs.map((d) => [d.machine?.id, d.id, d.readAt])).toEqual([
+      [STUDIO, 1, '2026-10-20T11:00:00.000Z'], [LAPTOP, 1, '2026-10-20T10:00:00.000Z'], [LAPTOP, 2, '2026-10-20T10:00:00.000Z'],
+    ])
+    // A member gone: its last reading goes out again, stale.
+    group.down(LAPTOP)
+    const after = frames.at(-1) as { limits: { dirs: Dir[] } }
+    expect(after.limits.dirs.filter((d) => d.machine?.id === LAPTOP).every((d) => d.stale)).toBe(true)
+  })
+
+  it('reads a member that comes up while the limits are watched', async () => {
+    const { fed, laptop, group, frames } = limitsSetup({ laptopVersion: '0.36.0' })
+    await settle()
+    fed.subscribe('limits')
+    group.down(LAPTOP)
+    laptop.request.mockClear()
+    laptop.ready = true
+    group.emit({ type: 'peer', peer: LAPTOP })
+    await settle()
+    // It does not serve the topic: what it returns on a GET is its last probe, so it reads now.
+    expect(laptop.request).toHaveBeenCalledWith('POST', '/api/limits/refresh')
+    const frame = frames.at(-1) as { limits: { dirs: Dir[] } }
+    expect(frame.limits.dirs.filter((d) => d.machine?.id === LAPTOP).map((d) => d.stale)).toEqual([false, false])
+  })
+})

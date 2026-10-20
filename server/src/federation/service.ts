@@ -9,6 +9,7 @@
  * device is never taken in, and nothing here is passed on to another member
  * (no chaining: `ServingHalf` withholds what this holds).
  */
+import { LIMITS_TOPIC } from '@orbital/shared/limits';
 import { PRESENCE_TOPIC, presenceFromFrame } from '@orbital/shared/presence';
 import {
   bytesMatchRef, TunnelError, type BlobResult, type Channel, type FileResult, type HttpMethod, type TunnelResponse,
@@ -23,6 +24,8 @@ import type { RemoteService } from '../remote/service.js';
 import { carriesMachine } from '../remote/servingHalf.js';
 import { ReadCache } from './readCache.js';
 import type { MemberSnapshotStore } from './store.js';
+import { LIMITS_REFRESH_INTERVAL_MS } from '../limits/logic.js';
+import type { LimitsMembers, MemberLimits } from '../limits/service.js';
 
 /** How many sessions are asked of a member at once; one channel frame has to carry the answer. */
 const SEED_LIMITS = [200, 80, 30];
@@ -73,6 +76,12 @@ export type MemberLink = {
   seedFailures?: number;
   /** A session past `MEMBER_SESSIONS_MAX` was dropped and said so; cleared once there is room again. */
   full?: boolean;
+  /**
+   * The member's own directories' limits as it last sent them, kept while
+   * it is offline (spec 2026-10-20-limit-suns-design § 1); absent before
+   * any was read.
+   */
+  limits?: unknown[];
 };
 
 export type FederationOptions = {
@@ -86,14 +95,25 @@ export type FederationOptions = {
   snapshots?: Pick<MemberSnapshotStore, 'load' | 'save' | 'remove'>;
   /** Where reads of a member's sessions are kept for while it is offline; a default-sized one when absent. */
   readCache?: ReadCache;
+  /** A member's limits changed, or whether it is online: this device's limits snapshot goes out again. */
+  onLimits?: () => void;
   now?: () => number;
 };
 
 /** A member's answer; `asOf` when it is a kept copy, answered while the member is offline. */
 export type ReadResponse = TunnelResponse & { asOf?: number };
 
-export class FederationService {
+export class FederationService implements LimitsMembers {
   private readonly links = new Map<string, MemberLink>();
+  /** A window of this device watches `limits`: every member's are subscribed to. */
+  private limitsWatched = false;
+  /**
+   * While `limitsWatched`, every member is read again each
+   * `LIMITS_REFRESH_INTERVAL_MS`. A peer's watch does not start a member's
+   * own interval probe, so a member nobody works on would otherwise go
+   * stale here; the read is what lets it refresh an old answer.
+   */
+  private limitsTimer: ReturnType<typeof setInterval> | null = null;
   /** The newest channel to each member and how to stop listening to it. */
   private readonly channels = new Map<string, { channel: Channel; off: () => void }>();
   /** Per-session topics some local window holds, whoever's session they are about. */
@@ -128,6 +148,13 @@ export class FederationService {
       this.hubHooked = true;
       this.opts.hub.onFirstSubscriber((topic) => this.followTopic(topic, true));
       this.opts.hub.onLastUnsubscriber((topic) => this.followTopic(topic, false));
+      // Only this device's own windows: a member watching ours is not asked on to the others.
+      this.opts.hub.onFirstLocalSubscriber((topic) => {
+        if (topic === LIMITS_TOPIC) this.watchLimits(true);
+      });
+      this.opts.hub.onLastLocalSubscriber((topic) => {
+        if (topic === LIMITS_TOPIC) this.watchLimits(false);
+      });
     }
     this.restore();
     this.offs = [
@@ -150,6 +177,7 @@ export class FederationService {
       if (link.channel?.ready || this.pendingWrites.has(link.id)) this.writeSnapshot(link);
     }
     this.running = false;
+    this.stopLimitsTimer();
     for (const link of this.links.values()) this.clearSeedRetry(link);
     for (const off of this.offs) off();
     this.offs = [];
@@ -202,6 +230,82 @@ export class FederationService {
   presentElsewhere(): boolean {
     for (const link of this.links.values()) if (link.present && link.channel?.ready) return true;
     return false;
+  }
+
+  /** Every member's last limits, with the machine it is on as it stands now. */
+  limits(): MemberLimits[] {
+    return [...this.links.values()].flatMap((l) => (l.limits ? [{ machine: this.machine(l), dirs: l.limits }] : []));
+  }
+
+  /** Every live member reads its limits again, its answer kept; settles once each answered or failed. */
+  async refreshLimits(): Promise<void> {
+    await Promise.all([...this.links.values()].flatMap((link) => {
+      const channel = link.channel;
+      return channel?.ready ? [this.readLimits(link, channel, 'POST', '/api/limits/refresh')] : [];
+    }));
+  }
+
+  /**
+   * A window of this device opened or closed the limits: while one is open,
+   * every member's `limits` is subscribed to and read once, so its readings
+   * reach this device as they change.
+   */
+  private watchLimits(on: boolean): void {
+    if (this.limitsWatched === on) return;
+    this.limitsWatched = on;
+    if (!on) this.stopLimitsTimer();
+    if (!this.running) return;
+    if (on && !this.limitsTimer) {
+      this.limitsTimer = setInterval(() => this.rereadLimits(), LIMITS_REFRESH_INTERVAL_MS);
+      (this.limitsTimer as unknown as { unref?: () => void }).unref?.();
+    }
+    for (const link of this.links.values()) {
+      const channel = link.channel;
+      if (!channel) continue;
+      if (!on) {
+        channel.unsubscribe(LIMITS_TOPIC);
+        continue;
+      }
+      channel.subscribe(LIMITS_TOPIC);
+      if (channel.ready && link.seeded) void this.readLimits(link, channel, 'GET', '/api/limits');
+    }
+  }
+
+  /** Every ready member's limits read again, its answer kept. */
+  private rereadLimits(): void {
+    for (const link of this.links.values()) {
+      const channel = link.channel;
+      if (channel?.ready && link.seeded) void this.readLimits(link, channel, 'GET', '/api/limits');
+    }
+  }
+
+  private stopLimitsTimer(): void {
+    if (this.limitsTimer) clearInterval(this.limitsTimer);
+    this.limitsTimer = null;
+  }
+
+  /**
+   * The member's limits, read over `channel` and kept; anything but a list
+   * of its directories is dropped. Never rejects: its callers do not wait
+   * on it, so a failure that is not the channel's is logged, as
+   * `startSeed` logs one.
+   */
+  private async readLimits(link: MemberLink, channel: Channel, method: HttpMethod, path: string): Promise<void> {
+    try {
+      const res: TunnelResponse = await channel.request(method, path);
+      if (!this.current(link, channel) || res.status !== 200) return;
+      const dirs = (res.body as { dirs?: unknown } | null)?.dirs;
+      if (Array.isArray(dirs)) this.setLimits(link, dirs);
+    } catch (err) {
+      if (err instanceof TunnelError) return;
+      console.warn(`[federation] could not read ${link.id}'s limits: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private setLimits(link: MemberLink, dirs: unknown[]): void {
+    if (link.limits && JSON.stringify(link.limits) === JSON.stringify(dirs)) return;
+    link.limits = dirs;
+    this.opts.onLimits?.();
   }
 
   /** Every member's sessions as this device shows them. */
@@ -406,6 +510,7 @@ export class FederationService {
       this.clearSeedRetry(link);
     }
     channel.subscribe('sessions');
+    if (this.limitsWatched) channel.subscribe(LIMITS_TOPIC);
     // The member answers at once with where the user is, and again at every change.
     if (hello?.capabilities?.includes('presence')) channel.subscribe(PRESENCE_TOPIC);
     for (const topic of this.localTopics) {
@@ -415,6 +520,7 @@ export class FederationService {
     if (channel.ready && !link.seeded) {
       link.seeded = true;
       this.startSeed(link, channel);
+      if (this.limitsWatched) void this.readLimits(link, channel, 'GET', '/api/limits');
     }
   }
 
@@ -556,6 +662,8 @@ export class FederationService {
    * withholds it from every peer: it is about another member.
    */
   private publishMachine(link: MemberLink): void {
+    // The limits carry the machine too, and an offline member's read as stale.
+    if (link.limits) this.opts.onLimits?.();
     if (link.sessions.size === 0) return;
     const event: MachineEvent = { event: 'machine', machine: this.machine(link) };
     this.opts.hub.publish('sessions', event);
@@ -595,6 +703,7 @@ export class FederationService {
   private drop(link: MemberLink): void {
     for (const id of link.sessions.keys()) this.opts.hub.publish('sessions', { event: 'remove', sessionId: id });
     this.links.delete(link.id);
+    if (link.limits) this.opts.onLimits?.();
     this.readCache.dropMember(link.id);
     const expected = [...this.expected].filter(([, member]) => member === link.id).map(([id]) => id);
     for (const id of expected) this.expected.delete(id);
@@ -606,6 +715,7 @@ export class FederationService {
     if (!channel) return;
     channel.unsubscribe('sessions');
     channel.unsubscribe(PRESENCE_TOPIC);
+    channel.unsubscribe(LIMITS_TOPIC);
     for (const topic of this.localTopics) {
       const session = sessionOfTopic(topic);
       if (session !== null && (link.sessions.has(session) || expected.includes(session))) channel.unsubscribe(topic);
@@ -620,6 +730,12 @@ export class FederationService {
     if (topic === PRESENCE_TOPIC) {
       const atMember = presenceFromFrame(frame);
       if (atMember !== null) link.present = atMember;
+      return;
+    }
+    // The member's own limits: kept, and merged into this device's (`LimitsService.snapshot`).
+    if (topic === LIMITS_TOPIC) {
+      const dirs = (frame.limits as { dirs?: unknown } | null | undefined)?.dirs;
+      if (frame.event === 'limits' && Array.isArray(dirs)) this.setLimits(link, dirs);
       return;
     }
     if (topic !== 'sessions') {

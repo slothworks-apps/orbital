@@ -15,7 +15,8 @@ import {
   waitFromLimitHit,
   whatFiringSends,
 } from '../src/limits/logic.js';
-import { LIMITS_TOPIC, LimitsService } from '../src/limits/service.js';
+import { LIMITS_TOPIC } from '@orbital/shared/limits';
+import { LimitsService } from '../src/limits/service.js';
 import { makeTmpDir, openTmpDb } from './tmp.js';
 import { eq } from 'drizzle-orm';
 
@@ -65,7 +66,19 @@ describe('readUsageAnswer', () => {
   });
 
   it('reads rate_limits_available: false as not tracked', () => {
-    expect(readUsageAnswer({ rate_limits_available: false, rate_limits: null })).toEqual({ tracked: false, windows: [], extraUsage: null });
+    expect(readUsageAnswer({ rate_limits_available: false, rate_limits: null }))
+      .toEqual({ tracked: false, windows: [], extraUsage: null, weeklyStartedAt: null, plan: null });
+  });
+
+  it('reads when the weekly window started, as an ISO time or an epoch, and nothing from garbage', () => {
+    const at = (started: unknown) => readUsageAnswer({
+      rate_limits_available: true,
+      rate_limits: { limits: [], seven_day_breakdown: { window_started_at: started } },
+    }).weeklyStartedAt;
+    expect(at('2026-10-15T07:00:00Z')).toBe(Date.parse('2026-10-15T07:00:00Z'));
+    expect(at(1_792_000_000)).toBe(1_792_000_000_000);
+    expect(at('soon')).toBeNull();
+    expect(readUsageAnswer({ rate_limits_available: true, rate_limits: { limits: [] } }).weeklyStartedAt).toBeNull();
   });
 });
 
@@ -492,7 +505,7 @@ describe('limits routes', () => {
     expect(first.dirs[0].waits).toEqual([expect.objectContaining({ sessionId: 'w1', title: 'waiting one', windowLabel: '5-hour window', willContinue: true })]);
     const fresh = (await server.inject({ method: 'POST', url: '/api/limits/refresh' })).json();
     expect(fresh.dirs[0].readAt).not.toBeNull();
-    expect(fresh.dirs[0].windows).toEqual([{ kind: 'session', label: '5-hour window', percent: 40, resetsAt: null, severity: 'normal' }]);
+    expect(fresh.dirs[0].windows).toEqual([{ kind: 'session', label: '5-hour window', percent: 40, resetsAt: null, severity: 'normal', estimate: null }]);
 
     const session = (await server.inject({ method: 'GET', url: '/api/sessions/w1' })).json();
     expect(session.session.limitWait).toMatchObject({ windowKind: 'five_hour', cancelled: false, queued: [] });

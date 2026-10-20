@@ -22,6 +22,13 @@ export const MAC_FEATURES = {
   directoryCheck: '0.29.0',
   /** Settings → Devices' version, update available, Update and updating per member: `GET`/`POST /api/server/update` (spec 2026-10-19-headless-server-design § The phone). */
   serverUpdate: SERVER_UPDATE_VERSION,
+  /** `GET /api/limits` and `POST /api/limits/refresh` on the phone's allowlist: the Limits ring and screen (spec 2026-10-20-limit-suns-design § 5). */
+  limitsRoutes: '0.34.0',
+  /**
+   * The `limits` topic to a paired device (spec 2026-10-20-limit-suns-design § 5). An older Mac drops the
+   * subscription without a word; the Limits screen then reads on open and on Read again only.
+   */
+  limitsTopic: '0.37.0',
 } as const
 
 export type MacFeature = keyof typeof MAC_FEATURES
@@ -43,6 +50,15 @@ export function deviceSupports(
 /** Whether the device the app means when it means one (the default member) serves `feature`. */
 export function defaultSupports(feature: MacFeature, macVersion: string | null = useMobile.getState().macVersion): boolean {
   return macSupports(feature, macVersion)
+}
+
+/** Whether any device of the group, or the default member, serves `feature`: something the phone shows once for all of them. */
+export function anySupports(
+  feature: MacFeature,
+  devices: readonly Pick<DeviceView, 'version'>[] = useMobile.getState().devices,
+  macVersion: string | null = useMobile.getState().macVersion,
+): boolean {
+  return devices.some((d) => macSupports(feature, d.version)) || macSupports(feature, macVersion)
 }
 
 /** Which device a session runs on: the one that listed it, else the one the session names; null when neither is known. */

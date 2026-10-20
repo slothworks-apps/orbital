@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LIMITS_REFRESH_INTERVAL_MS } from '../src/limits/logic.js';
 import { EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
 import Fastify from 'fastify';
@@ -1021,5 +1022,133 @@ describe('ReadCache', () => {
     cache.put('m', 's', '/a', { list: [1] }, 1);
     (cache.get('m', '/a')!.body as { list: number[] }).list.push(2);
     expect(cache.get('m', '/a')!.body).toEqual({ list: [1] });
+  });
+});
+
+describe('FederationService limits', () => {
+  /** B as `memberB`, also answering its limits: one directory at `percent`. */
+  function memberWithLimits(percent: { value: number }) {
+    const sessions = memberB();
+    return new FakeChannel((method, path, body) => {
+      if (path === '/api/limits' || path === '/api/limits/refresh') {
+        return { status: 200, body: { dirs: [{ id: 1, name: 'Personal', account: 'me@x', readAt: null, stale: false, windows: [{ percent: percent.value }], waits: [] }] } };
+      }
+      return sessions.answer(method, path, body);
+    });
+  }
+
+  it('while a window here watches limits, subscribes to every member\'s, reads them once and keeps what they send', async () => {
+    const changed = vi.fn();
+    const { hub, remote, federation } = setup(undefined, { onLimits: changed });
+    const percent = { value: 10 };
+    const b = memberWithLimits(percent);
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    expect(b.subs.has('limits')).toBe(false);
+    expect(federation.limits()).toEqual([]);
+
+    const win = localSocket(hub, ['limits']);
+    await flush();
+    expect(b.subs.has('limits')).toBe(true);
+    expect(b.asked).toContain('GET /api/limits');
+    expect(federation.limits()).toEqual([{ machine: { ...machineB, online: true, asOf: null }, dirs: [expect.objectContaining({ windows: [{ percent: 10 }] })] }]);
+    expect(changed).toHaveBeenCalledTimes(1);
+
+    b.hub({ topic: 'limits', event: 'limits', limits: { dirs: [{ id: 1, windows: [{ percent: 20 }] }] } });
+    expect(federation.limits()[0].dirs).toEqual([{ id: 1, windows: [{ percent: 20 }] }]);
+    expect(changed).toHaveBeenCalledTimes(2);
+    // The same again changes nothing.
+    b.hub({ topic: 'limits', event: 'limits', limits: { dirs: [{ id: 1, windows: [{ percent: 20 }] }] } });
+    expect(changed).toHaveBeenCalledTimes(2);
+
+    percent.value = 30;
+    await federation.refreshLimits();
+    expect(b.asked).toContain('POST /api/limits/refresh');
+    expect(federation.limits()[0].dirs).toEqual([expect.objectContaining({ windows: [{ percent: 30 }] })]);
+
+    win.unsubscribe('limits');
+    expect(b.subs.has('limits')).toBe(false);
+  });
+
+  it('reads every member again each interval while a window here watches, and stops when none does', async () => {
+    vi.useFakeTimers();
+    try {
+      const { hub, remote } = setup();
+      const b = memberWithLimits({ value: 10 });
+      remote.open(B, b);
+      b.greet(desktopHello);
+      await vi.advanceTimersByTimeAsync(0);
+      const win = localSocket(hub, ['limits']);
+      await vi.advanceTimersByTimeAsync(0);
+      const reads = () => b.asked.filter((a) => a === 'GET /api/limits').length;
+      expect(reads()).toBe(1);
+      await vi.advanceTimersByTimeAsync(LIMITS_REFRESH_INTERVAL_MS);
+      expect(reads()).toBe(2);
+      win.unsubscribe('limits');
+      await vi.advanceTimersByTimeAsync(LIMITS_REFRESH_INTERVAL_MS * 2);
+      expect(reads()).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a limits read that fails for a reason other than the channel is logged, never rejected', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { hub, remote, federation } = setup();
+    const sessions = memberB();
+    const b = new FakeChannel((method, path, body) => {
+      if (path.startsWith('/api/limits')) throw new TypeError('bug');
+      return sessions.answer(method, path, body);
+    });
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    localSocket(hub, ['limits']);
+    await flush();
+    await expect(federation.refreshLimits()).resolves.toBeUndefined();
+    expect(warn.mock.calls.filter(([line]) => String(line).includes('limits'))).toHaveLength(2);
+    warn.mockRestore();
+  });
+
+  it('keeps an offline member\'s limits, offline, and forgets them when it leaves the group', async () => {
+    const changed = vi.fn();
+    const { hub, remote, federation, setNow } = setup(undefined, { onLimits: changed });
+    const b = memberWithLimits({ value: 10 });
+    remote.open(B, b);
+    b.greet(desktopHello);
+    localSocket(hub, ['limits']);
+    await flush();
+    changed.mockClear();
+    setNow(5000);
+    b.down();
+    expect(federation.limits()[0].machine).toMatchObject({ online: false, asOf: 5000 });
+    expect(changed).toHaveBeenCalled();
+    remote.members = [entry(SELF), entry('other')];
+    remote.published();
+    expect(federation.limits()).toEqual([]);
+  });
+
+  it('a member watching this device\'s limits is not asked on to the others', async () => {
+    const { hub, remote, federation } = setup();
+    const b = memberWithLimits({ value: 10 });
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    const dir = makeTmpDir('federation');
+    const peer: any[] = [];
+    const serving = new ServingHalf({
+      deviceId: 'peer', hub, inject: async () => ({ statusCode: 500, body: '{}' }), images: createImageStore(dir), imagesDir: dir,
+      files: () => ({ status: 404 }), notifications: { get: () => ({}) as never, set: () => {} }, onSeen: () => {},
+      foreign: (id) => federation.linkOf(id) !== null,
+    });
+    serving.open({ json: (msg) => { peer.push(msg); }, inner: () => {} });
+    serving.ask({ t: 'ws', type: 'subscribe', topic: 'limits' });
+    expect(hub.subscriberCount('limits')).toBe(1);
+    expect(b.subs.has('limits')).toBe(false);
+    // What it gets is this device's own directories, never a member's merged in.
+    hub.publish('limits', { event: 'limits', limits: { dirs: [{ id: 1 }, { id: 1, machine: { id: B } }] } });
+    expect(peer.filter((m) => m.frame?.topic === 'limits').map((m) => m.frame.limits.dirs)).toEqual([[{ id: 1 }]]);
+    serving.reset();
   });
 });

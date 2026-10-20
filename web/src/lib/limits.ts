@@ -1,4 +1,5 @@
-import type { ExtraUsage, LimitSeverity, LimitWait } from './types'
+import { isFiveHourKind, isWeeklyAllKind, isWeeklyScopedKind } from '@orbital/shared/limits'
+import type { ExtraUsage, LimitSeverity, LimitWait, LimitWindow } from './types'
 
 /**
  * Plan limits on the web side (spec 2026-10-03-usage-limits-design; canvas
@@ -213,4 +214,75 @@ export function limitWaitShort(wait: Pick<LimitWait, 'resetsAt'>, now: number = 
 export function limitResetLabel(resetsAt: string | undefined, sent: boolean, now: number = Date.now()): string {
   const at = formatResetAt(resetsAt, now)
   return sent ? `LIMIT RESET ${at} · CONTINUED` : `LIMIT RESET ${at}`
+}
+
+// ---- The run-out estimate (spec 2026-10-20-limit-suns-design § 2; canvas 60c) ----
+
+/** The 5-hour window's estimate is rounded to this, so it reads as an estimate. */
+export const FIVE_HOUR_ESTIMATE_ROUNDING_MS = 10 * 60_000
+/** A weekly window's estimate is rounded to the hour. */
+export const WEEKLY_ESTIMATE_ROUNDING_MS = 3_600_000
+
+/** The window kinds, by the server's row kind or the SDK's fixed name: shared with the server's estimate. */
+export { isFiveHourKind, isWeeklyAllKind, isWeeklyScopedKind }
+
+/**
+ * The line under a window's name on the limits page (60c): `all models` for
+ * the 5-hour and the all-models weekly window, `model window` for a weekly
+ * window of one model, none for a kind Orbital does not know.
+ */
+export function windowScopeLine(kind: string): string | null {
+  if (isFiveHourKind(kind) || isWeeklyAllKind(kind)) return 'all models'
+  if (isWeeklyScopedKind(kind)) return 'model window'
+  return null
+}
+
+/**
+ * What a window's estimate line says. `runs` and `ran` carry the time as it
+ * is written: `~14:20` today and `~Wed 16:00` on another day for `runs`
+ * (rounded, it is an estimate), `13:05` or `Wed 13:05` for `ran`.
+ */
+export type EstimateLine =
+  | { kind: 'runs'; at: string }
+  | { kind: 'ran'; at: string }
+  | { kind: 'lasts' }
+  | { kind: 'stale' }
+
+/**
+ * A window's estimate line, or null for none (an older Mac, an unknown
+ * window, extra usage). A stale reading says so instead of estimating.
+ */
+export function estimateLine(
+  window: Pick<LimitWindow, 'kind' | 'estimate'>,
+  stale: boolean,
+  now: number = Date.now(),
+): EstimateLine | null {
+  if (stale) return window.estimate === undefined ? null : { kind: 'stale' }
+  const e = window.estimate
+  if (!e) return null
+  if (e.ranOutAt) {
+    const at = Date.parse(e.ranOutAt)
+    return Number.isFinite(at) ? { kind: 'ran', at: shortClock(at, now) } : null
+  }
+  if (e.runsOutAt === null) return { kind: 'lasts' }
+  const at = Date.parse(e.runsOutAt)
+  if (!Number.isFinite(at)) return null
+  const step = isFiveHourKind(window.kind) ? FIVE_HOUR_ESTIMATE_ROUNDING_MS : WEEKLY_ESTIMATE_ROUNDING_MS
+  return { kind: 'runs', at: `~${shortClock(Math.round(at / step) * step, now)}` }
+}
+
+/** A reset as a sun's label writes it: `15:00` today, `Thu 09:00` on another day, `—` when there is none. */
+export function formatResetShort(iso: string | null | undefined, now: number = Date.now()): string {
+  const at = iso ? Date.parse(iso) : NaN
+  // Rounded to the minute, as `resetClock` does.
+  return Number.isFinite(at) ? shortClock(Math.round(at / 60_000) * 60_000, now) : '—'
+}
+
+/** `14:20` today, `Wed 16:00` on another day. */
+function shortClock(at: number, now: number): string {
+  const d = new Date(at)
+  const ref = new Date(now)
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const today = d.getFullYear() === ref.getFullYear() && d.getMonth() === ref.getMonth() && d.getDate() === ref.getDate()
+  return today ? time : `${WEEKDAYS[d.getDay()]} ${time}`
 }

@@ -14,7 +14,7 @@ import type { FederatedSource } from './transport/groupFederation'
 export type Screen = BaseScreen | PushedScreen
 
 /** The screens that stand on their own. */
-export type BaseScreen = 'pairing' | 'list' | 'session' | 'settings' | 'code' | 'new' | 'unpaired' | 'mismatch'
+export type BaseScreen = 'pairing' | 'list' | 'session' | 'settings' | 'code' | 'new' | 'limits' | 'unpaired' | 'mismatch'
 
 /**
  * What can be pushed over a session (spec 2026-10-05-mobile-next § 3, § 2):
@@ -383,6 +383,7 @@ export function back(state: MobileState): Partial<MobileState> | 'exit' {
       // A standalone phone came to Settings from the group's ending (canvas 50n): no list to go back to.
       return state.pairing ? { screen: 'list' } : { screen: 'pairing', previous: null }
     case 'new':
+    case 'limits':
       return { screen: 'list' }
     case 'code':
       return { screen: 'settings' }

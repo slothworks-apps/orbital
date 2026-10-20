@@ -35,6 +35,7 @@ import { PinButton } from '../ui/PinButton'
 import { DetachGlyph, StatsGlyph } from '../ui/UtilityButton'
 import { STATS_PATH } from '../stats/route'
 import { LIMITS_PATH } from '../limits/route'
+import { LimitsGlyph } from '../ui/LimitsGlyph'
 import { limitWaitShort } from '../lib/limits'
 import { ClaudeDirMark, useClaudeDirMark } from '../ui/ClaudeDirMark'
 import { sessionViewTransitionName } from '../lib/viewTransition'
@@ -215,7 +216,6 @@ function StatsLink({ size }: { size: 'footer' | 'rail' }) {
  */
 function LimitsLink({ size }: { size: 'footer' | 'rail' }) {
   const label = 'Limits — plan usage'
-  const glyph = size === 'footer' ? 10 : 11
   return (
     <a
       href={LIMITS_PATH}
@@ -229,17 +229,7 @@ function LimitsLink({ size }: { size: 'footer' | 'rail' }) {
           : 'h-[30px] w-[30px] rounded-lg border border-panel-border hover:bg-[rgba(150,205,255,.13)]',
       ].join(' ')}
     >
-      <span
-        aria-hidden
-        className="block rounded-full"
-        style={{
-          width: glyph,
-          height: glyph,
-          background: 'conic-gradient(from -90deg, currentColor 0 250deg, rgba(200,220,245,.25) 250deg 360deg)',
-          mask: 'radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px))',
-          WebkitMask: 'radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px))',
-        }}
-      />
+      <LimitsGlyph size={size} />
     </a>
   )
 }

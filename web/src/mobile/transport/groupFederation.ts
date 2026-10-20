@@ -10,6 +10,8 @@ import {
 import type { MachineEvent, MachineRef } from '@orbital/shared/remote/device'
 import { sessionOfRequest, sessionOfTopic } from '@orbital/shared/remote/segments'
 import { PRESENCE_TOPIC, presenceFromFrame } from '@orbital/shared/presence'
+import { LIMITS_TOPIC } from '@orbital/shared/limits'
+import { mergeMemberLimits, ownLimitDirs } from '../limits/members'
 import type { SwappableClient } from './clientRef'
 import { mediaTypeOf } from './imageResolver'
 
@@ -19,6 +21,18 @@ export type FederationOptions = {
   notifications?: NotificationSettings | null
   /** A new choice was made: store it. */
   onNotifications?: (settings: NotificationSettings) => void
+  /**
+   * Whether a member that runs `version` serves the `limits` topic to this
+   * phone (`MAC_FEATURES.limitsTopic`); absent, none does, and the limits
+   * are read only when asked for.
+   */
+  servesLimits?: (version: string | null) => boolean
+  /**
+   * Whether a member that runs `version` has the limits routes on its
+   * allowlist (`MAC_FEATURES.limitsRoutes`); absent, every member does. One
+   * that does not is never asked, so its refusal is no answer.
+   */
+  readsLimits?: (version: string | null) => boolean
 }
 
 /** What the federation needs of the group: its peers, their channels, and what it delegates. */
@@ -67,6 +81,10 @@ type Source = {
   /** The channel `subscribed` was sent on; a new channel starts with none. */
   channel: PeerChannel | null
   subscribed: Set<string>
+  /** Its own directories' plan limits as it last sent them; null before any read. */
+  limits: unknown[] | null
+  /** Its last limits read failed; `limits` is the one before. */
+  limitsFailed: boolean
 }
 
 /** How many sessions a source that comes up is asked for; one channel frame has to carry the answer. */
@@ -86,6 +104,9 @@ const RELIST_WAIT_MS = 3_000
 type Lookup = { source: Source } | { missing: TunnelResponse } | { offline: true }
 
 const NOT_FOUND: TunnelResponse = { status: 404, body: { error: 'not_found' } }
+
+/** Read again: a member reads its limits now. */
+const LIMITS_REFRESH_PATH = '/api/limits/refresh'
 
 /**
  * The phone's one client over every member of its group (spec
@@ -130,6 +151,8 @@ export class GroupFederation implements SwappableClient {
   /** The first member's rules are being read to become the phone's (`adopt`). */
   private adopting = false
   private readonly onNotifications: (settings: NotificationSettings) => void
+  private readonly servesLimits: (version: string | null) => boolean
+  private readonly readsLimits: (version: string | null) => boolean
 
   // Plain fields, not parameter properties: `erasableSyntaxOnly`.
   constructor(group: FederatedGroup, opts: FederationOptions = {}) {
@@ -137,6 +160,8 @@ export class GroupFederation implements SwappableClient {
     this.now = opts.now ?? Date.now
     this.chosen = opts.notifications ?? null
     this.onNotifications = opts.onNotifications ?? (() => {})
+    this.servesLimits = opts.servesLimits ?? (() => false)
+    this.readsLimits = opts.readsLimits ?? (() => true)
     group.on((event) => this.onGroup(event))
     this.refresh()
   }
@@ -200,6 +225,9 @@ export class GroupFederation implements SwappableClient {
     if (method === 'GET' && url.pathname === '/api/sessions') return this.list(url)
     if (method === 'GET' && url.pathname === '/api/tags') return this.listTags()
     if (method === 'GET' && url.pathname === '/api/sessions/count') return this.count(url)
+    if ((method === 'GET' && url.pathname === '/api/limits') || (method === 'POST' && url.pathname === LIMITS_REFRESH_PATH)) {
+      return this.readAllLimits(method, url.pathname)
+    }
     const tagPath = /^\/api\/tags\/(\d+)$/.exec(url.pathname)
     if (tagPath && (method === 'PATCH' || method === 'DELETE')) return this.changeTag(method, Number(tagPath[1]), body)
 
@@ -440,7 +468,7 @@ export class GroupFederation implements SwappableClient {
       if (!source) {
         source = {
           id: peer.id, sessions: new Map(), tags: new Map(), ended: null, ready: false, asOf: null, atMac: false,
-          channel: null, subscribed: new Set(),
+          channel: null, subscribed: new Set(), limits: null, limitsFailed: false,
         }
         this.sourcesById.set(peer.id, source)
       }
@@ -451,11 +479,15 @@ export class GroupFederation implements SwappableClient {
         source.asOf = null
         this.sendChosen(source)
         this.startRelist(source, false)
+        // Its limits may have moved while it was away; a member that serves the topic sends them anyway.
+        if (this.topics.has(LIMITS_TOPIC)) void this.readLimitsOf(source)
       } else {
         source.asOf = this.now()
         source.atMac = false
         // Now offline, nothing new: one frame every session of it takes, which no notifier reads as news.
         this.emitMachine(source)
+        // Its last limits stay, now stale.
+        if (source.limits) this.emitLimits()
       }
     }
     for (const source of [...this.sourcesById.values()]) if (!current.has(source.id)) this.dropSource(source)
@@ -538,6 +570,7 @@ export class GroupFederation implements SwappableClient {
     }
     for (const homes of this.blobHomes.values()) homes.delete(source.id)
     if (this.lastSpawn === source.id) this.lastSpawn = null
+    if (source.limits) this.emitLimits()
   }
 
   private onHub(peer: string, raw: unknown): void {
@@ -552,6 +585,7 @@ export class GroupFederation implements SwappableClient {
       return
     }
     if (raw.topic === 'sessions') return this.onSessionsFrame(source, raw)
+    if (raw.topic === LIMITS_TOPIC) return this.onLimitsFrame(source, raw)
     // Another member's session is that member's to tell.
     const session = sessionOfTopic(raw.topic)
     if (session !== null && this.owners.get(session) !== source.id) return
@@ -994,6 +1028,83 @@ export class GroupFederation implements SwappableClient {
     return { missing }
   }
 
+  /**
+   * Plan limits from every member (spec 2026-10-20-limit-suns-design § 1,
+   * § 5): each member that is up is asked for its own directories (a channel
+   * request gets nothing else), and the answer is every member's, each
+   * tagged with its member; one that is not up, or whose read failed, keeps
+   * its last, stale. Read again asks every member that is up to read again.
+   * A member without the routes is left out, as if it had no directories.
+   */
+  private async readAllLimits(method: HttpMethod, path: string): Promise<TunnelResponse> {
+    const ready = this.readySources().filter(([source]) => this.readsLimits(helloVersion(this.helloOf(source.id))))
+    const answers = await Promise.allSettled(ready.map(([source, channel]) => this.readLimits(source, channel, method, path)))
+    if (![...this.sourcesById.values()].some((s) => s.limits)) {
+      const refused = answers.find((a): a is PromiseFulfilledResult<TunnelResponse> => a.status === 'fulfilled' && a.value !== null)
+      if (refused) return refused.value
+      const failed = answers.find((a): a is PromiseRejectedResult => a.status === 'rejected')
+      throw failed ? failed.reason : new TunnelError('offline')
+    }
+    return { status: 200, body: { dirs: this.limitsDirs() } }
+  }
+
+  /**
+   * One member's limits, kept; its answer when it was not a list of its
+   * directories, else null. A member that does not serve the topic is not
+   * probing for anyone: what its `GET` returns is its last probe, possibly
+   * hours old, so it is asked to read now instead.
+   */
+  private async readLimits(source: Source, channel: PeerChannel, method: HttpMethod, path: string): Promise<TunnelResponse | null> {
+    const fresh = method === 'GET' && !this.servesLimits(helloVersion(this.helloOf(source.id)))
+    let res: TunnelResponse
+    try {
+      res = await (fresh ? channel.request('POST', LIMITS_REFRESH_PATH) : channel.request(method, path))
+    } catch (err) {
+      source.limitsFailed = true
+      throw err
+    }
+    const dirs = res.status === 200 && isObject(res.body) ? ownLimitDirs(res.body.dirs) : null
+    if (!dirs) {
+      source.limitsFailed = true
+      return res
+    }
+    source.limits = dirs
+    source.limitsFailed = false
+    return null
+  }
+
+  /** A member that came up while the limits are watched: read once, and the app told. */
+  private async readLimitsOf(source: Source): Promise<void> {
+    const channel = this.channelOf(source.id)
+    if (!channel || !this.readsLimits(helloVersion(this.helloOf(source.id)))) return
+    try {
+      await this.readLimits(source, channel, 'GET', '/api/limits')
+    } catch {
+      // Kept as it was, now marked failed.
+    }
+    if (this.sourcesById.get(source.id) === source) this.emitLimits()
+  }
+
+  private onLimitsFrame(source: Source, raw: Record<string, unknown>): void {
+    const dirs = isObject(raw.limits) ? ownLimitDirs(raw.limits.dirs) : null
+    if (!dirs) return
+    source.limits = dirs
+    source.limitsFailed = false
+    this.emitLimits()
+  }
+
+  /** Every member's directories, in the members' order. */
+  private limitsDirs(): unknown[] {
+    return mergeMemberLimits([...this.sourcesById.values()].flatMap((s) =>
+      s.limits ? [{ machine: this.machineOf(s), dirs: s.limits, failed: s.limitsFailed }] : []))
+  }
+
+  /** One `limits` frame for the app, the whole group's, as a server's own hub sends it. */
+  private emitLimits(): void {
+    if (!this.topics.has(LIMITS_TOPIC)) return
+    this.emitHub({ topic: LIMITS_TOPIC, event: 'limits', limits: { dirs: this.limitsDirs() } })
+  }
+
   /** The member the last new session started on, while it is up; else the first that is. */
   private defaultSource(): Source | null {
     const last = this.lastSpawn !== null ? this.sourcesById.get(this.lastSpawn) : undefined
@@ -1081,6 +1192,11 @@ export class GroupFederation implements SwappableClient {
         if (topic === PRESENCE_TOPIC) continue
         if (topic === 'sessions' || topic === 'errors') {
           want.add(topic)
+          continue
+        }
+        if (topic === LIMITS_TOPIC) {
+          // Every member reads its own directories' limits: the topic goes to each that serves it.
+          if (this.servesLimits(helloVersion(this.helloOf(source.id)))) want.add(topic)
           continue
         }
         const session = sessionOfTopic(topic)

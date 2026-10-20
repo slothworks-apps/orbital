@@ -13,6 +13,7 @@ import type { BlobChunk, ChannelReply, ChannelServer } from '@orbital/shared/rem
 import {
   chunkBlob, type AnswerMessage, type AskMessage, type NotificationSettings,
 } from '@orbital/shared/remote/messages';
+import { LIMITS_TOPIC, isOwnLimitsEntry } from '@orbital/shared/limits';
 import { PRESENCE_TOPIC } from '@orbital/shared/presence';
 import { sessionOfTopic } from '@orbital/shared/remote/segments';
 import type { Hub } from '../api/hub.js';
@@ -20,7 +21,7 @@ import { ATTACHMENT_MAX_BYTES, IMAGE_CONTENT_TYPES } from '../api/routes.js';
 import type { ImageStore } from '../images/store.js';
 import { thumbnailOf } from '../images/thumbs.js';
 import { allowedPath } from './allowlist.js';
-import { memberHasGrant, parseGrants } from './grants.js';
+import { memberHasGrant, parseGrants, type GrantGroup } from './grants.js';
 import type { PhoneFileReader } from './phoneFiles.js';
 
 export const BLOB_PUT_MAX_BYTES = ATTACHMENT_MAX_BYTES;
@@ -31,14 +32,29 @@ export const MAX_OPEN_UPLOADS = 4;
  * and nothing else — the same stance `allowedPath` takes on routes, so a
  * topic added later stays this device's own until it is listed here.
  * `remote` (pairing codes and fingerprints) is deliberately absent.
- * `presence` is the phone's: the web client has no use for it.
+ * `presence` is the phone's: the web client has no use for it. `limits`
+ * carries only this device's own directories to a peer (`ownLimitsFrame`).
  */
-export const MEMBER_ALLOWED_TOPICS: ReadonlySet<string> = new Set(['sessions', 'errors', PRESENCE_TOPIC]);
+export const MEMBER_ALLOWED_TOPICS: ReadonlySet<string> = new Set(['sessions', 'errors', PRESENCE_TOPIC, LIMITS_TOPIC]);
 /** Per-id topics, by prefix: `session:<id>`, `subagent:<session>:<agent>`, `task-output:<session>:<task>`. */
 export const MEMBER_ALLOWED_TOPIC_PREFIXES: readonly string[] = ['session:', 'subagent:', 'task-output:'];
 
+/** The grant group the `limits` topic follows: the one `GET /api/limits` is in (`allowlist.ts`). */
+export const LIMITS_GRANT: GrantGroup = 'settings';
+
 export function memberMayWatch(topic: string): boolean {
   return MEMBER_ALLOWED_TOPICS.has(topic) || MEMBER_ALLOWED_TOPIC_PREFIXES.some((p) => topic.startsWith(p) && topic.length > p.length);
+}
+
+/**
+ * A `limits` frame as a peer gets it: this device's own directories only,
+ * never another member's merged in (no chaining). Any other frame as it is.
+ */
+export function ownLimitsFrame(frame: unknown): unknown {
+  const f = frame as { topic?: unknown; limits?: { dirs?: unknown } | null } | null;
+  if (!f || f.topic !== LIMITS_TOPIC || !f.limits || typeof f.limits !== 'object' || !Array.isArray(f.limits.dirs)) return frame;
+  const dirs = f.limits.dirs.filter((d) => !(d && typeof d === 'object') || isOwnLimitsEntry(d as { machine?: unknown }));
+  return { ...f, limits: { ...f.limits, dirs } };
 }
 
 /** A session another device passed on as some third device's: it carries the `machine` it runs on. */
@@ -78,7 +94,7 @@ export type ServingHalfOptions = {
   getGrants?: () => string | undefined;
 };
 
-type VirtualSocket = EventEmitter & { send(data: string): void };
+type VirtualSocket = EventEmitter & { send(data: string): void; peer: string };
 
 type Upload = { mediaType: string; expected: number; parts: Uint8Array[]; received: number; nextSeq: number };
 
@@ -150,6 +166,7 @@ export class ServingHalf implements ChannelServer {
 
   private makeSocket(): VirtualSocket {
     const socket: VirtualSocket = Object.assign(new EventEmitter(), {
+      peer: this.opts.deviceId,
       send: (data: string) => {
         if (this.socket !== socket || this.opts.withdrawn?.()) return;
         // Every hub frame goes through, heartbeats included and on purpose:
@@ -160,8 +177,8 @@ export class ServingHalf implements ChannelServer {
         } catch {
           return; // not JSON: nothing the asker could read
         }
-        if (this.withheld(frame)) return;
-        this.answer({ t: 'ws', frame });
+        if (this.withheld(frame) || this.limitsWithheld(frame)) return;
+        this.answer({ t: 'ws', frame: ownLimitsFrame(frame) });
       },
     });
     return socket;
@@ -183,6 +200,20 @@ export class ServingHalf implements ChannelServer {
     return session !== null && this.isForeign(session);
   }
 
+  /**
+   * `limits` is what `GET /api/limits` answers, so it follows that route's
+   * grant group: a member without it gets no frame of it. Checked on every
+   * frame, not only on subscribe: the grant can be taken back while the
+   * subscription stands.
+   */
+  private limitsWithheld(frame: unknown): boolean {
+    return (frame as { topic?: unknown } | null)?.topic === LIMITS_TOPIC && !this.mayReadLimits();
+  }
+
+  private mayReadLimits(): boolean {
+    return memberHasGrant(parseGrants(this.opts.getGrants?.()), this.opts.deviceId, LIMITS_GRANT);
+  }
+
   private isForeign(sessionId: string): boolean {
     return this.opts.foreign?.(sessionId) ?? false;
   }
@@ -196,6 +227,7 @@ export class ServingHalf implements ChannelServer {
         // Another member's session is that member's to serve, over its own channel.
         const session = sessionOfTopic(msg.topic);
         if (msg.type === 'subscribe' && session !== null && this.isForeign(session)) return;
+        if (msg.type === 'subscribe' && msg.topic === LIMITS_TOPIC && !this.mayReadLimits()) return;
         socket.emit('message', JSON.stringify({ type: msg.type, topic: msg.topic }));
         // The hub replays nothing on subscribe, so the phone would not know
         // presence until it next changed.
