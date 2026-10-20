@@ -218,6 +218,13 @@
       "when": 1792431075667,
       "tag": "0030_whats_new_existing_install",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1792502627907,
+      "tag": "0031_limit_readings",
+      "breakpoints": true
     }
   ]
 }

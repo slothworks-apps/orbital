@@ -1,3 +1,6 @@
+import type { MachineRef } from '@orbital/shared/remote/device';
+import type { LimitEstimate } from './estimate.js';
+
 /**
  * The pure half of usage limits (spec 2026-10-03-usage-limits-design): what a
  * limit hit becomes, what a firing wait sends, and how the probe's answer
@@ -9,6 +12,26 @@ export const RESET_GRACE_MS = 60_000;
 
 /** How often the probe reads again while someone has the limits view open. */
 export const LIMITS_REFRESH_INTERVAL_MS = 5 * 60_000;
+
+/**
+ * How long after the last session of a directory stopped working its plan
+ * is still read in the background: what the last turns spent shows up a
+ * little after them.
+ */
+export const LIMITS_TRAILING_READ_MS = 10 * 60_000;
+
+/** How often the background reading looks at which directories have a session working. */
+export const LIMITS_BACKGROUND_TICK_MS = 60_000;
+
+/**
+ * Whether the background reading reads a directory's plan now: one seen
+ * working within `LIMITS_TRAILING_READ_MS` (epoch ms, null when never),
+ * whose last read started `LIMITS_REFRESH_INTERVAL_MS` ago or more.
+ */
+export function backgroundReadDue(lastWorkingAt: number | null, attemptedAt: number | null, now: number): boolean {
+  if (lastWorkingAt === null || now - lastWorkingAt > LIMITS_TRAILING_READ_MS) return false;
+  return attemptedAt === null || now - attemptedAt >= LIMITS_REFRESH_INTERVAL_MS;
+}
 
 /** Percent at which a window graded by Orbital itself (no server severity) reads `warning`. */
 export const WARNING_PERCENT = 75;
@@ -32,6 +55,11 @@ export interface LimitWindow {
   /** ISO, or null when the server gave none. */
   resetsAt: string | null;
   severity: LimitSeverity;
+  /**
+   * When it runs out at the current pace (spec 2026-10-20-limit-suns-design
+   * § 2): absent from an older server, null when there is none to give.
+   */
+  estimate?: LimitEstimate | null;
 }
 
 export interface ExtraUsage {
@@ -76,9 +104,21 @@ export interface LimitsSnapshot {
 
 /** One Claude directory's plan limits, and the sessions of it that wait for a reset. */
 export interface ClaudeDirLimits {
-  /** `claude_dirs.id`. */
+  /** `claude_dirs.id`, on the device the directory is on. */
   id: number;
   name: string;
+  /**
+   * The e-mail of the account the directory is signed in to, lower-cased;
+   * null when it cannot be read. Directories of one account share one plan
+   * (spec 2026-10-20-limit-suns-design § 1).
+   */
+  account: string | null;
+  /**
+   * Another member's directory, merged into this device's answer: the member
+   * it is on, as its sessions name it. Absent on this device's own, and on
+   * every answer to a request that came over a channel.
+   */
+  machine?: MachineRef;
   /**
    * False with an API key, or when the server says plan limits do not apply
    * — an enterprise account billed by usage has no windows at all.
@@ -157,17 +197,54 @@ const EVENT_TO_PROBE: Record<string, { kinds: string[]; model?: string }> = {
   seven_day_sonnet: { kinds: ['seven_day_sonnet', 'weekly_scoped'], model: 'sonnet' },
 };
 
+/** Whether `w` is a probe row of the window an event type names. */
+function namesWindow(type: string | null, w: LimitWindow): boolean {
+  const want = type ? EVENT_TO_PROBE[type] : undefined;
+  if (!want || !want.kinds.includes(w.kind)) return false;
+  return !(w.kind === 'weekly_scoped' && want.model && !w.label.toLowerCase().includes(want.model));
+}
+
+/** The probe's window an event type names, among `windows`, or null. */
+export function probeWindowFor(type: string | null, windows: LimitWindow[]): LimitWindow | null {
+  return windows.find((w) => namesWindow(type, w)) ?? null;
+}
+
 /** The reset the probe knows for the window an event named, epoch ms, or null. */
 export function probeResetFor(type: string | null, windows: LimitWindow[]): number | null {
-  const want = type ? EVENT_TO_PROBE[type] : undefined;
-  if (!want) return null;
   for (const w of windows) {
-    if (!want.kinds.includes(w.kind) || !w.resetsAt) continue;
-    if (w.kind === 'weekly_scoped' && want.model && !w.label.toLowerCase().includes(want.model)) continue;
+    if (!namesWindow(type, w) || !w.resetsAt) continue;
     const at = Date.parse(w.resetsAt);
     if (Number.isFinite(at)) return at;
   }
   return null;
+}
+
+/** What a `rate_limit_event` says of its window's use, when it carries it. */
+export interface EventUsage {
+  rateLimitType: string;
+  percent: number;
+  /** Epoch ms, or null when the event carried none. */
+  resetsAt: number | null;
+}
+
+/**
+ * A `rate_limit_event`'s use of its window, or null when it carries no
+ * `utilization` or no `rateLimitType`. The SDK does not document the unit;
+ * the CLI reads it off the API's headers, where it is a fraction, so a value
+ * up to 1 is read as one and anything above as a percent already.
+ */
+export function readEventUsage(info: unknown): EventUsage | null {
+  if (!info || typeof info !== 'object') return null;
+  const i = info as Record<string, unknown>;
+  const u = i.utilization;
+  if (typeof i.rateLimitType !== 'string' || !i.rateLimitType) return null;
+  if (typeof u !== 'number' || !Number.isFinite(u) || u < 0) return null;
+  return { rateLimitType: i.rateLimitType, percent: u <= 1 ? u * 100 : u, resetsAt: epochMsOf(i.resetsAt) };
+}
+
+/** What a window's readings are kept under: its kind, and its label, which tells scoped weekly windows apart. */
+export function windowKeyOf(w: Pick<LimitWindow, 'kind' | 'label'>): string {
+  return `${w.kind}|${w.label}`;
 }
 
 /** What a wait is made from, before it is stored. */
@@ -295,7 +372,12 @@ export interface ProbeReading {
   tracked: boolean;
   windows: LimitWindow[];
   extraUsage: ExtraUsage | null;
+  /** When the weekly window started, epoch ms, when the answer said (`seven_day_breakdown.window_started_at`). */
+  weeklyStartedAt: number | null;
 }
+
+/** The weekly windows `weeklyStartedAt` is the start of: the all-models one, by either name. */
+export const WEEKLY_ALL_KINDS: readonly string[] = ['weekly_all', 'seven_day'];
 
 /**
  * The `get_usage` answer as rows. `rate_limits.limits[]` (undeclared in the
@@ -305,7 +387,9 @@ export interface ProbeReading {
 export function readUsageAnswer(answer: unknown): ProbeReading {
   const a = (answer && typeof answer === 'object' ? answer : {}) as Record<string, unknown>;
   const limits = a.rate_limits && typeof a.rate_limits === 'object' ? (a.rate_limits as Record<string, unknown>) : null;
-  if (a.rate_limits_available === false || !limits) return { tracked: a.rate_limits_available !== false, windows: [], extraUsage: null };
+  if (a.rate_limits_available === false || !limits) {
+    return { tracked: a.rate_limits_available !== false, windows: [], extraUsage: null, weeklyStartedAt: null };
+  }
 
   const windows: LimitWindow[] = [];
   if (Array.isArray(limits.limits)) {
@@ -347,5 +431,14 @@ export function readUsageAnswer(answer: unknown): ProbeReading {
       currency: typeof e.currency === 'string' && e.currency ? e.currency : null,
     };
   }
-  return { tracked: true, windows, extraUsage };
+  const breakdown = limits.seven_day_breakdown;
+  const started = breakdown && typeof breakdown === 'object' ? (breakdown as Record<string, unknown>).window_started_at : undefined;
+  return { tracked: true, windows, extraUsage, weeklyStartedAt: timeMsOf(started) };
+}
+
+/** An ISO time or an epoch (seconds or ms, as `epochMsOf` tells them) as epoch ms; null for anything else. */
+function timeMsOf(raw: unknown): number | null {
+  if (typeof raw === 'number') return epochMsOf(raw);
+  const iso = isoOrNull(raw);
+  return iso === null ? null : Date.parse(iso);
 }

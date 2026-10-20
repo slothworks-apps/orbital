@@ -410,6 +410,17 @@ export async function buildServer(overrides: {
       list: () => claudeDirs.list().map(({ id, name }) => ({ id, name })),
       envFor: envForDir,
       dirOf: dirOfSession,
+      // Directories of one account share one plan, and one probe reads it.
+      accountOf: (claudeDirId) => claudeDirs.accountOf(claudeDirId),
+    },
+    // Read in the background while a session works, Orbital's or a terminal's.
+    workingDirs: () => {
+      const working = new Set<number>();
+      for (const id of runner.active()) if (runner.status(id) === 'working') working.add(dirOfSession(id));
+      for (const live of registry.all()) {
+        if (live.status === 'working') working.add(live.claudeDirId ?? dirOfSession(live.sessionId));
+      }
+      return working;
     },
     republish: (sessionId) => republish(sessionId),
     onError: (err, during, sessionId) =>
@@ -871,7 +882,7 @@ export async function buildServer(overrides: {
     onDecision: (sessionId) => republish(sessionId),
     // Usage limits: every event reads the limits again, a turn ended on the
     // limit may become a wait, and a waiting session settles to `idle`.
-    onRateLimit: (sessionId) => limits.rateLimitEvent(sessionId),
+    onRateLimit: (sessionId, info) => limits.rateLimitEvent(sessionId, info),
     onLimitHit: (sessionId, rejected, turnError) => limits.limitHit(sessionId, rejected, turnError),
     isLimitWaiting: (sessionId) => limits.isWaiting(sessionId),
     // An approved plan left plan mode. Stored on the row, so the panel's mode
@@ -1471,7 +1482,10 @@ export async function buildServer(overrides: {
   const federation: FederationService = new FederationService({
     hub, remote, localTags: () => db.select().from(tagsTable).all(), snapshots: new MemberSnapshotStore(db),
     localSession: (id) => db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get() !== undefined,
+    onLimits: () => limits.membersChanged(),
   });
+  // Every member's limits beside this device's own (spec 2026-10-20-limit-suns-design § 1).
+  limits.members = federation;
   overrides.exposeFederation?.(federation);
   overrides.exposeHub?.(hub);
   // Before the routes: a request for a member's session must never reach a

@@ -1,18 +1,28 @@
 import { eq } from 'drizzle-orm';
+import { LIMITS_TOPIC } from '@orbital/shared/limits';
+import type { MachineRef } from '@orbital/shared/remote/device';
 import type { OrbitalDb } from '../db/database.js';
 import { limitWaits, sessions } from '../db/schema.js';
 import type { QueryFn } from '../runner/runner.js';
 import type { ChatMessage } from '../types.js';
 import { FIRST_CLAUDE_DIR_ID } from '../claudeDirs/paths.js';
+import { estimateRunOut } from './estimate.js';
+import { LimitHistory } from './history.js';
 import {
   AUTO_CONTINUE_KEY,
   CONTINUE_TEXT_KEY,
+  LIMITS_BACKGROUND_TICK_MS,
   LIMITS_REFRESH_INTERVAL_MS,
   RESET_GRACE_MS,
+  WEEKLY_ALL_KINDS,
   autoContinueOf,
+  backgroundReadDue,
   continueTextOf,
   probeResetFor,
+  probeWindowFor,
+  readEventUsage,
   readUsageAnswer,
+  windowKeyOf,
   waitFromLimitHit,
   whatFiringSends,
   type ClaudeDirLimits,
@@ -35,7 +45,10 @@ export const LIMITS_PROBE_TIMEOUT_MS = 15_000;
 export const WAIT_CHECK_INTERVAL_MS = 60_000;
 
 /** The WS topic the limits view listens on. */
-export const LIMITS_TOPIC = 'limits';
+export { LIMITS_TOPIC };
+
+/** How long a directory's account, read off its `.claude.json`, is taken as it was. */
+export const ACCOUNT_RECHECK_MS = LIMITS_REFRESH_INTERVAL_MS;
 
 /** What a delivery into a session did — `deliverToSession`'s outcome. */
 export type LimitDeliveryOutcome = 'sent' | 'revived' | 'not_found' | 'terminal';
@@ -48,6 +61,12 @@ export interface LimitsClaudeDirs {
   envFor(claudeDirId: number): Record<string, string> | undefined;
   /** The directory a session belongs to. */
   dirOf(sessionId: string): number;
+  /**
+   * The e-mail of the account the directory is signed in to, or null when
+   * it cannot be read. Absent, every directory's account is unknown and
+   * each is read on its own.
+   */
+  accountOf?(claudeDirId: number): string | null;
 }
 
 const SINGLE_DIR: LimitsClaudeDirs = {
@@ -56,15 +75,39 @@ const SINGLE_DIR: LimitsClaudeDirs = {
   dirOf: () => FIRST_CLAUDE_DIR_ID,
 };
 
-/** One directory's last reading of its plan, and the read in flight. */
-interface DirReading {
+/**
+ * One account's last reading of its plan, and the read in flight. Every
+ * directory of the account on this device shares it (spec
+ * 2026-10-20-limit-suns-design § 1); a directory whose account is unknown
+ * has one of its own.
+ */
+interface AccountReading {
   windows: LimitWindow[];
   extraUsage: ExtraUsage | null;
   /** False once the server said plan limits do not apply to this account. */
   serverTracked: boolean;
   readAt: number | null;
+  /** When a read last started, good or not: what the background reading paces itself by. */
+  attemptedAt: number | null;
   stale: boolean;
+  /** `ProbeReading.weeklyStartedAt` of the last good read. */
+  weeklyStartedAt: number | null;
   refreshing: Promise<void> | null;
+}
+
+/** Another member's last limits, as `FederationService` keeps them. */
+export interface MemberLimits {
+  machine: MachineRef;
+  /** The member's own directories, as it answered them; unchecked. */
+  dirs: unknown[];
+}
+
+/** What the limits ask of the other members of the group (`FederationService`). */
+export interface LimitsMembers {
+  /** Every member's last limits, an offline member's included. */
+  limits(): MemberLimits[];
+  /** Every live member reads again; settles once each answered or failed. */
+  refreshLimits(): Promise<void>;
 }
 
 /** One stored wait, as this service holds it. */
@@ -100,6 +143,13 @@ export interface LimitsServiceDeps {
   republish: (sessionId: string) => void;
   /** Records a failure in the error log; never announced. */
   onError?: (err: unknown, during: string, sessionId?: string) => void;
+  /**
+   * The directories with a session working now, Orbital's or a terminal's.
+   * Their plans are read in the background while they work and for
+   * `LIMITS_TRAILING_READ_MS` after (spec 2026-10-20-limit-suns-design § 2).
+   * Absent, nothing is read in the background.
+   */
+  workingDirs?: () => Iterable<number>;
   now?: () => number;
 }
 
@@ -113,14 +163,22 @@ export interface LimitsServiceDeps {
  */
 export class LimitsService {
   deliver?: (sessionId: string, text: string, attachments: string[]) => Promise<{ outcome: LimitDeliveryOutcome; uuid: string | null }>;
+  /** The other members' limits, merged into this device's answer; assigned once the federation exists. */
+  members?: LimitsMembers;
 
   private deps: LimitsServiceDeps;
   private now: () => number;
   private waits = new Map<string, StoredWait>();
-  /** Per Claude directory, made on first use. */
-  private readings = new Map<number, DirReading>();
+  /** Per account (`readingKey`), made on first use. */
+  private readings = new Map<string, AccountReading>();
+  /** Each directory's account as last read, and when. */
+  private accounts = new Map<number, { account: string | null; at: number }>();
+  /** When each directory was last seen with a session working. */
+  private lastWorking = new Map<number, number>();
+  private history: LimitHistory;
   private dirs: LimitsClaudeDirs;
   private watchTimer: ReturnType<typeof setInterval> | null = null;
+  private backgroundTimer: ReturnType<typeof setInterval> | null = null;
   private waitTimer: ReturnType<typeof setTimeout> | null = null;
   private firing: Promise<void> | null = null;
   private started = false;
@@ -131,6 +189,7 @@ export class LimitsService {
     this.deps = deps;
     this.now = deps.now ?? Date.now;
     this.dirs = deps.claudeDirs ?? SINGLE_DIR;
+    this.history = new LimitHistory(deps.db);
   }
 
   // ---- Lifecycle --------------------------------------------------------
@@ -150,36 +209,51 @@ export class LimitsService {
     }
   }
 
-  /** Arms the wait timer; an overdue wait fires at once. */
+  /** Arms the wait timer, where an overdue wait fires at once, and the background reading. */
   start(): void {
     this.started = true;
     this.schedule();
+    if (this.deps.tracked && this.deps.workingDirs && !this.backgroundTimer) {
+      this.backgroundTimer = setInterval(() => this.backgroundTick(), LIMITS_BACKGROUND_TICK_MS);
+      (this.backgroundTimer as unknown as { unref?: () => void }).unref?.();
+    }
   }
 
   dispose(): void {
     this.disposed = true;
     if (this.waitTimer) clearTimeout(this.waitTimer);
     this.waitTimer = null;
+    if (this.backgroundTimer) clearInterval(this.backgroundTimer);
+    this.backgroundTimer = null;
     this.unwatch();
   }
 
   // ---- The limits view --------------------------------------------------
 
-  /** Every configured directory's reading, each with the waits of its own sessions. */
-  snapshot(): LimitsSnapshot {
-    return { dirs: this.dirs.list().map((dir) => this.dirSnapshot(dir.id, dir.name)) };
+  /**
+   * Every configured directory's reading, each with the waits of its own
+   * sessions, and after them every other member's directories, tagged with
+   * their `machine`. `own` leaves the members out: the answer to a request
+   * that came over a channel is this device's alone.
+   */
+  snapshot(own = false): LimitsSnapshot {
+    const dirs = this.dirs.list().map((dir) => this.dirSnapshot(dir.id, dir.name));
+    if (own || !this.members) return { dirs };
+    return { dirs: [...dirs, ...this.members.limits().flatMap(memberDirs)] };
   }
 
   private dirSnapshot(id: number, name: string): ClaudeDirLimits {
-    const r = this.reading(id);
+    const key = this.readingKey(id);
+    const r = this.reading(key);
     const tracked = this.deps.tracked && r.serverTracked;
     return {
       id,
       name,
+      account: this.accountOf(id),
       tracked,
       readAt: r.readAt === null ? null : new Date(r.readAt).toISOString(),
       stale: r.stale,
-      windows: tracked ? r.windows : [],
+      windows: tracked ? r.windows.map((w) => this.withEstimate(key, r, w)) : [],
       extraUsage: tracked ? r.extraUsage : null,
       waits: [...this.waits.values()]
         .filter((w) => this.dirs.dirOf(w.sessionId) === id)
@@ -194,35 +268,61 @@ export class LimitsService {
     };
   }
 
-  /** The cached answer at once; a read behind it for each directory whose answer is older than the interval. */
-  get(): LimitsSnapshot {
+  /** The window with its run-out estimate, from the account's readings of it. */
+  private withEstimate(key: string, r: AccountReading, w: LimitWindow): LimitWindow {
+    const resetsAt = w.resetsAt === null ? null : Date.parse(w.resetsAt);
+    const estimate = r.readAt === null ? null : estimateRunOut({
+      kind: w.kind,
+      percent: w.percent,
+      resetsAt: resetsAt !== null && Number.isFinite(resetsAt) ? resetsAt : null,
+      readAt: r.readAt,
+      startedAt: WEEKLY_ALL_KINDS.includes(w.kind) ? r.weeklyStartedAt : null,
+      stale: r.stale,
+      now: this.now(),
+    }, this.history.readings(key, windowKeyOf(w)));
+    return { ...w, estimate };
+  }
+
+  /** The cached answer at once; a read behind it for each account whose answer is older than the interval. */
+  get(own = false): LimitsSnapshot {
     for (const { id } of this.dirs.list()) {
-      const { readAt } = this.reading(id);
+      const { readAt } = this.reading(this.readingKey(id));
       if (readAt === null || this.now() - readAt >= LIMITS_REFRESH_INTERVAL_MS) void this.refresh(id);
     }
-    return this.snapshot();
+    return this.snapshot(own);
+  }
+
+  /** Reads again here and, unless `own`, on every live member; settles once all are read or failed. */
+  async refreshAll(own = false): Promise<void> {
+    await Promise.all([this.refresh(), own ? undefined : this.members?.refreshLimits()]);
   }
 
   /**
-   * Reads the probe again — one directory's, or every directory's when none
-   * is named. Concurrent callers share one read per directory; never rejects.
+   * Reads the probe again — one directory's account, or every account's
+   * when none is named. Concurrent callers share one read per account, under
+   * the login of the directory that asked first; never rejects.
    */
   refresh(claudeDirId?: number): Promise<void> {
     if (!this.deps.tracked) return Promise.resolve();
     if (claudeDirId === undefined) {
       return Promise.all(this.dirs.list().map(({ id }) => this.refresh(id))).then(() => undefined);
     }
-    const r = this.reading(claudeDirId);
+    const key = this.readingKey(claudeDirId, true);
+    const r = this.reading(key);
     if (r.refreshing) return r.refreshing;
     const wasStale = r.stale;
+    r.attemptedAt = this.now();
     r.refreshing = this.probe(claudeDirId)
       .then((answer) => {
         const reading = readUsageAnswer(answer);
+        const at = this.now();
         r.serverTracked = reading.tracked;
         r.windows = reading.windows;
         r.extraUsage = reading.extraUsage;
-        r.readAt = this.now();
+        r.weeklyStartedAt = reading.weeklyStartedAt;
+        r.readAt = at;
         r.stale = false;
+        this.recordWindows(key, reading.windows, at);
       })
       .catch((err) => {
         r.stale = true;
@@ -236,19 +336,82 @@ export class LimitsService {
     return r.refreshing;
   }
 
-  /** A directory was removed: its reading goes with it. */
+  /** A directory was removed: its reading goes with it, unless another directory of its account still reads it. */
   forgetDir(claudeDirId: number): void {
-    this.readings.delete(claudeDirId);
+    const key = this.readingKey(claudeDirId);
+    this.accounts.delete(claudeDirId);
+    this.lastWorking.delete(claudeDirId);
+    if (!this.dirs.list().some(({ id }) => id !== claudeDirId && this.readingKey(id) === key)) this.readings.delete(key);
     this.publishLimits();
   }
 
-  private reading(claudeDirId: number): DirReading {
-    let r = this.readings.get(claudeDirId);
+  /** The other members' limits changed: the snapshot goes out again. */
+  membersChanged(): void {
+    this.publishLimits();
+  }
+
+  private reading(key: string): AccountReading {
+    let r = this.readings.get(key);
     if (!r) {
-      r = { windows: [], extraUsage: null, serverTracked: true, readAt: null, stale: false, refreshing: null };
-      this.readings.set(claudeDirId, r);
+      r = {
+        windows: [], extraUsage: null, serverTracked: true, readAt: null, attemptedAt: null, stale: false,
+        weeklyStartedAt: null, refreshing: null,
+      };
+      this.readings.set(key, r);
     }
     return r;
+  }
+
+  /**
+   * The directory's account, read again once `ACCOUNT_RECHECK_MS` old — or
+   * at once with `fresh`, before a probe, so a directory signed in to
+   * another account is read as that one.
+   */
+  private accountOf(claudeDirId: number, fresh = false): string | null {
+    if (!this.dirs.accountOf) return null;
+    const held = this.accounts.get(claudeDirId);
+    if (held && !fresh && this.now() - held.at < ACCOUNT_RECHECK_MS) return held.account;
+    const account = this.dirs.accountOf(claudeDirId)?.trim().toLowerCase() || null;
+    this.accounts.set(claudeDirId, { account, at: this.now() });
+    return account;
+  }
+
+  /** What an account's reading and history are kept under: its e-mail, else the directory's own. */
+  private readingKey(claudeDirId: number, fresh = false): string {
+    return this.accountOf(claudeDirId, fresh) ?? `dir:${claudeDirId}`;
+  }
+
+  /** Every window with a reset goes into the history. */
+  private recordWindows(key: string, windows: LimitWindow[], at: number): void {
+    for (const w of windows) {
+      const resetsAt = w.resetsAt === null ? NaN : Date.parse(w.resetsAt);
+      if (Number.isFinite(resetsAt)) this.recordReading(key, windowKeyOf(w), w.percent, resetsAt, at);
+    }
+  }
+
+  private recordReading(key: string, window: string, percent: number, resetsAt: number, at: number): void {
+    try {
+      this.history.record(key, window, percent, resetsAt, at);
+    } catch (err) {
+      this.deps.onError?.(err, 'keeping a plan limits reading');
+    }
+  }
+
+  /**
+   * The background reading (spec 2026-10-20-limit-suns-design § 2): each
+   * account of a directory with a session working, or one that stopped less
+   * than `LIMITS_TRAILING_READ_MS` ago, is read once its last read is
+   * `LIMITS_REFRESH_INTERVAL_MS` old.
+   */
+  backgroundTick(): void {
+    if (!this.deps.tracked || this.disposed) return;
+    const now = this.now();
+    for (const id of this.deps.workingDirs?.() ?? []) this.lastWorking.set(id, now);
+    for (const { id } of this.dirs.list()) {
+      const r = this.reading(this.readingKey(id));
+      if (r.refreshing || !backgroundReadDue(this.lastWorking.get(id) ?? null, r.attemptedAt, now)) continue;
+      void this.refresh(id);
+    }
   }
 
   /** Someone opened the view: read now and every interval until `unwatch`. */
@@ -264,9 +427,23 @@ export class LimitsService {
     this.watchTimer = null;
   }
 
-  /** A running session heard a `rate_limit_event`: its own directory's plan is read again. */
-  rateLimitEvent(sessionId: string): void {
-    void this.refresh(this.dirs.dirOf(sessionId));
+  /**
+   * A running session heard a `rate_limit_event`: its own directory's plan
+   * is read again, and a use the event carries is a reading of its window
+   * at no cost.
+   */
+  rateLimitEvent(sessionId: string, info?: unknown): void {
+    if (!this.deps.tracked) return;
+    const dir = this.dirs.dirOf(sessionId);
+    const usage = readEventUsage(info);
+    if (usage) {
+      const key = this.readingKey(dir);
+      const w = probeWindowFor(usage.rateLimitType, this.reading(key).windows);
+      const probed = w?.resetsAt ? Date.parse(w.resetsAt) : NaN;
+      const resetsAt = usage.resetsAt ?? (Number.isFinite(probed) ? probed : null);
+      if (w && resetsAt !== null) this.recordReading(key, windowKeyOf(w), usage.percent, resetsAt, this.now());
+    }
+    void this.refresh(dir);
   }
 
   // ---- Waits ------------------------------------------------------------
@@ -302,7 +479,7 @@ export class LimitsService {
     // work plan's reset, not the personal one's.
     const dir = this.dirs.dirOf(sessionId);
     if (rejected.resetsAt === null) await this.refresh(dir);
-    const made = waitFromLimitHit(rejected, turnError, (type) => probeResetFor(type, this.reading(dir).windows));
+    const made = waitFromLimitHit(rejected, turnError, (type) => probeResetFor(type, this.reading(this.readingKey(dir)).windows));
     if (!made) return false;
     const prior = this.waits.get(sessionId);
     this.store({
@@ -513,4 +690,34 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
     timer = setTimeout(() => reject(new Error(`limits probe timed out after ${ms}ms`)), ms);
   });
   return Promise.race([promise, expiry]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * A member's directories as this device's answer carries them: each tagged
+ * with the member's `machine`, stale while the member is offline, and with
+ * no estimate from an offline member. What does not read as a directory is
+ * left out, and so is one the member itself carries as another's (no
+ * chaining).
+ */
+export function memberDirs({ machine, dirs }: MemberLimits): ClaudeDirLimits[] {
+  const out: ClaudeDirLimits[] = [];
+  for (const raw of dirs) {
+    if (!raw || typeof raw !== 'object') continue;
+    const d = raw as Partial<ClaudeDirLimits> & { machine?: unknown };
+    if (typeof d.id !== 'number' || d.machine !== undefined && d.machine !== null) continue;
+    const windows = Array.isArray(d.windows) ? d.windows : [];
+    out.push({
+      id: d.id,
+      name: typeof d.name === 'string' ? d.name : '',
+      account: typeof d.account === 'string' && d.account ? d.account.toLowerCase() : null,
+      machine,
+      tracked: d.tracked !== false,
+      readAt: typeof d.readAt === 'string' ? d.readAt : null,
+      stale: d.stale === true || !machine.online,
+      windows: machine.online ? windows : windows.map((w) => ({ ...w, estimate: null })),
+      extraUsage: d.extraUsage ?? null,
+      waits: Array.isArray(d.waits) ? d.waits : [],
+    });
+  }
+  return out;
 }

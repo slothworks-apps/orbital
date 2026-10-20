@@ -147,6 +147,12 @@ export class ClaudeDirsService<C extends ClaudeDirContext = ClaudeDirContext> {
     return this.contexts.get(id);
   }
 
+  /** The e-mail of the account the directory is signed in to, read off disk now; null when unknown. */
+  accountOf(id: number): string | null {
+    const dir = this.get(id);
+    return dir ? readAccountEmail(dir.path, this.home) : null;
+  }
+
   /** The list `GET /api/claude-dirs` answers, with what is read off disk now. */
   info(): ClaudeDirInfo[] {
     const defaultId = this.defaultId();

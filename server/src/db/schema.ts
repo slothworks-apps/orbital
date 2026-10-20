@@ -757,6 +757,29 @@ export const limitWaits = sqliteTable('limit_waits', {
 });
 
 /**
+ * Past readings of each plan window, what the run-out estimate paces from
+ * (spec 2026-10-20-limit-suns-design § 2). Kept per account, pruned to the
+ * window as it stands now: a reset, or a percent that fell, drops what came
+ * before (`LimitHistory`).
+ */
+export const limitReadings = sqliteTable(
+  'limit_readings',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    /** The account's e-mail, or `dir:<id>` for a directory whose account is unknown. */
+    readingKey: text('reading_key').notNull(),
+    /** `windowKeyOf`: the window's kind and label. */
+    window: text('window').notNull(),
+    percent: real('percent').notNull(),
+    /** Epoch ms. */
+    resetsAt: integer('resets_at').notNull(),
+    /** Epoch ms. */
+    readAt: integer('read_at').notNull(),
+  },
+  (table) => [index('idx_limit_readings_window').on(table.readingKey, table.window, table.readAt)],
+);
+
+/**
  * What a harness did and why: ticks, verify failures, nudges, the watcher's
  * verdicts, approvals. The panel's log, and the labelled data a trained
  * continue-judge would need later (spec § What we ruled out).
