@@ -70,7 +70,9 @@ Before the first release:
 
 What the job does on each new desktop version:
 - It runs after the desktop's GitHub Release is published.
-- It builds the `.deb` and attaches it to that Release.
+- It builds the `.deb`. It is not attached to the GitHub Release, because
+  releases are immutable once published; the apt repository is where it
+  lives.
 - It adds the `.deb` to the repository, keeping every earlier version.
 - It signs the repository, uploads it, and checks it through
   `apt.slothworks.io`.

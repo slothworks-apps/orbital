@@ -166,8 +166,9 @@ both read one copy.
   apt repository lists this version, so a failed run is retried on the
   next push. It runs only after the desktop's GitHub Release for the same
   version is published, so a server is never offered a version with no
-  DMG. The job builds the package and attaches the `.deb` to that
-  Release. It then adds the package to the repository, signs the
+  DMG. The job builds the package. As built, it is not attached to the
+  Release: releases are immutable once published, so the apt repository
+  is where the `.deb` lives. It then adds the package to the repository, signs the
   repository's `Release` file with the repository key, and uploads it.
 - **The apt repository.** It lives in a bucket on the shared MinIO on
   Dokploy (the one Beam uses), served at `apt.slothworks.io`. It has one component and one architecture
