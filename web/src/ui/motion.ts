@@ -47,10 +47,14 @@ const EASE = 'motion-safe:ease-[cubic-bezier(.2,.8,.2,1)]'
  * while the opacity fades. `transform` stays in the list for any hand-written
  * transform a caller might add.
  */
-const ANIMATED = 'transition-[opacity,transform,translate,scale]'
+// Spelled out in full, never built with `${}`: Tailwind only emits a class it
+// finds as a literal, and `motion-safe:${…}` produced no rule at all — every
+// modal fell back to `transition-property: all`, so anything that changed on
+// it (a margin, a height) slid for the length of the entrance.
+const ANIMATED = 'motion-safe:transition-[opacity,transform,translate,scale]'
 
-export const MODAL_TRANSITION = `motion-safe:${ANIMATED} ${EASE}`
-export const PANEL_TRANSITION = `motion-safe:${ANIMATED} ${EASE}`
+export const MODAL_TRANSITION = `${ANIMATED} ${EASE}`
+export const PANEL_TRANSITION = `${ANIMATED} ${EASE}`
 
 export const MODAL_ENTER_DURATION = 'motion-safe:duration-[180ms]'
 export const MODAL_EXIT_DURATION = 'motion-safe:duration-[140ms]'
@@ -87,3 +91,21 @@ export const PANEL_OPEN = 'opacity-100 translate-x-0'
  */
 export const NOTICE_FADE_MS = 150
 export const NOTICE_FADE_TRANSITION = 'motion-safe:transition-opacity motion-safe:duration-[150ms] motion-safe:ease-[ease]'
+
+/**
+ * A block changing height in place — `ui/AutoHeight` (a dialog whose content
+ * grows or shrinks) and `ui/Collapse` (a row's detail opening, a row leaving a
+ * list). The panel curve, as everything else here; long enough that the eye
+ * follows the rows below gliding into place, short enough not to read as lag.
+ */
+export const HEIGHT_MS = 220
+
+/**
+ * What a row leaving a list fades over before its height goes (`ui/Collapse`
+ * with `stagger`): the fade says "this one is going", then the gap closes.
+ * Arriving runs the other way round — the gap opens, then the row fades in.
+ */
+export const FADE_MS = 140
+
+/** The panel curve as a CSS value, for transitions written as inline styles. */
+export const EASE_CURVE = 'cubic-bezier(.2,.8,.2,1)'

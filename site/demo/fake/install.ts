@@ -1,5 +1,6 @@
 import { configureApi } from '../../../web/src/lib/api'
 import { configureSocket } from '../../../web/src/lib/socket'
+import { markDemo } from '../../../web/src/lib/demo'
 import { FakeServer, type DemoWorld } from './fakeServer'
 
 /**
@@ -10,6 +11,9 @@ import { FakeServer, type DemoWorld } from './fakeServer'
  * exists.
  */
 export function installFakeServer(world: DemoWorld): FakeServer {
+  // Before anything renders: Report and Send feedback stay out of a demo,
+  // where they would file a real issue on GitHub.
+  markDemo()
   const server = new FakeServer(world)
   configureApi({ fetch: server.fetch })
   configureSocket({ WebSocketImpl: server.hub.WebSocket })

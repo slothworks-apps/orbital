@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { api, ApiError } from './api'
+import { api, errorSentence } from './api'
 
 export type CustomModelStatus = 'idle' | 'checking' | 'valid' | 'invalid'
 
@@ -30,18 +30,7 @@ export interface UseCustomModelOptions {
   claudeDir?: number
 }
 
-/** The server's `{ error }` for a 400, or the raw message for anything else. */
-function describeFailure(err: unknown): string {
-  if (err instanceof ApiError) {
-    try {
-      const body = JSON.parse(err.message) as { error?: unknown }
-      if (typeof body.error === 'string' && body.error) return body.error
-    } catch {
-      // Not JSON — fall through to the raw message.
-    }
-  }
-  return err instanceof Error && err.message ? err.message : 'The model id could not be checked.'
-}
+const describeFailure = (err: unknown): string => errorSentence(err, 'The model id could not be checked.')
 
 /**
  * Validation state for the "Other" model field. A probe runs through

@@ -25,7 +25,7 @@ import {
 import type { Finding } from '../src/stats/compute.js';
 import { HIST_BUCKET_COUNT } from '../src/stats/constants.js';
 import { recordPermissionWait } from '../src/stats/store.js';
-import { registerRoutes, type RouteClaudeDirContext } from '../src/api/routes.js';
+import { registerRoutes, type RouteClaudeDirContext, type RouteContext } from '../src/api/routes.js';
 import { ClaudeDirsService, seedClaudeDirs } from '../src/claudeDirs/service.js';
 import { McpConfig } from '../src/mcp/config.js';
 import { buildServer, publishLiveSession, republishCwds } from '../src/index.js';
@@ -163,7 +163,11 @@ function retentionFor(db: OrbitalDb) {
   };
 }
 
-function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: NarrateQueryFn; branchStatus?: BranchStatusStore } = {}) {
+function makeApp(opts: {
+  projectsDir?: string; ide?: IdeStore; narrateQueryFn?: NarrateQueryFn; branchStatus?: BranchStatusStore;
+  createIssue?: RouteContext['createIssue']; findSimilarIssues?: RouteContext['findSimilarIssues'];
+  checkDuplicates?: RouteContext['checkDuplicates'];
+} = {}) {
   const db = openTmpDb('api');
   db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
   db.insert(sessions)
@@ -272,6 +276,11 @@ function makeApp(opts: { projectsDir?: string; ide?: IdeStore; narrateQueryFn?: 
     remote: stubRemote(db, hub, imageStore, imagesDir, settings),
     settings,
     retention: retentionFor(db),
+    // Never the real ones: a test that forgot to stub them would file an issue on GitHub.
+    createIssue: opts.createIssue ?? (async () => { throw new Error('createIssue is not stubbed'); }),
+    findSimilarIssues: opts.findSimilarIssues ?? (async () => { throw new Error('findSimilarIssues is not stubbed'); }),
+    checkDuplicates: opts.checkDuplicates ?? (async () => { throw new Error('checkDuplicates is not stubbed'); }),
+    ghLogin: async () => null,
   });
   return {
     app, db, runner, hub, registry, startCalls, sendCalls, modelCatalog, subagents, subagentTranscripts, backgroundTasks, errors,
@@ -4234,7 +4243,7 @@ describe('branch status routes', () => {
   it('GET /api/gh-status reports why gh cannot serve the PR switch', async () => {
     const { store } = storeWith({}, 'logged_out');
     const { app } = makeApp({ branchStatus: store });
-    expect(res200(await app.inject({ method: 'GET', url: '/api/gh-status' }))).toEqual({ status: 'logged_out' });
+    expect(res200(await app.inject({ method: 'GET', url: '/api/gh-status' }))).toMatchObject({ status: 'logged_out', brew: expect.any(Boolean) });
     store.close();
   });
 
@@ -4420,5 +4429,82 @@ describe('GET /api/dirs', () => {
     const { body } = await list(app, dir);
     expect(body.truncated).toBe(true);
     expect(body.dirs.map((d: { name: string }) => d.name)).toEqual(names.slice(0, DIRS_MAX));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reports to Orbital's GitHub (docs/superpowers/specs/2026-10-20-report-to-github-design.md)
+// ---------------------------------------------------------------------------
+
+describe('issue routes', () => {
+  const post = (app: FastifyInstance, payload: unknown) =>
+    app.inject({ method: 'POST', url: '/api/issues', payload: payload as any });
+
+  it('POST /api/issues files the reviewed title and body and remembers the issue on its error row', async () => {
+    const createIssue = vi.fn(async () => ({ kind: 'created' as const, url: 'https://github.com/slothworks-apps/orbital/issues/7' }));
+    const { app, errors, hub } = makeApp({ createIssue });
+    const row = errors.record({ source: 'server', kind: 'session_failed', message: 'spawn ENOENT' });
+    const received = subscribeFake(hub, 'errors');
+    const body = res200(await post(app, { title: '  spawn ENOENT ', body: '### What happened', errorId: row.id }));
+    expect(body).toEqual({ url: 'https://github.com/slothworks-apps/orbital/issues/7' });
+    expect(createIssue).toHaveBeenCalledWith({ title: 'spawn ENOENT', body: '### What happened' });
+    expect(errors.list().errors[0].issueUrl).toBe('https://github.com/slothworks-apps/orbital/issues/7');
+    expect(received).toContainEqual(expect.objectContaining({ event: 'reported', id: row.id }));
+  });
+
+  it('POST /api/issues refuses what GitHub would, before gh runs', async () => {
+    const createIssue = vi.fn();
+    const { app } = makeApp({ createIssue });
+    for (const payload of [
+      { title: ' ', body: 'b' },
+      { title: 'x'.repeat(257), body: 'b' },
+      { title: 't', body: 'x'.repeat(65_537) },
+      { title: 't', body: 'b', errorId: 'one' },
+      { title: 't' },
+    ]) {
+      expect((await post(app, payload)).statusCode).toBe(400);
+    }
+    expect(createIssue).not.toHaveBeenCalled();
+  });
+
+  it('POST /api/issues answers 409 with the reason when gh cannot file it, 502 with what gh said otherwise', async () => {
+    const outcomes = [
+      { kind: 'unavailable' as const, reason: 'logged_out' as const },
+      { kind: 'failed' as const, message: 'HTTP 410: Issues are disabled' },
+      { kind: 'timeout' as const },
+    ];
+    const { app } = makeApp({ createIssue: async () => outcomes.shift()! });
+    const unavailable = await post(app, { title: 't', body: 'b' });
+    expect(unavailable.statusCode).toBe(409);
+    expect(unavailable.json()).toEqual({ error: 'logged_out' });
+    const failed = await post(app, { title: 't', body: 'b' });
+    expect(failed.statusCode).toBe(502);
+    expect(failed.json()).toEqual({ error: 'HTTP 410: Issues are disabled' });
+    const late = await post(app, { title: 't', body: 'b' });
+    expect(late.statusCode).toBe(504);
+    expect(late.json()).toEqual({ error: 'timeout' });
+  });
+
+  it('GET /api/issues/similar passes the title on and keeps "could not search" apart from "none"', async () => {
+    const findSimilarIssues = vi.fn(async (title: string) => (title === 'down' ? null : []));
+    const { app } = makeApp({ findSimilarIssues });
+    expect(res200(await app.inject({ method: 'GET', url: '/api/issues/similar?title=down' }))).toEqual({ issues: null });
+    expect(res200(await app.inject({ method: 'GET', url: '/api/issues/similar?title=spawn' }))).toEqual({ issues: [] });
+    expect((await app.inject({ method: 'GET', url: '/api/issues/similar' })).statusCode).toBe(400);
+  });
+
+  it('POST /api/issues/duplicates returns the matches, and says which half failed', async () => {
+    const match = { number: 3, title: 'Map blank', url: 'https://github.com/slothworks-apps/orbital/issues/3', state: 'open' as const, why: 'same' };
+    const outcomes = [{ kind: 'checked' as const, matches: [match] }, { kind: 'failed' as const, reason: 'list' as const }];
+    const checkDuplicates = vi.fn(async () => outcomes.shift()!);
+    const { app } = makeApp({ checkDuplicates });
+    const url = '/api/issues/duplicates';
+    expect(res200(await app.inject({ method: 'POST', url, payload: { title: ' Map ', body: 'b', model: 'haiku' } }))).toEqual({ matches: [match] });
+    expect(checkDuplicates).toHaveBeenCalledWith({ title: 'Map', body: 'b' }, 'haiku');
+    const failed = await app.inject({ method: 'POST', url, payload: { title: 'Map', body: 'b', model: 'claude-sonnet-5[1m]' } });
+    expect(failed.statusCode).toBe(502);
+    expect(failed.json()).toEqual({ error: 'list' });
+    expect((await app.inject({ method: 'POST', url, payload: { title: '', body: 'b', model: 'haiku' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url, payload: { title: 'Map', body: 'b', model: '--settings=x' } })).statusCode).toBe(400);
   });
 });

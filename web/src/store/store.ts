@@ -164,6 +164,7 @@ export type TaskOutputEvent = { event: 'output'; offset: number; text: string } 
 export type ErrorsEvent =
   | { event: 'error'; error: ErrorRecord; unseen: number }
   | { event: 'seen'; ids: number[] | null; unseen: number }
+  | { event: 'reported'; id: number; issueUrl: string }
 
 /**
  * Events on the `remote` topic (`server/src/remote/service.ts`). A
@@ -1718,6 +1719,11 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
     if (msg.event === 'seen') {
       set({ errors: dropSeen(state.errors, msg.ids), errorsUnseen: msg.unseen })
+      return
+    }
+
+    if (msg.event === 'reported') {
+      set({ errors: state.errors.map((e) => (e.id === msg.id ? { ...e, issueUrl: msg.issueUrl } : e)) })
     }
   },
 

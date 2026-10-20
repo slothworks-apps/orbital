@@ -1102,6 +1102,7 @@ function makeError(overrides: Partial<ErrorRecord> & { id: number }): ErrorRecor
     detail: null,
     context: null,
     seenAt: null,
+    issueUrl: null,
     ...overrides,
   }
 }

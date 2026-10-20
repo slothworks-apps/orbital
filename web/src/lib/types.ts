@@ -527,6 +527,12 @@ export interface BranchStatus {
   pr?: BranchPr
 }
 
+/** `GET /api/gh-status`. `brew` is absent from a Mac older than the report-to-GitHub change. */
+export interface GhStatusAnswer {
+  status: GhAvailability
+  brew?: boolean
+}
+
 /** `GET /api/gh-status`: whether the PR switch can be on, and if not, why. */
 export type GhAvailability = 'ready' | 'missing' | 'logged_out'
 
@@ -1369,6 +1375,8 @@ export interface ErrorRecord {
   context: Record<string, unknown> | null
   /** When the error list showed this row. Null until then. */
   seenAt: number | null
+  /** The issue this error was reported as on Orbital's GitHub; null until it is. */
+  issueUrl: string | null
 }
 
 /* ---------------------------------------------------------------------------
@@ -1943,4 +1951,17 @@ export interface DirListing {
   dirs: { name: string; hasChildren: boolean }[]
   /** True when the server cut the list at its cap. */
   truncated: boolean
+}
+
+/** `GET /api/issues/similar`: an issue already on Orbital's GitHub that looks like the one under review. */
+export interface SimilarIssue {
+  number: number
+  title: string
+  url: string
+  state: 'open' | 'closed'
+}
+
+/** `POST /api/issues/duplicates`: a filed issue Claude read as the same problem, and why. */
+export interface DuplicateIssue extends SimilarIssue {
+  why: string
 }

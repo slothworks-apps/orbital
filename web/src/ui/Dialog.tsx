@@ -1,3 +1,4 @@
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { EscapeBoundary, useEscapeLayer } from './escapeLayer'
 import { usePresence } from './usePresence'
@@ -93,7 +94,20 @@ export interface DialogProps {
    * bloom and no footer row. `size`, `tone` and the footer props do not
    * apply to it.
    */
-  variant?: 'frame' | 'card'
+  variant?: 'frame' | 'card' | 'review'
+  /**
+   * Caps the frame's height (canvas 5b/61a: the error log stops at 720px);
+   * past it the body scrolls inside. The viewport stays the cap below that.
+   */
+  maxHeight?: number
+  /**
+   * Keeps the top edge where it opened. A centred dialog whose content
+   * changes in place (a row leaving the error log, a state line growing)
+   * would otherwise move as a whole — half the change at the top, half at
+   * the bottom. Anchored, it opens centred and then grows and shrinks from
+   * its bottom edge only, still capped at the viewport.
+   */
+  anchorTop?: boolean
   /**
    * Card variant only: content between the muted eyebrow and the title
    * (canvas 50c: the kind tile above the join sentence; `cDone`: the
@@ -219,6 +233,8 @@ export function Dialog({
   surfaceRef,
   dropArmed = false,
   variant = 'frame',
+  maxHeight,
+  anchorTop = false,
   onClose,
   children,
 }: DialogProps) {
@@ -226,6 +242,49 @@ export function Dialog({
   // Held mounted through the close transition — a dialog that unmounts the
   // instant `open` goes false can only ever animate in.
   const { mounted, state } = usePresence(open, MODAL_ENTER_MS, MODAL_EXIT_MS)
+
+  // `anchorTop`: the surface's top as a margin under the scrim's padding. It
+  // never sits lower than centred for the current height — so content that
+  // arrives after opening still lands centred, and growth never pushes the
+  // bottom off screen — and a shrink leaves it where it is, which is the whole
+  // point: the rows above a leaving one stay put. The height cap stays the
+  // whole scrim, never "what is left below the anchor": a cap that depended
+  // on the anchor would freeze the dialog at the height it opened with.
+  const surface = useRef<HTMLElement | null>(null)
+  const [anchor, setAnchor] = useState<number | null>(null)
+  const setSurface = useCallback(
+    (element: HTMLElement | null) => {
+      surface.current = element
+      surfaceRef?.(element)
+    },
+    [surfaceRef],
+  )
+  useLayoutEffect(() => {
+    const element = surface.current
+    const scrim = element?.parentElement
+    if (!anchorTop || !mounted || !element || !scrim || typeof ResizeObserver === 'undefined') {
+      setAnchor(null)
+      return
+    }
+    const place = (fresh: boolean) => {
+      const style = getComputedStyle(scrim)
+      const room = scrim.clientHeight - parseFloat(style.paddingTop || '0') - parseFloat(style.paddingBottom || '0')
+      // `offsetHeight` ignores the entrance's scale, so this is the resting size.
+      const centred = Math.max(0, Math.round((room - element.offsetHeight) / 2))
+      setAnchor((current) => (fresh || current === null ? centred : Math.min(current, centred)))
+    }
+    place(true)
+    const observer = new ResizeObserver(() => place(false))
+    observer.observe(element)
+    // A resized window centres afresh.
+    const recentre = () => place(true)
+    window.addEventListener('resize', recentre)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', recentre)
+    }
+  }, [anchorTop, mounted])
+  const anchored = anchorTop && anchor !== null
 
   if (!mounted) return null
 
@@ -250,18 +309,47 @@ export function Dialog({
       // leave the focus order — see EXITING in `ui/motion`.
       inert={state === 'exiting' || undefined}
       className={[
-        'orbital-no-drag fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.55)] p-6 backdrop-blur-[3px]',
+        // The review dialog stacks over the dialog it came from (canvas
+        // 61a/61c): a plain .5 scrim, no second blur, and above the first.
+        variant === 'review'
+          ? 'orbital-no-drag fixed inset-0 z-[55] flex items-center justify-center bg-[rgba(2,4,9,.5)] p-6'
+          : 'orbital-no-drag fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.55)] p-6 backdrop-blur-[3px]',
+        anchored ? '!items-start' : '',
         MODAL_TRANSITION,
         duration,
         entered ? SCRIM_OPEN : SCRIM_CLOSED,
         state === 'exiting' ? EXITING : '',
       ].join(' ')}
     >
-      {variant === 'card' ? (
+      {variant === 'review' ? (
+        // `Report Dialog` (canvas `Feature - Feedback` 61d): 900px, a 16px
+        // radius over a .2 hairline, no corner brackets and no bloom. The
+        // caller draws the header, body and footer; this owns the scrim, the
+        // motion, Escape and the cap at the viewport.
+        <div
+          ref={setSurface}
+          role="dialog"
+          aria-modal="true"
+          aria-label={title}
+          data-variant="review"
+          style={{
+            boxShadow: BASE_SHADOW,
+            ...(anchored && { marginTop: anchor }),
+          }}
+          className={[
+            'relative flex max-h-full w-[900px] max-w-full flex-col rounded-2xl border border-[rgba(150,205,255,.2)] bg-gradient-to-b from-[rgba(16,22,38,.97)] to-[rgba(8,12,22,.98)] text-left font-sans text-text-bright backdrop-blur-[28px]',
+            MODAL_TRANSITION,
+            duration,
+            entered ? MODAL_OPEN : MODAL_CLOSED,
+          ].join(' ')}
+        >
+          {children}
+        </div>
+      ) : variant === 'card' ? (
         // Canvas 9o: 460px, 28/30/24 padding, 16px radius, a .2 hairline and
         // a plain drop shadow; every row centred with a 16px gap.
         <div
-          ref={surfaceRef}
+          ref={setSurface}
           role="dialog"
           aria-modal="true"
           aria-label={title}
@@ -283,14 +371,18 @@ export function Dialog({
         </div>
       ) : (
       <div
-        ref={surfaceRef}
+        ref={setSurface}
         role="dialog"
         aria-modal="true"
         aria-label={title}
         data-size={size}
         data-tone={tone}
         data-drop-armed={dropArmed || undefined}
-        style={{ boxShadow: `${BASE_SHADOW}, ${frame.bloom}` }}
+        style={{
+          boxShadow: `${BASE_SHADOW}, ${frame.bloom}`,
+          ...(maxHeight !== undefined && { maxHeight: `min(100%, ${maxHeight}px)` }),
+          ...(anchored && { marginTop: anchor }),
+        }}
         className={[
           'relative flex max-h-full max-w-full flex-col border font-sans text-text-bright backdrop-blur-[28px]',
           sizeClasses[size],

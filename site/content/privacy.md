@@ -42,6 +42,20 @@ terms and privacy policy, not this one.
   (off by default), Orbital runs your own `gh` command-line tool, signed in
   with your own GitHub account, to look up the pull request for a branch.
   That request goes from your Mac to GitHub, under GitHub's terms.
+- **Reports and feedback.** When you press Report on an error, or Send
+  feedback in Settings, Orbital shows you the issue it would publish on
+  Orbital's public GitHub repository, and nothing leaves your Mac until you
+  press Create issue or Open on GitHub. Create issue runs your own `gh`,
+  signed in with your GitHub account, and the issue is public under your
+  name; Open on GitHub hands the same text to your browser instead. While
+  you type the title, Orbital searches GitHub for issues with similar
+  titles — through `gh`, or GitHub's public search without it — so the
+  title you are writing reaches GitHub before you send it; the rest of the
+  text does not. If you turn on Check reports with Claude (Labs) and press
+  it, the draft and Orbital's newest issues go to Claude through your own
+  Claude account, as any session would. On the phone, Send feedback opens
+  GitHub's form in your browser with the app version, the system and the
+  phone model filled in, and you send it there.
 - **MCP servers** you add yourself are contacted by Claude Code at the
   addresses you give.
 - **The relay**, if you turn on the phone app (below).

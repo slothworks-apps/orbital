@@ -108,6 +108,9 @@ describe('remote allowlist', () => {
       ['GET', '/api/sessions/abc/mcp/..%2Fide/config'], ['GET', '/api/sessions/abc/mcp/%2e%2e/config'],
       ['GET', '/api/files/../files/image'], ['GET', '/api/files\\image'], ['GET', '/api/dirs/../images/a.png'],
       ['PATCH', '/api/settings#'], ['GET', '/api/stats/sessions/../../remote'],
+      // Publishing under the user's GitHub name is the Mac's alone, after a person reviewed it.
+      ['POST', '/api/issues'], ['GET', '/api/issues/similar?title=x'], ['POST', '/api/issues/duplicates'],
+      ['GET', '/api/issues/environment'],
     ]) expect(isAllowed(m, p), `${m} ${p}`).toBe(false);
   });
   describe('harness gate and limit wait', () => {

@@ -11,6 +11,7 @@ import {
   resolveGh,
   type RunResult,
   type Runner,
+  hasBrew,
 } from '../src/git/branchStatus.js';
 import { makeTmpDir } from './tmp.js';
 
@@ -302,5 +303,13 @@ describe('readLines', () => {
   it('is null outside a repository', async () => {
     const plain = makeTmpDir('plain');
     expect(await readLines(plain, 'main')).toBeNull();
+  });
+});
+
+describe('hasBrew', () => {
+  it('finds Homebrew on PATH or in its install locations, and nowhere else', () => {
+    expect(hasBrew({ pathVar: '/x:/y', exists: (p) => p === '/y/brew' })).toBe(true);
+    expect(hasBrew({ pathVar: '', exists: (p) => p === '/opt/homebrew/bin/brew' })).toBe(true);
+    expect(hasBrew({ pathVar: '/x', exists: () => false })).toBe(false);
   });
 });

@@ -16,6 +16,9 @@ import type {
   FileCompletionEntry,
   FilePreview,
   GhAvailability,
+  GhStatusAnswer,
+  SimilarIssue,
+  DuplicateIssue,
   IdeDiagnostic,
   SlashCommand,
   SubagentTranscript,
@@ -96,6 +99,24 @@ export interface SessionListPage {
   sessions: ApiSession[]
   /** Only with `ended: 'exclude'`, and only from a Mac that knows the parameter. */
   ended?: EndedSummary
+}
+
+/**
+ * The server's `{ error }` sentence out of a failed request — `ApiError`
+ * carries the raw body as its message — or the message as it is, or
+ * `fallback` when there is none.
+ */
+export function errorSentence(err: unknown, fallback: string): string {
+  if (err instanceof Error) {
+    try {
+      const body = JSON.parse(err.message) as { error?: unknown }
+      if (typeof body.error === 'string' && body.error) return body.error
+    } catch {
+      // Not JSON: the message is the sentence as it is.
+    }
+    if (err.message) return err.message
+  }
+  return fallback
 }
 
 export class ApiError extends Error {
@@ -1037,6 +1058,38 @@ export const api = {
     return request<SessionStatsDetail>('GET', apiPath`/api/stats/sessions/${id}` + query)
   },
 
+  // Reports to Orbital's GitHub (spec 2026-10-20-report-to-github-design).
+  // Mac only: the phone opens the prefilled form instead. `gh` missing or
+  // logged out comes back as `{ error }`; anything gh says otherwise throws.
+  // `timeout`: gh did not answer and the issue is not among the user's newest
+  // either — it may exist all the same, so the dialog never says "nothing was published".
+  async createIssue(
+    body: { title: string; body: string; errorId?: number },
+  ): Promise<{ url: string } | { error: Exclude<GhAvailability, 'ready'> | 'timeout' }> {
+    return remoteCall('POST', '/api/issues', body, { 409: ['missing', 'logged_out'] as const, 504: ['timeout'] as const })
+  },
+
+  async similarIssues(title: string): Promise<SimilarIssue[] | null> {
+    const data = await request<{ issues: SimilarIssue[] | null }>(
+      'GET', `/api/issues/similar?${new URLSearchParams({ title })}`,
+    )
+    return data.issues
+  },
+
+  /** Claude's reading of which filed issues the draft repeats; `{ error }` names the half that failed. */
+  async checkDuplicateIssues(
+    body: { title: string; body: string; model: string },
+  ): Promise<{ matches: DuplicateIssue[] } | { error: 'list' | 'ask' | 'reply' | 'unavailable' }> {
+    return remoteCall('POST', '/api/issues/duplicates', body, {
+      502: ['list', 'ask', 'reply'] as const,
+      503: ['unavailable'] as const,
+    })
+  },
+
+  async issueEnvironment(): Promise<{ osVersion: string | null; ghLogin: string | null }> {
+    return request<{ osVersion: string | null; ghLogin: string | null }>('GET', '/api/issues/environment')
+  },
+
   // Claude directories (spec 2026-10-04-multiple-claude-directories-design § 6).
   // Mac only: none of these is on the phone's allowlist. A refused change
   // comes back as `{ error }`, a state the Settings row words, not a throw.
@@ -1115,8 +1168,8 @@ export const api = {
    * if not, why (spec 2026-09-30-branch-pr-and-line-changes-design §
    * Settings). Asked when Settings opens and when the app regains focus.
    */
-  async ghStatus(): Promise<{ status: GhAvailability }> {
-    return request<{ status: GhAvailability }>('GET', '/api/gh-status')
+  async ghStatus(): Promise<GhStatusAnswer> {
+    return request<GhStatusAnswer>('GET', '/api/gh-status')
   },
 
   /**

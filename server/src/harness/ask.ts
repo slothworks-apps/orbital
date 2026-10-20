@@ -13,6 +13,8 @@ export async function askOnce(
     systemPrompt: string; model: string; claudeExecutablePath?: string | null;
     /** The Claude directory environment to ask under (`claudeDirEnv`); absent, the SDK's default. */
     env?: Record<string, string>;
+    /** Ends the call, and the `claude` process with it. */
+    abortController?: AbortController;
   },
 ): Promise<string> {
   const parts: string[] = [];
@@ -27,6 +29,7 @@ export async function askOnce(
   };
   if (opts.claudeExecutablePath) options.pathToClaudeCodeExecutable = opts.claudeExecutablePath;
   if (opts.env) options.env = opts.env;
+  if (opts.abortController) options.abortController = opts.abortController;
   for await (const message of queryFn({ prompt, options })) {
     if (message?.type === 'assistant') {
       const content = message.message?.content;

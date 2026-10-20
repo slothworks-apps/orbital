@@ -290,6 +290,13 @@ const SHEET_VARIANTS = {
       'flex h-[84%] flex-col rounded-t-[26px] border-t border-[rgba(150,205,255,.2)] bg-[linear-gradient(180deg,rgba(16,22,38,.98),rgba(8,12,22,.99))]',
     handle: 'h-5 shrink-0',
   },
+  /** `Feature - Feedback` 61i: Settings → Send feedback, a short sheet of two choices. */
+  feedback: {
+    backdrop: 'bg-[rgba(2,4,9,.55)]',
+    panel:
+      'rounded-t-[26px] border-t border-[rgba(150,205,255,.2)] bg-[linear-gradient(180deg,rgba(16,22,38,.98),rgba(8,12,22,.99))] px-4',
+    handle: 'h-5',
+  },
 } as const
 
 export function BottomSheet({

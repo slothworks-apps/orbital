@@ -99,6 +99,11 @@ import { UpdatesSection } from './UpdatesSection'
 import { LimitSunsLabs } from './LimitSunsLabs'
 import { useAppUpdate } from '../store/appUpdate'
 import { ClaudeDirsRows } from './ClaudeDirsRows'
+import { GhLine } from './GhLine'
+import { SendFeedback, type FeedbackKind } from './SendFeedback'
+import { isDemo } from '../lib/demo'
+import { ISSUE_CHECK_ENABLED_KEY } from './report/logic'
+import { ReportDialog } from './report/ReportDialog'
 import { DEBOUNCE_MS, Row, SectionLabel } from './settingsRows'
 import {
   AUTO_CONTINUE_KEY,
@@ -152,12 +157,6 @@ const LINE_CHANGES_SAMPLE = {
   parent: 'main',
   committed: { added: 112, removed: 32 },
   uncommitted: { added: 8, removed: 2 },
-}
-
-/** 1g: why the PR switch is disabled. One line, naming no command — the fix belongs in a terminal. */
-const GH_REASON: Record<Exclude<GhAvailability, 'ready'>, string> = {
-  missing: 'gh is not installed',
-  logged_out: 'gh is not logged in',
 }
 
 /** Settings → Terminal → the terminal's placement. The dock first: it is the default (48a). */
@@ -493,6 +492,17 @@ export function Settings({ open, onClose }: SettingsProps) {
    * `gh` is missing.
    */
   const [gh, setGh] = useState<GhAvailability | null>(null)
+  /** Whether Homebrew is there to install `gh` with; absent from an older Mac (`GhLine`). */
+  const [ghBrew, setGhBrew] = useState<boolean | undefined>(undefined)
+  /**
+   * Send feedback's pick and whether its review dialog is open over Settings
+   * (canvas `Feature - Feedback` 61c). The kind outlives the close, so the
+   * dialog keeps its fields while it fades out.
+   */
+  const [feedback, setFeedback] = useState<{ kind: FeedbackKind; open: boolean }>({ kind: 'broke', open: false })
+  // Settings stays mounted while closed: closing it closes the review too, so
+  // it does not come back unasked the next time Settings opens.
+  if (!open && feedback.open) setFeedback({ ...feedback, open: false })
   const [copiedPath, setCopiedPath] = useState(false)
   /**
    * The retention confirmation. Held as the pending value plus the count the
@@ -769,7 +779,10 @@ export function Settings({ open, onClose }: SettingsProps) {
       api
         .ghStatus()
         .then((answer) => {
-          if (live && answer) setGh(answer.status)
+          if (live && answer) {
+            setGh(answer.status)
+            setGhBrew(answer.brew)
+          }
         })
         .catch(() => {
           /* the switch stays as it was; the next focus asks again */
@@ -887,8 +900,13 @@ export function Settings({ open, onClose }: SettingsProps) {
   const headerStats = headerSessionStats(settings)
   // 1g: gh unusable draws the switch off and disabled — the stored choice is
   // left alone, so it comes back as it was once gh works again.
-  const ghBlocked = gh !== null && gh !== 'ready' ? GH_REASON[gh] : null
+  const ghBlocked = gh !== null && gh !== 'ready'
   const prInHeader = headerPullRequest(settings) && !ghBlocked
+  // 61c's Open the session ›: Settings makes way for the session it started.
+  const openSession = (id: string) => {
+    onClose()
+    void useOrbital.getState().select(id)
+  }
   const lineChanges = headerLineChanges(settings)
   const lineChangesPreview = lineGroups(LINE_CHANGES_SAMPLE, lineChanges)
   const statePills = mapStatePills(settings)
@@ -1022,6 +1040,8 @@ export function Settings({ open, onClose }: SettingsProps) {
                   </button>
                 ))}
                 <span className="flex-1" />
+                {/* Not in the website's demo, where it would file a real issue. */}
+                {!isDemo() && <SendFeedback onPick={(kind) => setFeedback({ kind, open: true })} />}
                 <div className="px-3 py-2.5 font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.45)]">
                   <div>orbital {orbitalVersion}</div>
                   {claudeCodeVersion && <div>claude-code {claudeCodeVersion}</div>}
@@ -1368,6 +1388,18 @@ export function Settings({ open, onClose }: SettingsProps) {
                           }
                         />
                       </Row>
+                      <Row
+                        title="Check reports with Claude"
+                        desc="In the review before a report goes to Orbital's GitHub, Claude reads it next to the newest issues and says which look like the same thing. One model call on your plan, only when you press Check with Claude."
+                      >
+                        <Toggle
+                          aria-label="Check reports with Claude"
+                          checked={settings[ISSUE_CHECK_ENABLED_KEY] === 'true'}
+                          onChange={(checked) =>
+                            void patchAndSet({ [ISSUE_CHECK_ENABLED_KEY]: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
                       <LimitSunsLabs
                         settings={settings}
                         apiKey={health?.billing === 'api-key'}
@@ -1507,20 +1539,18 @@ export function Settings({ open, onClose }: SettingsProps) {
                         title="Pull request in the header"
                         desc="Shows the branch's pull request number after the branch. Hover it for state, review and checks; click it to open the PR on GitHub. Uses the gh CLI."
                       >
-                        <div className="flex flex-col items-start gap-2">
+                        {/* No gap: the line under the switch carries its own 8,
+                        inside its fold (`Feature - Feedback` 61c). */}
+                        <div className="flex flex-col items-start">
                           <Toggle
                             aria-label="Pull request in the header"
                             checked={prInHeader}
-                            disabled={ghBlocked !== null}
+                            disabled={ghBlocked}
                             onChange={(checked) =>
                               void patchAndSet({ header_pull_request: checked ? 'true' : 'false' })
                             }
                           />
-                          {ghBlocked && (
-                            <span className="font-mono text-[10.5px] leading-[1.5] text-[rgba(200,220,245,.8)]">
-                              {ghBlocked}
-                            </span>
-                          )}
+                          <GhLine status={gh} brew={ghBrew} onOpenSession={openSession} />
                         </div>
                       </Row>
                       <Row
@@ -2124,6 +2154,12 @@ export function Settings({ open, onClose }: SettingsProps) {
             </div>
           </Panel>
         </div>
+        {/* 61c: the review dialog stacks over Settings; Escape peels it first. */}
+        <ReportDialog
+          open={feedback.open}
+          kind={feedback.kind}
+          onClose={() => setFeedback((current) => ({ ...current, open: false }))}
+        />
       </div>
     </EscapeBoundary>
   )

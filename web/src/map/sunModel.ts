@@ -135,8 +135,13 @@ export function mapSuns(
   })
 }
 
-/** 60b: the hover card's width, and the room it keeps above the map's bottom. */
-export const SUN_CARD_WIDTH_PX = 300
+/**
+ * The hover card's width, and the room it keeps above the map's bottom. 60b
+ * draws it 300 px wide, where a reset beside the longest estimate ("resets
+ * Fri 07:00 · no estimate · reading is out of date") wraps; widened so every
+ * row's foot stays on one line.
+ */
+export const SUN_CARD_WIDTH_PX = 360
 const SUN_CARD_ROOM_PX = 330
 /** 60b: the card's top sits this far above the sun's centre… */
 const SUN_CARD_RAISE_PX = 40
@@ -149,8 +154,11 @@ const SUN_CARD_EDGE_PX = 16
  */
 const SUN_CARD_GAP_RIGHT_PX = 44 - 33
 const SUN_CARD_GAP_LEFT_PX = 40 - 33
-/** 60b turns the card to the left past `sx > 1060` on its 1440 px board: this much room on the right. */
-const SUN_CARD_FLIP_ROOM_PX = 1440 - 1060
+/**
+ * 60b turns its 300 px card to the left past `sx > 1060` on its 1440 px board;
+ * the room on the right that takes grows with the card's width.
+ */
+const SUN_CARD_FLIP_ROOM_PX = 1440 - 1060 + (SUN_CARD_WIDTH_PX - 300)
 
 /**
  * Where the hover card goes, in px within the map: right of the sun, or left

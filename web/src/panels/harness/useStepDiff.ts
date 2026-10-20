@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '../../lib/api'
+import { api, errorSentence } from '../../lib/api'
 import type { StepState } from '../../lib/types'
 import { parsePatch, type ParsedPatch } from './patch'
 
@@ -12,17 +12,7 @@ export interface StepDiff {
   pushed: boolean | null
 }
 
-/** The server's `{ error }` sentence out of a failed request, which carries the raw body. */
-function reasonOf(err: unknown): string {
-  if (!(err instanceof Error)) return 'Failed to load the diff'
-  try {
-    const body = JSON.parse(err.message) as { error?: unknown }
-    if (typeof body.error === 'string') return body.error
-  } catch {
-    // Not JSON: the message is the reason as it is.
-  }
-  return err.message
-}
+const reasonOf = (err: unknown): string => errorSentence(err, 'Failed to load the diff')
 
 /** A range's diff never changes, so one fetch per range is enough for the page's life. */
 const cache = new Map<string, Promise<StepDiff>>()

@@ -87,6 +87,9 @@ const BINARY_SNIFF_BYTES = 8000;
 /** Where Homebrew puts `gh`; the packaged app's `PATH` may not include them. */
 const GH_FALLBACK_PATHS = ['/opt/homebrew/bin/gh', '/usr/local/bin/gh'];
 
+/** Where Homebrew itself lives; without it Settings links to cli.github.com instead of running `brew install gh`. */
+const BREW_FALLBACK_PATHS = ['/opt/homebrew/bin/brew', '/usr/local/bin/brew'];
+
 // ---------------------------------------------------------------------------
 // Spawning
 
@@ -106,7 +109,7 @@ export type Runner = (
   opts: { cwd?: string; env: NodeJS.ProcessEnv; timeout: number },
 ) => Promise<RunResult>;
 
-const execRunner: Runner = (file, args, opts) =>
+export const execRunner: Runner = (file, args, opts) =>
   new Promise((resolve) => {
     execFile(
       file,
@@ -332,7 +335,7 @@ export function parsePrView(json: unknown): BranchPr | null {
   };
 }
 
-const ghEnv = (): NodeJS.ProcessEnv => ({
+export const ghEnv = (): NodeJS.ProcessEnv => ({
   ...process.env,
   GH_PROMPT_DISABLED: '1',
   NO_COLOR: '1',
@@ -366,7 +369,17 @@ export function resolveGh(
   return null;
 }
 
-interface GhOpts {
+/** Whether Homebrew is on this Mac: `PATH` first, then its two install locations. */
+export function hasBrew(
+  opts: { pathVar?: string; exists?: (path: string) => boolean } = {},
+): boolean {
+  const exists = opts.exists ?? isExecutable;
+  const pathVar = 'pathVar' in opts ? opts.pathVar : process.env.PATH;
+  const pathDirs = (pathVar ?? '').split(delimiter).filter(Boolean);
+  return [...pathDirs.map((dir) => join(dir, 'brew')), ...BREW_FALLBACK_PATHS].some(exists);
+}
+
+export interface GhOpts {
   run?: Runner;
   /** The resolved binary; `resolveGh()` when absent. */
   resolve?: () => string | null;
@@ -374,7 +387,7 @@ interface GhOpts {
 }
 
 /** gh's own words for "no login", from `gh auth` and from any command it refuses. */
-const LOGGED_OUT = /gh auth login|not logged in/i;
+export const LOGGED_OUT = /gh auth login|not logged in/i;
 
 /** gh's own words for "there is no PR to show" — including no GitHub remote at all. */
 const NO_PR = /no pull requests found|could not find|none of the git remotes/i;

@@ -292,6 +292,8 @@ export interface ErrorRecord {
   context: Record<string, unknown> | null;
   /** When the error list showed this row. Null until then. */
   seenAt: number | null;
+  /** The issue this error was reported as on Orbital's GitHub; null until it is. */
+  issueUrl: string | null;
 }
 
 /**

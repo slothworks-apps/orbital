@@ -1,0 +1,1 @@
+ALTER TABLE `errors` ADD `issue_url` text;

@@ -147,5 +147,6 @@ export function compactionFailureRecord(
     detail: null,
     context: { trigger: mark.trigger, preTokens: mark.preTokens, durationMs: mark.durationMs },
     seenAt: null,
+    issueUrl: null,
   }
 }
