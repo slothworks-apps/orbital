@@ -1131,9 +1131,18 @@ export async function buildServer(overrides: {
     follower.start();
   }
 
-  hub.onFirstSubscriber((topic) => {
-    // The probe runs only while someone has the limits view open.
+  // The probe reads on its interval only while a window of this device has
+  // the limits open. A member watching them is no such window: it gets every
+  // read that happens here anyway (the background reading, a session's
+  // events, its own `GET`'s read of an old answer), and would otherwise keep
+  // this device probing for as long as it is up.
+  hub.onFirstLocalSubscriber((topic) => {
     if (topic === LIMITS_TOPIC) limits.watch();
+  });
+  hub.onLastLocalSubscriber((topic) => {
+    if (topic === LIMITS_TOPIC) limits.unwatch();
+  });
+  hub.onFirstSubscriber((topic) => {
     startTail(topic);
     startFollower(topic);
     // An ended session nobody had open was skipped by `republishCwds`, so its
@@ -1149,7 +1158,6 @@ export async function buildServer(overrides: {
     }
   });
   hub.onLastUnsubscriber((topic) => {
-    if (topic === LIMITS_TOPIC) limits.unwatch();
     stopTail(topic);
     stopFollower(topic);
     if (topic.startsWith('session:')) {

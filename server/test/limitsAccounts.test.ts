@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { EventEmitter } from 'node:events';
 import { join } from 'node:path';
+import { LIMITS_TOPIC } from '@orbital/shared/limits';
+import type { Hub } from '../src/api/hub.js';
 import { buildServer } from '../src/index.js';
 import { openDb } from '../src/db/database.js';
 import type { FederationService } from '../src/federation/service.js';
@@ -320,6 +323,40 @@ describe('limits routes — the device group', () => {
     expect(refreshed).toBe(0);
     await server.inject({ method: 'POST', url: '/api/limits/refresh' });
     expect(refreshed).toBe(1);
+    await server.close();
+  });
+
+  it('reads on the interval only for this device\'s own windows, never for a member watching', async () => {
+    const dir = makeTmpDir('limits-watch');
+    let probes = 0;
+    const queryFn = (() => {
+      probes++;
+      async function* gen(): AsyncGenerator<any> {}
+      const g = gen() as any;
+      g.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET = async () => ({ rate_limits_available: true, rate_limits: { limits: [] } });
+      return g;
+    }) as any;
+    let hub: Hub | undefined;
+    const server = await buildServer({
+      dbPath: join(dir, 'index.db'), claudeDir: dir, dataDir: dir, queryFn, exposeHub: (h) => { hub = h; },
+    });
+    const watcher = (peer?: string) => {
+      const socket = Object.assign(new EventEmitter(), { send: () => {}, ...(peer ? { peer } : {}) });
+      hub!.handleSocket(socket as never);
+      socket.emit('message', JSON.stringify({ type: 'subscribe', topic: LIMITS_TOPIC }));
+      return socket;
+    };
+    const flush = () => new Promise((r) => setTimeout(r, 0));
+    watcher('m-studio');
+    await flush();
+    expect(probes).toBe(0);
+    // The member's own GET still reads an answer that is old.
+    await server.inject({ method: 'GET', url: '/api/limits', headers: { [DEVICE_HEADER]: 'm-studio' } });
+    await flush();
+    expect(probes).toBe(1);
+    watcher();
+    await flush();
+    expect(probes).toBe(2);
     await server.close();
   });
 });
