@@ -103,6 +103,23 @@ export function SessionListScreen() {
             </>
           )}
         </span>
+        {/* 60d: the Limits ring, between the Mac and Settings — the desktop shortcut's ¾ ring, never a state. */}
+        <button
+          type="button"
+          aria-label="Limits"
+          onClick={() => go('limits')}
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] bg-[rgba(150,205,255,.08)] text-[rgba(214,230,248,.85)] shadow-[inset_0_0_0_1px_rgba(150,205,255,.26)]"
+        >
+          <span
+            aria-hidden
+            className="block h-4 w-4 rounded-full"
+            style={{
+              background: 'conic-gradient(from -90deg, currentColor 0 250deg, rgba(200,220,245,.25) 250deg 360deg)',
+              mask: 'radial-gradient(farthest-side, transparent calc(100% - 2.2px), #000 calc(100% - 1.7px))',
+              WebkitMask: 'radial-gradient(farthest-side, transparent calc(100% - 2.2px), #000 calc(100% - 1.7px))',
+            }}
+          />
+        </button>
         <button type="button" aria-label="Settings" onClick={() => go('settings')} className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px]">
           <span aria-hidden className="block h-4 w-4 rounded-full border-[1.5px] border-dashed border-[oklch(85%_.12_205)]" />
         </button>

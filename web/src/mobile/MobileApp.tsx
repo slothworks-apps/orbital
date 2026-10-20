@@ -1,6 +1,7 @@
 import { Banner } from './Banner'
 import { JoinRequestSheet } from './JoinRequestSheet'
 import { FileScreen } from './screens/FileScreen'
+import { LimitsScreen } from './screens/LimitsScreen'
 import { LockScreen } from './screens/LockScreen'
 import { MediaScreen } from './screens/MediaScreen'
 import { MismatchScreen } from './screens/MismatchScreen'
@@ -53,6 +54,7 @@ export function MobileApp() {
       {screen === 'settings' && <SettingsScreen />}
       {screen === 'code' && <OwnCodeScreen />}
       {screen === 'new' && <NewSessionScreen />}
+      {screen === 'limits' && <LimitsScreen />}
       {screen === 'unpaired' && <UnpairedScreen />}
       {screen === 'mismatch' && <MismatchScreen />}
       {/* A device asking to join through this phone's code, over whatever screen is up (canvas 50i). */}
