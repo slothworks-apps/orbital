@@ -29,8 +29,13 @@ export const LIMITS_BACKGROUND_TICK_MS = 60_000;
  * whose last read started `LIMITS_REFRESH_INTERVAL_MS` ago or more.
  */
 export function backgroundReadDue(lastWorkingAt: number | null, attemptedAt: number | null, now: number): boolean {
-  if (lastWorkingAt === null || now - lastWorkingAt > LIMITS_TRAILING_READ_MS) return false;
+  if (!workedRecently(lastWorkingAt, now)) return false;
   return attemptedAt === null || now - attemptedAt >= LIMITS_REFRESH_INTERVAL_MS;
+}
+
+/** Whether a directory was seen working within `LIMITS_TRAILING_READ_MS` (epoch ms, null when never). */
+export function workedRecently(lastWorkingAt: number | null, now: number): boolean {
+  return lastWorkingAt !== null && now - lastWorkingAt <= LIMITS_TRAILING_READ_MS;
 }
 
 /** Percent at which a window graded by Orbital itself (no server severity) reads `warning`. */
@@ -113,6 +118,13 @@ export interface ClaudeDirLimits {
    * (spec 2026-10-20-limit-suns-design § 1).
    */
   account: string | null;
+  /**
+   * The account and the organization it is in, `accountUuid:organizationUuid`
+   * off the same `.claude.json`; null when it cannot be read. One e-mail can
+   * belong to two organizations, a personal plan and a company's, each with
+   * its own limits: this, not the e-mail, tells them apart.
+   */
+  accountId: string | null;
   /** The account's plan as the answer named it (`pro`, `max`, …); null when not read or not given. */
   plan: string | null;
   /**
@@ -380,9 +392,6 @@ export interface ProbeReading {
   /** The answer's `subscription_type` (`pro`, `max`, …); null when it gave none. */
   plan: string | null;
 }
-
-/** The weekly windows `weeklyStartedAt` is the start of: the all-models one, by either name. */
-export const WEEKLY_ALL_KINDS: readonly string[] = ['weekly_all', 'seven_day'];
 
 /**
  * The `get_usage` answer as rows. `rate_limits.limits[]` (undeclared in the

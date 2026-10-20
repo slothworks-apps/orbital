@@ -1,11 +1,11 @@
 import { eq } from 'drizzle-orm';
-import { LIMITS_TOPIC } from '@orbital/shared/limits';
+import { LIMITS_TOPIC, isWeeklyAllKind, memberLimitsEntries } from '@orbital/shared/limits';
 import type { MachineRef } from '@orbital/shared/remote/device';
 import type { OrbitalDb } from '../db/database.js';
 import { limitWaits, sessions } from '../db/schema.js';
 import type { QueryFn } from '../runner/runner.js';
 import type { ChatMessage } from '../types.js';
-import { FIRST_CLAUDE_DIR_ID } from '../claudeDirs/paths.js';
+import { FIRST_CLAUDE_DIR_ID, type ClaudeAccount } from '../claudeDirs/paths.js';
 import { estimateRunOut } from './estimate.js';
 import { LimitHistory } from './history.js';
 import {
@@ -14,7 +14,6 @@ import {
   LIMITS_BACKGROUND_TICK_MS,
   LIMITS_REFRESH_INTERVAL_MS,
   RESET_GRACE_MS,
-  WEEKLY_ALL_KINDS,
   autoContinueOf,
   backgroundReadDue,
   continueTextOf,
@@ -25,6 +24,7 @@ import {
   windowKeyOf,
   waitFromLimitHit,
   whatFiringSends,
+  workedRecently,
   type ClaudeDirLimits,
   type ExtraUsage,
   type LimitWait,
@@ -44,9 +44,6 @@ export const LIMITS_PROBE_TIMEOUT_MS = 15_000;
  */
 export const WAIT_CHECK_INTERVAL_MS = 60_000;
 
-/** The WS topic the limits view listens on. */
-export { LIMITS_TOPIC };
-
 /** How long a directory's account, read off its `.claude.json`, is taken as it was. */
 export const ACCOUNT_RECHECK_MS = LIMITS_REFRESH_INTERVAL_MS;
 
@@ -62,11 +59,11 @@ export interface LimitsClaudeDirs {
   /** The directory a session belongs to. */
   dirOf(sessionId: string): number;
   /**
-   * The e-mail of the account the directory is signed in to, or null when
-   * it cannot be read. Absent, every directory's account is unknown and
-   * each is read on its own.
+   * The account the directory is signed in to (`readAccount`), or null when
+   * there is no such directory. Absent, every directory's account is
+   * unknown and each is read on its own.
    */
-  accountOf?(claudeDirId: number): string | null;
+  accountOf?(claudeDirId: number): ClaudeAccount | null;
 }
 
 const SINGLE_DIR: LimitsClaudeDirs = {
@@ -174,7 +171,7 @@ export class LimitsService {
   /** Per account (`readingKey`), made on first use. */
   private readings = new Map<string, AccountReading>();
   /** Each directory's account as last read, and when. */
-  private accounts = new Map<number, { account: string | null; at: number }>();
+  private accounts = new Map<number, { account: ClaudeAccount; at: number }>();
   /** When each directory was last seen with a session working. */
   private lastWorking = new Map<number, number>();
   private history: LimitHistory;
@@ -216,7 +213,13 @@ export class LimitsService {
     this.started = true;
     this.schedule();
     if (this.deps.tracked && this.deps.workingDirs && !this.backgroundTimer) {
-      this.backgroundTimer = setInterval(() => this.backgroundTick(), LIMITS_BACKGROUND_TICK_MS);
+      this.backgroundTimer = setInterval(() => {
+        try {
+          this.backgroundTick();
+        } catch (err) {
+          this.deps.onError?.(err, 'reading the plan limits in the background');
+        }
+      }, LIMITS_BACKGROUND_TICK_MS);
       (this.backgroundTimer as unknown as { unref?: () => void }).unref?.();
     }
   }
@@ -248,10 +251,12 @@ export class LimitsService {
     const key = this.readingKey(id);
     const r = this.reading(key);
     const tracked = this.deps.tracked && r.serverTracked;
+    const account = this.accountOf(id);
     return {
       id,
       name,
-      account: this.accountOf(id),
+      account: account.email,
+      accountId: account.id,
       plan: r.plan,
       tracked,
       readAt: r.readAt === null ? null : new Date(r.readAt).toISOString(),
@@ -279,7 +284,7 @@ export class LimitsService {
       percent: w.percent,
       resetsAt: resetsAt !== null && Number.isFinite(resetsAt) ? resetsAt : null,
       readAt: r.readAt,
-      startedAt: WEEKLY_ALL_KINDS.includes(w.kind) ? r.weeklyStartedAt : null,
+      startedAt: isWeeklyAllKind(w.kind) ? r.weeklyStartedAt : null,
       stale: r.stale,
       now: this.now(),
     }, this.history.readings(key, windowKeyOf(w)));
@@ -303,13 +308,24 @@ export class LimitsService {
   /**
    * Reads the probe again — one directory's account, or every account's
    * when none is named. Concurrent callers share one read per account, under
-   * the login of the directory that asked first; never rejects.
+   * the login of the directory that asked first. Never rejects: most
+   * callers do not wait on it, so whatever fails is recorded instead.
    */
   refresh(claudeDirId?: number): Promise<void> {
     if (!this.deps.tracked) return Promise.resolve();
-    if (claudeDirId === undefined) {
-      return Promise.all(this.dirs.list().map(({ id }) => this.refresh(id))).then(() => undefined);
+    try {
+      if (claudeDirId === undefined) {
+        return Promise.all(this.dirs.list().map(({ id }) => this.refresh(id))).then(() => undefined);
+      }
+      return this.read(claudeDirId);
+    } catch (err) {
+      this.deps.onError?.(err, 'reading the plan limits');
+      return Promise.resolve();
     }
+  }
+
+  /** `refresh` of one directory; may throw before its read starts. */
+  private read(claudeDirId: number): Promise<void> {
     const key = this.readingKey(claudeDirId, true);
     const r = this.reading(key);
     if (r.refreshing) return r.refreshing;
@@ -336,7 +352,9 @@ export class LimitsService {
       .finally(() => {
         r.refreshing = null;
         this.publishLimits();
-      });
+      })
+      // Only the error log itself failing gets here: there is nowhere left to tell.
+      .catch(() => {});
     return r.refreshing;
   }
 
@@ -371,18 +389,24 @@ export class LimitsService {
    * at once with `fresh`, before a probe, so a directory signed in to
    * another account is read as that one.
    */
-  private accountOf(claudeDirId: number, fresh = false): string | null {
-    if (!this.dirs.accountOf) return null;
+  private accountOf(claudeDirId: number, fresh = false): ClaudeAccount {
+    if (!this.dirs.accountOf) return { email: null, id: null };
     const held = this.accounts.get(claudeDirId);
     if (held && !fresh && this.now() - held.at < ACCOUNT_RECHECK_MS) return held.account;
-    const account = this.dirs.accountOf(claudeDirId)?.trim().toLowerCase() || null;
+    const read = this.dirs.accountOf(claudeDirId);
+    const account = { email: read?.email?.trim().toLowerCase() || null, id: read?.id?.trim() || null };
     this.accounts.set(claudeDirId, { account, at: this.now() });
     return account;
   }
 
-  /** What an account's reading and history are kept under: its e-mail, else the directory's own. */
+  /**
+   * What an account's reading and history are kept under: the account and
+   * its organization, else the e-mail (an account whose ids are not read),
+   * else the directory's own.
+   */
   private readingKey(claudeDirId: number, fresh = false): string {
-    return this.accountOf(claudeDirId, fresh) ?? `dir:${claudeDirId}`;
+    const account = this.accountOf(claudeDirId, fresh);
+    return account.id ?? account.email ?? `dir:${claudeDirId}`;
   }
 
   /** Every window with a reset goes into the history. */
@@ -412,8 +436,11 @@ export class LimitsService {
     const now = this.now();
     for (const id of this.deps.workingDirs?.() ?? []) this.lastWorking.set(id, now);
     for (const { id } of this.dirs.list()) {
+      const lastWorking = this.lastWorking.get(id) ?? null;
+      // First what costs nothing: an idle tick reads no `.claude.json`.
+      if (!workedRecently(lastWorking, now)) continue;
       const r = this.reading(this.readingKey(id));
-      if (r.refreshing || !backgroundReadDue(this.lastWorking.get(id) ?? null, r.attemptedAt, now)) continue;
+      if (r.refreshing || !backgroundReadDue(lastWorking, r.attemptedAt, now)) continue;
       void this.refresh(id);
     }
   }
@@ -587,9 +614,14 @@ export class LimitsService {
     this.publishLimits();
   }
 
+  /** The snapshot goes out; a snapshot that cannot be made is recorded, never thrown at the change that asked. */
   private publishLimits(): void {
     if (this.disposed) return;
-    this.deps.hub.publish(LIMITS_TOPIC, { event: 'limits', limits: this.snapshot() });
+    try {
+      this.deps.hub.publish(LIMITS_TOPIC, { event: 'limits', limits: this.snapshot() });
+    } catch (err) {
+      this.deps.onError?.(err, 'publishing the plan limits');
+    }
   }
 
   private schedule(): void {
@@ -697,32 +729,10 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 
 /**
- * A member's directories as this device's answer carries them: each tagged
- * with the member's `machine`, stale while the member is offline, and with
- * no estimate from an offline member. What does not read as a directory is
- * left out, and so is one the member itself carries as another's (no
- * chaining).
+ * A member's directories as this device's answer carries them
+ * (`memberLimitsEntries`): tagged with the member's `machine`, and stale and
+ * with no estimate while the member is offline.
  */
 export function memberDirs({ machine, dirs }: MemberLimits): ClaudeDirLimits[] {
-  const out: ClaudeDirLimits[] = [];
-  for (const raw of dirs) {
-    if (!raw || typeof raw !== 'object') continue;
-    const d = raw as Partial<ClaudeDirLimits> & { machine?: unknown };
-    if (typeof d.id !== 'number' || d.machine !== undefined && d.machine !== null) continue;
-    const windows = Array.isArray(d.windows) ? d.windows : [];
-    out.push({
-      id: d.id,
-      name: typeof d.name === 'string' ? d.name : '',
-      account: typeof d.account === 'string' && d.account ? d.account.toLowerCase() : null,
-      plan: typeof d.plan === 'string' && d.plan ? d.plan : null,
-      machine,
-      tracked: d.tracked !== false,
-      readAt: typeof d.readAt === 'string' ? d.readAt : null,
-      stale: d.stale === true || !machine.online,
-      windows: machine.online ? windows : windows.map((w) => ({ ...w, estimate: null })),
-      extraUsage: d.extraUsage ?? null,
-      waits: Array.isArray(d.waits) ? d.waits : [],
-    });
-  }
-  return out;
+  return memberLimitsEntries<ClaudeDirLimits, MachineRef>(dirs, machine, { offline: !machine.online });
 }

@@ -407,6 +407,12 @@ export interface ClaudeDirLimits {
   name: string
   /** The account's e-mail, lower-cased; null when unknown, absent from an older Mac. */
   account?: string | null
+  /**
+   * The account and its organization, `accountUuid:organizationUuid`: one
+   * e-mail can belong to two organizations, each with its own plan. Null
+   * when unknown, absent from an older Mac.
+   */
+  accountId?: string | null
   /** The account's plan (`pro`, `max`, …); null when unknown, absent from an older Mac. */
   plan?: string | null
   /** Another member's directory, merged into this Mac's answer; absent on the Mac's own. */

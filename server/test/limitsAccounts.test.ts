@@ -112,7 +112,9 @@ function probeFn(percentFor: (dir: string | undefined) => number, resetsAt = new
 
 function service(opts: {
   db?: ReturnType<typeof openTmpDb>;
-  dirs?: { id: number; name: string; account: string | null }[];
+  dirs?: { id: number; name: string; account: string | null; accountId?: string }[];
+  onError?: (err: unknown, during: string) => void;
+  publish?: () => void;
   percent?: (dir: string | undefined) => number;
   working?: () => number[];
   tracked?: boolean;
@@ -122,18 +124,23 @@ function service(opts: {
   const dirs = opts.dirs ?? [{ id: 1, name: 'Personal', account: 'Me@Example.com' }, { id: 2, name: 'Spare', account: 'me@example.com' }];
   const probe = probeFn(opts.percent ?? (() => 50));
   const published: any[] = [];
+  let accountReads = 0;
   const claudeDirs: LimitsClaudeDirs = {
     list: () => dirs.map(({ id, name }) => ({ id, name })),
     envFor: (id) => ({ CLAUDE_CONFIG_DIR: `/dir${id}` }),
     dirOf: (sessionId) => Number(sessionId.split('-')[1] ?? 1),
-    accountOf: (id) => dirs.find((d) => d.id === id)?.account ?? null,
+    accountOf: (id) => {
+      accountReads++;
+      const dir = dirs.find((d) => d.id === id);
+      return dir ? { email: dir.account, id: dir.accountId ?? null } : null;
+    },
   };
   const limits = new LimitsService({
-    db, hub: { publish: (topic, payload) => published.push({ topic, ...payload }) }, settings: { get: () => '' },
+    db, hub: { publish: (topic, payload) => { opts.publish?.(); published.push({ topic, ...payload }); } }, settings: { get: () => '' },
     queryFn: probe.fn, tracked: opts.tracked ?? true, republish: () => {}, claudeDirs,
-    workingDirs: opts.working, now: () => opts.now.t,
+    workingDirs: opts.working, now: () => opts.now.t, onError: opts.onError,
   });
-  return { db, limits, probed: probe.probed, published };
+  return { db, limits, probed: probe.probed, published, accountReads: () => accountReads };
 }
 
 describe('LimitsService — accounts', () => {
@@ -145,6 +152,40 @@ describe('LimitsService — accounts', () => {
     const [a, b] = limits.snapshot().dirs;
     expect(a).toMatchObject({ id: 1, account: 'me@example.com', windows: [expect.objectContaining({ percent: 50 })] });
     expect(b).toMatchObject({ id: 2, account: 'me@example.com', readAt: a.readAt, windows: a.windows });
+  });
+
+  it('reads one e-mail in two organizations as two accounts, each with its own history', async () => {
+    const now = { t: T0 + 2 * 3_600_000 };
+    const { db, limits, probed } = service({
+      now,
+      dirs: [
+        { id: 1, name: 'Personal', account: 'me@example.com', accountId: 'u1:personal' },
+        { id: 2, name: 'Work', account: 'me@example.com', accountId: 'u1:company' },
+      ],
+      percent: (dir) => (dir === '/dir2' ? 80 : 10),
+    });
+    await limits.refresh();
+    expect(probed.sort()).toEqual(['/dir1', '/dir2']);
+    expect(limits.snapshot().dirs.map((d) => [d.account, d.accountId, d.windows[0].percent]))
+      .toEqual([['me@example.com', 'u1:personal', 10], ['me@example.com', 'u1:company', 80]]);
+    expect(new LimitHistory(db).readings('u1:company', 'session|5-hour window').map((r) => r.percent)).toEqual([80]);
+  });
+
+  it('a read whose snapshot cannot go out still settles, and says so', async () => {
+    const now = { t: T0 + 2 * 3_600_000 };
+    const errors: string[] = [];
+    const { limits } = service({ now, publish: () => { throw new Error('hub gone'); }, onError: (_, during) => errors.push(during) });
+    await expect(limits.refresh()).resolves.toBeUndefined();
+    expect(errors).toContain('publishing the plan limits');
+    expect(limits.snapshot().dirs[0].readAt).not.toBeNull();
+  });
+
+  it('an idle background tick reads no account off disk', () => {
+    const now = { t: T0 };
+    const { limits, accountReads, probed } = service({ now, working: () => [] });
+    limits.backgroundTick();
+    expect(accountReads()).toBe(0);
+    expect(probed).toEqual([]);
   });
 
   it('reads a directory of unknown account on its own', async () => {
@@ -244,7 +285,8 @@ describe('LimitsService — the other members', () => {
     expect(dirs[0].windows[0].estimate).toBeNull();
     // An older Mac's answer, with no account at all.
     const { account: _, ...older } = memberDir;
-    expect(memberDirs({ machine: studio, dirs: [older] })[0].account).toBeNull();
+    expect(memberDirs({ machine: studio, dirs: [older] })[0]).toMatchObject({ account: null, accountId: null });
+    expect(memberDirs({ machine: studio, dirs: [{ ...memberDir, accountId: 'u1:o1' }] })[0].accountId).toBe('u1:o1');
   });
 });
 

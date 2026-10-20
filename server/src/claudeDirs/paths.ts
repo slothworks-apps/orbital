@@ -87,23 +87,47 @@ export function claudeJsonPathFor(dirPath: string, home: string = homedir()): st
 }
 
 /**
- * The e-mail the directory's login belongs to, from `oauthAccount.emailAddress`
- * in its `.claude.json`. The file's format is undocumented, so every failure
- * — no file, no field, a half-written file — is null and never an error.
+ * Who the directory's login belongs to, from `oauthAccount` in its
+ * `.claude.json`: the e-mail (`emailAddress`), and `id`, the account and
+ * the organization together (`accountUuid:organizationUuid`) — one e-mail
+ * can be a member of two organizations, a personal plan and a company's,
+ * each with its own limits. The file's format is undocumented, so every
+ * failure — no file, no field, a half-written file — is null and never an
+ * error.
  */
-export function readAccountEmail(
+export interface ClaudeAccount {
+  email: string | null;
+  id: string | null;
+}
+
+export function readAccount(
   dirPath: string,
   home: string = homedir(),
   readFile: (path: string) => string = (p) => readFileSync(p, 'utf8'),
-): string | null {
+): ClaudeAccount {
   try {
     const parsed = JSON.parse(readFile(claudeJsonPathFor(dirPath, home))) as unknown;
-    const account = (parsed as { oauthAccount?: unknown } | null)?.oauthAccount;
-    const email = (account as { emailAddress?: unknown } | null | undefined)?.emailAddress;
-    return typeof email === 'string' && email.trim() !== '' ? email : null;
+    const account = (parsed as { oauthAccount?: unknown } | null)?.oauthAccount as Record<string, unknown> | null | undefined;
+    const email = nonEmpty(account?.emailAddress);
+    const user = nonEmpty(account?.accountUuid);
+    const org = nonEmpty(account?.organizationUuid);
+    return { email, id: user && org ? `${user}:${org}` : null };
   } catch {
-    return null;
+    return { email: null, id: null };
   }
+}
+
+/** The e-mail of `readAccount`. */
+export function readAccountEmail(
+  dirPath: string,
+  home: string = homedir(),
+  readFile?: (path: string) => string,
+): string | null {
+  return readAccount(dirPath, home, readFile).email;
+}
+
+function nonEmpty(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value : null;
 }
 
 /** Why a path cannot be a Claude directory — the code the routes answer with. */

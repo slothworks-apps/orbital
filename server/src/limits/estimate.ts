@@ -8,7 +8,9 @@
 
 // The lookbacks live in `shared/`: the limits page and the phone say how
 // far back the pace looks.
-import { FIVE_HOUR_PACE_LOOKBACK_MS, WEEKLY_PACE_LOOKBACK_MS } from '@orbital/shared/limits';
+import {
+  FIVE_HOUR_PACE_LOOKBACK_MS, WEEKLY_PACE_LOOKBACK_MS, isFiveHourKind, isWeeklyAllKind, isWeeklyScopedKind,
+} from '@orbital/shared/limits';
 
 export { FIVE_HOUR_PACE_LOOKBACK_MS, WEEKLY_PACE_LOOKBACK_MS };
 
@@ -77,8 +79,8 @@ export interface EstimateInput {
 
 /** A window kind's length, or null for a kind whose length is not known. */
 export function windowLengthOf(kind: string): number | null {
-  if (kind === 'session' || kind === 'five_hour') return FIVE_HOUR_WINDOW_MS;
-  if (kind === 'weekly_all' || kind === 'weekly_scoped' || kind.startsWith('seven_day')) return WEEKLY_WINDOW_MS;
+  if (isFiveHourKind(kind)) return FIVE_HOUR_WINDOW_MS;
+  if (isWeeklyAllKind(kind) || isWeeklyScopedKind(kind)) return WEEKLY_WINDOW_MS;
   return null;
 }
 

@@ -13,7 +13,7 @@ import type { BlobChunk, ChannelReply, ChannelServer } from '@orbital/shared/rem
 import {
   chunkBlob, type AnswerMessage, type AskMessage, type NotificationSettings,
 } from '@orbital/shared/remote/messages';
-import { LIMITS_TOPIC } from '@orbital/shared/limits';
+import { LIMITS_TOPIC, isOwnLimitsEntry } from '@orbital/shared/limits';
 import { PRESENCE_TOPIC } from '@orbital/shared/presence';
 import { sessionOfTopic } from '@orbital/shared/remote/segments';
 import type { Hub } from '../api/hub.js';
@@ -53,7 +53,7 @@ export function memberMayWatch(topic: string): boolean {
 export function ownLimitsFrame(frame: unknown): unknown {
   const f = frame as { topic?: unknown; limits?: { dirs?: unknown } | null } | null;
   if (!f || f.topic !== LIMITS_TOPIC || !f.limits || typeof f.limits !== 'object' || !Array.isArray(f.limits.dirs)) return frame;
-  const dirs = f.limits.dirs.filter((d) => !(d && typeof d === 'object' && carriesMachine(d as { machine?: unknown })));
+  const dirs = f.limits.dirs.filter((d) => !(d && typeof d === 'object') || isOwnLimitsEntry(d as { machine?: unknown }));
   return { ...f, limits: { ...f.limits, dirs } };
 }
 

@@ -15,7 +15,8 @@ import {
   waitFromLimitHit,
   whatFiringSends,
 } from '../src/limits/logic.js';
-import { LIMITS_TOPIC, LimitsService } from '../src/limits/service.js';
+import { LIMITS_TOPIC } from '@orbital/shared/limits';
+import { LimitsService } from '../src/limits/service.js';
 import { makeTmpDir, openTmpDb } from './tmp.js';
 import { eq } from 'drizzle-orm';
 
