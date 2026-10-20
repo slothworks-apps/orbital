@@ -39,6 +39,9 @@ its own device.
 
 Topics: `memberMayWatch` in `servingHalf.ts`, one list for every member
 (`sessions`, `errors`, `presence`, `limits`, and the per-session ones).
+`limits` also follows the grant of `GET /api/limits` (`LIMITS_GRANT`):
+without it a member's subscribe is refused and every `limits` frame to it
+dropped.
 
 Every request a channel injects carries `DEVICE_HEADER`
 (`x-orbital-device`, the asking device's id, `inject.ts`). It only ever
@@ -192,12 +195,18 @@ count a paired device's view of the hub (`Socket.peer`, set by
 `GET /api/limits` read once per ready channel. Each member's last
 directories are kept in memory (`MemberLink.limits`), an offline
 member's too, and `LimitsService.snapshot` appends them to this
-device's own, tagged with `machine`, stale and without an estimate while
-the member is offline. `POST /api/limits/refresh` asks every live member
+device's own through `memberLimitsEntries` (`shared/src/limits.ts`),
+tagged with `machine`, stale and without an estimate while the member is
+offline. A read of a member's limits never rejects; a failure that is not
+the channel's is logged. `POST /api/limits/refresh` asks every live member
 as well. A request with `DEVICE_HEADER` gets this device's directories
 only, and `ServingHalf` strips every directory carrying `machine` from a
-`limits` frame to a peer. A member watching this device's limits makes
-it probe (`LimitsService.watch`) but is not asked on to the others.
+`limits` frame to a peer. A member watching this device's limits neither
+makes it probe on its interval (`LimitsService.watch` follows
+`onFirstLocalSubscriber` too) nor is asked on to the others: it gets the
+reads that happen here anyway — the background reading, a session's
+`rate_limit_event`, and its own `GET /api/limits`, which reads an old
+answer again.
 
 ## Known limits
 

@@ -1,6 +1,6 @@
 # Privacy
 
-Last updated: 19 October 2026
+Last updated: 20 October 2026
 
 Orbital is built to keep your work on your own machines. This page says
 exactly what the Mac app, the phone app, the relay and this website do with
@@ -135,7 +135,13 @@ opened, and a size-capped cache of images and files - so the app has
 something to show while a Mac is asleep; leaving the group deletes the
 cache. A Mac keeps the last session list of every other device in its group,
 and in memory what it last read of their sessions, so it can show them while
-that device is asleep; removing a device deletes them. The Android app opts out of Android's cloud backup. The phone asks
+that device is asleep; removing a device deletes them. To show your plan
+limits, a Mac sends the e-mail of each Claude account it is signed in to,
+the account's plan and how much of each usage window is used to your other
+devices and the phone, end-to-end encrypted like everything above. A Mac
+keeps the last limits of every other device in its group in memory only,
+and keeps its own readings of the usage windows on disk, to estimate when
+a limit runs out; a reading is deleted once its window resets. The Android app opts out of Android's cloud backup. The phone asks
 for the camera or your photos only when you choose to scan a code, take a
 photo or pick one; a large photo is downscaled on the phone, and photos are
 sent, encrypted, only to the device the session runs on.

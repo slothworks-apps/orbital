@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-limit-suns-design
 title: Limit suns — plan limits on the map, a run-out estimate, and limits on the phone
-status: draft
+status: done
 type: spec
 domain: sessions
 related:
@@ -283,11 +283,12 @@ red, in the accounts' order, changeable in Labs), not by monogram alone,
 and colour never shows state; the sun comes in two styles, Eclipse
 (default) and Dim.
 
-**The snapshot.** Each `ClaudeDirLimits` gains two fields; nothing else
+**The snapshot.** Each `ClaudeDirLimits` gains three fields; nothing else
 changes, so an older client still reads it:
 
 ```ts
 account: string | null        // the e-mail, lower-cased
+accountId: string | null      // accountUuid:organizationUuid, both off .claude.json
 plan: string | null           // the answer's subscription_type: pro, max, …
 machine?: MachineRef          // set on another member's directory only
 ```
@@ -308,10 +309,15 @@ already past, and a spent window with no reading below the limit before
 it). An older server sends no `estimate` at all.
 
 **Accounts.** The account is read off each directory's `.claude.json`
-again once `ACCOUNT_RECHECK_MS` old, and before every probe. One reading
-per account key (the e-mail, or `dir:<id>` when unknown) is shared by
-the account's directories and probed once, under the login of the
-directory that asked first.
+(`readAccount`, `server/src/claudeDirs/paths.ts`) again once
+`ACCOUNT_RECHECK_MS` old, and before every probe. One e-mail can be a
+member of two organizations, a personal plan and a company's, each with
+its own limits, so the account is `oauthAccount.accountUuid` and
+`organizationUuid` together, and the e-mail is for display. One reading
+per account key (`accountId`, else the e-mail when the ids are not read,
+else `dir:<id>`) is shared by the account's directories and probed once,
+under the login of the directory that asked first; the history is kept
+under the same key.
 
 **History.** Table `limit_readings` (migration `0031_limit_readings`),
 `LimitHistory` in `server/src/limits/history.ts`. A window is keyed by
@@ -335,32 +341,64 @@ Orbital's own choice, not the canvas's: a whole day for the weekly
 windows, so the night's pause averages out, and an hour for the 5-hour
 window, so the slope rests on several reads. None for a reading
 older than `ESTIMATE_MAX_AGE_MS`. `seven_day_breakdown.window_started_at`
-(ISO or epoch) starts the all-models weekly window (`WEEKLY_ALL_KINDS`)
+(ISO or epoch) starts the all-models weekly window (`isWeeklyAllKind`)
 when it is plausible; the scoped weekly windows keep reset minus 7 days.
+The window kinds, by the server's names and the SDK's, are
+`isFiveHourKind`, `isWeeklyAllKind` and `isWeeklyScopedKind` in
+`shared/src/limits.ts`, for the server's window lengths and the web's
+wording alike; a kind on none of them has no estimate.
 
 **Background reading.** A tick every `LIMITS_BACKGROUND_TICK_MS` notes
 the directories with a session working (the Runner's and the live CLI
 registry's) and reads each one seen working within
 `LIMITS_TRAILING_READ_MS` whose last read started
 `LIMITS_REFRESH_INTERVAL_MS` ago (`backgroundReadDue`). Not with an API
-key.
+key. A directory not seen working within the trailing time is passed over
+before its account is looked up, so an idle tick reads no `.claude.json`.
+A read never rejects: a probe that fails marks the reading stale, and a
+snapshot that cannot be published, or a tick that throws, goes to the
+error log.
 
-**Federation.** `limits` is on `MEMBER_ALLOWED_TOPICS`. While a window
+**Who keeps the probe reading.** `LimitsService.watch`, the probe every
+`LIMITS_REFRESH_INTERVAL_MS`, follows this device's own windows only
+(`onFirstLocalSubscriber`/`onLastLocalSubscriber` in
+`server/src/index.ts`). A member watching this device's limits gets
+every read that happens anyway, pushed on the topic: the background
+reading, a session's `rate_limit_event`, and its own `GET /api/limits`,
+which reads an answer `LIMITS_REFRESH_INTERVAL_MS` old again
+(`LimitsService.get`). Otherwise a map open on one Mac kept every other
+member probing all day. So an account used only on an idle member reads
+stale on the others once `LIMITS_STALE_AFTER_MS` passes without a read
+there.
+
+**Federation.** `limits` is on `MEMBER_ALLOWED_TOPICS`, under the grant
+of `GET /api/limits` (`LIMITS_GRANT`, `settings`): `ServingHalf` refuses
+the subscribe of a member without it, and drops every `limits` frame to
+it, since the grant can be taken back while the subscription stands.
+While a window
 of this device watches `limits`, `FederationService` subscribes to every
 member's and reads `GET /api/limits` once per ready channel. The hub
 tells this device's own windows from a paired device's view of it
 (`onFirstLocalSubscriber`, `Socket.peer`): a member watching our limits
 is not asked on to the others, or two members would keep each other
 watching for good. Each member's last directories are kept in memory and
-merged after the device's own by `LimitsService.snapshot`, tagged with
-`machine`, stale and without an estimate while the member is offline.
+merged after the device's own by `LimitsService.snapshot`, through
+`memberLimitsEntries` (`shared/src/limits.ts`, which the phone uses too):
+tagged with `machine`, the e-mail lower-cased, `accountId` carried, stale
+and without an estimate while the member is offline, and a directory the
+member carries as another's left out (`isOwnLimitsEntry`). A member's
+read that fails for a reason other than the channel is logged, never
+rejected.
 `POST /api/limits/refresh` asks every live member too. A request with
 `DEVICE_HEADER` gets the device's own directories only, and
 `ServingHalf` strips every directory carrying `machine` from a `limits`
 frame to a peer.
 
 **Grouping.** `groupLimitsByAccount` and `limitsAccountKey` in
-`shared/src/limits.ts`. A directory of unknown account is keyed
+`shared/src/limits.ts`. The key is `accountId`, else the lower-cased
+e-mail: an older Mac sends no `accountId`, so its directories group by
+the e-mail, apart from the same account read by a newer one. A
+directory of unknown account is keyed
 `<machine id>:<dir id>`, `self` for this device's own. A directory never
 read loses to any reading, a stale one to any fresh one. The account's
 monogram can reuse `claudeDirMonograms` (`web/src/lib/claudeDirs.ts`) fed
