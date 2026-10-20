@@ -13,6 +13,7 @@ import { isMacAsleep, useMobile, type MobileState } from './state'
 import { clientRef } from './transport/clientRef'
 import { GroupFederation } from './transport/groupFederation'
 import { groupRef, type GroupHandle } from './transport/groupRef'
+import { macSupports } from './version'
 
 /**
  * What `hello` calls this app: the shell's version (mobile/package.json).
@@ -61,6 +62,7 @@ export function newGroup(
   })
   const federation = new GroupFederation(group, {
     notifications: notifications ?? null,
+    servesLimits: (version) => macSupports('limitsTopic', version),
     onNotifications: (chosen) => {
       notifications = chosen
       if (persisting) queue.push(snapshot())

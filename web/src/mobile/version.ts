@@ -22,6 +22,11 @@ export const MAC_FEATURES = {
   directoryCheck: '0.29.0',
   /** Settings → Devices' version, update available, Update and updating per member: `GET`/`POST /api/server/update` (spec 2026-10-19-headless-server-design § The phone). */
   serverUpdate: SERVER_UPDATE_VERSION,
+  /**
+   * The `limits` topic to a paired device (spec 2026-10-20-limit-suns-design § 5). An older Mac drops the
+   * subscription without a word; the Limits screen then reads on open and on Read again only.
+   */
+  limitsTopic: '0.37.0',
 } as const
 
 export type MacFeature = keyof typeof MAC_FEATURES
