@@ -15,6 +15,32 @@ type Settings = Record<string, string | undefined>
 export const SUN_COLORS = ['yellow', 'white', 'blue', 'red'] as const
 export type SunColor = (typeof SUN_COLORS)[number]
 
+/**
+ * The star tints (60f, COLOUR): low chroma like real stars, under the tag
+ * hues' so a sun never reads as a tag. Lightness, chroma and hue of oklch.
+ */
+export const SUN_TINTS: Record<SunColor, { l: number; c: number; h: number }> = {
+  yellow: { l: 91, c: 0.09, h: 95 },
+  white: { l: 95, c: 0.012, h: 250 },
+  blue: { l: 84, c: 0.08, h: 250 },
+  red: { l: 77, c: 0.11, h: 40 },
+}
+
+/** A star colour as CSS `oklch()`, at the tint's own lightness and chroma unless given, with an optional alpha. */
+export function sunOklch(color: SunColor, alpha?: number, l?: number, c?: number): string {
+  const t = SUN_TINTS[color]
+  const chroma = +(c ?? t.c).toFixed(3)
+  return `oklch(${l ?? t.l}% ${chroma} ${t.h}${alpha === undefined ? '' : ` / ${alpha}`})`
+}
+
+/** The lit disc, and the colour dot beside an account (60c, 60e): the canvas's radial gradient. */
+export function sunDiscGradient(color: SunColor, l?: number, c?: number): string {
+  const t = SUN_TINTS[color]
+  const lit = l ?? t.l
+  const chroma = c ?? t.c
+  return `radial-gradient(circle at 42% 38%,${sunOklch(color, undefined, lit, chroma)},${sunOklch(color, undefined, lit - 12, chroma * 1.1)} 80%)`
+}
+
 export type SunStyle = 'eclipse' | 'dim'
 
 /** Eclipse unless Dim was picked (60e). */
