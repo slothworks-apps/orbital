@@ -192,7 +192,10 @@ Spec `2026-10-20-limit-suns-design` § 1. While a window of this device
 watches `limits` — the hub's `onFirstLocalSubscriber`, which does not
 count a paired device's view of the hub (`Socket.peer`, set by
 `ServingHalf`) — every member's `limits` topic is subscribed to and
-`GET /api/limits` read once per ready channel. Each member's last
+`GET /api/limits` read once per ready channel, and again every
+`LIMITS_REFRESH_INTERVAL_MS` while the watch lasts: a peer's watch does
+not start a member's own interval probe, and the read is what lets an
+idle member refresh an old answer. Each member's last
 directories are kept in memory (`MemberLink.limits`), an offline
 member's too, and `LimitsService.snapshot` appends them to this
 device's own through `memberLimitsEntries` (`shared/src/limits.ts`),

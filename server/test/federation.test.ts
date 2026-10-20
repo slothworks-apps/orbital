@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { LIMITS_REFRESH_INTERVAL_MS } from '../src/limits/logic.js';
 import { EventEmitter } from 'node:events';
 import { createHash } from 'node:crypto';
 import Fastify from 'fastify';
@@ -1068,6 +1069,28 @@ describe('FederationService limits', () => {
 
     win.unsubscribe('limits');
     expect(b.subs.has('limits')).toBe(false);
+  });
+
+  it('reads every member again each interval while a window here watches, and stops when none does', async () => {
+    vi.useFakeTimers();
+    try {
+      const { hub, remote } = setup();
+      const b = memberWithLimits({ value: 10 });
+      remote.open(B, b);
+      b.greet(desktopHello);
+      await vi.advanceTimersByTimeAsync(0);
+      const win = localSocket(hub, ['limits']);
+      await vi.advanceTimersByTimeAsync(0);
+      const reads = () => b.asked.filter((a) => a === 'GET /api/limits').length;
+      expect(reads()).toBe(1);
+      await vi.advanceTimersByTimeAsync(LIMITS_REFRESH_INTERVAL_MS);
+      expect(reads()).toBe(2);
+      win.unsubscribe('limits');
+      await vi.advanceTimersByTimeAsync(LIMITS_REFRESH_INTERVAL_MS * 2);
+      expect(reads()).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a limits read that fails for a reason other than the channel is logged, never rejected', async () => {

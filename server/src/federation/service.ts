@@ -24,6 +24,7 @@ import type { RemoteService } from '../remote/service.js';
 import { carriesMachine } from '../remote/servingHalf.js';
 import { ReadCache } from './readCache.js';
 import type { MemberSnapshotStore } from './store.js';
+import { LIMITS_REFRESH_INTERVAL_MS } from '../limits/logic.js';
 import type { LimitsMembers, MemberLimits } from '../limits/service.js';
 
 /** How many sessions are asked of a member at once; one channel frame has to carry the answer. */
@@ -106,6 +107,13 @@ export class FederationService implements LimitsMembers {
   private readonly links = new Map<string, MemberLink>();
   /** A window of this device watches `limits`: every member's are subscribed to. */
   private limitsWatched = false;
+  /**
+   * While `limitsWatched`, every member is read again each
+   * `LIMITS_REFRESH_INTERVAL_MS`. A peer's watch does not start a member's
+   * own interval probe, so a member nobody works on would otherwise go
+   * stale here; the read is what lets it refresh an old answer.
+   */
+  private limitsTimer: ReturnType<typeof setInterval> | null = null;
   /** The newest channel to each member and how to stop listening to it. */
   private readonly channels = new Map<string, { channel: Channel; off: () => void }>();
   /** Per-session topics some local window holds, whoever's session they are about. */
@@ -169,6 +177,7 @@ export class FederationService implements LimitsMembers {
       if (link.channel?.ready || this.pendingWrites.has(link.id)) this.writeSnapshot(link);
     }
     this.running = false;
+    this.stopLimitsTimer();
     for (const link of this.links.values()) this.clearSeedRetry(link);
     for (const off of this.offs) off();
     this.offs = [];
@@ -244,7 +253,12 @@ export class FederationService implements LimitsMembers {
   private watchLimits(on: boolean): void {
     if (this.limitsWatched === on) return;
     this.limitsWatched = on;
+    if (!on) this.stopLimitsTimer();
     if (!this.running) return;
+    if (on && !this.limitsTimer) {
+      this.limitsTimer = setInterval(() => this.rereadLimits(), LIMITS_REFRESH_INTERVAL_MS);
+      (this.limitsTimer as unknown as { unref?: () => void }).unref?.();
+    }
     for (const link of this.links.values()) {
       const channel = link.channel;
       if (!channel) continue;
@@ -255,6 +269,19 @@ export class FederationService implements LimitsMembers {
       channel.subscribe(LIMITS_TOPIC);
       if (channel.ready && link.seeded) void this.readLimits(link, channel, 'GET', '/api/limits');
     }
+  }
+
+  /** Every ready member's limits read again, its answer kept. */
+  private rereadLimits(): void {
+    for (const link of this.links.values()) {
+      const channel = link.channel;
+      if (channel?.ready && link.seeded) void this.readLimits(link, channel, 'GET', '/api/limits');
+    }
+  }
+
+  private stopLimitsTimer(): void {
+    if (this.limitsTimer) clearInterval(this.limitsTimer);
+    this.limitsTimer = null;
   }
 
   /**
