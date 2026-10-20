@@ -11,6 +11,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - Without gh, Orbital says once what it adds and offers to install it; Settings shows the command next to the pull request switch and can run it in an Orbital session.
 ### Fixed
 - Dialogs no longer jump: the error log keeps its place when an entry goes, the entry fades and the rest slide up, and a dialog's size changes glide.
+- The card over a plan-limit sun is wider, so a reset and its estimate stay on one line.
 
 ## [0.37.0] — 2026-10-20
 ### Added

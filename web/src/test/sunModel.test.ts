@@ -9,6 +9,7 @@ import {
   fieldRadiusFromHole,
   mapSuns,
   sunCardPlacement,
+  SUN_CARD_WIDTH_PX,
   sunPressMoved,
 } from '../map/sunModel'
 
@@ -116,6 +117,14 @@ describe('sunCardPlacement', () => {
     expect(near.left).toBeGreaterThan(200 + 20)
     const far = sunCardPlacement({ x: 1400, y: 300 }, 20, viewport)
     expect(far.left).toBeLessThan(1400 - 20)
+  })
+
+  it('keeps the whole card inside the map horizontally, wherever the sun is', () => {
+    for (let x = 60; x <= viewport.width - 60; x += 10) {
+      const { left } = sunCardPlacement({ x, y: 300 }, 20, viewport)
+      expect(left, `sun at ${x}`).toBeGreaterThanOrEqual(0)
+      expect(left + SUN_CARD_WIDTH_PX, `sun at ${x}`).toBeLessThanOrEqual(viewport.width)
+    }
   })
 
   it('keeps the card inside the map vertically', () => {
