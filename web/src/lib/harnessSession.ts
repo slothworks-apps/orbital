@@ -224,6 +224,9 @@ export function harnessEventText(
     case 'nudged':
     case 'options':
       return null
+    // A kind a newer server logs (the phone often runs behind its Mac).
+    default:
+      return null
   }
 }
 
