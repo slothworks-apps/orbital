@@ -26,7 +26,7 @@ import {
   type SelfAbout,
 } from './group.js';
 import { publicKeyOf, type Identity } from './keys.js';
-import type { HelloMessage } from './messages.js';
+import { HELLO_OS_VERSION_MAX_CHARS, type HelloMessage } from './messages.js';
 import { PAIR_NAME_MAX_CHARS } from './relayApi.js';
 import { RelayLink, type LinkStatus, type RelayLinkEvent, type SocketConstructor } from './relayLink.js';
 import {
@@ -117,6 +117,8 @@ export type GroupClientOptions = {
   app: string;
   /** The phone's OS as `hello` names it (`osName` of the Capacitor platform). */
   os: string;
+  /** The phone's OS and its version as its hello names it (`Android 15`); absent when not known. */
+  osVersion?: string;
   /** This phone's name: in its hello, its description in the roster, and sealed into a redeem. */
   name: string;
   /** Synchronous; the caller persists it after every `onStored`. */
@@ -722,7 +724,11 @@ export class GroupClient {
 
   private hello(): OwnHello {
     const about = this.about();
-    return { app: this.opts.app, kind: 'phone', os: about.os, name: about.name, capabilities: GROUP_PHONE_CAPABILITIES };
+    const osVersion = this.opts.osVersion?.slice(0, HELLO_OS_VERSION_MAX_CHARS);
+    return {
+      app: this.opts.app, kind: 'phone', os: about.os, name: about.name, capabilities: GROUP_PHONE_CAPABILITIES,
+      ...(osVersion ? { osVersion } : {}),
+    };
   }
 
   /** Cut to the bounds the roster and a hello are read within. */

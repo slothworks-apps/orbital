@@ -47,6 +47,10 @@ Three things ship, and each carries its own version; the phone carries two:
 | the phone app, over the air (Android and iOS) | `version` in `mobile/package.json` | `mobile/`, `web/src/mobile` and what it imports, `shared/` |
 | the phone's native shell, through the stores | `versionName` in `mobile/android/app/build.gradle` | a native plugin, a permission, an `Info.plist` or manifest change, a Capacitor upgrade |
 
+The Linux package (`orbital_<version>_amd64.deb`, `docs/ops/run-orbital-on-an-ubuntu-server.md`)
+is the same server as the DMG: it carries the desktop's version and its
+lines go in `desktop/CHANGELOG.md`.
+
 Every change that reaches the phone bumps its app version, which ships as a
 signed bundle through Beam. Only a change the bundle cannot carry bumps the
 native version too, and that is a store build; a native bump always bumps

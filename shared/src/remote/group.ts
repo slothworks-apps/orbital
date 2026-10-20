@@ -90,7 +90,12 @@ export type MemberRow = MemberView & {
  * `members`: every member the latest version names (this device alone while
  * it holds no group), each with its description and `tooOld`: a member too
  * old to take part in the group (not a phone, and its last hello named no
- * `group` capability). `relayLocked`: this device is in a group, so the
+ * `group` capability). `version`: the Orbital version its last hello named (this
+ * device's own for itself), null before one; absent from a server before
+ * updates from the group, and on the phone, which keeps versions per device.
+ * `osVersion`: the OS and its version its last hello named (`Ubuntu
+ * 24.04`; this device's own for itself), null when not known; absent as
+ * `version` is. `relayLocked`: this device is in a group, so the
  * relay URL and secret cannot change. `primary`: the group's primary, which
  * alone adds and removes members, null while this device holds no group;
  * `isPrimary`: this device is it. `ended`: the primary dissolved the group
@@ -102,7 +107,7 @@ export type MemberRow = MemberView & {
  * reads it (`GroupMember.expiredJoin`); null otherwise.
  */
 export type GroupStatus = {
-  members: (MemberRow & { tooOld: boolean })[];
+  members: (MemberRow & { tooOld: boolean; version?: string | null; osVersion?: string | null })[];
   relayLocked: boolean;
   primary: PrimaryRef | null;
   isPrimary: boolean;

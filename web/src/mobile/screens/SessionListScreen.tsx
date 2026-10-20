@@ -25,6 +25,7 @@ import { WhereLine } from '../where/WhereLine'
 import { PlanetGlyph } from './Glyph'
 import { usePhoneNotificationsTip } from '../NotificationsTip'
 import { PinnedNoticeHost } from '../PinnedNotice'
+import { usePhoneWhatsNew } from '../WhatsNew'
 
 /** 9a, updated by 10a (spec 2026-10-05-mobile-next-design): the sessions, grouped by what they need from you. */
 export function SessionListScreen() {
@@ -52,6 +53,8 @@ export function SessionListScreen() {
   // The notifications tip, queued once after pairing (spec
   // 2026-10-08-notifications-off-by-default-design § 5).
   usePhoneNotificationsTip()
+  // WHAT'S NEW after the app version changed (spec 2026-10-19-whats-new-design § The phone).
+  usePhoneWhatsNew()
 
   const endedFold = useMobile(useShallow((s) => ({ summary: s.endedSummary, loaded: s.endedLoaded })))
 

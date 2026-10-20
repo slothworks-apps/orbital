@@ -8,6 +8,7 @@
  * Electron calls.
  */
 import { join } from 'node:path';
+import { orbitalDataDir, type DataDirInput } from '@orbital/shared/dataDir';
 import { appOrigins } from './startup';
 
 /** The file the server keeps the token in, inside its data dir. */
@@ -17,13 +18,12 @@ export const API_TOKEN_FILE = 'api-token';
 export const AUTH_COOKIE = 'orbital_token';
 
 /**
- * Where the token file is. The data dir resolves exactly as the server's
- * `config.ts` resolves it; the forked server inherits this process's
- * environment, so both read `ORBITAL_DATA_DIR` from the same place.
+ * Where the token file is. The data dir resolves through the same shared
+ * function the server's `config.ts` uses; the forked server inherits this
+ * process's environment, so both read `ORBITAL_DATA_DIR` from the same place.
  */
-export function apiTokenPath(env: { ORBITAL_DATA_DIR?: string }, home: string): string {
-  const dataDir = env.ORBITAL_DATA_DIR ?? join(home, 'Library', 'Application Support', 'orbital');
-  return join(dataDir, API_TOKEN_FILE);
+export function apiTokenPath(where: DataDirInput): string {
+  return join(orbitalDataDir(where), API_TOKEN_FILE);
 }
 
 /** The token from the file's text; null for a missing or blank file. */

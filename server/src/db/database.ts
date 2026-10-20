@@ -4,6 +4,7 @@ import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { DATA_DIR_MODE } from '@orbital/shared/dataDir';
 import { fileURLToPath } from 'node:url';
 import * as schema from './schema.js';
 import { settings, tags } from './schema.js';
@@ -242,7 +243,9 @@ export function openDb(
   dbPath: string,
   migrationsFolder: string = DEFAULT_MIGRATIONS_FOLDER,
 ): OrbitalDb {
-  mkdirSync(dirname(dbPath), { recursive: true });
+  // Made as the data dir is (`ensureDataDir`, which the server's start runs on
+  // it first); a path a test or an override names is never re-moded here.
+  mkdirSync(dirname(dbPath), { recursive: true, mode: DATA_DIR_MODE });
   const sqlite = new Database(dbPath);
   sqlite.pragma('journal_mode = WAL');
   const db = drizzle(sqlite, { schema });

@@ -21,7 +21,7 @@ export interface McpRouteContext {
   registry: Pick<LiveSessions, 'get'>;
   runner: Pick<
     Runner,
-    | 'status' | 'pendingDecision' | 'stopAndWait' | 'start'
+    | 'status' | 'busy' | 'stopAndWait' | 'start'
     | 'mcpServers' | 'reconnectMcpServer' | 'toggleMcpServer' | 'reloadMcpConfig' | 'mcpLogin'
   >;
   /** MCP config of one Claude directory: its `.claude.json`, written by `claude mcp` under its environment. */
@@ -236,7 +236,7 @@ export function registerMcpRoutes(app: FastifyInstance, ctx: McpRouteContext): v
     const row = runningRow(id, reply);
     if (!row) return reply;
     if (ctx.registry.get(id)) return reply.code(409).send({ error: 'terminal_session' });
-    if (runner.status(id) === 'working' || runner.pendingDecision(id)) {
+    if (runner.busy(id)) {
       return reply.code(409).send({ error: 'busy', message: 'the session is in the middle of a turn' });
     }
     try {

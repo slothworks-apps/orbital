@@ -1,0 +1,18 @@
+#!/bin/sh
+# The orbital package's postrm. A purge removes what orbital setup made as
+# root: /etc/orbital (the user) and /var/lib/orbital (the request
+# directory). The user's own data dir stays, as does lingering, which the
+# user may want for more than Orbital.
+set -e
+
+case "$1" in
+  remove)
+    if [ -d /run/systemd/system ]; then systemctl daemon-reload || true; fi
+    ;;
+  purge)
+    rm -rf /etc/orbital /var/lib/orbital
+    if [ -d /run/systemd/system ]; then systemctl daemon-reload || true; fi
+    ;;
+esac
+
+exit 0

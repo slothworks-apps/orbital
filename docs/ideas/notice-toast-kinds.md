@@ -5,6 +5,7 @@ status: backlog
 type: idea
 domain: app
 related:
+  - 2026-10-19-whats-new-design
   - 2026-10-08-notifications-off-by-default-design
   - the-desktop-app-updates-itself
   - 2026-10-08-release-roadmap
@@ -26,7 +27,7 @@ toast.dc.html` (1a–1c, 2a–2d) draws four more:
   [[2026-10-08-builds-for-testers-design]] (canvas `Feature - App
   update`), which replaced this sketch's "A new version is out" with
   states of its own. Left: the phone's "a new version is on TestFlight".
-- **What's new** — after an update, three lines from the changelog and "See
+- **What's new** — built ([[2026-10-19-whats-new-design]]): after an update, three lines from the changelog and "See
   all changes", which opens a centred dialog (phone: a sheet) with the
   version's New / Changed / Fixed sections and a link to the release notes.
   Closing it ends the message. Drops out once a newer version is installed.

@@ -5,6 +5,7 @@ import BetterSqlite3 from 'better-sqlite3';
 import { eq, sql } from 'drizzle-orm';
 import { DEFAULT_MIGRATIONS_FOLDER, openDb } from '../src/db/database.js';
 import { tags, settings } from '../src/db/schema.js';
+import { WHATS_NEW_BEFORE, WHATS_NEW_SEEN_KEY } from '@orbital/shared/changelog';
 import { effectiveTagIds, regenerateRuleTags } from '../src/tags/rules.js';
 import { makeTmpDir, openTmpDb } from './tmp.js';
 
@@ -228,6 +229,8 @@ describe('openDb', () => {
       limits_auto_continue: 'true',
       limits_continue_text: 'Continue where you left off.',
       update_auto_download: 'false',
+      // Installed before WHAT'S NEW: it shows once for the running version (spec 2026-10-19-whats-new-design).
+      whats_new_seen: 'before-whats-new',
     });
 
     // Rule regeneration works against the migrated legacy data, and honors
@@ -462,6 +465,42 @@ describe('notifications off by default', () => {
     first.$client.close();
     const db = openDb(dbPath);
     expect(read(db).notify_tip).toBe('ended');
+    db.$client.close();
+  });
+});
+
+// Spec 2026-10-19-whats-new-design: an install from before WHAT'S NEW is told
+// what changed in the first version that carries it; a fresh one is not.
+describe('whats new migration', () => {
+  const seen = (db: ReturnType<typeof openDb>) =>
+    db.select().from(settings).where(eq(settings.key, WHATS_NEW_SEEN_KEY)).get()?.value;
+
+  it('marks an existing install as installed before WHAT\'S NEW', () => {
+    const dir = makeTmpDir('whats-new-existing');
+    const dbPath = join(dir, 'index.db');
+    const old = openDb(dbPath, migrationsBefore(dir, '_whats_new_existing_install'));
+    old.$client.close();
+
+    const db = openDb(dbPath);
+    expect(seen(db)).toBe(WHATS_NEW_BEFORE);
+    db.$client.close();
+  });
+
+  it('leaves a fresh install with nothing remembered', () => {
+    const db = openTmpDb('whats-new-fresh');
+    expect(seen(db)).toBeUndefined();
+    db.$client.close();
+  });
+
+  it('never overwrites what the web remembered', () => {
+    const dir = makeTmpDir('whats-new-kept');
+    const dbPath = join(dir, 'index.db');
+    const old = openDb(dbPath, migrationsBefore(dir, '_whats_new_existing_install'));
+    old.insert(settings).values({ key: WHATS_NEW_SEEN_KEY, value: '{"version":"0.36.0","at":1,"ended":true}' }).run();
+    old.$client.close();
+
+    const db = openDb(dbPath);
+    expect(seen(db)).toBe('{"version":"0.36.0","at":1,"ended":true}');
     db.$client.close();
   });
 });

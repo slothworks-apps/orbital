@@ -88,3 +88,22 @@ export function MapNoticeProgress({ percent, readout }: { percent: number; reado
     </div>
   )
 }
+
+/**
+ * A message's lines (1a, the changelog kind): 5 apart, each after a muted
+ * dash, 14 px at 1.45, 10 px clear of the right edge.
+ */
+export function MapNoticeList({ items }: { items: readonly string[] }) {
+  return (
+    <ul className="flex flex-col gap-[5px] pr-2.5">
+      {items.map((item, i) => (
+        <li key={i} className="flex gap-2.5 text-[14px] leading-[1.45] text-[rgba(214,226,242,.94)]">
+          <span aria-hidden className="flex-none text-[rgba(160,190,225,.55)]">
+            –
+          </span>
+          <span className="[text-wrap:pretty]">{item}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}

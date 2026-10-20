@@ -1,6 +1,7 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { ensureDataDir } from '@orbital/shared/dataDir';
 
 /**
  * The API token (spec 2026-10-03-api-token-and-named-files-design § 1). It
@@ -25,7 +26,7 @@ export function loadOrCreateApiToken(dataDir: string): string {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }
-  mkdirSync(dataDir, { recursive: true });
+  ensureDataDir(dataDir, process.platform, process.getuid?.());
   const token = randomBytes(32).toString('base64url');
   writeFileSync(file, `${token}\n`, { mode: 0o600 });
   return token;

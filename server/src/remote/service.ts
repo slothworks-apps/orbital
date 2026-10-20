@@ -13,13 +13,13 @@ import { initiates, osName } from '@orbital/shared/remote/device';
 import type { Role } from '@orbital/shared/remote/handshake';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
 import type { Channel } from '@orbital/shared/remote/channel';
-import type { HelloMessage } from '@orbital/shared/remote/messages';
+import { helloVersion, type HelloMessage } from '@orbital/shared/remote/messages';
 import { EMPTY_ROSTER, ROSTER_KIND_MAX_CHARS, type MemberView, type RosterState } from '@orbital/shared/remote/roster';
 import {
   GroupMember, type GroupStatus, type GroupStorage, type RemoveResult, type SelfAbout,
 } from '@orbital/shared/remote/group';
 import {
-  PairingCeremony, type JoinResult, type PairConfirmResult, type StartPairingResult,
+  PairingCeremony, type JoinResult, type Joining, type PairConfirmResult, type PendingPair, type StartPairingResult,
 } from '@orbital/shared/remote/ceremony';
 import type { RelayTooOld } from '@orbital/shared/remote/version';
 import type { Hub } from '../api/hub.js';
@@ -37,6 +37,7 @@ import type { InjectFn } from './servingHalf.js';
 import { RelayClient, type RelayClientOptions, type RelayRefusal } from './relayClient.js';
 import { wakeSecret, wakeToken } from './wake.js';
 import type { Presence } from './presence.js';
+import { BAD_SECRET_ERROR, NO_RELAY_URL_ERROR } from './errors.js';
 import { memberTooOld } from './memberGate.js';
 import { parseGrants } from './grants.js';
 
@@ -79,31 +80,20 @@ export type RemoteStatus = {
    * user types it from the phone and the server compares (spec
    * 2026-10-06-pairing-code-and-app-lock-design § 1).
    */
-  pendingPair: { phone: string; name: string; platform: string; kind: string; attemptsLeft: number } | null;
+  pendingPair: PendingPair | null;
   pairing: { expiresAt: number } | null;
   /**
    * A device whose code this server redeemed and which has not confirmed
    * yet: `code` is what the user types on it, `expiresAt` when its code stops working,
-   * `kind` its kind as its code named it (null from a code without one).
+   * `kind` its kind as its code named it (null from a code without one),
+   * `manager` who manages the group once it confirms.
    */
-  joining: { device: string; name: string; kind: string | null; code: string; expiresAt: number } | null;
+  joining: Joining | null;
   /** Why the last `start` failed; null while it is fine. */
   error: string | null;
   /** The device group (`GroupStatus`). */
   group: GroupStatus;
 };
-
-/**
- * A failed start's reason while `remote_relay_url` is empty: there is no
- * default relay, every Mac names its own.
- */
-export const NO_RELAY_URL_ERROR = 'no relay URL — set one under Advanced';
-
-/**
- * Why the remote stopped after the relay closed with `CLOSE_BAD_SECRET`: the
- * client does not retry, since only the user can change the secret.
- */
-export const BAD_SECRET_ERROR = 'The relay refused the relay secret. Check it under Advanced.';
 
 export type RemoteServiceOptions = {
   db: OrbitalDb;
@@ -120,6 +110,8 @@ export type RemoteServiceOptions = {
   /** Where each session works now, for `file_get`'s `cwd`; without it the home alone confines. */
   trees?: Pick<WorkingTrees, 'sandboxes'>;
   serverVersion: string;
+  /** This host's OS and its version (`hostOsVersion`), for its hello and its own row; null when not known. */
+  osVersion?: string | null;
   inject: InjectFn;
   settings: { get(key: string): string; set(key: string, value: string): void };
   allSettings: () => Record<string, string>;
@@ -385,6 +377,25 @@ export class RemoteService {
     }
   }
 
+  /** The name every member sees for this device (THIS DEVICE in Settings → Devices). */
+  selfName(): string {
+    return this.macName;
+  }
+
+  /**
+   * The name `id` goes by here: its description in the roster, else the
+   * device paired here, else its last hello; null for a device this one
+   * does not know.
+   */
+  nameOf(id: string): string | null {
+    const member = this.liveMembers().find((m) => m.id === id);
+    if (member) return member.name;
+    const paired = this.listDevices().find((d) => d.id === id);
+    if (paired) return paired.name;
+    const hello = this.hellos.get(id);
+    return hello?.name ?? hello?.macName ?? null;
+  }
+
   /** The last hello `id` sent this device, on any channel since it started; null before one. */
   peerHello(id: string): HelloMessage | null {
     return this.hellos.get(id) ?? null;
@@ -444,6 +455,9 @@ export class RemoteService {
     try {
       const members = this.group.members(online).map((m) => ({
         ...m, tooOld: !m.self && memberTooOld(m.kind, this.hellos.get(m.id) ?? null),
+        // What `servesServerUpdate` reads before the update routes are asked of a member.
+        version: m.self ? this.opts.serverVersion : helloVersion(this.hellos.get(m.id) ?? null),
+        osVersion: m.self ? this.opts.osVersion ?? null : this.hellos.get(m.id)?.osVersion ?? null,
       }));
       const primary = this.group.primary();
       // Before `joinExpired`: reading the join under way is what drops one whose code ran out.
@@ -701,7 +715,9 @@ export class RemoteService {
     const peerKey = publicKeyOf(from)!;
     const opened = openDeviceChannel({
       deviceId: from, identity, peerKey, role,
-      hello: serverHello({ serverVersion: this.opts.serverVersion, name: this.macName, kind: serverDeviceKind() }),
+      hello: serverHello({
+        serverVersion: this.opts.serverVersion, name: this.macName, kind: serverDeviceKind(), osVersion: this.opts.osVersion ?? null,
+      }),
       hub: this.opts.hub, inject: this.opts.inject, images: this.opts.images, imagesDir: this.opts.imagesDir,
       files: this.files,
       notifications: {

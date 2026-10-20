@@ -1,0 +1,28 @@
+# The Orbital server, as the user `orbital setup` names, in that user's own
+# systemd manager (spec 2026-10-19-headless-server-design → The package).
+# Lingering keeps it running without a login. Sessions it spawns are its
+# children: an update's restart stops them, and they can be resumed.
+#
+# The version comes from /usr/lib/orbital/VERSION, read by the server at
+# start, not from an Environment= line here: postinst restarts this unit, and
+# a value in the unit would stay the old one until a daemon-reload.
+#
+# The port and the data dir can be set in an override
+# (systemctl --user edit orbital): Environment=ORBITAL_PORT=…, ORBITAL_DATA_DIR=…
+[Unit]
+Description=Orbital server
+Documentation=https://orbital.slothworks.io
+
+[Service]
+Type=simple
+Environment=ORBITAL_HEADLESS=1
+# Rebuild PATH from the login shell, so a `claude` installed under the home
+# directory is found.
+Environment=ORBITAL_RESOLVE_PATH=1
+Environment=ORBITAL_MIGRATIONS_DIR=/usr/lib/orbital/server/drizzle
+ExecStart=/usr/lib/orbital/node /usr/lib/orbital/server/index.mjs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

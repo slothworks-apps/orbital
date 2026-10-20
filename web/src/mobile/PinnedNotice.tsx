@@ -84,17 +84,39 @@ export function PinnedNoticeText({ children }: { children: ReactNode }) {
 }
 
 /**
+ * A message's lines (2a, the changelog kind): 5 apart, each after a muted
+ * dash 9 px from its text, 14 px at 1.4, 14 px clear of the right edge.
+ */
+export function PinnedNoticeList({ items }: { items: readonly string[] }) {
+  return (
+    <ul className="flex flex-col gap-[5px] pr-3.5">
+      {items.map((item, i) => (
+        <li key={i} className="flex gap-[9px] text-[14px] leading-[1.4] text-[rgba(214,226,242,.94)]">
+          <span aria-hidden className="flex-none text-[rgba(160,190,225,.55)]">
+            –
+          </span>
+          <span className="[text-wrap:pretty]">{item}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+/**
  * A notice's action, sharing its row with the others (2a): `lit` is the
  * active-chip treatment the primary uses, never the accent fill; otherwise
- * the quiet hairline.
+ * the quiet hairline. `sheet` is the same button at the foot of a notice's
+ * sheet (2b's Done): 52 tall, 14 radius, 15 px.
  */
 export function NoticeButton({
   lit = false,
+  size = 'notice',
   disabled,
   onClick,
   children,
 }: {
   lit?: boolean
+  size?: 'notice' | 'sheet'
   disabled?: boolean
   onClick: () => void
   children: ReactNode
@@ -105,7 +127,8 @@ export function NoticeButton({
       disabled={disabled}
       onClick={onClick}
       className={[
-        'h-11 flex-1 rounded-[12px] border text-[14px] font-semibold disabled:opacity-40',
+        'flex-1 border font-semibold disabled:opacity-40',
+        size === 'sheet' ? 'h-13 rounded-[14px] text-[15px]' : 'h-11 rounded-[12px] text-[14px]',
         lit
           ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
           : 'border-[rgba(150,205,255,.14)] bg-transparent text-[rgba(220,235,255,.85)]',

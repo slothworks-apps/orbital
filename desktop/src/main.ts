@@ -16,10 +16,11 @@ import {
   type UtilityProcess,
   type WebContents,
 } from 'electron';
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { autoUpdater } from 'electron-updater';
+import { parseServerMessage, type MainMessage } from '@orbital/shared/remote/serverUpdate';
 import { apiTokenPath, authCookies, bearerHeaders, parseApiToken } from './lib/apiToken';
 import { appMenuTemplate, parseMenuCommands, type MenuCommand } from './lib/appMenu';
 import { parseTerminalFocused, terminalKeyDecision } from './lib/terminalKeys';
@@ -69,13 +70,20 @@ import {
   parseAutoDownload,
   parseSkippedVersion,
   parseUpdateAction,
+  parseUpdateReceipt,
+  receiptAtLaunch,
   serializeSkippedVersion,
+  serializeUpdateReceipt,
+  serverStateDue,
   shouldCheckForUpdates,
   SKIPPED_VERSION_FILE,
   UPDATE_CHECK_INTERVAL_MS,
+  UPDATE_RECEIPT_FILE,
   updateSize,
   UpdateFlow,
+  type SentServerState,
   type UpdateCheckAnswer,
+  type UpdateReceipt,
   type UpdateStep,
 } from './lib/updates';
 import {
@@ -185,7 +193,7 @@ const notifier = new SessionNotifier({ notify: showNotification });
 /** What a quit would kill, folded off the same feed the notifier reads. */
 const working = new WorkingSessions();
 /** An update: whether to download it, and when it may restart the app (`lib/updates`). */
-const updates = new UpdateFlow({ skippedVersion: readSkippedVersion() });
+const updates = new UpdateFlow({ skippedVersion: readSkippedVersion(), receipt: readUpdateReceipt() });
 /** True only when this process forked the server — shutdown kills only that. */
 let forked = false;
 let quitting = false;
@@ -311,7 +319,7 @@ function readStartExit(): number | null {
 function readApiToken(): string | null {
   let text: string | null = null;
   try {
-    text = readFileSync(apiTokenPath(process.env, homedir()), 'utf8');
+    text = readFileSync(apiTokenPath({ env: process.env, home: homedir(), platform: process.platform }), 'utf8');
   } catch {
     /* not minted yet, or a server too old to have a guard */
   }
@@ -364,6 +372,16 @@ function forkServer(): UtilityProcess {
       // no orphan, and health names it, so a next launch can tell one apart.
       ORBITAL_PARENT_PID: String(process.pid),
     },
+  });
+
+  // The server's messages (spec 2026-10-19-headless-server-design § A Mac,
+  // too): a member asked this Mac to update, or the server gave up waiting
+  // on it. Anything else is ignored.
+  lastServerUpdateState = null;
+  proc.on('message', (raw: unknown) => {
+    const message = parseServerMessage(raw);
+    if (proc !== child || !message) return;
+    applyUpdateStep(message.t === 'update_start' ? updates.remoteStart(message.by?.name ?? null, message.when) : updates.remoteCancel());
   });
 
   proc.on('exit', (code) => {
@@ -483,7 +501,11 @@ async function bringServerUp(): Promise<HealthInfo | null> {
     const exitCode = readStartExit();
     awaitingStart = false;
     startExit = null;
-    if (health) return health;
+    if (health) {
+      // Answering, it listens: what the updater knows goes to it now, and on every change after.
+      pushServerUpdateState();
+      return health;
+    }
 
     // Either it died, or it is alive and silent — in both cases it is no use.
     await discardChild();
@@ -974,7 +996,7 @@ async function seedWorkingSessions(): Promise<void> {
     });
     if (res.ok) {
       working.seed(token, await res.json());
-      applyUpdateStep(updates.setWorkingCount(working.count, working.seeded));
+      applyUpdateStep(updates.setWorkingCount(working.count, working.seeded, working.workingIds, working.busyIds));
     }
   } catch {
     /* server still coming up, or gone: retried below */
@@ -1006,7 +1028,7 @@ function startNotifications(): void {
       working.reset();
       // The update flow forgets the count too, so a restart waiting for
       // sessions to finish cannot take the one from before the drop.
-      applyUpdateStep(updates.setWorkingCount(working.count, working.seeded));
+      applyUpdateStep(updates.setWorkingCount(working.count, working.seeded, working.workingIds, working.busyIds));
       void seedWorkingSessions();
       void loadSettings();
     },
@@ -1084,6 +1106,37 @@ function readSkippedVersion(): string | null {
   }
 }
 
+function updateReceiptPath(): string {
+  return join(app.getPath('userData'), UPDATE_RECEIPT_FILE);
+}
+
+/**
+ * The update another member made of this Mac, carried across the restart it
+ * made (canvas 50v 04): told once by this launch when it runs the version
+ * it was for; any other is dropped, and its file with it.
+ */
+function readUpdateReceipt(): UpdateReceipt | null {
+  let raw: string;
+  try {
+    raw = readFileSync(updateReceiptPath(), 'utf8');
+  } catch {
+    return null; // no file: no member updated this Mac
+  }
+  const receipt = receiptAtLaunch(parseUpdateReceipt(raw), app.getVersion());
+  if (receipt === null) writeUpdateReceipt('clear');
+  return receipt;
+}
+
+function writeUpdateReceipt(receipt: UpdateReceipt | 'clear'): void {
+  try {
+    if (receipt === 'clear') rmSync(updateReceiptPath(), { force: true });
+    else writeFileSync(updateReceiptPath(), serializeUpdateReceipt(receipt));
+  } catch (err) {
+    // Costs the line after the restart, or says it once more after the next launch.
+    console.error('Orbital could not remember who updated it:', err);
+  }
+}
+
 function writeSkippedVersion(version: string | null): void {
   try {
     writeFileSync(skippedVersionPath(), serializeSkippedVersion(version));
@@ -1155,6 +1208,10 @@ function startUpdates(): void {
  */
 async function checkForUpdates(manual: boolean): Promise<UpdateCheckAnswer> {
   if (!updatesEnabled) return { kind: 'unsupported' };
+  // Restarting into an update, a member's hold included: a check's error must
+  // not be taken for the install's, and the prompt already answers.
+  const restartingInto = updates.restartingInto;
+  if (restartingInto !== null) return { kind: 'found', version: restartingInto, outcome: 'none' };
   await loadSettings();
   try {
     const result = await autoUpdater.checkForUpdates();
@@ -1188,7 +1245,7 @@ async function checkForUpdatesFromMenu(): Promise<void> {
 function onWorkingFrame(frame: unknown): void {
   if (typeof frame !== 'object' || frame === null) return;
   if ((frame as { topic?: unknown }).topic !== 'sessions') return;
-  applyUpdateStep(updates.setWorkingCount(working.count, working.seeded));
+  applyUpdateStep(updates.setWorkingCount(working.count, working.seeded, working.workingIds, working.busyIds));
 }
 
 /** The pending `idleSettled` call after the working count reached zero in a wait. */
@@ -1196,8 +1253,8 @@ let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
  * Carry out what the flow decided: tell every Orbital window what changed,
- * remember a skip, start a download, look again once a zero has settled,
- * restart.
+ * remember a skip or who updated this Mac, start a download, look again
+ * once a zero has settled, restart — at once, or after a member's last line.
  */
 function applyUpdateStep(step: UpdateStep): void {
   if (step.changed) {
@@ -1207,6 +1264,7 @@ function applyUpdateStep(step: UpdateStep): void {
     }
   }
   if (step.skipChanged) writeSkippedVersion(updates.skippedVersion);
+  if (step.receipt) writeUpdateReceipt(step.receipt);
   if (step.download) {
     // Resolves only once Squirrel.Mac has staged the update, so a refusal
     // after `update-downloaded` lands here too.
@@ -1222,7 +1280,45 @@ function applyUpdateStep(step: UpdateStep): void {
       applyUpdateStep(updates.idleSettled());
     }, IDLE_SETTLE_MS);
   }
+  pushServerUpdateState();
+  if (step.remoteEnded) tellServer({ t: 'update_ended', reason: step.remoteEnded });
+  if (step.holdMs > 0) {
+    // The last line of a member's update is read first (canvas 50v 02). A
+    // session starting meanwhile does not hold it; the flow says whether it
+    // still goes, and counts what it stops then.
+    setTimeout(() => applyUpdateStep(updates.holdEnded()), step.holdMs);
+  }
   if (step.restart) autoUpdater.quitAndInstall();
+}
+
+/** The last `update_state` sent to the current server; null since it was forked. */
+let lastServerUpdateState: SentServerState | null = null;
+
+/**
+ * Tell the forked server what the updater knows (`update_state`), when it
+ * changed since the last message, or while it downloads and the server's
+ * wait wants hearing again (`serverStateDue`) — so a member reading this
+ * Mac's `GET /api/server/update` sees what Settings › Updates shows.
+ */
+function pushServerUpdateState(): void {
+  if (!forked || !child) return;
+  const message = updates.serverState(app.getVersion());
+  const json = JSON.stringify(message);
+  const now = Date.now();
+  if (!serverStateDue(lastServerUpdateState, json, message.downloading, now)) return;
+  if (tellServer(message)) lastServerUpdateState = { json, at: now };
+}
+
+/** A message to the forked server; false when there is none, or it could not be sent. A server this app attached to rather than forked has no channel. */
+function tellServer(message: MainMessage): boolean {
+  if (!forked || !child) return false;
+  try {
+    child.postMessage(message);
+    return true;
+  } catch (err) {
+    console.error('Orbital could not tell its server the update state:', err);
+    return false;
+  }
 }
 
 /** Whether an IPC message came from one of Orbital's own windows. */

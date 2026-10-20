@@ -6,6 +6,10 @@ name: Release
 # ships to; the jobs after it build and publish only what is missing:
 #
 #   mac         desktop/package.json  → a published GitHub Release v<version>
+#   deb         desktop/package.json  → orbital <version> in the apt repository
+#                                       at apt.slothworks.io, and its .deb on
+#                                       the Release v<version> (deb builds,
+#                                       deb-publish signs and uploads)
 #   ota         mobile/package.json   → the phone's bundle <version> on Beam,
 #                                       encrypted and signed
 #   ios         build.gradle          → TestFlight, then the tag
@@ -20,7 +24,8 @@ name: Release
 # build number it already has counts as shipped (scripts/store-duplicate.mjs),
 # so a build that reached the store without its tag is recorded, not stuck.
 # The secrets each job reads are in the runbooks run-the-desktop-app,
-# build-the-ios-app, build-the-android-app and ship-the-phone-over-the-air.
+# build-the-ios-app, build-the-android-app, ship-the-phone-over-the-air and
+# run-orbital-on-an-ubuntu-server.
 on:
   push:
     branches: [main]
@@ -44,11 +49,13 @@ jobs:
       packages: read
     outputs:
       mac: ${{ steps.plan.outputs.mac }}
+      deb: ${{ steps.plan.outputs.deb }}
       ota: ${{ steps.plan.outputs.ota }}
       ios: ${{ steps.plan.outputs.ios }}
       android: ${{ steps.plan.outputs.android }}
       relay: ${{ steps.plan.outputs.relay }}
       mac-version: ${{ steps.plan.outputs.mac-version }}
+      deb-version: ${{ steps.plan.outputs.deb-version }}
       ota-version: ${{ steps.plan.outputs.ota-version }}
       ios-version: ${{ steps.plan.outputs.ios-version }}
       android-version: ${{ steps.plan.outputs.android-version }}
@@ -161,6 +168,221 @@ jobs:
         run: |
           rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/cert.p12"
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+
+  deb:
+    # The server for Ubuntu (spec 2026-10-19-headless-server-design → The
+    # package, The apt repository), built here and published by
+    # `deb-publish`. After `mac`, and only once the desktop's Release for the
+    # same version is published, so a server is never offered a version with
+    # no DMG; when `mac` was skipped because the DMG had shipped, the Release
+    # is there and this runs; when it failed, this does not. Built from the
+    # Release's tag, so the package is the server of that DMG, and on 22.04,
+    # so its native modules load on 22.04 and 24.04. No secrets reach this
+    # job: it runs npm, and only `deb-publish` signs and uploads.
+    needs: [plan, mac]
+    if: ${{ !cancelled() && needs.plan.outputs.deb == 'true' && needs.mac.result != 'failure' }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    outputs:
+      listed: ${{ steps.listed.outputs.listed }}
+    env:
+      TAG: v${{ needs.plan.outputs.mac-version }}
+      VERSION: ${{ needs.plan.outputs.deb-version }}
+    steps:
+      - name: Check the desktop's release is published
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          draft="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null || true)"
+          if [ "$draft" != false ]; then
+            echo "::error::The Release $TAG is not published, so the package does not ship. A later run retries."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+
+      # A repository that lists the version already needs no new package:
+      # `deb-publish` only signs its index again. One that cannot be asked
+      # reads as not listed.
+      - id: listed
+        run: |
+          if node scripts/apt-repo.mjs --check "$VERSION"; then
+            echo "listed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "listed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.listed.outputs.listed != 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      # No install scripts: the native modules' linux-x64 builds come in their
+      # npm tarballs, and the package copies those.
+      - if: steps.listed.outputs.listed != 'true'
+        run: npm ci --ignore-scripts
+      - if: steps.listed.outputs.listed != 'true'
+        run: npm run build -w server
+      - if: steps.listed.outputs.listed != 'true'
+        run: node scripts/build-deb.mjs --out "$RUNNER_TEMP/deb"
+      - if: steps.listed.outputs.listed != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: deb
+          path: ${{ runner.temp }}/deb/orbital_${{ env.VERSION }}_amd64.deb
+          if-no-files-found: error
+          retention-days: 7
+
+  deb-publish:
+    # Adds the package `deb` built to the repository, signs it, uploads it to
+    # the S3 bucket (MinIO) and attaches the .deb to the Release. The only job that sees the
+    # repository's key and the bucket's token, and it runs no npm: Node's
+    # built-ins, gpg, dpkg-scanpackages and the AWS CLI. When `deb` found the
+    # version listed, nothing is added: the index is signed again, which also
+    # mends an upload that stopped half way.
+    needs: [plan, deb]
+    if: ${{ !cancelled() && needs.deb.result == 'success' }}
+    runs-on: ubuntu-22.04
+    # write: the .deb on the Release.
+    permissions:
+      contents: write
+    env:
+      TAG: v${{ needs.plan.outputs.mac-version }}
+      VERSION: ${{ needs.plan.outputs.deb-version }}
+      LISTED: ${{ needs.deb.outputs.listed }}
+    steps:
+      - name: Check the secrets are there
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          aws configure set default.s3.addressing_style path
+          missing=""
+          for name in APT_GPG_PRIVATE_KEY S3_ENDPOINT S3_ACCESS_KEY_ID S3_SECRET_ACCESS_KEY S3_BUCKET; do
+            [ -n "$(printenv "$name")" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing secrets:$missing (runbook run-orbital-on-an-ubuntu-server)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - if: env.LISTED != 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: deb
+          path: ${{ runner.temp }}/deb
+
+      # The repository's current Packages file is read from the bucket, not
+      # from apt.slothworks.io, which a cache may hold back; only new files
+      # go up, in the order apt-repo.mjs names: the pool, the by-hash copies
+      # and the Packages files, then the signed Release files. The bucket is
+      # MinIO, addressed path-style; the checksum settings keep the AWS CLI
+      # from sending headers an S3-compatible store may refuse.
+      - name: Add it to the repository
+        id: add
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          aws configure set default.s3.addressing_style path
+          command -v dpkg-scanpackages >/dev/null || { sudo apt-get update && sudo apt-get install -y dpkg-dev; }
+          endpoint="$S3_ENDPOINT"
+          s3() { aws s3 --endpoint-url "$endpoint" "$@"; }
+          bucket="s3://$S3_BUCKET"
+          index=dists/stable/main/binary-amd64
+          current="$RUNNER_TEMP/Packages"
+          if ! answer="$(aws s3api head-object --endpoint-url "$endpoint" --bucket "$S3_BUCKET" --key "$index/Packages" 2>&1)"; then
+            if printf '%s' "$answer" | grep -q '(404)'; then
+              echo "No Packages file yet: the repository's first release."
+              : > "$current"
+            else
+              echo "$answer"
+              exit 1
+            fi
+          else
+            s3 cp "$bucket/$index/Packages" "$current"
+          fi
+
+          repo="$RUNNER_TEMP/repo"
+          if [ "$LISTED" = true ]; then
+            node scripts/apt-repo.mjs resign --packages "$current" --out "$repo"
+            echo "added=false" >> "$GITHUB_OUTPUT"
+          else
+            node scripts/apt-repo.mjs add --deb "$RUNNER_TEMP/deb/orbital_${VERSION}_amd64.deb" \
+              --packages "$current" --out "$repo"
+          fi
+
+          if [ -d "$repo/pool" ]; then
+            s3 cp "$repo/pool" "$bucket/pool" --recursive --cache-control 'public, max-age=31536000, immutable'
+          fi
+          s3 cp "$repo/$index/by-hash" "$bucket/$index/by-hash" --recursive \
+            --cache-control 'public, max-age=31536000, immutable'
+          for f in Packages Packages.gz; do
+            s3 cp "$repo/$index/$f" "$bucket/$index/$f" --cache-control 'no-cache'
+          done
+          for f in Release Release.gpg InRelease; do
+            s3 cp "$repo/dists/stable/$f" "$bucket/dists/stable/$f" --cache-control 'no-cache'
+          done
+          s3 cp "$repo/orbital.gpg" "$bucket/orbital.gpg" --cache-control 'no-cache'
+
+      # The Release carries the pool's .deb: the one just added, or, when the
+      # version was listed already and an earlier run did not attach it, the
+      # copy in the bucket. A listed version's asset is never replaced.
+      - name: Attach it to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ADDED: ${{ steps.add.outputs.added }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+        run: |
+          aws configure set default.s3.addressing_style path
+          deb="orbital_${VERSION}_amd64.deb"
+          if [ "$ADDED" = true ]; then
+            gh release upload "$TAG" "$RUNNER_TEMP/deb/$deb" --clobber
+          elif ! gh release view "$TAG" --json assets --jq '.assets[].name' | grep -qxF "$deb"; then
+            aws s3 cp --endpoint-url "$S3_ENDPOINT" \
+              "s3://$S3_BUCKET/pool/main/o/orbital/$deb" "$RUNNER_TEMP/$deb"
+            gh release upload "$TAG" "$RUNNER_TEMP/$deb"
+          fi
+
+      # Through apt.slothworks.io, as `plan` asks next time; its cache may
+      # take a moment to let the new index through.
+      - name: Check the repository lists it
+        run: |
+          for _ in 1 2 3 4 5 6; do
+            node scripts/apt-repo.mjs --check "$VERSION" && exit 0
+            sleep 30
+          done
+          echo "::error::apt.slothworks.io does not list orbital $VERSION after the upload"
+          exit 1
 
   ios:
     needs: plan

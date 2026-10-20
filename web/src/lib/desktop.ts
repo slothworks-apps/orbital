@@ -52,12 +52,34 @@ export type UpdatePrompt =
   | { phase: 'closed'; version: string }
   | { phase: 'restarting'; version: string }
 
-export type UpdateState = UpdatePrompt & { checkedAt: number | null }
+/**
+ * An update another member of the group started on this Mac (canvas 50v;
+ * `desktop/src/lib/updates.ts` `UpdateView` has the same fields):
+ *
+ * - `remote` — while it downloads, waits and restarts: the member's name,
+ *   how many Orbital sessions work now, which the restart stops, and `wait`
+ *   when it installs once they finish (canvas 50v 02).
+ * - `sessionStarted` — Ready, because a session started here while it
+ *   downloaded: it waits for this Mac's user.
+ * - `receipt` — after the restart it made, until × on its line.
+ *
+ * Optional: a state without them is this Mac's own update.
+ */
+export type UpdateRemote = { by: string; working: number; wait?: boolean }
+export type UpdateReceipt = { by: string; at: number; stopped: number; version: string }
+export type UpdateExtras = {
+  remote?: UpdateRemote | null
+  sessionStarted?: boolean
+  receipt?: UpdateReceipt | null
+}
+
+export type UpdateState = UpdatePrompt & { checkedAt: number | null } & UpdateExtras
 
 /**
  * The prompt's buttons: Available's Download and × (`skip`), Ready's
  * buttons and × (`close`), Waiting's Cancel (`cancel-wait`), the receipt's
- * OK. Ready's single Restart is `restart-when-idle`.
+ * OK. Ready's single Restart is `restart-when-idle`. `receipt-close` is ×
+ * on the line saying another member updated this Mac.
  */
 export type UpdateAction =
   | 'download'
@@ -67,6 +89,7 @@ export type UpdateAction =
   | 'cancel-wait'
   | 'close'
   | 'ok'
+  | 'receipt-close'
 
 /**
  * What a check found version-wise, as main's update flow took it

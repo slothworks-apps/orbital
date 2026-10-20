@@ -1,11 +1,12 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { parsePairingCode } from '@orbital/shared/remote/relayApi'
+import { sameRelay } from '@orbital/shared/remote/relaySettings'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { checkedLabel } from '../lib/format'
 import { codeLeft, pasteCodeHint, relayHostname } from '../lib/remote'
 import { kindOs } from '../lib/devices'
-import { managerWords } from '../lib/joinRequest'
+import { groupFullLine, managerWords, notPrimaryAddLine } from '@orbital/shared/remote/groupWords'
 import { useOrbital } from '../store/store'
 import { useNow } from '../lib/useNow'
 import type { JoinAnswer, RemoteStatus } from '../lib/types'
@@ -30,11 +31,6 @@ type Outcome =
 type Joining = NonNullable<RemoteStatus['joining']>
 
 const NOT_A_CODE = "That isn't a device code."
-
-/** A relay URL as two devices compare it: a trailing slash does not make it another relay. */
-function sameRelay(a: string, b: string): boolean {
-  return a.replace(/\/+$/, '') === b.replace(/\/+$/, '')
-}
 
 /** One join, told apart from the next one with the same device by its code's expiry. */
 function joinKey(j: Joining | null | undefined): string | null {
@@ -64,13 +60,13 @@ function refusal(res: Exclude<JoinAnswer, { ok: true }>, name: string, code: str
       return { kind: 'line', text: "The relay didn't answer. Try again." }
     // This device, the primary, would add the other to a group with no room (canvas 50o's words).
     case 'group_full':
-      return { kind: 'line', text: `This group can’t take more devices. Remove one under In this group, then pair ${name} again.` }
+      return { kind: 'line', text: groupFullLine(name) }
     // Paired with a primary whose first roster has not come: one join at a time.
     case 'joining':
       return { kind: 'line', text: 'A join is still under way. Cancel it first.' }
     // The status moved under the user: this device is a member now, and only its primary adds (canvas 50l).
     case 'not_primary':
-      return { kind: 'line', text: `${res.primary.name} manages this group — add devices there.` }
+      return { kind: 'line', text: notPrimaryAddLine(res.primary.name) }
   }
 }
 

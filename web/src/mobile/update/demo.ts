@@ -1,3 +1,4 @@
+import { showPhoneWhatsNewDemo } from '../WhatsNew'
 import { usePhoneUpdate, type UpdateSource } from './state'
 
 /**
@@ -14,6 +15,11 @@ import { usePhoneUpdate, type UpdateSource } from './state'
  * The buttons move it the way the plugin would: Restart shows the restart
  * frame for a second and comes back to the same screen, × the receipt, OK
  * ends it. `shell` sets the native version Settings' footer shows.
+ *
+ *   __orbitalWhatsNew()
+ *
+ * shows WHAT'S NEW for this bundle's version as after an update, whatever the
+ * phone remembers (`mobile/WhatsNew`).
  */
 
 type DemoName = 'ready' | 'closed' | 'restart' | 'none'
@@ -54,4 +60,5 @@ export function installUpdateDemo(): void {
   }
 
   ;(window as { __orbitalUpdateDemo?: typeof set }).__orbitalUpdateDemo = set
+  ;(window as { __orbitalWhatsNew?: () => void }).__orbitalWhatsNew = showPhoneWhatsNewDemo
 }

@@ -3,10 +3,12 @@ import { osName } from '@orbital/shared/remote/device'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
-import { osLabel } from '../lib/devices'
 import { codeLeft } from '../lib/remote'
 import { openSettingsSection } from '../lib/sessionUrl'
-import { attemptsLine, joinSentence, kindTile, managerWords, whereLine } from '../lib/joinRequest'
+import { kindTile, whereLine } from '../lib/joinRequest'
+import {
+  CODE_REJECTED, GROUP_FULL, JOIN_REACH, REQUEST_REJECTED, attemptsLine, groupFullBody, joinSentence, managerWords, osLabel,
+} from '@orbital/shared/remote/groupWords'
 import { useNow } from '../lib/useNow'
 import type { RemoteStatus } from '../lib/types'
 import { Dialog } from '../ui/Dialog'
@@ -100,7 +102,7 @@ export function PairConfirmDialog() {
       if ('ok' in res) {
         // Accept gets its own screen (canvas 50c `cDone`); Reject keeps the toast.
         if (accept) setJoined({ name, done })
-        else useOrbital.setState({ toast: { kind: 'info', message: 'Request rejected' } })
+        else useOrbital.setState({ toast: { kind: 'info', message: REQUEST_REJECTED } })
       } else if (res.error === 'relay_error') {
         setRelayFailed(true)
       } else if (res.error === 'code_mismatch') {
@@ -109,7 +111,7 @@ export function PairConfirmDialog() {
         setAttemptsLeft(res.attemptsLeft)
       } else if (res.error === 'code_rejected') {
         // The server rejected the request and publishes it gone, which closes the dialog.
-        useOrbital.setState({ toast: { kind: 'info', message: 'Request rejected · three codes didn’t match' } })
+        useOrbital.setState({ toast: { kind: 'info', message: CODE_REJECTED } })
       } else if (res.error === 'group_full') {
         // The server rejected the request and publishes it gone; the answer takes the dialog's place (canvas 50o).
         setFull(pending)
@@ -168,7 +170,7 @@ export function PairConfirmDialog() {
           kindTileNode
         )
       }
-      title={full ? 'This group can’t take more devices.' : joined ? `${joined.name} joined` : sentence}
+      title={full ? GROUP_FULL : joined ? `${joined.name} joined` : sentence}
       // Esc is a rejection while a request is open; the joined and full
       // screens have nothing left to reject, so they only dismiss.
       onClose={() => (full ? setFull(null) : joined ? setJoined(null) : void answer(false))}
@@ -196,7 +198,7 @@ export function PairConfirmDialog() {
         tile && (
           <>
             <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
-              Once in, it sees and drives every session on every device in this group.
+              {JOIN_REACH}
             </p>
             {/* Canvas 50c `cFirst`: the role is permanent, so the pairing that sets it says so. */}
             {manager?.line && (
@@ -256,7 +258,7 @@ function FullBody({ name, onClose }: { name: string; onClose: () => void }) {
   return (
     <>
       <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
-        {name} wasn’t added and keeps running on its own. Remove one under In this group, then pair {name} again.
+        {groupFullBody(name)}
       </p>
       <div className="flex w-full gap-2.5">
         <Button

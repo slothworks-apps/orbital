@@ -7,6 +7,9 @@ desktop/dist/
 desktop/release/
 relay/dist/
 relay/data/
+# The .deb and the Node tarball scripts/build-deb.mjs downloads.
+linux/out/
+linux/.cache/
 site/dist/
 site/.astro/
 site/public/demo/

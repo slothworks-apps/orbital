@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { userShell } from './shell.js';
 
 /**
  * A login shell runs the user's whole profile, and nvm-style profiles are
@@ -56,7 +57,7 @@ export function mergePath(
 
 /** execFile($SHELL, ['-l', '-c', 'printf "\n%s" "$PATH"'], { timeout }) → parsed or null on any failure. */
 export function resolveLoginShellPath(
-  shell: string = process.env.SHELL || '/bin/zsh',
+  shell: string = userShell(),
   timeoutMs: number = LOGIN_SHELL_TIMEOUT_MS,
 ): Promise<string | null> {
   return new Promise((resolve) => {

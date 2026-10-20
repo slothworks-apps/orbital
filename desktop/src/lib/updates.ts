@@ -9,6 +9,10 @@
  * remember the skipped version, restart.
  */
 
+import {
+  UPDATE_KEEPALIVE_MS, type MainUpdateStateMessage, type UpdateEndReason, type UpdateWhen,
+} from '@orbital/shared/remote/serverUpdate';
+
 /**
  * How often a running app looks for a newer release, after the check at
  * launch. A tester's app is open for days. The timer does not run while the
@@ -72,6 +76,66 @@ export function serializeSkippedVersion(version: string | null): string {
 }
 
 /**
+ * How long the last line of an update another member started (canvas 50v
+ * 02, "Restarting on … · started on …") stays on this Mac before Orbital
+ * quits into the update: long enough to be read by someone at the Mac, never
+ * shown as a number. A session started meanwhile does not hold it.
+ */
+export const REMOTE_RESTART_HOLD_MS = 3_000;
+
+/**
+ * The file in `userData`, beside `SKIPPED_VERSION_FILE`, that carries an
+ * update another member started across the restart it made: who, when, how
+ * many sessions it stopped, and the version it installed. The relaunched
+ * app says so once (canvas 50v 04) and removes it when that is dismissed.
+ * Main is its only reader and writer.
+ */
+export const UPDATE_RECEIPT_FILE = 'update-receipt.json';
+
+/** An update another member made of this Mac, as the relaunched app tells it (`UPDATE_RECEIPT_FILE`). */
+export type UpdateReceipt = {
+  /** The member's name, as the request named it. */
+  by: string;
+  /** When the restart was made (epoch ms). */
+  at: number;
+  /** How many Orbital sessions were working then, and stopped. */
+  stopped: number;
+  /** The version it restarted into. */
+  version: string;
+};
+
+function isReceipt(raw: unknown): raw is UpdateReceipt {
+  if (typeof raw !== 'object' || raw === null) return false;
+  const { by, at, stopped, version } = raw as Record<string, unknown>;
+  return typeof by === 'string' && by !== '' && isCount(at) && isCount(stopped) && typeof version === 'string' && version !== '';
+}
+
+export function parseUpdateReceipt(raw: string): UpdateReceipt | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isReceipt(parsed)) return null;
+    const { by, at, stopped, version } = parsed;
+    return { by, at, stopped, version };
+  } catch {
+    return null;
+  }
+}
+
+export function serializeUpdateReceipt(receipt: UpdateReceipt): string {
+  return `${JSON.stringify(receipt)}\n`;
+}
+
+/**
+ * The receipt a launch tells, from the file it found: only one for the
+ * version this launch runs. Another version means the restart did not bring
+ * it — the install failed, or it is older than an update since — and it is
+ * dropped unsaid.
+ */
+export function receiptAtLaunch(receipt: UpdateReceipt | null, running: string): UpdateReceipt | null {
+  return receipt !== null && receipt.version === running ? receipt : null;
+}
+
+/**
  * A dev build has no release to compare with, and a build from `dist:local`
  * or `dist:self` carries no `app-update.yml` — it does not know where its
  * releases are, and must not replace itself with a published one.
@@ -106,6 +170,8 @@ function toMB(bytes: number): number {
  *   restarts at once when nothing is working.
  * - `close` — × on Ready: the receipt that it installs on quit.
  * - `ok` — the receipt's OK, which ends the prompt for that version.
+ * - `receipt-close` — × on the line saying another member updated this Mac
+ *   (`UpdateView.receipt`): it is not said again.
  */
 export type UpdateAction =
   | 'download'
@@ -114,7 +180,8 @@ export type UpdateAction =
   | 'restart-when-idle'
   | 'cancel-wait'
   | 'close'
-  | 'ok';
+  | 'ok'
+  | 'receipt-close';
 
 const ACTIONS: readonly UpdateAction[] = [
   'download',
@@ -124,6 +191,7 @@ const ACTIONS: readonly UpdateAction[] = [
   'cancel-wait',
   'close',
   'ok',
+  'receipt-close',
 ];
 
 /** An action off IPC, or null for anything a renderer should not have sent. */
@@ -145,6 +213,18 @@ export function parseUpdateAction(raw: unknown): UpdateAction | null {
  * - `restarting` — `quitAndInstall` has been called.
  *
  * `checkedAt` is when a check last completed (epoch ms), or null.
+ *
+ * An update another member of the group started (canvas 50v) adds:
+ *
+ * - `remote` — while it downloads, waits and restarts here: the member's
+ *   name, how many Orbital sessions work now (live), which the restart
+ *   stops, and `wait` when it was asked to install once they finish (canvas
+ *   50v 02), the wait shown from the download on. Null otherwise, and for an
+ *   update started on this Mac (its web, the CLI).
+ * - `sessionStarted` — on Ready, when that update did not install because a
+ *   session started here while it downloaded: it waits for this Mac's user.
+ * - `receipt` — after the restart it made, until × on its line: who, when,
+ *   how many sessions it stopped.
  */
 export type UpdatePrompt =
   | { phase: 'none' }
@@ -155,7 +235,14 @@ export type UpdatePrompt =
   | { phase: 'closed'; version: string }
   | { phase: 'restarting'; version: string };
 
-export type UpdateView = UpdatePrompt & { checkedAt: number | null };
+export type UpdateRemote = { by: string; working: number; wait: boolean };
+
+export type UpdateView = UpdatePrompt & {
+  checkedAt: number | null;
+  remote: UpdateRemote | null;
+  sessionStarted: boolean;
+  receipt: UpdateReceipt | null;
+};
 
 const isCount = (n: unknown): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0;
 
@@ -182,12 +269,38 @@ function parsePrompt(raw: Record<string, unknown>): UpdatePrompt | null {
   }
 }
 
-/** A view off IPC; anything malformed reads as no prompt, never as one. */
+function parseRemote(raw: unknown): UpdateRemote | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const { by, working, wait } = raw as Record<string, unknown>;
+  return typeof by === 'string' && by !== '' && isCount(working) ? { by, working, wait: wait === true } : null;
+}
+
+/** The phases a member's update shows in (canvas 50v 01–03). */
+const REMOTE_PHASES: ReadonlySet<UpdatePrompt['phase']> = new Set(['downloading', 'waiting', 'restarting']);
+
+const NO_UPDATE: UpdateView = { phase: 'none', checkedAt: null, remote: null, sessionStarted: false, receipt: null };
+
+/**
+ * A view off IPC; anything malformed reads as no prompt, never as one. A
+ * malformed `remote` or `receipt` reads as none: the prompt is then this
+ * Mac's own, and the receipt unsaid.
+ */
 export function parseUpdateView(raw: unknown): UpdateView {
-  if (typeof raw !== 'object' || raw === null) return { phase: 'none', checkedAt: null };
+  if (typeof raw !== 'object' || raw === null) return NO_UPDATE;
   const record = raw as Record<string, unknown>;
   const checkedAt = isCount(record.checkedAt) ? record.checkedAt : null;
-  return { ...(parsePrompt(record) ?? { phase: 'none' }), checkedAt };
+  const prompt = parsePrompt(record);
+  if (prompt === null) return { ...NO_UPDATE, checkedAt };
+  const receipt = isReceipt(record.receipt)
+    ? { by: record.receipt.by, at: record.receipt.at, stopped: record.receipt.stopped, version: record.receipt.version }
+    : null;
+  return {
+    ...prompt,
+    checkedAt,
+    remote: REMOTE_PHASES.has(prompt.phase) ? parseRemote(record.remote) : null,
+    sessionStarted: prompt.phase === 'ready' && record.sessionStarted === true,
+    receipt,
+  };
 }
 
 /**
@@ -296,15 +409,25 @@ export const IDLE_SETTLE_MS = 2_000;
 /**
  * What one input did, for `main.ts` to carry out: whether the view the web
  * app holds is stale, whether to call `downloadUpdate` or `quitAndInstall`
- * now, whether the skipped version changed and must be written, and whether
- * to call `idleSettled` after `IDLE_SETTLE_MS`.
+ * now, whether the skipped version changed and must be written, whether
+ * to call `idleSettled` after `IDLE_SETTLE_MS`, and whether to tell the
+ * server a member's request ended here without the install (`update_ended`,
+ * with the reason).
+ *
+ * `holdMs`: above 0, a member's restart is holding its last line — call
+ * `holdEnded` after that long, which says `restart` (`quitAndInstall` now).
+ * `receipt`: write this receipt to `UPDATE_RECEIPT_FILE`, or remove the file
+ * (`clear`); null leaves it.
  */
 export type UpdateStep = {
   changed: boolean;
   restart: boolean;
+  holdMs: number;
   download: boolean;
   skipChanged: boolean;
   idleCheck: boolean;
+  remoteEnded: UpdateEndReason | null;
+  receipt: UpdateReceipt | 'clear' | null;
 };
 
 /** `available`'s step, with what it did with the version. */
@@ -313,12 +436,20 @@ export type FoundStep = UpdateStep & { outcome: FoundOutcome };
 type Phase = UpdatePrompt['phase'];
 
 /**
- * The update's state machine. The working count is `WorkingSessions.count`,
- * the quit guard's, which counts only Orbital-run sessions that are
- * `working`: a terminal session belongs to a CLI in someone's shell, and
- * restarting the app does not touch it; a session parked on a decision (a
- * permission prompt, a question) does not hold the restart — it is
- * interrupted and continued after the update. A count that is not known yet
+ * The update's state machine. Two counts come from `WorkingSessions`, both
+ * of Orbital-run sessions only (a terminal session belongs to a CLI in
+ * someone's shell, and restarting the app does not touch it):
+ *
+ * - the working count (`count`), sessions mid-turn: what the prompt says
+ *   ("interrupts 3 working sessions"), its one-or-two-buttons choice, and
+ *   the receipt's `stopped`;
+ * - the busy ones (`busyIds`), mid-turn or waiting on a decision (a
+ *   permission prompt, a question), the server's `Runner.busy` rule: what
+ *   decides when a restart is safe — a wait for the sessions to finish
+ *   waits for those too — what the server is told a member's wait waits for,
+ *   and what a member's request is judged by.
+ *
+ * A count that is not known yet
  * counts as "not idle": waiting is safe, a restart over a working session
  * is not.
  *
@@ -332,7 +463,17 @@ export class UpdateFlow {
   private totalMB = 0;
   private percent = 0;
   private buttons: 'one' | 'two' = 'one';
+  /** Orbital sessions mid-turn: what the prompt's words and the receipt count. */
   private workingCount = 0;
+  /**
+   * The busy sessions — mid-turn or waiting on a decision (`Runner.busy`) —
+   * by id: what decides when it is safe to restart (a wait, Restart when
+   * sessions finish) and what a member's request is judged by. Null when
+   * they were not given by id (a count alone).
+   */
+  private busyIds: readonly string[] | null = [];
+  /** How many sessions are busy: `busyIds`' number, or the working count when no ids were given. */
+  private busyCount = 0;
   /** False until the working count has been seeded, and again after a reconnect. */
   private countKnown = false;
   private autoDownload = false;
@@ -345,13 +486,66 @@ export class UpdateFlow {
   private downloadedVersion: string | null = null;
   /** A version downloading by itself (setting on), so a second check does not start it again. */
   private silentDownload: string | null = null;
+  /** The version the last check found, whatever the prompt did with it: what a member may ask to install. */
+  private found: string | null = null;
+  /**
+   * Another member of the group asked for the update (`update_start`): once
+   * it is downloaded it installs at once, rather than prompting here.
+   */
+  private remoteRequested = false;
+  /**
+   * The sessions busy when the member's request arrived, by id: the
+   * member confirmed the sessions running before it asked, so only a session
+   * busy at the landing that is not among these — one that started a turn
+   * while it downloaded — keeps the download from installing. Null when they
+   * were not known then.
+   */
+  private remoteBaseline: ReadonlySet<string> | null = null;
+  /** A member's request already retried a restart that had not got the app out (`remoteStart`). */
+  private restartRetried = false;
+  /**
+   * The running request asked to install once the sessions here finish
+   * (`when: 'idle'`): it downloads, then waits as Restart when sessions
+   * finish does, for every session — no new-turn rule. Main tells the server
+   * the count it waits for (`serverState`).
+   */
+  private remoteWait = false;
+  /**
+   * The member a running request came from, by name, for the prompt (canvas
+   * 50v); null for a request made on this Mac and when none runs.
+   */
+  private remoteBy: string | null = null;
+  /** Ready came from a member's request that a session started here declined (canvas 50v 03). */
+  private sessionStarted = false;
+  /** The receipt this launch tells (`UpdateView.receipt`), until × on it. */
+  private receipt: UpdateReceipt | null;
+  /** A receipt was written for a restart that has not got the app out yet. */
+  private receiptWritten = false;
+  /**
+   * A member's restart is holding its last line (`REMOTE_RESTART_HOLD_MS`):
+   * restarting, but `quitAndInstall` not called yet (`holdEnded`).
+   */
+  private holding = false;
+  private readonly now: () => number;
 
-  constructor(init: { skippedVersion?: string | null } = {}) {
+  constructor(init: { skippedVersion?: string | null; receipt?: UpdateReceipt | null; now?: () => number } = {}) {
     this.skipped = init.skippedVersion ?? null;
+    this.receipt = init.receipt ?? null;
+    this.now = init.now ?? Date.now;
   }
 
   get view(): UpdateView {
-    return { ...this.prompt(), checkedAt: this.checkedAt };
+    const prompt = this.prompt();
+    const remote = this.remoteBy !== null && REMOTE_PHASES.has(prompt.phase)
+      ? { by: this.remoteBy, working: this.workingCount, wait: this.remoteWait }
+      : null;
+    return {
+      ...prompt,
+      checkedAt: this.checkedAt,
+      remote,
+      sessionStarted: this.sessionStarted && prompt.phase === 'ready',
+      receipt: this.receipt,
+    };
   }
 
   get skippedVersion(): string | null {
@@ -385,6 +579,7 @@ export class UpdateFlow {
       outcome,
     });
     if (this.phase === 'restarting') return found('none');
+    this.found = version;
     const shown = this.phase !== 'none' && this.version === version;
     if (shown) return found(this.phase === 'waiting' ? 'waiting' : 'offered');
     if (version === this.dismissedVersion) return found('installs-on-quit');
@@ -428,27 +623,90 @@ export class UpdateFlow {
    * Either way it no longer counts as downloaded.
    */
   downloadFailed(): UpdateStep {
+    // A member's restart abandoned: the members are told at once, not at the server's timeout.
+    const remoteEnded = this.phase === 'restarting' && this.remoteBy !== null ? 'restart' : null;
     this.silentDownload = null;
+    this.remoteRequested = false;
+    this.remoteWait = false;
+    this.restartRetried = false;
+    this.holding = false;
     this.downloadedVersion = null;
-    if (this.phase === 'none' || this.phase === 'available') return this.step();
+    this.remoteBy = null;
+    // A restart that did not happen made no update to tell of.
+    const receipt = this.receiptWritten ? 'clear' : null;
+    this.receiptWritten = false;
+    if (this.phase === 'none' || this.phase === 'available') return this.step({ receipt, remoteEnded });
     this.phase = 'available';
-    return this.step({ changed: true });
+    return this.step({ changed: true, receipt, remoteEnded });
   }
 
   /**
    * electron-updater reported an error. A failed check changes nothing; but
    * while restarting it means `quitAndInstall` did not get the app out, and
    * waiting on it would hold the prompt forever — so it counts as a failed
-   * download, and the version is offered again.
+   * download, and the version is offered again. Not while a member's
+   * restart holds its last line: `quitAndInstall` has not been called, so
+   * the error is a check's, not the install's.
    */
   updaterError(): UpdateStep {
-    return this.phase === 'restarting' ? this.downloadFailed() : this.step();
+    return this.phase === 'restarting' && !this.holding ? this.downloadFailed() : this.step();
   }
 
-  /** electron-updater finished downloading `version`. */
+  /** The version the app is restarting into, its hold included, else null: no check runs then. */
+  get restartingInto(): string | null {
+    return this.phase === 'restarting' ? this.version : null;
+  }
+
+  /**
+   * `REMOTE_RESTART_HOLD_MS` after a member's restart began: `quitAndInstall`
+   * now, and the receipt for the relaunched app, counting the sessions this
+   * restart stops. Nothing when the hold was abandoned meanwhile.
+   */
+  holdEnded(): UpdateStep {
+    if (!this.holding || this.phase !== 'restarting' || this.remoteBy === null) return this.step();
+    this.holding = false;
+    this.receiptWritten = true;
+    return {
+      ...this.step(),
+      restart: true,
+      receipt: {
+        by: this.remoteBy,
+        at: this.now(),
+        stopped: this.countKnown ? this.workingCount : 0,
+        version: this.version,
+      },
+    };
+  }
+
+  /**
+   * electron-updater finished downloading `version`. A member's request
+   * comes first, a version whose receipt was OK'd here included: it installs
+   * now, unless a session is working that was not when the request arrived
+   * (`sessions`), or which sessions work cannot be told (`unknown`) — then it
+   * does not restart over them, prompts here as this Mac's own download
+   * would, and tells the server the request ended (`remoteEnded`).
+   */
   downloaded(version: string): UpdateStep {
     if (this.phase === 'restarting') return this.step();
     if (version === this.silentDownload) this.silentDownload = null;
+    if (this.remoteRequested) {
+      this.remoteRequested = false;
+      const before = this.snapshot();
+      this.downloadedVersion = version;
+      // Asked to wait for the sessions: no verdict, it waits for every one of them.
+      if (this.remoteWait) return this.waitForSessions(version, before);
+      const ended = this.remoteVerdict();
+      if (ended === null) {
+        this.version = version;
+        return this.restart();
+      }
+      // From here it is this Mac's own update, waiting for its user.
+      const fromMember = this.remoteBy !== null;
+      this.remoteBy = null;
+      this.toReady(version);
+      this.sessionStarted = fromMember && ended === 'sessions';
+      return this.step({ changed: before !== this.snapshot(), remoteEnded: ended });
+    }
     if (version === this.dismissedVersion) return this.step();
     if (version === this.downloadedVersion && this.phase !== 'available' && this.phase !== 'downloading') {
       return this.step();
@@ -462,30 +720,48 @@ export class UpdateFlow {
   }
 
   /**
-   * The number of Orbital sessions mid-turn changed (or was re-read).
-   * `seeded` is `WorkingSessions.seeded`: while it is false the count may be
+   * The Orbital sessions mid-turn, or waiting on a decision, changed (or
+   * were re-read). `count` is the working ones (`WorkingSessions.count`);
+   * `busyIds` the busy ones by id (`WorkingSessions.busyIds`, the working ones
+   * and those waiting on a decision). Without `busyIds`, `ids` (the working
+   * ones by id) stand in, and are known only when there are `count` of them.
+   * `seeded` is `WorkingSessions.seeded`: while it is false the counts may be
    * short — the socket reconnected and the session list has not been read
-   * yet — so it is not taken, and a zero never ends a wait. A zero during a
-   * wait asks for `idleSettled` after `IDLE_SETTLE_MS` rather than
-   * restarting at once.
+   * yet — so they are not taken, and a zero never ends a wait. No busy
+   * session during a wait asks for `idleSettled` after `IDLE_SETTLE_MS`
+   * rather than restarting at once.
    */
-  setWorkingCount(count: number, seeded: boolean): UpdateStep {
+  setWorkingCount(
+    count: number, seeded: boolean, ids: readonly string[] = [], busyIds?: readonly string[],
+  ): UpdateStep {
     this.countKnown = seeded;
     if (!seeded) return this.step();
     const before = this.snapshot();
     this.workingCount = count;
+    this.busyIds = busyIds ?? (ids.length === count ? ids : null);
+    this.busyCount = busyIds ? busyIds.length : count;
     const changed = before !== this.snapshot();
-    return this.step({ changed, idleCheck: this.phase === 'waiting' && count === 0 });
+    return this.step({ changed, idleCheck: this.phase === 'waiting' && this.busyCount === 0 });
   }
 
-  /** `IDLE_SETTLE_MS` after a zero: restart if the wait is still on and still nothing works. */
+  /** `IDLE_SETTLE_MS` after a zero: restart if the wait is still on and still nothing is busy. */
   idleSettled(): UpdateStep {
-    if (this.phase === 'waiting' && this.countKnown && this.workingCount === 0) return this.restart();
+    if (this.phase === 'waiting' && this.idle()) return this.restart();
     return this.step();
+  }
+
+  /** Known, and no session busy: a restart now cuts nothing off. */
+  private idle(): boolean {
+    return this.countKnown && this.busyCount === 0;
   }
 
   /** A button in the prompt; one that is not on screen in this state does nothing. */
   act(action: UpdateAction): UpdateStep {
+    if (action === 'receipt-close') {
+      if (this.receipt === null) return this.step();
+      this.receipt = null;
+      return this.step({ changed: true, receipt: 'clear' });
+    }
     const before = this.snapshot();
     let download = false;
     let skipChanged = false;
@@ -504,14 +780,29 @@ export class UpdateFlow {
       case 'waiting:restart-now':
         return this.restart();
       case 'ready:restart-when-idle':
-        if (this.countKnown && this.workingCount === 0) return this.restart();
+        if (this.idle()) return this.restart();
         this.phase = 'waiting';
         break;
-      case 'waiting:cancel-wait':
+      case 'waiting:cancel-wait': {
         // Back to the choice (canvas 4), whichever prompt the wait came from.
+        // A member's wait cancelled here ends its request (canvas 50v 02): not a failure.
+        const remoteEnded = this.remoteWait ? 'cancelled' : null;
+        this.remoteWait = false;
+        this.remoteBy = null;
         this.phase = 'ready';
         this.buttons = 'two';
-        break;
+        this.sessionStarted = false;
+        return this.step({ changed: before !== this.snapshot(), remoteEnded });
+      }
+      case 'downloading:cancel-wait': {
+        // A member's wait cancelled while it still downloads: the download
+        // goes on as this Mac's own, and lands as its Ready.
+        if (!this.remoteWait) return this.step();
+        this.remoteWait = false;
+        this.remoteRequested = false;
+        this.remoteBy = null;
+        return this.step({ changed: before !== this.snapshot(), remoteEnded: 'cancelled' });
+      }
       case 'ready:close':
         this.phase = 'closed';
         break;
@@ -522,13 +813,163 @@ export class UpdateFlow {
       default:
         return this.step();
     }
+    // Whatever the user chose on the prompt, it is their own update now.
+    this.sessionStarted = false;
     return this.step({ changed: before !== this.snapshot(), download, skipChanged });
+  }
+
+  /**
+   * A member of the group asked for the update (spec
+   * 2026-10-19-headless-server-design § A Mac, too): what Download and then
+   * Restart would do, without waiting on this Mac's user, who did not ask.
+   * The member confirmed the running sessions before it asked. Downloaded
+   * already, it installs now; otherwise the version found downloads — shown
+   * as downloading here too, a skip of it undone — and installs once
+   * downloaded. With nothing found, nothing happens.
+   *
+   * Asked while already restarting, the restart did not get the app out (no
+   * error came, or the quit was held): it is tried once more — a member
+   * asking is someone waiting on it, and a second `quitAndInstall` is
+   * harmless — and asked again after that, the request ends at once
+   * (`remoteEnded: 'restart'`) rather than waiting out the server's timeout.
+   *
+   * `by` names the member that asked through its channel (canvas 50v): the
+   * download shows as theirs here, a silent one included, and its restart
+   * holds its last line `REMOTE_RESTART_HOLD_MS` and leaves a receipt for
+   * the relaunched app. Null — asked on this Mac — shows as its own update.
+   *
+   * `when` `idle` (Update when sessions finish, canvas 50v 02): once
+   * downloaded it waits, as Restart when sessions finish does, for every
+   * busy session here — mid-turn or waiting on a decision; a new turn
+   * meanwhile is waited for, not a reason to stop — and restarts the first
+   * moment none is. Its Cancel, here or on any member, leaves the download
+   * as this Mac's own Ready.
+   */
+  remoteStart(by: string | null = null, when: UpdateWhen = 'now'): UpdateStep {
+    if (this.phase === 'restarting') {
+      // The hold ends in the install by itself.
+      if (this.holding) return this.step();
+      if (this.restartRetried) {
+        // A member's restart that never got the app out: no false last line, this Mac's Ready instead.
+        if (this.remoteBy !== null) return this.abandonRemoteRestart('restart');
+        return this.step({ remoteEnded: 'restart' });
+      }
+      this.restartRetried = true;
+      return this.restart({ retry: true });
+    }
+    this.sessionStarted = false;
+    if (this.downloadedVersion !== null) {
+      this.remoteBy = by;
+      this.version = this.downloadedVersion;
+      if (when === 'idle') return this.waitForSessions(this.downloadedVersion, this.snapshot());
+      return this.restart();
+    }
+    const version = this.phase !== 'none' ? this.version : (this.silentDownload ?? this.found);
+    if (version === null || version === '') return this.step();
+    const before = this.snapshot();
+    this.remoteRequested = true;
+    this.remoteWait = when === 'idle';
+    this.remoteBy = by;
+    this.remoteBaseline = this.idsKnown() ? new Set(this.busyIds) : null;
+    if (this.phase === 'downloading') return this.step({ changed: before !== this.snapshot() });
+    if (this.silentDownload === version) {
+      // Downloading by itself, unseen: a member's download is shown here, so it is from now on.
+      if (by === null) return this.step();
+      this.phase = 'downloading';
+      this.version = version;
+      this.percent = 0;
+      return this.step({ changed: true });
+    }
+    let skipChanged = false;
+    if (this.skipped === version) {
+      this.skipped = null;
+      skipChanged = true;
+    }
+    this.phase = 'downloading';
+    this.version = version;
+    this.percent = 0;
+    return this.step({ changed: before !== this.snapshot(), download: true, skipChanged });
+  }
+
+  /**
+   * The server gave up on a member's request (`update_cancel`) and told the
+   * members it failed: a download still running lands as any download does,
+   * with the prompt, rather than installing by itself.
+   */
+  remoteCancel(): UpdateStep {
+    this.remoteRequested = false;
+    if (this.remoteWait) {
+      // A member cancelled the wait (or the server gave up before main took it):
+      // the download stays, as this Mac's own — its Ready once downloaded.
+      const before = this.snapshot();
+      this.remoteWait = false;
+      this.remoteBy = null;
+      if (this.phase === 'waiting') this.toReady(this.version);
+      return this.step({ changed: before !== this.snapshot() });
+    }
+    if (this.remoteBy === null) return this.step();
+    // The members were told it failed: a restart that has not got the app out
+    // (or is still holding) gives way to this Mac's Ready.
+    if (this.phase === 'restarting') return this.abandonRemoteRestart(null);
+    // Still downloading: from here it is this Mac's own download, and says so.
+    this.remoteBy = null;
+    return this.step({ changed: true });
+  }
+
+  /**
+   * What the forked server is told (`update_state`): the version a member
+   * would install — the one downloaded, else the one on screen or
+   * downloading, else the last found — and how far along it is.
+   */
+  serverState(installed: string): MainUpdateStateMessage {
+    const shown = this.phase !== 'none' && this.phase !== 'restarting' ? this.version : null;
+    const available = this.downloadedVersion ?? shown ?? this.silentDownload ?? this.found;
+    return {
+      t: 'update_state',
+      installed,
+      available: available !== null && available !== installed ? available : null,
+      downloading: this.phase === 'downloading' || this.silentDownload !== null,
+      downloaded: this.downloadedVersion !== null,
+      waiting: this.remoteWait ? this.busyCount : null,
+    };
+  }
+
+  /**
+   * A member's `idle` request, downloaded: wait for the sessions here, or
+   * restart now when none works. `before` is the view before the input that
+   * led here.
+   */
+  private waitForSessions(version: string, before: string): UpdateStep {
+    this.remoteWait = true;
+    this.phase = 'waiting';
+    this.version = version;
+    if (this.idle()) return this.restart();
+    return this.step({ changed: before !== this.snapshot() });
+  }
+
+  /** Whether the busy sessions are known by id: seeded, and the ids given. */
+  private idsKnown(): boolean {
+    return this.countKnown && this.busyIds !== null;
+  }
+
+  /**
+   * Whether a member's download that just landed may install: null when it
+   * may — nothing works that did not when the request arrived — else why not.
+   */
+  private remoteVerdict(): Exclude<UpdateEndReason, 'restart'> | null {
+    const busy = this.idsKnown() ? this.busyIds : null;
+    if (busy === null) return 'unknown';
+    if (busy.length === 0) return null;
+    if (this.remoteBaseline === null) return 'unknown';
+    const baseline = this.remoteBaseline;
+    return busy.every((id) => baseline.has(id)) ? null : 'sessions';
   }
 
   private toReady(version: string): void {
     this.phase = 'ready';
     this.version = version;
     this.buttons = this.countKnown && this.workingCount === 0 ? 'one' : 'two';
+    this.sessionStarted = false;
   }
 
   private prompt(): UpdatePrompt {
@@ -550,16 +991,65 @@ export class UpdateFlow {
     }
   }
 
-  private restart(): UpdateStep {
+  /**
+   * Into the update. One a member started holds its last line first: no
+   * `quitAndInstall` yet, `holdEnded` after `holdMs` makes it and writes the
+   * receipt. A retry of a restart already made goes at once, its receipt
+   * already written.
+   */
+  private restart({ retry = false }: { retry?: boolean } = {}): UpdateStep {
     this.phase = 'restarting';
-    return { changed: true, restart: true, download: false, skipChanged: false, idleCheck: false };
+    this.sessionStarted = false;
+    // A wait ends in the install.
+    this.remoteWait = false;
+    const step: UpdateStep = {
+      changed: true, restart: true, holdMs: 0, download: false, skipChanged: false, idleCheck: false,
+      remoteEnded: null, receipt: null,
+    };
+    if (retry || this.remoteBy === null) return step;
+    this.holding = true;
+    return { ...step, restart: false, holdMs: REMOTE_RESTART_HOLD_MS };
+  }
+
+  /**
+   * A member's restart that will not happen — its retry spent, or the server
+   * gave up on it: the downloaded version back as this Mac's own Ready, the
+   * receipt taken back, and the server told when it does not know yet.
+   */
+  private abandonRemoteRestart(remoteEnded: UpdateEndReason | null): UpdateStep {
+    const receipt = this.receiptWritten ? 'clear' : null;
+    this.receiptWritten = false;
+    this.holding = false;
+    this.restartRetried = false;
+    this.remoteBy = null;
+    this.toReady(this.downloadedVersion ?? this.version);
+    return this.step({ changed: true, receipt, remoteEnded });
   }
 
   private step(parts: Partial<Omit<UpdateStep, 'restart'>> = {}): UpdateStep {
-    return { changed: false, download: false, skipChanged: false, idleCheck: false, ...parts, restart: false };
+    return {
+      changed: false, download: false, skipChanged: false, idleCheck: false, remoteEnded: null, receipt: null,
+      holdMs: 0, ...parts, restart: false,
+    };
   }
 
   private snapshot(): string {
     return JSON.stringify(this.view);
   }
+}
+
+/** The last `update_state` sent to the server: its JSON and when (epoch ms). */
+export type SentServerState = { json: string; at: number };
+
+/**
+ * Whether main sends the server `update_state` now: when it changed since the
+ * last one, and while it downloads, again every `UPDATE_KEEPALIVE_MS` even
+ * when it did not — the server's wait starts over with each word. Main calls
+ * this on every step, a download's progress included, so the word repeats
+ * only while the download moves; a download that stalls says nothing, and
+ * the server's wait runs out.
+ */
+export function serverStateDue(last: SentServerState | null, json: string, downloading: boolean, now: number): boolean {
+  if (last === null || last.json !== json) return true;
+  return downloading && now - last.at >= UPDATE_KEEPALIVE_MS;
 }

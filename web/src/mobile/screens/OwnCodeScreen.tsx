@@ -8,13 +8,14 @@ import { LEAVE_OFFLINE } from '../forget'
 import { useMobile } from '../state'
 import { groupRef } from '../transport/groupRef'
 import { MobileScreen, PrimaryButton, SecondaryButton } from '../ui'
+import { notPrimaryAddLine } from '@orbital/shared/remote/groupWords'
 
 /** What showing a code came to, short of a code. */
 function codeError(res: Extract<StartPairingResult, { error: string }>): string {
   const { error } = res
   if (error === 'offline') return LEAVE_OFFLINE
   // In a group, only its primary shows a code that adds a device (canvas 50i).
-  if (res.error === 'not_primary') return `${res.primary.name} manages this group — add devices there.`
+  if (res.error === 'not_primary') return notPrimaryAddLine(res.primary.name)
   if (error === 'relay_too_old') return 'The relay needs an update before this phone can show a code.'
   // Paired with a primary whose first roster has not come: it adds no one meanwhile.
   if (error === 'joining') return 'This phone is still joining a group. Try again once it has.'
@@ -158,7 +159,9 @@ export function OwnCodeScreen() {
           </p>
         )}
         <p className="text-[13.5px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
-          On a desktop: Settings → Devices → <span className="font-semibold text-text-bright">Have another device&apos;s code?</span>
+          On a desktop: Settings → Devices → <span className="font-semibold text-text-bright">Have another device&apos;s code?</span>{' '}
+          {/* Canvas 50i (Device group) own-code sheet. */}
+          On a server: <span className="font-mono text-[12px]">orbital join</span> and the code.
         </p>
         {left && !refused && (
           <div className="flex flex-col gap-[7px]">

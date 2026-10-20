@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   LOCAL_DEVICE, asOfLabel, canRemoveRow, deviceChips, deviceOf, deviceRows, devicesOn, groupView, kindOs,
-  memberStateWords,
-  isMemberOffline, namesShown, osLabel, showDeviceRow, toggleDevice,
+  memberStateWords, memberServesUpdate, readMemberUpdate, startMemberUpdate,
+  isMemberOffline, namesShown, showDeviceRow, toggleDevice,
   agoWords, deviceLock, ideHere, pillWords, runsOn, stateAsOf, withMachine, withMachineOffline,
   childPath, crumbsOf, deviceOptions, openingDevice, recentAge,
   chipsOfKey, deviceChipsKey, localClaudeDirId, localTagOf, machineOffline,
@@ -64,20 +64,6 @@ describe('memberStateWords', () => {
     expect(memberStateWords(member({ name: 'gpu-01', state: 'online', tooOld: true }), NOW)).toBe('update Orbital on gpu-01')
     expect(memberStateWords(member({ name: 'gpu-01', state: 'offline', seenAt: NOW, tooOld: true }), NOW))
       .toBe('update Orbital on gpu-01')
-  })
-})
-
-describe('osLabel', () => {
-  it('names the four known OSes', () => {
-    expect(osLabel('macos')).toBe('macOS')
-    expect(osLabel('linux')).toBe('Linux')
-    expect(osLabel('ios')).toBe('iOS')
-    expect(osLabel('android')).toBe('Android')
-  })
-
-  it('leaves an unknown OS as is', () => {
-    expect(osLabel('windows')).toBe('windows')
-    expect(osLabel('')).toBe('')
   })
 })
 
@@ -567,5 +553,37 @@ describe('localClaudeDirId', () => {
       machine: { id: 'b', name: 'b', kind: 'headless', os: 'linux', online: true, asOf: null },
     })).toBeNull()
     expect(localClaudeDirId(undefined)).toBeNull()
+  })
+})
+
+describe('memberServesUpdate', () => {
+  it('asks this device, and another member only from the version that serves the route', () => {
+    expect(memberServesUpdate(member({ self: true, version: undefined }))).toBe(true)
+    expect(memberServesUpdate(member({ kind: 'headless', version: '0.36.0' }))).toBe(true)
+    expect(memberServesUpdate(member({ version: '0.35.0' }))).toBe(false)
+    expect(memberServesUpdate(member({ version: null }))).toBe(false)
+    expect(memberServesUpdate(member({ version: undefined }))).toBe(false)
+  })
+
+  it('never asks a phone, which has no server', () => {
+    expect(memberServesUpdate(member({ kind: 'phone', version: '9.0.0' }))).toBe(false)
+  })
+
+  it('the gated reads ask nothing of an older member, and this device without ?machine=', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      expect(await readMemberUpdate(member({ id: 'old', version: '0.34.0' }))).toBeNull()
+      expect(await startMemberUpdate(member({ id: 'old', version: '0.34.0' }))).toBeNull()
+      expect(fetchMock).not.toHaveBeenCalled()
+      const state = { installed: '0.35.0', candidate: null, packaged: true, updating: false, failed: null, sessions: 0, startedBy: null }
+      fetchMock.mockImplementation(async () => new Response(JSON.stringify(state), { status: 200 }))
+      expect(await readMemberUpdate(member({ id: 'self-id', self: true }))).toEqual(state)
+      expect(fetchMock.mock.calls[0][0]).toBe('/api/server/update')
+      await readMemberUpdate(member({ id: 'm 2', version: '0.36.0' }))
+      expect(fetchMock.mock.calls[1][0]).toBe('/api/server/update?machine=m+2')
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

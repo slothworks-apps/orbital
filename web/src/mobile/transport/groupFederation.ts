@@ -5,7 +5,7 @@ import {
 import { bytesMatchRef, type Channel } from '@orbital/shared/remote/channel'
 import type { GroupClient, GroupClientEvent, PeerInfo } from '@orbital/shared/remote/groupClient'
 import {
-  NotificationSettingsSchema, peerServes, type FileAs, type HelloMessage, type NotificationSettings,
+  NotificationSettingsSchema, helloVersion, peerServes, type FileAs, type HelloMessage, type NotificationSettings,
 } from '@orbital/shared/remote/messages'
 import type { MachineEvent, MachineRef } from '@orbital/shared/remote/device'
 import { sessionOfRequest, sessionOfTopic } from '@orbital/shared/remote/segments'
@@ -43,6 +43,8 @@ export type FederatedSource = {
   /** When it was last ready, while it is not; null while it is, or before it ever was. */
   asOf: number | null
   version: string | null
+  /** The OS and its version its hello named (`Ubuntu 24.04`); null from a device that names none. */
+  osVersion: string | null
   capabilities: string[]
 }
 
@@ -151,7 +153,7 @@ export class GroupFederation implements SwappableClient {
       return {
         id: s.id, name: info?.name ?? '', kind: info?.kind ?? hello?.kind ?? 'desktop', os: info?.os ?? '',
         online: info?.online ?? false, ready: s.ready, asOf: s.asOf,
-        version: hello?.server ?? hello?.version ?? null, capabilities: hello?.capabilities ?? [],
+        version: helloVersion(hello), osVersion: hello?.osVersion ?? null, capabilities: hello?.capabilities ?? [],
       }
     })
   }
@@ -1115,7 +1117,7 @@ export class GroupFederation implements SwappableClient {
     if (key === this.lastHello) return
     this.lastHello = key
     this.emit({
-      type: 'hello', server: hello.server ?? hello.version ?? '', macName: hello.macName ?? hello.name ?? '',
+      type: 'hello', server: helloVersion(hello) ?? '', macName: hello.macName ?? hello.name ?? '',
       ...(hello.kind !== undefined ? { kind: hello.kind } : {}),
       ...(hello.capabilities !== undefined ? { capabilities: hello.capabilities } : {}),
     })

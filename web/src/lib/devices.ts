@@ -6,23 +6,55 @@
  * chips and filter (canvas 50e).
  */
 import { linksWith } from '@orbital/shared/remote/group'
+import { osLabel } from '@orbital/shared/remote/groupWords'
+import {
+  memberServesUpdate, type ServerUpdateCancelRefusal, type ServerUpdateRefusal, type ServerUpdateState, type UpdateWhen,
+} from '@orbital/shared/remote/serverUpdate'
+import { api } from './api'
 import { timeAgo } from './format'
 import type {
   ApiSession, GroupEnded, GroupMember, IdeContext, MachineRef, MemberState, RemoteDevice, RemoteStatus, Tag,
 } from './types'
 
-const OS_LABELS: Record<string, string> = {
-  macos: 'macOS', linux: 'Linux', ios: 'iOS', android: 'Android',
+/** In shared, so the `orbital` CLI gates on the same rule. */
+export { memberServesUpdate }
+
+type UpdateMember = Pick<GroupMember, 'id' | 'self' | 'kind' | 'version'>
+
+/**
+ * A member's update state, asked of it through this server (`?machine=`,
+ * this device's own without); null for a member that does not serve the
+ * route (`memberServesUpdate`), which is never asked. What Settings →
+ * Devices calls; `api.serverUpdate` itself does not gate.
+ */
+export async function readMemberUpdate(m: UpdateMember): Promise<ServerUpdateState | null> {
+  if (!memberServesUpdate(m)) return null
+  return api.serverUpdate(m.self ? undefined : m.id)
 }
 
-/** An OS as a roster entry names it, worded for people (canvas 50k "WORDING"); unknown passes through as is. */
-export function osLabel(os: string): string {
-  return OS_LABELS[os] ?? os
+/** Starts a member's update, now or once its sessions finish; null for a member that does not serve the route. */
+export async function startMemberUpdate(
+  m: UpdateMember, when: UpdateWhen = 'now',
+): Promise<{ ok: true; state: ServerUpdateState } | { ok: false; error: ServerUpdateRefusal } | null> {
+  if (!memberServesUpdate(m)) return null
+  return api.startServerUpdate(m.self ? undefined : m.id, when)
 }
 
-/** `desktop · macOS` (canvas 50k); the OS half drops with its separator while it is not known yet. */
-export function kindOs(kind: string, os: string): string {
-  const label = osLabel(os)
+/** Ends a member's wait for its sessions; null for a member that does not serve the route. */
+export async function cancelMemberUpdate(
+  m: UpdateMember,
+): Promise<{ ok: true; state: ServerUpdateState } | { ok: false; error: ServerUpdateCancelRefusal } | null> {
+  if (!memberServesUpdate(m)) return null
+  return api.cancelServerUpdate(m.self ? undefined : m.id)
+}
+
+/**
+ * `desktop · macOS` (canvas 50k), or `headless · Ubuntu 24.04` with the OS
+ * version its hello named (canvas 50t, `osVersion`, already a whole label);
+ * the OS half drops with its separator while it is not known yet.
+ */
+export function kindOs(kind: string, os: string, osVersion?: string | null): string {
+  const label = osVersion || osLabel(os)
   return label === '' ? kind : `${kind} · ${label}`
 }
 
@@ -91,6 +123,10 @@ export interface DeviceRow {
   addedAt: number
   /** What the refusal said, while `state` is `update`. */
   needsUpdate: RemoteDevice['needsUpdate']
+  /** The OS and its version its hello named (`Ubuntu 24.04`); null when not known. */
+  osVersion: string | null
+  /** The Orbital version its hello named; null when not known. */
+  version: string | null
 }
 
 /**
@@ -122,6 +158,8 @@ export function deviceRows(
       member: true,
       addedAt: m.addedAt,
       needsUpdate,
+      osVersion: m.osVersion ?? null,
+      version: m.version ?? null,
     }
   })
   const unlisted = devices.filter((d) => !listed.has(d.id)).map((d): DeviceRow => ({
@@ -132,6 +170,8 @@ export function deviceRows(
     member: false,
     addedAt: d.pairedAt,
     needsUpdate: d.needsUpdate,
+    osVersion: null,
+    version: null,
   }))
   return [...fromRoster, ...unlisted]
 }

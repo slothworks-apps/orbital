@@ -1,0 +1,19 @@
+# Watches the update request a member's Update button (or `orbital update`)
+# makes the server write (spec 2026-10-19-headless-server-design → The root
+# updater). `orbital setup` enables it.
+#
+# PathExists=, not PathChanged=: a request written while the machine was off,
+# or while the path unit was stopped, is still seen once it starts. It cannot
+# loop: the service removes the request before it runs apt, so the path no
+# longer exists when it ends, whatever apt did; a new request written during
+# the run starts it once more after.
+[Unit]
+Description=Orbital update requests
+ConditionPathExists=/etc/orbital/user
+
+[Path]
+PathExists=/var/lib/orbital/update/request
+Unit=orbital-update.service
+
+[Install]
+WantedBy=multi-user.target

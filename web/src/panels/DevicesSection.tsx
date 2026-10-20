@@ -2,19 +2,32 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import qrcode from 'qrcode-generator'
 import { useShallow } from 'zustand/react/shallow'
 import { encodePairingCode } from '@orbital/shared/remote/relayApi'
+import { relaySecretCommit, relayUrlCommit } from '@orbital/shared/remote/relaySettings'
+import { useAppUpdate } from '../store/appUpdate'
 import { useOrbital } from '../store/store'
 import { api } from '../lib/api'
+import { selfUpdateStrip } from '../lib/appUpdate'
 import { reportError } from '../lib/errors'
 import { checkedLabel } from '../lib/format'
 import {
-  RELAY_CHECK_WINDOW_MS, codeLeft, relayCheckSettled, relayLine, relaySecretCommit, relayUrlCommit, relayHostname,
+  RELAY_CHECK_WINDOW_MS, codeLeft, relayCheckSettled, relayLine, relayHostname,
   statusDuringCheck, type RelayLineKind,
 } from '../lib/remote'
 import {
-  canRemoveRow, deviceRows, endedNotice, groupView, kindOs, needsUpdateLine, type DeviceRow, type GroupView,
+  canRemoveRow, cancelMemberUpdate, deviceRows, endedNotice, groupView, kindOs, memberServesUpdate, needsUpdateLine,
+  readMemberUpdate, startMemberUpdate, type DeviceRow, type GroupView,
 } from '../lib/devices'
+import {
+  UPDATE_UNREACHABLE, UPDATE_UNREACHABLE_CANCEL, selfUpdateAvailable, updatePhase, updateRow, type MemberUpdate,
+} from '../lib/memberUpdate'
+import { useMemberUpdates, type UpdateIo, type UpdateTarget } from '../lib/useMemberUpdates'
 import { useNow } from '../lib/useNow'
+import {
+  UPDATE_NOW, UPDATE_WHEN_IDLE, exitWords, notPrimaryAddLine, notPrimaryRemoveLine, relayChangeWords, relayLockedLine,
+  removeWords, updateAvailableLine, updateSessionsWords,
+} from '@orbital/shared/remote/groupWords'
 import type { GroupEnded, GroupMember, RemoteStatus } from '../lib/types'
+import type { UpdateWhen } from '@orbital/shared/remote/serverUpdate'
 import { Toggle } from '../ui/Checkbox'
 import { Button } from '../ui/Button'
 import { Dialog } from '../ui/Dialog'
@@ -36,6 +49,10 @@ const ASIDE = 'font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.
 const CARD = 'rounded-[12px] border border-[rgba(150,205,255,.12)] bg-[rgba(6,10,20,.55)]'
 /** "offline · seen …" moves in minutes at the finest (`timeAgo`), so it is re-read that often. */
 const SEEN_TICK_MS = 60_000
+/** How much of the code `orbital join …` shows under the field (canvas 50a, 50q: `orb1q7kf…`). */
+const SERVER_CODE_SHOWN = 8
+/** The quiet mono line under a row's state or name (canvas 50q). */
+const SUBLINE = 'font-mono text-[10.5px] text-[rgba(160,190,225,.5)]'
 
 /** The status line's dot (canvas 9q). Static: it never pulses, whatever the state. */
 const DOT: Record<RelayLineKind, string> = {
@@ -71,10 +88,6 @@ function qrSvg(text: string): string {
 
 function longDate(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
-}
-
-function deviceCount(n: number): string {
-  return n === 1 ? '1 device' : `${n} devices`
 }
 
 /** Settings → Devices' "Try again" (canvas 11b), shared by the too-old card and the add-a-device box. */
@@ -191,7 +204,7 @@ function usePairingCode(remote: RemoteStatus | null): PairingCode {
         // Paired with a primary whose first roster has not come: one join at a time.
         else if (res.error === 'joining') setError('A join is still under way. Cancel it first.')
         // The status moved under the user: this device is a member now (canvas 50p I).
-        else if (res.error === 'not_primary') setError(`${res.primary.name} manages this group — add devices there.`)
+        else if (res.error === 'not_primary') setError(notPrimaryAddLine(res.primary.name))
         return
       }
       setCode({ expiresAt: res.expiresAt, svg: qrSvg(res.qr), word: encodePairingCode(res.qr) })
@@ -245,9 +258,12 @@ function usePairingCode(remote: RemoteStatus | null): PairingCode {
 export function DevicesSection({
   patchAndSet,
   onSaved,
+  onOpenUpdates,
 }: {
   patchAndSet: (patch: Record<string, string>) => Promise<boolean>
   onSaved: () => void
+  /** Settings → Updates, where this Mac's own update lives (canvas 50u A); absent where there is no such section. */
+  onOpenUpdates?: () => void
 }) {
   const settings = useOrbital(useShallow((s) => s.settings))
   const liveRemote = useOrbital((s) => s.remote)
@@ -273,6 +289,11 @@ export function DevicesSection({
   const relayLocked = liveRemote?.group.relayLocked ?? false
   // Only while that member still waits on a hand pairing: once it links, the box is everyone's again.
   const pairTarget = others.find((m) => m.id === pairFor && m.state === 'notLinked') ?? null
+  const updates = useMemberUpdates(updateTargets(members), memberUpdateIo(members))
+  const primaryMember = members.find((m) => m.primary && !m.self) ?? null
+  const primaryPhase = primaryMember
+    ? updatePhase(updates.byId[primaryMember.id], primaryMember.state === 'online')
+    : 'idle'
 
   function pairByHand(m: DeviceRow) {
     setPairFor(m.id)
@@ -314,9 +335,7 @@ export function DevicesSection({
         {relayLocked ? (
           // Canvas 50a `relayLock`, 50p C: in a group the relay cannot change, and this says how it can again.
           <span className="max-w-[300px] text-[11.5px] leading-[1.5] text-[rgba(160,190,225,.65)] [text-wrap:pretty]">
-            {view.role === 'member'
-              ? 'One relay for the whole group. Leave the group to change it.'
-              : 'One relay for the whole group. Remove the other devices, or dissolve the group, to change it.'}
+            {relayLockedLine(view.role === 'member' ? 'member' : 'primary')}
           </span>
         ) : (
           // canvas 50a: a dashed text link, not a button's box.
@@ -364,6 +383,8 @@ export function DevicesSection({
               self={self}
               savedName={settings.remote_mac_name ?? ''}
               networkName={liveRemote.macName}
+              update={self ? updates.byId[self.id] : undefined}
+              onOpenUpdates={onOpenUpdates}
             />
             <div className="flex items-baseline gap-2.5 pb-2 pt-5">
               <span className={KICKER}>IN THIS GROUP · {rows.length}</span>
@@ -384,7 +405,15 @@ export function DevicesSection({
                 </span>
               </div>
             ) : (
-              <Members rows={rows} view={view} now={now} onPairByHand={pairByHand} onSaved={onSaved} />
+              <Members
+                rows={rows}
+                view={view}
+                now={now}
+                onPairByHand={pairByHand}
+                onSaved={onSaved}
+                updates={updates}
+                selfId={self?.id ?? null}
+              />
             )}
           </div>
           <div className={`flex min-w-0 flex-col ${enabled ? '' : 'pointer-events-none'}`}>
@@ -392,7 +421,11 @@ export function DevicesSection({
               {view.canAdd && pairTarget ? `ADD A DEVICE · FOR ${pairTarget.name.toUpperCase()}` : 'ADD A DEVICE'}
             </div>
             {view.managedBy !== null ? (
-              <Managed primary={view.managedBy} />
+              <Managed
+                primary={view.managedBy}
+                kind={primaryMember?.kind ?? 'desktop'}
+                updating={primaryPhase === 'installing' || primaryPhase === 'restarting'}
+              />
             ) : (
               <JoinArea
                 remote={liveRemote}
@@ -431,6 +464,37 @@ export function DevicesSection({
       )}
     </div>
   )
+}
+
+/**
+ * The members Settings → Devices asks about their updates: every member that
+ * serves the routes (`memberServesUpdate` — never a phone), readable now
+ * while it is this device or online and not too old. One that is not
+ * readable is still watched while it updates, read as unreachable.
+ */
+function updateTargets(members: GroupMember[]): UpdateTarget[] {
+  return members
+    .filter((m) => memberServesUpdate(m))
+    .map((m) => ({ id: m.id, readable: m.self || (m.state === 'online' && !m.tooOld) }))
+}
+
+/** The desktop asks only through the gated `readMemberUpdate` / `startMemberUpdate` / `cancelMemberUpdate`. */
+function memberUpdateIo(members: GroupMember[]): UpdateIo {
+  const find = (id: string) => members.find((m) => m.id === id)
+  return {
+    read: async (id) => {
+      const m = find(id)
+      return m ? readMemberUpdate(m) : null
+    },
+    start: async (id, when) => {
+      const m = find(id)
+      return m ? startMemberUpdate(m, when) : null
+    },
+    cancel: async (id) => {
+      const m = find(id)
+      return m ? cancelMemberUpdate(m) : null
+    },
+  }
 }
 
 function TryAgain({ check }: { check: RelayCheck }) {
@@ -528,9 +592,11 @@ function CodeArea({ pairing }: { pairing: PairingCode }) {
             {copied ? 'Copied' : 'Copy'}
           </Button>
         </div>
-        {/* 50a also draws `on a server: orbital join …`; it comes back with the headless server's command. */}
+        {/* Canvas 50a, 50q: the code's start stands for it in the server's command. */}
         <span className="font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.55)]">
-          paste it in Devices there
+          paste it in Devices there · on a server:
+          <br />
+          orbital join{code ? ` ${code.word.slice(0, SERVER_CODE_SHOWN)}…` : ''}
         </span>
       </div>
       <div className="flex flex-col gap-1.5">
@@ -560,11 +626,15 @@ function ThisDevice({
   self,
   savedName,
   networkName,
+  update,
+  onOpenUpdates,
 }: {
   patchAndSet: (patch: Record<string, string>) => Promise<boolean>
   self: GroupMember | null
   savedName: string
   networkName: string
+  update: MemberUpdate | undefined
+  onOpenUpdates?: () => void
 }) {
   const [draft, setDraft] = useState(savedName)
   /** The last name this field saved, so its own save landing is not mistaken for a change from elsewhere. */
@@ -588,30 +658,54 @@ function ThisDevice({
 
   // Before this device has an identity it has no roster entry: it is a desktop, its OS not known yet.
   const kind = self?.kind ?? 'desktop'
+  const version = update?.state?.installed ?? self?.version ?? null
+  // Canvas 50u A: this Mac's own update is Settings → Updates'; the row only points there.
+  // Canvas 50v: an update another member started here, as the map prompt says it.
+  const appUpdate = useAppUpdate((s) => s.state)
+  const strip = selfUpdateStrip(appUpdate)
+  const available = selfUpdateAvailable(update)
+  const line = strip ? strip.line : available ? updateAvailableLine(available) : null
+  const link = strip ? strip.link : true
   return (
-    <div className={`${CARD} box-border flex min-h-[60px] items-center gap-3.5 px-4 py-2`}>
-      <span className="flex text-text-bright">
-        <KindGlyph kind={kind} />
-      </span>
-      <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-        <label className="flex cursor-text items-center gap-2 self-start border-b border-dashed border-[rgba(150,205,255,.35)] pb-px">
-          <span className="block w-[170px]">
-            <Input
-              variant="bare"
-              aria-label="This device's name"
-              spellCheck={false}
-              value={draft}
-              placeholder={networkName}
-              onChange={(e) => setDraft(e.target.value)}
-            />
+    <div className={CARD}>
+      <div className="box-border flex min-h-[60px] items-center gap-3.5 px-4 py-2">
+        <span className="flex text-text-bright">
+          <KindGlyph kind={kind} />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+          <label className="flex cursor-text items-center gap-2 self-start border-b border-dashed border-[rgba(150,205,255,.35)] pb-px">
+            <span className="block w-[170px]">
+              <Input
+                variant="bare"
+                aria-label="This device's name"
+                spellCheck={false}
+                value={draft}
+                placeholder={networkName}
+                onChange={(e) => setDraft(e.target.value)}
+              />
+            </span>
+            <span aria-hidden className="text-[11px] text-[rgba(160,190,225,.6)]">
+              ✎
+            </span>
+          </label>
+          <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+            {kindOs(kind, self?.os ?? '', self?.osVersion)}
+            {version ? ` · ${version}` : ''}
+            {version && strip?.to ? ` → ${strip.to}` : ''}
           </span>
-          <span aria-hidden className="text-[11px] text-[rgba(160,190,225,.6)]">
-            ✎
-          </span>
-        </label>
-        <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{kindOs(kind, self?.os ?? '')}</span>
-      </span>
-      <span className={ASIDE}>EVERY DEVICE SEES THIS NAME</span>
+        </span>
+        <span className={ASIDE}>EVERY DEVICE SEES THIS NAME</span>
+      </div>
+      {line && (
+        <div className="-mt-1 flex items-center gap-2.5 pb-3 pl-[42px] pr-4">
+          <span className="flex-1 font-mono text-[11px] text-[rgba(200,220,245,.85)]">{line}</span>
+          {link && onOpenUpdates && (
+            <Button variant="dashed-link" size="link-mono" onClick={onOpenUpdates}>
+              Settings → Updates ›
+            </Button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -667,14 +761,20 @@ function GrantToggles({
 }
 
 /**
- * IN THIS GROUP's rows (canvas 50a ROWS, 50l): glyph, name with PRIMARY on
- * the primary's row, kind and OS on the quiet line under it, and the state
- * as a dot and words. Remove asks in place first, and only where `view`
- * offers it (`canRemoveRow`); a row not linked is a Pair by hand link only on
- * the primary. Remove stays available with the relay offline: the removal
- * applies here at once, and it is the only way out of a member that keeps
- * the relay locked. Under each other member, what it may do on this device
- * (spec 2026-10-19-member-grants-design § 2).
+ * IN THIS GROUP's rows (canvas 50a ROWS, 50l, 50q): glyph, name with PRIMARY
+ * on the primary's row, kind and OS on the quiet line under it, and the
+ * state as a dot and words with the version under them. Remove asks in place
+ * first, and only where `view` offers it (`canRemoveRow`); a row not linked
+ * is a Pair by hand link only on the primary. Remove stays available with the
+ * relay offline: the removal applies here at once, and it is the only way out
+ * of a member that keeps the relay locked. Under each other member, what it
+ * may do on this device (spec 2026-10-19-member-grants-design § 2).
+ *
+ * A member's update (canvas 50q, 50t; `updateRow`): one line under the row —
+ * available, waiting, installing, restarting, failed — with Update, Try
+ * again or Cancel (a wait) only while it can be asked. With sessions running
+ * there, Update first asks in place, as Remove does, with the local
+ * Restart's three choices.
  */
 function Members({
   rows,
@@ -682,15 +782,28 @@ function Members({
   now,
   onPairByHand,
   onSaved,
+  updates,
+  selfId,
 }: {
   rows: DeviceRow[]
   view: GroupView
   now: number
   onPairByHand: (m: DeviceRow) => void
   onSaved: () => void
+  updates: ReturnType<typeof useMemberUpdates>
+  selfId: string | null
 }) {
   const [asking, setAsking] = useState<string | null>(null)
   const [removing, setRemoving] = useState(false)
+  /**
+   * The member whose Update waits on the sessions confirm, and the count it
+   * first named: once Update now found more running, it says how many
+   * started since (canvas 50t CONFIRM · MORE SESSIONS STARTED).
+   */
+  const [confirm, setConfirm] = useState<{ id: string; shown: number; recount: boolean } | null>(null)
+  const askingUpdate = confirm?.id ?? null
+  const setAskingUpdate = (id: string | null) =>
+    setConfirm(id === null ? null : { id, shown: updates.byId[id]?.state?.sessions ?? 0, recount: false })
   /** A removal the group refused, said under that row rather than as a toast (canvas 50p I). */
   const [refusal, setRefusal] = useState<{ id: string; text: string } | null>(null)
   /** Member grants from /api/remote/grants. */
@@ -723,7 +836,7 @@ function Members({
       const res = await api.removeDevice(id)
       setAsking(null)
       // The status moved under the user: this device is no primary any more.
-      if (typeof res === 'object') setRefusal({ id, text: `Only ${res.primary.name} removes devices from this group.` })
+      if (typeof res === 'object') setRefusal({ id, text: notPrimaryRemoveLine(res.primary.name) })
       else onSaved()
     } catch (err) {
       reportError(err, 'Failed to remove the device')
@@ -756,17 +869,60 @@ function Members({
     }
   }
 
+  /** Update or Try again: the member is read again, and that answer decides whether to ask first. */
+  async function pressUpdate(id: string) {
+    setAsking(null)
+    setRefusal(null)
+    const result = await updates.press(id)
+    if (result === 'confirm') setAskingUpdate(id)
+    // Said under the row, as a refused removal is, never as a toast.
+    else if (result === 'unreachable') setRefusal({ id, text: UPDATE_UNREACHABLE })
+  }
+
+  /** The confirm's Update now or Update when sessions finish; Update now asks again, with the new count, when more sessions run there now. */
+  async function confirmUpdate(id: string, when: UpdateWhen) {
+    const result = await updates.start(id, when)
+    if (result === 'confirm') {
+      setConfirm((c) => (c?.id === id ? { ...c, recount: true } : c))
+      return
+    }
+    setAskingUpdate(null)
+    if (result === 'unreachable') setRefusal({ id, text: UPDATE_UNREACHABLE })
+  }
+
+  /** Cancel on a member that waits for its sessions: no confirm (canvas 50t WAITING). */
+  async function cancelUpdate(id: string) {
+    setRefusal(null)
+    const result = await updates.cancel(id)
+    if (result === 'unreachable') setRefusal({ id, text: UPDATE_UNREACHABLE_CANCEL })
+  }
+
   return (
     <div className={`${CARD} overflow-hidden`}>
       {rows.map((m, i) => {
-        const { state, words } = m
-        const nameInk = state === 'offline' ? 'text-[rgba(232,238,248,.62)]' : 'text-text-bright'
+        const u = m.member ? updates.byId[m.id] : undefined
+        const update = updateRow(u, {
+          name: m.name, kind: m.kind, online: m.state === 'online', words: m.words,
+          helloVersion: m.version, selfId, surface: 'desktop',
+        })
+        const { state } = m
+        const away = update.dim ?? state === 'offline'
+        const nameInk = away ? 'text-[rgba(232,238,248,.62)]' : 'text-text-bright'
+        const confirming = askingUpdate === m.id
+        const sessionsWords = updateSessionsWords(
+          u?.state?.sessions ?? 0, m.name, confirming && confirm?.recount ? confirm.shown : undefined,
+        )
+        const line = confirming ? null : update.line
         return (
           <div
             key={m.id}
             data-member={m.id}
             title={`joined ${longDate(m.addedAt)}`}
-            className={i === 0 ? '' : 'border-t border-[rgba(150,205,255,.08)]'}
+            className={[
+              i === 0 ? '' : 'border-t border-[rgba(150,205,255,.08)]',
+              // Canvas 50q: the confirm tints the whole row, as Remove's does.
+              confirming ? 'bg-[rgba(150,205,255,.05)]' : '',
+            ].join(' ')}
           >
             {asking !== m.id ? (
               <div className="box-border flex min-h-[58px] items-center gap-3.5 py-2 pl-4 pr-3">
@@ -780,31 +936,33 @@ function Members({
                     </span>
                     {m.primary && <PrimaryLabel />}
                   </span>
-                  <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{kindOs(m.kind, m.os)}</span>
+                  <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{kindOs(m.kind, m.os, m.osVersion)}</span>
                   {m.needsUpdate && (
                     <span className="font-mono text-[10px] text-[rgba(160,190,225,.6)]">
                       {needsUpdateLine(m.needsUpdate, now)}
                     </span>
                   )}
                 </span>
-                <span
-                  className={`flex w-[172px] flex-none items-center gap-[7px] font-mono text-[11px] ${
-                    state === 'online' ? 'text-[rgba(200,220,245,.85)]' : 'text-[rgba(160,190,225,.72)]'
-                  }`}
-                >
-                  {/* A phone paired with another member has no presence here, so no dot. */}
-                  {state !== 'elsewhere' && <MemberDot state={state} sizePx={7} />}
-                  {state === 'notLinked' && view.pairsByHand ? (
-                    <button
-                      type="button"
-                      onClick={() => onPairByHand(m)}
-                      className="cursor-pointer border-b border-dashed border-[rgba(160,190,225,.5)] text-left"
-                    >
-                      {words}
-                    </button>
-                  ) : (
-                    <span>{words}</span>
-                  )}
+                {/* Canvas 50q: the version under the state, at the height of the kind · OS line. */}
+                <span className="flex w-[172px] flex-none flex-col gap-0.5">
+                  <span
+                    className={`flex items-center gap-[7px] font-mono text-[11px] ${
+                      !away && (state === 'online' || update.dim === false)
+                        ? 'text-[rgba(200,220,245,.85)]'
+                        : 'text-[rgba(160,190,225,.72)]'
+                    }`}
+                  >
+                    {/* A phone paired with another member has no presence here, so no dot. */}
+                    {state !== 'elsewhere' && <MemberDot state={update.dot ?? state} sizePx={7} />}
+                    {state === 'notLinked' && view.pairsByHand ? (
+                      <Button variant="dashed-link" size="inline" onClick={() => onPairByHand(m)}>
+                        {update.words}
+                      </Button>
+                    ) : (
+                      <span>{update.words}</span>
+                    )}
+                  </span>
+                  {update.version && <span className={`pl-3.5 ${SUBLINE}`}>{update.version}</span>}
                 </span>
                 {canRemoveRow(view, m) && (
                   <Button
@@ -812,6 +970,7 @@ function Members({
                     size="member"
                     onClick={() => {
                       setRefusal(null)
+                      setAskingUpdate(null)
                       setAsking(m.id)
                     }}
                   >
@@ -822,10 +981,8 @@ function Members({
             ) : (
               <div className="box-border flex min-h-[58px] items-center gap-2.5 bg-[rgba(150,205,255,.05)] py-2 pl-4 pr-3">
                 <span className="flex-1 text-[12.5px] leading-[1.45] text-text-bright [text-wrap:pretty]">
-                  Remove {m.name}?{' '}
-                  <span className="text-[rgba(160,190,225,.7)]">
-                    It drops out of every device in the group now and has to be paired again from here.
-                  </span>
+                  {removeWords(m.name).question}{' '}
+                  <span className="text-[rgba(160,190,225,.7)]">{removeWords(m.name).body}</span>
                 </span>
                 <Button variant="outline" size="member" disabled={removing} onClick={() => setAsking(null)}>
                   Cancel
@@ -833,6 +990,63 @@ function Members({
                 <Button variant="ink" size="member" disabled={removing} onClick={() => void remove(m.id)}>
                   Remove
                 </Button>
+              </div>
+            )}
+            {asking !== m.id && line && (
+              <div className="-mt-1 flex min-h-8 items-center gap-2.5 pb-2.5 pl-[42px] pr-3">
+                <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
+                  <span
+                    className={`font-mono text-[11px] ${line.bright ? 'text-[rgba(200,220,245,.85)]' : 'text-[rgba(160,190,225,.72)]'}`}
+                  >
+                    {line.text}
+                  </span>
+                  {line.sub && <span className={SUBLINE}>{line.sub}</span>}
+                </span>
+                {line.action && (
+                  <Button
+                    variant="outline"
+                    size="member-line"
+                    disabled={updates.starting !== null}
+                    onClick={() => void (line.action === 'cancel' ? cancelUpdate(m.id) : pressUpdate(m.id))}
+                  >
+                    {line.action === 'retry' ? 'Try again' : line.action === 'cancel' ? 'Cancel' : 'Update'}
+                  </Button>
+                )}
+              </div>
+            )}
+            {asking !== m.id && confirming && (
+              // Canvas 50q/50t CONFIRM: the words, then the local Restart's three choices under them.
+              <div className="-mt-0.5 flex flex-col gap-2 pb-3 pl-[42px] pr-3">
+                <span className="text-[12.5px] leading-[1.45] text-text-bright [text-wrap:pretty]">
+                  {sessionsWords.question}{' '}
+                  <span className="text-[rgba(160,190,225,.7)]">{sessionsWords.body}</span>
+                </span>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="quiet"
+                    size="member-quiet"
+                    disabled={updates.starting !== null}
+                    onClick={() => setAskingUpdate(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="member"
+                    disabled={updates.starting !== null}
+                    onClick={() => void confirmUpdate(m.id, 'now')}
+                  >
+                    {UPDATE_NOW}
+                  </Button>
+                  <Button
+                    variant="ink"
+                    size="member"
+                    disabled={updates.starting !== null}
+                    onClick={() => void confirmUpdate(m.id, 'idle')}
+                  >
+                    {UPDATE_WHEN_IDLE}
+                  </Button>
+                </div>
               </div>
             )}
             {refusal?.id === m.id && (
@@ -895,49 +1109,35 @@ function EndedNotice({ ended }: { ended: GroupEnded }) {
   )
 }
 
-/** ADD A DEVICE on a member (canvas 50l): no code and no field, only who adds and removes devices. */
-function Managed({ primary }: { primary: string }) {
+/**
+ * ADD A DEVICE on a member (canvas 50l, 50r): no code and no field, only who
+ * adds and removes devices — on a server primary, with the command that does
+ * it there — and, while the primary updates, that adding and removing waits.
+ */
+function Managed({ primary, kind, updating }: { primary: string; kind: string; updating: boolean }) {
   return (
-    <div className="flex items-start gap-3 rounded-[12px] border border-dashed border-[rgba(150,205,255,.16)] p-4">
-      <span className="flex pt-1 text-[rgba(232,238,248,.7)]">
-        <KindGlyph kind="desktop" />
-      </span>
-      <span className="flex-1 text-[12.5px] leading-[1.5] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
-        <span className="font-semibold text-text-bright">{primary}</span> manages this group — add and remove devices there.
-      </span>
+    <div className="flex flex-col gap-2.5 rounded-[12px] border border-dashed border-[rgba(150,205,255,.16)] p-4">
+      <div className="flex items-start gap-3">
+        <span className="flex pt-1 text-[rgba(232,238,248,.7)]">
+          <KindGlyph kind={kind} />
+        </span>
+        <span className="flex flex-1 flex-col gap-[5px]">
+          <span className="text-[12.5px] leading-[1.5] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
+            <span className="font-semibold text-text-bright">{primary}</span> manages this group — add and remove devices there.
+          </span>
+          {/* Canvas 50r: a server primary adds and removes in its terminal. */}
+          {kind === 'headless' && (
+            <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">on {primary}: orbital devices</span>
+          )}
+        </span>
+      </div>
+      {updating && (
+        <span className="border-t border-[rgba(150,205,255,.08)] pl-6 pt-2.5 text-[12px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+          {primary} is updating. Adding and removing devices waits until it’s back; everything else keeps working.
+        </span>
+      )}
     </div>
   )
-}
-
-/** Dissolve on the primary, Leave on a member (canvas 50a, 50l `leave*`, 50p F–H): the box's words, and its confirmation's. */
-function exitWords(exit: 'dissolve' | 'leave', count: number, primary: string) {
-  if (exit === 'dissolve') {
-    return {
-      title: 'Dissolve this group',
-      sub: 'Sessions on every device keep running.',
-      button: 'Dissolve…',
-      question: 'Dissolve the group?',
-      body: count === 1
-        ? 'The other device becomes standalone and its pair with this one ends. To form a new group, pair devices again from here.'
-        : `All ${count} other devices become standalone and every pair between them ends. To form a new group, pair devices again from here.`,
-      go: 'Dissolve',
-      offline: 'Connect to the relay to dissolve the group — the others have to hear it.',
-      failed: "Couldn't dissolve the group. Try again.",
-    }
-  }
-  return {
-    title: 'Leave this group',
-    sub: 'Sessions here keep running.',
-    button: 'Leave…',
-    question: 'Leave the group?',
-    // With one other device, that device is the primary (canvas 50p H).
-    body: count === 1
-      ? `This device becomes standalone and forgets ${primary}. To join again, pair it with ${primary}.`
-      : `This device becomes standalone and forgets the other ${count}. To join again, pair it with ${primary}.`,
-    go: 'Leave',
-    offline: 'Connect to the relay to leave — the others have to hear it.',
-    failed: "Couldn't leave the group. Try again.",
-  }
 }
 
 /**
@@ -1072,15 +1272,12 @@ function RelayTooOldCard({
 /** The two relay settings Change relay opens; a change to either removes the paired devices first. */
 type RelaySetting = 'remote_relay_url' | 'remote_relay_secret'
 
-/** The 9r confirm's words for each setting. The secret's are provisional copy: the canvas draws no such dialog yet. */
-const ASK: Record<RelaySetting, { title: string; body: (devices: string, have: string) => string }> = {
-  remote_relay_url: {
-    title: 'Change the relay?',
-    body: (devices, have) => `${devices} will be removed and ${have} to pair again on the new relay.`,
-  },
+/** The 9r confirm's words for each setting. */
+const ASK: Record<RelaySetting, { title: string; body: (count: number) => string }> = {
+  remote_relay_url: { title: relayChangeWords(0).title, body: (count) => relayChangeWords(count).body },
   remote_relay_secret: {
-    title: 'Change the relay secret?',
-    body: (devices, have) => `${devices} will be removed and ${have} to pair again with the new secret.`,
+    title: relayChangeWords(0, 'secret').title,
+    body: (count) => relayChangeWords(count, 'secret').body,
   },
 }
 
@@ -1275,7 +1472,7 @@ function RelaySettings({
         }
       >
         <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
-          {ask.body(deviceCount(count), count === 1 ? 'has' : 'have')}
+          {ask.body(count)}
         </p>
       </Dialog>
     </>

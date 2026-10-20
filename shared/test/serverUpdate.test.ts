@@ -1,0 +1,191 @@
+import { describe, expect, it } from 'vitest';
+import {
+  SERVER_UPDATE_VERSION, STARTED_BY_NAME_MAX_CHARS, UPDATE_POLL_MS, UPDATE_WAIT_POLL_MS, UPDATE_TIMEOUT_MS, parseMainMessage, parseServerMessage, parseServerUpdateState,
+  parseUpdateStartBody,
+  memberServesUpdate, servesServerUpdate, updateIsNewer, updatePollDelay, watchUpdate, watchVerdict, type ServerUpdateState,
+} from '../src/remote/serverUpdate.js';
+
+const state = (over: Partial<ServerUpdateState> = {}): ServerUpdateState => ({
+  installed: '0.35.0', candidate: '0.36.0', packaged: true, updating: false, failed: null, sessions: 0, startedBy: null, ...over,
+});
+
+describe('parseServerUpdateState', () => {
+  it('takes a well-formed state', () => {
+    expect(parseServerUpdateState(state())).toEqual(state());
+    expect(parseServerUpdateState(state({ candidate: null, installed: 'dev', failed: '1:0.36.0-1' }))).not.toBeNull();
+  });
+
+  it('reads startedBy: kept when well-formed, null when absent (an older server) or malformed', () => {
+    const by = { id: 'abcd1234', name: 'Pixel 8' };
+    expect(parseServerUpdateState(state({ updating: true, startedBy: by }))?.startedBy).toEqual(by);
+    const { startedBy: _b, ...older } = state();
+    expect(parseServerUpdateState(older)?.startedBy).toBeNull();
+    expect(parseServerUpdateState({ ...state(), startedBy: { id: 7, name: 'x' } })?.startedBy).toBeNull();
+    expect(parseServerUpdateState({ ...state(), startedBy: { id: 'x'.repeat(500), name: 'x' } })?.startedBy).toBeNull();
+    expect(parseServerUpdateState({ ...state(), startedBy: { id: 'a', name: 'n'.repeat(500) } })?.startedBy?.name.length)
+      .toBeLessThan(500);
+  });
+
+  it('reads failedReason: kept when known, absent from an older server, null for one this side does not know', () => {
+    expect(parseServerUpdateState(state({ failed: '0.36.0', failedReason: 'sessions' }))?.failedReason).toBe('sessions');
+    expect(parseServerUpdateState(state({ failed: '0.36.0', failedReason: 'unknown' }))?.failedReason).toBe('unknown');
+    expect(parseServerUpdateState(state())?.failedReason).toBeUndefined();
+    expect(parseServerUpdateState({ ...state(), failedReason: 'later' })?.failedReason).toBeNull();
+  });
+
+  it('refuses a missing field, a negative count and a version that is not one', () => {
+    const { sessions: _s, ...noSessions } = state();
+    expect(parseServerUpdateState(noSessions)).toBeNull();
+    expect(parseServerUpdateState(state({ sessions: -1 }))).toBeNull();
+    expect(parseServerUpdateState(state({ candidate: '../../etc' }))).toBeNull();
+    expect(parseServerUpdateState(state({ installed: '--yes' }))).toBeNull();
+    expect(parseServerUpdateState(state({ installed: 'x'.repeat(65) }))).toBeNull();
+    expect(parseServerUpdateState(null)).toBeNull();
+  });
+});
+
+describe('servesServerUpdate', () => {
+  it('is true from SERVER_UPDATE_VERSION on, and for a dev server', () => {
+    expect(servesServerUpdate(SERVER_UPDATE_VERSION)).toBe(true);
+    expect(servesServerUpdate('0.40.1')).toBe(true);
+    expect(servesServerUpdate('dev')).toBe(true);
+  });
+
+  it('is false below it and before a hello named any version', () => {
+    expect(servesServerUpdate('0.34.9')).toBe(false);
+    expect(servesServerUpdate(null)).toBe(false);
+    expect(servesServerUpdate(undefined)).toBe(false);
+    expect(servesServerUpdate('')).toBe(false);
+  });
+});
+
+describe('updateIsNewer', () => {
+  it('only a strictly newer candidate', () => {
+    expect(updateIsNewer('0.35.0', '0.36.0')).toBe(true);
+    expect(updateIsNewer('0.35.0', '0.35.0')).toBe(false);
+    expect(updateIsNewer('0.36.0', '0.35.0')).toBe(false);
+    expect(updateIsNewer('0.35.0', null)).toBe(false);
+  });
+});
+
+describe('main ↔ server messages', () => {
+  it('takes the two messages as they are sent', () => {
+    const msg = { t: 'update_state', installed: '0.35.0', available: '0.36.0', downloading: true, downloaded: false };
+    expect(parseMainMessage(msg)).toEqual(msg);
+    expect(parseMainMessage({ ...msg, available: null })).not.toBeNull();
+    expect(parseServerMessage({ t: 'update_start', by: null, when: 'now' })).toEqual({ t: 'update_start', by: null, when: 'now' });
+    const by = { id: 'p1', name: 'Pixel 8' };
+    expect(parseServerMessage({ t: 'update_start', by, when: 'idle' })).toEqual({ t: 'update_start', by, when: 'idle' });
+    expect(parseMainMessage({ ...msg, waiting: 2 })).toEqual({ ...msg, waiting: 2 });
+    expect(parseMainMessage({ ...msg, waiting: null })).not.toBeNull();
+    expect(parseMainMessage({ t: 'update_ended', reason: 'cancelled' })).not.toBeNull();
+    expect(parseServerMessage({ t: 'update_cancel' })).toEqual({ t: 'update_cancel' });
+    expect(parseMainMessage({ t: 'update_ended', reason: 'sessions' })).toEqual({ t: 'update_ended', reason: 'sessions' });
+    expect(parseMainMessage({ t: 'update_ended', reason: 'restart' })).not.toBeNull();
+    expect(parseMainMessage({ t: 'update_ended', reason: 'unknown' })).not.toBeNull();
+  });
+
+  it('ignores anything malformed, extra or sent the wrong way', () => {
+    const msg = { t: 'update_state', installed: '0.35.0', available: null, downloading: false, downloaded: false };
+    expect(parseMainMessage({ ...msg, downloaded: 'yes' })).toBeNull();
+    expect(parseMainMessage({ ...msg, url: 'https://example.com/evil.zip' })).toBeNull();
+    expect(parseMainMessage({ ...msg, available: '/tmp/evil' })).toBeNull();
+    expect(parseMainMessage({ t: 'update_start' })).toBeNull();
+    expect(parseMainMessage({ t: 'update_ended' })).toBeNull();
+    expect(parseMainMessage({ t: 'update_ended', reason: 'bored' })).toBeNull();
+    expect(parseMainMessage({ ...msg, waiting: -1 })).toBeNull();
+    expect(parseMainMessage({ ...msg, waiting: 'two' })).toBeNull();
+    expect(parseServerMessage({ t: 'update_start', by: null, when: 'now', version: '9.9.9' })).toBeNull();
+    // When is one of the two, and said.
+    expect(parseServerMessage({ t: 'update_start', by: null })).toBeNull();
+    expect(parseServerMessage({ t: 'update_start', by: null, when: 'later' })).toBeNull();
+    // Who asked is said, null or a member, and nothing else rides along with it.
+    expect(parseServerMessage({ t: 'update_start', when: 'now' })).toBeNull();
+    expect(parseServerMessage({ t: 'update_start', by: { id: 'p1' }, when: 'now' })).toBeNull();
+    expect(parseServerMessage({ t: 'update_start', by: { id: 'p1', name: '' } , when: 'now' })).toBeNull();
+    expect(parseServerMessage({ t: 'update_start', by: { id: '', name: 'Pixel 8' } , when: 'now' })).toBeNull();
+    expect(parseServerMessage({ t: 'update_start', by: { id: 'p1', name: 'x'.repeat(STARTED_BY_NAME_MAX_CHARS + 1) } , when: 'now' })).toBeNull();
+    expect(parseServerMessage({ t: 'update_start', by: { id: 'p1', name: 'Pixel 8', url: 'https://example.com' } , when: 'now' })).toBeNull();
+    expect(parseServerMessage({ t: 'update_start', by: 'Pixel 8' , when: 'now' })).toBeNull();
+    expect(parseServerMessage({ t: 'update_cancel', url: 'https://example.com' })).toBeNull();
+    expect(parseServerMessage({ t: 'update_restart' })).toBeNull();
+    expect(parseServerMessage(msg)).toBeNull();
+    expect(parseServerMessage('update_start')).toBeNull();
+  });
+});
+
+describe('parseUpdateStartBody', () => {
+  it('reads when: absent is now, and the two values', () => {
+    expect(parseUpdateStartBody(undefined)).toBe('now');
+    expect(parseUpdateStartBody({})).toBe('now');
+    expect(parseUpdateStartBody({ when: 'now' })).toBe('now');
+    expect(parseUpdateStartBody({ when: 'idle' })).toBe('idle');
+  });
+
+  it('refuses any other value, any other field and any other shape', () => {
+    expect(parseUpdateStartBody({ when: 'later' })).toBeNull();
+    expect(parseUpdateStartBody({ when: 'IDLE' })).toBeNull();
+    expect(parseUpdateStartBody({ when: null })).toBeNull();
+    expect(parseUpdateStartBody({ when: 'idle', version: '9.9.9' })).toBeNull();
+    expect(parseUpdateStartBody({ package: 'evil' })).toBeNull();
+    expect(parseUpdateStartBody({ when: ['idle'] })).toBeNull();
+    expect(parseUpdateStartBody(null)).toBeNull();
+    expect(parseUpdateStartBody('idle')).toBeNull();
+    expect(parseUpdateStartBody([])).toBeNull();
+  });
+});
+
+describe('watching an update', () => {
+  const watch = watchUpdate(state({ updating: true }), 1_000);
+
+  it('is done once the member answers with another version', () => {
+    expect(watchVerdict(watch, state({ installed: '0.36.0', candidate: '0.36.0' }), 2_000)).toBe('updated');
+  });
+
+  it('keeps going while the member cannot be read or still says updating', () => {
+    expect(watchVerdict(watch, null, 2_000)).toBe('updating');
+    expect(watchVerdict(watch, state({ updating: true }), 2_000)).toBe('updating');
+  });
+
+  it('fails when the member is back with the old version, or after UPDATE_TIMEOUT_MS', () => {
+    expect(watchVerdict(watch, state({ failed: '0.36.0' }), 2_000)).toBe('failed');
+    expect(watchVerdict(watch, state(), 2_000)).toBe('failed');
+    expect(watchVerdict(watch, null, 1_000 + UPDATE_TIMEOUT_MS)).toBe('failed');
+    expect(watchVerdict(watch, state({ updating: true }), 1_000 + UPDATE_TIMEOUT_MS)).toBe('failed');
+  });
+
+  it('a member waiting for its sessions is waiting, with no time running out', () => {
+    const waiting = state({ updating: true, waiting: { sessions: 2 } })
+    expect(watchVerdict(watch, waiting, 2_000)).toBe('waiting');
+    expect(watchVerdict(watch, waiting, 1_000 + UPDATE_TIMEOUT_MS * 10)).toBe('waiting');
+  });
+
+  it('a wait that went (cancelled, or dropped by a restart) has ended; failed only when the member says so', () => {
+    const waited = { ...watch, waited: true };
+    expect(watchVerdict(waited, state(), 2_000)).toBe('ended');
+    expect(watchVerdict(waited, state({ failed: '0.36.0' }), 2_000)).toBe('failed');
+    // Never seen waiting: back on the old version with no word is a failure, as before.
+    expect(watchVerdict(watch, state(), 2_000)).toBe('failed');
+  });
+
+  it('a new version wins over the timeout', () => {
+    expect(watchVerdict(watch, state({ installed: '0.36.0' }), 1_000 + UPDATE_TIMEOUT_MS * 2)).toBe('updated');
+  });
+
+  it('polls only while a row is watched', () => {
+    expect(updatePollDelay({ watching: true })).toBe(UPDATE_POLL_MS);
+    expect(updatePollDelay({ watching: false })).toBeNull();
+    expect(updatePollDelay({ watching: true, waiting: true })).toBe(UPDATE_WAIT_POLL_MS);
+    expect(updatePollDelay({ watching: false, waiting: true })).toBeNull();
+  });
+});
+
+describe('memberServesUpdate', () => {
+  it('asks this device always, a phone never, and another member by its version', () => {
+    expect(memberServesUpdate({ self: true, kind: 'desktop', version: null })).toBe(true);
+    expect(memberServesUpdate({ self: false, kind: 'phone', version: '9.0.0' })).toBe(false);
+    expect(memberServesUpdate({ self: false, kind: 'headless', version: SERVER_UPDATE_VERSION })).toBe(true);
+    expect(memberServesUpdate({ self: false, kind: 'desktop', version: '0.1.0' })).toBe(false);
+    expect(memberServesUpdate({ self: false, kind: 'desktop' })).toBe(false);
+  });
+});

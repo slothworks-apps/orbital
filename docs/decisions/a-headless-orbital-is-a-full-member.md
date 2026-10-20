@@ -1,7 +1,7 @@
 ---
 id: a-headless-orbital-is-a-full-member
 title: Orbital on a Linux server is a full member of the group, without a map
-status: draft
+status: in-force
 type: adr
 domain: remote
 related:
@@ -38,6 +38,20 @@ shows no map; it is joined and managed from the terminal
   the channel already carries both directions.
 
 ## Consequences
+
+- **Upkeep and audience.** Few people who run several Claude Code
+  sessions keep an always-on Linux box, and the server brings the most
+  upkeep in the group:
+  - a signed apt repository and its key;
+  - a monthly re-sign;
+  - a root updater;
+  - two Ubuntu releases;
+  - a CLI.
+
+  It is accepted because the always-on member is what the phone needs
+  while the Mac sleeps. The package stays a preview until its reception
+  is known
+  ([[2026-10-19-headless-server-design]] § Scope).
 
 - The server needs the Linux fixes in the spec's § 11 and a runbook.
 - A web UI on the server, over an SSH tunnel, stays possible later; it

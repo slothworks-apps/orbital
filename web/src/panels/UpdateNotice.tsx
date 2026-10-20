@@ -10,7 +10,8 @@ import { MapNotice, MapNoticeProgress, MapNoticeText } from '../ui/MapNotice'
  * `Feature - App update`; spec 2026-10-08-builds-for-testers-design § The
  * desktop app updates itself). One message for the whole life of an update,
  * whose states swap their words in place — Available, Downloading, Ready,
- * the receipt — and only the last of them ends it. While it is downloading,
+ * the receipt — and only the last of them ends it. After a restart another
+ * member made, the line that says so heads WHAT'S NEW (`panels/WhatsNew`). While it is downloading,
  * the messages behind it wait too. Restart when sessions finish takes it off
  * the map; Cancel in Settings › Updates brings Ready back.
  *

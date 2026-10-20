@@ -12,7 +12,9 @@ interface AppUpdateState {
   state: UpdateState | null
   /**
    * What the prompt draws: `state`, except that `restarting` keeps the
-   * state before it — nothing new is said while the app quits into the update.
+   * state before it — nothing new is said while the app quits into the
+   * update — unless another member started it, whose restart has its own
+   * last line (canvas 50v 02).
    */
   shown: UpdateState | null
   connect(source: UpdateBridge): void
@@ -20,7 +22,7 @@ interface AppUpdateState {
 
 export const useAppUpdate = create<AppUpdateState>()((set, get) => {
   const take = (state: UpdateState) =>
-    set((s) => ({ state, shown: state.phase === 'restarting' ? s.shown : state }))
+    set((s) => ({ state, shown: state.phase === 'restarting' && !state.remote ? s.shown : state }))
   return {
     source: null,
     state: null,

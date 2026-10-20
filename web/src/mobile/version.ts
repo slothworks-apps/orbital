@@ -1,4 +1,5 @@
 import { compareVersions } from '@orbital/shared/remote/version'
+import { SERVER_UPDATE_VERSION } from '@orbital/shared/remote/serverUpdate'
 import { useOrbital } from '../store/store'
 import { useMobile, type DeviceView } from './state'
 import { groupRef } from './transport/groupRef'
@@ -19,6 +20,8 @@ export const MAC_FEATURES = {
   media: '0.26.0',
   /** New Session's missing-directory line and *Create and start*: `GET`/`POST /api/directory` (spec 2026-10-12-new-session-missing-directory-design). */
   directoryCheck: '0.29.0',
+  /** Settings → Devices' version, update available, Update and updating per member: `GET`/`POST /api/server/update` (spec 2026-10-19-headless-server-design § The phone). */
+  serverUpdate: SERVER_UPDATE_VERSION,
 } as const
 
 export type MacFeature = keyof typeof MAC_FEATURES

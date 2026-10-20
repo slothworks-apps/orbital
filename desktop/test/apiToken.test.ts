@@ -3,11 +3,13 @@ import { apiTokenPath, authCookies, bearerHeaders, parseApiToken } from '../src/
 
 describe('apiTokenPath', () => {
   it('lives in the server’s default data dir', () => {
-    expect(apiTokenPath({}, '/Users/x')).toBe('/Users/x/Library/Application Support/orbital/api-token');
+    expect(apiTokenPath({ env: {}, home: '/Users/x', platform: 'darwin' })).toBe(
+      '/Users/x/Library/Application Support/orbital/api-token',
+    );
   });
 
   it('follows ORBITAL_DATA_DIR, as the server does', () => {
-    expect(apiTokenPath({ ORBITAL_DATA_DIR: '/tmp/orbital-data' }, '/Users/x')).toBe(
+    expect(apiTokenPath({ env: { ORBITAL_DATA_DIR: '/tmp/orbital-data' }, home: '/Users/x', platform: 'darwin' })).toBe(
       '/tmp/orbital-data/api-token',
     );
   });

@@ -1,0 +1,35 @@
+# The root updater (spec 2026-10-19-headless-server-design → The root
+# updater): refreshes the package lists and upgrades the `orbital` package,
+# nothing else. It never reads the request file, so a request cannot name a
+# version, a package or an option. postinst then restarts the server.
+#
+# Hardening is what an apt run allows. Not set, and why:
+# - ProtectSystem: dpkg writes /usr, /etc and /var.
+# - NoNewPrivileges: maintainer scripts may need privilege changes, and apt
+#   drops to its own _apt user for downloads.
+# - ProtectHome, PrivateUsers: postinst reaches the user's systemd manager
+#   (systemctl --user -M <user>@) to restart the server.
+# - CapabilityBoundingSet, SystemCallFilter: dpkg needs most of root's
+#   capabilities to unpack and chown, and the set changes with dpkg.
+[Unit]
+Description=Upgrade the orbital package
+Documentation=https://orbital.slothworks.io
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/orbital/update
+TimeoutStartSec=30min
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+UMask=0022

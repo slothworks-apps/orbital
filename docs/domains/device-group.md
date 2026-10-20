@@ -223,6 +223,65 @@ primary's own phones after it joined another group) is listed under
 `devices` only. Settings → Devices shows a phone not paired here as
 `paired with <its desktop>`.
 
+Each member row also carries what that member's last hello named:
+- `version`, its Orbital version;
+- `osVersion`, its OS with version, such as `Ubuntu 24.04`.
+
+Both are absent on a member from before updates from the group.
+
+## Updating a member
+
+Any member updates any other through `GET`/`POST`/`DELETE /api/server/update`
+(ADR `any-member-may-update-another`, spec
+`2026-10-19-headless-server-design`). It is not a primary-only action.
+
+- **Starting:** `POST` takes `{ when: 'now' | 'idle' }`, strictly. With
+  `idle` the member waits until no session is busy. A server holds the
+  request; a Mac runs its own restart-when-idle.
+- **Cancelling:** `DELETE` cancels a wait.
+
+**The state** (`ServerUpdateState` in shared) is `installed`, `candidate`,
+`packaged`, `updating`, `waiting` (`{ sessions }` or null), `failed`,
+`sessions` and `startedBy`:
+- `sessions` counts busy sessions: working, or waiting on a decision.
+- `startedBy` is taken from the channel's peer, never from the body.
+
+**Where the update comes from:**
+- A headless server reads apt (`apt-cache policy orbital`). A request
+  file starts the root `orbital-update.path` unit.
+- A Mac asks Electron's main process over the server's `parentPort`
+  (`update_state`, `update_start` with `by`, the asking member, and
+  `update_cancel`). Main answers `update_ended` with a reason when it
+  will not install:
+  - `sessions`: a session became working during the download that was
+    not working when the request arrived, judged by id;
+  - `unknown`: the working list was not known;
+  - `restart`: the restart did not happen.
+
+  The Mac shows the update in App update's own prompt (canvas 50v) and
+  holds a last line for `REMOTE_RESTART_HOLD_MS` before restarting.
+- Anything else answers `not_packaged`.
+
+**On restart:** the server reads its version from the package's `VERSION`
+file or from `ORBITAL_VERSION`.
+- If it still runs the version it ran when the update was asked for, it
+  reports `failed`.
+- With no restart after `UPDATE_TIMEOUT_MS`, it reports `failed` too.
+
+**Who is asked:**
+- The desktop asks a member only through `readMemberUpdate` /
+  `startMemberUpdate` (`web/src/lib/devices.ts`).
+- The phone asks through `readDeviceUpdate` / `startDeviceUpdate`.
+- Both ask only a member whose version is at least `SERVER_UPDATE_VERSION`
+  (`MAC_FEATURES.serverUpdate`).
+
+**When it is read:** the state is read while Settings → Devices is open,
+and polled every `UPDATE_POLL_MS` while a row is updating. Nothing about
+an update shows outside Settings → Devices.
+
+**From a terminal:** the CLI's `orbital update [<name>]` does the same on
+a server.
+
 ## Known limits
 
 - **A member asleep at a removal** still links with the removed device
@@ -264,7 +323,7 @@ Every member of the group reaches one literal allowlist: the routes a member may
 
 - `sessions` (default on): read and drive sessions.
 - `spawn` (default on): start sessions.
-- `settings` (default on): settings, tags, tag rules, harness templates.
+- `settings` (default on): settings, tags, tag rules, harness templates, and updating this device (`/api/server/update`).
 - `manage` (default off): this device's upkeep (Claude directories, errors, branch status, model validation, retention preview, session tips).
 - `ide` (default off): the IDE bridge of this device's sessions.
 

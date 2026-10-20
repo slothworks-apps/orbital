@@ -8,8 +8,10 @@ import { fileURLToPath } from 'node:url';
 import { statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { DataDirNotOwned, ensureDataDir } from '@orbital/shared/dataDir';
 import { CONFIG } from './config.js';
 import { applyLoginShellPath } from './env/loginPath.js';
+import { isExecutableFile } from './env/shell.js';
 import { FIRST_CLAUDE_DIR_ID, cliDefaultDir } from './claudeDirs/paths.js';
 import { ClaudeDirsService, seedClaudeDirs, type ClaudeDir } from './claudeDirs/service.js';
 import {
@@ -30,7 +32,7 @@ import { recordPermissionWait } from './stats/store.js';
 import { Hub } from './api/hub.js';
 import { Runner, type QueryFn } from './runner/runner.js';
 import { resolveClaudeCodeVersion } from './runner/version.js';
-import { claudeCliVersion, isExecutableFile, resolveClaudeCli, sdkBundledCliAvailable, sdkBundledCliPath } from './runner/claudeCli.js';
+import { claudeCliVersion, resolveClaudeCli, sdkBundledCliAvailable, sdkBundledCliPath } from './runner/claudeCli.js';
 import { McpConfig } from './mcp/config.js';
 import { claudeJsonPath } from './mcp/claudeJson.js';
 import { dbFingerprints } from './mcp/approvals.js';
@@ -62,11 +64,18 @@ import { LIMITS_TOPIC, LimitsService } from './limits/service.js';
 import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
 import { Presence } from './remote/presence.js';
+import { hostOsVersion } from './remote/osVersion.js';
 import { RemoteService } from './remote/service.js';
 import { registerFederationRoutes } from './federation/routes.js';
 import { FederationService } from './federation/service.js';
 import { MemberSnapshotStore } from './federation/store.js';
 import { remoteInjectOptions } from './remote/inject.js';
+import { registerServerUpdateRoutes } from './api/serverUpdate.js';
+import {
+  AptUpdateBackend, chooseUpdateBackend, DesktopUpdateBackend, NoUpdateBackend, PACKAGE_ROOT, runningVersion,
+  type ParentPort, type UpdateBackend,
+} from './update/backends.js';
+import { UPDATE_MARKER_FILE, UpdateService } from './update/service.js';
 import {
   API_TOKEN_COOKIE,
   loadOrCreateApiToken,
@@ -262,12 +271,16 @@ export async function buildServer(overrides: {
   terminals?: TerminalStoreOptions;
   /** The full index pass, in slices. Tests wrap it to hold the boot pass back. */
   indexProjectsSliced?: typeof indexProjectsSliced;
+  /** This host's OS version for the hello; tests set it instead of reading the host's. */
+  osVersion?: string | null;
   /** Tests reach the remote service directly; nothing in the app uses it. */
   exposeRemote?: (remote: RemoteService) => void;
   /** Tests reach the federation directly, as they do the remote. */
   exposeFederation?: (federation: FederationService) => void;
   /** Tests listen on the hub as a local window would. */
   exposeHub?: (hub: Hub) => void;
+  /** Where an update comes from; tests inject one. Unset, `chooseUpdateBackend` picks it from the environment. */
+  updateBackend?: UpdateBackend;
 } = {}): Promise<FastifyInstance> {
   const apiToken = overrides.apiToken;
   if (apiToken === undefined && !process.env.VITEST) {
@@ -284,6 +297,10 @@ export async function buildServer(overrides: {
   const billing: 'api-key' | 'subscription' =
     process.env.ORBITAL_USE_API_KEY === '1' ? 'api-key' : 'subscription';
   if (billing !== 'api-key') delete process.env.ANTHROPIC_API_KEY;
+  // Which build this is: the desktop's `ORBITAL_VERSION`, or the package's own file.
+  const version = runningVersion({ env: process.env, entry: process.argv[1], packageRoot: PACKAGE_ROOT });
+  // What this device's hello names as its OS (`Ubuntu 24.04`): read once, before anything starts.
+  const osVersion = overrides.osVersion !== undefined ? overrides.osVersion : await hostOsVersion();
   // The other half of the environment this server depends on: launched from
   // Finder it inherits `/usr/bin:/bin:/usr/sbin:/sbin`, where neither `claude`
   // nor the git/npm a session shells out to can be found. Gated, so only the
@@ -1417,7 +1434,7 @@ export async function buildServer(overrides: {
     // reads both before it attaches, so it never adopts an orphan of a crashed
     // app or a server of another version (desktop `decideAttach`). Null on a
     // server started by hand, such as `npm run dev`.
-    version: process.env.ORBITAL_VERSION ?? null,
+    version: version ?? null,
     desktop: desktopParentPid() === null ? null : { pid: process.pid, parentPid: desktopParentPid() },
     // Settings → General reads these two: they are facts about how this
     // server was started, not preferences, so they ride the health payload
@@ -1438,7 +1455,8 @@ export async function buildServer(overrides: {
   const foreign = (id: string): boolean => federation.linkOf(id) !== null;
   const remote = new RemoteService({
     db, hub, dataDir, images, imagesDir, transcriptPath, trees, presence,
-    serverVersion: process.env.ORBITAL_VERSION ?? 'dev',
+    serverVersion: version ?? 'dev',
+    osVersion,
     inject: async (req) => {
       const res = await app.inject(remoteInjectOptions(req, apiToken));
       return { statusCode: res.statusCode, body: res.body };
@@ -1459,6 +1477,15 @@ export async function buildServer(overrides: {
   // Before the routes: a request for a member's session must never reach a
   // local handler, which would answer it as an unknown session of this device.
   registerFederationRoutes(app, federation, () => remote.selfId(), imagesDir, images);
+  // Updating this server from the group (spec 2026-10-19-headless-server-design § Updating from the group).
+  const updates = new UpdateService({
+    backend: overrides.updateBackend ?? startUpdateBackend(),
+    running: version ?? 'dev',
+    markerPath: join(dataDir, UPDATE_MARKER_FILE),
+    // What an update would cut off: a turn running or a decision waiting.
+    sessions: () => runner.busyCount(),
+  });
+  registerServerUpdateRoutes(app, updates, remote);
   registerRoutes(app, {
     db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, terminals, recentTools, errors,
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees,
@@ -1507,6 +1534,7 @@ export async function buildServer(overrides: {
       console.warn(`[remote] stop failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     limits.dispose();
+    updates.stop();
     presence.dispose();
     runner.dispose();
     registry.close();
@@ -1531,6 +1559,25 @@ export async function buildServer(overrides: {
 function desktopParentPid(): number | null {
   const pid = Number(process.env.ORBITAL_PARENT_PID);
   return Number.isInteger(pid) && pid > 0 ? pid : null;
+}
+
+/** The update backend this process runs under (`chooseUpdateBackend`), started. */
+function startUpdateBackend(): UpdateBackend {
+  const parentPort = (process as unknown as { parentPort?: ParentPort }).parentPort;
+  const kind = chooseUpdateBackend({
+    headless: process.env.ORBITAL_HEADLESS === '1',
+    entry: process.argv[1],
+    packageRoot: PACKAGE_ROOT,
+    desktopParent: desktopParentPid() !== null,
+    parentPort: parentPort !== undefined,
+  });
+  if (kind === 'apt') {
+    const apt = new AptUpdateBackend();
+    apt.start();
+    return apt;
+  }
+  if (kind === 'desktop' && parentPort) return new DesktopUpdateBackend(parentPort);
+  return new NoUpdateBackend();
 }
 
 /** How often a forked server checks that the desktop app that forked it is still there. */
@@ -1571,16 +1618,31 @@ function exitWithParent(app: FastifyInstance, parentPid: number): void {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  // Before anything writes into it: a data dir an older build made open to the
+  // group is closed once, here; one that is another user's stops the start.
+  try {
+    const warning = ensureDataDir(CONFIG.dataDir, process.platform, process.getuid?.());
+    if (warning) console.warn(`orbital: ${warning}`);
+  } catch (err) {
+    if (!(err instanceof DataDirNotOwned)) throw err;
+    console.error(`orbital: ${err.message}`);
+    process.exit(1);
+  }
   const apiToken = loadOrCreateApiToken(CONFIG.dataDir);
   const app = await buildServer({ apiToken });
   const parentPid = desktopParentPid();
   if (parentPid !== null) exitWithParent(app, parentPid);
   await app.listen({ host: '127.0.0.1', port: CONFIG.port });
-  console.log(`orbital server on http://127.0.0.1:${CONFIG.port}`);
-  // The link that sets the cookie: on this server when it serves the web app,
-  // on vite's port in dev, where vite proxies `/api` here.
-  const webOrigin = process.env.ORBITAL_STATIC_DIR
-    ? `http://127.0.0.1:${CONFIG.port}`
-    : `http://localhost:${DEV_WEB_PORT}`;
-  console.log(`orbital: open ${webOrigin}/api/auth?token=${apiToken}`);
+  if (process.env.ORBITAL_HEADLESS === '1') {
+    // Stdout is the journal here, which other users may read: no token, no link carrying one.
+    console.log(`orbital: listening on 127.0.0.1:${CONFIG.port}; orbital status for more`);
+  } else {
+    console.log(`orbital server on http://127.0.0.1:${CONFIG.port}`);
+    // The link that sets the cookie: on this server when it serves the web app,
+    // on vite's port in dev, where vite proxies `/api` here.
+    const webOrigin = process.env.ORBITAL_STATIC_DIR
+      ? `http://127.0.0.1:${CONFIG.port}`
+      : `http://localhost:${DEV_WEB_PORT}`;
+    console.log(`orbital: open ${webOrigin}/api/auth?token=${apiToken}`);
+  }
 }

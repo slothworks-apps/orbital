@@ -36,6 +36,7 @@ import { useFeedbackNotice } from './ui/FeedbackNotice'
 import { MapNoticeHost } from './ui/MapNoticeHost'
 import { useNotificationsTip } from './panels/NotificationsTip'
 import { useAppUpdateNotice } from './panels/UpdateNotice'
+import { useWhatsNewNotice } from './panels/WhatsNew'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { EscapeBoundary, useEscapeLayer } from './ui/escapeLayer'
 import {
@@ -101,6 +102,9 @@ export default function App() {
   // The desktop app's update prompt, the toast's UPDATE kind (canvas
   // `Feature - App update`). Nothing outside the desktop app.
   useAppUpdateNotice()
+  // WHAT'S NEW after the version changed, the toast's changelog kind (spec
+  // 2026-10-19-whats-new-design).
+  useWhatsNewNotice()
   // The reply to what the user just did, ahead of every notice.
   useFeedbackNotice()
 

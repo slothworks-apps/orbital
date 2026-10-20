@@ -36,6 +36,7 @@ import { makeImageResolver } from './transport/imageResolver'
 import { makeTunnelFetch } from './transport/tunnelFetch'
 import { TunnelSocket } from './transport/tunnelSocket'
 import { sessionSupports } from './version'
+import { decideWhatsNew } from './WhatsNew'
 import { makeTunnelUpload } from './transport/tunnelUpload'
 
 /**
@@ -95,6 +96,9 @@ export async function boot(): Promise<void> {
     loadGroup(), loadUnpaired(), loadEnded(), loadStandalone(), readSessionsCache(), readNotificationsCache(), loadAppLock(),
     readDeviceLock(),
   ])
+  // WHAT'S NEW: a phone that was in use before this launch was updated, not installed afresh.
+  decideWhatsNew(record !== null || unpaired !== null || ended !== null || standalone !== null)
+    .catch((err: unknown) => console.warn('[mobile] could not read what’s new', err))
   const pairing = record ? await groupPairing(record) : null
   if (rules) setRules(rules.value)
   if (cached) {

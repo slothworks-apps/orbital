@@ -57,7 +57,7 @@ describe('PairConfirmDialog', () => {
     useOrbital.setState({ remote: remote(headlessPending) })
     render(<PairConfirmDialog />)
     expect(screen.getByText('build-box (headless, Linux) wants to join')).toBeInTheDocument()
-    expect(screen.getByText('HEADLESS SERVER')).toBeInTheDocument()
+    expect(screen.getByText('HEADLESS')).toBeInTheDocument()
   })
 
   it("a shipped phone's request (kind read as phone) names it too", () => {
