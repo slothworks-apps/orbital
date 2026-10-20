@@ -13,6 +13,7 @@ import { clientRef } from '../transport/clientRef'
 import { CARD, MobileScreen, SectionLabel, SheetPresence, Toggle } from '../ui'
 import { DevicesSection } from './DevicesSection'
 import { FeedbackSheet } from './FeedbackSheet'
+import { isDemo } from '../../lib/demo'
 
 /**
  * The desktop's five rows, in its order (Settings → Notifications). Three
@@ -161,7 +162,8 @@ export function SettingsScreen() {
         {/* Provisional place, until Claude Design gives it one. */}
         <DiagnosticsSetting />
 
-        <AboutSection />
+        {/* Not in the website's demo, where it would open a real issue form. */}
+        {!isDemo() && <AboutSection />}
         {/* Canvas `Feature - Phone update`: the app's version and the shell's on one line; 50i's note on names. */}
         <footer className="px-1 pt-[18px] font-mono text-[10px] leading-[1.7] text-[rgba(160,190,225,.6)]">
           <p>{shell ? `${__MOBILE_VERSION__} · shell ${shell}` : __MOBILE_VERSION__} · each device names itself</p>

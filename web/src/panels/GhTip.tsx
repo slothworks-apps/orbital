@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
-import { reportError } from '../lib/errors'
+import { recordError, reportError } from '../lib/errors'
 import { END_GH_TIP_PATCH, GH_TIP_DONE, GH_TIP_KEY, shouldOfferGhTip, type GhStatusAnswer } from '../lib/ghTip'
 import { ORBITAL_COMMANDS, runInOrbital } from '../lib/runInOrbital'
 import { useMapNotices } from '../store/mapNotices'
@@ -60,12 +60,15 @@ export function useGhTip(): void {
   }, [due])
 }
 
-/** Ends the tip for good. A failed write costs a second offer next launch, not an error toast. */
+/**
+ * Ends the tip for good. A failed write costs a second offer next launch:
+ * recorded in the log so that is explained, but no toast over the map.
+ */
 function endTip(): void {
   api
     .patchSettings(END_GH_TIP_PATCH)
     .then(() => useOrbital.setState((state) => ({ settings: { ...state.settings, ...END_GH_TIP_PATCH } })))
-    .catch(() => {})
+    .catch((err) => recordError(err, 'Could not keep the gh tip closed'))
 }
 
 const INSTALL = ORBITAL_COMMANDS['install-gh']

@@ -2523,24 +2523,29 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * 2026-10-20-report-to-github-design). The title and body are what the
    * user reviewed; the repository is fixed in `createIssue`.
    */
+  /** A title and body GitHub accepts, as both issue routes take them; the refusal otherwise. */
+  const issueDraftRefusal = (body: { title?: unknown; body?: unknown }): string | null => {
+    if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > MAX_TITLE_CHARS) return 'title is invalid';
+    if (typeof body.body !== 'string' || body.body.length > MAX_BODY_CHARS) return 'body is invalid';
+    return null;
+  };
+
   app.post('/api/issues', async (req, reply) => {
-    const body = (req.body ?? {}) as { title?: unknown; body?: unknown; errorId?: unknown };
-    if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > MAX_TITLE_CHARS) {
-      return reply.code(400).send({ error: 'title is invalid' });
-    }
-    if (typeof body.body !== 'string' || body.body.length > MAX_BODY_CHARS) {
-      return reply.code(400).send({ error: 'body is invalid' });
-    }
+    const body = (req.body ?? {}) as { title?: string; body?: string; errorId?: unknown };
+    const refusal = issueDraftRefusal(body);
+    if (refusal) return reply.code(400).send({ error: refusal });
     if (body.errorId !== undefined && !Number.isInteger(body.errorId)) {
       return reply.code(400).send({ error: 'errorId is invalid' });
     }
-    const result = await (ctx.createIssue ?? createIssue)({ title: body.title.trim(), body: body.body });
+    const result = await (ctx.createIssue ?? createIssue)({ title: body.title!.trim(), body: body.body! });
     if (result.kind === 'created') {
       // The issue exists either way; a row pruned meanwhile just has nowhere to keep its link.
       if (Number.isInteger(body.errorId)) ctx.errors.markReported(body.errorId as number, result.url);
       return { url: result.url };
     }
     if (result.kind === 'unavailable') return reply.code(409).send({ error: result.reason });
+    // It may exist all the same: the web says so instead of "nothing was published".
+    if (result.kind === 'timeout') return reply.code(504).send({ error: 'timeout' });
     return reply.code(502).send({ error: result.message });
   });
 
@@ -2561,19 +2566,15 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * the user asks, since it costs a model call. 502 names which half failed.
    */
   app.post('/api/issues/duplicates', async (req, reply) => {
-    const body = (req.body ?? {}) as { title?: unknown; body?: unknown; model?: unknown };
-    if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > MAX_TITLE_CHARS) {
-      return reply.code(400).send({ error: 'title is invalid' });
-    }
-    if (typeof body.body !== 'string' || body.body.length > MAX_BODY_CHARS) {
-      return reply.code(400).send({ error: 'body is invalid' });
-    }
+    const body = (req.body ?? {}) as { title?: string; body?: string; model?: unknown };
+    const refusal = issueDraftRefusal(body);
+    if (refusal) return reply.code(400).send({ error: refusal });
     // A model id or alias, as the composer's picker sends it; never a flag.
     if (typeof body.model !== 'string' || !/^[A-Za-z0-9][\w.:\[\]-]{0,99}$/.test(body.model)) {
       return reply.code(400).send({ error: 'model is invalid' });
     }
     if (!ctx.checkDuplicates) return reply.code(503).send({ error: 'unavailable' });
-    const result = await ctx.checkDuplicates({ title: body.title.trim(), body: body.body }, body.model);
+    const result = await ctx.checkDuplicates({ title: body.title!.trim(), body: body.body! }, body.model);
     if (result.kind === 'checked') return { matches: result.matches };
     return reply.code(502).send({ error: result.reason });
   });

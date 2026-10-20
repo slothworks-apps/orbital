@@ -9,6 +9,7 @@ import { api, ApiError } from '../lib/api'
 import { useOrbital } from '../store/store'
 import { reportError } from '../lib/errors'
 import { ErrorLog } from '../panels/ErrorLog'
+import { markDemo } from '../lib/demo'
 import { useMapNotices } from '../store/mapNotices'
 import { useFeedbackNotice } from '../ui/FeedbackNotice'
 import { MapNoticeHost } from '../ui/MapNoticeHost'
@@ -194,6 +195,25 @@ describe('Report on a row (canvas 61a)', () => {
 
     expect(screen.getByRole('button', { name: 'Report error 1' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Report error 2' })).not.toBeInTheDocument()
+  })
+
+  it('offers no Report on an error that is Claude\'s, nor anywhere in the website\'s demo', async () => {
+    resetStore([
+      makeError({ id: 3, seenAt: 1, kind: 'session_failed', message: 'API Error: 529 overloaded', detail: null, context: null }),
+      makeError({ id: 1, seenAt: 1, detail: null, context: null }),
+    ])
+    const { unmount } = render(<ErrorLog open onClose={() => {}} />)
+    expect(screen.queryByRole('button', { name: 'Report error 3' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Report error 1' })).toBeInTheDocument()
+    unmount()
+
+    markDemo()
+    try {
+      render(<ErrorLog open onClose={() => {}} />)
+      expect(screen.queryByRole('button', { name: /report error/i })).not.toBeInTheDocument()
+    } finally {
+      markDemo(false)
+    }
   })
 
   it('becomes a link to the issue once the record has been reported', async () => {

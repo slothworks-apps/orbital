@@ -1,5 +1,4 @@
 import { useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
 import type { ErrorRecord } from '../lib/types'
@@ -7,10 +6,10 @@ import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
 import { Collapse } from '../ui/Collapse'
 import { FADE_MS, HEIGHT_MS } from '../ui/motion'
-import { prefersReducedMotion } from '../ui/usePresence'
 import { useExitList } from '../ui/useExitList'
 import { copyToClipboard } from '../lib/clipboard'
-import { formatRecordForCopy } from '../lib/errorRecord'
+import { formatRecordForCopy, fromClaude } from '../lib/errorRecord'
+import { isDemo } from '../lib/demo'
 import { issueNumber } from './report/logic'
 import { ReportDialog } from './report/ReportDialog'
 
@@ -42,11 +41,6 @@ function ReportedChip({ url }: { url: string }) {
   )
 }
 
-/** Actions arriving beside a row that just closed fade in rather than appearing at once. */
-function arriving(): CSSProperties | undefined {
-  return prefersReducedMotion() ? undefined : { animation: `orbital-fade-in ${HEIGHT_MS}ms ease` }
-}
-
 /**
  * One log row per canvas 5b/5c. Three ranks of ink carry the whole
  * distinction: a real error keeps a filled red dot, mono kind in warm ink and
@@ -62,8 +56,10 @@ function ErrorRow({ error, onReport }: { error: ErrorRecord; onReport: (error: E
   const unseen = error.seenAt === null
   // Canvas 61a/61g: Report only where the whole record has been read — an
   // expanded row, or one with nothing more to expand — and never on a dev
-  // record, which comes from the user's own build.
-  const reportable = !isDev && (expanded || !hasBody)
+  // record, which comes from the user's own build. Nor on an error Claude
+  // gave (an overloaded API, a usage limit), which Orbital cannot fix, nor in
+  // the website's demo, where it would file a real issue.
+  const reportable = !isDev && !isDemo() && !fromClaude(error) && (expanded || !hasBody)
 
   // 5b: red is the badge's and the error dot's alone — oklch(60% .2 25),
   // precomputed to #de3b3d for Tailwind arbitrary values (see theme.css for
@@ -195,7 +191,7 @@ function ErrorRow({ error, onReport }: { error: ErrorRecord; onReport: (error: E
         )}
       </div>
       {!expanded && (
-        <div className="flex flex-none items-center gap-1.5" style={hasBody ? arriving() : undefined}>
+        <div className={`flex flex-none items-center gap-1.5 ${hasBody ? 'orbital-arrive' : ''}`}>
           {actions}
         </div>
       )}
@@ -225,12 +221,15 @@ export function ErrorLog({ open, onClose }: ErrorLogProps) {
   // loaded at launch must not all grow in as if they had just arrived.
   const firstIds = useRef<Set<number> | null>(null)
   const wasOpen = useRef(false)
-  if (open && !wasOpen.current) firstIds.current = new Set(errors.map((error) => error.id))
+  const justOpened = open && !wasOpen.current
+  if (justOpened) firstIds.current = new Set(errors.map((error) => error.id))
   wasOpen.current = open
   // The record being reported, kept through the review's close transition.
   const [reporting, setReporting] = useState<{ error: ErrorRecord; open: boolean } | null>(null)
-  // Closing the log takes the review with it; reopening the log starts clean.
-  if (!open && reporting !== null) setReporting(null)
+  // Closing the log closes the review with it — fading, as the log does,
+  // not gone in one frame; reopening the log starts clean.
+  if (!open && reporting?.open) setReporting({ ...reporting, open: false })
+  if (justOpened && reporting !== null) setReporting(null)
 
   // Deliberately NO marking on open. The log is an unread inbox over a
   // permanent table: the user reads, decides nothing here needs them, and
@@ -270,7 +269,7 @@ export function ErrorLog({ open, onClose }: ErrorLogProps) {
       }
     >
       {rows.length === 0 ? (
-        <p className="text-[13px] text-[rgba(200,214,235,.85)]" style={arriving()}>
+        <p className="orbital-arrive text-[13px] text-[rgba(200,214,235,.85)]">
           No unread errors.
         </p>
       ) : (

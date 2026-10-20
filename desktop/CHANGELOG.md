@@ -6,7 +6,8 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [0.38.0] — 2026-10-20
 ### Added
-- Report an error from the error log, or send feedback from Settings, as an issue on Orbital's GitHub: you review the title and text first, see similar issues already filed, can ask Claude to check for duplicates, and with gh it is created straight from Orbital (otherwise GitHub opens in your browser, filled in). A reported error remembers its issue.
+- Report an error from the error log, or send feedback from Settings, as an issue on Orbital's GitHub: you review the title and text first, see similar issues already filed, and with gh it is created straight from Orbital (otherwise GitHub opens in your browser, filled in). A reported error remembers its issue.
+- Labs → Check reports with Claude: before you send a report, Claude reads it next to the newest issues and says which look like the same thing.
 - Without gh, Orbital says once what it adds and offers to install it; Settings shows the command next to the pull request switch and can run it in an Orbital session.
 ### Fixed
 - Dialogs no longer jump: the error log keeps its place when an entry goes, the entry fades and the rest slide up, and a dialog's size changes glide.

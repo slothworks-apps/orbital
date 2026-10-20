@@ -527,6 +527,12 @@ export interface BranchStatus {
   pr?: BranchPr
 }
 
+/** `GET /api/gh-status`. `brew` is absent from a Mac older than the report-to-GitHub change. */
+export interface GhStatusAnswer {
+  status: GhAvailability
+  brew?: boolean
+}
+
 /** `GET /api/gh-status`: whether the PR switch can be on, and if not, why. */
 export type GhAvailability = 'ready' | 'missing' | 'logged_out'
 

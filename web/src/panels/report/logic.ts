@@ -1,14 +1,17 @@
-import { ApiError } from '../../lib/api'
+import { errorSentence } from '../../lib/api'
 import { ISSUE_REPO_URL } from '../../lib/issueReport'
-import type { OrbitalModel } from '../../lib/types'
+import type { GhAvailability, OrbitalModel } from '../../lib/types'
 
 export type ReportKind = 'error' | 'broke' | 'idea'
 
-/** Where the review is: the design component's `phase` (`Report Dialog`). */
-export type ReportPhase = 'edit' | 'sending' | 'done' | 'error' | 'opened'
+/**
+ * Where the review is: the design component's `phase` (`Report Dialog`), and
+ * `late` — gh did not answer in time, so the issue may exist after all.
+ */
+export type ReportPhase = 'edit' | 'sending' | 'done' | 'error' | 'late' | 'opened'
 
 /** `gh` as the dialog last heard it; null until `GET /api/gh-status` answers. */
-export type GhState = 'ready' | 'missing' | 'logged_out' | null
+export type GhState = GhAvailability | null
 
 /** `owner/name`, as the PUBLIC line and the done foot name the repository. */
 export const ISSUE_REPO_PATH = ISSUE_REPO_URL.replace(/^https:\/\/github\.com\//, '')
@@ -19,11 +22,11 @@ export const ISSUE_REPO_PATH = ISSUE_REPO_URL.replace(/^https:\/\/github\.com\//
  */
 export const CHECKED_ISSUES = 40
 
-/** The similar-issues list shows at most this many (spec: "lists up to five"). */
-export const MAX_SIMILAR = 5
-
 /** The pause after the last keystroke in the title before it is searched. */
 export const SIMILAR_DEBOUNCE_MS = 400
+
+/** Labs → Check reports with Claude: the CLAUDE row of the rail shows only while it is on. */
+export const ISSUE_CHECK_ENABLED_KEY = 'issue_check_enabled'
 
 /** The setting that keeps the check's model for next time (canvas 61h: "kept for next time"). */
 export const CHECK_MODEL_SETTING = 'issue_check_model'
@@ -44,16 +47,7 @@ export function thinThousands(n: number): string {
  * `{ error: <gh's output> }`, and `ApiError` carries the raw response body.
  */
 export function refusalMessage(err: unknown): string {
-  if (err instanceof ApiError) {
-    try {
-      const parsed = JSON.parse(err.message) as { error?: unknown }
-      if (typeof parsed.error === 'string' && parsed.error) return parsed.error
-    } catch {
-      // Not JSON: the body itself is the message.
-    }
-    return err.message
-  }
-  return err instanceof Error ? err.message : String(err)
+  return errorSentence(err, String(err))
 }
 
 /** The foot line under the fields, and whether it is the bright ink of an outcome. */

@@ -51,15 +51,20 @@ export function toIssue(item: unknown, urlKey: 'url' | 'html_url'): SimilarIssue
   return { number: i.number as number, title: i.title, url, state };
 }
 
-/** Parses `gh search issues --json number,title,url,state`. */
-export function parseGhSearch(stdout: string): SimilarIssue[] | null {
+/** A `gh … --json` list, each item through `toItem`, the ones it refuses dropped; null when it is not a list. */
+export function parseGhList<T>(stdout: string, toItem: (item: unknown) => T | null): T[] | null {
   try {
     const json = JSON.parse(stdout) as unknown;
     if (!Array.isArray(json)) return null;
-    return json.map((item) => toIssue(item, 'url')).filter((i): i is SimilarIssue => i !== null);
+    return json.map(toItem).filter((i): i is T => i !== null);
   } catch {
     return null;
   }
+}
+
+/** Parses `gh search issues --json number,title,url,state`. */
+export function parseGhSearch(stdout: string): SimilarIssue[] | null {
+  return parseGhList(stdout, (item) => toIssue(item, 'url'));
 }
 
 /** Parses the public search API's answer. */

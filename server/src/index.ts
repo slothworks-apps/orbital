@@ -54,7 +54,7 @@ import { SessionTitler, type TitleQueryFn } from './titler/titler.js';
 import { HarnessService } from './harness/service.js';
 import { askWatcher } from './harness/watcher.js';
 import { askOnce } from './harness/ask.js';
-import { checkDuplicates, DUPLICATE_SYSTEM_PROMPT, listIssues } from './issues/duplicates.js';
+import { checkDuplicates, DUPLICATE_CHECK_TIMEOUT_MS, DUPLICATE_SYSTEM_PROMPT, listIssues } from './issues/duplicates.js';
 import { DRAFT_SYSTEM_PROMPT } from './harness/drafter.js';
 import { askReviewer } from './harness/reviewer.js';
 import { gateOf } from './harness/logic.js';
@@ -1515,14 +1515,34 @@ export async function buildServer(overrides: {
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees,
     foreign,
     // About no session: the default directory's account, as the harness drafter.
+    // Bounded: a stuck call would otherwise keep its `claude` process and the
+    // rail's "Checking…" for as long as the dialog stays open.
     checkDuplicates: (draft, model) =>
       checkDuplicates(draft, {
         list: () => listIssues(),
-        ask: (prompt) =>
-          askOnce(overrides.titleQueryFn ?? query, prompt, {
-            systemPrompt: DUPLICATE_SYSTEM_PROMPT, model, claudeExecutablePath: claudeCli.path,
-            env: envForDir(claudeDirs.defaultId()),
-          }),
+        ask: async (prompt) => {
+          const abortController = new AbortController();
+          const timer = setTimeout(() => abortController.abort(), DUPLICATE_CHECK_TIMEOUT_MS);
+          try {
+            return await askOnce(overrides.titleQueryFn ?? query, prompt, {
+              systemPrompt: DUPLICATE_SYSTEM_PROMPT, model, claudeExecutablePath: claudeCli.path,
+              env: envForDir(claudeDirs.defaultId()), abortController,
+            });
+          } catch (err) {
+            errors.record({
+              source: 'server',
+              kind: 'api_request',
+              message: abortController.signal.aborted
+                ? `The duplicate check did not answer within ${DUPLICATE_CHECK_TIMEOUT_MS / 1000} s`
+                : err instanceof Error ? err.message : String(err),
+              detail: err instanceof Error ? (err.stack ?? null) : null,
+              context: { while: 'checking an issue for duplicates', model },
+            });
+            throw err;
+          } finally {
+            clearTimeout(timer);
+          }
+        },
       }),
     settings: settingsStore,
     mcpFor,

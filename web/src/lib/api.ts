@@ -16,6 +16,7 @@ import type {
   FileCompletionEntry,
   FilePreview,
   GhAvailability,
+  GhStatusAnswer,
   SimilarIssue,
   DuplicateIssue,
   IdeDiagnostic,
@@ -98,6 +99,24 @@ export interface SessionListPage {
   sessions: ApiSession[]
   /** Only with `ended: 'exclude'`, and only from a Mac that knows the parameter. */
   ended?: EndedSummary
+}
+
+/**
+ * The server's `{ error }` sentence out of a failed request — `ApiError`
+ * carries the raw body as its message — or the message as it is, or
+ * `fallback` when there is none.
+ */
+export function errorSentence(err: unknown, fallback: string): string {
+  if (err instanceof Error) {
+    try {
+      const body = JSON.parse(err.message) as { error?: unknown }
+      if (typeof body.error === 'string' && body.error) return body.error
+    } catch {
+      // Not JSON: the message is the sentence as it is.
+    }
+    if (err.message) return err.message
+  }
+  return fallback
 }
 
 export class ApiError extends Error {
@@ -1042,8 +1061,12 @@ export const api = {
   // Reports to Orbital's GitHub (spec 2026-10-20-report-to-github-design).
   // Mac only: the phone opens the prefilled form instead. `gh` missing or
   // logged out comes back as `{ error }`; anything gh says otherwise throws.
-  async createIssue(body: { title: string; body: string; errorId?: number }): Promise<{ url: string } | { error: Exclude<GhAvailability, 'ready'> }> {
-    return remoteCall('POST', '/api/issues', body, { 409: ['missing', 'logged_out'] as const })
+  // `timeout`: gh did not answer and the issue is not among the user's newest
+  // either — it may exist all the same, so the dialog never says "nothing was published".
+  async createIssue(
+    body: { title: string; body: string; errorId?: number },
+  ): Promise<{ url: string } | { error: Exclude<GhAvailability, 'ready'> | 'timeout' }> {
+    return remoteCall('POST', '/api/issues', body, { 409: ['missing', 'logged_out'] as const, 504: ['timeout'] as const })
   },
 
   async similarIssues(title: string): Promise<SimilarIssue[] | null> {
@@ -1056,8 +1079,11 @@ export const api = {
   /** Claude's reading of which filed issues the draft repeats; `{ error }` names the half that failed. */
   async checkDuplicateIssues(
     body: { title: string; body: string; model: string },
-  ): Promise<{ matches: DuplicateIssue[] } | { error: 'list' | 'reply' | 'unavailable' }> {
-    return remoteCall('POST', '/api/issues/duplicates', body, { 502: ['list', 'reply'] as const, 503: ['unavailable'] as const })
+  ): Promise<{ matches: DuplicateIssue[] } | { error: 'list' | 'ask' | 'reply' | 'unavailable' }> {
+    return remoteCall('POST', '/api/issues/duplicates', body, {
+      502: ['list', 'ask', 'reply'] as const,
+      503: ['unavailable'] as const,
+    })
   },
 
   async issueEnvironment(): Promise<{ osVersion: string | null; ghLogin: string | null }> {
@@ -1142,9 +1168,8 @@ export const api = {
    * if not, why (spec 2026-09-30-branch-pr-and-line-changes-design §
    * Settings). Asked when Settings opens and when the app regains focus.
    */
-  // `brew` is absent from a Mac older than the report-to-GitHub change.
-  async ghStatus(): Promise<{ status: GhAvailability; brew?: boolean }> {
-    return request<{ status: GhAvailability; brew?: boolean }>('GET', '/api/gh-status')
+  async ghStatus(): Promise<GhStatusAnswer> {
+    return request<GhStatusAnswer>('GET', '/api/gh-status')
   },
 
   /**

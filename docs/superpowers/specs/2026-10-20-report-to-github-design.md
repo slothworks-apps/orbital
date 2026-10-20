@@ -28,6 +28,13 @@ carry by hand.
 
 Feedback that is not an error has no door in the app at all.
 
+Why it gets in although it is neither following sessions nor replacing the
+CLI ([[why-orbital]] → What gets in): the CLI has its own `/bug` for the
+same reason, and every report that arrives with its version and record makes
+Orbital better for everyone who uses it. It is the one way back to the
+people who build Orbital — not a precedent for sending anything else to
+GitHub.
+
 ## What we are building
 
 Two entry points, one way out:
@@ -122,9 +129,39 @@ each with a sentence on why.
 - **No tools, on purpose.** The server fetches the list itself (`gh issue
   list`, else the public REST API) and the model only reads
   ([[issue-duplicate-check-reads-without-tools]]).
-- A number the model names that was not in the list is dropped. When the
-  list cannot be fetched or the reply does not parse, the step says the
-  check failed, not that there are no duplicates.
+- A number the model names that was not in the list is dropped, a reason is
+  cut to one short line, and the data fence (`<<<` `>>>`) is taken out of
+  everyone's text before it is fenced, so an issue cannot close the data
+  block and talk to the model. When the list cannot be fetched, the model
+  cannot be asked (it is given two minutes) or the reply does not parse, the
+  step says the check failed, not that there are no duplicates; a failed
+  call is recorded in the error log.
+- **In Labs.** Nobody has used it yet and the title search covers the common
+  case, so the CLAUDE row shows only while Labs → Check reports with Claude
+  is on (`issue_check_enabled`).
+
+### When gh does not answer
+
+A slow network can let GitHub accept the issue and lose `gh`'s reply. So a
+timeout is never "nothing was published": the server first looks for an
+issue with exactly this title among the user's newest on the repository and
+treats it as created when it finds one; otherwise the route answers 504
+`timeout`, and the review says the issue may exist, links the user's issues
+on GitHub, keeps the text and offers Try again.
+
+### Not every error is Orbital's
+
+A session or a compaction that failed because the Claude API was
+overloaded, a usage limit was hit or the account is signed out is Claude's,
+not Orbital's; reported to Orbital's GitHub it would reach someone who
+cannot fix it. The log offers no Report on such a record (`fromClaude` in
+`web/src/lib/errorRecord.ts`). Copy still works.
+
+### Not in the website's demos
+
+The site's demos run the real components on a fake server. Report, Send
+feedback and the phone's Send feedback stay out of them (`lib/demo`): a
+click there would file, or open, a real issue on GitHub.
 
 ### A reported error remembers its issue
 
@@ -202,13 +239,15 @@ run it in the background and show the one-time code as soon as gh prints it.
   something to say — and the maintainer, who gets reports with the version
   and the stack already in them.
 - **Where it lives:** on by default. It extends surfaces that exist — a row
-  action in the error log, an entry in Settings — and adds no panel, tab or
-  map element. The `gh` toast is new and shows once.
+  action in the error log, an entry in Settings — and adds no panel or tab.
+  It does add one map element: the `gh` tip, a notice in the map's queue,
+  shown once and only to someone without `gh`. Check with Claude is in Labs.
 - **What someone already using Orbital notices after updating:** a Report
   action in the error log, Send feedback in Settings, and — only if they
-  have no working `gh` — one toast on the first start.
-- **What can be set:** nothing. Every send passes the review step, so there
-  is no "send automatically" to turn off.
+  have no `gh` — one tip on the map, once.
+- **What can be set:** Labs → Check reports with Claude, and the check's
+  model, kept for next time. Every send passes the review step, so there is
+  no "send automatically" to turn off.
 
 ## Phone
 

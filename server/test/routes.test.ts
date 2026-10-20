@@ -4471,6 +4471,7 @@ describe('issue routes', () => {
     const outcomes = [
       { kind: 'unavailable' as const, reason: 'logged_out' as const },
       { kind: 'failed' as const, message: 'HTTP 410: Issues are disabled' },
+      { kind: 'timeout' as const },
     ];
     const { app } = makeApp({ createIssue: async () => outcomes.shift()! });
     const unavailable = await post(app, { title: 't', body: 'b' });
@@ -4479,6 +4480,9 @@ describe('issue routes', () => {
     const failed = await post(app, { title: 't', body: 'b' });
     expect(failed.statusCode).toBe(502);
     expect(failed.json()).toEqual({ error: 'HTTP 410: Issues are disabled' });
+    const late = await post(app, { title: 't', body: 'b' });
+    expect(late.statusCode).toBe(504);
+    expect(late.json()).toEqual({ error: 'timeout' });
   });
 
   it('GET /api/issues/similar passes the title on and keeps "could not search" apart from "none"', async () => {

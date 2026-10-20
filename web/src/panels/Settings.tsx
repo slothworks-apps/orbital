@@ -101,6 +101,8 @@ import { useAppUpdate } from '../store/appUpdate'
 import { ClaudeDirsRows } from './ClaudeDirsRows'
 import { GhLine } from './GhLine'
 import { SendFeedback, type FeedbackKind } from './SendFeedback'
+import { isDemo } from '../lib/demo'
+import { ISSUE_CHECK_ENABLED_KEY } from './report/logic'
 import { ReportDialog } from './report/ReportDialog'
 import { DEBOUNCE_MS, Row, SectionLabel } from './settingsRows'
 import {
@@ -498,6 +500,9 @@ export function Settings({ open, onClose }: SettingsProps) {
    * dialog keeps its fields while it fades out.
    */
   const [feedback, setFeedback] = useState<{ kind: FeedbackKind; open: boolean }>({ kind: 'broke', open: false })
+  // Settings stays mounted while closed: closing it closes the review too, so
+  // it does not come back unasked the next time Settings opens.
+  if (!open && feedback.open) setFeedback({ ...feedback, open: false })
   const [copiedPath, setCopiedPath] = useState(false)
   /**
    * The retention confirmation. Held as the pending value plus the count the
@@ -1035,7 +1040,8 @@ export function Settings({ open, onClose }: SettingsProps) {
                   </button>
                 ))}
                 <span className="flex-1" />
-                <SendFeedback onPick={(kind) => setFeedback({ kind, open: true })} />
+                {/* Not in the website's demo, where it would file a real issue. */}
+                {!isDemo() && <SendFeedback onPick={(kind) => setFeedback({ kind, open: true })} />}
                 <div className="px-3 py-2.5 font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.45)]">
                   <div>orbital {orbitalVersion}</div>
                   {claudeCodeVersion && <div>claude-code {claudeCodeVersion}</div>}
@@ -1379,6 +1385,18 @@ export function Settings({ open, onClose }: SettingsProps) {
                           checked={terminalEnabled(settings)}
                           onChange={(checked) =>
                             void patchAndSet({ [TERMINAL_ENABLED_KEY]: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
+                      <Row
+                        title="Check reports with Claude"
+                        desc="In the review before a report goes to Orbital's GitHub, Claude reads it next to the newest issues and says which look like the same thing. One model call on your plan, only when you press Check with Claude."
+                      >
+                        <Toggle
+                          aria-label="Check reports with Claude"
+                          checked={settings[ISSUE_CHECK_ENABLED_KEY] === 'true'}
+                          onChange={(checked) =>
+                            void patchAndSet({ [ISSUE_CHECK_ENABLED_KEY]: checked ? 'true' : 'false' })
                           }
                         />
                       </Row>

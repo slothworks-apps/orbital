@@ -1,4 +1,6 @@
-import type { GhAvailability } from './types'
+import type { GhStatusAnswer } from './types'
+
+export type { GhStatusAnswer } from './types'
 
 /**
  * The one-time `gh` tip, as decisions (spec 2026-10-20-report-to-github-design
@@ -11,12 +13,6 @@ export const GH_TIP_DONE = 'done'
 
 /** What ends the tip: × or Install. */
 export const END_GH_TIP_PATCH: Record<string, string> = { [GH_TIP_KEY]: GH_TIP_DONE }
-
-/** `GET /api/gh-status`. `brew` is absent from a Mac older than this feature. */
-export interface GhStatusAnswer {
-  status: GhAvailability
-  brew?: boolean
-}
 
 /**
  * Whether a Mac without Homebrew can run Install. An older Mac does not say,

@@ -10,6 +10,7 @@ import { MAX_ISSUE_URL_CHARS } from '../lib/issueReport'
 import { ReportDialog } from '../panels/report/ReportDialog'
 import { issueNumber, thinThousands } from '../panels/report/logic'
 import { mergeExiting } from '../ui/useExitList'
+import { useOrbital } from '../store/store'
 
 // ---------------------------------------------------------------------------
 // The review step before anything reaches Orbital's GitHub
@@ -43,6 +44,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  useOrbital.setState((s) => ({ settings: { ...s.settings, issue_check_enabled: 'false' } }))
   vi.resetAllMocks()
   vi.restoreAllMocks()
 })
@@ -137,6 +139,7 @@ describe('ReportDialog', () => {
   it('cannot send without a title', async () => {
     const user = userEvent.setup()
     vi.mocked(api.ghStatus).mockResolvedValue({ status: 'ready' })
+    useOrbital.setState((s) => ({ settings: { ...s.settings, issue_check_enabled: 'true' } }))
     render(<ReportDialog open kind="idea" onClose={() => {}} />)
 
     const create = await screen.findByRole('button', { name: 'Create issue' })
@@ -145,6 +148,26 @@ describe('ReportDialog', () => {
 
     await user.type(screen.getByPlaceholderText('The idea, in one line'), 'Pin a session')
     expect(create).toBeEnabled()
+  })
+
+  it('offers Check with Claude only while Labs has it on', async () => {
+    vi.mocked(api.ghStatus).mockResolvedValue({ status: 'ready' })
+    render(<ReportDialog open kind="idea" onClose={() => {}} />)
+    await screen.findByRole('button', { name: 'Create issue' })
+    expect(screen.queryByRole('button', { name: 'Check with Claude' })).toBeNull()
+  })
+
+  it('never says nothing was published when gh timed out, and keeps the text', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.ghStatus).mockResolvedValue({ status: 'ready' })
+    vi.mocked(api.createIssue).mockResolvedValue({ error: 'timeout' })
+    renderError()
+
+    await user.click(await screen.findByRole('button', { name: 'Create issue' }))
+    expect(await screen.findByText(/may have been created all the same/)).toBeInTheDocument()
+    expect(screen.queryByText(/Nothing was published/)).toBeNull()
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled()
+    expect(opened).not.toHaveBeenCalled()
   })
 
   it('lists issues with a similar title', async () => {

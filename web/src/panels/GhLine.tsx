@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { reportError } from '../lib/errors'
 import { ORBITAL_COMMANDS, runInOrbital, type OrbitalCommand, type StartedRun } from '../lib/runInOrbital'
+import { hasBrew } from '../lib/ghTip'
 import type { GhAvailability } from '../lib/types'
 import { Button } from '../ui/Button'
 import { Collapse } from '../ui/Collapse'
@@ -26,7 +27,7 @@ export const GH_SITE = 'https://cli.github.com'
  */
 export function ghLineVariant(status: GhAvailability | null, brew: boolean | undefined): GhLineVariant | null {
   if (status === 'missing') {
-    return brew === false
+    return !hasBrew({ status, brew })
       ? { kind: 'link', reason: 'gh is not installed · no Homebrew', href: GH_SITE, label: 'cli.github.com ↗' }
       : { kind: 'run', reason: 'gh is not installed', run: 'install-gh' }
   }

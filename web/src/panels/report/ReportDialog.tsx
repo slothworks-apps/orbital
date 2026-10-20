@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, JSX, ReactNode } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { version as orbitalVersion } from '../../../../desktop/package.json'
 import { api } from '../../lib/api'
 import { copyToClipboard } from '../../lib/clipboard'
@@ -9,6 +9,7 @@ import {
   environmentLine,
   errorReport,
   ideaBody,
+  ISSUE_REPO_URL,
   issueTitle,
   issueUrl as issueFormUrl,
   type IssueEnvironment,
@@ -17,18 +18,18 @@ import type { DuplicateIssue, ErrorRecord, SimilarIssue } from '../../lib/types'
 import { useOrbital } from '../../store/store'
 import { AutoHeight } from '../../ui/AutoHeight'
 import { Collapse } from '../../ui/Collapse'
+import { Button } from '../../ui/Button'
 import { Dialog } from '../../ui/Dialog'
 import { Select } from '../../ui/Select'
-import { prefersReducedMotion } from '../../ui/usePresence'
 import { formatRecordForCopy } from '../../lib/errorRecord'
 import {
   CHECK_MODEL_SETTING,
   CHECKED_ISSUES,
   checkModels,
   footLine,
+  ISSUE_CHECK_ENABLED_KEY,
   ISSUE_REPO_PATH,
   issueNumber,
-  MAX_SIMILAR,
   pickCheckModel,
   refusalMessage,
   SIMILAR_DEBOUNCE_MS,
@@ -57,11 +58,6 @@ const FIELD_BOX =
 const PROSE_AREA = `${FIELD_BOX} resize-none px-3 py-[9px] text-[13px] leading-normal text-text-bright`
 const OPEN_INK = 'rgba(214,230,248,.85)'
 const CLOSED_INK = 'rgba(160,190,225,.5)'
-
-/** A swapped-in line fades in rather than snapping (Calm: gentle transitions, nothing that pulls the eye). */
-function fadeIn(): CSSProperties | undefined {
-  return prefersReducedMotion() ? undefined : { animation: 'orbital-fade-in 160ms ease' }
-}
 
 /** Every issue link opens on GitHub, in the browser. */
 function IssueLink({ issue, children, className }: { issue: SimilarIssue; children: ReactNode; className: string }) {
@@ -121,6 +117,7 @@ export function ReportDialog({ open, kind, error, onClose }: ReportDialogProps):
 function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecord; onClose: () => void }) {
   const cli = useOrbital((s) => s.settings.claude_code_version) ?? ''
   const keptModel = useOrbital((s) => s.settings[CHECK_MODEL_SETTING])
+  const checkEnabled = useOrbital((s) => s.settings[ISSUE_CHECK_ENABLED_KEY] === 'true')
   const catalog = useOrbital((s) => s.models)
 
   const live = useRef(true)
@@ -209,6 +206,9 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
       if ('url' in result) {
         setCreatedUrl(result.url)
         setPhase('done')
+      } else if (result.error === 'timeout') {
+        // GitHub may have it all the same: never "nothing was published" here.
+        setPhase('late')
       } else {
         // gh went away between the dialog opening and the send: the browser
         // takes it from here.
@@ -224,7 +224,13 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
 
   const primary = () => (viaGh ? void create() : openInBrowser())
   const primaryLabel =
-    phase === 'sending' ? 'Creating…' : phase === 'error' ? 'Try again' : viaGh ? 'Create issue' : 'Open on GitHub ↗'
+    phase === 'sending'
+      ? 'Creating…'
+      : phase === 'error' || phase === 'late'
+        ? 'Try again'
+        : viaGh
+          ? 'Create issue'
+          : 'Open on GitHub ↗'
   const primaryOff = phase === 'sending' || !hasTitle || gh === null
 
   const number = issueNumber(createdUrl)
@@ -243,7 +249,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
     <>
       <div className="flex shrink-0 items-start gap-3 border-b border-[rgba(150,205,255,.1)] pb-4 pl-[26px] pr-[18px] pt-[22px]">
         <div className="min-w-0 flex-1">
-          <div key={eyebrow} style={fadeIn()} className="font-mono text-[10px] tracking-[0.2em] text-[rgba(160,190,225,.65)]">
+          <div key={eyebrow} className="orbital-arrive font-mono text-[10px] tracking-[0.2em] text-[rgba(160,190,225,.65)]">
             {eyebrow}
           </div>
           <h2 className="mt-1.5 text-xl font-bold tracking-[-0.01em]">{phase === 'done' ? 'Issue created' : 'Review the issue'}</h2>
@@ -402,6 +408,24 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
 
             {/* The column's 14px gap travels inside the collapsing box, so the
                 block's arrival and departure move nothing by a gap's height. */}
+            <Collapse open={phase === 'late'} stagger className="-mt-3.5">
+              <div className="pt-3.5">
+                <div
+                  role="status"
+                  className="flex flex-col gap-[9px] rounded-[10px] border border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.5)] px-3.5 py-3"
+                >
+                  <div className="text-[13px] leading-[1.45] text-text-bright">
+                    gh did not answer in time. The issue may have been created all the same — look before you send
+                    it again; your text is kept.
+                  </div>
+                  <div className="flex gap-1.5">
+                    <Button variant="pill" size="pill" onClick={() => window.open(`${ISSUE_REPO_URL}/issues?q=is%3Aissue+author%3A%40me`, '_blank', 'noopener')}>
+                      Your issues on GitHub ↗
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </Collapse>
             <Collapse open={phase === 'error'} stagger className="-mt-3.5">
               <div className="pt-3.5">
                 <div
@@ -417,13 +441,9 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
                     {refusal}
                   </pre>
                   <div className="flex gap-1.5">
-                    <button
-                      type="button"
-                      onClick={openInBrowser}
-                      className="cursor-pointer rounded-full border border-[rgba(150,205,255,.14)] bg-transparent px-[11px] py-[5px] text-[11.5px] font-semibold text-[rgba(220,235,255,.85)] transition-colors hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright"
-                    >
+                    <Button variant="pill" size="pill" onClick={openInBrowser}>
                       Open on GitHub instead ↗
-                    </button>
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -434,6 +454,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
             title={sendTitle}
             markdown={markdown}
             ghReady={gh === 'ready'}
+            checkEnabled={checkEnabled}
             keptModel={keptModel}
             catalog={catalog}
           />
@@ -443,38 +464,28 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
       <div className="flex shrink-0 items-center gap-2.5 border-t border-[rgba(150,205,255,.1)] pb-4 pl-[26px] pr-5 pt-3.5">
         <span
           key={foot.text}
-          style={{ ...fadeIn(), color: foot.bright ? 'rgba(220,232,248,.92)' : 'rgba(160,190,225,.55)' }}
-          className="min-w-0 flex-1 font-mono text-[10.5px] leading-normal tracking-[0.03em] text-pretty"
+          style={{ color: foot.bright ? 'rgba(220,232,248,.92)' : 'rgba(160,190,225,.55)' }}
+          className="orbital-arrive min-w-0 flex-1 font-mono text-[10.5px] leading-normal tracking-[0.03em] text-pretty"
         >
           {foot.text}
         </span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="cursor-pointer rounded-[9px] border border-[rgba(150,205,255,.18)] bg-transparent px-4 py-[9px] text-[13px] font-semibold text-[rgba(220,235,255,.9)] transition-colors hover:bg-[rgba(150,205,255,.08)]"
-        >
+        <Button variant="ghost" size="lg" onClick={onClose}>
           {phase === 'done' || phase === 'opened' ? 'Close' : 'Cancel'}
-        </button>
+        </Button>
         {phase === 'done' && createdUrl ? (
           <a
             href={createdUrl}
             target="_blank"
             rel="noreferrer"
             title={`Open issue #${number ?? ''} on GitHub`}
-            style={fadeIn()}
-            className="flex items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-[oklch(85%_.12_205/.55)] bg-[oklch(85%_.12_205/.08)] px-4 py-2 font-mono text-[13px] text-accent no-underline transition-colors hover:bg-[oklch(85%_.12_205/.14)]"
+            className="orbital-arrive flex items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-[oklch(85%_.12_205/.55)] bg-[oklch(85%_.12_205/.08)] px-4 py-2 font-mono text-[13px] text-accent no-underline transition-colors hover:bg-[oklch(85%_.12_205/.14)]"
           >
             #{number ?? ''} ↗
           </a>
         ) : (
-          <button
-            type="button"
-            onClick={primary}
-            disabled={primaryOff}
-            className="whitespace-nowrap rounded-[9px] bg-accent px-[18px] py-[9px] text-[13px] font-bold text-[#03111a] shadow-[0_0_24px_oklch(85%_.12_205/.35)] enabled:cursor-pointer disabled:cursor-default disabled:opacity-50"
-          >
+          <Button variant="primary" size="lg" onClick={primary} disabled={primaryOff}>
             {primaryLabel}
-          </button>
+          </Button>
         )}
       </div>
     </>
@@ -490,12 +501,15 @@ function Rail({
   title,
   markdown,
   ghReady,
+  checkEnabled,
   keptModel,
   catalog,
 }: {
   title: string
   markdown: string
   ghReady: boolean
+  /** Labs → Check reports with Claude; without it the rail is the title search alone. */
+  checkEnabled: boolean
   keptModel: string | undefined
   catalog: Parameters<typeof checkModels>[0]
 }) {
@@ -531,7 +545,7 @@ function Rail({
     }
   }, [query, autoOn])
   const searchable = similar === null || similar.issues !== null
-  const list = similar?.issues?.slice(0, MAX_SIMILAR) ?? []
+  const list = similar?.issues ?? []
 
   // --- Check with Claude ---------------------------------------------------
   const models = useMemo(() => checkModels(catalog), [catalog])
@@ -559,6 +573,8 @@ function Rail({
           text: 'Couldn’t list the repo’s issues, so Claude had nothing to compare against.',
           detail: ghReady ? 'gh issue list' : 'api.github.com',
         })
+      } else if (result.error === 'ask') {
+        setCheck({ state: 'failed', text: 'Couldn’t ask Claude.', detail: 'the model call failed or took too long' })
       } else if (result.error === 'reply') {
         setCheck({ state: 'failed', text: 'Couldn’t read Claude’s answer.', detail: 'the reply wasn’t a list of issue numbers' })
       } else {
@@ -585,14 +601,14 @@ function Rail({
         )}
       </div>
       {!autoOn && (
-        <div style={fadeIn()} className="text-xs leading-normal text-pretty text-[rgba(160,190,225,.6)]">
+        <div className="orbital-arrive text-xs leading-normal text-pretty text-[rgba(160,190,225,.6)]">
           Type a title and issues with similar titles show up here.
         </div>
       )}
       {autoOn && list.length > 0 && (
         <ul aria-label="Similar issues" className="flex flex-col">
           {list.map((issue) => (
-            <li key={issue.number} style={fadeIn()}>
+            <li key={issue.number} className="orbital-arrive">
               <IssueLink
                 issue={issue}
                 className="-mx-2 flex items-baseline gap-2 rounded-[7px] p-2 text-inherit no-underline transition-colors hover:bg-[rgba(150,205,255,.06)]"
@@ -608,93 +624,93 @@ function Rail({
         </ul>
       )}
 
-      <div className="flex items-center gap-1.5 border-t border-[rgba(150,205,255,.08)] pt-3">
-        <span className={MONO_LABEL}>CLAUDE</span>
-        <span className="flex-1" />
-        {model && (
-          <Select
-            variant="chip"
-            aria-label="Model for the check"
-            options={models.map((m) => ({ value: m.value, label: m.name, sub: m.desc || undefined }))}
-            value={model.value}
-            onChange={pickModel}
-            disabled={checking}
-            footer="uses your plan · kept for next time"
-          />
-        )}
-        <button
-          type="button"
-          onClick={() => void runCheck()}
-          disabled={checkOff}
-          style={{ color: checkOff ? 'rgba(160,190,225,.45)' : 'rgba(220,235,255,.85)' }}
-          className="whitespace-nowrap rounded-full border border-[rgba(150,205,255,.14)] bg-transparent px-2.5 py-1 text-[11.5px] font-semibold transition-colors enabled:cursor-pointer enabled:hover:bg-[rgba(150,205,255,.06)] disabled:cursor-default"
-        >
-          {checkLabel}
-        </button>
-      </div>
+      {checkEnabled && (
+        <>
+        <div className="flex items-center gap-1.5 border-t border-[rgba(150,205,255,.08)] pt-3">
+          <span className={MONO_LABEL}>CLAUDE</span>
+          <span className="flex-1" />
+          {model && (
+            <Select
+              variant="chip"
+              aria-label="Model for the check"
+              options={models.map((m) => ({ value: m.value, label: m.name, sub: m.desc || undefined }))}
+              value={model.value}
+              onChange={pickModel}
+              disabled={checking}
+              footer="uses your plan · kept for next time"
+            />
+          )}
+          <Button variant="pill" size="pill" onClick={() => void runCheck()} disabled={checkOff}>
+            {checkLabel}
+          </Button>
+        </div>
 
-      <div key={check.state} style={fadeIn()}>
-        {check.state === 'idle' && (
-          <div className="text-xs leading-normal text-pretty text-[rgba(160,190,225,.6)]">
-            Reads your draft next to the repo's open and closed issues and says which look like the same thing. Runs{' '}
-            <span className="font-mono text-[11px]">claude -p</span> on the model you pick.
-          </div>
-        )}
-        {check.state === 'checking' && (
-          <div className="flex flex-col gap-[5px]">
-            <div className="text-[12.5px] leading-normal text-[rgba(214,226,242,.9)]">
-              {modelName} is reading your draft and {CHECKED_ISSUES} recent issues.
+        <div key={check.state} className="orbital-arrive">
+          {check.state === 'idle' && (
+            <div className="text-xs leading-normal text-pretty text-[rgba(160,190,225,.6)]">
+              Reads your draft next to the repo's open and closed issues and says which look like the same thing. Runs{' '}
+              <span className="font-mono text-[11px]">claude -p</span> on the model you pick.
             </div>
-            <div className="font-mono text-[10px] leading-normal text-[rgba(160,190,225,.5)]">
-              usually under a minute · keep editing or send
-            </div>
-          </div>
-        )}
-        {check.state === 'matches' && (
-          <div className="flex flex-col gap-0.5">
-            <span className="pb-1 font-mono text-[10px] text-[rgba(160,190,225,.55)]">
-              {check.matches.length === 1 ? '1 looks like the same issue' : `${check.matches.length} look like the same issue`}
-            </span>
-            <ul aria-label="Issues Claude matched" className="flex flex-col gap-0.5">
-              {check.matches.map((issue) => (
-                <li key={issue.number}>
-                  <IssueLink
-                    issue={issue}
-                    className="-mx-2 flex flex-col gap-1 rounded-[7px] p-2 text-inherit no-underline transition-colors hover:bg-[rgba(150,205,255,.06)]"
-                  >
-                    <span className="flex items-baseline gap-2">
-                      <span className="flex-none font-mono text-[11px] text-text-bright">#{issue.number}</span>
-                      <span className="min-w-0 flex-1 text-[12.5px] font-semibold leading-[1.4] text-pretty text-text-bright">
-                        {issue.title}
-                      </span>
-                      <StateTag state={issue.state} />
-                    </span>
-                    <span className="text-xs leading-[1.45] text-pretty text-[rgba(170,195,225,.75)]">{issue.why}</span>
-                  </IssueLink>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {check.state === 'none' && (
-          <div className="text-[12.5px] leading-normal text-pretty text-[rgba(214,226,242,.9)]">
-            Nothing looks like the same issue.
-          </div>
-        )}
-        {check.state === 'failed' && (
-          <div className="flex flex-col gap-1.5">
-            <div className="text-[12.5px] leading-normal text-pretty text-[rgba(214,226,242,.9)]">{check.text}</div>
-            {check.detail && (
-              <div className="whitespace-pre-wrap font-mono text-[10px] leading-[1.55] text-[rgba(160,190,225,.55)]">
-                {check.detail}
+          )}
+          {check.state === 'checking' && (
+            <div className="flex flex-col gap-[5px]">
+              <div className="text-[12.5px] leading-normal text-[rgba(214,226,242,.9)]">
+                {modelName} is reading your draft and {CHECKED_ISSUES} recent issues.
               </div>
-            )}
-          </div>
-        )}
-      </div>
+              <div className="font-mono text-[10px] leading-normal text-[rgba(160,190,225,.5)]">
+                usually under a minute · keep editing or send
+              </div>
+            </div>
+          )}
+          {check.state === 'matches' && (
+            <div className="flex flex-col gap-0.5">
+              <span className="pb-1 font-mono text-[10px] text-[rgba(160,190,225,.55)]">
+                {check.matches.length === 1 ? '1 looks like the same issue' : `${check.matches.length} look like the same issue`}
+              </span>
+              <ul aria-label="Issues Claude matched" className="flex flex-col gap-0.5">
+                {check.matches.map((issue) => (
+                  <li key={issue.number}>
+                    <IssueLink
+                      issue={issue}
+                      className="-mx-2 flex flex-col gap-1 rounded-[7px] p-2 text-inherit no-underline transition-colors hover:bg-[rgba(150,205,255,.06)]"
+                    >
+                      <span className="flex items-baseline gap-2">
+                        <span className="flex-none font-mono text-[11px] text-text-bright">#{issue.number}</span>
+                        <span className="min-w-0 flex-1 text-[12.5px] font-semibold leading-[1.4] text-pretty text-text-bright">
+                          {issue.title}
+                        </span>
+                        <StateTag state={issue.state} />
+                      </span>
+                      <span className="text-xs leading-[1.45] text-pretty text-[rgba(170,195,225,.75)]">{issue.why}</span>
+                    </IssueLink>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {check.state === 'none' && (
+            <div className="text-[12.5px] leading-normal text-pretty text-[rgba(214,226,242,.9)]">
+              Nothing looks like the same issue.
+            </div>
+          )}
+          {check.state === 'failed' && (
+            <div className="flex flex-col gap-1.5">
+              <div className="text-[12.5px] leading-normal text-pretty text-[rgba(214,226,242,.9)]">{check.text}</div>
+              {check.detail && (
+                <div className="whitespace-pre-wrap font-mono text-[10px] leading-[1.55] text-[rgba(160,190,225,.55)]">
+                  {check.detail}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        </>
+      )}
 
       <span className="flex-1" />
-      <div className="font-mono text-[10px] leading-[1.55] text-[rgba(160,190,225,.45)]">matches never block sending</div>
+      {checkEnabled && (
+        <div className="font-mono text-[10px] leading-[1.55] text-[rgba(160,190,225,.45)]">matches never block sending</div>
+      )}
     </div>
   )
 }

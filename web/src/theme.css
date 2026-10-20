@@ -404,6 +404,19 @@ body {
   animation: orbital-fade-in 0.16s ease;
 }
 
+/* Content swapped in place — a state line, a row's actions coming back,
+   the review dialog's foot (canvas Feature - Feedback): a gentle fade, never
+   a snap. Under reduced motion it simply appears. */
+.orbital-arrive {
+  animation: orbital-fade-in 0.16s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orbital-arrive {
+    animation: none;
+  }
+}
+
 .orbital-refusal-out {
   animation: orbital-fade-out 0.2s ease forwards;
 }

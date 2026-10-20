@@ -1,6 +1,6 @@
 import { execRunner, ghEnv, resolveGh } from '../git/branchStatus.js';
 import { ISSUE_REPO } from './github.js';
-import { toIssue, type SearchOpts, type SimilarIssue } from './similar.js';
+import { parseGhList, toIssue, type SearchOpts, type SimilarIssue } from './similar.js';
 
 /**
  * A model reads the repository's issues and says which ones the issue under
@@ -30,7 +30,13 @@ const DRAFT_BODY_CHARS = 4000;
 
 const MAX_MATCHES = 5;
 
+/** The model's reason for a match, as the rail shows it: one sentence, not a page. */
+const MAX_WHY_CHARS = 240;
+
 const LIST_TIMEOUT_MS = 20_000;
+
+/** How long the model may read before the check gives up (the rail promises "usually under a minute"). */
+export const DUPLICATE_CHECK_TIMEOUT_MS = 120_000;
 
 const PUBLIC_PAGE_SIZE = 100;
 
@@ -69,14 +75,9 @@ export async function listIssues(opts: SearchOpts = {}): Promise<ListedIssue[] |
         '--json', 'number,title,url,state,body'],
       { env: ghEnv(), timeout },
     );
-    if (res.code === 0) {
-      try {
-        const json = JSON.parse(res.stdout) as unknown;
-        if (Array.isArray(json)) return json.map((i) => listed(i, 'url')).filter((i): i is ListedIssue => i !== null);
-      } catch {
-        /* the public API below */
-      }
-    }
+    const issues = res.code === 0 ? parseGhList(res.stdout, (item) => listed(item, 'url')) : null;
+    if (issues) return issues;
+    // Otherwise the public API below.
   }
 
   const issues: ListedIssue[] = [];
@@ -103,12 +104,21 @@ export async function listIssues(opts: SearchOpts = {}): Promise<ListedIssue[] |
   return issues.slice(0, MAX_LISTED_ISSUES);
 }
 
+/**
+ * Other people's text with the data fence taken out of it: an issue whose
+ * title or body says `>>>` would otherwise end the data block early and talk
+ * to the model as instructions.
+ */
+export function unfenced(text: string): string {
+  return text.replace(/<{3,}|>{3,}/g, (run) => run.split('').join(' '));
+}
+
 export function buildDuplicatePrompt(draft: { title: string; body: string }, issues: ListedIssue[]): string {
   const list = issues
-    .map((i) => `#${i.number} [${i.state}] ${i.title.replace(/\s+/g, ' ')}${i.excerpt ? ` — ${i.excerpt}` : ''}`)
+    .map((i) => unfenced(`#${i.number} [${i.state}] ${i.title.replace(/\s+/g, ' ')}${i.excerpt ? ` — ${i.excerpt}` : ''}`))
     .join('\n');
   return [
-    `The new issue:\n<<<\nTitle: ${draft.title}\n\n${draft.body.slice(0, DRAFT_BODY_CHARS)}\n>>>`,
+    `The new issue:\n<<<\n${unfenced(`Title: ${draft.title}\n\n${draft.body.slice(0, DRAFT_BODY_CHARS)}`)}\n>>>`,
     `The issues already filed:\n<<<\n${list}\n>>>`,
   ].join('\n\n');
 }
@@ -137,7 +147,8 @@ export function parseDuplicateReply(raw: string, issues: ListedIssue[]): Duplica
     seen.add(issue.number);
     const why = (m as { why?: unknown }).why;
     const { excerpt: _excerpt, ...rest } = issue;
-    out.push({ ...rest, why: typeof why === 'string' ? why.trim() : '' });
+    const reason = typeof why === 'string' ? why.trim() : '';
+    out.push({ ...rest, why: reason.length > MAX_WHY_CHARS ? `${reason.slice(0, MAX_WHY_CHARS - 1)}…` : reason });
     if (out.length === MAX_MATCHES) break;
   }
   return out;
@@ -145,8 +156,8 @@ export function parseDuplicateReply(raw: string, issues: ListedIssue[]): Duplica
 
 export type DuplicateCheck =
   | { kind: 'checked'; matches: DuplicateMatch[] }
-  /** The issues could not be listed, or the model's reply did not parse. */
-  | { kind: 'failed'; reason: 'list' | 'reply' };
+  /** The issues could not be listed, the model could not be asked, or its reply did not parse. */
+  | { kind: 'failed'; reason: 'list' | 'ask' | 'reply' };
 
 export async function checkDuplicates(
   draft: { title: string; body: string },
@@ -155,6 +166,13 @@ export async function checkDuplicates(
   const issues = await deps.list();
   if (issues === null) return { kind: 'failed', reason: 'list' };
   if (issues.length === 0) return { kind: 'checked', matches: [] };
-  const matches = parseDuplicateReply(await deps.ask(buildDuplicatePrompt(draft, issues)), issues);
+  let reply: string;
+  try {
+    reply = await deps.ask(buildDuplicatePrompt(draft, issues));
+  } catch {
+    // The caller records why (`index.ts`); the rail only says it could not ask.
+    return { kind: 'failed', reason: 'ask' };
+  }
+  const matches = parseDuplicateReply(reply, issues);
   return matches === null ? { kind: 'failed', reason: 'reply' } : { kind: 'checked', matches };
 }

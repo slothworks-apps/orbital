@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
-import { Device } from '@capacitor/device'
 import { osName } from '@orbital/shared/remote/device'
-import { osLabel, osVersionText } from '@orbital/shared/remote/groupWords'
+import { osLabel } from '@orbital/shared/remote/groupWords'
 import { issueUrl, phoneReport, type PhoneEnvironment, type PhoneReportKind } from '../../lib/issueReport'
+import { thisDevice } from '../platform/device'
 import { BottomSheet, CARD } from '../ui'
 
 const OS = osLabel(osName(Capacitor.getPlatform()))
@@ -14,17 +14,12 @@ const CHOICES: readonly { kind: PhoneReportKind; title: string; desc: string }[]
 ]
 
 /**
- * The phone's facts a bug report carries (61g PHONE), from what the device
- * plugin already reads for the device list and Send diagnostics — no plugin
- * or permission of its own.
+ * The phone's facts a bug report carries (61g PHONE), from the same read the
+ * device list and the hello make — no plugin or permission of its own.
  */
 async function phoneEnvironment(): Promise<PhoneEnvironment> {
-  const info = await Device.getInfo().catch(() => null)
-  return {
-    app: __MOBILE_VERSION__,
-    os: osVersionText(osName(Capacitor.getPlatform()), info?.osVersion ?? ''),
-    model: info?.model?.trim() ?? '',
-  }
+  const device = await thisDevice()
+  return { app: __MOBILE_VERSION__, os: device.osVersion ?? OS, model: device.model ?? '' }
 }
 
 /**

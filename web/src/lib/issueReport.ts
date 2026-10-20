@@ -16,9 +16,6 @@ export const MAX_ISSUE_URL_CHARS = 8000
 /** GitHub refuses a longer title (`MAX_TITLE_CHARS` on the server). */
 export const MAX_ISSUE_TITLE_CHARS = 256
 
-/** GitHub refuses a longer body (`MAX_BODY_CHARS` on the server). */
-export const MAX_ISSUE_BODY_CHARS = 65_536
-
 const NOT_GIVEN = '_not given_'
 
 const CUT_NOTE = '… cut to fit the link — the full record is on your clipboard, paste it here.'

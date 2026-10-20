@@ -1,4 +1,5 @@
 import { api } from './api'
+import { recordError } from './errors'
 import type { PermissionMode } from './types'
 import { useOrbital } from '../store/store'
 
@@ -80,6 +81,8 @@ export async function runInOrbital(which: OrbitalCommand): Promise<StartedRun> {
     prompt: spec.prompt,
     permissionMode: RUN_PERMISSION_MODE,
   })
-  await api.renameSession(id, spec.title).catch(() => {})
+  // The session runs either way; a failed rename only leaves the titler's
+  // name on it, so it is recorded, not announced.
+  await api.renameSession(id, spec.title).catch((err) => recordError(err, `Could not name the session ${spec.title}`))
   return { id, title: spec.title }
 }
