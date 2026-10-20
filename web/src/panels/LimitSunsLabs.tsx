@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { api } from '../lib/api'
+import { recordError } from '../lib/errors'
 import {
   LIMIT_SUN_POSITIONS_KEY,
   LIMIT_SUN_STYLE_KEY,
@@ -59,15 +60,20 @@ export function LimitSunsLabs({
   const on = limitSunsEnabled(settings) && !apiKey
   // The accounts the colours are picked for, read as the limits page reads them.
   const [views, setViews] = useState<AccountView[] | null>(null)
+  const [failed, setFailed] = useState(false)
   useEffect(() => {
     if (!on) return
     let live = true
+    setFailed(false)
     api
       .getLimits()
       .then((snapshot) => {
         if (live) setViews(accountViews(snapshot.dirs, { dirInfo: null, self: null, now: Date.now() }))
       })
-      .catch(() => {})
+      .catch((err: unknown) => {
+        recordError(err, 'Could not read the plan limits')
+        if (live) setFailed(true)
+      })
     return () => {
       live = false
     }
@@ -122,7 +128,7 @@ export function LimitSunsLabs({
             >
               {accounts.length === 0 ? (
                 <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
-                  {views === null ? 'reading…' : 'no account read yet'}
+                  {views !== null ? 'no account read yet' : failed ? 'limits unavailable' : 'reading…'}
                 </span>
               ) : (
                 <div className="flex w-full flex-col gap-1.5">

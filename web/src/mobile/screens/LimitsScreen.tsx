@@ -1,14 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { api } from '../../lib/api'
-import { getSocket } from '../../lib/socket'
-import type { LimitSeverity, LimitsSnapshot } from '../../lib/types'
+import type { LimitSeverity } from '../../lib/types'
+import { useLimitsSnapshot } from '../../lib/useLimitsSnapshot'
 import { useNow } from '../../lib/useNow'
-import { LIMITS_TOPIC } from '@orbital/shared/limits'
 import { ClaudeDirMark } from '../../ui/ClaudeDirMark'
 import { CLOCK_TICK_MS } from '../constants'
 import { phoneLimitsView, type PhoneLimitGroup, type PhoneLimitRow } from '../limits/limitsView'
 import { useMobile } from '../state'
-import { CARD, MobileScreen } from '../ui'
+import { CARD, MobileScreen, SecondaryButton } from '../ui'
 
 /** 60d: three steps of one neutral ink, as the desktop's rows — the fill brightens, nothing takes a hue. */
 const FILL: Record<LimitSeverity, string> = {
@@ -26,48 +23,9 @@ const FILL: Record<LimitSeverity, string> = {
  */
 export function LimitsScreen() {
   const goBack = useMobile((s) => s.goBack)
-  const [snapshot, setSnapshot] = useState<LimitsSnapshot | null>(null)
-  const [failed, setFailed] = useState(false)
-  const [reading, setReading] = useState(false)
+  const { snapshot, failed, reading, refresh: readAgain } = useLimitsSnapshot()
   const now = useNow(true, CLOCK_TICK_MS)
-  // Only the newest answer may land: a read started before a pushed frame must not overwrite it.
-  const seq = useRef(0)
-
-  const load = useCallback((refresh: boolean) => {
-    const mine = ++seq.current
-    if (refresh) setReading(true)
-    ;(refresh ? api.refreshLimits() : api.getLimits())
-      .then(
-        (data) => {
-          if (seq.current !== mine) return
-          setSnapshot(data)
-          setFailed(false)
-        },
-        () => {
-          // No member answered and none was ever read: the screen says so; a kept reading stays as it was.
-          if (seq.current === mine) setFailed(true)
-        },
-      )
-      .finally(() => {
-        if (refresh) setReading(false)
-      })
-  }, [])
-
-  useEffect(() => {
-    const off = getSocket().subscribe(LIMITS_TOPIC, (msg: { event?: string; limits?: LimitsSnapshot }) => {
-      if (msg.event !== 'limits' || !msg.limits) return
-      seq.current++
-      setSnapshot(msg.limits)
-      setFailed(false)
-    })
-    load(false)
-    return off
-  }, [load])
-
   const view = snapshot ? phoneLimitsView(snapshot.dirs, now) : null
-  const readAgain = () => {
-    if (!reading) load(true)
-  }
 
   const header = (
     // 60d: the 52 px title row, its read time on the right while nothing is out of date.
@@ -89,14 +47,9 @@ export function LimitsScreen() {
     <MobileScreen header={header} divider={false}>
       <div className="flex flex-col px-4 pb-4 pt-1">
         {view?.stale && <StaleRow line={view.stale} reading={reading} onReadAgain={readAgain} />}
-        {!view && (
-          <div className="flex flex-col items-start gap-3 px-1 pt-5">
-            <span className="font-mono text-[11px] text-[rgba(160,190,225,.6)]">
-              {failed ? 'limits unavailable · no device answered' : 'reading…'}
-            </span>
-            {failed && <ReadAgainButton reading={reading} onClick={readAgain} />}
-          </div>
-        )}
+        {/* No member answered and none was ever read: 60d's stale row, with nothing under it. */}
+        {!view && failed !== null && <StaleRow line="never read · no Mac answered" reading={reading} onReadAgain={readAgain} />}
+        {!view && failed === null && <span className="px-1 pt-5 font-mono text-[11px] text-[rgba(160,190,225,.6)]">reading…</span>}
         {view?.groups.map((group) => <AccountSection key={group.key} group={group} />)}
       </div>
     </MobileScreen>
@@ -112,21 +65,10 @@ function StaleRow({ line, reading, onReadAgain }: { line: string; reading: boole
         <span className="text-[14px] font-semibold">May be out of date</span>
         <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.65)] [overflow-wrap:anywhere]">{line}</span>
       </span>
-      <ReadAgainButton reading={reading} onClick={onReadAgain} />
+      <SecondaryButton variant="compact" disabled={reading} onClick={onReadAgain}>
+        {reading ? 'Reading…' : 'Read again'}
+      </SecondaryButton>
     </div>
-  )
-}
-
-function ReadAgainButton({ reading, onClick }: { reading: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={reading}
-      className="flex h-11 shrink-0 items-center rounded-[10px] border border-[rgba(150,205,255,.2)] px-3 text-[13px] font-semibold text-text-bright disabled:opacity-60"
-    >
-      {reading ? 'Reading…' : 'Read again'}
-    </button>
   )
 }
 
@@ -154,9 +96,11 @@ function AccountSection({ group }: { group: PhoneLimitGroup }) {
           group.rows.map((row, i) => <WindowRow key={row.key} row={row} first={i === 0} />)
         ) : (
           <div className="flex flex-col gap-1 px-3.5 py-3">
+            {/* The desktop's words for an account without plan windows (31a, `NotTracked`). */}
             <span className="text-[14px] font-semibold">Limits aren't tracked</span>
-            <span className="font-mono text-[11px] leading-normal text-[rgba(160,190,225,.6)]">
-              no plan windows · signed in with an API key, or billed as it goes
+            <span className="text-[13px] leading-normal text-[rgba(190,212,238,.75)] [text-wrap:pretty]">
+              This account has no plan windows — its usage is billed as it goes, so there is nothing to show here. Its
+              sessions never wait for a reset.
             </span>
           </div>
         )}

@@ -139,7 +139,7 @@ export interface LimitSunsProps {
  * nothing to change for it — the frame loop moves them.
  */
 export const LimitSuns = memo(function LimitSuns({ hole, planetScale, layerRef, pressRef, onPress }: LimitSunsProps) {
-  const snapshot = useLimitsSnapshot(true)
+  const { snapshot } = useLimitsSnapshot()
   const settings = useOrbital((s) => s.settings)
   const now = useNow(true, CLOCK_MS)
   const style = sunStyle(settings)

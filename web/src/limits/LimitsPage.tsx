@@ -1,6 +1,5 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '../lib/api'
-import { getSocket } from '../lib/socket'
 import { limitSunsEnabled } from '../lib/experimental'
 import {
   estimateLine,
@@ -14,8 +13,9 @@ import {
 } from '../lib/limits'
 import { sunColors, sunDiscGradient, sunTiles, type SunColor } from '../lib/limitSuns'
 import { settingsHref } from '../lib/sessionUrl'
+import { useLimitsSnapshot } from '../lib/useLimitsSnapshot'
 import { useNow } from '../lib/useNow'
-import type { ClaudeDirInfo, ClaudeDirLimits, LimitSeverity, LimitsSnapshot, LimitsWaitRow } from '../lib/types'
+import type { ClaudeDirInfo, ClaudeDirLimits, LimitSeverity, LimitsWaitRow } from '../lib/types'
 import { claudeDirMonograms } from '../lib/claudeDirs'
 import { ClaudeDirMark } from '../ui/ClaudeDirMark'
 import { KindGlyph } from '../ui/KindGlyph'
@@ -39,17 +39,16 @@ import {
  * (spec 2026-10-20-limit-suns-design § 3; canvas `Feature - Limit sun` 60c).
  * Its own screen, mounted instead of `App` like `/stats`, but with the
  * socket: the server pushes a fresh read on the `limits` topic, and it
- * probes only while someone is subscribed to it — so the subscription is
- * what keeps the view current, and leaving the page is what stops the probe.
+ * probes only while someone is subscribed to it — so the subscription
+ * (`useLimitsSnapshot`) is what keeps the view current, and leaving or
+ * hiding the page is what stops the probe.
  *
  * `account` is the key of the account whose sun opened the page
  * (`/limits/<key>`): the page scrolls to it and lights its head for
  * `OPENED_FROM_MAP_LIT_MS`.
  */
 export function LimitsPage({ account = null }: { account?: string | null }) {
-  const [snapshot, setSnapshot] = useState<LimitsSnapshot | null>(null)
-  const [failed, setFailed] = useState<string | null>(null)
-  const [reading, setReading] = useState(false)
+  const { snapshot, failed, reading, refresh: readAgain } = useLimitsSnapshot()
   const [settings, setSettings] = useState<Record<string, string>>({})
   const [apiKey, setApiKey] = useState(true)
   /** The directories' paths, accounts and presence for the group heads (Mac only; null until read). */
@@ -58,41 +57,6 @@ export function LimitsPage({ account = null }: { account?: string | null }) {
   const [self, setSelf] = useState<AccountDevice | null>(null)
   // Re-read each minute so "today" stops being today at midnight.
   const now = useNow(true, 60_000)
-
-  // Only the newest answer may land: a GET started before a pushed frame
-  // must not overwrite it with an older read.
-  const seq = useRef(0)
-  const load = useCallback(() => {
-    const mine = ++seq.current
-    api.getLimits().then(
-      (data) => {
-        if (seq.current !== mine) return
-        setSnapshot(data)
-        setFailed(null)
-      },
-      (err: unknown) => {
-        if (seq.current === mine) setFailed(err instanceof Error ? err.message || 'request failed' : String(err))
-      },
-    )
-  }, [])
-
-  useEffect(() => {
-    const socket = getSocket()
-    const off = socket.subscribe('limits', (msg: { event?: string; limits?: LimitsSnapshot }) => {
-      if (msg.event !== 'limits' || !msg.limits) return
-      seq.current++
-      setSnapshot(msg.limits)
-      setFailed(null)
-    })
-    // The first open is the initial fetch; every reopen may have missed a frame.
-    const offStatus = socket.onStatusChange((status) => {
-      if (status === 'open') load()
-    })
-    return () => {
-      off()
-      offStatus()
-    }
-  }, [load])
 
   useEffect(() => {
     void api.getSettings().then(setSettings).catch(() => {})
@@ -108,22 +72,6 @@ export function LimitsPage({ account = null }: { account?: string | null }) {
       .then((h) => setApiKey(h?.billing !== 'subscription'))
       .catch(() => {})
   }, [])
-
-  const readAgain = () => {
-    if (reading) return
-    setReading(true)
-    const mine = ++seq.current
-    api
-      .refreshLimits()
-      .then((data) => {
-        if (seq.current === mine) setSnapshot(data)
-      })
-      .catch(() => {
-        // The server records a failed read and marks the answer stale; the
-        // page says so through the snapshot, not through a banner.
-      })
-      .finally(() => setReading(false))
-  }
 
   // Every directory the server knows, the other members' included, grouped
   // by account (spec 2026-10-20-limit-suns-design § 1).
