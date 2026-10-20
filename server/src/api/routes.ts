@@ -76,6 +76,11 @@ import { narrationFields } from '../walkthrough/narration.js';
 import type { Narrator } from '../walkthrough/narrator.js';
 import type { Spine, Walkthrough } from '../walkthrough/types.js';
 import type { LimitsService } from '../limits/service.js';
+import { createIssue, ghLogin, MAX_BODY_CHARS, MAX_TITLE_CHARS, type IssueResult } from '../issues/github.js';
+import { hasBrew } from '../git/branchStatus.js';
+import { hostOsVersion } from '../remote/osVersion.js';
+import { findSimilarIssues, type SimilarIssue } from '../issues/similar.js';
+import type { DuplicateCheck } from '../issues/duplicates.js';
 import { AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY } from '../limits/logic.js';
 import {
   NOTIFICATION_SETTING_KEYS, NOTIFICATIONS_TIP_ENDED, NOTIFICATIONS_TIP_KEY,
@@ -169,6 +174,14 @@ export interface RouteContext {
    * the server runs from `npm run dev`; never on in the packaged app.
    */
   devTools?: boolean;
+  /** Files an issue on Orbital's repository through `gh`; `createIssue` when absent. Tests swap it. */
+  createIssue?: (issue: { title: string; body: string }) => Promise<IssueResult>;
+  /** The GitHub account `gh` would file as; `ghLogin` when absent. Tests swap it. */
+  ghLogin?: () => Promise<string | null>;
+  /** Issues on Orbital's repository like a title; `findSimilarIssues` when absent. Tests swap it. */
+  findSimilarIssues?: (title: string) => Promise<SimilarIssue[] | null>;
+  /** A model's reading of which filed issues the draft repeats; built in `index.ts`, where the SDK is. */
+  checkDuplicates?: (draft: { title: string; body: string }, model: string) => Promise<DuplicateCheck>;
   /**
    * How long a rewind waits for a stopped session's process to exit
    * (`Runner.stopAndWait`). Tests shorten it; the Runner's default otherwise.
@@ -2505,6 +2518,72 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { error, unseen: ctx.errors.unseen() };
   });
 
+  /**
+   * An issue on Orbital's own repository, through the user's `gh` login (spec
+   * 2026-10-20-report-to-github-design). The title and body are what the
+   * user reviewed; the repository is fixed in `createIssue`.
+   */
+  app.post('/api/issues', async (req, reply) => {
+    const body = (req.body ?? {}) as { title?: unknown; body?: unknown; errorId?: unknown };
+    if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > MAX_TITLE_CHARS) {
+      return reply.code(400).send({ error: 'title is invalid' });
+    }
+    if (typeof body.body !== 'string' || body.body.length > MAX_BODY_CHARS) {
+      return reply.code(400).send({ error: 'body is invalid' });
+    }
+    if (body.errorId !== undefined && !Number.isInteger(body.errorId)) {
+      return reply.code(400).send({ error: 'errorId is invalid' });
+    }
+    const result = await (ctx.createIssue ?? createIssue)({ title: body.title.trim(), body: body.body });
+    if (result.kind === 'created') {
+      // The issue exists either way; a row pruned meanwhile just has nowhere to keep its link.
+      if (Number.isInteger(body.errorId)) ctx.errors.markReported(body.errorId as number, result.url);
+      return { url: result.url };
+    }
+    if (result.kind === 'unavailable') return reply.code(409).send({ error: result.reason });
+    return reply.code(502).send({ error: result.message });
+  });
+
+  /**
+   * Issues already filed that look like the one under review; `issues: null`
+   * when GitHub could not be searched, which is not the same as none found.
+   */
+  app.get('/api/issues/similar', async (req, reply) => {
+    const { title } = req.query as { title?: string };
+    if (typeof title !== 'string' || !title.trim() || title.length > MAX_TITLE_CHARS) {
+      return reply.code(400).send({ error: 'title is invalid' });
+    }
+    return { issues: await (ctx.findSimilarIssues ?? findSimilarIssues)(title) };
+  });
+
+  /**
+   * Checking with Claude whether the draft is already filed — asked only when
+   * the user asks, since it costs a model call. 502 names which half failed.
+   */
+  app.post('/api/issues/duplicates', async (req, reply) => {
+    const body = (req.body ?? {}) as { title?: unknown; body?: unknown; model?: unknown };
+    if (typeof body.title !== 'string' || !body.title.trim() || body.title.length > MAX_TITLE_CHARS) {
+      return reply.code(400).send({ error: 'title is invalid' });
+    }
+    if (typeof body.body !== 'string' || body.body.length > MAX_BODY_CHARS) {
+      return reply.code(400).send({ error: 'body is invalid' });
+    }
+    // A model id or alias, as the composer's picker sends it; never a flag.
+    if (typeof body.model !== 'string' || !/^[A-Za-z0-9][\w.:\[\]-]{0,99}$/.test(body.model)) {
+      return reply.code(400).send({ error: 'model is invalid' });
+    }
+    if (!ctx.checkDuplicates) return reply.code(503).send({ error: 'unavailable' });
+    const result = await ctx.checkDuplicates({ title: body.title.trim(), body: body.body }, body.model);
+    if (result.kind === 'checked') return { matches: result.matches };
+    return reply.code(502).send({ error: result.reason });
+  });
+
+  /** What a report says about this Mac, which only the server can read. */
+  app.get('/api/issues/environment', async () => {
+    const [osVersion, login] = await Promise.all([hostOsVersion(), (ctx.ghLogin ?? ghLogin)()]);
+    return { osVersion, ghLogin: login };
+  });
+
   app.post('/api/errors/seen', (req, reply) => {
     const body = (req.body ?? {}) as { ids?: unknown; all?: unknown };
     if (body.all === true) return { ok: true, ...ctx.errors.markSeen('all') };
@@ -2628,7 +2707,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
    * Settings opens and when the app regains focus (spec
    * 2026-09-30-branch-pr-and-line-changes-design § Settings).
    */
-  app.get('/api/gh-status', async () => ({ status: await ctx.branchStatus.ghStatus() }));
+  // `brew` picks the way Settings offers to install gh (canvas Feature - Feedback 61g GH LINE).
+  app.get('/api/gh-status', async () => ({ status: await ctx.branchStatus.ghStatus(), brew: hasBrew() }));
 
   /**
    * The app regained focus: look again at the PR and the lines of every

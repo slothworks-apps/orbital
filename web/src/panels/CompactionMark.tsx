@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { ChatMessage, CompactionMark as Mark } from '../lib/types'
 import { Button } from '../ui/Button'
 import { copyToClipboard } from '../lib/clipboard'
-import { formatRecordForCopy } from './ErrorLog'
+import { formatRecordForCopy } from '../lib/errorRecord'
 import {
   compactionDropPercent,
   compactionFailureRecord,

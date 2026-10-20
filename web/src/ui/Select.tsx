@@ -47,9 +47,12 @@ export interface SelectProps<T> {
    * chevron inline, so the trigger reads as the tag it carries; `ghost` is
    * 3a's origin filter — a bare label inside a list heading, which grows
    * chrome only while it is open or `active`; `device` is 50g's DEVICE
-   * field — the glyph, the name and its sub-line on one roomier row.
+   * field — the glyph, the name and its sub-line on one roomier row;
+   * `chip` is 61h's model chip in the report dialog (`Feature - Feedback`) — a
+   * small mono pill whose menu hangs off its right edge, the ✓ leading each
+   * row and the option's `sub` trailing it as a short description.
    */
-  variant?: 'field' | 'pill' | 'tag' | 'ghost' | 'device'
+  variant?: 'field' | 'pill' | 'tag' | 'ghost' | 'device' | 'chip'
   /**
    * `ghost` only: keep the lit chrome while the control is closed, because
    * its value is doing something visible (a filter that is narrowing a list).
@@ -82,6 +85,8 @@ const POPUP_GAP = 4
 const TAG_POPUP_MIN_WIDTH = 168
 /** Width floor for the `ghost` popup (canvas 3a) — its trigger is narrower still. */
 const GHOST_POPUP_MIN_WIDTH = 186
+/** The `chip` popup's width (canvas 61h's model menu). */
+const CHIP_POPUP_MIN_WIDTH = 220
 /** Type-ahead buffer lifetime, the same window the platform controls use. */
 const TYPEAHEAD_MS = 500
 
@@ -203,13 +208,15 @@ export function Select<T extends string | number>({
   // end of a 300px panel and a left-aligned menu would spill onto the map.
   usePopupPosition(open, triggerRef, popupRef, {
     gap: POPUP_GAP,
-    align: variant === 'ghost' ? 'right' : 'left',
+    align: variant === 'ghost' || variant === 'chip' ? 'right' : 'left',
     minWidth:
       variant === 'tag'
         ? TAG_POPUP_MIN_WIDTH
         : variant === 'ghost'
           ? GHOST_POPUP_MIN_WIDTH
-          : 0,
+          : variant === 'chip'
+            ? CHIP_POPUP_MIN_WIDTH
+            : 0,
   })
 
   // Opening lands on the selected row even when the list is longer than the
@@ -327,6 +334,7 @@ export function Select<T extends string | number>({
   const isTag = variant === 'tag'
   const isGhost = variant === 'ghost'
   const isDevice = variant === 'device'
+  const isChip = variant === 'chip'
   // 3a paints the ghost trigger in two states only: bare, or lit. Open and
   // "narrowing something" are the same state — both mean it has the floor.
   const lit = isGhost && (open || active)
@@ -370,12 +378,22 @@ export function Select<T extends string | number>({
           // so a caller's `w-[200px]` never has to out-order a built-in
           // `w-full` in the stylesheet (see the v4 footguns in web/CLAUDE.md).
           'relative inline-flex min-w-0 cursor-pointer items-center text-left disabled:cursor-not-allowed disabled:opacity-50',
-          isGhost ? 'gap-[5px]' : isDevice ? 'gap-2.5' : 'gap-1.5',
+          isGhost || isChip ? 'gap-[5px]' : isDevice ? 'gap-2.5' : 'gap-1.5',
           // The ghost branch owns its own ink in both states, so it must not
           // also inherit `text-text-bright` — two colour utilities on one
           // element are settled by stylesheet order, not by this array's.
-          isGhost ? '' : 'text-text-bright',
-          isGhost
+          isGhost || isChip ? '' : 'text-text-bright',
+          isChip
+            ? // 61h's model chip: 4px/8px/4px/10px in a 999px hairline, mono
+              // 10.5px; open lights the border to .3 over a .14 fill.
+              [
+                'whitespace-nowrap rounded-full border py-1 pl-2.5 pr-2 font-mono text-[10.5px] text-[rgba(214,230,248,.85)]',
+                'transition-[background-color,border-color] duration-[180ms] ease-out',
+                open
+                  ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)]'
+                  : 'border-[rgba(150,205,255,.14)] bg-transparent hover:bg-[rgba(150,205,255,.06)]',
+              ].join(' ')
+            : isGhost
             ? // 3a's origin trigger: 3px/7px inside a 6px radius, the heading's
               // own mono face at a looser .04em, transparent until it is lit.
               [
@@ -447,7 +465,9 @@ export function Select<T extends string | number>({
           aria-hidden
           data-caret
           className={
-            isDevice
+            isChip
+              ? 'block shrink-0 text-[8px] text-[rgba(160,190,225,.6)]'
+              : isDevice
               ? // 50g: 8px, inline, flips while open (`transform .2s ease`).
                 `block shrink-0 text-[8px] text-[rgba(160,190,225,.6)] transition-transform duration-200 ease-[ease] ${open ? 'rotate-180' : ''}`
               : isTag || isGhost
@@ -490,6 +510,19 @@ export function Select<T extends string | number>({
               {options.map((option, index) => {
                 const isSelected = option.value === value
                 const isActive = index === activeIndex
+                if (isChip) {
+                  return (
+                    <ChipRow
+                      key={String(option.value)}
+                      id={optionId(index)}
+                      option={option}
+                      selected={isSelected}
+                      active={isActive}
+                      onHover={() => setActiveIndex(index)}
+                      onPick={() => commit(index)}
+                    />
+                  )
+                }
                 if (isDevice) {
                   return (
                     <DeviceRow
@@ -555,7 +588,15 @@ export function Select<T extends string | number>({
                 )
               })}
             </div>
-            {footer && (
+            {footer && isChip ? (
+              // 61h: 6px/9px/4px under a .08 rule, mono 10px at .5.
+              <div
+                id={footerId}
+                className="mt-0.5 shrink-0 border-t border-[rgba(150,205,255,.08)] px-[9px] pb-1 pt-1.5 font-mono text-[10px] leading-normal text-[rgba(160,190,225,.5)]"
+              >
+                {footer}
+              </div>
+            ) : footer && (
               <div
                 id={footerId}
                 className="mx-[5px] mt-[3px] mb-0.5 shrink-0 border-t border-[rgba(150,205,255,.1)] pt-1.5 font-mono text-[9.5px] leading-[1.4] tracking-[.1em] text-[rgba(160,190,225,.5)]"
@@ -630,4 +671,50 @@ function DeviceRow<T>({
 /** A single printable character — anything else is a command key, not a search. */
 function isTypeaheadKey(e: ReactKeyboardEvent): boolean {
   return e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey
+}
+
+/**
+ * One row of the `chip` menu (canvas 61h): 7px/9px inside a 7px radius, 8px
+ * gaps on the baseline; a 10px ✓ column first, the name in mono 11.5px, and
+ * the `sub` description pushed right in sans 11px.
+ */
+function ChipRow<T>({
+  id,
+  option,
+  selected,
+  active,
+  onHover,
+  onPick,
+}: {
+  id: string
+  option: SelectOption<T>
+  selected: boolean
+  active: boolean
+  onHover: () => void
+  onPick: () => void
+}) {
+  return (
+    <div
+      id={id}
+      role="option"
+      aria-selected={selected}
+      data-label={option.label}
+      data-active={active || undefined}
+      onMouseMove={onHover}
+      onClick={onPick}
+      className={[
+        'flex shrink-0 cursor-pointer items-baseline gap-2 rounded-[7px] px-[9px] py-[7px] text-text-bright',
+        active ? 'bg-[rgba(150,205,255,.08)]' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <span aria-hidden className="w-2.5 shrink-0 font-sans text-[11px] text-accent">
+        {selected ? '✓' : ''}
+      </span>
+      <span className="font-mono text-[11.5px]">{option.label}</span>
+      <span aria-hidden className="flex-1" />
+      {option.sub && <span className="whitespace-nowrap font-sans text-[11px] text-[rgba(160,190,225,.6)]">{option.sub}</span>}
+    </div>
+  )
 }

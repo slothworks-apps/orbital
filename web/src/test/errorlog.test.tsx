@@ -35,6 +35,7 @@ function makeError(overrides: Partial<ErrorRecord> & { id: number }): ErrorRecor
     detail: null,
     context: null,
     seenAt: null,
+    issueUrl: null,
     ...overrides,
   }
 }
@@ -106,7 +107,8 @@ describe('ErrorLog', () => {
     expect(screen.getByText(/"url": "\/api\/sessions\/s1"/)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /hide detail/i }))
-    expect(screen.queryByText(/at pump/)).not.toBeInTheDocument()
+    // The detail animates closed before it unmounts.
+    await waitFor(() => expect(screen.queryByText(/at pump/)).not.toBeInTheDocument())
   })
 
   it('copies the whole record, not the one line the row shows', async () => {
@@ -173,6 +175,58 @@ describe('ErrorLog', () => {
     // The rows leave the list (they stay in the server's table).
     await waitFor(() => expect(useOrbital.getState().errors).toEqual([]))
     expect(useOrbital.getState().errorsUnseen).toBe(0)
+  })
+})
+
+describe('Report on a row (canvas 61a)', () => {
+  it('offers Report on an expanded row, never on a dev record', async () => {
+    const user = userEvent.setup()
+    resetStore([
+      makeError({ id: 2, seenAt: 1, detail: 'dev stack', context: { dev: true } }),
+      makeError({ id: 1, seenAt: 1, detail: 'real stack' }),
+    ])
+
+    render(<ErrorLog open onClose={() => {}} />)
+    // Collapsed: nothing has been read yet, so nothing to report.
+    expect(screen.queryByRole('button', { name: /report error/i })).not.toBeInTheDocument()
+
+    for (const toggle of screen.getAllByRole('button', { name: /show detail/i })) await user.click(toggle)
+
+    expect(screen.getByRole('button', { name: 'Report error 1' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Report error 2' })).not.toBeInTheDocument()
+  })
+
+  it('becomes a link to the issue once the record has been reported', async () => {
+    const user = userEvent.setup()
+    resetStore([
+      makeError({ id: 1, seenAt: 1, detail: 'stack', issueUrl: 'https://github.com/slothworks-apps/orbital/issues/42' }),
+    ])
+
+    render(<ErrorLog open onClose={() => {}} />)
+    await user.click(screen.getByRole('button', { name: /show detail/i }))
+
+    expect(screen.queryByRole('button', { name: /report error/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '#42 ↗' })).toHaveAttribute(
+      'href',
+      'https://github.com/slothworks-apps/orbital/issues/42',
+    )
+  })
+
+  it('opens the review over the log, and Escape closes only the review', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.ghStatus).mockResolvedValue({ status: 'ready' })
+    vi.mocked(api.issueEnvironment).mockResolvedValue({ osVersion: '15.1', ghLogin: 'mira' })
+    resetStore([makeError({ id: 1, seenAt: 1, message: 'upstream closed' })])
+
+    render(<ErrorLog open onClose={() => {}} />)
+    await user.click(screen.getByRole('button', { name: 'Report error 1' }))
+
+    const review = await screen.findByRole('dialog', { name: /review the issue/i })
+    expect(within(review).getByDisplayValue('API request: upstream closed')).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /review the issue/i })).not.toBeInTheDocument())
+    expect(screen.getByRole('dialog', { name: 'Errors' })).toBeInTheDocument()
   })
 })
 

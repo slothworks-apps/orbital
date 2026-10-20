@@ -1,0 +1,32 @@
+name: Label issues
+
+# An issue filed through the form gets its template's label from GitHub. One
+# sent from Orbital through `gh` cannot carry a label — that needs triage
+# rights on the repository — but its body opens with the heading the form
+# would have, so the label is read off the first one (spec 2026-10-20-report-to-github-design).
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.issue.labels[0] == null }}
+    steps:
+      - name: label by the first heading
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.issue.number }}
+          BODY: ${{ github.event.issue.body }}
+        run: |
+          first=$(printf '%s\n' "$BODY" | tr -d '\r' | grep -m1 -E '^#{2,3} ' | sed -E 's/^#+ //' || true)
+          case "$first" in
+            'What happened') label=bug ;;
+            'What gets in your way'|'What gets in the way') label=enhancement ;;
+            *) exit 0 ;;
+          esac
+          gh issue edit "$NUMBER" --repo "$REPO" --add-label "$label"

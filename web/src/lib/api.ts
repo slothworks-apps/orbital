@@ -16,6 +16,8 @@ import type {
   FileCompletionEntry,
   FilePreview,
   GhAvailability,
+  SimilarIssue,
+  DuplicateIssue,
   IdeDiagnostic,
   SlashCommand,
   SubagentTranscript,
@@ -1037,6 +1039,31 @@ export const api = {
     return request<SessionStatsDetail>('GET', apiPath`/api/stats/sessions/${id}` + query)
   },
 
+  // Reports to Orbital's GitHub (spec 2026-10-20-report-to-github-design).
+  // Mac only: the phone opens the prefilled form instead. `gh` missing or
+  // logged out comes back as `{ error }`; anything gh says otherwise throws.
+  async createIssue(body: { title: string; body: string; errorId?: number }): Promise<{ url: string } | { error: Exclude<GhAvailability, 'ready'> }> {
+    return remoteCall('POST', '/api/issues', body, { 409: ['missing', 'logged_out'] as const })
+  },
+
+  async similarIssues(title: string): Promise<SimilarIssue[] | null> {
+    const data = await request<{ issues: SimilarIssue[] | null }>(
+      'GET', `/api/issues/similar?${new URLSearchParams({ title })}`,
+    )
+    return data.issues
+  },
+
+  /** Claude's reading of which filed issues the draft repeats; `{ error }` names the half that failed. */
+  async checkDuplicateIssues(
+    body: { title: string; body: string; model: string },
+  ): Promise<{ matches: DuplicateIssue[] } | { error: 'list' | 'reply' | 'unavailable' }> {
+    return remoteCall('POST', '/api/issues/duplicates', body, { 502: ['list', 'reply'] as const, 503: ['unavailable'] as const })
+  },
+
+  async issueEnvironment(): Promise<{ osVersion: string | null; ghLogin: string | null }> {
+    return request<{ osVersion: string | null; ghLogin: string | null }>('GET', '/api/issues/environment')
+  },
+
   // Claude directories (spec 2026-10-04-multiple-claude-directories-design § 6).
   // Mac only: none of these is on the phone's allowlist. A refused change
   // comes back as `{ error }`, a state the Settings row words, not a throw.
@@ -1115,8 +1142,9 @@ export const api = {
    * if not, why (spec 2026-09-30-branch-pr-and-line-changes-design §
    * Settings). Asked when Settings opens and when the app regains focus.
    */
-  async ghStatus(): Promise<{ status: GhAvailability }> {
-    return request<{ status: GhAvailability }>('GET', '/api/gh-status')
+  // `brew` is absent from a Mac older than the report-to-GitHub change.
+  async ghStatus(): Promise<{ status: GhAvailability; brew?: boolean }> {
+    return request<{ status: GhAvailability; brew?: boolean }>('GET', '/api/gh-status')
   },
 
   /**

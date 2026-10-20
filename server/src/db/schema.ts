@@ -638,6 +638,8 @@ export const errors = sqliteTable(
     /** When the user marked this row read. Null while it still sits in the
      * unread inbox; a stamped row leaves the list but stays in the table. */
     seenAt: integer('seen_at'),
+    /** The issue this row was reported as on Orbital's GitHub; null until it is. */
+    issueUrl: text('issue_url'),
   },
   (table) => [
     index('idx_errors_at').on(sql`${table.at} DESC`),

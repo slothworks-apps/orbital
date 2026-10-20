@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from 'vitest'
 import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react'
 import { useOrbital, type OrbitalState, type OrbitalUiState } from '../store/store'
 import type { OrbitalModel } from '../lib/types'
@@ -214,9 +214,35 @@ describe('Settings', () => {
     const toggle = screen.getByRole('switch', { name: 'Pull request in the header' })
     await waitFor(() => expect(toggle).toBeDisabled())
     expect(toggle).not.toBeChecked()
-    expect(screen.getByText(reason)).toBeInTheDocument()
+    // The line folds open a commit after the switch turns off (`ui/Collapse`).
+    expect(await screen.findByText(reason)).toBeInTheDocument()
     expect(api.patchSettings).not.toHaveBeenCalled()
     expect(useOrbital.getState().settings.header_pull_request).toBe('true')
+  })
+
+  // canvas `Feature - Feedback` 61c: the line names the command and runs it
+  // in an Orbital session; after that it says where it runs and leads there.
+  it('runs the command in an Orbital session and leads to it', async () => {
+    const launchSession = vi.fn(async () => 'session-gh')
+    const select = vi.fn(async () => {})
+    const actions = { launchSession: useOrbital.getState().launchSession, select: useOrbital.getState().select }
+    onTestFinished(() => useOrbital.setState(actions))
+    resetStore()
+    useOrbital.setState({ launchSession, select })
+    vi.mocked(api.ghStatus).mockResolvedValue({ status: 'missing', brew: true })
+    vi.mocked(api.renameSession).mockResolvedValue({ ok: true })
+    const onClose = vi.fn()
+    render(<Settings open onClose={onClose} />)
+    openSection('Appearance')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Run in Orbital' }))
+    await screen.findByText(/This row checks again when Settings is back in focus/)
+    expect(launchSession).toHaveBeenCalledWith(expect.objectContaining({ cwd: '~' }))
+    expect(api.renameSession).toHaveBeenCalledWith('session-gh', 'Install gh')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open the session ›' }))
+    expect(onClose).toHaveBeenCalled()
+    expect(select).toHaveBeenCalledWith('session-gh')
   })
 
   it('draws the stored PR choice once gh is ready, and patches it', async () => {

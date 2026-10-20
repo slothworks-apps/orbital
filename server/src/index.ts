@@ -54,6 +54,7 @@ import { SessionTitler, type TitleQueryFn } from './titler/titler.js';
 import { HarnessService } from './harness/service.js';
 import { askWatcher } from './harness/watcher.js';
 import { askOnce } from './harness/ask.js';
+import { checkDuplicates, DUPLICATE_SYSTEM_PROMPT, listIssues } from './issues/duplicates.js';
 import { DRAFT_SYSTEM_PROMPT } from './harness/drafter.js';
 import { askReviewer } from './harness/reviewer.js';
 import { gateOf } from './harness/logic.js';
@@ -1513,6 +1514,16 @@ export async function buildServer(overrides: {
     db, registry, runner, claudeDirs, transcriptPath, hub, subagents, subagentTranscripts, backgroundTasks, terminals, recentTools, errors,
     images, imagesDir, files, titler, narrator, git, ide, branchStatus, harness, remote, presence, trees,
     foreign,
+    // About no session: the default directory's account, as the harness drafter.
+    checkDuplicates: (draft, model) =>
+      checkDuplicates(draft, {
+        list: () => listIssues(),
+        ask: (prompt) =>
+          askOnce(overrides.titleQueryFn ?? query, prompt, {
+            systemPrompt: DUPLICATE_SYSTEM_PROMPT, model, claudeExecutablePath: claudeCli.path,
+            env: envForDir(claudeDirs.defaultId()),
+          }),
+      }),
     settings: settingsStore,
     mcpFor,
     limits,

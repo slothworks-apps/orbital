@@ -66,6 +66,7 @@ function toRecord(row: ErrorRow): ErrorRecord {
     detail: row.detail,
     context,
     seenAt: row.seenAt,
+    issueUrl: row.issueUrl,
   };
 }
 
@@ -103,6 +104,7 @@ export class ErrorLog {
         detail: entry.detail ?? null,
         context: entry.context == null ? null : JSON.stringify(entry.context),
         seenAt: null,
+        issueUrl: null,
       })
       .run();
     const id = Number(result.lastInsertRowid);
@@ -152,6 +154,18 @@ export class ErrorLog {
     const unseen = this.unseen();
     this.hub.publish(ERRORS_TOPIC, { event: 'seen', ids, unseen });
     return { unseen };
+  }
+
+  /**
+   * Remembers the issue a row was reported as, so the log can link it and
+   * the row is not reported twice (spec 2026-10-20-report-to-github-design).
+   * False when the row is gone — pruned, or never there.
+   */
+  markReported(id: number, issueUrl: string): boolean {
+    const result = this.db.update(errors).set({ issueUrl }).where(eq(errors.id, id)).run();
+    if (result.changes === 0) return false;
+    this.hub.publish(ERRORS_TOPIC, { event: 'reported', id, issueUrl });
+    return true;
   }
 
   /** Unseen rows across the whole table. */

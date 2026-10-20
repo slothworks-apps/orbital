@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-10-20
+### Added
+- Settings → About → Send feedback opens a bug report or a feature request on GitHub in your browser, with the app version, the system and the phone model filled in.
+
 ## [0.17.0] — 2026-10-20
 ### Added
 - Limits, from the ring in the session list header: every Claude account's plan windows across your devices, with when each runs out at your current pace.

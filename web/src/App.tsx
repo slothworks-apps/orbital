@@ -35,6 +35,7 @@ import { dockExtent } from './terminal/layout'
 import { useFeedbackNotice } from './ui/FeedbackNotice'
 import { MapNoticeHost } from './ui/MapNoticeHost'
 import { useNotificationsTip } from './panels/NotificationsTip'
+import { useGhTip } from './panels/GhTip'
 import { useAppUpdateNotice } from './panels/UpdateNotice'
 import { useWhatsNewNotice } from './panels/WhatsNew'
 import { ErrorBoundary } from './ui/ErrorBoundary'
@@ -99,6 +100,9 @@ export default function App() {
   // The one-time notifications tip, the first of the map's notices (spec
   // 2026-10-08-notifications-off-by-default-design § 3).
   useNotificationsTip()
+  // The one-time gh tip, on a launch where gh is not installed (spec
+  // 2026-10-20-report-to-github-design § Telling people about gh).
+  useGhTip()
   // The desktop app's update prompt, the toast's UPDATE kind (canvas
   // `Feature - App update`). Nothing outside the desktop app.
   useAppUpdateNotice()

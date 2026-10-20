@@ -1,30 +1,50 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
 import type { ErrorRecord } from '../lib/types'
 import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
+import { Collapse } from '../ui/Collapse'
+import { FADE_MS, HEIGHT_MS } from '../ui/motion'
+import { prefersReducedMotion } from '../ui/usePresence'
+import { useExitList } from '../ui/useExitList'
 import { copyToClipboard } from '../lib/clipboard'
-
-/**
- * The whole record as one block of text, which is what a person pasting it
- * into an issue or a session actually wants — not the one line the row shows.
- */
-export function formatRecordForCopy(error: ErrorRecord): string {
-  const lines = [
-    `[${new Date(error.at).toISOString()}] ${error.source} · ${error.kind}`,
-    error.sessionId ? `session: ${error.sessionId}` : null,
-    '',
-    error.message,
-  ]
-  if (error.context) lines.push('', JSON.stringify(error.context, null, 2))
-  if (error.detail) lines.push('', error.detail)
-  return lines.filter((line) => line !== null).join('\n')
-}
+import { formatRecordForCopy } from '../lib/errorRecord'
+import { issueNumber } from './report/logic'
+import { ReportDialog } from './report/ReportDialog'
 
 /** 5b spells kinds out: `render_crash` reads as RENDER CRASH. */
 function kindLabel(kind: string): string {
   return kind.replace(/_/g, ' ').toUpperCase()
+}
+
+/** Canvas 5b/5c's frame stops here; past it the list scrolls inside. */
+const LOG_MAX_HEIGHT = 720
+
+/**
+ * The reported chip (canvas 61g REPORT CHIP → REPORTED): Copy's hairline pill,
+ * with the issue's number in mono. It says the record was filed from this
+ * Mac, nothing about the issue's state.
+ */
+function ReportedChip({ url }: { url: string }) {
+  const n = issueNumber(url)
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      title={`Reported as issue #${n ?? ''} · opens on GitHub`}
+      className="inline-flex items-center rounded-full border border-[rgba(150,205,255,.14)] px-2.5 py-1 font-mono text-[11px] text-[rgba(220,235,255,.85)] no-underline transition-colors hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright"
+    >
+      #{n ?? ''} ↗
+    </a>
+  )
+}
+
+/** Actions arriving beside a row that just closed fade in rather than appearing at once. */
+function arriving(): CSSProperties | undefined {
+  return prefersReducedMotion() ? undefined : { animation: `orbital-fade-in ${HEIGHT_MS}ms ease` }
 }
 
 /**
@@ -34,12 +54,16 @@ function kindLabel(kind: string): string {
  * record (stamped by `api.reportErrorToServer` in dev builds) drops to a
  * hollow dot, muted message and a dashed DEV chip — no red anywhere on it.
  */
-function ErrorRow({ error }: { error: ErrorRecord }) {
+function ErrorRow({ error, onReport }: { error: ErrorRecord; onReport: (error: ErrorRecord) => void }) {
   const [expanded, setExpanded] = useState(false)
   const bodyId = `error-detail-${error.id}`
   const hasBody = Boolean(error.detail) || Boolean(error.context)
   const isDev = error.context?.dev === true
   const unseen = error.seenAt === null
+  // Canvas 61a/61g: Report only where the whole record has been read — an
+  // expanded row, or one with nothing more to expand — and never on a dev
+  // record, which comes from the user's own build.
+  const reportable = !isDev && (expanded || !hasBody)
 
   // 5b: red is the badge's and the error dot's alone — oklch(60% .2 25),
   // precomputed to #de3b3d for Tailwind arbitrary values (see theme.css for
@@ -71,13 +95,21 @@ function ErrorRow({ error }: { error: ErrorRecord }) {
       >
         Copy
       </Button>
+      {reportable &&
+        (error.issueUrl ? (
+          <ReportedChip url={error.issueUrl} />
+        ) : (
+          <Button variant="pill" size="pill" aria-label={`Report error ${error.id}`} onClick={() => onReport(error)}>
+            Report
+          </Button>
+        ))}
     </>
   )
 
   return (
-    <li
+    <div
       className={[
-        '-mx-2.5 flex items-start gap-2.5 border-b border-[rgba(150,205,255,.07)] px-2.5 py-[13px]',
+        'flex items-start gap-2.5 border-b border-[rgba(150,205,255,.07)] px-2.5 py-[13px]',
         unseen ? 'bg-[rgba(150,205,255,.05)]' : '',
       ]
         .filter(Boolean)
@@ -136,8 +168,11 @@ function ErrorRow({ error }: { error: ErrorRecord }) {
         >
           {error.message}
         </div>
-        {hasBody && expanded && (
-          <div id={bodyId} className="flex flex-col gap-1.5">
+        {/* The detail opens and closes by its height, so the rows below glide.
+            The 6px column gap rides inside the collapsing box. */}
+        {hasBody && (
+          <Collapse open={expanded} id={bodyId} className="-mt-1.5">
+          <div className="flex flex-col gap-1.5 pt-1.5">
             {error.context && (
               <pre className="max-h-[150px] overflow-auto whitespace-pre-wrap break-words rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)]">
                 {JSON.stringify(error.context, null, 2)}
@@ -149,13 +184,22 @@ function ErrorRow({ error }: { error: ErrorRecord }) {
               </pre>
             )}
             {/* Expanded, the actions follow the detail block (5b's open row)
-                instead of floating beside a now-tall column. */}
-            <div className="flex items-center gap-1.5">{actions}</div>
+                instead of floating beside a now-tall column. While the block
+                closes they stay drawn but out of reach — the live set is
+                already back beside the row. */}
+            <div className="flex items-center gap-1.5" aria-hidden={!expanded || undefined}>
+              {actions}
+            </div>
           </div>
+          </Collapse>
         )}
       </div>
-      {!expanded && <div className="flex flex-none items-center gap-1.5">{actions}</div>}
-    </li>
+      {!expanded && (
+        <div className="flex flex-none items-center gap-1.5" style={hasBody ? arriving() : undefined}>
+          {actions}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -172,6 +216,21 @@ export interface ErrorLogProps {
 export function ErrorLog({ open, onClose }: ErrorLogProps) {
   const errors = useOrbital(useShallow((s) => s.errors))
   const markErrorsSeen = useOrbital((s) => s.markErrorsSeen)
+  // A row that leaves (marked seen here or elsewhere) fades, then gives its
+  // height back so the rows below glide up into the place.
+  const rows = useExitList(errors, (error) => error.id, FADE_MS + HEIGHT_MS)
+  // Rows on screen when the log opened are simply there; one that arrives
+  // later opens its place and fades in.
+  // Taken each time the log opens: it stays mounted while closed, and the rows
+  // loaded at launch must not all grow in as if they had just arrived.
+  const firstIds = useRef<Set<number> | null>(null)
+  const wasOpen = useRef(false)
+  if (open && !wasOpen.current) firstIds.current = new Set(errors.map((error) => error.id))
+  wasOpen.current = open
+  // The record being reported, kept through the review's close transition.
+  const [reporting, setReporting] = useState<{ error: ErrorRecord; open: boolean } | null>(null)
+  // Closing the log takes the review with it; reopening the log starts clean.
+  if (!open && reporting !== null) setReporting(null)
 
   // Deliberately NO marking on open. The log is an unread inbox over a
   // permanent table: the user reads, decides nothing here needs them, and
@@ -184,6 +243,8 @@ export function ErrorLog({ open, onClose }: ErrorLogProps) {
       title="Errors"
       eyebrow="LOG"
       size="xl"
+      maxHeight={LOG_MAX_HEIGHT}
+      anchorTop
       onClose={onClose}
       headerMeta={errors.length > 0 ? entryCount : undefined}
       footerCaption="newest first · dev records included"
@@ -208,14 +269,27 @@ export function ErrorLog({ open, onClose }: ErrorLogProps) {
         </>
       }
     >
-      {errors.length === 0 ? (
-        <p className="text-[13px] text-[rgba(200,214,235,.85)]">No unread errors.</p>
+      {rows.length === 0 ? (
+        <p className="text-[13px] text-[rgba(200,214,235,.85)]" style={arriving()}>
+          No unread errors.
+        </p>
       ) : (
         <ul aria-label="Recorded errors" className="flex flex-col">
-          {errors.map((error) => (
-            <ErrorRow key={error.id} error={error} />
+          {rows.map(({ item, key, leaving }) => (
+            <Collapse key={key} as="li" open={!leaving} stagger appear={!firstIds.current?.has(key)} className="-mx-2.5">
+              <ErrorRow error={item} onReport={(error) => setReporting({ error, open: true })} />
+            </Collapse>
           ))}
         </ul>
+      )}
+      {/* Rendered inside the log, so it stacks over it and Escape peels it first. */}
+      {reporting && (
+        <ReportDialog
+          open={reporting.open}
+          kind="error"
+          error={reporting.error}
+          onClose={() => setReporting((r) => r && { ...r, open: false })}
+        />
       )}
     </Dialog>
   )

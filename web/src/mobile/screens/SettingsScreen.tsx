@@ -10,8 +10,9 @@ import { useMobile } from '../state'
 import { DiagnosticsSetting } from '../update/DiagnosticsSetting'
 import { usePhoneUpdate } from '../update/state'
 import { clientRef } from '../transport/clientRef'
-import { CARD, MobileScreen, SectionLabel, Toggle } from '../ui'
+import { CARD, MobileScreen, SectionLabel, SheetPresence, Toggle } from '../ui'
 import { DevicesSection } from './DevicesSection'
+import { FeedbackSheet } from './FeedbackSheet'
 
 /**
  * The desktop's five rows, in its order (Settings → Notifications). Three
@@ -159,6 +160,8 @@ export function SettingsScreen() {
         <SectionLabel>ADVANCED</SectionLabel>
         {/* Provisional place, until Claude Design gives it one. */}
         <DiagnosticsSetting />
+
+        <AboutSection />
         {/* Canvas `Feature - Phone update`: the app's version and the shell's on one line; 50i's note on names. */}
         <footer className="px-1 pt-[18px] font-mono text-[10px] leading-[1.7] text-[rgba(160,190,225,.6)]">
           <p>{shell ? `${__MOBILE_VERSION__} · shell ${shell}` : __MOBILE_VERSION__} · each device names itself</p>
@@ -201,6 +204,23 @@ function SecuritySection() {
         </div>
       </div>
       <p className="px-1 pt-2 text-[12px] leading-[1.5] text-[rgba(160,190,225,.65)]">Asks again after a minute in the background.</p>
+    </>
+  )
+}
+
+/** `Feature - Feedback` 61i: ABOUT, whose one row opens Send feedback. */
+function AboutSection() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <SectionLabel>ABOUT</SectionLabel>
+      <div className={CARD}>
+        <button type="button" onClick={() => setOpen(true)} className="flex min-h-13 w-full items-center gap-2.5 px-3.5 text-left">
+          <span className="flex-1 text-[14px] font-semibold">Send feedback</span>
+          <span className="font-mono text-[11px] text-[rgba(160,190,225,.6)]">opens GitHub ↗</span>
+        </button>
+      </div>
+      <SheetPresence>{open && <FeedbackSheet onClose={() => setOpen(false)} />}</SheetPresence>
     </>
   )
 }
