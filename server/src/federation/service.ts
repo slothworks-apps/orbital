@@ -257,18 +257,22 @@ export class FederationService implements LimitsMembers {
     }
   }
 
-  /** The member's limits, read over `channel` and kept; anything but a list of its directories is dropped. */
+  /**
+   * The member's limits, read over `channel` and kept; anything but a list
+   * of its directories is dropped. Never rejects: its callers do not wait
+   * on it, so a failure that is not the channel's is logged, as
+   * `startSeed` logs one.
+   */
   private async readLimits(link: MemberLink, channel: Channel, method: HttpMethod, path: string): Promise<void> {
-    let res: TunnelResponse;
     try {
-      res = await channel.request(method, path);
+      const res: TunnelResponse = await channel.request(method, path);
+      if (!this.current(link, channel) || res.status !== 200) return;
+      const dirs = (res.body as { dirs?: unknown } | null)?.dirs;
+      if (Array.isArray(dirs)) this.setLimits(link, dirs);
     } catch (err) {
       if (err instanceof TunnelError) return;
-      throw err;
+      console.warn(`[federation] could not read ${link.id}'s limits: ${err instanceof Error ? err.message : String(err)}`);
     }
-    if (!this.current(link, channel) || res.status !== 200) return;
-    const dirs = (res.body as { dirs?: unknown } | null)?.dirs;
-    if (Array.isArray(dirs)) this.setLimits(link, dirs);
   }
 
   private setLimits(link: MemberLink, dirs: unknown[]): void {

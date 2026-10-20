@@ -1070,6 +1070,24 @@ describe('FederationService limits', () => {
     expect(b.subs.has('limits')).toBe(false);
   });
 
+  it('a limits read that fails for a reason other than the channel is logged, never rejected', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { hub, remote, federation } = setup();
+    const sessions = memberB();
+    const b = new FakeChannel((method, path, body) => {
+      if (path.startsWith('/api/limits')) throw new TypeError('bug');
+      return sessions.answer(method, path, body);
+    });
+    remote.open(B, b);
+    b.greet(desktopHello);
+    await flush();
+    localSocket(hub, ['limits']);
+    await flush();
+    await expect(federation.refreshLimits()).resolves.toBeUndefined();
+    expect(warn.mock.calls.filter(([line]) => String(line).includes('limits'))).toHaveLength(2);
+    warn.mockRestore();
+  });
+
   it('keeps an offline member\'s limits, offline, and forgets them when it leaves the group', async () => {
     const changed = vi.fn();
     const { hub, remote, federation, setNow } = setup(undefined, { onLimits: changed });
