@@ -1,3 +1,4 @@
+import { isFiveHourKind, isWeeklyAllKind, isWeeklyScopedKind } from '@orbital/shared/limits'
 import type { ExtraUsage, LimitSeverity, LimitWait, LimitWindow } from './types'
 
 /**
@@ -222,15 +223,8 @@ export const FIVE_HOUR_ESTIMATE_ROUNDING_MS = 10 * 60_000
 /** A weekly window's estimate is rounded to the hour. */
 export const WEEKLY_ESTIMATE_ROUNDING_MS = 3_600_000
 
-/** Whether a window kind is the 5-hour one, by the server's row kind or the SDK's fixed name. */
-export function isFiveHourKind(kind: string): boolean {
-  return kind === 'session' || kind === 'five_hour'
-}
-
-/** Whether a window kind is the all-models weekly one. */
-export function isWeeklyAllKind(kind: string): boolean {
-  return kind === 'weekly_all' || kind === 'seven_day'
-}
+/** The window kinds, by the server's row kind or the SDK's fixed name: shared with the server's estimate. */
+export { isFiveHourKind, isWeeklyAllKind, isWeeklyScopedKind }
 
 /**
  * The line under a window's name on the limits page (60c): `all models` for
@@ -239,7 +233,7 @@ export function isWeeklyAllKind(kind: string): boolean {
  */
 export function windowScopeLine(kind: string): string | null {
   if (isFiveHourKind(kind) || isWeeklyAllKind(kind)) return 'all models'
-  if (kind === 'weekly_scoped' || kind === 'seven_day_opus' || kind === 'seven_day_sonnet') return 'model window'
+  if (isWeeklyScopedKind(kind)) return 'model window'
   return null
 }
 
