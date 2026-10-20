@@ -129,6 +129,26 @@ export function withSunPosition(settings: Settings, key: string, position: SunPo
 }
 
 /**
+ * The stored value once a failed save of one sun's move is undone: that sun
+ * goes back to `before` (or to no stored position), and only while it still
+ * sits where the failed move put it — a later move, or another sun's, stays.
+ * Null when there is nothing to undo.
+ */
+export function withSunMoveUndone(
+  settings: Settings,
+  key: string,
+  placed: SunPosition,
+  before: SunPosition | undefined,
+): string | null {
+  const positions = sunPositions(settings)
+  const now = positions.get(key)
+  if (!now || now.x !== placed.x || now.y !== placed.y) return null
+  if (before) positions.set(key, before)
+  else positions.delete(key)
+  return JSON.stringify(Object.fromEntries(positions))
+}
+
+/**
  * What one sun shows (60f, MIDDLE + RING). The middle is the room left right
  * now, the more spent of the 5-hour and the weekly all-models window: with
  * the week spent the 5-hour window cannot be used either. The ring is what

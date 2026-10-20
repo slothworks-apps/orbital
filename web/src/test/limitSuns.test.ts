@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { LIMIT_SUN_COLORS_KEY } from '../lib/experimental'
+import { LIMIT_SUN_COLORS_KEY, LIMIT_SUN_POSITIONS_KEY } from '../lib/experimental'
 import { estimateLine } from '../lib/limits'
-import { pickSunColor, sunColors, sunReading } from '../lib/limitSuns'
+import { pickSunColor, sunColors, sunPositions, sunReading, withSunMoveUndone, withSunPosition } from '../lib/limitSuns'
 import type { LimitWindow } from '../lib/types'
 
 // Local times, so "today" is today whatever zone the suite runs in.
@@ -37,6 +37,29 @@ describe('sunColors', () => {
     expect(Object.fromEntries(sunColors(['b', 'a'], once))).toEqual({ a: 'white', b: 'yellow' })
     const free = { [LIMIT_SUN_COLORS_KEY]: pickSunColor(keys, once, 'a', 'red') }
     expect(Object.fromEntries(sunColors(keys, free))).toEqual({ a: 'red', b: 'yellow' })
+  })
+})
+
+describe('withSunMoveUndone', () => {
+  const placed = { x: 1, y: 2 }
+  const before = { x: 5, y: 6 }
+  const after = (settings: Record<string, string>, key: string, p: { x: number; y: number }) => ({
+    [LIMIT_SUN_POSITIONS_KEY]: withSunPosition(settings, key, p),
+  })
+
+  it('puts the sun back where it was, or drops it, and leaves the other suns', () => {
+    const start = { [LIMIT_SUN_POSITIONS_KEY]: JSON.stringify({ a: before, b: { x: 9, y: 9 } }) }
+    const undone = withSunMoveUndone(after(start, 'a', placed), 'a', placed, before)
+    expect(Object.fromEntries(sunPositions({ [LIMIT_SUN_POSITIONS_KEY]: undone! }))).toEqual({ a: before, b: { x: 9, y: 9 } })
+    const fresh = withSunMoveUndone(after({}, 'a', placed), 'a', placed, undefined)
+    expect(sunPositions({ [LIMIT_SUN_POSITIONS_KEY]: fresh! }).has('a')).toBe(false)
+  })
+
+  it('keeps a later move of the same sun, and a later move of another sun', () => {
+    const moved = after({}, 'a', placed)
+    expect(withSunMoveUndone(after(moved, 'a', { x: 3, y: 3 }), 'a', placed, before)).toBeNull()
+    const other = withSunMoveUndone(after(moved, 'b', { x: 7, y: 7 }), 'a', placed, undefined)
+    expect(Object.fromEntries(sunPositions({ [LIMIT_SUN_POSITIONS_KEY]: other! }))).toEqual({ b: { x: 7, y: 7 } })
   })
 })
 

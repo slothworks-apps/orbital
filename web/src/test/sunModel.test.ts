@@ -3,7 +3,7 @@ import { LIMIT_SUN_COLORS_KEY, LIMIT_SUN_POSITIONS_KEY } from '../lib/experiment
 import type { ClaudeDirLimits, LimitsSnapshot } from '../lib/types'
 import { HOLE_CLEARANCE } from '../map/layout'
 import {
-  SUN_DRAG_THRESHOLD_PX,
+  DRAG_THRESHOLD_PX,
   SUN_SPACING,
   defaultSunPosition,
   fieldRadiusFromHole,
@@ -36,12 +36,12 @@ const holeFor = (radius: number) => {
 
 describe('sunPressMoved', () => {
   it('keeps a press a click below the threshold, in any direction, and makes it a drag at it', () => {
-    const under = SUN_DRAG_THRESHOLD_PX * 0.8
+    const under = DRAG_THRESHOLD_PX * 0.8
     expect(sunPressMoved(0, 0)).toBe(false)
     // Under the threshold on each axis, but past it together.
     expect(sunPressMoved(under, under)).toBe(true)
     expect(sunPressMoved(-under, 0)).toBe(false)
-    expect(sunPressMoved(0, -SUN_DRAG_THRESHOLD_PX)).toBe(true)
+    expect(sunPressMoved(0, -DRAG_THRESHOLD_PX)).toBe(true)
   })
 })
 

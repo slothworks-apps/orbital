@@ -26,8 +26,3 @@ export function parseLimitsRoute(pathname: string): { account: string | null } |
     return null
   }
 }
-
-/** Whether a pathname is the limits page. */
-export function isLimitsRoute(pathname: string): boolean {
-  return parseLimitsRoute(pathname) !== null
-}

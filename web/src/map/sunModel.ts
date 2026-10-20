@@ -44,12 +44,15 @@ export const SUN_SPACING = 220 / REFERENCE_ZOOM
  */
 export const SUN_FIELD_CLEARANCE = 2
 
-/** 60f CLICK / DRAG: a press that moved less than this many screen px is a click. */
-export const SUN_DRAG_THRESHOLD_PX = 3
+/**
+ * Below this many screen px of movement, a pointer down+up is a click, not a
+ * drag: a pan of the map, a planet's drag and a sun's (60f CLICK / DRAG) alike.
+ */
+export const DRAG_THRESHOLD_PX = 3
 
 /** Whether a press on a sun has become a drag (60b's `Math.hypot(dx, dy) > 3`). */
 export function sunPressMoved(dx: number, dy: number): boolean {
-  return Math.hypot(dx, dy) >= SUN_DRAG_THRESHOLD_PX
+  return Math.hypot(dx, dy) >= DRAG_THRESHOLD_PX
 }
 
 /**

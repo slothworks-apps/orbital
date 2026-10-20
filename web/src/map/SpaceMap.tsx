@@ -36,9 +36,9 @@ import { sendCompactAware, useCompactionUi } from '../store/compaction'
 import { Moon } from './Moon'
 import { Hole } from './Hole'
 import { LimitSunCard, LimitSuns, SUN_REACH, endSunDrag, startSunDrag, useSunState, type SunPress } from './LimitSun'
-import { sunPressMoved, type MapSun } from './sunModel'
+import { DRAG_THRESHOLD_PX, sunPressMoved, type MapSun } from './sunModel'
 import { limitSunsEnabled, LIMIT_SUN_POSITIONS_KEY } from '../lib/experimental'
-import { withSunPosition } from '../lib/limitSuns'
+import { sunPositions, withSunMoveUndone, withSunPosition } from '../lib/limitSuns'
 import { limitsPathFor } from '../limits/route'
 import { api } from '../lib/api'
 import { useSceneModel } from './useSceneModel'
@@ -117,8 +117,6 @@ const ZOOM_STEP_MS = 420
  * four times in a row — pressing fit again lands on the same frame.
  */
 const FIT_FLIGHT_MS = BODY_MOVE_MS
-/** Below this many screen px of movement, a pointer down+up is treated as a click, not a drag-pan. */
-const DRAG_THRESHOLD_PX = 3
 
 /**
  * Sloth's resting position, expressed as a percentage of the map viewport
@@ -738,7 +736,7 @@ export function SpaceMap() {
 
   /**
    * A press on a limit sun: a click (it opens Limits at the account) until it
-   * moves `SUN_DRAG_THRESHOLD_PX`, then a drag that moves the sun and never
+   * moves `DRAG_THRESHOLD_PX`, then a drag that moves the sun and never
    * the camera. The sun's own pointer-down runs first, as a planet's does.
    */
   const sunPressRef = useRef<SunPress | null>(null)
@@ -845,20 +843,18 @@ export function SpaceMap() {
   /**
    * Stores where a sun was dropped, optimistically like the other settings
    * the map writes: the sun stays where it was put while the save runs, and
-   * goes back if the save fails.
+   * goes back if the save fails — unless it has been moved again since.
    */
   const placeSun = useCallback(async (key: string, position: Position) => {
-    const before = useOrbital.getState().settings[LIMIT_SUN_POSITIONS_KEY]
+    const before = sunPositions(useOrbital.getState().settings).get(key)
     const value = withSunPosition(useOrbital.getState().settings, key, position)
     useOrbital.setState((s) => ({ settings: { ...s.settings, [LIMIT_SUN_POSITIONS_KEY]: value } }))
     try {
       await api.patchSettings({ [LIMIT_SUN_POSITIONS_KEY]: value })
     } catch (err) {
       useOrbital.setState((s) => {
-        const settings = { ...s.settings }
-        if (before === undefined) delete settings[LIMIT_SUN_POSITIONS_KEY]
-        else settings[LIMIT_SUN_POSITIONS_KEY] = before
-        return { settings }
+        const undone = withSunMoveUndone(s.settings, key, position, before)
+        return undone === null ? s : { settings: { ...s.settings, [LIMIT_SUN_POSITIONS_KEY]: undone } }
       })
       reportError(err, 'Failed to save where the sun was put')
     }
