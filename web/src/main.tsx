@@ -13,7 +13,7 @@ import { ErrorBoundary, resetErrorBoundaries } from './ui/ErrorBoundary'
 import { Unauthorized } from './ui/Unauthorized'
 import { useUnauthorized } from './lib/unauthorized'
 import { parseStatsRoute } from './stats/route'
-import { isLimitsRoute } from './limits/route'
+import { parseLimitsRoute } from './limits/route'
 import { parseSessionWindowRoute } from './lib/sessionWindowRoute'
 import { parseWalkthroughRoute } from './walkthrough/route'
 
@@ -146,9 +146,10 @@ const stats = parseStatsRoute(window.location.pathname)
 
 /**
  * `/limits` — the plan's usage windows, one more branch of the same kind
- * (spec 2026-10-03-usage-limits-design § 2).
+ * (spec 2026-10-03-usage-limits-design § 2). `/limits/<account key>` is the
+ * same page opened from that account's sun (spec 2026-10-20-limit-suns-design § 4).
  */
-const limits = isLimitsRoute(window.location.pathname)
+const limits = parseLimitsRoute(window.location.pathname)
 
 /**
  * `/walkthrough/<id>` — the walkthrough page, one more branch of the same kind
@@ -205,7 +206,7 @@ createRoot(document.getElementById('root')!).render(
           ) : stats ? (
             <StatsPage route={stats} />
           ) : limits ? (
-            <LimitsPage />
+            <LimitsPage account={limits.account} />
           ) : sessionWindowId !== null ? (
             <SessionWindow id={sessionWindowId} />
           ) : walkthroughId !== null ? (
