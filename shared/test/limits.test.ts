@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { groupLimitsByAccount, limitsAccountKey, type LimitsEntry } from '../src/limits.js';
+import {
+  LIMITS_STALE_AFTER_MS, groupLimitsByAccount, limitsAccountKey, limitsReadingStale, type LimitsEntry,
+} from '../src/limits.js';
 
 type Entry = LimitsEntry & { name: string };
 
@@ -54,8 +56,7 @@ describe('groupLimitsByAccount', () => {
 });
 
 describe('limitsReadingStale', () => {
-  it('is stale after a failed read, without a read, or once the read is older than the limit', async () => {
-    const { LIMITS_STALE_AFTER_MS, limitsReadingStale } = await import('../src/limits');
+  it('is stale after a failed read, without a read, or once the read is older than the limit', () => {
     const now = Date.parse('2026-10-20T12:00:00Z');
     const readAt = (ago: number) => new Date(now - ago).toISOString();
     expect(limitsReadingStale({ readAt: readAt(60_000), stale: false }, now)).toBe(false);

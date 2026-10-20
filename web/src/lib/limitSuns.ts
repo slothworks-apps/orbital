@@ -157,7 +157,7 @@ export function sunReading(windows: readonly LimitWindow[], now: number = Date.n
   else {
     for (const w of [five, week]) {
       const s = w ? limitSeverity(w.severity) : 'normal'
-      if (SEVERITY_RANK[s] > SEVERITY_RANK[severity as LimitSeverity]) severity = s
+      if (SEVERITY_RANK[s] > SEVERITY_RANK[severity]) severity = s
     }
   }
   return {
