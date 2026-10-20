@@ -559,8 +559,8 @@ describe('localClaudeDirId', () => {
 describe('memberServesUpdate', () => {
   it('asks this device, and another member only from the version that serves the route', () => {
     expect(memberServesUpdate(member({ self: true, version: undefined }))).toBe(true)
-    expect(memberServesUpdate(member({ kind: 'headless', version: '0.35.0' }))).toBe(true)
-    expect(memberServesUpdate(member({ version: '0.34.2' }))).toBe(false)
+    expect(memberServesUpdate(member({ kind: 'headless', version: '0.36.0' }))).toBe(true)
+    expect(memberServesUpdate(member({ version: '0.35.0' }))).toBe(false)
     expect(memberServesUpdate(member({ version: null }))).toBe(false)
     expect(memberServesUpdate(member({ version: undefined }))).toBe(false)
   })
@@ -580,7 +580,7 @@ describe('memberServesUpdate', () => {
       fetchMock.mockImplementation(async () => new Response(JSON.stringify(state), { status: 200 }))
       expect(await readMemberUpdate(member({ id: 'self-id', self: true }))).toEqual(state)
       expect(fetchMock.mock.calls[0][0]).toBe('/api/server/update')
-      await readMemberUpdate(member({ id: 'm 2', version: '0.35.0' }))
+      await readMemberUpdate(member({ id: 'm 2', version: '0.36.0' }))
       expect(fetchMock.mock.calls[1][0]).toBe('/api/server/update?machine=m+2')
     } finally {
       vi.unstubAllGlobals()

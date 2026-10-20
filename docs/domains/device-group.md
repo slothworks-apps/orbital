@@ -323,7 +323,7 @@ Every member of the group reaches one literal allowlist: the routes a member may
 
 - `sessions` (default on): read and drive sessions.
 - `spawn` (default on): start sessions.
-- `settings` (default on): settings, tags, tag rules, harness templates.
+- `settings` (default on): settings, tags, tag rules, harness templates, and updating this device (`/api/server/update`).
 - `manage` (default off): this device's upkeep (Claude directories, errors, branch status, model validation, retention preview, session tips).
 - `ide` (default off): the IDE bridge of this device's sessions.
 

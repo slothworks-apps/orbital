@@ -34,7 +34,9 @@ an SSH session or a walk to the machine
 
   Any member may call them through its channel, the phone included. This
   is not a primary-only action: an update changes no membership, and the
-  phone is never the primary.
+  phone is never the primary. The routes sit under the `settings` grant,
+  on by default, so a device can take the update away from one member by
+  turning that grant off (spec 2026-10-19-member-grants-design).
 - **A server** installs through apt. The unprivileged service writes a
   request file, and a root systemd unit runs only
   `apt-get install --only-upgrade orbital`, from a repository bound to

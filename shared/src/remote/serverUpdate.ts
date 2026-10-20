@@ -16,7 +16,7 @@ import { compareVersions } from './version.js';
  * on a headless server alike (both report the desktop version line). A
  * member whose hello names a lower version is never asked.
  */
-export const SERVER_UPDATE_VERSION = '0.35.0';
+export const SERVER_UPDATE_VERSION = '0.36.0';
 
 /** Whether a member running `version` serves the update routes; false before its hello is known. */
 export function servesServerUpdate(version: string | null | undefined): boolean {

@@ -124,7 +124,7 @@ function member(over: Partial<Member>): Member {
   return {
     id: 'id', kind: 'desktop', addedAt: 0, addedVersion: 1, name: 'm', os: 'macos', links: true, describedAt: 0,
     primary: false, self: false, linked: true, online: true, pairByHand: false, state: 'online', seenAt: null,
-    tooOld: false, version: '0.35.0', ...over,
+    tooOld: false, version: '0.36.0', ...over,
   } as Member;
 }
 
@@ -157,10 +157,10 @@ describe('listLines', () => {
     }));
     expect(lines).toEqual([
       'NAME        KIND      OS       STATE    VERSION',
-      'mac-studio  desktop   macOS    online   0.35.0   primary',
+      'mac-studio  desktop   macOS    online   0.36.0   primary',
       'gpu-box     headless  Linux    online   0.35.1   this device',
       'Pixel       phone     Android  offline  —',
-      'x           desktop   —        too old  0.35.0',
+      'x           desktop   —        too old  0.36.0',
       'old-mac     desktop   macOS    online   —        paired here, not in the group',
     ]);
   });
@@ -169,7 +169,7 @@ describe('listLines', () => {
     const remote = status({}, {
       members: [
         member({ id: 'self-id', name: 'gpu-box', kind: 'headless', os: 'linux', osVersion: 'Ubuntu 24.04', self: true, state: 'self' }),
-        member({ id: 'mac', name: 'mac-studio', osVersion: 'macOS 14.6', version: '0.35.0' }),
+        member({ id: 'mac', name: 'mac-studio', osVersion: 'macOS 14.6', version: '0.36.0' }),
       ],
     });
     const up = (over: Partial<ServerUpdateState>): ServerUpdateState => ({
@@ -178,7 +178,7 @@ describe('listLines', () => {
     expect(listLines(remote, new Map([['self-id', up({})]]))).toEqual([
       'NAME        KIND      OS            STATE   VERSION',
       'gpu-box     headless  Ubuntu 24.04  online  0.35.0   this device',
-      'mac-studio  desktop   macOS 14.6    online  0.35.0',
+      'mac-studio  desktop   macOS 14.6    online  0.36.0',
     ]);
     const lines = listLines(remote, new Map([
       ['self-id', up({ installed: '0.35.2', candidate: '0.36.0' })],

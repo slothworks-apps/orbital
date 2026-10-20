@@ -214,6 +214,11 @@ the route, and the member never asks it.
 
 **Starting it.** A new route, `POST /api/server/update`, on the allowlist.
 Any member may call it, through the channel, and so may the local CLI.
+On the allowlist the update routes sit under the `settings` grant
+([[2026-10-19-member-grants-design]]), which is on by default: who may
+change this device's settings may update it, and turning that grant off
+for a member takes the update away from it too. Desktop 0.36.0 is the
+first to serve them (`SERVER_UPDATE_VERSION`).
 The server:
 1. refuses with `no_update` when the candidate is not newer, and with
    `not_packaged` when it does not run from the package (a dev server, a
