@@ -191,6 +191,7 @@ describe('openDb', () => {
       remember_model_per_project: 'true',
       map_show_model: 'true',
       map_show_trash: 'true',
+      map_limit_sun_positions: '{}',
       end_closes_panel: 'true',
       planet_scale: '1',
       map_scale_labels: 'false',

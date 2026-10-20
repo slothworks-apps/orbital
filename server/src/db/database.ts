@@ -42,6 +42,13 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    */
   map_show_trash: 'true',
   /**
+   * Where each limit sun sits on the map (spec 2026-10-20-limit-suns-design
+   * § 4): a JSON object from the account key (`limitsAccountKey`) to
+   * `{ x, y }` in map coordinates. An account without an entry sits at the
+   * default place. Positions stay when the suns are turned off.
+   */
+  map_limit_sun_positions: '{}',
+  /**
    * Appearance → whether ending a session with the detail header's End
    * button also closes the panel. The map's trash leaves the selection
    * alone. Default-on convention: read client-side as `!== 'false'`.

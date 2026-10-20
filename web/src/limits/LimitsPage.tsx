@@ -99,7 +99,10 @@ export function LimitsPage() {
       .finally(() => setReading(false))
   }
 
-  const dirs = snapshot?.dirs ?? []
+  // This Mac's own directories only, until the page groups by account
+  // (spec 2026-10-20-limit-suns-design § 3): the server now merges the other
+  // members' in, tagged with their `machine`.
+  const dirs = (snapshot?.dirs ?? []).filter((d) => !d.machine)
   // With one directory the page is 31a as it was; with more, each directory
   // is a group under its own name (spec 2026-10-04-multiple-claude-directories-design § 5).
   const grouped = dirs.length >= 2
