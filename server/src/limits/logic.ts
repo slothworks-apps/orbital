@@ -230,8 +230,9 @@ export interface EventUsage {
 /**
  * A `rate_limit_event`'s use of its window, or null when it carries no
  * `utilization` or no `rateLimitType`. The SDK does not document the unit;
- * the CLI reads it off the API's headers, where it is a fraction, so a value
- * up to 1 is read as one and anything above as a percent already.
+ * the CLI passes the API header's fraction on as it is (checked in CLI
+ * 2.1.280, whose own notice floors `utilization * 100`). Past the limit the
+ * fraction exceeds 1, so it is always scaled, never guessed at.
  */
 export function readEventUsage(info: unknown): EventUsage | null {
   if (!info || typeof info !== 'object') return null;
@@ -239,7 +240,7 @@ export function readEventUsage(info: unknown): EventUsage | null {
   const u = i.utilization;
   if (typeof i.rateLimitType !== 'string' || !i.rateLimitType) return null;
   if (typeof u !== 'number' || !Number.isFinite(u) || u < 0) return null;
-  return { rateLimitType: i.rateLimitType, percent: u <= 1 ? u * 100 : u, resetsAt: epochMsOf(i.resetsAt) };
+  return { rateLimitType: i.rateLimitType, percent: u * 100, resetsAt: epochMsOf(i.resetsAt) };
 }
 
 /** What a window's readings are kept under: its kind, and its label, which tells scoped weekly windows apart. */

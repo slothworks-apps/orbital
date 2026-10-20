@@ -22,11 +22,10 @@ const RESET = T0 + FIVE_HOUR_WINDOW_MS;
 // ---- Pure ----------------------------------------------------------------
 
 describe('readEventUsage', () => {
-  it('reads utilization as a fraction up to 1 and as a percent above, with the window type', () => {
+  it('reads utilization as a fraction, past 1 too, with the window type', () => {
     expect(readEventUsage({ status: 'allowed_warning', rateLimitType: 'five_hour', utilization: 0.82, resetsAt: 1_792_000_000 }))
       .toEqual({ rateLimitType: 'five_hour', percent: 82, resetsAt: 1_792_000_000_000 });
-    expect(readEventUsage({ status: 'allowed', rateLimitType: 'seven_day', utilization: 64 }))
-      .toEqual({ rateLimitType: 'seven_day', percent: 64, resetsAt: null });
+    expect(readEventUsage({ status: 'rejected', rateLimitType: 'seven_day', utilization: 1.02 })?.percent).toBeCloseTo(102);
   });
 
   it('is nothing without a utilization or a type', () => {

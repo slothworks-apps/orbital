@@ -315,8 +315,9 @@ came before; anything older than `HISTORY_MAX_AGE_MS` goes. Fed by every
 good probe and by every `rate_limit_event` carrying `utilization` and
 `rateLimitType` (`readEventUsage`; the event's window is matched to a
 probe row through `EVENT_TO_PROBE`, so an event before any probe is not
-kept). The SDK does not say the unit of the event's `utilization`: a
-value up to 1 is read as a fraction, anything above as a percent.
+kept). The SDK does not say the unit of the event's `utilization`; the
+CLI (checked in 2.1.280) passes on the API header's fraction, which
+exceeds 1 past the limit, so it is always scaled by 100.
 
 **The estimate.** Pace over the readings within
 `FIVE_HOUR_PACE_LOOKBACK_MS` or `WEEKLY_PACE_LOOKBACK_MS` when there are
