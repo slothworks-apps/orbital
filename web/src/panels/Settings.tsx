@@ -96,6 +96,7 @@ import { ShortcutsSection } from './ShortcutsSection'
 import { HarnessTemplatesSection } from './HarnessTemplates'
 import { DevicesSection } from './DevicesSection'
 import { UpdatesSection } from './UpdatesSection'
+import { LimitSunsLabs } from './LimitSunsLabs'
 import { useAppUpdate } from '../store/appUpdate'
 import { ClaudeDirsRows } from './ClaudeDirsRows'
 import { DEBOUNCE_MS, Row, SectionLabel } from './settingsRows'
@@ -1367,6 +1368,11 @@ export function Settings({ open, onClose }: SettingsProps) {
                           }
                         />
                       </Row>
+                      <LimitSunsLabs
+                        settings={settings}
+                        apiKey={health?.billing === 'api-key'}
+                        patchAndSet={patchAndSet}
+                      />
                     </>
                   )}
 
