@@ -105,15 +105,6 @@ export function completedAnswers(
   return out
 }
 
-/** The question a typed composer answer would go to, or undefined when none is open. */
-export function openQuestion(
-  questions: readonly QuestionSpec[],
-  answers: AnswerMap,
-): QuestionSpec | undefined {
-  const index = activeQuestionIndex(questions, answers)
-  return index === -1 ? undefined : questions[index]
-}
-
 /**
  * Rows a pending question offers: its options plus the always-present
  * free-text row (canvas 9b: "the model's options are never the whole

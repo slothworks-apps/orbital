@@ -27,6 +27,7 @@ import { isReadOnly, tagColor, type BackgroundTask, type ChatMessage, type Subag
 import { getSocket } from '../../lib/socket'
 import { ReplyMediaSession } from '../../panels/ReplyMedia'
 import { PhoneToolRowContext } from '../../panels/ToolRow'
+import { QuestionCardPhoneContext } from '../../panels/QuestionCard'
 import { LoginNoticeContext } from '../../panels/LoginNotice'
 import { TranscriptView } from '../../panels/TranscriptView'
 import { useMedia } from '../../store/media'
@@ -203,6 +204,8 @@ function SessionView({ id }: { id: string }) {
       <LoginNoticeContext.Provider value={loginSurface}>
       {/* The phone's tool rows: 10g's chips, 10d's wide image results. */}
       <PhoneToolRowContext.Provider value={phoneRows}>
+      {/* Question cards in their phone form (canvas 9i). */}
+      <QuestionCardPhoneContext.Provider value>
       {/* Reply thumbnails read named files through this session (canvas 24f A, 24g). */}
       <ReplyMediaSession.Provider value={id}>
       <TranscriptView
@@ -229,6 +232,7 @@ function SessionView({ id }: { id: string }) {
         footerKey={tailKey}
       />
       </ReplyMediaSession.Provider>
+      </QuestionCardPhoneContext.Provider>
       </PhoneToolRowContext.Provider>
       </LoginNoticeContext.Provider>
     </MobileScreen>

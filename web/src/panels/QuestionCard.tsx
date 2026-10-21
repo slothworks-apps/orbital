@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useReducer, useRef, useState } from 'react'
 import type { FocusEvent as ReactFocusEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import { reviewBeforeSend, useOrbital } from '../store/store'
 import {
@@ -6,6 +6,7 @@ import {
   activeQuestionIndex,
   answerSends,
   answerShortName,
+  canOpen,
   chipLabel,
   confirmLabel,
   cursorLeft,
@@ -30,6 +31,8 @@ import { command, isTypingTarget, matches } from '../lib/keymap'
 // Every value below was transcribed from canvas 9b/9d and now lives beside
 // the permission card that shares it — see `decisionCardStyles`.
 import {
+  BUTTON_BASE,
+  BUTTON_CONFIRM,
   CARD_ANSWERED,
   CARD_PENDING,
   CARD_READONLY,
@@ -41,6 +44,7 @@ import {
   DESCRIPTION,
   DESCRIPTION_INK,
   GUTTER,
+  HEADLINE,
   LABEL,
   ROW_BASE,
   ROW_CHOSEN,
@@ -127,11 +131,9 @@ function answeredAt(timestamp: string | undefined): string {
  * The phone renders the same card (spec 2026-10-21-question-card-go-back-design
  * § Phone; canvas 9i): no hover and no keys there, so answered blocks say
  * CHANGE at all times, the header ticks only display, Keep is a button and
- * Send runs full width. The phone's document says which it is.
+ * Send runs full width. The phone's screens provide `true`.
  */
-function onPhone(): boolean {
-  return typeof document !== 'undefined' && document.documentElement.dataset.platform === 'mobile'
-}
+export const QuestionCardPhoneContext = createContext(false)
 
 export function QuestionCard({ sessionId, toolUse, toolResult, readOnly = false }: QuestionCardProps) {
   const decisionId = toolUse.toolUseId ?? toolUse.id
@@ -326,6 +328,7 @@ export function QuestionCard({ sessionId, toolUse, toolResult, readOnly = false 
 }
 
 const NO_ANSWERS: AnswerMap = {}
+const NO_TICKS: string[] = []
 
 /** The status slot's ink on a quiet block (canvas 9e: ANSWERED, UNANSWERED). */
 const STATUS_QUIET = 'text-[rgba(160,190,225,.45)]'
@@ -358,7 +361,7 @@ function LiveCard({
   const answerQuestion = useOrbital((s) => s.answerQuestion)
   const setQuestionCursor = useOrbital((s) => s.setQuestionCursor)
   const sendAnswers = useOrbital((s) => s.sendAnswers)
-  const phone = onPhone()
+  const phone = useContext(QuestionCardPhoneContext)
 
   const cursor = cursorOf(storedCursor, questions, drafts)
   const first = activeQuestionIndex(questions, drafts)
@@ -493,7 +496,7 @@ function LiveCard({
             {questions.map((q, i) => {
               const done = drafts[q.question] !== undefined
               const current = cursor === i
-              const openable = !phone && !current && (done || i === first)
+              const openable = !phone && !current && canOpen(i, questions, drafts)
               const bar = (
                 <span
                   className={[
@@ -547,13 +550,15 @@ function LiveCard({
               endedUnanswered={false}
               separated={separated}
               compact={multi}
-              phone={phone}
-              cardFocused={cardFocused}
-              ticks={ticks[question.question]}
-              onTicks={(labels) => setTicks((current) => ({ ...current, [question.question]: labels }))}
-              sends={answerSends(questions, drafts, question, review)}
-              onAnswer={(text) => answer(question, text)}
-              onKeep={drafted !== undefined ? keep : undefined}
+              live={{
+                phone,
+                cardFocused,
+                ticks: ticks[question.question] ?? NO_TICKS,
+                onTicks: (labels) => setTicks((current) => ({ ...current, [question.question]: labels })),
+                sends: answerSends(questions, drafts, question, review),
+                onAnswer: (text) => answer(question, text),
+                onKeep: drafted !== undefined ? keep : undefined,
+              }}
             />
           )
         }
@@ -586,7 +591,9 @@ function LiveCard({
 
       {inReview &&
         (phone ? (
-          // Canvas 9i: full width at 50px in the thumb zone, one line under it.
+          // Canvas 9i: full width at 50px in the thumb zone, one line under
+          // it; the footer's padding, Send's type size and the line's mono
+          // size are all 9i's.
           <div className="flex flex-col gap-2 px-[14px] pb-[14px] pt-1">
             <button
               ref={sendRef}
@@ -602,8 +609,8 @@ function LiveCard({
             </span>
           </div>
         ) : (
-          // Canvas 9e: the review footer, 11px 13px 13px; Send is the
-          // confirm button (9d).
+          // Canvas 9e: the review footer, 11px 13px 13px, and its "nothing
+          // sent yet" line; Send is the confirm button (9d).
           <div className="flex items-center gap-2.5 px-[13px] pb-[13px] pt-[11px]">
             <span className="font-mono text-[10px] text-[rgba(160,190,225,.5)]">nothing sent yet</span>
             <span aria-hidden className="flex-1" />
@@ -612,13 +619,55 @@ function LiveCard({
               type="button"
               data-question-send
               onClick={send}
-              className="shrink-0 cursor-pointer rounded-[8px] border border-accent/50 bg-accent/16 px-3.5 py-1.5 text-[12px] font-semibold text-[#e8eef8] transition-[border-color,background-color] duration-[160ms] ease-[ease] hover:border-accent/80 hover:bg-accent/26 focus:outline-none focus-visible:shadow-[0_0_0_2px_oklch(85%_.12_205_/_.55)]"
+              // 9e: the focus ring shows on keyboard focus only.
+              className={`${BUTTON_BASE} ${BUTTON_CONFIRM} focus-visible:shadow-[0_0_0_2px_oklch(85%_.12_205_/_.55)]`}
             >
               {multi ? 'Send answers ⌘⏎' : 'Send ⌘⏎'}
             </button>
           </div>
         ))}
     </div>
+  )
+}
+
+/**
+ * A chosen row (canvas 9b D/E, 9e): the accent ✓ beside what was chosen —
+ * an option, free text under `YOUR ANSWER`, or a multiSelect's picks.
+ */
+function ChosenRow({ children }: { children: ReactNode }) {
+  return (
+    <div className={`${ROW_BASE} ${ROW_CHOSEN}`}>
+      <span aria-hidden className="shrink-0 text-[11px] leading-[1.5] text-accent">
+        ✓
+      </span>
+      {children}
+    </div>
+  )
+}
+
+/** The mono eyebrow over a chosen row's text (9b E: `YOUR ANSWER`; 9e: `N PICKED`). */
+const CHOSEN_EYEBROW = 'font-mono text-[9.5px] tracking-[0.12em] text-[rgba(160,190,225,.6)]'
+
+function ChosenOption({ option }: { option: QuestionSpec['options'][number] }) {
+  return (
+    <ChosenRow>
+      <span className="flex min-w-0 flex-col gap-[3px]">
+        <span className={`${LABEL} text-[#e8eef8]`}>{option.label}</span>
+        <span className={`${DESCRIPTION} ${DESCRIPTION_INK} text-pretty`}>{option.description}</span>
+      </span>
+    </ChosenRow>
+  )
+}
+
+/** 9b E: free text under its own eyebrow, exact text preserved. */
+function ChosenText({ text }: { text: string }) {
+  return (
+    <ChosenRow>
+      <span className="flex min-w-0 flex-col gap-1">
+        <span className={CHOSEN_EYEBROW}>YOUR ANSWER</span>
+        <span className="text-[13px] leading-[1.45] text-pretty text-[#e8eef8]">{text}</span>
+      </span>
+    </ChosenRow>
   )
 }
 
@@ -632,44 +681,19 @@ function CompactAnswer({ question, answer }: { question: QuestionSpec; answer: s
   if (question.multiSelect) {
     const lines = [...chosen.map((o) => o.label), ...(other ? [other] : [])]
     return (
-      <div className={`${ROW_BASE} ${ROW_CHOSEN}`}>
-        <span aria-hidden className="shrink-0 text-[11px] leading-[1.5] text-accent">
-          ✓
-        </span>
+      <ChosenRow>
         <span className="flex min-w-0 flex-col gap-1">
-          <span className="font-mono text-[9.5px] tracking-[0.12em] text-[rgba(160,190,225,.6)]">
-            {lines.length > 0 ? `${lines.length} PICKED` : 'NONE PICKED'}
-          </span>
+          <span className={CHOSEN_EYEBROW}>{lines.length > 0 ? `${lines.length} PICKED` : 'NONE PICKED'}</span>
           {lines.map((line) => (
             <span key={line} className={`${LABEL} text-[#e8eef8]`}>
               {line}
             </span>
           ))}
         </span>
-      </div>
+      </ChosenRow>
     )
   }
-  const option = chosen[0]
-  return (
-    <div className={`${ROW_BASE} ${ROW_CHOSEN}`}>
-      <span aria-hidden className="shrink-0 text-[11px] leading-[1.5] text-accent">
-        ✓
-      </span>
-      {option ? (
-        <span className="flex min-w-0 flex-col gap-[3px]">
-          <span className={`${LABEL} text-[#e8eef8]`}>{option.label}</span>
-          <span className={`${DESCRIPTION} ${DESCRIPTION_INK} text-pretty`}>{option.description}</span>
-        </span>
-      ) : (
-        <span className="flex min-w-0 flex-col gap-1">
-          <span className="font-mono text-[9.5px] tracking-[0.12em] text-[rgba(160,190,225,.6)]">
-            YOUR ANSWER
-          </span>
-          <span className="text-[13px] leading-[1.45] text-pretty text-[#e8eef8]">{answer}</span>
-        </span>
-      )}
-    </div>
-  )
+  return chosen[0] ? <ChosenOption option={chosen[0]} /> : <ChosenText text={answer} />
 }
 
 /** The chip and status row every collapsed block opens with (canvas 9e). */
@@ -718,6 +742,7 @@ function ReopenBlock({
       className={[
         // 9j: padding 11px 13px 12px; opacity .72 → 1 on hover / focus.
         'group block w-full cursor-pointer border-0 bg-transparent px-[13px] pb-[12px] pt-[11px] text-left text-inherit transition-[opacity,background-color] duration-[160ms] ease-[ease] focus:outline-none',
+        // 9j (and 9f's review hover): the faint wash a hovered block takes.
         'hover:bg-[rgba(150,205,255,.035)] focus-visible:bg-[rgba(150,205,255,.035)]',
         inReview ? 'opacity-100' : 'opacity-[.72] hover:opacity-100 focus-visible:opacity-100',
         separated ? 'border-b border-solid border-b-[rgba(150,205,255,.08)]' : '',
@@ -748,7 +773,7 @@ function ReopenBlock({
           )
         }
       />
-      <span className="block pb-[9px] pt-[9px] text-[13.5px] font-semibold leading-[1.45] text-pretty text-[rgba(232,238,248,.85)]">
+      <span className={`block pb-[9px] pt-[9px] ${HEADLINE} text-[rgba(232,238,248,.85)]`}>
         {question.question}
       </span>
       <CompactAnswer question={question} answer={answer} />
@@ -783,6 +808,7 @@ function WaitingBlock({
       <BlockHead
         question={question}
         status={
+          // 9j: NOT YET sits a step quieter than UNANSWERED.
           <span className={`${STATUS_BASE} ${reached ? STATUS_QUIET : 'text-[rgba(160,190,225,.4)]'}`}>
             {!reached
               ? 'NOT YET'
@@ -795,7 +821,7 @@ function WaitingBlock({
           </span>
         }
       />
-      <span className="block pb-[2px] pt-[9px] text-[13.5px] font-semibold leading-[1.45] text-pretty text-[rgba(232,238,248,.85)]">
+      <span className={`block pb-[2px] pt-[9px] ${HEADLINE} text-[rgba(232,238,248,.85)]`}>
         {question.question}
       </span>
     </>
@@ -811,6 +837,7 @@ function WaitingBlock({
       </div>
     )
   }
+  // 9j: the reached block rests at .6 and lifts to .9 on hover / focus.
   return (
     <button
       type="button"
@@ -848,7 +875,7 @@ function DraftBlock({
       ].join(' ')}
     >
       <BlockHead question={question} status={<span className={`${STATUS_BASE} ${STATUS_QUIET}`}>UNANSWERED</span>} />
-      <div className="pb-[9px] pt-[9px] text-[13.5px] font-semibold leading-[1.45] text-pretty text-[rgba(232,238,248,.85)]">
+      <div className={`pb-[9px] pt-[9px] ${HEADLINE} text-[rgba(232,238,248,.85)]`}>
         {question.question}
       </div>
       <div className="opacity-[.55]">
@@ -869,17 +896,21 @@ interface QuestionBlockProps {
   separated: boolean
   /** Inside a stacked card the block owns its own padding (canvas 9b F). */
   compact: boolean
-  // The live block's wiring — absent on every other state.
-  phone?: boolean
-  cardFocused?: boolean
+  /** The open block's wiring — absent on every other state. */
+  live?: LiveWiring
+}
+
+interface LiveWiring {
+  phone: boolean
+  cardFocused: boolean
   /** Ticks given and not confirmed (a multiSelect), held by the card. */
-  ticks?: string[]
-  onTicks?: (labels: string[]) => void
+  ticks: string[]
+  onTicks: (labels: string[]) => void
   /** Whether answering this question sends the card (setting off, the last one). */
-  sends?: boolean
-  onAnswer?: (answer: string) => void
+  sends: boolean
+  onAnswer: (answer: string) => void
   /** Present when the open question already had an answer: esc / Keep returns without a change. */
-  onKeep?: () => void
+  onKeep: (() => void) | undefined
 }
 
 function QuestionBlock({
@@ -891,13 +922,7 @@ function QuestionBlock({
   endedUnanswered,
   separated,
   compact,
-  phone = false,
-  cardFocused = false,
-  ticks,
-  onTicks,
-  sends = false,
-  onAnswer,
-  onKeep,
+  live: wiring,
 }: QuestionBlockProps) {
   const read = answer === undefined ? undefined : readAnswer(answer, question)
   const freeText = read !== undefined && read.chosen.length === 0
@@ -974,19 +999,8 @@ function QuestionBlock({
 
       {state === 'answered' ? (
         <AnsweredBody question={question} answer={answer!} read={read!} />
-      ) : live && onAnswer ? (
-        <LiveBody
-          question={question}
-          answer={answer}
-          read={read}
-          ticks={ticks ?? []}
-          onTicks={onTicks ?? (() => {})}
-          sends={sends}
-          phone={phone}
-          cardFocused={cardFocused}
-          onAnswer={onAnswer}
-          onKeep={onKeep}
-        />
+      ) : live && wiring ? (
+        <LiveBody question={question} answer={answer} read={read} {...wiring} />
       ) : (
         <LockedBody question={question} />
       )}
@@ -1015,32 +1029,9 @@ function AnsweredBody({
   return (
     <div className="flex flex-col gap-1.5">
       {chosen.map((option) => (
-        <div key={option.label} className={`${ROW_BASE} ${ROW_CHOSEN}`}>
-          <span aria-hidden className="shrink-0 text-[11px] leading-[1.5] text-accent">
-            ✓
-          </span>
-          <span className="flex min-w-0 flex-col gap-[3px]">
-            <span className={`${LABEL} text-[#e8eef8]`}>{option.label}</span>
-            <span className={`${DESCRIPTION} ${DESCRIPTION_INK} text-pretty`}>
-              {option.description}
-            </span>
-          </span>
-        </div>
+        <ChosenOption key={option.label} option={option} />
       ))}
-      {text && (
-        // 9b E: free text under its own eyebrow, exact text preserved.
-        <div className={`${ROW_BASE} ${ROW_CHOSEN}`}>
-          <span aria-hidden className="shrink-0 text-[11px] leading-[1.5] text-accent">
-            ✓
-          </span>
-          <span className="flex min-w-0 flex-col gap-1">
-            <span className="font-mono text-[9.5px] tracking-[0.12em] text-[rgba(160,190,225,.6)]">
-              YOUR ANSWER
-            </span>
-            <span className="text-[13px] leading-[1.45] text-pretty text-[#e8eef8]">{text}</span>
-          </span>
-        </div>
-      )}
+      {text && <ChosenText text={text} />}
       {line && (
         <div className="font-mono text-[10px] tracking-[0.04em] text-[rgba(160,190,225,.45)]">
           {line}
@@ -1098,17 +1089,10 @@ function LiveBody({
   cardFocused,
   onAnswer,
   onKeep,
-}: {
+}: LiveWiring & {
   question: QuestionSpec
   answer: string | undefined
   read: ReadAnswer | undefined
-  ticks: string[]
-  onTicks: (labels: string[]) => void
-  sends: boolean
-  phone: boolean
-  cardFocused: boolean
-  onAnswer: (answer: string) => void
-  onKeep: (() => void) | undefined
 }) {
   const otherIndex = question.options.length
   const chosenLabel = !question.multiSelect ? read?.chosen[0]?.label : undefined
@@ -1398,7 +1382,8 @@ function LiveBody({
 
       {onKeep &&
         (phone ? (
-          // Canvas 9i B: Keep replaces esc, with a 44px hit area.
+          // Canvas 9i B: Keep replaces esc, with a 44px hit area; the line
+          // and Keep's ink are 9i's.
           <div className="flex items-center pt-1.5 font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">
             tap another option to change it
             <span aria-hidden className="flex-1" />
@@ -1412,7 +1397,8 @@ function LiveBody({
             </button>
           </div>
         ) : (
-          // Canvas 9e / 9j: "keep link — mono 10 · rgba(143,216,255,.8)".
+          // Canvas 9e / 9j: "keep link — mono 10 · rgba(143,216,255,.8)";
+          // the row's ink, its gap above and the link's hover ink are 9e's.
           <div className="flex items-center gap-2 pt-2.5 font-mono text-[10px] text-[rgba(160,190,225,.45)]">
             pick another option to change it
             <span aria-hidden className="flex-1" />

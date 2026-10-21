@@ -5,6 +5,7 @@ import { tagColor, type ChatMessage, type Subagent } from '../../lib/types'
 import { useNow } from '../../lib/useNow'
 import { LoginNoticeContext } from '../../panels/LoginNotice'
 import { PhoneToolRowContext } from '../../panels/ToolRow'
+import { QuestionCardPhoneContext } from '../../panels/QuestionCard'
 import { TranscriptView } from '../../panels/TranscriptView'
 import { phoneLoginSurface } from '../session/loginSurface'
 import { usePhoneToolRow } from '../session/TranscriptChip'
@@ -185,6 +186,8 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
       {/* A lost login in the agent's rows is drawn as the session's is on the phone; no composer to step aside. */}
       <LoginNoticeContext.Provider value={loginSurface}>
       <PhoneToolRowContext.Provider value={phoneRows}>
+      {/* Question cards in their phone form (canvas 9i). */}
+      <QuestionCardPhoneContext.Provider value>
       {/* The transcript takes what TASK FROM leaves; at full height it would run under the footer. */}
       <div className="min-h-0 flex-1">
       <TranscriptView
@@ -200,6 +203,7 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
         footerKey={`${header.word}|${body.result !== null}`}
       />
       </div>
+      </QuestionCardPhoneContext.Provider>
       </PhoneToolRowContext.Provider>
       </LoginNoticeContext.Provider>
     </MobileScreen>

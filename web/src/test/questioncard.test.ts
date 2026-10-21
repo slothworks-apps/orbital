@@ -20,7 +20,6 @@ import {
   joinSelection,
   moveFocus,
   notTakenLine,
-  openQuestion,
   optionIndexForDigit,
   parseResultAnswers,
   readAnswer,
@@ -103,7 +102,6 @@ describe('top-down gating', () => {
   it('answering n opens n+1', () => {
     const answers = { [scope.question]: 'Header only' }
     expect(activeQuestionIndex(questions, answers)).toBe(1)
-    expect(openQuestion(questions, answers)).toBe(tests)
   })
 
   it('an answer to a LATER question does not open it early', () => {
@@ -116,7 +114,6 @@ describe('top-down gating', () => {
     const answers = { [scope.question]: 'Header only', [tests.question]: 'One regression' }
     expect(activeQuestionIndex(questions, answers)).toBe(-1)
     expect(isComplete(questions, answers)).toBe(true)
-    expect(openQuestion(questions, answers)).toBeUndefined()
   })
 
   it('an empty question list is never complete', () => {

@@ -1349,12 +1349,12 @@ export function DetailPanel({
                   ? '⏎ send — the rewind becomes permanent'
                   : openDecisionQuestion
                 ? openDecisionQuestion.changing
-                  ? `⏎ replaces the answer to ${openDecisionQuestion.question.header} · ⇧⏎ newline`
-                  : '⏎ answers the question · ⇧⏎ newline'
+                  ? `⏎ replaces the answer to ${openDecisionQuestion.question.header}`
+                  : '⏎ answers the question'
                 : reviewHeld
                   ? prompt.trim()
-                    ? '⏎ is held — this stays here until the answers are sent · ⇧⏎ newline'
-                    : '⏎ here won’t send them · ⇧⇥ jumps to Send · ⇧⏎ newline'
+                    ? '⏎ is held — this stays here until the answers are sent'
+                    : '⏎ here won’t send them · ⇧⇥ jumps to Send'
                 : openVerdictKind
                   ? composerHintFor(openVerdictKind)
                   : '⏎ send · ⇧⏎ newline · ⌘V paste image'
@@ -1364,6 +1364,13 @@ export function DetailPanel({
             }
             hintBright={picking || rewindPicked !== null || rewindPending !== null}
             hintHeld={reviewHeld && !picking && !rewindPicked && !rewindPending}
+            // Canvas 9c / 9f D: while a question card is open the newline key
+            // stands apart at the row's end, and the sentence keeps to one line.
+            hintAside={
+              (openDecisionQuestion || reviewHeld) && !picking && !rewindPicked && !rewindPending
+                ? '⇧⏎ newline'
+                : undefined
+            }
             emphasized={rewindPending !== null}
             strip={
               picking || rewindPicked ? (
@@ -1476,7 +1483,9 @@ export function DetailPanel({
                   onClick={() => handleSend()}
                   // Live on text OR on one chip that is uploaded or still
                   // uploading; a failed chip alone arms nothing (spec § Send).
-                  disabled={composerLocked || (!prompt.trim() && !attachments.armed)}
+                  // Held while a question card's review shows (canvas 9f D;
+                  // the phone's Send does the same, 9i).
+                  disabled={composerLocked || reviewHeld || (!prompt.trim() && !attachments.armed)}
                 >
                   <span>
                     <span className="hidden @min-[440px]:inline">Send </span>↑

@@ -93,8 +93,11 @@ the review is showing, the composer is a plain composer (no accent, no
 "answers the question" hint) and ⏎ is held: typed text stays in the box,
 is never folded into the answers, and becomes a normal reply after Send
 — the 9c rule for a click that answers first. ⇧⇥ from the composer
-focuses Send (9f D). On the phone the composer's send button stays
-disabled during the review (9i).
+focuses Send (9f D). The composer's send button stays disabled during
+the review, on the desktop and on the phone (9i). A send that reaches the
+store some other way while the review shows (the map's `/compact`, the
+phone's go-back) is refused with a quiet toast and its text put back in
+the composer — never sent, never folded into the answers.
 
 **Send failure.** Today a failed POST takes the last answer back and
 reopens the last question. With review on, a failure returns the card to
@@ -124,11 +127,16 @@ to Send in the review, so ⏎ ⏎ on the last question is two presses.
 
 ## State
 
-Drafts are local to the window and not synced between windows or
-devices (first sent answer still wins; the loser's POST gets 404). They
-survive collapsing the panel, switching sessions and **closing and
-reopening the window**: they are kept in `localStorage` by decision id
-and removed once the decision is settled. What is new is *which
+Drafts are local to the device and not synced between devices (first
+sent answer still wins; the loser's POST gets 404). Windows of one app
+(the main window and a detached session window) share them: each write
+is merged per decision id into what storage holds, and a window picks up
+what another wrote through the `storage` event. They survive collapsing
+the panel, switching sessions and **closing and reopening the window**:
+they are kept in `localStorage` by decision id and removed once the
+decision is settled — by `decision_resolved`, or on a fresh list when
+the device that owns the decision answered and no longer waits on it (a
+Mac that is asleep or did not answer keeps its drafts). What is new is *which
 question is shown* — no longer derived as "the first unanswered" but a
 separate per-decision cursor (a question index, or the review). The pure
 rules move into `web/src/lib/questionCard.ts` and are tested there:
@@ -156,12 +164,18 @@ answer completed the card" (setting off).
 
 - **For whom:** everyone answering `AskUserQuestion` in an Orbital
   session.
-- **Where it lives:** on by default. Going back is not a setting — it
-  only adds freedom. The review step is an option beside the old
-  behaviour (turn it off to get today's one-click single-question send).
+- **Where it lives:** on by default, on purpose. Going back is not a
+  setting — it only adds freedom. The review step is on by default too,
+  for every card including a single-question one: the maintainer chose
+  that because a misclick, or a later question that makes an earlier
+  answer wrong, should never reach the model — which is better for
+  everyone answering. The setting exists for whoever prefers today's
+  one-click send; it is not the default.
 - **What someone already using Orbital notices after updating:** cards
   no longer send by themselves; a review step appears before sending,
-  and answered questions can be reopened.
+  and answered questions can be reopened. On the Desk map, a click on a
+  needs-input card's option no longer answers: it records a draft and
+  opens the session's panel on the review, where Send is.
 - **What can be set:** *Review answers before sending* (on/off).
 
 ## Phone
@@ -189,5 +203,5 @@ same body as today. No tests of rendering or styling.
 ## Out of scope
 
 - Changing an answer after the card has been sent.
-- Syncing a draft between two open windows or between Mac and phone.
+- Syncing a draft between devices (Mac and phone, or two Macs).
 - A per-device value of the setting.
