@@ -1096,9 +1096,10 @@ export const REVIEW_HOLDS_SEND_TOAST = 'Send the question’s answers first — 
  * when the device that owns it answered. A session on a device that is
  * asleep or did not answer this time is not in the list as pending (or not
  * in it at all), and its drafts must survive that. So a draft goes when its
- * session is listed from a device that is online and no longer waits on it;
- * a draft whose session this window never knew (one restored from storage)
- * goes only when no listed device is offline. Settled drafts leave memory
+ * session is listed from a device that is online, answered this time (not in
+ * `unanswered`) and no longer waits on it; a draft whose session this window
+ * never knew (one restored from storage) goes only when no listed device is
+ * offline and every device answered. Settled drafts leave memory
  * and storage both; anything else that ends a decision says so through
  * `decision_resolved`.
  */
@@ -1107,16 +1108,17 @@ function draftsStillPending(
   pendingDecisions: Record<string, PendingDecision>,
   sessions: Record<string, ApiSession>,
   pendingBefore: Record<string, PendingDecision>,
+  unanswered: readonly string[] = [],
 ): Record<string, AnswerMap> {
   const pending = new Set(Object.values(pendingDecisions).map((d) => d.id))
   const ownerOf = new Map(Object.entries(pendingBefore).map(([sessionId, d]) => [d.id, sessionId]))
-  const everyDeviceAnswered = Object.values(sessions).every((s) => !machineOffline(s))
+  const everyDeviceAnswered = unanswered.length === 0 && Object.values(sessions).every((s) => !machineOffline(s))
   const settled = Object.keys(drafts).filter((id) => {
     if (pending.has(id)) return false
     const owner = ownerOf.get(id)
     if (owner === undefined) return everyDeviceAnswered
     const session = sessions[owner]
-    return session !== undefined && !machineOffline(session)
+    return session !== undefined && !machineOffline(session) && !unanswered.includes(deviceOf(session))
   })
   if (settled.length === 0) return drafts
   updateQuestionDrafts({}, settled)
@@ -1364,12 +1366,13 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     const pendingBefore = get().pendingDecisions
     // A Mac that ignores `ended` answers both with every session; the map keeps one of each.
     get().seatSessions(ended ? [...page.sessions, ...ended.sessions] : page.sessions, tags)
+    const unanswered = [...(page.unanswered ?? []), ...(ended?.unanswered ?? [])]
     set((state) => ({
       models: modelsPayload.models,
       contextWindows: modelsPayload.contextWindows,
       // Read fresh from the Macs: a draft whose decision is gone from a Mac
-      // that answered is settled; one on a Mac asleep is kept.
-      decisionDrafts: draftsStillPending(state.decisionDrafts, state.pendingDecisions, state.sessions, pendingBefore),
+      // that answered is settled; one on a Mac asleep or that did not answer is kept.
+      decisionDrafts: draftsStillPending(state.decisionDrafts, state.pendingDecisions, state.sessions, pendingBefore, unanswered),
     }))
     await dirs
     return page.ended ?? null

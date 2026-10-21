@@ -136,7 +136,11 @@ the panel, switching sessions and **closing and reopening the window**:
 they are kept in `localStorage` by decision id and removed once the
 decision is settled — by `decision_resolved`, or on a fresh list when
 the device that owns the decision answered and no longer waits on it (a
-Mac that is asleep or did not answer keeps its drafts). What is new is *which
+Mac that is asleep or did not answer keeps its drafts). On the phone a Mac
+is "did not answer" also when it is up but its list request failed or timed
+out: the merged list names such Macs, their drafts stay, and a draft whose
+session the window never knew stays while any Mac is asleep or unanswered.
+What is new is *which
 question is shown* — no longer derived as "the first unanswered" but a
 separate per-decision cursor (a question index, or the review). The pure
 rules move into `web/src/lib/questionCard.ts` and are tested there:

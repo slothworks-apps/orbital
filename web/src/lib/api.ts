@@ -101,6 +101,11 @@ export interface SessionListPage {
   sessions: ApiSession[]
   /** Only with `ended: 'exclude'`, and only from a Mac that knows the parameter. */
   ended?: EndedSummary
+  /**
+   * The phone's merged list only: the devices that are up but whose list did
+   * not come back this time, so their sessions are missing from `sessions`.
+   */
+  unanswered?: string[]
 }
 
 /**

@@ -722,15 +722,19 @@ export class GroupFederation implements SwappableClient {
     let fallback: TunnelResponse | null = null
     let failure: unknown = null
     let touched = false
+    // Up, asked, and no list back: its sessions are missing from this answer, which must not read as settled.
+    const unanswered: string[] = []
     for (const [i, result] of results.entries()) {
       const source = asked[i][0]
       if (result.status === 'rejected') {
         failure ??= result.reason
+        unanswered.push(source.id)
         continue
       }
       const page = isObject(result.value.body) ? result.value.body : null
       if (result.value.status !== 200 || !page || !Array.isArray(page.sessions)) {
         fallback ??= result.value
+        unanswered.push(source.id)
         continue
       }
       first ??= page
@@ -755,7 +759,10 @@ export class GroupFederation implements SwappableClient {
         if (url.searchParams.get('ended') === 'exclude' && source.ended) ended = addEnded(ended, source.ended)
       }
     }
-    return { status: 200, body: { ...first, sessions, ...(ended ? { ended } : {}) } }
+    return {
+      status: 200,
+      body: { ...first, sessions, ...(ended ? { ended } : {}), ...(unanswered.length > 0 ? { unanswered } : {}) },
+    }
   }
 
   /** The total of every member that is up. */
