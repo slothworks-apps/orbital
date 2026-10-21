@@ -91,8 +91,7 @@ export function newGroup(
   })
   group.on((event) => {
     if (!live()) return
-    // A member's online reads the relay's presence when the rows are built: a peer coming or going, or the relay's own link, rebuilds them.
-    if (event.type === 'group' || event.type === 'peer' || event.type === 'status') useMobile.setState(groupState(group))
+    if (event.type === 'group') useMobile.setState(groupState(group))
     if (event.type === 'unreachable') useMobile.setState({ unreachable: event.unreachable })
     // A new pair: the relay has a row for it now, and the token can go to it.
     if (event.type === 'joined') void registerPush()

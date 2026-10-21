@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { MemberRow } from '@orbital/shared/remote/group'
 import { ownCodeLeft, phoneRows, removalLeavesAlone } from '../mobile/devices'
-import type { DeviceView } from '../mobile/state'
+import type { DeviceView, MobileState } from '../mobile/state'
 
 const NOW = Date.UTC(2026, 9, 17, 12)
 const HOUR = 3_600_000
@@ -21,11 +21,16 @@ function source(over: Partial<DeviceView> & Pick<DeviceView, 'id' | 'name'>): De
   }
 }
 
+/** The relay up, no check running: the presence `phoneRows` reads beside the devices. */
+function at(devices: DeviceView[], link: MobileState['link'] = 'online'): Pick<MobileState, 'link' | 'rechecking' | 'devices'> {
+  return { link, rechecking: null, devices }
+}
+
 describe('phoneRows', () => {
   const self = member({ id: 'phone', name: 'Pixel 8', kind: 'phone', os: 'android', self: true, state: 'self' })
 
   it('lists every member but this phone, and marks the primary', () => {
-    const rows = phoneRows([self, member({ id: 'studio', name: 'studio-mbp', primary: true }), member({ id: 'air', name: 'air-m3' })], [], NOW)
+    const rows = phoneRows([self, member({ id: 'studio', name: 'studio-mbp', primary: true }), member({ id: 'air', name: 'air-m3' })], at([]), NOW)
     expect(rows.map((r) => [r.name, r.primary])).toEqual([
       ['studio-mbp', true],
       ['air-m3', false],
@@ -34,7 +39,7 @@ describe('phoneRows', () => {
   })
 
   it('says asleep where the desktop says offline, dated as the desktop dates it', () => {
-    const [row] = phoneRows([self, member({ id: 'air', name: 'air-m3', state: 'offline', online: false, seenAt: NOW - 2 * HOUR })], [], NOW)
+    const [row] = phoneRows([self, member({ id: 'air', name: 'air-m3', state: 'offline', online: false, seenAt: NOW - 2 * HOUR })], at([]), NOW)
     expect(row.state).toBe('offline')
     expect(row.words).toBe('asleep · seen 2 h ago')
   })
@@ -44,19 +49,19 @@ describe('phoneRows', () => {
       self,
       member({ id: 'mini', name: 'mini-office', linked: false, pairByHand: true, state: 'notLinked' }),
       member({ id: 'rpi', name: 'rpi-lab', kind: 'headless', linked: false, state: 'linking' }),
-    ], [], NOW)
+    ], at([]), NOW)
     expect(rows.map((r) => [r.state, r.words])).toEqual([['notLinked', 'not linked'], ['linking', 'linking…']])
   })
 
   it('marks a member this phone refused as too old, whatever its presence', () => {
     const studio = member({ id: 'studio', name: 'studio-mbp' })
     const refused = source({ id: 'studio', name: 'studio-mbp', refused: { cause: 'mac', theirs: '0.1.0', needed: '0.2.0' } })
-    const [row] = phoneRows([self, studio], [refused], NOW)
+    const [row] = phoneRows([self, studio], at([refused]), NOW)
     expect(row.state).toBe('update')
     expect(row.words).toBe('update Orbital on studio-mbp')
     // A device refusing this app is this app's update, not the device's.
     const app = source({ id: 'studio', name: 'studio-mbp', refused: { cause: 'app', theirs: null, needed: '0.3.0' } })
-    expect(phoneRows([self, studio], [app], NOW)[0].state).toBe('online')
+    expect(phoneRows([self, studio], at([app]), NOW)[0].state).toBe('online')
   })
 
   it('reads another phone of the group as paired with the primary, never linking', () => {
@@ -65,12 +70,12 @@ describe('phoneRows', () => {
     const other = member({
       id: 'pixel', name: 'Pixel 7', kind: 'phone', os: 'android', linked: false, state: 'offline',
     })
-    const [, row] = phoneRows([self, studio, other], [], NOW)
+    const [, row] = phoneRows([self, studio, other], at([]), NOW)
     expect(row).toMatchObject({ state: 'elsewhere', words: 'paired with studio-mbp' })
   })
 
   it('lists a paired Mac from before groups, which sends no roster', () => {
-    const rows = phoneRows([self], [source({ id: 'old', name: 'old-mac', online: false, asOf: NOW - 3 * HOUR })], NOW)
+    const rows = phoneRows([self], at([source({ id: 'old', name: 'old-mac', online: false, ready: false, asOf: NOW - 3 * HOUR })]), NOW)
     expect(rows).toHaveLength(1)
     // The roster does not list it, so it has no join date.
     expect(rows[0]).toMatchObject({ id: 'old', name: 'old-mac', state: 'offline', joinedAt: null })
@@ -115,5 +120,25 @@ describe('removalLeavesAlone', () => {
   it('counts a paired Mac from before groups, which the roster does not list', () => {
     expect(removalLeavesAlone([self, studio], [source({ id: 'old', name: 'old-mac' })], 'studio')).toBe(false)
     expect(removalLeavesAlone([self], [source({ id: 'old', name: 'old-mac' })], 'old')).toBe(true)
+  })
+
+  it('reads a reached member awake by its device, not by the presence the roster was built with', () => {
+    // Built at launch before the relay answered: every member read offline then.
+    const studio = member({ id: 'studio', name: 'studio-mbp', state: 'offline', online: false, seenAt: NOW - HOUR })
+    const [row] = phoneRows([self, studio], at([source({ id: 'studio', name: 'studio-mbp', online: true })]), NOW)
+    expect(row).toMatchObject({ state: 'online', words: 'online' })
+  })
+
+  it('reads a reached member asleep once the relay says it is away', () => {
+    const studio = member({ id: 'studio', name: 'studio-mbp', seenAt: NOW - HOUR })
+    const away = source({ id: 'studio', name: 'studio-mbp', online: false, ready: false })
+    const [row] = phoneRows([self, studio], at([away]), NOW)
+    expect(row).toMatchObject({ state: 'offline', words: 'asleep · seen 1 h ago' })
+  })
+
+  it('says nothing asleep while the relay link is still coming up', () => {
+    const studio = member({ id: 'studio', name: 'studio-mbp', state: 'offline', online: false })
+    const away = source({ id: 'studio', name: 'studio-mbp', online: false, ready: false })
+    expect(phoneRows([self, studio], at([away], 'connecting'), NOW)[0].state).toBe('online')
   })
 })
