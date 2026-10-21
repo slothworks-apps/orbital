@@ -1998,7 +1998,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
                       <Row
                         title="Name sessions automatically"
-                        desc="Names a session from its first message, once. Sessions from a terminal keep theirs; ⟳ beside a title names any session."
+                        desc="Asks a model (Haiku, billed like your sessions) to name each session Orbital starts from its first message, once. Off, a session is named after its first sentence; ⟳ beside a title names any session."
                       >
                         <Toggle
                           aria-label="Name sessions automatically"

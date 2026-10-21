@@ -27,6 +27,24 @@ sentence, never a name. And its risk was a name moving while someone looks
 at it; this one changes once, a moment after the session appears, before
 anyone has learned to find it by the old label.
 
+## On by default, though it costs a call
+
+The removed design kept automatic titling off by default because it spends
+money in the background ([[2026-09-18-auto-title-design]] → The setting).
+This one is on, at the maintainer's request, and the cost is weighed rather
+than ignored:
+
+- it is one Haiku call per session Orbital starts — on a subscription a sliver
+  of the usage limit, under `ORBITAL_USE_API_KEY=1` a fraction of a cent —
+  against a session that is itself a model run many times that size;
+- it never runs again for that session, and never for a session Orbital did
+  not start, so the cost cannot grow with how long a session lives or how
+  many terminal sessions are on the map;
+- what it buys is the map's labels, which every user reads; a cut sentence is
+  the default experience it replaces, not an edge case;
+- the setting says it asks a model, and turning it off restores the old
+  label exactly.
+
 ## Ruled out
 
 - **Naming after the first answer.** The model would see more than the

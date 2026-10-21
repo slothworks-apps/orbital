@@ -576,6 +576,15 @@ export async function buildServer(overrides: {
       if (written) republish(sessionId);
       return written;
     },
+    onFirstTitleError: (sessionId, err) =>
+      errors.record({
+        source: 'server',
+        kind: 'api_request',
+        sessionId,
+        message: err instanceof Error ? err.message : String(err),
+        detail: err instanceof Error ? (err.stack ?? null) : null,
+        context: { while: 'naming a session from its first message' },
+      }),
   });
 
   // Templates and the checklists sessions follow (spec

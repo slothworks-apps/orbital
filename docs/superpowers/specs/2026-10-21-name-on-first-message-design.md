@@ -10,6 +10,7 @@ related:
   - 2026-09-18-auto-title-design
   - ephemeral-title-queries
   - why-orbital
+  - errors-are-recorded-not-announced
 tags:
   - titler
   - sessions
@@ -33,7 +34,11 @@ session as it moves on ([[sessions-are-named-once-from-their-first-message]]).
   the phone, or Orbital's own tools (`spawn_session`).
 - **Where it lives:** on by default, with a setting to turn it off.
 - **What someone already using Orbital notices:** a new session's label
-  changes from the first sentence to a short name a moment after it starts.
+  changes from the first sentence to a short name a moment after it starts —
+  so the sentence they just typed stops being the label they scan the map
+  for. Turning the setting off brings that label back. Each such session
+  costs one Haiku call, billed like the session itself
+  ([[sessions-are-named-once-from-their-first-message]] → On by default).
   Existing sessions are not touched.
 - **What can be set:** Settings → Sessions → NEW SESSIONS → *Name sessions
   automatically*, key `name_sessions_automatically`, default `'true'`, read
@@ -62,7 +67,11 @@ Skipped as well:
   user wrote;
 - terminal sessions. Orbital pays a model only for what it launched
   ([[subagents-only-for-orbital-sessions]]); ⟳ names a terminal session on
-  request, as today.
+  request, as today. The send route reads `source` before delivering, since
+  a revive turns a terminal session's `source` into `web`;
+- a harness draft (`purpose` set), at launch and at every send;
+- a second message while the first one's call is still in flight — until the
+  indexer derives a title, it also looks like the first.
 
 The call runs in the background. The launch and the send answer as they do
 now and never wait for it.
@@ -90,8 +99,9 @@ Written only over a title nobody chose: the update carries
 writes `title_source = 'auto'` and republishes, as ⟳ does. Once `auto`, the
 session is never considered again.
 
-A failed model call is logged and dropped — nobody is waiting for it, and
-the session keeps its derived title. No retry, no toast.
+A failed model call is recorded in the error log
+([[errors-are-recorded-not-announced]]) and dropped — nobody is waiting for
+it, and the session keeps its derived title. No retry, no toast.
 
 ## The phone
 
@@ -108,7 +118,8 @@ one toggle. Nothing needs `MAC_FEATURES` — an older Mac simply does not name.
 - the route-level behaviour with a stubbed `titleQueryFn`: named after a
   launch with a prompt, named after the first send to an empty session, not
   named with the setting off, not named over a `manual` title written while
-  the call was in flight, not named on a revive.
+  the call was in flight, not named when a terminal session is revived, not
+  named in a harness draft, a failed call recorded in the error log.
 
 ## Out of scope
 

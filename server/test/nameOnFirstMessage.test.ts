@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { buildServer } from '../src/index.js';
 import { makeTmpDir } from './tmp.js';
@@ -43,10 +43,33 @@ function fakeTitleQueryFn(name: string, gate: Promise<void> = Promise.resolve())
   });
 }
 
-async function serverWith(titleQueryFn: ReturnType<typeof fakeTitleQueryFn>) {
+/** Fake SDK for the titler whose call fails. */
+function failingTitleQueryFn() {
+  return vi.fn((_args: { prompt: string; options: Record<string, unknown> }) => {
+    throw new Error('spawn ENOENT');
+  });
+}
+
+const TERMINAL_ID = '11111111-2222-4333-8444-555555555555';
+
+/** A terminal session that so far only ran `/model` — its title is that bare command. */
+function writeTerminalTranscript(claudeDir: string) {
+  const pdir = join(claudeDir, 'projects', '-w-x');
+  mkdirSync(pdir, { recursive: true });
+  writeFileSync(join(pdir, `${TERMINAL_ID}.jsonl`), JSON.stringify({
+    type: 'user', uuid: 'u0', timestamp: '2026-09-01T10:00:00.000Z', cwd: '/w/x',
+    message: { role: 'user', content: '/model' },
+  }));
+}
+
+async function serverWith(
+  titleQueryFn: ReturnType<typeof fakeTitleQueryFn> | ReturnType<typeof failingTitleQueryFn>,
+  opts: { terminal?: boolean } = {},
+) {
   const claudeDir = makeTmpDir('first-title');
   mkdirSync(join(claudeDir, 'projects'), { recursive: true });
   mkdirSync(join(claudeDir, 'sessions'), { recursive: true });
+  if (opts.terminal) writeTerminalTranscript(claudeDir);
   return buildServer({
     claudeDir, dbPath: join(claudeDir, 'index.db'),
     queryFn: fakeSessionQueryFn() as any,
@@ -101,6 +124,51 @@ describe('naming a session from its first message', () => {
       await app.inject({ method: 'PATCH', url: '/api/settings', payload: { name_sessions_automatically: 'false' } });
       await launch(app, 'fix the zoom');
       expect(titleQueryFn).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('does not name a terminal session revived from Orbital', async () => {
+    const titleQueryFn = fakeTitleQueryFn('Map zoom fix');
+    const app = await serverWith(titleQueryFn, { terminal: true });
+    try {
+      await vi.waitFor(async () => expect((await sessionOf(app, TERMINAL_ID))?.title).toBe('/model'));
+      const res = await app.inject({
+        method: 'POST', url: `/api/sessions/${TERMINAL_ID}/messages`, payload: { text: 'fix the zoom' },
+      });
+      expect(res.json()).toMatchObject({ revived: true });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(titleQueryFn).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('does not name a harness draft, at its launch or at the first answer', async () => {
+    const titleQueryFn = fakeTitleQueryFn('Map zoom fix');
+    const app = await serverWith(titleQueryFn);
+    try {
+      await app.inject({ method: 'PATCH', url: '/api/settings', payload: { harness_enabled: 'true' } });
+      const res = await app.inject({ method: 'POST', url: '/api/harness/interview', payload: { cwd: '/w/x' } });
+      const { sessionId } = res.json();
+      await app.inject({ method: 'POST', url: `/api/sessions/${sessionId}/messages`, payload: { text: 'a review step' } });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(titleQueryFn).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('records a failed call in the error log and keeps the derived title', async () => {
+    const app = await serverWith(failingTitleQueryFn());
+    try {
+      const id = await launch(app, 'fix the zoom');
+      await vi.waitFor(async () => {
+        const errors = (await app.inject({ method: 'GET', url: '/api/errors' })).body;
+        expect(errors).toContain('naming a session from its first message');
+      });
+      expect((await sessionOf(app, id)).title).not.toBe('Map zoom fix');
     } finally {
       await app.close();
     }

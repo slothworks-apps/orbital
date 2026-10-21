@@ -1512,12 +1512,13 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   /**
    * Names a session Orbital started from its first message, in the
    * background (spec 2026-10-21-name-on-first-message-design). Called with
-   * every message the user sends; the titler decides from the row whether it
-   * is the first. A harness's messages never come through here, and a
-   * session following one carries the harness's name.
+   * every message the user sends to a session Orbital started, outside a
+   * harness draft; the titler decides from the row whether it is the first.
+   * A harness's messages never come through here, and a session following
+   * one carries the harness's name.
    */
   function nameFromFirstMessage(id: string, text: string): void {
-    if (!text || ctx.settings.get(NAME_SESSIONS_KEY) === 'false' || ctx.harness.get(id)) return;
+    if (typeof text !== 'string' || !text || ctx.settings.get(NAME_SESSIONS_KEY) === 'false' || ctx.harness.get(id)) return;
     void ctx.titler.nameFromFirstMessage(id, text);
   }
 
@@ -1792,6 +1793,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (ctx.limits?.queue(id, typeof text === 'string' ? text : '', attachments)) {
       return { ok: true, queued: true };
     }
+    // Read before delivering: a revive turns a terminal session's `source`
+    // into `web`, and only a session Orbital started is named.
+    const launched = db.select({ source: sessions.source, purpose: sessions.purpose })
+      .from(sessions).where(eq(sessions.id, id)).get();
     let delivery: Delivery;
     try {
       delivery = await deliverToSession(id, text, attachments);
@@ -1800,7 +1805,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       throw err;
     }
     if (delivery.uuid) publishSentTurn(id, delivery.uuid, text, attachments);
-    if (delivery.outcome === 'sent' || delivery.outcome === 'revived') nameFromFirstMessage(id, text);
+    if ((delivery.outcome === 'sent' || delivery.outcome === 'revived')
+      && launched?.source === 'web' && !launched.purpose) nameFromFirstMessage(id, text);
     return deliveryReply(delivery, reply, 'session is live in a terminal');
   });
 

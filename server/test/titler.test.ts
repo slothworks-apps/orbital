@@ -282,3 +282,57 @@ describe('SessionTitler.nameFromFirstMessage', () => {
     warn.mockRestore();
   });
 });
+
+describe('SessionTitler.nameFromFirstMessage, twice at once', () => {
+  it('asks once while a call is in flight — the second message only looks like the first', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const queryFn = vi.fn(() => {
+      async function* gen() {
+        await gate;
+        yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Map zoom fix' }] } };
+        yield { type: 'result', subtype: 'success' };
+      }
+      return gen();
+    });
+    const titler = new SessionTitler({
+      queryFn: queryFn as never,
+      readSession: () => ({ title: '', titleSource: 'derived' as const }),
+      applyTitle: vi.fn(() => true),
+    });
+
+    const first = titler.nameFromFirstMessage('s1', 'fix the zoom');
+    expect(await titler.nameFromFirstMessage('s1', 'and the labels')).toBe(false);
+    release();
+    expect(await first).toBe(true);
+    expect(queryFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('records a failure where it was told to, not on the console', async () => {
+    const onFirstTitleError = vi.fn();
+    const titler = new SessionTitler({
+      queryFn: () => {
+        throw new Error('spawn ENOENT');
+      },
+      readSession: () => ({ title: '', titleSource: 'derived' as const }),
+      applyTitle: vi.fn(() => true),
+      onFirstTitleError,
+    });
+
+    expect(await titler.nameFromFirstMessage('s1', 'fix the zoom')).toBe(false);
+    expect(onFirstTitleError).toHaveBeenCalledWith('s1', expect.any(Error));
+  });
+
+  it('does not throw on a reader that does', async () => {
+    const titler = new SessionTitler({
+      queryFn: fakeQueryFn('x') as never,
+      readSession: () => {
+        throw new Error('database is locked');
+      },
+      applyTitle: vi.fn(() => true),
+      onFirstTitleError: vi.fn(),
+    });
+
+    await expect(titler.nameFromFirstMessage('s1', 'fix the zoom')).resolves.toBe(false);
+  });
+});
