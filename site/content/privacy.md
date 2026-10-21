@@ -56,6 +56,18 @@ terms and privacy policy, not this one.
   Claude account, as any session would. On the phone, Send feedback opens
   GitHub's form in your browser with the app version, the system and the
   phone model filled in, and you send it there.
+- **Logging in a profile.** When you press Log in or Sign in to Claude
+  Design (on a lost-login notice or in Settings → Profiles), Orbital runs
+  Claude Code's own sign-in, `claude auth login` or `claude design-login`,
+  which talks to Anthropic as the same command does in a terminal, under
+  Anthropic's terms. To show whether a profile is logged in, Orbital runs
+  `claude auth status` and `claude design-login --status`, which read what
+  Claude Code keeps on your Mac. Orbital keeps no copy of the account or
+  its credentials. Logging in from your phone or another device of yours
+  sends the code the sign-in page shows to your Mac, encrypted end to end
+  like everything else between them; the profile's e-mail, organisation
+  and plan go the other way, only to devices you gave the "Upkeep of this
+  Mac" permission.
 - **MCP servers** you add yourself are contacted by Claude Code at the
   addresses you give.
 - **The relay**, if you turn on the phone app (below).

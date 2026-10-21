@@ -41,6 +41,8 @@ export function useSceneModel(): SceneModel {
   const models = useOrbital((s) => s.models)
   const contextWindows = useOrbital((s) => s.contextWindows)
   const sessionsTotal = useOrbital((s) => s.sessionsTotal)
+  // The profiles' names, for a lost login's pill ("log in · Work profile").
+  const claudeDirs = useOrbital((s) => s.claudeDirs)
   const leavingSince = useOrbital((s) => s.leavingSince)
   // The devices whose chip is off, as one string so the selector settles:
   // the `remote` status they derive from is replaced on every publish, and
@@ -92,7 +94,7 @@ export function useSceneModel(): SceneModel {
           rules: [],
           models,
           contextWindows,
-          claudeDirs: [],
+          claudeDirs,
           defaultClaudeDir: null,
           lastClaudeDir: null,
           settings,
@@ -147,6 +149,7 @@ export function useSceneModel(): SceneModel {
       contextWindows,
       sessionsTotal,
       leavingSince,
+      claudeDirs,
       selectedId,
       filterTagIds,
       search,

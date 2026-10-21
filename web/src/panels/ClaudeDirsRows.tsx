@@ -4,12 +4,14 @@ import { claudeDirDisplayPath, claudeDirMonograms, claudeDirRefusalSentence } fr
 import { canChooseDirectory, chooseDirectory } from '../lib/desktop'
 import { reportError } from '../lib/errors'
 import type { ClaudeDirInfo } from '../lib/types'
+import { refusalOf, useProfileLogins } from '../store/profileLogins'
 import { useOrbital } from '../store/store'
 import { Button } from '../ui/Button'
 import { ClaudeDirMark } from '../ui/ClaudeDirMark'
 import { useEscapeLayer } from '../ui/escapeLayer'
 import { Input } from '../ui/Input'
 import { MenuButton, type MenuEntry } from '../ui/Menu'
+import { ProfileLoginRow } from './ProfileLoginRow'
 
 /** Settings key: the directory a launch without a choice runs under. Mirrors `server/src/claudeDirs/keys.ts`. */
 export const DEFAULT_CLAUDE_DIR_KEY = 'default_claude_dir'
@@ -21,43 +23,68 @@ const ADD_FORM_TRANSITION =
 type Editing = { id: number; field: 'name' | 'path' } | null
 
 /**
- * Settings → General: the Claude directories Orbital watches and launches
- * under (spec 2026-10-04-multiple-claude-directories-design § 1; canvas 44a).
- * A bordered list — the mark (with two or more), the name and DEFAULT, the
- * path with its quiet notes, the account, and a ⋯ menu to rename, change the
- * path, make default or remove. Renaming and the path are edited in the row;
- * removing asks in the row; adding opens a form at the list's foot. A missing
- * directory is one muted note, never an error. Mac only — the routes are not
- * on the phone's allowlist.
+ * Settings → Profiles: the profiles (Claude directories) Orbital watches and
+ * launches under (spec 2026-10-04-multiple-claude-directories-design § 1;
+ * canvas 44a, moved and renamed in 62c and 62f). A bordered list — the mark
+ * (with two or more), the name and DEFAULT, the path with its quiet notes,
+ * its logins (`ProfileLoginRow`, spec 2026-10-21-log-in-from-orbital-design
+ * § 4), and a ⋯ menu to rename, change the path, make default or remove.
+ * Renaming and the path are edited in the row; removing asks in the row;
+ * adding opens a form at the list's foot. A missing profile is one muted
+ * note, never an error.
+ *
+ * `machine` shows another Mac's profiles (62g): their logins only. Adding,
+ * removing and editing a profile stay on the Mac that owns it, so the list
+ * there has no ⋯ and no Add profile.
  */
 export function ClaudeDirsRows({
   active,
   makeDefault,
   onSaved,
+  machine,
+  macName = 'this Mac',
 }: {
   /** The section is on screen: the list is read on each visit. */
   active: boolean
   /** Settings' own PATCH, so the default lands in the store the same way every setting does. */
   makeDefault: (patch: Record<string, string>) => Promise<unknown>
   onSaved: () => void
+  machine?: string
+  /** The Mac the list is on, as its notes name it. */
+  macName?: string
 }) {
+  const remote = machine !== undefined
   /** Null until the read lands, and after a failed one: nothing is drawn rather than a guess. */
   const [dirs, setDirs] = useState<ClaudeDirInfo[] | null>(null)
+  /** Another Mac refused the list: this device lacks its `manage` grant, or it is older than Profiles from afar. */
+  const [refused, setRefused] = useState<'no_grant' | 'older_mac' | null>(null)
+  const succeeded = useProfileLogins((s) => s.succeeded)
   const [editing, setEditing] = useState<Editing>(null)
   const [confirming, setConfirming] = useState<number | null>(null)
   const [adding, setAdding] = useState(false)
   const monograms = useMemo(() => claudeDirMonograms(dirs ?? []), [dirs])
 
-  const reload = useCallback(async () => {
+  /** The list as this section draws it. */
+  const readList = useCallback(async () => {
     try {
-      const list = await api.listClaudeDirs()
+      const list = await api.listClaudeDirs(machine)
       if (list) setDirs(list)
-    } catch {
-      // The list stays as it was; the rest of General works without it.
+      setRefused(null)
+    } catch (err) {
+      // The list stays as it was; the rest of Settings works without it.
+      const refusal = remote ? refusalOf(err) : null
+      if (refusal) {
+        setRefused(refusal)
+        setDirs(null)
+      }
     }
+  }, [machine, remote])
+
+  const reload = useCallback(async () => {
+    await readList()
     // The marks and the dialog's choice read the names from the store.
-    await useOrbital.getState().loadClaudeDirs()
-  }, [])
+    if (!remote) await useOrbital.getState().loadClaudeDirs()
+  }, [readList, remote])
 
   useEffect(() => {
     if (!active) return
@@ -66,6 +93,12 @@ export function ClaudeDirsRows({
     setAdding(false)
     void reload()
   }, [active, reload])
+
+  // A login that succeeded changes the account a row names (spec § 2); the
+  // store's own list is read again where the success landed.
+  useEffect(() => {
+    if (active && succeeded > 0) void readList()
+  }, [active, succeeded, readList])
 
   // Escape peels an open edit, confirm or form before it closes Settings.
   const peeling = editing !== null || confirming !== null || adding
@@ -88,14 +121,14 @@ export function ClaudeDirsRows({
     try {
       const result = await api.removeClaudeDir(dir.id)
       if (result && 'error' in result) {
-        reportError(new Error(claudeDirRefusalSentence(result.error)), 'Could not remove the directory')
+        reportError(new Error(claudeDirRefusalSentence(result.error)), 'Could not remove the profile')
         return
       }
       onSaved()
       await reload()
       reloadSessions()
     } catch (err) {
-      reportError(err, 'Could not remove the directory')
+      reportError(err, 'Could not remove the profile')
     }
   }
 
@@ -127,18 +160,26 @@ export function ClaudeDirsRows({
     return Promise.resolve(null)
   }
 
+  if (refused) {
+    // 62g: what this device may not do on that Mac, and where it can be done.
+    return (
+      <div className="py-[13px] text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+        {refused === 'no_grant'
+          ? `${macName} does not let this device look after its profiles. Turn on Upkeep of this Mac for this device in ${macName}’s Settings → Devices, or log in on ${macName}.`
+          : `${macName} runs an Orbital too old to show its profiles here. Update it, or log in on ${macName}.`}
+      </div>
+    )
+  }
   if (dirs === null) return null
   const several = dirs.length >= 2
   const last = dirs.length <= 1
 
   return (
-    <div className="flex flex-col gap-3 border-t border-[rgba(150,205,255,.08)] py-[13px]">
-      <div>
-        <div className="text-[13.5px] font-semibold text-text-bright">Claude directories</div>
-        <div className="mt-1 max-w-[600px] text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
-          Each one is a Claude Code configuration with its own login. Orbital watches all of them. A new session
-          runs under the default unless you choose another in New session.
-        </div>
+    <div className="flex flex-col gap-3 py-[13px]">
+      <div className="max-w-[600px] text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+        {remote
+          ? `The profiles of ${macName}. Logging in from here opens the sign-in page on this Mac and you paste the code it shows; nothing opens on ${macName}.`
+          : 'A profile is one Claude configuration directory with its own login, settings, MCP servers and history, like a browser profile. Orbital watches all of them. Logging in here runs the same browser sign-in as the CLI; Orbital keeps no copy of the account.'}
       </div>
 
       <div className="flex flex-col rounded-[11px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.45)]">
@@ -165,7 +206,7 @@ export function ClaudeDirsRows({
                   <div className="flex min-w-0 flex-1 flex-col gap-[5px]">
                     {field === 'name' ? (
                       <InlineEdit
-                        label="Directory name"
+                        label="Profile name"
                         font="sans"
                         initial={dir.name}
                         onSave={(name) => (name === dir.name ? unchanged() : update(dir, { name }))}
@@ -189,7 +230,7 @@ export function ClaudeDirsRows({
                     )}
                     {field === 'path' ? (
                       <InlineEdit
-                        label="Directory path"
+                        label="Profile path"
                         font="mono"
                         initial={claudeDirDisplayPath(dir.path)}
                         browse
@@ -214,12 +255,7 @@ export function ClaudeDirsRows({
                       </div>
                     )}
                   </div>
-                  {dir.account && !missing && (
-                    <span className="max-w-[220px] flex-none truncate pt-0.5 font-mono text-[11px] text-[rgba(160,190,225,.6)]">
-                      {dir.account}
-                    </span>
-                  )}
-                  <RowMenu
+                  {!remote && <RowMenu
                     entries={[
                       { key: 'rename', label: 'Rename', onSelect: () => startEdit(dir.id, 'name') },
                       {
@@ -248,8 +284,10 @@ export function ClaudeDirsRows({
                         },
                       },
                     ]}
-                  />
+                  />}
                 </div>
+                {/* Its account, Claude Design and the logins (62c). */}
+                <ProfileLoginRow dir={dir} machine={machine} active={active} macName={macName} />
                 {confirming === dir.id && (
                   <div className="mb-3 ml-4 mr-2.5 flex items-center gap-3 rounded-[9px] border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.6)] px-3 py-[11px]">
                     <span className="min-w-0 flex-1 text-[12.5px] leading-[1.5] text-[rgba(214,230,248,.88)] [text-wrap:pretty]">
@@ -270,7 +308,7 @@ export function ClaudeDirsRows({
           })}
         </ul>
 
-        <AddForm
+        {!remote && <AddForm
           open={adding}
           onCancel={() => setAdding(false)}
           onAdd={async (draft) => {
@@ -282,10 +320,10 @@ export function ClaudeDirsRows({
             reloadSessions()
             return null
           }}
-        />
+        />}
       </div>
 
-      {!adding && (
+      {!adding && !remote && (
         <Button
           variant="ghost"
           size="sm"
@@ -299,7 +337,7 @@ export function ClaudeDirsRows({
           <span aria-hidden className="text-[15px] leading-none text-accent">
             +
           </span>
-          Add directory
+          Add profile
         </Button>
       )}
     </div>
@@ -329,7 +367,7 @@ function RowMenu({
   }))
   return (
     <MenuButton
-      aria-label="Directory actions"
+      aria-label="Profile actions"
       entries={items}
       widthPx={220}
       align="right"
@@ -337,7 +375,7 @@ function RowMenu({
         <button
           {...props}
           type="button"
-          aria-label="Directory actions"
+          aria-label="Profile actions"
           className={[
             'grid h-6 w-7 flex-none place-items-center rounded-[6px] border text-[14px] leading-none text-[rgba(200,220,245,.8)] transition-colors hover:bg-[rgba(150,205,255,.1)]',
             open ? 'border-[rgba(150,205,255,.26)] bg-[rgba(150,205,255,.1)]' : 'border-transparent bg-transparent',
@@ -401,7 +439,7 @@ function InlineEdit({
     try {
       setRefusal(await onSave(value.trim()))
     } catch (err) {
-      reportError(err, 'Could not save the directory')
+      reportError(err, 'Could not save the profile')
     } finally {
       setPending(false)
     }
@@ -447,7 +485,7 @@ function InlineEdit({
 
 /**
  * 44a's add form at the list's foot: NAME and PATH with Browse…, the note
- * that nothing is copied or changed, Cancel and Add directory. It opens by
+ * that nothing is copied or changed, Cancel and Add profile. It opens by
  * growing out of the list's last rule.
  */
 function AddForm({
@@ -484,7 +522,7 @@ function AddForm({
     try {
       setRefusal(await onAdd({ name: name.trim(), path: path.trim() }))
     } catch (err) {
-      reportError(err, 'Could not add the directory')
+      reportError(err, 'Could not add the profile')
     } finally {
       setPending(false)
     }
@@ -516,7 +554,7 @@ function AddForm({
           <div className="grid grid-cols-[200px_minmax(0,1fr)_auto] items-end gap-2.5">
             <FieldLabel text="NAME">
               <Input
-                aria-label="Directory name"
+                aria-label="Profile name"
                 size="sm"
                 value={name}
                 placeholder="e.g. Work"
@@ -528,7 +566,7 @@ function AddForm({
             </FieldLabel>
             <FieldLabel text="PATH">
               <Input
-                aria-label="Directory path"
+                aria-label="Profile path"
                 font="mono"
                 size="sm"
                 spellCheck={false}
@@ -557,7 +595,7 @@ function AddForm({
               Cancel
             </Button>
             <Button variant="lit" size="row" type="submit" disabled={!ready || pending}>
-              Add directory
+              Add profile
             </Button>
           </div>
         </form>

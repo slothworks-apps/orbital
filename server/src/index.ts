@@ -7,9 +7,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { statSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { randomBytes } from 'node:crypto';
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { DataDirNotOwned, ensureDataDir } from '@orbital/shared/dataDir';
 import { LIMITS_TOPIC } from '@orbital/shared/limits';
+import { PROFILE_LOGINS_TOPIC } from '@orbital/shared/profileLogins';
 import { CONFIG } from './config.js';
 import { applyLoginShellPath } from './env/loginPath.js';
 import { isExecutableFile } from './env/shell.js';
@@ -63,6 +65,8 @@ import { Narrator, type NarrateQueryFn } from './walkthrough/narrator.js';
 import { composeAppendix } from './runner/sessionInstructions.js';
 import { ModelCatalog, catalogKeyFor, recordContextWindows } from './models/catalog.js';
 import { LimitsService } from './limits/service.js';
+import { AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY, autoContinueOf, continueTextOf } from './limits/logic.js';
+import { LoginService } from './login/service.js';
 import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
 import { Presence } from './remote/presence.js';
@@ -288,6 +292,9 @@ export async function buildServer(overrides: {
   if (apiToken === undefined && !process.env.VITEST) {
     throw new Error('buildServer needs an apiToken outside the test suite');
   }
+  // What marks a session's own request into these routes (`CONTROL_HEADER`):
+  // made here, kept in memory, never written or sent.
+  const controlKey = randomBytes(32).toString('base64url');
   // Web sessions must bill the user's Claude subscription (CLI OAuth). The
   // spawned CLI prefers ANTHROPIC_API_KEY over OAuth when present, so strip
   // it unless the operator explicitly opts into API-key billing.
@@ -503,7 +510,7 @@ export async function buildServer(overrides: {
     transcriptPath: (id, projectDir, claudeDirId) => transcriptPath(id, projectDir, claudeDirId),
     git,
   });
-  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, recentTools, git, ide, branchStatus, limits, trees });
+  const publishCtx = (): PublishContext => ({ hub, db, registry, runner, subagents, backgroundTasks, recentTools, git, ide, branchStatus, limits, logins, trees });
   const republish = (sessionId: string) => publishSession(publishCtx(), sessionId);
   const rowOf = (sessionId: string): SessionRow | undefined =>
     db.select(sessionColumns).from(sessions).where(eq(sessions.id, sessionId)).get();
@@ -733,6 +740,41 @@ export async function buildServer(overrides: {
     });
   };
 
+  // Logging a profile in from Orbital (spec 2026-10-21-log-in-from-orbital-design):
+  // with the executable the MCP routes use, under the profile's own login.
+  // `claudeDirs` is declared below; nothing here calls it before then.
+  const logins: LoginService = new LoginService({
+    cliPath: mcpCliPath,
+    dirPath: (claudeDirId) => claudeDirs.get(claudeDirId)?.path,
+    dirName: (claudeDirId) => claudeDirs.get(claudeDirId)?.name,
+    accountEmail: (claudeDirId) => claudeDirs.accountOf(claudeDirId)?.email ?? null,
+    publish: (login) => hub.publish(PROFILE_LOGINS_TOPIC, { event: 'login', login }),
+    publishToSession: (sessionId, payload) => hub.publish(`session:${sessionId}`, payload),
+    republish: (sessionId) => republish(sessionId),
+    sessions: {
+      title: (sessionId) =>
+        db.select({ title: sessions.title }).from(sessions).where(eq(sessions.id, sessionId)).get()?.title ?? '',
+      isEnded: (sessionId) => {
+        const row = db.select({ endedAt: sessions.endedAt }).from(sessions).where(eq(sessions.id, sessionId)).get();
+        return !row || row.endedAt !== null;
+      },
+      isLimitWaiting: (sessionId) => limits.isWaiting(sessionId),
+    },
+    // The limits' "Message sent on continue": one setting for both.
+    continueText: () => continueTextOf(settingsStore.get(CONTINUE_TEXT_KEY)),
+    // And its "Continue automatically after a limit reset": one switch for both.
+    autoContinue: () => autoContinueOf(settingsStore.get(AUTO_CONTINUE_KEY)),
+    onError: (err, during, sessionId) =>
+      errors.record({
+        source: 'server',
+        kind: 'api_request',
+        sessionId: sessionId ?? null,
+        message: err instanceof Error ? err.message : String(err),
+        detail: err instanceof Error ? (err.stack ?? null) : null,
+        context: { while: during },
+      }),
+  });
+
   const runner = new Runner({
     hub,
     queryFn: overrides.queryFn,
@@ -875,8 +917,12 @@ export async function buildServer(overrides: {
     onTurnBoundary: (sessionId, ended) => {
       if (ended) harness.onTurnEnd(sessionId);
       // A turn the CLI started by itself is a next turn too, and it moves no
-      // status for `onStatus` above to see.
-      else clearCompactionFailure(sessionId);
+      // status for `onStatus` above to see. Any next turn, the user's or
+      // not, also takes the session off a login's continuation list.
+      else {
+        clearCompactionFailure(sessionId);
+        logins.forget(sessionId);
+      }
       republish(sessionId);
     },
     // Both edges of a parked question, for the map: `pendingDecision` rides
@@ -887,6 +933,11 @@ export async function buildServer(overrides: {
     onRateLimit: (sessionId, info) => limits.rateLimitEvent(sessionId, info),
     onLimitHit: (sessionId, rejected, turnError) => limits.limitHit(sessionId, rejected, turnError),
     isLimitWaiting: (sessionId) => limits.isWaiting(sessionId),
+    // A lost login: the session's latest main turn decides whether it waits
+    // on its profile's login, and continues once it is back (spec
+    // 2026-10-21-log-in-from-orbital-design § 3).
+    onTurnEnd: (sessionId, info) => logins.turnEnded(sessionId, dirOfSession(sessionId), info),
+    accountEmailOf: (claudeDirId) => claudeDirs.accountOf(claudeDirId)?.email ?? null,
     // An approved plan left plan mode. Stored on the row, so the panel's mode
     // readout stops claiming the session is read-only and a revive resumes it
     // in the mode it was actually running in — not the one it was launched in
@@ -1286,6 +1337,7 @@ export async function buildServer(overrides: {
         registry.remove(dir.id);
         ide.removeClaudeDir(dir.path);
         limits.forgetDir(dir.id);
+        logins.forgetDir(dir.id);
       },
     };
   };
@@ -1547,6 +1599,8 @@ export async function buildServer(overrides: {
     settings: settingsStore,
     mcpFor,
     limits,
+    logins,
+    controlKey,
     devTools: overrides.devTools ?? process.env.ORBITAL_DEV_TOOLS === '1',
     rewindStopTimeoutMs: overrides.rewindStopTimeoutMs,
     retention: {
@@ -1566,7 +1620,7 @@ export async function buildServer(overrides: {
   // request, with the token, but not through the phone's allowlist — the
   // operation catalog is its list.
   runner.control = async (req) => {
-    const res = await app.inject(remoteInjectOptions(req, apiToken));
+    const res = await app.inject(remoteInjectOptions({ ...req, control: controlKey }, apiToken));
     return { statusCode: res.statusCode, body: res.body };
   };
   remote.start();
@@ -1588,6 +1642,8 @@ export async function buildServer(overrides: {
       console.warn(`[remote] stop failed: ${err instanceof Error ? err.message : String(err)}`);
     }
     limits.dispose();
+    // Every login still running is killed: nobody is left to finish it.
+    logins.dispose();
     updates.stop();
     presence.dispose();
     runner.dispose();

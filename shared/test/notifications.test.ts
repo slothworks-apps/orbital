@@ -225,6 +225,18 @@ describe('SessionNotifier', () => {
       expect(h.settle()).toEqual([asks('Map')]);
     });
 
+    it('says needs input for a lost login (spec 2026-10-21-log-in-from-orbital-design § 3)', () => {
+      h.feed(upsert({ id: 's1', title: 'Map', status: 'needs_input', loginWait: { kind: 'claude', claudeDirId: 3, running: false, startedBy: null } }));
+      expect(h.settle()).toEqual([asks('Map')]);
+    });
+
+    it('says done when the login was already running before the stop settled: it waits on the browser, not on you', () => {
+      const wait = { kind: 'claude', claudeDirId: 3, running: false, startedBy: null };
+      h.feed(upsert({ id: 's1', title: 'Map', status: 'needs_input', loginWait: wait }));
+      h.feed(upsert({ id: 's1', title: 'Map', status: 'needs_input', loginWait: { ...wait, running: true } }));
+      expect(h.settle()).toEqual([done('Map')]);
+    });
+
     it('says nothing while the harness reviewer reads the work: it comes back on its own', () => {
       h.feed(upsert({ id: 's1', title: 'Map', status: 'needs_input', harnessGate: 'reviewing' }));
       expect(h.settle()).toEqual([]);

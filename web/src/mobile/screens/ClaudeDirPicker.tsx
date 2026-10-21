@@ -15,12 +15,15 @@ export function ClaudeDirPicker({
   dirs,
   value,
   hint,
+  profilesSection,
   onChange,
 }: {
   dirs: readonly ClaudeDirName[]
   value: number | null
   /** The label row's right-hand note: where the choice came from. */
   hint: string
+  /** The Mac has Settings → Profiles (`MAC_FEATURES.profileLogin`); an older one keeps them elsewhere, so the sheet names no section. */
+  profilesSection: boolean
   onChange: (id: number) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -30,11 +33,11 @@ export function ClaudeDirPicker({
   return (
     <>
       <div className="flex flex-col gap-1.5">
-        <FieldLabel hint={hint}>CLAUDE DIRECTORY</FieldLabel>
+        <FieldLabel hint={hint}>PROFILE</FieldLabel>
         <button
           type="button"
           aria-haspopup="dialog"
-          aria-label={chosen ? `Claude directory: ${chosen.name}` : 'Claude directory'}
+          aria-label={chosen ? `Profile: ${chosen.name}` : 'Profile'}
           onClick={() => setOpen(true)}
           className="box-border flex min-h-[52px] w-full items-center gap-2.5 rounded-[14px] border border-[rgba(150,205,255,.14)] bg-transparent py-1 pl-3.5 pr-2.5 text-left"
         >
@@ -96,7 +99,7 @@ export function ClaudeDirPicker({
                 )
               })}
               <div className="px-2 pt-2.5 font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.5)]">
-                add or rename directories on the Mac · Settings → General
+                {profilesSection ? 'add or rename profiles on the Mac · Settings → Profiles' : 'add or rename profiles on the Mac'}
               </div>
             </div>
           </div>

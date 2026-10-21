@@ -6,7 +6,7 @@ import {
   resolvePanelPairWidths,
   PANEL_GUTTER_PX,
 } from '../../store/store'
-import { sessionStateKey, type SessionStateKey } from '../../lib/types'
+import { sessionStateKey, shownStatus, type SessionStateKey } from '../../lib/types'
 import type { SceneModel } from '../sceneModel'
 import { stateColor, stateDot } from '../../lib/stateStyle'
 import { StateDot } from '../../ui/StateDot'
@@ -109,7 +109,7 @@ export function MapShell(props: {
     let asking = 0
     let interrupted = 0
     for (const p of model.planets) {
-      if (p.muted || p.deviceOff || p.session.status !== 'needs_input') continue
+      if (p.muted || p.deviceOff || shownStatus(p.session) !== 'needs_input') continue
       const key = sessionStateKey(p.session)
       if (key === 'needs_input') asking++
       else if (key === 'interrupted') interrupted++

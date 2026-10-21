@@ -98,7 +98,7 @@ import { DevicesSection } from './DevicesSection'
 import { UpdatesSection } from './UpdatesSection'
 import { LimitSunsLabs } from './LimitSunsLabs'
 import { useAppUpdate } from '../store/appUpdate'
-import { ClaudeDirsRows } from './ClaudeDirsRows'
+import { ProfilesSection } from './ProfilesSection'
 import { GhLine } from './GhLine'
 import { SendFeedback, type FeedbackKind } from './SendFeedback'
 import { isDemo } from '../lib/demo'
@@ -204,6 +204,9 @@ function mapThemeOptions(settings: Record<string, string | undefined>): Array<{ 
  */
 const NAV_ITEMS = [
   { key: 'general', label: 'General', disabled: false },
+  // Second, after General (canvas 62c): the profiles moved out of General's
+  // CLAUDE CODE group (spec 2026-10-21-log-in-from-orbital-design § 4).
+  { key: 'profiles', label: 'Profiles', disabled: false },
   { key: 'sessions', label: 'Sessions', disabled: false },
   { key: 'notifications', label: 'Notifications', disabled: false },
   { key: 'permissions', label: 'Permissions', disabled: false },
@@ -1077,7 +1080,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                 <div className="flex min-h-0 flex-col overflow-y-auto px-8 pb-5 pt-2">
                   {section === 'general' && (
                     <>
-                      <SectionLabel first>RUNTIME</SectionLabel>
+                      <SectionLabel first>CLAUDE CODE</SectionLabel>
                       {/* Spec 2026-09-16-electron-wrapper-design § 3: empty
                     autodetects, a value overrides. Moved here out of NEW
                     SESSIONS, where it never belonged — it is an install path
@@ -1099,15 +1102,6 @@ export function Settings({ open, onClose }: SettingsProps) {
                           className="w-full"
                         />
                       </Row>
-                      <SectionLabel>CLAUDE CODE</SectionLabel>
-                      {/* Every directory Orbital watches and launches under; a
-                    change applies at once, no restart (spec
-                    2026-10-04-multiple-claude-directories-design § 1). */}
-                      <ClaudeDirsRows
-                        active={open && section === 'general'}
-                        makeDefault={patchAndSet}
-                        onSaved={() => setSaved(true)}
-                      />
                       {/* Read-only on purpose: this is an environment decision made
                     when the server started, and a toggle for "start charging
                     my card" is not a toggle. */}
@@ -1124,12 +1118,12 @@ export function Settings({ open, onClose }: SettingsProps) {
                               ? 'API key'
                               : claudeDirCount >= 2
                                 ? // 44a: with several logins, each bills its own account.
-                                  'Claude account · per directory'
+                                  'Claude account · per profile'
                                 : 'Claude subscription'}
                           </span>
                           {health.billing !== 'api-key' && claudeDirCount >= 2 ? (
                             <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
-                              each directory bills to the account it is signed in to
+                              each profile bills to the account it is signed in to
                             </span>
                           ) : (
                             <span className="text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
@@ -1146,7 +1140,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                               data-testid="billing-overrides-dirs"
                               className="text-[12px] leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]"
                             >
-                              The API key overrides each directory’s own login. All directories bill to this key.
+                              The API key overrides each profile’s own login. All profiles bill to this key.
                             </span>
                           )}
                         </Row>
@@ -1160,7 +1154,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                         <>
                           <Row
                             title="Database"
-                            desc="Orbital's own index of your sessions. Your transcripts are not in here — they stay in the Claude directory above, which Orbital only ever reads."
+                            desc="Orbital's own index of your sessions. Your transcripts are not in here — they stay in the Claude directory, which Orbital only ever reads."
                           >
                             <span className="break-all font-mono text-[11px] leading-[1.6] text-[rgba(200,220,245,.8)]">
                               {health.paths.dbPath}
@@ -1238,6 +1232,13 @@ export function Settings({ open, onClose }: SettingsProps) {
                     </>
                   )}
 
+                  {section === 'profiles' && (
+                    // Every profile Orbital watches and launches under; a
+                    // change applies at once, no restart (spec
+                    // 2026-10-04-multiple-claude-directories-design § 1), and
+                    // each one's logins (spec 2026-10-21-log-in-from-orbital-design § 4).
+                    <ProfilesSection active={open} makeDefault={patchAndSet} onSaved={() => setSaved(true)} />
+                  )}
                   {section === 'notifications' && (
                     <>
                       {/* Spec 2026-09-21-settings-sections-design § 5. The three

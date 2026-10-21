@@ -59,6 +59,8 @@ import { registerHarnessRoutes, type CarryHarness } from './harness.js';
 import { registerStatsRoutes } from './stats.js';
 import { registerMcpRoutes } from './mcp.js';
 import { registerTerminalRoutes } from './terminals.js';
+import { registerLoginRoutes } from './logins.js';
+import type { LoginService } from '../login/service.js';
 import type { TerminalStore } from '../terminal/store.js';
 import { recordDecisions, serverFile, undecidedServers, type McpjsonDecisions } from '../mcp/mcpjson.js';
 import { dbFingerprints } from '../mcp/approvals.js';
@@ -66,6 +68,7 @@ import type { McpConfig } from '../mcp/config.js';
 import { registerRemoteRoutes } from './remoteRoutes.js';
 import { memberRefusal } from '../remote/grants.js';
 import { DEVICE_HEADER } from '../remote/inject.js';
+import type { DeliveryOutcome } from './delivery.js';
 import type { Presence } from '../remote/presence.js';
 import type { RemoteService } from '../remote/service.js';
 import { buildWalkthrough } from '../walkthrough/spine.js';
@@ -193,6 +196,17 @@ export interface RouteContext {
    * registered and no message is ever held for a reset.
    */
   limits?: LimitsService;
+  /**
+   * Logging a profile in from Orbital, and the sessions that continue once
+   * it is back (spec 2026-10-21-log-in-from-orbital-design). Absent, the
+   * login routes are not registered.
+   */
+  logins?: LoginService;
+  /**
+   * The key a session's orbital MCP tools carry into these routes
+   * (`CONTROL_HEADER`). Absent, no request counts as a session's.
+   */
+  controlKey?: string;
   /**
    * Where each session works now (spec 2026-10-07-live-working-tree-design).
    * Absent, every session works in its home, and a file request's `cwd` is
@@ -1520,7 +1534,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   /** What a delivery did, and the uuid the turn's entry is written under when it started one. */
   interface Delivery {
-    outcome: 'sent' | 'revived' | 'not_found' | 'terminal';
+    outcome: DeliveryOutcome;
     uuid: string | null;
     /** The turn was the send of a pending rewind (spec 2026-09-29-rewind-design § Runner). */
     rewind?: true;
@@ -2116,6 +2130,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     ctx.harness.sessionEnded(id);
     // Ending the session drops its wait for a limit reset, unfired.
     ctx.limits?.drop(id);
+    // And its place on a login's continuation list: a login does not reopen it.
+    ctx.logins?.forget(id);
     // The user's terminals go with the session they belong to. Only here, on
     // the user's End or Clear: a terminal session the CLI ended keeps them.
     ctx.terminals.closeSession(id);
@@ -2596,8 +2612,9 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   // ---- Claude directories (spec: 2026-10-04-multiple-claude-directories-design § 6)
   //
-  // Mac only: managing them means typing paths on the Mac's disk, so none of
-  // these is on the phone's allowlist. The default goes through
+  // Adding, renaming and removing them sits on the allowlist under `manage`;
+  // another device's Settings does not offer adding or removing (spec
+  // 2026-10-21-log-in-from-orbital-design § 4). The default goes through
   // `PATCH /api/settings` `default_claude_dir`.
 
   /** A refused change as its status: an unknown id is a 404, everything else the request's fault. */
@@ -2630,6 +2647,16 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   /** One row of the list, as `GET /api/claude-dirs` shapes it. */
   const claudeDirInfo = (id: number) => ctx.claudeDirs.info().find((d) => d.id === id);
+
+  // A profile's login and its Claude Design sign-in (spec
+  // 2026-10-21-log-in-from-orbital-design § 2), on the allowlist under
+  // `manage` like the routes above.
+  if (ctx.logins) {
+    // A login that came back continues the sessions waiting on it the way
+    // the composer's text goes in: sent if the Runner holds it, revived if not.
+    ctx.logins.deliver = (id, text) => deliverToSession(id, text);
+    registerLoginRoutes(app, ctx.logins, ctx.remote, ctx.controlKey);
+  }
 
   const NOTIFICATION_ROW_KEYS: ReadonlySet<string> = new Set(Object.values(NOTIFICATION_SETTING_KEYS));
 

@@ -25,6 +25,12 @@ export type BadgeProps =
        * ink with its dot at half and still (canvas 50f `fState`).
        */
       asOf?: string | null
+      /**
+       * What a NEEDS INPUT session waits for, after its word: `LOG IN TO
+       * WORK PROFILE` (canvas 62d, `loginWaitLabels`). A label, not a state
+       * (ADR what-a-session-waits-for-is-a-label).
+       */
+      waitsFor?: string | null
     }
   | {
       /**
@@ -213,6 +219,7 @@ export function Badge(props: BadgeProps) {
         />
         <span className="min-w-0 truncate">
           {gate ? 'NEEDS YOUR OK' : stateWord(state, awaiting)}
+          {props.waitsFor && state === 'needs_input' && ` · ${props.waitsFor}`}
           {asOf && ` · ${asOf}`}
         </span>
       </span>

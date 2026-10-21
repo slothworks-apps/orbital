@@ -19,6 +19,7 @@ function planet(id: string, contextFill: ContextFill | null): ScenePlanet {
     dated: false,
     secondLine: null,
     outlineLine: null,
+    loginPill: null,
     offline: false,
     deviceOff: false,
     muted: false,

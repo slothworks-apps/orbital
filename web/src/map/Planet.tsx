@@ -3,7 +3,7 @@ import { useThree, type ThreeEvent } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { ApiSession } from '../lib/types'
-import { gateWaits, sessionStateKey, statePill, type SessionStateKey } from '../lib/types'
+import { gateWaits, loginLost, sessionStateKey, shownStatus, statePill, type SessionStateKey } from '../lib/types'
 import {
   OFFLINE_STATE_INK,
   STATE_INPUT_HEX,
@@ -152,6 +152,9 @@ import {
 
 /** designPx → scene units, against 1f's 50px body radius. */
 const px = (designPx: number) => (designPx / 50) * BODY_RADIUS
+
+/** 31b: the limit pill's dot, hollow and steady — "not running, nothing to do". */
+const LIMIT_PILL_DOT = { shape: 'hollow', motion: 'steady' } as const
 
 /** Ended body: flat `oklch(16% .01 230)` per the canvas, no gradient. */
 const BODY_ENDED_LIGHTNESS = 0.16
@@ -561,6 +564,8 @@ export interface PlanetProps {
   secondLine?: string | null
   /** The second line closes with the device's age (`ScenePlanet.dated`, `WithAge`). */
   dated?: boolean
+  /** The login pill under the name (`ScenePlanet.loginPill`), drawn as the limit's is. */
+  loginPill?: string | null
   /**
    * The session's device is offline (`ScenePlanet.offline`): the planet keeps
    * its last state at `OFFLINE_OPACITY` and holds still — no spin, no blink,
@@ -1481,6 +1486,7 @@ function PlanetBody({
   muted = false,
   secondLine = null,
   dated = false,
+  loginPill = null,
   offline = false,
   deviceOff = false,
   labelTitlePx = 11,
@@ -1511,7 +1517,8 @@ function PlanetBody({
   const compactEdge = compactEdgeRef.current !== compacting
   const mix = useStateMix(
     PLANET_STATES,
-    compacting ? 'idle' : session.status,
+    // A login being restored rests as a limit wait does (`shownStatus`).
+    compacting ? 'idle' : shownStatus(session),
     compactEdge ? COMPACTING_SWITCH_MS : STATE_TRANSITION_MS,
   )
   useLayoutEffect(() => {
@@ -1567,8 +1574,12 @@ function PlanetBody({
    */
   const failureStanding = session.lastCompactionFailed != null && contextFill !== null
   const statePillNow = compacting ? null : statePill(session)
-  /** A limit wait's pill under the name (31b), or null. */
-  const limitPill = session.limitWait ? limitPillText(session.limitWait) : null
+  /**
+   * A limit wait's pill under the name (31b), or a login wait's in the same
+   * place and the same quiet ink (canvas 62a), or null.
+   */
+  const limitPill = session.limitWait ? limitPillText(session.limitWait) : loginPill
+  const needsLogin = !session.limitWait && loginPill !== null && loginLost(session)
   // A planet whose device chip is off takes its pill out with it, so nothing
   // on it is left to press.
   const pill = deviceOff || (failureStanding && statePillNow?.key === 'done') ? null : statePillNow
@@ -2444,16 +2455,16 @@ function PlanetBody({
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  <span
-                    aria-hidden
-                    style={{
-                      display: 'block',
-                      boxSizing: 'border-box',
-                      width: LIMIT_PILL_DOT_PX,
-                      height: LIMIT_PILL_DOT_PX,
-                      borderRadius: '50%',
-                      border: `${LIMIT_PILL_DOT_RING_PX}px solid currentColor`,
-                    }}
+                  {/* `Feature - Log in` 62a: a lost login needs you, so its pill
+                      wears NEEDS INPUT's solid amber dot, held steady as a
+                      gate's (a login can wait all night); running, the limit's
+                      hollow ring in the pill's ink. */}
+                  <StateDot
+                    dot={needsLogin ? stateDot('needs_input', 'label', true) : LIMIT_PILL_DOT}
+                    color={needsLogin ? stateColor('needs_input') : 'currentColor'}
+                    solidPx={LIMIT_PILL_DOT_PX}
+                    hollowPx={LIMIT_PILL_DOT_PX}
+                    ringPx={LIMIT_PILL_DOT_RING_PX}
                   />
                   {limitPill}
                 </span>

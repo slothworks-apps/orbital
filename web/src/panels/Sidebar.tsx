@@ -19,7 +19,7 @@ import { TopGlint } from '../ui/TopGlint'
 import { useWindowBand } from '../lib/windowChrome'
 import { useWindowFocused } from '../lib/useWindowFocused'
 import { useViewportWidth } from '../lib/useViewportWidth'
-import { awaitedCount, awaitedWork, gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
+import { awaitedCount, awaitedWork, gateWaits, isReadOnly, sessionStateKey, shownStatus, tagColor } from '../lib/types'
 import { compactingLabelOpacity, compactingOf, formatElapsed } from '../lib/compaction'
 import { useAsOfNow } from '../lib/asOfClock'
 import { useNow } from '../lib/useNow'
@@ -37,6 +37,7 @@ import { STATS_PATH } from '../stats/route'
 import { LIMITS_PATH } from '../limits/route'
 import { LimitsGlyph } from '../ui/LimitsGlyph'
 import { limitWaitShort } from '../lib/limits'
+import { loginWaitLabels } from '../lib/profileLogin'
 import { ClaudeDirMark, useClaudeDirMark } from '../ui/ClaudeDirMark'
 import { sessionViewTransitionName } from '../lib/viewTransition'
 import { timeAgo, shortenPath } from '../lib/format'
@@ -303,6 +304,18 @@ function RowStatus({ session }: { session: ApiSession }) {
       </span>
     )
   }
+  // `Feature - Log in` 62a: while its profile logs in, the session rests the
+  // same way — `LOGGING IN`, neutral, no dot. Lost, it reads NEEDS INPUT.
+  if (session.loginWait?.running && session.source !== 'terminal') {
+    return (
+      <span
+        data-state="login"
+        className="flex shrink-0 items-center font-mono text-[9.5px] uppercase tracking-[0.08em] text-[rgba(214,230,248,.8)]"
+      >
+        {loginWaitLabels(session.loginWait, null).short}
+      </span>
+    )
+  }
   return (
     <span
       data-state={key}
@@ -385,7 +398,7 @@ function SessionRow({
           history ? 'py-2' : 'py-[9px]',
         ].join(' ')}
       >
-        <RowDot hue={hue} status={session.status} offline={offline} />
+        <RowDot hue={hue} status={shownStatus(session)} offline={offline} />
         <span className="min-w-0 flex-1">
           {/* 3b: the badge shares the name's line, so it reads as a property
               of the session rather than of its status — and the name is what

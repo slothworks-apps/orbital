@@ -4,6 +4,8 @@ import type {
   AttachmentUpload,
   LimitsSnapshot,
   ClaudeDirInfo,
+  LoginKind,
+  ProfileLogin,
   ChatMessage,
   CommandContent,
   CompletionKey,
@@ -1093,9 +1095,60 @@ export const api = {
   // Claude directories (spec 2026-10-04-multiple-claude-directories-design § 6).
   // Mac only: none of these is on the phone's allowlist. A refused change
   // comes back as `{ error }`, a state the Settings row words, not a throw.
-  async listClaudeDirs(): Promise<ClaudeDirInfo[]> {
-    const data = await request<{ claudeDirs: ClaudeDirInfo[] }>('GET', '/api/claude-dirs')
+  /** `machine`: that member's profiles, its ids its own (Settings → Profiles on another Mac, canvas 62g). */
+  async listClaudeDirs(machine?: string): Promise<ClaudeDirInfo[]> {
+    const data = await request<{ claudeDirs: ClaudeDirInfo[] }>(
+      'GET',
+      machine === undefined ? '/api/claude-dirs' : `/api/claude-dirs?${new URLSearchParams({ machine })}`,
+    )
     return data.claudeDirs
+  },
+
+  // A profile's logins (spec 2026-10-21-log-in-from-orbital-design § 2). Each
+  // answers the profile's `ProfileLogin`; a refusal the routes name comes
+  // back as `{ error }`. `machine` sends the request to the member the
+  // profile is on, which starts the login as one from another device.
+  async profileLogin(claudeDirId: number, machine?: string): Promise<ProfileLogin | { error: ProfileLoginRefusal }> {
+    const url = apiPath`/api/claude-dirs/${claudeDirId}/login`
+    return remoteCall('GET', machine === undefined ? url : `${url}?${new URLSearchParams({ machine })}`, undefined, LOGIN_REFUSALS)
+  },
+
+  /** Starts the login, or answers the one already running. */
+  async startProfileLogin(
+    claudeDirId: number,
+    kind: LoginKind,
+    machine?: string,
+  ): Promise<ProfileLogin | { error: ProfileLoginRefusal }> {
+    return remoteCall(
+      'POST',
+      apiPath`/api/claude-dirs/${claudeDirId}/login`,
+      machine === undefined ? { kind } : { kind, machine },
+      LOGIN_REFUSALS,
+    )
+  },
+
+  /** Hands the pasted code to the running login; `no_login` when none runs. */
+  async submitProfileLoginCode(
+    claudeDirId: number,
+    kind: LoginKind,
+    code: string,
+    machine?: string,
+  ): Promise<ProfileLogin | { error: ProfileLoginRefusal }> {
+    return remoteCall(
+      'POST',
+      apiPath`/api/claude-dirs/${claudeDirId}/login/code`,
+      machine === undefined ? { kind, code } : { kind, code, machine },
+      LOGIN_REFUSALS,
+    )
+  },
+
+  async cancelProfileLogin(
+    claudeDirId: number,
+    kind: LoginKind,
+    machine?: string,
+  ): Promise<ProfileLogin | { error: ProfileLoginRefusal }> {
+    const url = apiPath`/api/claude-dirs/${claudeDirId}/login/${kind}`
+    return remoteCall('DELETE', machine === undefined ? url : `${url}?${new URLSearchParams({ machine })}`, undefined, LOGIN_REFUSALS)
   },
 
   async addClaudeDir(body: { name: string; path: string }): Promise<{ claudeDir: ClaudeDirInfo } | { error: ClaudeDirRefusal }> {
@@ -1561,6 +1614,21 @@ const CLAUDE_DIR_REFUSALS: Partial<Record<number, readonly ClaudeDirRefusal[]>> 
   400: ['path_required', 'not_absolute', 'no_such_directory', 'not_a_directory', 'duplicate', 'name_required'],
   404: ['not_found'],
   409: ['last_directory'],
+}
+
+/**
+ * What the login routes refuse with (spec 2026-10-21-log-in-from-orbital-design
+ * § 7), and `not_granted` — the Mac the profile is on refuses this device
+ * the `manage` grant (`server/src/remote/servingHalf.ts`).
+ */
+export type ProfileLoginRefusal = 'not_found' | 'no_cli' | 'no_login' | 'bad_kind' | 'bad_code' | 'not_granted'
+
+const LOGIN_REFUSALS: Partial<Record<number, readonly ProfileLoginRefusal[]>> = {
+  400: ['bad_kind', 'bad_code'],
+  403: ['not_granted'],
+  404: ['not_found'],
+  409: ['no_login'],
+  503: ['no_cli'],
 }
 
 /** `POST /api/server/update`'s refusals, by status, for `remoteCall`. */

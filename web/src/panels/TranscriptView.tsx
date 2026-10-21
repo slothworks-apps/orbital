@@ -26,6 +26,8 @@ import { ToolRow, salientInput, toolDurationMs } from './ToolRow'
 import { QUESTION_TOOL_NAME } from '../lib/questionCard'
 import { PLAN_TOOL_NAME } from '../lib/decisionCard'
 import { limitResetLabel } from '../lib/limits'
+import { loginNoticePlaces } from '../lib/profileLogin'
+import { LoginLostRow, LoginRestoredRow } from './LoginNotice'
 
 /** The accent hue (`oklch(85% .12 205)`'s angle), for a mark drawn without a session tag. */
 const NEUTRAL_MARK_HUE = 205
@@ -716,6 +718,9 @@ export function TranscriptView({
   // windowed ones.
   const ordinals = useMemo(() => compactionOrdinals(messages), [messages])
   const newestFailedId = useMemo(() => newestFailedCompactionId(messages), [messages])
+  // Which lost-login notices a later row answers, and which one is live (spec
+  // 2026-10-21-log-in-from-orbital-design § 3).
+  const loginPlaces = useMemo(() => loginNoticePlaces(messages), [messages])
 
   const containerRef = useRef<HTMLDivElement>(null)
   const scrollerRef = useRef<Scroller | null>(null)
@@ -1197,6 +1202,19 @@ export function TranscriptView({
             </span>
             <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
           </div>
+        ) : group.item.message.role === 'notice' && group.item.message.notice?.kind === 'login_lost' && group.item.message.notice.login ? (
+          // `Feature - Log in` 62a/62d: a lost login is a notice with Log in,
+          // drawn from the profile's state; a terminal session's stays the
+          // CLI's line.
+          <LoginLostRow
+            message={group.item.message}
+            sessionId={sessionId}
+            place={loginPlaces.get(group.item.message.id) ?? { restoredAfter: false, newerLost: false }}
+            offline={offline}
+          />
+        ) : group.item.message.role === 'notice' && group.item.message.notice?.kind === 'login_restored' ? (
+          // 62d C: where a restored login continued the session.
+          <LoginRestoredRow message={group.item.message} />
         ) : group.item.message.role === 'notice' ? (
           // The CLI answering for itself — a locally-answered slash command,
           // a hook's banner. Never `MessageView`: it is neither speech nor a

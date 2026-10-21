@@ -166,7 +166,14 @@ export interface ChatMessage {
    * (`/context`), absent when the CLI did not say which — a refused command
    * carries no `local_command_run`, and a hook's banner names no command.
    */
-  notice?: { level: NoticeLevel; command?: string; kind?: 'limit_reset'; limitReset?: LimitResetNotice };
+  notice?: {
+    level: NoticeLevel;
+    command?: string;
+    kind?: 'limit_reset' | 'login_lost' | 'login_restored';
+    limitReset?: LimitResetNotice;
+    /** `login_lost` and `login_restored` rows only. */
+    login?: LoginLostNotice | LoginRestoredNotice;
+  };
   /** Images this message carries — refs into the image store, never data.
    * A pasted user image is its own message (no text); a tool_result keeps
    * its text beside them. Spec: 2026-09-18-transcript-images-design. */
@@ -202,6 +209,39 @@ export interface LimitResetNotice {
   continued: boolean;
   /** The text sent, or null when nothing was. */
   sent: string | null;
+}
+
+/** Which login a notice is about: the profile's own, or its Claude Design sign-in. */
+export type LoginKind = 'claude' | 'design';
+
+/**
+ * A `notice` row with `kind: 'login_lost'`: a turn ended on a lost login, or
+ * a DesignSync call failed for want of a Claude Design sign-in (spec
+ * 2026-10-21-log-in-from-orbital-design § 3, § 7). `text` is the CLI's
+ * sentence. Built live by the runner and on reload by the transcript
+ * parser, which knows no profile — its `claudeDirId` is null, and the web
+ * uses the session's.
+ */
+export interface LoginLostNotice {
+  kind: LoginKind;
+  claudeDirId: number | null;
+  /** The profile's account as the login was, when known. */
+  email: string | null;
+  /** The CLI says the profile was never logged in, not that its login lapsed. */
+  neverLoggedIn: boolean;
+}
+
+/**
+ * A `notice` row with `kind: 'login_restored'`: a login succeeded and the
+ * session was continued — "Logged in as <e-mail> · continued". Published
+ * live on `session:<id>` only, like `limit_reset`.
+ */
+export interface LoginRestoredNotice {
+  kind: LoginKind;
+  email: string | null;
+  /** The account before the login, when it was another (`LOGGED IN AS <new>, NOT <old>`). */
+  previousEmail: string | null;
+  continued: boolean;
 }
 
 /**

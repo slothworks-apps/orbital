@@ -31,3 +31,12 @@ likely happens there too.
 
 In dev the same roots also log "Attempted to synchronously unmount a root",
 which points at a label root being unmounted during React's own render.
+
+Reproduced in the app itself on 2026-10-21, on the first such transition
+after a page load: a session stopped on a lost login rests (`idle`) once its
+login starts (spec 2026-10-21-log-in-from-orbital-design § 3). With
+`Node.prototype.removeChild` wrapped, the failing call was the `<Html>`
+wrapper of the planet's state pill — `<span data-state-pill="needs_input"
+data-mode="dot">` inside drei's absolutely positioned `<div>` — whose node
+had already been detached (`parentNode` null) when React's commit came to
+remove it. A second transition on the same page did not throw.

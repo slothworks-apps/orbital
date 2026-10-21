@@ -979,7 +979,7 @@ describe('NewSessionDialog — the Claude directory', () => {
 
     render(<NewSessionDialog open onClose={vi.fn()} />)
     await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
-    expect(screen.queryByRole('group', { name: 'Claude directory' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Profile' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /launch session/i }))
     await waitFor(() => expect(api.createSession).toHaveBeenCalled())
@@ -1032,9 +1032,9 @@ describe('NewSessionDialog — ⌘D and four or more directories (canvas 44c, 44
 
     render(<NewSessionDialog open onClose={vi.fn()} />)
     await waitFor(() => expect(api.listProjects).toHaveBeenCalled())
-    expect(screen.queryByRole('group', { name: 'Claude directory' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Profile' })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /CLAUDE DIR/ }))
+    fireEvent.click(screen.getByRole('button', { name: /PROFILE/ }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Sandbox' }))
 
     fireEvent.click(screen.getByRole('button', { name: /launch session/i }))

@@ -86,6 +86,7 @@ import { TerminalChip } from '../terminal/TerminalEntry'
 import { useSideSlotWidth } from '../terminal/useTerminalHost'
 import { gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
 import { limitWaitStatus } from '../lib/limits'
+import { loginWaitLabels } from '../lib/profileLogin'
 import { ClaudeDirChip, useClaudeDirMark } from '../ui/ClaudeDirMark'
 import { useClaudeDirModels } from '../lib/useClaudeDirModels'
 import type { ApiSession, BackgroundTask, Tag, WalkthroughSummary } from '../lib/types'
@@ -204,6 +205,14 @@ export function DetailPanel({
     if (media.gallery !== null && media.gallery !== id) media.setGallery(null)
   }, [id])
   const claudeDirMark = useClaudeDirMark(localClaudeDirId(session))
+  // What a session stopped on a lost login waits for (spec
+  // 2026-10-21-log-in-from-orbital-design § 3), named by its profile here.
+  const loginProfileName = useOrbital((s) => {
+    const dirId = session?.loginWait ? localClaudeDirId(session) : null
+    return dirId === null ? null : (s.claudeDirs.find((d) => d.id === dirId)?.name ?? null)
+  })
+  const loginLabels =
+    session?.loginWait && session.source !== 'terminal' ? loginWaitLabels(session.loginWait, loginProfileName) : null
   // What the switcher offers is the session's own account's catalog — read
   // from the device it runs on, whose directory ids are its own.
   const switcherModels = useClaudeDirModels(session?.claudeDirId, true, session?.machine?.id)
@@ -1066,6 +1075,10 @@ export function DetailPanel({
               ) : session.limitWait ? (
                 // `Feature - Plan limits` 31b: the state line while it waits for a reset.
                 <Badge variant="limit" label={limitWaitStatus(session.limitWait)} />
+              ) : loginLabels?.short ? (
+                // `Feature - Log in` 62a: while its profile logs in, the
+                // session rests as a limit wait does, on the same quiet line.
+                <Badge variant="limit" label={loginLabels.header} />
               ) : (
                 <Badge
                   variant="status"
@@ -1074,6 +1087,8 @@ export function DetailPanel({
                   // two — it hears `decision_pending` directly.
                   state={stateKey}
                   gate={gateWaits(session)}
+                  // 62d: NEEDS INPUT · LOG IN TO WORK PROFILE.
+                  waitsFor={loginLabels?.header}
                   // Canvas 50f: an offline device's state keeps its last value, dated.
                   asOf={stateAsOf(session.machine, deviceNow)}
                 />

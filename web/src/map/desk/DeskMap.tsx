@@ -20,6 +20,8 @@ import {
 } from '../../lib/types'
 import { stateColor, stateDot, stillDot } from '../../lib/stateStyle'
 import { decisionHeadline } from '../../lib/decisionCard'
+import { loginWaitLabels } from '../../lib/profileLogin'
+import { LoginCardBlock } from '../../panels/LoginNotice'
 import { contextLevelOklch, oklchCss, CONTEXT_CRITICAL_OKLCH } from '../../lib/usage'
 import { reportError } from '../../lib/errors'
 import { useNow } from '../../lib/useNow'
@@ -551,7 +553,10 @@ const DeskCard = memo(function DeskCard({
   const pill = statePill(s)
   // 41b: every live card wears a pill, WORKING and IDLE included — unlike a
   // planet, a card has no motion of its own to say it is working.
-  const pillLabel = pill?.label ?? (key === 'working' ? 'WORKING' : key === 'idle' ? 'IDLE' : null)
+  // A lost login names what it needs (canvas 62b, 62d "ONE STATE IN FOUR PLACES").
+  const loginNeed = s.loginWait && !s.limitWait ? loginWaitLabels(s.loginWait, null).deskPill : null
+  const pillLabel =
+    loginNeed ?? pill?.label ?? (key === 'working' ? 'WORKING' : key === 'idle' ? 'IDLE' : null)
   const colour = stateColor(key)
   const tools = s.recentTools ?? []
   const last = tools.length ? tools[tools.length - 1] : null
@@ -711,6 +716,12 @@ const DeskCard = memo(function DeskCard({
                 <SubagentRow key={sub.id} sub={sub} onOpen={() => void openSubagent(s.id, sub)} />
               ))}
             </div>
+          )}
+
+          {/* 62b: the lost login is answered on the card, as a question is;
+              a limit wait wins, as it does on the pill. */}
+          {s.loginWait && !s.limitWait && !s.pendingDecision && s.source !== 'terminal' && (
+            <LoginCardBlock session={s} offline={planet.offline} />
           )}
 
           {needs && s.pendingDecision && (

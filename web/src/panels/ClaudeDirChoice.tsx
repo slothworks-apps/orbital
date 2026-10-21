@@ -64,7 +64,7 @@ export function ClaudeDirSegments({
 }) {
   return (
     <Segmented
-      label="Claude directory"
+      label="Profile"
       size="field"
       className="w-full"
       value={value === null ? '' : String(value)}
@@ -81,7 +81,7 @@ export function ClaudeDirSegments({
 
 /**
  * Canvas 44c, four or more directories: one quiet control in the dialog's
- * header, beside esc — `CLAUDE DIR [W] Work ▾` — opening the shared dropdown
+ * header, beside esc — `PROFILE [W] Work ▾` (62f renamed `CLAUDE DIR`) — opening the shared dropdown
  * shell: every directory with its mark, path and account, ✓ on the choice.
  */
 export function ClaudeDirHeaderControl({
@@ -130,7 +130,7 @@ export function ClaudeDirHeaderControl({
   ]
   return (
     <MenuButton
-      aria-label="Claude directory"
+      aria-label="Profile"
       entries={entries}
       widthPx={310}
       align="right"
@@ -146,13 +146,13 @@ export function ClaudeDirHeaderControl({
         <button
           {...props}
           type="button"
-          title={`Claude directory for this session · ${shortcutLabel('composer.next-claude-dir')} next`}
+          title={`Profile for this session · ${shortcutLabel('composer.next-claude-dir')} next`}
           className={[
             'box-border flex max-w-60 items-center gap-2 rounded-[7px] border py-[5px] pl-2.5 pr-[9px] font-mono text-[10.5px] text-[rgba(214,230,248,.9)] transition-colors hover:bg-[rgba(150,205,255,.08)]',
             open ? 'border-[rgba(150,205,255,.26)] bg-[rgba(150,205,255,.1)]' : 'border-[rgba(150,205,255,.14)] bg-transparent',
           ].join(' ')}
         >
-          <span className="flex-none text-[9px] tracking-[0.16em] text-[rgba(160,190,225,.55)]">CLAUDE DIR</span>
+          <span className="flex-none text-[9px] tracking-[0.16em] text-[rgba(160,190,225,.55)]">PROFILE</span>
           {chosen && <ClaudeDirMark mono={monograms.get(chosen.id) ?? '?'} />}
           <span className="min-w-0 max-w-[120px] truncate">{chosen?.name ?? ''}</span>
           <span aria-hidden className="flex-none text-[8px] text-[rgba(160,190,225,.6)]">

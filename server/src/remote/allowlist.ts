@@ -163,6 +163,13 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['POST', '/api/claude-dirs', 'manage'],
   ['PATCH', '/api/claude-dirs/:id', 'manage'],
   ['DELETE', '/api/claude-dirs/:id', 'manage'],
+  // Logging a profile of this device in from another one, through the
+  // pasted code (spec 2026-10-21-log-in-from-orbital-design § 6). The code
+  // travels in the request body, encrypted end to end like every other.
+  ['GET', '/api/claude-dirs/:id/login', 'manage'],
+  ['POST', '/api/claude-dirs/:id/login', 'manage'],
+  ['POST', '/api/claude-dirs/:id/login/code', 'manage'],
+  ['DELETE', '/api/claude-dirs/:id/login/:kind', 'manage'],
   ['GET', '/api/errors', 'manage'],
   ['POST', '/api/errors/seen', 'manage'],
   ['GET', '/api/gh-status', 'manage'],

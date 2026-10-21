@@ -3,6 +3,7 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import type { CanUseTool, PermissionResult, SdkMcpToolDefinition } from '@anthropic-ai/claude-agent-sdk';
 import type { Hub } from '../api/hub.js';
 import type { PermissionMode, SessionStatus, ChatMessage, McpServerRow } from '../types.js';
+import type { TurnEndInfo } from '../login/service.js';
 import type { McpConfigSnapshot } from '../mcp/claudeJson.js';
 import { shapeMcpServers } from '../mcp/rows.js';
 import { undecidedServers, type McpjsonFingerprints } from '../mcp/mcpjson.js';
@@ -18,7 +19,9 @@ import {
 import type { PermissionWait } from '../stats/compute.js';
 import { TASK_LAUNCHING_TOOLS, withoutIntentMarker, type LaunchingCall } from '../transcript/backgroundTasks.js';
 import { imageRefOf, splitUserText, toolResultParts } from '../transcript/parser.js';
-import { noticeFromSdkMessage } from '../transcript/notices.js';
+import {
+  AUTHENTICATION_FAILED, designLoginLine, isDesignSyncTool, loginLostNotice, noticeFromSdkMessage, textOfContent,
+} from '../transcript/notices.js';
 import { readRateLimitInfo, type RejectedLimit } from '../limits/logic.js';
 import {
   compactSummaryText,
@@ -685,6 +688,14 @@ interface ManagedSession {
   limitRejected: RejectedLimit | null;
   /** The `error` of the main loop's latest assistant frame this turn, or null. */
   turnError: string | null;
+  /** The main loop's DesignSync calls this turn, by tool_use id. */
+  designCalls: Set<string>;
+  /**
+   * A DesignSync call of this turn failed naming `/design-login`. Read and
+   * cleared when the turn ends (`onTurnEnd`; spec
+   * 2026-10-21-log-in-from-orbital-design § 3 Continuing).
+   */
+  designLoginLost: boolean;
 }
 
 /**
@@ -806,6 +817,8 @@ export class Runner {
   private onRateLimit?: (sessionId: string, info: unknown) => void;
   private onLimitHit?: (sessionId: string, rejected: RejectedLimit, turnError: string | null) => unknown;
   private isLimitWaiting?: (sessionId: string) => boolean;
+  private onTurnEnd?: (sessionId: string, info: TurnEndInfo) => void;
+  private accountEmailOf?: (claudeDirId: number) => string | null;
   private onPermissionMode?: (sessionId: string, mode: PermissionMode) => void;
   private onPermissionWait?: (sessionId: string, wait: PermissionWait) => void;
   private onError?: (sessionId: string, err: unknown, attempt?: SessionAttempt) => void;
@@ -1020,6 +1033,17 @@ export class Runner {
     /** The session is waiting for a usage limit to reset: a finished turn reads `idle`, not `needs_input`. */
     isLimitWaiting?: (sessionId: string) => boolean;
     /**
+     * Every main turn's end, a turn cut short included, with whether it
+     * ended on a lost login (`authentication_failed`) and whether it
+     * contained a DesignSync failure naming `/design-login` — what the
+     * continuation lists are kept by (spec
+     * 2026-10-21-log-in-from-orbital-design § 3 Continuing). Not
+     * `onLimitHit`, which fires only on a rejected limit.
+     */
+    onTurnEnd?: (sessionId: string, info: TurnEndInfo) => void;
+    /** The e-mail of a profile's account, for the `login_lost` notice. */
+    accountEmailOf?: (claudeDirId: number) => string | null;
+    /**
      * The session's permission mode changed mid-run — which today happens on
      * exactly one edge, an approved plan leaving plan mode
      * (spec 2026-09-23-permission-and-plan-decisions-design). Whoever stores
@@ -1142,6 +1166,8 @@ export class Runner {
     this.onRateLimit = deps.onRateLimit;
     this.onLimitHit = deps.onLimitHit;
     this.isLimitWaiting = deps.isLimitWaiting;
+    this.onTurnEnd = deps.onTurnEnd;
+    this.accountEmailOf = deps.accountEmailOf;
     this.onPermissionMode = deps.onPermissionMode;
     this.onPermissionWait = deps.onPermissionWait;
     this.onError = deps.onError;
@@ -1415,6 +1441,7 @@ export class Runner {
       openToolUses: new Set(), danglingCall: 'none',
       mcpSnapshot: null,
       limitRejected: null, turnError: null,
+      designCalls: new Set(), designLoginLost: false,
     };
     // Registered before anything is awaited, so two concurrent start() calls
     // for the same id can't both get past the check above.
@@ -1791,6 +1818,21 @@ export class Runner {
         this.hub.publish(topic, { event: 'message', message: localCommand });
         return;
       }
+      // A turn that failed on the login is the CLI's synthetic assistant
+      // frame too, `error: "authentication_failed"`: a `login_lost` notice
+      // that offers the login, not an assistant message — the transcript
+      // parser makes the same row on a reload (spec
+      // 2026-10-21-log-in-from-orbital-design § 3 Recognising it).
+      if (msg.type === 'assistant' && msg.parent_tool_use_id == null && msg.error === AUTHENTICATION_FAILED) {
+        const claudeDirId = this.claudeDirOf(sessionId) ?? null;
+        const email = claudeDirId === null ? null : (this.accountEmailOf?.(claudeDirId) ?? null);
+        const row = loginLostNotice(
+          `${sessionId}:${++this.seq}:0`, textOfContent(msg.message?.content), { kind: 'claude', claudeDirId, email },
+          typeof msg.timestamp === 'string' ? msg.timestamp : new Date().toISOString(),
+        );
+        this.hub.publish(topic, { event: 'message', message: { ...row, ...(typeof msg.uuid === 'string' ? { uuid: msg.uuid } : {}) } });
+        return;
+      }
       // How big the conversation was when this call ran — kept as the
       // turn's fallback reading. Only the main loop's own calls: a
       // subagent (`parent_tool_use_id` set) fills a window of its own,
@@ -1844,6 +1886,8 @@ export class Runner {
         const chats = this.withCwd(sessionId, null, sdkToChatMessages(msg, () => ++this.seq, this.images, idFor));
         for (const chat of chats) {
           this.hub.publish(topic, { event: 'message', message: chat });
+          const lost = this.designLoginLost(sessionId, state, chat);
+          if (lost) this.hub.publish(topic, { event: 'message', message: lost });
         }
       } else {
         const agent: string = msg.parent_tool_use_id;
@@ -1890,6 +1934,9 @@ export class Runner {
       const turnError = state.turnError;
       state.limitRejected = null;
       state.turnError = null;
+      const designLoginLost = state.designLoginLost;
+      state.designLoginLost = false;
+      state.designCalls.clear();
       if (rejected && this.onLimitHit) {
         try {
           await this.onLimitHit(sessionId, rejected, turnError);
@@ -1912,8 +1959,32 @@ export class Runner {
         this.hub.publish(topic, { event: 'transcript_reset' });
       }
       this.settleStatus(sessionId);
+      this.onTurnEnd?.(sessionId, { loginLost: turnError === AUTHENTICATION_FAILED, designLoginLost });
       this.onTurnBoundary?.(sessionId, true);
     }
+  }
+
+  /**
+   * A main-loop row that is a DesignSync failure naming `/design-login`
+   * marks the turn, and is followed by a `login_lost` notice of kind
+   * `design` — the row itself stays as it is (spec
+   * 2026-10-21-log-in-from-orbital-design § 3 Recognising it). Null for any
+   * other row.
+   */
+  private designLoginLost(sessionId: string, state: ManagedSession, chat: ChatMessage): ChatMessage | null {
+    if (chat.role === 'tool_use') {
+      if (isDesignSyncTool(chat.toolName) && chat.toolUseId) state.designCalls.add(chat.toolUseId);
+      return null;
+    }
+    if (chat.role !== 'tool_result' || chat.isError !== true || !chat.toolUseId || !state.designCalls.has(chat.toolUseId)) return null;
+    const line = designLoginLine(chat.text ?? '');
+    if (line === null) return null;
+    state.designLoginLost = true;
+    const claudeDirId = this.claudeDirOf(sessionId) ?? null;
+    return loginLostNotice(
+      `${sessionId}:${++this.seq}:0`, line, { kind: 'design', claudeDirId, email: claudeDirId === null ? null : (this.accountEmailOf?.(claudeDirId) ?? null) },
+      chat.timestamp,
+    );
   }
 
   /** Keeps `openToolUses` in step with one main-loop frame. */
@@ -2769,7 +2840,13 @@ export class Runner {
       this.setStatus(sessionId, 'needs_input');
       this.armSleepTimer(sessionId);
     }
-    if (s) this.onTurnBoundary?.(sessionId, true);
+    if (s) {
+      // A turn the user cut short did not end on a lost login, whatever it ran into.
+      s.designLoginLost = false;
+      s.designCalls.clear();
+      this.onTurnEnd?.(sessionId, { loginLost: false, designLoginLost: false });
+      this.onTurnBoundary?.(sessionId, true);
+    }
   }
 
   /**

@@ -5,6 +5,7 @@ import type { OrbitalDb } from '../db/database.js';
 import { limitWaits, sessions } from '../db/schema.js';
 import type { QueryFn } from '../runner/runner.js';
 import type { ChatMessage } from '../types.js';
+import { deliverOwnTurn, type DeliveryResult } from '../api/delivery.js';
 import { FIRST_CLAUDE_DIR_ID, type ClaudeAccount } from '../claudeDirs/paths.js';
 import { estimateRunOut } from './estimate.js';
 import { LimitHistory } from './history.js';
@@ -46,9 +47,6 @@ export const WAIT_CHECK_INTERVAL_MS = 60_000;
 
 /** How long a directory's account, read off its `.claude.json`, is taken as it was. */
 export const ACCOUNT_RECHECK_MS = LIMITS_REFRESH_INTERVAL_MS;
-
-/** What a delivery into a session did — `deliverToSession`'s outcome. */
-export type LimitDeliveryOutcome = 'sent' | 'revived' | 'not_found' | 'terminal';
 
 /** What the limits need to know about the Claude directories. */
 export interface LimitsClaudeDirs {
@@ -161,7 +159,7 @@ export interface LimitsServiceDeps {
  * session (send if live, revive if not). `start()` is called once it is.
  */
 export class LimitsService {
-  deliver?: (sessionId: string, text: string, attachments: string[]) => Promise<{ outcome: LimitDeliveryOutcome; uuid: string | null }>;
+  deliver?: (sessionId: string, text: string, attachments: string[]) => Promise<DeliveryResult>;
   /** The other members' limits, merged into this device's answer; assigned once the federation exists. */
   members?: LimitsMembers;
 
@@ -671,19 +669,13 @@ export class LimitsService {
     this.deps.hub.publish(topic, { event: 'message', message: notice });
     if (send && this.deliver) {
       try {
-        const delivery = await this.deliver(w.sessionId, send.text, send.attachments);
-        // Orbital's own sends are not replayed by the SDK; the composer holds
-        // its copy, but nobody typed this one now, so the turn is published.
-        if (delivery.outcome === 'sent' || delivery.outcome === 'revived') {
-          const turn: ChatMessage = {
-            id: `${w.sessionId}:limit-sent:${this.seq}`,
-            role: 'user',
-            text: send.text,
-            timestamp: new Date(this.now()).toISOString(),
-            ...(delivery.uuid ? { uuid: delivery.uuid } : {}),
-          };
-          this.deps.hub.publish(topic, { event: 'message', message: turn });
-        }
+        const deliver = this.deliver;
+        await deliverOwnTurn(
+          (id, text) => deliver(id, text, send.attachments),
+          (_id, payload) => this.deps.hub.publish(topic, payload),
+          { sessionId: w.sessionId, text: send.text, id: `${w.sessionId}:limit-sent:${this.seq}` },
+          this.now,
+        );
       } catch (err) {
         this.deps.onError?.(err, 'continuing after a usage limit reset', w.sessionId);
       }

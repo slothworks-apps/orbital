@@ -715,7 +715,7 @@ const GRANT_LABELS: Record<string, { label: string; desc: string }> = {
   sessions: { label: 'Read and drive sessions', desc: "messages, decisions, interrupt, harness, a session's MCP servers" },
   spawn: { label: 'Start sessions', desc: 'new sessions, folders, projects' },
   settings: { label: 'Settings, tags and templates', desc: '' },
-  manage: { label: 'Upkeep of this Mac', desc: 'Claude directories, errors, branch status' },
+  manage: { label: 'Upkeep of this Mac', desc: 'profiles, errors, branch status' },
   ide: { label: 'IDE on this Mac', desc: "open files and diagnostics in this Mac's editor" },
 }
 

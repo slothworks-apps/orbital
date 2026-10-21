@@ -11,6 +11,7 @@ import type { MachineEvent, MachineRef } from '@orbital/shared/remote/device'
 import { sessionOfRequest, sessionOfTopic } from '@orbital/shared/remote/segments'
 import { PRESENCE_TOPIC, presenceFromFrame } from '@orbital/shared/presence'
 import { LIMITS_TOPIC } from '@orbital/shared/limits'
+import { PROFILE_LOGINS_TOPIC } from '@orbital/shared/profileLogins'
 import { mergeMemberLimits, ownLimitDirs } from '../limits/members'
 import type { SwappableClient } from './clientRef'
 import { mediaTypeOf } from './imageResolver'
@@ -586,6 +587,9 @@ export class GroupFederation implements SwappableClient {
     }
     if (raw.topic === 'sessions') return this.onSessionsFrame(source, raw)
     if (raw.topic === LIMITS_TOPIC) return this.onLimitsFrame(source, raw)
+    // A profile id is its member's own: the frame names the member, so the
+    // app files the event under that member's profile (`loginEventPlan`).
+    if (raw.topic === PROFILE_LOGINS_TOPIC) return this.emitHub({ ...raw, machine: source.id })
     // Another member's session is that member's to tell.
     const session = sessionOfTopic(raw.topic)
     if (session !== null && this.owners.get(session) !== source.id) return

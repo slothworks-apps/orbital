@@ -1,6 +1,8 @@
 import type { ChatMessage, ImageRefEntry } from '../types.js';
 import type { ImageWriter } from '../images/store.js';
-import { messageFromLocalCommandEntry } from './notices.js';
+import {
+  AUTHENTICATION_FAILED, designLoginLine, isDesignSyncTool, loginLostNotice, messageFromLocalCommandEntry, textOfContent,
+} from './notices.js';
 import { compactSummaryText, markFromTranscriptBoundary } from './compaction.js';
 import { parseWalkthroughTag, walkthroughChipName, WALKTHROUGH_TAG } from '../walkthrough/tag.js';
 
@@ -56,6 +58,12 @@ export interface TranscriptEntry {
   requestId?: string;
   /** Set on the user entry carrying a tool_result — the payload stats measure. */
   toolUseResult?: unknown;
+  /**
+   * Set on the synthetic assistant entry of a failed API call
+   * (`isApiErrorMessage`): `authentication_failed` for a lost login. Read
+   * only as that one string; anything else is as if absent.
+   */
+  error?: unknown;
   message?: {
     role: string;
     model?: string;
@@ -326,6 +334,9 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
   const out: ChatMessage[] = [];
   // The newest compaction mark still waiting for its summary entry.
   let unsummarised: ChatMessage | null = null;
+  // The main conversation's DesignSync calls, whose failures may name
+  // `/design-login` (spec 2026-10-21-log-in-from-orbital-design § 3).
+  const designCalls = new Set<string>();
   for (const e of entries) {
     // The entry's uuid rides on every message it becomes: a rewind names its
     // target by it, and the messages API cuts and places dividers by it
@@ -366,6 +377,16 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
       continue;
     }
     if ((e.type !== 'user' && e.type !== 'assistant') || !e.message || outsideConversation(e)) continue;
+    // A turn that failed on the login: the same `login_lost` notice the
+    // runner publishes live, so a reload and the live view agree. The parser
+    // knows no profile; the web uses the session's.
+    if (e.type === 'assistant' && e.error === AUTHENTICATION_FAILED) {
+      out.push({
+        ...loginLostNotice(`${e.uuid}:0`, textOfContent(e.message.content), { kind: 'claude', claudeDirId: null, email: null }, e.timestamp),
+        ...origin,
+      });
+      continue;
+    }
     const base =
       e.type === 'assistant' && typeof e.message.model === 'string' && e.message.model
         ? { timestamp: e.timestamp, model: e.message.model, ...origin }
@@ -406,6 +427,7 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
           id, role: 'tool_use', toolName: stringField(block.name),
           toolInput: block.input, toolUseId: stringField(block.id), ...base,
         });
+        if (isDesignSyncTool(block.name) && typeof block.id === 'string') designCalls.add(block.id);
       } else if (block.type === 'tool_result') {
         const parts = toolResultParts(block.content, images);
         out.push({
@@ -415,6 +437,16 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
           ...(block.is_error === true ? { isError: true } : {}),
           ...base,
         });
+        // A DesignSync failure for want of a sign-in: the result stays as it
+        // is, and the notice that offers the sign-in follows it.
+        const lost = block.is_error === true && designCalls.has(stringField(block.tool_use_id))
+          ? designLoginLine(parts.text) : null;
+        if (lost !== null) {
+          out.push({
+            ...loginLostNotice(`${id}:login`, lost, { kind: 'design', claudeDirId: null, email: null }, e.timestamp),
+            ...origin,
+          });
+        }
       } else if (block.type === 'image') {
         const entry = imageRefOf(block, images);
         // The loop's top guard narrowed e.type, but TS loses it in the

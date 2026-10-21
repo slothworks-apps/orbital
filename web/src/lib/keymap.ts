@@ -312,12 +312,12 @@ export const COMMANDS: readonly Command[] = [
     // key. A letter, so it binds by character (adr
     // cmd-is-orbitals-modifier-and-digits-bind-by-position).
     id: 'composer.next-claude-dir',
-    label: 'Next Claude directory',
+    label: 'Next profile',
     scope: 'composer',
     chords: ['meta+d'],
     whileTyping: true,
     local: true,
-    note: 'new-session dialog · two or more directories',
+    note: 'new-session dialog · two or more profiles',
   },
   {
     id: 'dialogs.confirm',

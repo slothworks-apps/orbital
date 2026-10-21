@@ -12,12 +12,15 @@ export function StateDot({
   color,
   solidPx,
   hollowPx,
+  ringPx = STATE_DOT_RING_PX,
   glow = false,
 }: {
   dot: Dot
   color: string
   solidPx: number
   hollowPx: number
+  /** The hollow ring's width, where a surface's canvas draws it finer than a state's (31b's limit pill). */
+  ringPx?: number
   /** The detail chip's WORKING dot keeps its `0 0 8px` glow (24c). */
   glow?: boolean
 }) {
@@ -36,7 +39,7 @@ export function StateDot({
         borderRadius: '50%',
         ...(dot.shape === 'solid'
           ? { background: color, boxShadow: glow ? `0 0 8px ${color}` : undefined }
-          : { border: `${STATE_DOT_RING_PX}px solid ${color}` }),
+          : { border: `${ringPx}px solid ${color}` }),
       }}
     />
   )

@@ -4,6 +4,12 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-10-21
+### Added
+- When a session's profile loses its login, log it in again from the phone: open the sign-in page, paste the code it shows, and the session continues on the Mac. Needs the "Upkeep of this Mac" permission and an updated Mac.
+### Changed
+- New session calls the Claude directory a profile.
+
 ## [0.18.3] — 2026-10-21
 ### Changed
 - Under IDLE, sessions that finished a turn you have not read yet (hollow centre) come first, before the quiet ones.

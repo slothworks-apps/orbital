@@ -29,6 +29,12 @@ export const MAC_FEATURES = {
    * subscription without a word; the Limits screen then reads on open and on Read again only.
    */
   limitsTopic: '0.37.0',
+  /**
+   * Log in from Orbital: the profile login routes and the `claude-dir-logins` topic, behind the
+   * `manage` grant (spec 2026-10-21-log-in-from-orbital-design § 6). Against an older Mac the
+   * lost-login notice has no Log in.
+   */
+  profileLogin: '0.40.0',
 } as const
 
 export type MacFeature = keyof typeof MAC_FEATURES
@@ -74,4 +80,22 @@ const currentOwner: OwnerOf = (sessionId) =>
 export function sessionSupports(feature: MacFeature, sessionId: string | null, ownerOf: OwnerOf = currentOwner): boolean {
   const owner = sessionId !== null ? ownerOf(sessionId) : null
   return owner !== null ? deviceSupports(feature, owner) : defaultSupports(feature)
+}
+
+/**
+ * `sessionSupports`, but null while the version that decides is not known
+ * yet — no hello from the session's device, or from the default member: a
+ * surface that would say "that Mac needs an update" says neither yes nor no
+ * until then.
+ */
+export function sessionServes(
+  feature: MacFeature,
+  sessionId: string | null,
+  ownerOf: OwnerOf = currentOwner,
+  devices: readonly DeviceView[] = useMobile.getState().devices,
+  macVersion: string | null = useMobile.getState().macVersion,
+): boolean | null {
+  const owner = sessionId !== null ? ownerOf(sessionId) : null
+  const version = owner !== null ? (devices.find((d) => d.id === owner)?.version ?? null) : macVersion
+  return version === null ? null : macSupports(feature, version)
 }

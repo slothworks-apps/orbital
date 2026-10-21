@@ -66,7 +66,7 @@ describe('claudeDirMark — only with two or more', () => {
       id: 2,
       mono: 'W',
       name: 'Work',
-      title: 'Claude directory: Work · ~/.claude-work',
+      title: 'Profile: Work · ~/.claude-work',
     })
   })
 
@@ -80,9 +80,9 @@ describe('claudeDirMark — only with two or more', () => {
 describe('claudeDirTooltip and claudeDirDisplayPath', () => {
   it('names the path and the account only when known', () => {
     expect(claudeDirTooltip({ id: 1, name: 'Work', path: '/Users/jan/.claude-work', account: 'jan@acme.com' })).toBe(
-      'Claude directory: Work · ~/.claude-work · jan@acme.com',
+      'Profile: Work · ~/.claude-work · jan@acme.com',
     )
-    expect(claudeDirTooltip({ id: 1, name: 'Work' })).toBe('Claude directory: Work')
+    expect(claudeDirTooltip({ id: 1, name: 'Work' })).toBe('Profile: Work')
   })
 
   it('writes the home directory as ~ and leaves other paths alone', () => {
