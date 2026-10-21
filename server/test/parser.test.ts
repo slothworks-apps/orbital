@@ -250,6 +250,32 @@ describe('extractMeta: bare slash commands', () => {
   });
 });
 
+describe('extractMeta: interrupt markers', () => {
+  const userTurn = (uuid: string, text: string | Array<Record<string, unknown>>) => ({
+    type: 'user', uuid, timestamp: '2026-09-01T10:00:00.000Z', message: { role: 'user', content: text },
+  });
+
+  it('never takes a title from the CLI\'s interrupt marker, in either form', () => {
+    const meta = extractMeta([
+      userTurn('k', 'kickoff'),
+      userTurn('i1', [{ type: 'text', text: '[Request interrupted by user for tool use]' }]),
+      userTurn('i2', '[Request interrupted by user]'),
+      userTurn('u', 'Fix the importer'),
+    ], new Set(['k']));
+    expect(meta.title).toBe('Fix the importer');
+    expect(meta.messageCount).toBe(4);
+  });
+
+  it('is not even a fallback', () => {
+    expect(extractMeta([userTurn('i', '[Request interrupted by user]')]).title).toBe('');
+  });
+
+  it('keeps a message the user wrote after a pasted marker', () => {
+    expect(extractMeta([userTurn('u', '[Request interrupted by user] ended up in the title')]).title)
+      .toBe('[Request interrupted by user] ended up in the title');
+  });
+});
+
 describe('extractMeta', () => {
   it('handles malformed content without throwing', () => {
     const malformed = [
