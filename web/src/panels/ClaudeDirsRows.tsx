@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
-import { api, ApiError, errorSentence, type ClaudeDirRefusal } from '../lib/api'
+import { api, type ClaudeDirRefusal } from '../lib/api'
 import { claudeDirDisplayPath, claudeDirMonograms, claudeDirRefusalSentence } from '../lib/claudeDirs'
 import { canChooseDirectory, chooseDirectory } from '../lib/desktop'
 import { reportError } from '../lib/errors'
 import type { ClaudeDirInfo } from '../lib/types'
-import { useProfileLogins } from '../store/profileLogins'
+import { refusalOf, useProfileLogins } from '../store/profileLogins'
 import { useOrbital } from '../store/store'
 import { Button } from '../ui/Button'
 import { ClaudeDirMark } from '../ui/ClaudeDirMark'
@@ -64,21 +64,27 @@ export function ClaudeDirsRows({
   const [adding, setAdding] = useState(false)
   const monograms = useMemo(() => claudeDirMonograms(dirs ?? []), [dirs])
 
-  const reload = useCallback(async () => {
+  /** The list as this section draws it. */
+  const readList = useCallback(async () => {
     try {
       const list = await api.listClaudeDirs(machine)
       if (list) setDirs(list)
       setRefused(null)
     } catch (err) {
       // The list stays as it was; the rest of Settings works without it.
-      if (remote && err instanceof ApiError && err.status === 403) {
-        setRefused(errorSentence(err, '') === 'not_granted' ? 'no_grant' : 'older_mac')
+      const refusal = remote ? refusalOf(err) : null
+      if (refusal) {
+        setRefused(refusal)
         setDirs(null)
       }
     }
+  }, [machine, remote])
+
+  const reload = useCallback(async () => {
+    await readList()
     // The marks and the dialog's choice read the names from the store.
     if (!remote) await useOrbital.getState().loadClaudeDirs()
-  }, [machine, remote])
+  }, [readList, remote])
 
   useEffect(() => {
     if (!active) return
@@ -88,10 +94,11 @@ export function ClaudeDirsRows({
     void reload()
   }, [active, reload])
 
-  // A login that succeeded changes the account a row names (spec § 2).
+  // A login that succeeded changes the account a row names (spec § 2); the
+  // store's own list is read again where the success landed.
   useEffect(() => {
-    if (active && succeeded > 0) void reload()
-  }, [active, succeeded, reload])
+    if (active && succeeded > 0) void readList()
+  }, [active, succeeded, readList])
 
   // Escape peels an open edit, confirm or form before it closes Settings.
   const peeling = editing !== null || confirming !== null || adding

@@ -76,7 +76,7 @@ function commandNameOf(msg: Record<string, unknown>): string | null {
 }
 
 /** The text blocks of an SDK message's `message.content`, joined. */
-function textOfContent(content: unknown): string {
+export function textOfContent(content: unknown): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
   return content
@@ -245,9 +245,4 @@ export function loginLostNotice(
       login: { ...login, neverLoggedIn: login.kind === 'claude' && NEVER_LOGGED_IN.test(body) },
     },
   };
-}
-
-/** The text blocks of a lost-login assistant message, as the CLI wrote them. */
-export function lostLoginText(content: unknown): string {
-  return textOfContent(content).trim();
 }

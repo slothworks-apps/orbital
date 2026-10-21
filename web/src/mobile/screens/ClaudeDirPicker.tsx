@@ -15,12 +15,15 @@ export function ClaudeDirPicker({
   dirs,
   value,
   hint,
+  profilesSection,
   onChange,
 }: {
   dirs: readonly ClaudeDirName[]
   value: number | null
   /** The label row's right-hand note: where the choice came from. */
   hint: string
+  /** The Mac has Settings → Profiles (`MAC_FEATURES.profileLogin`); an older one keeps them elsewhere, so the sheet names no section. */
+  profilesSection: boolean
   onChange: (id: number) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -96,7 +99,7 @@ export function ClaudeDirPicker({
                 )
               })}
               <div className="px-2 pt-2.5 font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.5)]">
-                add or rename profiles on the Mac · Settings → Profiles
+                {profilesSection ? 'add or rename profiles on the Mac · Settings → Profiles' : 'add or rename profiles on the Mac'}
               </div>
             </div>
           </div>

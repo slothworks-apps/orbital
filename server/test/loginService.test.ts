@@ -4,6 +4,7 @@ import {
   DESIGN_CANCEL_GRACE_MS,
   LOGIN_TIMEOUT_MS,
   LoginService,
+  STATUS_FRESH_MS,
   TIMED_OUT_MESSAGE,
   WRONG_CODE_MESSAGE,
   type LoginChild,
@@ -53,6 +54,11 @@ interface Harness {
   toSession: { sessionId: string; payload: any }[];
   ended: Set<string>;
   limitWaiting: Set<string>;
+  /** The limits' "Continue automatically after a limit reset". */
+  settings: { autoContinue: boolean };
+  /** Every status command run, by its first argument. */
+  reads: string[];
+  republished: string[];
 }
 
 function harness(over: Partial<LoginServiceDeps> = {}): Harness {
@@ -63,6 +69,9 @@ function harness(over: Partial<LoginServiceDeps> = {}): Harness {
   const toSession: { sessionId: string; payload: any }[] = [];
   const ended = new Set<string>();
   const limitWaiting = new Set<string>();
+  const settings = { autoContinue: true };
+  const reads: string[] = [];
+  const republished: string[] = [];
   const dirs: Record<number, string> = { 1: `${HOME}/.claude`, 2: `${HOME}/.claude-work` };
   const service = new LoginService({
     cliPath: '/bin/claude',
@@ -70,13 +79,14 @@ function harness(over: Partial<LoginServiceDeps> = {}): Harness {
     accountEmail: () => 'old@example.com',
     publish: (l) => published.push(l),
     publishToSession: (sessionId, payload) => toSession.push({ sessionId, payload }),
-    republish: () => {},
+    republish: (id) => republished.push(id),
     sessions: {
       title: (id) => `title of ${id}`,
       isEnded: (id) => ended.has(id),
       isLimitWaiting: (id) => limitWaiting.has(id),
     },
     continueText: () => 'Continue where you left off.',
+    autoContinue: () => settings.autoContinue,
     baseEnv: { PATH: '/usr/bin', CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli', BROWSER: 'firefox' },
     home: HOME,
     spawn: (_file, args, opts) => {
@@ -84,14 +94,17 @@ function harness(over: Partial<LoginServiceDeps> = {}): Harness {
       children.push(child);
       return child;
     },
-    runStatus: async (_file, args) => ({ stdout: args[0] === 'auth' ? status.auth : status.design }),
+    runStatus: async (_file, args) => {
+      reads.push(args[0]);
+      return { stdout: args[0] === 'auth' ? status.auth : status.design };
+    },
     ...over,
   });
   service.deliver = async (sessionId, text) => {
     delivered.push({ sessionId, text });
     return { outcome: 'sent', uuid: `u-${sessionId}` };
   };
-  return { service, children, published, status, delivered, toSession, ended, limitWaiting };
+  return { service, children, published, status, delivered, toSession, ended, limitWaiting, settings, reads, republished };
 }
 
 const loginOf = (h: Harness, dir = 1) => h.service.snapshot(dir);
@@ -218,12 +231,86 @@ describe('running a login', () => {
     expect(loginOf(h).runs.claude).toMatchObject({ state: 'failed', message: TIMED_OUT_MESSAGE });
   });
 
+  it('a cancelled login that logged the profile in after all succeeded, and the sessions waiting on it continue', async () => {
+    const h = harness();
+    h.service.turnEnded('s1', 1, { loginLost: true, designLoginLost: false });
+    h.service.start(1, 'claude', LOCAL);
+    // The browser finished just as Cancel was pressed: the credentials are written.
+    h.status.auth = '{"loggedIn":true,"email":"new@example.com"}';
+    h.service.cancel(1, 'claude');
+    await vi.waitFor(() => expect(loginOf(h).runs.claude).toMatchObject({ state: 'succeeded', message: null, account: 'new@example.com' }));
+    await vi.waitFor(() => expect(h.delivered.map((d) => d.sessionId)).toEqual(['s1']));
+  });
+
+  it('a cancelled login stays cancelled when the profile was logged in as the same account before it', async () => {
+    const h = harness();
+    h.status.auth = '{"loggedIn":true,"email":"old@example.com"}';
+    await h.service.state(1);
+    h.service.start(1, 'claude', LOCAL);
+    h.service.cancel(1, 'claude');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(loginOf(h).runs.claude).toMatchObject({ state: 'failed', message: CANCELLED_MESSAGE });
+  });
+
+  it('kills a cancelled design-login still within its grace on dispose, and before a new one starts', () => {
+    vi.useFakeTimers();
+    const h = harness();
+    h.service.start(1, 'design', LOCAL);
+    h.service.cancel(1, 'design');
+    h.service.start(1, 'design', LOCAL);
+    expect(h.children[0].killed).toBe(true);
+    expect(h.children).toHaveLength(2);
+
+    h.service.cancel(1, 'design');
+    expect(h.children[1].killed).toBe(false);
+    h.service.dispose();
+    expect(h.children[1].killed).toBe(true);
+  });
+
+  it('continues nothing when the server stopped while the status was read', async () => {
+    let answer: (v: { stdout: string }) => void = () => {};
+    const h = harness({ runStatus: () => new Promise((resolve) => (answer = resolve)) });
+    h.service.turnEnded('s1', 1, { loginLost: true, designLoginLost: false });
+    h.service.start(1, 'claude', LOCAL);
+    h.children[0].exit(0);
+    h.service.dispose();
+    answer({ stdout: '{"loggedIn":true,"email":"new@example.com"}' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.delivered).toEqual([]);
+    expect(loginOf(h).runs.claude?.state).toBe('running');
+  });
+
   it('kills every running login on dispose', () => {
     const h = harness();
     h.service.start(1, 'claude', LOCAL);
     h.service.start(2, 'design', LOCAL);
     h.service.dispose();
     expect(h.children.every((c) => c.killed)).toBe(true);
+  });
+
+  it('reads the status for GET once per STATUS_FRESH_MS, not on every call', async () => {
+    let now = 1_000_000;
+    const h = harness({ now: () => now });
+    await h.service.state(1);
+    expect(h.reads).toEqual(['auth', 'design-login']);
+    now += STATUS_FRESH_MS - 1;
+    await h.service.state(1);
+    expect(h.reads).toHaveLength(2);
+    now += 1;
+    await h.service.state(1);
+    await vi.waitFor(() => expect(h.reads).toHaveLength(4));
+  });
+
+  it('publishes a status read only when its answer changed', async () => {
+    const h = harness();
+    await h.service.readStatus(1);
+    const after = h.published.length;
+    await h.service.readStatus(1);
+    expect(h.published).toHaveLength(after);
+    h.status.auth = '{"loggedIn":true,"email":"new@example.com"}';
+    await h.service.readStatus(1);
+    expect(h.published).toHaveLength(after + 1);
+    expect(h.published.at(-1)?.account).toMatchObject({ loggedIn: true, email: 'new@example.com' });
   });
 
   it('reads a status that answers nothing it knows as unknown, not as logged out', async () => {
@@ -268,7 +355,8 @@ describe('continuing after a login', () => {
     h.status.auth = '{"loggedIn":true,"email":"new@example.com"}';
     h.children[0].exit(0);
     await vi.waitFor(() => expect(h.delivered).toEqual([{ sessionId: 's1', text: 'Continue where you left off.' }]));
-    const [notice, turn] = h.toSession.map((m) => m.payload.message);
+    // The turn first: the notice says "continued" only of a turn that started.
+    const [turn, notice] = h.toSession.map((m) => m.payload.message);
     expect(notice.notice).toEqual({
       level: 'info', kind: 'login_restored',
       login: { kind: 'claude', email: 'new@example.com', previousEmail: 'old@example.com', continued: true },
@@ -291,6 +379,39 @@ describe('continuing after a login', () => {
     await succeed(h, 1);
     await vi.waitFor(() => expect(h.delivered.map((d) => d.sessionId)).toEqual(['kept']));
     expect(h.service.waitFor('other')).toMatchObject({ claudeDirId: 2 });
+  });
+
+  it('with "Continue automatically" off, says so in the transcript, sends nothing and takes the session off the list', async () => {
+    const h = harness();
+    h.settings.autoContinue = false;
+    h.service.turnEnded('s1', 1, lost);
+    await succeed(h);
+    await vi.waitFor(() => expect(h.toSession).toHaveLength(1));
+    const notice = h.toSession[0].payload.message;
+    expect(notice.notice.login).toMatchObject({ continued: false });
+    expect(notice.text).not.toContain('continued');
+    expect(h.delivered).toEqual([]);
+    expect(h.service.waitFor('s1')).toBeNull();
+  });
+
+  it('a delivery that started no turn says the login was restored, not continued', async () => {
+    const h = harness();
+    h.service.deliver = async () => ({ outcome: 'terminal', uuid: null });
+    h.service.turnEnded('s1', 1, lost);
+    await succeed(h);
+    await vi.waitFor(() => expect(h.toSession).toHaveLength(1));
+    expect(h.toSession[0].payload.message.notice.login).toMatchObject({ continued: false });
+  });
+
+  it('a removed profile takes its sessions off the lists and republishes them', () => {
+    const h = harness();
+    h.service.turnEnded('s1', 1, lost);
+    h.service.turnEnded('s2', 2, lost);
+    h.republished.length = 0;
+    h.service.forgetDir(1);
+    expect(h.service.waitFor('s1')).toBeNull();
+    expect(h.service.waitFor('s2')).toMatchObject({ claudeDirId: 2 });
+    expect(h.republished).toEqual(['s1']);
   });
 
   it('a later turn that did not end on a lost login takes the session off the list', () => {

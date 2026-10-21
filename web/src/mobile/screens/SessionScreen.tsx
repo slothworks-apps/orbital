@@ -27,7 +27,7 @@ import { isReadOnly, tagColor, type BackgroundTask, type ChatMessage, type Subag
 import { getSocket } from '../../lib/socket'
 import { ReplyMediaSession } from '../../panels/ReplyMedia'
 import { PhoneToolRowContext } from '../../panels/ToolRow'
-import { LoginNoticeContext, type LoginNoticeSurface } from '../../panels/LoginNotice'
+import { LoginNoticeContext } from '../../panels/LoginNotice'
 import { TranscriptView } from '../../panels/TranscriptView'
 import { useMedia } from '../../store/media'
 import { useOrbital, type SessionEvent } from '../../store/store'
@@ -51,7 +51,7 @@ import { useSessionAsleep, useSessionReady } from '../useDevice'
 import { clientRef } from '../transport/clientRef'
 import { MobileScreen } from '../ui'
 import { WhereLine } from '../where/WhereLine'
-import { sessionSupports } from '../version'
+import { phoneLoginSurface } from '../session/loginSurface'
 import { SessionComposer } from './SessionComposer'
 import { primaryTag } from '../sessionList'
 
@@ -81,13 +81,10 @@ function SessionView({ id }: { id: string }) {
   const openSubagent = useMobile((s) => s.openSubagent)
   const openTask = useMobile((s) => s.openTask)
   const [exhausted, setExhausted] = useState(false)
-  // The lost-login notice on the phone (canvas 62e, 62h): the code flow never
-  // folded, and nothing asked of a Mac older than the routes.
+  // The lost-login notice on the phone (`phoneLoginSurface`); its code field
+  // hides the composer while it has the keyboard.
   const [codeFocused, setCodeFocused] = useState(false)
-  const loginSurface = useMemo<LoginNoticeSurface>(
-    () => ({ phone: true, serves: (sessionId) => sessionSupports('profileLogin', sessionId), onCodeFocus: setCodeFocused }),
-    [],
-  )
+  const loginSurface = useMemo(() => phoneLoginSurface(setCodeFocused), [])
 
   // Open: from the cache while the Mac is away, over the tunnel when it is
   // not (spec § 4). Seated as loaded, so the reconnect's resync replaces it

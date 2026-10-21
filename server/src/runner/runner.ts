@@ -20,7 +20,7 @@ import type { PermissionWait } from '../stats/compute.js';
 import { TASK_LAUNCHING_TOOLS, withoutIntentMarker, type LaunchingCall } from '../transcript/backgroundTasks.js';
 import { imageRefOf, splitUserText, toolResultParts } from '../transcript/parser.js';
 import {
-  AUTHENTICATION_FAILED, designLoginLine, isDesignSyncTool, loginLostNotice, lostLoginText, noticeFromSdkMessage,
+  AUTHENTICATION_FAILED, designLoginLine, isDesignSyncTool, loginLostNotice, noticeFromSdkMessage, textOfContent,
 } from '../transcript/notices.js';
 import { readRateLimitInfo, type RejectedLimit } from '../limits/logic.js';
 import {
@@ -1827,7 +1827,7 @@ export class Runner {
         const claudeDirId = this.claudeDirOf(sessionId) ?? null;
         const email = claudeDirId === null ? null : (this.accountEmailOf?.(claudeDirId) ?? null);
         const row = loginLostNotice(
-          `${sessionId}:${++this.seq}:0`, lostLoginText(msg.message?.content), { kind: 'claude', claudeDirId, email },
+          `${sessionId}:${++this.seq}:0`, textOfContent(msg.message?.content), { kind: 'claude', claudeDirId, email },
           typeof msg.timestamp === 'string' ? msg.timestamp : new Date().toISOString(),
         );
         this.hub.publish(topic, { event: 'message', message: { ...row, ...(typeof msg.uuid === 'string' ? { uuid: msg.uuid } : {}) } });

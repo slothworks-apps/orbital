@@ -81,3 +81,21 @@ export function sessionSupports(feature: MacFeature, sessionId: string | null, o
   const owner = sessionId !== null ? ownerOf(sessionId) : null
   return owner !== null ? deviceSupports(feature, owner) : defaultSupports(feature)
 }
+
+/**
+ * `sessionSupports`, but null while the version that decides is not known
+ * yet — no hello from the session's device, or from the default member: a
+ * surface that would say "that Mac needs an update" says neither yes nor no
+ * until then.
+ */
+export function sessionServes(
+  feature: MacFeature,
+  sessionId: string | null,
+  ownerOf: OwnerOf = currentOwner,
+  devices: readonly DeviceView[] = useMobile.getState().devices,
+  macVersion: string | null = useMobile.getState().macVersion,
+): boolean | null {
+  const owner = sessionId !== null ? ownerOf(sessionId) : null
+  const version = owner !== null ? (devices.find((d) => d.id === owner)?.version ?? null) : macVersion
+  return version === null ? null : macSupports(feature, version)
+}

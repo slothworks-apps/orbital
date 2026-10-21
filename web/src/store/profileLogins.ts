@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
+import { PROFILE_LOGINS_TOPIC } from '@orbital/shared/profileLogins'
 import { api, ApiError, errorSentence, type ProfileLoginRefusal } from '../lib/api'
 import { recordError } from '../lib/errors'
 import { getSocket } from '../lib/socket'
@@ -16,17 +17,12 @@ import { useOrbital } from './store'
  * are a device's own, and two Macs both have a profile 1. `machine` is
  * undefined for this device's own.
  *
- * Read when a surface that shows it mounts, and then followed on the
- * `claude-dir-logins` topic. The topic is this server's own: an event for
- * one of its profiles lands as it is; an event naming the id of a watched
- * profile on another device — the phone's topic comes from its default
- * member — reads that profile again rather than taking a frame that does
- * not say whose it is. A member's profile is also read again whenever a
- * session waiting on it changes (`useProfileLogin`), which is how its end
- * arrives on a device whose topic does not carry it.
+ * Read when a surface that shows it mounts, again on every reconnect, and
+ * followed on `PROFILE_LOGINS_TOPIC` in between (`loginEventPlan`). A
+ * member's profile is also read again whenever a session waiting on it
+ * changes (`useProfileLogin`), which is how its end arrives on a device
+ * whose topic does not carry it.
  */
-
-export const LOGINS_TOPIC = 'claude-dir-logins'
 
 /** The store's key for a profile: its device and its id there. */
 export function profileKey(claudeDirId: number, machine?: string | null): string {
@@ -88,11 +84,19 @@ function land(key: string, answer: ProfileLogin | { error: ProfileLoginRefusal }
   return answer
 }
 
-/** A route the Mac does not have: an older Mac's 404, or its allowlist's `not_allowed` for a route it does not list. */
-function olderMac(err: unknown): boolean {
-  if (!(err instanceof ApiError)) return false
-  if (err.status === 404) return true
-  return err.status === 403 && errorSentence(err, '') === 'not_allowed'
+/**
+ * Why another Mac refused a profile route, from the error it threw: this
+ * device lacks the `manage` grant (`not_granted`), or the Mac is older than
+ * the route — its 404, or its allowlist's `not_allowed` for a route it does
+ * not list. Null for any other failure. The login routes and Settings →
+ * Profiles' list read a refusal the same way.
+ */
+export function refusalOf(err: unknown): 'no_grant' | 'older_mac' | null {
+  if (!(err instanceof ApiError)) return null
+  if (err.status === 404) return 'older_mac'
+  if (err.status !== 403) return null
+  const reason = errorSentence(err, '')
+  return reason === 'not_granted' ? 'no_grant' : reason === 'not_allowed' ? 'older_mac' : null
 }
 
 /** A refused action, as one plain sentence where it was asked. */
@@ -118,7 +122,8 @@ export async function readProfileLogin(claudeDirId: number, machine?: string): P
   try {
     land(key, await api.profileLogin(claudeDirId, machine))
   } catch (err) {
-    if (olderMac(err)) patch(key, { refused: 'older_mac' })
+    const refused = refusalOf(err)
+    if (refused) patch(key, { refused })
     else recordError(err, 'Could not read the profile’s login')
   }
 }
@@ -178,7 +183,8 @@ async function act(
   try {
     return land(key, await call())
   } catch (err) {
-    if (olderMac(err)) patch(key, { refused: 'older_mac' })
+    const refused = refusalOf(err)
+    if (refused) patch(key, { refused })
     else {
       recordError(err, failure)
       patch(key, { error: errorSentence(err, failure) })
@@ -196,12 +202,42 @@ async function act(
  * code page on another device (`opensInBrowser`).
  */
 export async function startLogin(claudeDirId: number, kind: LoginKind, machine?: string): Promise<void> {
+  const key = profileKey(claudeDirId, machine)
+  const before = useProfileLogins.getState().entries[key]?.login?.runs[kind] ?? null
+  const sentAt = Date.now()
   const login = await act(claudeDirId, kind, machine, () => api.startProfileLogin(claudeDirId, kind, machine), 'Could not start the login')
   const run = login?.runs[kind]
-  if (!run || run.state !== 'running') return
-  rememberStarted(profileKey(claudeDirId, machine), run)
+  if (!run || !startedByThisRequest(run, before, sentAt)) return
+  rememberStarted(key, run)
   const open = opensInBrowser(run)
   if (open) openSignInPage(open)
+}
+
+/**
+ * How far the Mac's clock may run behind this device's and a run it just
+ * started still count as started by the request. Generous: a clock off by
+ * more would cost the device that pressed Log in its own code field, while
+ * a run started elsewhere just before is almost always in the store already
+ * (the topic told it).
+ */
+const START_SKEW_MS = 60_000
+
+/**
+ * Whether the run Log in answered with is the one that request started, not
+ * one already running that it only reports (spec § 1): the device that
+ * started that one keeps its code field, and nothing opens here. A run this
+ * window already knew as running is not new; one that began before the
+ * request was sent, give or take `START_SKEW_MS`, is not either.
+ */
+export function startedByThisRequest(
+  run: Pick<LoginRun, 'state' | 'startedAt'>,
+  before: Pick<LoginRun, 'state' | 'startedAt'> | null,
+  sentAt: number,
+): boolean {
+  if (run.state !== 'running') return false
+  if (before?.state === 'running' && before.startedAt === run.startedAt) return false
+  const started = Date.parse(run.startedAt)
+  return Number.isFinite(started) && started >= sentAt - START_SKEW_MS
 }
 
 /** The page a just-started login opens by itself, or null when the CLI opens it (a Claude login on this Mac) or nothing should. */
@@ -225,17 +261,51 @@ export async function cancelLogin(claudeDirId: number, kind: LoginKind, machine?
 
 // ---- The topic -------------------------------------------------------------
 
-let watchers = 0
-let unwatch: (() => void) | null = null
+/** A frame on `PROFILE_LOGINS_TOPIC`. `machine` is the member the phone's federation heard it from; the desktop's own server sends none. */
+export interface LoginEvent {
+  event?: string
+  login?: ProfileLogin
+  machine?: string
+}
 
-function onLoginEvent(msg: { event?: string; login?: ProfileLogin }): void {
+/** What one topic event does to the store: the entry it lands in, and the profiles to read again. */
+export interface LoginEventPlan {
+  patch: { key: string; login: ProfileLogin } | null
+  reread: { claudeDirId: number; machine: string }[]
+}
+
+const NOTHING: LoginEventPlan = { patch: null, reread: [] }
+
+/**
+ * The event is the profile of the device that published it: this server's
+ * own on the desktop, and on the phone the member its federation names
+ * (`machine`) — so it lands in that profile's entry as it is, never by a
+ * read that would ask the Mac to publish it again. An event that says what
+ * the entry already holds changes nothing.
+ *
+ * A watched profile of the same id on another device hears nothing of its
+ * own on this topic (the phone follows only its default member; the
+ * desktop, only its server): a change here reads those again.
+ */
+export function loginEventPlan(entries: Readonly<Record<string, ProfileLoginEntry>>, msg: LoginEvent): LoginEventPlan {
   const login = msg.login
-  if (msg.event !== 'login' || !login || typeof login.claudeDirId !== 'number') return
-  patch(profileKey(login.claudeDirId), { login, refused: null })
-  for (const key of Object.keys(useProfileLogins.getState().entries)) {
-    const [machine, id] = key.split('#')
-    if (machine && Number(id) === login.claudeDirId) void readProfileLogin(login.claudeDirId, machine)
+  if (msg.event !== 'login' || !login || typeof login.claudeDirId !== 'number') return NOTHING
+  const key = profileKey(login.claudeDirId, msg.machine)
+  const held = entries[key]?.login
+  if (held && JSON.stringify(held) === JSON.stringify(login) && entries[key]?.refused === null) return NOTHING
+  const reread: LoginEventPlan['reread'] = []
+  for (const other of Object.keys(entries)) {
+    if (other === key) continue
+    const [machine, id] = other.split('#')
+    if (machine && Number(id) === login.claudeDirId) reread.push({ claudeDirId: login.claudeDirId, machine })
   }
+  return { patch: { key, login }, reread }
+}
+
+function onLoginEvent(msg: LoginEvent): void {
+  const plan = loginEventPlan(useProfileLogins.getState().entries, msg)
+  if (plan.patch) patch(plan.patch.key, { login: plan.patch.login, refused: null })
+  for (const { claudeDirId, machine } of plan.reread) void readProfileLogin(claudeDirId, machine)
 }
 
 /** A run of either kind went from running to succeeded between two answers. */
@@ -245,25 +315,51 @@ export function succeededNow(before: ProfileLogin | null, after: ProfileLogin): 
   )
 }
 
-/** Holds the topic while anything shows a profile's login. */
-function watchTopic(): () => void {
-  watchers += 1
-  if (!unwatch) unwatch = getSocket().subscribe(LOGINS_TOPIC, onLoginEvent)
+// ---- Reconnect -------------------------------------------------------------
+
+/** Every profile a surface shows, with how many show it. */
+const watched = new Map<string, { claudeDirId: number; machine: string | undefined; count: number }>()
+let followingStatus = false
+
+/**
+ * A login can end while the socket is down — a drop, the server restarting
+ * — and its event is gone with the connection: every watched profile is
+ * read again when the socket opens after having been open. Registered once,
+ * for the page's lifetime, as `App.tsx` registers its own.
+ */
+function followReconnects(): void {
+  if (followingStatus) return
+  followingStatus = true
+  let wasOpen = false
+  let open = false
+  getSocket().onStatusChange((status) => {
+    const reopened = status === 'open' && !open && wasOpen
+    open = status === 'open'
+    if (open) wasOpen = true
+    if (reopened) for (const { claudeDirId, machine } of watched.values()) void readProfileLogin(claudeDirId, machine)
+  })
+}
+
+function watch(claudeDirId: number, machine: string | undefined): () => void {
+  const key = profileKey(claudeDirId, machine)
+  const held = watched.get(key)
+  if (held) held.count += 1
+  else watched.set(key, { claudeDirId, machine, count: 1 })
+  followReconnects()
   return () => {
-    watchers -= 1
-    if (watchers === 0 && unwatch) {
-      unwatch()
-      unwatch = null
-    }
+    const now = watched.get(key)
+    if (!now) return
+    now.count -= 1
+    if (now.count === 0) watched.delete(key)
   }
 }
 
 /**
  * A profile's logins for a surface that shows them: read on mount and when
  * `rereadKey` changes (a session's `loginWait`, which moves on every start
- * and end of the login it waits on), then followed on the topic. `enabled`
- * false reads nothing — a Mac too old for the routes, a notice that is not
- * the live one.
+ * and end of the login it waits on), then followed on the topic and read
+ * again on a reconnect. `enabled` false reads nothing — a Mac too old for
+ * the routes, a notice that is not the live one.
  */
 export function useProfileLogin(
   claudeDirId: number | null | undefined,
@@ -274,9 +370,15 @@ export function useProfileLogin(
   const entry = useProfileLogins((s) => (key ? s.entries[key] : undefined))
   const on = enabled && claudeDirId != null
   useEffect(() => {
-    if (!on) return
-    return watchTopic()
-  }, [on])
+    if (!on || claudeDirId == null) return
+    // The socket refcounts the topic: the last surface to go unsubscribes it.
+    const unsubscribe = getSocket().subscribe(PROFILE_LOGINS_TOPIC, onLoginEvent)
+    const unwatch = watch(claudeDirId, machine)
+    return () => {
+      unwatch()
+      unsubscribe()
+    }
+  }, [on, claudeDirId, machine])
   useEffect(() => {
     if (!on || claudeDirId == null) return
     void readProfileLogin(claudeDirId, machine)

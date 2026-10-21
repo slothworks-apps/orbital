@@ -1,7 +1,7 @@
 import type { ChatMessage, ImageRefEntry } from '../types.js';
 import type { ImageWriter } from '../images/store.js';
 import {
-  AUTHENTICATION_FAILED, designLoginLine, isDesignSyncTool, loginLostNotice, lostLoginText, messageFromLocalCommandEntry,
+  AUTHENTICATION_FAILED, designLoginLine, isDesignSyncTool, loginLostNotice, messageFromLocalCommandEntry, textOfContent,
 } from './notices.js';
 import { compactSummaryText, markFromTranscriptBoundary } from './compaction.js';
 import { parseWalkthroughTag, walkthroughChipName, WALKTHROUGH_TAG } from '../walkthrough/tag.js';
@@ -382,7 +382,7 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
     // knows no profile; the web uses the session's.
     if (e.type === 'assistant' && e.error === AUTHENTICATION_FAILED) {
       out.push({
-        ...loginLostNotice(`${e.uuid}:0`, lostLoginText(e.message.content), { kind: 'claude', claudeDirId: null, email: null }, e.timestamp),
+        ...loginLostNotice(`${e.uuid}:0`, textOfContent(e.message.content), { kind: 'claude', claudeDirId: null, email: null }, e.timestamp),
         ...origin,
       });
       continue;

@@ -68,6 +68,7 @@ import type { McpConfig } from '../mcp/config.js';
 import { registerRemoteRoutes } from './remoteRoutes.js';
 import { memberRefusal } from '../remote/grants.js';
 import { DEVICE_HEADER } from '../remote/inject.js';
+import type { DeliveryOutcome } from './delivery.js';
 import type { Presence } from '../remote/presence.js';
 import type { RemoteService } from '../remote/service.js';
 import { buildWalkthrough } from '../walkthrough/spine.js';
@@ -201,6 +202,11 @@ export interface RouteContext {
    * login routes are not registered.
    */
   logins?: LoginService;
+  /**
+   * The key a session's orbital MCP tools carry into these routes
+   * (`CONTROL_HEADER`). Absent, no request counts as a session's.
+   */
+  controlKey?: string;
   /**
    * Where each session works now (spec 2026-10-07-live-working-tree-design).
    * Absent, every session works in its home, and a file request's `cwd` is
@@ -1528,7 +1534,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   /** What a delivery did, and the uuid the turn's entry is written under when it started one. */
   interface Delivery {
-    outcome: 'sent' | 'revived' | 'not_found' | 'terminal';
+    outcome: DeliveryOutcome;
     uuid: string | null;
     /** The turn was the send of a pending rewind (spec 2026-09-29-rewind-design § Runner). */
     rewind?: true;
@@ -2649,7 +2655,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // A login that came back continues the sessions waiting on it the way
     // the composer's text goes in: sent if the Runner holds it, revived if not.
     ctx.logins.deliver = (id, text) => deliverToSession(id, text);
-    registerLoginRoutes(app, ctx.logins, ctx.remote);
+    registerLoginRoutes(app, ctx.logins, ctx.remote, ctx.controlKey);
   }
 
   const NOTIFICATION_ROW_KEYS: ReadonlySet<string> = new Set(Object.values(NOTIFICATION_SETTING_KEYS));

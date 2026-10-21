@@ -7,9 +7,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { statSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { randomBytes } from 'node:crypto';
 import { and, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { DataDirNotOwned, ensureDataDir } from '@orbital/shared/dataDir';
 import { LIMITS_TOPIC } from '@orbital/shared/limits';
+import { PROFILE_LOGINS_TOPIC } from '@orbital/shared/profileLogins';
 import { CONFIG } from './config.js';
 import { applyLoginShellPath } from './env/loginPath.js';
 import { isExecutableFile } from './env/shell.js';
@@ -63,8 +65,8 @@ import { Narrator, type NarrateQueryFn } from './walkthrough/narrator.js';
 import { composeAppendix } from './runner/sessionInstructions.js';
 import { ModelCatalog, catalogKeyFor, recordContextWindows } from './models/catalog.js';
 import { LimitsService } from './limits/service.js';
-import { CONTINUE_TEXT_KEY, continueTextOf } from './limits/logic.js';
-import { CLAUDE_DIR_LOGINS_TOPIC, LoginService } from './login/service.js';
+import { AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY, autoContinueOf, continueTextOf } from './limits/logic.js';
+import { LoginService } from './login/service.js';
 import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
 import { Presence } from './remote/presence.js';
@@ -290,6 +292,9 @@ export async function buildServer(overrides: {
   if (apiToken === undefined && !process.env.VITEST) {
     throw new Error('buildServer needs an apiToken outside the test suite');
   }
+  // What marks a session's own request into these routes (`CONTROL_HEADER`):
+  // made here, kept in memory, never written or sent.
+  const controlKey = randomBytes(32).toString('base64url');
   // Web sessions must bill the user's Claude subscription (CLI OAuth). The
   // spawned CLI prefers ANTHROPIC_API_KEY over OAuth when present, so strip
   // it unless the operator explicitly opts into API-key billing.
@@ -743,7 +748,7 @@ export async function buildServer(overrides: {
     dirPath: (claudeDirId) => claudeDirs.get(claudeDirId)?.path,
     dirName: (claudeDirId) => claudeDirs.get(claudeDirId)?.name,
     accountEmail: (claudeDirId) => claudeDirs.accountOf(claudeDirId)?.email ?? null,
-    publish: (login) => hub.publish(CLAUDE_DIR_LOGINS_TOPIC, { event: 'login', login }),
+    publish: (login) => hub.publish(PROFILE_LOGINS_TOPIC, { event: 'login', login }),
     publishToSession: (sessionId, payload) => hub.publish(`session:${sessionId}`, payload),
     republish: (sessionId) => republish(sessionId),
     sessions: {
@@ -757,6 +762,8 @@ export async function buildServer(overrides: {
     },
     // The limits' "Message sent on continue": one setting for both.
     continueText: () => continueTextOf(settingsStore.get(CONTINUE_TEXT_KEY)),
+    // And its "Continue automatically after a limit reset": one switch for both.
+    autoContinue: () => autoContinueOf(settingsStore.get(AUTO_CONTINUE_KEY)),
     onError: (err, during, sessionId) =>
       errors.record({
         source: 'server',
@@ -1593,6 +1600,7 @@ export async function buildServer(overrides: {
     mcpFor,
     limits,
     logins,
+    controlKey,
     devTools: overrides.devTools ?? process.env.ORBITAL_DEV_TOOLS === '1',
     rewindStopTimeoutMs: overrides.rewindStopTimeoutMs,
     retention: {
@@ -1612,7 +1620,7 @@ export async function buildServer(overrides: {
   // request, with the token, but not through the phone's allowlist — the
   // operation catalog is its list.
   runner.control = async (req) => {
-    const res = await app.inject(remoteInjectOptions(req, apiToken));
+    const res = await app.inject(remoteInjectOptions({ ...req, control: controlKey }, apiToken));
     return { statusCode: res.statusCode, body: res.body };
   };
   remote.start();

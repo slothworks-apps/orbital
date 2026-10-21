@@ -189,7 +189,7 @@ export const CONTROL_OPERATIONS: readonly ControlOperation[] = [
   { name: 'get_claude_dir_login', area: 'claude_dirs', method: 'GET', path: '/api/claude-dirs/:id/login',
     does: 'A profile\'s account (logged in, e-mail, org, plan), its Claude Design sign-in and any login running for it.', params: ['id: number'] },
   { name: 'start_claude_dir_login', area: 'claude_dirs', method: 'POST', path: '/api/claude-dirs/:id/login',
-    does: 'Starts logging a profile in (claude) or signing it in to Claude Design (design), or answers the login already running. Hand the user its manualUrl: the page shows a code to paste back.',
+    does: 'Starts logging a profile in (claude) or signing it in to Claude Design (design), or answers the login already running. No browser opens: hand the user its manualUrl (get_claude_dir_login answers it once the CLI printed it), whose page shows a code they paste back into Orbital or give you for enter_claude_dir_login_code.',
     params: ['id: number', 'kind: claude | design'] },
   { name: 'enter_claude_dir_login_code', area: 'claude_dirs', method: 'POST', path: '/api/claude-dirs/:id/login/code',
     does: 'Hands the code the sign-in page showed to the running login.', params: ['id: number', 'kind: claude | design', 'code: string'] },

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   clipboardReader,
+  loginAccess,
   loginNoticePlaces,
   loginNoticeView,
   loginRestoredLabel,
@@ -10,9 +11,16 @@ import {
 } from '../lib/profileLogin'
 import { sessionStateKey, shownStatus, type ApiSession, type ChatMessage, type LoginRun, type ProfileLogin } from '../lib/types'
 import { accountRow } from '../panels/ProfileLoginRow'
-import { opensInBrowser, succeededNow } from '../store/profileLogins'
+import {
+  loginEventPlan,
+  opensInBrowser,
+  profileKey,
+  startedByThisRequest,
+  succeededNow,
+  type ProfileLoginEntry,
+} from '../store/profileLogins'
 import { useMobile } from '../mobile/state'
-import { MAC_FEATURES, sessionSupports } from '../mobile/version'
+import { MAC_FEATURES, sessionServes, sessionSupports } from '../mobile/version'
 
 // Log in from Orbital (spec 2026-10-21-log-in-from-orbital-design): which
 // state a lost-login notice draws, and the words its session wears.
@@ -220,6 +228,20 @@ describe('starting a login', () => {
     expect(opensInBrowser(run())).toBeNull()
   })
 
+  it('remembers a run as started here only when this request started it', () => {
+    const sentAt = Date.parse('2026-10-21T10:05:00.000Z')
+    // Started by the request: begun after it was sent, or a little before on a Mac whose clock runs behind.
+    expect(startedByThisRequest(run({ startedAt: '2026-10-21T10:05:01.000Z' }), null, sentAt)).toBe(true)
+    expect(startedByThisRequest(run({ startedAt: '2026-10-21T10:04:59.000Z' }), null, sentAt)).toBe(true)
+    // Already running when the request went: another device's, which keeps its code field.
+    const elsewhere = run({ startedAt: '2026-10-21T10:05:01.000Z', startedBy: { deviceId: 'pixel', name: 'Pixel 8' } })
+    expect(startedByThisRequest(elsewhere, elsewhere, sentAt)).toBe(false)
+    expect(startedByThisRequest(run({ startedAt: '2026-10-21T09:00:00.000Z' }), null, sentAt)).toBe(false)
+    // A run that ended before is no reason to doubt a new one; an answer that is not running starts nothing.
+    expect(startedByThisRequest(run({ startedAt: '2026-10-21T10:05:01.000Z' }), run({ state: 'failed' }), sentAt)).toBe(true)
+    expect(startedByThisRequest(run({ state: 'succeeded', startedAt: '2026-10-21T10:05:01.000Z' }), null, sentAt)).toBe(false)
+  })
+
   it('sees a success once, on the answer that first carries it', () => {
     const before = profile({ run: run() })
     const after = profile({ run: run({ state: 'succeeded', account: 'jan@acme.com' }) })
@@ -254,5 +276,64 @@ describe('the phone against an older Mac', () => {
     })
     expect(sessionSupports('profileLogin', 's-old', () => 'old')).toBe(false)
     expect(sessionSupports('profileLogin', 's-new', () => 'new')).toBe(true)
+  })
+})
+
+describe('an event on the logins topic', () => {
+  const entry = (login: ProfileLogin | null): ProfileLoginEntry => ({ login, refused: null, error: null, busy: {} })
+
+  it('lands in the profile of the member that sent it, without reading it again', () => {
+    const entries = { [profileKey(2, 'studio')]: entry(profile()) }
+    const event = { event: 'login', login: profile({ run: run() }), machine: 'studio' }
+    expect(loginEventPlan(entries, event)).toEqual({ patch: { key: 'studio#2', login: event.login }, reread: [] })
+  })
+
+  it('lands in this server’s own profile when no member is named', () => {
+    const event = { event: 'login', login: profile({ run: run() }) }
+    expect(loginEventPlan({}, event).patch?.key).toBe(profileKey(2))
+  })
+
+  it('changes nothing when it says what the entry already holds', () => {
+    const held = profile({ run: run() })
+    const entries = { [profileKey(2, 'studio')]: entry(held), [profileKey(2, 'laptop')]: entry(null) }
+    const plan = loginEventPlan(entries, { event: 'login', login: structuredClone(held), machine: 'studio' })
+    expect(plan).toEqual({ patch: null, reread: [] })
+  })
+
+  it('reads again a same-id profile on a device whose events never arrive here', () => {
+    const entries = {
+      [profileKey(2, 'studio')]: entry(profile()),
+      [profileKey(2, 'laptop')]: entry(profile()),
+      [profileKey(3, 'laptop')]: entry(profile()),
+    }
+    const plan = loginEventPlan(entries, { event: 'login', login: profile({ run: run() }), machine: 'studio' })
+    expect(plan.reread).toEqual([{ claudeDirId: 2, machine: 'laptop' }])
+  })
+
+  it('ignores a frame that is not a login', () => {
+    expect(loginEventPlan({}, { event: 'other', login: profile() })).toEqual({ patch: null, reread: [] })
+    expect(loginEventPlan({}, { event: 'login' })).toEqual({ patch: null, reread: [] })
+  })
+})
+
+describe('a Mac whose version is not known yet', () => {
+  it('draws the notice neither as loggable nor as too old', () => {
+    expect(loginAccess(null, null)).toBe('unknown')
+    expect(loginAccess(true, null)).toBe('ok')
+    expect(loginAccess(false, null)).toBe('older_mac')
+    // What the Mac itself said outranks a version not known.
+    expect(loginAccess(null, 'older_mac')).toBe('older_mac')
+    expect(loginAccess(null, 'no_grant')).toBe('no_grant')
+    // A login running is not drawn as running until the access is known.
+    const view = loginNoticeView(input({ access: 'unknown', profile: profile({ run: run() }) }))
+    expect(view).toMatchObject({ kind: 'lost', access: 'unknown' })
+  })
+
+  it('is not known before the device that decides has said hello', () => {
+    const devices = [{ id: 'old', version: '0.38.2' }, { id: 'quiet', version: null }] as never
+    expect(sessionServes('profileLogin', 's', () => 'quiet', devices, MAC_FEATURES.profileLogin)).toBeNull()
+    expect(sessionServes('profileLogin', 's', () => 'old', devices, null)).toBe(false)
+    expect(sessionServes('profileLogin', 's', () => null, devices, null)).toBeNull()
+    expect(sessionServes('profileLogin', null, () => null, devices, MAC_FEATURES.profileLogin)).toBe(true)
   })
 })

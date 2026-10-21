@@ -17,10 +17,10 @@ import type { LoginKind } from '../types.js';
 /** Which login: the profile's own (`auth login`) or its Claude Design sign-in (`design-login`). */
 export type { LoginKind };
 
-export const LOGIN_KINDS: readonly LoginKind[] = ['claude', 'design'];
+const LOGIN_KINDS: readonly LoginKind[] = ['claude', 'design'];
 
 export function isLoginKind(value: unknown): value is LoginKind {
-  return value === 'claude' || value === 'design';
+  return (LOGIN_KINDS as readonly unknown[]).includes(value);
 }
 
 /**

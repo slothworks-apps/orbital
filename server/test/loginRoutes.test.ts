@@ -2,12 +2,13 @@ import { describe, it, expect, afterEach } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { join } from 'node:path';
 import { buildServer } from '../src/index.js';
-import { registerLoginRoutes } from '../src/api/logins.js';
+import { SESSION_STARTER_NAME, registerLoginRoutes } from '../src/api/logins.js';
 import { Hub } from '../src/api/hub.js';
 import { createImageStore } from '../src/images/store.js';
-import { CLAUDE_DIR_LOGINS_TOPIC, LoginService, type LoginChild } from '../src/login/service.js';
+import { PROFILE_LOGINS_TOPIC } from '@orbital/shared/profileLogins';
+import { LoginService, type LoginChild } from '../src/login/service.js';
 import { SILENT_BROWSER } from '../src/login/parse.js';
-import { DEVICE_HEADER } from '../src/remote/inject.js';
+import { CONTROL_HEADER, DEVICE_HEADER, remoteInjectOptions } from '../src/remote/inject.js';
 import { ALLOWED_ROUTES, allowedPath } from '../src/remote/allowlist.js';
 import { LOGINS_GRANT, ServingHalf, memberMayWatch } from '../src/remote/servingHalf.js';
 import { makeTmpDir } from './tmp.js';
@@ -29,6 +30,8 @@ afterEach(async () => {
   app = undefined;
 });
 
+const CONTROL_KEY = 'control-key-of-this-start';
+
 async function routes(cliPath: string | null = '/bin/claude') {
   const envs: Record<string, string>[] = [];
   const logins = new LoginService({
@@ -39,13 +42,14 @@ async function routes(cliPath: string | null = '/bin/claude') {
     republish: () => {},
     sessions: { title: () => '', isEnded: () => false, isLimitWaiting: () => false },
     continueText: () => 'go on',
+    autoContinue: () => true,
     home: '/Users/someone',
     baseEnv: { PATH: '/usr/bin' },
     spawn: (_file, _args, opts) => silentChild(opts.env, envs),
     runStatus: async () => ({ stdout: '{"loggedIn":false}' }),
   });
   app = Fastify();
-  registerLoginRoutes(app, logins, { selfName: () => 'Studio', nameOf: (id) => (id === 'dev-pixel' ? 'Pixel 8' : null) });
+  registerLoginRoutes(app, logins, { selfName: () => 'Studio', nameOf: (id) => (id === 'dev-pixel' ? 'Pixel 8' : null) }, CONTROL_KEY);
   await app.ready();
   return { app, envs };
 }
@@ -65,6 +69,22 @@ describe('the login routes', () => {
 
     const state = await app.inject({ method: 'GET', url: '/api/claude-dirs/1/login' });
     expect(state.json()).toMatchObject({ claudeDirId: 1, cliAvailable: true, account: { read: true, loggedIn: false } });
+  });
+
+  it('start a session\'s login, one carrying the control key, with BROWSER silenced; a wrong key is this Mac\'s web', async () => {
+    const { app, envs } = await routes();
+    const forged = await app.inject({
+      method: 'POST', url: '/api/claude-dirs/1/login', payload: { kind: 'design' }, headers: { [CONTROL_HEADER]: 'guessed' },
+    });
+    expect(forged.json().runs.design).toMatchObject({ manualOnly: false, startedBy: { deviceId: null, name: 'Studio' } });
+
+    const session = await app.inject(remoteInjectOptions(
+      { method: 'POST', url: '/api/claude-dirs/1/login', payload: { kind: 'claude' }, control: CONTROL_KEY }, undefined,
+    ));
+    expect(session.json().runs.claude).toMatchObject({
+      manualOnly: true, step: 'code', startedBy: { deviceId: null, name: SESSION_STARTER_NAME },
+    });
+    expect(envs.map((e) => e.BROWSER)).toEqual([undefined, SILENT_BROWSER]);
   });
 
   it('answer 404 for an unknown profile', async () => {
@@ -125,7 +145,7 @@ describe('the login routes for another device', () => {
   });
 
   it('their topic may be watched by a member holding the manage grant, and by no other', async () => {
-    expect(memberMayWatch(CLAUDE_DIR_LOGINS_TOPIC)).toBe(true);
+    expect(memberMayWatch(PROFILE_LOGINS_TOPIC)).toBe(true);
     const hub = new Hub();
     const dir = makeTmpDir('login-topic');
     let raw = '';
@@ -137,21 +157,21 @@ describe('the login routes for another device', () => {
       getGrants: () => raw,
     });
     serving.open({ json: (msg) => { out.push(msg); }, inner: () => {} });
-    const frames = () => out.filter((m) => m.t === 'ws' && m.frame.topic === CLAUDE_DIR_LOGINS_TOPIC);
+    const frames = () => out.filter((m) => m.t === 'ws' && m.frame.topic === PROFILE_LOGINS_TOPIC);
 
     // `manage` is off by default.
-    serving.ask({ t: 'ws', type: 'subscribe', topic: CLAUDE_DIR_LOGINS_TOPIC } as never);
-    hub.publish(CLAUDE_DIR_LOGINS_TOPIC, { event: 'login', login: {} });
+    serving.ask({ t: 'ws', type: 'subscribe', topic: PROFILE_LOGINS_TOPIC } as never);
+    hub.publish(PROFILE_LOGINS_TOPIC, { event: 'login', login: {} });
     expect(frames()).toHaveLength(0);
 
     raw = JSON.stringify({ m1: { [LOGINS_GRANT]: true } });
-    serving.ask({ t: 'ws', type: 'subscribe', topic: CLAUDE_DIR_LOGINS_TOPIC } as never);
-    hub.publish(CLAUDE_DIR_LOGINS_TOPIC, { event: 'login', login: {} });
+    serving.ask({ t: 'ws', type: 'subscribe', topic: PROFILE_LOGINS_TOPIC } as never);
+    hub.publish(PROFILE_LOGINS_TOPIC, { event: 'login', login: {} });
     expect(frames()).toHaveLength(1);
 
     // Taken back while the subscription stands: the next frame stays here.
     raw = '';
-    hub.publish(CLAUDE_DIR_LOGINS_TOPIC, { event: 'login', login: {} });
+    hub.publish(PROFILE_LOGINS_TOPIC, { event: 'login', login: {} });
     expect(frames()).toHaveLength(1);
     serving.reset();
   });

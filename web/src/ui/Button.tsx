@@ -159,8 +159,9 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   'link-mono': 'font-mono text-[10.5px] tracking-[0.04em] text-[rgba(200,220,245,.85)]',
   // `Feature - Feedback` 61c's Run in Orbital beside the command it runs: 6px/11px at 12px.
   command: 'px-[11px] py-1.5 text-xs',
-  // `Feature - Log in` 62a: the lost-login notice's Log in / Cancel on its title row, 5px/11px at 12px.
-  'login-row': 'px-[11px] py-[5px] text-xs',
+  // `Feature - Log in` 62a: the lost-login notice's Log in / Cancel on its title row, 5px/11px at 12px,
+  // on one line however narrow the row (62c's Settings row too).
+  'login-row': 'whitespace-nowrap px-[11px] py-[5px] text-xs',
   // 62b: the same answer on a Desk card, 6px/14px at 12px.
   'login-card': 'px-3.5 py-1.5 text-xs',
   // 62e: the phone notice's buttons, a 44px target at 14px.

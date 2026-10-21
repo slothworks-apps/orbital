@@ -15,11 +15,11 @@ import {
 } from '@orbital/shared/remote/messages';
 import { LIMITS_TOPIC, isOwnLimitsEntry } from '@orbital/shared/limits';
 import { PRESENCE_TOPIC } from '@orbital/shared/presence';
+import { PROFILE_LOGINS_TOPIC } from '@orbital/shared/profileLogins';
 import { sessionOfTopic } from '@orbital/shared/remote/segments';
 import type { Hub } from '../api/hub.js';
 import { ATTACHMENT_MAX_BYTES, IMAGE_CONTENT_TYPES } from '../api/routes.js';
 import type { ImageStore } from '../images/store.js';
-import { CLAUDE_DIR_LOGINS_TOPIC } from '../login/service.js';
 import { thumbnailOf } from '../images/thumbs.js';
 import { allowedPath } from './allowlist.js';
 import { memberHasGrant, parseGrants, type GrantGroup } from './grants.js';
@@ -39,7 +39,7 @@ export const MAX_OPEN_UPLOADS = 4;
  * 2026-10-21-log-in-from-orbital-design § 2).
  */
 export const MEMBER_ALLOWED_TOPICS: ReadonlySet<string> = new Set([
-  'sessions', 'errors', PRESENCE_TOPIC, LIMITS_TOPIC, CLAUDE_DIR_LOGINS_TOPIC,
+  'sessions', 'errors', PRESENCE_TOPIC, LIMITS_TOPIC, PROFILE_LOGINS_TOPIC,
 ]);
 /** Per-id topics, by prefix: `session:<id>`, `subagent:<session>:<agent>`, `task-output:<session>:<task>`. */
 export const MEMBER_ALLOWED_TOPIC_PREFIXES: readonly string[] = ['session:', 'subagent:', 'task-output:'];
@@ -56,7 +56,7 @@ export const LOGINS_GRANT: GrantGroup = 'manage';
  */
 const TOPIC_GRANTS: ReadonlyMap<string, GrantGroup> = new Map([
   [LIMITS_TOPIC, LIMITS_GRANT],
-  [CLAUDE_DIR_LOGINS_TOPIC, LOGINS_GRANT],
+  [PROFILE_LOGINS_TOPIC, LOGINS_GRANT],
 ]);
 
 export function memberMayWatch(topic: string): boolean {

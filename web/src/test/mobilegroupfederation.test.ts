@@ -173,6 +173,15 @@ describe('GroupFederation', () => {
     expect(laptop.request.mock.calls.map(([, path]) => path)).toContain('/api/sessions?tag=2')
   })
 
+  it('names the member a profile login event came from', async () => {
+    const { fed, group, frames } = await setup()
+    fed.subscribe('claude-dir-logins')
+    group.emit({ type: 'hub', peer: STUDIO, frame: { topic: 'claude-dir-logins', event: 'login', login: { claudeDirId: 1 } } })
+    expect(frames().filter((f) => f.topic === 'claude-dir-logins')).toEqual([
+      { topic: 'claude-dir-logins', event: 'login', login: { claudeDirId: 1 }, machine: STUDIO },
+    ])
+  })
+
   it('drops a session another member passes on as a third device\'s', async () => {
     const { studio, group, frames } = await setup()
     group.emit({ type: 'hub', peer: STUDIO, frame: { topic: 'sessions', event: 'upsert', session: session('x', { machine: { id: BOX } }) } })

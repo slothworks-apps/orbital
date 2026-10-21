@@ -718,8 +718,9 @@ const DeskCard = memo(function DeskCard({
             </div>
           )}
 
-          {/* 62b: the lost login is answered on the card, as a question is. */}
-          {s.loginWait && !s.pendingDecision && s.source !== 'terminal' && (
+          {/* 62b: the lost login is answered on the card, as a question is;
+              a limit wait wins, as it does on the pill. */}
+          {s.loginWait && !s.limitWait && !s.pendingDecision && s.source !== 'terminal' && (
             <LoginCardBlock session={s} offline={planet.offline} />
           )}
 

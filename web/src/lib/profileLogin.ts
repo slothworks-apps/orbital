@@ -12,7 +12,7 @@ import type { ApiSession, ChatMessage, LoginKind, LoginLostNotice, LoginRestored
  */
 
 /** The profile as its labels name it: `Work profile`, or `profile` while its name is not known here. */
-function profilePhrase(name: string | null): string {
+export function profilePhrase(name: string | null): string {
   return name ? `${name} profile` : 'profile'
 }
 
@@ -94,8 +94,24 @@ function currentAccount(profile: ProfileLogin | null, kind: LoginKind): string |
   return kind === 'claude' ? profile.account.email : null
 }
 
-/** Whether the profile's Mac lets this device log it in: the `manage` grant, and a Mac new enough to serve the routes. */
-export type LoginAccess = 'ok' | 'no_grant' | 'older_mac'
+/**
+ * Whether the profile's Mac lets this device log it in: the `manage` grant,
+ * and a Mac new enough to serve the routes. `unknown` while the Mac's
+ * version is not known yet (the phone before its hello): no Log in, and no
+ * claim that the Mac is too old either.
+ */
+export type LoginAccess = 'ok' | 'no_grant' | 'older_mac' | 'unknown'
+
+/**
+ * The access a notice draws, from whether the Mac serves the routes (null:
+ * its version is not known yet) and what the profile's last read was refused
+ * with. A refusal heard from the Mac itself outranks a version not known.
+ */
+export function loginAccess(serves: boolean | null, refused: 'no_grant' | 'older_mac' | null): LoginAccess {
+  if (serves === false || refused === 'older_mac') return 'older_mac'
+  if (refused === 'no_grant') return 'no_grant'
+  return serves === null ? 'unknown' : 'ok'
+}
 
 /** Where the notice sits in its transcript, as `loginNoticePlaces` reads it. */
 export interface LoginNoticePlace {
@@ -116,7 +132,7 @@ export function loginNoticePlaces(messages: readonly ChatMessage[]): Map<string,
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const m = messages[i]
     if (m.role !== 'notice' || !m.notice?.login) continue
-    const kind = m.notice.login.kind === 'design' ? 'design' : 'claude'
+    const kind = m.notice.login.kind
     if (m.notice.kind === 'login_restored') {
       // A restore answers the lost login just before it, not one after it.
       restored[kind] = true
@@ -134,8 +150,10 @@ export function loginNoticePlaces(messages: readonly ChatMessage[]): Map<string,
  *
  * - `hidden` — a restored divider after it says it already;
  * - `cli` — the CLI's own line as today: a terminal session, shown and not
- *   driven, with the link to Settings → Profiles (62d edge cases); an
- *   answered older notice with the login still out has no link;
+ *   driven, with the link to Settings → Profiles (62d edge cases) — for a
+ *   design sign-in the link alone, its line being the DesignSync result's
+ *   that the tool row shows; an answered older notice with the login still
+ *   out has no link;
  * - `restored` — the quiet past-tense line (62d C), for a notice whose login
  *   is back, live or after a reload;
  * - `lost` — A: Log in, or on another device without the grant or against
@@ -168,7 +186,7 @@ const FAILED_FALLBACK = 'The login did not finish. Try again.'
 
 export function loginNoticeView(input: LoginNoticeInput): LoginNoticeView {
   const { notice, place, session, profile, access } = input
-  const kind = notice.kind === 'design' ? 'design' : 'claude'
+  const kind = notice.kind
   if (place.restoredAfter) return { kind: 'hidden' }
   // Shown, not driven (spec § 3): the parser emits the notice for every
   // session, and only a session Orbital started draws it as one.
@@ -202,7 +220,7 @@ export function loginNoticeView(input: LoginNoticeInput): LoginNoticeView {
 
 /** A `login_restored` row's divider label. */
 export function restoredNoticeLabel(notice: LoginRestoredNotice): string {
-  return loginRestoredLabel(notice.kind === 'design' ? 'design' : 'claude', notice.email, notice.previousEmail, notice.continued)
+  return loginRestoredLabel(notice.kind, notice.email, notice.previousEmail, notice.continued)
 }
 
 /**

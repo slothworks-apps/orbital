@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { modelNameForId } from '../../lib/models'
 import { ELAPSED_TICK_MS, subagentModelFrom, taskStateFor } from '../../lib/subagentPanel'
 import { tagColor, type ChatMessage, type Subagent } from '../../lib/types'
 import { useNow } from '../../lib/useNow'
+import { LoginNoticeContext } from '../../panels/LoginNotice'
 import { PhoneToolRowContext } from '../../panels/ToolRow'
 import { TranscriptView } from '../../panels/TranscriptView'
+import { phoneLoginSurface } from '../session/loginSurface'
 import { usePhoneToolRow } from '../session/TranscriptChip'
 import { useOrbital } from '../../store/store'
 import { pushedTop, useMobile } from '../state'
@@ -44,6 +46,7 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
   const closeSubagent = useOrbital((s) => s.closeSubagent)
   const offline = useSessionAsleep(sessionId)
   const asOf = useSessionAsOf(sessionId)
+  const loginSurface = useMemo(() => phoneLoginSurface(), [])
   const goBack = useMobile((s) => s.goBack)
   const openSession = useMobile((s) => s.openSession)
 
@@ -179,6 +182,8 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
     <MobileScreen header={head} footer={footer} scroll={false}>
       {body.task !== null && <TaskFrom parentTitle={parentTitle} text={body.task} dropped={panel?.droppedCount ?? 0} />}
       {/* The phone's tool rows (wide image results); no chips — a subagent's own calls have no moons. */}
+      {/* A lost login in the agent's rows is drawn as the session's is on the phone; no composer to step aside. */}
+      <LoginNoticeContext.Provider value={loginSurface}>
       <PhoneToolRowContext.Provider value={phoneRows}>
       {/* The transcript takes what TASK FROM leaves; at full height it would run under the footer. */}
       <div className="min-h-0 flex-1">
@@ -196,6 +201,7 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
       />
       </div>
       </PhoneToolRowContext.Provider>
+      </LoginNoticeContext.Provider>
     </MobileScreen>
   )
 }

@@ -47,9 +47,14 @@ on what the user sees, the canvas wins.
   the Settings section is a move and a rename of what is already there.
 - **An existing user notices:** "Claude directories" read "Profiles", and
   they moved from General into a Profiles section. The transcript error
-  of a lost login becomes a notice with "Log in".
-- **Can be set:** nothing new. The continuation text is the limits
-  feature's existing "Message sent on continue" setting.
+  of a lost login becomes a notice with "Log in". A session stopped on a
+  lost login now counts as NEEDS INPUT in the HUD and in notifications
+  (before, it read as a finished turn), and after a login the sessions
+  waiting on it send a message by themselves.
+- **Can be set:** nothing new. Continuing follows the limits feature's
+  existing switch, "Continue automatically after a limit reset", and
+  sends its "Message sent on continue"; with the switch off, a login
+  says so in the transcript and sends nothing.
 - **Terminal sessions** get no notice and no continuation: they are
   shown, not driven (`docs/why-orbital.md`). Their profile can be logged
   in from Settings → Profiles.
@@ -508,6 +513,22 @@ from this Mac (browser path) and from a paired phone through the relay
   where the map does.
 - **Remote Macs** draw the code path at 32px rows (62e AIR-M3, 62g); the
   phone at 44px.
+- **Status reads are cached** for `STATUS_FRESH_MS`: a `GET` within it
+  reads nothing, and a read publishes on the topic only when the account
+  or design state changed. Without it the phone, which re-read on every
+  event, and the Mac, which published after every read, called each other
+  for ever, two CLI processes a round.
+- **A login a session starts** through the orbital MCP catalog runs as a
+  remote one does: browser silenced, `manualOnly`, started by "a session".
+  The session hands the user the sign-in page; nothing opens on its own.
+  The routes know such a call by `CONTROL_HEADER`, a key made at every
+  server start that only the in-process control path holds.
+- **Continuing follows the auto-continue switch** (Scope); the
+  `login_restored` notice goes out after the delivery and says
+  "continued" only when a turn was sent.
+- **A cancel or timeout that lost the race** to a login that had already
+  saved its credentials ends as succeeded, when the fresh status shows the
+  profile logged in where it was not (or under another account).
 - The `removeChild` error on leaving NEEDS INPUT seen during the pass is
   older than this feature (fix `leaving-needs-input-throws-removechild`).
 

@@ -118,6 +118,8 @@ export function NewSessionScreen() {
    * The chosen device's version decides; with none known yet, the default member's.
    */
   const checksDir = machine !== null ? deviceSupports('directoryCheck', machine, devices) : defaultSupports('directoryCheck', macVersion)
+  // The same for where the picker's sheet sends you to manage profiles.
+  const profilesSection = machine !== null ? deviceSupports('profileLogin', machine, devices) : defaultSupports('profileLogin', macVersion)
   const dirState = useDirectoryState(cwd, checksDir && !asleep, machine ?? undefined)
 
   // The chosen device's defaults and recent directories (canvas 50j: they
@@ -453,6 +455,7 @@ export function NewSessionScreen() {
                 dirs={dirs}
                 value={claudeDirId}
                 hint={claudeDirHint}
+                profilesSection={profilesSection}
                 onChange={(id) => {
                   // A model picked from another account's catalog may not be in this one.
                   if (id !== claudeDirId) setPickedModel(null)

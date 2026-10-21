@@ -3,15 +3,16 @@ import { copyToClipboard } from '../lib/clipboard'
 import { claudeDirDisplayPath } from '../lib/claudeDirs'
 import {
   clipboardReader,
+  loginAccess,
   loginNoticeView,
+  profilePhrase,
   restoredNoticeLabel,
   waitingLine,
-  type LoginAccess,
   type LoginNoticePlace,
 } from '../lib/profileLogin'
 import { openSettingsSection } from '../lib/sessionUrl'
-import { stateColor } from '../lib/stateStyle'
-import type { ApiSession, ChatMessage, LoginKind, LoginLostNotice, LoginRestoredNotice, LoginRun } from '../lib/types'
+import { stateColor, stateDot } from '../lib/stateStyle'
+import type { ApiSession, ChatMessage, LoginLostNotice, LoginRestoredNotice, LoginRun } from '../lib/types'
 import {
   cancelLogin,
   openSignInPage,
@@ -23,6 +24,7 @@ import {
 } from '../store/profileLogins'
 import { useOrbital } from '../store/store'
 import { Button } from '../ui/Button'
+import { StateDot } from '../ui/StateDot'
 
 /**
  * Where the lost-login notice is drawn, and what that surface knows that the
@@ -34,8 +36,12 @@ import { Button } from '../ui/Button'
  */
 export interface LoginNoticeSurface {
   phone: boolean
-  /** The Mac the session runs on serves the login routes; false, the notice has no Log in (older Mac). */
-  serves: (sessionId: string) => boolean
+  /**
+   * The Mac the session runs on serves the login routes; false, the notice
+   * has no Log in (older Mac); null while its version is not known yet, and
+   * the notice says neither.
+   */
+  serves: (sessionId: string) => boolean | null
   /** The code field took or lost focus (the phone hides its composer meanwhile). */
   onCodeFocus?: (focused: boolean) => void
 }
@@ -45,11 +51,6 @@ export const LoginNoticeContext = createContext<LoginNoticeSurface>({ phone: fal
 /** `The Work profile`, or `The profile` while its name is not known. */
 function theProfile(name: string | null): string {
   return name ? `The ${name} profile` : 'The profile'
-}
-
-/** `Work profile`, as a sub line names it. */
-function profileWord(name: string | null): string {
-  return name ? `${name} profile` : 'profile'
 }
 
 /**
@@ -93,7 +94,7 @@ export function LoginLostRow({
 }) {
   const surface = useContext(LoginNoticeContext)
   const notice = message.notice?.login as LoginLostNotice
-  const kind: LoginKind = notice.kind === 'design' ? 'design' : 'claude'
+  const kind = notice.kind
   const session = useOrbital((s) => (sessionId ? s.sessions[sessionId] : undefined))
   // The parser does not know the profile (spec § 7): the session's is the one.
   const claudeDirId = notice.claudeDirId ?? session?.claudeDirId ?? null
@@ -103,15 +104,16 @@ export function LoginLostRow({
   const dir = useOrbital((s) => (machine === undefined ? s.claudeDirs.find((d) => d.id === claudeDirId) : undefined))
   const serves = sessionId ? surface.serves(sessionId) : true
   const terminal = session?.source === 'terminal'
-  // A notice another row already answers, and a terminal session's, read nothing.
-  const reads = serves && !terminal && !place.restoredAfter && claudeDirId !== null
+  // A notice another row already answers, a terminal session's, and one on a
+  // Mac not known to serve the routes read nothing.
+  const reads = serves === true && !terminal && !place.restoredAfter && claudeDirId !== null
   const wait = session?.loginWait
   const entry = useProfileLogin(claudeDirId, machine, {
     enabled: reads,
     rereadKey: wait ? `${wait.kind}:${wait.running}` : 'none',
   })
   const key = claudeDirId === null ? '' : profileKey(claudeDirId, machine)
-  const access: LoginAccess = !serves || entry.refused === 'older_mac' ? 'older_mac' : entry.refused === 'no_grant' ? 'no_grant' : 'ok'
+  const access = loginAccess(serves, entry.refused)
   const view = loginNoticeView({
     notice,
     timestamp: message.timestamp,
@@ -124,11 +126,16 @@ export function LoginLostRow({
 
   if (view.kind === 'hidden') return null
   if (view.kind === 'cli') {
+    const link = view.link && !surface.phone
+    // A design sign-in's line is the DesignSync result's, which its tool row
+    // already shows: the notice adds only the way to Settings.
+    const text = kind === 'design' ? null : message.text
+    if (!text && !link) return null
     return (
       <div data-login-notice="cli" className="flex flex-col gap-1.5">
-        <div className="font-mono text-[11px] leading-[1.6] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">{message.text}</div>
+        {text && <div className="font-mono text-[11px] leading-[1.6] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">{text}</div>}
         {/* 62d edge cases: shown, not driven — the profile logs in from Settings. */}
-        {view.link && !surface.phone && (
+        {link && (
           <button
             type="button"
             onClick={() => openSettingsSection('profiles')}
@@ -198,10 +205,13 @@ export function LoginLostRow({
     // 62h VARIANT · MAC NEEDS AN UPDATE: says what would make it possible.
     sub = `on ${macName} · that Mac needs an Orbital update before it can ${verb.toLowerCase()} from here`
     note = `or ${verb.toLowerCase()} on that Mac directly`
-  } else if (remote) sub = `on ${macName} · ${reason}`
-  else if (lost?.neverLoggedIn && dir?.path) sub = claudeDirDisplayPath(dir.path)
-  else sub = design ? `${profileWord(name)} · ${reason} (run /design-login)` : reason
-  const cliAvailable = view.kind === 'failed' ? view.cliAvailable : view.cliAvailable
+  } else if (remote) {
+    // So does a Mac whose version is not known yet (`unknown`): the plain
+    // reason, neither Log in nor "needs an update" until its hello says which.
+    sub = `on ${macName} · ${reason}`
+  } else if (lost?.neverLoggedIn && dir?.path) sub = claudeDirDisplayPath(dir.path)
+  else sub = design ? `${profilePhrase(name)} · ${reason} (run /design-login)` : reason
+  const cliAvailable = view.cliAvailable
   if (!cliAvailable) note = 'Orbital knows no Claude Code executable on this Mac.'
   const canStart = (failed || lost?.access === 'ok') && cliAvailable
 
@@ -237,8 +247,12 @@ interface RunningCopy {
   sub: string
   /** Cancel on the title row. */
   cancel: boolean
-  /** The code path: folded behind "Browser didn't open? ›" on this Mac, the path itself elsewhere. */
-  code: 'folded' | 'open' | null
+  /**
+   * The code path: folded behind "Browser didn't open? ›" on this Mac, or
+   * `unfolded` there when no browser opened at all (Cancel stays on the title
+   * row); the path itself, with its own Cancel, elsewhere.
+   */
+  code: 'folded' | 'unfolded' | 'open' | null
 }
 
 function runningCopy(run: LoginRun, mine: boolean, remote: boolean, phone: boolean, name: string | null, macName: string): RunningCopy {
@@ -249,11 +263,23 @@ function runningCopy(run: LoginRun, mine: boolean, remote: boolean, phone: boole
     // A login another device started: its code is entered there (62e "On the
     // Mac's own transcript the notice reads Logging in from Pixel 8 with Cancel").
     if (!mine) return { title: `${ing} from ${run.startedBy.name}`, sub: 'the code is entered there · nothing opens on this Mac', cancel: true, code: null }
+    // Started by a session through Orbital's control tools: the CLI opened no
+    // browser, so the code is the way, shown rather than folded.
+    if (run.manualOnly) {
+      return {
+        title: design
+          ? 'Sign in to Claude Design — open the sign-in page and paste the code'
+          : `Log in to the ${profilePhrase(name)} — open the sign-in page and paste the code`,
+        sub: `${run.startedBy.name} started the login · no browser opened`,
+        cancel: true,
+        code: run.manualUrl !== null ? 'unfolded' : null,
+      }
+    }
     return {
       title: design ? 'Finish signing in in your browser' : 'Finish logging in in your browser',
       sub: design
-        ? `opened the Claude Design sign-in for the ${profileWord(name)} · this updates by itself`
-        : `opened claude.ai for the ${profileWord(name)} · this updates by itself`,
+        ? `opened the Claude Design sign-in for the ${profilePhrase(name)} · this updates by itself`
+        : `opened claude.ai for the ${profilePhrase(name)} · this updates by itself`,
       cancel: true,
       code: run.manualUrl !== null ? 'folded' : null,
     }
@@ -267,7 +293,7 @@ function runningCopy(run: LoginRun, mine: boolean, remote: boolean, phone: boole
   return {
     title: design
       ? `Sign in to Claude Design from this ${deviceWord(phone)}`
-      : `Log in to the ${profileWord(name)} from this ${deviceWord(phone)}`,
+      : `Log in to the ${profilePhrase(name)} from this ${deviceWord(phone)}`,
     sub: `${macName} started the login · nothing opens there`,
     cancel: false,
     code: run.manualUrl !== null ? 'open' : null,
@@ -299,6 +325,11 @@ function LoginDivider({ label, phone }: { label: string; phone: boolean }) {
   )
 }
 
+/** 62a, 62e: the notice's dot, and the hollow ring's ink while the login runs. */
+const NOTICE_DOT_PX = 8
+const REST_INK = 'rgba(214,230,248,.8)'
+const REST_DOT = { shape: 'hollow', motion: 'steady' } as const
+
 /**
  * The notice's box (62a on the Mac, 62e on the phone): the dot, the title,
  * the sub line with the CLI's sentence, a quieter note, the "waits on the
@@ -329,17 +360,17 @@ function LoginBlock({
   action: ReactNode
   children?: ReactNode
 }) {
-  const mark = (
-    <span
-      aria-hidden
-      className={[
-        'block h-2 w-2 flex-none rounded-full',
-        dot === 'rests' ? 'border-[1.5px] border-solid border-[rgba(214,230,248,.8)]' : '',
-        phone ? 'mt-[7px]' : '',
-      ].join(' ')}
-      style={dot === 'needs' ? { background: stateColor('needs_input') } : undefined}
+  // NEEDS INPUT's solid dot held steady, as a gate's is: a login can wait all night.
+  const stateMark = (
+    <StateDot
+      dot={dot === 'needs' ? stateDot('needs_input', 'label', true) : REST_DOT}
+      color={dot === 'needs' ? stateColor('needs_input') : REST_INK}
+      solidPx={NOTICE_DOT_PX}
+      hollowPx={NOTICE_DOT_PX}
     />
   )
+  // On the phone the dot sits on the title's first line, not the row's middle (62e).
+  const mark = phone ? <span className="mt-[7px] flex flex-none">{stateMark}</span> : stateMark
   if (phone) {
     return (
       <div
@@ -458,7 +489,7 @@ export function LoginRunning({
           {unfolded ? 'Hide ‹' : 'Browser didn’t open? ›'}
         </button>
       )}
-      {run.manualUrl !== null && (copy.code === 'open' || (copy.code === 'folded' && unfolded)) && (
+      {run.manualUrl !== null && (copy.code === 'open' || copy.code === 'unfolded' || (copy.code === 'folded' && unfolded)) && (
         <LoginCodeEntry
           manualUrl={run.manualUrl}
           phone={phone}
@@ -701,17 +732,27 @@ export function LoginCardBlock({ session, offline }: { session: ApiSession; offl
   const running = run?.state === 'running' && entry.refused === null
   const failed = run?.state === 'failed' ? run.message : null
   const fromElsewhere = running && run.startedBy.deviceId !== null && !startedHere(profileKey(claudeDirId, machine), run, remote)
-  const chip = running ? (fromElsewhere ? `FROM ${run.startedBy.name.toUpperCase()}` : 'IN THE BROWSER') : design ? 'CLAUDE DESIGN' : 'LOG IN'
+  // Started by a session, nothing opened a browser: the code is pasted in the session's notice.
+  const noBrowser = running && !fromElsewhere && run.manualOnly
+  const chip = running
+    ? fromElsewhere || noBrowser
+      ? `FROM ${run.startedBy.name.toUpperCase()}`
+      : 'IN THE BROWSER'
+    : design
+      ? 'CLAUDE DESIGN'
+      : 'LOG IN'
   // The account the login was, as `.claude.json` still names it (spec § 4).
   const email = localDir?.account ?? null
   const text = running
     ? fromElsewhere
       ? `Started from ${run.startedBy.name}; the code is entered there.`
-      : 'Finish in the browser window Orbital opened.'
+      : noBrowser
+        ? 'No browser opened; paste the sign-in code in the session’s notice.'
+        : 'Finish in the browser window Orbital opened.'
     : failed
       ? failed
       : design
-        ? `Claude Design isn’t signed in for the ${profileWord(name)}.`
+        ? `Claude Design isn’t signed in for the ${profilePhrase(name)}.`
         : `${theProfile(name)} lost its login${email ? ` (${email})` : ''}.`
   const canStart = entry.refused === null && (entry.login?.cliAvailable ?? true)
   return (

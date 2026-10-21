@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import type { ChatMessage } from '../types.js';
+import { deliverOwnTurn, startedTurn, type DeliveryResult } from '../api/delivery.js';
 import {
   LineSplitter,
   lastMeaningfulLine,
@@ -27,9 +28,6 @@ export type { LoginKind } from './parse.js';
  * this class only holds the processes and the state.
  */
 
-/** The hub topic every change of a profile's login state goes out on (spec § 2). */
-export const CLAUDE_DIR_LOGINS_TOPIC = 'claude-dir-logins';
-
 /**
  * How long a `claude auth login` may run before it is cancelled. The CLI has
  * no time limit of its own: a login nobody answers waits for ever. Design's
@@ -42,6 +40,14 @@ export const DESIGN_CANCEL_GRACE_MS = 3_000;
 
 /** A status read that neither answers nor exits gives up after this long, and reads as unknown. */
 export const STATUS_READ_TIMEOUT_MS = 15_000;
+
+/**
+ * How long a finished status read answers `GET` without another behind it.
+ * A read is two `claude` processes, and every device that follows the
+ * topic reads the state again on each event: without this a `GET` would
+ * start a read, the read an event, and the event the next `GET`.
+ */
+export const STATUS_FRESH_MS = 30_000;
 
 /** The most lines of a run's output kept for its failure message. */
 const KEPT_LINES = 50;
@@ -127,11 +133,13 @@ export type LoginSpawn = (file: string, args: string[], opts: { cwd: string; env
 /** One status command, run to its end; `stdout` whatever it wrote, whatever its exit code. */
 export type StatusRun = (file: string, args: string[], opts: { cwd: string; env: Record<string, string> }) => Promise<{ stdout: string }>;
 
-/** The real spawn: no shell, stdin a pipe held open, output as text. */
 /** How often the watchdog in `LOGIN_WATCHDOG` looks whether the server is still there. */
 const LOGIN_WATCHDOG_INTERVAL_S = 2;
 
 /**
+ * The real spawn: the CLI under this shell, stdin a pipe held open, output
+ * as text.
+ *
  * The shell a login runs under. `auth login` never ends by itself (spec §
  * What the CLI does) and does not stop when its stdin closes, and the server
  * is stopped by a signal it does not handle (the desktop app quitting, a
@@ -205,9 +213,6 @@ const STATUS_ARGS: Record<LoginKind, string[]> = {
 
 // ---- The service ------------------------------------------------------------
 
-/** What a delivery into a session did — the routes' `deliverToSession`. */
-export type LoginDeliveryOutcome = 'sent' | 'revived' | 'not_found' | 'terminal';
-
 export interface LoginServiceDeps {
   /** The executable logins run with — `mcpCliPath` in `index.ts`. Null: none, and the routes answer 503. */
   cliPath: string | null;
@@ -217,7 +222,7 @@ export interface LoginServiceDeps {
   dirName?(claudeDirId: number): string | undefined;
   /** The e-mail in the profile's `.claude.json`, as the login was before a run (`readAccount`). */
   accountEmail?(claudeDirId: number): string | null;
-  /** Every change of a profile's state; `index.ts` publishes it on `CLAUDE_DIR_LOGINS_TOPIC`. */
+  /** Every change of a profile's state; `index.ts` publishes it on `PROFILE_LOGINS_TOPIC`. */
   publish(login: ProfileLogin): void;
   /** A frame on a session's own topic: the `login_restored` notice and the turn sent. */
   publishToSession(sessionId: string, payload: Record<string, unknown>): void;
@@ -233,6 +238,12 @@ export interface LoginServiceDeps {
   };
   /** The limits' "Message sent on continue" (`continueTextOf(CONTINUE_TEXT_KEY)`). */
   continueText(): string;
+  /**
+   * The limits' "Continue automatically after a limit reset"
+   * (`autoContinueOf(AUTO_CONTINUE_KEY)`): off, a login says so in the
+   * transcript and sends nothing (spec § Scope).
+   */
+  autoContinue(): boolean;
   onError?(err: unknown, during: string, sessionId?: string): void;
   /** The server's own environment; `process.env` when absent. */
   baseEnv?: NodeJS.ProcessEnv;
@@ -255,6 +266,10 @@ interface Run {
   doneMessage: string | null;
   /** The account before the run, for `login_restored`'s `previousEmail`. */
   previousEmail: string | null;
+  /** Logged in (or signed in, for design) by the last status read before the run. */
+  wasLoggedIn: boolean;
+  /** Its process has not exited yet — a cancelled design-login may still be within `DESIGN_CANCEL_GRACE_MS`. */
+  alive: boolean;
   timer: ReturnType<typeof setTimeout> | null;
   killTimer: ReturnType<typeof setTimeout> | null;
 }
@@ -264,6 +279,8 @@ interface Profile {
   account: ProfileLogin['account'];
   design: ProfileLogin['design'];
   reading: Promise<void> | null;
+  /** When the last status read finished; null before the first. */
+  readAt: number | null;
   runs: { claude: Run | null; design: Run | null };
 }
 
@@ -285,7 +302,7 @@ export class LoginService {
    * The one path into a session (send if live, revive if not), assigned by
    * the routes, which own it — as `LimitsService.deliver` is.
    */
-  deliver?: (sessionId: string, text: string) => Promise<{ outcome: LoginDeliveryOutcome; uuid: string | null }>;
+  deliver?: (sessionId: string, text: string) => Promise<DeliveryResult>;
 
   private deps: LoginServiceDeps;
   private now: () => number;
@@ -317,13 +334,14 @@ export class LoginService {
 
   /**
    * The profile's state for `GET`: read first when no status was ever read,
-   * at once otherwise, with a read behind it whose answer goes out on the
-   * topic. Null for an unknown profile.
+   * at once otherwise. A read goes on behind it, its answer on the topic,
+   * only when the last one finished more than `STATUS_FRESH_MS` ago. Null
+   * for an unknown profile.
    */
   async state(claudeDirId: number): Promise<ProfileLogin | null> {
     if (!this.has(claudeDirId)) return null;
     const p = this.profile(claudeDirId);
-    if (this.cliAvailable) {
+    if (this.cliAvailable && (p.readAt === null || this.now() - p.readAt >= STATUS_FRESH_MS)) {
       const read = this.readStatus(claudeDirId);
       if (!p.account.read && !p.design.read) await read;
     }
@@ -347,7 +365,8 @@ export class LoginService {
    * that fails or answers a shape Orbital does not know is unknown
    * (`read: false`), never logged out. `fresh` waits out a read already in
    * flight and reads again: one that started before a login ended cannot
-   * tell how it ended.
+   * tell how it ended. The answer goes out on the topic only when it
+   * differs from the one before; a run that ended publishes its own end.
    */
   readStatus(claudeDirId: number, fresh = false): Promise<void> {
     const p = this.profile(claudeDirId);
@@ -367,28 +386,46 @@ export class LoginService {
     };
     p.reading = Promise.all([readOne('claude'), readOne('design')])
       .then(([auth, design]) => {
-        p.account = accountOf(auth === null ? null : readAuthStatus(auth));
-        p.design = designOf(design === null ? null : readDesignStatus(design));
+        const account = accountOf(auth === null ? null : readAuthStatus(auth));
+        const designState = designOf(design === null ? null : readDesignStatus(design));
+        const differs = !sameFields(account, p.account) || !sameFields(designState, p.design);
+        p.account = account;
+        p.design = designState;
+        if (differs) this.changed(claudeDirId);
       })
       .finally(() => {
         p.reading = null;
-        this.changed(claudeDirId);
+        p.readAt = this.now();
       });
     return p.reading;
   }
 
   // ---- Runs -----------------------------------------------------------------
 
-  /** Starts a login of this kind, or answers the one running. */
-  start(claudeDirId: number, kind: LoginKind, startedBy: LoginStarter): LoginAnswer {
+  /**
+   * Starts a login of this kind, or answers the one running. `manualOnly`
+   * silences `BROWSER`, so only the pasted code finishes it: always for
+   * another device, and for a session's orbital MCP tools, which nobody at
+   * this Mac asked to open a browser.
+   */
+  start(
+    claudeDirId: number, kind: LoginKind, startedBy: LoginStarter, manualOnly = startedBy.deviceId !== null,
+  ): LoginAnswer {
     const dirPath = this.has(claudeDirId) ? this.deps.dirPath(claudeDirId) : undefined;
     if (dirPath === undefined) return { ok: false, error: 'not_found' };
     const cliPath = this.deps.cliPath;
     if (cliPath === null) return { ok: false, error: 'no_cli' };
     const p = this.profile(claudeDirId);
-    if (p.runs[kind]?.wire.state === 'running') return { ok: true, login: this.snapshot(claudeDirId) };
+    const previous = p.runs[kind];
+    if (previous?.wire.state === 'running') return { ok: true, login: this.snapshot(claudeDirId) };
+    // A cancelled design-login still within its grace may hold the CLI's
+    // localhost port: it goes before a second one starts.
+    if (previous?.alive) {
+      this.clearTimers(previous);
+      previous.child?.kill();
+    }
 
-    const remote = startedBy.deviceId !== null;
+    const remote = manualOnly;
     const run: Run = {
       wire: {
         kind, claudeDirId, state: 'running',
@@ -400,6 +437,8 @@ export class LoginService {
       },
       child: null, lines: [], codeGiven: false, endedBy: null, doneMessage: null,
       previousEmail: p.account.read ? p.account.email : (this.deps.accountEmail?.(claudeDirId) ?? null),
+      wasLoggedIn: loggedInOf(p, kind),
+      alive: false,
       timer: null, killTimer: null,
     };
     p.runs[kind] = run;
@@ -409,6 +448,7 @@ export class LoginService {
         env: loginEnv(this.baseEnv(), dirPath, { remote, home: this.deps.home }),
       });
       run.child = child;
+      run.alive = true;
       this.follow(claudeDirId, run, child);
     } catch (err) {
       this.deps.onError?.(err, 'starting a login');
@@ -447,29 +487,43 @@ export class LoginService {
     return { ok: true, login: this.snapshot(claudeDirId) };
   }
 
-  /** Every running login is killed: the server is stopping. */
+  /**
+   * Every login whose process is still there is killed — a running one, and
+   * a cancelled design-login within its grace: the server is stopping.
+   */
   dispose(): void {
     this.disposed = true;
     for (const p of this.profiles.values()) {
       for (const run of [p.runs.claude, p.runs.design]) {
         if (!run) continue;
         this.clearTimers(run);
-        if (run.wire.state === 'running') run.child?.kill();
+        if (run.alive) run.child?.kill();
       }
     }
   }
 
-  /** The profile was removed: its logins stop and its state goes. */
+  /**
+   * The profile was removed: its logins stop, its state goes, and no
+   * session waits on it any more.
+   */
   forgetDir(claudeDirId: number): void {
     const p = this.profiles.get(claudeDirId);
-    if (!p) return;
-    for (const run of [p.runs.claude, p.runs.design]) {
-      if (!run) continue;
-      this.clearTimers(run);
-      run.endedBy = 'cancel';
-      if (run.wire.state === 'running') run.child?.kill();
+    if (p) {
+      for (const run of [p.runs.claude, p.runs.design]) {
+        if (!run) continue;
+        this.clearTimers(run);
+        run.endedBy = 'cancel';
+        if (run.alive) run.child?.kill();
+      }
+      this.profiles.delete(claudeDirId);
     }
-    this.profiles.delete(claudeDirId);
+    for (const [sessionId, lists] of [...this.waiting]) {
+      const rest = lists.filter((l) => l.claudeDirId !== claudeDirId);
+      if (rest.length === lists.length) continue;
+      if (rest.length === 0) this.waiting.delete(sessionId);
+      else this.waiting.set(sessionId, rest);
+      this.deps.republish(sessionId);
+    }
   }
 
   private follow(claudeDirId: number, run: Run, child: LoginChild): void {
@@ -482,9 +536,10 @@ export class LoginService {
       for (const line of err.push(chunk)) this.keep(run, line);
     });
     child.onExit((code) => {
+      run.alive = false;
       for (const line of out.flush()) this.onLine(claudeDirId, run, line);
       for (const line of err.flush()) this.keep(run, line);
-      void this.exited(claudeDirId, run, code);
+      this.exited(claudeDirId, run, code).catch((e: unknown) => this.deps.onError?.(e, 'ending a login'));
     });
   }
 
@@ -541,6 +596,13 @@ export class LoginService {
    * The process is gone. Success is read, not parsed: the status is read
    * again, and logged in (or signed in) is `succeeded` whatever the CLI
    * printed.
+   *
+   * A run Orbital stopped (cancel, time limit) has already failed, but the
+   * CLI may have finished the login just before it was stopped. When the
+   * status now reads logged in and it did not before the run — or, for the
+   * profile's own login, as another account — the login did happen: the run
+   * is `succeeded` after all and the sessions waiting on it continue, rather
+   * than saying "Nothing was changed" over a login that changed it.
    */
   private async exited(claudeDirId: number, run: Run, _code: number | null): Promise<void> {
     this.clearTimers(run);
@@ -548,9 +610,16 @@ export class LoginService {
     const p = this.profiles.get(claudeDirId);
     if (!p || p.runs[run.wire.kind] !== run) return;
     await this.readStatus(claudeDirId, true);
-    if (run.wire.state !== 'running' || run.endedBy !== null) return;
+    // The server may have stopped, or the profile gone or started again, while the status was read.
+    if (this.disposed || this.profiles.get(claudeDirId) !== p || p.runs[run.wire.kind] !== run) return;
     const kind = run.wire.kind;
-    const loggedIn = kind === 'claude' ? p.account.read && p.account.loggedIn : p.design.read && p.design.signedIn;
+    const loggedIn = loggedInOf(p, kind);
+    if (run.endedBy !== null) {
+      const changedAccount = kind === 'claude' && p.account.email !== run.previousEmail;
+      if (run.wire.state !== 'failed' || !loggedIn || (run.wasLoggedIn && !changedAccount)) return;
+    } else if (run.wire.state !== 'running') {
+      return;
+    }
     if (loggedIn) {
       const email = kind === 'claude' ? p.account.email : (p.account.email ?? this.deps.accountEmail?.(claudeDirId) ?? null);
       run.wire.account = email;
@@ -667,32 +736,36 @@ export class LoginService {
     if (ids.length > 0) this.changed(claudeDirId);
     const text = this.deps.continueText();
     for (const sessionId of ids) {
+      const seq = ++this.seq;
+      // The notice comes after the delivery, so "· continued" is said only of a turn that started.
+      let continued = false;
       try {
         if (this.deps.sessions.isEnded(sessionId) || this.deps.sessions.isLimitWaiting(sessionId) || !this.deliver) {
           this.deps.republish(sessionId);
           continue;
         }
-        const seq = ++this.seq;
+        // With the limits' switch off, the login says so and sends nothing (spec § Scope).
+        if (this.deps.autoContinue()) {
+          const delivery = await deliverOwnTurn(
+            this.deliver,
+            (id, payload) => this.deps.publishToSession(id, payload),
+            { sessionId, text, id: `${sessionId}:login-sent:${seq}` },
+            this.now,
+          );
+          continued = startedTurn(delivery.outcome);
+        }
+      } catch (err) {
+        this.deps.onError?.(err, 'continuing after a login', sessionId);
+      }
+      try {
         const notice: ChatMessage = {
           id: `${sessionId}:login-restored:${seq}`,
           role: 'notice',
           timestamp: new Date(this.now()).toISOString(),
-          text: restoredText(kind, email),
-          notice: { level: 'info', kind: 'login_restored', login: { kind, email, previousEmail, continued: true } },
+          text: restoredText(kind, email, continued),
+          notice: { level: 'info', kind: 'login_restored', login: { kind, email, previousEmail, continued } },
         };
         this.deps.publishToSession(sessionId, { event: 'message', message: notice });
-        const delivery = await this.deliver(sessionId, text);
-        // Orbital's own sends are not replayed by the SDK, and nobody typed this one.
-        if (delivery.outcome === 'sent' || delivery.outcome === 'revived') {
-          const turn: ChatMessage = {
-            id: `${sessionId}:login-sent:${seq}`,
-            role: 'user',
-            text,
-            timestamp: new Date(this.now()).toISOString(),
-            ...(delivery.uuid ? { uuid: delivery.uuid } : {}),
-          };
-          this.deps.publishToSession(sessionId, { event: 'message', message: turn });
-        }
       } catch (err) {
         this.deps.onError?.(err, 'continuing after a login', sessionId);
       }
@@ -705,7 +778,7 @@ export class LoginService {
   private profile(claudeDirId: number): Profile {
     let p = this.profiles.get(claudeDirId);
     if (!p) {
-      p = { account: accountOf(null), design: designOf(null), reading: null, runs: { claude: null, design: null } };
+      p = { account: accountOf(null), design: designOf(null), reading: null, readAt: null, runs: { claude: null, design: null } };
       this.profiles.set(claudeDirId, p);
     }
     return p;
@@ -747,12 +820,27 @@ function designOf(status: DesignStatus | null): ProfileLogin['design'] {
   return status ? { read: true, ...status } : { read: false, available: false, signedIn: false };
 }
 
+/** Logged in (or, for design, signed in) by the last status read; unknown is not. */
+function loggedInOf(p: Profile, kind: LoginKind): boolean {
+  return kind === 'claude' ? p.account.read && p.account.loggedIn : p.design.read && p.design.signedIn;
+}
+
+/** Two status answers alike field by field. */
+function sameFields<T extends object>(a: T, b: T): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof T>;
+  for (const key of keys) if (a[key] !== b[key]) return false;
+  return true;
+}
+
 function sameLists(a: { claudeDirId: number; kind: LoginKind }[], b: { claudeDirId: number; kind: LoginKind }[]): boolean {
   return a.length === b.length && a.every((x) => b.some((y) => y.claudeDirId === x.claudeDirId && y.kind === x.kind));
 }
 
-/** The line of the `login_restored` notice (canvas 62a: "Logged in as <e-mail> · continued"). */
-function restoredText(kind: LoginKind, email: string | null): string {
-  if (kind === 'design') return 'Signed in to Claude Design · continued';
-  return email ? `Logged in as ${email} · continued` : 'Logged in · continued';
+/**
+ * The line of the `login_restored` notice (canvas 62a: "Logged in as
+ * <e-mail> · continued"); without "· continued" when nothing was sent.
+ */
+function restoredText(kind: LoginKind, email: string | null, continued: boolean): string {
+  const said = kind === 'design' ? 'Signed in to Claude Design' : email ? `Logged in as ${email}` : 'Logged in';
+  return continued ? `${said} · continued` : said;
 }

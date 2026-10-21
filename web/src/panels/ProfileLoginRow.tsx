@@ -78,17 +78,20 @@ export function ProfileLoginRow({
       </div>
 
       {codeRun && !remote && (
-        // 62c: folded by default, and never unfolding by itself.
+        // 62c: folded by default, and never unfolding by itself — unless no
+        // browser opened at all (a session started it), when the code is the way.
         <div className="ml-[162px] flex flex-col gap-[9px]">
-          <button
-            type="button"
-            aria-expanded={unfolded}
-            onClick={() => setUnfolded((u) => !u)}
-            className="cursor-pointer self-start border-0 bg-transparent p-0 font-mono text-[10.5px] text-[#8fd8ff] hover:text-[#c6ecff]"
-          >
-            {unfolded ? 'Hide ‹' : 'Browser didn’t open? ›'}
-          </button>
-          {unfolded && (
+          {!codeRun.manualOnly && (
+            <button
+              type="button"
+              aria-expanded={unfolded}
+              onClick={() => setUnfolded((u) => !u)}
+              className="cursor-pointer self-start border-0 bg-transparent p-0 font-mono text-[10.5px] text-[#8fd8ff] hover:text-[#c6ecff]"
+            >
+              {unfolded ? 'Hide ‹' : 'Browser didn’t open? ›'}
+            </button>
+          )}
+          {(unfolded || codeRun.manualOnly) && (
             <div className="max-w-[460px]">
               <LoginCodeEntry
                 manualUrl={codeRun.manualUrl!}
@@ -170,7 +173,7 @@ function LoginLine({ label, line, disabled, onAct }: { label: string; line: Line
         <Button
           variant={line.primary ? 'lit' : 'ghost'}
           size="login-row"
-          className="justify-self-end whitespace-nowrap"
+          className="justify-self-end"
           disabled={disabled}
           onClick={onAct}
         >
@@ -193,6 +196,8 @@ function runningLine(run: LoginRun, remote: boolean, macName: string, mine: bool
       return { value: `${ing} from ${run.startedBy.name}`, sub: design ? 'the code is entered there' : 'the code is entered there · nothing opens here', ...cancel }
     }
     if (run.step === 'checking') return { value: 'Checking the code', sub: null, ...cancel, button: null, action: null }
+    // Started by a session: no browser opened, the code below finishes it.
+    if (run.manualOnly) return { value: `${ing} — paste the code below`, sub: `${run.startedBy.name} started it · no browser opened`, ...cancel }
     return {
       value: `${ing} — finish in your browser`,
       sub: design ? 'opened the Claude Design sign-in' : 'opened claude.ai',

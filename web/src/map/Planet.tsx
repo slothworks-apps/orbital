@@ -153,6 +153,9 @@ import {
 /** designPx → scene units, against 1f's 50px body radius. */
 const px = (designPx: number) => (designPx / 50) * BODY_RADIUS
 
+/** 31b: the limit pill's dot, hollow and steady — "not running, nothing to do". */
+const LIMIT_PILL_DOT = { shape: 'hollow', motion: 'steady' } as const
+
 /** Ended body: flat `oklch(16% .01 230)` per the canvas, no gradient. */
 const BODY_ENDED_LIGHTNESS = 0.16
 const BODY_ENDED_CHROMA = 0.01
@@ -2452,23 +2455,16 @@ function PlanetBody({
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  <span
-                    aria-hidden
-                    style={
-                      // `Feature - Log in` 62a: a lost login needs you, so its
-                      // pill wears NEEDS INPUT's solid amber dot; running, the
-                      // limit's hollow ring.
-                      needsLogin
-                        ? { display: 'block', width: LIMIT_PILL_DOT_PX, height: LIMIT_PILL_DOT_PX, borderRadius: '50%', background: stateColor('needs_input') }
-                        : {
-                            display: 'block',
-                            boxSizing: 'border-box',
-                            width: LIMIT_PILL_DOT_PX,
-                            height: LIMIT_PILL_DOT_PX,
-                            borderRadius: '50%',
-                            border: `${LIMIT_PILL_DOT_RING_PX}px solid currentColor`,
-                          }
-                    }
+                  {/* `Feature - Log in` 62a: a lost login needs you, so its pill
+                      wears NEEDS INPUT's solid amber dot, held steady as a
+                      gate's (a login can wait all night); running, the limit's
+                      hollow ring in the pill's ink. */}
+                  <StateDot
+                    dot={needsLogin ? stateDot('needs_input', 'label', true) : LIMIT_PILL_DOT}
+                    color={needsLogin ? stateColor('needs_input') : 'currentColor'}
+                    solidPx={LIMIT_PILL_DOT_PX}
+                    hollowPx={LIMIT_PILL_DOT_PX}
+                    ringPx={LIMIT_PILL_DOT_RING_PX}
                   />
                   {limitPill}
                 </span>
