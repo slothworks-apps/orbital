@@ -58,6 +58,7 @@ import { FileViewer } from './FileViewer'
 import { StopDialog } from './StopDialog'
 import { ClearDialog } from './ClearDialog'
 import { EndDialog } from './EndDialog'
+import { TakeOverDialog } from './TakeOverDialog'
 import { RewindDialog } from './RewindDialog'
 import { cancelRewind, useRewindUi } from '../store/rewind'
 import { isRewindCommand } from '../lib/rewind'
@@ -1277,9 +1278,22 @@ export function DetailPanel({
 
       {/* Composer — canvas 1b: padding 14px 16px 16px over a hairline rule. */}
       <div className="border-t border-panel-border px-4 pb-4 pt-3.5">
-        {isTerminalLive ? (
-          <div className="rounded-[10px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.6)] px-3 py-3 text-center font-mono text-[11.5px] text-text-muted">
+        {isTerminalLive && session ? (
+          // Take over (spec 2026-10-21-take-over-terminal-session-design):
+          // a working CLI asks first, since its turn stops; an idle one is
+          // taken over at once. Placement awaits Claude Design.
+          <div className="flex items-center justify-between gap-3 rounded-[10px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.6)] py-2 pl-3 pr-2 font-mono text-[11.5px] text-text-muted">
             runs in terminal — read-only
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (session.status === 'working') setDialog('take-over')
+                else api.takeOver(session.id).catch((err) => reportError(err, 'Failed to take over the session'))
+              }}
+            >
+              Take over
+            </Button>
           </div>
         ) : lock ? (
           // Canvas 50f C: the reason in the composer's place — never a
@@ -1466,6 +1480,7 @@ export function DetailPanel({
           gets the session without threading it through the store. */}
       {session && <FileViewer session={session} />}
       <StopDialog open={dialog === 'stop'} sessionId={id} onClose={() => setDialog(null)} />
+      <TakeOverDialog open={dialog === 'take-over'} sessionId={id} onClose={() => setDialog(null)} />
       <ClearDialog
         open={dialog === 'clear'}
         sessionId={id}

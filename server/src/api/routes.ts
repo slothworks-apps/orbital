@@ -38,6 +38,7 @@ import type { ArchiveOutcome, ListedSession } from '../runner/sessionsTools.js';
 import { mergeCompactionFailures, type CompactionFailureRecord } from '../transcript/compaction.js';
 import { RETENTION_KEY } from '../retention.js';
 import type { LiveSessions } from '../watcher/registry.js';
+import { endCli, type EndCliOutcome } from '../watcher/endCli.js';
 import type { Hub } from './hub.js';
 import { statusOf, toApiSession, type ApiSession } from './shape.js';
 import type { GitStore } from '../git/store.js';
@@ -181,6 +182,8 @@ export interface RouteContext {
   createIssue?: (issue: { title: string; body: string }) => Promise<IssueResult>;
   /** The GitHub account `gh` would file as; `ghLogin` when absent. Tests swap it. */
   ghLogin?: () => Promise<string | null>;
+  /** Ends a terminal CLI for Take over; `endCli` when absent. Tests swap it, so none signals a real pid. */
+  endCli?: (pid: number) => Promise<EndCliOutcome>;
   /** Issues on Orbital's repository like a title; `findSimilarIssues` when absent. Tests swap it. */
   findSimilarIssues?: (title: string) => Promise<SimilarIssue[] | null>;
   /** A model's reading of which filed issues the draft repeats; built in `index.ts`, where the SDK is. */
@@ -1448,7 +1451,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         const status = statusOf(ctx, row);
         if (status === 'ended' && row.pinned_at === null) { outcomes.push({ id, result: 'already_archived' }); continue; }
         // A terminal session ends when its CLI exits; no stamp here stops it.
-        if (row.source !== 'web' && status !== 'ended') { refuse('a terminal session that is still running'); continue; }
+        // An Orbital session a terminal resumed is held there all the same.
+        if ((row.source !== 'web' || ctx.registry.get(id)) && status !== 'ended') { refuse('a terminal session that is still running'); continue; }
         if (!force && row.pinned_at !== null) { refuse('pinned by the user; pass force to archive it anyway'); continue; }
         if (!force && (status === 'working' || status === 'needs_input')) {
           refuse(`${status === 'working' ? 'working' : 'waiting for the user\'s input'}; pass force to archive it anyway`);
@@ -2168,6 +2172,33 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (!row) return reply.code(404).send({ error: 'not found' });
     if (row.source !== 'web') return reply.code(409).send({ error: 'terminal_session' });
     stampEnded(id, null);
+    return { ok: true };
+  });
+
+  /**
+   * Take over (spec 2026-10-21-take-over-terminal-session-design): ends the
+   * terminal CLI that holds the session and makes the session Orbital's —
+   * `source: web`, not ended, no process of its own, so the next message
+   * resumes it. Orbital's own process, if one still runs, goes on.
+   *
+   * 404 for an unknown session, 409 `not_in_terminal` when no terminal holds
+   * it, 409 `not_claude` when the listed pid is no longer a CLI, 504
+   * `still_running` when it outlived SIGKILL.
+   */
+  app.post('/api/sessions/:id/take-over', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, id)).get();
+    if (!row) return reply.code(404).send({ error: 'not found' });
+    const live = ctx.registry.get(id);
+    if (!live) return reply.code(409).send({ error: 'not_in_terminal' });
+    const outcome = await (ctx.endCli ?? endCli)(live.pid);
+    if (outcome === 'not_claude') return reply.code(409).send({ error: 'not_claude' });
+    if (outcome === 'still_running') return reply.code(504).send({ error: 'still_running' });
+    // The row first, then the rescan: the registry's remove republishes a
+    // `source: web` session instead of taking it off the map.
+    db.update(sessions).set({ source: 'web', endedAt: null }).where(eq(sessions.id, id)).run();
+    ctx.registry.rescan();
+    publishRow(id);
     return { ok: true };
   });
 

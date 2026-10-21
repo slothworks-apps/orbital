@@ -15,6 +15,20 @@ function writeEntry(dir: string, pid: number, sessionId: string, status: string)
 }
 
 describe('SessionRegistry.scan', () => {
+  it('no longer lists a session by the time its remove is heard', () => {
+    // A listener that republishes it must read the row, not the gone CLI
+    // (spec 2026-10-21-take-over-terminal-session-design § 5).
+    const dir = makeTmpDir('reg');
+    writeEntry(dir, 100, 'sess-a', 'idle');
+    const reg = new SessionRegistry(dir, { isPidAlive: () => true });
+    reg.scan();
+    const seen: unknown[] = [];
+    reg.on('remove', (id) => seen.push(reg.get(id)));
+    rmSync(join(dir, '100.json'));
+    reg.scan();
+    expect(seen).toEqual([undefined]);
+  });
+
   it('emits upsert for live sessions and remove for vanished ones; drops dead pids', () => {
     const dir = makeTmpDir('reg');
     writeEntry(dir, 100, 'sess-a', 'busy');

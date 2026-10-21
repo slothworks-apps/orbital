@@ -363,6 +363,18 @@ export function listedSubagents(agents: SubagentInfo[]): SubagentInfo[] {
 }
 
 /**
+ * Who holds the session, as the client is told: a session a terminal CLI
+ * holds is the terminal's, whatever the row says — an Orbital session
+ * resumed with `claude --resume` included. Its controls are locked until the
+ * CLI exits or the user takes it over (spec
+ * 2026-10-21-take-over-terminal-session-design § 1). The row keeps its own
+ * `source`, which is what the session goes back to.
+ */
+function sourceOf(ctx: ShapeContext, row: SessionRow): SessionRow['source'] {
+  return ctx.registry.get(row.id) ? 'terminal' : row.source;
+}
+
+/**
  * The REST-shaped session object shared by REST responses and the `sessions`
  * WS topic. `status`, when passed, overrides the computed status — needed by
  * registry-upsert publishing, where `ctx.registry` may not yet reflect the
@@ -382,7 +394,7 @@ export function toApiSession(
   return {
     id: row.id, cwd: row.cwd, workingDir, otherTrees, title: row.title,
     firstAt: row.first_at, lastAt: row.last_at,
-    messageCount: row.message_count, source: row.source,
+    messageCount: row.message_count, source: sourceOf(ctx, row),
     permissionMode: row.permission_mode,
     model: row.model, resolvedModel: row.resolved_model,
     contextUsedTokens: row.context_used_tokens,

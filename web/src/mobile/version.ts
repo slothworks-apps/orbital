@@ -35,6 +35,8 @@ export const MAC_FEATURES = {
    * lost-login notice has no Log in.
    */
   profileLogin: '0.40.0',
+  /** Take over a session a terminal holds: `POST /api/sessions/:id/take-over` (spec 2026-10-21-take-over-terminal-session-design § The phone). */
+  takeOver: '0.41.0',
 } as const
 
 export type MacFeature = keyof typeof MAC_FEATURES

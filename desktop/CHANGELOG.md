@@ -3,6 +3,10 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Take over a session running in a terminal: Orbital quits the CLI there and the conversation goes on in Orbital. If the terminal is in the middle of a turn, it asks first.
+### Fixed
+- An Orbital session reopened in a terminal is read-only while the terminal holds it, instead of offering a mode switch and End that did nothing, and it stays on the map when the terminal quits.
 
 ## [0.40.0] — 2026-10-21
 ### Added

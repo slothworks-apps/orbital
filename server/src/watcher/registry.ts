@@ -94,16 +94,22 @@ export class SessionRegistry extends EventEmitter {
         console.warn(`orbital: bad registry file ${file}:`, err);
       }
     }
+    // Upserts go out while the old map still stands (`publishLiveSession`
+    // passes the new status along for that reason); removes only after the
+    // swap, so a listener that republishes the session no longer finds it
+    // here and reads it as the row says (spec
+    // 2026-10-21-take-over-terminal-session-design § 5).
+    const prev = this.sessions;
     for (const [id, session] of next) {
-      const prev = this.sessions.get(id);
-      if (!prev || JSON.stringify(prev) !== JSON.stringify(session)) {
+      const before = prev.get(id);
+      if (!before || JSON.stringify(before) !== JSON.stringify(session)) {
         this.emit('upsert', session);
       }
     }
-    for (const id of this.sessions.keys()) {
+    this.sessions = next;
+    for (const id of prev.keys()) {
       if (!next.has(id)) this.emit('remove', id);
     }
-    this.sessions = next;
   }
 
   watch(): void {
@@ -134,6 +140,8 @@ export class SessionRegistry extends EventEmitter {
 export interface LiveSessions {
   get(sessionId: string): LiveSession | undefined;
   all(): LiveSession[];
+  /** Reads every registry now, rather than at the watcher's next event. */
+  rescan(): void;
 }
 
 /**
@@ -177,6 +185,10 @@ export class LiveRegistries extends EventEmitter implements LiveSessions {
   all(): LiveSession[] {
     return [...this.byDir].flatMap(([claudeDirId, registry]) =>
       registry.all().map((live) => ({ ...live, claudeDirId })));
+  }
+
+  rescan(): void {
+    for (const registry of this.byDir.values()) registry.scan();
   }
 
   /** The directory whose registry lists this session, for one not indexed yet. */

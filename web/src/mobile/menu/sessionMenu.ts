@@ -11,7 +11,7 @@ import { homePath } from '../format'
  */
 
 /** The sheet's rows, in the canvas's order: the reversible ones, a divider, the deliberate ones. */
-export type MenuItem = 'rename' | 'tag' | 'pin' | 'clear' | 'end'
+export type MenuItem = 'rename' | 'tag' | 'pin' | 'takeover' | 'clear' | 'end'
 
 export interface MenuShape {
   items: MenuItem[]
@@ -25,15 +25,23 @@ export interface MenuShape {
  * Rename, tag and pin are Orbital's own labels, so every session has them.
  * Clear and End act on the session itself: a terminal session never gets
  * either, ended or not (spec § 0); End is gone once the session has ended.
+ * A terminal still running it gets Take over instead, when its Mac serves it
+ * (spec 2026-10-21-take-over-terminal-session-design § The phone).
  * Asleep keeps the set and makes it inert, so the sheet still shows what it
  * would offer.
  */
-export function menuFor(session: Pick<ApiSession, 'source' | 'status'>, asleep: boolean): MenuShape {
+export function menuFor(
+  session: Pick<ApiSession, 'source' | 'status'>,
+  asleep: boolean,
+  macTakesOver = false,
+): MenuShape {
   const items: MenuItem[] = ['rename', 'tag', 'pin']
   const terminal = session.source === 'terminal'
   if (!terminal) {
     items.push('clear')
     if (session.status !== 'ended') items.push('end')
+  } else if (macTakesOver && session.status !== 'ended') {
+    items.push('takeover')
   }
   return { items, terminalNote: terminal, inert: asleep }
 }

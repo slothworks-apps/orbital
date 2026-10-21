@@ -166,7 +166,7 @@ function retentionFor(db: OrbitalDb) {
 function makeApp(opts: {
   projectsDir?: string; ide?: IdeStore; narrateQueryFn?: NarrateQueryFn; branchStatus?: BranchStatusStore;
   createIssue?: RouteContext['createIssue']; findSimilarIssues?: RouteContext['findSimilarIssues'];
-  checkDuplicates?: RouteContext['checkDuplicates'];
+  checkDuplicates?: RouteContext['checkDuplicates']; endCli?: RouteContext['endCli'];
 } = {}) {
   const db = openTmpDb('api');
   db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
@@ -184,8 +184,9 @@ function makeApp(opts: {
     .run();
   db.insert(sessionTags).values({ sessionId: 's1', tagId: 10, origin: 'manual' }).run();
   const registry = {
-    get: (id: string) => (id === 's1' ? { sessionId: 's1', status: 'working' } : undefined),
-    all: () => [{ sessionId: 's1', status: 'working' }],
+    get: (id: string) => (id === 's1' ? { sessionId: 's1', pid: 4242, status: 'working' } : undefined),
+    all: () => [{ sessionId: 's1', pid: 4242, status: 'working' }],
+    rescan: () => {},
   };
   const startCalls: any[] = [];
   const sendCalls: any[] = [];
@@ -281,6 +282,8 @@ function makeApp(opts: {
     findSimilarIssues: opts.findSimilarIssues ?? (async () => { throw new Error('findSimilarIssues is not stubbed'); }),
     checkDuplicates: opts.checkDuplicates ?? (async () => { throw new Error('checkDuplicates is not stubbed'); }),
     ghLogin: async () => null,
+    // Never the real one: a test that forgot to stub it would signal a real pid.
+    endCli: opts.endCli ?? (async () => { throw new Error('endCli is not stubbed'); }),
   });
   return {
     app, db, runner, hub, registry, startCalls, sendCalls, modelCatalog, subagents, subagentTranscripts, backgroundTasks, errors,
@@ -1359,6 +1362,78 @@ describe('REST routes', () => {
     expect(res.statusCode).toBe(404);
   });
 
+  // Spec 2026-10-21-take-over-terminal-session-design.
+  describe('POST /api/sessions/:id/take-over', () => {
+    function rowOf(db: any, id: string) {
+      return db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
+    }
+
+    it('ends the CLI the registry lists and makes the session Orbital\'s', async () => {
+      const ended: number[] = [];
+      const { app, db, registry } = makeApp({ endCli: async (pid) => { ended.push(pid); return 'ended'; } });
+      db.update(sessions).set({ endedAt: 5 }).where(eq(sessions.id, 's1')).run();
+      const rescans: number[] = [];
+      registry.rescan = () => {
+        // The row is already Orbital's when the registry drops the CLI, so its
+        // remove republishes the session instead of taking it off the map.
+        rescans.push(1);
+        expect(rowOf(db, 's1').source).toBe('web');
+        registry.get = () => undefined;
+      };
+      res200(await app.inject({ method: 'POST', url: '/api/sessions/s1/take-over' }));
+      expect(ended).toEqual([4242]);
+      expect(rescans).toHaveLength(1);
+      const row = rowOf(db, 's1');
+      expect(row.source).toBe('web');
+      expect(row.ended_at).toBeNull();
+      const session = res200(await app.inject({ method: 'GET', url: '/api/sessions/s1' })).session;
+      expect(session).toMatchObject({ source: 'web', status: 'idle' });
+    });
+
+    it('409s for a session no terminal holds, without signalling anything', async () => {
+      const { app, db } = makeApp();
+      const res = await app.inject({ method: 'POST', url: '/api/sessions/s2/take-over' });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toBe('not_in_terminal');
+      expect(rowOf(db, 's2').source).toBe('terminal');
+    });
+
+    it('leaves the session as it was when the pid is no longer a CLI', async () => {
+      const { app, db } = makeApp({ endCli: async () => 'not_claude' });
+      const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/take-over' });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toBe('not_claude');
+      expect(rowOf(db, 's1').source).toBe('terminal');
+    });
+
+    it('504s and leaves the session as it was when the CLI will not die', async () => {
+      const { app, db } = makeApp({ endCli: async () => 'still_running' });
+      const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/take-over' });
+      expect(res.statusCode).toBe(504);
+      expect(rowOf(db, 's1').source).toBe('terminal');
+    });
+
+    it('404s for an unknown session', async () => {
+      const { app } = makeApp();
+      const res = await app.inject({ method: 'POST', url: '/api/sessions/nope/take-over' });
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  it('shows an Orbital session a terminal resumed as the terminal\'s', async () => {
+    // Spec 2026-10-21-take-over-terminal-session-design § 1: the client locks
+    // what the server would refuse.
+    const { app, db } = makeApp();
+    db.update(sessions).set({ source: 'web' }).where(eq(sessions.id, 's1')).run();
+    const session = res200(await app.inject({ method: 'GET', url: '/api/sessions/s1' })).session;
+    expect(session.source).toBe('terminal');
+    expect(rowOf(db, 's1').source).toBe('web');
+
+    function rowOf(db: any, id: string) {
+      return db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
+    }
+  });
+
   it('400s on a missing or non-string model rather than clearing the row', async () => {
     const { app, db } = makeApp();
     db.update(sessions).set({ model: 'haiku' }).where(eq(sessions.id, 's2')).run();
@@ -1721,7 +1796,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
     registerRoutes(app, {
       harness: stubHarness(db),
       db,
-      registry: { get: () => undefined, all: () => [] },
+      registry: { get: () => undefined, all: () => [], rescan: () => {} },
       runner,
       hub,
       claudeDirs,
@@ -4046,7 +4121,7 @@ describe('walkthrough routes', () => {
 
     const running = appWithTranscript('web', scripted(answered(NARRATION)));
     running.runner.status = () => 'working';
-    running.registry.get = (id: string) => (id === 'w1' ? { sessionId: 'w1', status: 'working' } : undefined);
+    running.registry.get = (id: string) => (id === 'w1' ? { sessionId: 'w1', pid: 1, status: 'working' } : undefined);
     expect((await narrated(running.app)).narration.intents[0].title).toBe('Margin');
 
     const rewinding = appWithTranscript('web', scripted(answered(NARRATION)));
