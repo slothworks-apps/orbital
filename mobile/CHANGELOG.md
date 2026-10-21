@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Fixed
+- A new session's first prompt can carry a photo and start a command or skill: the camera, gallery and / buttons sit under the field, as in a running session.
 
 ## [0.19.0] — 2026-10-21
 ### Added
