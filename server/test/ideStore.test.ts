@@ -317,6 +317,18 @@ describe('IdeStore: two editors on one project', () => {
     });
   });
 
+  it('says so when an editor takes back a project another one was standing in for', () => {
+    const { vscode } = connectBoth();
+    vscode.emit('closed');
+    expect(store.locate('/w/a/src')?.ideName).toBe('WebStorm');
+    const seen: Array<[string, string[]]> = [];
+    store.on('change', (root: string, cwds: string[]) => seen.push([root, cwds]));
+    // VS Code comes back on a new port, as it does after a restart.
+    connect(17266, ['/w/a'], { ideName: 'Visual Studio Code' });
+    expect(seen).toEqual([['/w/a', ['/w/a/src']]]);
+    expect(store.locate('/w/a/src')?.ideName).toBe('Visual Studio Code');
+  });
+
   it('hands the project to the other editor when the one holding it quits', () => {
     const { webstorm, vscode } = connectBoth();
     webstorm.emit('selection', selectionAt('/w/a/x.ts', 3, 'from webstorm'));
@@ -404,16 +416,27 @@ function connectSpeaking(folders = ['/w/a']): FakeConnection {
 }
 
 describe('IdeStore: opening a file in the editor', () => {
-  it('sends the line as the text that starts it, read from the file', async () => {
+  it('sends the line as the text that starts it, with an end that puts a caret there', async () => {
     const workspace = makeTmpDir('ide-ws');
     const file = join(workspace, 'x.ts');
     writeFileSync(file, ['a', '}', 'b', '}', 'c'].join('\n'));
     const connection = connectSpeaking([workspace]);
     expect(await store.openFile(workspace, file, 4)).toBe(true);
-    expect(connection.calls.at(-1)).toEqual({
-      name: OPEN_FILE_TOOL,
-      args: { filePath: file, startText: '}\nc', endText: '' },
-    });
+    const args = connection.calls.at(-1)?.args as { startText: string; endText: string };
+    expect(args.startText).toBe('}\nc');
+    // VS Code selects up to `endText`, or sets a caret when it is not there:
+    // so the end is something the file does not hold.
+    expect(args.endText).not.toBe('');
+    expect(['a', '}', 'b', '}', 'c'].join('\n').includes(args.endText)).toBe(false);
+  });
+
+  it('falls back to selecting the run when the file holds the caret sentinel too', async () => {
+    const workspace = makeTmpDir('ide-ws');
+    const file = join(workspace, 'x.bin.ts');
+    writeFileSync(file, 'a\nb\n' + 'x'.repeat(10_000) + '\u0000');
+    const connection = connectSpeaking([workspace]);
+    await store.openFile(workspace, file, 2);
+    expect(connection.calls.at(-1)?.args).toEqual({ filePath: file, startText: 'b', endText: '' });
   });
 
   it('opens a file it cannot read without a line', async () => {

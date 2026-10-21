@@ -33,6 +33,20 @@ nothing about Orbital changes.
 The decision to connect directly, and what it costs, is
 [[orbital-speaks-to-the-ide-itself]]. This document is what gets built.
 
+## Scope
+
+- **For** anyone who keeps WebStorm (or another JetBrains IDE) or VS Code
+  open, with the Claude Code extension, on a project an Orbital session works
+  in.
+- **Lives** on by default. There is nothing to turn on: an editor that is
+  running is read, and one that is not changes nothing.
+- **An existing user notices** nothing until an editor with the extension is
+  open on a session's project; then the composer's slot shows its caret and
+  selection, @ completion ranks its open tabs first, and ⌥ on a path opens it
+  there.
+- **Can be set:** nothing. A selection riding along is dismissed with its ×,
+  per message.
+
 ## The protocol, in four facts
 
 1. The extension writes `~/.claude/ide/<port>.lock`. **The port is the file
@@ -107,6 +121,14 @@ Each of these emits `change` for the root, because the editor behind it — its
 name and its selection — is what the sessions show. A diff tab is closed in
 the editor that opened it, whichever editor holds the project by the time the
 review ends.
+
+This replaces the first rule, under which the editor that connected last kept
+the project for good — arbitrary by its own account, and wrong as soon as
+someone moved to the other editor. Its known weakness: an editor nobody
+touched can still push a selection — a buffer reloaded after a session edited
+the file, say — and take the project with it. Byte-identical repeats are
+already dropped, which is most of such echoes; the rest cost a republish and
+the slot naming the other editor until the next selection.
 
 `ShapeContext` gains an `ide: IdeStore` field alongside `git`, and the store is
 `start()`ed rather than used straight from its constructor — starting is what
@@ -371,15 +393,21 @@ Canvas artboard 20d draws it, and the build follows it:
 Neither extension's `openFile` takes a line. Both take `startText`, and VS Code
 selects **the first match of it** in the document. So the line goes as text:
 the shortest run of lines starting at it, read from the file on disk, whose
-first match in the file is that line (`revealTextFor`). A line that cannot be
+first match in the file is that line (`revealTextFor`). `endText` is a NUL,
+which a text file does not contain: VS Code, finding `startText` but no
+`endText` after it, sets a caret at the start of the match rather than
+selecting it. That matters because a selection Orbital made would come back as
+`selection_changed` and ride along with the next message as if the person had
+chosen it. A file that does contain a NUL gets an empty `endText`, and the run
+selected. A line that cannot be
 reached that way — one whose run repeats an earlier one to the end of the file,
 or a file the viewer would not read — opens the file without a line. The
 JetBrains plugin (0.1.14-beta, read from its classes on 2026-10-21) accepts
 `startText` and ignores it, so in WebStorm the file opens where it was.
 
 VS Code refuses a call that lacks `startText` or `endText` (`-32602`, input
-validation), so both always go, empty when there is no line; an empty text
-selects nothing. Before this, opening a file in VS Code failed outright.
+validation), so both always go, empty when there is no line; an empty
+`startText` selects nothing. Before this, opening a file in VS Code failed outright.
 
 Why ⌥ and not ⌘ is 20d's own reasoning: ⌘-click already means "new window" to
 hands trained by browsers, and ⌥ is JetBrains' own alternate key.
@@ -624,5 +652,6 @@ already marked for deletion.
   keystroke in the editor aimed at a terminal that is listening; what it should
   mean when several Orbital sessions are open is a question this spec does not
   answer.
-- VS Code. The bridge is built to discover tools rather than assume them, but it
-  is measured against JetBrains only, and the VS Code tool set is unverified.
+- Editors other than the JetBrains plugin and the VS Code extension (§ VS
+  Code). A fork that writes the same locks is taken at its word and gets
+  whatever tools it lists.

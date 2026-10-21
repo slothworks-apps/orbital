@@ -55,8 +55,9 @@ interface Entry {
   queued: IdeSelection | null;
   timer: NodeJS.Timeout | null;
   /**
-   * When this editor last connected or published a selection — which of two
-   * editors on one project takes it over when the one holding it goes.
+   * When this editor last connected or published a selection, as a count of
+   * the store's uses — which of two editors on one project takes it over when
+   * the one holding it goes.
    */
   activeAt: number;
 }
@@ -103,6 +104,8 @@ export class IdeStore extends EventEmitter {
   private connect: (lock: IdeLock) => IdeConnection;
 
   private byPort = new Map<number, Entry>();
+  /** Counts uses, so `activeAt` orders editors whatever the wall clock does. */
+  private uses = 0;
   /**
    * Workspace root → the connected entry covering it. Ready entries only. Two
    * editors open on one project share a root, and it belongs to whichever
@@ -243,11 +246,10 @@ export class IdeStore extends EventEmitter {
     const entry = this.entryFor(cwd);
     if (!entry || !insideCwd(cwd, path)) return false;
     // Neither build takes a line: the line travels as the text that starts
-    // it, which VS Code selects. The JetBrains plugin (0.1.14-beta) reads
+    // it, which VS Code looks for. The JetBrains plugin (0.1.14-beta) reads
     // `startText` and ignores it, so there the file opens where it was.
     // VS Code refuses a call without both texts; empty ones select nothing.
-    const startText = line === null ? null : revealText(cwd, path, line);
-    const args = { filePath: path, startText: startText ?? '', endText: '' };
+    const args = { filePath: path, ...(line === null ? NO_LINE : lineTexts(cwd, path, line)) };
     return (await entry.connection.callTool(OPEN_FILE_TOOL, args)) !== null;
   }
 
@@ -309,12 +311,6 @@ export class IdeStore extends EventEmitter {
       // opened the tab, which need not be the one holding the project now.
       void closeTabIn(entry, args.tabName);
     }
-  }
-
-  /** Drops a tab `openDiff` opened. Safe to call for one already gone. */
-  async closeTab(cwd: string, tabName: string): Promise<void> {
-    const entry = this.entryFor(cwd);
-    if (entry) await closeTabIn(entry, tabName);
   }
 
   /** The connected editor covering this `cwd`, or undefined. */
@@ -441,12 +437,20 @@ export class IdeStore extends EventEmitter {
   private onReady(entry: Entry): void {
     if (!this.byPort.has(entry.lock.port)) return;
     entry.ready = true;
-    entry.activeAt = Date.now();
+    entry.activeAt = ++this.uses;
     // An editor that has just opened the project takes it, the way one that
     // has just been used does (`flush`). The newer connection is also the one
     // more likely to still be alive.
-    for (const root of entry.lock.workspaceFolders) this.entryByRoot.set(root, entry);
+    const taken: string[] = [];
+    for (const root of entry.lock.workspaceFolders) {
+      const holder = this.entryByRoot.get(root);
+      if (holder && holder !== entry) taken.push(root);
+      this.entryByRoot.set(root, entry);
+    }
     this.reresolve();
+    // A root taken from another editor did not move, so `reresolve` saw
+    // nothing; the editor behind it — its name, its selection — did.
+    for (const root of taken) this.emitChange(root);
   }
 
   /**
@@ -474,7 +478,7 @@ export class IdeStore extends EventEmitter {
     if (!next || sameSelection(entry.selection, next)) return;
     entry.selection = next;
     if (!entry.ready) return;
-    entry.activeAt = Date.now();
+    entry.activeAt = ++this.uses;
     // A selection is someone working in this editor, so a project open in
     // another editor as well comes over to this one (spec
     // 2026-09-23-ide-bridge-design § Two editors on one project).
@@ -529,22 +533,39 @@ export class IdeStore extends EventEmitter {
   }
 }
 
+/** `openFile`'s texts for no line: VS Code requires both, and empty ones select nothing. */
+const NO_LINE = { startText: '', endText: '' };
+
 /**
- * The `startText` that lands on a line of the file as it is on disk, or null
+ * An `endText` the file does not contain. VS Code, finding `startText` but no
+ * `endText` after it, puts the caret at the start of the match instead of
+ * selecting it — and a selection would come straight back as
+ * `selection_changed` and ride along with the next message as if the person
+ * had made it.
+ */
+const CARET_END_TEXT = '\u0000';
+
+/**
+ * `openFile`'s texts for a line of the file as it is on disk, or `NO_LINE`
  * when the file is not one the viewer would read for the session. The editor
  * searches its own buffer, so unsaved edits above the line can move where it
  * lands.
  */
-function revealText(cwd: string, path: string, line: number): string | null {
-  if (!Number.isSafeInteger(line) || line < 1) return null;
+function lineTexts(cwd: string, path: string, line: number): typeof NO_LINE {
   try {
     const read = readTextFile(cwd, path);
-    return read.kind === 'ok' ? revealTextFor(read.bytes.toString('utf8'), line) : null;
+    if (read.kind !== 'ok') return NO_LINE;
+    const content = read.bytes.toString('utf8');
+    const startText = revealTextFor(content, line);
+    if (!startText) return NO_LINE;
+    // A file holding the sentinel gets the run selected rather than a caret.
+    return { startText, endText: content.includes(CARET_END_TEXT) ? '' : CARET_END_TEXT };
   } catch {
-    return null;
+    return NO_LINE;
   }
 }
 
+/** Drops a tab `openDiff` opened. Safe to call for one already gone. */
 async function closeTabIn(entry: Entry, tabName: string): Promise<void> {
   if (!entry.connection.hasTool(CLOSE_TAB_TOOL)) return;
   await entry.connection.callTool(CLOSE_TAB_TOOL, { tab_name: tabName });
