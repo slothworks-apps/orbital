@@ -86,6 +86,8 @@ export interface LoginRun {
 /** `GET /api/claude-dirs/:id/login`, and every event on `claude-dir-logins`. */
 export interface ProfileLogin {
   claudeDirId: number;
+  /** The profile's name ("Work"): another device knows no names of this Mac's profiles. */
+  name: string | null;
   /** read: false until a status read answered; then the rest is its answer. */
   account: { read: boolean; loggedIn: boolean; email: string | null; orgName: string | null; plan: string | null };
   design: { read: boolean; available: boolean; signedIn: boolean };
@@ -126,8 +128,36 @@ export type LoginSpawn = (file: string, args: string[], opts: { cwd: string; env
 export type StatusRun = (file: string, args: string[], opts: { cwd: string; env: Record<string, string> }) => Promise<{ stdout: string }>;
 
 /** The real spawn: no shell, stdin a pipe held open, output as text. */
+/** How often the watchdog in `LOGIN_WATCHDOG` looks whether the server is still there. */
+const LOGIN_WATCHDOG_INTERVAL_S = 2;
+
+/**
+ * The shell a login runs under. `auth login` never ends by itself (spec §
+ * What the CLI does) and does not stop when its stdin closes, and the server
+ * is stopped by a signal it does not handle (the desktop app quitting, a
+ * restart), which runs no `dispose`: the CLI would outlive the server and
+ * listen on its localhost port until the Mac restarts. Under this shell it
+ * cannot. A watchdog ends the CLI as soon as the server (the shell's parent)
+ * is gone; a TERM to the shell — a cancel or a timeout — ends the CLI with
+ * it. The CLI's stdin is the shell's own pipe, so a code and a design
+ * sign-in's closing stdin still reach it. `$0` is the CLI, the rest its
+ * arguments; the CLI's exit code is the shell's.
+ */
+const LOGIN_WATCHDOG = [
+  'server=$PPID',
+  '"$0" "$@" <&0 &',
+  'cli=$!',
+  "trap 'kill $cli 2>/dev/null; exit 143' TERM INT HUP",
+  `( while kill -0 "$server" 2>/dev/null && kill -0 "$cli" 2>/dev/null; do sleep ${LOGIN_WATCHDOG_INTERVAL_S}; done; kill "$cli" 2>/dev/null ) </dev/null >/dev/null 2>&1 &`,
+  'wait "$cli"',
+].join('\n');
+
 export const spawnLogin: LoginSpawn = (file, args, opts) => {
-  const child = spawn(file, args, { cwd: opts.cwd, env: opts.env, stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn('/bin/sh', ['-c', LOGIN_WATCHDOG, file, ...args], {
+    cwd: opts.cwd,
+    env: opts.env,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
   child.stdout?.setEncoding('utf8');
   child.stderr?.setEncoding('utf8');
   // A write after the CLI exited is an EPIPE on stdin: nothing to tell anyone.
@@ -183,6 +213,8 @@ export interface LoginServiceDeps {
   cliPath: string | null;
   /** The profile's path on disk, or undefined for an unknown id. */
   dirPath(claudeDirId: number): string | undefined;
+  /** The profile's name, for `ProfileLogin.name`. */
+  dirName?(claudeDirId: number): string | undefined;
   /** The e-mail in the profile's `.claude.json`, as the login was before a run (`readAccount`). */
   accountEmail?(claudeDirId: number): string | null;
   /** Every change of a profile's state; `index.ts` publishes it on `CLAUDE_DIR_LOGINS_TOPIC`. */
@@ -302,6 +334,7 @@ export class LoginService {
     const p = this.profile(claudeDirId);
     return {
       claudeDirId,
+      name: this.deps.dirName?.(claudeDirId) ?? null,
       account: { ...p.account },
       design: { ...p.design },
       runs: { claude: this.runWire(claudeDirId, p.runs.claude), design: this.runWire(claudeDirId, p.runs.design) },
@@ -387,6 +420,9 @@ export class LoginService {
       (run.timer as unknown as { unref?: () => void }).unref?.();
     }
     this.changed(claudeDirId);
+    // The sessions waiting on it rest while it runs (spec § 3): their
+    // `loginWait.running` rides on their own snapshots.
+    for (const sessionId of this.waitingOn(claudeDirId, kind)) this.deps.republish(sessionId);
     return { ok: true, login: this.snapshot(claudeDirId) };
   }
 

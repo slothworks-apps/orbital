@@ -28,7 +28,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'outline'
     | 'ink'
     | 'dashed-link'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'notice-dialog' | 'check' | 'member' | 'member-quiet' | 'member-line' | 'beside-field' | 'over-code' | 'chooser' | 'inline' | 'link-mono' | 'command'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'notice-dialog' | 'check' | 'member' | 'member-quiet' | 'member-line' | 'beside-field' | 'over-code' | 'chooser' | 'inline' | 'link-mono' | 'command' | 'login-row' | 'login-card' | 'touch'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -159,6 +159,12 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   'link-mono': 'font-mono text-[10.5px] tracking-[0.04em] text-[rgba(200,220,245,.85)]',
   // `Feature - Feedback` 61c's Run in Orbital beside the command it runs: 6px/11px at 12px.
   command: 'px-[11px] py-1.5 text-xs',
+  // `Feature - Log in` 62a: the lost-login notice's Log in / Cancel on its title row, 5px/11px at 12px.
+  'login-row': 'px-[11px] py-[5px] text-xs',
+  // 62b: the same answer on a Desk card, 6px/14px at 12px.
+  'login-card': 'px-3.5 py-1.5 text-xs',
+  // 62e: the phone notice's buttons, a 44px target at 14px.
+  touch: 'h-11 px-[18px] text-[14px]',
 }
 
 export function Button({
@@ -182,8 +188,10 @@ export function Button({
         ? 'rounded-[6px]'
         : size === 'field'
           ? 'rounded-[9px]'
-          : size === 'sm' || size === 'icon' || size === 'row' || size === 'command'
+          : size === 'sm' || size === 'icon' || size === 'row' || size === 'command' || size === 'login-row' || size === 'login-card'
             ? 'rounded-[7px]'
+            : size === 'touch'
+              ? 'rounded-[9px]'
             : size === 'choice-touch'
               ? 'rounded-[12px]'
               : 'rounded-lg'

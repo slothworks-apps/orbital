@@ -9,6 +9,7 @@ import {
   type LoginChild,
   type LoginServiceDeps,
   type ProfileLogin,
+  spawnLogin,
 } from '../src/login/service.js';
 import { SILENT_BROWSER } from '../src/login/parse.js';
 
@@ -244,6 +245,18 @@ describe('continuing after a login', () => {
     await vi.waitFor(() => expect(loginOf(h, dir).runs.claude?.state).toBe('succeeded'));
   }
 
+  it('republishes the waiting sessions as the login starts and as it ends, so the map rests them and wakes them', async () => {
+    const republished: string[] = [];
+    const h = harness({ republish: (id) => republished.push(id) });
+    h.service.turnEnded('s1', 1, lost);
+    republished.length = 0;
+    h.service.start(1, 'claude', LOCAL);
+    expect(republished).toEqual(['s1']);
+    h.children[0].exit(1);
+    await vi.waitFor(() => expect(loginOf(h).runs.claude?.state).toBe('failed'));
+    expect(republished).toEqual(['s1', 's1']);
+  });
+
   it('sends the continuation text once to every session that stopped on the login, with the notice and the turn', async () => {
     const h = harness();
     h.service.turnEnded('s1', 1, lost);
@@ -298,3 +311,20 @@ describe('continuing after a login', () => {
     expect(h.service.waitFor('claude')).toMatchObject({ kind: 'claude' });
   });
 });
+
+describe('spawnLogin, the real process', () => {
+  it('hands stdin to the CLI under its watchdog shell, and a kill ends the CLI with it', async () => {
+    // A stand-in CLI of one process, as the real one is: it echoes the code, then waits for ever.
+    const child = spawnLogin('/bin/sh', ['-c', 'read code; echo "got:$code"; exec sleep 1000'], { cwd: '/', env: { PATH: '/usr/bin:/bin' } });
+    let out = '';
+    child.onStdout((chunk) => (out += chunk));
+    const exited = new Promise<number | null>((resolve) => child.onExit(resolve));
+    child.write('abc#state\n');
+    await vi.waitFor(() => expect(out).toBe('got:abc#state\n'));
+    child.kill();
+    // The shell's TERM trap ends the CLI and answers 143; were the CLI left
+    // behind, it would hold stdout open and the exit would never come.
+    expect(await exited).toBe(143);
+  });
+});
+

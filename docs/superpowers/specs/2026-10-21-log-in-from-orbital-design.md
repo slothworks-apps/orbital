@@ -1,7 +1,7 @@
 ---
 id: 2026-10-21-log-in-from-orbital-design
 title: Log in from Orbital — a profile's login and its Claude Design sign-in, and Claude directories become Profiles
-status: active
+status: done
 type: spec
 domain: sessions
 related:
@@ -112,6 +112,19 @@ Hidden, written for the VS Code extension. JSON lines.
 - Refuses when stdin is a TTY, and when it detects it was spawned from a
   Claude Code session (`CLAUDECODE`, `CLAUDE_CODE_*` in the
   environment). The spawn drops those variables.
+
+### A login again signs Claude Design out
+
+Logging a profile in again (`auth login` while it is logged in, as
+"Switch account" does) left its Claude Design sign-in signed out
+(checked 2026-10-21 on `~/.claude`). After every claude run Orbital
+reads both statuses again, so the row says so; it does not sign Design
+in again by itself.
+
+`design-login` reports no account: the sign-in takes whichever account
+the browser's claude.ai is on, and nothing says which one it was
+(2026-10-21: a sign-in meant for the personal account went to the work
+one). Orbital cannot name it either.
 
 ### A live session picks up a new login
 
@@ -420,6 +433,8 @@ interface LoginRun {
 /** GET /api/claude-dirs/:id/login, and every event on `claude-dir-logins`. */
 interface ProfileLogin {
   claudeDirId: number
+  /** The profile's name: another device knows no names of this Mac's profiles. */
+  name: string | null
   /** read: false until a status read answered; then the rest is its answer. */
   account: { read: boolean; loggedIn: boolean; email: string | null; orgName: string | null; plan: string | null }
   design: { read: boolean; available: boolean; signedIn: boolean }
@@ -467,6 +482,34 @@ interface ProfileLogin {
 - Continuation: a lost-login session on the list gets the text once
   after a success; one the user wrote to since, an ended one, and one
   of another profile do not.
+
+## As built
+
+Checked end to end on 2026-10-21 against a fresh profile on a throwaway
+Mac server: a session failed on the lost login, the notice logged it in
+from this Mac (browser path) and from a paired phone through the relay
+(code path, `BROWSER` silenced), and the session continued by itself.
+
+- **A login runs under a watchdog shell** (`LOGIN_WATCHDOG` in
+  `server/src/login/service.ts`). `auth login` neither times out nor stops
+  when its stdin closes, and the server is stopped by signals that run no
+  `dispose` (the desktop quitting it, a restart): without the watchdog the
+  CLI outlived the server and kept its localhost port. The shell ends the
+  CLI when the server is gone, and a TERM to it (cancel, timeout) ends
+  the CLI too.
+- **The waiting sessions are republished when a login starts**, not only
+  when it ends, so the map rests them at once (§ 3).
+- **`ProfileLogin.name`** (§ 7): another device knows no names of the
+  Mac's profiles, and the notice names the profile.
+- **The CLI's "Please run /login"** is left out of the notice's sub line;
+  the notice's own Log in answers it.
+- **A lost login asks for the human in `shared/src/parked.ts`**
+  (`loginLost` in `asksForHuman`), so a notification says Needs input
+  where the map does.
+- **Remote Macs** draw the code path at 32px rows (62e AIR-M3, 62g); the
+  phone at 44px.
+- The `removeChild` error on leaving NEEDS INPUT seen during the pass is
+  older than this feature (fix `leaving-needs-input-throws-removechild`).
 
 ## Out of scope
 

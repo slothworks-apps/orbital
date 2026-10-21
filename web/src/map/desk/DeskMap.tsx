@@ -554,7 +554,7 @@ const DeskCard = memo(function DeskCard({
   // 41b: every live card wears a pill, WORKING and IDLE included — unlike a
   // planet, a card has no motion of its own to say it is working.
   // A lost login names what it needs (canvas 62b, 62d "ONE STATE IN FOUR PLACES").
-  const loginNeed = s.loginWait && !s.loginWait.running && !s.limitWait ? loginWaitLabels(s.loginWait, null).deskPill : null
+  const loginNeed = s.loginWait && !s.limitWait ? loginWaitLabels(s.loginWait, null).deskPill : null
   const pillLabel =
     loginNeed ?? pill?.label ?? (key === 'working' ? 'WORKING' : key === 'idle' ? 'IDLE' : null)
   const colour = stateColor(key)

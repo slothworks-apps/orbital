@@ -28,8 +28,8 @@ function startedByWord(startedBy: string | null): string {
 export interface LoginWaitLabels {
   /** Map pill under the name: `log in · Work profile`, `logging in · Pixel 8`. */
   pill: string
-  /** Desk card's state pill while the login is lost: `NEEDS LOGIN`, `NEEDS SIGN-IN`; null while it runs (the card rests). */
-  deskPill: string | null
+  /** Desk card's state pill: `NEEDS LOGIN`, `NEEDS SIGN-IN` while lost; `LOGGING IN`, `SIGNING IN` while it runs (62b). */
+  deskPill: string
   /**
    * Detail header. Lost: what follows `NEEDS INPUT · ` (`LOG IN TO WORK
    * PROFILE`). Running: the whole quiet line (`LOGGING IN · PIXEL 8`), drawn
@@ -45,7 +45,9 @@ export function loginWaitLabels(wait: Pick<LoginWait, 'kind' | 'running' | 'star
   if (wait.running) {
     const verb = design ? 'signing in' : 'logging in'
     const by = startedByWord(wait.startedBy)
-    return { pill: `${verb} · ${by}`, deskPill: null, header: `${verb} · ${by}`.toUpperCase(), short: verb.toUpperCase() }
+    // 62d: "LOGGING IN · IN THE BROWSER", or "LOGGING IN · FROM PIXEL 8".
+    const where = wait.startedBy ? `from ${wait.startedBy}` : 'in the browser'
+    return { pill: `${verb} · ${by}`, deskPill: verb.toUpperCase(), header: `${verb} · ${where}`.toUpperCase(), short: verb.toUpperCase() }
   }
   return design
     ? { pill: 'sign in · Claude Design', deskPill: 'NEEDS SIGN-IN', header: 'SIGN IN TO CLAUDE DESIGN', short: null }

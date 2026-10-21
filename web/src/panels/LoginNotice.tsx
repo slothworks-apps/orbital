@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { copyToClipboard } from '../lib/clipboard'
 import { claudeDirDisplayPath } from '../lib/claudeDirs'
 import {
@@ -23,8 +23,6 @@ import {
 } from '../store/profileLogins'
 import { useOrbital } from '../store/store'
 import { Button } from '../ui/Button'
-import { Input } from '../ui/Input'
-import { NoticeRow } from './NoticeRow'
 
 /**
  * Where the lost-login notice is drawn, and what that surface knows that the
@@ -44,16 +42,43 @@ export interface LoginNoticeSurface {
 
 export const LoginNoticeContext = createContext<LoginNoticeSurface>({ phone: false, serves: () => true })
 
+/** `The Work profile`, or `The profile` while its name is not known. */
+function theProfile(name: string | null): string {
+  return name ? `The ${name} profile` : 'The profile'
+}
+
+/** `Work profile`, as a sub line names it. */
+function profileWord(name: string | null): string {
+  return name ? `${name} profile` : 'profile'
+}
+
 /**
- * A `login_lost` row of the transcript (canvas `Feature - Log in` 62a, 62b,
- * 62d "TRANSCRIPT NOTICE"): A logged out with Log in, B logging in with the
- * code fallback and Cancel, C the past-tense divider once the login is back,
- * D failed with the CLI's or Orbital's sentence. The state is the profile's
+ * The CLI's sentence as the sub line keeps it (62a, 62d A): its own words,
+ * without the "Failed to authenticate:" the title already says in plain
+ * words, and without a "Please run /login" the notice's own Log in answers.
+ */
+function cliReason(text: string | undefined): string {
+  return (text ?? '')
+    .replace(/^\s*Failed to authenticate:\s*/i, '')
+    .replace(/\s*·?\s*Please run \/login\.?\s*$/i, '')
+    .trim()
+}
+
+/** How a notice names the device it is on, for "from this phone" (62e). */
+function deviceWord(phone: boolean): string {
+  return phone ? 'phone' : 'Mac'
+}
+
+/**
+ * A `login_lost` row of the transcript (canvas `Feature - Log in` 62a, 62d
+ * "TRANSCRIPT NOTICE"; phone 62e, 62h): A logged out with Log in, B logging
+ * in, C the past-tense divider once the login is back, D failed with the
+ * CLI's or Orbital's sentence. The state is the profile's
  * (`useProfileLogin`), so every notice of the profile and its Settings row
  * move together; nothing here keeps a state of its own beyond the field.
  *
- * Never amber beyond the NEEDS INPUT dot, never animated, no countdown: a
- * login can wait (`why-orbital`).
+ * The amber dot only while the session needs you, a hollow neutral one while
+ * the login runs; never animated, no countdown (`why-orbital`).
  */
 export function LoginLostRow({
   message,
@@ -101,7 +126,7 @@ export function LoginLostRow({
   if (view.kind === 'cli') {
     return (
       <div data-login-notice="cli" className="flex flex-col gap-1.5">
-        <NoticeRow message={message} />
+        <div className="font-mono text-[11px] leading-[1.6] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">{message.text}</div>
         {/* 62d edge cases: shown, not driven — the profile logs in from Settings. */}
         {view.link && !surface.phone && (
           <button
@@ -115,286 +140,332 @@ export function LoginLostRow({
       </div>
     )
   }
-  if (view.kind === 'restored') return <LoginDivider label={view.label} />
+  if (view.kind === 'restored') return <LoginDivider label={view.label} phone={surface.phone} />
 
-  const name = dir?.name ?? null
-  const profile = name ? `${name} profile` : 'this profile'
-  const verb = kind === 'design' ? 'Sign in' : 'Log in'
+  // Another device knows no names of the Mac's profiles; the Mac says it (§ 7).
+  const name = entry.login?.name ?? dir?.name ?? null
+  const design = kind === 'design'
+  const verb = design ? 'Sign in' : 'Log in'
   const run = entry.login?.runs[kind] ?? null
   const act = (fn: () => Promise<void>) => () => {
     if (!offline && claudeDirId !== null) void fn()
   }
   const start = act(() => startLogin(claudeDirId!, kind, machine))
+  const cancel = act(() => cancelLogin(claudeDirId!, kind, machine))
+  const settingsLink = !remote && !surface.phone
 
   if (view.kind === 'running') {
+    const copy = runningCopy(view.run, view.mine, remote, surface.phone, name, macName)
     return (
       <LoginRunning
         run={view.run}
-        mine={view.mine}
-        remote={remote}
         phone={surface.phone}
-        title={runningTitle(view.run, view.mine, remote, profile)}
-        waiting={sessionId ? waitingLine(view.run, sessionId, true) : null}
-        busy={Boolean(entry.busy[kind])}
+        copy={copy}
+        also={sessionId ? waitingLine(view.run, sessionId, true) : null}
         error={entry.error}
+        busy={Boolean(entry.busy[kind])}
         offline={offline}
+        settingsLink={settingsLink}
         onCodeFocus={surface.onCodeFocus}
         onSubmit={(code) => (claudeDirId === null ? undefined : void submitLoginCode(claudeDirId, kind, code, machine))}
-        onCancel={act(() => cancelLogin(claudeDirId!, kind, machine))}
+        onCancel={cancel}
       />
     )
   }
 
   const failed = view.kind === 'failed'
   const title = failed
-    ? kind === 'design'
-      ? 'Sign-in to Claude Design failed'
-      : 'Login failed'
-    : kind === 'design'
-      ? 'Signed out of Claude Design'
+    ? design
+      ? 'Claude Design is still not signed in'
+      : `${theProfile(name)} is still logged out`
+    : design
+      ? 'Claude Design isn’t signed in'
       : view.neverLoggedIn
-        ? `${capitalize(profile)} is not logged in`
-        : `Logged out of ${profile}`
-  const sub = failed
-    ? view.message
-    : view.kind === 'lost' && view.neverLoggedIn && dir?.path
-      ? claudeDirDisplayPath(dir.path)
-      : [view.kind === 'lost' && view.email ? `was ${view.email}` : null, message.text].filter(Boolean).join(' · ')
-  const note =
-    view.kind === 'lost' && view.access === 'no_grant'
-      ? `${macName} does not let this device log it in. Log in on ${macName}, in Settings → Profiles.`
-      : view.kind === 'lost' && view.access === 'older_mac'
-        ? `Log in on ${macName}: its Orbital is too old to log in from here.`
-        : !view.cliAvailable
-          ? 'Orbital knows no Claude Code executable on this Mac.'
-          : wait?.kind === kind
-            ? 'continues by itself once you’re logged in'
-            : null
-  const canStart = (view.kind === 'failed' || view.access === 'ok') && view.cliAvailable
-  const others = sessionId ? waitingLine(run, sessionId, false) : null
+        ? `${theProfile(name)} has never been logged in`
+        : `${theProfile(name)} lost its login`
+  const lost = view.kind === 'lost' ? view : null
+  const reason = design
+    ? 'DesignSync has no design credential'
+    : [lost?.email, cliReason(message.text)].filter(Boolean).join(' · ')
+  let sub: string
+  let note: string | null = null
+  if (failed) sub = view.message
+  else if (lost?.access === 'no_grant') {
+    // 62e/62h VARIANT · NO UPKEEP GRANT: no Log in, the Mac named.
+    sub = `on ${macName} · ${verb.toLowerCase()} on that Mac to restore it`
+    note = `this ${deviceWord(surface.phone)} has no “Upkeep of this Mac” grant`
+  } else if (lost?.access === 'older_mac') {
+    // 62h VARIANT · MAC NEEDS AN UPDATE: says what would make it possible.
+    sub = `on ${macName} · that Mac needs an Orbital update before it can ${verb.toLowerCase()} from here`
+    note = `or ${verb.toLowerCase()} on that Mac directly`
+  } else if (remote) sub = `on ${macName} · ${reason}`
+  else if (lost?.neverLoggedIn && dir?.path) sub = claudeDirDisplayPath(dir.path)
+  else sub = design ? `${profileWord(name)} · ${reason} (run /design-login)` : reason
+  const cliAvailable = view.kind === 'failed' ? view.cliAvailable : view.cliAvailable
+  if (!cliAvailable) note = 'Orbital knows no Claude Code executable on this Mac.'
+  const canStart = (failed || lost?.access === 'ok') && cliAvailable
 
   return (
     <LoginBlock
       phone={surface.phone}
-      tone={failed ? 'quiet' : 'asks'}
+      dot="needs"
       title={title}
-      lines={[sub, entry.error, note, others]}
-      actions={
+      sub={sub}
+      note={note}
+      also={sessionId ? waitingLine(run, sessionId, false) : null}
+      error={entry.error}
+      settingsLink={settingsLink}
+      action={
         canStart ? (
-          <NoticeButton phone={surface.phone} primary disabled={offline || Boolean(entry.busy[kind])} onClick={start}>
-            {failed ? `${verb} again` : verb}
-          </NoticeButton>
+          <Button
+            variant="lit"
+            size={surface.phone ? 'touch' : 'login-row'}
+            disabled={offline || Boolean(entry.busy[kind])}
+            onClick={start}
+          >
+            {verb}
+          </Button>
         ) : null
       }
     />
   )
 }
 
-function capitalize(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1)
+/** What B says, and what it offers (62a, 62d B; 62e, 62h on another device). */
+interface RunningCopy {
+  title: string
+  sub: string
+  /** Cancel on the title row. */
+  cancel: boolean
+  /** The code path: folded behind "Browser didn't open? ›" on this Mac, the path itself elsewhere. */
+  code: 'folded' | 'open' | null
 }
 
-/** B's title (62a, 62d, 62h): where the login is finished, or who is finishing it. */
-function runningTitle(run: LoginRun, mine: boolean, remote: boolean, profile: string): string {
-  if (run.step === 'checking') return 'Checking the code'
-  if (!mine) return `Logging in from ${run.startedBy.name}`
-  const what = run.kind === 'design' ? 'Signing in to Claude Design' : `Logging in to ${profile}`
-  return remote || run.manualOnly ? `${what} · open the sign-in page and paste the code` : `${what} · finish in the browser`
+function runningCopy(run: LoginRun, mine: boolean, remote: boolean, phone: boolean, name: string | null, macName: string): RunningCopy {
+  const design = run.kind === 'design'
+  const ing = design ? 'Signing in' : 'Logging in'
+  if (!remote) {
+    if (run.step === 'checking') return { title: 'Checking the code', sub: 'this updates by itself', cancel: false, code: null }
+    // A login another device started: its code is entered there (62e "On the
+    // Mac's own transcript the notice reads Logging in from Pixel 8 with Cancel").
+    if (!mine) return { title: `${ing} from ${run.startedBy.name}`, sub: 'the code is entered there · nothing opens on this Mac', cancel: true, code: null }
+    return {
+      title: design ? 'Finish signing in in your browser' : 'Finish logging in in your browser',
+      sub: design
+        ? `opened the Claude Design sign-in for the ${profileWord(name)} · this updates by itself`
+        : `opened claude.ai for the ${profileWord(name)} · this updates by itself`,
+      cancel: true,
+      code: run.manualUrl !== null ? 'folded' : null,
+    }
+  }
+  // On another device (62h): only the device that started it enters the code.
+  if (run.startedBy.deviceId === null) {
+    return { title: `${ing} on ${macName}`, sub: 'started on that Mac · this updates by itself', cancel: false, code: null }
+  }
+  if (!mine) return { title: `${ing} from ${run.startedBy.name}`, sub: 'the code is entered there · this updates by itself', cancel: false, code: null }
+  if (run.step === 'checking') return { title: 'Checking the code', sub: `with ${macName} · nothing to do here`, cancel: false, code: null }
+  return {
+    title: design
+      ? `Sign in to Claude Design from this ${deviceWord(phone)}`
+      : `Log in to the ${profileWord(name)} from this ${deviceWord(phone)}`,
+    sub: `${macName} started the login · nothing opens there`,
+    cancel: false,
+    code: run.manualUrl !== null ? 'open' : null,
+  }
 }
 
 /** A `login_restored` row (live only, like `limit_reset`): the divider the notice folds into (62d C). */
 export function LoginRestoredRow({ message }: { message: ChatMessage }) {
+  const surface = useContext(LoginNoticeContext)
   const notice = message.notice?.login as LoginRestoredNotice | undefined
   if (!notice) return null
-  return <LoginDivider label={restoredNoticeLabel(notice)} />
+  return <LoginDivider label={restoredNoticeLabel(notice)} phone={surface.phone} />
 }
 
-/** 62d C: the past-tense line, the limit reset's divider (31d AFTER). */
-function LoginDivider({ label }: { label: string }) {
+/** 62a, 62d C: the past-tense line a restored login folds into. */
+function LoginDivider({ label, phone }: { label: string; phone: boolean }) {
   return (
     <div
       data-login-restored
-      className="flex items-center gap-2.5 whitespace-nowrap py-3 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.55)]"
+      className={[
+        'flex items-center gap-2.5 font-mono text-[9.5px] tracking-[0.12em] text-[rgba(160,190,225,.6)]',
+        phone ? 'py-1' : 'py-0.5',
+      ].join(' ')}
     >
       <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
-      <span className="min-w-0 truncate">{label}</span>
+      <span className="text-center [text-wrap:pretty]">{label}</span>
       <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
     </div>
   )
 }
 
 /**
- * The notice's box, as the limit wait's (31d; phone 10k): a dot, the title,
- * its quiet lines, the actions. `asks` wears NEEDS INPUT's steady solid dot,
- * `rests` the hollow ring of a session that waits on nothing from you,
- * `quiet` a dim one.
+ * The notice's box (62a on the Mac, 62e on the phone): the dot, the title,
+ * the sub line with the CLI's sentence, a quieter note, the "waits on the
+ * same login" line, and "profile settings ›" on the Mac. `needs` is the
+ * amber of a session that needs you; `rests` the hollow neutral ring of one
+ * waiting on the browser.
  */
 function LoginBlock({
   phone,
-  tone,
+  dot,
   title,
-  lines,
-  actions,
+  sub,
+  note = null,
+  also = null,
+  error = null,
+  settingsLink,
+  action,
   children,
 }: {
   phone: boolean
-  tone: 'asks' | 'rests' | 'quiet'
+  dot: 'needs' | 'rests'
   title: string
-  lines: Array<string | null | undefined>
-  actions: ReactNode
+  sub: string
+  note?: string | null
+  also?: string | null
+  error?: string | null
+  settingsLink: boolean
+  action: ReactNode
   children?: ReactNode
 }) {
-  const shown = lines.filter((l): l is string => Boolean(l))
-  const dot =
-    tone === 'asks' ? (
-      <span aria-hidden className="block h-2 w-2 flex-none rounded-full" style={{ background: stateColor('needs_input') }} />
-    ) : (
-      <span
-        aria-hidden
-        className={[
-          'block h-2 w-2 flex-none rounded-full border-[1.5px] border-solid',
-          tone === 'rests' ? 'border-[rgba(214,230,248,.75)]' : 'border-[rgba(160,190,225,.5)]',
-        ].join(' ')}
-      />
+  const mark = (
+    <span
+      aria-hidden
+      className={[
+        'block h-2 w-2 flex-none rounded-full',
+        dot === 'rests' ? 'border-[1.5px] border-solid border-[rgba(214,230,248,.8)]' : '',
+        phone ? 'mt-[7px]' : '',
+      ].join(' ')}
+      style={dot === 'needs' ? { background: stateColor('needs_input') } : undefined}
+    />
+  )
+  if (phone) {
+    return (
+      <div
+        data-login-notice={dot}
+        className="flex flex-col gap-2.5 rounded-[12px] border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.5)] px-4 py-3.5"
+      >
+        <div className="flex items-start gap-2.5">
+          {mark}
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <span className="text-[15px] font-semibold leading-[1.35] text-text-bright [text-wrap:pretty]">{title}</span>
+            <span className="font-mono text-[11.5px] leading-[1.6] text-[rgba(160,190,225,.7)] [overflow-wrap:anywhere] [text-wrap:pretty]">
+              {sub}
+            </span>
+            {note && (
+              <span className="font-mono text-[11.5px] leading-[1.6] text-[rgba(160,190,225,.5)] [text-wrap:pretty]">{note}</span>
+            )}
+            {also && <span className="font-mono text-[11.5px] leading-[1.6] text-[rgba(160,190,225,.5)]">{also}</span>}
+            {error && <span className="font-mono text-[11.5px] leading-[1.6] text-[rgba(220,235,255,.85)]">{error}</span>}
+          </div>
+        </div>
+        {action && <div className="flex pl-[18px]">{action}</div>}
+        {children}
+      </div>
     )
+  }
   return (
     <div
-      data-login-notice={tone}
-      className={
-        phone
-          ? 'flex flex-col gap-2.5 rounded-[12px] border border-[rgba(150,205,255,.16)] bg-[rgba(8,12,22,.9)] px-3.5 py-3'
-          : 'flex flex-col gap-2 rounded-[9px] border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.5)] px-3.5 py-3'
-      }
+      data-login-notice={dot}
+      className="flex flex-col gap-2 rounded-[9px] border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.5)] px-3.5 py-3"
     >
-      <div className={phone ? 'flex items-start gap-2.5' : 'flex items-center gap-2.5'}>
-        <span className={phone ? 'mt-1.5 flex' : 'flex'}>{dot}</span>
-        <span className={['min-w-0 flex-1 font-semibold text-text-bright', phone ? 'text-[14px]' : 'text-[13px]'].join(' ')}>
-          {title}
-        </span>
-        {!phone && actions}
+      <div className="flex items-center gap-2.5">
+        {mark}
+        <span className="min-w-0 flex-1 text-[13px] font-semibold text-text-bright">{title}</span>
+        {action}
       </div>
-      {shown.map((line, i) => (
-        <div
-          key={i}
-          className="pl-[18px] font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.65)] [overflow-wrap:anywhere] [text-wrap:pretty]"
-        >
-          {line}
-        </div>
-      ))}
+      <div className="pl-[18px] font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.65)] [overflow-wrap:anywhere] [text-wrap:pretty]">
+        {sub}
+      </div>
+      {note && <div className="pl-[18px] font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.5)] [text-wrap:pretty]">{note}</div>}
+      {also && <div className="pl-[18px] font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">{also}</div>}
+      {error && <div className="pl-[18px] font-mono text-[10.5px] leading-[1.6] text-[rgba(220,235,255,.85)]">{error}</div>}
       {children}
-      {phone && actions && <div className="flex items-center justify-end gap-2.5 pl-[18px]">{actions}</div>}
+      {settingsLink && (
+        <div className="flex gap-3.5 pl-[18px] font-mono text-[10.5px]">
+          <button
+            type="button"
+            onClick={() => openSettingsSection('profiles')}
+            className="cursor-pointer border-0 bg-transparent p-0 font-mono text-[10.5px] text-[#8fd8ff] hover:text-[#c6ecff]"
+          >
+            profile settings ›
+          </button>
+        </div>
+      )}
     </div>
   )
 }
 
-/** The notice's own buttons: the limit notice's row button on the Mac, a 44px target on the phone. */
-function NoticeButton({
-  phone,
-  primary = false,
-  disabled,
-  onClick,
-  children,
-}: {
-  phone: boolean
-  primary?: boolean
-  disabled?: boolean
-  onClick?: () => void
-  children: ReactNode
-}) {
-  if (!phone) {
-    return (
-      <Button variant={primary ? 'lit' : 'ghost'} size="row" disabled={disabled} onClick={onClick}>
-        {children}
-      </Button>
-    )
-  }
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={[
-        'h-11 min-w-[88px] rounded-[12px] border px-4 text-[13.5px] font-semibold disabled:opacity-40',
-        primary
-          ? 'border-transparent bg-[oklch(85%_.12_205)] text-[#03111a]'
-          : 'border-[rgba(150,205,255,.22)] bg-transparent text-text-bright',
-      ].join(' ')}
-    >
-      {children}
-    </button>
-  )
-}
-
 /**
- * B (62a, 62d; phone 62e, 62h): the login runs. On this Mac the browser
- * path finishes it, and the code path is folded behind "Browser didn't
- * open? ›"; on another device the code is the path, never folded. Only the
- * device that started it gets the field; every other one reads who is
- * finishing it.
+ * B (62a, 62d; 62e, 62h on another device): the login runs. On this Mac
+ * the browser path finishes it and the code path is folded behind "Browser
+ * didn't open? ›", never unfolding by itself; on another device the code is
+ * the path, never folded, and only the device that started it gets the
+ * field.
  */
 export function LoginRunning({
   run,
-  mine,
-  remote,
   phone,
-  title,
-  waiting,
-  busy,
+  copy,
+  also,
   error,
+  busy,
   offline,
+  settingsLink,
   onCodeFocus,
   onSubmit,
   onCancel,
 }: {
   run: LoginRun
-  mine: boolean
-  remote: boolean
   phone: boolean
-  title: string
-  waiting: string | null
-  busy: boolean
+  copy: RunningCopy
+  also: string | null
   error: string | null
+  busy: boolean
   offline: boolean
+  settingsLink: boolean
   onCodeFocus?: (focused: boolean) => void
   onSubmit: (code: string) => void
   onCancel: () => void
 }) {
-  const checking = run.step === 'checking'
-  const manual = remote || run.manualOnly
   const [unfolded, setUnfolded] = useState(false)
-  const codeShown = mine && !checking && run.manualUrl !== null && (manual || unfolded)
+  const disabled = offline || busy
   return (
     <LoginBlock
       phone={phone}
-      tone="rests"
-      title={title}
-      lines={[error, waiting]}
-      actions={
-        // The phone's code path carries its own Cancel, beside Submit (62e).
-        phone && codeShown ? null : (
-          <NoticeButton phone={phone} disabled={offline || busy} onClick={onCancel}>
+      dot="rests"
+      title={copy.title}
+      sub={copy.sub}
+      also={also}
+      error={error}
+      settingsLink={settingsLink}
+      action={
+        copy.cancel ? (
+          <Button variant="ghost" size={phone ? 'touch' : 'login-row'} disabled={disabled} onClick={onCancel}>
             Cancel
-          </NoticeButton>
-        )
+          </Button>
+        ) : null
       }
     >
-      {mine && !checking && !manual && run.manualUrl !== null && !unfolded && (
+      {copy.code === 'folded' && (
         <button
           type="button"
-          onClick={() => setUnfolded(true)}
-          className="cursor-pointer self-start border-0 bg-transparent p-0 pl-[18px] font-mono text-[10.5px] text-[#8fd8ff] hover:text-[#c6ecff]"
+          aria-expanded={unfolded}
+          onClick={() => setUnfolded((u) => !u)}
+          className="ml-[18px] cursor-pointer self-start border-0 bg-transparent p-0 font-mono text-[10.5px] text-[#8fd8ff] hover:text-[#c6ecff]"
         >
-          Browser didn’t open? ›
+          {unfolded ? 'Hide ‹' : 'Browser didn’t open? ›'}
         </button>
       )}
-      {codeShown && (
+      {run.manualUrl !== null && (copy.code === 'open' || (copy.code === 'folded' && unfolded)) && (
         <LoginCodeEntry
-          manualUrl={run.manualUrl!}
+          manualUrl={run.manualUrl}
           phone={phone}
-          disabled={offline || busy}
+          disabled={disabled}
           onFocusChange={onCodeFocus}
           onSubmit={onSubmit}
-          onCancel={phone ? onCancel : undefined}
+          onCancel={copy.code === 'open' ? onCancel : undefined}
         />
       )}
     </LoginBlock>
@@ -405,11 +476,13 @@ export function LoginRunning({
 const COMPOSER_RETURN_MS = 250
 
 /**
- * The code path (62d fallback; 62e, 62h on the phone): the sign-in page,
- * which shows a code, and the field it is pasted into. Submit stays dim
- * until something is in the field. On the phone the field has its own
- * Paste (spec § 6), hidden where the WebView refuses the clipboard, and the
- * notice's Cancel sits beside Submit.
+ * The code path, numbered as the canvas numbers it: 1 the sign-in page,
+ * which shows a code, 2 the field it is pasted into. On the Mac (62d B ·
+ * FALLBACK UNFOLDED) a quiet box with "copy link" and Submit beside the
+ * field; on another device (62e) 44px rows, the field with its own Paste —
+ * hidden where the WebView refuses the clipboard (spec § 6) — and Cancel /
+ * Submit code on a row of their own, so a long code never pushes them off.
+ * Submit stays dim until something is in the field.
  */
 export function LoginCodeEntry({
   manualUrl,
@@ -418,20 +491,23 @@ export function LoginCodeEntry({
   onFocusChange,
   onSubmit,
   onCancel,
+  indent = true,
 }: {
   manualUrl: string
   phone: boolean
   disabled: boolean
+  /** Under a notice's title, past its dot; Settings places it itself (62c). */
+  indent?: boolean
   onFocusChange?: (focused: boolean) => void
   onSubmit: (code: string) => void
-  /** The phone's Cancel beside Submit; the Mac's sits on the title row. */
+  /** Cancel beside Submit, where the code is the path (62e); the Mac's sits on the title row. */
   onCancel?: () => void
 }) {
   const [code, setCode] = useState('')
   const [copied, setCopied] = useState(false)
   const [pasteRefused, setPasteRefused] = useState(false)
   const read = useMemo(() => (phone ? clipboardReader() : null), [phone])
-  const submitRef = useRef<HTMLButtonElement>(null)
+  const submitRef = useRef<HTMLDivElement>(null)
   const focused = useRef(false)
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const ready = code.trim() !== ''
@@ -466,94 +542,114 @@ export function LoginCodeEntry({
     else if (text) setCode(text)
   }
 
-  const field = (
-    <Input
-      aria-label="Sign-in code"
-      font="mono"
-      size={phone ? 'lg' : 'sm'}
-      variant={phone ? 'bare' : 'field'}
-      autoComplete="one-time-code"
-      autoCapitalize="off"
-      autoCorrect="off"
-      spellCheck={false}
-      placeholder="paste the code"
-      value={code}
-      disabled={disabled}
-      onChange={(e) => setCode(e.target.value)}
-      onFocus={() => {
-        focused.current = true
-        if (blurTimer.current) clearTimeout(blurTimer.current)
-        onFocusChange?.(true)
-      }}
-      onBlur={() => {
-        focused.current = false
-        // The composer comes back a beat after the field lets go: a tap on
-        // Submit blurs the field first, and the composer returning at once
-        // would move Submit out from under the finger.
-        blurTimer.current = setTimeout(() => onFocusChange?.(false), COMPOSER_RETURN_MS)
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          submit()
-        }
-      }}
-      className="min-w-0 flex-1"
-    />
+  const inputProps = {
+    type: 'text',
+    'aria-label': 'Sign-in code',
+    autoComplete: 'one-time-code',
+    autoCapitalize: 'off',
+    autoCorrect: 'off',
+    spellCheck: false,
+    value: code,
+    disabled,
+    onChange: (e: ChangeEvent<HTMLInputElement>) => setCode(e.target.value),
+    onFocus: () => {
+      focused.current = true
+      if (blurTimer.current) clearTimeout(blurTimer.current)
+      onFocusChange?.(true)
+    },
+    onBlur: () => {
+      focused.current = false
+      // The composer comes back a beat after the field lets go: a tap on
+      // Submit blurs the field first, and the composer returning at once
+      // would move Submit out from under the finger.
+      blurTimer.current = setTimeout(() => onFocusChange?.(false), COMPOSER_RETURN_MS)
+    },
+    onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        submit()
+      }
+    },
+  } as const
+  const step = (n: number, size: string) => (
+    <span className={['w-2.5 flex-none font-mono text-[rgba(160,190,225,.5)]', size].join(' ')}>{n}</span>
   )
 
-  if (phone) {
+  if (phone || onCancel) {
+    // 44px rows on the phone (62e); another Mac's are 32px (62e AIR-M3, 62g).
+    const t = phone
     return (
-      <div data-login-code className="flex flex-col gap-2.5 pl-[19px]">
-        <button
-          type="button"
-          onClick={() => openSignInPage(manualUrl)}
-          className="flex h-11 items-center justify-center rounded-[12px] border border-[rgba(150,205,255,.22)] bg-transparent px-4 text-[13.5px] font-semibold text-text-bright"
-        >
-          Open sign-in page ↗
-        </button>
-        <div className="flex min-h-11 items-center gap-2 rounded-[12px] border border-[rgba(150,205,255,.18)] pl-3 pr-1">
-          {field}
-          {read && !pasteRefused && (
-            <button
-              type="button"
-              onClick={() => void paste()}
-              disabled={disabled}
-              className="h-9 flex-none rounded-[9px] border border-[rgba(150,205,255,.2)] bg-transparent px-3 text-[12.5px] font-semibold text-text-bright disabled:opacity-40"
-            >
-              Paste
-            </button>
-          )}
-        </div>
-        <div className="flex items-center justify-end gap-2.5">
-          {onCancel && (
-            <NoticeButton phone disabled={disabled} onClick={onCancel}>
-              Cancel
-            </NoticeButton>
-          )}
+      <div data-login-code className={['flex flex-col', t ? 'gap-2.5 pl-[18px]' : 'gap-2.5'].join(' ')}>
+        <div className="flex items-center gap-2.5">
+          {step(1, t ? 'text-[11.5px]' : 'text-[10.5px]')}
           <button
-            ref={submitRef}
             type="button"
-            onClick={submit}
-            disabled={disabled}
-            aria-disabled={!ready || undefined}
+            onClick={() => openSignInPage(manualUrl)}
             className={[
-              'h-11 min-w-[88px] rounded-[12px] px-4 text-[13.5px] font-bold disabled:opacity-40',
-              ready
-                ? 'bg-[oklch(85%_.12_205)] text-[#03111a]'
-                : 'cursor-default border border-[rgba(150,205,255,.14)] bg-transparent text-[rgba(160,190,225,.5)]',
+              'flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 border border-[rgba(150,205,255,.18)] bg-transparent font-sans font-semibold text-[#8fd8ff] hover:bg-[rgba(150,205,255,.08)]',
+              t ? 'h-11 rounded-[9px] px-3.5 text-[14px]' : 'h-8 rounded-[8px] px-3 text-[12.5px]',
             ].join(' ')}
           >
-            Submit code
+            <span>Open sign-in page</span>
+            <span aria-hidden>↗</span>
           </button>
+        </div>
+        <div className="flex items-center gap-2.5">
+          {step(2, t ? 'text-[11.5px]' : 'text-[10.5px]')}
+          <div
+            className={[
+              'flex min-w-0 flex-1 items-center gap-1.5 border bg-[rgba(4,8,16,.6)] pr-1',
+              t ? 'h-11 rounded-[9px] pl-3' : 'h-8 rounded-[8px] pl-2.5',
+              code ? 'border-[oklch(85%_.12_205_/_.5)]' : 'border-[rgba(150,205,255,.16)]',
+            ].join(' ')}
+          >
+            <input
+              {...inputProps}
+              placeholder="Paste the code the page shows"
+              className={[
+                'm-0 min-w-0 flex-1 text-ellipsis border-0 bg-transparent p-0 font-mono text-text-bright outline-none placeholder:text-[rgba(160,190,225,.45)]',
+                t ? 'text-[12px]' : 'text-[11px]',
+              ].join(' ')}
+            />
+            {read && !pasteRefused && (
+              <button
+                type="button"
+                onClick={() => void paste()}
+                disabled={disabled}
+                className={[
+                  'flex-none cursor-pointer border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.06)] font-sans font-semibold text-[rgba(220,235,255,.9)] disabled:opacity-40',
+                  t ? 'h-9 rounded-[7px] px-3 text-[13px]' : 'h-6 rounded-[6px] px-2.5 text-[11.5px]',
+                ].join(' ')}
+              >
+                Paste
+              </button>
+            )}
+          </div>
+        </div>
+        <div ref={submitRef} className="flex justify-end gap-2">
+          {onCancel && (
+            <Button variant="ghost" size={t ? 'touch' : 'command'} disabled={disabled} onClick={onCancel}>
+              Cancel
+            </Button>
+          )}
+          <Button variant="lit" size={t ? 'touch' : 'command'} disabled={disabled || !ready} onClick={submit}>
+            Submit code
+          </Button>
         </div>
       </div>
     )
   }
 
   return (
-    <div data-login-code className="flex flex-col gap-2 pl-[18px]">
-      <div className="flex items-center gap-3.5 font-mono text-[10.5px]">
+    <div
+      data-login-code
+      className={[
+        indent ? 'ml-[18px]' : '',
+        'flex flex-col gap-[9px] rounded-[8px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3 py-2.5',
+      ].join(' ')}
+    >
+      <div className="flex items-baseline gap-[9px] font-mono text-[10.5px]">
+        {step(1, 'text-[10.5px]')}
         <button
           type="button"
           onClick={() => openSignInPage(manualUrl)}
@@ -561,17 +657,23 @@ export function LoginCodeEntry({
         >
           Open the sign-in page ↗
         </button>
+        <span className="flex-1" />
         <button
           type="button"
           onClick={() => void copyToClipboard(manualUrl).then(setCopied)}
-          className="cursor-pointer border-0 bg-transparent p-0 font-mono text-[10.5px] text-[rgba(160,190,225,.7)] hover:text-[#c6ecff]"
+          className="cursor-pointer border-0 bg-transparent p-0 font-mono text-[10.5px] text-[rgba(160,190,225,.55)] hover:text-[#c6ecff]"
         >
           {copied ? 'copied' : 'copy link'}
         </button>
       </div>
-      <div className="flex items-center gap-2">
-        {field}
-        <Button variant={ready ? 'lit' : 'ghost'} size="row" disabled={disabled || !ready} onClick={submit}>
+      <div className="flex items-center gap-[9px]">
+        {step(2, 'text-[10.5px]')}
+        <input
+          {...inputProps}
+          placeholder="Paste the code that page shows"
+          className="m-0 min-w-0 flex-1 rounded-[7px] border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.6)] px-[9px] py-1.5 font-mono text-[11px] text-text-bright outline-none placeholder:text-[rgba(160,190,225,.45)] focus:border-[oklch(85%_.12_205_/_.5)] focus:shadow-[0_0_0_3px_oklch(85%_.12_205_/_.1)]"
+        />
+        <Button variant="lit" size="command" disabled={disabled || !ready} onClick={submit}>
           Submit
         </Button>
       </div>
@@ -580,66 +682,79 @@ export function LoginCodeEntry({
 }
 
 /**
- * The Desk card's answer to a lost login (canvas 62b): the card carries the
- * notice the way it carries a question (41b) — what is needed and Log in, or
- * the running login with its Cancel and code path. The same profile state
- * as the transcript's notice, so answering one answers both.
+ * The Desk card's answer to a lost login (canvas 62b): the card carries it
+ * the way it carries a question form — a chip naming what is needed, one
+ * sentence, one button. The same profile state as the transcript's notice,
+ * so answering one answers both; the detail panel keeps the full notice.
  */
 export function LoginCardBlock({ session, offline }: { session: ApiSession; offline: boolean }) {
   const wait = session.loginWait
   const machine = session.machine?.id
   const remote = machine !== undefined
   const entry = useProfileLogin(wait?.claudeDirId, machine, { rereadKey: wait ? `${wait.kind}:${wait.running}` : 'none' })
-  const name = useOrbital((s) => (remote || !wait ? null : (s.claudeDirs.find((d) => d.id === wait.claudeDirId)?.name ?? null)))
+  const localDir = useOrbital((s) => (remote || !wait ? undefined : s.claudeDirs.find((d) => d.id === wait.claudeDirId)))
   if (!wait) return null
   const { kind, claudeDirId } = wait
-  const profile = name ? `${name} profile` : 'this profile'
+  const design = kind === 'design'
+  const name = entry.login?.name ?? localDir?.name ?? null
   const run = entry.login?.runs[kind] ?? null
-  const key = profileKey(claudeDirId, machine)
-  if (run?.state === 'running' && entry.refused === null) {
-    const mine = startedHere(key, run, remote)
-    return (
-      <LoginRunning
-        run={run}
-        mine={mine}
-        remote={remote}
-        phone={false}
-        title={runningTitle(run, mine, remote, profile)}
-        waiting={null}
-        busy={Boolean(entry.busy[kind])}
-        error={entry.error}
-        offline={offline}
-        onSubmit={(code) => void submitLoginCode(claudeDirId, kind, code, machine)}
-        onCancel={() => void cancelLogin(claudeDirId, kind, machine)}
-      />
-    )
-  }
+  const running = run?.state === 'running' && entry.refused === null
   const failed = run?.state === 'failed' ? run.message : null
-  const refusedLine =
-    entry.refused === 'no_grant'
-      ? `Log in on ${session.machine?.name ?? 'the Mac'}.`
-      : entry.refused === 'older_mac'
-        ? `Log in on ${session.machine?.name ?? 'the Mac'}: its Orbital is too old to log in from here.`
-        : null
+  const fromElsewhere = running && run.startedBy.deviceId !== null && !startedHere(profileKey(claudeDirId, machine), run, remote)
+  const chip = running ? (fromElsewhere ? `FROM ${run.startedBy.name.toUpperCase()}` : 'IN THE BROWSER') : design ? 'CLAUDE DESIGN' : 'LOG IN'
+  // The account the login was, as `.claude.json` still names it (spec § 4).
+  const email = localDir?.account ?? null
+  const text = running
+    ? fromElsewhere
+      ? `Started from ${run.startedBy.name}; the code is entered there.`
+      : 'Finish in the browser window Orbital opened.'
+    : failed
+      ? failed
+      : design
+        ? `Claude Design isn’t signed in for the ${profileWord(name)}.`
+        : `${theProfile(name)} lost its login${email ? ` (${email})` : ''}.`
   const canStart = entry.refused === null && (entry.login?.cliAvailable ?? true)
   return (
-    <LoginBlock
-      phone={false}
-      tone="asks"
-      title={kind === 'design' ? 'Signed out of Claude Design' : `Logged out of ${profile}`}
-      lines={[failed, entry.error, refusedLine]}
-      actions={
-        canStart ? (
-          <NoticeButton
-            phone={false}
-            primary
-            disabled={offline || Boolean(entry.busy[kind])}
-            onClick={() => void startLogin(claudeDirId, kind, machine)}
-          >
-            {kind === 'design' ? 'Sign in' : 'Log in'}
-          </NoticeButton>
-        ) : null
-      }
-    />
+    <div
+      data-login-card
+      className="flex flex-col gap-[9px] rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(5,9,18,.82)] bg-[image:linear-gradient(180deg,rgba(10,16,28,.72),rgba(5,9,18,.82))] px-3 pb-3 pt-[11px]"
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className={[
+            'rounded-[4px] border px-[7px] py-0.5 font-mono text-[9.5px] tracking-[0.14em]',
+            running
+              ? 'border-[rgba(150,205,255,.22)] bg-transparent text-[rgba(214,230,248,.8)]'
+              : 'border-[rgba(255,187,123,.35)] bg-[rgba(255,187,123,.1)] text-[#ffd2a8]',
+          ].join(' ')}
+        >
+          {chip}
+        </span>
+      </div>
+      <div className="text-[12.5px] leading-[1.5] text-[rgba(232,238,248,.94)] [text-wrap:pretty]">{text}</div>
+      {(running || canStart) && (
+        <div className="flex gap-1.5">
+          {running ? (
+            <Button
+              variant="ghost"
+              size="login-card"
+              disabled={offline || Boolean(entry.busy[kind])}
+              onClick={() => void cancelLogin(claudeDirId, kind, machine)}
+            >
+              Cancel
+            </Button>
+          ) : (
+            <Button
+              variant="lit"
+              size="login-card"
+              disabled={offline || Boolean(entry.busy[kind])}
+              onClick={() => void startLogin(claudeDirId, kind, machine)}
+            >
+              {design ? 'Sign in' : 'Log in'}
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

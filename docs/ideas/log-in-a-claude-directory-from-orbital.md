@@ -1,7 +1,7 @@
 ---
 id: log-in-a-claude-directory-from-orbital
 title: Log in to a Claude directory from Orbital
-status: active
+status: done
 type: idea
 domain: sessions
 related:

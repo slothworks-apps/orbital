@@ -741,6 +741,7 @@ export async function buildServer(overrides: {
   const logins: LoginService = new LoginService({
     cliPath: mcpCliPath,
     dirPath: (claudeDirId) => claudeDirs.get(claudeDirId)?.path,
+    dirName: (claudeDirId) => claudeDirs.get(claudeDirId)?.name,
     accountEmail: (claudeDirId) => claudeDirs.accountOf(claudeDirId)?.email ?? null,
     publish: (login) => hub.publish(CLAUDE_DIR_LOGINS_TOPIC, { event: 'login', login }),
     publishToSession: (sessionId, payload) => hub.publish(`session:${sessionId}`, payload),

@@ -9,7 +9,7 @@ import {
   type LoginNoticeInput,
 } from '../lib/profileLogin'
 import { sessionStateKey, shownStatus, type ApiSession, type ChatMessage, type LoginRun, type ProfileLogin } from '../lib/types'
-import { accountLine } from '../panels/ProfileLoginRow'
+import { accountRow } from '../panels/ProfileLoginRow'
 import { opensInBrowser, succeededNow } from '../store/profileLogins'
 import { useMobile } from '../mobile/state'
 import { MAC_FEATURES, sessionSupports } from '../mobile/version'
@@ -42,6 +42,7 @@ function run(over: Partial<LoginRun> = {}): LoginRun {
 function profile(over: { loggedIn?: boolean; read?: boolean; email?: string | null; run?: LoginRun | null } = {}): ProfileLogin {
   return {
     claudeDirId: 2,
+    name: 'Work',
     account: {
       read: over.read ?? true,
       loggedIn: over.loggedIn ?? false,
@@ -192,13 +193,21 @@ describe('a session stopped on a lost login', () => {
 
 describe('the Settings row’s account line', () => {
   it('reads the status once answered, and the list’s e-mail until then', () => {
-    expect(accountLine(null, 'jan@acme.com')).toBe('jan@acme.com')
-    expect(accountLine(profile({ loggedIn: false }), 'jan@acme.com')).toBe('was jan@acme.com · OAuth session expired')
-    expect(accountLine(profile({ loggedIn: false }), null)).toBe('Not logged in')
+    const row = (login: ProfileLogin | null, listed: string | null) => {
+      const r = accountRow(login, listed, false, 'the Mac', () => true)
+      return [r.value, r.sub, r.button]
+    }
+    expect(row(null, 'jan@acme.com')).toEqual(['jan@acme.com', null, null])
+    // `.claude.json` still names the lapsed login; the status knows it is gone (spec § 4).
+    expect(row(profile({ loggedIn: false }), 'jan@acme.com')).toEqual(['Not logged in', 'was jan@acme.com · OAuth session expired', 'Log in'])
+    expect(row(profile({ loggedIn: false }), null)).toEqual(['Not logged in', null, 'Log in'])
     const ok = profile({ loggedIn: true, email: 'jan@acme.com' })
     ok.account.orgName = 'Acme'
     ok.account.plan = 'max'
-    expect(accountLine(ok, null)).toBe('jan@acme.com · Acme · Max')
+    expect(row(ok, null)).toEqual(['jan@acme.com', 'Acme · Max', 'Switch account'])
+    expect(row(profile({ loggedIn: false, run: run({ state: 'failed', message: 'That code is wrong or has expired.' }) }), 'jan@acme.com')[1]).toBe(
+      'That code is wrong or has expired.',
+    )
   })
 })
 

@@ -3,7 +3,7 @@ import { useThree, type ThreeEvent } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { ApiSession } from '../lib/types'
-import { gateWaits, sessionStateKey, shownStatus, statePill, type SessionStateKey } from '../lib/types'
+import { gateWaits, loginLost, sessionStateKey, shownStatus, statePill, type SessionStateKey } from '../lib/types'
 import {
   OFFLINE_STATE_INK,
   STATE_INPUT_HEX,
@@ -1576,6 +1576,7 @@ function PlanetBody({
    * place and the same quiet ink (canvas 62a), or null.
    */
   const limitPill = session.limitWait ? limitPillText(session.limitWait) : loginPill
+  const needsLogin = !session.limitWait && loginPill !== null && loginLost(session)
   // A planet whose device chip is off takes its pill out with it, so nothing
   // on it is left to press.
   const pill = deviceOff || (failureStanding && statePillNow?.key === 'done') ? null : statePillNow
@@ -2453,14 +2454,21 @@ function PlanetBody({
                 >
                   <span
                     aria-hidden
-                    style={{
-                      display: 'block',
-                      boxSizing: 'border-box',
-                      width: LIMIT_PILL_DOT_PX,
-                      height: LIMIT_PILL_DOT_PX,
-                      borderRadius: '50%',
-                      border: `${LIMIT_PILL_DOT_RING_PX}px solid currentColor`,
-                    }}
+                    style={
+                      // `Feature - Log in` 62a: a lost login needs you, so its
+                      // pill wears NEEDS INPUT's solid amber dot; running, the
+                      // limit's hollow ring.
+                      needsLogin
+                        ? { display: 'block', width: LIMIT_PILL_DOT_PX, height: LIMIT_PILL_DOT_PX, borderRadius: '50%', background: stateColor('needs_input') }
+                        : {
+                            display: 'block',
+                            boxSizing: 'border-box',
+                            width: LIMIT_PILL_DOT_PX,
+                            height: LIMIT_PILL_DOT_PX,
+                            borderRadius: '50%',
+                            border: `${LIMIT_PILL_DOT_RING_PX}px solid currentColor`,
+                          }
+                    }
                   />
                   {limitPill}
                 </span>

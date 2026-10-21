@@ -1,7 +1,7 @@
 import type { GroupEnded, GroupStatus, MemberState as SharedMemberState, NotPrimary, PrimaryRef } from '@orbital/shared/remote/group'
 import type { JoinResult, Joining, PendingPair } from '@orbital/shared/remote/ceremony'
 import type { MachineRef } from '@orbital/shared/remote/device'
-import { asksForHuman, gateWaits } from '@orbital/shared/parked'
+import { asksForHuman, gateWaits, loginLost } from '@orbital/shared/parked'
 
 export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended'
 export type SessionSource = 'terminal' | 'web'
@@ -364,6 +364,8 @@ export interface LoginRun {
  */
 export interface ProfileLogin {
   claudeDirId: number
+  /** The profile's name ("Work"), from the Mac it lives on: another device knows no names of its profiles. */
+  name: string | null
   account: { read: boolean; loggedIn: boolean; email: string | null; orgName: string | null; plan: string | null }
   design: { read: boolean; available: boolean; signedIn: boolean }
   runs: { claude: LoginRun | null; design: LoginRun | null }
@@ -1272,16 +1274,6 @@ export const parkedLabel = (session: Pick<ApiSession, 'pendingDecision' | 'harne
   session.pendingDecision || loginLost(session) ? 'NEEDS INPUT' : gateWaits(session) ? 'NEEDS YOUR OK' : 'DONE'
 
 /**
- * The session stopped on a lost login and nobody is logging it in yet: NEEDS
- * INPUT, amber, counted (spec 2026-10-21-log-in-from-orbital-design § 3 "The
- * session on the map"). What it waits for is a label (`loginWaitLabels`), not
- * a status of its own (ADR what-a-session-waits-for-is-a-label).
- */
-export function loginLost(session: Pick<ApiSession, 'loginWait'>): boolean {
-  return Boolean(session.loginWait && !session.loginWait.running)
-}
-
-/**
  * The status the map draws and counts. While its profile's login runs, a
  * session stopped on it rests the way a limit wait does — idle: hollow core,
  * no badge, not counted (spec § 3). The Mac says so itself as it does for a
@@ -1303,7 +1295,7 @@ export function shownStatus(session: Pick<ApiSession, 'status' | 'loginWait'>): 
  * without both (ADR what-a-session-waits-for-is-a-label). One predicate, so
  * the pill's word, the planet's ring and the notification cannot disagree.
  */
-export { asksForHuman, gateWaits }
+export { asksForHuman, gateWaits, loginLost }
 
 /**
  * Which of the seven state words a session wears — the one answer every
@@ -1326,8 +1318,8 @@ export function sessionStateKey(
 ): SessionStateKey {
   if (session.interruptedAt) return 'interrupted'
   const status = shownStatus(session)
-  // A lost login is the human's to restore (`loginLost`), like a parked decision.
-  if (status === 'needs_input') return asksForHuman(session) || loginLost(session) ? 'needs_input' : 'done'
+  // A lost login is the human's to restore, like a parked decision (`asksForHuman`).
+  if (status === 'needs_input') return asksForHuman(session) ? 'needs_input' : 'done'
   if (status === 'working') return awaitedCount(awaitedWork(session)) > 0 ? 'waiting' : 'working'
   return status
 }

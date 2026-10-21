@@ -171,8 +171,8 @@ export function ClaudeDirsRows({
     <div className="flex flex-col gap-3 py-[13px]">
       <div className="max-w-[600px] text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
         {remote
-          ? `The profiles on ${macName}. Log them in from here; add, remove and rename them on ${macName}.`
-          : 'Each profile is a Claude Code configuration with its own login. Orbital watches all of them. A new session runs under the default unless you choose another in New session.'}
+          ? `The profiles of ${macName}. Logging in from here opens the sign-in page on this Mac and you paste the code it shows; nothing opens on ${macName}.`
+          : 'A profile is one Claude configuration directory with its own login, settings, MCP servers and history, like a browser profile. Orbital watches all of them. Logging in here runs the same browser sign-in as the CLI; Orbital keeps no copy of the account.'}
       </div>
 
       <div className="flex flex-col rounded-[11px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.45)]">
