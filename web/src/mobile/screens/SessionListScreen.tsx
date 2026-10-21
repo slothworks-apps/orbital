@@ -585,7 +585,7 @@ function SessionRow({
                 : 'min-h-15 p-2',
         ].join(' ')}
       >
-        <PlanetGlyph session={session} offline={offline || asleep} />
+        <PlanetGlyph session={session} hue={tag?.hue} offline={offline || asleep} />
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex min-w-0 items-center gap-[7px]">
             <span

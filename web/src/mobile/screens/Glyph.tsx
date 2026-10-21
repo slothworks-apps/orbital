@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react'
 import { compactingOf } from '../../lib/compaction'
 import { dotMotionClass, stateColor } from '../../lib/stateStyle'
-import { sessionStateKey, type ApiSession, type SessionStateKey } from '../../lib/types'
+import { sessionStateKey, tagColor, type ApiSession, type SessionStateKey } from '../../lib/types'
 import { StateDot } from '../../ui/StateDot'
 import { glyphFor, isGateRow, waitsForLimit } from '../sessionList'
 
@@ -58,10 +58,17 @@ const CONDENSE_BORDER = '1.5px solid rgba(214,228,246,.8)'
 const CONDENSE_STAGGER = '-1.6s'
 const COMPACT_CORE_OPACITY = 0.75
 
+/** The planet of a session without a tag: the muted ink the list uses for "no hue". */
+const UNTAGGED_INK = 'rgba(200,215,235,.7)'
+
 /**
  * A session's planet in the list (9a, 9p "STATE GLYPH · 28 PX"): a tick
- * ring, a body lit in the state's colour and the state's dot at its core.
- * Offline it keeps shape and colour, dimmed, and nothing moves.
+ * ring, a body lit in the session's tag hue and the state's dot at its core.
+ * The hue is the tag's, never the state's — as on the map (spec
+ * 2026-09-24-state-colours-design) — so a planet keeps its colour from one
+ * section to the next; the section, the core and the ring's motion carry the
+ * state. IDLE is the same hue, quieter. Offline it keeps shape and colour,
+ * dimmed, and nothing moves.
  *
  * Two rows of 10a differ: a harness gate is NEEDS INPUT's planet held still
  * — no ring turn, a diamond at its core that does not breathe — and a limit
@@ -71,7 +78,7 @@ const COMPACT_CORE_OPACITY = 0.75
  * with its ticks still, a hollow core, and two grey rings drawn in from the
  * tick ring onto the body.
  */
-export function PlanetGlyph({ session, offline }: { session: PlanetFields; offline: boolean }) {
+export function PlanetGlyph({ session, hue, offline }: { session: PlanetFields; hue?: number; offline: boolean }) {
   const key = sessionStateKey(session)
   const gate = isGateRow(session)
   const limit = !gate && waitsForLimit(session)
@@ -87,7 +94,7 @@ export function PlanetGlyph({ session, offline }: { session: PlanetFields; offli
     )
   }
   const quiet = key === 'idle' || limit || compacting
-  const color = quiet ? 'rgba(200,215,235,.7)' : stateColor(key)
+  const color = hue !== undefined ? tagColor(hue) : UNTAGGED_INK
   const dot = limit || compacting
     ? { shape: 'hollow' as const, motion: 'steady' as const }
     : gate
@@ -99,14 +106,14 @@ export function PlanetGlyph({ session, offline }: { session: PlanetFields; offli
   const mix = (share: number, onto: string) => `color-mix(in oklab, ${color} ${share}%, ${onto})`
   const ring: CSSProperties = {
     inset: -RING_OUTSET_PX,
-    background: `repeating-conic-gradient(${quiet ? 'rgba(200,215,235,.32)' : mix(offline ? 55 : 78, 'transparent')} 0 1.5deg, transparent 1.5deg 8deg)`,
+    background: `repeating-conic-gradient(${mix(quiet ? 40 : offline ? 55 : 78, 'transparent')} 0 1.5deg, transparent 1.5deg 8deg)`,
     WebkitMask: RING_MASK,
     mask: RING_MASK,
     animation: offline || gate || compacting ? undefined : RING_SPIN[key],
   }
   const body: CSSProperties = {
     background: `radial-gradient(circle at 50% 42%, ${mix(quiet ? 12 : 22, 'oklch(22% .02 230)')}, ${mix(quiet ? 4 : 10, 'oklch(14% .015 230)')} 72%)`,
-    border: `1px solid ${quiet ? 'rgba(200,215,235,.4)' : mix(offline ? 45 : 62, 'transparent')}`,
+    border: `1px solid ${mix(quiet ? 50 : offline ? 45 : 62, 'transparent')}`,
     boxShadow: quiet || offline ? undefined : `0 0 13px ${mix(32, 'transparent')}`,
   }
   return (

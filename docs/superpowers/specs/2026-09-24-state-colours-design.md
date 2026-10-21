@@ -29,6 +29,10 @@ cutting a turn short, not someone waiting on you. Planet bodies, the other rings
 tag dot keep the tag hue, which the user can set to anything, so a state label can sit next to
 a planet in its own colour.
 
+The phone's session list follows the same rule: its planets take the tag hue
+(IDLE quieter, ENDED grey, an untagged session muted ink), and the list's
+sections, the planet's core and the turning ring carry the state.
+
 | label | token | shape cue (label mode) |
 |---|---|---|
 | NEEDS INPUT | `--state-input` (= warning, amber) | outline, solid dot, slow breathe |
