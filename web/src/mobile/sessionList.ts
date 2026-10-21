@@ -86,9 +86,18 @@ export interface SessionGroup {
   sessions: ApiSession[]
 }
 
+/** A turn that ended with something to read: DONE, or INTERRUPTED by a restart. */
+const hasResult = (session: ApiSession): boolean => {
+  const key = sessionStateKey(session)
+  return key === 'done' || key === 'interrupted'
+}
+
 /**
  * Within a group, pinned rows first in pin order (as the desktop's PINNED
  * section keeps it, `sidebarOrder`), then the rest newest first (spec § 4).
+ * Under IDLE, a session with a result waiting (DONE, INTERRUPTED) comes
+ * before a quiet one: its planet takes the tag's hue like the rest, so the
+ * order, beside its hollow core, is what tells the two apart.
  */
 function byPinThenActivity(a: ApiSession, b: ApiSession): number {
   const pa = a.pinnedAt ?? null
@@ -96,6 +105,8 @@ function byPinThenActivity(a: ApiSession, b: ApiSession): number {
   if (pa !== null && pb !== null) return pa - pb
   if (pa !== null) return -1
   if (pb !== null) return 1
+  const ra = hasResult(a)
+  if (ra !== hasResult(b)) return ra ? -1 : 1
   return (b.lastAt ?? 0) - (a.lastAt ?? 0)
 }
 

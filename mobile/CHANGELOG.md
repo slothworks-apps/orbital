@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.18.3] — 2026-10-21
+### Changed
+- Under IDLE, sessions that finished a turn you have not read yet (hollow centre) come first, before the quiet ones.
+
 ## [0.18.2] — 2026-10-21
 ### Changed
 - Planets in the session list take their tag's colour, as on the Mac's map, instead of the colour of their state; the section and the planet's shape still say what each session is doing.

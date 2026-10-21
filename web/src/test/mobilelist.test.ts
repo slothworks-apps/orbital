@@ -196,6 +196,19 @@ describe('10a groups', () => {
     expect(idle.sessions.map((s) => s.id)).toEqual(['pin-early', 'pin-late', 'new', 'old'])
   })
 
+  it('puts a session with a result (DONE, INTERRUPTED) above the quiet ones under IDLE, pins still first', () => {
+    const [idle] = groupSessions(
+      [
+        session('quiet-new', { lastAt: 9 }),
+        session('done-old', { lastAt: 1, status: 'needs_input' }),
+        session('pin', { lastAt: 1, pinnedAt: 5 }),
+        session('cut', { lastAt: 3, interruptedAt: 3 }),
+      ],
+      [],
+    )
+    expect(idle.sessions.map((s) => s.id)).toEqual(['pin', 'cut', 'done-old', 'quiet-new'])
+  })
+
   it('keeps a pinned ended session above the fold and folds the unpinned ones', () => {
     const groups = groupSessions(
       [
