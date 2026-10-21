@@ -68,7 +68,11 @@ export function TextPreview({
             ref={line === i + 1 ? target : undefined}
             className="flex gap-3 font-mono text-[12px] leading-[1.75]"
           >
-            <span className="w-8 flex-none text-right text-[rgba(160,190,225,.35)]">{i + 1}</span>
+            {/* Drawn by ::before, so a selection copies the text without the numbers. */}
+            <span
+              data-number={i + 1}
+              className="w-8 flex-none text-right text-[rgba(160,190,225,.35)] before:content-[attr(data-number)]"
+            />
             <span
               className={[
                 'min-w-0 flex-1 text-[rgba(214,230,248,.9)]',

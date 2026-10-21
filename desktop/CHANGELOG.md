@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- Copying code selected in the file viewer no longer copies the line numbers with it.
 
 ## [0.40.0] — 2026-10-21
 ### Added

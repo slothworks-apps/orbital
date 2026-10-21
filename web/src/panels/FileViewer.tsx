@@ -264,8 +264,11 @@ function SourceBody({
                     : undefined
                 }
               >
+                {/* The number is drawn by ::before, so a selection dragged
+                    across rows copies the code alone, without the gutter. */}
                 <span
-                  className="w-14 shrink-0 pr-3 text-right text-[11.5px] text-[rgba(160,190,225,.32)]"
+                  data-number={lineNumber}
+                  className="w-14 shrink-0 pr-3 text-right text-[11.5px] text-[rgba(160,190,225,.32)] before:content-[attr(data-number)]"
                   style={
                     isTarget
                       ? { color: TARGET_ACCENT }
@@ -274,9 +277,7 @@ function SourceBody({
                         : undefined
                   }
                   title={found ? found.map(describeDiagnostic).join('\n') : undefined}
-                >
-                  {lineNumber}
-                </span>
+                />
                 <span className="whitespace-pre pl-[18px] pr-5 text-[rgba(214,230,248,.9)]">
                   {tokens
                     ? tokens[index].map((token, tokenIndex) => (
