@@ -9,6 +9,19 @@ import { subagentStatus as subagentRowStatus, taskStatus as taskRowStatus, type 
 import { isListable } from '../lib/harnessSession'
 
 /**
+ * The one tag a session wears: its first id that still names a tag, else the
+ * default tag — the same pick as the map's clusters, so a row's hue matches
+ * the session's planet on the Mac.
+ */
+export function primaryTag(tagIds: readonly number[], tags: readonly Tag[]): Tag | undefined {
+  for (const id of tagIds) {
+    const tag = tags.find((t) => t.id === id)
+    if (tag) return tag
+  }
+  return tags.find((t) => t.is_default === 1)
+}
+
+/**
  * `pinned` is 10a's headless band of ended sessions kept above the ENDED
  * fold by their pin (spec 2026-10-05-mobile-next-design § 4).
  */

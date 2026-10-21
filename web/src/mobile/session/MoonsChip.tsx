@@ -5,6 +5,7 @@ import { chipLabel } from '../subagents/model'
 import { MoonsSheet, takeReturnToSheet } from '../subagents/MoonsSheet'
 import { SheetPresence } from '../ui'
 import type { SlotProps } from './slot'
+import { primaryTag } from '../sessionList'
 
 /** 9b's header draws at most this many moons before the count. */
 const MOONS_SHOWN = 3
@@ -16,7 +17,7 @@ const MOONS_SHOWN = 3
  * is open). Nothing when the session has neither.
  */
 export function MoonsChip({ session, offline }: SlotProps) {
-  const tag = useOrbital((s) => s.tags.find((t) => t.id === session.tagIds[0]))
+  const tag = useOrbital((s) => primaryTag(session.tagIds, s.tags))
   const [open, setOpen] = useState(() => takeReturnToSheet(session.id))
   const tagHue = tag ? tagColor(tag.hue) : 'var(--state-neutral)'
   const tasks = session.backgroundTasks ?? []

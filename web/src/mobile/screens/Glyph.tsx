@@ -58,7 +58,7 @@ const CONDENSE_BORDER = '1.5px solid rgba(214,228,246,.8)'
 const CONDENSE_STAGGER = '-1.6s'
 const COMPACT_CORE_OPACITY = 0.75
 
-/** The planet of a session without a tag: the muted ink the list uses for "no hue". */
+/** The planet when no tag resolves at all (no default tag either): the list's muted ink. */
 const UNTAGGED_INK = 'rgba(200,215,235,.7)'
 
 /**
@@ -72,7 +72,9 @@ const UNTAGGED_INK = 'rgba(200,215,235,.7)'
  *
  * Two rows of 10a differ: a harness gate is NEEDS INPUT's planet held still
  * — no ring turn, a diamond at its core that does not breathe — and a limit
- * wait is IDLE's planet with a hollow core, still and never amber.
+ * wait is IDLE's planet with a hollow core, still. Its colour is the tag's
+ * like every other row's, amber included if the tag is amber; the section,
+ * not the hue, says it waits for a limit.
  *
  * A compacting session takes the map's compacting planet (26b): IDLE's body
  * with its ticks still, a hollow core, and two grey rings drawn in from the
