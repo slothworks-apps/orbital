@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.18.2] — 2026-10-21
+### Changed
+- Planets in the session list take their tag's colour, as on the Mac's map, instead of the colour of their state; the section and the planet's shape still say what each session is doing.
+
 ## [0.18.1] — 2026-10-21
 ### Fixed
 - Settings → Devices no longer shows an awake Mac as asleep: a device's state follows it coming online and going away.

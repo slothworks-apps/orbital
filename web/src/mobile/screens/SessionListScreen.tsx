@@ -15,7 +15,7 @@ import { forgetGroupHere } from '../forget'
 import { CLOCK_TICK_MS, RETRY_WINDOW_MS } from '../constants'
 import { agoLabel, asOfLabel, basename, checkedLabel } from '../format'
 import {
-  GROUP_LABEL, endedHeading, groupSessions, inputReason, isGateRow, limitLine, moonsSummary, moonsSummaryAsleep, subagentStatus, tagChips,
+  GROUP_LABEL, endedHeading, primaryTag, groupSessions, inputReason, isGateRow, limitLine, moonsSummary, moonsSummaryAsleep, subagentStatus, tagChips,
   taskStatus, tasksForRow, type GroupKey,
 } from '../sessionList'
 import { countedBySummary, loadEndedFold } from '../endedFold'
@@ -81,7 +81,6 @@ export function SessionListScreen() {
   // The fold is drawn from the Mac's count even before a single ended row is held.
   const groups = heading && !held.some((g) => g.key === 'ended') ? [...held, { key: 'ended' as const, sessions: [] }] : held
   const chips = useMemo(() => tagChips(shown, tags), [shown, tags])
-  const tagById = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags])
   const liveCount = useMemo(() => shown.filter((s) => s.status !== 'ended').length, [shown])
 
   // One bounded presence check, never a loop (spec § 5, RETRY_WINDOW_MS).
@@ -237,7 +236,7 @@ export function SessionListScreen() {
                     <span className="ml-auto tracking-[0.04em] text-[rgba(160,190,225,.45)]">latest {agoLabel(latest, now)}</span>
                   )}
                 </button>
-                {endedOpen && group.sessions.map((s) => <EndedRow key={s.id} session={s} tag={tagById.get(s.tagIds[0])} device={withNames ? s.machine?.name : undefined} now={now} onOpen={openSession} />)}
+                {endedOpen && group.sessions.map((s) => <EndedRow key={s.id} session={s} tag={primaryTag(s.tagIds, tags)} device={withNames ? s.machine?.name : undefined} now={now} onOpen={openSession} />)}
               </section>
             )
           }
@@ -246,7 +245,7 @@ export function SessionListScreen() {
             return (
               <section key="pinned" className="mt-1.5">
                 {group.sessions.map((s) => (
-                  <EndedRow key={s.id} session={s} tag={tagById.get(s.tagIds[0])} device={withNames ? s.machine?.name : undefined} now={now} onOpen={openSession} pinned />
+                  <EndedRow key={s.id} session={s} tag={primaryTag(s.tagIds, tags)} device={withNames ? s.machine?.name : undefined} now={now} onOpen={openSession} pinned />
                 ))}
               </section>
             )
@@ -255,7 +254,7 @@ export function SessionListScreen() {
             <SessionRow
               key={s.id}
               session={s}
-              tag={tagById.get(s.tagIds[0])}
+              tag={primaryTag(s.tagIds, tags)}
               group={group.key}
               offline={listOffline}
               asleep={rowAsleep(s)}
@@ -585,7 +584,7 @@ function SessionRow({
                 : 'min-h-15 p-2',
         ].join(' ')}
       >
-        <PlanetGlyph session={session} offline={offline || asleep} />
+        <PlanetGlyph session={session} hue={tag?.hue} offline={offline || asleep} />
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="flex min-w-0 items-center gap-[7px]">
             <span

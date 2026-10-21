@@ -3,7 +3,7 @@ import type { ApiSession, BackgroundTask, LimitWait, PendingDecision, Tag } from
 import { agoLabel, asOfLabel, basename, checkedLabel, homePath, relayHost } from '../mobile/format'
 import {
   decisionReason, endedHeading, gateReason, glyphFor, groupOf, groupSessions, inputReason, isGateRow, latestActivity, limitLine, moonsSummary,
-  moonsSummaryAsleep, stateLine, tagChips, tasksForRow,
+  moonsSummaryAsleep, primaryTag, stateLine, tagChips, tasksForRow,
 } from '../mobile/sessionList'
 
 function session(id: string, patch: Partial<ApiSession> = {}): ApiSession {
@@ -288,5 +288,25 @@ describe('10a rows', () => {
       { ...base, id: 'new-ended', startedAt: 3 },
     ])
     expect(tasks.map((t) => t.id)).toEqual(['running', 'new-ended', 'old-ended'])
+  })
+})
+
+describe('primaryTag', () => {
+  const tags: Tag[] = [
+    { id: 1, name: 'default', hue: 90, is_default: 1 },
+    { id: 2, name: 'orbital', hue: 200, is_default: 0 },
+  ]
+
+  it('takes the first id that still names a tag, as the map does', () => {
+    expect(primaryTag([99, 2], tags)?.id).toBe(2)
+  })
+
+  it('falls back to the default tag for an untagged session or one whose tags are gone', () => {
+    expect(primaryTag([], tags)?.id).toBe(1)
+    expect(primaryTag([99], tags)?.id).toBe(1)
+  })
+
+  it('has nothing when no tag resolves and there is no default', () => {
+    expect(primaryTag([], [tags[1]])).toBeUndefined()
   })
 })

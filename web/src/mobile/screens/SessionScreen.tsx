@@ -51,6 +51,7 @@ import { clientRef } from '../transport/clientRef'
 import { MobileScreen } from '../ui'
 import { WhereLine } from '../where/WhereLine'
 import { SessionComposer } from './SessionComposer'
+import { primaryTag } from '../sessionList'
 
 const EMPTY: ChatMessage[] = []
 const NO_SUBAGENTS: Subagent[] = []
@@ -67,7 +68,7 @@ function SessionView({ id }: { id: string }) {
   const messages = useOrbital((s) => s.transcripts[id] ?? EMPTY)
   const models = useOrbital((s) => s.models)
   const pendingDecisionId = useOrbital((s) => s.pendingDecisions[id]?.id)
-  const tag = useOrbital((s) => (session ? s.tags.find((t) => t.id === session.tagIds[0]) : undefined))
+  const tag = useOrbital((s) => (session ? primaryTag(session.tagIds, s.tags) : undefined))
   const select = useOrbital((s) => s.select)
   const loadOlder = useOrbital((s) => s.loadOlder)
   const applySessionEvent = useOrbital((s) => s.applySessionEvent)

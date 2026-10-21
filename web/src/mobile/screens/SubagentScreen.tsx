@@ -15,6 +15,7 @@ import { Code, Pre } from '../../panels/MessageView'
 import { nameInSentence } from '../format'
 import { subagentBody, subagentHeader, INK, type SubagentHeader } from '../subagents/model'
 import { MobileScreen, SecondaryButton } from '../ui'
+import { primaryTag } from '../sessionList'
 
 const NO_MESSAGES: ChatMessage[] = []
 
@@ -38,7 +39,7 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
   )
   const parentMessages = useOrbital((s) => s.transcripts[sessionId] ?? NO_MESSAGES)
   const models = useOrbital((s) => s.models)
-  const tag = useOrbital((s) => (parent ? s.tags.find((t) => t.id === parent.tagIds[0]) : undefined))
+  const tag = useOrbital((s) => (parent ? primaryTag(parent.tagIds, s.tags) : undefined))
   const openSubagent = useOrbital((s) => s.openSubagent)
   const closeSubagent = useOrbital((s) => s.closeSubagent)
   const offline = useSessionAsleep(sessionId)

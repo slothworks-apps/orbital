@@ -29,6 +29,11 @@ cutting a turn short, not someone waiting on you. Planet bodies, the other rings
 tag dot keep the tag hue, which the user can set to anything, so a state label can sit next to
 a planet in its own colour.
 
+The phone's session list follows the same rule: its planets take the hue of
+the session's tag, picked as the map picks it (the first tag that still
+exists, else the default tag); IDLE is quieter and ENDED stays grey. The
+list's sections, the planet's core and the turning ring carry the state.
+
 | label | token | shape cue (label mode) |
 |---|---|---|
 | NEEDS INPUT | `--state-input` (= warning, amber) | outline, solid dot, slow breathe |
@@ -86,6 +91,16 @@ mode, the disc in dot mode. A hover-expanded word may overlap a neighbour.
 
 The sidebar, the detail chip and the summary line always spell the word out,
 in both modes.
+
+## Scope
+
+- For: everyone who runs several sessions and reads their state at a glance,
+  on the Mac and on the phone.
+- Lives: on by default. The map pill's two modes are an option in Settings →
+  Appearance → MAP, dot by default (§ 3).
+- An existing user notices: state labels in colour; on the phone (since app
+  0.18.2), list planets in their tag's hue instead of their state's.
+- Can be set: the map pill's mode; the hue itself, through each tag.
 
 ## 4. Acceptance
 
