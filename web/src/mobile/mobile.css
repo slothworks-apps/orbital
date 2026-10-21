@@ -148,3 +148,11 @@
     animation: none;
   }
 }
+
+/*
+ * 9i: an answered question of a pending card is one tap target, at least
+ * 64px tall (canvas 9j METRICS "phone answered block").
+ */
+:root[data-platform='mobile'] [data-question-card] [data-question-reopen] {
+  min-height: 64px;
+}

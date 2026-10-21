@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Changed
+- Question cards no longer send with the last answer: tap an answered question to change it, and nothing is sent until you tap Send. Your Mac's Review answers before sending setting decides whether the review shows.
 
 ## [0.19.0] — 2026-10-21
 ### Added

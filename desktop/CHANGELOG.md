@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Changed
+- Question cards no longer send with the last answer: you can go back and change any answer, and nothing is sent until you press Send on the review. Settings → Sessions → Review answers before sending turns the review off; changing answers works either way.
 
 ## [0.40.0] — 2026-10-21
 ### Added

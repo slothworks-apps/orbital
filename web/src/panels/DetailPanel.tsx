@@ -8,6 +8,7 @@ import {
   parseContextThresholds,
   headerSessionStats,
   endClosesPanel,
+  questionComposerTarget,
   resolvePanelPairWidths,
   resolveWindowPanelWidths,
   DETAIL_PANEL_DEFAULT_PX,
@@ -21,7 +22,6 @@ import {
 } from '../lib/usage'
 import { api } from '../lib/api'
 import { GLINT_ACCENT_HUE, TopGlint } from '../ui/TopGlint'
-import { openQuestion } from '../lib/questionCard'
 import { composerHintFor, composerPlaceholderFor } from '../lib/decisionCard'
 import { reportError } from '../lib/errors'
 import { useWindowFocused } from '../lib/useWindowFocused'
@@ -232,8 +232,11 @@ export function DetailPanel({
   // The question this session is stopped on, and what has been answered of it
   // so far (spec: 2026-09-20-interactive-decisions-design § Web UI).
   const pendingDecision = useOrbital((s) => (id ? s.pendingDecisions[id] : undefined))
-  const decisionAnswers = useOrbital((s) =>
-    pendingDecision?.kind === 'question' ? s.decisionAnswers[pendingDecision.id] : undefined,
+  // Where the pending question card is — a question, or its review — and
+  // so what ⏎ in the composer does (spec
+  // 2026-10-21-question-card-go-back-design § Composer).
+  const questionTarget = useOrbital(
+    useShallow((s) => (id ? questionComposerTarget(s, id) : null)),
   )
 
   // A compaction running in this session (spec
@@ -645,6 +648,7 @@ export function DetailPanel({
     if (!sessionId) return
     if (composerLocked || lock) return
     if (!text && !attachments.armed) return
+    if (reviewHeld) return
     // `/rewind` is Orbital's, never the agent's: sent, it opens pick mode
     // (spec 2026-09-29-rewind-design § Behaviour 1). While a rewind is
     // pending it does nothing — Cancel rewind is the way back.
@@ -712,15 +716,17 @@ export function DetailPanel({
   const isTerminalLive = session ? isReadOnly(session) : false
   const promptPlaceholder = session?.status === 'ended' ? 'Continue conversation…' : 'Send a message…'
 
-  // The FIRST unanswered question of the pending card, or undefined once the
-  // last one is answered — which is what makes the composer revert to a
-  // normal reply the moment the card is settled by a click (canvas 9c).
-  // A terminal session Orbital only watches can read the question but never
-  // answer it, so its composer is unchanged too.
+  // The question the card has open — the first unanswered one, or one
+  // reopened to change it — or undefined once the card is sent, which is
+  // what makes the composer revert to a normal reply the moment the card is
+  // settled by a click (canvas 9c). A terminal session Orbital only watches
+  // can read the question but never answer it, so its composer is unchanged
+  // too.
   const openDecisionQuestion =
-    pendingDecision?.kind === 'question' && !isTerminalLive
-      ? openQuestion(pendingDecision.input.questions, decisionAnswers ?? {})
-      : undefined
+    questionTarget?.kind === 'question' && !isTerminalLive ? questionTarget : undefined
+  // The review is showing (canvas 9f D): a plain composer whose ⏎ is held —
+  // the text stays in the box and becomes a normal reply after Send.
+  const reviewHeld = questionTarget?.kind === 'review' && !isTerminalLive
 
   // A permission prompt or a plan approval takes no words as its answer, but
   // typed words are still meant for it — as the CLI's own "no, and tell
@@ -1276,7 +1282,24 @@ export function DetailPanel({
       )}
 
       {/* Composer — canvas 1b: padding 14px 16px 16px over a hairline rule. */}
-      <div className="border-t border-panel-border px-4 pb-4 pt-3.5">
+      <div
+        className="border-t border-panel-border px-4 pb-4 pt-3.5"
+        // Canvas 9f D: during the review ⇧⇥ from the composer jumps to the
+        // card's Send.
+        onKeyDownCapture={(e) => {
+          if (!reviewHeld || e.key !== 'Tab' || !e.shiftKey) return
+          if (e.metaKey || e.ctrlKey || e.altKey) return
+          // The one interactive card is this panel's: the subagent panel's
+          // cards are read-only.
+          const send = document.querySelector<HTMLElement>(
+            '[data-question-card][data-mode="interactive"] [data-question-send]',
+          )
+          if (!send) return
+          e.preventDefault()
+          e.stopPropagation()
+          send.focus()
+        }}
+      >
         {isTerminalLive ? (
           <div className="rounded-[10px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.6)] px-3 py-3 text-center font-mono text-[11.5px] text-text-muted">
             runs in terminal — read-only
@@ -1325,7 +1348,13 @@ export function DetailPanel({
                 : rewindPending
                   ? '⏎ send — the rewind becomes permanent'
                   : openDecisionQuestion
-                ? '⏎ answers the question · ⇧⏎ newline'
+                ? openDecisionQuestion.changing
+                  ? `⏎ replaces the answer to ${openDecisionQuestion.question.header} · ⇧⏎ newline`
+                  : '⏎ answers the question · ⇧⏎ newline'
+                : reviewHeld
+                  ? prompt.trim()
+                    ? '⏎ is held — this stays here until the answers are sent · ⇧⏎ newline'
+                    : '⏎ here won’t send them · ⇧⇥ jumps to Send · ⇧⏎ newline'
                 : openVerdictKind
                   ? composerHintFor(openVerdictKind)
                   : '⏎ send · ⇧⏎ newline · ⌘V paste image'
@@ -1334,6 +1363,7 @@ export function DetailPanel({
               !picking && !rewindPending && (openDecisionQuestion !== undefined || openVerdictKind !== undefined)
             }
             hintBright={picking || rewindPicked !== null || rewindPending !== null}
+            hintHeld={reviewHeld && !picking && !rewindPicked && !rewindPending}
             emphasized={rewindPending !== null}
             strip={
               picking || rewindPicked ? (
@@ -1376,7 +1406,9 @@ export function DetailPanel({
               composerLocked
                 ? COMPACTING_PLACEHOLDER
                 : openDecisionQuestion
-                ? `Answer ${openDecisionQuestion.header}, or pick an option above…`
+                ? `${openDecisionQuestion.changing ? 'Change' : 'Answer'} ${openDecisionQuestion.question.header}, or pick an option above…`
+                : reviewHeld
+                  ? 'Your answers are ready — Send is in the card above'
                 : openVerdictKind
                   ? composerPlaceholderFor(openVerdictKind)
                   : promptPlaceholder

@@ -10,6 +10,7 @@ import { configureTranscriptPages, useOrbital, type ErrorsEvent, type SessionsEv
 import { connect, recheckOnForeground } from './connect'
 import { wireCache } from './cacheWriter'
 import { markSummarized, wireEndedFold } from './endedFold'
+import { refreshQuestionSetting } from './questionSetting'
 import { PHONE_OUTPUT_TAIL_BYTES, PHONE_SUBAGENT_PAGE, TRANSCRIPT_PAGE_SIZE } from './constants'
 import { fileCache } from './files/fileCache'
 import { readPath } from './files/fileResolver'
@@ -220,6 +221,8 @@ export async function resync(): Promise<void> {
     // replaces the map, and the fold would close itself otherwise.
     const endedToo = useMobile.getState().endedLoaded
     const endedSummary = await useOrbital.getState().loadSessions({ endedToo })
+    // The question card follows the Mac's review setting (canvas 9h PHONE).
+    refreshQuestionSetting()
     if (!endedToo) markSummarized()
     // The Mac replays nothing on a new tunnel: its list is what the notifier knows from.
     seedNotifications(Object.values(useOrbital.getState().sessions))

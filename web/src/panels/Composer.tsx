@@ -203,6 +203,11 @@ export interface ComposerProps {
   /** The resting hint in the brighter ink pick mode and a pending rewind use (27a). */
   hintBright?: boolean
   /**
+   * The hint says why ⏎ does nothing here (a question card's review, canvas
+   * 9f D): it outranks what ⏎ would carry, in the review's own ink.
+   */
+  hintHeld?: boolean
+  /**
    * The editor covering this mount's directory, or null/absent when there is
    * none (spec 2026-09-23-ide-bridge-design § The slot and the lip). The
    * composer draws the slot on the well's top edge, names what ⏎ will carry in
@@ -262,6 +267,7 @@ export function Composer({
   strip,
   emphasized = false,
   hintBright = false,
+  hintHeld = false,
   ide = null,
   ideDismissedId,
   onIdeDismiss,
@@ -811,7 +817,7 @@ export function Composer({
               !note &&
               !locked &&
               !actions &&
-              !(answering || hintBright ? hint : (ideHint ?? hint))) ||
+              !(answering || hintBright || hintHeld ? hint : (ideHint ?? hint))) ||
             undefined
           }
           className="@container flex items-center gap-2"
@@ -867,11 +873,14 @@ export function Composer({
                   ? 'text-[rgba(160,190,225,.25)]'
                   : hintBright
                     ? 'text-[rgba(200,220,245,.7)]'
-                    : 'text-[rgba(160,190,225,.5)]',
+                    : hintHeld
+                      ? 'text-[rgba(160,190,225,.6)]'
+                      : 'text-[rgba(160,190,225,.5)]',
               ].join(' ')}
             >
-              {/* Pick mode and a pending rewind say what ⏎ does now; that outranks what it carries. */}
-              {hintBright ? hint : (ideHint ?? hint)}
+              {/* Pick mode, a pending rewind and a held ⏎ say what ⏎ does now;
+                  that outranks what it carries. */}
+              {hintBright || hintHeld ? hint : (ideHint ?? hint)}
             </span>
           )}
           <span aria-hidden className="flex-1" />

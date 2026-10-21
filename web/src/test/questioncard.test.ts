@@ -3,6 +3,15 @@ import type { QuestionSpec } from '../lib/types'
 import {
   NONE_ANSWER,
   activeQuestionIndex,
+  afterAnswer,
+  answerSends,
+  answerShortName,
+  canOpen,
+  composerTarget,
+  cursorLeft,
+  cursorOf,
+  cursorRight,
+  restingCursor,
   chipLabel,
   completedAnswers,
   confirmLabel,
@@ -273,5 +282,123 @@ describe('confirmLabel', () => {
   it('counts what it will send, and stays sendable with nothing ticked', () => {
     expect(confirmLabel(2)).toBe('Send 2 ⏎')
     expect(confirmLabel(0)).toBe('Send none ⏎')
+  })
+
+  it('reads Confirm when confirming does not send the card', () => {
+    expect(confirmLabel(2, false)).toBe('Confirm 2 ⏎')
+    expect(confirmLabel(0, false)).toBe('Confirm none ⏎')
+  })
+})
+
+// Spec 2026-10-21-question-card-go-back-design § Behaviour / § Testing.
+describe('going back before the card is sent', () => {
+  const notes = question({ question: 'Anything the reviewer should know?', header: 'Notes' })
+  const three = [scope, tests, notes]
+  const a = (...entries: Array<[QuestionSpec, string]>) =>
+    Object.fromEntries(entries.map(([q, text]) => [q.question, text]))
+
+  describe('afterAnswer', () => {
+    it('moves to the first question still without an answer', () => {
+      expect(afterAnswer(three, a([scope, 'In place']), true)).toEqual({ cursor: 1, send: false })
+      expect(afterAnswer(three, a([scope, 'In place']), false)).toEqual({ cursor: 1, send: false })
+    })
+
+    it('goes back to the unanswered question after a reopened one is changed', () => {
+      // Q1 and Q3 answered, Q2 not: changing Q1 returns to Q2, not past it.
+      const answers = a([scope, 'Leave it'], [notes, 'none'])
+      expect(afterAnswer(three, answers, false)).toEqual({ cursor: 1, send: false })
+    })
+
+    it('with the review on, completing the card opens the review and sends nothing', () => {
+      const answers = a([scope, 'In place'], [tests, 'x'], [notes, 'y'])
+      expect(afterAnswer(three, answers, true)).toEqual({ cursor: 'review', send: false })
+      expect(afterAnswer([scope], a([scope, 'In place']), true)).toEqual({ cursor: 'review', send: false })
+    })
+
+    it('with the review off, only the answer that completes the card sends it', () => {
+      const answers = a([scope, 'In place'], [tests, 'x'], [notes, 'y'])
+      expect(afterAnswer(three, answers, false)).toEqual({ cursor: 'review', send: true })
+      expect(afterAnswer([scope], a([scope, 'In place']), false).send).toBe(true)
+    })
+  })
+
+  describe('answerSends', () => {
+    it('is false with the review on, whatever is answered', () => {
+      expect(answerSends([scope], {}, scope, true)).toBe(false)
+    })
+
+    it('is true with the review off only when every other question has an answer', () => {
+      expect(answerSends(three, a([scope, 'x'], [tests, 'y']), notes, false)).toBe(true)
+      // Re-answering Q1 while Q3 is still open must not send.
+      expect(answerSends(three, a([scope, 'x'], [tests, 'y']), scope, false)).toBe(false)
+      expect(answerSends([scope], {}, scope, false)).toBe(true)
+    })
+  })
+
+  describe('canOpen and cursorOf', () => {
+    it('opens an answered question or the first unanswered one, never one after it', () => {
+      const answers = a([scope, 'x'])
+      expect(canOpen(0, three, answers)).toBe(true)
+      expect(canOpen(1, three, answers)).toBe(true)
+      expect(canOpen(2, three, answers)).toBe(false)
+      expect(canOpen(3, three, answers)).toBe(false)
+    })
+
+    it('rests on the first unanswered question, or the review once all are answered', () => {
+      expect(restingCursor(three, {})).toBe(0)
+      expect(restingCursor(three, a([scope, 'x'], [tests, 'y'], [notes, 'z']))).toBe('review')
+    })
+
+    it('keeps a stored cursor only where the card can be', () => {
+      const answers = a([scope, 'x'])
+      expect(cursorOf(0, three, answers)).toBe(0)
+      expect(cursorOf(2, three, answers)).toBe(1)
+      expect(cursorOf('review', three, answers)).toBe(1)
+      expect(cursorOf(undefined, three, answers)).toBe(1)
+    })
+  })
+
+  describe('← and →', () => {
+    const all = a([scope, 'x'], [tests, 'y'], [notes, 'z'])
+
+    it('← opens the previous question; from the review, the last one', () => {
+      expect(cursorLeft(1, 3)).toBe(0)
+      expect(cursorLeft(0, 3)).toBeNull()
+      expect(cursorLeft('review', 3)).toBe(2)
+    })
+
+    it('→ opens the next answered or first unanswered question, never one after it', () => {
+      expect(cursorRight(0, three, a([scope, 'x']))).toBe(1)
+      expect(cursorRight(1, three, a([scope, 'x']))).toBeNull()
+      expect(cursorRight(0, three, a([scope, 'x'], [notes, 'z']))).toBe(1)
+    })
+
+    it('→ from the last question opens the review only once every question is answered', () => {
+      expect(cursorRight(2, three, all)).toBe('review')
+      expect(cursorRight(2, three, a([scope, 'x'], [notes, 'z']))).toBeNull()
+      expect(cursorRight('review', three, all)).toBeNull()
+    })
+  })
+
+  describe('composerTarget', () => {
+    it('answers the open question, and says when that changes an answer', () => {
+      expect(composerTarget(three, a([scope, 'x']), 1)).toEqual({ kind: 'question', question: tests, changing: false })
+      expect(composerTarget(three, a([scope, 'x']), 0)).toEqual({ kind: 'question', question: scope, changing: true })
+    })
+
+    it('is the review while the review shows', () => {
+      expect(composerTarget(three, a([scope, 'x'], [tests, 'y'], [notes, 'z']), 'review')).toEqual({ kind: 'review' })
+    })
+  })
+
+  describe('answerShortName', () => {
+    it("names the option, the count of picks, or the user's text", () => {
+      expect(answerShortName('In place', scope)).toBe('In place')
+      expect(answerShortName('just the header', scope)).toBe('your text')
+      const multi = question({ multiSelect: true })
+      expect(answerShortName('In place, Leave it', multi)).toBe('2 picked')
+      expect(answerShortName('In place, and a note', multi)).toBe('2 picked')
+      expect(answerShortName(NONE_ANSWER, multi)).toBe('0 picked')
+    })
   })
 })

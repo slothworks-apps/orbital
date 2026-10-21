@@ -195,6 +195,7 @@ describe('openDb', () => {
       map_limit_sun_style: 'eclipse',
       map_limit_sun_colors: '{}',
       end_closes_panel: 'true',
+      questions_review_before_send: 'true',
       planet_scale: '1',
       map_scale_labels: 'false',
       detail_panel_width: '450',

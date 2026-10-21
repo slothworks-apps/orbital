@@ -7,9 +7,9 @@ import { digitFromEvent, type KeyboardEventLike } from './keymap'
  * focus movement, completion — are testable without a DOM (spec:
  * 2026-09-20-interactive-decisions-design § Testing).
  *
- * Everything here is pure. The component owns focus/tick/draft state and the
- * store owns the accumulated answers; this module only says what the next
- * value should be.
+ * Everything here is pure. The component owns focus/tick state and the
+ * store owns the drafted and sent answers and the cursor; this module only
+ * says what the next value should be.
  */
 
 /** The tool whose calls become a card instead of a `ToolRow`. */
@@ -241,7 +241,159 @@ export function parseResultAnswers(text: string | undefined): AnswerMap | null {
   return Object.keys(out).length > 0 ? out : null
 }
 
-/** The confirm button's copy (canvas 9b B: "Send 2 ⏎" / "Send none ⏎"). */
-export function confirmLabel(selectedCount: number): string {
-  return selectedCount === 0 ? 'Send none ⏎' : `Send ${selectedCount} ⏎`
+/**
+ * The multiSelect confirm's copy (canvas 9b B: "Send 2 ⏎" / "Send none ⏎").
+ * It reads `Confirm` when confirming does not send the card (canvas 9j:
+ * "Confirm n ⏎ · Send n ⏎ only if it sends").
+ */
+export function confirmLabel(selectedCount: number, sends = true): string {
+  const verb = sends ? 'Send' : 'Confirm'
+  return selectedCount === 0 ? `${verb} none ⏎` : `${verb} ${selectedCount} ⏎`
+}
+
+// ---------------------------------------------------------------------------
+// Going back before the card is sent
+// (spec 2026-10-21-question-card-go-back-design; canvas 9e–9j).
+// ---------------------------------------------------------------------------
+
+/**
+ * Which part of a pending card is open: one question by its index, or the
+ * review of every answer. Kept per decision, separate from the answers —
+ * after a question is reopened the open one is no longer "the first
+ * unanswered".
+ */
+export type QuestionCursor = number | 'review'
+
+/**
+ * Where the card rests with these answers and nothing reopened: the first
+ * question still without an answer, or the review once every one has one.
+ * Also where esc / Keep returns to.
+ */
+export function restingCursor(questions: readonly QuestionSpec[], answers: AnswerMap): QuestionCursor {
+  const first = activeQuestionIndex(questions, answers)
+  return first === -1 ? 'review' : first
+}
+
+/**
+ * True for a question the card may open: an answered one (to change it), or
+ * the first one still unanswered. A question after that cannot be opened yet
+ * (canvas 9f A: NOT YET).
+ */
+export function canOpen(
+  index: number,
+  questions: readonly QuestionSpec[],
+  answers: AnswerMap,
+): boolean {
+  const question = questions[index]
+  if (!question) return false
+  return answers[question.question] !== undefined || index === activeQuestionIndex(questions, answers)
+}
+
+/**
+ * The cursor to show: the stored one while it is still a place the card can
+ * be (a question it can open, the review only with every answer given), the
+ * resting cursor otherwise.
+ */
+export function cursorOf(
+  stored: QuestionCursor | undefined,
+  questions: readonly QuestionSpec[],
+  answers: AnswerMap,
+): QuestionCursor {
+  if (stored === 'review') return isComplete(questions, answers) ? 'review' : restingCursor(questions, answers)
+  if (typeof stored === 'number' && canOpen(stored, questions, answers)) return stored
+  return restingCursor(questions, answers)
+}
+
+/** What follows an answer: where the card moves, and whether the card is sent now. */
+export interface AfterAnswer {
+  cursor: QuestionCursor
+  send: boolean
+}
+
+/**
+ * The rule after any answer, a changed one included: the card moves to the
+ * first question still without an answer; once there is none it goes to the
+ * review (setting on) or is sent (setting off). So with the setting off,
+ * changing an earlier answer while a later question is unanswered never
+ * sends — only an answer that completes the card does.
+ */
+export function afterAnswer(
+  questions: readonly QuestionSpec[],
+  answers: AnswerMap,
+  reviewBeforeSend: boolean,
+): AfterAnswer {
+  const first = activeQuestionIndex(questions, answers)
+  if (first !== -1) return { cursor: first, send: false }
+  return { cursor: 'review', send: !reviewBeforeSend }
+}
+
+/**
+ * Whether answering `question` now would send the card — what makes a
+ * multiSelect's confirm read `Send` rather than `Confirm`. Only with the
+ * setting off, and only when every other question already has an answer.
+ */
+export function answerSends(
+  questions: readonly QuestionSpec[],
+  answers: AnswerMap,
+  question: QuestionSpec,
+  reviewBeforeSend: boolean,
+): boolean {
+  if (reviewBeforeSend) return false
+  return questions.every((q) => q === question || answers[q.question] !== undefined)
+}
+
+/** ← (canvas 9j KEYS): the previous question, opened for change; from the review, the last one. */
+export function cursorLeft(cursor: QuestionCursor, questionCount: number): QuestionCursor | null {
+  if (cursor === 'review') return questionCount > 0 ? questionCount - 1 : null
+  return cursor > 0 ? cursor - 1 : null
+}
+
+/**
+ * → (canvas 9j KEYS): the next question when it is answered or the first
+ * unanswered one; from the last question, the review once every question
+ * has an answer.
+ */
+export function cursorRight(
+  cursor: QuestionCursor,
+  questions: readonly QuestionSpec[],
+  answers: AnswerMap,
+): QuestionCursor | null {
+  if (cursor === 'review') return null
+  const next = cursor + 1
+  if (next < questions.length) return canOpen(next, questions, answers) ? next : null
+  return isComplete(questions, answers) ? 'review' : null
+}
+
+/** What the composer's text would do while a question card is pending. */
+export type ComposerTarget =
+  /** Answer this question — `changing` when it already had an answer (canvas 9f D). */
+  | { kind: 'question'; question: QuestionSpec; changing: boolean }
+  /** The review is showing: ⏎ is held, the text waits for Send (canvas 9f D). */
+  | { kind: 'review' }
+
+/** The composer's target for a pending, unsent card at `cursor`. */
+export function composerTarget(
+  questions: readonly QuestionSpec[],
+  answers: AnswerMap,
+  cursor: QuestionCursor,
+): ComposerTarget | null {
+  if (questions.length === 0) return null
+  if (cursor === 'review') return { kind: 'review' }
+  const question = questions[cursor]
+  if (!question) return null
+  return { kind: 'question', question, changing: answers[question.question] !== undefined }
+}
+
+/**
+ * The short name of an answer in the reopened block's keep link (canvas 9e:
+ * `keep “Header only” · esc`): the option's label, the count of a
+ * multiSelect, or "your text".
+ */
+export function answerShortName(answer: string, question: QuestionSpec): string {
+  const { chosen, other } = readAnswer(answer, question)
+  if (question.multiSelect) {
+    if (answer === NONE_ANSWER) return '0 picked'
+    return `${chosen.length + (other ? 1 : 0)} picked`
+  }
+  return chosen.length === 1 ? chosen[0].label : 'your text'
 }
