@@ -34,7 +34,7 @@ export const MAC_FEATURES = {
    * `manage` grant (spec 2026-10-21-log-in-from-orbital-design § 6). Against an older Mac the
    * lost-login notice has no Log in.
    */
-  profileLogin: '0.39.0',
+  profileLogin: '0.40.0',
 } as const
 
 export type MacFeature = keyof typeof MAC_FEATURES

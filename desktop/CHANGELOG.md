@@ -4,6 +4,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.40.0] — 2026-10-21
 ### Added
 - When a profile loses its login, the session says so in place and offers Log in; Orbital runs the sign-in, and every session that stopped on it continues by itself. Claude Design's sign-in works the same way.
 - Settings → Profiles shows each profile's account and Claude Design sign-in, with Log in and Switch account; logging in from another device works by pasting the code the sign-in page shows.
