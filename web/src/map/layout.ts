@@ -1,4 +1,4 @@
-import type { ApiSession, Tag } from '../lib/types'
+import { shownStatus, type ApiSession, type Tag } from '../lib/types'
 
 /**
  * Pure map layout math. No React/three imports, no Date.now/Math.random —
@@ -155,8 +155,9 @@ export function clusterSessions(sessions: ApiSession[], tags: Tag[]): Cluster[] 
 
 /** Exported for the `/sandbox` workbench, which replays the tier change on a lone planet. */
 export function scaleFor(session: ApiSession): number {
-  if (session.status === 'ended') return ENDED_SCALE
-  if (session.status === 'idle') return IDLE_SCALE
+  const status = shownStatus(session)
+  if (status === 'ended') return ENDED_SCALE
+  if (status === 'idle') return IDLE_SCALE
   return ACTIVE_SCALE
 }
 

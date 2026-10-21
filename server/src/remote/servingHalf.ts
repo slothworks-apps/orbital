@@ -19,6 +19,7 @@ import { sessionOfTopic } from '@orbital/shared/remote/segments';
 import type { Hub } from '../api/hub.js';
 import { ATTACHMENT_MAX_BYTES, IMAGE_CONTENT_TYPES } from '../api/routes.js';
 import type { ImageStore } from '../images/store.js';
+import { CLAUDE_DIR_LOGINS_TOPIC } from '../login/service.js';
 import { thumbnailOf } from '../images/thumbs.js';
 import { allowedPath } from './allowlist.js';
 import { memberHasGrant, parseGrants, type GrantGroup } from './grants.js';
@@ -34,13 +35,29 @@ export const MAX_OPEN_UPLOADS = 4;
  * `remote` (pairing codes and fingerprints) is deliberately absent.
  * `presence` is the phone's: the web client has no use for it. `limits`
  * carries only this device's own directories to a peer (`ownLimitsFrame`).
+ * `claude-dir-logins` is every change of a profile's login (spec
+ * 2026-10-21-log-in-from-orbital-design § 2).
  */
-export const MEMBER_ALLOWED_TOPICS: ReadonlySet<string> = new Set(['sessions', 'errors', PRESENCE_TOPIC, LIMITS_TOPIC]);
+export const MEMBER_ALLOWED_TOPICS: ReadonlySet<string> = new Set([
+  'sessions', 'errors', PRESENCE_TOPIC, LIMITS_TOPIC, CLAUDE_DIR_LOGINS_TOPIC,
+]);
 /** Per-id topics, by prefix: `session:<id>`, `subagent:<session>:<agent>`, `task-output:<session>:<task>`. */
 export const MEMBER_ALLOWED_TOPIC_PREFIXES: readonly string[] = ['session:', 'subagent:', 'task-output:'];
 
 /** The grant group the `limits` topic follows: the one `GET /api/limits` is in (`allowlist.ts`). */
 export const LIMITS_GRANT: GrantGroup = 'settings';
+
+/** The grant group the `claude-dir-logins` topic follows: the one its routes are in (`allowlist.ts`). */
+export const LOGINS_GRANT: GrantGroup = 'manage';
+
+/**
+ * Topics that follow the grant group of the route answering the same
+ * thing: a member without the grant gets no frame of them.
+ */
+const TOPIC_GRANTS: ReadonlyMap<string, GrantGroup> = new Map([
+  [LIMITS_TOPIC, LIMITS_GRANT],
+  [CLAUDE_DIR_LOGINS_TOPIC, LOGINS_GRANT],
+]);
 
 export function memberMayWatch(topic: string): boolean {
   return MEMBER_ALLOWED_TOPICS.has(topic) || MEMBER_ALLOWED_TOPIC_PREFIXES.some((p) => topic.startsWith(p) && topic.length > p.length);
@@ -177,7 +194,7 @@ export class ServingHalf implements ChannelServer {
         } catch {
           return; // not JSON: nothing the asker could read
         }
-        if (this.withheld(frame) || this.limitsWithheld(frame)) return;
+        if (this.withheld(frame) || this.grantWithheld(frame)) return;
         this.answer({ t: 'ws', frame: ownLimitsFrame(frame) });
       },
     });
@@ -202,16 +219,19 @@ export class ServingHalf implements ChannelServer {
 
   /**
    * `limits` is what `GET /api/limits` answers, so it follows that route's
-   * grant group: a member without it gets no frame of it. Checked on every
-   * frame, not only on subscribe: the grant can be taken back while the
-   * subscription stands.
+   * grant group (`TOPIC_GRANTS`), and `claude-dir-logins` its routes': a
+   * member without it gets no frame of it. Checked on every frame, not only
+   * on subscribe: the grant can be taken back while the subscription stands.
    */
-  private limitsWithheld(frame: unknown): boolean {
-    return (frame as { topic?: unknown } | null)?.topic === LIMITS_TOPIC && !this.mayReadLimits();
+  private grantWithheld(frame: unknown): boolean {
+    const topic = (frame as { topic?: unknown } | null)?.topic;
+    return typeof topic === 'string' && !this.mayWatch(topic);
   }
 
-  private mayReadLimits(): boolean {
-    return memberHasGrant(parseGrants(this.opts.getGrants?.()), this.opts.deviceId, LIMITS_GRANT);
+  /** Whether the member holds the grant a topic follows; true for a topic that follows none. */
+  private mayWatch(topic: string): boolean {
+    const grant = TOPIC_GRANTS.get(topic);
+    return grant === undefined || memberHasGrant(parseGrants(this.opts.getGrants?.()), this.opts.deviceId, grant);
   }
 
   private isForeign(sessionId: string): boolean {
@@ -227,7 +247,7 @@ export class ServingHalf implements ChannelServer {
         // Another member's session is that member's to serve, over its own channel.
         const session = sessionOfTopic(msg.topic);
         if (msg.type === 'subscribe' && session !== null && this.isForeign(session)) return;
-        if (msg.type === 'subscribe' && msg.topic === LIMITS_TOPIC && !this.mayReadLimits()) return;
+        if (msg.type === 'subscribe' && !this.mayWatch(msg.topic)) return;
         socket.emit('message', JSON.stringify({ type: msg.type, topic: msg.topic }));
         // The hub replays nothing on subscribe, so the phone would not know
         // presence until it next changed.

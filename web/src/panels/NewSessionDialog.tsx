@@ -906,14 +906,14 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               {choosesDir && claudeDirs.length <= CLAUDE_DIR_SEGMENTS_MAX && (
                 <div className="flex flex-col gap-2">
                   <FieldLabel>
-                    <span className="shrink-0 whitespace-nowrap">CLAUDE DIRECTORY</span>
+                    <span className="shrink-0 whitespace-nowrap">PROFILE</span>
                     <span className="min-w-0 truncate tracking-[0.04em] text-[rgba(160,190,225,.45)]">
                       · {claudeDirOriginHint(claudeDirOrigin)}
                     </span>
                     <span aria-hidden className="flex-1" />
                     {/* Plain text, never a keycap box: a box would read as a second mark (44f). */}
                     <span
-                      title="Next Claude directory — skips missing ones"
+                      title="Next profile — skips missing ones"
                       className="shrink-0 whitespace-nowrap tracking-[0.04em] text-[rgba(160,190,225,.5)]"
                     >
                       {shortcutLabel('composer.next-claude-dir')} next

@@ -3,7 +3,7 @@ import { useThree, type ThreeEvent } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { ApiSession } from '../lib/types'
-import { gateWaits, sessionStateKey, statePill, type SessionStateKey } from '../lib/types'
+import { gateWaits, sessionStateKey, shownStatus, statePill, type SessionStateKey } from '../lib/types'
 import {
   OFFLINE_STATE_INK,
   STATE_INPUT_HEX,
@@ -561,6 +561,8 @@ export interface PlanetProps {
   secondLine?: string | null
   /** The second line closes with the device's age (`ScenePlanet.dated`, `WithAge`). */
   dated?: boolean
+  /** The login pill under the name (`ScenePlanet.loginPill`), drawn as the limit's is. */
+  loginPill?: string | null
   /**
    * The session's device is offline (`ScenePlanet.offline`): the planet keeps
    * its last state at `OFFLINE_OPACITY` and holds still — no spin, no blink,
@@ -1481,6 +1483,7 @@ function PlanetBody({
   muted = false,
   secondLine = null,
   dated = false,
+  loginPill = null,
   offline = false,
   deviceOff = false,
   labelTitlePx = 11,
@@ -1511,7 +1514,8 @@ function PlanetBody({
   const compactEdge = compactEdgeRef.current !== compacting
   const mix = useStateMix(
     PLANET_STATES,
-    compacting ? 'idle' : session.status,
+    // A login being restored rests as a limit wait does (`shownStatus`).
+    compacting ? 'idle' : shownStatus(session),
     compactEdge ? COMPACTING_SWITCH_MS : STATE_TRANSITION_MS,
   )
   useLayoutEffect(() => {
@@ -1567,8 +1571,11 @@ function PlanetBody({
    */
   const failureStanding = session.lastCompactionFailed != null && contextFill !== null
   const statePillNow = compacting ? null : statePill(session)
-  /** A limit wait's pill under the name (31b), or null. */
-  const limitPill = session.limitWait ? limitPillText(session.limitWait) : null
+  /**
+   * A limit wait's pill under the name (31b), or a login wait's in the same
+   * place and the same quiet ink (canvas 62a), or null.
+   */
+  const limitPill = session.limitWait ? limitPillText(session.limitWait) : loginPill
   // A planet whose device chip is off takes its pill out with it, so nothing
   // on it is left to press.
   const pill = deviceOff || (failureStanding && statePillNow?.key === 'done') ? null : statePillNow

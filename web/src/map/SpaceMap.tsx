@@ -18,7 +18,7 @@ import {
   trashDropFor,
   PANEL_GUTTER_PX,
 } from '../store/store'
-import { isReadOnly, sessionStateKey, type SessionStateKey } from '../lib/types'
+import { isReadOnly, sessionStateKey, shownStatus, type SessionStateKey } from '../lib/types'
 import { stateColor, stateDot } from '../lib/stateStyle'
 import { StateDot } from '../ui/StateDot'
 import { reportError } from '../lib/errors'
@@ -1200,7 +1200,7 @@ export function SpaceMap() {
     let asking = 0
     let interrupted = 0
     for (const p of model.planets) {
-      if (p.muted || p.deviceOff || p.session.status !== 'needs_input') continue
+      if (p.muted || p.deviceOff || shownStatus(p.session) !== 'needs_input') continue
       const key = sessionStateKey(p.session)
       if (key === 'needs_input') asking++
       else if (key === 'interrupted') interrupted++
@@ -1270,6 +1270,7 @@ export function SpaceMap() {
               muted={planet.muted}
               secondLine={planet.secondLine}
               dated={planet.dated}
+              loginPill={planet.loginPill}
               offline={planet.offline}
               deviceOff={planet.deviceOff}
               labelTitlePx={labelFont.title}

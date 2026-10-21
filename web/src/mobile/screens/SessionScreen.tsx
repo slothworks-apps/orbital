@@ -27,6 +27,7 @@ import { isReadOnly, tagColor, type BackgroundTask, type ChatMessage, type Subag
 import { getSocket } from '../../lib/socket'
 import { ReplyMediaSession } from '../../panels/ReplyMedia'
 import { PhoneToolRowContext } from '../../panels/ToolRow'
+import { LoginNoticeContext, type LoginNoticeSurface } from '../../panels/LoginNotice'
 import { TranscriptView } from '../../panels/TranscriptView'
 import { useMedia } from '../../store/media'
 import { useOrbital, type SessionEvent } from '../../store/store'
@@ -50,6 +51,7 @@ import { useSessionAsleep, useSessionReady } from '../useDevice'
 import { clientRef } from '../transport/clientRef'
 import { MobileScreen } from '../ui'
 import { WhereLine } from '../where/WhereLine'
+import { sessionSupports } from '../version'
 import { SessionComposer } from './SessionComposer'
 import { primaryTag } from '../sessionList'
 
@@ -79,6 +81,13 @@ function SessionView({ id }: { id: string }) {
   const openSubagent = useMobile((s) => s.openSubagent)
   const openTask = useMobile((s) => s.openTask)
   const [exhausted, setExhausted] = useState(false)
+  // The lost-login notice on the phone (canvas 62e, 62h): the code flow never
+  // folded, and nothing asked of a Mac older than the routes.
+  const [codeFocused, setCodeFocused] = useState(false)
+  const loginSurface = useMemo<LoginNoticeSurface>(
+    () => ({ phone: true, serves: (sessionId) => sessionSupports('profileLogin', sessionId), onCodeFocus: setCodeFocused }),
+    [],
+  )
 
   // Open: from the cache while the Mac is away, over the tunnel when it is
   // not (spec § 4). Seated as loaded, so the reconnect's resync replaces it
@@ -191,7 +200,10 @@ function SessionView({ id }: { id: string }) {
   return (
     // No footer until the row exists: 9d opens a session before its upsert lands,
     // and a footer then would flash the terminal line.
-    <MobileScreen header={header} footer={session ? <SessionComposer id={id} /> : undefined} scroll={false}>
+    // While the sign-in code field has the keyboard, the composer steps aside
+    // so Submit sits above it (spec 2026-10-21-log-in-from-orbital-design § 6).
+    <MobileScreen header={header} footer={session && !codeFocused ? <SessionComposer id={id} /> : undefined} scroll={false}>
+      <LoginNoticeContext.Provider value={loginSurface}>
       {/* The phone's tool rows: 10g's chips, 10d's wide image results. */}
       <PhoneToolRowContext.Provider value={phoneRows}>
       {/* Reply thumbnails read named files through this session (canvas 24f A, 24g). */}
@@ -221,6 +233,7 @@ function SessionView({ id }: { id: string }) {
       />
       </ReplyMediaSession.Provider>
       </PhoneToolRowContext.Provider>
+      </LoginNoticeContext.Provider>
     </MobileScreen>
   )
 }

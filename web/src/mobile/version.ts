@@ -29,6 +29,12 @@ export const MAC_FEATURES = {
    * subscription without a word; the Limits screen then reads on open and on Read again only.
    */
   limitsTopic: '0.37.0',
+  /**
+   * Log in from Orbital: the profile login routes and the `claude-dir-logins` topic, behind the
+   * `manage` grant (spec 2026-10-21-log-in-from-orbital-design § 6). Against an older Mac the
+   * lost-login notice has no Log in.
+   */
+  profileLogin: '0.39.0',
 } as const
 
 export type MacFeature = keyof typeof MAC_FEATURES

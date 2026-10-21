@@ -92,7 +92,9 @@ runs — area `mcp`.
 
 ## Accounts, models, commands
 
-Claude directories (list, add, rename, move, remove), models (list, validate
+Profiles, the Claude directories (list, add, rename, move, remove; a
+profile's login and Claude Design sign-in: read, start, enter the code,
+cancel), models (list, validate
 a custom id), slash commands and skills (list, read) — areas `claude_dirs`,
 `models`, `commands`.
 

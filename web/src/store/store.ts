@@ -6,7 +6,7 @@ import { completedAnswers, openQuestion, type AnswerMap } from '../lib/questionC
 import { isAttachable, isSlashCommand, promptWithOpenFile, promptWithSelection, selectionId } from '../lib/ideSelection'
 import { withViewTransition } from '../lib/viewTransition'
 import { focusSession } from '../lib/desktop'
-import { MAX_SUBAGENT_MESSAGES } from '../lib/types'
+import { MAX_SUBAGENT_MESSAGES, shownStatus } from '../lib/types'
 import { EMPTY_OUTPUT, appendOutput, type OutputLines } from '../lib/backgroundTasks'
 import { historyEndedOutOfList, withDetailHistory, withHeldHistory } from '../lib/listedHistory'
 import { TRANSCRIPT_CHECK_PAGE, transcriptCheckStep } from '../lib/transcriptCheck'
@@ -3603,7 +3603,7 @@ export function statusCounts(
   // to hold its place, not to be counted, and the sidebar's lists already
   // leave it out.
   for (const session of mapSessions(state, nowMs, hidden)) {
-    if (matchesSidebarFilters(session, state.ui)) counts[session.status] += 1
+    if (matchesSidebarFilters(session, state.ui)) counts[shownStatus(session)] += 1
   }
   return counts
 }

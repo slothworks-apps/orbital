@@ -1,4 +1,4 @@
-import type { ChatMessage, NoticeLevel } from '../types.js';
+import type { ChatMessage, LoginKind, NoticeLevel } from '../types.js';
 
 /**
  * The CLI wraps a local command's own output in one of these before it writes
@@ -189,4 +189,65 @@ export function messageFromLocalCommandEntry(
 
   const row = notice(id, source.text, source.stream === 'stderr' ? 'warning' : 'notice', null);
   return row ? { ...row, ...stamp } : null;
+}
+
+// ---- A lost login (spec 2026-10-21-log-in-from-orbital-design § 3) --------
+
+/**
+ * The `error` the CLI stamps on the synthetic assistant message of a turn
+ * that failed on the login — live on the SDK frame, and on the transcript
+ * entry beside `isApiErrorMessage: true`.
+ */
+export const AUTHENTICATION_FAILED = 'authentication_failed';
+
+/** The CLI's words for a profile that was never logged in ("Not logged in · Please run /login"). */
+const NEVER_LOGGED_IN = /not logged in/i;
+
+/** The command a DesignSync failure tells the user to run when Claude Design has no sign-in. */
+const DESIGN_LOGIN_COMMAND = /\/design-login\b/;
+
+/** Whether a tool is Claude Design's: `DesignSync`, or an MCP name that carries it. */
+export function isDesignSyncTool(name: unknown): boolean {
+  return typeof name === 'string' && /(^|__)DesignSync(__|$)/.test(name);
+}
+
+/**
+ * The line of a failed DesignSync result that names `/design-login`, or
+ * null when it names nothing of the kind — a DesignSync failure for any
+ * other reason is not a lost sign-in.
+ */
+export function designLoginLine(text: string): string | null {
+  if (!DESIGN_LOGIN_COMMAND.test(text)) return null;
+  const line = text.split('\n').map((l) => l.trim()).find((l) => DESIGN_LOGIN_COMMAND.test(l));
+  return line ?? text.trim();
+}
+
+/**
+ * The `login_lost` row: the CLI's sentence as the text, and what the web
+ * needs to offer the login. `claudeDirId` is null where the profile is not
+ * known (the transcript parser), and the web uses the session's.
+ */
+export function loginLostNotice(
+  id: string,
+  text: string,
+  login: { kind: LoginKind; claudeDirId: number | null; email: string | null },
+  timestamp?: string,
+): ChatMessage {
+  const body = text.trim() || (login.kind === 'design' ? 'Claude Design needs a sign-in.' : 'The login was lost.');
+  return {
+    id,
+    role: 'notice',
+    text: body,
+    ...(timestamp ? { timestamp } : {}),
+    notice: {
+      level: 'warning',
+      kind: 'login_lost',
+      login: { ...login, neverLoggedIn: login.kind === 'claude' && NEVER_LOGGED_IN.test(body) },
+    },
+  };
+}
+
+/** The text blocks of a lost-login assistant message, as the CLI wrote them. */
+export function lostLoginText(content: unknown): string {
+  return textOfContent(content).trim();
 }

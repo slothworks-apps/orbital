@@ -185,6 +185,16 @@ export const CONTROL_OPERATIONS: readonly ControlOperation[] = [
   { name: 'add_claude_dir', area: 'claude_dirs', method: 'POST', path: '/api/claude-dirs', does: 'Adds a Claude directory.', params: ['name: string', 'path: string — absolute'] },
   { name: 'update_claude_dir', area: 'claude_dirs', method: 'PATCH', path: '/api/claude-dirs/:id', does: 'Renames a Claude directory or moves it.', params: ['id: number', 'name?: string', 'path?: string'] },
   { name: 'remove_claude_dir', area: 'claude_dirs', method: 'DELETE', path: '/api/claude-dirs/:id', does: 'Stops reading a Claude directory and hides its sessions (not the last one).', params: ['id: number'] },
+  // a profile's login (spec 2026-10-21-log-in-from-orbital-design § 2)
+  { name: 'get_claude_dir_login', area: 'claude_dirs', method: 'GET', path: '/api/claude-dirs/:id/login',
+    does: 'A profile\'s account (logged in, e-mail, org, plan), its Claude Design sign-in and any login running for it.', params: ['id: number'] },
+  { name: 'start_claude_dir_login', area: 'claude_dirs', method: 'POST', path: '/api/claude-dirs/:id/login',
+    does: 'Starts logging a profile in (claude) or signing it in to Claude Design (design), or answers the login already running. Hand the user its manualUrl: the page shows a code to paste back.',
+    params: ['id: number', 'kind: claude | design'] },
+  { name: 'enter_claude_dir_login_code', area: 'claude_dirs', method: 'POST', path: '/api/claude-dirs/:id/login/code',
+    does: 'Hands the code the sign-in page showed to the running login.', params: ['id: number', 'kind: claude | design', 'code: string'] },
+  { name: 'cancel_claude_dir_login', area: 'claude_dirs', method: 'DELETE', path: '/api/claude-dirs/:id/login/:kind',
+    does: 'Cancels the running login of a profile. Nothing is changed.', params: ['id: number', 'kind: claude | design'] },
 
   // models, commands
   { name: 'list_models', area: 'models', method: 'GET', path: '/api/models', does: 'The models a Claude directory offers.', params: ['claudeDir?: string — its id'] },

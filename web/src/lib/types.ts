@@ -304,6 +304,87 @@ export interface ApiSession {
    * from a Mac from before the feature, and from the fixtures.
    */
   claudeDirId?: number
+  /**
+   * The session's latest turn ended on a lost login of its profile, and it
+   * continues once that login is back (spec 2026-10-21-log-in-from-orbital-design
+   * § 3, § 7), or null. A label on the session, like `limitWait`: NEEDS INPUT
+   * while the login is lost, the limit wait's quiet rest while it `running`.
+   * Optional: absent from an older Mac and from the fixtures. Mirrors
+   * `server/src/api/shape.ts`.
+   */
+  loginWait?: LoginWait | null
+}
+
+/** Which login a profile can lose: its Claude account, or its Claude Design sign-in (spec 2026-10-21-log-in-from-orbital-design § 7). */
+export type LoginKind = 'claude' | 'design'
+
+/** `ApiSession.loginWait` (spec § 7). `startedBy` names the device a running login was started from. */
+export interface LoginWait {
+  kind: LoginKind
+  claudeDirId: number
+  running: boolean
+  startedBy: string | null
+}
+
+/**
+ * One login run, the running one or the last that ended, per profile and
+ * kind (spec 2026-10-21-log-in-from-orbital-design § 7). Mirrors
+ * `server/src/login/`.
+ */
+export interface LoginRun {
+  kind: LoginKind
+  claudeDirId: number
+  state: 'running' | 'succeeded' | 'failed'
+  /** `browser` while the browser path can still finish it; `code` once only a code can; `checking` after a code was handed over. */
+  step: 'browser' | 'code' | 'checking'
+  /** Started from another device: no browser opens on the Mac, only the code finishes it. */
+  manualOnly: boolean
+  /** Design only, local start only: the localhost-callback URL the web opens. */
+  url: string | null
+  /** The page that shows a code. */
+  manualUrl: string | null
+  manualFirst: boolean
+  /** null deviceId = the Mac itself. `name` is what the canvas shows ("Pixel 8"). */
+  startedBy: { deviceId: string | null; name: string }
+  /** failed: the sentence to show. */
+  message: string | null
+  /** succeeded: the account now logged in. */
+  account: string | null
+  /** Sessions on the profile's continuation list for this kind (spec § 3). */
+  waiting: { sessionId: string; title: string }[]
+  startedAt: string
+  endedAt: string | null
+}
+
+/**
+ * A profile's logins: `GET /api/claude-dirs/:id/login`, the other three
+ * login routes' answer, and every event on `claude-dir-logins` (spec § 7).
+ * `read` is false until a status read answered; the rest of its half is that
+ * answer.
+ */
+export interface ProfileLogin {
+  claudeDirId: number
+  account: { read: boolean; loggedIn: boolean; email: string | null; orgName: string | null; plan: string | null }
+  design: { read: boolean; available: boolean; signedIn: boolean }
+  runs: { claude: LoginRun | null; design: LoginRun | null }
+  /** False when the Mac knows no Claude executable: Log in is disabled. */
+  cliAvailable: boolean
+}
+
+/** A lost login, as its transcript notice carries it (spec § 7). The parser does not know the profile: `claudeDirId` null. */
+export interface LoginLostNotice {
+  kind: LoginKind
+  claudeDirId: number | null
+  email: string | null
+  neverLoggedIn: boolean
+}
+
+/** A login restored, live only like `limit_reset` (spec § 7): the divider the notice folds into. */
+export interface LoginRestoredNotice {
+  kind: LoginKind
+  email: string | null
+  previousEmail: string | null
+  continued: boolean
 }
 
 /**
@@ -719,7 +800,18 @@ export interface ChatMessage {
    * (spec 2026-10-03-usage-limits-design § 1), its facts in `limitReset`.
    * Drawn as a divider, not as a printout.
    */
-  notice?: { level: NoticeLevel; command?: string; kind?: 'limit_reset'; limitReset?: LimitResetNotice }
+  notice?: {
+    level: NoticeLevel
+    command?: string
+    kind?: 'limit_reset' | 'login_lost' | 'login_restored'
+    limitReset?: LimitResetNotice
+    /**
+     * `login_lost` and `login_restored` rows (spec 2026-10-21-log-in-from-orbital-design
+     * § 3): the lost login, drawn as the four-state notice, and the divider a
+     * restored one folds into. The row's `text` is the CLI's sentence.
+     */
+    login?: LoginLostNotice | LoginRestoredNotice
+  }
   /** `compaction` rows only. Mirrors `server/src/types.ts`. */
   compaction?: CompactionMark
   /** `rewind` rows only: N, or null for a rewind done in the terminal. Mirrors `server/src/types.ts`. */
@@ -1176,8 +1268,30 @@ export function waitingLabel(work: AwaitedWork): string {
  * edges of a park precisely so the map — where nothing is selected and the
  * `decision_pending` event is never heard — can answer this too.
  */
-export const parkedLabel = (session: Pick<ApiSession, 'pendingDecision' | 'harnessGate'>): string =>
-  session.pendingDecision ? 'NEEDS INPUT' : gateWaits(session) ? 'NEEDS YOUR OK' : 'DONE'
+export const parkedLabel = (session: Pick<ApiSession, 'pendingDecision' | 'harnessGate' | 'loginWait'>): string =>
+  session.pendingDecision || loginLost(session) ? 'NEEDS INPUT' : gateWaits(session) ? 'NEEDS YOUR OK' : 'DONE'
+
+/**
+ * The session stopped on a lost login and nobody is logging it in yet: NEEDS
+ * INPUT, amber, counted (spec 2026-10-21-log-in-from-orbital-design § 3 "The
+ * session on the map"). What it waits for is a label (`loginWaitLabels`), not
+ * a status of its own (ADR what-a-session-waits-for-is-a-label).
+ */
+export function loginLost(session: Pick<ApiSession, 'loginWait'>): boolean {
+  return Boolean(session.loginWait && !session.loginWait.running)
+}
+
+/**
+ * The status the map draws and counts. While its profile's login runs, a
+ * session stopped on it rests the way a limit wait does — idle: hollow core,
+ * no badge, not counted (spec § 3). The Mac says so itself as it does for a
+ * limit; this holds the same rest for a status that still reads
+ * `needs_input`, so the map does not depend on which of the two arrives
+ * first.
+ */
+export function shownStatus(session: Pick<ApiSession, 'status' | 'loginWait'>): SessionStatus {
+  return session.status === 'needs_input' && session.loginWait?.running ? 'idle' : session.status
+}
 
 /**
  * `gateWaits` — a harness gate waiting for the user's OK — and `asksForHuman`
@@ -1208,12 +1322,14 @@ export { asksForHuman, gateWaits }
 export type SessionStateKey = 'needs_input' | 'waiting' | 'interrupted' | 'done' | 'working' | 'idle' | 'ended'
 
 export function sessionStateKey(
-  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'harnessGate'>,
+  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'harnessGate' | 'loginWait'>,
 ): SessionStateKey {
   if (session.interruptedAt) return 'interrupted'
-  if (session.status === 'needs_input') return asksForHuman(session) ? 'needs_input' : 'done'
-  if (session.status === 'working') return awaitedCount(awaitedWork(session)) > 0 ? 'waiting' : 'working'
-  return session.status
+  const status = shownStatus(session)
+  // A lost login is the human's to restore (`loginLost`), like a parked decision.
+  if (status === 'needs_input') return asksForHuman(session) || loginLost(session) ? 'needs_input' : 'done'
+  if (status === 'working') return awaitedCount(awaitedWork(session)) > 0 ? 'waiting' : 'working'
+  return status
 }
 
 /**
@@ -1226,7 +1342,7 @@ export function sessionStateKey(
  * ENDED are already told by the planet's pulse, rings and dimming (canvas 24c).
  */
 export function statePill(
-  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'harnessGate'>,
+  session: Pick<ApiSession, 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks' | 'harnessGate' | 'loginWait'>,
 ): { key: SessionStateKey; label: string } | null {
   const key = sessionStateKey(session)
   switch (key) {

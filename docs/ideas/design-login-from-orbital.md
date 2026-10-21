@@ -1,7 +1,7 @@
 ---
 id: design-login-from-orbital
 title: Sign in to Claude Design from Orbital
-status: backlog
+status: active
 type: idea
 domain: sessions
 related:

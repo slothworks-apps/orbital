@@ -1,4 +1,5 @@
 import { continuesAtReset, formatResetAt } from '../lib/limits'
+import { loginWaitLabels } from '../lib/profileLogin'
 import { gateWaits, sessionStateKey, type ApiSession } from '../lib/types'
 import { asOfLabel } from './format'
 import { STATE_WORD, stateLine } from './sessionList'
@@ -27,8 +28,8 @@ export interface HeaderState {
 export type HeaderSession = Pick<
   ApiSession,
   | 'status' | 'interruptedAt' | 'pendingDecision' | 'awaitingSubagents' | 'subagents' | 'backgroundTasks'
-  | 'harnessGate' | 'limitWait'
->
+  | 'harnessGate' | 'limitWait' | 'loginWait'
+> & { source?: ApiSession['source'] }
 
 export interface HeaderStateInput {
   session: HeaderSession
@@ -62,6 +63,10 @@ export function headerState({ session, offline, asOf, now, reopenedStep }: Heade
     if (offline) return { kind: 'limit', word: asleep(continues ? 'WAS WAITING FOR LIMIT' : `WAS ${STATE_WORD.idle}`, asOf, now), age: false }
     const at = formatResetAt(wait.resetsAt, now)
     return { kind: 'limit', word: continues ? `WAITING FOR LIMIT · ${at}` : `IDLE · LIMIT UNTIL ${at}`, age: false }
+  }
+  if (session.loginWait?.running && session.source !== 'terminal' && !offline) {
+    // Canvas 62e: while its profile logs in, the session rests as a limit wait does.
+    return { kind: 'limit', word: loginWaitLabels(session.loginWait, null).header, age: false }
   }
   if (session.harnessGate === 'reviewing') {
     // Canvas 10c: the gate is the reviewer's, not the user's.

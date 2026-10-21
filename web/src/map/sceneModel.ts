@@ -1,5 +1,6 @@
 import type { ApiSession, OrbitalModel, SessionStatus, Subagent } from '../lib/types'
 import { matchModel } from '../lib/models'
+import { loginWaitLabels } from '../lib/profileLogin'
 import { compactingOf } from '../lib/compaction'
 import { contextFractionFor, contextLevel, type ContextLevel } from '../lib/usage'
 import { CONTEXT_GAUGE_OUTER, MOON_TICK_LENGTH, MOON_TICK_RADIUS, moonVisuals } from './visuals'
@@ -142,6 +143,13 @@ export interface ScenePlanet {
    * nothing reflows).
    */
   outlineLine: string | null
+  /**
+   * The pill under the name while the session waits on its profile's login
+   * (`loginWaitLabels`; spec 2026-10-21-log-in-from-orbital-design § 3,
+   * canvas 62a): `log in · Work profile`, `logging in · Pixel 8`. Null
+   * otherwise, and under a limit wait, whose own pill wins.
+   */
+  loginPill: string | null
   /**
    * The session's device is offline: the planet keeps its place and its last
    * state, at half opacity and without motion (canvas 50e).
@@ -460,6 +468,7 @@ export function buildSceneModel(
         secondLine: planetSecondLine(modelFamily, deviceName),
         // No age: going offline and the minute tick must not move a body.
         outlineLine: planetSecondLine(modelFamily, rowName),
+        loginPill: loginPillOf(session, state.claudeDirs),
         offline,
         deviceOff,
         contextFill,
@@ -529,4 +538,16 @@ export function withoutDeviceOff(model: SceneModel): SceneModel {
     moons: model.moons.filter((m) => !m.deviceOff),
     labels: model.labels.filter((l) => !l.empty),
   }
+}
+
+/**
+ * A waiting session's login pill (`ScenePlanet.loginPill`). The profile is
+ * named only for this device's own sessions: another device's profile ids
+ * are its own and would name one of this device's by accident.
+ */
+function loginPillOf(session: ApiSession, dirs: OrbitalState['claudeDirs']): string | null {
+  const wait = session.loginWait
+  if (!wait || session.limitWait) return null
+  const name = session.machine ? null : (dirs.find((d) => d.id === wait.claudeDirId)?.name ?? null)
+  return loginWaitLabels(wait, name).pill
 }

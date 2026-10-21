@@ -19,6 +19,7 @@ import type { IdeStore } from '../ide/store.js';
 import type { IdeContext } from '../ide/protocol.js';
 import type { LimitsService } from '../limits/service.js';
 import type { LimitWait } from '../limits/logic.js';
+import type { LoginService, LoginWait } from '../login/service.js';
 
 /** The usage-limit wire types, beside the session shape that carries one of them. */
 export type { LimitWait, LimitWindow, LimitsSnapshot, ExtraUsage } from '../limits/logic.js';
@@ -41,6 +42,8 @@ export interface ShapeContext {
   branchStatus: BranchStatusStore;
   /** Usage-limit waits. Optional so a context built without one shapes every session as not waiting. */
   limits?: Pick<LimitsService, 'waitFor'>;
+  /** The continuation lists of the logins. Optional so a context built without one shapes every session as waiting on none. */
+  logins?: Pick<LoginService, 'waitFor'>;
   /**
    * Where each session works now. Optional so a context built without one
    * shapes every session as working in its home, with no other trees.
@@ -254,6 +257,14 @@ export interface ApiSession {
    */
   limitWait: LimitWait | null;
   /**
+   * The login this session waits on, or null (spec
+   * 2026-10-21-log-in-from-orbital-design § 3, § 7): set while the session
+   * is on a continuation list — its latest main turn ended on a lost login
+   * — with `running` while its profile's login of that kind runs. A label
+   * on a status, like `limitWait`; only Orbital's own sessions ever wait.
+   */
+  loginWait: LoginWait | null;
+  /**
    * The Claude directory (`claude_dirs.id`) the session belongs to — its
    * login, its transcripts, its limits (spec
    * 2026-10-04-multiple-claude-directories-design § 6). The names come from
@@ -398,6 +409,7 @@ export function toApiSession(
     harnessGate: harnessGateOf(ctx.db, row.id),
     harnessStep: harnessStepOf(ctx.db, row.id),
     limitWait: ctx.limits?.waitFor(row.id) ?? null,
+    loginWait: ctx.logins?.waitFor(row.id) ?? null,
     claudeDirId: row.claude_dir_id,
   };
 }

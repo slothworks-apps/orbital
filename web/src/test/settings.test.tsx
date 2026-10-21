@@ -472,10 +472,10 @@ describe('Settings — General', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Claude directories (spec 2026-10-04-multiple-claude-directories-design § 1)
+// Profiles, once Claude directories (spec 2026-10-04-multiple-claude-directories-design § 1)
 // ---------------------------------------------------------------------------
 
-describe('Settings — Claude directories', () => {
+describe('Settings — Profiles', () => {
   // The tests swap the store's `loadSessions` for a spy; the rest of the file needs the real one.
   const realLoadSessions = useOrbital.getState().loadSessions
   afterEach(() => useOrbital.setState({ loadSessions: realLoadSessions }))
@@ -486,10 +486,10 @@ describe('Settings — Claude directories', () => {
   }
 
   async function addDirectory(name: string, path: string) {
-    fireEvent.click(await screen.findByRole('button', { name: 'Add directory' }))
-    fireEvent.change(screen.getByLabelText('Directory name'), { target: { value: name } })
-    fireEvent.change(screen.getByLabelText('Directory path'), { target: { value: path } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add directory' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Add profile' }))
+    fireEvent.change(screen.getByLabelText('Profile name'), { target: { value: name } })
+    fireEvent.change(screen.getByLabelText('Profile path'), { target: { value: path } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add profile' }))
   }
 
   /**
@@ -498,7 +498,7 @@ describe('Settings — Claude directories', () => {
    */
   it('reads the sessions again once a directory is added', async () => {
     const loadSessions = vi.fn(async () => null)
-    resetStore()
+    resetStore({ settings: { settings_last_section: 'profiles' } })
     useOrbital.setState({ loadSessions })
     vi.mocked(api.listClaudeDirs).mockResolvedValue([PERSONAL])
     vi.mocked(api.addClaudeDir).mockResolvedValue({
@@ -514,7 +514,7 @@ describe('Settings — Claude directories', () => {
 
   it('says why a path was refused, and reads nothing again', async () => {
     const loadSessions = vi.fn(async () => null)
-    resetStore()
+    resetStore({ settings: { settings_last_section: 'profiles' } })
     useOrbital.setState({ loadSessions })
     vi.mocked(api.listClaudeDirs).mockResolvedValue([PERSONAL])
     vi.mocked(api.addClaudeDir).mockResolvedValue({ error: 'no_such_directory' })

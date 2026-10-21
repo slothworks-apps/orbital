@@ -113,11 +113,11 @@ export function claudeDirDisplayPath(path: string): string {
 }
 
 /**
- * The mark's tooltip (canvas 44f "Tooltip"): `Claude directory: Work ·
+ * The mark's tooltip (canvas 44f "Tooltip", renamed in 62f): `Profile: Work ·
  * ~/.claude-work · jan@acme.com`, the path and the e-mail only when known.
  */
 export function claudeDirTooltip(dir: ClaudeDirName): string {
-  return [`Claude directory: ${dir.name}`, dir.path ? claudeDirDisplayPath(dir.path) : null, dir.account ?? null]
+  return [`Profile: ${dir.name}`, dir.path ? claudeDirDisplayPath(dir.path) : null, dir.account ?? null]
     .filter(Boolean)
     .join(' · ')
 }
@@ -159,7 +159,7 @@ export function claudeDirMark(
 export function claudeDirRefusalSentence(error: ClaudeDirRefusal): string {
   switch (error) {
     case 'path_required':
-      return 'Enter the directory’s path.'
+      return 'Enter the profile’s path.'
     case 'not_absolute':
       return 'The path has to be absolute — start it with / or ~/.'
     case 'no_such_directory':
@@ -167,12 +167,12 @@ export function claudeDirRefusalSentence(error: ClaudeDirRefusal): string {
     case 'not_a_directory':
       return 'That path is a file, not a directory.'
     case 'duplicate':
-      return 'That directory is already in the list.'
+      return 'That folder is already a profile.'
     case 'name_required':
-      return 'Give the directory a name.'
+      return 'Give the profile a name.'
     case 'not_found':
-      return 'That directory was removed in the meantime.'
+      return 'That profile was removed in the meantime.'
     case 'last_directory':
-      return 'The last directory cannot be removed.'
+      return 'The last profile cannot be removed.'
   }
 }

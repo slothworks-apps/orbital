@@ -1,0 +1,249 @@
+import { afterEach, describe, expect, it } from 'vitest'
+import {
+  clipboardReader,
+  loginNoticePlaces,
+  loginNoticeView,
+  loginRestoredLabel,
+  loginWaitLabels,
+  waitingLine,
+  type LoginNoticeInput,
+} from '../lib/profileLogin'
+import { sessionStateKey, shownStatus, type ApiSession, type ChatMessage, type LoginRun, type ProfileLogin } from '../lib/types'
+import { accountLine } from '../panels/ProfileLoginRow'
+import { opensInBrowser, succeededNow } from '../store/profileLogins'
+import { useMobile } from '../mobile/state'
+import { MAC_FEATURES, sessionSupports } from '../mobile/version'
+
+// Log in from Orbital (spec 2026-10-21-log-in-from-orbital-design): which
+// state a lost-login notice draws, and the words its session wears.
+
+const NOTICE_AT = '2026-10-21T10:00:00.000Z'
+
+function run(over: Partial<LoginRun> = {}): LoginRun {
+  return {
+    kind: 'claude',
+    claudeDirId: 2,
+    state: 'running',
+    step: 'browser',
+    manualOnly: false,
+    url: null,
+    manualUrl: 'https://claude.ai/oauth/authorize?x=1',
+    manualFirst: false,
+    startedBy: { deviceId: null, name: 'Studio' },
+    message: null,
+    account: null,
+    waiting: [],
+    startedAt: '2026-10-21T10:05:00.000Z',
+    endedAt: null,
+    ...over,
+  }
+}
+
+function profile(over: { loggedIn?: boolean; read?: boolean; email?: string | null; run?: LoginRun | null } = {}): ProfileLogin {
+  return {
+    claudeDirId: 2,
+    account: {
+      read: over.read ?? true,
+      loggedIn: over.loggedIn ?? false,
+      email: over.email ?? null,
+      orgName: null,
+      plan: null,
+    },
+    design: { read: true, available: true, signedIn: false },
+    runs: { claude: over.run ?? null, design: null },
+    cliAvailable: true,
+  }
+}
+
+function input(over: Partial<LoginNoticeInput> = {}): LoginNoticeInput {
+  return {
+    notice: { kind: 'claude', claudeDirId: null, email: 'jan@acme.com', neverLoggedIn: false },
+    timestamp: NOTICE_AT,
+    place: { restoredAfter: false, newerLost: false },
+    session: { source: 'web', loginWait: { kind: 'claude', claudeDirId: 2, running: false, startedBy: null } },
+    profile: profile(),
+    access: 'ok',
+    startedHere: () => true,
+    ...over,
+  }
+}
+
+describe('loginNoticeView', () => {
+  it('offers Log in while the login is lost', () => {
+    expect(loginNoticeView(input())).toMatchObject({ kind: 'lost', access: 'ok', email: 'jan@acme.com' })
+  })
+
+  it('draws the running login, and whether this device started it', () => {
+    const view = loginNoticeView(input({ profile: profile({ run: run() }), startedHere: () => false }))
+    expect(view).toMatchObject({ kind: 'running', mine: false })
+  })
+
+  it('says a failure that came after the notice, and not one from before it', () => {
+    const failed = run({ state: 'failed', message: 'That code is wrong or has expired.', endedAt: '2026-10-21T10:06:00.000Z' })
+    expect(loginNoticeView(input({ profile: profile({ run: failed }) }))).toMatchObject({
+      kind: 'failed',
+      message: 'That code is wrong or has expired.',
+    })
+    const before = run({ state: 'failed', startedAt: '2026-10-21T09:00:00.000Z', endedAt: '2026-10-21T09:01:00.000Z' })
+    expect(loginNoticeView(input({ profile: profile({ run: before }) })).kind).toBe('lost')
+  })
+
+  // Spec § 3: an older notice whose login has been restored since shows the
+  // past-tense line, not a button.
+  it('folds into the past-tense line once the login is back and nothing waits on it', () => {
+    const view = loginNoticeView(
+      input({ profile: profile({ loggedIn: true, email: 'jan@acme.com' }), session: { source: 'web', loginWait: null } }),
+    )
+    expect(view).toEqual({ kind: 'restored', label: 'LOGGED IN AS jan@acme.com' })
+  })
+
+  it('keeps Log in while the session still waits, even if a stale status says logged in', () => {
+    expect(loginNoticeView(input({ profile: profile({ loggedIn: true }) })).kind).toBe('lost')
+  })
+
+  it('draws nothing where a restored divider follows, and the CLI’s line for an older notice still out', () => {
+    expect(loginNoticeView(input({ place: { restoredAfter: true, newerLost: false } }))).toEqual({ kind: 'hidden' })
+    expect(loginNoticeView(input({ place: { restoredAfter: false, newerLost: true } }))).toEqual({ kind: 'cli', link: false })
+  })
+
+  // Terminal sessions are shown, not driven (spec § 3; canvas 62d edge cases).
+  it('leaves a terminal session the CLI’s line with the Settings link', () => {
+    expect(loginNoticeView(input({ session: { source: 'terminal', loginWait: null } }))).toEqual({ kind: 'cli', link: true })
+  })
+
+  it('has no Log in for a Mac that refuses the grant or is too old, and runs there are not drawn', () => {
+    expect(loginNoticeView(input({ access: 'no_grant' }))).toMatchObject({ kind: 'lost', access: 'no_grant' })
+    expect(loginNoticeView(input({ access: 'older_mac', profile: profile({ run: run() }) }))).toMatchObject({
+      kind: 'lost',
+      access: 'older_mac',
+    })
+  })
+
+  it('treats a status not read yet as unknown, not logged out or in', () => {
+    const view = loginNoticeView(input({ profile: profile({ read: false, loggedIn: true }), session: { source: 'web', loginWait: null } }))
+    expect(view.kind).toBe('lost')
+  })
+})
+
+describe('loginNoticePlaces', () => {
+  const lost = (id: string, kind: 'claude' | 'design' = 'claude'): ChatMessage => ({
+    id,
+    role: 'notice',
+    notice: { level: 'warning', kind: 'login_lost', login: { kind, claudeDirId: null, email: null, neverLoggedIn: false } },
+  })
+  const restored = (id: string): ChatMessage => ({
+    id,
+    role: 'notice',
+    notice: { level: 'info', kind: 'login_restored', login: { kind: 'claude', email: 'a@b.c', previousEmail: null, continued: true } },
+  })
+
+  it('marks the notice a restore answers, and only the newest of a kind as live', () => {
+    const places = loginNoticePlaces([lost('a'), restored('r'), lost('b'), lost('c'), lost('d', 'design')])
+    expect(places.get('a')).toEqual({ restoredAfter: true, newerLost: true })
+    expect(places.get('b')).toEqual({ restoredAfter: false, newerLost: true })
+    expect(places.get('c')).toEqual({ restoredAfter: false, newerLost: false })
+    expect(places.get('d')).toEqual({ restoredAfter: false, newerLost: false })
+  })
+})
+
+describe('the words a login wait wears', () => {
+  it('names the profile while lost and the device while it runs', () => {
+    expect(loginWaitLabels({ kind: 'claude', running: false, startedBy: null }, 'Work')).toMatchObject({
+      pill: 'log in · Work profile',
+      deskPill: 'NEEDS LOGIN',
+      header: 'LOG IN TO WORK PROFILE',
+    })
+    expect(loginWaitLabels({ kind: 'claude', running: true, startedBy: null }, 'Work').pill).toBe('logging in · browser')
+    expect(loginWaitLabels({ kind: 'claude', running: true, startedBy: 'Pixel 8' }, 'Work').pill).toBe('logging in · Pixel 8')
+    expect(loginWaitLabels({ kind: 'design', running: false, startedBy: null }, 'Work').deskPill).toBe('NEEDS SIGN-IN')
+  })
+
+  it('says when the login came back as another account, and keeps the e-mails as written', () => {
+    expect(loginRestoredLabel('claude', 'new@acme.com', 'Old@acme.com', true)).toBe(
+      'LOGGED IN AS new@acme.com, NOT Old@acme.com · CONTINUED',
+    )
+    expect(loginRestoredLabel('claude', 'jan@acme.com', 'JAN@acme.com', true)).toBe('LOGGED IN AS jan@acme.com · CONTINUED')
+  })
+
+  it('lists the other sessions on the same login, never this one', () => {
+    const waiting = [
+      { sessionId: 's1', title: 'billing-fix' },
+      { sessionId: 's2', title: 'api-gateway' },
+    ]
+    expect(waitingLine({ waiting }, 's1', false)).toBe('api-gateway waits on the same login')
+    expect(waitingLine({ waiting }, 's1', true)).toBe('continues api-gateway too when it finishes')
+    expect(waitingLine({ waiting: waiting.slice(0, 1) }, 's1', false)).toBeNull()
+  })
+})
+
+describe('a session stopped on a lost login', () => {
+  const base = { status: 'needs_input', subagents: [], pendingDecision: null } as unknown as ApiSession
+
+  it('is NEEDS INPUT while lost, and rests idle while its login runs', () => {
+    const lost = { ...base, loginWait: { kind: 'claude', claudeDirId: 1, running: false, startedBy: null } } as ApiSession
+    const running = { ...base, loginWait: { kind: 'claude', claudeDirId: 1, running: true, startedBy: null } } as ApiSession
+    expect(sessionStateKey(base)).toBe('done')
+    expect(sessionStateKey(lost)).toBe('needs_input')
+    expect(sessionStateKey(running)).toBe('idle')
+    expect(shownStatus(running)).toBe('idle')
+    expect(shownStatus({ ...running, status: 'working' })).toBe('working')
+  })
+})
+
+describe('the Settings row’s account line', () => {
+  it('reads the status once answered, and the list’s e-mail until then', () => {
+    expect(accountLine(null, 'jan@acme.com')).toBe('jan@acme.com')
+    expect(accountLine(profile({ loggedIn: false }), 'jan@acme.com')).toBe('was jan@acme.com · OAuth session expired')
+    expect(accountLine(profile({ loggedIn: false }), null)).toBe('Not logged in')
+    const ok = profile({ loggedIn: true, email: 'jan@acme.com' })
+    ok.account.orgName = 'Acme'
+    ok.account.plan = 'max'
+    expect(accountLine(ok, null)).toBe('jan@acme.com · Acme · Max')
+  })
+})
+
+describe('starting a login', () => {
+  it('opens a design sign-in’s page here, and nothing for a Claude login or one from afar', () => {
+    const design = run({ kind: 'design', url: 'http://localhost:5555/cb', manualUrl: 'https://claude.ai/code' })
+    expect(opensInBrowser(design)).toBe('http://localhost:5555/cb')
+    expect(opensInBrowser({ ...design, manualFirst: true })).toBe('https://claude.ai/code')
+    expect(opensInBrowser({ ...design, manualOnly: true })).toBeNull()
+    expect(opensInBrowser(run())).toBeNull()
+  })
+
+  it('sees a success once, on the answer that first carries it', () => {
+    const before = profile({ run: run() })
+    const after = profile({ run: run({ state: 'succeeded', account: 'jan@acme.com' }) })
+    expect(succeededNow(before, after)).toBe(true)
+    expect(succeededNow(after, after)).toBe(false)
+  })
+})
+
+describe('the code field’s Paste', () => {
+  it('is not offered without a clipboard to read, and reads null where the WebView refuses', async () => {
+    expect(clipboardReader(undefined)).toBeNull()
+    expect(await clipboardReader({ readText: async () => '  abc#def \n' })!()).toBe('abc#def')
+    expect(
+      await clipboardReader({
+        readText: async () => {
+          throw new DOMException('denied', 'NotAllowedError')
+        },
+      })!(),
+    ).toBeNull()
+  })
+})
+
+describe('the phone against an older Mac', () => {
+  afterEach(() => useMobile.setState({ devices: [] }))
+
+  it('logs in only where the session’s own Mac serves the routes', () => {
+    useMobile.setState({
+      devices: [
+        { id: 'old', version: '0.38.2' },
+        { id: 'new', version: MAC_FEATURES.profileLogin },
+      ] as never,
+    })
+    expect(sessionSupports('profileLogin', 's-old', () => 'old')).toBe(false)
+    expect(sessionSupports('profileLogin', 's-new', () => 'new')).toBe(true)
+  })
+})

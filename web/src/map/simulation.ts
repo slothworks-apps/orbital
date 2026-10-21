@@ -727,6 +727,8 @@ export function planetOutline(
     secondLine: string | null
     /** The context gauge moves the label and the pill further out (`Planet`'s `clearsGauge`). */
     gauged: boolean
+    /** The login pill under the name (`ScenePlanet.loginPill`), measured where the limit's would be. */
+    loginPill?: string | null
   },
   planetScale: number,
   labelFont: { title: number; family: number },
@@ -737,7 +739,7 @@ export function planetOutline(
     planet.session.title,
     planet.secondLine,
     labelFont,
-    wait ? limitPillText(wait) : null,
+    wait ? limitPillText(wait) : (planet.loginPill ?? null),
   )
   const state = statePill(planet.session)
   const pill = state
