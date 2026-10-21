@@ -71,6 +71,21 @@ The stats (`server/src/stats/compute.ts`) do **not** skip `isMeta`. A meta
 entry is still input the model was sent, and a user entry is where API
 timing starts counting.
 
+## The interrupt marker
+
+When a turn is cut short, by Esc or by a restart that killed the run, the
+CLI writes `[Request interrupted by user]` or
+`[Request interrupted by user for tool use]` as an ordinary user entry, not
+`isMeta`. A survey of local transcripts on 2026-10-21 found only these two
+forms, always as the whole text. `extractMeta` never takes a title from one,
+not even as a fallback (`isInterruptMarker`). Before it skipped them, the
+marker named any session whose first user entry it was, and in a harness
+session it replaced the harness's stand-in name, since it looked like the
+user's first own message. Migration 0033 blanked those titles. A user's
+message that only begins with the marker (pasted) is a real title.
+
+The transcript still shows the marker as a user turn.
+
 ## Entries off the live branch
 
 Before any of the above, every reader narrows the file to its live branch

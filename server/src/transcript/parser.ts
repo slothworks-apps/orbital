@@ -224,6 +224,16 @@ export function isBareSlashCommand(text: string): boolean {
 }
 
 /**
+ * The line the CLI writes in the user's role when a turn is cut short — by
+ * Esc, or by a restart that killed the run. Nobody typed it, so it never
+ * names a session, not even as a fallback: in a harness session it would
+ * replace the harness's stand-in name.
+ */
+export function isInterruptMarker(text: string): boolean {
+  return /^\[Request interrupted by user(?: for tool use)?\]$/.test(text);
+}
+
+/**
  * `skip` holds the uuids of user entries that are not the user's words — the
  * messages Orbital sent on a harness's account (`harness_messages`). They
  * count as messages but never name the session.
@@ -252,7 +262,7 @@ export function extractMeta(entries: TranscriptEntry[], skip: ReadonlySet<string
     }
     if (!title && e.type === 'user' && e.message && !(e.uuid && skip.has(e.uuid))) {
       const text = truncateTitle(cleanTitle(textOf(e.message.content)));
-      if (!text) continue;
+      if (!text || isInterruptMarker(text)) continue;
       // Skip past a leading `/clear` (or any other bare command) to the first
       // turn that actually describes the work.
       if (isBareSlashCommand(text)) {
