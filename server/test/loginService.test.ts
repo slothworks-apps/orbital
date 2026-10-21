@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   CANCELLED_MESSAGE,
@@ -11,6 +13,7 @@ import {
   type LoginServiceDeps,
   type ProfileLogin,
   spawnLogin,
+  LOGIN_WATCHDOG,
 } from '../src/login/service.js';
 import { SILENT_BROWSER } from '../src/login/parse.js';
 
@@ -447,5 +450,16 @@ describe('spawnLogin, the real process', () => {
     // behind, it would hold stdout open and the exit would never come.
     expect(await exited).toBe(143);
   });
-});
 
+  // `/bin/sh` is bash on a Mac and dash on Debian and Ubuntu, where a
+  // background command's stdin is /dev/null unless the script saves it first.
+  it.skipIf(!existsSync('/bin/dash'))('hands stdin to the CLI under dash too', async () => {
+    const child = spawn('/bin/dash', ['-c', LOGIN_WATCHDOG, '/bin/sh', '-c', 'read code; echo "got:$code"'], { stdio: ['pipe', 'pipe', 'inherit'] });
+    let out = '';
+    child.stdout.setEncoding('utf8').on('data', (chunk: string) => (out += chunk));
+    child.stdin.write('abc#state\n');
+    const code = await new Promise<number | null>((resolve) => child.on('close', resolve));
+    expect(out).toBe('got:abc#state\n');
+    expect(code).toBe(0);
+  });
+});

@@ -137,9 +137,6 @@ export type StatusRun = (file: string, args: string[], opts: { cwd: string; env:
 const LOGIN_WATCHDOG_INTERVAL_S = 2;
 
 /**
- * The real spawn: the CLI under this shell, stdin a pipe held open, output
- * as text.
- *
  * The shell a login runs under. `auth login` never ends by itself (spec §
  * What the CLI does) and does not stop when its stdin closes, and the server
  * is stopped by a signal it does not handle (the desktop app quitting, a
@@ -147,19 +144,27 @@ const LOGIN_WATCHDOG_INTERVAL_S = 2;
  * listen on its localhost port until the Mac restarts. Under this shell it
  * cannot. A watchdog ends the CLI as soon as the server (the shell's parent)
  * is gone; a TERM to the shell — a cancel or a timeout — ends the CLI with
- * it. The CLI's stdin is the shell's own pipe, so a code and a design
- * sign-in's closing stdin still reach it. `$0` is the CLI, the rest its
- * arguments; the CLI's exit code is the shell's.
+ * it. `$0` is the CLI, the rest its arguments; the CLI's exit code is the
+ * shell's.
+ *
+ * The CLI's stdin is the shell's own pipe, so a code and a design sign-in's
+ * closing stdin still reach it. It goes through fd 3 on purpose: a POSIX sh
+ * without job control gives a background command `/dev/null` for stdin
+ * before its own redirections run, so in `dash` (`/bin/sh` on Debian and
+ * Ubuntu) `"$0" <&0 &` reads nothing, while a saved copy survives.
  */
-const LOGIN_WATCHDOG = [
+export const LOGIN_WATCHDOG = [
   'server=$PPID',
-  '"$0" "$@" <&0 &',
+  'exec 3<&0',
+  '"$0" "$@" <&3 3<&- &',
   'cli=$!',
+  'exec 3<&-',
   "trap 'kill $cli 2>/dev/null; exit 143' TERM INT HUP",
   `( while kill -0 "$server" 2>/dev/null && kill -0 "$cli" 2>/dev/null; do sleep ${LOGIN_WATCHDOG_INTERVAL_S}; done; kill "$cli" 2>/dev/null ) </dev/null >/dev/null 2>&1 &`,
   'wait "$cli"',
 ].join('\n');
 
+/** The real spawn: the CLI under `LOGIN_WATCHDOG`, stdin a pipe held open, output as text. */
 export const spawnLogin: LoginSpawn = (file, args, opts) => {
   const child = spawn('/bin/sh', ['-c', LOGIN_WATCHDOG, file, ...args], {
     cwd: opts.cwd,
