@@ -33,6 +33,20 @@ nothing about Orbital changes.
 The decision to connect directly, and what it costs, is
 [[orbital-speaks-to-the-ide-itself]]. This document is what gets built.
 
+## Scope
+
+- **For** anyone who keeps WebStorm (or another JetBrains IDE) or VS Code
+  open, with the Claude Code extension, on a project an Orbital session works
+  in.
+- **Lives** on by default. There is nothing to turn on: an editor that is
+  running is read, and one that is not changes nothing.
+- **An existing user notices** nothing until an editor with the extension is
+  open on a session's project; then the composer's slot shows its caret and
+  selection, @ completion ranks its open tabs first, and ⌥ on a path opens it
+  there.
+- **Can be set:** nothing. A selection riding along is dismissed with its ×,
+  per message.
+
 ## The protocol, in four facts
 
 1. The extension writes `~/.claude/ide/<port>.lock`. **The port is the file
@@ -88,6 +102,33 @@ the thing being tracked belongs to a directory, and several sessions share it.
 - A lock naming a `transport` other than `ws` is ignored rather than tried:
   the only client here speaks WebSocket. A lock that omits the field is taken
   at the word of everything else in it.
+
+### Two editors on one project
+
+WebStorm and VS Code can both have the same project open, each with its own
+lock, and both connections live. A workspace root still has one editor behind
+it at a time — the slot names one editor and shows one selection — and it
+belongs to **whichever was used last**:
+
+- an editor that connects takes the roots it has open;
+- an editor that publishes a selection takes them too, caret moves included:
+  someone is working in it;
+- an editor that goes hands each root it held to the most recently used other
+  editor that has it open, rather than leaving the project with no editor
+  while one is still there.
+
+Each of these emits `change` for the root, because the editor behind it — its
+name and its selection — is what the sessions show. A diff tab is closed in
+the editor that opened it, whichever editor holds the project by the time the
+review ends.
+
+This replaces the first rule, under which the editor that connected last kept
+the project for good — arbitrary by its own account, and wrong as soon as
+someone moved to the other editor. Its known weakness: an editor nobody
+touched can still push a selection — a buffer reloaded after a session edited
+the file, say — and take the project with it. Byte-identical repeats are
+already dropped, which is most of such echoes; the rest cost a republish and
+the slot naming the other editor until the next selection.
 
 `ShapeContext` gains an `ide: IdeStore` field alongside `git`, and the store is
 `start()`ed rather than used straight from its constructor — starting is what
@@ -279,7 +320,10 @@ timings are a good starting point for the values and nothing more.
 
 `GET /api/sessions/:id/ide/open-files` calls `get_all_opened_file_paths` on the
 connection covering that session and answers `{ files: string[] }` — absolute
-paths, in the editor's order, filtered to the session's `cwd`.
+paths, in the editor's order, filtered to the session's `cwd`. VS Code does not
+have that tool; its `getOpenEditors` answers the same question as JSON,
+`{tabs: [{fileName, uri, isActive, …}]}`, and a tab's `fileName` (or its `uri`)
+is the path. One file open in two editor groups is listed once.
 
 `404` is the single answer to every kind of "no": an id that names no session,
 no lock at all, a lock covering another project, a connection that never came
@@ -345,6 +389,25 @@ Canvas artboard 20d draws it, and the build follows it:
   workspace. A relative path is one the session wrote about its own `cwd`, so
   only an absolute one is checked;
 - the line travels: `:88` is part of the hit area and is passed on.
+
+Neither extension's `openFile` takes a line. Both take `startText`, and VS Code
+selects **the first match of it** in the document. So the line goes as text:
+the shortest run of lines starting at it, read from the file on disk, whose
+first match in the file is that line (`revealTextFor`). `endText` is a NUL,
+which a text file does not contain: VS Code, finding `startText` but no
+`endText` after it, sets a caret at the start of the match rather than
+selecting it. That matters because a selection Orbital made would come back as
+`selection_changed` and ride along with the next message as if the person had
+chosen it. A file that does contain a NUL gets an empty `endText`, and the run
+selected. A line that cannot be
+reached that way — one whose run repeats an earlier one to the end of the file,
+or a file the viewer would not read — opens the file without a line. The
+JetBrains plugin (0.1.14-beta, read from its classes on 2026-10-21) accepts
+`startText` and ignores it, so in WebStorm the file opens where it was.
+
+VS Code refuses a call that lacks `startText` or `endText` (`-32602`, input
+validation), so both always go, empty when there is no line; an empty
+`startText` selects nothing. Before this, opening a file in VS Code failed outright.
 
 Why ⌥ and not ⌘ is 20d's own reasoning: ⌘-click already means "new window" to
 hands trained by browsers, and ⌥ is JetBrains' own alternate key.
@@ -412,6 +475,22 @@ Whether the extension writes the file itself when the human saves a diff tab.
 Both answers are safe — if it did, the rewritten input no longer matches and
 the tool errors with the file already correct; if it did not, the tool writes
 it — so the file ends up right either way, but the measurement is worth taking.
+
+## VS Code
+
+Measured on 2026-10-21 against Claude Code for VS Code 2.1.306, with a CLI
+session's own connection to it alive at the same time. The four facts above
+hold unchanged: the lock carries `ideName: "Visual Studio Code"`, and the
+`selection_changed` payload has the JetBrains shape plus `fileUrl` and
+`selection.isEmpty`, which nothing reads. A caret move sends `text: ""`.
+
+`tools/list` names `openDiff`, `getDiagnostics`, `close_tab`,
+`closeAllDiffTabs`, `openFile`, `getOpenEditors`, `getWorkspaceFolders`,
+`getCurrentSelection`, `getLatestSelection`, `checkDocumentDirty`,
+`saveDocument` and `executeCode`. The four Orbital calls back with keep their
+names and arguments; open files take the other tool (§ Open files). The
+extension also pushes `diagnostics_changed` with the URIs whose findings
+moved, which nothing listens to yet.
 
 ## When there is no editor
 
@@ -573,5 +652,6 @@ already marked for deletion.
   keystroke in the editor aimed at a terminal that is listening; what it should
   mean when several Orbital sessions are open is a question this spec does not
   answer.
-- VS Code. The bridge is built to discover tools rather than assume them, but it
-  is measured against JetBrains only, and the VS Code tool set is unverified.
+- Editors other than the JetBrains plugin and the VS Code extension (§ VS
+  Code). A fork that writes the same locks is taken at its word and gets
+  whatever tools it lists.

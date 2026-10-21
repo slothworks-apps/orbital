@@ -7,6 +7,7 @@ import {
   CLOSE_TAB_TOOL,
   DIAGNOSTICS_TOOL,
   OPEN_DIFF_TOOL,
+  OPEN_EDITORS_TOOL,
   OPEN_FILES_TOOL,
   OPEN_FILE_TOOL,
   type IdeLock,
@@ -87,8 +88,8 @@ function writeLock(port: number, folders: string[], extra: Record<string, unknow
 }
 
 /** A lock, seen by the store, with its editor having finished the handshake. */
-function connect(port: number, folders: string[]): FakeConnection {
-  store.applyLockEvent(writeLock(port, folders), 'add');
+function connect(port: number, folders: string[], extra: Record<string, unknown> = {}): FakeConnection {
+  store.applyLockEvent(writeLock(port, folders, extra), 'add');
   const entry = made[made.length - 1];
   entry.connection.emit('ready', [...entry.connection.tools]);
   return entry.connection;
@@ -283,6 +284,93 @@ describe('IdeStore: the selection flood', () => {
   });
 });
 
+describe('IdeStore: two editors on one project', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  /** WebStorm first, then VS Code, both on `/w/a`. */
+  function connectBoth(): { webstorm: FakeConnection; vscode: FakeConnection } {
+    const webstorm = connect(60108, ['/w/a']);
+    vi.advanceTimersByTime(1);
+    const vscode = connect(17265, ['/w/a'], { ideName: 'Visual Studio Code' });
+    return { webstorm, vscode };
+  }
+
+  it('gives the project to the editor that opened it last', () => {
+    connectBoth();
+    expect(store.locate('/w/a/src')?.ideName).toBe('Visual Studio Code');
+  });
+
+  it('moves the project to the editor someone selects in, and says so', () => {
+    const { webstorm } = connectBoth();
+    store.locate('/w/a/src');
+    const seen: Array<[string, string[]]> = [];
+    store.on('change', (root: string, cwds: string[]) => seen.push([root, cwds]));
+
+    webstorm.emit('selection', selectionAt('/w/a/x.ts', 3, 'text'));
+    vi.advanceTimersByTime(IDE_SELECTION_COALESCE_MS);
+    expect(seen).toEqual([['/w/a', ['/w/a/src']]]);
+    expect(store.locate('/w/a/src')).toMatchObject({
+      ideName: 'WebStorm',
+      selection: { filePath: '/w/a/x.ts', text: 'text' },
+    });
+  });
+
+  it('says so when an editor takes back a project another one was standing in for', () => {
+    const { vscode } = connectBoth();
+    vscode.emit('closed');
+    expect(store.locate('/w/a/src')?.ideName).toBe('WebStorm');
+    const seen: Array<[string, string[]]> = [];
+    store.on('change', (root: string, cwds: string[]) => seen.push([root, cwds]));
+    // VS Code comes back on a new port, as it does after a restart.
+    connect(17266, ['/w/a'], { ideName: 'Visual Studio Code' });
+    expect(seen).toEqual([['/w/a', ['/w/a/src']]]);
+    expect(store.locate('/w/a/src')?.ideName).toBe('Visual Studio Code');
+  });
+
+  it('hands the project to the other editor when the one holding it quits', () => {
+    const { webstorm, vscode } = connectBoth();
+    webstorm.emit('selection', selectionAt('/w/a/x.ts', 3, 'from webstorm'));
+    vi.advanceTimersByTime(IDE_SELECTION_COALESCE_MS);
+    vscode.emit('selection', selectionAt('/w/a/y.ts', 5, 'from vscode'));
+    vi.advanceTimersByTime(IDE_SELECTION_COALESCE_MS);
+    store.locate('/w/a/src');
+    const seen: Array<[string, string[]]> = [];
+    store.on('change', (root: string, cwds: string[]) => seen.push([root, cwds]));
+
+    vscode.emit('closed');
+    expect(seen).toEqual([['/w/a', ['/w/a/src']]]);
+    expect(store.locate('/w/a/src')).toMatchObject({
+      ideName: 'WebStorm',
+      selection: { text: 'from webstorm' },
+    });
+
+    webstorm.emit('closed');
+    expect(store.locate('/w/a/src')).toBeNull();
+  });
+
+  it('closes a diff tab in the editor that opened it, wherever the project went since', async () => {
+    const { webstorm, vscode } = connectBoth();
+    for (const connection of [webstorm, vscode]) {
+      connection.tools.add(OPEN_DIFF_TOOL);
+      connection.tools.add(CLOSE_TAB_TOOL);
+    }
+    const pending = store.openDiff(
+      '/w/a',
+      { oldPath: '/w/a/x.ts', newPath: '/w/a/x.ts', contents: 'new', tabName: 'tab' },
+      new AbortController().signal,
+    );
+    // Someone selects in WebStorm while the review waits in VS Code.
+    webstorm.emit('selection', selectionAt('/w/a/x.ts', 3, 'text'));
+    vi.advanceTimersByTime(IDE_SELECTION_COALESCE_MS);
+    vscode.blockContent?.([{ type: 'text', text: 'DIFF_REJECTED' }]);
+    await pending;
+    expect(vscode.calls.some((call) => call.name === CLOSE_TAB_TOOL)).toBe(true);
+    expect(webstorm.calls.some((call) => call.name === CLOSE_TAB_TOOL)).toBe(false);
+  });
+});
+
 describe('IdeStore: open files', () => {
   it('lists the editor tabs inside the session sandbox, in the editor order', async () => {
     const connection = connect(60108, ['/w/a']);
@@ -290,6 +378,16 @@ describe('IdeStore: open files', () => {
     expect(await store.openFiles('/w/a')).toEqual(['/w/a/src/z.ts', '/w/a/README.md']);
     // The session's cwd is the sandbox, not the workspace root.
     expect(await store.openFiles('/w/a/src')).toEqual(['/w/a/src/z.ts']);
+  });
+
+  it('reads VS Code tabs, which come as JSON under another tool name', async () => {
+    const connection = connect(17265, ['/w/a'], { ideName: 'Visual Studio Code' });
+    connection.tools = new Set([OPEN_EDITORS_TOOL]);
+    connection.answer = JSON.stringify({
+      tabs: [{ fileName: '/w/a/src/z.ts' }, { fileName: '/w/b/other.ts' }, { uri: 'file:///w/a/README.md' }],
+    });
+    expect(await store.openFiles('/w/a')).toEqual(['/w/a/src/z.ts', '/w/a/README.md']);
+    expect(connection.calls.at(-1)?.name).toBe(OPEN_EDITORS_TOOL);
   });
 
   it('answers null when no editor covers the cwd', async () => {
@@ -318,22 +416,43 @@ function connectSpeaking(folders = ['/w/a']): FakeConnection {
 }
 
 describe('IdeStore: opening a file in the editor', () => {
-  it('sends the path, and the line as the gutter numbers it', async () => {
+  it('sends the line as the text that starts it, with an end that puts a caret there', async () => {
+    const workspace = makeTmpDir('ide-ws');
+    const file = join(workspace, 'x.ts');
+    writeFileSync(file, ['a', '}', 'b', '}', 'c'].join('\n'));
+    const connection = connectSpeaking([workspace]);
+    expect(await store.openFile(workspace, file, 4)).toBe(true);
+    const args = connection.calls.at(-1)?.args as { startText: string; endText: string };
+    expect(args.startText).toBe('}\nc');
+    // VS Code selects up to `endText`, or sets a caret when it is not there:
+    // so the end is something the file does not hold.
+    expect(args.endText).not.toBe('');
+    expect(['a', '}', 'b', '}', 'c'].join('\n').includes(args.endText)).toBe(false);
+  });
+
+  it('falls back to selecting the run when the file holds the caret sentinel too', async () => {
+    const workspace = makeTmpDir('ide-ws');
+    const file = join(workspace, 'x.bin.ts');
+    writeFileSync(file, 'a\nb\n' + 'x'.repeat(10_000) + '\u0000');
+    const connection = connectSpeaking([workspace]);
+    await store.openFile(workspace, file, 2);
+    expect(connection.calls.at(-1)?.args).toEqual({ filePath: file, startText: 'b', endText: '' });
+  });
+
+  it('opens a file it cannot read without a line', async () => {
     const connection = connectSpeaking();
     expect(await store.openFile('/w/a', '/w/a/src/x.ts', 88)).toBe(true);
-    expect(connection.calls.at(-1)).toMatchObject({
-      name: OPEN_FILE_TOOL,
-      args: { filePath: '/w/a/src/x.ts', startLine: 88, endLine: 88 },
-    });
+    expect(connection.calls.at(-1)?.args).toEqual({ filePath: '/w/a/src/x.ts', startText: '', endText: '' });
   });
 
   it('asks for no line when there is none to ask for', async () => {
     const connection = connectSpeaking();
+    const none = { filePath: '/w/a/src/x.ts', startText: '', endText: '' };
     await store.openFile('/w/a', '/w/a/src/x.ts');
-    expect(connection.calls.at(-1)?.args).toEqual({ filePath: '/w/a/src/x.ts' });
+    expect(connection.calls.at(-1)?.args).toEqual(none);
     // A line that is not a line is the same as none at all.
     await store.openFile('/w/a', '/w/a/src/x.ts', 0);
-    expect(connection.calls.at(-1)?.args).toEqual({ filePath: '/w/a/src/x.ts' });
+    expect(connection.calls.at(-1)?.args).toEqual(none);
   });
 
   it('refuses a path outside the session sandbox without calling the editor', async () => {

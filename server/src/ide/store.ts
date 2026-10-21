@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
+import { readTextFile } from '../files/preview.js';
 import { watchDir, type DirWatch } from '../watcher/watchDir.js';
 import { IdeSocket, NO_TIMEOUT, type IdeConnection } from './client.js';
 import {
@@ -8,6 +9,7 @@ import {
   DIAGNOSTICS_TOOL,
   IDE_LOCK_DIR,
   OPEN_DIFF_TOOL,
+  OPEN_EDITORS_TOOL,
   OPEN_FILES_TOOL,
   OPEN_FILE_TOOL,
   insideCwd,
@@ -15,7 +17,9 @@ import {
   normaliseSelection,
   parseDiagnostics,
   parseIdeLock,
+  parseOpenEditors,
   readDiffOutcome,
+  revealTextFor,
   sameSelection,
   workspaceRootFor,
   type IdeContext,
@@ -50,6 +54,12 @@ interface Entry {
   /** The latest notification of a burst, waiting for `coalesceMs`. */
   queued: IdeSelection | null;
   timer: NodeJS.Timeout | null;
+  /**
+   * When this editor last connected or published a selection, as a count of
+   * the store's uses — which of two editors on one project takes it over when
+   * the one holding it goes.
+   */
+  activeAt: number;
 }
 
 export interface IdeStoreOptions {
@@ -94,7 +104,13 @@ export class IdeStore extends EventEmitter {
   private connect: (lock: IdeLock) => IdeConnection;
 
   private byPort = new Map<number, Entry>();
-  /** Workspace root → the connected entry covering it. Ready entries only. */
+  /** Counts uses, so `activeAt` orders editors whatever the wall clock does. */
+  private uses = 0;
+  /**
+   * Workspace root → the connected entry covering it. Ready entries only. Two
+   * editors open on one project share a root, and it belongs to whichever
+   * was used last.
+   */
   private entryByRoot = new Map<string, Entry>();
   /** `cwd` → workspace root, or null for "asked, nothing covers it". */
   private rootByCwd = new Map<string, string | null>();
@@ -190,12 +206,18 @@ export class IdeStore extends EventEmitter {
   async openFiles(cwd: string): Promise<string[] | null> {
     const entry = this.entryFor(cwd);
     if (!entry) return null;
-    const text = await entry.connection.callTool(OPEN_FILES_TOOL);
-    if (text === null) return null;
-    return text
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line !== '' && insideCwd(cwd, line));
+    let paths: string[];
+    if (entry.connection.hasTool(OPEN_FILES_TOOL)) {
+      const text = await entry.connection.callTool(OPEN_FILES_TOOL);
+      if (text === null) return null;
+      paths = text.split('\n').map((line) => line.trim());
+    } else {
+      // VS Code: the same question under another name, answered as JSON.
+      const text = await entry.connection.callTool(OPEN_EDITORS_TOOL);
+      if (text === null) return null;
+      paths = parseOpenEditors(text);
+    }
+    return paths.filter((path) => path !== '' && insideCwd(cwd, path));
   }
 
   // -------------------------------------------------------------------------
@@ -223,16 +245,11 @@ export class IdeStore extends EventEmitter {
   async openFile(cwd: string, path: string, line: number | null = null): Promise<boolean> {
     const entry = this.entryFor(cwd);
     if (!entry || !insideCwd(cwd, path)) return false;
-    // `startLine`/`endLine` are 1-based here, matching the gutter, which is
-    // the opposite of what `selection_changed` pushes. The extension takes
-    // an absent pair as "just reveal the file".
-    const args: Record<string, unknown> = { filePath: path };
-    if (line !== null && Number.isSafeInteger(line) && line > 0) {
-      args.startLine = line;
-      args.endLine = line;
-      args.startText = '';
-      args.endText = '';
-    }
+    // Neither build takes a line: the line travels as the text that starts
+    // it, which VS Code looks for. The JetBrains plugin (0.1.14-beta) reads
+    // `startText` and ignores it, so there the file opens where it was.
+    // VS Code refuses a call without both texts; empty ones select nothing.
+    const args = { filePath: path, ...(line === null ? NO_LINE : lineTexts(cwd, path, line)) };
     return (await entry.connection.callTool(OPEN_FILE_TOOL, args)) !== null;
   }
 
@@ -290,16 +307,10 @@ export class IdeStore extends EventEmitter {
       // Whatever happened — a verdict, an abort, a socket that went away —
       // the tab is this call's to clean up. `close_tab` on a tab the editor
       // has already dropped is a no-op there, which is what makes calling it
-      // unconditionally the simple thing to do.
-      void this.closeTab(cwd, args.tabName);
+      // unconditionally the simple thing to do. Asked of the editor that
+      // opened the tab, which need not be the one holding the project now.
+      void closeTabIn(entry, args.tabName);
     }
-  }
-
-  /** Drops a tab `openDiff` opened. Safe to call for one already gone. */
-  async closeTab(cwd: string, tabName: string): Promise<void> {
-    const entry = this.entryFor(cwd);
-    if (!entry || !entry.connection.hasTool(CLOSE_TAB_TOOL)) return;
-    await entry.connection.callTool(CLOSE_TAB_TOOL, { tab_name: tabName });
   }
 
   /** The connected editor covering this `cwd`, or undefined. */
@@ -379,6 +390,7 @@ export class IdeStore extends EventEmitter {
       selection: null,
       queued: null,
       timer: null,
+      activeAt: 0,
     };
     this.byPort.set(lock.port, entry);
     entry.connection.on('ready', () => this.onReady(entry));
@@ -394,20 +406,51 @@ export class IdeStore extends EventEmitter {
     if (entry.timer) clearTimeout(entry.timer);
     entry.connection.removeAllListeners();
     entry.connection.close();
+    // A root another editor also has open passes to it rather than going
+    // dark: the project is still open, just in one editor fewer.
+    const inherited: string[] = [];
     for (const root of entry.lock.workspaceFolders) {
-      if (this.entryByRoot.get(root) === entry) this.entryByRoot.delete(root);
+      if (this.entryByRoot.get(root) !== entry) continue;
+      const heir = this.heirOf(root);
+      if (heir) {
+        this.entryByRoot.set(root, heir);
+        inherited.push(root);
+      } else {
+        this.entryByRoot.delete(root);
+      }
     }
     this.reresolve();
+    // The root did not move, so `reresolve` saw nothing; the editor behind it did.
+    for (const root of inherited) this.emitChange(root);
+  }
+
+  /** The most recently used ready editor that has this root open, if any. */
+  private heirOf(root: string): Entry | undefined {
+    let heir: Entry | undefined;
+    for (const entry of this.byPort.values()) {
+      if (!entry.ready || !entry.lock.workspaceFolders.includes(root)) continue;
+      if (!heir || entry.activeAt > heir.activeAt) heir = entry;
+    }
+    return heir;
   }
 
   private onReady(entry: Entry): void {
     if (!this.byPort.has(entry.lock.port)) return;
     entry.ready = true;
-    // Last lock in wins a contested root. Two editors on one project is not a
-    // state anyone arranges on purpose, and either answer is as true as the
-    // other; the newer connection is the one more likely to still be alive.
-    for (const root of entry.lock.workspaceFolders) this.entryByRoot.set(root, entry);
+    entry.activeAt = ++this.uses;
+    // An editor that has just opened the project takes it, the way one that
+    // has just been used does (`flush`). The newer connection is also the one
+    // more likely to still be alive.
+    const taken: string[] = [];
+    for (const root of entry.lock.workspaceFolders) {
+      const holder = this.entryByRoot.get(root);
+      if (holder && holder !== entry) taken.push(root);
+      this.entryByRoot.set(root, entry);
+    }
     this.reresolve();
+    // A root taken from another editor did not move, so `reresolve` saw
+    // nothing; the editor behind it — its name, its selection — did.
+    for (const root of taken) this.emitChange(root);
   }
 
   /**
@@ -435,10 +478,19 @@ export class IdeStore extends EventEmitter {
     if (!next || sameSelection(entry.selection, next)) return;
     entry.selection = next;
     if (!entry.ready) return;
+    entry.activeAt = ++this.uses;
+    // A selection is someone working in this editor, so a project open in
+    // another editor as well comes over to this one (spec
+    // 2026-09-23-ide-bridge-design § Two editors on one project).
     for (const root of entry.lock.workspaceFolders) {
-      if (this.entryByRoot.get(root) !== entry) continue;
-      this.emit('change', root, this.cwdsFor(root));
+      this.entryByRoot.set(root, entry);
+      this.emitChange(root);
     }
+  }
+
+  private emitChange(root: string): void {
+    const cwds = this.cwdsFor(root);
+    if (cwds.length > 0) this.emit('change', root, cwds);
   }
 
   /**
@@ -479,6 +531,44 @@ export class IdeStore extends EventEmitter {
     if (!cwds) this.cwdsByRoot.set(root, (cwds = new Set()));
     cwds.add(cwd);
   }
+}
+
+/** `openFile`'s texts for no line: VS Code requires both, and empty ones select nothing. */
+const NO_LINE = { startText: '', endText: '' };
+
+/**
+ * An `endText` the file does not contain. VS Code, finding `startText` but no
+ * `endText` after it, puts the caret at the start of the match instead of
+ * selecting it — and a selection would come straight back as
+ * `selection_changed` and ride along with the next message as if the person
+ * had made it.
+ */
+const CARET_END_TEXT = '\u0000';
+
+/**
+ * `openFile`'s texts for a line of the file as it is on disk, or `NO_LINE`
+ * when the file is not one the viewer would read for the session. The editor
+ * searches its own buffer, so unsaved edits above the line can move where it
+ * lands.
+ */
+function lineTexts(cwd: string, path: string, line: number): typeof NO_LINE {
+  try {
+    const read = readTextFile(cwd, path);
+    if (read.kind !== 'ok') return NO_LINE;
+    const content = read.bytes.toString('utf8');
+    const startText = revealTextFor(content, line);
+    if (!startText) return NO_LINE;
+    // A file holding the sentinel gets the run selected rather than a caret.
+    return { startText, endText: content.includes(CARET_END_TEXT) ? '' : CARET_END_TEXT };
+  } catch {
+    return NO_LINE;
+  }
+}
+
+/** Drops a tab `openDiff` opened. Safe to call for one already gone. */
+async function closeTabIn(entry: Entry, tabName: string): Promise<void> {
+  if (!entry.connection.hasTool(CLOSE_TAB_TOOL)) return;
+  await entry.connection.callTool(CLOSE_TAB_TOOL, { tab_name: tabName });
 }
 
 /** Whether a rewritten lock still describes the connection already open. */

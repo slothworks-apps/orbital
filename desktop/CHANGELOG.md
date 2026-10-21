@@ -4,6 +4,13 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.39.0] — 2026-10-21
+### Added
+- VS Code: the files you have open there come first in @ completion.
+### Fixed
+- ⌥-clicking a path opens it in VS Code, on its line; it used to do nothing there.
+- With the same project open in WebStorm and VS Code, Orbital follows the editor you last selected in, and keeps the other one when you close either.
+
 ## [0.38.1] — 2026-10-21
 ### Fixed
 - A session interrupted (by Esc or by Orbital restarting) is no longer renamed to "[Request interrupted by user]"; sessions already named this way are named again from what you wrote.

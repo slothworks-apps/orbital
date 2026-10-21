@@ -5,8 +5,10 @@ import {
   normaliseSelection,
   parseDiagnostics,
   parseIdeLock,
+  parseOpenEditors,
   pathFromFileUri,
   readDiffOutcome,
+  revealTextFor,
   sameSelection,
   workspaceRootFor,
 } from '../src/ide/protocol.js';
@@ -299,5 +301,69 @@ describe('readDiffOutcome', () => {
 
   it('is tolerant of the whitespace a marker may arrive with', () => {
     expect(readDiffOutcome([text(' FILE_SAVED\n')])).toEqual({ kind: 'saved', contents: null });
+  });
+});
+
+describe('parseOpenEditors', () => {
+  it('reads the paths of VS Code tabs, in tab order, once each', () => {
+    const text = JSON.stringify({
+      tabs: [
+        { fileName: '/w/a/README.md', uri: 'file:///w/a/README.md' },
+        { uri: 'file:///w/a/src/x%20y.ts' },
+        { label: 'Settings' },
+        // The same file open in a second editor group.
+        { fileName: '/w/a/README.md', groupIndex: 1 },
+        { fileName: 'relative.ts' },
+      ],
+    });
+    expect(parseOpenEditors(text)).toEqual(['/w/a/README.md', '/w/a/src/x y.ts']);
+  });
+
+  it('answers nothing for JSON it cannot read', () => {
+    expect(parseOpenEditors('not json')).toEqual([]);
+    expect(parseOpenEditors('{"tabs": "none"}')).toEqual([]);
+    expect(parseOpenEditors('[]')).toEqual([]);
+  });
+});
+
+describe('revealTextFor', () => {
+  const file = ['import a', '', '  return x;', '}', 'function b() {', '  return x;', '  // b', '}', ''].join('\n');
+
+  /** Where the editor would land: the line its first match of the text starts on. */
+  function landsOn(content: string, text: string): number {
+    return content.slice(0, content.indexOf(text)).split('\n').length;
+  }
+
+  it('answers the line itself when it is the first of its kind', () => {
+    expect(revealTextFor(file, 1)).toBe('import a');
+    expect(revealTextFor(file, 3)).toBe('  return x;');
+    expect(revealTextFor(file, 5)).toBe('function b() {');
+  });
+
+  it('takes the lines after a repeated line along until the match is that line', () => {
+    const text = revealTextFor(file, 6);
+    expect(text).toBe('  return x;\n  // b');
+    expect(landsOn(file, text!)).toBe(6);
+  });
+
+  it('lands on a blank line through what follows it', () => {
+    const text = revealTextFor(file, 2);
+    expect(text).not.toBeNull();
+    expect(landsOn(file, text!)).toBe(2);
+  });
+
+  it('keeps carriage returns, so a CRLF file matches itself', () => {
+    const crlf = 'a\r\nb\r\na\r\nc\r\n';
+    expect(landsOn(crlf, revealTextFor(crlf, 3)!)).toBe(3);
+  });
+
+  it('gives up past the end of the file and when no short run is unique', () => {
+    expect(revealTextFor(file, 0)).toBeNull();
+    expect(revealTextFor(file, 99)).toBeNull();
+    // The last `}` and everything after it already sit after the first `}`.
+    expect(revealTextFor(file, 8)).toBeNull();
+    expect(revealTextFor('x\nx\nx\nx', 4)).toBeNull();
+    const repeated = Array.from({ length: 40 }, () => 'same').join('\n');
+    expect(revealTextFor(repeated, 2)).toBeNull();
   });
 });
