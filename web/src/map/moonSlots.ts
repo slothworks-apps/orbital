@@ -11,6 +11,8 @@ export interface MoonSlot {
   orbit: number
   /** The moon's angle relative to the orbit's own rotation, in radians, in [0, 2π). */
   phase: number
+  /** The orbit limit it was placed under; an orbit past the limit is kept only while the limit stays. */
+  limit: number
 }
 
 const TAU = Math.PI * 2
@@ -43,10 +45,11 @@ function widestGap(phases: readonly number[]): { mid: number; width: number } {
  * `maxOrbits` orbits. `minSeparation(orbit)` is the smallest angle two moons
  * on that orbit may sit apart.
  *
- * A moon in `previous` keeps its slot while that orbit is still allowed and
- * the slot still clears the moons kept before it. Every other moon goes to
- * the allowed orbit with the fewest moons that still has room (the inner one
- * on a tie), into the middle of its widest gap; an empty orbit starts at its
+ * A moon in `previous` keeps its slot while the slot still clears the moons
+ * kept before it and its orbit is allowed — or, past the limit, while the
+ * limit is still the one it was placed under. Every other moon goes to the
+ * allowed orbit with the fewest moons that still has room (the inner one on
+ * a tie), into the middle of its widest gap; an empty orbit starts at its
  * index times the golden angle. When no allowed orbit has room, the first
  * orbit past the limit that has room takes it, so moons never touch.
  */
@@ -69,14 +72,17 @@ export function placeMoons(
 
   for (const id of ids) {
     const kept = previous.get(id)
-    if (kept && kept.orbit < maxOrbits && clears(kept.orbit, kept.phase)) placeAt(id, kept)
+    if (!kept || !clears(kept.orbit, kept.phase)) continue
+    // A moon inside the limit now counts as placed under it.
+    if (kept.orbit < maxOrbits) placeAt(id, { ...kept, limit: maxOrbits })
+    else if (kept.limit === maxOrbits) placeAt(id, kept)
   }
 
   const candidate = (orbit: number): MoonSlot | null => {
     const phases = phasesOn(orbit)
-    if (phases.length === 0) return { orbit, phase: normalize(orbit * GOLDEN_ANGLE) }
+    if (phases.length === 0) return { orbit, phase: normalize(orbit * GOLDEN_ANGLE), limit: maxOrbits }
     const gap = widestGap(phases)
-    return gap.width >= 2 * minSeparation(orbit) ? { orbit, phase: gap.mid } : null
+    return gap.width >= 2 * minSeparation(orbit) ? { orbit, phase: gap.mid, limit: maxOrbits } : null
   }
 
   for (const id of ids) {

@@ -1459,6 +1459,20 @@ export function Settings({ open, onClose }: SettingsProps) {
                           onChange={(value) => void patchAndSet({ [NARRATE_MODEL_KEY]: value })}
                         />
                       </Row>
+                      <Row
+                        title="Comment for Narrate"
+                        desc="Asks Orbital's sessions to say what they change and why before each change, so Narrate has more to go on. Applies to sessions started or resumed while it is on, and makes them a little chattier."
+                      >
+                        <Toggle
+                          aria-label="Comment for Narrate"
+                          checked={narrateCommentary(settings)}
+                          onChange={(checked) =>
+                            void patchAndSet({
+                              [NARRATE_COMMENTARY_KEY]: checked ? 'true' : 'false',
+                            })
+                          }
+                        />
+                      </Row>
                       {/* spec 2026-10-21-moon-orbit-limit-design: the limit is on for
                   everyone; only its number is tuned here. No canvas row — it
                   follows the frame-rate sliders' pattern. */}
@@ -1475,20 +1489,6 @@ export function Settings({ open, onClose }: SettingsProps) {
                           fallback={MOON_ORBITS_DEFAULT}
                           format={(orbits) => `${orbits} ${orbits === 1 ? 'orbit' : 'orbits'}`}
                           onChange={(next) => void patchAndSet({ [MOON_ORBITS_KEY]: String(next) })}
-                        />
-                      </Row>
-                      <Row
-                        title="Comment for Narrate"
-                        desc="Asks Orbital's sessions to say what they change and why before each change, so Narrate has more to go on. Applies to sessions started or resumed while it is on, and makes them a little chattier."
-                      >
-                        <Toggle
-                          aria-label="Comment for Narrate"
-                          checked={narrateCommentary(settings)}
-                          onChange={(checked) =>
-                            void patchAndSet({
-                              [NARRATE_COMMENTARY_KEY]: checked ? 'true' : 'false',
-                            })
-                          }
                         />
                       </Row>
                     </>

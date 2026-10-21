@@ -49,11 +49,20 @@ describe('placeMoons', () => {
     assertApart(after)
   })
 
+  it('keeps a moon past the limit in place while the limit stays', () => {
+    const first = placeMoons(ids(20), new Map(), 2, sep)
+    const overflow = ids(20).filter((id) => first.get(id)!.orbit === 2)
+    const after = placeMoons(ids(20).filter((id) => id !== 'a0' && id !== overflow[0]), first, 2, sep)
+    for (const id of overflow.slice(1)) expect(after.get(id)).toEqual(first.get(id))
+  })
+
   it('places again only the moons a lowered limit leaves outside', () => {
     const first = placeMoons(ids(5), new Map(), 5, sep)
     const lowered = placeMoons(ids(5), first, 2, sep)
-    expect(lowered.get('a0')).toEqual(first.get('a0'))
-    expect(lowered.get('a1')).toEqual(first.get('a1'))
+    for (const id of ['a0', 'a1']) {
+      expect(lowered.get(id)!.orbit).toBe(first.get(id)!.orbit)
+      expect(lowered.get(id)!.phase).toBe(first.get(id)!.phase)
+    }
     expect([...lowered.values()].every((s) => s.orbit < 2)).toBe(true)
     assertApart(lowered)
   })

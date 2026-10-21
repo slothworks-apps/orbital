@@ -25,6 +25,9 @@ import {
   clusterSessions,
   holePosition,
   layoutClusters,
+  ACTIVE_SCALE,
+  ENDED_SCALE,
+  IDLE_SCALE,
   PLANET_BASE_RADIUS,
   type Cluster,
 } from './layout'
@@ -81,6 +84,9 @@ const MOON_ORBIT_STEP = 2 * MOON_EXTENT_RADIUS + MOON_ORBIT_CLEARANCE
  * across plus `MOON_ORBIT_CLEARANCE` as a chord — the same distance
  * `MOON_ORBIT_STEP` keeps between orbits.
  */
+/** The smallest tier scale a planet with moons can shrink to (`scaleFor`). */
+const SMALLEST_PLANET_SCALE = Math.min(ACTIVE_SCALE, IDLE_SCALE, ENDED_SCALE)
+
 function moonSeparation(orbitRadius: number, planetScale: number): number {
   const chord = MOON_ORBIT_STEP * planetScale
   return 2 * Math.asin(Math.min(1, chord / (2 * orbitRadius)))
@@ -239,6 +245,8 @@ export interface SceneMoon {
   /** Which of its planet's orbits it rides, 0 the innermost (`placeMoons`). */
   orbit: number
   phase: number
+  /** The orbit limit it was placed under (`MoonSlot.limit`). */
+  orbitLimit: number
   /** The first moon on its orbit draws the orbit's dashed trail; the rest share it. */
   drawTrail: boolean
   /** Its parent planet is muted by the sidebar filters — a muted planet's moons mute with it. */
@@ -423,7 +431,7 @@ export function buildSceneModel(
   for (const moon of previousMoons) {
     let slots = previousSlots.get(moon.sessionId)
     if (!slots) previousSlots.set(moon.sessionId, (slots = new Map()))
-    slots.set(moon.subagent.id, { orbit: moon.orbit, phase: moon.phase })
+    slots.set(moon.subagent.id, { orbit: moon.orbit, phase: moon.phase, limit: moon.orbitLimit })
   }
 
   for (const cluster of clusters) {
@@ -450,11 +458,13 @@ export function buildSceneModel(
         subagents.map((a) => a.id),
         previousSlots.get(session.id) ?? new Map(),
         maxOrbits,
-        (orbit) => moonSeparation(radiusOf(orbit), planetScale)
+        // Measured on the smallest orbit this one can shrink to, so a state
+        // change shrinking the planet never puts two placed moons too close.
+        (orbit) => moonSeparation(moonOrbitRadius(SMALLEST_PLANET_SCALE, orbit, false, planetScale), planetScale)
       )
       const trailed = new Set<number>()
       subagents.forEach((subagent) => {
-        const { orbit, phase } = slots.get(subagent.id)!
+        const { orbit, phase, limit } = slots.get(subagent.id)!
         const orbitRadius = radiusOf(orbit)
         const drawTrail = !trailed.has(orbit)
         trailed.add(orbit)
@@ -467,6 +477,7 @@ export function buildSceneModel(
           orbitRadius,
           orbit,
           phase,
+          orbitLimit: limit,
           drawTrail,
           muted,
           offline,
