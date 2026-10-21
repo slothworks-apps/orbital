@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- A session you start in Orbital gets a short name from its first message, instead of the first sentence cut off. Turn it off in Settings → Sessions.
 
 ## [0.40.0] — 2026-10-21
 ### Added

@@ -861,6 +861,7 @@ export function Settings({ open, onClose }: SettingsProps) {
   const defaultPermissionMode =
     (settings.default_permission_mode as PermissionMode) || 'acceptEdits'
   const confirmBeforeClear = settings.confirm_before_clear !== 'false'
+  const nameSessions = settings.name_sessions_automatically !== 'false'
   const instructionTips = settings.session_instructions_tips !== 'false'
   const instructionCustom = settings.session_instructions_custom !== 'false'
   const autoContinue = limitSettings(settings).autoContinue
@@ -1993,6 +1994,18 @@ export function Settings({ open, onClose }: SettingsProps) {
                           onChange={(e) => setProjectDirDraft(e.target.value)}
                           placeholder="/path/to/projects"
                           className="w-full"
+                        />
+                      </Row>
+                      <Row
+                        title="Name sessions automatically"
+                        desc="Names a session from its first message, once. Sessions from a terminal keep theirs; ⟳ beside a title names any session."
+                      >
+                        <Toggle
+                          aria-label="Name sessions automatically"
+                          checked={nameSessions}
+                          onChange={(checked) =>
+                            void patchAndSet({ name_sessions_automatically: checked ? 'true' : 'false' })
+                          }
                         />
                       </Row>
                       <SectionLabel>CLEAR &amp; LIFECYCLE</SectionLabel>

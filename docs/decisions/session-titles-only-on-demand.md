@@ -6,6 +6,7 @@ type: adr
 domain: sessions
 related:
   - 2026-09-18-auto-title-design
+  - sessions-are-named-once-from-their-first-message
   - ephemeral-title-queries
 tags:
   - titler
@@ -13,6 +14,10 @@ tags:
 ---
 
 # A session is renamed from its contents only when someone asks
+
+> **Narrowed, 2026-10-21.** A session Orbital starts is now also named once,
+> from its first message — [[sessions-are-named-once-from-their-first-message]].
+> A session still never renames itself as it moves on.
 
 The automatic half of [[2026-09-18-auto-title-design]] is gone: the
 `auto_title_sessions` setting, `SessionTitler.feed` / `considerTurnEnd`, the
