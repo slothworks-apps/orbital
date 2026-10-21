@@ -90,6 +90,7 @@ export function DevicesSection() {
   const ended = useMobile((s) => s.groupEnded)
   const devices = useMobile((s) => s.devices)
   const link = useMobile((s) => s.link)
+  const rechecking = useMobile((s) => s.rechecking)
   const pairing = useMobile((s) => s.pairing)
   const standaloneRelay = useMobile((s) => s.standaloneRelay)
   // A standalone phone still names the relay it stays on (canvas 50n).
@@ -99,7 +100,7 @@ export function DevicesSection() {
   const setAside = useJoinSheet((s) => s.setAside)
   const review = pendingPair && pendingPair.phone === setAside ? pendingPair : null
   const now = useNow(true, SEEN_TICK_MS)
-  const rows = useMemo(() => phoneRows(members, devices, now), [members, devices, now])
+  const rows = useMemo(() => phoneRows(members, { link, rechecking, devices }, now), [members, link, rechecking, devices, now])
   const self = members.find((m) => m.self)
   const [device, setDevice] = useState<{ name: string; platform: string; osVersion?: string } | null>(null)
   const [open, setOpen] = useState<string | null>(null)

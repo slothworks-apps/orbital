@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.18.1] — 2026-10-21
+### Fixed
+- Settings → Devices no longer shows an awake Mac as asleep: a device's state follows it coming online and going away.
+
 ## [0.18.0] — 2026-10-20
 ### Added
 - Settings → About → Send feedback opens a bug report or a feature request on GitHub in your browser, with the app version, the system and the phone model filled in.

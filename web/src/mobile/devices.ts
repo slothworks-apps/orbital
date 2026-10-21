@@ -7,7 +7,8 @@ import { linksWith, type MemberRow } from '@orbital/shared/remote/group'
 import { codeLeft } from '../lib/remote'
 import { deviceRows, kindOs, type RowState } from '../lib/devices'
 import type { GroupMember, RemoteDevice } from '../lib/types'
-import type { DeviceView } from './state'
+import { deviceAsleep } from './deviceList'
+import type { DeviceView, MobileState } from './state'
 
 /** One row of IN THIS GROUP, and the sheet a tap opens. */
 export interface PhoneRow {
@@ -36,12 +37,26 @@ export interface PhoneRow {
  * <name>`. Where the desktop says offline the phone says asleep, and this
  * phone is `this phone`. A phone is never primary, so a member not linked
  * reads `not linked`, with no pairing by hand (canvas 50i `st2`).
+ *
+ * A device this phone reaches is asleep by `deviceAsleep`, as the session
+ * list reads it, not by the presence `members` held when they were built:
+ * those are built at launch, before the relay answers, and only again when
+ * the roster changes.
  */
-export function phoneRows(members: MemberRow[], devices: DeviceView[], now: number): PhoneRow[] {
+export function phoneRows(
+  members: MemberRow[], state: Pick<MobileState, 'link' | 'rechecking' | 'devices'>, now: number,
+): PhoneRow[] {
+  const { devices } = state
   const tooOld = new Set(devices.filter((d) => d.refused?.cause === 'mac').map((d) => d.id))
-  const group: GroupMember[] = members.map((m) => ({ ...m, tooOld: !m.self && tooOld.has(m.id) }))
+  const reached = new Set(devices.map((d) => d.id))
+  const group: GroupMember[] = members.map((m) => {
+    const presence = !m.self && reached.has(m.id) && (m.state === 'online' || m.state === 'offline')
+      ? (deviceAsleep(state, m.id) ? { online: false, state: 'offline' as const } : { online: true, state: 'online' as const })
+      : {}
+    return { ...m, ...presence, tooOld: !m.self && tooOld.has(m.id) }
+  })
   const paired: RemoteDevice[] = devices.map((d) => ({
-    id: d.id, name: d.name, platform: d.os, kind: d.kind, pairedAt: 0, lastSeenAt: d.asOf, online: d.online,
+    id: d.id, name: d.name, platform: d.os, kind: d.kind, pairedAt: 0, lastSeenAt: d.asOf, online: !deviceAsleep(state, d.id),
     needsUpdate: null,
   }))
   const views = new Map(devices.map((d) => [d.id, d]))
