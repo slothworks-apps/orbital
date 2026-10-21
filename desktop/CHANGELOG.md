@@ -3,8 +3,10 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.38.1] — 2026-10-21
 ### Fixed
-- A session interrupted (by Esc or by Orbital restarting) is no longer renamed to "[Request interrupted by user]"; sessions already renamed this way get their name back.
+- A session interrupted (by Esc or by Orbital restarting) is no longer renamed to "[Request interrupted by user]"; sessions already named this way are named again from what you wrote.
 
 ## [0.38.0] — 2026-10-20
 ### Added
