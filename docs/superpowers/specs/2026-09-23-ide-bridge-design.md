@@ -89,6 +89,25 @@ the thing being tracked belongs to a directory, and several sessions share it.
   the only client here speaks WebSocket. A lock that omits the field is taken
   at the word of everything else in it.
 
+### Two editors on one project
+
+WebStorm and VS Code can both have the same project open, each with its own
+lock, and both connections live. A workspace root still has one editor behind
+it at a time — the slot names one editor and shows one selection — and it
+belongs to **whichever was used last**:
+
+- an editor that connects takes the roots it has open;
+- an editor that publishes a selection takes them too, caret moves included:
+  someone is working in it;
+- an editor that goes hands each root it held to the most recently used other
+  editor that has it open, rather than leaving the project with no editor
+  while one is still there.
+
+Each of these emits `change` for the root, because the editor behind it — its
+name and its selection — is what the sessions show. A diff tab is closed in
+the editor that opened it, whichever editor holds the project by the time the
+review ends.
+
 `ShapeContext` gains an `ide: IdeStore` field alongside `git`, and the store is
 `start()`ed rather than used straight from its constructor — starting is what
 reads the lock directory and opens sockets, and none of that may sit in front
@@ -279,7 +298,10 @@ timings are a good starting point for the values and nothing more.
 
 `GET /api/sessions/:id/ide/open-files` calls `get_all_opened_file_paths` on the
 connection covering that session and answers `{ files: string[] }` — absolute
-paths, in the editor's order, filtered to the session's `cwd`.
+paths, in the editor's order, filtered to the session's `cwd`. VS Code does not
+have that tool; its `getOpenEditors` answers the same question as JSON,
+`{tabs: [{fileName, uri, isActive, …}]}`, and a tab's `fileName` (or its `uri`)
+is the path. One file open in two editor groups is listed once.
 
 `404` is the single answer to every kind of "no": an id that names no session,
 no lock at all, a lock covering another project, a connection that never came
@@ -345,6 +367,19 @@ Canvas artboard 20d draws it, and the build follows it:
   workspace. A relative path is one the session wrote about its own `cwd`, so
   only an absolute one is checked;
 - the line travels: `:88` is part of the hit area and is passed on.
+
+Neither extension's `openFile` takes a line. Both take `startText`, and VS Code
+selects **the first match of it** in the document. So the line goes as text:
+the shortest run of lines starting at it, read from the file on disk, whose
+first match in the file is that line (`revealTextFor`). A line that cannot be
+reached that way — one whose run repeats an earlier one to the end of the file,
+or a file the viewer would not read — opens the file without a line. The
+JetBrains plugin (0.1.14-beta, read from its classes on 2026-10-21) accepts
+`startText` and ignores it, so in WebStorm the file opens where it was.
+
+VS Code refuses a call that lacks `startText` or `endText` (`-32602`, input
+validation), so both always go, empty when there is no line; an empty text
+selects nothing. Before this, opening a file in VS Code failed outright.
 
 Why ⌥ and not ⌘ is 20d's own reasoning: ⌘-click already means "new window" to
 hands trained by browsers, and ⌥ is JetBrains' own alternate key.
@@ -412,6 +447,22 @@ Whether the extension writes the file itself when the human saves a diff tab.
 Both answers are safe — if it did, the rewritten input no longer matches and
 the tool errors with the file already correct; if it did not, the tool writes
 it — so the file ends up right either way, but the measurement is worth taking.
+
+## VS Code
+
+Measured on 2026-10-21 against Claude Code for VS Code 2.1.306, with a CLI
+session's own connection to it alive at the same time. The four facts above
+hold unchanged: the lock carries `ideName: "Visual Studio Code"`, and the
+`selection_changed` payload has the JetBrains shape plus `fileUrl` and
+`selection.isEmpty`, which nothing reads. A caret move sends `text: ""`.
+
+`tools/list` names `openDiff`, `getDiagnostics`, `close_tab`,
+`closeAllDiffTabs`, `openFile`, `getOpenEditors`, `getWorkspaceFolders`,
+`getCurrentSelection`, `getLatestSelection`, `checkDocumentDirty`,
+`saveDocument` and `executeCode`. The four Orbital calls back with keep their
+names and arguments; open files take the other tool (§ Open files). The
+extension also pushes `diagnostics_changed` with the URIs whose findings
+moved, which nothing listens to yet.
 
 ## When there is no editor
 

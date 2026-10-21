@@ -3,9 +3,10 @@ import { isAbsolute, resolve, sep } from 'node:path';
 /**
  * The editor bridge's wire facts, as pure functions over text (spec
  * 2026-09-23-ide-bridge-design). Everything here is measured against the
- * Claude Code JetBrains plugin and nothing here is a published interface —
- * a plugin release can change any of it, which is why every parse answers
- * `null` rather than throwing (adr `orbital-speaks-to-the-ide-itself`).
+ * Claude Code JetBrains plugin and the VS Code extension, and nothing here
+ * is a published interface — a plugin release can change any of it, which is
+ * why every parse answers `null` rather than throwing (adr
+ * `orbital-speaks-to-the-ide-itself`).
  */
 
 /** The subdirectory of `~/.claude` the extension writes its locks into. */
@@ -32,8 +33,17 @@ export const MCP_PROTOCOL_VERSION = '2025-06-18';
 /** The notification the extension pushes as the caret or selection moves. */
 export const SELECTION_NOTIFICATION = 'selection_changed';
 
-/** Absolute paths of the editor's open tabs, newline separated, no arguments. */
+/**
+ * Absolute paths of the editor's open tabs, newline separated, no arguments.
+ * The JetBrains name; VS Code answers the same question as `OPEN_EDITORS_TOOL`.
+ */
 export const OPEN_FILES_TOOL = 'get_all_opened_file_paths';
+
+/**
+ * The VS Code extension's open tabs, as JSON: `{tabs: [{fileName, uri, …}]}`
+ * (measured 2026-10-21 against Claude Code for VS Code 2.1.306).
+ */
+export const OPEN_EDITORS_TOOL = 'getOpenEditors';
 
 /**
  * Shown when a lock omits `ideName`. The name is decoration — the slot's
@@ -243,7 +253,11 @@ export function insideCwd(cwd: string, path: string): boolean {
  * (adr `orbital-speaks-to-the-ide-itself`).
  */
 
-/** Reveals a path in the editor. Takes `filePath`, plus an optional range. */
+/**
+ * Reveals a path in the editor. Takes `filePath`, and a `startText` to
+ * select: the first match of it in the document. There is no line argument
+ * in either build, so a line travels as text (`revealTextFor`).
+ */
 export const OPEN_FILE_TOOL = 'openFile';
 
 /** The editor's own inspections — for one file, or for the whole workspace. */
@@ -306,6 +320,62 @@ export function pathFromFileUri(raw: string): string | null {
     return isAbsolute(path) && path !== '/' ? path : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * `getOpenEditors`' answer as absolute paths, in the editor's tab order. A
+ * tab's `fileName` is the path; its `uri` is the fallback, and a tab with
+ * neither (a settings page, a diff of something unsaved) drops out. One file
+ * open in two editor groups is two tabs and one path.
+ */
+export function parseOpenEditors(text: string): string[] {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  const tabs = isRecord(raw) && Array.isArray(raw.tabs) ? raw.tabs : [];
+  const paths = new Set<string>();
+  for (const tab of tabs) {
+    if (!isRecord(tab)) continue;
+    const fileName = typeof tab.fileName === 'string' && isAbsolute(tab.fileName) ? tab.fileName : null;
+    const path = fileName ?? (typeof tab.uri === 'string' ? pathFromFileUri(tab.uri) : null);
+    if (path) paths.add(path);
+  }
+  return [...paths];
+}
+
+/**
+ * The longest run of lines `revealTextFor` will grow before giving up — past
+ * it, a selection would cover more than the line it is meant to point at.
+ */
+const REVEAL_MAX_LINES = 8;
+
+/**
+ * The text that makes `openFile` land on a 1-based `line` of `content`: the
+ * shortest run of lines starting there whose first match in the file is that
+ * line. The editor selects the first match of `startText`, so a line that
+ * repeats earlier in the file has to take the lines after it along until the
+ * run is unique.
+ *
+ * Null for a line past the end of the file and for one no short run can make
+ * unique; the caller then opens the file without a line. An empty string only
+ * comes back for an empty first line, which is where the file opens anyway.
+ */
+export function revealTextFor(content: string, line: number): string | null {
+  if (!Number.isSafeInteger(line) || line < 1) return null;
+  const lines = content.split('\n');
+  if (line > lines.length) return null;
+  let offset = 0;
+  for (let i = 0; i < line - 1; i++) offset += lines[i].length + 1;
+  const last = Math.min(lines.length, line - 1 + REVEAL_MAX_LINES);
+  let run = lines[line - 1];
+  for (let i = line; ; i++) {
+    if (content.indexOf(run) === offset) return run;
+    if (i >= last) return null;
+    run = `${run}\n${lines[i]}`;
   }
 }
 
