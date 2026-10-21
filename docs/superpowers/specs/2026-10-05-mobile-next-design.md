@@ -556,7 +556,10 @@ actions.
 - **Terminal** sessions (`source === 'terminal'`): no End, no Clear, ever.
 - **Pin order.** Within a group pinned rows come first, in pin order
   (`pinnedAt`, as the desktop's PINNED section keeps it), then the rest by
-  last activity. A pinned ended session leaves the ENDED
+  last activity — except that a session with a result waiting (DONE,
+  INTERRUPTED) comes before a quiet one: since app 0.18.2 the planets wear
+  their tag's hue, so under IDLE the order, beside the hollow core, tells the
+  two apart. A pinned ended session leaves the ENDED
   fold and sits as a headless row above it.
 - **Asleep**: labels, pins and tags are stored on the Mac, so every item
   waits; the sheet still opens.
