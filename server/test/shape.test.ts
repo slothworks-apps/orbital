@@ -22,8 +22,14 @@ function row(source: SessionSource, endedAt: number | null): SessionRow {
 
 // Spec 2026-09-24-sessions-end-only-by-hand-design § 1.
 describe('statusOf', () => {
-  it('takes the Runner\'s status over everything, the ended stamp included', () => {
-    expect(statusOf(ctxWith({ runner: 'working', registry: 'idle' }), row('web', 5))).toBe('working');
+  it('takes the Runner\'s status over the row, the ended stamp included', () => {
+    expect(statusOf(ctxWith({ runner: 'working' }), row('web', 5))).toBe('working');
+  });
+
+  it('takes a terminal\'s status over an idle Orbital process beside it', () => {
+    // Spec 2026-10-21-take-over-terminal-session-design § 1: the session does
+    // what the terminal that resumed it does.
+    expect(statusOf(ctxWith({ runner: 'idle', registry: 'working' }), row('web', null))).toBe('working');
   });
 
   it('falls back to the terminal registry when the Runner holds nothing', () => {

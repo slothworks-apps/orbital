@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { watchDir, type DirWatch } from './watchDir.js';
 import type { SessionStatus } from '../types.js';
@@ -37,7 +37,8 @@ export interface LiveSession {
   claudeDirId?: number;
 }
 
-function defaultIsPidAlive(pid: number): boolean {
+/** Whether a process with this pid exists (signal 0 delivers nothing). */
+export function isPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
@@ -57,7 +58,7 @@ export class SessionRegistry extends EventEmitter {
     opts: { isPidAlive?: (pid: number) => boolean } = {},
   ) {
     super();
-    this.isPidAlive = opts.isPidAlive ?? defaultIsPidAlive;
+    this.isPidAlive = opts.isPidAlive ?? isPidAlive;
   }
 
   scan(): void {
@@ -72,6 +73,9 @@ export class SessionRegistry extends EventEmitter {
       try {
         const raw = JSON.parse(readFileSync(join(this.sessionsDir, file), 'utf8'));
         if (typeof raw.pid !== 'number' || typeof raw.sessionId !== 'string') continue;
+        // The CLI names the file after its own pid; one that says otherwise
+        // describes no process this file can vouch for.
+        if (`${raw.pid}.json` !== file) continue;
         if (!this.isPidAlive(raw.pid)) continue;
         // CLIs spawned through the Agent SDK (Orbital's own runner included)
         // register themselves here too, with `entrypoint: "sdk-ts"`. They are
@@ -134,6 +138,12 @@ export class SessionRegistry extends EventEmitter {
   all(): LiveSession[] {
     return [...this.sessions.values()];
   }
+
+  /** Deletes the registry file of the CLI listed for `sessionId`; the next scan drops it. */
+  drop(sessionId: string): void {
+    const live = this.sessions.get(sessionId);
+    if (live) rmSync(join(this.sessionsDir, `${live.pid}.json`), { force: true });
+  }
 }
 
 /** What the rest of the server asks of the live CLIs: one session, or all of them. */
@@ -142,6 +152,12 @@ export interface LiveSessions {
   all(): LiveSession[];
   /** Reads every registry now, rather than at the watcher's next event. */
   rescan(): void;
+  /**
+   * Deletes the registry file that lists `sessionId`, after Take over ended
+   * its CLI: a killed CLI leaves it behind, and a later process given the
+   * same pid would lock the session again.
+   */
+  drop(sessionId: string): void;
 }
 
 /**
@@ -189,6 +205,10 @@ export class LiveRegistries extends EventEmitter implements LiveSessions {
 
   rescan(): void {
     for (const registry of this.byDir.values()) registry.scan();
+  }
+
+  drop(sessionId: string): void {
+    for (const registry of this.byDir.values()) registry.drop(sessionId);
   }
 
   /** The directory whose registry lists this session, for one not indexed yet. */

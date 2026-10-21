@@ -90,7 +90,8 @@ export function SessionMenuSheet({
     onClose()
   }
 
-  // The desktop's Take over: a working terminal asks first, since its turn stops.
+  // The desktop's Take over. It always asks first here, as End does: from the
+  // phone, someone may be typing into that terminal at the Mac.
   const takeOver = async () => {
     if (busy) return
     setBusy(true)
@@ -153,8 +154,8 @@ export function SessionMenuSheet({
         title="Take over from the terminal?"
         body={
           <>
-            <span className="font-mono text-text-bright">{title}</span> is working in a terminal. Taking it over quits the
-            CLI there and stops the turn it is running; the conversation goes on here.
+            <span className="font-mono text-text-bright">{title}</span> runs in a terminal on the Mac. Taking it over quits
+            the CLI there, and whatever it is doing stops; the conversation goes on here.
           </>
         }
         confirmLabel="Take over"
@@ -212,8 +213,8 @@ export function SessionMenuSheet({
           key="takeover"
           glyph={<span className="text-[rgba(200,220,245,.7)]">→</span>}
           label="Take over"
-          hint={session.status === 'working' ? <AsksFirst /> : undefined}
-          onPress={() => (session.status === 'working' ? setView('takeover') : void takeOver())}
+          hint={<AsksFirst />}
+          onPress={() => setView('takeover')}
         />
       ),
       clear: (

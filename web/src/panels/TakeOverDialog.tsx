@@ -7,9 +7,10 @@ import { Dialog } from '../ui/Dialog'
 import { Button } from '../ui/Button'
 
 /**
- * Confirms taking over a session whose terminal CLI is mid-turn (spec
- * 2026-10-21-take-over-terminal-session-design § 3): the turn running there
- * stops. An idle terminal is taken over without it. Built like `EndDialog`:
+ * Confirms taking over a session whose terminal CLI is not plainly idle
+ * (spec 2026-10-21-take-over-terminal-session-design § 3): a turn running
+ * there, or a prompt it waits on, stops. An idle terminal is taken over
+ * without it. Built like `EndDialog`:
  * it closes only once the take over succeeded.
  */
 export function TakeOverDialog({ open, sessionId, onClose }: { open: boolean; sessionId: string | null; onClose: () => void }) {
@@ -72,8 +73,8 @@ export function TakeOverDialog({ open, sessionId, onClose }: { open: boolean; se
     >
       <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
         {session?.title && <span className="font-mono text-text-bright">{session.title}</span>}
-        {session?.title ? ' is' : 'This session is'} working in a terminal. Taking it over quits the CLI
-        there and stops the turn it is running; the conversation goes on here.
+        {session?.title ? ' is' : 'This session is'} busy in a terminal. Taking it over quits the CLI there,
+        and the turn or question it is on stops; the conversation goes on here.
       </p>
     </Dialog>
   )

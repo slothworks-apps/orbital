@@ -85,7 +85,7 @@ import { useCompactionUi } from '../store/compaction'
 import { harnessEnabled, walkthroughEnabled } from '../lib/experimental'
 import { TerminalChip } from '../terminal/TerminalEntry'
 import { useSideSlotWidth } from '../terminal/useTerminalHost'
-import { gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
+import { canTakeOver, gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
 import { limitWaitStatus } from '../lib/limits'
 import { loginWaitLabels } from '../lib/profileLogin'
 import { ClaudeDirChip, useClaudeDirMark } from '../ui/ClaudeDirMark'
@@ -1279,21 +1279,23 @@ export function DetailPanel({
       {/* Composer — canvas 1b: padding 14px 16px 16px over a hairline rule. */}
       <div className="border-t border-panel-border px-4 pb-4 pt-3.5">
         {isTerminalLive && session ? (
-          // Take over (spec 2026-10-21-take-over-terminal-session-design):
-          // a working CLI asks first, since its turn stops; an idle one is
-          // taken over at once. Placement awaits Claude Design.
-          <div className="flex items-center justify-between gap-3 rounded-[10px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.6)] py-2 pl-3 pr-2 font-mono text-[11.5px] text-text-muted">
+          // Take over (spec 2026-10-21-take-over-terminal-session-design): a
+          // CLI that is not plainly idle asks first, since what runs there
+          // stops. The bar keeps its old height; placement awaits Claude Design.
+          <div className="flex items-center justify-between gap-3 rounded-[10px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.6)] py-[5px] pl-3 pr-[5px] font-mono text-[11.5px] text-text-muted">
             runs in terminal — read-only
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                if (session.status === 'working') setDialog('take-over')
-                else api.takeOver(session.id).catch((err) => reportError(err, 'Failed to take over the session'))
-              }}
-            >
-              Take over
-            </Button>
+            {canTakeOver(session) && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (session.status !== 'idle') setDialog('take-over')
+                  else api.takeOver(session.id).catch((err) => reportError(err, 'Failed to take over the session'))
+                }}
+              >
+                Take over
+              </Button>
+            )}
           </div>
         ) : lock ? (
           // Canvas 50f C: the reason in the composer's place — never a

@@ -15,6 +15,24 @@ function writeEntry(dir: string, pid: number, sessionId: string, status: string)
 }
 
 describe('SessionRegistry.scan', () => {
+  it('skips a file whose pid is not its name', () => {
+    const dir = makeTmpDir('reg');
+    writeFileSync(join(dir, '100.json'), JSON.stringify({ pid: 200, sessionId: 'sess-a', status: 'idle' }));
+    const reg = new SessionRegistry(dir, { isPidAlive: () => true });
+    reg.scan();
+    expect(reg.all()).toEqual([]);
+  });
+
+  it('drops a session by deleting its file', () => {
+    const dir = makeTmpDir('reg');
+    writeEntry(dir, 100, 'sess-a', 'idle');
+    const reg = new SessionRegistry(dir, { isPidAlive: () => true });
+    reg.scan();
+    reg.drop('sess-a');
+    reg.scan();
+    expect(reg.get('sess-a')).toBeUndefined();
+  });
+
   it('no longer lists a session by the time its remove is heard', () => {
     // A listener that republishes it must read the row, not the gone CLI
     // (spec 2026-10-21-take-over-terminal-session-design § 5).

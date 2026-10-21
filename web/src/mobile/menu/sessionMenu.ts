@@ -1,7 +1,7 @@
 import { harnessUnfinished } from '../../lib/harnessSession'
 import { sessionModelLabel } from '../../lib/models'
 import { formatTokens } from '../../lib/format'
-import type { ApiSession, OrbitalModel, SessionHarness, Tag } from '../../lib/types'
+import { canTakeOver, type ApiSession, type OrbitalModel, type SessionHarness, type Tag } from '../../lib/types'
 import { homePath } from '../format'
 
 /**
@@ -31,7 +31,7 @@ export interface MenuShape {
  * would offer.
  */
 export function menuFor(
-  session: Pick<ApiSession, 'source' | 'status'>,
+  session: Pick<ApiSession, 'source' | 'status' | 'firstAt'>,
   asleep: boolean,
   macTakesOver = false,
 ): MenuShape {
@@ -40,7 +40,7 @@ export function menuFor(
   if (!terminal) {
     items.push('clear')
     if (session.status !== 'ended') items.push('end')
-  } else if (macTakesOver && session.status !== 'ended') {
+  } else if (macTakesOver && canTakeOver(session)) {
     items.push('takeover')
   }
   return { items, terminalNote: terminal, inert: asleep }

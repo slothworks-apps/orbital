@@ -1,4 +1,8 @@
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { isPidAlive } from './registry.js';
+
+const run = promisify(execFile);
 
 /**
  * Ends the terminal CLI that holds a session, for Take over (spec
@@ -16,7 +20,7 @@ export type EndCliOutcome = 'ended' | 'not_claude' | 'still_running';
 export interface EndCliDeps {
   isAlive: (pid: number) => boolean;
   /** The process's command line, or null when there is no such process. */
-  commandOf: (pid: number) => string | null;
+  commandOf: (pid: number) => Promise<string | null>;
   kill: (pid: number, signal: NodeJS.Signals) => void;
   sleep: (ms: number) => Promise<void>;
 }
@@ -27,25 +31,20 @@ export const TERM_GRACE_MS = 3_000;
 const KILL_GRACE_MS = 1_000;
 const POLL_MS = 100;
 
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
+/** How long `ps` may take before the process is read as gone. */
+const PS_TIMEOUT_MS = 2_000;
 
-function commandOf(pid: number): string | null {
+async function commandOf(pid: number): Promise<string | null> {
   try {
-    return execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' }).trim() || null;
+    const { stdout } = await run('ps', ['-p', String(pid), '-o', 'command='], { timeout: PS_TIMEOUT_MS, maxBuffer: 64 * 1024 });
+    return stdout.trim() || null;
   } catch {
     return null;
   }
 }
 
 const systemDeps: EndCliDeps = {
-  isAlive,
+  isAlive: isPidAlive,
   commandOf,
   kill: (pid, signal) => process.kill(pid, signal),
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -53,13 +52,14 @@ const systemDeps: EndCliDeps = {
 
 /**
  * True for the command line of a Claude Code CLI, whatever the install: an
- * executable named `claude`, a native build under `claude/versions/`, or the
- * npm package's script run by node.
+ * executable named `claude` (a symlink run by node included), a native build
+ * under `claude/versions/`, or the npm package's script. Matched against the
+ * whole line, since a path may hold spaces.
  */
 export function isClaudeCommand(command: string): boolean {
-  const [executable = '', script = ''] = command.split(/\s+/);
-  if (/(^|\/)claude$/.test(executable) || /\/claude\/versions\//.test(executable)) return true;
-  return /(^|\/)node$/.test(executable) && /\/claude-code\//.test(script);
+  return /(^|\/)claude(\s|$)/.test(command)
+    || /\/claude\/versions\/[^/\s]+(\s|$)/.test(command)
+    || /\/claude-code\/\S*cli\.m?js(\s|$)/.test(command);
 }
 
 async function gone(pid: number, ms: number, deps: EndCliDeps): Promise<boolean> {
@@ -72,7 +72,7 @@ async function gone(pid: number, ms: number, deps: EndCliDeps): Promise<boolean>
 
 export async function endCli(pid: number, deps: EndCliDeps = systemDeps): Promise<EndCliOutcome> {
   if (!deps.isAlive(pid)) return 'ended';
-  const command = deps.commandOf(pid);
+  const command = await deps.commandOf(pid);
   if (command === null) return 'ended';
   if (!isClaudeCommand(command)) return 'not_claude';
   try {

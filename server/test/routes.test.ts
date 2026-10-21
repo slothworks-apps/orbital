@@ -187,6 +187,7 @@ function makeApp(opts: {
     get: (id: string) => (id === 's1' ? { sessionId: 's1', pid: 4242, status: 'working' } : undefined),
     all: () => [{ sessionId: 's1', pid: 4242, status: 'working' }],
     rescan: () => {},
+    drop: (_id: string) => {},
   };
   const startCalls: any[] = [];
   const sendCalls: any[] = [];
@@ -211,6 +212,7 @@ function makeApp(opts: {
     pendingDecision: (_id: string): any => null,
     answerDecision: (_id: string, _decisionId: string, _answers: Record<string, string>) => false,
     interrupt: async () => {}, stop: async () => {}, hasRun: (_id: string) => false,
+    stopAndWait: async (_id: string): Promise<void> => {},
   };
   const hub = new Hub();
   const modelCatalog = {
@@ -1368,21 +1370,27 @@ describe('REST routes', () => {
       return db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
     }
 
-    it('ends the CLI the registry lists and makes the session Orbital\'s', async () => {
+    it('ends the CLI and Orbital\'s own process, and makes the session Orbital\'s', async () => {
       const ended: number[] = [];
-      const { app, db, registry } = makeApp({ endCli: async (pid) => { ended.push(pid); return 'ended'; } });
+      const { app, db, registry, runner } = makeApp({
+        endCli: async (pid) => {
+          // The row is Orbital's before the CLI is signalled: the watcher may
+          // hear it leave first, and its remove must republish, not remove.
+          expect(rowOf(db, 's1').source).toBe('web');
+          ended.push(pid);
+          return 'ended';
+        },
+      });
       db.update(sessions).set({ endedAt: 5 }).where(eq(sessions.id, 's1')).run();
-      const rescans: number[] = [];
-      registry.rescan = () => {
-        // The row is already Orbital's when the registry drops the CLI, so its
-        // remove republishes the session instead of taking it off the map.
-        rescans.push(1);
-        expect(rowOf(db, 's1').source).toBe('web');
-        registry.get = () => undefined;
-      };
+      const dropped: string[] = [];
+      registry.drop = (id: string) => dropped.push(id);
+      registry.rescan = () => { registry.get = () => undefined; };
+      const stopped: string[] = [];
+      runner.stopAndWait = async (id: string) => { stopped.push(id); };
       res200(await app.inject({ method: 'POST', url: '/api/sessions/s1/take-over' }));
       expect(ended).toEqual([4242]);
-      expect(rescans).toHaveLength(1);
+      expect(dropped).toEqual(['s1']);
+      expect(stopped).toEqual(['s1']);
       const row = rowOf(db, 's1');
       expect(row.source).toBe('web');
       expect(row.ended_at).toBeNull();
@@ -1390,24 +1398,39 @@ describe('REST routes', () => {
       expect(session).toMatchObject({ source: 'web', status: 'idle' });
     });
 
-    it('409s for a session no terminal holds, without signalling anything', async () => {
+    it('takes over a session whose terminal let go first, signalling nothing', async () => {
       const { app, db } = makeApp();
-      const res = await app.inject({ method: 'POST', url: '/api/sessions/s2/take-over' });
-      expect(res.statusCode).toBe(409);
-      expect(res.json().error).toBe('not_in_terminal');
-      expect(rowOf(db, 's2').source).toBe('terminal');
+      res200(await app.inject({ method: 'POST', url: '/api/sessions/s2/take-over' }));
+      expect(rowOf(db, 's2').source).toBe('web');
     });
 
-    it('leaves the session as it was when the pid is no longer a CLI', async () => {
-      const { app, db } = makeApp({ endCli: async () => 'not_claude' });
-      const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/take-over' });
-      expect(res.statusCode).toBe(409);
-      expect(res.json().error).toBe('not_claude');
-      expect(rowOf(db, 's1').source).toBe('terminal');
+    it('drops a stale entry whose pid is no longer a CLI, signalling nothing', async () => {
+      const { app, db, registry } = makeApp({ endCli: async () => 'not_claude' });
+      const dropped: string[] = [];
+      registry.drop = (id: string) => dropped.push(id);
+      res200(await app.inject({ method: 'POST', url: '/api/sessions/s1/take-over' }));
+      expect(dropped).toEqual(['s1']);
+      expect(rowOf(db, 's1').source).toBe('web');
     });
 
-    it('504s and leaves the session as it was when the CLI will not die', async () => {
+    it('never signals a pid another session\'s entry names', async () => {
+      const { app, registry } = makeApp();
+      registry.all = () => [{ sessionId: 's1', pid: 4242, status: 'idle' }, { sessionId: 'other', pid: 4242, status: 'idle' }];
+      // makeApp's endCli throws if called.
+      res200(await app.inject({ method: 'POST', url: '/api/sessions/s1/take-over' }));
+    });
+
+    it('puts the row back and 504s when the CLI will not die', async () => {
       const { app, db } = makeApp({ endCli: async () => 'still_running' });
+      db.update(sessions).set({ endedAt: 7 }).where(eq(sessions.id, 's1')).run();
+      const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/take-over' });
+      expect(res.statusCode).toBe(504);
+      expect(rowOf(db, 's1')).toMatchObject({ source: 'terminal', ended_at: 7 });
+    });
+
+    it('puts the row back and 504s when Orbital\'s own process will not stop', async () => {
+      const { app, db, runner } = makeApp({ endCli: async () => 'ended' });
+      runner.stopAndWait = async () => { throw new Error('timeout'); };
       const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/take-over' });
       expect(res.statusCode).toBe(504);
       expect(rowOf(db, 's1').source).toBe('terminal');
@@ -1796,7 +1819,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
     registerRoutes(app, {
       harness: stubHarness(db),
       db,
-      registry: { get: () => undefined, all: () => [], rescan: () => {} },
+      registry: { get: () => undefined, all: () => [], rescan: () => {}, drop: () => {} },
       runner,
       hub,
       claudeDirs,

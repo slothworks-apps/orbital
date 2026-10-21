@@ -8,7 +8,7 @@ function fakeProcess(command: string | null, diesOn: NodeJS.Signals[]) {
   const signals: NodeJS.Signals[] = [];
   const deps: EndCliDeps = {
     isAlive: () => alive,
-    commandOf: () => command,
+    commandOf: async () => command,
     kill: (_pid, signal) => {
       signals.push(signal);
       if (diesOn.includes(signal)) alive = false;
@@ -56,6 +56,9 @@ describe('isClaudeCommand', () => {
     '/opt/homebrew/bin/claude --output-format stream-json',
     '/Users/me/.local/share/claude/versions/2.1.280 --resume abc',
     'node /usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js',
+    'node /usr/local/bin/claude --resume abc',
+    '/Users/Jane Doe/.local/share/claude/versions/2.1.280 --resume abc',
+    '/Users/Jane Doe/.local/bin/claude',
   ])('accepts %s', (command) => {
     expect(isClaudeCommand(command)).toBe(true);
   });

@@ -19,8 +19,10 @@ drive a terminal session.
 ## Decision
 
 Orbital offers **Take over** on a session a terminal holds. It ends the CLI
-process (`SIGTERM`, then `SIGKILL`) and the session becomes an Orbital
-session, which the next message resumes. Until then the session stays
+process (`SIGTERM`, then `SIGKILL`), and Orbital's own process if one still
+idles beside it, and the session becomes an Orbital session, which the next
+message resumes from the transcript. `why-orbital` → Terminal sessions are
+shown, not driven names it as the one exception. Until then the session stays
 read-only, its row's `source` notwithstanding.
 
 This does not drive the terminal session; it ends it and moves the
