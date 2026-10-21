@@ -5,6 +5,8 @@ import { compactingOf } from '../lib/compaction'
 import { contextFractionFor, contextLevel, type ContextLevel } from '../lib/usage'
 import { CONTEXT_GAUGE_OUTER, MOON_TICK_LENGTH, MOON_TICK_RADIUS, moonVisuals } from './visuals'
 import type { OrbitalState } from '../store/store'
+import { moonOrbits } from '../lib/experimental'
+import { placeMoons, type MoonSlot } from './moonSlots'
 import { asOfLabel, deviceOf, machineOffline } from '../lib/devices'
 import {
   absorptionFor,
@@ -23,7 +25,6 @@ import {
   clusterSessions,
   holePosition,
   layoutClusters,
-  GOLDEN_ANGLE,
   PLANET_BASE_RADIUS,
   type Cluster,
 } from './layout'
@@ -76,11 +77,14 @@ const MOON_ORBIT_CLEARANCE = 0.08
  */
 const MOON_ORBIT_STEP = 2 * MOON_EXTENT_RADIUS + MOON_ORBIT_CLEARANCE
 /**
- * Angular spacing between successive moons' starting phase, reusing the
- * layout's golden angle so multiple moons around one planet start spread
- * out rather than stacked, deterministically (no Math.random).
+ * The smallest angle two moons on one orbit may sit apart: a whole moon
+ * across plus `MOON_ORBIT_CLEARANCE` as a chord — the same distance
+ * `MOON_ORBIT_STEP` keeps between orbits.
  */
-const MOON_PHASE_STEP = GOLDEN_ANGLE
+function moonSeparation(orbitRadius: number, planetScale: number): number {
+  const chord = MOON_ORBIT_STEP * planetScale
+  return 2 * Math.asin(Math.min(1, chord / (2 * orbitRadius)))
+}
 
 export interface ScenePlanet {
   session: ApiSession
@@ -232,7 +236,11 @@ export interface SceneMoon {
   parentX: number
   parentY: number
   orbitRadius: number
+  /** Which of its planet's orbits it rides, 0 the innermost (`placeMoons`). */
+  orbit: number
   phase: number
+  /** The first moon on its orbit draws the orbit's dashed trail; the rest share it. */
+  drawTrail: boolean
   /** Its parent planet is muted by the sidebar filters — a muted planet's moons mute with it. */
   muted: boolean
   /** Its parent's device is offline: the moon holds still, at half opacity, with its planet. */
@@ -394,6 +402,7 @@ export function buildSceneModel(
   nowMs: number,
   hidden: readonly string[] = hiddenDevices(state),
   names: DeviceNames | null = null,
+  previousMoons: readonly SceneMoon[] = [],
 ): SceneModel {
   const sessions = mapSessions(state, nowMs, [])
   const clusters = clusterSessions(sessions, state.tags)
@@ -409,6 +418,13 @@ export function buildSceneModel(
   const planets: ScenePlanet[] = []
   const moons: SceneMoon[] = []
   const planetScale = parsePlanetScale(state.settings)
+  const maxOrbits = moonOrbits(state.settings)
+  const previousSlots = new Map<string, Map<string, MoonSlot>>()
+  for (const moon of previousMoons) {
+    let slots = previousSlots.get(moon.sessionId)
+    if (!slots) previousSlots.set(moon.sessionId, (slots = new Map()))
+    slots.set(moon.subagent.id, { orbit: moon.orbit, phase: moon.phase })
+  }
 
   for (const cluster of clusters) {
     for (const session of cluster.sessions) {
@@ -428,8 +444,20 @@ export function buildSceneModel(
       // reach, and that is what the planet is then placed by.
       const contextFill = contextFillFor(session, state.models, state.settings, state.contextWindows)
       let footprint = pos.scale * PLANET_BASE_RADIUS
-      subagents.forEach((subagent, i) => {
-        const orbitRadius = moonOrbitRadius(pos.scale, i, contextFill !== null, planetScale)
+      const radiusOf = (orbit: number) =>
+        moonOrbitRadius(pos.scale, orbit, contextFill !== null, planetScale)
+      const slots = placeMoons(
+        subagents.map((a) => a.id),
+        previousSlots.get(session.id) ?? new Map(),
+        maxOrbits,
+        (orbit) => moonSeparation(radiusOf(orbit), planetScale)
+      )
+      const trailed = new Set<number>()
+      subagents.forEach((subagent) => {
+        const { orbit, phase } = slots.get(subagent.id)!
+        const orbitRadius = radiusOf(orbit)
+        const drawTrail = !trailed.has(orbit)
+        trailed.add(orbit)
         moons.push({
           subagent,
           sessionId: session.id,
@@ -437,7 +465,9 @@ export function buildSceneModel(
           parentX: pos.x,
           parentY: pos.y,
           orbitRadius,
-          phase: i * MOON_PHASE_STEP,
+          orbit,
+          phase,
+          drawTrail,
           muted,
           offline,
           deviceOff,
