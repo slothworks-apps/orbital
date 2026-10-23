@@ -225,8 +225,15 @@ export class SessionTitler {
    * from starting a second call that could name the session after itself.
    */
   private naming = new Set<string>();
+  /** Aborted by `dispose`: stops the calls in flight, and a first-message call finishing late writes and reports nothing. */
+  private closing = new AbortController();
 
   constructor(private deps: SessionTitlerDeps) {}
+
+  /** On server close, before the database goes: what is still naming a session stops there. */
+  dispose(): void {
+    this.closing.abort();
+  }
 
   /**
    * Renames a session, now.
@@ -265,7 +272,7 @@ export class SessionTitler {
    * this, so a failed call is logged and the derived title stays.
    */
   async nameFromFirstMessage(sessionId: string, text: string): Promise<boolean> {
-    if (this.naming.has(sessionId)) return false;
+    if (this.naming.has(sessionId) || this.closing.signal.aborted) return false;
     this.naming.add(sessionId);
     try {
       const session = this.deps.readSession(sessionId);
@@ -274,9 +281,10 @@ export class SessionTitler {
       if (!subject) return false;
       const reply = await this.ask(subject, FIRST_TITLE_SYSTEM_PROMPT, this.deps.envFor?.(sessionId));
       const title = parseTitleReply(reply);
-      if (!title) return false;
+      if (!title || this.closing.signal.aborted) return false;
       return this.deps.applyTitle(sessionId, title, { onlyOverDerived: true });
     } catch (err) {
+      if (this.closing.signal.aborted) return false;
       if (this.deps.onFirstTitleError) this.deps.onFirstTitleError(sessionId, err);
       else console.warn(`orbital: could not name session ${sessionId} from its first message:`, err);
       return false;
@@ -303,6 +311,7 @@ export class SessionTitler {
     if (this.deps.claudeExecutablePath)
       options.pathToClaudeCodeExecutable = this.deps.claudeExecutablePath;
     if (env) options.env = env;
+    options.abortController = this.closing;
     for await (const message of this.deps.queryFn({ prompt, options })) {
       if (message?.type === 'assistant') {
         const content = message.message?.content;

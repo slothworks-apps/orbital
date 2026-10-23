@@ -1677,6 +1677,7 @@ export async function buildServer(overrides: {
     backgroundTasks.dispose();
     terminals.dispose();
     harness.dispose();
+    titler.dispose();
     db.$client.close();
     done();
   });

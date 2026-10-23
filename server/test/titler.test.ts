@@ -336,3 +336,56 @@ describe('SessionTitler.nameFromFirstMessage, twice at once', () => {
     await expect(titler.nameFromFirstMessage('s1', 'fix the zoom')).resolves.toBe(false);
   });
 });
+
+describe('SessionTitler.dispose', () => {
+  /** A titler whose one call waits until `settle` says how it ends. */
+  function heldTitler() {
+    let settle!: (outcome: 'reply' | 'fail') => void;
+    const gate = new Promise<'reply' | 'fail'>((r) => { settle = r; });
+    let signal: AbortSignal | undefined;
+    const queryFn = vi.fn(({ options }: { options: Record<string, unknown> }) => {
+      signal = (options.abortController as AbortController | undefined)?.signal;
+      async function* gen() {
+        if ((await gate) === 'fail') throw new Error('aborted');
+        yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Map zoom fix' }] } };
+        yield { type: 'result', subtype: 'success' };
+      }
+      return gen();
+    });
+    const applyTitle = vi.fn(() => true);
+    const onFirstTitleError = vi.fn();
+    const titler = new SessionTitler({
+      queryFn: queryFn as never,
+      readSession: () => ({ title: '', titleSource: 'derived' as const }),
+      applyTitle,
+      onFirstTitleError,
+    });
+    return { titler, queryFn, applyTitle, onFirstTitleError, settle: (o: 'reply' | 'fail') => settle(o), signal: () => signal };
+  }
+
+  it('aborts the call in flight, and a reply that comes anyway names nothing', async () => {
+    const t = heldTitler();
+    const naming = t.titler.nameFromFirstMessage('s1', 'fix the zoom');
+    t.titler.dispose();
+    expect(t.signal()?.aborted).toBe(true);
+    t.settle('reply');
+    expect(await naming).toBe(false);
+    expect(t.applyTitle).not.toHaveBeenCalled();
+  });
+
+  it('reports no failure of a call it aborted — the error log may be closed by then', async () => {
+    const t = heldTitler();
+    const naming = t.titler.nameFromFirstMessage('s1', 'fix the zoom');
+    t.titler.dispose();
+    t.settle('fail');
+    expect(await naming).toBe(false);
+    expect(t.onFirstTitleError).not.toHaveBeenCalled();
+  });
+
+  it('starts no call once disposed', async () => {
+    const t = heldTitler();
+    t.titler.dispose();
+    expect(await t.titler.nameFromFirstMessage('s1', 'fix the zoom')).toBe(false);
+    expect(t.queryFn).not.toHaveBeenCalled();
+  });
+});
