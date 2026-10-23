@@ -11,6 +11,7 @@ import {
   showCompactBadge,
   showTrash,
   endClosesPanel,
+  reviewBeforeSend,
   headerSessionStats,
   headerLineChanges,
   headerPullRequest,
@@ -869,6 +870,7 @@ export function Settings({ open, onClose }: SettingsProps) {
   const defaultPermissionMode =
     (settings.default_permission_mode as PermissionMode) || 'acceptEdits'
   const confirmBeforeClear = settings.confirm_before_clear !== 'false'
+  const reviewAnswers = reviewBeforeSend(settings)
   const instructionTips = settings.session_instructions_tips !== 'false'
   const instructionCustom = settings.session_instructions_custom !== 'false'
   const autoContinue = limitSettings(settings).autoContinue
@@ -2174,6 +2176,22 @@ export function Settings({ open, onClose }: SettingsProps) {
                           </div>
                         </Row>
                       </div>
+                      {/* `Feature - Question Card` 9h: a section of its own at
+                          the end of Sessions (spec
+                          2026-10-21-question-card-go-back-design § Setting). */}
+                      <SectionLabel>QUESTIONS</SectionLabel>
+                      <Row
+                        title="Review answers before sending"
+                        desc="When every question on a card has an answer, show them all with a Send button instead of sending with the last one. Any answer can be changed until you send. Your phone follows this setting."
+                      >
+                        <Toggle
+                          aria-label="Review answers before sending"
+                          checked={reviewAnswers}
+                          onChange={(checked) =>
+                            void patchAndSet({ questions_review_before_send: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
                     </>
                   )}
                 </div>

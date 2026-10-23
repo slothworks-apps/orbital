@@ -108,6 +108,8 @@ export function useSceneModel(): SceneModel {
           remote: null,
           pendingDecisions: {},
           decisionAnswers: {},
+          decisionDrafts: {},
+          questionCursors: {},
           decisionVerdicts: {},
           ideDismissed: {},
           composerDrafts: {},

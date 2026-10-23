@@ -66,6 +66,13 @@ const DEFAULT_SETTINGS: Record<string, string> = {
    */
   end_closes_panel: 'true',
   /**
+   * Sessions → QUESTIONS → whether a question card shows a review of every
+   * answer with a Send button instead of sending with the last answer (spec
+   * 2026-10-21-question-card-go-back-design § Setting). One value for the Mac
+   * and its phones. Default-on convention: read client-side as `!== 'false'`.
+   */
+  questions_review_before_send: 'true',
+  /**
    * Appearance → default planet size (canvas 5a, `Feature - Planet
    * size.dc.html`). Stored as the normalized multiplier ('0.7'–'1.6', slider
    * step 0.05), not the slider's percent value. Applied client-side in

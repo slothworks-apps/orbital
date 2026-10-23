@@ -1,6 +1,6 @@
 import { composerPlaceholderFor } from '../lib/decisionCard'
 import { isMcpCommand } from '../lib/mcp'
-import { openQuestion, type AnswerMap } from '../lib/questionCard'
+import type { ComposerTarget } from '../lib/questionCard'
 import { isRewindCommand } from '../lib/rewind'
 import { formatResetAt } from '../lib/limits'
 import type { LimitWait, PendingDecision } from '../lib/types'
@@ -31,24 +31,35 @@ export function footerMode(input: { offline: boolean; macName: string | null; re
 /**
  * The placeholder, and whether the well wears the answering accent. While a
  * decision is parked the composer is its escape hatch (§ 6.3) and says so; a
- * question whose every part is answered no longer is, so it falls through.
+ * question card that has been sent no longer is, so it falls through. A card
+ * showing its review takes no words: the message waits until the answers are
+ * sent (canvas 9i C).
  * Then a gate's Reopen (canvas 10b `gComposerPh`) names the step the message
  * goes to, and a limit wait (canvas 10k) says the message waits for the reset
  * (spec 2026-10-05-mobile-next § 1, § 5).
  */
 export function composerPlaceholder(input: {
   pending: PendingDecision | undefined
-  answers: AnswerMap | undefined
+  /** What the text would do on a pending question card (`questionComposerTarget`). */
+  target: ComposerTarget | null
   ended: boolean
   /** The step a Reopen left to the user (1-based), or null. */
   reopenStep?: number | null
   limitWait?: Pick<LimitWait, 'resetsAt'> | null
   now?: number
 }): { text: string; answering: boolean } {
-  const { pending } = input
+  const { pending, target } = input
   if (pending?.kind === 'question') {
-    const open = openQuestion(pending.input.questions, input.answers ?? {})
-    if (open) return { text: `Answer ${open.header}, or pick an option above…`, answering: true }
+    if (target?.kind === 'question') {
+      const { header } = target.question
+      return target.changing
+        ? { text: `Change ${header} in your own words…`, answering: true }
+        : { text: `Answer ${header}, or pick an option above…`, answering: true }
+    }
+    if (target?.kind === 'review') {
+      const answers = pending.input.questions.length === 1 ? 'answer' : 'answers'
+      return { text: `Message after sending the ${answers}…`, answering: false }
+    }
   } else if (pending) {
     return { text: composerPlaceholderFor(pending.kind), answering: true }
   }

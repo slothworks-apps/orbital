@@ -40,42 +40,55 @@ const question = (...questions: QuestionSpec[]): PendingDecision => ({
 const verdict = (kind: 'permission' | 'plan'): PendingDecision => ({ id: 'd2', kind, input: {}, createdAt: 0 })
 
 describe('composerPlaceholder', () => {
-  it('names the first open question and answers it', () => {
+  it('names the open question and answers it', () => {
     const pending = question(q('Scope'), q('Tests'))
-    expect(composerPlaceholder({ pending, answers: { 'Which Scope?': 'A' }, ended: false })).toEqual({
-      text: 'Answer Tests, or pick an option above…',
-      answering: true,
+    expect(
+      composerPlaceholder({ pending, target: { kind: 'question', question: q('Tests'), changing: false }, ended: false }),
+    ).toEqual({ text: 'Answer Tests, or pick an option above…', answering: true })
+  })
+
+  it('says a reopened question is being changed (canvas 9i B)', () => {
+    const pending = question(q('Scope'), q('Tests'))
+    expect(
+      composerPlaceholder({ pending, target: { kind: 'question', question: q('Scope'), changing: true }, ended: false }),
+    ).toEqual({ text: 'Change Scope in your own words…', answering: true })
+  })
+
+  it('waits for Send while the review shows (canvas 9i C)', () => {
+    expect(composerPlaceholder({ pending: question(q('Scope'), q('Tests')), target: { kind: 'review' }, ended: false })).toEqual({
+      text: 'Message after sending the answers…',
+      answering: false,
     })
-    expect(composerPlaceholder({ pending, answers: undefined, ended: false }).text).toBe(
-      'Answer Scope, or pick an option above…',
+    expect(composerPlaceholder({ pending: question(q('Scope')), target: { kind: 'review' }, ended: false }).text).toBe(
+      'Message after sending the answer…',
     )
   })
 
-  it('falls through to the plain reply once every question is answered', () => {
+  it('falls through to the plain reply once the card is sent', () => {
     const pending = question(q('Scope'))
-    expect(composerPlaceholder({ pending, answers: { 'Which Scope?': 'A' }, ended: false })).toEqual({
+    expect(composerPlaceholder({ pending, target: null, ended: false })).toEqual({
       text: 'Reply to Claude…',
       answering: false,
     })
   })
 
   it('says how to refuse a permission or a plan in words', () => {
-    expect(composerPlaceholder({ pending: verdict('permission'), answers: undefined, ended: false })).toEqual({
+    expect(composerPlaceholder({ pending: verdict('permission'), target: null, ended: false })).toEqual({
       text: composerPlaceholderFor('permission'),
       answering: true,
     })
-    expect(composerPlaceholder({ pending: verdict('plan'), answers: undefined, ended: false })).toEqual({
+    expect(composerPlaceholder({ pending: verdict('plan'), target: null, ended: false })).toEqual({
       text: composerPlaceholderFor('plan'),
       answering: true,
     })
   })
 
   it('continues an ended session and replies to a live one', () => {
-    expect(composerPlaceholder({ pending: undefined, answers: undefined, ended: true })).toEqual({
+    expect(composerPlaceholder({ pending: undefined, target: null, ended: true })).toEqual({
       text: 'Continue conversation…',
       answering: false,
     })
-    expect(composerPlaceholder({ pending: undefined, answers: undefined, ended: false })).toEqual({
+    expect(composerPlaceholder({ pending: undefined, target: null, ended: false })).toEqual({
       text: 'Reply to Claude…',
       answering: false,
     })
@@ -86,7 +99,7 @@ describe('composerPlaceholder', () => {
   const wait = { resetsAt: new Date(2026, 9, 5, 14, 5).toISOString() }
 
   it('asks what should change in a reopened step', () => {
-    expect(composerPlaceholder({ pending: undefined, answers: undefined, ended: false, reopenStep: 4 })).toEqual({
+    expect(composerPlaceholder({ pending: undefined, target: null, ended: false, reopenStep: 4 })).toEqual({
       text: 'What should change in step 4?',
       answering: false,
     })
@@ -94,16 +107,16 @@ describe('composerPlaceholder', () => {
 
   it('queues for the reset while the session waits for a limit', () => {
     expect(
-      composerPlaceholder({ pending: undefined, answers: undefined, ended: false, limitWait: wait, now: NOW }),
+      composerPlaceholder({ pending: undefined, target: null, ended: false, limitWait: wait, now: NOW }),
     ).toEqual({ text: 'Queue a message for 14:05…', answering: false })
   })
 
   it('lets a parked decision speak first, then the reopened step, then the wait', () => {
     expect(
-      composerPlaceholder({ pending: verdict('plan'), answers: undefined, ended: false, reopenStep: 4, limitWait: wait, now: NOW }).text,
+      composerPlaceholder({ pending: verdict('plan'), target: null, ended: false, reopenStep: 4, limitWait: wait, now: NOW }).text,
     ).toBe(composerPlaceholderFor('plan'))
     expect(
-      composerPlaceholder({ pending: undefined, answers: undefined, ended: false, reopenStep: 4, limitWait: wait, now: NOW }).text,
+      composerPlaceholder({ pending: undefined, target: null, ended: false, reopenStep: 4, limitWait: wait, now: NOW }).text,
     ).toBe('What should change in step 4?')
   })
 })

@@ -3,6 +3,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import {
   mapStatePills,
   parseContextThresholds,
+  reviewBeforeSend,
   showCompactBadge,
   showTrash,
   trashDropFor,
@@ -959,6 +960,27 @@ function DecisionBlock({
   const answerQuestion = useOrbital((st) => st.answerQuestion)
   const questions = decision.kind === 'question' ? decision.input.questions : []
   const single = questions.length === 1 && !questions[0].multiSelect ? questions[0] : null
+  // Canvas 9g: with the review on, a click records a draft and opens the
+  // panel on the review; nothing is sent from the map. Off, it sends as
+  // before (spec 2026-10-21-question-card-go-back-design § The Desk map's
+  // quick answer).
+  const review = useOrbital((st) => reviewBeforeSend(st.settings))
+  const draft = useOrbital((st) =>
+    review && single && !st.decisionAnswers[decision.id]
+      ? st.decisionDrafts[decision.id]?.[single.question]
+      : undefined,
+  )
+  const panelOpen = useOrbital((st) => st.ui.selectedId === sessionId)
+
+  function pickOption(question: string, label: string) {
+    if (!review) {
+      answerQuestion(sessionId, question, label)
+      return
+    }
+    // The chosen chip again only opens the panel; a different one replaces the draft.
+    if (label !== draft) answerQuestion(sessionId, question, label)
+    onSelect(sessionId)
+  }
   const kind =
     decision.kind === 'question'
       ? questions.length > 1
@@ -1010,17 +1032,40 @@ function DecisionBlock({
         </div>
       ) : single ? (
         <div className="flex flex-col gap-[5px]">
-          {single.options.map((o, i) => (
-            <button
-              key={o.label}
-              type="button"
-              onClick={() => answerQuestion(sessionId, single.question, o.label)}
-              className="flex items-center gap-[9px] rounded-[7px] border border-[rgba(150,205,255,.14)] px-[9px] py-1.5 text-left text-[12px] font-medium text-[rgba(214,230,248,.9)] transition-colors hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.14)] hover:text-text-bright"
-            >
-              <span className="font-mono text-[10px] text-[rgba(160,190,225,.55)]">{i + 1}</span>
-              {o.label}
-            </button>
-          ))}
+          {single.options.map((o, i) => {
+            const chosen = draft === o.label
+            return (
+              <button
+                key={o.label}
+                type="button"
+                aria-pressed={review ? chosen : undefined}
+                onClick={() => pickOption(single.question, o.label)}
+                className={[
+                  'flex items-center gap-[9px] rounded-[7px] border px-[9px] py-1.5 text-left text-[12px] transition-colors',
+                  // 9g: the chosen chip takes the row's chosen state — ✓ and the accent fill.
+                  chosen
+                    ? 'border-accent/35 bg-accent/12 font-semibold text-[#e8eef8]'
+                    : 'border-[rgba(150,205,255,.14)] font-medium text-[rgba(214,230,248,.9)] hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.14)] hover:text-text-bright',
+                ].join(' ')}
+              >
+                <span
+                  className={[
+                    'font-mono text-[10px]',
+                    chosen ? 'text-accent' : 'text-[rgba(160,190,225,.55)]',
+                  ].join(' ')}
+                >
+                  {chosen ? '✓' : i + 1}
+                </span>
+                {o.label}
+              </button>
+            )
+          })}
+          {draft !== undefined && (
+            // 9g: one mono line says the answer is a draft; the pill stays NEEDS INPUT.
+            <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+              {panelOpen ? 'draft · not sent · review in the panel →' : 'draft · not sent · open to send'}
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex gap-1.5">

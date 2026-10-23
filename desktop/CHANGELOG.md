@@ -8,6 +8,8 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ### Changed
 - A session's subagents share at most three orbits around its planet instead of one ring each, spaced so they never touch; Settings → Experimental sets the number.
 - Copying code selected in the file viewer no longer copies the line numbers with it.
+### Changed
+- Question cards no longer send with the last answer: you can go back and change any answer, and nothing is sent until you press Send on the review. Settings → Sessions → Review answers before sending turns the review off; changing answers works either way.
 
 ## [0.40.0] — 2026-10-21
 ### Added

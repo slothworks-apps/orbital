@@ -7,6 +7,7 @@ domain: web
 related:
   - 2026-09-20-composer-design
   - 2026-09-23-permission-and-plan-decisions-design
+  - 2026-10-21-question-card-go-back-design
 tags:
   - runner
   - detail-panel
@@ -113,6 +114,10 @@ values. The rules that shape the implementation:
   confirm step. `multiSelect` swaps the gutter for a checkbox and adds
   a confirm button; nothing sends until confirm, and zero selections
   is allowed.
+  *Superseded by `2026-10-21-question-card-go-back-design`: a click or
+  confirm records an answer that can still be changed, and the card
+  sends from its review's Send (or, with the review off, on the answer
+  that completes it).*
 - The **Other… row expands inline into the text field** (the card
   never grows a second composer); esc collapses it back; the cap is
   500 chars.
@@ -121,6 +126,8 @@ values. The rules that shape the implementation:
   then it scrolls inside its own box. Keyboard: ↑↓/⇥ move focus,
   1–4 answer directly, ⏎ answers/confirms/sends, space ticks
   (multiSelect), esc collapses Other….
+  *Superseded by `2026-10-21-question-card-go-back-design`: ⏎ answers
+  or confirms; the card is sent from the review (⌘⏎), not by ⏎.*
 - **Composer while pending**: accent border, placeholder names the
   question's header chip ("Answer Approach, or pick an option
   above…"), hint line says ⏎ answers the question. If the question is

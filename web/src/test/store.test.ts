@@ -14,6 +14,7 @@ import type {
 
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
+import { readQuestionDrafts } from '../store/questionDrafts'
 import { api, ApiError } from '../lib/api'
 import {
   useOrbital,
@@ -45,6 +46,7 @@ import {
   PANEL_GUTTER_PX,
   SUBAGENT_PANEL_DEFAULT_PX,
   SUBAGENT_PANEL_MIN_PX,
+  REVIEW_HOLDS_SEND_TOAST,
   type OrbitalState,
   type SessionEvent,
 } from '../store/store'
@@ -92,6 +94,8 @@ const initialSnapshot: OrbitalState = {
   remote: null,
   pendingDecisions: {},
   decisionAnswers: {},
+  decisionDrafts: {},
+  questionCursors: {},
   decisionVerdicts: {},
   ideDismissed: {},
   composerDrafts: {},
@@ -637,7 +641,7 @@ describe('sendPrompt', () => {
       new ApiError('session is live in a terminal', 409)
     )
 
-    await expect(useOrbital.getState().sendPrompt('s1', 'hello')).resolves.toBeUndefined()
+    await expect(useOrbital.getState().sendPrompt('s1', 'hello')).resolves.toBe(true)
 
     expect(useOrbital.getState().toast).toEqual({
       kind: 'error',
@@ -766,6 +770,7 @@ describe('pending decisions', () => {
   })
 
   it('keeps the answers past the resolve, so the card can render what it sent', () => {
+    useOrbital.setState({ settings: { questions_review_before_send: 'false' } })
     const decision = makeDecision()
     useOrbital.getState().applySessionEvent('s1', { event: 'decision_pending', decision })
     useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
@@ -827,9 +832,10 @@ describe('pending decisions', () => {
   })
 })
 
-describe('answerQuestion', () => {
+describe('answerQuestion with the review off', () => {
   beforeEach(() => {
     vi.mocked(api.answerDecision).mockResolvedValue({ ok: true })
+    useOrbital.setState({ settings: { questions_review_before_send: 'false' } })
   })
 
   it('POSTs the complete record for a single-question card, keyed by the question text', () => {
@@ -851,7 +857,8 @@ describe('answerQuestion', () => {
 
     useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
     expect(api.answerDecision).not.toHaveBeenCalled()
-    expect(useOrbital.getState().decisionAnswers.tu1).toEqual({ [APPROACH]: 'Fix the gutter' })
+    expect(useOrbital.getState().decisionDrafts.tu1).toEqual({ [APPROACH]: 'Fix the gutter' })
+    expect(useOrbital.getState().decisionAnswers.tu1).toBeUndefined()
 
     useOrbital.getState().answerQuestion('s1', TESTS, 'One regression')
     expect(api.answerDecision).toHaveBeenCalledTimes(1)
@@ -865,6 +872,19 @@ describe('answerQuestion', () => {
     useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
     expect(api.answerDecision).not.toHaveBeenCalled()
     expect(useOrbital.getState().decisionAnswers).toEqual({})
+    expect(useOrbital.getState().decisionDrafts).toEqual({})
+  })
+
+  it('changing an earlier answer while a later question is unanswered does not send', () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeStackedDecision() })
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
+    useOrbital.getState().setQuestionCursor('s1', 0)
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Container query')
+
+    expect(api.answerDecision).not.toHaveBeenCalled()
+    expect(useOrbital.getState().questionCursors.tu1).toBe(1)
   })
 
   it('treats a 404 as resolved — someone else answered first, no error toast', async () => {
@@ -906,6 +926,7 @@ describe('answerQuestion', () => {
       expect(useOrbital.getState().toast).toEqual({ kind: 'error', message: 'tunnel lost' })
     })
     expect(useOrbital.getState().decisionAnswers.tu1).toBeUndefined()
+    expect(useOrbital.getState().decisionDrafts.tu1).toBeUndefined()
     expect(useOrbital.getState().pendingDecisions.s1).toBeDefined()
   })
 
@@ -921,13 +942,193 @@ describe('answerQuestion', () => {
     await vi.waitFor(() => {
       expect(useOrbital.getState().toast).toEqual({ kind: 'error', message: 'boom' })
     })
-    expect(useOrbital.getState().decisionAnswers.tu1).toEqual({ [APPROACH]: 'Fix the gutter' })
+    expect(useOrbital.getState().decisionAnswers.tu1).toBeUndefined()
+    expect(useOrbital.getState().decisionDrafts.tu1).toEqual({ [APPROACH]: 'Fix the gutter' })
+    expect(useOrbital.getState().questionCursors.tu1).toBe(1)
+  })
+})
+
+// Spec 2026-10-21-question-card-go-back-design: the review step, on by default.
+describe('answerQuestion with the review on', () => {
+  beforeEach(() => {
+    vi.mocked(api.answerDecision).mockResolvedValue({ ok: true })
+    localStorage.clear()
+  })
+
+  it('reads an absent setting as on — what an older Mac sends the phone', () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeDecision() })
+
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
+
+    expect(api.answerDecision).not.toHaveBeenCalled()
+    expect(useOrbital.getState().decisionAnswers.tu1).toBeUndefined()
+    expect(useOrbital.getState().questionCursors.tu1).toBe('review')
+  })
+
+  it("Send POSTs the same record the last answer used to", () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeStackedDecision() })
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
+    useOrbital.getState().answerQuestion('s1', TESTS, 'One regression')
+    expect(api.answerDecision).not.toHaveBeenCalled()
+
+    useOrbital.getState().sendAnswers('s1')
+
+    expect(api.answerDecision).toHaveBeenCalledTimes(1)
+    expect(api.answerDecision).toHaveBeenCalledWith('s1', 'tu1', {
+      [APPROACH]: 'Fix the gutter',
+      [TESTS]: 'One regression',
+    })
+    expect(useOrbital.getState().decisionAnswers.tu1).toEqual({
+      [APPROACH]: 'Fix the gutter',
+      [TESTS]: 'One regression',
+    })
+  })
+
+  it('Send does nothing while a question is still unanswered', () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeStackedDecision() })
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
+
+    useOrbital.getState().sendAnswers('s1')
+
+    expect(api.answerDecision).not.toHaveBeenCalled()
+  })
+
+  it('a changed answer replaces only its own and returns to the review', () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeStackedDecision() })
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
+    useOrbital.getState().answerQuestion('s1', TESTS, 'One regression')
+    useOrbital.getState().setQuestionCursor('s1', 0)
+
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Container query')
+
+    expect(useOrbital.getState().decisionDrafts.tu1).toEqual({
+      [APPROACH]: 'Container query',
+      [TESTS]: 'One regression',
+    })
+    expect(useOrbital.getState().questionCursors.tu1).toBe('review')
+    expect(api.answerDecision).not.toHaveBeenCalled()
+  })
+
+  it('a failed Send returns to the review with every answer kept', async () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeStackedDecision() })
+    vi.mocked(api.answerDecision).mockRejectedValueOnce(new ApiError('boom', 500))
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
+    useOrbital.getState().answerQuestion('s1', TESTS, 'One regression')
+
+    useOrbital.getState().sendAnswers('s1')
+
+    await vi.waitFor(() => {
+      expect(useOrbital.getState().toast).toEqual({ kind: 'error', message: 'boom' })
+    })
+    expect(useOrbital.getState().decisionAnswers.tu1).toBeUndefined()
+    expect(useOrbital.getState().decisionDrafts.tu1).toEqual({
+      [APPROACH]: 'Fix the gutter',
+      [TESTS]: 'One regression',
+    })
+    expect(useOrbital.getState().questionCursors.tu1).toBe('review')
+  })
+
+  it('keeps the drafts in storage while pending, and drops them once settled', () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeStackedDecision() })
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
+    expect(readQuestionDrafts()).toEqual({ tu1: { [APPROACH]: 'Fix the gutter' } })
+
+    useOrbital.getState().applySessionEvent('s1', { event: 'decision_resolved', decisionId: 'tu1' })
+
+    expect(readQuestionDrafts()).toEqual({})
+    // Still in memory: a card left unsent shows its drafts dimmed.
+    expect(useOrbital.getState().decisionDrafts.tu1).toEqual({ [APPROACH]: 'Fix the gutter' })
+  })
+
+  it('forgets the card’s cursor once the decision is settled', () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeStackedDecision() })
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
+    expect(useOrbital.getState().questionCursors.tu1).toBe(1)
+
+    useOrbital.getState().applySessionEvent('s1', { event: 'decision_resolved', decisionId: 'tu1' })
+
+    expect('tu1' in useOrbital.getState().questionCursors).toBe(false)
+  })
+
+  it('merges its drafts into what another window stored instead of overwriting them', () => {
+    // The detached session window wrote a draft of its own decision meanwhile.
+    localStorage.setItem('orbital.questionDrafts', JSON.stringify({ other: { [TESTS]: 'One regression' } }))
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeStackedDecision() })
+
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
+
+    expect(readQuestionDrafts()).toEqual({
+      other: { [TESTS]: 'One regression' },
+      tu1: { [APPROACH]: 'Fix the gutter' },
+    })
+    useOrbital.getState().applySessionEvent('s1', { event: 'decision_resolved', decisionId: 'tu1' })
+    expect(readQuestionDrafts()).toEqual({ other: { [TESTS]: 'One regression' } })
+  })
+
+  it('adopts the drafts another window writes, and drops one it took back', () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeStackedDecision() })
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
+
+    const changed = JSON.stringify({ tu1: { [APPROACH]: 'Container query', [TESTS]: 'One regression' } })
+    window.dispatchEvent(new StorageEvent('storage', { key: 'orbital.questionDrafts', newValue: changed }))
+    expect(useOrbital.getState().decisionDrafts.tu1).toEqual({
+      [APPROACH]: 'Container query',
+      [TESTS]: 'One regression',
+    })
+
+    window.dispatchEvent(new StorageEvent('storage', { key: 'orbital.questionDrafts', newValue: null }))
+    expect(useOrbital.getState().decisionDrafts.tu1).toBeUndefined()
+  })
+
+  it('loadInitial drops the drafts of a decision settled while the window was away', async () => {
+    useOrbital.setState({
+      decisionDrafts: { gone: { [APPROACH]: 'Fix the gutter' }, tu1: { [APPROACH]: 'Container query' } },
+    })
+    vi.mocked(api.listSessions).mockResolvedValueOnce([
+      makeSession({ id: 's1', status: 'needs_input', pendingDecision: makeDecision() }),
+    ])
+
+    await useOrbital.getState().loadInitial()
+
+    expect(useOrbital.getState().decisionDrafts).toEqual({ tu1: { [APPROACH]: 'Container query' } })
+  })
+
+  it('ignores an answer once the card is sent', () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeDecision() })
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
+    useOrbital.getState().sendAnswers('s1')
+
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Container query')
+
+    expect(useOrbital.getState().decisionDrafts.tu1).toEqual({ [APPROACH]: 'Fix the gutter' })
+    expect(api.answerDecision).toHaveBeenCalledTimes(1)
   })
 })
 
 describe('sendPrompt while a question is pending', () => {
   beforeEach(() => {
     vi.mocked(api.answerDecision).mockResolvedValue({ ok: true })
+    useOrbital.setState({ settings: { questions_review_before_send: 'false' } })
   })
 
   it('routes the typed text to the open question instead of starting a new turn', async () => {
@@ -970,6 +1171,49 @@ describe('sendPrompt while a question is pending', () => {
     await useOrbital.getState().sendPrompt('s1', 'thanks')
 
     expect(api.sendMessage).toHaveBeenCalledWith('s1', 'thanks')
+  })
+
+  it('answers the reopened question rather than the first unanswered one', async () => {
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeStackedDecision() })
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
+    useOrbital.getState().setQuestionCursor('s1', 0)
+
+    await useOrbital.getState().sendPrompt('s1', 'only the header')
+
+    expect(useOrbital.getState().decisionDrafts.tu1).toEqual({ [APPROACH]: 'only the header' })
+    expect(api.answerDecision).not.toHaveBeenCalled()
+  })
+
+  it('holds the text while the review shows: neither an answer nor a turn', async () => {
+    useOrbital.setState({ settings: {} })
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeDecision() })
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
+
+    await useOrbital.getState().sendPrompt('s1', 'also the 320 px case')
+
+    expect(api.sendMessage).not.toHaveBeenCalled()
+    expect(api.answerDecision).not.toHaveBeenCalled()
+    expect(useOrbital.getState().decisionDrafts.tu1).toEqual({ [APPROACH]: 'Fix the gutter' })
+  })
+
+  it('refuses a send the review holds and puts the text back in a composer the caller cleared', async () => {
+    useOrbital.setState({ settings: {} })
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_pending', decision: makeDecision() })
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
+    // What the compact dialog and the phone's go-back do before they send.
+    useOrbital.getState().setComposerDraft('s1', '')
+
+    await expect(useOrbital.getState().sendPrompt('s1', '/compact')).resolves.toBe(false)
+
+    expect(api.sendMessage).not.toHaveBeenCalled()
+    expect(useOrbital.getState().composerDrafts.s1).toBe('/compact')
+    expect(useOrbital.getState().toast).toEqual({ kind: 'info', message: REVIEW_HOLDS_SEND_TOAST })
   })
 
   it('leaves an image-only turn alone — empty text is not an answer', async () => {

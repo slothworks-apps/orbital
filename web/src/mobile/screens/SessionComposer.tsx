@@ -1,11 +1,13 @@
 import { useContext, useEffect, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { promptWithFiles } from '../../lib/attachedFiles'
 import { COMPACTING_PLACEHOLDER } from '../../lib/compaction'
 import { isReadOnly } from '../../lib/types'
 import { Composer, ComposerLockContext, type ComposerControl } from '../../panels/Composer'
 import { StopDialog } from '../../panels/StopDialog'
 import { useAttachments } from '../../panels/useAttachments'
-import { useOrbital, type SentAttachment } from '../../store/store'
+import { questionComposerTarget, useOrbital, type SentAttachment } from '../../store/store'
+import { refreshQuestionSetting } from '../questionSetting'
 import {
   DESKTOP_COMMAND_LINE, composerPlaceholder, footerMode, humanizeError, isDesktopCommand, phoneError,
   reopenHint,
@@ -67,7 +69,10 @@ function LiveComposer({ id }: { id: string }) {
   const setComposerDraft = useOrbital((s) => s.setComposerDraft)
   const sendPrompt = useOrbital((s) => s.sendPrompt)
   const pending = useOrbital((s) => s.pendingDecisions[id])
-  const answers = useOrbital((s) => (pending?.kind === 'question' ? s.decisionAnswers[pending.id] : undefined))
+  // Where the pending question card is — a question, or its review (spec
+  // 2026-10-21-question-card-go-back-design § Composer).
+  const target = useOrbital(useShallow((s) => questionComposerTarget(s, id)))
+  const reviewHeld = target?.kind === 'review'
   const limitWait = useOrbital((s) => s.sessions[id]?.limitWait ?? null)
   const ready = useSessionReady(id)
   const macName = useSessionDeviceName(id)
@@ -105,16 +110,25 @@ function LiveComposer({ id }: { id: string }) {
     document.querySelector<HTMLElement>('[data-composer-field]')?.focus()
   }, [intentSeq])
 
+  // A question card reads the Mac's setting as it comes up, so a change made
+  // on the Mac reaches the next card here (canvas 9h PHONE).
+  const questionId = pending?.kind === 'question' ? pending.id : null
+  useEffect(() => {
+    if (questionId) refreshQuestionSetting()
+  }, [questionId])
+
   const { text: placeholder, answering } = composerPlaceholder({
     pending,
-    answers,
+    target,
     ended: status === 'ended',
     reopenStep,
     limitWait,
   })
 
   // A send waits for its uploads: the well is taken only once every chip has landed.
-  const canSend = ready && !locked && !attachments.uploading && Boolean(draft.trim() || attachments.armed)
+  // During the review ↑ stays disabled until the answers are sent (canvas 9i C).
+  const canSend =
+    ready && !locked && !reviewHeld && !attachments.uploading && Boolean(draft.trim() || attachments.armed)
 
   function send(text: string, images?: readonly SentAttachment[]) {
     void sendPrompt(id, text, images)

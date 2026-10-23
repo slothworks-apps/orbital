@@ -2,7 +2,17 @@ import { create } from 'zustand'
 import { api, ApiError, type EndedSummary } from '../lib/api'
 import type { McpjsonDecisions } from '../lib/mcpjson'
 import { getSocket } from '../lib/socket'
-import { completedAnswers, openQuestion, type AnswerMap } from '../lib/questionCard'
+import {
+  afterAnswer,
+  completedAnswers,
+  composerTarget,
+  cursorOf,
+  restingCursor,
+  type AnswerMap,
+  type ComposerTarget,
+  type QuestionCursor,
+} from '../lib/questionCard'
+import { onQuestionDraftsChanged, readQuestionDrafts, updateQuestionDrafts } from './questionDrafts'
 import { isAttachable, isSlashCommand, promptWithOpenFile, promptWithSelection, selectionId } from '../lib/ideSelection'
 import { withViewTransition } from '../lib/viewTransition'
 import { focusSession } from '../lib/desktop'
@@ -18,7 +28,7 @@ import type { MapStatePills } from '../lib/stateStyle'
 import type { LinesMode } from '../lib/branchStatus'
 import { archipelagoEnabled } from '../lib/experimental'
 import type { MachineEvent } from '@orbital/shared/remote/device'
-import { deviceChips, deviceOf, devicesOn, ideHere, isMemberOffline, withMachine, withMachineOffline } from '../lib/devices'
+import { deviceChips, deviceOf, devicesOn, ideHere, isMemberOffline, machineOffline, withMachine, withMachineOffline } from '../lib/devices'
 import type {
   ApiSession,
   AttachmentSource,
@@ -382,20 +392,34 @@ export interface OrbitalState {
    */
   pendingDecisions: Record<string, PendingDecision>
   /**
-   * Answers collected so far, keyed by DECISION id (which is the
-   * `AskUserQuestion` tool_use's `toolUseId`). Two jobs in one map:
-   *
-   * - while the card is pending it holds the partial answers of a 2–4
-   *   question card, which is what `activeQuestionIndex` gates the next
-   *   question on;
-   * - after the POST it is what the card renders its answered form from,
-   *   which is how the card flips over "before the next agent token arrives"
-   *   (canvas 9d) instead of waiting for the `tool_result` to come back.
+   * The answers this tab SENT, keyed by DECISION id (which is the
+   * `AskUserQuestion` tool_use's `toolUseId`): the complete record of the
+   * POST, set when it goes out. It is what the card renders its answered
+   * form from, which is how the card flips over "before the next agent
+   * token arrives" (canvas 9d) instead of waiting for the `tool_result`.
    *
    * Kept past `decision_resolved` for exactly that reason, and never
    * persisted: on the next reload the `tool_result` is the answer's home.
+   * What has been answered but not sent lives in `decisionDrafts` — an
+   * unsent draft is never rendered as a sent answer (spec
+   * 2026-10-21-question-card-go-back-design § State).
    */
   decisionAnswers: Record<string, AnswerMap>
+  /**
+   * The answers given on a pending card and not sent yet, keyed by decision
+   * id. Mirrored to `localStorage` while the decision is pending (see
+   * `questionDrafts`), so they survive a closed window; kept in memory past
+   * the decision's end, so a card the session left unsent can show them
+   * dimmed under UNANSWERED (canvas 9j drafts).
+   */
+  decisionDrafts: Record<string, AnswerMap>
+  /**
+   * Which part of each pending card is open — a question or the review —
+   * keyed by decision id. Absent means the resting place (`restingCursor`);
+   * read through `cursorOf`, which also discards a stored place the answers
+   * no longer allow.
+   */
+  questionCursors: Record<string, QuestionCursor>
   /**
    * The verdict this tab sent for a `permission` or `plan` decision, keyed by
    * DECISION id — what `decisionAnswers` is for a question, and kept for the
@@ -623,7 +647,14 @@ export interface OrbitalActions {
   }, images?: readonly SentAttachment[]): Promise<string>
   select(id: string): Promise<void>
   loadOlder(id: string): Promise<ChatMessage[] | null>
-  sendPrompt(id: string, text: string, attachments?: readonly SentAttachment[]): Promise<void>
+  /**
+   * Sends composer text: as a turn, or as the answer of the decision the
+   * session is parked on. Resolves false only when a question card's review
+   * refused it — nothing was sent and the text is back in the composer; a
+   * send that failed on the way reports itself (toast, offline lock) and
+   * resolves true like one that went out.
+   */
+  sendPrompt(id: string, text: string, attachments?: readonly SentAttachment[]): Promise<boolean>
   /**
    * Records one question's answer on the session's pending decision and,
    * once every question has one, POSTs the complete record. The card and the
@@ -632,6 +663,13 @@ export interface OrbitalActions {
    * arrive with.
    */
   answerQuestion(sessionId: string, question: string, answer: string): void
+  /**
+   * Opens one question of the session's pending card, or its review — the
+   * reopen controls, the header ticks, ←/→, esc / Keep.
+   */
+  setQuestionCursor(sessionId: string, cursor: QuestionCursor): void
+  /** The review's Send: POSTs the drafted answers once every question has one. */
+  sendAnswers(sessionId: string): void
   /**
    * Settles the session's pending `permission` or `plan` decision — the
    * verdict path, and a no-op on a question, which is answered in words
@@ -1046,6 +1084,87 @@ function seedDecision(
   return { pendingDecisions: { ...state.pendingDecisions, [session.id]: decision } }
 }
 
+/**
+ * What a send refused by a question card's review says (canvas 9f D: ⏎ is
+ * held until the answers are sent). The text itself is back in the composer.
+ */
+export const REVIEW_HOLDS_SEND_TOAST = 'Send the question’s answers first — your message is still in the composer.'
+
+/**
+ * The drafts after a full list of the pending decisions: a draft whose
+ * decision is not in it was settled while this window was away — but only
+ * when the device that owns it answered. A session on a device that is
+ * asleep or did not answer this time is not in the list as pending (or not
+ * in it at all), and its drafts must survive that. So a draft goes when its
+ * session is listed from a device that is online, answered this time (not in
+ * `unanswered`) and no longer waits on it; a draft whose session this window
+ * never knew (one restored from storage) goes only when no listed device is
+ * offline and every device answered. Settled drafts leave memory
+ * and storage both; anything else that ends a decision says so through
+ * `decision_resolved`.
+ */
+function draftsStillPending(
+  drafts: Record<string, AnswerMap>,
+  pendingDecisions: Record<string, PendingDecision>,
+  sessions: Record<string, ApiSession>,
+  pendingBefore: Record<string, PendingDecision>,
+  unanswered: readonly string[] = [],
+): Record<string, AnswerMap> {
+  const pending = new Set(Object.values(pendingDecisions).map((d) => d.id))
+  const ownerOf = new Map(Object.entries(pendingBefore).map(([sessionId, d]) => [d.id, sessionId]))
+  const everyDeviceAnswered = unanswered.length === 0 && Object.values(sessions).every((s) => !machineOffline(s))
+  const settled = Object.keys(drafts).filter((id) => {
+    if (pending.has(id)) return false
+    const owner = ownerOf.get(id)
+    if (owner === undefined) return everyDeviceAnswered
+    const session = sessions[owner]
+    return session !== undefined && !machineOffline(session) && !unanswered.includes(deviceOf(session))
+  })
+  if (settled.length === 0) return drafts
+  updateQuestionDrafts({}, settled)
+  const kept = { ...drafts }
+  for (const id of settled) delete kept[id]
+  return kept
+}
+
+/**
+ * POSTs a complete answers record. The record becomes the card's sent form
+ * at once (canvas 9d "answering": no spinner). A 404 is not a failure —
+ * someone else answered first, or an interrupt or the session's end settled
+ * it ("first answer wins; the loser's POST gets 404"). Any other failure
+ * takes the sent record back and hands over to `onFailed`, which decides
+ * where the card returns to.
+ */
+function postAnswers(
+  sessionId: string,
+  decisionId: string,
+  complete: AnswerMap,
+  onFailed: () => void,
+): void {
+  useOrbital.setState((state) => ({
+    decisionAnswers: { ...state.decisionAnswers, [decisionId]: complete },
+  }))
+  api.answerDecision(sessionId, decisionId, complete).catch((err) => {
+    const store = useOrbital.getState()
+    if (err instanceof ApiError && err.status === 404) {
+      store.applySessionEvent(sessionId, { event: 'decision_resolved', decisionId })
+      return
+    }
+    // The answer did not land (a tunnel that dropped mid-POST, a 5xx) —
+    // unless something newer replaced the record meanwhile.
+    if (store.decisionAnswers[decisionId] !== complete) return
+    useOrbital.setState((state) => {
+      const decisionAnswers = { ...state.decisionAnswers }
+      delete decisionAnswers[decisionId]
+      return { decisionAnswers }
+    })
+    onFailed()
+    if (useOrbital.getState().refusedOffline(sessionId, err)) return
+    const message = err instanceof Error ? err.message : 'Failed to send the answer'
+    useOrbital.setState({ toast: { kind: 'error', message } })
+  })
+}
+
 function sortIdsByLastAtDesc(sessions: Record<string, ApiSession>): string[] {
   return Object.values(sessions)
     .sort((a, b) => (b.lastAt ?? 0) - (a.lastAt ?? 0))
@@ -1133,6 +1252,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   remote: null,
   pendingDecisions: {},
   decisionAnswers: {},
+  decisionDrafts: readQuestionDrafts(),
+  questionCursors: {},
   decisionVerdicts: {},
   ideDismissed: {},
   composerDrafts: {},
@@ -1192,6 +1313,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       sessions: sessionsMap,
       order: sortIdsByLastAtDesc(sessionsMap),
       pendingDecisions,
+      decisionDrafts: draftsStillPending(state.decisionDrafts, pendingDecisions, sessionsMap, state.pendingDecisions),
       tags,
       rules,
       settings,
@@ -1241,9 +1363,17 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       api.listTags(),
       api.listModels().catch(() => ({ models: [] as OrbitalModel[], contextWindows: {} })),
     ])
+    const pendingBefore = get().pendingDecisions
     // A Mac that ignores `ended` answers both with every session; the map keeps one of each.
     get().seatSessions(ended ? [...page.sessions, ...ended.sessions] : page.sessions, tags)
-    set({ models: modelsPayload.models, contextWindows: modelsPayload.contextWindows })
+    const unanswered = [...(page.unanswered ?? []), ...(ended?.unanswered ?? [])]
+    set((state) => ({
+      models: modelsPayload.models,
+      contextWindows: modelsPayload.contextWindows,
+      // Read fresh from the Macs: a draft whose decision is gone from a Mac
+      // that answered is settled; one on a Mac asleep or that did not answer is kept.
+      decisionDrafts: draftsStillPending(state.decisionDrafts, state.pendingDecisions, state.sessions, pendingBefore, unanswered),
+    }))
     await dirs
     return page.ended ?? null
   },
@@ -1645,8 +1775,14 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       const pendingDecisions = { ...state.pendingDecisions }
       delete pendingDecisions[sessionId]
       // `decisionAnswers[decisionId]` deliberately STAYS: it is what the card
-      // renders its answered form from until the `tool_result` arrives.
-      set({ pendingDecisions })
+      // renders its answered form from until the `tool_result` arrives. The
+      // draft stays in memory for the same reason — a card left unsent shows
+      // it dimmed — but is settled, so it leaves storage. The cursor has
+      // nothing left to point into.
+      const questionCursors = { ...state.questionCursors }
+      delete questionCursors[msg.decisionId]
+      set({ pendingDecisions, questionCursors })
+      updateQuestionDrafts({}, [msg.decisionId])
       return
     }
 
@@ -1963,17 +2099,26 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     const decision = get().pendingDecisions[id]
     if (decision && text.trim()) {
       if (decision.kind === 'question') {
-        const open = openQuestion(
-          decision.input.questions,
-          get().decisionAnswers[decision.id] ?? {},
-        )
-        if (open) {
-          get().answerQuestion(id, open.question, text)
-          return
+        const target = questionComposerTarget(get(), id)
+        if (target?.kind === 'question') {
+          get().answerQuestion(id, target.question.question, text)
+          return true
+        }
+        // The review is showing: ⏎ is held and the text waits in the box
+        // until Send (canvas 9f D). The composers hold it themselves; this
+        // is the backstop for every other route (the map's `/compact`, the
+        // phone's go-back), so typed text is never folded into the answers
+        // nor sent past a card that is still asking. A caller that cleared
+        // the composer first gets the text back there, as the offline
+        // refusal below does.
+        if (target?.kind === 'review') {
+          if (!get().composerDrafts[id]) get().setComposerDraft(id, text)
+          set({ toast: { kind: 'info', message: REVIEW_HOLDS_SEND_TOAST } })
+          return false
         }
       } else {
         get().resolveDecision(id, { approved: false, message: text })
-        return
+        return true
       }
     }
 
@@ -2080,7 +2225,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           },
         }))
         if (text && !get().composerDrafts[id]) get().setComposerDraft(id, text)
-        return
+        return true
       }
       if (err instanceof ApiError && err.status === 409) {
         set({
@@ -2089,11 +2234,12 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
             message: err.message || 'Session is live in a terminal',
           },
         })
-        return
+        return true
       }
       const message = err instanceof Error ? err.message : 'Failed to send message'
       set({ toast: { kind: 'error', message } })
     }
+    return true
   },
 
   answerQuestion(sessionId, question, answer) {
@@ -2102,49 +2248,61 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // session goes through `resolveDecision`, and posting answers at it would
     // be a 400 from the server.
     if (decision?.kind !== 'question') return
+    // Sent already: the card is locked into its answered form.
+    if (get().decisionAnswers[decision.id]) return
 
-    const before = get().decisionAnswers[decision.id]
-    const answers: AnswerMap = {
-      ...(before ?? {}),
-      [question]: answer,
-    }
+    const { questions } = decision.input
+    const before = get().decisionDrafts[decision.id]
+    const answers: AnswerMap = { ...(before ?? {}), [question]: answer }
+    // Spec 2026-10-21-question-card-go-back-design § Behaviour: the card
+    // moves to the first question still without an answer, then to the
+    // review (setting on) or is sent (setting off).
+    const next = afterAnswer(questions, answers, reviewBeforeSend(get().settings))
     set((state) => ({
-      decisionAnswers: { ...state.decisionAnswers, [decision.id]: answers },
+      decisionDrafts: { ...state.decisionDrafts, [decision.id]: answers },
+      questionCursors: { ...state.questionCursors, [decision.id]: next.cursor },
     }))
+    updateQuestionDrafts({ [decision.id]: answers })
+    if (!next.send) return
 
-    // A 2–4 question card sends once, when the last question closes — until
-    // then the partial record above is all that exists, and it is what gates
-    // the next question open.
-    const complete = completedAnswers(decision.input.questions, answers)
+    const complete = completedAnswers(questions, answers)
     if (!complete) return
-
-    api.answerDecision(sessionId, decision.id, complete).catch((err) => {
-      // 404 is not a failure: someone else answered first, or the decision
-      // was settled by an interrupt or the session ending. The card is
-      // already showing the answer it sent; all that is left is to stop
-      // treating the question as open (spec § State and lifecycle: "first
-      // answer wins; the loser's POST gets 404").
-      if (err instanceof ApiError && err.status === 404) {
-        get().applySessionEvent(sessionId, {
-          event: 'decision_resolved',
-          decisionId: decision.id,
-        })
-        return
-      }
-      // The answer did not land (a tunnel that dropped mid-POST, a 5xx):
-      // the answer is taken back, so the card's last question is live again
-      // and the composer offers it — unless something newer replaced the
-      // record meanwhile.
+    postAnswers(sessionId, decision.id, complete, () => {
+      // Setting off: today's rollback — the answer that completed the card
+      // is taken back, so its question is live again and the composer
+      // offers it — unless something newer replaced the draft meanwhile.
       set((state) => {
-        if (state.decisionAnswers[decision.id] !== answers) return {}
-        const decisionAnswers = { ...state.decisionAnswers }
-        if (before) decisionAnswers[decision.id] = before
-        else delete decisionAnswers[decision.id]
-        return { decisionAnswers }
+        if (state.decisionDrafts[decision.id] !== answers) return {}
+        const decisionDrafts = { ...state.decisionDrafts }
+        if (before) decisionDrafts[decision.id] = before
+        else delete decisionDrafts[decision.id]
+        const questionCursors = { ...state.questionCursors }
+        questionCursors[decision.id] = restingCursor(questions, before ?? {})
+        return { decisionDrafts, questionCursors }
       })
-      if (get().refusedOffline(sessionId, err)) return
-      const message = err instanceof Error ? err.message : 'Failed to send the answer'
-      set({ toast: { kind: 'error', message } })
+      const restored = get().decisionDrafts[decision.id]
+      if (restored === before) {
+        if (before) updateQuestionDrafts({ [decision.id]: before })
+        else updateQuestionDrafts({}, [decision.id])
+      }
+    })
+  },
+
+  setQuestionCursor(sessionId, cursor) {
+    const decision = get().pendingDecisions[sessionId]
+    if (decision?.kind !== 'question' || get().decisionAnswers[decision.id]) return
+    set((state) => ({ questionCursors: { ...state.questionCursors, [decision.id]: cursor } }))
+  },
+
+  sendAnswers(sessionId) {
+    const decision = get().pendingDecisions[sessionId]
+    if (decision?.kind !== 'question' || get().decisionAnswers[decision.id]) return
+    const complete = completedAnswers(decision.input.questions, get().decisionDrafts[decision.id] ?? {})
+    if (!complete) return
+    postAnswers(sessionId, decision.id, complete, () => {
+      // Setting on: nothing is taken back — the card returns to the review
+      // with every answer kept, and Send can be pressed again.
+      set((state) => ({ questionCursors: { ...state.questionCursors, [decision.id]: 'review' } }))
     })
   },
 
@@ -2813,6 +2971,39 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }
   },
 }))
+
+/**
+ * Drafts another window of the origin wrote (the main window and a detached
+ * session window share storage): adopted here, so both show the same unsent
+ * answers and neither overwrites the other's. A pending card's draft that
+ * storage no longer holds was taken back there (a failed send's rollback) or
+ * settled, and leaves this window too. What this window has already sent is
+ * left alone.
+ */
+onQuestionDraftsChanged((stored) => {
+  useOrbital.setState((state) => {
+    const pending = new Set(Object.values(state.pendingDecisions).map((d) => d.id))
+    const decisionDrafts = { ...state.decisionDrafts }
+    let changed = false
+    for (const [id, answers] of Object.entries(stored)) {
+      if (state.decisionAnswers[id] || sameAnswers(decisionDrafts[id], answers)) continue
+      decisionDrafts[id] = answers
+      changed = true
+    }
+    for (const id of Object.keys(decisionDrafts)) {
+      if (id in stored || !pending.has(id) || state.decisionAnswers[id]) continue
+      delete decisionDrafts[id]
+      changed = true
+    }
+    return changed ? { decisionDrafts } : {}
+  })
+})
+
+function sameAnswers(a: AnswerMap | undefined, b: AnswerMap): boolean {
+  if (!a) return false
+  const keys = Object.keys(a)
+  return keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k])
+}
 
 /**
  * Closes the subagent panel whenever the selected session stops being its
@@ -3513,6 +3704,33 @@ export function headerLineChanges(settings: Record<string, string>): LinesMode {
 /** `map_show_trash`, default on: only the literal `false` hides the trash and its drop-to-end gesture. */
 export function showTrash(settings: Record<string, string>): boolean {
   return settings.map_show_trash !== 'false'
+}
+
+/**
+ * `questions_review_before_send`, default on (spec
+ * 2026-10-21-question-card-go-back-design § Setting): only the literal
+ * `false` sends a question card with its last answer. A Mac too old to have
+ * the key — the phone reads the Mac's settings — reads as on.
+ */
+export function reviewBeforeSend(settings: Record<string, string>): boolean {
+  return settings.questions_review_before_send !== 'false'
+}
+
+/**
+ * The cursor of the session's pending question card, and what the composer's
+ * text would do there — or null when no unsent question card is pending, so
+ * the composer is a plain one. Every "is a question still open" reader goes
+ * through this.
+ */
+export function questionComposerTarget(
+  state: Pick<OrbitalState, 'pendingDecisions' | 'decisionAnswers' | 'decisionDrafts' | 'questionCursors'>,
+  sessionId: string,
+): ComposerTarget | null {
+  const decision = state.pendingDecisions[sessionId]
+  if (decision?.kind !== 'question' || state.decisionAnswers[decision.id]) return null
+  const { questions } = decision.input
+  const answers = state.decisionDrafts[decision.id] ?? {}
+  return composerTarget(questions, answers, cursorOf(state.questionCursors[decision.id], questions, answers))
 }
 
 /** `end_closes_panel`, default on: only the literal `false` keeps the panel open on the ended session. */

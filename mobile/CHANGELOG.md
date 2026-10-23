@@ -11,6 +11,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 - File previews show code in colour, and a markdown file opens as a formatted document, with a switch to its source.
 ### Fixed
 - Copying text selected in a file preview no longer copies the line numbers with it.
+- Question cards no longer send with the last answer: tap an answered question to change it, and nothing is sent until you tap Send. Your Mac's Review answers before sending setting decides whether the review shows.
 
 ## [0.19.0] — 2026-10-21
 ### Added
