@@ -163,6 +163,27 @@ describe('entriesToMessages images', () => {
 });
 
 describe('entriesToMessages', () => {
+  it('carries a question result\'s structured answers, an older CLI\'s array joined', () => {
+    const entries = [{
+      type: 'user', uuid: 'q1',
+      toolUseResult: { questions: [], answers: { 'Which?': 'A', 'Also?': ['B', 'C'], 'Odd?': 3 } },
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 't1', content: 'The user answered: "Which?"="A".' }],
+      },
+    }];
+    const [msg] = entriesToMessages(entries);
+    expect(msg.answers).toEqual({ 'Which?': 'A', 'Also?': 'B, C' });
+  });
+
+  it('leaves answers off a result whose structured copy has none', () => {
+    const entries = [{
+      type: 'user', uuid: 'q2', toolUseResult: { stdout: 'ok' },
+      message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] },
+    }];
+    expect(entriesToMessages(entries)[0].answers).toBeUndefined();
+  });
+
   it('flattens content blocks to chat messages', () => {
     const msgs = entriesToMessages(parseTranscript(text));
     expect(msgs.map((m) => m.role)).toEqual(['user', 'assistant', 'tool_use', 'tool_result']);

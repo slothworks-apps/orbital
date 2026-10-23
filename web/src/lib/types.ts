@@ -794,6 +794,12 @@ export interface ChatMessage {
   /** tool_result only: the block carried `is_error: true`. */
   isError?: boolean
   /**
+   * tool_result of an `AskUserQuestion` only: the answers, keyed by the exact
+   * question text, as the CLI recorded them. Absent from an older Mac, and
+   * when the CLI recorded none.
+   */
+  answers?: Record<string, string>
+  /**
    * `notice` rows only. `command` is the slash command whose output this is
    * (`/context`), absent when the CLI did not name one. Mirrors
    * `server/src/types.ts`.

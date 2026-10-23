@@ -312,6 +312,24 @@ export function imageRefOf(
  * block put megabytes of base64 into a `<pre>`, which is the bug this
  * exists to fix.
  */
+/**
+ * The answers an `AskUserQuestion` result carries in its structured copy —
+ * the transcript entry's `toolUseResult`, the SDK frame's `tool_use_result` —
+ * or undefined when it carries none. Older CLIs wrote a multiSelect answer as
+ * an array; it is joined the way the question card joins one.
+ */
+export function questionAnswersOf(result: unknown): Record<string, string> | undefined {
+  if (!result || typeof result !== 'object') return undefined;
+  const answers = (result as { answers?: unknown }).answers;
+  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [question, value] of Object.entries(answers as Record<string, unknown>)) {
+    if (typeof value === 'string') out[question] = value;
+    else if (Array.isArray(value) && value.every((v) => typeof v === 'string')) out[question] = value.join(', ');
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export function toolResultParts(
   content: unknown,
   images?: ImageWriter,
@@ -435,11 +453,13 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
         if (isDesignSyncTool(block.name) && typeof block.id === 'string') designCalls.add(block.id);
       } else if (block.type === 'tool_result') {
         const parts = toolResultParts(block.content, images);
+        const answers = questionAnswersOf(e.toolUseResult);
         out.push({
           id, role: 'tool_result', toolUseId: stringField(block.tool_use_id),
           text: parts.text,
           ...(parts.images.length ? { images: parts.images } : {}),
           ...(block.is_error === true ? { isError: true } : {}),
+          ...(answers ? { answers } : {}),
           ...base,
         });
         // A DesignSync failure for want of a sign-in: the result stays as it

@@ -2290,6 +2290,7 @@ describe('Runner decisions', () => {
     });
     expect(received).toContainEqual({
       topic: 'session:web-1', event: 'decision_resolved', decisionId: 'tu-1',
+      answers: { 'Which library should we use?': 'luxon' },
     });
     expect(runner.pendingDecision(id)).toBeNull();
     expect(runner.status(id)).toBe('working');
