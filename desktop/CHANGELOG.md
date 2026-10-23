@@ -7,6 +7,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - Regenerating a session's name no longer shows it as in progress on every other session you open meanwhile.
 ### Changed
 - A session's subagents share at most three orbits around its planet instead of one ring each, spaced so they never touch; Settings → Experimental sets the number.
+- Copying code selected in the file viewer no longer copies the line numbers with it.
 
 ## [0.40.0] — 2026-10-21
 ### Added

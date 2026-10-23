@@ -9,7 +9,8 @@ import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { command, matches } from '../lib/keymap'
 import { formatBytes, timeAgo } from '../lib/format'
-import { languageFromPath, tokenizeCode, type CodeToken } from '../lib/highlight'
+import { languageFromPath } from '../lib/highlight'
+import { useTokens } from '../lib/useTokens'
 import type {
   ApiSession,
   FilePreview,
@@ -199,22 +200,11 @@ function SourceBody({
   diagnostics: Map<number, IdeDiagnostic[]>
 }) {
   const lines = useMemo(() => content.replace(/\n$/, '').split('\n'), [content])
-  const [tokens, setTokens] = useState<CodeToken[][] | null>(null)
+  // A token line count that disagrees with ours would misalign the gutter —
+  // `useTokens` drops it, and the rows stay plain rather than shift every number.
+  const tokens = useTokens(content.replace(/\n$/, ''), languageFromPath(path).lang, lines.length)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const targetRowRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    setTokens(null)
-    void tokenizeCode(content.replace(/\n$/, ''), languageFromPath(path).lang).then((result) => {
-      // A token line count that disagrees with ours would misalign the
-      // gutter — fall back to plain rows rather than shift every number.
-      if (!cancelled && result && result.length === lines.length) setTokens(result)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [content, path, lines.length])
 
   // Placed by scroll, not animation (8e "target line"). Layout effect so
   // the first paint already sits on the target — no flash of the top.
@@ -264,8 +254,11 @@ function SourceBody({
                     : undefined
                 }
               >
+                {/* The number is drawn by ::before, so a selection dragged
+                    across rows copies the code alone, without the gutter. */}
                 <span
-                  className="w-14 shrink-0 pr-3 text-right text-[11.5px] text-[rgba(160,190,225,.32)]"
+                  data-number={lineNumber}
+                  className="w-14 shrink-0 pr-3 text-right text-[11.5px] text-[rgba(160,190,225,.32)] before:content-[attr(data-number)]"
                   style={
                     isTarget
                       ? { color: TARGET_ACCENT }
@@ -274,9 +267,7 @@ function SourceBody({
                         : undefined
                   }
                   title={found ? found.map(describeDiagnostic).join('\n') : undefined}
-                >
-                  {lineNumber}
-                </span>
+                />
                 <span className="whitespace-pre pl-[18px] pr-5 text-[rgba(214,230,248,.9)]">
                   {tokens
                     ? tokens[index].map((token, tokenIndex) => (
