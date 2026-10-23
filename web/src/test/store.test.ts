@@ -778,6 +778,22 @@ describe('pending decisions', () => {
     expect(useOrbital.getState().decisionAnswers.tu1).toEqual({ [APPROACH]: 'Fix the gutter' })
   })
 
+  it('takes the answers another device sent from the resolve, but never over its own', () => {
+    useOrbital.getState().applySessionEvent('s1', { event: 'decision_pending', decision: makeDecision() })
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_resolved', decisionId: 'tu1', answers: { [APPROACH]: 'From the phone' } })
+    expect(useOrbital.getState().decisionAnswers.tu1).toEqual({ [APPROACH]: 'From the phone' })
+
+    useOrbital.setState({ settings: { questions_review_before_send: 'false' } })
+    useOrbital.getState().applySessionEvent('s1', { event: 'decision_pending', decision: makeDecision({ id: 'tu2' }) })
+    useOrbital.getState().answerQuestion('s1', APPROACH, 'Fix the gutter')
+    useOrbital
+      .getState()
+      .applySessionEvent('s1', { event: 'decision_resolved', decisionId: 'tu2', answers: { [APPROACH]: 'Other' } })
+    expect(useOrbital.getState().decisionAnswers.tu2).toEqual({ [APPROACH]: 'Fix the gutter' })
+  })
+
   it('loadInitial seeds the pending question off the session snapshot — the reload path', async () => {
     const decision = makeDecision()
     vi.mocked(api.listSessions).mockResolvedValueOnce([

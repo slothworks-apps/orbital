@@ -94,8 +94,12 @@ export type SessionEvent =
   | { event: 'stats' }
   /** The session is blocked on a question (spec: 2026-09-20-interactive-decisions-design). */
   | { event: 'decision_pending'; decision: PendingDecision }
-  /** It was settled — by this tab, another window, an interrupt, or the session ending. */
-  | { event: 'decision_resolved'; decisionId: string }
+  /**
+   * It was settled — by this tab, another window, the phone, an interrupt, or
+   * the session ending. A question answered carries its answers; an older
+   * Mac sends none.
+   */
+  | { event: 'decision_resolved'; decisionId: string; answers?: AnswerMap }
   /**
    * The transcript's live branch changed under the rows held — a rewind done
    * in the terminal, or an interrupt's dangling call dropped (spec
@@ -1767,6 +1771,12 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }
 
     if (msg.event === 'decision_resolved') {
+      // Answers sent from elsewhere — the phone, another window — are what
+      // this tab's card shows until the tool_result arrives. This tab's own
+      // send already stands there and is not replaced.
+      if (msg.answers && !state.decisionAnswers[msg.decisionId]) {
+        set({ decisionAnswers: { ...state.decisionAnswers, [msg.decisionId]: msg.answers } })
+      }
       // Whoever settled it — this tab, the other window, an interrupt — the
       // card locks. Guarded on the id so a late broadcast for a decision
       // already superseded by a newer one cannot unlock the new one.
