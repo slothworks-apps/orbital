@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type ComponentRef } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentRef } from 'react'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { Subagent } from '../lib/types'
@@ -127,6 +127,19 @@ const MAT_RADIUS = 0.12
 
 /** Angular orbit speed, radians/sec, at orbitRadius = 1 (scaled by 1/radius so closer moons don't look slower). */
 const ORBIT_ANGULAR_SPEED = 0.5
+
+interface OrbitRider {
+  angle: { current: number }
+  phase: number
+}
+
+/**
+ * The moons riding each orbit, keyed `sessionId:orbit`. Moons on one orbit
+ * turn at one speed, so the gaps `placeMoons` chose hold only if a moon
+ * joining the orbit takes its angle from one already on it — not from its
+ * own mount time.
+ */
+const orbitRiders = new Map<string, Set<OrbitRider>>()
 
 /** Ended grey — `rgba(200,215,235)` in the canvas export. */
 const GREY = '#c8d7eb'
@@ -423,8 +436,12 @@ export interface MoonProps {
   parentX: number
   parentY: number
   orbitRadius: number
-  /** Starting angle on the orbit, in radians — keeps multiple moons spread out. */
+  /** Its angle relative to the other moons on its orbit, in radians (`placeMoons`). */
   phase: number
+  /** Which of the planet's orbits it rides; with `sessionId`, the moons it keeps its distance to. */
+  orbit?: number
+  /** Draws the orbit's dashed trail. Off for all but the first moon on a shared orbit. */
+  drawTrail?: boolean
   /**
    * Appearance → default planet size (canvas 5a): multiplies the moon's BODY
    * only, never `orbitRadius` or the trail — "orbit radii are untouched".
@@ -583,6 +600,8 @@ function MoonBody({
   parentY,
   orbitRadius,
   phase,
+  orbit,
+  drawTrail = true,
   bodyScale = 1,
   parentBody,
   sessionId,
@@ -685,12 +704,28 @@ function MoonBody({
     // No render follows a hover, so nothing else would ask for the frame.
     scheduler?.request()
   }
-  // Seeded from the `phase` prop once on mount, then advanced every frame in
-  // useFrame — this is the moon's own running angle, not `phase` re-read
-  // each render. `phase` only decides WHERE on the orbit each moon starts
-  // (so multiple moons around one planet don't all launch from the same
-  // point); it intentionally has no effect after the first render.
+  // The moon's own running angle, advanced every frame in useFrame. Seeded
+  // when the moon mounts or is placed anew: off a moon already on the same
+  // orbit, shifted by the two phases, so the gap between them is the one
+  // `placeMoons` chose; with nobody there, `phase` itself.
   const angle = useRef(phase)
+  const orbitKey = sessionId !== undefined && orbit !== undefined ? `${sessionId}:${orbit}` : null
+  useLayoutEffect(() => {
+    if (orbitKey === null) {
+      angle.current = phase
+      return
+    }
+    let riders = orbitRiders.get(orbitKey)
+    if (!riders) orbitRiders.set(orbitKey, (riders = new Set()))
+    const [other] = riders
+    angle.current = other ? other.angle.current - other.phase + phase : phase
+    const self: OrbitRider = { angle, phase }
+    riders.add(self)
+    return () => {
+      riders.delete(self)
+      if (riders.size === 0) orbitRiders.delete(orbitKey)
+    }
+  }, [orbitKey, phase])
 
   const applyState = () => {
     const w = mix.weights
@@ -801,7 +836,9 @@ function MoonBody({
       trailGroupRef.current.scale.setScalar(radiusTween.value / orbitRadius)
     }
     const radius = radiusTween.value
-    if (ambient) angle.current += (ORBIT_ANGULAR_SPEED / Math.max(radius, 0.01)) * delta
+    // The pace reads the target radius, not the tween, so moons sharing an
+    // orbit turn together even while one of them is still easing onto it.
+    if (ambient) angle.current += (ORBIT_ANGULAR_SPEED / Math.max(orbitRadius, 0.01)) * delta
     const localX = radius * Math.cos(angle.current)
     const localY = radius * Math.sin(angle.current)
     if (bodyGroupRef.current) {
@@ -886,8 +923,10 @@ function MoonBody({
     >
       {/* Dashed orbit ring traced once around the parent planet's position
           (`1px dashed hue/.22` in 1f). The group's scale is the radius
-          tween's current fraction of the target — see `radiusTween`. */}
-      <group ref={trailGroupRef} scale={radiusTween.value / orbitRadius}>
+          tween's current fraction of the target — see `radiusTween`. Hidden,
+          not unmounted, on a moon that shares its orbit's trail, so it is
+          already coloured when it takes the trail over. */}
+      <group ref={trailGroupRef} scale={radiusTween.value / orbitRadius} visible={drawTrail}>
         <Line
           ref={trailRef}
           points={trailPoints}

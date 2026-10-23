@@ -5,6 +5,7 @@ type: adr
 status: in-force
 domain: web
 related:
+  - moons-share-a-few-orbits
   - 2026-09-18-planet-size-design
   - moons-widen-the-body-the-sim-separates
   - counter-zoom-inflates-the-whole-moon-system

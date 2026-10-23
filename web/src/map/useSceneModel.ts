@@ -139,6 +139,8 @@ export function useSceneModel(): SceneModel {
         nowMs,
         hidden,
         names,
+        // Where each moon already rides, so one arriving or leaving moves no other.
+        previous.current?.moons,
       ), previous.current),
     [
       sessions,

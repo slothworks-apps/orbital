@@ -61,6 +61,11 @@ import {
   terminalPlacement,
   terminalCursor,
   terminalCursorBlink,
+  MOON_ORBITS_DEFAULT,
+  MOON_ORBITS_KEY,
+  MOON_ORBITS_MAX,
+  MOON_ORBITS_MIN,
+  moonOrbits,
   type TerminalCursor,
   type TerminalPlacement,
 } from '../lib/experimental'
@@ -365,11 +370,12 @@ function PreviewTier({ tier, scale }: { tier: (typeof PREVIEW_TIERS)[number]; sc
 }
 
 /**
- * A map frame-rate cap: the "Default planet size" slider's shape (readout,
- * RESET, range, and ticks at the minimum, the default and the maximum), in
- * frames a second. The background cap's 0 reads "paused".
+ * A whole-number setting in the "Default planet size" slider's shape
+ * (readout, RESET, range, and ticks at the minimum, the default and the
+ * maximum): the map frame-rate caps, in frames a second (the background
+ * cap's 0 reads "paused"), and the moon orbits.
  */
-function FpsSlider({
+function ValueSlider({
   label,
   value,
   min,
@@ -377,6 +383,7 @@ function FpsSlider({
   step,
   fallback,
   onChange,
+  format = (fps: number) => (fps === 0 ? 'paused' : `${fps} fps`),
 }: {
   label: string
   value: number
@@ -385,8 +392,9 @@ function FpsSlider({
   step: number
   fallback: number
   onChange: (next: number) => void
+  /** How a value reads in the readout and under the ticks; frames a second unless given. */
+  format?: (value: number) => string
 }) {
-  const format = (fps: number) => (fps === 0 ? 'paused' : `${fps} fps`)
   return (
     <div className="flex w-full flex-col gap-[9px]">
       <div className="flex items-baseline gap-2">
@@ -1465,6 +1473,24 @@ export function Settings({ open, onClose }: SettingsProps) {
                           }
                         />
                       </Row>
+                      {/* spec 2026-10-21-moon-orbit-limit-design: the limit is on for
+                  everyone; only its number is tuned here. No canvas row — it
+                  follows the frame-rate sliders' pattern. */}
+                      <Row
+                        title="Moon orbits"
+                        desc="The most orbits a planet's subagents share. More moons than fit spread across them, never touching."
+                      >
+                        <ValueSlider
+                          label="Moon orbits"
+                          value={moonOrbits(settings)}
+                          min={MOON_ORBITS_MIN}
+                          max={MOON_ORBITS_MAX}
+                          step={1}
+                          fallback={MOON_ORBITS_DEFAULT}
+                          format={(orbits) => `${orbits} ${orbits === 1 ? 'orbit' : 'orbits'}`}
+                          onChange={(next) => void patchAndSet({ [MOON_ORBITS_KEY]: String(next) })}
+                        />
+                      </Row>
                     </>
                   )}
 
@@ -1764,7 +1790,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                         title="Frame rate while focused"
                         desc="Most frames a second the map draws while something on it moves and the window has focus. A still map draws nothing."
                       >
-                        <FpsSlider
+                        <ValueSlider
                           label="Frame rate while focused"
                           value={mapFps.focused}
                           min={MAP_FPS_FOCUSED_MIN}
@@ -1778,7 +1804,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                         title="Frame rate in the background"
                         desc="The same cap while another window has focus. At 0 the map pauses until you come back. A hidden window never draws."
                       >
-                        <FpsSlider
+                        <ValueSlider
                           label="Frame rate in the background"
                           value={mapFps.background}
                           min={MAP_FPS_BACKGROUND_MIN}

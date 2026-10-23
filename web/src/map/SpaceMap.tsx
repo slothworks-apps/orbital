@@ -1299,6 +1299,8 @@ export function SpaceMap() {
               parentY={moon.parentY}
               orbitRadius={moon.orbitRadius}
               phase={moon.phase}
+              orbit={moon.orbit}
+              drawTrail={moon.drawTrail}
               bodyScale={planetScale}
               parentBody={sim.bodies.get(moon.sessionId)}
               sessionId={moon.sessionId}

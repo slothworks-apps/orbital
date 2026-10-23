@@ -5,6 +5,8 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ## [Unreleased]
 ### Fixed
 - Regenerating a session's name no longer shows it as in progress on every other session you open meanwhile.
+### Changed
+- A session's subagents share at most three orbits around its planet instead of one ring each, spaced so they never touch; Settings → Experimental sets the number.
 
 ## [0.40.0] — 2026-10-21
 ### Added
