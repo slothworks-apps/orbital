@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DeviceOption } from '../../lib/devices'
 import { KindGlyph } from '../../ui/KindGlyph'
 import { useShallow } from 'zustand/react/shallow'
@@ -7,7 +7,7 @@ import { tagColor, type OrbitalModel, type PermissionMode, type SessionDefaults 
 import { timeAgo } from '../../lib/format'
 import { useClaudeDirModels } from '../../lib/useClaudeDirModels'
 import { useNow } from '../../lib/useNow'
-import { Composer } from '../../panels/Composer'
+import { Composer, type ComposerControl } from '../../panels/Composer'
 import { useAttachments } from '../../panels/useAttachments'
 import type { SentAttachment } from '../../store/store'
 import { useOrbital } from '../../store/store'
@@ -23,6 +23,7 @@ import { isMacAsleep, useMobile } from '../state'
 import { BottomSheet, FieldLabel, MobileScreen, PrimaryButton, SecondaryButton, SheetPresence } from '../ui'
 import { ClaudeDirPicker } from './ClaudeDirPicker'
 import { McpjsonSheet } from './McpjsonSheet'
+import { PhotoButtons, SlashButton, attachPhoto } from './ComposerButtons'
 import { MissingDirectorySheet } from './MissingDirectorySheet'
 import { blocksLaunch, directoryLine, useDirectoryState } from '../../lib/useDirectoryState'
 import { defaultSupports, deviceSupports } from '../version'
@@ -100,6 +101,16 @@ export function NewSessionScreen() {
   /** Any other refused Start, in words (provisional copy). */
   const [failure, setFailure] = useState<string | null>(null)
   const attachments = useAttachments(null)
+  /** What a photo for the first prompt raised: a refused camera, a failed pick. */
+  const [photoError, setPhotoError] = useState<string | null>(null)
+  const composer = useRef<ComposerControl>(null)
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
   const [listOpen, setListOpen] = useState(false)
   /**
    * The `.mcp.json` question (spec 2026-10-08-mcpjson-approval-design; canvas
@@ -491,7 +502,21 @@ export function NewSessionScreen() {
           hint=""
           placeholder="What should Claude do?"
           attachments={attachments}
+          control={composer}
         />
+        {/* The session composer's photos and slash (9b), under the field. */}
+        <div className="flex items-center gap-0.5">
+          <PhotoButtons
+            disabled={pending || asleep}
+            onPhoto={(source) => attachPhoto(source, attachments, () => mounted.current, setPhotoError)}
+          />
+          <SlashButton disabled={pending || asleep || !cwd.trim()} onSlash={() => composer.current?.startCommand()} />
+        </div>
+        {photoError && (
+          <div role="alert" className="px-1 font-mono text-[11px] text-[var(--state-input)]">
+            {photoError}
+          </div>
+        )}
         </div>
       </div>
       <SheetPresence>

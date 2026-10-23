@@ -5,6 +5,8 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 ## [Unreleased]
 ### Changed
 - The Limits button in the session list's header loses its frame and sits beside Settings as its equal.
+### Fixed
+- A new session's first prompt can carry a photo and start a command or skill: the camera, gallery and / buttons sit under the field, as in a running session.
 
 ## [0.19.0] — 2026-10-21
 ### Added

@@ -7,15 +7,13 @@ import { StopDialog } from '../../panels/StopDialog'
 import { useAttachments } from '../../panels/useAttachments'
 import { useOrbital, type SentAttachment } from '../../store/store'
 import {
-  DESKTOP_COMMAND_LINE, PHOTO_FAILED_LINE, composerPlaceholder, footerMode, humanizeError, isDesktopCommand, phoneError,
+  DESKTOP_COMMAND_LINE, composerPlaceholder, footerMode, humanizeError, isDesktopCommand, phoneError,
   reopenHint,
 } from '../composer'
-import { pickPhoto, type PhotoSource } from '../platform/photo'
+import type { PhotoSource } from '../platform/photo'
 import { useMobile } from '../state'
 import { useSessionAsleep, useSessionDeviceName, useSessionReady, useSessionRefusedLine } from '../useDevice'
-
-/** The error line's word when the camera permission was refused (spec § 6.2). */
-const CAMERA_DENIED = "Orbital can't use the camera — allow it in Android settings."
+import { PhotoButtons, SlashButton, attachPhoto } from './ComposerButtons'
 
 /**
  * The session screen's footer (spec 2026-10-02-mobile-app-design § 6.1;
@@ -56,12 +54,6 @@ export function SessionComposer({ id }: { id: string }) {
   }
   return <LiveComposer id={id} />
 }
-
-/**
- * A photo pick under way. Module-wide, not per composer: the system picker is
- * one, and a composer remounted while it is open must not start another.
- */
-let photoInFlight = false
 
 function LiveComposer({ id }: { id: string }) {
   const status = useOrbital((s) => s.sessions[id]?.status)
@@ -153,31 +145,8 @@ function LiveComposer({ id }: { id: string }) {
     })
   }
 
-  function attachPhoto(source: PhotoSource) {
-    // One picker at a time: the plugin keeps one saved call, and a second tap
-    // while it is open would be a second pick racing the first.
-    if (photoInFlight) return
-    photoInFlight = true
-    setError(null)
-    pickPhoto(source)
-      .then((picked) => {
-        // Left the session, or the well, while the picker was open: the photo goes nowhere.
-        if (!mounted.current || useMobile.getState().sessionId !== id) return
-        if (picked === 'cancelled') return
-        if (picked === 'denied') {
-          setError(CAMERA_DENIED)
-          return
-        }
-        attachments.accept([picked.file], source, undefined, picked.original)
-      })
-      .catch((err: unknown) => {
-        console.warn('[mobile] could not take the photo', err)
-        if (mounted.current) setError(PHOTO_FAILED_LINE)
-      })
-      .finally(() => {
-        photoInFlight = false
-      })
-  }
+  // Left the session, or the well, while the picker was open: the photo goes nowhere.
+  const stillHere = () => mounted.current && useMobile.getState().sessionId === id
 
   return (
     <div className="border-t border-[rgba(150,205,255,.1)] bg-[rgba(6,10,20,.94)] px-3 pb-1 pt-2.5">
@@ -207,7 +176,7 @@ function LiveComposer({ id }: { id: string }) {
       <Controls
         hint={reopenStep !== null ? reopenHint(reopenStep) : undefined}
         toolsDisabled={!ready || locked}
-        onPhoto={attachPhoto}
+        onPhoto={(source) => attachPhoto(source, attachments, stillHere, setError)}
         onSlash={() => composer.current?.startCommand()}
         onStop={status === 'working' ? () => setStopOpen(true) : undefined}
         onSend={handleSend}
@@ -240,7 +209,6 @@ function Controls(
       },
 ) {
   const live = props.inert ? null : props
-  const iconButton = 'flex h-11 w-11 items-center justify-center rounded-[12px] text-[rgba(200,220,245,.8)] disabled:opacity-40'
   return (
     <div className={['mt-1 flex items-center gap-0.5', live ? '' : 'opacity-40'].join(' ')}>
       {live?.hint ? (
@@ -250,35 +218,8 @@ function Controls(
         </span>
       ) : (
         <>
-          <button
-            type="button"
-            aria-label="Take a photo"
-            className={iconButton}
-            disabled={!live || live.toolsDisabled}
-            onClick={() => live?.onPhoto('camera')}
-          >
-            <CameraIcon />
-          </button>
-          <button
-            type="button"
-            aria-label="Choose from gallery"
-            className={iconButton}
-            disabled={!live || live.toolsDisabled}
-            onClick={() => live?.onPhoto('gallery')}
-          >
-            <GalleryIcon />
-          </button>
-          <button
-            type="button"
-            aria-label="Commands and skills"
-            className={`${iconButton} font-mono text-[19px]`}
-            disabled={!live || live.toolsDisabled}
-            // Keeps the field focused, so the keyboard stays up and the caret where it was.
-            onPointerDown={(e) => e.preventDefault()}
-            onClick={() => live?.onSlash()}
-          >
-            /
-          </button>
+          <PhotoButtons disabled={!live || live.toolsDisabled} onPhoto={(source) => live?.onPhoto(source)} />
+          <SlashButton disabled={!live || live.toolsDisabled} onSlash={() => live?.onSlash()} />
           <span aria-hidden className="flex-1" />
         </>
       )}
@@ -307,26 +248,7 @@ function Controls(
   )
 }
 
-// Line glyphs for the controls and the locked line; the fidelity pass owns their drawing.
-function CameraIcon() {
-  return (
-    <svg aria-hidden width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
-      <path d="M4 8h3l1.5-2h7L17 8h3v11H4z" />
-      <circle cx="12" cy="13" r="3.5" />
-    </svg>
-  )
-}
-
-function GalleryIcon() {
-  return (
-    <svg aria-hidden width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
-      <rect x="4" y="5" width="16" height="14" rx="2" />
-      <circle cx="9" cy="10" r="1.5" />
-      <path d="M4 17l5-4 4 3 3-2 4 3" />
-    </svg>
-  )
-}
-
+// The locked line's glyph; the fidelity pass owns its drawing.
 function LockIcon() {
   return (
     <svg aria-hidden width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" className="shrink-0">

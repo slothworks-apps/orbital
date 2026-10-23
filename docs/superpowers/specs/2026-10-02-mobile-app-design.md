@@ -430,7 +430,12 @@ read-only.
   `lastModel` from `/api/projects`. `bypassPermissions` is never
   preselected (the desktop's rule); no "Other…" model on the phone.
 - First prompt: the same `Composer`, `variant: 'dialog'`, `placement:
-  'below'`, `enter: 'newline'`, attachments with `sessionId: null`. Start
+  'below'`, `enter: 'newline'`, attachments with `sessionId: null`. A
+  phone has no paste or drop to fill that well, so the composer's camera,
+  gallery and `/` (9b, § 6.2) sit under the field; `/` waits for a
+  directory, which names the commands. A photo lands in the default
+  member's store and the launch carries it to the chosen device.
+  Start
   is disabled until the prompt has text; with the keyboard up the button
   rides on it.
 - Start: `POST /api/sessions` with `{ cwd, prompt, permissionMode, model,
