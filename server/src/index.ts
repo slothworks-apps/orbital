@@ -110,8 +110,10 @@ export function publishLiveSession(ctx: PublishContext, live: LiveSession): void
     .from(sessions)
     .where(eq(sessions.id, live.sessionId))
     .get() as SessionRow | undefined;
+  // `source` for the same reason as the status: the registry here does not
+  // list `live` yet, and a terminal holds the session whatever its row says.
   const session = row
-    ? toApiSession(ctx, row, live.status)
+    ? { ...toApiSession(ctx, row, live.status), source: 'terminal' as const }
     : rowlessSession(ctx, live);
   ctx.hub.publish('sessions', { event: 'upsert', session });
 }
@@ -1368,7 +1370,12 @@ export async function buildServer(overrides: {
     // The CLI process is gone, which is the only "ended" a terminal session
     // announces — its final rollup is written here.
     liveStats.end(id);
-    hub.publish('sessions', { event: 'remove', sessionId: id });
+    // An Orbital session a terminal held — taken over, or resumed there and
+    // quit — is still Orbital's, asleep: it stays on the map (spec
+    // 2026-10-21-take-over-terminal-session-design § 5).
+    const row = db.select({ source: sessions.source }).from(sessions).where(eq(sessions.id, id)).get();
+    if (row?.source === 'web') publishSession(publishCtx(), id);
+    else hub.publish('sessions', { event: 'remove', sessionId: id });
   });
 
   const claudeDirs: ClaudeDirsService<RouteClaudeDirContext> = new ClaudeDirsService({

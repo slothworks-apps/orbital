@@ -12,6 +12,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - Question cards no longer send with the last answer: you can go back and change any answer, and nothing is sent until you press Send on the review. Settings → Sessions → Review answers before sending turns the review off; changing answers works either way.
 ### Added
 - A session you start in Orbital gets a short name from its first message, instead of the first sentence cut off. Turn it off in Settings → Sessions.
+### Added
+- Take over a session running in a terminal: Orbital quits the CLI there and the conversation goes on in Orbital. If the terminal is in the middle of a turn, it asks first.
+### Fixed
+- An Orbital session reopened in a terminal is read-only while the terminal holds it, instead of offering a mode switch and End that did nothing, and it stays on the map when the terminal quits.
 
 ## [0.40.0] — 2026-10-21
 ### Added

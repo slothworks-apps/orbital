@@ -220,7 +220,7 @@ export interface OrbitalUiState {
    */
   hiddenDeviceIds?: string[]
   wsStatus: string
-  dialog: null | 'new' | 'clear' | 'end' | 'stop' | 'settings' | 'errors'
+  dialog: null | 'new' | 'clear' | 'end' | 'stop' | 'take-over' | 'settings' | 'errors'
   /**
    * The file the read-only viewer is showing over the app, or null when it
    * is closed (spec: 2026-09-19-file-viewer-design). Plain synchronous UI

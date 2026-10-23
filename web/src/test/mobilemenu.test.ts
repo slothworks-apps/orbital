@@ -38,6 +38,17 @@ describe('menuFor', () => {
     }
   })
 
+  it('offers Take over to a running terminal session, on a Mac that serves it', () => {
+    for (const status of ['idle', 'working', 'needs_input'] as const) {
+      expect(menuFor(session({ source: 'terminal', status }), false, true).items).toEqual(['rename', 'tag', 'pin', 'takeover'])
+      // A CLI with no first message yet has no conversation to take over.
+      expect(menuFor(session({ source: 'terminal', status, firstAt: null }), false, true).items).toEqual(['rename', 'tag', 'pin'])
+      expect(menuFor(session({ source: 'terminal', status }), false, false).items).toEqual(['rename', 'tag', 'pin'])
+    }
+    expect(menuFor(session({ source: 'terminal', status: 'ended' }), false, true).items).toEqual(['rename', 'tag', 'pin'])
+    expect(menuFor(session({ status: 'idle' }), false, true).items).not.toContain('takeover')
+  })
+
   it('keeps the same items asleep, all inert', () => {
     expect(menuFor(session(), true)).toEqual({ items: ['rename', 'tag', 'pin', 'clear', 'end'], terminalNote: false, inert: true })
     expect(menuFor(session({ source: 'terminal' }), true).inert).toBe(true)

@@ -319,8 +319,12 @@ export function lastCompactionFailed(db: OrbitalDb, sessionId: string): { at: nu
 }
 
 /**
- * A session's status, from whoever knows best: the Runner while it holds a
- * process, then the terminal registry. Past both, the two kinds of session
+ * A session's status, from whoever knows best: a terminal CLI that holds it,
+ * then the Runner while it holds a process. The terminal first: an Orbital
+ * session resumed in a terminal may still have Orbital's process idling
+ * beside it, and the session is doing what the terminal does (spec
+ * 2026-10-21-take-over-terminal-session-design § 1). The registry never lists
+ * Orbital's own processes. Past both, the two kinds of session
  * part ways (spec 2026-09-24-sessions-end-only-by-hand-design § 1). A
  * terminal session nobody is running is over. An Orbital session is over only
  * once the user ended it — without that stamp it is merely asleep, and the
@@ -332,10 +336,10 @@ export function lastCompactionFailed(db: OrbitalDb, sessionId: string): { at: nu
  * registry — a session either of them holds has no pending rewind.
  */
 export function statusOf(ctx: ShapeContext, row: SessionRow): SessionStatus {
-  const fromRunner = ctx.runner.status(row.id);
-  if (fromRunner) return fromRunner;
   const live = ctx.registry.get(row.id);
   if (live) return live.status;
+  const fromRunner = ctx.runner.status(row.id);
+  if (fromRunner) return fromRunner;
   if (rewindPendingOf(ctx.db, row.id)) return 'needs_input';
   if (row.source !== 'web') return 'ended';
   if (row.ended_at !== null) return 'ended';
@@ -363,6 +367,18 @@ export function listedSubagents(agents: SubagentInfo[]): SubagentInfo[] {
 }
 
 /**
+ * Who holds the session, as the client is told: a session a terminal CLI
+ * holds is the terminal's, whatever the row says — an Orbital session
+ * resumed with `claude --resume` included. Its controls are locked until the
+ * CLI exits or the user takes it over (spec
+ * 2026-10-21-take-over-terminal-session-design § 1). The row keeps its own
+ * `source`, which is what the session goes back to.
+ */
+export function sourceOf(ctx: ShapeContext, row: Pick<SessionRow, 'id' | 'source'>): SessionRow['source'] {
+  return ctx.registry.get(row.id) ? 'terminal' : row.source;
+}
+
+/**
  * The REST-shaped session object shared by REST responses and the `sessions`
  * WS topic. `status`, when passed, overrides the computed status — needed by
  * registry-upsert publishing, where `ctx.registry` may not yet reflect the
@@ -382,7 +398,7 @@ export function toApiSession(
   return {
     id: row.id, cwd: row.cwd, workingDir, otherTrees, title: row.title,
     firstAt: row.first_at, lastAt: row.last_at,
-    messageCount: row.message_count, source: row.source,
+    messageCount: row.message_count, source: sourceOf(ctx, row),
     permissionMode: row.permission_mode,
     model: row.model, resolvedModel: row.resolved_model,
     contextUsedTokens: row.context_used_tokens,

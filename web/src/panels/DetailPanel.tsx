@@ -58,6 +58,7 @@ import { FileViewer } from './FileViewer'
 import { StopDialog } from './StopDialog'
 import { ClearDialog } from './ClearDialog'
 import { EndDialog } from './EndDialog'
+import { TakeOverDialog } from './TakeOverDialog'
 import { RewindDialog } from './RewindDialog'
 import { cancelRewind, useRewindUi } from '../store/rewind'
 import { isRewindCommand } from '../lib/rewind'
@@ -84,7 +85,7 @@ import { useCompactionUi } from '../store/compaction'
 import { harnessEnabled, walkthroughEnabled } from '../lib/experimental'
 import { TerminalChip } from '../terminal/TerminalEntry'
 import { useSideSlotWidth } from '../terminal/useTerminalHost'
-import { gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
+import { canTakeOver, gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
 import { limitWaitStatus } from '../lib/limits'
 import { loginWaitLabels } from '../lib/profileLogin'
 import { ClaudeDirChip, useClaudeDirMark } from '../ui/ClaudeDirMark'
@@ -1310,9 +1311,24 @@ export function DetailPanel({
           send.focus()
         }}
       >
-        {isTerminalLive ? (
-          <div className="rounded-[10px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.6)] px-3 py-3 text-center font-mono text-[11.5px] text-text-muted">
+        {isTerminalLive && session ? (
+          // Take over (spec 2026-10-21-take-over-terminal-session-design): a
+          // CLI that is not plainly idle asks first, since what runs there
+          // stops. The bar keeps its old height; placement awaits Claude Design.
+          <div className="flex items-center justify-between gap-3 rounded-[10px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.6)] py-[5px] pl-3 pr-[5px] font-mono text-[11.5px] text-text-muted">
             runs in terminal — read-only
+            {canTakeOver(session) && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (session.status !== 'idle') setDialog('take-over')
+                  else api.takeOver(session.id).catch((err) => reportError(err, 'Failed to take over the session'))
+                }}
+              >
+                Take over
+              </Button>
+            )}
           </div>
         ) : lock ? (
           // Canvas 50f C: the reason in the composer's place — never a
@@ -1517,6 +1533,7 @@ export function DetailPanel({
           gets the session without threading it through the store. */}
       {session && <FileViewer session={session} />}
       <StopDialog open={dialog === 'stop'} sessionId={id} onClose={() => setDialog(null)} />
+      <TakeOverDialog open={dialog === 'take-over'} sessionId={id} onClose={() => setDialog(null)} />
       <ClearDialog
         open={dialog === 'clear'}
         sessionId={id}

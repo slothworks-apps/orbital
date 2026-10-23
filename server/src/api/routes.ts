@@ -38,8 +38,9 @@ import type { ArchiveOutcome, ListedSession } from '../runner/sessionsTools.js';
 import { mergeCompactionFailures, type CompactionFailureRecord } from '../transcript/compaction.js';
 import { RETENTION_KEY } from '../retention.js';
 import type { LiveSessions } from '../watcher/registry.js';
+import { endCli, type EndCliOutcome } from '../watcher/endCli.js';
 import type { Hub } from './hub.js';
-import { statusOf, toApiSession, type ApiSession } from './shape.js';
+import { sourceOf, statusOf, toApiSession, type ApiSession } from './shape.js';
 import type { GitStore } from '../git/store.js';
 import { LINES_SETTING, PR_SETTING, type BranchStatusStore } from '../git/branchStatusStore.js';
 import type { IdeStore } from '../ide/store.js';
@@ -181,6 +182,8 @@ export interface RouteContext {
   createIssue?: (issue: { title: string; body: string }) => Promise<IssueResult>;
   /** The GitHub account `gh` would file as; `ghLogin` when absent. Tests swap it. */
   ghLogin?: () => Promise<string | null>;
+  /** Ends a terminal CLI for Take over; `endCli` when absent. Tests swap it, so none signals a real pid. */
+  endCli?: (pid: number) => Promise<EndCliOutcome>;
   /** Issues on Orbital's repository like a title; `findSimilarIssues` when absent. Tests swap it. */
   findSimilarIssues?: (title: string) => Promise<SimilarIssue[] | null>;
   /** A model's reading of which filed issues the draft repeats; built in `index.ts`, where the SDK is. */
@@ -1448,7 +1451,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         const status = statusOf(ctx, row);
         if (status === 'ended' && row.pinned_at === null) { outcomes.push({ id, result: 'already_archived' }); continue; }
         // A terminal session ends when its CLI exits; no stamp here stops it.
-        if (row.source !== 'web' && status !== 'ended') { refuse('a terminal session that is still running'); continue; }
+        // An Orbital session a terminal resumed is held there all the same.
+        if (sourceOf(ctx, row) !== 'web' && status !== 'ended') { refuse('a terminal session that is still running'); continue; }
         if (!force && row.pinned_at !== null) { refuse('pinned by the user; pass force to archive it anyway'); continue; }
         if (!force && (status === 'working' || status === 'needs_input')) {
           refuse(`${status === 'working' ? 'working' : 'waiting for the user\'s input'}; pass force to archive it anyway`);
@@ -2188,6 +2192,53 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     if (!row) return reply.code(404).send({ error: 'not found' });
     if (row.source !== 'web') return reply.code(409).send({ error: 'terminal_session' });
     stampEnded(id, null);
+    return { ok: true };
+  });
+
+  /**
+   * Take over (spec 2026-10-21-take-over-terminal-session-design): ends the
+   * terminal CLI that holds the session, and Orbital's own process too, and
+   * makes the session Orbital's — `source: web`, not ended, no process — so
+   * the next message resumes it from the transcript.
+   *
+   * The row is Orbital's before anything is signalled: the CLI deletes its
+   * registry file as it exits, and the watcher's scan may hear it before this
+   * route does; its remove then republishes the session instead of taking it
+   * off the map. A take over that fails puts the row back.
+   *
+   * A session no terminal holds any more is taken over all the same — the
+   * terminal let go first. A pid that another session's entry also names,
+   * or that is no longer a CLI, is a stale file: it is dropped, nothing is
+   * signalled. 404 for an unknown session, 504 `still_running` when a process
+   * outlived its stop.
+   */
+  app.post('/api/sessions/:id/take-over', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = db.select({ source: sessions.source, endedAt: sessions.endedAt })
+      .from(sessions).where(eq(sessions.id, id)).get();
+    if (!row) return reply.code(404).send({ error: 'not found' });
+    db.update(sessions).set({ source: 'web', endedAt: null }).where(eq(sessions.id, id)).run();
+    const restore = () => db.update(sessions).set(row).where(eq(sessions.id, id)).run();
+    const live = ctx.registry.get(id);
+    if (live) {
+      const reused = ctx.registry.all().some((other) => other.pid === live.pid && other.sessionId !== id);
+      const outcome = reused ? 'not_claude' : await (ctx.endCli ?? endCli)(live.pid);
+      if (outcome === 'still_running') {
+        restore();
+        return reply.code(504).send({ error: 'still_running' });
+      }
+      // A killed CLI leaves its file behind, and so does a crashed one whose
+      // pid the OS has since handed on: either would lock the session again.
+      ctx.registry.drop(id);
+    }
+    try {
+      await ctx.runner.stopAndWait(id);
+    } catch {
+      restore();
+      return reply.code(504).send({ error: 'still_running' });
+    }
+    ctx.registry.rescan();
+    publishRow(id);
     return { ok: true };
   });
 

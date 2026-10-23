@@ -603,6 +603,14 @@ export const api = {
   },
 
   /**
+   * Take over (spec 2026-10-21-take-over-terminal-session-design): ends the
+   * terminal CLI that holds the session, which becomes Orbital's.
+   */
+  async takeOver(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('POST', apiPath`/api/sessions/${id}/take-over`)
+  },
+
+  /**
    * Ends the session — stamps `ended_at` and stops any process, the same call
    * `/clear` makes, without the follow-on. `unpin` clears the pin in the same
    * write: the trash's drop of a pinned session, which as two requests showed
