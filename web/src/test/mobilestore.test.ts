@@ -61,6 +61,68 @@ describe('loadSessions', () => {
   })
 })
 
+describe('loadSessions and the question drafts', () => {
+  const asleep = { id: 'mini', name: 'mini', kind: 'desktop', os: 'darwin', online: false, asOf: 5 }
+  const question = (id: string): PendingDecision => ({ id, kind: 'question', input: { questions: [] }, createdAt: 1 })
+  const draft = { 'Which fix?': 'Fix the gutter' }
+
+  beforeEach(() => {
+    localStorage.clear()
+    vi.mocked(api.listTags).mockResolvedValue([])
+    vi.mocked(api.listModels).mockResolvedValue({ models: [], contextWindows: {} })
+  })
+
+  it('drops a draft only when the Mac that owns it answered without it', async () => {
+    useOrbital.setState({
+      pendingDecisions: { here: question('qa'), sleeping: question('qb'), unlisted: question('qc') },
+      decisionDrafts: { qa: draft, qb: draft, qc: draft },
+    })
+    // `here` answered and waits no longer; `sleeping` is on a Mac that is
+    // asleep; `unlisted` is on a Mac that did not answer this time.
+    vi.mocked(api.listSessionPage).mockResolvedValue({
+      sessions: [session('here', 2), session('sleeping', 1, { machine: asleep })],
+    })
+
+    await useOrbital.getState().loadSessions()
+
+    expect(Object.keys(useOrbital.getState().decisionDrafts).sort()).toEqual(['qb', 'qc'])
+  })
+
+  it('keeps a draft of a session it never knew while any Mac is asleep, and drops it once all answered', async () => {
+    useOrbital.setState({ pendingDecisions: {}, decisionDrafts: { restored: draft } })
+    vi.mocked(api.listSessionPage).mockResolvedValueOnce({
+      sessions: [session('here', 2), session('sleeping', 1, { machine: asleep })],
+    })
+    await useOrbital.getState().loadSessions()
+    expect(useOrbital.getState().decisionDrafts).toEqual({ restored: draft })
+
+    vi.mocked(api.listSessionPage).mockResolvedValueOnce({
+      sessions: [session('here', 2), session('sleeping', 1, { machine: { ...asleep, online: true, asOf: null } })],
+    })
+    await useOrbital.getState().loadSessions()
+    expect(useOrbital.getState().decisionDrafts).toEqual({})
+  })
+
+  it('keeps the drafts of a Mac that is up but whose list did not come back, and drops them once it answers', async () => {
+    const mini = { ...asleep, online: true, asOf: null }
+    useOrbital.setState((s) => ({
+      sessions: { away: session('away', 1, { machine: mini, pendingDecision: question('qa') }) },
+      pendingDecisions: { away: question('qa') },
+      decisionDrafts: { qa: draft, restored: draft },
+      // Open, so the list that leaves it out keeps it as it was: online.
+      ui: { ...s.ui, selectedId: 'away' },
+    }))
+    vi.mocked(api.listSessionPage).mockResolvedValueOnce({ sessions: [session('here', 2)], unanswered: ['mini'] })
+    await useOrbital.getState().loadSessions()
+    expect(Object.keys(useOrbital.getState().decisionDrafts).sort()).toEqual(['qa', 'restored'])
+
+    vi.mocked(api.listSessionPage).mockResolvedValueOnce({ sessions: [session('here', 2), session('away', 1, { machine: mini })] })
+    await useOrbital.getState().loadSessions()
+    expect(useOrbital.getState().decisionDrafts).toEqual({})
+    useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } }))
+  })
+})
+
 describe('seatSessions and the open session', () => {
   afterEach(() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } })))
 

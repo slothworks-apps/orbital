@@ -198,6 +198,6 @@ describe('the editor selection on the way out', () => {
     // Answered, not sent as a turn — and certainly not with a code block
     // wrapped around it.
     expect(api.sendMessage).not.toHaveBeenCalled()
-    expect(vi.mocked(api.answerDecision).mock.calls[0]?.[2]).toEqual({ 'which?': 'the second one' })
+    expect(useOrbital.getState().decisionDrafts.tu1).toEqual({ 'which?': 'the second one' })
   })
 })

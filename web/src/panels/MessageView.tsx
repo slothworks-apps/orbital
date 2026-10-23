@@ -50,7 +50,7 @@ function clockTime(timestamp: string): string | undefined {
 /** Matches remark/rehype's `language-xxx` class, which is only ever applied
  * to fenced code blocks (never to inline `code`) — the standard way to tell
  * the two apart from inside a react-markdown `code` component override. */
-const LANGUAGE_CLASS = /language-(\S+)/
+export const LANGUAGE_CLASS = /language-(\S+)/
 
 /**
  * A fenced code block. Renders plain escaped text synchronously (accessible,
@@ -174,7 +174,7 @@ export function Code({ children, ...rest }: CodeProps) {
  * has no text of its own, and `String()` on it would yield `[object Object]`
  * — which would then be shown as if it were the code, or the link's label.
  */
-function plainText(node: ReactNode): string {
+export function plainText(node: ReactNode): string {
   if (typeof node === 'string') return node
   if (typeof node === 'number') return String(node)
   if (Array.isArray(node)) return node.map(plainText).join('')

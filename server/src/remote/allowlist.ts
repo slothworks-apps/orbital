@@ -66,6 +66,7 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   ['POST', '/api/sessions/:id/permission-mode', 'sessions'],
   ['POST', '/api/sessions/:id/end', 'sessions'],
   ['POST', '/api/sessions/:id/reopen', 'sessions'],
+  ['POST', '/api/sessions/:id/take-over', 'sessions'],
   ['POST', '/api/sessions/:id/clear', 'sessions'],
   ['POST', '/api/sessions/:id/retitle', 'sessions'],
   // A session's harness, the whole set the detail panel uses.

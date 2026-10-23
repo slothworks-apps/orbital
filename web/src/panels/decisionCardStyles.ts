@@ -102,8 +102,9 @@ export const HEADLINE = 'text-[13.5px] font-semibold leading-[1.45] text-pretty'
 // ---------------------------------------------------------------------------
 // From here down: the permission card's own vocabulary, canvas
 // `Feature - Transcript blocks` 20b (states) and 20a (in situ). The question
-// card imports none of it, so these are free to follow 20b where 20b and
-// 9b/9d differ.
+// card imports only `BUTTON_BASE` (the metrics 20b and 9d share) and its own
+// `BUTTON_CONFIRM`, so the rest is free to follow 20b where 20b and 9b/9d
+// differ.
 // ---------------------------------------------------------------------------
 
 /**
@@ -163,6 +164,11 @@ export const BUTTON_BASE =
   'shrink-0 cursor-pointer rounded-[8px] border px-3.5 py-1.5 text-[12px] font-semibold transition-[border-color,background-color] duration-[160ms] ease-[ease] focus:outline-none'
 export const BUTTON_ACCENT =
   'border-accent/55 bg-accent/16 text-[#e8eef8] shadow-[0_0_0_2px_oklch(85%_.12_205_/_.18)] hover:border-accent/80 hover:bg-accent/26'
+/**
+ * Canvas 9d / 9e: the question card's accent button (its review Send) —
+ * border .5 and no resting ring, where 20b's `BUTTON_ACCENT` has .55 and one.
+ */
+export const BUTTON_CONFIRM = 'border-accent/50 bg-accent/16 text-[#e8eef8] hover:border-accent/80 hover:bg-accent/26'
 export const BUTTON_QUIET =
   'border-[rgba(150,205,255,.22)] text-[rgba(220,232,248,.9)] hover:border-[rgba(150,205,255,.4)] hover:bg-[rgba(150,205,255,.06)]'
 /**

@@ -101,6 +101,11 @@ export interface SessionListPage {
   sessions: ApiSession[]
   /** Only with `ended: 'exclude'`, and only from a Mac that knows the parameter. */
   ended?: EndedSummary
+  /**
+   * The phone's merged list only: the devices that are up but whose list did
+   * not come back this time, so their sessions are missing from `sessions`.
+   */
+  unanswered?: string[]
 }
 
 /**
@@ -595,6 +600,14 @@ export const api = {
   /** Cancels the pending rewind; answers with the draft the pick replaced. */
   async cancelRewind(id: string): Promise<{ draft: string }> {
     return request<{ draft: string }>('DELETE', apiPath`/api/sessions/${id}/rewind`)
+  },
+
+  /**
+   * Take over (spec 2026-10-21-take-over-terminal-session-design): ends the
+   * terminal CLI that holds the session, which becomes Orbital's.
+   */
+  async takeOver(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>('POST', apiPath`/api/sessions/${id}/take-over`)
   },
 
   /**

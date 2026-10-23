@@ -6,6 +6,7 @@ import { useMedia } from '../../store/media'
 import { useOrbital } from '../../store/store'
 import { patchSession } from '../session/patchSession'
 import { useMobile } from '../state'
+import { sessionSupports } from '../version'
 import { useSessionDeviceName, useSessionRefusedLine } from '../useDevice'
 import { BottomSheet, ConfirmBody } from '../ui'
 import { noteOutcome } from './MenuOutcome'
@@ -13,7 +14,7 @@ import { RenameSheet } from './RenameSheet'
 import { carriesHarness, clearKeepsLines, endStopsLines, menuFor, type MenuItem } from './sessionMenu'
 import { SHEET_LABEL, TagSheet } from './TagSheet'
 
-type View = 'menu' | 'end' | 'clear' | 'rename' | 'tag'
+type View = 'menu' | 'end' | 'clear' | 'takeover' | 'rename' | 'tag'
 
 /**
  * The ⋯ sheet (spec 2026-10-05-mobile-next § 4; canvas 10i, 10j): one
@@ -44,7 +45,8 @@ export function SessionMenuSheet({
   // Every item, tool images too: the total, as 24g puts it beside the row.
   const mediaCount = useMedia((s) => s.lists[session.id]?.length ?? 0)
   const tag = tags.find((t) => t.id === session.tagIds[0])
-  const shape = menuFor(session, offline)
+  const shape = menuFor(session, offline, sessionSupports('takeOver', session.id))
+  const canTakeOver = shape.items.includes('takeover')
   const pinned = session.pinnedAt != null
 
   // The desktop panel's `commitTitle`: the store first, the old title back if the PATCH fails.
@@ -88,6 +90,19 @@ export function SessionMenuSheet({
     onClose()
   }
 
+  // The desktop's Take over. It always asks first here, as End does: from the
+  // phone, someone may be typing into that terminal at the Mac.
+  const takeOver = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await api.takeOver(id)
+    } catch (err) {
+      reportError(err, 'Failed to take over the session')
+    }
+    onClose()
+  }
+
   // `ClearDialog`'s Clear & start new, with its default: an unfinished harness goes on in the new session.
   const clear = async () => {
     if (busy) return
@@ -127,6 +142,24 @@ export function SessionMenuSheet({
         detail={stops.length > 0 ? <Lines lines={stops} /> : undefined}
         confirmLabel="End session"
         onConfirm={() => void end()}
+        onCancel={() => setView('menu')}
+        busy={busy}
+      />
+    )
+  } else if (view === 'takeover') {
+    body = (
+      <ConfirmBody
+        // The desktop TakeOverDialog's words.
+        eyebrow="TAKE OVER"
+        title="Take over from the terminal?"
+        body={
+          <>
+            <span className="font-mono text-text-bright">{title}</span> runs in a terminal on the Mac. Taking it over quits
+            the CLI there, and whatever it is doing stops; the conversation goes on here.
+          </>
+        }
+        confirmLabel="Take over"
+        onConfirm={() => void takeOver()}
         onCancel={() => setView('menu')}
         busy={busy}
       />
@@ -175,6 +208,15 @@ export function SessionMenuSheet({
           onPress={togglePin}
         />
       ),
+      takeover: (
+        <Row
+          key="takeover"
+          glyph={<span className="text-[rgba(200,220,245,.7)]">→</span>}
+          label="Take over"
+          hint={<AsksFirst />}
+          onPress={() => setView('takeover')}
+        />
+      ),
       clear: (
         <Row
           key="clear"
@@ -195,7 +237,7 @@ export function SessionMenuSheet({
       ),
     }
     const quick = shape.items.filter((item) => item === 'rename' || item === 'tag' || item === 'pin')
-    const deliberate = shape.items.filter((item) => item === 'clear' || item === 'end')
+    const deliberate = shape.items.filter((item) => item === 'takeover' || item === 'clear' || item === 'end')
     const list = (
       <>
         {mediaCount > 0 && (
@@ -243,7 +285,9 @@ export function SessionMenuSheet({
             <span className="mt-0.5 h-fit flex-none rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono text-[9px] tracking-[0.12em]">
               READ-ONLY
             </span>
-            Started in Terminal — end or clear it there. Orbital only labels it.
+            {canTakeOver
+              ? 'Started in Terminal — take it over to go on here.'
+              : 'Started in Terminal — end or clear it there. Orbital only labels it.'}
           </div>
         )}
         {/* canvas 10i, 10j: the space above the home indicator; the terminal sheet leaves more. */}

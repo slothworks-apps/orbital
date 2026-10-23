@@ -318,7 +318,9 @@ jobs:
       - run: npm ci
       - run: npm run build -w @orbital/site
       - run: npm run typecheck -w @orbital/site
-      - run: npx tsc -p site/demo/tsconfig.json --noEmit
+      # The site's own TypeScript, the one `web` builds with: a bare `npx tsc`
+      # here resolves the root's older copy, which rejects what `web` accepts.
+      - run: npm exec -w @orbital/site -- tsc -p demo/tsconfig.json --noEmit
 
   # The phone app's version is copied into package.json and the Xcode
   # project; a bump that misses a copy fails here, and so does a minimum

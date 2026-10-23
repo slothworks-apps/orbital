@@ -1,21 +1,21 @@
 import { useContext, useEffect, useRef, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { promptWithFiles } from '../../lib/attachedFiles'
 import { COMPACTING_PLACEHOLDER } from '../../lib/compaction'
 import { isReadOnly } from '../../lib/types'
 import { Composer, ComposerLockContext, type ComposerControl } from '../../panels/Composer'
 import { StopDialog } from '../../panels/StopDialog'
 import { useAttachments } from '../../panels/useAttachments'
-import { useOrbital, type SentAttachment } from '../../store/store'
+import { questionComposerTarget, useOrbital, type SentAttachment } from '../../store/store'
+import { refreshQuestionSetting } from '../questionSetting'
 import {
-  DESKTOP_COMMAND_LINE, PHOTO_FAILED_LINE, composerPlaceholder, footerMode, humanizeError, isDesktopCommand, phoneError,
+  DESKTOP_COMMAND_LINE, composerPlaceholder, footerMode, humanizeError, isDesktopCommand, phoneError,
   reopenHint,
 } from '../composer'
-import { pickPhoto, type PhotoSource } from '../platform/photo'
+import type { PhotoSource } from '../platform/photo'
 import { useMobile } from '../state'
 import { useSessionAsleep, useSessionDeviceName, useSessionReady, useSessionRefusedLine } from '../useDevice'
-
-/** The error line's word when the camera permission was refused (spec § 6.2). */
-const CAMERA_DENIED = "Orbital can't use the camera — allow it in Android settings."
+import { PhotoButtons, SlashButton, attachPhoto } from './ComposerButtons'
 
 /**
  * The session screen's footer (spec 2026-10-02-mobile-app-design § 6.1;
@@ -57,12 +57,6 @@ export function SessionComposer({ id }: { id: string }) {
   return <LiveComposer id={id} />
 }
 
-/**
- * A photo pick under way. Module-wide, not per composer: the system picker is
- * one, and a composer remounted while it is open must not start another.
- */
-let photoInFlight = false
-
 function LiveComposer({ id }: { id: string }) {
   const status = useOrbital((s) => s.sessions[id]?.status)
   // 26c: an Orbital session compacting its context takes no message (as `DetailPanel`).
@@ -75,7 +69,10 @@ function LiveComposer({ id }: { id: string }) {
   const setComposerDraft = useOrbital((s) => s.setComposerDraft)
   const sendPrompt = useOrbital((s) => s.sendPrompt)
   const pending = useOrbital((s) => s.pendingDecisions[id])
-  const answers = useOrbital((s) => (pending?.kind === 'question' ? s.decisionAnswers[pending.id] : undefined))
+  // Where the pending question card is — a question, or its review (spec
+  // 2026-10-21-question-card-go-back-design § Composer).
+  const target = useOrbital(useShallow((s) => questionComposerTarget(s, id)))
+  const reviewHeld = target?.kind === 'review'
   const limitWait = useOrbital((s) => s.sessions[id]?.limitWait ?? null)
   const ready = useSessionReady(id)
   const macName = useSessionDeviceName(id)
@@ -113,16 +110,25 @@ function LiveComposer({ id }: { id: string }) {
     document.querySelector<HTMLElement>('[data-composer-field]')?.focus()
   }, [intentSeq])
 
+  // A question card reads the Mac's setting as it comes up, so a change made
+  // on the Mac reaches the next card here (canvas 9h PHONE).
+  const questionId = pending?.kind === 'question' ? pending.id : null
+  useEffect(() => {
+    if (questionId) refreshQuestionSetting()
+  }, [questionId])
+
   const { text: placeholder, answering } = composerPlaceholder({
     pending,
-    answers,
+    target,
     ended: status === 'ended',
     reopenStep,
     limitWait,
   })
 
   // A send waits for its uploads: the well is taken only once every chip has landed.
-  const canSend = ready && !locked && !attachments.uploading && Boolean(draft.trim() || attachments.armed)
+  // During the review ↑ stays disabled until the answers are sent (canvas 9i C).
+  const canSend =
+    ready && !locked && !reviewHeld && !attachments.uploading && Boolean(draft.trim() || attachments.armed)
 
   function send(text: string, images?: readonly SentAttachment[]) {
     void sendPrompt(id, text, images)
@@ -153,31 +159,8 @@ function LiveComposer({ id }: { id: string }) {
     })
   }
 
-  function attachPhoto(source: PhotoSource) {
-    // One picker at a time: the plugin keeps one saved call, and a second tap
-    // while it is open would be a second pick racing the first.
-    if (photoInFlight) return
-    photoInFlight = true
-    setError(null)
-    pickPhoto(source)
-      .then((picked) => {
-        // Left the session, or the well, while the picker was open: the photo goes nowhere.
-        if (!mounted.current || useMobile.getState().sessionId !== id) return
-        if (picked === 'cancelled') return
-        if (picked === 'denied') {
-          setError(CAMERA_DENIED)
-          return
-        }
-        attachments.accept([picked.file], source, undefined, picked.original)
-      })
-      .catch((err: unknown) => {
-        console.warn('[mobile] could not take the photo', err)
-        if (mounted.current) setError(PHOTO_FAILED_LINE)
-      })
-      .finally(() => {
-        photoInFlight = false
-      })
-  }
+  // Left the session, or the well, while the picker was open: the photo goes nowhere.
+  const stillHere = () => mounted.current && useMobile.getState().sessionId === id
 
   return (
     <div className="border-t border-[rgba(150,205,255,.1)] bg-[rgba(6,10,20,.94)] px-3 pb-1 pt-2.5">
@@ -207,7 +190,7 @@ function LiveComposer({ id }: { id: string }) {
       <Controls
         hint={reopenStep !== null ? reopenHint(reopenStep) : undefined}
         toolsDisabled={!ready || locked}
-        onPhoto={attachPhoto}
+        onPhoto={(source) => attachPhoto(source, attachments, stillHere, setError)}
         onSlash={() => composer.current?.startCommand()}
         onStop={status === 'working' ? () => setStopOpen(true) : undefined}
         onSend={handleSend}
@@ -240,7 +223,6 @@ function Controls(
       },
 ) {
   const live = props.inert ? null : props
-  const iconButton = 'flex h-11 w-11 items-center justify-center rounded-[12px] text-[rgba(200,220,245,.8)] disabled:opacity-40'
   return (
     <div className={['mt-1 flex items-center gap-0.5', live ? '' : 'opacity-40'].join(' ')}>
       {live?.hint ? (
@@ -250,35 +232,8 @@ function Controls(
         </span>
       ) : (
         <>
-          <button
-            type="button"
-            aria-label="Take a photo"
-            className={iconButton}
-            disabled={!live || live.toolsDisabled}
-            onClick={() => live?.onPhoto('camera')}
-          >
-            <CameraIcon />
-          </button>
-          <button
-            type="button"
-            aria-label="Choose from gallery"
-            className={iconButton}
-            disabled={!live || live.toolsDisabled}
-            onClick={() => live?.onPhoto('gallery')}
-          >
-            <GalleryIcon />
-          </button>
-          <button
-            type="button"
-            aria-label="Commands and skills"
-            className={`${iconButton} font-mono text-[19px]`}
-            disabled={!live || live.toolsDisabled}
-            // Keeps the field focused, so the keyboard stays up and the caret where it was.
-            onPointerDown={(e) => e.preventDefault()}
-            onClick={() => live?.onSlash()}
-          >
-            /
-          </button>
+          <PhotoButtons disabled={!live || live.toolsDisabled} onPhoto={(source) => live?.onPhoto(source)} />
+          <SlashButton disabled={!live || live.toolsDisabled} onSlash={() => live?.onSlash()} />
           <span aria-hidden className="flex-1" />
         </>
       )}
@@ -307,26 +262,7 @@ function Controls(
   )
 }
 
-// Line glyphs for the controls and the locked line; the fidelity pass owns their drawing.
-function CameraIcon() {
-  return (
-    <svg aria-hidden width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
-      <path d="M4 8h3l1.5-2h7L17 8h3v11H4z" />
-      <circle cx="12" cy="13" r="3.5" />
-    </svg>
-  )
-}
-
-function GalleryIcon() {
-  return (
-    <svg aria-hidden width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
-      <rect x="4" y="5" width="16" height="14" rx="2" />
-      <circle cx="9" cy="10" r="1.5" />
-      <path d="M4 17l5-4 4 3 3-2 4 3" />
-    </svg>
-  )
-}
-
+// The locked line's glyph; the fidelity pass owns its drawing.
 function LockIcon() {
   return (
     <svg aria-hidden width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" className="shrink-0">

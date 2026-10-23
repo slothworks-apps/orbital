@@ -40,11 +40,15 @@ Orbital starts.
 ## Terminal sessions are shown, not driven
 
 Orbital reads the sessions you run in a terminal and shows them read-only.
-That is where it stops. It does not try to drive them, mirror every CLI
-feature onto them or keep up with the terminal's own behaviour. Features may
-exist only for sessions Orbital starts, and that is deliberate: full
-terminal compatibility would load Orbital with work that serves the
-sessions it is meant to replace.
+It does not try to drive them, mirror every CLI feature onto them or keep
+up with the terminal's own behaviour. Features may exist only for sessions
+Orbital starts, and that is deliberate: full terminal compatibility would
+load Orbital with work that serves the sessions it is meant to replace.
+
+The one thing Orbital does to a terminal session is take it over, when you
+ask: it quits the CLI in the terminal and the conversation goes on in
+Orbital, as one of its own sessions. That moves you off the terminal
+rather than driving it.
 
 ## What gets in
 

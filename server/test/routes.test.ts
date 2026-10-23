@@ -68,12 +68,12 @@ function stubHarness(db: OrbitalDb) {
 }
 
 /**
- * The retitle route's one dependency. No test in this file asks it to name
- * anything — `autoTitleEndToEnd.test.ts` drives it against a real titler with
- * a fake model behind it.
+ * The titler's two entry points. No test in this file asks it to name
+ * anything — `retitleEndToEnd.test.ts` and `nameOnFirstMessage.test.ts` drive
+ * it against a real titler with a fake model behind it.
  */
 const stubTitler = () =>
-  ({ retitleNow: async () => ({ title: '', changed: false }) }) as any;
+  ({ retitleNow: async () => ({ title: '', changed: false }), nameFromFirstMessage: async () => false }) as any;
 
 /**
  * A real remote service that stays off: no test here sets `remote_enabled`,
@@ -166,7 +166,7 @@ function retentionFor(db: OrbitalDb) {
 function makeApp(opts: {
   projectsDir?: string; ide?: IdeStore; narrateQueryFn?: NarrateQueryFn; branchStatus?: BranchStatusStore;
   createIssue?: RouteContext['createIssue']; findSimilarIssues?: RouteContext['findSimilarIssues'];
-  checkDuplicates?: RouteContext['checkDuplicates'];
+  checkDuplicates?: RouteContext['checkDuplicates']; endCli?: RouteContext['endCli'];
 } = {}) {
   const db = openTmpDb('api');
   db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
@@ -184,8 +184,10 @@ function makeApp(opts: {
     .run();
   db.insert(sessionTags).values({ sessionId: 's1', tagId: 10, origin: 'manual' }).run();
   const registry = {
-    get: (id: string) => (id === 's1' ? { sessionId: 's1', status: 'working' } : undefined),
-    all: () => [{ sessionId: 's1', status: 'working' }],
+    get: (id: string) => (id === 's1' ? { sessionId: 's1', pid: 4242, status: 'working' } : undefined),
+    all: () => [{ sessionId: 's1', pid: 4242, status: 'working' }],
+    rescan: () => {},
+    drop: (_id: string) => {},
   };
   const startCalls: any[] = [];
   const sendCalls: any[] = [];
@@ -210,6 +212,7 @@ function makeApp(opts: {
     pendingDecision: (_id: string): any => null,
     answerDecision: (_id: string, _decisionId: string, _answers: Record<string, string>) => false,
     interrupt: async () => {}, stop: async () => {}, hasRun: (_id: string) => false,
+    stopAndWait: async (_id: string): Promise<void> => {},
   };
   const hub = new Hub();
   const modelCatalog = {
@@ -281,6 +284,8 @@ function makeApp(opts: {
     findSimilarIssues: opts.findSimilarIssues ?? (async () => { throw new Error('findSimilarIssues is not stubbed'); }),
     checkDuplicates: opts.checkDuplicates ?? (async () => { throw new Error('checkDuplicates is not stubbed'); }),
     ghLogin: async () => null,
+    // Never the real one: a test that forgot to stub it would signal a real pid.
+    endCli: opts.endCli ?? (async () => { throw new Error('endCli is not stubbed'); }),
   });
   return {
     app, db, runner, hub, registry, startCalls, sendCalls, modelCatalog, subagents, subagentTranscripts, backgroundTasks, errors,
@@ -1359,6 +1364,99 @@ describe('REST routes', () => {
     expect(res.statusCode).toBe(404);
   });
 
+  // Spec 2026-10-21-take-over-terminal-session-design.
+  describe('POST /api/sessions/:id/take-over', () => {
+    function rowOf(db: any, id: string) {
+      return db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
+    }
+
+    it('ends the CLI and Orbital\'s own process, and makes the session Orbital\'s', async () => {
+      const ended: number[] = [];
+      const { app, db, registry, runner } = makeApp({
+        endCli: async (pid) => {
+          // The row is Orbital's before the CLI is signalled: the watcher may
+          // hear it leave first, and its remove must republish, not remove.
+          expect(rowOf(db, 's1').source).toBe('web');
+          ended.push(pid);
+          return 'ended';
+        },
+      });
+      db.update(sessions).set({ endedAt: 5 }).where(eq(sessions.id, 's1')).run();
+      const dropped: string[] = [];
+      registry.drop = (id: string) => dropped.push(id);
+      registry.rescan = () => { registry.get = () => undefined; };
+      const stopped: string[] = [];
+      runner.stopAndWait = async (id: string) => { stopped.push(id); };
+      res200(await app.inject({ method: 'POST', url: '/api/sessions/s1/take-over' }));
+      expect(ended).toEqual([4242]);
+      expect(dropped).toEqual(['s1']);
+      expect(stopped).toEqual(['s1']);
+      const row = rowOf(db, 's1');
+      expect(row.source).toBe('web');
+      expect(row.ended_at).toBeNull();
+      const session = res200(await app.inject({ method: 'GET', url: '/api/sessions/s1' })).session;
+      expect(session).toMatchObject({ source: 'web', status: 'idle' });
+    });
+
+    it('takes over a session whose terminal let go first, signalling nothing', async () => {
+      const { app, db } = makeApp();
+      res200(await app.inject({ method: 'POST', url: '/api/sessions/s2/take-over' }));
+      expect(rowOf(db, 's2').source).toBe('web');
+    });
+
+    it('drops a stale entry whose pid is no longer a CLI, signalling nothing', async () => {
+      const { app, db, registry } = makeApp({ endCli: async () => 'not_claude' });
+      const dropped: string[] = [];
+      registry.drop = (id: string) => dropped.push(id);
+      res200(await app.inject({ method: 'POST', url: '/api/sessions/s1/take-over' }));
+      expect(dropped).toEqual(['s1']);
+      expect(rowOf(db, 's1').source).toBe('web');
+    });
+
+    it('never signals a pid another session\'s entry names', async () => {
+      const { app, registry } = makeApp();
+      registry.all = () => [{ sessionId: 's1', pid: 4242, status: 'idle' }, { sessionId: 'other', pid: 4242, status: 'idle' }];
+      // makeApp's endCli throws if called.
+      res200(await app.inject({ method: 'POST', url: '/api/sessions/s1/take-over' }));
+    });
+
+    it('puts the row back and 504s when the CLI will not die', async () => {
+      const { app, db } = makeApp({ endCli: async () => 'still_running' });
+      db.update(sessions).set({ endedAt: 7 }).where(eq(sessions.id, 's1')).run();
+      const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/take-over' });
+      expect(res.statusCode).toBe(504);
+      expect(rowOf(db, 's1')).toMatchObject({ source: 'terminal', ended_at: 7 });
+    });
+
+    it('puts the row back and 504s when Orbital\'s own process will not stop', async () => {
+      const { app, db, runner } = makeApp({ endCli: async () => 'ended' });
+      runner.stopAndWait = async () => { throw new Error('timeout'); };
+      const res = await app.inject({ method: 'POST', url: '/api/sessions/s1/take-over' });
+      expect(res.statusCode).toBe(504);
+      expect(rowOf(db, 's1').source).toBe('terminal');
+    });
+
+    it('404s for an unknown session', async () => {
+      const { app } = makeApp();
+      const res = await app.inject({ method: 'POST', url: '/api/sessions/nope/take-over' });
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  it('shows an Orbital session a terminal resumed as the terminal\'s', async () => {
+    // Spec 2026-10-21-take-over-terminal-session-design § 1: the client locks
+    // what the server would refuse.
+    const { app, db } = makeApp();
+    db.update(sessions).set({ source: 'web' }).where(eq(sessions.id, 's1')).run();
+    const session = res200(await app.inject({ method: 'GET', url: '/api/sessions/s1' })).session;
+    expect(session.source).toBe('terminal');
+    expect(rowOf(db, 's1').source).toBe('web');
+
+    function rowOf(db: any, id: string) {
+      return db.select(sessionColumns).from(sessions).where(eq(sessions.id, id)).get() as SessionRow;
+    }
+  });
+
   it('400s on a missing or non-string model rather than clearing the row', async () => {
     const { app, db } = makeApp();
     db.update(sessions).set({ model: 'haiku' }).where(eq(sessions.id, 's2')).run();
@@ -1721,7 +1819,7 @@ describe('POST /api/sessions with a browser-minted session id', () => {
     registerRoutes(app, {
       harness: stubHarness(db),
       db,
-      registry: { get: () => undefined, all: () => [] },
+      registry: { get: () => undefined, all: () => [], rescan: () => {}, drop: () => {} },
       runner,
       hub,
       claudeDirs,
@@ -4046,7 +4144,7 @@ describe('walkthrough routes', () => {
 
     const running = appWithTranscript('web', scripted(answered(NARRATION)));
     running.runner.status = () => 'working';
-    running.registry.get = (id: string) => (id === 'w1' ? { sessionId: 'w1', status: 'working' } : undefined);
+    running.registry.get = (id: string) => (id === 'w1' ? { sessionId: 'w1', pid: 1, status: 'working' } : undefined);
     expect((await narrated(running.app)).narration.intents[0].title).toBe('Margin');
 
     const rewinding = appWithTranscript('web', scripted(answered(NARRATION)));

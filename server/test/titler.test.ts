@@ -3,6 +3,8 @@ import {
   MAX_PROMPT_CHARS,
   SessionTitler,
   buildTitlePrompt,
+  firstMessageSubject,
+  isFirstMessage,
   parseTitleReply,
 } from '../src/titler/titler.js';
 import type { ChatMessage } from '../src/types.js';
@@ -32,7 +34,7 @@ function makeTitler(opts: { reply?: string; title?: string }) {
   const applyTitle = vi.fn();
   const titler = new SessionTitler({
     queryFn: queryFn as never,
-    readSession: () => ({ title: opts.title ?? 'Tag rules ordering' }),
+    readSession: () => ({ title: opts.title ?? 'Tag rules ordering', titleSource: 'derived' as const }),
     applyTitle,
   });
   return { titler, queryFn, applyTitle };
@@ -160,7 +162,7 @@ describe('SessionTitler.retitleNow', () => {
       queryFn: () => {
         throw new Error('spawn ENOENT');
       },
-      readSession: () => ({ title: 'Tag rules ordering' }),
+      readSession: () => ({ title: 'Tag rules ordering', titleSource: 'derived' as const }),
       applyTitle: vi.fn(),
     });
 
@@ -184,7 +186,7 @@ describe('SessionTitler.retitleNow', () => {
       });
       const titler = new SessionTitler({
         queryFn: queryFn as never,
-        readSession: () => ({ title: 'Tag rules ordering' }),
+        readSession: () => ({ title: 'Tag rules ordering', titleSource: 'derived' as const }),
         applyTitle: vi.fn(),
         claudeExecutablePath,
       });
@@ -198,5 +200,192 @@ describe('SessionTitler.retitleNow', () => {
     const without = capture();
     await without.titler.retitleNow('s1', MESSAGES);
     expect(without.options()).not.toHaveProperty('pathToClaudeCodeExecutable');
+  });
+});
+
+/**
+ * "First" is read from the row, so it has to survive the indexer getting
+ * there first — the case the row's title already equals this message.
+ */
+describe('isFirstMessage', () => {
+  const derived = (title: string) => ({ title, titleSource: 'derived' as const });
+
+  it('takes a session with no title yet', () => {
+    expect(isFirstMessage(derived(''), 'fix the zoom')).toBe(true);
+  });
+
+  it('takes a session the indexer already named after this very message', () => {
+    const text = `Selected in the editor — @web/src/map.ts lines 1–2:\n\n\`\`\`\nzoom()\n\`\`\`\n\nfix the zoom`;
+    expect(isFirstMessage(derived('fix the zoom'), text)).toBe(true);
+  });
+
+  it('takes a session that so far only opened with a bare command', () => {
+    expect(isFirstMessage(derived('/clear'), 'fix the zoom')).toBe(true);
+  });
+
+  it('refuses a later message, a name someone typed and one a model made', () => {
+    expect(isFirstMessage(derived('fix the zoom'), 'and the labels too')).toBe(false);
+    expect(isFirstMessage({ title: '', titleSource: 'manual' }, 'fix the zoom')).toBe(false);
+    expect(isFirstMessage({ title: 'Map zoom', titleSource: 'auto' }, 'fix the zoom')).toBe(false);
+  });
+});
+
+describe('firstMessageSubject', () => {
+  it('drops what the composer attached and keeps what was asked', () => {
+    expect(firstMessageSubject('fix the zoom\n\nAttached files:\n- /tmp/a.png')).toBe('fix the zoom');
+  });
+
+  it('has nothing to name from in a bare command or an empty message', () => {
+    expect(firstMessageSubject('/clear')).toBeNull();
+    expect(firstMessageSubject('   ')).toBeNull();
+  });
+
+  it('stays inside the prompt ceiling', () => {
+    expect(firstMessageSubject('x'.repeat(MAX_PROMPT_CHARS * 2))!.length).toBe(MAX_PROMPT_CHARS);
+  });
+});
+
+describe('SessionTitler.nameFromFirstMessage', () => {
+  it('names a session over its derived title, never over one chosen meanwhile', async () => {
+    const queryFn = fakeQueryFn('Map zoom fix');
+    const applyTitle = vi.fn(() => true);
+    const titler = new SessionTitler({
+      queryFn: queryFn as never,
+      readSession: () => ({ title: '', titleSource: 'derived' as const }),
+      applyTitle,
+    });
+
+    expect(await titler.nameFromFirstMessage('s1', 'fix the zoom')).toBe(true);
+    expect(applyTitle).toHaveBeenCalledWith('s1', 'Map zoom fix', { onlyOverDerived: true });
+    expect(queryFn.mock.calls[0][0].prompt).toBe('fix the zoom');
+  });
+
+  it('keeps the derived title on a reply it cannot use, and on a failed call', async () => {
+    const applyTitle = vi.fn(() => true);
+    const keep = new SessionTitler({
+      queryFn: fakeQueryFn('KEEP') as never,
+      readSession: () => ({ title: '', titleSource: 'derived' as const }),
+      applyTitle,
+    });
+    const failing = new SessionTitler({
+      queryFn: () => {
+        throw new Error('spawn ENOENT');
+      },
+      readSession: () => ({ title: '', titleSource: 'derived' as const }),
+      applyTitle,
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(await keep.nameFromFirstMessage('s1', 'fix the zoom')).toBe(false);
+    expect(await failing.nameFromFirstMessage('s1', 'fix the zoom')).toBe(false);
+    expect(applyTitle).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
+
+describe('SessionTitler.nameFromFirstMessage, twice at once', () => {
+  it('asks once while a call is in flight — the second message only looks like the first', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const queryFn = vi.fn(() => {
+      async function* gen() {
+        await gate;
+        yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Map zoom fix' }] } };
+        yield { type: 'result', subtype: 'success' };
+      }
+      return gen();
+    });
+    const titler = new SessionTitler({
+      queryFn: queryFn as never,
+      readSession: () => ({ title: '', titleSource: 'derived' as const }),
+      applyTitle: vi.fn(() => true),
+    });
+
+    const first = titler.nameFromFirstMessage('s1', 'fix the zoom');
+    expect(await titler.nameFromFirstMessage('s1', 'and the labels')).toBe(false);
+    release();
+    expect(await first).toBe(true);
+    expect(queryFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('records a failure where it was told to, not on the console', async () => {
+    const onFirstTitleError = vi.fn();
+    const titler = new SessionTitler({
+      queryFn: () => {
+        throw new Error('spawn ENOENT');
+      },
+      readSession: () => ({ title: '', titleSource: 'derived' as const }),
+      applyTitle: vi.fn(() => true),
+      onFirstTitleError,
+    });
+
+    expect(await titler.nameFromFirstMessage('s1', 'fix the zoom')).toBe(false);
+    expect(onFirstTitleError).toHaveBeenCalledWith('s1', expect.any(Error));
+  });
+
+  it('does not throw on a reader that does', async () => {
+    const titler = new SessionTitler({
+      queryFn: fakeQueryFn('x') as never,
+      readSession: () => {
+        throw new Error('database is locked');
+      },
+      applyTitle: vi.fn(() => true),
+      onFirstTitleError: vi.fn(),
+    });
+
+    await expect(titler.nameFromFirstMessage('s1', 'fix the zoom')).resolves.toBe(false);
+  });
+});
+
+describe('SessionTitler.dispose', () => {
+  /** A titler whose one call waits until `settle` says how it ends. */
+  function heldTitler() {
+    let settle!: (outcome: 'reply' | 'fail') => void;
+    const gate = new Promise<'reply' | 'fail'>((r) => { settle = r; });
+    let signal: AbortSignal | undefined;
+    const queryFn = vi.fn(({ options }: { options: Record<string, unknown> }) => {
+      signal = (options.abortController as AbortController | undefined)?.signal;
+      async function* gen() {
+        if ((await gate) === 'fail') throw new Error('aborted');
+        yield { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Map zoom fix' }] } };
+        yield { type: 'result', subtype: 'success' };
+      }
+      return gen();
+    });
+    const applyTitle = vi.fn(() => true);
+    const onFirstTitleError = vi.fn();
+    const titler = new SessionTitler({
+      queryFn: queryFn as never,
+      readSession: () => ({ title: '', titleSource: 'derived' as const }),
+      applyTitle,
+      onFirstTitleError,
+    });
+    return { titler, queryFn, applyTitle, onFirstTitleError, settle: (o: 'reply' | 'fail') => settle(o), signal: () => signal };
+  }
+
+  it('aborts the call in flight, and a reply that comes anyway names nothing', async () => {
+    const t = heldTitler();
+    const naming = t.titler.nameFromFirstMessage('s1', 'fix the zoom');
+    t.titler.dispose();
+    expect(t.signal()?.aborted).toBe(true);
+    t.settle('reply');
+    expect(await naming).toBe(false);
+    expect(t.applyTitle).not.toHaveBeenCalled();
+  });
+
+  it('reports no failure of a call it aborted — the error log may be closed by then', async () => {
+    const t = heldTitler();
+    const naming = t.titler.nameFromFirstMessage('s1', 'fix the zoom');
+    t.titler.dispose();
+    t.settle('fail');
+    expect(await naming).toBe(false);
+    expect(t.onFirstTitleError).not.toHaveBeenCalled();
+  });
+
+  it('starts no call once disposed', async () => {
+    const t = heldTitler();
+    t.titler.dispose();
+    expect(await t.titler.nameFromFirstMessage('s1', 'fix the zoom')).toBe(false);
+    expect(t.queryFn).not.toHaveBeenCalled();
   });
 });

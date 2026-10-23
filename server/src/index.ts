@@ -110,8 +110,10 @@ export function publishLiveSession(ctx: PublishContext, live: LiveSession): void
     .from(sessions)
     .where(eq(sessions.id, live.sessionId))
     .get() as SessionRow | undefined;
+  // `source` for the same reason as the status: the registry here does not
+  // list `live` yet, and a terminal holds the session whatever its row says.
   const session = row
-    ? toApiSession(ctx, row, live.status)
+    ? { ...toApiSession(ctx, row, live.status), source: 'terminal' as const }
     : rowlessSession(ctx, live);
   ctx.hub.publish('sessions', { event: 'upsert', session });
 }
@@ -555,25 +557,36 @@ export async function buildServer(overrides: {
   const files = createFileStore(join(CONFIG.dataDir, 'files'));
 
   // Names a session from its own contents when someone clicks ⟳ —
-  // `POST /api/sessions/:id/retitle`. See
-  // `docs/decisions/session-titles-only-on-demand.md`.
+  // `POST /api/sessions/:id/retitle` — and once from the first message of a
+  // session Orbital starts. See `docs/decisions/session-titles-only-on-demand.md`
+  // and `docs/decisions/sessions-are-named-once-from-their-first-message.md`.
   const titler = new SessionTitler({
     queryFn: overrides.titleQueryFn ?? query,
     claudeExecutablePath: claudeCli.path,
     envFor: envForSession,
     readSession: (sessionId) =>
       db
-        .select({ title: sessions.title })
+        .select({ title: sessions.title, titleSource: sessions.titleSource })
         .from(sessions)
         .where(eq(sessions.id, sessionId))
         .get(),
-    applyTitle: (sessionId, title) => {
-      db.update(sessions)
-        .set({ title, titleSource: 'auto' })
-        .where(eq(sessions.id, sessionId))
-        .run();
-      republish(sessionId);
+    applyTitle: (sessionId, title, opts) => {
+      const where = opts?.onlyOverDerived
+        ? and(eq(sessions.id, sessionId), eq(sessions.titleSource, 'derived'))
+        : eq(sessions.id, sessionId);
+      const written = db.update(sessions).set({ title, titleSource: 'auto' }).where(where).run().changes > 0;
+      if (written) republish(sessionId);
+      return written;
     },
+    onFirstTitleError: (sessionId, err) =>
+      errors.record({
+        source: 'server',
+        kind: 'api_request',
+        sessionId,
+        message: err instanceof Error ? err.message : String(err),
+        detail: err instanceof Error ? (err.stack ?? null) : null,
+        context: { while: 'naming a session from its first message' },
+      }),
   });
 
   // Templates and the checklists sessions follow (spec
@@ -1357,7 +1370,12 @@ export async function buildServer(overrides: {
     // The CLI process is gone, which is the only "ended" a terminal session
     // announces — its final rollup is written here.
     liveStats.end(id);
-    hub.publish('sessions', { event: 'remove', sessionId: id });
+    // An Orbital session a terminal held — taken over, or resumed there and
+    // quit — is still Orbital's, asleep: it stays on the map (spec
+    // 2026-10-21-take-over-terminal-session-design § 5).
+    const row = db.select({ source: sessions.source }).from(sessions).where(eq(sessions.id, id)).get();
+    if (row?.source === 'web') publishSession(publishCtx(), id);
+    else hub.publish('sessions', { event: 'remove', sessionId: id });
   });
 
   const claudeDirs: ClaudeDirsService<RouteClaudeDirContext> = new ClaudeDirsService({
@@ -1659,6 +1677,7 @@ export async function buildServer(overrides: {
     backgroundTasks.dispose();
     terminals.dispose();
     harness.dispose();
+    titler.dispose();
     db.$client.close();
     done();
   });

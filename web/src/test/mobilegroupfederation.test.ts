@@ -236,6 +236,19 @@ describe('GroupFederation', () => {
     await expect(fed.request('GET', '/api/sessions/l1')).rejects.toEqual(new TunnelError('offline'))
   })
 
+  it('names a member that is up but whose list did not come back, and none once it answers', async () => {
+    let failing = true
+    const { fed } = await setup({
+      laptopAnswer: (method, path) =>
+        failing && method === 'GET' && path.startsWith('/api/sessions?') ? Promise.reject(new TunnelError('timeout')) : undefined,
+    })
+    const res = await fed.request('GET', '/api/sessions?limit=50')
+    expect((res.body as { unanswered?: string[] }).unanswered).toEqual([LAPTOP])
+    failing = false
+    const again = await fed.request('GET', '/api/sessions?limit=50')
+    expect((again.body as { unanswered?: string[] }).unanswered).toBeUndefined()
+  })
+
   it('makes a tag the owner lacks there, for a spawn\'s tagId and a tags PUT', async () => {
     const { fed, studio } = await setup()
     const tags = await localTags(fed)

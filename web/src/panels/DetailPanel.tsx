@@ -8,6 +8,7 @@ import {
   parseContextThresholds,
   headerSessionStats,
   endClosesPanel,
+  questionComposerTarget,
   resolvePanelPairWidths,
   resolveWindowPanelWidths,
   DETAIL_PANEL_DEFAULT_PX,
@@ -21,7 +22,6 @@ import {
 } from '../lib/usage'
 import { api } from '../lib/api'
 import { GLINT_ACCENT_HUE, TopGlint } from '../ui/TopGlint'
-import { openQuestion } from '../lib/questionCard'
 import { composerHintFor, composerPlaceholderFor } from '../lib/decisionCard'
 import { reportError } from '../lib/errors'
 import { useWindowFocused } from '../lib/useWindowFocused'
@@ -58,6 +58,7 @@ import { FileViewer } from './FileViewer'
 import { StopDialog } from './StopDialog'
 import { ClearDialog } from './ClearDialog'
 import { EndDialog } from './EndDialog'
+import { TakeOverDialog } from './TakeOverDialog'
 import { RewindDialog } from './RewindDialog'
 import { cancelRewind, useRewindUi } from '../store/rewind'
 import { isRewindCommand } from '../lib/rewind'
@@ -84,7 +85,7 @@ import { useCompactionUi } from '../store/compaction'
 import { harnessEnabled, walkthroughEnabled } from '../lib/experimental'
 import { TerminalChip } from '../terminal/TerminalEntry'
 import { useSideSlotWidth } from '../terminal/useTerminalHost'
-import { gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
+import { canTakeOver, gateWaits, isReadOnly, sessionStateKey, tagColor } from '../lib/types'
 import { limitWaitStatus } from '../lib/limits'
 import { loginWaitLabels } from '../lib/profileLogin'
 import { ClaudeDirChip, useClaudeDirMark } from '../ui/ClaudeDirMark'
@@ -232,8 +233,11 @@ export function DetailPanel({
   // The question this session is stopped on, and what has been answered of it
   // so far (spec: 2026-09-20-interactive-decisions-design § Web UI).
   const pendingDecision = useOrbital((s) => (id ? s.pendingDecisions[id] : undefined))
-  const decisionAnswers = useOrbital((s) =>
-    pendingDecision?.kind === 'question' ? s.decisionAnswers[pendingDecision.id] : undefined,
+  // Where the pending question card is — a question, or its review — and
+  // so what ⏎ in the composer does (spec
+  // 2026-10-21-question-card-go-back-design § Composer).
+  const questionTarget = useOrbital(
+    useShallow((s) => (id ? questionComposerTarget(s, id) : null)),
   )
 
   // A compaction running in this session (spec
@@ -276,7 +280,10 @@ export function DetailPanel({
   // edited draft. Cleared on the way IN rather than on the way out, so a
   // cancel that never produced a blur cannot poison the next edit.
   const titleAbandoned = useRef(false)
-  const [retitling, setRetitling] = useState(false)
+  // The ids whose name is being written. The panel outlives a switch to
+  // another session, so a single flag would spin on whichever one is open.
+  const [retitlingIds, setRetitlingIds] = useState<ReadonlySet<string>>(() => new Set())
+  const retitling = id ? retitlingIds.has(id) : false
   // Per session and in the store, so leaving for another session and coming
   // back does not lose a half-written message.
   const prompt = useOrbital((s) => (id ? (s.composerDrafts[id] ?? '') : ''))
@@ -561,9 +568,10 @@ export function DetailPanel({
    */
   function handleRetitle() {
     if (!id || retitling) return
-    setRetitling(true)
+    const target = id
+    setRetitlingIds((ids) => new Set(ids).add(target))
     api
-      .retitleSession(id)
+      .retitleSession(target)
       .then(({ changed }) => {
         if (changed) return
         useOrbital.setState({
@@ -571,7 +579,13 @@ export function DetailPanel({
         })
       })
       .catch((err) => reportError(err, 'Failed to regenerate the name'))
-      .finally(() => setRetitling(false))
+      .finally(() =>
+        setRetitlingIds((ids) => {
+          const next = new Set(ids)
+          next.delete(target)
+          return next
+        }),
+      )
   }
 
   /**
@@ -645,6 +659,7 @@ export function DetailPanel({
     if (!sessionId) return
     if (composerLocked || lock) return
     if (!text && !attachments.armed) return
+    if (reviewHeld) return
     // `/rewind` is Orbital's, never the agent's: sent, it opens pick mode
     // (spec 2026-09-29-rewind-design § Behaviour 1). While a rewind is
     // pending it does nothing — Cancel rewind is the way back.
@@ -712,15 +727,17 @@ export function DetailPanel({
   const isTerminalLive = session ? isReadOnly(session) : false
   const promptPlaceholder = session?.status === 'ended' ? 'Continue conversation…' : 'Send a message…'
 
-  // The FIRST unanswered question of the pending card, or undefined once the
-  // last one is answered — which is what makes the composer revert to a
-  // normal reply the moment the card is settled by a click (canvas 9c).
-  // A terminal session Orbital only watches can read the question but never
-  // answer it, so its composer is unchanged too.
+  // The question the card has open — the first unanswered one, or one
+  // reopened to change it — or undefined once the card is sent, which is
+  // what makes the composer revert to a normal reply the moment the card is
+  // settled by a click (canvas 9c). A terminal session Orbital only watches
+  // can read the question but never answer it, so its composer is unchanged
+  // too.
   const openDecisionQuestion =
-    pendingDecision?.kind === 'question' && !isTerminalLive
-      ? openQuestion(pendingDecision.input.questions, decisionAnswers ?? {})
-      : undefined
+    questionTarget?.kind === 'question' && !isTerminalLive ? questionTarget : undefined
+  // The review is showing (canvas 9f D): a plain composer whose ⏎ is held —
+  // the text stays in the box and becomes a normal reply after Send.
+  const reviewHeld = questionTarget?.kind === 'review' && !isTerminalLive
 
   // A permission prompt or a plan approval takes no words as its answer, but
   // typed words are still meant for it — as the CLI's own "no, and tell
@@ -1276,10 +1293,42 @@ export function DetailPanel({
       )}
 
       {/* Composer — canvas 1b: padding 14px 16px 16px over a hairline rule. */}
-      <div className="border-t border-panel-border px-4 pb-4 pt-3.5">
-        {isTerminalLive ? (
-          <div className="rounded-[10px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.6)] px-3 py-3 text-center font-mono text-[11.5px] text-text-muted">
+      <div
+        className="border-t border-panel-border px-4 pb-4 pt-3.5"
+        // Canvas 9f D: during the review ⇧⇥ from the composer jumps to the
+        // card's Send.
+        onKeyDownCapture={(e) => {
+          if (!reviewHeld || e.key !== 'Tab' || !e.shiftKey) return
+          if (e.metaKey || e.ctrlKey || e.altKey) return
+          // The one interactive card is this panel's: the subagent panel's
+          // cards are read-only.
+          const send = document.querySelector<HTMLElement>(
+            '[data-question-card][data-mode="interactive"] [data-question-send]',
+          )
+          if (!send) return
+          e.preventDefault()
+          e.stopPropagation()
+          send.focus()
+        }}
+      >
+        {isTerminalLive && session ? (
+          // Take over (spec 2026-10-21-take-over-terminal-session-design): a
+          // CLI that is not plainly idle asks first, since what runs there
+          // stops. The bar keeps its old height; placement awaits Claude Design.
+          <div className="flex items-center justify-between gap-3 rounded-[10px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.6)] py-[5px] pl-3 pr-[5px] font-mono text-[11.5px] text-text-muted">
             runs in terminal — read-only
+            {canTakeOver(session) && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (session.status !== 'idle') setDialog('take-over')
+                  else api.takeOver(session.id).catch((err) => reportError(err, 'Failed to take over the session'))
+                }}
+              >
+                Take over
+              </Button>
+            )}
           </div>
         ) : lock ? (
           // Canvas 50f C: the reason in the composer's place — never a
@@ -1325,7 +1374,13 @@ export function DetailPanel({
                 : rewindPending
                   ? '⏎ send — the rewind becomes permanent'
                   : openDecisionQuestion
-                ? '⏎ answers the question · ⇧⏎ newline'
+                ? openDecisionQuestion.changing
+                  ? `⏎ replaces the answer to ${openDecisionQuestion.question.header}`
+                  : '⏎ answers the question'
+                : reviewHeld
+                  ? prompt.trim()
+                    ? '⏎ is held — this stays here until the answers are sent'
+                    : '⏎ here won’t send them · ⇧⇥ jumps to Send'
                 : openVerdictKind
                   ? composerHintFor(openVerdictKind)
                   : '⏎ send · ⇧⏎ newline · ⌘V paste image'
@@ -1334,6 +1389,14 @@ export function DetailPanel({
               !picking && !rewindPending && (openDecisionQuestion !== undefined || openVerdictKind !== undefined)
             }
             hintBright={picking || rewindPicked !== null || rewindPending !== null}
+            hintHeld={reviewHeld && !picking && !rewindPicked && !rewindPending}
+            // Canvas 9c / 9f D: while a question card is open the newline key
+            // stands apart at the row's end, and the sentence keeps to one line.
+            hintAside={
+              (openDecisionQuestion || reviewHeld) && !picking && !rewindPicked && !rewindPending
+                ? '⇧⏎ newline'
+                : undefined
+            }
             emphasized={rewindPending !== null}
             strip={
               picking || rewindPicked ? (
@@ -1376,7 +1439,9 @@ export function DetailPanel({
               composerLocked
                 ? COMPACTING_PLACEHOLDER
                 : openDecisionQuestion
-                ? `Answer ${openDecisionQuestion.header}, or pick an option above…`
+                ? `${openDecisionQuestion.changing ? 'Change' : 'Answer'} ${openDecisionQuestion.question.header}, or pick an option above…`
+                : reviewHeld
+                  ? 'Your answers are ready — Send is in the card above'
                 : openVerdictKind
                   ? composerPlaceholderFor(openVerdictKind)
                   : promptPlaceholder
@@ -1444,7 +1509,9 @@ export function DetailPanel({
                   onClick={() => handleSend()}
                   // Live on text OR on one chip that is uploaded or still
                   // uploading; a failed chip alone arms nothing (spec § Send).
-                  disabled={composerLocked || (!prompt.trim() && !attachments.armed)}
+                  // Held while a question card's review shows (canvas 9f D;
+                  // the phone's Send does the same, 9i).
+                  disabled={composerLocked || reviewHeld || (!prompt.trim() && !attachments.armed)}
                 >
                   <span>
                     <span className="hidden @min-[440px]:inline">Send </span>↑
@@ -1466,6 +1533,7 @@ export function DetailPanel({
           gets the session without threading it through the store. */}
       {session && <FileViewer session={session} />}
       <StopDialog open={dialog === 'stop'} sessionId={id} onClose={() => setDialog(null)} />
+      <TakeOverDialog open={dialog === 'take-over'} sessionId={id} onClose={() => setDialog(null)} />
       <ClearDialog
         open={dialog === 'clear'}
         sessionId={id}

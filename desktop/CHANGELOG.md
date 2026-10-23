@@ -4,6 +4,18 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.41.0] — 2026-10-23
+### Added
+- A session you start in Orbital gets a short name from its first message, instead of the first sentence cut off. Turn it off in Settings → Sessions.
+- Take over a session running in a terminal: Orbital quits the CLI there and the conversation goes on in Orbital. If the terminal is in the middle of a turn, it asks first.
+### Changed
+- Question cards no longer send with the last answer: you can go back and change any answer, and nothing is sent until you press Send on the review. Settings → Sessions → Review answers before sending turns the review off; changing answers works either way.
+- A session's subagents share at most three orbits around its planet instead of one ring each, spaced so they never touch; Settings → Experimental sets the number.
+### Fixed
+- Regenerating a session's name no longer shows it as in progress on every other session you open meanwhile.
+- Copying code selected in the file viewer no longer copies the line numbers with it.
+- An Orbital session reopened in a terminal is read-only while the terminal holds it, instead of offering a mode switch and End that did nothing, and it stays on the map when the terminal quits.
+
 ## [0.40.0] — 2026-10-21
 ### Added
 - When a profile loses its login, the session says so in place and offers Log in; Orbital runs the sign-in, and every session that stopped on it continues by itself. Claude Design's sign-in works the same way.

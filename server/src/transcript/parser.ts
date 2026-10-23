@@ -221,6 +221,11 @@ export function cleanTitle(text: string): string {
   return '';
 }
 
+/** The title the indexer derives from a user message: cleaned, then cut. */
+export function derivedTitle(text: string): string {
+  return truncateTitle(cleanTitle(text));
+}
+
 /**
  * A slash command with no arguments — `/clear`, `/login`, `/compact`. Sessions
  * very often open with one, and it says nothing about what the session is, so
@@ -269,7 +274,7 @@ export function extractMeta(entries: TranscriptEntry[], skip: ReadonlySet<string
       lastAt = t;
     }
     if (!title && e.type === 'user' && e.message && !(e.uuid && skip.has(e.uuid))) {
-      const text = truncateTitle(cleanTitle(textOf(e.message.content)));
+      const text = derivedTitle(textOf(e.message.content));
       if (!text || isInterruptMarker(text)) continue;
       // Skip past a leading `/clear` (or any other bare command) to the first
       // turn that actually describes the work.

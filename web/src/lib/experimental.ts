@@ -47,6 +47,15 @@ export const LIMIT_SUN_STYLE_KEY = 'map_limit_sun_style'
 /** Each account's star colour: JSON, account key to colour name. The server's default is `{}`. */
 export const LIMIT_SUN_COLORS_KEY = 'map_limit_sun_colors'
 
+/**
+ * The most orbits a planet's moons share (spec 2026-10-21-moon-orbit-limit-design).
+ * The limit is on for everyone; only the number sits in Experimental.
+ */
+export const MOON_ORBITS_KEY = 'map_moon_orbits'
+export const MOON_ORBITS_DEFAULT = 3
+export const MOON_ORBITS_MIN = 1
+export const MOON_ORBITS_MAX = 8
+
 export type TerminalPlacement = 'dock' | 'side'
 export type TerminalCursor = 'block' | 'bar' | 'underline'
 
@@ -82,6 +91,14 @@ export function terminalEnabled(settings: Settings): boolean {
 
 export function limitSunsEnabled(settings: Settings): boolean {
   return settings[LIMIT_SUNS_ENABLED_KEY] === 'true'
+}
+
+/** The stored limit as a whole number in the slider's range, the default when unset or unparsable. */
+export function moonOrbits(settings: Settings): number {
+  const stored = settings[MOON_ORBITS_KEY]
+  const raw = Number(stored)
+  if (!stored || !Number.isFinite(raw)) return MOON_ORBITS_DEFAULT
+  return Math.min(MOON_ORBITS_MAX, Math.max(MOON_ORBITS_MIN, Math.round(raw)))
 }
 
 /** The dock unless the side panel was picked. */

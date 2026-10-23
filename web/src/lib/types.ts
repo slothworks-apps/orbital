@@ -1363,6 +1363,15 @@ export const isReadOnly = (session: Pick<ApiSession, 'source' | 'status'>): bool
   session.source === 'terminal' && session.status !== 'ended'
 
 /**
+ * Whether a read-only session can be taken over (spec
+ * 2026-10-21-take-over-terminal-session-design): a terminal holds it and it
+ * has a conversation. A CLI that has not taken a first message has no
+ * transcript yet, so there is nothing for Orbital to go on with.
+ */
+export const canTakeOver = (session: Pick<ApiSession, 'source' | 'status' | 'firstAt'>): boolean =>
+  isReadOnly(session) && session.firstAt != null
+
+/**
  * One file as the viewer sees it — the client-side mirror of the server's
  * `PreviewResult` (spec: 2026-09-19-file-viewer-design § Server). The four
  * non-`ok` kinds are viewer states, never errors: `api.filePreview` reads

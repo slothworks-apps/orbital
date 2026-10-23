@@ -154,7 +154,17 @@ describe('FileViewer', () => {
       expect(screen.getByRole('dialog').querySelectorAll('[data-line]')).toHaveLength(3)
     )
     expect(screen.getByText('const a = 1')).toBeInTheDocument()
-    expect(screen.getByText('2')).toBeInTheDocument()
+  })
+
+  it('keeps line numbers out of the text a selection copies', async () => {
+    vi.mocked(api.filePreview).mockResolvedValue(okPreview())
+    renderViewer('web/src/App.tsx')
+
+    await waitFor(() =>
+      expect(screen.getByRole('dialog').querySelectorAll('[data-line]')).toHaveLength(3)
+    )
+    const rows = [...screen.getByRole('dialog').querySelectorAll('[data-line]')]
+    expect(rows.map((row) => row.textContent)).toEqual(['const a = 1', 'const b = 2', 'const c = 3'])
   })
 
   it('marks the target line, and only it', async () => {

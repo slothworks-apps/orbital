@@ -88,7 +88,17 @@ export function FileScreen() {
     return <MediaPager key={listed.id} sessionId={item.sessionId} items={media} startId={listed.id} onBack={back} />
   }
   if (kind === 'text' && item.path) {
-    return <TextPreview sessionId={item.sessionId} cwd={item.cwd} path={item.path} line={item.line} onBack={back} />
+    // Keyed by the file, so a link from one markdown file to another starts the next one fresh.
+    return (
+      <TextPreview
+        key={`${item.cwd ?? ''}\0${item.path}:${item.line ?? ''}`}
+        sessionId={item.sessionId}
+        cwd={item.cwd}
+        path={item.path}
+        line={item.line}
+        onBack={back}
+      />
+    )
   }
   if (kind === 'image') {
     const { items, start } = pagesFor(item, message)

@@ -111,7 +111,7 @@ export function SessionListScreen() {
             type="button"
             aria-label="Limits"
             onClick={() => go('limits')}
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] bg-[rgba(150,205,255,.08)] text-[rgba(214,230,248,.85)] shadow-[inset_0_0_0_1px_rgba(150,205,255,.26)]"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] text-[rgba(214,230,248,.85)]"
           >
             <LimitsGlyph size="phone" />
           </button>

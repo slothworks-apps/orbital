@@ -203,6 +203,18 @@ export interface ComposerProps {
   /** The resting hint in the brighter ink pick mode and a pending rewind use (27a). */
   hintBright?: boolean
   /**
+   * The hint says why ⏎ does nothing here (a question card's review, canvas
+   * 9f D): it outranks what ⏎ would carry, in the review's own ink.
+   */
+  hintHeld?: boolean
+  /**
+   * A key the hint row names on its own, at its right end rather than in the
+   * sentence (canvas 9c / 9f D: `⇧⏎ newline` while a question card is open).
+   * With it the sentence keeps to one line and truncates, so the row never
+   * grows; the aside itself drops out when the row runs short.
+   */
+  hintAside?: string
+  /**
    * The editor covering this mount's directory, or null/absent when there is
    * none (spec 2026-09-23-ide-bridge-design § The slot and the lip). The
    * composer draws the slot on the well's top edge, names what ⏎ will carry in
@@ -262,6 +274,8 @@ export function Composer({
   strip,
   emphasized = false,
   hintBright = false,
+  hintHeld = false,
+  hintAside,
   ide = null,
   ideDismissedId,
   onIdeDismiss,
@@ -811,7 +825,7 @@ export function Composer({
               !note &&
               !locked &&
               !actions &&
-              !(answering || hintBright ? hint : (ideHint ?? hint))) ||
+              !(answering || hintBright || hintHeld ? hint : (ideHint ?? hint))) ||
             undefined
           }
           className="@container flex items-center gap-2"
@@ -852,29 +866,46 @@ export function Composer({
           ) : answering ? (
             // Canvas 9c: the accent hint with the blinking dot in front of
             // it — the one line that says ⏎ no longer starts a new turn.
-            <span className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.06em] text-accent/90">
+            <span
+              className={[
+                'flex items-center gap-1.5 font-mono text-[10px] tracking-[0.06em] text-accent/90',
+                hintAside ? 'min-w-0' : '',
+              ].join(' ')}
+            >
               <span
                 aria-hidden
                 className="orbital-pulse block h-[5px] w-[5px] shrink-0 rounded-full bg-accent"
               />
-              {hint}
+              {hintAside ? <span className="truncate">{hint}</span> : hint}
             </span>
           ) : (
             <span
               className={[
                 'font-mono text-[10px] tracking-[0.06em]',
+                hintAside ? 'min-w-0 truncate' : '',
                 locked
                   ? 'text-[rgba(160,190,225,.25)]'
                   : hintBright
                     ? 'text-[rgba(200,220,245,.7)]'
-                    : 'text-[rgba(160,190,225,.5)]',
+                    : hintHeld
+                      ? 'text-[rgba(160,190,225,.6)]'
+                      : 'text-[rgba(160,190,225,.5)]',
               ].join(' ')}
             >
-              {/* Pick mode and a pending rewind say what ⏎ does now; that outranks what it carries. */}
-              {hintBright ? hint : (ideHint ?? hint)}
+              {/* Pick mode, a pending rewind and a held ⏎ say what ⏎ does now;
+                  that outranks what it carries. */}
+              {hintBright || hintHeld ? hint : (ideHint ?? hint)}
             </span>
           )}
           <span aria-hidden className="flex-1" />
+          {hintAside && !popupShown && !refusal && !note && (
+            // Canvas 9c / 9f D: the aside in the quieter .45 ink; it is the
+            // first thing to go when the row runs short (a narrow panel), so
+            // the sentence keeps its room.
+            <span className="hidden shrink-0 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.45)] @min-[440px]:inline">
+              {hintAside}
+            </span>
+          )}
           {locked && (
             <span data-composer-locked className="font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.25)]">
               LOCKED
