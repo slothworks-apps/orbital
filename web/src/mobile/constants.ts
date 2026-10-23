@@ -60,6 +60,12 @@ export const RECENT_FILES_MAX = 8
  */
 export const PHONE_TEXT_PREVIEW_MAX_BYTES = 512 * 1024
 /**
+ * The longest file the text preview colours (spec
+ * 2026-10-23-phone-text-preview § Behaviour 1). Tokenizing holds the main
+ * thread, and a phone is slower than the Mac; a longer file stays plain.
+ */
+export const PHONE_HIGHLIGHT_MAX_LINES = 5_000
+/**
  * Complete lines a task's output screen keeps, the newest (spec
  * 2026-10-05-mobile-next § 3, canvas 10g); passed to `appendOutput` as its
  * limit, and the number 10g's footer names.
