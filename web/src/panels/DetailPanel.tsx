@@ -276,7 +276,10 @@ export function DetailPanel({
   // edited draft. Cleared on the way IN rather than on the way out, so a
   // cancel that never produced a blur cannot poison the next edit.
   const titleAbandoned = useRef(false)
-  const [retitling, setRetitling] = useState(false)
+  // The ids whose name is being written. The panel outlives a switch to
+  // another session, so a single flag would spin on whichever one is open.
+  const [retitlingIds, setRetitlingIds] = useState<ReadonlySet<string>>(() => new Set())
+  const retitling = id ? retitlingIds.has(id) : false
   // Per session and in the store, so leaving for another session and coming
   // back does not lose a half-written message.
   const prompt = useOrbital((s) => (id ? (s.composerDrafts[id] ?? '') : ''))
@@ -561,9 +564,10 @@ export function DetailPanel({
    */
   function handleRetitle() {
     if (!id || retitling) return
-    setRetitling(true)
+    const target = id
+    setRetitlingIds((ids) => new Set(ids).add(target))
     api
-      .retitleSession(id)
+      .retitleSession(target)
       .then(({ changed }) => {
         if (changed) return
         useOrbital.setState({
@@ -571,7 +575,13 @@ export function DetailPanel({
         })
       })
       .catch((err) => reportError(err, 'Failed to regenerate the name'))
-      .finally(() => setRetitling(false))
+      .finally(() =>
+        setRetitlingIds((ids) => {
+          const next = new Set(ids)
+          next.delete(target)
+          return next
+        }),
+      )
   }
 
   /**
