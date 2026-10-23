@@ -1032,31 +1032,34 @@ export function Settings({ open, onClose }: SettingsProps) {
                     : 'grid-cols-[240px_minmax(0,1fr)]',
               ].join(' ')}
             >
-              {/* Nav column: 240px, 16px/12px padding, 2px row gap (canvas 1h). */}
+              {/* Nav column: 240px, 16px/12px padding, 2px row gap (canvas 1h).
+              Only the section list scrolls when it does not fit; feedback and
+              the versions stay pinned to the bottom. */}
               <nav
-                className={`${editorTakesPanel ? 'hidden' : 'flex'} min-h-0 flex-col gap-0.5 overflow-y-auto border-r border-[rgba(150,205,255,.1)] px-3 py-4`}
+                className={`${editorTakesPanel ? 'hidden' : 'flex'} min-h-0 flex-col border-r border-[rgba(150,205,255,.1)] px-3 py-4`}
                 aria-label="Settings sections"
               >
-                {visibleNavItems(settings, hasUpdates).map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    disabled={item.disabled}
-                    aria-current={item.key === section ? 'true' : undefined}
-                    title={item.disabled ? 'coming soon' : undefined}
-                    onClick={item.disabled ? undefined : () => selectSection(item.key)}
-                    className={[
-                      NAV_ROW,
-                      item.key === section
-                        ? 'border-panel-border bg-[rgba(150,205,255,.08)] font-semibold text-text-bright'
-                        : 'border-transparent font-medium text-[rgba(220,235,255,.8)]',
-                      item.disabled ? 'cursor-default' : 'hover:bg-white/5',
-                    ].join(' ')}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-                <span className="flex-1" />
+                <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
+                  {visibleNavItems(settings, hasUpdates).map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      disabled={item.disabled}
+                      aria-current={item.key === section ? 'true' : undefined}
+                      title={item.disabled ? 'coming soon' : undefined}
+                      onClick={item.disabled ? undefined : () => selectSection(item.key)}
+                      className={[
+                        NAV_ROW,
+                        item.key === section
+                          ? 'border-panel-border bg-[rgba(150,205,255,.08)] font-semibold text-text-bright'
+                          : 'border-transparent font-medium text-[rgba(220,235,255,.8)]',
+                        item.disabled ? 'cursor-default' : 'hover:bg-white/5',
+                      ].join(' ')}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
                 {/* Not in the website's demo, where it would file a real issue. */}
                 {!isDemo() && <SendFeedback onPick={(kind) => setFeedback({ kind, open: true })} />}
                 <div className="px-3 py-2.5 font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.45)]">
