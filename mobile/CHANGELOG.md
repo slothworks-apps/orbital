@@ -3,17 +3,17 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+
+## [0.20.0] — 2026-10-23
+### Added
+- File previews show code in colour, and a markdown file opens as a formatted document, with a switch to its source.
+- Take over a session running in a terminal on the Mac, from its ⋯ menu: the CLI there quits and the conversation goes on in Orbital. Needs an updated Mac.
 ### Changed
+- Question cards no longer send with the last answer: tap an answered question to change it, and nothing is sent until you tap Send. Your Mac's Review answers before sending setting decides whether the review shows.
 - The Limits button in the session list's header loses its frame and sits beside Settings as its equal.
 ### Fixed
 - A new session's first prompt can carry a photo and start a command or skill: the camera, gallery and / buttons sit under the field, as in a running session.
-### Added
-- File previews show code in colour, and a markdown file opens as a formatted document, with a switch to its source.
-### Fixed
 - Copying text selected in a file preview no longer copies the line numbers with it.
-- Question cards no longer send with the last answer: tap an answered question to change it, and nothing is sent until you tap Send. Your Mac's Review answers before sending setting decides whether the review shows.
-### Added
-- Take over a session running in a terminal on the Mac, from its ⋯ menu: the CLI there quits and the conversation goes on in Orbital. Needs an updated Mac.
 
 ## [0.19.0] — 2026-10-21
 ### Added
