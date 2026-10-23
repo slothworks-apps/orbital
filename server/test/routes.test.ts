@@ -68,12 +68,12 @@ function stubHarness(db: OrbitalDb) {
 }
 
 /**
- * The retitle route's one dependency. No test in this file asks it to name
- * anything — `autoTitleEndToEnd.test.ts` drives it against a real titler with
- * a fake model behind it.
+ * The titler's two entry points. No test in this file asks it to name
+ * anything — `retitleEndToEnd.test.ts` and `nameOnFirstMessage.test.ts` drive
+ * it against a real titler with a fake model behind it.
  */
 const stubTitler = () =>
-  ({ retitleNow: async () => ({ title: '', changed: false }) }) as any;
+  ({ retitleNow: async () => ({ title: '', changed: false }), nameFromFirstMessage: async () => false }) as any;
 
 /**
  * A real remote service that stays off: no test here sets `remote_enabled`,

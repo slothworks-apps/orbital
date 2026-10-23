@@ -28,6 +28,12 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   default_permission_mode: 'acceptEdits',
   default_project_dir: '',
   confirm_before_clear: 'true',
+  /**
+   * Name a session Orbital starts from its first message (spec
+   * 2026-10-21-name-on-first-message-design). Not `auto_title_sessions`:
+   * that row still sits in older databases, left by a removed feature.
+   */
+  name_sessions_automatically: 'true',
   /** Pre-selected in the New session dialog (canvas 4c). A
    * value the catalog does not offer falls back to its first row, client-side. */
   default_model: 'sonnet',

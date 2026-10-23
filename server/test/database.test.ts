@@ -189,6 +189,7 @@ describe('openDb', () => {
       ...LEGACY_SETTINGS,
       default_model: 'sonnet',
       remember_model_per_project: 'true',
+      name_sessions_automatically: 'true',
       map_show_model: 'true',
       map_show_trash: 'true',
       map_limit_sun_positions: '{}',

@@ -555,25 +555,36 @@ export async function buildServer(overrides: {
   const files = createFileStore(join(CONFIG.dataDir, 'files'));
 
   // Names a session from its own contents when someone clicks ⟳ —
-  // `POST /api/sessions/:id/retitle`. See
-  // `docs/decisions/session-titles-only-on-demand.md`.
+  // `POST /api/sessions/:id/retitle` — and once from the first message of a
+  // session Orbital starts. See `docs/decisions/session-titles-only-on-demand.md`
+  // and `docs/decisions/sessions-are-named-once-from-their-first-message.md`.
   const titler = new SessionTitler({
     queryFn: overrides.titleQueryFn ?? query,
     claudeExecutablePath: claudeCli.path,
     envFor: envForSession,
     readSession: (sessionId) =>
       db
-        .select({ title: sessions.title })
+        .select({ title: sessions.title, titleSource: sessions.titleSource })
         .from(sessions)
         .where(eq(sessions.id, sessionId))
         .get(),
-    applyTitle: (sessionId, title) => {
-      db.update(sessions)
-        .set({ title, titleSource: 'auto' })
-        .where(eq(sessions.id, sessionId))
-        .run();
-      republish(sessionId);
+    applyTitle: (sessionId, title, opts) => {
+      const where = opts?.onlyOverDerived
+        ? and(eq(sessions.id, sessionId), eq(sessions.titleSource, 'derived'))
+        : eq(sessions.id, sessionId);
+      const written = db.update(sessions).set({ title, titleSource: 'auto' }).where(where).run().changes > 0;
+      if (written) republish(sessionId);
+      return written;
     },
+    onFirstTitleError: (sessionId, err) =>
+      errors.record({
+        source: 'server',
+        kind: 'api_request',
+        sessionId,
+        message: err instanceof Error ? err.message : String(err),
+        detail: err instanceof Error ? (err.stack ?? null) : null,
+        context: { while: 'naming a session from its first message' },
+      }),
   });
 
   // Templates and the checklists sessions follow (spec

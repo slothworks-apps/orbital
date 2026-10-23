@@ -144,6 +144,8 @@ describe('renaming a session on demand', () => {
       titleQueryFn: titleQueryFn as any,
     });
     try {
+      // The first message would otherwise name the session on its own.
+      await app.inject({ method: 'PATCH', url: '/api/settings', payload: { name_sessions_automatically: 'false' } });
       const created = await app.inject({
         method: 'POST', url: '/api/sessions',
         payload: { cwd: '/w/x', prompt: 'go', permissionMode: 'acceptEdits' },
