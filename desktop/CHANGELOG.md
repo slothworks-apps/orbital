@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- In a short window, the end of a Settings section is no longer cut off below the window's edge; the section list scrolls when it does not fit.
 
 ## [0.41.0] — 2026-10-23
 ### Added

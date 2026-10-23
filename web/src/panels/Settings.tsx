@@ -1018,10 +1018,13 @@ export function Settings({ open, onClose }: SettingsProps) {
             </div>
 
             {/* Tags & rules brings a second fixed column with it (1e: nav 240 ·
-            tags 330 · rules), so the body's tracks are the section's too. */}
+            tags 330 · rules), so the body's tracks are the section's too.
+            The row is pinned to the body's height: an `auto` row grows to the
+            nav's full height, and in a short window that pushed the bottom of
+            the content column past the panel's clipped edge. */}
             <div
               className={[
-                'grid min-h-0 flex-1',
+                'grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)]',
                 section === 'tags'
                   ? 'grid-cols-[240px_minmax(0,330px)_minmax(0,1fr)]'
                   : editorTakesPanel
@@ -1031,7 +1034,7 @@ export function Settings({ open, onClose }: SettingsProps) {
             >
               {/* Nav column: 240px, 16px/12px padding, 2px row gap (canvas 1h). */}
               <nav
-                className={`${editorTakesPanel ? 'hidden' : 'flex'} flex-col gap-0.5 border-r border-[rgba(150,205,255,.1)] px-3 py-4`}
+                className={`${editorTakesPanel ? 'hidden' : 'flex'} min-h-0 flex-col gap-0.5 overflow-y-auto border-r border-[rgba(150,205,255,.1)] px-3 py-4`}
                 aria-label="Settings sections"
               >
                 {visibleNavItems(settings, hasUpdates).map((item) => (
