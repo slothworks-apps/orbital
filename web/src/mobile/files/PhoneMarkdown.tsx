@@ -1,10 +1,10 @@
-import { Children, isValidElement, memo, type ComponentPropsWithoutRef, type ReactNode } from 'react'
+import { Children, isValidElement, memo, useMemo, type ComponentPropsWithoutRef, type ReactNode } from 'react'
 import ReactMarkdown, { defaultUrlTransform, type Components, type ExtraProps } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { LANGUAGE_CLASS, plainText } from '../../panels/MessageView'
 import type { MarkdownLink } from './markdownLinks'
 import { markdownLink } from './markdownLinks'
-import { useTokens } from './useTokens'
+import { useTokens } from '../../lib/useTokens'
 
 /** react-markdown's guard reads `notes.md:42` as an unknown scheme and empties it; a path with a line is let through. */
 function urlTransform(url: string): string {
@@ -187,9 +187,11 @@ export const PhoneMarkdown = memo(function PhoneMarkdown({
   path: string
   onLink: (link: MarkdownLink) => void
 }) {
+  // Stable component types: a fresh set would remount the whole document on every render.
+  const parts = useMemo(() => components(onLink, path), [onLink, path])
   return (
     <div className="flex flex-col gap-3.5 px-5 pb-8 pt-[18px] text-[15px] leading-[1.6] text-[rgba(228,238,250,.9)] [overflow-wrap:anywhere]">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={urlTransform} components={components(onLink, path)}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={urlTransform} components={parts}>
         {content}
       </ReactMarkdown>
     </div>

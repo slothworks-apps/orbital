@@ -11,7 +11,7 @@ import { ByteBar, GoneBlock, StateButton, StateText } from './FileStates'
 import type { MarkdownLink } from './markdownLinks'
 import { PhoneMarkdown } from './PhoneMarkdown'
 import { useFile } from './useFile'
-import { useTokens } from './useTokens'
+import { useTokens } from '../../lib/useTokens'
 
 /** The lines of a text file as the preview numbers them: a final newline opens no empty last line. */
 export function previewLines(text: string): string[] {
@@ -53,14 +53,15 @@ function sourceLineAtTop(scroller: HTMLElement): number {
   return 1
 }
 
-function place(scroller: HTMLElement, where: Place): void {
+/** False when the row is not there yet (a shorter cached copy), so the next version of the file tries again. */
+function place(scroller: HTMLElement, where: Place): boolean {
   const top = scroller.getBoundingClientRect().top
   if (where.to === 'row') {
     const row = scroller.querySelector<HTMLElement>(`[data-line="${where.line}"]`)
-    if (!row) return
+    if (!row) return false
     const offset = row.getBoundingClientRect().top - top + scroller.scrollTop
     scroller.scrollTop = Math.max(0, offset - (where.third ? scroller.clientHeight / 3 : 0))
-    return
+    return true
   }
   // The block that starts at or before the line; of equals, the innermost (it comes later).
   let block: HTMLElement | null = null
@@ -68,6 +69,7 @@ function place(scroller: HTMLElement, where: Place): void {
     if (Number(el.dataset.srcLine) <= where.line) block = el
   }
   scroller.scrollTop = block && where.line > 1 ? block.getBoundingClientRect().top - top + scroller.scrollTop - 12 : 0
+  return true
 }
 
 /**
@@ -91,7 +93,8 @@ export function TextPreview({
   const source = useMemo(() => ({ kind: 'path' as const, sessionId, path, as: 'text' as const, cwd }), [sessionId, path, cwd])
   const { view, retry } = useFile(source)
   const mac = useSessionDeviceName(sessionId) ?? 'the Mac'
-  const isMarkdown = languageFromPath(path).lang === 'markdown'
+  const lang = languageFromPath(path).lang
+  const isMarkdown = lang === 'markdown'
   // 10d·e: an .md without a line opens Rendered; a `:line` opens Source. Not remembered.
   const [mode, setMode] = useState<Mode>(isMarkdown && line === null ? 'rendered' : 'source')
   const [target, setTarget] = useState(line)
@@ -105,15 +108,15 @@ export function TextPreview({
   const shown = outcome?.kind === 'ready' ? outcome : outcome?.kind === 'gone' ? outcome.copy : null
   const text = useMemo(() => (shown ? new TextDecoder().decode(shown.bytes) : null), [shown])
   const lines = useMemo(() => (text !== null ? previewLines(text) : null), [text])
-  const highlighted = lines !== null && lines.length <= PHONE_HIGHLIGHT_MAX_LINES
-  const tokens = useTokens(highlighted ? lines.join('\n') : '', highlighted ? languageFromPath(path).lang : '', lines?.length ?? 0)
   const rendered = isMarkdown && mode === 'rendered'
+  // Rendered shows no rows, so a markdown file is coloured only once its source is opened.
+  const highlighted = lines !== null && !rendered && lines.length <= PHONE_HIGHLIGHT_MAX_LINES
+  const tokens = useTokens(highlighted ? lines.join('\n') : '', highlighted ? lang : '', lines?.length ?? 0)
 
   useLayoutEffect(() => {
     const el = scroller.current
     if (!el || !lines || !pending.current) return
-    place(el, pending.current)
-    pending.current = null
+    if (place(el, pending.current)) pending.current = null
   }, [lines, mode, placing])
 
   const switchTo = (next: Mode) => {
@@ -173,10 +176,13 @@ export function TextPreview({
               style={hit ? { background: 'rgba(150,205,255,.07)' } : undefined}
             >
               {/* The number is drawn by ::before, so a selection copies the text without it.
-                  Pinned, so with Wrap off the code slides under it behind a hairline (10d·e). */}
+                  With Wrap off it is pinned, and the code slides under it behind a hairline (10d·e). */}
               <span
                 data-number={n}
-                className="sticky left-0 z-[1] w-11 flex-none pr-3 text-right before:content-[attr(data-number)]"
+                className={[
+                  'block w-11 flex-none pr-3 text-right before:content-[attr(data-number)]',
+                  wrap ? '' : 'sticky left-0 z-[1]',
+                ].join(' ')}
                 style={{
                   color: hit ? TARGET_NUMBER : 'rgba(160,190,225,.35)',
                   background: hit ? '#0d131c' : '#03050b',
