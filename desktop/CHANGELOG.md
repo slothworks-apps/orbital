@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- Regenerating a session's name no longer shows it as in progress on every other session you open meanwhile.
 
 ## [0.40.0] — 2026-10-21
 ### Added
