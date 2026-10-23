@@ -151,7 +151,7 @@ export function QuestionCard({ sessionId, toolUse, toolResult, readOnly = false 
   // flips to its answered form on the click, not on the round trip (9d
   // "answering": no spinner, the send is local). A draft never does: it is
   // not a sent answer.
-  const resultAnswers = parseResultAnswers(toolResult?.text)
+  const resultAnswers = parseResultAnswers(toolResult?.text, questions)
   const answers: AnswerMap = sentAnswers ?? resultAnswers ?? {}
   // A result whose content is not the SDK's `{answers}` envelope: the card
   // still has to show what came back rather than pretend it understood it.
