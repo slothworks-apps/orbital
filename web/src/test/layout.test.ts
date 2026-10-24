@@ -239,6 +239,18 @@ describe('clusterLabelPos', () => {
     expect(label.y).toBeGreaterThan(topmostY)
   })
 
+  it('centres over the cluster span, not over its topmost planet', () => {
+    const cluster = clusterSessions(
+      [makeSession({ id: 'a', tagIds: [1] }), makeSession({ id: 'b', tagIds: [1] })],
+      tags
+    )[0]
+    const positions = new Map([
+      ['a', { x: 0, y: 10, scale: 1 }],
+      ['b', { x: 100, y: 0, scale: 1 }],
+    ])
+    expect(clusterLabelPos(cluster, positions).x).toBe(50)
+  })
+
   it('is deterministic for the same input', () => {
     const sessions = Array.from({ length: 6 }, (_, i) =>
       makeSession({ id: `s${i}`, tagIds: [1], status: 'working' })

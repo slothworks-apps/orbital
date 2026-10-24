@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- A tag's name on the map sits centred over its whole group of planets, instead of over whichever planet happens to be highest.
 
 ## [0.41.0] — 2026-10-23
 ### Added
