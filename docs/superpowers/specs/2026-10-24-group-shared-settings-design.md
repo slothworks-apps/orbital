@@ -248,6 +248,37 @@ Settings marking (see Build order).
    IPC. Phone: read from a member with `settings-sync`. No design needed.
 2. Settings marking and the too-old note, once Claude Design has them.
 
+## Implementation notes (step 1)
+
+Step 1 is built. Where the code made the spec more precise, each point
+below is the implementer's call:
+
+- **The `settings` topic is published only for values taken from a
+  member,** not for a local PATCH. The window that saved already holds the
+  value, and an echo arriving after more typing would overwrite a text
+  field being edited.
+- **The refusal is 403 `not_a_member`**, for the local app, a phone, a
+  stranger, this device itself and a member without the `settings` grant
+  alike (a member without the grant is already refused `not_granted` by the
+  channel before the route). A catch-up refused with `not_a_member` (the
+  member has not yet taken the roster that names this device, as right
+  after a join) is asked again at the next status change; any other answer
+  ends that channel's catch-up.
+- **A member's federated Settings PATCH** of a shared key on this device
+  counts as a local change: it is stamped with this device as origin and
+  pushed to every member, the asking one included.
+- **A key this device holds no row of** (a shared key that is not seeded,
+  such as `map_theme`, never set here) is not listed by `GET`, and is taken
+  from any member that lists it.
+- **This device's own origin is stored empty** and named with its id when
+  listed, so a stamp survives the identity being regenerated.
+- **Per-device prefixes:** every `remote_` and `new_session_last_` key is
+  per device by its prefix, listed or not.
+- **The settings seed writes only `key` and `value`** (raw SQL), so the
+  database tests that open an older schema with the migrations cut short
+  keep working; a seeded row takes the column defaults, time 0 and this
+  device.
+
 ## Testing
 
 - The ordering: later wins, a tie goes to the primary origin and then to the

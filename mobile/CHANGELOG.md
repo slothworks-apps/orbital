@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Changed
+- In a group with several Macs, the phone reads your settings (such as Review answers before sending) from a Mac that shares them with the group, so every Mac's question cards behave the same. Needs an updated Mac.
 
 ## [0.20.0] — 2026-10-23
 ### Added

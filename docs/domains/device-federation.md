@@ -9,6 +9,8 @@ related:
   - device-channel
   - device-group
   - every-member-reaches-one-literal-allowlist
+  - 2026-10-24-group-shared-settings-design
+  - group-settings-converge-by-last-change
 tags:
   - remote
   - server
@@ -47,7 +49,8 @@ Every request a channel injects carries `DEVICE_HEADER`
 (`x-orbital-device`, the asking device's id, `inject.ts`). It only ever
 restricts: such a request is never forwarded, gets no other member's
 sessions merged in, may not change a `remote_*` setting (403) and reads
-`GET /api/settings` without them.
+`GET /api/settings` without them. `/api/settings/shared` is the one route
+that answers only such a request (below).
 
 ## FederationService
 
@@ -210,6 +213,60 @@ makes it probe on its interval (`LimitsService.watch` follows
 reads that happen here anyway — the background reading, a session's
 `rate_limit_event`, and its own `GET /api/limits`, which reads an old
 answer again.
+
+## Settings the group shares
+
+Spec `2026-10-24-group-shared-settings-design`, ADR
+`group-settings-converge-by-last-change`; `server/src/settings/sharedSettings.ts`.
+
+**Which.** `SHARED_SETTING_KEYS` in `shared/src/sharedSettings.ts`; every
+other key stays on its device. `PER_DEVICE_SETTING_KEYS` (and the `remote_`
+and `new_session_last_` prefixes) name the rest, and a test fails on a seeded
+key in neither list.
+
+**Stamps.** Each `settings` row carries `stamp_at` and `stamp_origin`
+(migration `0034_group_shared_settings`): when the value was set and on
+which device, an empty origin meaning this one. A seeded default and every
+row from before the migration is at 0. A `PATCH /api/settings` that changes
+a shared key's value stamps it now (`SharedSettingsSync.changedLocally`),
+also when the PATCH came from a member's federated Settings; one that saves
+the same value stamps nothing. One stamp beats another by `stampBeats`: the
+later time, then the group's primary as origin, then the higher origin id.
+
+**The route.** `GET /api/settings/shared` lists every shared key this
+device holds with its value and stamp; `POST` takes some. Both are on the
+allowlist under the `settings` grant and answer only a request whose
+`DEVICE_HEADER` names a live roster member that is not a phone, not this
+device, and holds the `settings` grant here (`partner`); anyone else, the
+local app and a phone included, gets 403 `not_a_member`. A stamp later than
+this device's clock plus `SETTINGS_STAMP_SKEW_MS` is clamped to it.
+
+**Push and catch-up.** A member shares when its hello names
+`settings-sync` (`capabilitiesOf` gives it to a desktop and a headless
+server). After a local change the changed keys go to every live partner
+that shares, over a ready channel. Once per ready channel to such a
+partner, this device reads its list; a list refused with `not_a_member`
+(the partner has not yet taken the roster that names this device) is asked
+again at the next status change. Every value whose stamp beats this
+device's own, or that this device holds no row of, is taken with its stamp
+unchanged; nothing taken is forwarded. When a taken value differs from the
+one held, the same side effects as a PATCH run (`settingsChangedEffects`:
+the limits waits, the branch status) and the local hub topic `settings`
+carries `{ event: 'changed', settings }`. That topic is not in
+`memberMayWatch`, and a local PATCH does not publish it (the window that
+saved already holds the value). The web store merges it, and the window
+sends the desktop's `settings-changed` IPC so the main process re-reads.
+
+**Joining.** `GroupMembershipStore.set` sets every shared stamp to -1 in the
+transaction that records a membership of a group this device did not found,
+of a founding it was not in (`joinsGroup`): taking the primary's first
+roster after a ceremony. Every value already in the group then beats this
+device's own. Founding, a later version of the same group and leaving reset
+nothing.
+
+**A member too old** (no `settings-sync`) is neither pushed to nor read.
+**The phone** reads `GET /api/settings` from a member that shares
+(`docs/domains/phone-in-the-group.md`).
 
 ## Known limits
 

@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Your habits in Settings — default model and permission mode, what the map and header show, the map's look, Labs switches and more — are now the same on every Mac and server in your group: change one anywhere and the others follow when they are online. Paths, layout, notifications and history cleanup stay per Mac. In a group with several Macs, the first time they connect after updating, settings you have not changed since take the values of the Mac that manages the group; a Mac that joins a group takes the group's settings.
 
 ## [0.41.0] — 2026-10-23
 ### Added
