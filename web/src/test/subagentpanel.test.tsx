@@ -490,11 +490,6 @@ describe('the agent ending under an open panel (C1)', () => {
   })
 })
 
-/**
- * `endedAt` (subagent list spec § 3) is what makes the panel and the list
- * read the same duration for the same agent: the list has no buffer to
- * read a last timestamp from, so the panel must prefer the stamp too.
- */
 describe('subagentModelFrom', () => {
   it('names the model from a tool call before the agent has written any text', () => {
     const messages: ChatMessage[] = [
@@ -506,6 +501,11 @@ describe('subagentModelFrom', () => {
   })
 })
 
+/**
+ * `endedAt` (subagent list spec § 3) is what makes the panel and the list
+ * read the same duration for the same agent: the list has no buffer to
+ * read a last timestamp from, so the panel must prefer the stamp too.
+ */
 describe('elapsedMsFor', () => {
   const lastAt3s: ChatMessage[] = [
     { id: 'm1', role: 'assistant', text: 'done', timestamp: new Date(3000).toISOString() },
