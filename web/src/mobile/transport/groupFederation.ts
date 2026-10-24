@@ -12,6 +12,7 @@ import { sessionOfRequest, sessionOfTopic } from '@orbital/shared/remote/segment
 import { PRESENCE_TOPIC, presenceFromFrame } from '@orbital/shared/presence'
 import { LIMITS_TOPIC } from '@orbital/shared/limits'
 import { PROFILE_LOGINS_TOPIC } from '@orbital/shared/profileLogins'
+import { SETTINGS_SYNC_CAPABILITY } from '@orbital/shared/sharedSettings'
 import { mergeMemberLimits, ownLimitDirs } from '../limits/members'
 import type { SwappableClient } from './clientRef'
 import { mediaTypeOf } from './imageResolver'
@@ -232,7 +233,7 @@ export class GroupFederation implements SwappableClient {
     const tagPath = /^\/api\/tags\/(\d+)$/.exec(url.pathname)
     if (tagPath && (method === 'PATCH' || method === 'DELETE')) return this.changeTag(method, Number(tagPath[1]), body)
 
-    const routed = await this.targetOf(url, body)
+    const routed = await this.targetOf(method, url, body)
     if ('missing' in routed) return routed.missing
     if ('offline' in routed) throw new TunnelError('offline')
     const target = routed.source
@@ -958,9 +959,10 @@ export class GroupFederation implements SwappableClient {
    * Where a request goes: its session's owner; else its `machine`; else,
    * for a session no member has listed yet, the member that has it; else
    * (no session) the default member. A session's request never goes to the
-   * default: another member would answer "not found" for it.
+   * default: another member would answer "not found" for it. A read of the
+   * settings goes to a member that shares the group's (`settingsSource`).
    */
-  private async targetOf(url: URL, body: unknown): Promise<Lookup> {
+  private async targetOf(method: HttpMethod, url: URL, body: unknown): Promise<Lookup> {
     const session = sessionOfRequest(url.pathname + url.search)
     const known = session !== null ? this.knownOwner(session) : null
     if (known) return known
@@ -970,8 +972,20 @@ export class GroupFederation implements SwappableClient {
       return named ? { source: named } : { missing: { status: 404, body: { error: 'unknown_device' } } }
     }
     if (session !== null) return this.ownerLookup(session)
-    const fallback = this.defaultSource()
+    const fallback = method === 'GET' && url.pathname === '/api/settings' ? this.settingsSource() : this.defaultSource()
     return fallback ? { source: fallback } : { offline: true }
+  }
+
+  /**
+   * Where the phone reads the Mac's settings (spec
+   * 2026-10-24-group-shared-settings-design § The phone): a member that
+   * shares the group's settings, so every one answers the same; the default
+   * member when it does, else the first that does. With none, the default
+   * member, as before.
+   */
+  private settingsSource(): Source | null {
+    const live = [...this.sourcesById.values()].filter((s) => this.channelOf(s.id) !== null)
+    return pickSettingsSource(this.defaultSource(), live, (s) => this.channelOf(s.id)?.peer?.capabilities?.includes(SETTINGS_SYNC_CAPABILITY) === true)
   }
 
   private knownOwner(sessionId: string): Lookup | null {
@@ -1369,4 +1383,15 @@ function matchesList(session: Session, url: URL): boolean {
   if (ended === 'only' && !folded(session)) return false
   if (ended === 'exclude' && folded(session)) return false
   return true
+}
+
+/**
+ * The member a settings read goes to: `fallback` (the default member) when
+ * it shares the group's settings, else the first of `live` that does, else
+ * `fallback`. A phone ahead of its Macs, none of which shares, keeps
+ * reading from the default member.
+ */
+function pickSettingsSource<T>(fallback: T | null, live: readonly T[], shares: (source: T) => boolean): T | null {
+  if (fallback !== null && shares(fallback)) return fallback
+  return live.find(shares) ?? fallback
 }

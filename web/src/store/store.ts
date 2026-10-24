@@ -177,6 +177,13 @@ export type ErrorsEvent =
   | { event: 'reported'; id: number; issueUrl: string }
 
 /**
+ * Events on the `settings` topic (`SETTINGS_TOPIC`, spec
+ * 2026-10-24-group-shared-settings-design): shared values another member of
+ * the group changed, as they now stand on this server.
+ */
+export type SettingsEvent = { event: 'changed'; settings: Record<string, string> }
+
+/**
  * Events on the `remote` topic (`server/src/remote/service.ts`). A
  * `pair_request` is always followed by a `status` carrying the same request
  * as `pendingPair`, so only `status` is read.
@@ -615,6 +622,11 @@ export interface OrbitalActions {
   applySessionEvent(sessionId: string, msg: SessionEvent): void
   applyErrorsEvent(msg: ErrorsEvent): void
   markErrorsSeen(target: number[] | 'all'): Promise<void>
+  /**
+   * Values another member changed: merged into `settings`, so every view
+   * that reads them follows. False when the event carried nothing to apply.
+   */
+  applySettingsEvent(msg: SettingsEvent): boolean
   /** A `status` replaces the whole object; a `pair_request` is left to the `status` after it. */
   applyRemoteEvent(msg: RemoteEvent): void
   /** Stores a status the caller just got from the server. */
@@ -1881,6 +1893,14 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     } catch (err) {
       console.error('orbital: failed to mark errors seen', err)
     }
+  },
+
+  applySettingsEvent(msg) {
+    if (msg.event !== 'changed' || !msg.settings || typeof msg.settings !== 'object') return false
+    const changed = Object.entries(msg.settings).filter(([, v]) => typeof v === 'string')
+    if (changed.length === 0) return false
+    set((state) => ({ settings: { ...state.settings, ...Object.fromEntries(changed) } }))
+    return true
   },
 
   applyRemoteEvent(msg) {

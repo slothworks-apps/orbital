@@ -212,6 +212,22 @@ describe('GroupFederation', () => {
     await expect(fed.request('GET', '/api/projects?machine=nobody')).resolves.toMatchObject({ status: 404 })
   })
 
+  it('reads the settings from a member that shares the group\'s, else from the default member', async () => {
+    const { fed, studio, laptop } = await setup()
+    // No member shares settings yet (a phone ahead of its Macs): the default member, the first that is up.
+    await fed.request('GET', '/api/settings')
+    expect(studio.request).toHaveBeenLastCalledWith('GET', '/api/settings', undefined)
+    laptop.peer = hello('laptop', ['sessions', 'map', 'presence', 'group', 'settings-sync'])
+    studio.request.mockClear()
+    await fed.request('GET', '/api/settings')
+    expect(laptop.request).toHaveBeenLastCalledWith('GET', '/api/settings', undefined)
+    expect(studio.request).not.toHaveBeenCalled()
+    // Both share: the default member.
+    studio.peer = hello('studio', ['sessions', 'map', 'presence', 'group', 'settings-sync'])
+    await fed.request('GET', '/api/settings')
+    expect(studio.request).toHaveBeenLastCalledWith('GET', '/api/settings', undefined)
+  })
+
   it('makes the member the last session started on the default, and its minted id its own', async () => {
     const { fed, laptop } = await setup()
     await fed.request('POST', '/api/sessions', { cwd: '/p', prompt: 'go', sessionId: 'n1', machine: LAPTOP })
