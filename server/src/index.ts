@@ -44,7 +44,7 @@ import { WorkingTrees } from './git/workingTrees.js';
 import { BranchStatusStore } from './git/branchStatusStore.js';
 import { IdeStore } from './ide/store.js';
 import { ideApprovals } from './ide/approvals.js';
-import { registerRoutes, type RouteClaudeDirContext } from './api/routes.js';
+import { registerRoutes, settingsChangedEffects, type RouteClaudeDirContext } from './api/routes.js';
 import { listedBackgroundTasks, listedSubagents, statusOf, toApiSession, type ShapeContext } from './api/shape.js';
 import { entriesToMessages } from './transcript/parser.js';
 import { SubagentStore, SubagentTranscripts } from './transcript/subagents.js';
@@ -74,6 +74,9 @@ import { hostOsVersion } from './remote/osVersion.js';
 import { RemoteService } from './remote/service.js';
 import { registerFederationRoutes } from './federation/routes.js';
 import { FederationService } from './federation/service.js';
+import { SharedSettingsStore, SharedSettingsSync } from './settings/sharedSettings.js';
+import { memberHasGrant, parseGrants } from './remote/grants.js';
+import { SETTINGS_TOPIC } from '@orbital/shared/sharedSettings';
 import { MemberSnapshotStore } from './federation/store.js';
 import { remoteInjectOptions } from './remote/inject.js';
 import { registerServerUpdateRoutes } from './api/serverUpdate.js';
@@ -1568,6 +1571,17 @@ export async function buildServer(overrides: {
   limits.members = federation;
   overrides.exposeFederation?.(federation);
   overrides.exposeHub?.(hub);
+  // The settings the group shares (spec 2026-10-24-group-shared-settings-design).
+  const sharedSettings = new SharedSettingsSync({
+    store: new SharedSettingsStore(db, () => remote.selfId()),
+    remote,
+    granted: (id) => memberHasGrant(parseGrants(settingsStore.get('remote_grants')), id, 'settings'),
+    // What a PATCH of the same keys sets off, and this device's windows told (a local topic).
+    applied: (changed) => {
+      settingsChangedEffects(Object.keys(changed), { limits, branchStatus });
+      hub.publish(SETTINGS_TOPIC, { event: 'changed', settings: changed });
+    },
+  });
   // Before the routes: a request for a member's session must never reach a
   // local handler, which would answer it as an unknown session of this device.
   registerFederationRoutes(app, federation, () => remote.selfId(), imagesDir, images);
@@ -1615,6 +1629,7 @@ export async function buildServer(overrides: {
         },
       }),
     settings: settingsStore,
+    sharedSettings,
     mcpFor,
     limits,
     logins,
@@ -1643,12 +1658,14 @@ export async function buildServer(overrides: {
   };
   remote.start();
   federation.start();
+  sharedSettings.start();
   // After the routes, which give it the path into a session: a wait that fell
   // due while the server was down fires now.
   limits.start();
   app.addHook('onClose', (_instance, done) => {
     // First, while the db is still open — and guarded, so nothing it throws
     // can skip the runner and the db below and leave close hanging.
+    sharedSettings.stop();
     try {
       federation.stop();
     } catch (err) {

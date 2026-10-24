@@ -318,6 +318,15 @@ export const tagRules = sqliteTable(
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
+  /**
+   * When a shared value was set (spec 2026-10-24-group-shared-settings-design,
+   * `SettingStamp`): wall-clock ms; 0 for a seeded default or a value from
+   * before sync, -1 after this device joined a group. Read only for the keys
+   * in `SHARED_SETTING_KEYS`.
+   */
+  stampAt: integer('stamp_at').notNull().default(0),
+  /** The device the shared value was set on; empty for this device itself. */
+  stampOrigin: text('stamp_origin').notNull().default(''),
 });
 
 /**

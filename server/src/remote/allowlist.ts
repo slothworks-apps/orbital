@@ -132,6 +132,11 @@ export const ALLOWED_ROUTES: readonly (readonly [method: string, template: strin
   // them from a member.
   ['GET', '/api/settings', 'settings'],
   ['PATCH', '/api/settings', 'settings'],
+  // The settings the group shares, read and pushed between members (spec
+  // 2026-10-24-group-shared-settings-design); the route answers a Mac or a
+  // server of the group only, never a phone.
+  ['GET', '/api/settings/shared', 'settings'],
+  ['POST', '/api/settings/shared', 'settings'],
   ['GET', '/api/tag-rules', 'settings'],
   ['POST', '/api/tag-rules', 'settings'],
   ['POST', '/api/tag-rules/preview', 'settings'],

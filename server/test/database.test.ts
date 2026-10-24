@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cpSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
 import { eq, sql } from 'drizzle-orm';
@@ -8,6 +8,7 @@ import { tags, settings } from '../src/db/schema.js';
 import { WHATS_NEW_BEFORE, WHATS_NEW_SEEN_KEY } from '@orbital/shared/changelog';
 import { effectiveTagIds, regenerateRuleTags } from '../src/tags/rules.js';
 import { makeTmpDir, openTmpDb } from './tmp.js';
+import { migrationsBefore } from './migrations.js';
 
 // Verbatim copy of the DEFAULT_SETTINGS the pre-Drizzle database.ts used to
 // seed via INSERT OR IGNORE, for the legacy-baseline fixture below.
@@ -298,26 +299,6 @@ describe('map settings defaults', () => {
   });
 });
 
-/**
- * A copy of the migrations folder cut off just before the migration whose tag
- * ends in `suffix` — the database an older build would have left behind.
- * Truncated rather than filtered: Drizzle applies only migrations newer than
- * the last one it recorded, so leaving a later one in would make it skip the
- * one under test.
- */
-function migrationsBefore(dir: string, suffix: string): string {
-  const before = join(dir, 'drizzle-before');
-  cpSync(DEFAULT_MIGRATIONS_FOLDER, before, { recursive: true });
-  const journalPath = join(before, 'meta', '_journal.json');
-  const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as {
-    entries: { tag: string }[];
-  };
-  const cut = journal.entries.findIndex((e) => e.tag.endsWith(suffix));
-  expect(cut).toBeGreaterThan(0);
-  journal.entries = journal.entries.slice(0, cut);
-  writeFileSync(journalPath, JSON.stringify(journal));
-  return before;
-}
 
 // Spec 2026-09-24-sessions-end-only-by-hand-design § 6: without the backfill
 // every historical Orbital session would come back onto the map as idle.
@@ -501,7 +482,8 @@ describe('whats new migration', () => {
     const dir = makeTmpDir('whats-new-kept');
     const dbPath = join(dir, 'index.db');
     const old = openDb(dbPath, migrationsBefore(dir, '_whats_new_existing_install'));
-    old.insert(settings).values({ key: WHATS_NEW_SEEN_KEY, value: '{"version":"0.36.0","at":1,"ended":true}' }).run();
+    // Raw: this database predates the settings' stamp columns, which the schema names.
+    old.$client.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(WHATS_NEW_SEEN_KEY, '{"version":"0.36.0","at":1,"ended":true}');
     old.$client.close();
 
     const db = openDb(dbPath);

@@ -7,7 +7,7 @@ import { dirname } from 'node:path';
 import { DATA_DIR_MODE } from '@orbital/shared/dataDir';
 import { fileURLToPath } from 'node:url';
 import * as schema from './schema.js';
-import { settings, tags } from './schema.js';
+import { tags } from './schema.js';
 import { AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY, DEFAULT_CONTINUE_TEXT } from '../limits/logic.js';
 import { FIRST_CLAUDE_DIR_ID } from '../claudeDirs/paths.js';
 import { DEFAULT_CLAUDE_DIR_KEY, LAST_CLAUDE_DIR_KEY } from '../claudeDirs/keys.js';
@@ -24,7 +24,7 @@ export const DEFAULT_MIGRATIONS_FOLDER = fileURLToPath(
   new URL('../../drizzle', import.meta.url),
 );
 
-const DEFAULT_SETTINGS: Record<string, string> = {
+export const DEFAULT_SETTINGS: Record<string, string> = {
   default_permission_mode: 'acceptEdits',
   default_project_dir: '',
   confirm_before_clear: 'true',
@@ -283,9 +283,11 @@ export function openDb(
   // Throws on a missing folder or a failed migration, and must keep throwing:
   // a database that skipped its migrations is worse than one that won't open.
   migrate(db, { migrationsFolder });
-  for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
-    db.insert(settings).values({ key, value }).onConflictDoNothing().run();
-  }
+  // Only the two columns every schema of `settings` has: a test opens an older
+  // database with the migrations cut short, and a seed naming the stamp
+  // columns would not run against it. A new row's stamp is the column default.
+  const seed = sqlite.prepare('INSERT OR IGNORE INTO `settings` (`key`, `value`) VALUES (?, ?)');
+  for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) seed.run(key, value);
   // Seeded only while no default exists, never by name: the default can be
   // renamed, and a name-keyed seed re-created it on every boot after that.
   const hasDefault = db.select({ id: tags.id }).from(tags).where(eq(tags.isDefault, 1)).get();

@@ -185,7 +185,7 @@ export class RemoteService {
   constructor(private readonly opts: RemoteServiceOptions) {
     this.devices = new DeviceStore(opts.db);
     this.roster = new RosterStore(opts.db);
-    this.membership = new GroupMembershipStore(opts.db);
+    this.membership = new GroupMembershipStore(opts.db, () => this.ownId());
     this.exits = new GroupExitStore(opts.db);
     this.pendingRevokes = new PendingRevokes(opts.db);
     this.now = opts.now ?? Date.now;

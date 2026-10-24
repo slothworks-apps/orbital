@@ -12,6 +12,7 @@ import { DIRS_MAX } from '../src/files/directory.js';
 import { OUTPUT_TAIL_BYTES } from '../src/files/taskOutput.js';
 import { ATTACHMENT_MAX_BYTES, FILE_ATTACHMENT_MAX_BYTES } from '../src/api/routes.js';
 import type { OrbitalDb } from '../src/db/database.js';
+import { SharedSettingsStore } from '../src/settings/sharedSettings.js';
 import {
   countSweepable,
   parseRetentionDays,
@@ -167,6 +168,7 @@ function makeApp(opts: {
   projectsDir?: string; ide?: IdeStore; narrateQueryFn?: NarrateQueryFn; branchStatus?: BranchStatusStore;
   createIssue?: RouteContext['createIssue']; findSimilarIssues?: RouteContext['findSimilarIssues'];
   checkDuplicates?: RouteContext['checkDuplicates']; endCli?: RouteContext['endCli'];
+  sharedSettings?: (db: OrbitalDb) => RouteContext['sharedSettings'];
 } = {}) {
   const db = openTmpDb('api');
   db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
@@ -286,6 +288,7 @@ function makeApp(opts: {
     ghLogin: async () => null,
     // Never the real one: a test that forgot to stub it would signal a real pid.
     endCli: opts.endCli ?? (async () => { throw new Error('endCli is not stubbed'); }),
+    sharedSettings: opts.sharedSettings?.(db),
   });
   return {
     app, db, runner, hub, registry, startCalls, sendCalls, modelCatalog, subagents, subagentTranscripts, backgroundTasks, errors,
@@ -1113,6 +1116,32 @@ describe('REST routes', () => {
     });
     const after = await app.inject({ method: 'GET', url: '/api/settings' });
     expect(after.json().confirm_before_clear).toBe('false');
+  });
+
+  it('PATCH /api/settings stamps a shared key only when its value changes, and never a per-device one', async () => {
+    let now = 100;
+    const pushed: string[][] = [];
+    const { app: shared, db: sharedDb } = makeApp({
+      sharedSettings: (db) => {
+        const store = new SharedSettingsStore(db, () => 'self', () => now);
+        return {
+          partner: () => false, list: () => store.list(), receive: () => {},
+          changedLocally: (keys) => {
+            pushed.push(keys);
+            store.stampLocal(keys);
+          },
+        };
+      },
+    });
+    const stamp = (key: string) => new SharedSettingsStore(sharedDb, () => 'self').stampOf(key)?.at;
+    await shared.inject({ method: 'PATCH', url: '/api/settings', payload: { default_model: 'opus', sidebar_width: '420' } });
+    expect(stamp('default_model')).toBe(100);
+    expect(stamp('sidebar_width')).toBe(0);
+    now = 200;
+    // Saved again at the value it holds: not a change, not stamped.
+    await shared.inject({ method: 'PATCH', url: '/api/settings', payload: { default_model: 'opus' } });
+    expect(stamp('default_model')).toBe(100);
+    expect(pushed).toEqual([['default_model', 'sidebar_width'], []]);
   });
 
   it('GET /api/settings leaves every remote_ key out for a member', async () => {
