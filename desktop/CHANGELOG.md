@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- With two or more profiles, a planet's name on the map shows its profile's letter at the zoom the map opens on; it used to appear only after zooming in.
 
 ## [0.41.0] — 2026-10-23
 ### Added

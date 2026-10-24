@@ -87,7 +87,7 @@ import {
   useStateMix,
 } from './transition'
 import { glowTexture, bodyTexture, bodyIdleTexture } from './textures'
-import { bodyZoomFactor } from './camera'
+import { REFERENCE_ZOOM, bodyZoomFactor } from './camera'
 import type { SimBody } from './simulation'
 import { useFrameOnRender, useMapFrame } from './FrameBudget'
 import type { ContextFill } from './sceneModel'
@@ -300,9 +300,11 @@ const HOVER_LABEL_SCRIM = 'rgba(4,8,16,.85)'
 /**
  * The Claude directory's mark before the planet label (canvas 44b, 44f
  * "Map"): shown from this zoom up, dropped below it, where it would only add
- * clutter. `camera.zoom` is the percentage the map's corner reads out.
+ * clutter. The canvas quotes its threshold against its standard view, which
+ * is the map's `REFERENCE_ZOOM` — read as a raw `camera.zoom`, it hid the
+ * mark at the zoom the map opens on.
  */
-const MAP_MARK_MIN_ZOOM = 70
+const MAP_MARK_MIN_ZOOM = 0.7 * REFERENCE_ZOOM
 
 /**
  * 44f "Sizes", the map's mark: 12px, an opaque fill and a 1.5px dark ring so

@@ -379,6 +379,14 @@ These differ from the text above:
   strength, in every picker, and the prefill falls through it like a
   removed one. Its sessions stay on the map, as § Edge cases says; the
   canvas notes suggest hiding them, which was not taken.
+- **The map's threshold is relative to the map's standard zoom.** The
+  canvas drops the mark below 70 % of its standard view; the map's standard
+  view is `REFERENCE_ZOOM` (60), so the mark shows from `0.7 ×
+  REFERENCE_ZOOM` up. Read as a raw zoom of 70, it was hidden at the zoom
+  the map opens on, and most people never saw it.
+- **The lists keep the mark on the meta line.** Moving it before the
+  session's name in the sidebar was considered and not taken; the map is
+  where it leads the name.
 - **The map's mark has no tooltip.** The label takes no pointer, so a
   press on it reaches the map.
 
