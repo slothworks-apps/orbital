@@ -15,9 +15,10 @@ import { forgetGroupHere } from '../forget'
 import { CLOCK_TICK_MS, RETRY_WINDOW_MS } from '../constants'
 import { agoLabel, asOfLabel, basename, checkedLabel } from '../format'
 import {
-  GROUP_LABEL, endedHeading, primaryTag, groupSessions, inputReason, isGateRow, limitLine, moonsSummary, moonsSummaryAsleep, subagentStatus, tagChips,
+  GROUP_LABEL, endedHeading, groupSessions, inputReason, isGateRow, limitLine, moonsSummary, moonsSummaryAsleep, subagentStatus, tagChips,
   taskStatus, tasksForRow, type GroupKey,
 } from '../sessionList'
+import { primaryTag } from '../../lib/primaryTag'
 import { countedBySummary, loadEndedFold } from '../endedFold'
 import { isMacAsleep, useMobile } from '../state'
 import { anySupports } from '../version'

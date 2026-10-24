@@ -6,7 +6,7 @@ import { CLOCK_TICK_MS } from '../constants'
 import { limitNoticeKey, phoneLimitNotice, QUEUED_NOTE } from '../limits/limitCopy'
 import { useSessionDeviceName } from '../useDevice'
 import type { SlotKeyProps, SlotProps } from './slot'
-import { primaryTag } from '../sessionList'
+import { primaryTag } from '../../lib/primaryTag'
 
 /** The bubbles' hue when the session has no tag — the desktop notice's own fallback. */
 const UNTAGGED_HUE = 205

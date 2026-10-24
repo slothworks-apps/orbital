@@ -18,7 +18,7 @@ import { Code, Pre } from '../../panels/MessageView'
 import { nameInSentence } from '../format'
 import { subagentBody, subagentHeader, INK, type SubagentHeader } from '../subagents/model'
 import { MobileScreen, SecondaryButton } from '../ui'
-import { primaryTag } from '../sessionList'
+import { primaryTag } from '../../lib/primaryTag'
 
 const NO_MESSAGES: ChatMessage[] = []
 
