@@ -340,8 +340,9 @@ export function holePosition(
 // --- clusterLabelPos --------------------------------------------------------
 
 /**
- * Anchor point for a cluster's label: directly above the cluster's topmost
- * (largest y) planet, offset by that planet's radius plus LABEL_MARGIN.
+ * Anchor point for a cluster's label: centred over the cluster's horizontal
+ * span (leftmost to rightmost planet edge), above its topmost (largest y)
+ * planet by that planet's radius plus LABEL_MARGIN.
  */
 export function clusterLabelPos(
   cluster: Cluster,
@@ -351,15 +352,20 @@ export function clusterLabelPos(
   const resolved = resolveOptions(opts)
 
   let topmost: PlanetPosition | null = null
+  let left = Infinity
+  let right = -Infinity
   for (const session of cluster.sessions) {
     const p = positions.get(session.id)
     if (!p) continue
     if (!topmost || p.y > topmost.y) topmost = p
+    const r = resolved.planetBaseRadius * p.scale
+    left = Math.min(left, p.x - r)
+    right = Math.max(right, p.x + r)
   }
   if (!topmost) return { x: 0, y: 0 }
 
   return {
-    x: topmost.x,
+    x: (left + right) / 2,
     y: topmost.y + resolved.planetBaseRadius * topmost.scale + LABEL_MARGIN,
   }
 }

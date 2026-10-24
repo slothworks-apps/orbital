@@ -59,7 +59,6 @@ import {
   settleSimulation,
   simulationAwake,
   stepSimulation,
-  type SimBody,
   type SimInput,
   type SimState,
 } from './simulation'
@@ -178,10 +177,11 @@ function CameraRig({ camera: camState }: { camera: CameraState }) {
 }
 
 /**
- * A cluster's label, tracking the clump per frame: anchored above the
- * topmost body of its tag that stays (not one fading off the map, `leaving`),
+ * A cluster's label, tracking the clump per frame: centred over the span of
+ * the bodies of its tag that stay (not ones fading off the map, `leaving`)
+ * and anchored above the topmost of them,
  * read straight off the simulation the same way the planets read their own
- * positions. Measured from the top of the body's drawn box (`extent`), so
+ * positions. Measured from the edges of each body's drawn box (`extent`), so
  * the label clears a reticle or a pill rather than the bare planet. Falls
  * back to the scene model's anchor when the sim has no bodies for the tag
  * yet (first frame).
@@ -203,12 +203,16 @@ function ClusterLabel({
   // Moves only with the bodies, whose motion `SimStepper` already reports.
   useMapFrame(() => {
     if (!groupRef.current) return false
-    let top: SimBody | null = null
+    let top = -Infinity
+    let left = Infinity
+    let right = -Infinity
     for (const body of simRef.current.bodies.values()) {
       if (body.tagId !== label.tagId || leaving.has(body.id)) continue
-      if (!top || body.y + body.extent.top > top.y + top.extent.top) top = body
+      top = Math.max(top, body.y + body.extent.top)
+      left = Math.min(left, body.x + body.extent.left)
+      right = Math.max(right, body.x + body.extent.right)
     }
-    if (top) groupRef.current.position.set(top.x, top.y + top.extent.top + LABEL_MARGIN, 0)
+    if (top > -Infinity) groupRef.current.position.set((left + right) / 2, top + LABEL_MARGIN, 0)
     else groupRef.current.position.set(label.x, label.y, 0)
     return false
   })
