@@ -19,6 +19,8 @@ import { STATS_PATH } from './stats/route'
 import type { ApiSession } from './lib/types'
 import { MapView } from './map/MapView'
 import { Sidebar } from './panels/Sidebar'
+import { SessionMenuHost } from './panels/SessionContextMenu'
+import { SessionDialogs } from './panels/SessionDialogs'
 import { DetailPanel } from './panels/DetailPanel'
 import { SubagentPanel } from './panels/SubagentPanel'
 import { TaskOutputPanel } from './panels/TaskOutputPanel'
@@ -69,8 +71,8 @@ const socket = getSocket()
  * App shell (final integration task): mounts the full-bleed `SpaceMap`,
  * the docked `Sidebar`/`DetailPanel`/`SubagentPanel`, the three dialogs
  * that don't own their own trigger+render site (`NewSessionDialog`/
- * `Settings` — `StopDialog`/`ClearDialog` are rendered by `DetailPanel`
- * itself, so they're deliberately NOT repeated here), the one place every
+ * `Settings`, and `SessionDialogs` — `StopDialog` is rendered by
+ * `DetailPanel` itself, so it is deliberately NOT repeated here), the one place every
  * message shows (`MapNoticeHost`, the replies included) and the WS status
  * banner. Owns the data lifecycle
  * (`loadInitial` + the `sessions`/`session:<id>` WS subscriptions) and the
@@ -289,6 +291,9 @@ export default function App() {
     // Everything the shell renders sits one layer in from App's own, so any
     // panel or dialog outranks it for Escape.
     <EscapeBoundary>
+    {/* Right-click on a planet, a Desk card or a sidebar row opens the
+        session's context menu — here, and not in the website's demos. */}
+    <SessionMenuHost>
     <div className="relative h-screen w-screen overflow-hidden bg-space">
       <div className="absolute inset-0">
         <ErrorBoundary label="Space map">
@@ -402,11 +407,14 @@ export default function App() {
           layer" without a literal ReactDOM.createPortal — consistent with
           how Dialog/Settings implement their own overlay today. Tags & rules
           is not here because it is no longer a dialog: it is a section of
-          Settings. StopDialog/ClearDialog are intentionally absent too —
-          DetailPanel owns and renders them itself. */}
+          Settings. StopDialog is intentionally absent too — DetailPanel
+          owns and renders it itself. Take over, Clear and End are here
+          because the context menu opens them for sessions the panel is not
+          showing. */}
       <NewSessionDialog open={dialog === 'new'} onClose={() => setDialog(null)} />
       <Settings open={dialog === 'settings'} onClose={() => setDialog(null)} />
       <ErrorLog open={dialog === 'errors'} onClose={() => setDialog(null)} />
+      <SessionDialogs />
       {/* A `/compact` past running subagents, from the composer or the map's badge. */}
       <CompactDialog />
       {/* `/mcp` from the composer (spec 2026-10-01-mcp-servers-in-the-session-design). */}
@@ -417,6 +425,7 @@ export default function App() {
       {/* The way into the error log lives in SpaceMap's HUD now — an icon
           with the unseen count as its badge, riding the zoom column. */}
     </div>
+    </SessionMenuHost>
     </EscapeBoundary>
   )
 }

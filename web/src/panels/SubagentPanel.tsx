@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
-import type { ApiSession, Subagent, Tag } from '../lib/types'
+import type { ApiSession, Subagent } from '../lib/types'
 import { sessionStateKey } from '../lib/types'
 import { dotMotionClass, stateColor, stateDot } from '../lib/stateStyle'
 import { formatToolDuration } from '../lib/format'
@@ -23,21 +23,7 @@ import { PIN_TOOLTIP_DELAY_MS } from './UtilityStrip'
 import { useEscapeLayer } from '../ui/escapeLayer'
 import { TranscriptView } from './TranscriptView'
 import { SubagentChip } from './SubagentChip'
-
-/**
- * The one tag a session wears, resolved the same way `DetailPanel`,
- * `Sidebar`, `map/layout.ts` and `NewSessionDialog` each already do — this
- * repo has no shared helpers module for it (see those four for the same
- * three lines), so this is a fifth, matching copy rather than a new import
- * that would only serve one more caller.
- */
-function primaryTag(tagIds: number[], tags: Tag[]): Tag | undefined {
-  for (const tagId of tagIds) {
-    const tag = tags.find((t) => t.id === tagId)
-    if (tag) return tag
-  }
-  return tags.find((t) => t.is_default === 1)
-}
+import { primaryTag } from '../lib/primaryTag'
 
 /**
  * STREAM LOST's body (canvas 11c): the reason block sits where the first

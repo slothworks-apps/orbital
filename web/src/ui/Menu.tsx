@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactElement, ReactNode, Ref, RefObject } from 'react'
 import { useEscapeLayer } from './escapeLayer'
 import { POPUP_SHELL, usePopupPosition } from './usePopupPosition'
+import type { PopupAnchor, PopupPositionOptions } from './usePopupPosition'
 
 export interface MenuItem {
   key: string
@@ -27,6 +28,12 @@ export interface MenuItem {
    * becomes the row's accessible name.
    */
   body?: ReactNode
+  /**
+   * Choosing the row leaves the menu open: it changes the menu's own rows
+   * rather than acting (the context menu's Change tag, which swaps the tag
+   * list in, and its back row).
+   */
+  keepsOpen?: boolean
   onSelect: () => void
 }
 
@@ -118,6 +125,8 @@ function focusRow(row: HTMLElement | null | undefined) {
  * Home/End, type-ahead — never land on one. A row can mark itself `selected`
  * and draw its own `body`; `maxRows` caps the list and scrolls it inside the
  * shell, the focused row kept in view.
+ *
+ * The open menu itself is `MenuPopup`, which `ContextMenu` shares.
  */
 export function MenuButton({
   entries,
@@ -134,19 +143,9 @@ export function MenuButton({
 }: MenuButtonProps) {
   const menuId = useId()
   const triggerRef = useRef<HTMLButtonElement | null>(null)
-  const popupRef = useRef<HTMLDivElement | null>(null)
-  const itemRefs = useRef<(HTMLDivElement | null)[]>([])
-  const search = useRef({ query: '', at: 0 })
-  /** The key of the row that last took focus while open; see the re-focus effect. */
-  const focusedKey = useRef<string | null>(null)
   const [open, setOpen] = useState(false)
   /** Which row takes focus when the menu has just opened. */
   const [initial, setInitial] = useState<'first' | 'last'>('first')
-
-  const listRef = useRef<HTMLDivElement | null>(null)
-
-  const items = entries.filter(isItem)
-  const marksSelection = items.some((item) => item.selected !== undefined)
 
   const latestOnOpenChange = useRef(onOpenChange)
   latestOnOpenChange.current = onOpenChange
@@ -166,12 +165,114 @@ export function MenuButton({
 
   const close = useCallback((restoreFocus: boolean) => {
     setOpen(false)
-    search.current = { query: '', at: 0 }
-    focusedKey.current = null
     if (restoreFocus) triggerRef.current?.focus()
   }, [])
 
-  useEscapeLayer(open, () => close(true))
+  function handleTriggerKeyDown(e: ReactKeyboardEvent<HTMLButtonElement>) {
+    if (open) return
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      openMenu('first')
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      openMenu('last')
+    }
+  }
+
+  const trigger = renderTrigger(
+    {
+      ref: triggerRef,
+      'aria-haspopup': 'menu',
+      'aria-expanded': open,
+      'aria-controls': open ? menuId : undefined,
+      onClick: () => (open ? close(true) : openMenu('first')),
+      onKeyDown: handleTriggerKeyDown,
+    },
+    open,
+  )
+
+  return (
+    <>
+      {trigger}
+      {open && (
+        <MenuPopup
+          id={menuId}
+          aria-label={aria['aria-label']}
+          entries={entries}
+          anchorRef={triggerRef}
+          position={{ gap: gapPx, prefer, align, withinRef }}
+          widthPx={widthPx}
+          footer={footer}
+          maxRows={maxRows}
+          initial={initial}
+          onClose={close}
+          // The trigger toggles the menu itself; a press on it is not outside.
+          insideRef={triggerRef}
+        />
+      )}
+    </>
+  )
+}
+
+export interface MenuPopupProps {
+  id?: string
+  entries: readonly MenuEntry[]
+  /** The menu's accessible name. */
+  'aria-label': string
+  /** What the shell hangs off — the trigger, or the context menu's point. */
+  anchorRef: RefObject<PopupAnchor | null>
+  position: PopupPositionOptions
+  widthPx?: number
+  footer?: ReactNode
+  maxRows?: number
+  /** Which row takes focus as the menu appears. */
+  initial: 'first' | 'last'
+  /**
+   * Names the set of rows on show. When it changes, the rows were swapped in
+   * place (the context menu's tag view) and focus goes to the new first row.
+   */
+  view?: string
+  /** Asked to close: Escape, Tab, a press outside, or a row that ran. Focus goes back where it came from on `restoreFocus`. */
+  onClose: (restoreFocus: boolean) => void
+  /** A press on this element is not a press outside (`MenuButton`'s trigger). */
+  insideRef?: RefObject<Element | null>
+}
+
+/**
+ * The open menu: the portalled shell, its rows and their keys — everything
+ * `MenuButton` describes once the trigger has done its part. Mounted only
+ * while open, so the type-ahead buffer and the focused-row memory start
+ * fresh with every opening.
+ */
+export function MenuPopup({
+  id,
+  entries,
+  anchorRef,
+  position,
+  widthPx,
+  footer,
+  maxRows,
+  initial,
+  view,
+  onClose,
+  insideRef,
+  ...aria
+}: MenuPopupProps) {
+  const popupRef = useRef<HTMLDivElement | null>(null)
+  const itemRefs = useRef<(HTMLDivElement | null)[]>([])
+  const search = useRef({ query: '', at: 0 })
+  /** The key of the row that last took focus; see the re-focus effect. */
+  const focusedKey = useRef<string | null>(null)
+  const listRef = useRef<HTMLDivElement | null>(null)
+
+  const items = entries.filter(isItem)
+  const marksSelection = items.some((item) => item.selected !== undefined)
+
+  const latestOnClose = useRef(onClose)
+  latestOnClose.current = onClose
+  const close = useCallback((restoreFocus: boolean) => latestOnClose.current(restoreFocus), [])
+
+  useEscapeLayer(true, () => close(true))
 
   // The ceiling: the bottom edge of the `maxRows`-th item, headings and
   // hairlines above it included, so it holds for any row height. The list is
@@ -189,17 +290,27 @@ export function MenuButton({
     list.style.maxHeight = last ? `${last.offsetTop + last.offsetHeight}px` : ''
   })
 
-  usePopupPosition(open, triggerRef, popupRef, { gap: gapPx, prefer, align, withinRef })
+  usePopupPosition(true, anchorRef, popupRef, position)
 
   // Into the menu on open. A layout effect, so the first row already holds
   // focus in the frame the menu appears.
   useLayoutEffect(() => {
-    if (!open || items.length === 0) return
+    if (items.length === 0) return
     focusRow(itemRefs.current[initial === 'first' ? 0 : items.length - 1])
     // Only on opening: re-running on every render would yank focus back to
     // the first row under a pointer that has moved on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  }, [])
+
+  // Rows swapped in place: the row that had focus is gone, so the new set
+  // starts at its top, and a half-typed type-ahead belongs to the old one.
+  const shownView = useRef(view)
+  useLayoutEffect(() => {
+    if (shownView.current === view) return
+    shownView.current = view
+    search.current = { query: '', at: 0 }
+    focusRow(itemRefs.current[0])
+  }, [view])
 
   // Focus that falls out of an open list. An agent that ends while the list
   // is open moves its row to another group; React moves the node, and
@@ -209,7 +320,7 @@ export function MenuButton({
   // <body> goes back to the row that last had it (`focusedKey`). Focus the
   // user moved somewhere else is left there.
   useLayoutEffect(() => {
-    if (!open || focusedKey.current === null) return
+    if (focusedKey.current === null) return
     const active = document.activeElement
     if (active !== null && active !== document.body) return
     const index = items.findIndex((item) => item.key === focusedKey.current)
@@ -219,20 +330,19 @@ export function MenuButton({
   // `pointerdown`, not `click`, like `Select`: closing on click would land
   // after the next control had already been pressed.
   useEffect(() => {
-    if (!open) return
     const onPointerDown = (e: PointerEvent | MouseEvent) => {
       const target = e.target
       if (!(target instanceof Node)) return
-      if (triggerRef.current?.contains(target) || popupRef.current?.contains(target)) return
+      if (insideRef?.current?.contains(target) || popupRef.current?.contains(target)) return
       close(false)
     }
     document.addEventListener('pointerdown', onPointerDown, true)
     return () => document.removeEventListener('pointerdown', onPointerDown, true)
-  }, [open, close])
+  }, [close, insideRef])
 
   function run(item: MenuItem) {
     if (item.disabled) return
-    close(true)
+    if (!item.keepsOpen) close(true)
     item.onSelect()
   }
 
@@ -291,150 +401,121 @@ export function MenuButton({
     }
   }
 
-  function handleTriggerKeyDown(e: ReactKeyboardEvent<HTMLButtonElement>) {
-    if (open) return
-    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      openMenu('first')
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      openMenu('last')
-    }
-  }
-
-  const trigger = renderTrigger(
-    {
-      ref: triggerRef,
-      'aria-haspopup': 'menu',
-      'aria-expanded': open,
-      'aria-controls': open ? menuId : undefined,
-      onClick: () => (open ? close(true) : openMenu('first')),
-      onKeyDown: handleTriggerKeyDown,
-    },
-    open,
-  )
-
   let itemIndex = 0
-  return (
-    <>
-      {trigger}
-      {open &&
-        createPortal(
-          // The shell is what `usePopupPosition` places and caps against the
-          // viewport; the list inside it is the menu, and the part that
-          // scrolls — under `maxRows`, or when the viewport is the tighter cap.
-          <div
-            ref={popupRef}
-            // 23c form 4: the shell's inset around the list, and the popup
-            // shell Select's listbox wears (`POPUP_SHELL`).
-            className={['orbital-no-drag orbital-popover-in fixed z-[60] flex max-w-[calc(100vw-16px)] flex-col p-1.5', POPUP_SHELL].join(' ')}
-            style={widthPx === undefined ? undefined : { width: `${widthPx}px` }}
-          >
+  return createPortal(
+    // The shell is what `usePopupPosition` places and caps against the
+    // viewport; the list inside it is the menu, and the part that
+    // scrolls — under `maxRows`, or when the viewport is the tighter cap.
+    <div
+      ref={popupRef}
+      // 23c form 4: the shell's inset around the list, and the popup
+      // shell Select's listbox wears (`POPUP_SHELL`).
+      className={['orbital-no-drag orbital-popover-in fixed z-[60] flex max-w-[calc(100vw-16px)] flex-col p-1.5', POPUP_SHELL].join(' ')}
+      style={widthPx === undefined ? undefined : { width: `${widthPx}px` }}
+    >
+      <div
+        ref={listRef}
+        id={id}
+        role="menu"
+        aria-label={aria['aria-label']}
+        onKeyDown={handleMenuKeyDown}
+        // 23c form 4's gap between rows. `relative` makes the list the
+        // rows' offset parent, which the ceiling is measured against.
+        className="relative flex min-h-0 flex-col gap-0.5 overflow-y-auto"
+      >
+        {entries.map((entry, i) => {
+          if (entry === MENU_SEPARATOR) {
+            return (
+              <div
+                key={`separator-${i}`}
+                role="separator"
+                className="mx-0.5 my-1 h-px shrink-0 bg-[rgba(150,205,255,.1)]"
+              />
+            )
+          }
+          if (!isItem(entry)) {
+            return (
+              <div
+                key={`heading-${i}`}
+                role="presentation"
+                // 25a's group titles: mono caps in the soft ink, set in
+                // from the rows' edge; the first one gets more room
+                // above it than the ones between groups.
+                className={[
+                  'shrink-0 px-2.5 font-mono text-[9.5px] uppercase tracking-[.18em] text-[rgba(160,190,225,.6)]',
+                  i === 0 ? 'pt-2 pb-1.5' : 'py-1.5',
+                ].join(' ')}
+              >
+                {entry.heading}
+              </div>
+            )
+          }
+          const index = itemIndex++
+          return (
             <div
-              ref={listRef}
-              id={menuId}
-              role="menu"
-              aria-label={aria['aria-label']}
-              onKeyDown={handleMenuKeyDown}
-              // 23c form 4's gap between rows. `relative` makes the list the
-              // rows' offset parent, which the ceiling is measured against.
-              className="relative flex min-h-0 flex-col gap-0.5 overflow-y-auto"
+              key={entry.key}
+              ref={(el) => {
+                itemRefs.current[index] = el
+              }}
+              role="menuitem"
+              tabIndex={-1}
+              aria-label={entry.body === undefined ? undefined : entry.label}
+              aria-disabled={entry.disabled || undefined}
+              aria-current={entry.selected ? 'true' : undefined}
+              onClick={() => run(entry)}
+              onFocus={() => {
+                focusedKey.current = entry.key
+              }}
+              // Pointer and keyboard share one highlight: the row under
+              // the pointer IS the focused row, so arrowing on from a
+              // hover starts where the eye is. Without scrolling: a
+              // list that moved under the pointer would hand the
+              // highlight to the next row.
+              onMouseMove={(e) => {
+                if (document.activeElement !== e.currentTarget) e.currentTarget.focus({ preventScroll: true })
+              }}
+              // 23c form 4's rows: padding, radius, gap, the icon column
+              // and the label's type. The canvas lights the first row at
+              // the strip's hover fill — that is the focused row. 25a/25c
+              // give the selected row a fill of its own; a focused
+              // selected row reads as focused, so it only applies while
+              // the row is not focused.
+              className={[
+                'group flex shrink-0 cursor-pointer items-center gap-2.5 rounded-[7px] px-2 py-[7px] outline-none',
+                'text-[rgba(220,235,255,.9)] focus:bg-[rgba(150,205,255,.09)] focus:text-[#e8eef8]',
+                'aria-[current=true]:not-focus:bg-[rgba(150,205,255,.1)]',
+                'aria-disabled:cursor-default aria-disabled:opacity-50',
+              ].join(' ')}
             >
-              {entries.map((entry, i) => {
-                if (entry === MENU_SEPARATOR) {
-                  return (
-                    <div
-                      key={`separator-${i}`}
-                      role="separator"
-                      className="mx-0.5 my-1 h-px shrink-0 bg-[rgba(150,205,255,.1)]"
-                    />
-                  )
-                }
-                if (!isItem(entry)) {
-                  return (
-                    <div
-                      key={`heading-${i}`}
-                      role="presentation"
-                      // 25a's group titles: mono caps in the soft ink, set in
-                      // from the rows' edge; the first one gets more room
-                      // above it than the ones between groups.
-                      className={[
-                        'shrink-0 px-2.5 font-mono text-[9.5px] uppercase tracking-[.18em] text-[rgba(160,190,225,.6)]',
-                        i === 0 ? 'pt-2 pb-1.5' : 'py-1.5',
-                      ].join(' ')}
-                    >
-                      {entry.heading}
-                    </div>
-                  )
-                }
-                const index = itemIndex++
-                return (
-                  <div
-                    key={entry.key}
-                    ref={(el) => {
-                      itemRefs.current[index] = el
-                    }}
-                    role="menuitem"
-                    tabIndex={-1}
-                    aria-label={entry.body === undefined ? undefined : entry.label}
-                    aria-disabled={entry.disabled || undefined}
-                    aria-current={entry.selected ? 'true' : undefined}
-                    onClick={() => run(entry)}
-                    onFocus={() => {
-                      focusedKey.current = entry.key
-                    }}
-                    // Pointer and keyboard share one highlight: the row under
-                    // the pointer IS the focused row, so arrowing on from a
-                    // hover starts where the eye is. Without scrolling: a
-                    // list that moved under the pointer would hand the
-                    // highlight to the next row.
-                    onMouseMove={(e) => {
-                      if (document.activeElement !== e.currentTarget) e.currentTarget.focus({ preventScroll: true })
-                    }}
-                    // 23c form 4's rows: padding, radius, gap, the icon column
-                    // and the label's type. The canvas lights the first row at
-                    // the strip's hover fill — that is the focused row. 25a/25c
-                    // give the selected row a fill of its own; a focused
-                    // selected row reads as focused, so it only applies while
-                    // the row is not focused.
-                    className={[
-                      'group flex shrink-0 cursor-pointer items-center gap-2.5 rounded-[7px] px-2 py-[7px] outline-none',
-                      'text-[rgba(220,235,255,.9)] focus:bg-[rgba(150,205,255,.09)] focus:text-[#e8eef8]',
-                      'aria-[current=true]:not-focus:bg-[rgba(150,205,255,.1)]',
-                      'aria-disabled:cursor-default aria-disabled:opacity-50',
-                    ].join(' ')}
+              {entry.body !== undefined ? (
+                <div className="min-w-0 flex-1">{entry.body}</div>
+              ) : (
+                <>
+                  <span
+                    aria-hidden
+                    className="grid w-5 shrink-0 place-items-center text-[rgba(200,220,245,.7)] group-focus:text-[rgba(200,220,245,.85)]"
                   >
-                    {entry.body !== undefined ? (
-                      <div className="min-w-0 flex-1">{entry.body}</div>
-                    ) : (
-                      <>
-                        <span
-                          aria-hidden
-                          className="grid w-5 shrink-0 place-items-center text-[rgba(200,220,245,.7)] group-focus:text-[rgba(200,220,245,.85)]"
-                        >
-                          {entry.icon}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate font-sans text-[12.5px] font-semibold">{entry.label}</span>
-                        {entry.detail !== undefined && (
-                          <span className="shrink-0 font-mono text-[10px] text-[rgba(160,190,225,.5)]">{entry.detail}</span>
-                        )}
-                      </>
-                    )}
-                    {marksSelection && (
-                      // 25a's mark: a fixed column in the accent, kept on
-                      // every row so marking one shifts none.
-                      <span aria-hidden className="block w-3 shrink-0 text-[11px] text-accent">
-                        {entry.selected ? '✓' : null}
-                      </span>
-                    )}
-                  </div>
-                )
-              })}
+                    {entry.icon}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate font-sans text-[12.5px] font-semibold">{entry.label}</span>
+                  {entry.detail !== undefined && (
+                    <span className="shrink-0 font-mono text-[10px] text-[rgba(160,190,225,.5)]">{entry.detail}</span>
+                  )}
+                </>
+              )}
+              {marksSelection && (
+                // 25a's mark: a fixed column in the accent, kept on
+                // every row so marking one shifts none.
+                <span aria-hidden className="block w-3 shrink-0 text-[11px] text-accent">
+                  {entry.selected ? '✓' : null}
+                </span>
+              )}
             </div>
-            {footer}
-          </div>,
-          document.body,
-        )}
-    </>
+          )
+        })}
+      </div>
+      {footer}
+    </div>,
+    document.body,
   )
 }

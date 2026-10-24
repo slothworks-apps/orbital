@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent, ReactNode, Ref } from 'react'
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, Ref } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   SIDEBAR_DEFAULT_PX,
@@ -42,6 +42,7 @@ import { ClaudeDirMark, useClaudeDirMark } from '../ui/ClaudeDirMark'
 import { sessionViewTransitionName } from '../lib/viewTransition'
 import { timeAgo, shortenPath } from '../lib/format'
 import { KindGlyph } from '../ui/KindGlyph'
+import { useSessionMenu, useSessionMenuSubject } from './SessionContextMenu'
 import {
   asOfLabel, chipsOfKey, deviceChipsKey, devicesOn, localClaudeDirId, machineOffline, namesShown,
   showDeviceRow, toggleDevice,
@@ -334,6 +335,8 @@ function SessionRow({
   selected,
   onSelect,
   onTogglePin,
+  onContextMenu,
+  menuSubject = false,
   right,
   history = false,
   detached = false,
@@ -342,6 +345,10 @@ function SessionRow({
   session: ApiSession
   tags: Tag[]
   selected: boolean
+  /** Right-click on the row: the session's context menu. Absent without a host (the website's demos). */
+  onContextMenu?: (id: string, e: ReactMouseEvent) => void
+  /** The open context menu is about this row: it keeps its hover fill until the menu closes. */
+  menuSubject?: boolean
   /** The device name that opens the path line while names show (`namesShown`, canvas 50e); null otherwise. */
   deviceName?: string | null
   /** Open in a detached window (spec: 2026-09-23-detached-session-windows-design). */
@@ -373,8 +380,10 @@ function SessionRow({
       // A style prop rather than a class: the name is per session, and
       // Tailwind cannot build a utility from a runtime value.
       style={{ viewTransitionName: sessionViewTransitionName(session.id) }}
+      onContextMenu={onContextMenu ? (e) => onContextMenu(session.id, e) : undefined}
       className={[
         'group/row relative rounded-lg transition-colors hover:bg-white/5',
+        menuSubject && !selected ? 'bg-white/5' : '',
         // 1a dims ended rows; per-row rather than on the list, because 4c
         // puts ended and live rows side by side inside PINNED. 50e halves a
         // row whose device is offline, ended or not.
@@ -630,6 +639,11 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
     },
     [select]
   )
+
+  // Right-click on a row, pinned ones included: the session's context menu,
+  // whose Open is the row's click (spec 2026-10-24-session-context-menu-design).
+  const handleContextMenu = useSessionMenu('sidebar', handleSelect)
+  const menuSubjectId = useSessionMenuSubject('sidebar')
 
   const handleTogglePin = useCallback(
     (id: string, next: boolean) => {
@@ -891,6 +905,8 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
                   detached={detachedIds.includes(s.id)}
                   onSelect={handleSelect}
                   onTogglePin={handleTogglePin}
+                  onContextMenu={handleContextMenu ?? undefined}
+                  menuSubject={s.id === menuSubjectId}
                   deviceName={deviceNameOf(s)}
                   history={s.status === 'ended'}
                   right={
@@ -931,6 +947,8 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
               detached={detachedIds.includes(s.id)}
               onSelect={handleSelect}
               onTogglePin={handleTogglePin}
+              onContextMenu={handleContextMenu ?? undefined}
+              menuSubject={s.id === menuSubjectId}
               deviceName={deviceNameOf(s)}
               right={<RowStatus session={s} />}
             />
@@ -948,6 +966,8 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
               detached={detachedIds.includes(s.id)}
               onSelect={handleSelect}
               onTogglePin={handleTogglePin}
+              onContextMenu={handleContextMenu ?? undefined}
+              menuSubject={s.id === menuSubjectId}
               deviceName={deviceNameOf(s)}
               history
               right={

@@ -616,6 +616,15 @@ export interface PlanetProps {
   onCompactFailedClick?: (sessionId: string) => void
   onClick?: (sessionId: string) => void
   /**
+   * A right-click (or ctrl+click) on the planet, over the same hit area the
+   * click takes: the session's context menu (spec
+   * 2026-10-24-session-context-menu-design). Absent — the website's demos —
+   * the browser keeps the event.
+   */
+  onContextMenu?: (sessionId: string, event: MouseEvent) => void
+  /** The open context menu is about this planet: it holds its hover look until the menu closes. */
+  menuSubject?: boolean
+  /**
    * How the state pill is drawn (`map_state_pills`): a resting dot that
    * spells its word out on hover, or the word always (canvas 24e / 24a).
    */
@@ -1498,6 +1507,8 @@ function PlanetBody({
   compactingSince = null,
   onCompactFailedClick,
   onClick,
+  onContextMenu,
+  menuSubject = false,
   statePills = 'dot',
   onPillClick,
   detached = false,
@@ -1713,7 +1724,9 @@ function PlanetBody({
    * truncates: hovering a short-named planet changes nothing, so no scrim
    * ever flashes over a label that is already whole.
    */
-  const [labelHovered, setLabelHovered] = useState(false)
+  const [pointerOver, setPointerOver] = useState(false)
+  // The pointer leaves for the context menu, and the planet stays the one it is about.
+  const labelHovered = pointerOver || menuSubject
   const hoverActive = labelHovered && !hidden && !deviceOff && truncateLabel(session.title) !== session.title
   const hoverFade = useFadeTween(hoverActive, HOVER_LABEL_ENTER_MS, HOVER_LABEL_EXIT_MS)
   const overlayMounted = useLingering(hoverActive, HOVER_LABEL_EXIT_MS)
@@ -2173,6 +2186,12 @@ function PlanetBody({
     onClick?.(session.id)
   }
 
+  const handleContextMenu = (event: ThreeEvent<MouseEvent>) => {
+    if (hidden || deviceOff) return
+    event.stopPropagation()
+    onContextMenu?.(session.id, event.nativeEvent)
+  }
+
   const handlePointerDown = (event: ThreeEvent<PointerEvent>) => {
     if (hidden || deviceOff) return
     onBodyPointerDown?.(session.id, event)
@@ -2180,9 +2199,9 @@ function PlanetBody({
 
   const handleHoverOver = () => {
     hoverTypeElapsed.current = 0
-    setLabelHovered(true)
+    setPointerOver(true)
   }
-  const handleHoverOut = () => setLabelHovered(false)
+  const handleHoverOut = () => setPointerOver(false)
 
   return (
     <group
@@ -2192,6 +2211,7 @@ function PlanetBody({
       position={[simBody?.x ?? move.x.value, simBody?.y ?? move.y.value, 0]}
       scale={scaleTween.value * scaleMultiplier}
       onClick={onClick ? handleClick : undefined}
+      onContextMenu={onContextMenu ? handleContextMenu : undefined}
       onPointerDown={onBodyPointerDown ? handlePointerDown : undefined}
     >
       {hasGlowTexture && (

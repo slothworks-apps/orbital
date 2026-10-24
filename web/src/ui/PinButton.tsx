@@ -26,7 +26,7 @@ const GEOMETRY = {
   18: { radius: 5, glyphW: 10, glyphH: 11, head: 6.5, headBorder: 1.25, stemW: 1.25, stemH: 4.5 },
 } as const satisfies Record<PinSize, unknown>
 
-function PinGlyph({ size, pinned }: { size: PinSize; pinned: boolean }) {
+export function PinGlyph({ size, pinned }: { size: PinSize; pinned: boolean }) {
   const g = GEOMETRY[size]
   return (
     // `block`: an inline box ignores width/height (web/CLAUDE.md), and the

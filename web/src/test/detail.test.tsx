@@ -14,6 +14,8 @@ vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
 import { api } from '../lib/api'
 import { DetailPanel } from '../panels/DetailPanel'
+import { SessionDialogs } from '../panels/SessionDialogs'
+import { askToClear } from '../store/sessionActions'
 import { ModelSwitcher } from '../panels/ModelSwitcher'
 import { installKeyListener } from '../lib/commands'
 import { clickAndType, fieldValue, replaceField } from './composerField'
@@ -115,6 +117,16 @@ function resetStore(
     ...overrides,
     ui: { ...defaultUi, ...overrides.ui },
   })
+}
+
+/** The panel with the session dialogs its header opens, mounted beside it as the app mounts them. */
+function PanelWithDialogs() {
+  return (
+    <>
+      <DetailPanel />
+      <SessionDialogs />
+    </>
+  )
 }
 
 /**
@@ -858,7 +870,7 @@ describe('DetailPanel clear flow', () => {
       sessions: { a: makeSession({ id: 'a', source: 'terminal' }) },
       ui: { selectedId: 'a' },
     })
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     expect(screen.queryByRole('button', { name: /^clear$/i })).not.toBeInTheDocument()
   })
 
@@ -869,7 +881,7 @@ describe('DetailPanel clear flow', () => {
       ui: { selectedId: 'a' },
     })
 
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     await user.click(screen.getByRole('button', { name: /^clear$/i }))
 
     expect(api.clearSession).not.toHaveBeenCalled()
@@ -890,7 +902,7 @@ describe('DetailPanel clear flow', () => {
       ui: { selectedId: 'a' },
     })
 
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     await user.click(screen.getByRole('button', { name: /^clear$/i }))
 
     expect(api.clearSession).toHaveBeenCalledWith('a', true)
@@ -910,7 +922,7 @@ describe('DetailPanel clear flow', () => {
       ui: { selectedId: 'a', dialog: 'clear' },
     })
 
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     await user.click(screen.getByRole('button', { name: /clear & start new/i }))
 
     await waitFor(() => expect(api.clearSession).toHaveBeenCalledWith('a', true))
@@ -927,7 +939,7 @@ describe('DetailPanel clear flow', () => {
       ui: { selectedId: 'a', dialog: 'clear' },
     })
 
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     await user.click(screen.getByRole('checkbox', { name: /don't ask again/i }))
     await user.click(screen.getByRole('button', { name: /clear & start new/i }))
 
@@ -941,7 +953,7 @@ describe('DetailPanel clear flow', () => {
       ui: { selectedId: 'a', dialog: 'clear' },
     })
 
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     fireEvent.keyDown(document, { key: 'Escape' })
 
     expect(api.clearSession).not.toHaveBeenCalled()
@@ -956,7 +968,7 @@ describe('DetailPanel clear flow', () => {
       ui: { selectedId: 'a', dialog: 'clear' },
     })
 
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     await user.click(screen.getByRole('button', { name: /clear & start new/i }))
 
     await waitFor(() =>
@@ -975,7 +987,7 @@ describe('DetailPanel clear flow', () => {
       ui: { selectedId: 'a', dialog: 'clear' },
     })
 
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     await user.click(screen.getByRole('checkbox', { name: /don't ask again/i }))
     await user.click(screen.getByRole('button', { name: /clear & start new/i }))
 
@@ -999,7 +1011,7 @@ describe('DetailPanel clear flow', () => {
       ui: { selectedId: 'a', dialog: 'clear' },
     })
 
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
 
     // Selection changes elsewhere (e.g. a sidebar click) while the dialog
     // the user opened for 'a' is still open.
@@ -1704,7 +1716,7 @@ describe('DetailPanel End session', () => {
   async function endFromHeader(settings: Record<string, string>) {
     vi.mocked(api.endSession).mockResolvedValue({ ok: true })
     resetStore({ sessions: { a: webSession }, settings, ui: { selectedId: 'a' } })
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     await userEvent.click(screen.getByRole('button', { name: 'End session' }))
     const dialog = await screen.findByRole('dialog')
     await userEvent.click(within(dialog).getByRole('button', { name: 'End session' }))
@@ -1720,6 +1732,63 @@ describe('DetailPanel End session', () => {
   it('keeps the panel on the ended session when the setting is off', async () => {
     await endFromHeader({ end_closes_panel: 'false' })
 
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(useOrbital.getState().ui.selectedId).toBe('a')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The context menu's Clear and End: a session that is not the selected one
+// (spec 2026-10-24-session-context-menu-design)
+// ---------------------------------------------------------------------------
+
+describe('session dialogs opened for a session that is not selected', () => {
+  const other = makeSession({ id: 'b', title: 'Other session' })
+
+  it('clears the session the dialog was opened for, then selects the new one', async () => {
+    vi.mocked(api.clearSession).mockResolvedValue({ ok: true, sessionId: 'c' })
+    vi.mocked(api.getMessages).mockResolvedValue([])
+    resetStore({
+      sessions: { a: webSession, b: other, c: makeSession({ id: 'c' }) },
+      ui: { selectedId: 'a' },
+    })
+    render(<SessionDialogs />)
+    act(() => useOrbital.getState().setDialog('clear', 'b'))
+
+    await userEvent.click(await screen.findByRole('button', { name: /clear & start new/i }))
+
+    await waitFor(() => expect(api.clearSession).toHaveBeenCalledWith('b', true))
+    await waitFor(() => expect(useOrbital.getState().ui.selectedId).toBe('c'))
+  })
+
+  it('with "don\'t ask again" set, clears that session at once and selects the new one', async () => {
+    vi.mocked(api.clearSession).mockResolvedValue({ ok: true, sessionId: 'c' })
+    vi.mocked(api.getMessages).mockResolvedValue([])
+    resetStore({
+      sessions: { a: webSession, b: other, c: makeSession({ id: 'c' }) },
+      settings: { confirm_before_clear: 'false' },
+      ui: { selectedId: 'a' },
+    })
+    render(<SessionDialogs />)
+
+    askToClear('b')
+
+    expect(api.clearSession).toHaveBeenCalledWith('b', true)
+    expect(useOrbital.getState().ui.dialog).toBeNull()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    await waitFor(() => expect(useOrbital.getState().ui.selectedId).toBe('c'))
+  })
+
+  it('ends the session the dialog was opened for and leaves the selection where it was', async () => {
+    vi.mocked(api.endSession).mockResolvedValue({ ok: true })
+    resetStore({ sessions: { a: webSession, b: other }, ui: { selectedId: 'a' } })
+    render(<SessionDialogs />)
+    act(() => useOrbital.getState().setDialog('end', 'b'))
+
+    const dialog = await screen.findByRole('dialog')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'End session' }))
+
+    await waitFor(() => expect(api.endSession).toHaveBeenCalledWith('b'))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(useOrbital.getState().ui.selectedId).toBe('a')
   })

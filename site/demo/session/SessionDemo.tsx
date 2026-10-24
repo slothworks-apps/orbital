@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { getSocket } from '../../../web/src/lib/socket'
 import { ComposerLockContext } from '../../../web/src/panels/Composer'
 import { DetailPanel } from '../../../web/src/panels/DetailPanel'
+import { SessionDialogs } from '../../../web/src/panels/SessionDialogs'
 import { useOrbital, type SessionEvent, type SessionsEvent } from '../../../web/src/store/store'
 import { ErrorBoundary } from '../../../web/src/ui/ErrorBoundary'
 import { EscapeBoundary } from '../../../web/src/ui/escapeLayer'
@@ -36,6 +37,8 @@ export function SessionDemo({ id }: { id: string }) {
             </ErrorBoundary>
           </div>
           <TrafficLights />
+          {/* The header's Take over, Clear and End, as `SessionWindow` mounts them. */}
+          <SessionDialogs standalone />
           <MapNoticeHost inWindow />
         </div>
       </EscapeBoundary>
