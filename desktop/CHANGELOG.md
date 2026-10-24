@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- A subagent's detail names its model as soon as the agent takes its first step, instead of only once it writes text, often at the very end.
 
 ## [0.41.0] — 2026-10-23
 ### Added
