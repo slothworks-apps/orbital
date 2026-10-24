@@ -365,9 +365,9 @@ These differ from the text above:
   account answers with no windows.
 - **The UI follows `Feature - Claude directories` 44a–44f.** A directory
   is a filled square mark with a monogram (`claudeDirMonograms` in
-  `web/src/lib/claudeDirs.ts`), in front of the planet label from 70 %
-  zoom up, first on the sidebar's and the phone's meta line, as a chip
-  after the tag in the detail header, and as the head of each group on the
+  `web/src/lib/claudeDirs.ts`), in front of the planet label, first on
+  the sidebar's and the phone's meta line, as a chip after the tag in the
+  detail header, and as the head of each group on the
   Limits page. New session shows two or three directories as segments
   between the project and the model, four or more as a control in its
   header; ⌘D steps to the next one.
@@ -379,11 +379,10 @@ These differ from the text above:
   strength, in every picker, and the prefill falls through it like a
   removed one. Its sessions stay on the map, as § Edge cases says; the
   canvas notes suggest hiding them, which was not taken.
-- **The map's threshold is relative to the map's standard zoom.** The
-  canvas drops the mark below 70 % of its standard view; the map's standard
-  view is `REFERENCE_ZOOM` (60), so the mark shows from `0.7 ×
-  REFERENCE_ZOOM` up. Read as a raw zoom of 70, it was hidden at the zoom
-  the map opens on, and most people never saw it.
+- **The map's mark shows at every zoom.** The canvas drops it below 70 %
+  zoom. Read as a raw zoom of 70, that hid it at the zoom the map opens on
+  (`REFERENCE_ZOOM`, 60), and it was hardly ever seen; it now stays at
+  every zoom, by choice.
 - **The lists keep the mark on the meta line.** Moving it before the
   session's name in the sidebar was considered and not taken; the map is
   where it leads the name.
