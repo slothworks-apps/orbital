@@ -765,7 +765,10 @@ export function sdkToChatMessages(
         out.push({ id: streamed ?? id, role: 'thinking', text: block.thinking, model, timestamp, ...uuid });
       }
     } else if (block.type === 'tool_use') {
-      out.push({ id, role: 'tool_use', toolName: block.name, toolInput: block.input, toolUseId: block.id, timestamp, ...uuid });
+      // The model rides tool calls too, as it does on the indexed path: a
+      // subagent that only reads and searches would otherwise name no model
+      // until its closing text.
+      out.push({ id, role: 'tool_use', toolName: block.name, toolInput: block.input, toolUseId: block.id, model, timestamp, ...uuid });
     } else if (block.type === 'tool_result') {
       const parts = toolResultParts(block.content ?? '', images);
       out.push({

@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Fixed
+- A subagent's detail names its model as soon as the agent takes its first step, instead of only once it writes text, often at the very end. For a session started in Orbital, needs an updated Mac.
 
 ## [0.20.0] — 2026-10-23
 ### Added
