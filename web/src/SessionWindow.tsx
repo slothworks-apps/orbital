@@ -15,6 +15,7 @@ import { useViewportWidth } from './lib/useViewportWidth'
 import { useTranscriptCheck } from './lib/useTranscriptCheck'
 import { STATS_PATH } from './stats/route'
 import { DetailPanel } from './panels/DetailPanel'
+import { SessionDialogs } from './panels/SessionDialogs'
 import { SubagentPanel } from './panels/SubagentPanel'
 import { TaskOutputPanel } from './panels/TaskOutputPanel'
 import { HarnessPanel } from './panels/HarnessPanel'
@@ -237,6 +238,8 @@ export function SessionWindow({ id }: { id: string }) {
         )}
 
         <ErrorLog open={dialog === 'errors'} onClose={() => setDialog(null)} />
+        {/* The header's Take over, Clear and End — the panel itself is this window. */}
+        <SessionDialogs standalone />
         {/* A `/compact` past running subagents, from the composer or the map's badge. */}
         <CompactDialog />
         <McpDialog />

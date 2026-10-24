@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
+import type { CSSProperties, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import {
   mapStatePills,
   parseContextThresholds,
@@ -23,6 +23,7 @@ import { stateColor, stateDot, stillDot } from '../../lib/stateStyle'
 import { decisionHeadline } from '../../lib/decisionCard'
 import { loginWaitLabels } from '../../lib/profileLogin'
 import { LoginCardBlock } from '../../panels/LoginNotice'
+import { useSessionMenu } from '../../panels/SessionContextMenu'
 import { contextLevelOklch, oklchCss, CONTEXT_CRITICAL_OKLCH } from '../../lib/usage'
 import { reportError } from '../../lib/errors'
 import { useNow } from '../../lib/useNow'
@@ -163,6 +164,24 @@ export function DeskMap() {
     if (card) dragRef.current = { kind: 'card', id: card.dataset.card!, dx: 0, dy: 0, ...base }
   }, [])
 
+  // Right-click on a card: the session's context menu, whose Open is the
+  // card's click (spec 2026-10-24-session-context-menu-design). Null without
+  // a host. A field in the card keeps the browser's own menu.
+  const openMenu = useSessionMenu('map', selectSession)
+  const onContextMenu = useCallback(
+    (e: ReactMouseEvent<HTMLDivElement>) => {
+      const target = e.target as Element
+      if (!openMenu || target.closest('input, textarea')) return
+      const card = target.closest<HTMLElement>('[data-card]')
+      if (!card) return
+      // A ctrl+click on a Mac arrives as a left press first: it is not also
+      // a click that selects the card on its release.
+      dragRef.current = null
+      openMenu(card.dataset.card!, e)
+    },
+    [openMenu],
+  )
+
   const onPointerMove = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       const d = dragRef.current
@@ -248,6 +267,7 @@ export function DeskMap() {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onContextMenu={onContextMenu}
       onClick={(e) => {
         if (e.target === e.currentTarget || (e.target as Element).hasAttribute('data-desk-floor'))
           useOrbital.setState((s) => (s.ui.selectedId ? { ui: { ...s.ui, selectedId: null } } : s))

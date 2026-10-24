@@ -14,6 +14,7 @@ vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
 import { api } from '../lib/api'
 import { DetailPanel } from '../panels/DetailPanel'
+import { SessionDialogs } from '../panels/SessionDialogs'
 import { ModelSwitcher } from '../panels/ModelSwitcher'
 import { installKeyListener } from '../lib/commands'
 import { clickAndType, fieldValue, replaceField } from './composerField'
@@ -115,6 +116,16 @@ function resetStore(
     ...overrides,
     ui: { ...defaultUi, ...overrides.ui },
   })
+}
+
+/** The panel with the session dialogs its header opens, mounted beside it as the app mounts them. */
+function PanelWithDialogs() {
+  return (
+    <>
+      <DetailPanel />
+      <SessionDialogs />
+    </>
+  )
 }
 
 /**
@@ -858,7 +869,7 @@ describe('DetailPanel clear flow', () => {
       sessions: { a: makeSession({ id: 'a', source: 'terminal' }) },
       ui: { selectedId: 'a' },
     })
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     expect(screen.queryByRole('button', { name: /^clear$/i })).not.toBeInTheDocument()
   })
 
@@ -869,7 +880,7 @@ describe('DetailPanel clear flow', () => {
       ui: { selectedId: 'a' },
     })
 
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     await user.click(screen.getByRole('button', { name: /^clear$/i }))
 
     expect(api.clearSession).not.toHaveBeenCalled()
@@ -890,7 +901,7 @@ describe('DetailPanel clear flow', () => {
       ui: { selectedId: 'a' },
     })
 
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     await user.click(screen.getByRole('button', { name: /^clear$/i }))
 
     expect(api.clearSession).toHaveBeenCalledWith('a', true)
@@ -910,7 +921,7 @@ describe('DetailPanel clear flow', () => {
       ui: { selectedId: 'a', dialog: 'clear' },
     })
 
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     await user.click(screen.getByRole('button', { name: /clear & start new/i }))
 
     await waitFor(() => expect(api.clearSession).toHaveBeenCalledWith('a', true))
@@ -927,7 +938,7 @@ describe('DetailPanel clear flow', () => {
       ui: { selectedId: 'a', dialog: 'clear' },
     })
 
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     await user.click(screen.getByRole('checkbox', { name: /don't ask again/i }))
     await user.click(screen.getByRole('button', { name: /clear & start new/i }))
 
@@ -941,7 +952,7 @@ describe('DetailPanel clear flow', () => {
       ui: { selectedId: 'a', dialog: 'clear' },
     })
 
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     fireEvent.keyDown(document, { key: 'Escape' })
 
     expect(api.clearSession).not.toHaveBeenCalled()
@@ -956,7 +967,7 @@ describe('DetailPanel clear flow', () => {
       ui: { selectedId: 'a', dialog: 'clear' },
     })
 
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     await user.click(screen.getByRole('button', { name: /clear & start new/i }))
 
     await waitFor(() =>
@@ -975,7 +986,7 @@ describe('DetailPanel clear flow', () => {
       ui: { selectedId: 'a', dialog: 'clear' },
     })
 
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     await user.click(screen.getByRole('checkbox', { name: /don't ask again/i }))
     await user.click(screen.getByRole('button', { name: /clear & start new/i }))
 
@@ -999,7 +1010,7 @@ describe('DetailPanel clear flow', () => {
       ui: { selectedId: 'a', dialog: 'clear' },
     })
 
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
 
     // Selection changes elsewhere (e.g. a sidebar click) while the dialog
     // the user opened for 'a' is still open.
@@ -1704,7 +1715,7 @@ describe('DetailPanel End session', () => {
   async function endFromHeader(settings: Record<string, string>) {
     vi.mocked(api.endSession).mockResolvedValue({ ok: true })
     resetStore({ sessions: { a: webSession }, settings, ui: { selectedId: 'a' } })
-    render(<DetailPanel />)
+    render(<PanelWithDialogs />)
     await userEvent.click(screen.getByRole('button', { name: 'End session' }))
     const dialog = await screen.findByRole('dialog')
     await userEvent.click(within(dialog).getByRole('button', { name: 'End session' }))

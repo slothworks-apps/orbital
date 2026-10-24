@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Right-click a planet, a Desk card or a session in the sidebar for a menu of what you can do with it: open, rename, retag, pin, copy its path, clear, end and more — without opening the session first.
 
 ## [0.41.0] — 2026-10-23
 ### Added

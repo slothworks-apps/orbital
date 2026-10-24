@@ -7,7 +7,6 @@ import {
   parseDetailPanelWidth,
   parseContextThresholds,
   headerSessionStats,
-  endClosesPanel,
   questionComposerTarget,
   resolvePanelPairWidths,
   resolveWindowPanelWidths,
@@ -56,11 +55,11 @@ import { MediaGallery } from './MediaGallery'
 import { useMedia } from '../store/media'
 import { FileViewer } from './FileViewer'
 import { StopDialog } from './StopDialog'
-import { ClearDialog } from './ClearDialog'
-import { EndDialog } from './EndDialog'
-import { TakeOverDialog } from './TakeOverDialog'
 import { RewindDialog } from './RewindDialog'
 import { cancelRewind, useRewindUi } from '../store/rewind'
+import {
+  askToClear, askToTakeOver, changeTag, regenerateName, renameTaken, useSessionActions,
+} from '../store/sessionActions'
 import { isRewindCommand } from '../lib/rewind'
 import { MCP_COMMAND, isMcpCommand } from '../lib/mcp'
 import { useMcpUi } from '../store/mcp'
@@ -72,7 +71,6 @@ import {
   deviceChips, deviceLock, ideHere, localClaudeDirId, machineOffline, namesShown, stateAsOf,
   type DeviceLock,
 } from '../lib/devices'
-import { harnessUnfinished } from '../lib/harnessSession'
 import { SubagentChip } from './SubagentChip'
 import { TaskChip } from './TaskChip'
 import { PIN_TOOLTIP_DELAY_MS, UtilityStrip } from './UtilityStrip'
@@ -280,10 +278,9 @@ export function DetailPanel({
   // edited draft. Cleared on the way IN rather than on the way out, so a
   // cancel that never produced a blur cannot poison the next edit.
   const titleAbandoned = useRef(false)
-  // The ids whose name is being written. The panel outlives a switch to
-  // another session, so a single flag would spin on whichever one is open.
-  const [retitlingIds, setRetitlingIds] = useState<ReadonlySet<string>>(() => new Set())
-  const retitling = id ? retitlingIds.has(id) : false
+  // Whether this session's name is being written — by the button below or
+  // by the context menu's Regenerate name, which share the store's list.
+  const retitling = useSessionActions((s) => (id ? s.retitling.includes(id) : false))
   // Per session and in the store, so leaving for another session and coming
   // back does not lose a half-written message.
   const prompt = useOrbital((s) => (id ? (s.composerDrafts[id] ?? '') : ''))
@@ -420,6 +417,19 @@ export function DetailPanel({
     if (isEditingTitle) return
     setTitleDraft(session?.title ?? '')
   }, [id, session?.title, isEditingTitle])
+
+  // The context menu's Rename (spec 2026-10-24-session-context-menu-design):
+  // it selected the session and left the request here, and the title opens
+  // for editing as a click on it opens it. After the reset on a change of
+  // session above, which would otherwise close it again.
+  const renaming = useSessionActions((s) => s.renaming)
+  const renameReady = renaming !== null && renaming === selectedId && !hidden && session !== undefined
+  useEffect(() => {
+    if (!renameReady) return
+    renameTaken()
+    titleAbandoned.current = false
+    setIsEditingTitle(true)
+  }, [renameReady])
 
   // The walkthrough's entry (spec 2026-09-23-walkthrough-design § The page,
   // canvas 21f): present only for Orbital's own sessions with at least one
@@ -558,78 +568,16 @@ export function DetailPanel({
     })
   }
 
-  /**
-   * Names the session from its own contents, now.
-   *
-   * Nothing is written here on success: the server publishes the new title on
-   * the `sessions` topic, and the draft above reseeds from it. What this does
-   * own is the case where the model answers that the current name still fits
-   * — silence there would read as a broken button every time it agrees.
-   */
   function handleRetitle() {
-    if (!id || retitling) return
-    const target = id
-    setRetitlingIds((ids) => new Set(ids).add(target))
-    api
-      .retitleSession(target)
-      .then(({ changed }) => {
-        if (changed) return
-        useOrbital.setState({
-          toast: { kind: 'info', message: 'Name kept — it still fits this session.' },
-        })
-      })
-      .catch((err) => reportError(err, 'Failed to regenerate the name'))
-      .finally(() =>
-        setRetitlingIds((ids) => {
-          const next = new Set(ids)
-          next.delete(target)
-          return next
-        }),
-      )
+    if (id) regenerateName(id)
   }
 
-  /**
-   * A session wears exactly one tag (canvas 1b), so picking replaces rather
-   * than adds: the PUT carries a single id, which the server turns into one
-   * manual row and a `manual_removed` row for every rule tag it displaces.
-   */
   function selectTag(tagId: number) {
-    if (!id || !session) return
-    const previousTagIds = session.tagIds
-    if (previousTagIds.length === 1 && previousTagIds[0] === tagId) return
-    const nextIds = [tagId]
-    useOrbital.setState((state) => {
-      const current = state.sessions[id]
-      if (!current) return state
-      return { sessions: { ...state.sessions, [id]: { ...current, tagIds: nextIds } } }
-    })
-    api.setSessionTags(id, nextIds).catch((err) => {
-      useOrbital.setState((state) => {
-        const current = state.sessions[id]
-        if (!current) return state
-        return { sessions: { ...state.sessions, [id]: { ...current, tagIds: previousTagIds } } }
-      })
-      reportError(err, 'Failed to change the session tag')
-    })
+    if (id) changeTag(id, tagId)
   }
 
   function handleClearClick() {
-    if (!id) return
-    // "Don't ask again" skips straight to what the dialog's only action does:
-    // clear and start new. Ending without a successor is End session's job
-    // (spec 2026-09-23-end-session-design).
-    if (settings.confirm_before_clear === 'false') {
-      // The dialog's default, unasked: a harness with steps left goes on in
-      // the new session (spec 2026-10-02-harness-redesign-design § 8).
-      const carry = harnessUnfinished(useOrbital.getState().harnesses[id])
-      void (carry ? api.clearSession(id, true, { carryHarness: true }) : api.clearSession(id, true))
-        .then((result) => {
-          if (result.sessionId) void useOrbital.getState().select(result.sessionId)
-        })
-        .catch((err) => reportError(err, 'Failed to clear session'))
-      return
-    }
-    setDialog('clear')
+    if (id) askToClear(id)
   }
 
   /**
@@ -1321,10 +1269,7 @@ export function DetailPanel({
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => {
-                  if (session.status !== 'idle') setDialog('take-over')
-                  else api.takeOver(session.id).catch((err) => reportError(err, 'Failed to take over the session'))
-                }}
+                onClick={() => askToTakeOver(session.id)}
               >
                 Take over
               </Button>
@@ -1524,7 +1469,7 @@ export function DetailPanel({
       </div>
 
       {/* The file viewer mounts HERE, beside the panel's other session-scoped
-          overlays (Stop/Clear), because it always belongs to the selected
+          overlays (Stop, Rewind), because it always belongs to the selected
           session — it needs this session's id for the read and its cwd/title
           for the refusal copy and footer, and `select()` closing it keeps the
           pairing honest. It portals to document.body like the Lightbox, so
@@ -1533,28 +1478,6 @@ export function DetailPanel({
           gets the session without threading it through the store. */}
       {session && <FileViewer session={session} />}
       <StopDialog open={dialog === 'stop'} sessionId={id} onClose={() => setDialog(null)} />
-      <TakeOverDialog open={dialog === 'take-over'} sessionId={id} onClose={() => setDialog(null)} />
-      <ClearDialog
-        open={dialog === 'clear'}
-        sessionId={id}
-        onClose={() => setDialog(null)}
-      />
-      <EndDialog
-        open={dialog === 'end'}
-        sessionId={id}
-        onClose={() => setDialog(null)}
-        onEnd={async (endedId) => {
-          await useOrbital.getState().endSession(endedId)
-          // `end_closes_panel`: an ended session has nothing left to do here,
-          // so the panel goes the way collapse sends it. Not in a detached
-          // window, which is the panel itself, and not when the selection
-          // has already moved on while the end was in flight.
-          if (standalone || !endClosesPanel(useOrbital.getState().settings)) return
-          useOrbital.setState((s) =>
-            s.ui.selectedId === endedId ? { ui: { ...s.ui, selectedId: null } } : s,
-          )
-        }}
-      />
       <RewindDialog sessionId={id} />
     </Panel>
       {/* The armed panel's chrome (canvas 9c-1 / 9e drop state): accent border

@@ -2,7 +2,7 @@
 id: 2026-10-24-session-context-menu-design
 title: Session context menu on the map and in the sidebar
 type: spec
-status: draft
+status: active
 domain: web
 related:
   - 2026-10-05-mobile-next-design
@@ -112,6 +112,10 @@ maintainer's choice). `SpaceMap` already mounts an `EndDialog` for any
 session; `ClearDialog` and `TakeOverDialog` move up out of `DetailPanel` the
 same way, so one mount serves the header and the context menu alike, and
 the selection does not change under the dialog.
+As built, that one mount is `SessionDialogs`, beside the app's other dialogs
+in `App` (and in the detached window), not inside `SpaceMap`: the sidebar and
+the Desk theme open the menu too, and neither lives in `SpaceMap`. The
+trash's own End confirm stays in `SpaceMap`, since it ends the trash's way.
 
 A session on another device whose machine is offline keeps its menu: Open
 and Copy path still work (they need nothing from that machine), every other
