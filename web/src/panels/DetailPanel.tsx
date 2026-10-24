@@ -57,6 +57,7 @@ import { FileViewer } from './FileViewer'
 import { StopDialog } from './StopDialog'
 import { RewindDialog } from './RewindDialog'
 import { cancelRewind, useRewindUi } from '../store/rewind'
+import { primaryTag } from '../lib/primaryTag'
 import {
   askToClear, askToTakeOver, changeTag, regenerateName, renameTaken, useSessionActions,
 } from '../store/sessionActions'
@@ -88,21 +89,7 @@ import { limitWaitStatus } from '../lib/limits'
 import { loginWaitLabels } from '../lib/profileLogin'
 import { ClaudeDirChip, useClaudeDirMark } from '../ui/ClaudeDirMark'
 import { useClaudeDirModels } from '../lib/useClaudeDirModels'
-import type { ApiSession, BackgroundTask, Tag, WalkthroughSummary } from '../lib/types'
-
-/**
- * The one tag the session wears — first resolvable id, falling back to the
- * default tag. `tagIds` stays an array because that is the wire shape, but a
- * session carries a single tag (canvas 1b); see the sidebar and the map,
- * which pick their hue the same way.
- */
-function primaryTag(session: ApiSession, tags: Tag[]): Tag | undefined {
-  for (const tagId of session.tagIds) {
-    const tag = tags.find((t) => t.id === tagId)
-    if (tag) return tag
-  }
-  return tags.find((t) => t.is_default === 1)
-}
+import type { BackgroundTask, WalkthroughSummary } from '../lib/types'
 
 /** Hue the panel's accents fall back to when the session has no tag — the
  * export's own `oklch(85% .12 205)` accent (canvas 1b). */
@@ -501,7 +488,13 @@ export function DetailPanel({
     shown?.status === 'working' && !isReadOnly(shown) && lock === null
   )
   // Clear and End are Orbital's own, as the strip draws them (`UtilityStrip`).
-  useCommand('session.clear', () => handleClearClick(), shown?.source === 'web')
+  useCommand(
+    'session.clear',
+    () => {
+      if (shown) askToClear(shown.id)
+    },
+    shown?.source === 'web'
+  )
   // ⌘⇧H toggles the harness panel, as the pill and the strip button do;
   // terminal sessions cannot take a harness.
   useCommand(
@@ -566,18 +559,6 @@ export function DetailPanel({
       setTitleDraft(previousTitle)
       reportError(err, 'Failed to rename session')
     })
-  }
-
-  function handleRetitle() {
-    if (id) regenerateName(id)
-  }
-
-  function selectTag(tagId: number) {
-    if (id) changeTag(id, tagId)
-  }
-
-  function handleClearClick() {
-    if (id) askToClear(id)
   }
 
   /**
@@ -701,7 +682,7 @@ export function DetailPanel({
   const footNote =
     session?.status === 'ended' ? endedFootnote({ pinned, endedAt: session.endedAt ?? session.lastAt ?? null }) : null
 
-  const sessionTag = session ? primaryTag(session, tags) : undefined
+  const sessionTag = session ? primaryTag(session.tagIds, tags) : undefined
   const headerHue = sessionTag?.hue
   const accent = tagColor(headerHue ?? ACCENT_HUE)
   /** The context fill's glow below the first threshold (canvas 1b-alt). */
@@ -885,7 +866,7 @@ export function DetailPanel({
             onTogglePin={() => {
               if (session) void setSessionPinned(session.id, !pinned)
             }}
-            onClear={handleClearClick}
+            onClear={() => askToClear(id)}
             onEnd={() => setDialog('end')}
             onCollapse={() => useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: null } }))}
             walkthroughEntry={walkthroughEntry}
@@ -971,7 +952,7 @@ export function DetailPanel({
                 active={retitling}
                 disabled={retitling}
                 aria-label="Regenerate name"
-                onClick={handleRetitle}
+                onClick={() => regenerateName(id)}
               >
                 <RefreshGlyph spinning={retitling} />
               </UtilityButton>
@@ -997,7 +978,7 @@ export function DetailPanel({
                     label: tag.name,
                     dotColor: tagColor(tag.hue),
                   }))}
-                  onChange={selectTag}
+                  onChange={(tagId) => changeTag(id, tagId)}
                   footer="ONE TAG PER SESSION · SETS PLANET HUE"
                 />
               )}

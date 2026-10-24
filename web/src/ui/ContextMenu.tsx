@@ -1,4 +1,4 @@
-import { useCallback, useId, useRef } from 'react'
+import { useId, useRef } from 'react'
 import { MenuPopup } from './Menu'
 import type { MenuEntry } from './Menu'
 import type { PopupAnchor } from './usePopupPosition'
@@ -41,13 +41,12 @@ export function ContextMenu({ at, entries, onClose, widthPx, view, ...aria }: Co
   const before = useRef<Element | null | undefined>(undefined)
   if (before.current === undefined) before.current = document.activeElement
 
-  const latestOnClose = useRef(onClose)
-  latestOnClose.current = onClose
-  const close = useCallback((restoreFocus: boolean) => {
+  // `MenuPopup` keeps the latest of this itself.
+  const close = (restoreFocus: boolean) => {
     const back = before.current
-    latestOnClose.current()
+    onClose()
     if (restoreFocus && back instanceof HTMLElement && back.isConnected) back.focus({ preventScroll: true })
-  }, [])
+  }
 
   return (
     <MenuPopup

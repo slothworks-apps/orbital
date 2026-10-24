@@ -779,7 +779,22 @@ export function SpaceMap() {
   // Right-click on a planet: its context menu, whose Open is the click
   // above (spec 2026-10-24-session-context-menu-design). Null without a
   // host — the website's demos — so the planets take no right-click there.
-  const handleContextMenu = useSessionMenu('map', selectPlanet)
+  const openMenu = useSessionMenu('map', selectPlanet)
+  const handleContextMenu = useMemo(
+    () =>
+      openMenu
+        ? (id: string, e: MouseEvent) => {
+            // A ctrl+click on a Mac arrives as a left press first, which armed
+            // a body drag (and a pan): with the button still down, a move
+            // would carry the planet off — onto the trash, even — under its
+            // own menu.
+            bodyDragRef.current = null
+            dragRef.current = null
+            openMenu(id, e)
+          }
+        : null,
+    [openMenu],
+  )
   const menuSubjectId = useSessionMenuSubject('map')
   // The dot-mode pill's click. No drag guard: the disc keeps its presses from
   // the map, so no pan can have started on it, and `draggedRef` would only

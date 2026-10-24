@@ -29,7 +29,9 @@ those detours are the overhead Orbital exists to cut.
   new on screen until someone right-clicks; no Labs.
 - **What someone already using Orbital notices after updating:** nothing,
   until they right-click a planet or a row. Left-click, drag, hover and the
-  header's ⋯ menu behave as before.
+  header's ⋯ menu behave as before. In the browser build, the menu takes
+  the place of the browser's own right-click menu on planets, Desk cards and
+  sidebar rows; everywhere else the browser's menu is as it was.
 - **What can be set:** nothing. No setting to turn it off — it is invisible
   until asked for.
 
@@ -144,11 +146,16 @@ The menu's look exists: the header ⋯ menu (canvas `Feature - Header actions`,
 > the map, a Desk card, or a sidebar row. Reuse the 23c menu rows. Needs:
 > (1) the menu at the pointer over a planet and over a sidebar row; (2) the
 > three groups above with their icons — new glyphs only where 23b/23c have
-> none (open PR, rename, regenerate name, change tag, copy path, end);
+> none (rename, regenerate name, change tag, copy path, end);
 > (3) the Change tag view in place of the rows, with its back row; (4) how
 > the planet and the row show they are the menu's subject while it is open
-> (hover look held — confirm); (5) inert items for an offline machine; (6) whether Copy path wants a
-> receipt (the app has no shared one).
+> (hover look held — confirm). A planet whose name is not truncated shows
+> no cue today, since only its hover-expanded label is held; it needs a
+> subject cue on the planet itself, and so does the Desk card, which has no
+> hover look (it borrows the mat header's hover fill for now); (5) inert
+> items for an offline machine; (6) whether Copy path wants a receipt (the
+> app has no shared one); (7) where Regenerate name's progress shows when
+> the session is not open — on its planet or its sidebar row.
 > Constraints: no new motion on the map, nothing that pulses or glows
 > (`docs/why-orbital.md`); the Planets and Desk themes both.
 
@@ -160,9 +167,16 @@ the fidelity pass comes after the canvas.
 Left out on purpose. The phone has no map, and its session list already has
 the ⋯ sheet with the same actions (`SessionMenuSheet`). A long-press on a
 list row opening that same sheet would be the phone's counterpart; it is
-written down as an idea, not built here. Nothing in this change reaches the
-phone: no new route, no WS topic, and the moved `menuFor` keeps its
-behaviour for the sheet.
+written down as an idea, not built here. The phone's bundle changes — the
+store's `setDialog`, the moved `menuFor` and the moved `primaryTag` are in
+it — but its behaviour does not: no new route, no WS topic, and the sheet
+reads the same items and the same tag as before.
+
+## Known limitations
+
+- **Rename…** on a session open in a detached window only brings that window
+  forward; its title does not open for editing. Each window has its own
+  store, and the request cannot cross to the other window's.
 
 ## Out of scope
 

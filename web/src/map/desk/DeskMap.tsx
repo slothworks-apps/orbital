@@ -23,7 +23,8 @@ import { stateColor, stateDot, stillDot } from '../../lib/stateStyle'
 import { decisionHeadline } from '../../lib/decisionCard'
 import { loginWaitLabels } from '../../lib/profileLogin'
 import { LoginCardBlock } from '../../panels/LoginNotice'
-import { useSessionMenu } from '../../panels/SessionContextMenu'
+import { useSessionMenu, useSessionMenuSubject } from '../../panels/SessionContextMenu'
+import { useSessionActions } from '../../store/sessionActions'
 import { contextLevelOklch, oklchCss, CONTEXT_CRITICAL_OKLCH } from '../../lib/usage'
 import { reportError } from '../../lib/errors'
 import { useNow } from '../../lib/useNow'
@@ -181,6 +182,19 @@ export function DeskMap() {
     },
     [openMenu],
   )
+
+  // The desk holds still under an open context menu, as the Planets map does:
+  // the menu is about a card, and a scroll would carry it away from under
+  // it. A native listener: React's `onWheel` is passive (web/CLAUDE.md).
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      if (useSessionActions.getState().menu) e.preventDefault()
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
 
   const onPointerMove = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -590,6 +604,9 @@ const DeskCard = memo(function DeskCard({
   const fill = planet.contextFill
   const ended = key === 'ended'
   const detached = useOrbital((st) => st.detachedIds.includes(s.id))
+  // The open context menu is about this card (spec
+  // 2026-10-24-session-context-menu-design).
+  const menuSubject = useSessionMenuSubject('map') === s.id
   const openSubagent = useOrbital((st) => st.openSubagent)
   const failed = Boolean(s.lastCompactionFailed && fill)
   const showCompact =
@@ -640,6 +657,12 @@ const DeskCard = memo(function DeskCard({
         if ((e.target as Element).closest('button, input')) e.stopPropagation()
       }}
     >
+      {/* The context menu's subject, held while the menu is open. A card has
+          no hover look of its own to hold, so it borrows the Desk's one hover
+          fill, the mat header's (41a); the canvas has yet to draw this cue. */}
+      {menuSubject && !planet.selected && !lift && (
+        <span aria-hidden className="pointer-events-none absolute inset-0 block rounded-xl bg-[rgba(150,205,255,.035)]" />
+      )}
       {/* 41b: a hairline glint in the tag hue along the top edge marks a live
           session — working, waiting or asking. NEEDS INPUT adds its amber
           border on top of it. */}
