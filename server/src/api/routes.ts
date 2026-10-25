@@ -1,3 +1,4 @@
+import { TAGS_TOPIC, type TagsChangedFrame } from '@orbital/shared/tags';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
@@ -2394,6 +2395,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { ok: true };
   });
 
+  /** Every open window and phone reads the tag list again (`TAGS_TOPIC`). */
+  const publishTagsChanged = () => ctx.hub.publish(TAGS_TOPIC, { event: 'changed' } satisfies TagsChangedFrame);
   app.get('/api/tags', () => ({
     // In the order the user set; every tag list shows it as it comes, none
     // sorts on its own. The id only breaks a tie a seed can leave.
@@ -2407,6 +2410,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       .from(tags)
       .get() as { m: number };
     const r = db.insert(tags).values({ name, hue, position: maxRow.m + 1 }).run();
+    publishTagsChanged();
     return reply.code(201).send({ id: Number(r.lastInsertRowid) });
   });
   // The whole order at once, as the drag leaves it. Naming every tag exactly
@@ -2429,6 +2433,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       return true;
     });
     if (!done) return reply.code(400).send({ error: 'ids must name every tag exactly once' });
+    publishTagsChanged();
     return { ok: true };
   });
   app.patch('/api/tags/:id', (req, reply) => {
@@ -2452,6 +2457,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     }
     if (Object.keys(set).length > 0) {
       db.update(tags).set(set).where(eq(tags.id, Number(id))).run();
+      publishTagsChanged();
     }
     return { ok: true };
   });
@@ -2459,6 +2465,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     const { id } = (req.params as any) as { id: string };
     db.delete(tags).where(and(eq(tags.id, Number(id)), eq(tags.isDefault, 0))).run();
     regenerateRuleTags(db);
+    publishTagsChanged();
     return { ok: true };
   });
 

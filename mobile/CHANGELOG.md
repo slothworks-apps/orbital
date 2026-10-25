@@ -5,7 +5,8 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 ## [Unreleased]
 ### Changed
 - Tags in the session list turn on and off with a tap, several at once; Clear turns them all off and replaces All.
-- Tags show in the order set on your Mac.
+- Tags show in the order set on your Mac, and follow a change made there while the app is open.
+- Changing the tag filter animates the session list.
 
 ## [0.20.0] — 2026-10-23
 ### Added

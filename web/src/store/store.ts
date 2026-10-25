@@ -723,8 +723,10 @@ export interface OrbitalActions {
   setTagAnchor(tagId: number, anchor: { x: number; y: number } | null): Promise<void>
   /** Moves a tag to `toIndex` in the one order every tag list follows (spec 2026-10-25-tag-toggles-and-order-design § 2). */
   moveTag(tagId: number, toIndex: number): Promise<void>
-  /** Creates a tag with the next swatch hue, refreshes the list and answers its id; a failure throws to the caller. */
+  /** Creates a tag with the next free swatch hue and answers its id; a failed create throws to the caller. */
   createTag(name: string): Promise<number>
+  /** Reads the tag list again — the server announced a change, or a write was refused. A failed read keeps the list. */
+  refreshTags(): Promise<void>
   /** The hole's click: un-collapse the sidebar and scroll it to HISTORY. */
   revealHistory(): void
   setDialog(dialog: OrbitalUiState['dialog']): void
@@ -2543,27 +2545,46 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   /**
-   * Optimistic like `setTagAnchor`: the dragged chip or row lands at once,
-   * and a failed save puts the old order back and reports.
+   * Optimistic like `setTagAnchor`: the dragged chip or row lands at once.
+   * A failed save reads the list again rather than putting back the one from
+   * before the drag: another drag, a new tag or a refused stale list may have
+   * happened meanwhile, and the server is the one that knows.
    */
   async moveTag(tagId, toIndex) {
-    const previous = get().tags
-    const next = moveTagTo(previous, tagId, toIndex)
-    if (next === previous) return
+    const tags = get().tags
+    const next = moveTagTo(tags, tagId, toIndex)
+    if (next === tags) return
     set({ tags: next })
     try {
       await api.reorderTags(next.map((t) => t.id))
     } catch (err) {
-      set({ tags: previous })
       const message = err instanceof Error ? err.message : 'Failed to reorder tags'
       set({ toast: { kind: 'error', message } })
+      await get().refreshTags()
     }
   },
 
   async createTag(name) {
-    const id = await api.createTag({ name, hue: nextTagHue(get().tags) })
-    set({ tags: await api.listTags() })
+    const hue = nextTagHue(get().tags)
+    const id = await api.createTag({ name, hue })
+    // The tag exists now. Should the read fail, it joins the list as the
+    // server made it, so it can be picked and a retry finds the name.
+    try {
+      set({ tags: await api.listTags() })
+    } catch {
+      set((state) => ({
+        tags: [...state.tags, { id, name, hue, is_default: 0, anchor_x: null, anchor_y: null }],
+      }))
+    }
     return id
+  },
+
+  async refreshTags() {
+    try {
+      set({ tags: await api.listTags() })
+    } catch {
+      // The list stands; the next announcement or reconnect reads it again.
+    }
   },
 
   revealHistory() {

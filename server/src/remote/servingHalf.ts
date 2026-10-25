@@ -16,6 +16,7 @@ import {
 import { LIMITS_TOPIC, isOwnLimitsEntry } from '@orbital/shared/limits';
 import { PRESENCE_TOPIC } from '@orbital/shared/presence';
 import { PROFILE_LOGINS_TOPIC } from '@orbital/shared/profileLogins';
+import { TAGS_TOPIC } from '@orbital/shared/tags';
 import { sessionOfTopic } from '@orbital/shared/remote/segments';
 import type { Hub } from '../api/hub.js';
 import { ATTACHMENT_MAX_BYTES, IMAGE_CONTENT_TYPES } from '../api/routes.js';
@@ -36,10 +37,11 @@ export const MAX_OPEN_UPLOADS = 4;
  * `presence` is the phone's: the web client has no use for it. `limits`
  * carries only this device's own directories to a peer (`ownLimitsFrame`).
  * `claude-dir-logins` is every change of a profile's login (spec
- * 2026-10-21-log-in-from-orbital-design § 2).
+ * 2026-10-21-log-in-from-orbital-design § 2). `tags` says only that the
+ * tag list changed, which `GET /api/tags` answers in the `sessions` group.
  */
 export const MEMBER_ALLOWED_TOPICS: ReadonlySet<string> = new Set([
-  'sessions', 'errors', PRESENCE_TOPIC, LIMITS_TOPIC, PROFILE_LOGINS_TOPIC,
+  'sessions', 'errors', PRESENCE_TOPIC, LIMITS_TOPIC, PROFILE_LOGINS_TOPIC, TAGS_TOPIC,
 ]);
 /** Per-id topics, by prefix: `session:<id>`, `subagent:<session>:<agent>`, `task-output:<session>:<task>`. */
 export const MEMBER_ALLOWED_TOPIC_PREFIXES: readonly string[] = ['session:', 'subagent:', 'task-output:'];

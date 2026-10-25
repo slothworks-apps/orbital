@@ -531,6 +531,20 @@ describe('REST routes', () => {
       expect(await tagIds()).toEqual([...reversed, made]);
     });
 
+    it('announces every change of the tag list on the tags topic, and a refused order not at all', async () => {
+      const frames = subscribeFake(hub, 'tags');
+      const changes = () => frames.filter((f) => f.topic === 'tags' && f.event === 'changed').length;
+      const id = (await app.inject({ method: 'POST', url: '/api/tags', payload: { name: 'later', hue: 40 } })).json().id;
+      expect(changes()).toBe(1);
+      await app.inject({ method: 'PUT', url: '/api/tags/order', payload: { ids: [...(await tagIds())].reverse() } });
+      expect(changes()).toBe(2);
+      await app.inject({ method: 'PUT', url: '/api/tags/order', payload: { ids: [id] } });
+      expect(changes()).toBe(2);
+      await app.inject({ method: 'PATCH', url: `/api/tags/${id}`, payload: { hue: 90 } });
+      await app.inject({ method: 'DELETE', url: `/api/tags/${id}` });
+      expect(changes()).toBe(4);
+    });
+
     it('refuses a partial list, a duplicate, an unknown id or a malformed body, and changes nothing', async () => {
       await app.inject({ method: 'POST', url: '/api/tags', payload: { name: 'later', hue: 40 } });
       const before = await tagIds();

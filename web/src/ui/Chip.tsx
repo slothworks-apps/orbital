@@ -31,6 +31,11 @@ export interface ChipProps {
   muted?: boolean
   /** The copy that follows the pointer while a chip is dragged: the dropdown panel colour and a shadow (80e). */
   lifted?: boolean
+  /**
+   * A field in place of the label — New Session's + New tag name field
+   * (canvas 80c): the active chip around it, with an empty dot.
+   */
+  input?: ReactNode
   /** `field` is New Session's 26 px chip (canvas 80c): every chip in that row, the name field included. */
   size?: 'row' | 'field'
   /** Native tooltip — e.g. the full path behind a shortened label. */
@@ -42,10 +47,10 @@ export interface ChipProps {
 
 export function Chip({
   label, active = false, hue, dot = false, pulse = false, glyph, note, dimmed = false, activeTint = 'hue', muted = false,
-  lifted = false, size = 'row', title, onClick, onRemove,
+  lifted = false, input, size = 'row', title, onClick, onRemove,
 }: ChipProps) {
   const interactive = Boolean(onClick)
-  const showDot = glyph === undefined && !muted && (hue !== undefined || dot)
+  const showDot = glyph === undefined && !muted && (hue !== undefined || dot || input !== undefined)
   // Canvas 1a/1b: resting chips are neutral (hue lives only in the dot);
   // an ACTIVE hued chip gets a hue-tinted border + faint hue fill.
   const field = size === 'field'
@@ -98,15 +103,19 @@ export function Chip({
         .filter(Boolean)
         .join(' ')}
     >
-      {showDot && (
-        <span
-          aria-hidden
-          className={['h-1.5 w-1.5 rounded-full', pulse ? 'orbital-pulse' : ''].filter(Boolean).join(' ')}
-          style={{ background: hue !== undefined ? tagColor(hue) : 'currentColor' }}
-        />
-      )}
+      {showDot &&
+        (input !== undefined && hue === undefined ? (
+          // 80c: the dot is empty until the tag it names exists.
+          <span aria-hidden className="box-border block h-1.5 w-1.5 rounded-full border border-[rgba(160,190,225,.6)]" />
+        ) : (
+          <span
+            aria-hidden
+            className={['h-1.5 w-1.5 rounded-full', pulse ? 'orbital-pulse' : ''].filter(Boolean).join(' ')}
+            style={{ background: hue !== undefined ? tagColor(hue) : 'currentColor' }}
+          />
+        ))}
       {glyph}
-      <span>{label}</span>
+      {input ?? <span>{label}</span>}
       {note && (
         <span className="font-mono text-[9.5px] font-normal tracking-[0.06em] text-[rgba(160,190,225,.75)]">
           {note}

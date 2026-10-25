@@ -8,6 +8,7 @@ related:
   - one-tag-per-session
   - desk-mats-order-by-tag-anchors
   - why-orbital
+  - tag-order-shared-across-a-group
 tags:
   - tags
   - sidebar
@@ -15,7 +16,7 @@ tags:
 ---
 # Tag chips toggle, tags keep an order the user sets, and New Session creates a tag
 
-**Status: done**, agreed in conversation 2026-10-25 and built the same day; the look waits for Claude Design (§ Design).
+**Status: done**, agreed in conversation 2026-10-25, drawn in Claude Design (§ Design) and built the same day.
 
 ## Problem
 
@@ -40,8 +41,10 @@ On the Mac (sidebar) and on the phone (session list):
 - The **All** chip goes away. Nothing selected means every session.
 - While at least one tag is on, a **Clear** chip sits at the end of the row
   and turns them all off. It is not there when nothing is selected.
-- ⌘-click on the Mac and long press on the phone lose their special meaning.
-  A long press on the phone does nothing; a ⌘-click is an ordinary click.
+- On the Mac, ⌘-click shows that one tag alone: it turns every other tag
+  off. That keeps the radio filter's one-click switch from one tag to
+  another, which a plain toggle turns into two clicks.
+- A long press on the phone loses its special meaning and does nothing.
 - The phone's All chip carried the count of live sessions. That count goes
   away with it, and every tag chip keeps its own count.
 
@@ -88,6 +91,25 @@ On the Mac (sidebar) and on the phone (session list):
 - The new tag counts as picked by hand: it overrides a rule match and is
   remembered for the next launch, like any manual pick.
 - The phone's New Session has no tag picker, so nothing changes there.
+- The website's demo leaves + New tag out: its fake server keeps only the
+  tags it starts with.
+
+## 4. Every window follows a change at once
+
+The Mac announces every change of the tag list on the hub topic `tags`
+(`TAGS_TOPIC` in `shared/src/tags.ts`). That covers a tag made, renamed,
+recoloured, moved on the map or deleted, and the order set. The frame says
+only that the list changed. Every desktop window and every phone then reads
+`GET /api/tags` again, so a drag on the Mac reorders an open phone's chips
+too. A phone with several Macs reads its merged list again.
+
+- A paired device may watch the topic. It is on `MEMBER_ALLOWED_TOPICS`,
+  and it says no more than `GET /api/tags`, which the phone already reads.
+- An older client does not subscribe, and an older Mac never publishes. A
+  phone on an older Mac reads the list on connect, as before.
+- A failed save of the order reads the list again rather than putting back
+  the one from before the drag. Another change may have landed meanwhile,
+  and a list the server refused as stale is replaced by the server's.
 
 ## Phone
 
@@ -102,6 +124,8 @@ On the Mac (sidebar) and on the phone (session list):
   (the phone has no tag picker).
 - With several Macs in a group, each Mac's tags keep their own order, and
   the groups follow each other as the merge already lays them out.
+- **Built for the phone too:** § 4. The phone follows a change of the tag
+  list while it is open.
 
 ## Scope
 
@@ -149,7 +173,8 @@ Two things in the design were not taken:
 - **Reordering on the phone** (80b, hold 350 ms then drag). Left out, as § Phone says:
   the phone reads the order.
 - **One order for the whole group** of Macs. That rests on Shared settings,
-  which is not built yet. Each Mac keeps its own order.
+  which is not built yet. Each Mac keeps its own order
+  ([[tag-order-shared-across-a-group]]).
 
 ## Tests
 

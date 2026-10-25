@@ -10,6 +10,7 @@ import { shortenPath } from '../lib/format'
 import { canChooseDirectory, chooseDirectory } from '../lib/desktop'
 import { Dialog } from '../ui/Dialog'
 import { useEscapeLayer } from '../ui/escapeLayer'
+import { isDemo } from '../lib/demo'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Composer } from './Composer'
@@ -1011,7 +1012,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                       onClick={() => handleSelectTag(tag.id)}
                     />
                   ))}
-                  <NewTagChip
+                  {/* Not in the website's demo, whose fake server keeps no tags it did not start with. */}
+                  {!isDemo() && <NewTagChip
                     draft={newTagDraft}
                     onDraft={setNewTagDraft}
                     tags={tags}
@@ -1020,7 +1022,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                       setMadeTagId(id)
                       handleSelectTag(id)
                     }}
-                  />
+                  />}
                 </div>
               </div>
 
@@ -1138,28 +1140,32 @@ function NewTagChip({ draft, onDraft, tags, onPick, onMade }: {
   }
 
   return (
-    <label className="box-border flex h-[26px] items-center gap-1.5 rounded-full border border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] px-[11px]">
-      <span aria-hidden className="box-border block h-1.5 w-1.5 rounded-full border border-[rgba(160,190,225,.6)]" />
-      <Input
-        variant="chip"
-        autoFocus
-        spellCheck={false}
-        aria-label="New tag name"
-        placeholder="tag name"
-        value={draft}
-        disabled={saving}
-        // 80c: the field grows with the name, never under eight characters.
-        style={{ width: `${Math.max(8, draft.length + 1)}ch` }}
-        onChange={(e) => onDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key !== 'Enter') return
-          e.preventDefault()
-          void commit(draft)
-        }}
-        onBlur={() => {
-          if (!saving) onDraft(null)
-        }}
-      />
-    </label>
+    <Chip
+      size="field"
+      active
+      label="New tag name"
+      input={
+        <Input
+          variant="chip"
+          autoFocus
+          spellCheck={false}
+          aria-label="New tag name"
+          placeholder="tag name"
+          value={draft}
+          disabled={saving}
+          // 80c: the field grows with the name, never under eight characters.
+          style={{ width: `${Math.max(8, draft.length + 1)}ch` }}
+          onChange={(e) => onDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return
+            e.preventDefault()
+            void commit(draft)
+          }}
+          onBlur={() => {
+            if (!saving) onDraft(null)
+          }}
+        />
+      }
+    />
   )
 }

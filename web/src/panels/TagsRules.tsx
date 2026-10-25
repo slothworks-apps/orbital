@@ -11,7 +11,7 @@ import { Select } from '../ui/Select'
 import { Toggle } from '../ui/Checkbox'
 import { Input } from '../ui/Input'
 import { Chip } from '../ui/Chip'
-import { slotToIndex } from '../lib/tagFilter'
+import { DragGhost } from '../ui/DragGhost'
 import { DropBar } from '../ui/DropBar'
 import { GripDots } from '../ui/GripDots'
 import { useReorderDrag } from '../ui/useReorderDrag'
@@ -287,10 +287,12 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
    */
   const moveTag = useOrbital((s) => s.moveTag)
   const tagListRef = useRef<HTMLUListElement>(null)
-  const { drag: tagDrag, onPointerDown: pressTagGrip } = useReorderDrag(tagListRef, 'column', TAG_BAR_INSET, (from, slot) => {
-    const tag = tags[from]
-    if (tag) void moveTag(tag.id, slotToIndex(from, slot))
-  })
+  const { drag: tagDrag, onPointerDown: pressTagGrip, swallowClick: draggedAway } = useReorderDrag(
+    tagListRef, 'column', TAG_BAR_INSET, (from, to) => {
+      const tag = tags[from]
+      if (tag) void moveTag(tag.id, to)
+    },
+  )
   const draggedTag = tagDrag ? tags[tagDrag.from] : undefined
   const createTag = useOrbital((s) => s.createTag)
   /** Rule currently being dragged by its grip, and the row index it is hovering over. */
@@ -790,7 +792,10 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                     data-reorder-item
                     data-selected={isSelected}
                     aria-current={isSelected ? 'true' : undefined}
-                    onClick={() => toggleTagSelection(tag.id)}
+                    // A grip drag let go over the card's body clicks the card: it selects nothing.
+                    onClick={() => {
+                      if (!draggedAway()) toggleTagSelection(tag.id)
+                    }}
                     style={
                       isSelected
                         ? {
@@ -923,20 +928,18 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                   placeholder="New tag name…"
                 />
               </li>
-              {tagDrag?.drop && tagDrag.moves && <DropBar bar={tagDrag.drop.bar} />}
+              {tagDrag?.drop && <DropBar bar={tagDrag.drop.bar} />}
               {draggedTag && tagDrag && (
                 // 80d: the card lifts onto the dropdown panel colour and follows the pointer.
-                <li
-                  aria-hidden
-                  className="pointer-events-none absolute z-10 box-border flex items-center gap-2 rounded-xl border border-[rgba(150,205,255,.3)] bg-[rgba(10,16,28,.96)] py-3.5 pl-1.5 pr-3.5 shadow-[0_14px_34px_rgba(0,0,0,.55)]"
-                  style={{ left: tagDrag.ghost.x, top: tagDrag.ghost.y, width: tagDrag.ghost.width }}
-                >
-                  <span className="grid h-7 w-4 flex-none place-items-center">
-                    <GripDots />
-                  </span>
-                  <TagPlanet hue={draggedTag.hue} selected={false} />
-                  <span className="pl-1 text-sm font-semibold text-text-bright">{draggedTag.name}</span>
-                </li>
+                <DragGhost ghost={tagDrag.ghost} fullWidth>
+                  <div className="box-border flex w-full items-center gap-2 rounded-xl border border-[rgba(150,205,255,.3)] bg-[rgba(10,16,28,.96)] py-3.5 pl-1.5 pr-3.5 shadow-[0_14px_34px_rgba(0,0,0,.55)]">
+                    <span className="grid h-7 w-4 flex-none place-items-center">
+                      <GripDots />
+                    </span>
+                    <TagPlanet hue={draggedTag.hue} selected={false} />
+                    <span className="pl-1 text-sm font-semibold text-text-bright">{draggedTag.name}</span>
+                  </div>
+                </DragGhost>
               )}
             </ul>
 

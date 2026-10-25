@@ -1,9 +1,10 @@
 import { useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
-import { slotToIndex, toggleTag } from '../lib/tagFilter'
+import { toggleTag } from '../lib/tagFilter'
 import { withViewTransition } from '../lib/viewTransition'
 import { Chip } from '../ui/Chip'
+import { DragGhost } from '../ui/DragGhost'
 import { DropBar } from '../ui/DropBar'
 import { useReorderDrag } from '../ui/useReorderDrag'
 
@@ -12,7 +13,8 @@ const BAR_INSET = 3
 
 /**
  * The sidebar's tag filter (canvas `Feature - Tag chips` 80a, spec
- * 2026-10-25-tag-toggles-and-order-design): every chip toggles, Clear ends
+ * 2026-10-25-tag-toggles-and-order-design): every chip toggles, ⌘-click
+ * shows that one tag alone, Clear ends
  * the row while one is on, and a chip dragged along the row lands in the gap
  * the bar marks — the one tag order every list follows.
  */
@@ -22,9 +24,9 @@ export function TagFilterRow({ className }: { className: string }) {
   const setFilterTagIds = useOrbital((s) => s.setFilterTagIds)
   const moveTag = useOrbital((s) => s.moveTag)
   const rowRef = useRef<HTMLDivElement>(null)
-  const { drag, onPointerDown, swallowClick } = useReorderDrag(rowRef, 'row', BAR_INSET, (from, slot) => {
+  const { drag, onPointerDown, swallowClick } = useReorderDrag(rowRef, 'row', BAR_INSET, (from, to) => {
     const tag = tags[from]
-    if (tag) void moveTag(tag.id, slotToIndex(from, slot))
+    if (tag) void moveTag(tag.id, to)
   })
   const dragged = drag ? tags[drag.from] : undefined
 
@@ -43,24 +45,22 @@ export function TagFilterRow({ className }: { className: string }) {
             hue={tag.hue}
             activeTint="neutral"
             active={filterTagIds.includes(tag.id)}
-            onClick={() => {
+            onClick={(e) => {
               if (swallowClick()) return
-              // Rows that drop out fade where they stand, the rest glide into place (80a).
-              withViewTransition(() => setFilterTagIds(toggleTag(filterTagIds, tag.id)))
+              // ⌘-click shows this tag alone; a plain click toggles it. Rows
+              // that drop out fade where they stand, the rest glide into place (80a).
+              const next = e.metaKey || e.ctrlKey ? [tag.id] : toggleTag(filterTagIds, tag.id)
+              withViewTransition(() => setFilterTagIds(next))
             }}
           />
         </span>
       ))}
       {filterTagIds.length > 0 && <Chip label="Clear" muted onClick={() => withViewTransition(() => setFilterTagIds([]))} />}
-      {drag?.drop && drag.moves && <DropBar bar={drag.drop.bar} />}
+      {drag?.drop && <DropBar bar={drag.drop.bar} />}
       {dragged && drag && (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute z-10 inline-flex"
-          style={{ left: drag.ghost.x, top: drag.ghost.y }}
-        >
+        <DragGhost ghost={drag.ghost}>
           <Chip label={dragged.name} hue={dragged.hue} lifted />
-        </span>
+        </DragGhost>
       )}
     </div>
   )
