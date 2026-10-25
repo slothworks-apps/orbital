@@ -114,14 +114,14 @@ export function subagentTypeFrom(
 }
 
 /**
- * The model that answered — read off the first assistant message that
- * carries one, the same source the transcript's own model dividers use
- * (`insertModelDividers` in `panels/TranscriptView.tsx`). `Subagent` has no
- * model field of its own: "assistant frames carry `message.model`, which
- * `ChatMessage` already transports" (spec § 6).
+ * The model that answered — read off the first message that carries one,
+ * whatever its role: a subagent usually opens with tool calls and thinking,
+ * and its first text may be its last message. `Subagent` has no model field
+ * of its own: "assistant frames carry `message.model`, which `ChatMessage`
+ * already transports" (spec § 6). Only rows of an assistant frame carry it.
  */
 export function subagentModelFrom(messages: readonly ChatMessage[]): string | undefined {
-  return messages.find((m) => m.role === 'assistant' && m.model)?.model
+  return messages.find((m) => m.model)?.model
 }
 
 /**

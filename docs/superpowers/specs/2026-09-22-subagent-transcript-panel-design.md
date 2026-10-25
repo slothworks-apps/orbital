@@ -219,7 +219,10 @@ closes it. Inert moons are not in the order.
   of the three happened is the first thing a reader wants.
 
 The model needs no field: assistant frames carry `message.model`, which
-`ChatMessage` already transports.
+`ChatMessage` already transports. Every row of an assistant frame carries
+it — tool calls included, on the live path as on the indexed one — and the
+panel reads the first row that has one, because a subagent usually opens
+with tool calls and its first text can be its last message.
 
 Note on `stopped`: canvas 11c glosses it as "stopped from the parent
 session", but Orbital offers no way to stop a subagent. The status can arrive

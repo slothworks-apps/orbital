@@ -1005,6 +1005,17 @@ describe('Runner', () => {
     expect(msgs[0].model).toBe('claude-opus-5');
   });
 
+  it('carries the model on tool calls, so a subagent that only uses tools still names it', () => {
+    const msgs = sdkToChatMessages(
+      {
+        type: 'assistant', session_id: 's',
+        message: { role: 'assistant', model: 'claude-haiku-4-5', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: {} }] },
+      },
+      (() => { let n = 0; return () => ++n; })(),
+    );
+    expect(msgs[0]).toMatchObject({ role: 'tool_use', model: 'claude-haiku-4-5' });
+  });
+
   it('sdkToChatMessages: stores live image blocks and emits refs, never base64', () => {
     const puts: string[] = [];
     const store = {
