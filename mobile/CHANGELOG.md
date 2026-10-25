@@ -6,6 +6,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 ### Fixed
 - A long link, path or word in a message wraps onto the next line instead of pushing the conversation sideways.
 - A subagent's detail names its model as soon as the agent takes its first step, instead of only once it writes text, often at the very end. For a session started in Orbital, needs an updated Mac.
+- A question answered on the Mac, in a terminal or before the app restarted now shows as answered, with the answer given, instead of as an unanswered card.
 
 ## [0.20.0] — 2026-10-23
 ### Added

@@ -9,6 +9,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - A subagent's detail names its model as soon as the agent takes its first step, instead of only once it writes text, often at the very end.
 - In a short window, the end of a Settings section is no longer cut off below the window's edge; the section list scrolls when it does not fit, with Send feedback kept in view at its foot.
 - With two or more profiles, a planet's name on the map always shows its profile's letter, at every zoom; it used to appear only after zooming in, and the letter now sits in the middle of its tile.
+- A question answered on the phone, in a terminal or before a reload now shows as answered, with the answer given, instead of as an unanswered card.
 
 ## [0.41.0] — 2026-10-23
 ### Added

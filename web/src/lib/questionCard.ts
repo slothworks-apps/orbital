@@ -209,13 +209,26 @@ export function notTakenLine(optionCount: number, chosenCount: number): string {
 }
 
 /**
- * The answers a historical `tool_result` carries, or null when its content is
- * not the JSON envelope the SDK writes back (the card then falls back to
- * rendering the result as plain text, rather than pretending it understood
- * it).
+ * The answers a historical `tool_result` carries, or null when it carries
+ * none this build can read (the card then falls back to rendering the result
+ * as plain text, rather than pretending it understood it).
+ *
+ * The CLI writes the result as prose, not as the `{answers}` envelope the
+ * card sends: `Your questions have been answered: "Q1"="A1", "Q2"="A2". You
+ * can now continue…` (or `The user answered: …`). Quotes inside a question or
+ * an answer are not escaped, so the prose is read against the questions the
+ * card already knows rather than split on quotes. A question it cannot find
+ * stays unanswered. The envelope is still read first.
  */
-export function parseResultAnswers(text: string | undefined): AnswerMap | null {
+export function parseResultAnswers(
+  text: string | undefined,
+  questions: readonly QuestionSpec[] = [],
+): AnswerMap | null {
   if (!text) return null
+  return parseEnvelope(text) ?? parseProse(text, questions)
+}
+
+function parseEnvelope(text: string): AnswerMap | null {
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
@@ -231,6 +244,50 @@ export function parseResultAnswers(text: string | undefined): AnswerMap | null {
   }
   return Object.keys(out).length > 0 ? out : null
 }
+
+function parseProse(text: string, questions: readonly QuestionSpec[]): AnswerMap | null {
+  // Where each question's `"Q"=` opens, in the order the prose lists them.
+  const found: { question: string; start: number; from: number }[] = []
+  let cursor = 0
+  for (const { question } of questions) {
+    const marker = `"${question}"=`
+    const at = text.indexOf(marker, cursor)
+    if (at === -1) continue
+    found.push({ question, start: at, from: at + marker.length })
+    cursor = at + marker.length
+  }
+  const out: AnswerMap = {}
+  found.forEach(({ question, from }, i) => {
+    const last = i + 1 === found.length
+    const segment = text.slice(from, last ? text.length : found[i + 1].start)
+    const answer = proseAnswer(segment, last)
+    if (answer) out[question] = answer
+  })
+  return Object.keys(out).length > 0 ? out : null
+}
+
+/**
+ * One answer out of the prose after its `"Q"=`, up to the next question or
+ * the end. The closing sentence carries no quote and no `. ` of its own.
+ */
+function proseAnswer(segment: string, last: boolean): string | null {
+  // An answer in the terminal can name no option and carry only notes:
+  // `=(no option selected) notes: …` — those notes are what was answered.
+  if (segment.startsWith(NO_OPTION_PREFIX)) {
+    const notes = segment.slice(NO_OPTION_PREFIX.length)
+    const end = last ? notes.lastIndexOf('. ') : notes.lastIndexOf(', ')
+    return (end === -1 ? notes : notes.slice(0, end)).trim() || null
+  }
+  if (!segment.startsWith('"')) return null
+  // A chosen option the terminal showed a preview or took notes for is
+  // followed by them; the answer ends at the quote before.
+  const tail = PROSE_TAILS.map((t) => segment.indexOf(t, 1)).filter((at) => at !== -1)
+  const close = tail.length > 0 ? Math.min(...tail) : segment.lastIndexOf('"')
+  return close > 0 ? segment.slice(1, close) : null
+}
+
+const NO_OPTION_PREFIX = '(no option selected) notes: '
+const PROSE_TAILS = ['" selected preview:', '" notes:', '" user notes:']
 
 /**
  * The multiSelect confirm's copy (canvas 9b B: "Send 2 ⏎" / "Send none ⏎").

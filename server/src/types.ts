@@ -162,6 +162,12 @@ export interface ChatMessage {
   /** tool_result only: the block carried `is_error: true`. */
   isError?: boolean;
   /**
+   * tool_result of an `AskUserQuestion` only: the answers, keyed by the exact
+   * question text, as the CLI recorded them beside the prose it gives the
+   * model (`toolUseResult.answers`). Absent when it recorded none.
+   */
+  answers?: Record<string, string>;
+  /**
    * `notice` rows only. `command` is the slash command whose output this is
    * (`/context`), absent when the CLI did not say which — a refused command
    * carries no `local_command_run`, and a hook's banner names no command.

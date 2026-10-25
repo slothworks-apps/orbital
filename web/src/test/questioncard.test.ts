@@ -269,6 +269,51 @@ describe('parseResultAnswers', () => {
     expect(parseResultAnswers(JSON.stringify({ answers: {} }))).toBeNull()
   })
 
+  const ask = (...texts: string[]): QuestionSpec[] =>
+    texts.map((question) => ({ question, header: 'H', options: [], multiSelect: false }))
+
+  it('reads the prose the CLI writes back, in both of its wordings', () => {
+    const questions = ask('Bump the version?', 'Which branch?')
+    expect(
+      parseResultAnswers(
+        'Your questions have been answered: "Bump the version?"="Patch (Recommended)", "Which branch?"="One PR". You can now continue with these answers in mind.',
+        questions,
+      ),
+    ).toEqual({ 'Bump the version?': 'Patch (Recommended)', 'Which branch?': 'One PR' })
+    expect(
+      parseResultAnswers(
+        'The user answered: "Which branch?"="I will merge it myself". Read the answers carefully — they may request clarification, changes, or that you not proceed — and follow what they actually say.',
+        questions,
+      ),
+    ).toEqual({ 'Which branch?': 'I will merge it myself' })
+  })
+
+  it('keeps quotes and separators inside a free-text answer', () => {
+    const questions = ask('Name?', 'Why?')
+    expect(
+      parseResultAnswers(
+        'Your questions have been answered: "Name?"="call it "Orbit", then", "Why?"="a"="b". You can now continue with these answers in mind.',
+        questions,
+      ),
+    ).toEqual({ 'Name?': 'call it "Orbit", then', 'Why?': 'a"="b' })
+  })
+
+  it('reads past a preview the terminal showed and takes notes-only answers as their notes', () => {
+    const questions = ask('Layout?', 'What else?', 'Anything more?')
+    expect(
+      parseResultAnswers(
+        'The user answered: "Layout?"="Popover" selected preview:\n[ "menu" ]\n─┘, "What else?"=(no option selected) notes: the sun, and the day, "Anything more?"=(no option selected) notes: no. Thanks. Read the answers carefully — they may request clarification, changes, or that you not proceed — and follow what they actually say.',
+        questions,
+      ),
+    ).toEqual({ 'Layout?': 'Popover', 'What else?': 'the sun, and the day', 'Anything more?': 'no. Thanks' })
+  })
+
+  it('is null for prose that names none of the questions', () => {
+    expect(
+      parseResultAnswers('Your questions have been answered: "Other?"="A".', ask('Name?')),
+    ).toBeNull()
+  })
+
   it('drops non-string values rather than rendering an object as an answer', () => {
     const text = JSON.stringify({ answers: { a: 'yes', b: { nested: true } } })
     expect(parseResultAnswers(text)).toEqual({ a: 'yes' })
