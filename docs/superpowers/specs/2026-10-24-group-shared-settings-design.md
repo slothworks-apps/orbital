@@ -359,6 +359,33 @@ below is the implementer's call:
   keep working; a seeded row takes the column defaults, time 0 and this
   device.
 
+## Implementation notes (step 2, Settings)
+
+The marking is built. Where the code had to decide something the canvas
+and the rules above leave open, each point is the builder's call:
+
+- **What the web knows of a member.** The remote status names, per member,
+  `settingsSync`: whether its last hello named `settings-sync` (true for
+  this device, null before a hello since the server started). A member is
+  old when it is `tooOld` or `settingsSync` is false. A member not heard
+  from yet is named among those that share, not called old.
+- **Labels come from the keys.** Each section lists the keys its rows edit
+  and reads its label from `isSharedSetting`; each row names its keys for
+  its pill. Sections whose rows are not settings (Profiles, Harness
+  templates, Devices, Updates, the tag list, the rules) state theirs.
+- **LAYOUT holds the planet size and its preview,** shown under Planets
+  only, as before. Settings has no rows for the sidebar or panel widths.
+  The two frame-rate caps stay in MAP with THIS MAC ONLY, so MAP is the
+  mixed section the rule above names.
+- **By the keys, Labs mixes** (the limit suns' positions are per device)
+  **and Experimental is wholly shared** (none of its rows edits a per-device
+  key). The derived labels stand rather than the list above.
+- **Profiles and Harness templates have no section heading,** so their
+  THIS MAC ONLY sits at the right end of the group line.
+- **Tags & rules:** the group line spans both columns. Neither column's
+  heading has room beside its own words, so each scope label sits on a line
+  under its heading.
+
 ## Testing
 
 - The ordering: later wins, a tie goes to the primary origin and then to the
