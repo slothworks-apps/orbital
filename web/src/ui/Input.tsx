@@ -27,7 +27,7 @@ const textAreaSizeClasses: Record<FieldSize, string> = {
 // web/CLAUDE.md), so the winner would be arbitrary.
 const fieldClass = (
   font: 'sans' | 'mono',
-  variant: 'field' | 'inline' | 'bare',
+  variant: InputVariant,
   size: FieldSize,
   sizes: Record<FieldSize, string>,
   invalid: boolean,
@@ -35,11 +35,15 @@ const fieldClass = (
 ) =>
   [
     'w-full text-text-bright placeholder:text-text-muted focus:outline-none',
-    variant === 'bare' ? '' : `focus:ring-1 ${invalid ? 'focus:ring-red-400/70' : 'focus:ring-text-soft'}`,
+    variant === 'bare' || variant === 'chip' ? '' : `focus:ring-1 ${invalid ? 'focus:ring-red-400/70' : 'focus:ring-text-soft'}`,
     variant === 'bare'
       ? // Bare variant: no box at all — the caller's frame draws the edge
         // (canvas 50a's device name over a dashed underline), 14px semibold.
         'border-0 bg-transparent p-0 text-[14px] font-semibold'
+      : variant === 'chip'
+      ? // Chip variant: bare too, in a chip's type — New Session's + New tag
+        // field (canvas `Feature - Tag chips` 80c), 11.5px semibold on a 16px line.
+        'border-0 bg-transparent p-0 text-[11.5px] font-semibold leading-4'
       : variant === 'field'
       ? `border ${invalid ? 'border-red-400/60' : 'border-panel-border'} ${sizes[size]}`
       : // Inline variant: borderless until focused — for editing a value in
@@ -53,13 +57,16 @@ const fieldClass = (
     .filter(Boolean)
     .join(' ')
 
+type InputVariant = 'field' | 'inline' | 'bare' | 'chip'
+
 export interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size'> {
   font?: 'sans' | 'mono'
   /**
    * 'field' (default) is the standard bordered input; 'inline' is for editing a value in place (borderless until
-   * focused); 'bare' has no box of its own, for a field whose frame is drawn around it.
+   * focused); 'bare' has no box of its own, for a field whose frame is drawn around it; 'chip' is 'bare' in a
+   * chip's type, for a field inside a chip.
    */
-  variant?: 'field' | 'inline' | 'bare'
+  variant?: InputVariant
   /** Field geometry: 'md' (default, app-wide), 'sm' (settings rows, canvas 1h), 'lg' (dialog fields, canvas 1d). */
   size?: FieldSize
   /** Marks the value as failing validation: red border + `aria-invalid`. Pair with `title` to say what's wrong. */

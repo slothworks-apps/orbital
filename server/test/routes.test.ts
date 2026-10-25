@@ -12,6 +12,9 @@ import { DIRS_MAX } from '../src/files/directory.js';
 import { OUTPUT_TAIL_BYTES } from '../src/files/taskOutput.js';
 import { ATTACHMENT_MAX_BYTES, FILE_ATTACHMENT_MAX_BYTES } from '../src/api/routes.js';
 import type { OrbitalDb } from '../src/db/database.js';
+import { SharedSettingsStore } from '../src/settings/sharedSettings.js';
+import { SharedTagsStore } from '../src/tags/sharedTags.js';
+import type { StampedTag } from '@orbital/shared/sharedSettings';
 import {
   countSweepable,
   parseRetentionDays,
@@ -43,7 +46,7 @@ import { TerminalStore } from '../src/terminal/store.js';
 import { RecentToolsStore } from '../src/transcript/recentTools.js';
 import { createImageStore, type ImageStore } from '../src/images/store.js';
 import { RemoteService } from '../src/remote/service.js';
-import { DEVICE_HEADER } from '../src/remote/inject.js';
+import { CONTROL_HEADER, DEVICE_HEADER } from '../src/remote/inject.js';
 import { createFileStore } from '../src/files/store.js';
 import { ErrorLog } from '../src/errors/log.js';
 import { Narrator, type NarrateQueryFn } from '../src/walkthrough/narrator.js';
@@ -167,6 +170,7 @@ function makeApp(opts: {
   projectsDir?: string; ide?: IdeStore; narrateQueryFn?: NarrateQueryFn; branchStatus?: BranchStatusStore;
   createIssue?: RouteContext['createIssue']; findSimilarIssues?: RouteContext['findSimilarIssues'];
   checkDuplicates?: RouteContext['checkDuplicates']; endCli?: RouteContext['endCli'];
+  sharedSettings?: (db: OrbitalDb) => RouteContext['sharedSettings']; controlKey?: string;
 } = {}) {
   const db = openTmpDb('api');
   db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
@@ -286,6 +290,8 @@ function makeApp(opts: {
     ghLogin: async () => null,
     // Never the real one: a test that forgot to stub it would signal a real pid.
     endCli: opts.endCli ?? (async () => { throw new Error('endCli is not stubbed'); }),
+    sharedSettings: opts.sharedSettings?.(db),
+    controlKey: opts.controlKey,
   });
   return {
     app, db, runner, hub, registry, startCalls, sendCalls, modelCatalog, subagents, subagentTranscripts, backgroundTasks, errors,
@@ -509,20 +515,66 @@ describe('REST routes', () => {
     expect(preview.json()).toMatchObject({ tagId });
   });
 
-  it('GET /api/tags lists the default tag first, whatever its id', async () => {
-    db.update(tags).set({ isDefault: 0 }).run();
-    db.update(tags).set({ isDefault: 1 }).where(eq(tags.id, 10)).run();
-    await app.inject({ method: 'POST', url: '/api/tags', payload: { name: 'later', hue: 40 } });
-    const res = await app.inject({ method: 'GET', url: '/api/tags' });
-    const ids = res.json().tags.map((t: { id: number }) => t.id);
-    expect(ids[0]).toBe(10);
-    expect(ids.slice(1)).toEqual([...ids.slice(1)].sort((a: number, b: number) => a - b));
+  // Spec 2026-10-25-tag-toggles-and-order-design § 2: the order is the user's.
+  describe('tag order', () => {
+    const tagIds = async () =>
+      (await app.inject({ method: 'GET', url: '/api/tags' })).json().tags.map((t: { id: number }) => t.id);
+
+    it('a new tag lands last', async () => {
+      const before = await tagIds();
+      const made = (await app.inject({ method: 'POST', url: '/api/tags', payload: { name: 'later', hue: 40 } })).json().id;
+      expect(await tagIds()).toEqual([...before, made]);
+    });
+
+    it('PUT /api/tags/order takes a full permutation and GET follows it, default tag included', async () => {
+      await app.inject({ method: 'POST', url: '/api/tags', payload: { name: 'later', hue: 40 } });
+      const reversed = [...(await tagIds())].reverse();
+      const res = await app.inject({ method: 'PUT', url: '/api/tags/order', payload: { ids: reversed } });
+      expect(res.statusCode).toBe(200);
+      expect(await tagIds()).toEqual(reversed);
+      // And a tag made after the reorder still goes last.
+      const made = (await app.inject({ method: 'POST', url: '/api/tags', payload: { name: 'newest', hue: 90 } })).json().id;
+      expect(await tagIds()).toEqual([...reversed, made]);
+    });
+
+    it('announces every change of the tag list on the tags topic, and a refused order not at all', async () => {
+      const frames = subscribeFake(hub, 'tags');
+      const changes = () => frames.filter((f) => f.topic === 'tags' && f.event === 'changed').length;
+      const id = (await app.inject({ method: 'POST', url: '/api/tags', payload: { name: 'later', hue: 40 } })).json().id;
+      expect(changes()).toBe(1);
+      await app.inject({ method: 'PUT', url: '/api/tags/order', payload: { ids: [...(await tagIds())].reverse() } });
+      expect(changes()).toBe(2);
+      await app.inject({ method: 'PUT', url: '/api/tags/order', payload: { ids: [id] } });
+      expect(changes()).toBe(2);
+      await app.inject({ method: 'PATCH', url: `/api/tags/${id}`, payload: { hue: 90 } });
+      await app.inject({ method: 'DELETE', url: `/api/tags/${id}` });
+      expect(changes()).toBe(4);
+    });
+
+    it('refuses a partial list, a duplicate, an unknown id or a malformed body, and changes nothing', async () => {
+      await app.inject({ method: 'POST', url: '/api/tags', payload: { name: 'later', hue: 40 } });
+      const before = await tagIds();
+      expect(before.length).toBeGreaterThanOrEqual(3);
+      const reversed = [...before].reverse();
+      for (const payload of [
+        { ids: reversed.slice(1) },
+        { ids: [reversed[0], ...reversed.slice(0, -1)] },
+        { ids: [...reversed.slice(0, -1), 9999] },
+        { ids: [...reversed, reversed[0]] },
+        { ids: reversed.map(String) },
+        {},
+      ]) {
+        const res = await app.inject({ method: 'PUT', url: '/api/tags/order', payload });
+        expect(res.statusCode).toBe(400);
+        expect(await tagIds()).toEqual(before);
+      }
+    });
   });
 
   it('GET /api/tags and /api/tag-rules preserve original snake_case key order (derived projection maps)', async () => {
     const tagsRes = await app.inject({ method: 'GET', url: '/api/tags' });
     expect(Object.keys(tagsRes.json().tags[0])).toEqual([
-      'id', 'name', 'hue', 'is_default', 'anchor_x', 'anchor_y',
+      'id', 'name', 'hue', 'is_default', 'anchor_x', 'anchor_y', 'position', 'uuid',
     ]);
 
     await app.inject({
@@ -1113,6 +1165,98 @@ describe('REST routes', () => {
     });
     const after = await app.inject({ method: 'GET', url: '/api/settings' });
     expect(after.json().confirm_before_clear).toBe('false');
+  });
+
+  it('PATCH /api/settings stamps a shared key only when its value changes, and never a per-device one', async () => {
+    let now = 100;
+    const pushed: string[][] = [];
+    const { app: shared, db: sharedDb } = makeApp({
+      sharedSettings: (db) => {
+        const store = new SharedSettingsStore(db, () => 'self', () => now);
+        return {
+          partner: () => false, heardFrom: () => {}, grantsChanged: () => {}, list: () => store.list(), listTags: () => [], receive: () => {},
+          changedLocally: (keys) => {
+            pushed.push(keys);
+            store.stampLocal(keys);
+          },
+          tagChangedLocally: () => {}, tagDeletedLocally: () => {},
+        };
+      },
+    });
+    const stamp = (key: string) => sharedDb.select().from(settingsTable).where(eq(settingsTable.key, key)).get()?.stampAt;
+    await shared.inject({ method: 'PATCH', url: '/api/settings', payload: { default_model: 'opus', sidebar_width: '420' } });
+    expect(stamp('default_model')).toBe(100);
+    expect(stamp('sidebar_width')).toBe(0);
+    now = 200;
+    // Saved again at the value it holds: not a change, not stamped.
+    await shared.inject({ method: 'PATCH', url: '/api/settings', payload: { default_model: 'opus' } });
+    expect(stamp('default_model')).toBe(100);
+    expect(pushed).toEqual([['default_model', 'sidebar_width'], []]);
+  });
+
+  it('a tag create, rename, recolour or delete is stamped and pushed; an anchor move or an unchanged name is not', async () => {
+    let now = 100;
+    const pushed: StampedTag[][] = [];
+    const { app: shared, db: sharedDb } = makeApp({
+      sharedSettings: (db) => {
+        const tagStore = new SharedTagsStore(db, () => 'self', () => now);
+        return {
+          partner: () => false, heardFrom: () => {}, grantsChanged: () => {}, list: () => ({}), listTags: () => tagStore.list(), receive: () => {}, changedLocally: () => {},
+          tagChangedLocally: (id) => { pushed.push([tagStore.stampLocal(id)!]); },
+          tagDeletedLocally: (uuid, name) => { pushed.push([tagStore.tombstone(uuid, name)!]); },
+        };
+      },
+    });
+    const created = await shared.inject({ method: 'POST', url: '/api/tags', payload: { name: 'ops', hue: 10 } });
+    const id = created.json().id as number;
+    const row = () => sharedDb.select().from(tags).where(eq(tags.id, id)).get()!;
+    expect(row()).toMatchObject({ stampAt: 100, stampOrigin: '' });
+    expect(row().uuid).toMatch(/^[0-9a-f-]{36}$/);
+    now = 200;
+    await shared.inject({ method: 'PATCH', url: `/api/tags/${id}`, payload: { anchor_x: 4, anchor_y: 5 } });
+    await shared.inject({ method: 'PATCH', url: `/api/tags/${id}`, payload: { name: 'ops' } });
+    expect(row().stampAt).toBe(100);
+    await shared.inject({ method: 'PATCH', url: `/api/tags/${id}`, payload: { hue: 40 } });
+    expect(row().stampAt).toBe(200);
+    // The stamps stay out of the list the app reads.
+    const listed = (await shared.inject({ method: 'GET', url: '/api/tags' })).json().tags as Record<string, unknown>[];
+    expect(listed.find((t) => t.id === id)).not.toHaveProperty('stamp_at');
+    now = 300;
+    const uuid = row().uuid;
+    await shared.inject({ method: 'DELETE', url: `/api/tags/${id}` });
+    // The default cannot be deleted, so nothing travels for it.
+    const def = sharedDb.select().from(tags).where(eq(tags.isDefault, 1)).get()!;
+    await shared.inject({ method: 'DELETE', url: `/api/tags/${def.id}` });
+    expect(pushed.map((p) => p[0])).toEqual([
+      expect.objectContaining({ name: 'ops', hue: 10, at: 100, origin: 'self' }),
+      expect.objectContaining({ name: 'ops', hue: 40, at: 200 }),
+      { uuid, name: 'ops', hue: 0, isDefault: false, at: 300, origin: 'self', deleted: true },
+    ]);
+  });
+
+  it('a session\'s own change of a shared setting stays on this device, its tag change goes to the group', async () => {
+    const calls: string[] = [];
+    const { app: shared, db: sharedDb } = makeApp({
+      controlKey: 'session-key',
+      sharedSettings: () => ({
+        partner: () => false, heardFrom: () => {}, grantsChanged: () => {}, list: () => ({}), listTags: () => [], receive: () => {},
+        changedLocally: (keys) => { calls.push(`settings ${keys.join(',')}`); },
+        tagChangedLocally: (id) => { calls.push(`tag ${id}`); },
+        tagDeletedLocally: (_uuid, name) => { calls.push(`delete ${name}`); },
+      }),
+    });
+    const session = { [CONTROL_HEADER]: 'session-key' };
+    await shared.inject({ method: 'PATCH', url: '/api/settings', payload: { default_model: 'opus' }, headers: session });
+    const created = await shared.inject({ method: 'POST', url: '/api/tags', payload: { name: 'ops', hue: 10 }, headers: session });
+    const id = created.json().id as number;
+    await shared.inject({ method: 'PATCH', url: `/api/tags/${id}`, payload: { hue: 40 }, headers: session });
+    await shared.inject({ method: 'DELETE', url: `/api/tags/${id}`, headers: session });
+    expect(calls).toEqual([`tag ${id}`, `tag ${id}`, 'delete ops']);
+    const row = sharedDb.select().from(settingsTable).where(eq(settingsTable.key, 'default_model')).get();
+    expect(row).toMatchObject({ value: 'opus', stampAt: 0 });
+    // A wrong key is not a session's: the user's own change travels.
+    await shared.inject({ method: 'PATCH', url: '/api/settings', payload: { default_model: 'haiku' }, headers: { [CONTROL_HEADER]: 'guessed' } });
+    expect(calls).toEqual([`tag ${id}`, `tag ${id}`, 'delete ops', 'settings default_model']);
   });
 
   it('GET /api/settings leaves every remote_ key out for a member', async () => {

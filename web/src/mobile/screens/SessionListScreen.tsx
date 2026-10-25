@@ -1,7 +1,8 @@
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { timeAgo } from '../../lib/format'
 import { toggleTag } from '../../lib/tagFilter'
+import { sessionViewTransitionName, withViewTransition } from '../../lib/viewTransition'
 import { isReadOnly, tagColor, type ApiSession, type Tag } from '../../lib/types'
 import { useNow } from '../../lib/useNow'
 import { ClaudeDirMark, useClaudeDirMark } from '../../ui/ClaudeDirMark'
@@ -15,9 +16,10 @@ import { forgetGroupHere } from '../forget'
 import { CLOCK_TICK_MS, RETRY_WINDOW_MS } from '../constants'
 import { agoLabel, asOfLabel, basename, checkedLabel } from '../format'
 import {
-  GROUP_LABEL, endedHeading, primaryTag, groupSessions, inputReason, isGateRow, limitLine, moonsSummary, moonsSummaryAsleep, subagentStatus, tagChips,
+  GROUP_LABEL, endedHeading, groupSessions, inputReason, isGateRow, limitLine, moonsSummary, moonsSummaryAsleep, subagentStatus, tagChips,
   taskStatus, tasksForRow, type GroupKey,
 } from '../sessionList'
+import { primaryTag } from '../../lib/primaryTag'
 import { countedBySummary, loadEndedFold } from '../endedFold'
 import { isMacAsleep, useMobile } from '../state'
 import { anySupports } from '../version'
@@ -81,7 +83,6 @@ export function SessionListScreen() {
   // The fold is drawn from the Mac's count even before a single ended row is held.
   const groups = heading && !held.some((g) => g.key === 'ended') ? [...held, { key: 'ended' as const, sessions: [] }] : held
   const chips = useMemo(() => tagChips(shown, tags), [shown, tags])
-  const liveCount = useMemo(() => shown.filter((s) => s.status !== 'ended').length, [shown])
 
   // One bounded presence check, never a loop (spec § 5, RETRY_WINDOW_MS).
   const retry = async () => {
@@ -136,19 +137,22 @@ export function SessionListScreen() {
       )}
 
       {chips.length > 0 && (
-        <div className={['flex gap-2 overflow-x-auto px-4 pb-2.5', several ? 'pt-2' : 'pt-1'].join(' ')}>
-          <Chip active={tagIds.length === 0} onClick={() => setTagIds([])} label="All" count={liveCount} />
+        <div className={['flex gap-2 overflow-x-auto pb-2.5 pl-4 [scrollbar-width:none]', several ? 'pt-2' : 'pt-1'].join(' ')}>
           {chips.map(({ tag, live }) => (
             <Chip
               key={tag.id}
               active={tagIds.includes(tag.id)}
-              onClick={() => setTagIds(tagIds.length === 1 && tagIds[0] === tag.id ? [] : [tag.id])}
-              onLongPress={() => setTagIds(toggleTag(tagIds, tag.id))}
+              onClick={() => withViewTransition(() => setTagIds(toggleTag(tagIds, tag.id)))}
               label={tag.name}
               count={live}
               hue={tag.hue}
             />
           ))}
+          {/* Canvas `Feature - Tag chips` 80b: no All; Clear ends the row while a tag is on, pinned to the
+              right edge over a fade so it never scrolls out of sight. The pin stays as the row's end padding. */}
+          <div className="sticky right-0 flex flex-none bg-[linear-gradient(90deg,rgba(5,7,13,0),#05070d_14px)] pl-[18px] pr-4">
+            {tagIds.length > 0 && <Chip active={false} muted onClick={() => withViewTransition(() => setTagIds([]))} label="Clear" />}
+          </div>
         </div>
       )}
 
@@ -343,64 +347,34 @@ function MacDot({ state }: { state: 'online' | 'asleep' | 'connecting' }) {
   )
 }
 
-const LONG_PRESS_MS = 500
-
 function Chip({
   active,
   onClick,
-  onLongPress,
   label,
   count,
   hue,
+  muted = false,
 }: {
   active: boolean
   onClick: () => void
-  onLongPress?: () => void
   label: string
   count?: number
   hue?: number
+  /** Muted ink: Clear, the one chip that is not a tag (80b). */
+  muted?: boolean
 }) {
-  // A hold adds a tag to the selection (the phone has no ⌘). Pointer events,
-  // so it works under a finger; the click the release then fires is eaten.
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const held = useRef(false)
-  const cancel = () => {
-    if (timer.current) clearTimeout(timer.current)
-    timer.current = null
-  }
-  const down = () => {
-    if (!onLongPress) return
-    held.current = false
-    cancel()
-    timer.current = setTimeout(() => {
-      timer.current = null
-      held.current = true
-      onLongPress()
-    }, LONG_PRESS_MS)
-  }
-  const click = () => {
-    if (held.current) {
-      held.current = false
-      return
-    }
-    onClick()
-  }
-
   return (
     <button
       type="button"
       aria-pressed={active}
-      onClick={click}
-      onPointerDown={down}
-      onPointerUp={cancel}
-      onPointerLeave={cancel}
-      onPointerCancel={cancel}
-      onContextMenu={onLongPress ? (e) => e.preventDefault() : undefined}
+      onClick={onClick}
       className={[
         'flex h-9 shrink-0 items-center gap-[7px] rounded-full border px-[13px] text-[13px] font-semibold',
         active
           ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
-          : 'border-[rgba(150,205,255,.14)] text-[rgba(200,220,245,.75)]',
+          : muted
+            ? 'border-[rgba(150,205,255,.14)] text-[rgba(160,190,225,.6)]'
+            : 'border-[rgba(150,205,255,.14)] text-[rgba(200,220,245,.75)]',
       ].join(' ')}
     >
       {hue !== undefined && <span aria-hidden className="block h-1.5 w-1.5 rounded-full" style={{ background: tagColor(hue) }} />}
@@ -568,7 +542,11 @@ function SessionRow({
   // Expanded, the row lists what runs; the finished ones live behind the session's header chip.
   const tasks = tasksForRow(session.backgroundTasks).filter((task) => task.state === 'running')
   return (
-    <div className={[input ? '' : 'mx-3 border-b border-[rgba(150,205,255,.06)]', asleep ? 'opacity-[.55]' : ''].join(' ')}>
+    <div
+      // Its own snapshot when the tag filter changes: the row glides to its new place (80b).
+      style={{ viewTransitionName: sessionViewTransitionName(session.id) }}
+      className={[input ? '' : 'mx-3 border-b border-[rgba(150,205,255,.06)]', asleep ? 'opacity-[.55]' : ''].join(' ')}
+    >
       <button
         type="button"
         onClick={() => onOpen(session.id)}
@@ -793,6 +771,7 @@ function EndedRow({
     <button
       type="button"
       onClick={() => onOpen(session.id)}
+      style={{ viewTransitionName: sessionViewTransitionName(session.id) }}
       className={[
         'mx-3 flex min-h-13 w-[calc(100%-24px)] items-center gap-2.5 text-left',
         pinned ? 'px-2 py-1 opacity-80' : 'border-b border-[rgba(150,205,255,.05)] px-2 py-1 opacity-75',

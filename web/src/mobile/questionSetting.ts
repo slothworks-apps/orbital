@@ -9,7 +9,9 @@ const KEY = 'questions_review_before_send'
  * The phone holds no settings of its own otherwise, so only this key is
  * taken. Best-effort: a Mac too old to have the key, or a pairing without
  * the settings grant, leaves it absent, and absent reads as on — the review
- * needs nothing from the Mac (the answer POST is unchanged).
+ * needs nothing from the Mac (the answer POST is unchanged). In a group the
+ * read goes to a Mac that shares the group's settings, so every Mac's
+ * question cards follow one value (`GroupFederation.settingsSource`).
  */
 export function refreshQuestionSetting(): void {
   api

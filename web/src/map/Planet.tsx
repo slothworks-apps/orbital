@@ -1,5 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentRef, type RefObject } from 'react'
-import { useThree, type ThreeEvent } from '@react-three/fiber'
+import { type ThreeEvent } from '@react-three/fiber'
 import { Html, Line } from '@react-three/drei'
 import * as THREE from 'three'
 import type { ApiSession } from '../lib/types'
@@ -297,25 +297,23 @@ const HOVER_LABEL_EXIT_MS = 120
 const HOVER_LABEL_MAX_WIDTH_PX = 240
 const HOVER_LABEL_SCRIM = 'rgba(4,8,16,.85)'
 
-/**
- * The Claude directory's mark before the planet label (canvas 44b, 44f
- * "Map"): shown from this zoom up, dropped below it, where it would only add
- * clutter. `camera.zoom` is the percentage the map's corner reads out.
- */
-const MAP_MARK_MIN_ZOOM = 70
+/** The map mark's side, 44f "Sizes". */
+const MAP_MARK_PX = 12
 
 /**
- * 44f "Sizes", the map's mark: 12px, an opaque fill and a 1.5px dark ring so
- * it holds over stars and orbits. No hue — the tag still decides the cluster.
- * No tooltip: the label takes no pointer, so a press on it reaches the map.
+ * 44f "Sizes", the map's mark, before the planet label at every zoom (44b
+ * drops it when zoomed out; shown always, by choice): an opaque fill and a
+ * 1.5px dark ring so it holds over stars and orbits. No hue — the tag still
+ * decides the cluster. No tooltip: the label takes no pointer, so a press on
+ * it reaches the map. Its line is the tile's full height: a grid-centred line
+ * of the font's own height sat the letter visibly above the middle.
  */
 const MAP_MARK_STYLE = {
-  display: 'inline-grid',
-  placeItems: 'center',
+  display: 'inline-block',
   flex: 'none',
   boxSizing: 'border-box',
-  minWidth: 12,
-  height: 12,
+  minWidth: MAP_MARK_PX,
+  height: MAP_MARK_PX,
   padding: '0 2px',
   borderRadius: 3,
   background: 'oklch(34% .012 250)',
@@ -324,7 +322,8 @@ const MAP_MARK_STYLE = {
   fontSize: 7.5,
   fontWeight: 600,
   letterSpacing: 0,
-  lineHeight: 1,
+  lineHeight: `${MAP_MARK_PX}px`,
+  textAlign: 'center',
   color: 'rgba(226,236,250,.9)',
 } as const
 
@@ -615,6 +614,15 @@ export interface PlanetProps {
   /** The `COMPACT FAILED` badge was clicked: open the session at its mark. */
   onCompactFailedClick?: (sessionId: string) => void
   onClick?: (sessionId: string) => void
+  /**
+   * A right-click (or ctrl+click) on the planet, over the same hit area the
+   * click takes: the session's context menu (spec
+   * 2026-10-24-session-context-menu-design). Absent — the website's demos —
+   * the browser keeps the event.
+   */
+  onContextMenu?: (sessionId: string, event: MouseEvent) => void
+  /** The open context menu is about this planet: it holds its hover look until the menu closes. */
+  menuSubject?: boolean
   /**
    * How the state pill is drawn (`map_state_pills`): a resting dot that
    * spells its word out on hover, or the word always (canvas 24e / 24a).
@@ -1498,6 +1506,8 @@ function PlanetBody({
   compactingSince = null,
   onCompactFailedClick,
   onClick,
+  onContextMenu,
+  menuSubject = false,
   statePills = 'dot',
   onPillClick,
   detached = false,
@@ -1713,7 +1723,9 @@ function PlanetBody({
    * truncates: hovering a short-named planet changes nothing, so no scrim
    * ever flashes over a label that is already whole.
    */
-  const [labelHovered, setLabelHovered] = useState(false)
+  const [pointerOver, setPointerOver] = useState(false)
+  // The pointer leaves for the context menu, and the planet stays the one it is about.
+  const labelHovered = pointerOver || menuSubject
   const hoverActive = labelHovered && !hidden && !deviceOff && truncateLabel(session.title) !== session.title
   const hoverFade = useFadeTween(hoverActive, HOVER_LABEL_ENTER_MS, HOVER_LABEL_EXIT_MS)
   const overlayMounted = useLingering(hoverActive, HOVER_LABEL_EXIT_MS)
@@ -1761,13 +1773,7 @@ function PlanetBody({
   const overlayRef = useRef<HTMLSpanElement | null>(null)
   const overlayTextRef = useRef<HTMLSpanElement | null>(null)
   const overlayCursorRef = useRef<HTMLSpanElement | null>(null)
-  /** The directory marks on the resting label and the hover overlay; the frame loop shows them by zoom. */
-  const mapMarkRef = useRef<HTMLSpanElement | null>(null)
-  const overlayMarkRef = useRef<HTMLSpanElement | null>(null)
   const dirMark = useClaudeDirMark(localClaudeDirId(session))
-  const camera = useThree((s) => s.camera)
-  /** At mount only — after that the frame loop writes it, as the zoom moves. */
-  const markDisplay = camera.zoom >= MAP_MARK_MIN_ZOOM ? undefined : 'none'
   /** Milliseconds the pointer has rested on the planet — drives `typedLabel`. */
   const hoverTypeElapsed = useRef(0)
   const rippleElapsed = useRef(0)
@@ -1939,11 +1945,6 @@ function PlanetBody({
     }
 
     if (advanceTween(scaleTween, delta)) moving = true
-    // The directory mark follows the zoom (44b): written only when it flips.
-    const markDisplay = state.camera.zoom >= MAP_MARK_MIN_ZOOM ? '' : 'none'
-    for (const mark of [mapMarkRef.current, overlayMarkRef.current]) {
-      if (mark && mark.style.display !== markDisplay) mark.style.display = markDisplay
-    }
     const hide = endedHideTransform(hideFade.value)
     // Drawn at all: neither leaving the map nor faded out with its device chip.
     const shown = hide.opacity * deviceFade.value
@@ -2173,6 +2174,12 @@ function PlanetBody({
     onClick?.(session.id)
   }
 
+  const handleContextMenu = (event: ThreeEvent<MouseEvent>) => {
+    if (hidden || deviceOff) return
+    event.stopPropagation()
+    onContextMenu?.(session.id, event.nativeEvent)
+  }
+
   const handlePointerDown = (event: ThreeEvent<PointerEvent>) => {
     if (hidden || deviceOff) return
     onBodyPointerDown?.(session.id, event)
@@ -2180,9 +2187,9 @@ function PlanetBody({
 
   const handleHoverOver = () => {
     hoverTypeElapsed.current = 0
-    setLabelHovered(true)
+    setPointerOver(true)
   }
-  const handleHoverOut = () => setLabelHovered(false)
+  const handleHoverOut = () => setPointerOver(false)
 
   return (
     <group
@@ -2192,6 +2199,7 @@ function PlanetBody({
       position={[simBody?.x ?? move.x.value, simBody?.y ?? move.y.value, 0]}
       scale={scaleTween.value * scaleMultiplier}
       onClick={onClick ? handleClick : undefined}
+      onContextMenu={onContextMenu ? handleContextMenu : undefined}
       onPointerDown={onBodyPointerDown ? handlePointerDown : undefined}
     >
       {hasGlowTexture && (
@@ -2425,7 +2433,7 @@ function PlanetBody({
                 }}
               >
                 {dirMark && (
-                  <span ref={mapMarkRef} style={{ ...MAP_MARK_STYLE, display: markDisplay ?? MAP_MARK_STYLE.display }}>
+                  <span style={MAP_MARK_STYLE}>
                     {dirMark.mono}
                   </span>
                 )}
@@ -2553,10 +2561,8 @@ function PlanetBody({
                     label's does and the ellipsis still reads as unfolding. */}
                 {dirMark && (
                   <span
-                    ref={overlayMarkRef}
                     style={{
                       ...MAP_MARK_STYLE,
-                      display: markDisplay ?? MAP_MARK_STYLE.display,
                       marginRight: MAP_MARK_GAP_PX,
                       verticalAlign: 'middle',
                     }}

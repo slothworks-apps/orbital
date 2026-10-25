@@ -4,6 +4,17 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.21.0] — 2026-10-25
+### Changed
+- Tags in the session list turn on and off with a tap, several at once; Clear turns them all off and replaces All.
+- Tags show in the order set on your Mac, and follow a change made there while the app is open.
+- Changing the tag filter animates the session list.
+- In a group with several Macs, the phone reads your settings (such as Review answers before sending) from a Mac that shares them with the group, so every Mac's question cards behave the same. Needs an updated Mac.
+### Fixed
+- A long link, path or word in a message wraps onto the next line instead of pushing the conversation sideways.
+- A subagent's detail names its model as soon as the agent takes its first step, instead of only once it writes text, often at the very end. For a session started in Orbital, needs an updated Mac.
+- A question answered on the Mac, in a terminal or before the app restarted now shows as answered, with the answer given, instead of as an unanswered card.
+
 ## [0.20.0] — 2026-10-23
 ### Added
 - File previews show code in colour, and a markdown file opens as a formatted document, with a switch to its source.

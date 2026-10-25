@@ -4,6 +4,25 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.42.0] — 2026-10-25
+### Added
+- Right-click a planet, a Desk card or a session in the sidebar for a menu of what you can do with it: open, rename, retag, pin, copy its path, clear, end and more — without opening the session first.
+- Tags in the session list's filter turn on and off with a click, several at once; Clear turns them all off and replaces All.
+- Drag tags to put them in your order, in the session list or in Settings → Tags & rules; every tag list follows it.
+- Create a tag right from New Session with + New tag.
+- ⌘-click a tag to show only that tag.
+- Changing the filter animates the session list, and a change to your tags shows at once in every open window and on your phone.
+- Your habits in Settings — default model and permission mode, what the map and header show, the map's look, Labs switches and more — are now the same on every Mac and server in your group: change one anywhere and the others follow when they are online. Paths, layout, notifications and history cleanup stay per Mac. In a group with several Macs, the first time they connect after updating, the other Macs take the shared settings of the Mac that manages the group, unless you change one after updating; a Mac that joins a group takes the group's settings.
+- Your tags are now the same on every Mac and server in your group: creating, renaming, recolouring or deleting one on any Mac does the same on the others, and tags of the same name become one; each Mac's default tag takes the name of the one on the Mac that manages the group. Tag rules and where a tag's planets sit on the map stay per Mac.
+- With another Mac or server in your group, Settings marks which settings the group shares and which stay on this Mac, and names any Mac or server too old to share them. Review answers before sending moves to Settings → Permissions.
+### Fixed
+- A long link, path or word in a message wraps onto the next line instead of pushing the conversation sideways.
+- A tag's name on the map sits centred over its whole group of planets, instead of over whichever planet happens to be highest.
+- A subagent's detail names its model as soon as the agent takes its first step, instead of only once it writes text, often at the very end.
+- In a short window, the end of a Settings section is no longer cut off below the window's edge; the section list scrolls when it does not fit, with Send feedback kept in view at its foot.
+- With two or more profiles, a planet's name on the map always shows its profile's letter, at every zoom; it used to appear only after zooming in, and the letter now sits in the middle of its tile.
+- A question answered on the phone, in a terminal or before a reload now shows as answered, with the answer given, instead of as an unanswered card.
+
 ## [0.41.0] — 2026-10-23
 ### Added
 - A session you start in Orbital gets a short name from its first message, instead of the first sentence cut off. Turn it off in Settings → Sessions.

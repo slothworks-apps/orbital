@@ -37,6 +37,12 @@ const VIEWPORT_MARGIN = 8
 /** Never squeeze the popup below this; below it, flip instead. */
 const MIN_POPUP_HEIGHT = 96
 
+/**
+ * What a popup hangs off: an element, or anything that can say where it is —
+ * the context menu's pointer point is a zero-size rect (`ContextMenu`).
+ */
+export type PopupAnchor = Pick<Element, 'getBoundingClientRect'>
+
 export interface PopupPositionOptions {
   /** Distance between the anchor's edge and the popup (Select 4px, composer 8px). */
   gap: number
@@ -66,7 +72,7 @@ export interface PopupPositionOptions {
 
 export function usePopupPosition(
   open: boolean,
-  anchorRef: RefObject<HTMLElement | null>,
+  anchorRef: RefObject<PopupAnchor | null>,
   popupRef: RefObject<HTMLElement | null>,
   { gap, prefer = 'below', align = 'left', withinRef, minWidth = 0, matchAnchorWidth = false }: PopupPositionOptions,
 ): void {

@@ -9,6 +9,8 @@ import { blocksLaunch, directoryLine, useDirectoryState } from '../lib/useDirect
 import { shortenPath } from '../lib/format'
 import { canChooseDirectory, chooseDirectory } from '../lib/desktop'
 import { Dialog } from '../ui/Dialog'
+import { useEscapeLayer } from '../ui/escapeLayer'
+import { isDemo } from '../lib/demo'
 import { Button } from '../ui/Button'
 import { Input } from '../ui/Input'
 import { Composer } from './Composer'
@@ -31,7 +33,7 @@ import {
 } from './ClaudeDirChoice'
 import { useClaudeDirModels } from '../lib/useClaudeDirModels'
 import { permissionMode as permissionModeDescriptor } from '../lib/permissionModes'
-import type { PermissionMode } from '../lib/types'
+import type { PermissionMode, Tag } from '../lib/types'
 import {
   answerSummary,
   decisionsOf,
@@ -201,6 +203,9 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const [tagId, setTagId] = useState<number | null>(null)
   const [manualOverride, setManualOverride] = useState(false)
   const [matchedTagId, setMatchedTagId] = useState<number | null>(null)
+  /** + New tag's name field while it is open (canvas `Feature - Tag chips` 80c), and the tag it made this time. */
+  const [newTagDraft, setNewTagDraft] = useState<string | null>(null)
+  const [madeTagId, setMadeTagId] = useState<number | null>(null)
   const [matchedRuleId, setMatchedRuleId] = useState<number | null>(null)
   const [model, setModel] = useState<string | null>(null)
   /** Once the user picks a model, a later cwd change must not move it. */
@@ -358,6 +363,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       setManualOverride(false)
       setMatchedTagId(null)
       setMatchedRuleId(null)
+      setNewTagDraft(null)
+      setMadeTagId(null)
       setModel(null)
       setModelOverridden(false)
       setOtherActive(false)
@@ -640,6 +647,17 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
 
   const matchedRule = matchedRuleId != null ? rules.find((r) => r.id === matchedRuleId) : undefined
   const showAutoCaption = !manualOverride && matchedTagId != null && tagId === matchedTagId
+  // Canvas `Feature - Tag chips` 80c: while + New tag is a field the caption says what Enter does.
+  const tagHint =
+    newTagDraft != null
+      ? existingTag(tags, newTagDraft)
+        ? '· already a tag · Enter picks it'
+        : '· Enter creates · esc cancels'
+      : madeTagId != null && tagId === madeTagId
+        ? '· new tag · no rules yet'
+        : showAutoCaption
+          ? `· auto-matched by rule${matchedRule ? ` ${matchedRule.pattern}` : ''}`
+          : null
   const selectedTag = tagId != null ? tags.find((t) => t.id === tagId) : undefined
   const fallbackTag = tags.find((t) => t.is_default === 1)
   const footerTagName = (selectedTag ?? fallbackTag)?.name
@@ -981,22 +999,30 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               <div className="flex flex-col gap-2">
                 <FieldLabel>
                   TAG
-                  {showAutoCaption && (
-                    <span className="tracking-[0.04em] text-[rgba(160,190,225,.45)]">
-                      · auto-matched by rule{matchedRule ? ` ${matchedRule.pattern}` : ''}
-                    </span>
-                  )}
+                  {tagHint && <span className="tracking-[0.04em] text-[rgba(160,190,225,.45)]">{tagHint}</span>}
                 </FieldLabel>
                 <div className="flex flex-wrap gap-1.5" role="group" aria-label="Tag">
                   {tags.map((tag) => (
                     <Chip
                       key={tag.id}
+                      size="field"
                       label={tag.name}
                       hue={tag.hue}
                       active={tagId === tag.id}
                       onClick={() => handleSelectTag(tag.id)}
                     />
                   ))}
+                  {/* Not in the website's demo, whose fake server keeps no tags it did not start with. */}
+                  {!isDemo() && <NewTagChip
+                    draft={newTagDraft}
+                    onDraft={setNewTagDraft}
+                    tags={tags}
+                    onPick={handleSelectTag}
+                    onMade={(id) => {
+                      setMadeTagId(id)
+                      handleSelectTag(id)
+                    }}
+                  />}
                 </div>
               </div>
 
@@ -1064,5 +1090,82 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
       </Dialog>
       <ProjectFileViewer cwd={cwd.trim()} server={viewing} onClose={() => setViewing(null)} machine={machine} />
     </>
+  )
+}
+
+/** The tag a typed name already names, in any case. */
+function existingTag(tags: Tag[], name: string): Tag | undefined {
+  const wanted = name.trim().toLowerCase()
+  return wanted ? tags.find((t) => t.name.toLowerCase() === wanted) : undefined
+}
+
+/**
+ * The TAG row's last chip (canvas `Feature - Tag chips` 80c, spec
+ * 2026-10-25-tag-toggles-and-order-design § 3): + New tag turns into a name
+ * field in place — the active chip with an empty dot, as tall as every chip
+ * in the row. Enter creates the tag with the next free hue and picks it by
+ * hand; a name that exists already, in any case, picks that tag. Escape,
+ * leaving the field or an empty name backs out.
+ */
+function NewTagChip({ draft, onDraft, tags, onPick, onMade }: {
+  draft: string | null
+  onDraft: (draft: string | null) => void
+  tags: Tag[]
+  onPick: (id: number) => void
+  onMade: (id: number) => void
+}) {
+  const createTag = useOrbital((s) => s.createTag)
+  const [saving, setSaving] = useState(false)
+  useEscapeLayer(draft != null, () => onDraft(null))
+
+  if (draft == null) return <Chip size="field" muted label="+ New tag" onClick={() => onDraft('')} />
+
+  async function commit(name: string) {
+    const trimmed = name.trim()
+    const existing = existingTag(tags, trimmed)
+    if (!trimmed || existing) {
+      if (existing) onPick(existing.id)
+      onDraft(null)
+      return
+    }
+    setSaving(true)
+    try {
+      onMade(await createTag(trimmed))
+      onDraft(null)
+    } catch (err) {
+      reportError(err, 'Failed to create tag')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Chip
+      size="field"
+      active
+      label="New tag name"
+      input={
+        <Input
+          variant="chip"
+          autoFocus
+          spellCheck={false}
+          aria-label="New tag name"
+          placeholder="tag name"
+          value={draft}
+          disabled={saving}
+          // 80c: the field grows with the name, never under eight characters.
+          style={{ width: `${Math.max(8, draft.length + 1)}ch` }}
+          onChange={(e) => onDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return
+            e.preventDefault()
+            void commit(draft)
+          }}
+          onBlur={() => {
+            if (!saving) onDraft(null)
+          }}
+        />
+      }
+    />
   )
 }

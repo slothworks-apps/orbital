@@ -18,7 +18,7 @@ import {
 } from '../transcript/subagents.js';
 import type { PermissionWait } from '../stats/compute.js';
 import { TASK_LAUNCHING_TOOLS, withoutIntentMarker, type LaunchingCall } from '../transcript/backgroundTasks.js';
-import { imageRefOf, splitUserText, toolResultParts } from '../transcript/parser.js';
+import { imageRefOf, questionAnswersOf, splitUserText, toolResultParts } from '../transcript/parser.js';
 import {
   AUTHENTICATION_FAILED, designLoginLine, isDesignSyncTool, loginLostNotice, noticeFromSdkMessage, textOfContent,
 } from '../transcript/notices.js';
@@ -765,14 +765,21 @@ export function sdkToChatMessages(
         out.push({ id: streamed ?? id, role: 'thinking', text: block.thinking, model, timestamp, ...uuid });
       }
     } else if (block.type === 'tool_use') {
-      out.push({ id, role: 'tool_use', toolName: block.name, toolInput: block.input, toolUseId: block.id, timestamp, ...uuid });
+      // The model rides tool calls too, as it does on the indexed path: a
+      // subagent that only reads and searches would otherwise name no model
+      // until its closing text.
+      out.push({ id, role: 'tool_use', toolName: block.name, toolInput: block.input, toolUseId: block.id, model, timestamp, ...uuid });
     } else if (block.type === 'tool_result') {
       const parts = toolResultParts(block.content ?? '', images);
+      // The frame's `tool_use_result` is the transcript entry's
+      // `toolUseResult`, read the same way as `entriesToMessages` reads it.
+      const answers = questionAnswersOf(sdkMsg.tool_use_result);
       out.push({
         id, role: 'tool_result', toolUseId: block.tool_use_id,
         text: parts.text,
         ...(parts.images.length ? { images: parts.images } : {}),
         ...(block.is_error === true ? { isError: true } : {}),
+        ...(answers ? { answers } : {}),
         timestamp,
         ...uuid,
       });
@@ -2614,9 +2621,17 @@ export class Runner {
     // answers null, which `answerFromEditor` would refuse anyway.
     parked.review?.abort();
     parked.settle(result);
+    // A question's answers ride along, so every client shows the card
+    // answered at once — not only the one that sent them, and before the
+    // tool_result is written.
+    const answers =
+      parked.pending.kind === 'question' && result.behavior === 'allow'
+        ? questionAnswersOf(result.updatedInput)
+        : undefined;
     this.hub.publish(`session:${sessionId}`, {
       event: 'decision_resolved',
       decisionId: parked.pending.id,
+      ...(answers ? { answers } : {}),
     });
     this.onDecision?.(sessionId);
     return true;

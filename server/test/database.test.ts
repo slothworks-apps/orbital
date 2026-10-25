@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { cpSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import BetterSqlite3 from 'better-sqlite3';
 import { eq, sql } from 'drizzle-orm';
@@ -8,6 +8,7 @@ import { tags, settings } from '../src/db/schema.js';
 import { WHATS_NEW_BEFORE, WHATS_NEW_SEEN_KEY } from '@orbital/shared/changelog';
 import { effectiveTagIds, regenerateRuleTags } from '../src/tags/rules.js';
 import { makeTmpDir, openTmpDb } from './tmp.js';
+import { migrationsBefore } from './migrations.js';
 
 // Verbatim copy of the DEFAULT_SETTINGS the pre-Drizzle database.ts used to
 // seed via INSERT OR IGNORE, for the legacy-baseline fixture below.
@@ -298,26 +299,6 @@ describe('map settings defaults', () => {
   });
 });
 
-/**
- * A copy of the migrations folder cut off just before the migration whose tag
- * ends in `suffix` — the database an older build would have left behind.
- * Truncated rather than filtered: Drizzle applies only migrations newer than
- * the last one it recorded, so leaving a later one in would make it skip the
- * one under test.
- */
-function migrationsBefore(dir: string, suffix: string): string {
-  const before = join(dir, 'drizzle-before');
-  cpSync(DEFAULT_MIGRATIONS_FOLDER, before, { recursive: true });
-  const journalPath = join(before, 'meta', '_journal.json');
-  const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as {
-    entries: { tag: string }[];
-  };
-  const cut = journal.entries.findIndex((e) => e.tag.endsWith(suffix));
-  expect(cut).toBeGreaterThan(0);
-  journal.entries = journal.entries.slice(0, cut);
-  writeFileSync(journalPath, JSON.stringify(journal));
-  return before;
-}
 
 // Spec 2026-09-24-sessions-end-only-by-hand-design § 6: without the backfill
 // every historical Orbital session would come back onto the map as idle.
@@ -390,17 +371,44 @@ describe('default tag', () => {
     const dbPath = join(dir, 'index.db');
     // Every migration before the one that adds the unique index.
     const old = openDb(dbPath, migrationsBefore(dir, '_one_default_tag'));
-    old.insert(tags).values([
-      { name: 'atlas', hue: 150, isDefault: 1 },
-      { name: 'personal-again', hue: 330, isDefault: 1 },
-    ]).run();
-    const firstDefault = old.select().from(tags).where(eq(tags.isDefault, 1)).orderBy(tags.id).get();
+    // Raw SQL: the schema in code has columns this older table lacks.
+    const insert = old.$client.prepare('INSERT INTO tags (name, hue, is_default) VALUES (?, ?, 1)');
+    insert.run('atlas', 150);
+    insert.run('personal-again', 330);
+    const firstDefault = old.select({ id: tags.id }).from(tags).where(eq(tags.isDefault, 1)).orderBy(tags.id).get();
     old.$client.close();
 
     const db = openDb(dbPath);
     const defaults = db.select().from(tags).where(eq(tags.isDefault, 1)).all();
     expect(defaults.map((t) => t.id)).toEqual([firstDefault!.id]);
     expect(() => db.update(tags).set({ isDefault: 1 }).where(eq(tags.name, 'atlas')).run()).toThrow();
+    db.$client.close();
+  });
+});
+
+// Spec 2026-10-25-tag-toggles-and-order-design § 2: tags gain a stored order,
+// and an existing install's lists must not move when they do.
+describe('tag position migration', () => {
+  it('backfills the order lists had before: the default tag first, the rest by id', () => {
+    const dir = makeTmpDir('db-tag-position');
+    const dbPath = join(dir, 'index.db');
+    const old = openDb(dbPath, migrationsBefore(dir, '_tag_position'));
+    // The seeded default has the lowest id; move the default to a later tag
+    // so the backfill has to put it ahead of a lower id.
+    old.$client.exec(`
+      INSERT INTO tags (id, name, hue) VALUES (20, 'beta', 10), (30, 'gamma', 20), (40, 'delta', 30);
+      UPDATE tags SET is_default = 0;
+      UPDATE tags SET is_default = 1 WHERE id = 30;
+    `);
+    const seeded = (old.$client.prepare(`SELECT id FROM tags WHERE id < 20`).get() as { id: number }).id;
+    old.$client.close();
+
+    const db = openDb(dbPath);
+    const rows = db.$client.prepare('SELECT id, position FROM tags ORDER BY position').all() as
+      { id: number; position: number }[];
+    expect(rows).toEqual([
+      { id: 30, position: 0 }, { id: seeded, position: 1 }, { id: 20, position: 2 }, { id: 40, position: 3 },
+    ]);
     db.$client.close();
   });
 });
@@ -501,7 +509,8 @@ describe('whats new migration', () => {
     const dir = makeTmpDir('whats-new-kept');
     const dbPath = join(dir, 'index.db');
     const old = openDb(dbPath, migrationsBefore(dir, '_whats_new_existing_install'));
-    old.insert(settings).values({ key: WHATS_NEW_SEEN_KEY, value: '{"version":"0.36.0","at":1,"ended":true}' }).run();
+    // Raw: this database predates the settings' stamp columns, which the schema names.
+    old.$client.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(WHATS_NEW_SEEN_KEY, '{"version":"0.36.0","at":1,"ended":true}');
     old.$client.close();
 
     const db = openDb(dbPath);

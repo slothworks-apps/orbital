@@ -1,3 +1,4 @@
+import { TAGS_TOPIC } from '@orbital/shared/tags'
 import { App } from '@capacitor/app'
 import { ALONE_GRACE_MS } from '@orbital/shared/remote/groupClient'
 import type { TunnelEvent } from '@orbital/shared/remote/tunnel'
@@ -207,6 +208,8 @@ function wireSocket(): void {
   const socket = getSocket()
   socket.subscribe('sessions', (msg: SessionsEvent) => useOrbital.getState().queueSessionsEvent(msg))
   socket.subscribe('errors', (msg: ErrorsEvent) => useOrbital.getState().applyErrorsEvent(msg))
+  // A Mac's tag list changed: read the (merged) list again. An older Mac never sends it.
+  socket.subscribe(TAGS_TOPIC, () => void useOrbital.getState().refreshTags())
   // Every open is a new tunnel, and nothing said while it was down is replayed (parent § 4).
   socket.onStatusChange((status) => {
     if (status === 'open') void resync()

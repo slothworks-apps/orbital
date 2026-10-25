@@ -163,6 +163,17 @@ describe('GroupFederation', () => {
     expect(fed.ownerOf('l1')).toBe(LAPTOP)
   })
 
+  it('keeps each member\'s own tag order, one member after another', async () => {
+    // Spec 2026-10-25-tag-toggles-and-order-design § Phone: the laptop's order puts `zeta` before `work`.
+    const { fed } = await setup({
+      laptopAnswer: (method, path) =>
+        method === 'GET' && path === '/api/tags'
+          ? { status: 200, body: { tags: [{ id: 9, name: 'zeta', hue: 90 }, { id: 2, name: 'work', hue: 40 }, { id: 1, name: 'orbital', hue: 200 }] } }
+          : undefined,
+    })
+    expect([...(await localTags(fed)).keys()]).toEqual(['orbital', 'zeta', 'work'])
+  })
+
   it('asks each member for the phone\'s tag filter in its own ids', async () => {
     const { fed, studio, laptop } = await setup()
     const tags = await localTags(fed)
@@ -210,6 +221,43 @@ describe('GroupFederation', () => {
     await fed.request('GET', '/api/sessions/defaults')
     expect(studio.request).toHaveBeenLastCalledWith('GET', '/api/sessions/defaults', undefined)
     await expect(fed.request('GET', '/api/projects?machine=nobody')).resolves.toMatchObject({ status: 404 })
+  })
+
+  it('reads the settings from a member that shares the group\'s, else from the default member', async () => {
+    const { fed, studio, laptop } = await setup()
+    // No member shares settings yet (a phone ahead of its Macs): the default member, the first that is up.
+    await fed.request('GET', '/api/settings')
+    expect(studio.request).toHaveBeenLastCalledWith('GET', '/api/settings', undefined)
+    laptop.peer = hello('laptop', ['sessions', 'map', 'presence', 'group', 'settings-sync'])
+    studio.request.mockClear()
+    await fed.request('GET', '/api/settings')
+    expect(laptop.request).toHaveBeenLastCalledWith('GET', '/api/settings', undefined)
+    expect(studio.request).not.toHaveBeenCalled()
+    // Both share: the default member.
+    studio.peer = hello('studio', ['sessions', 'map', 'presence', 'group', 'settings-sync'])
+    await fed.request('GET', '/api/settings')
+    expect(studio.request).toHaveBeenLastCalledWith('GET', '/api/settings', undefined)
+  })
+
+  it('reads the settings from the default member when the member that shares them refuses the read', async () => {
+    const { fed, studio, laptop } = await setup({
+      laptopAnswer: (method, path) =>
+        method === 'GET' && path === '/api/settings' ? { status: 403, body: { error: 'not_granted' } } : undefined,
+    })
+    laptop.peer = hello('laptop', ['sessions', 'map', 'presence', 'group', 'settings-sync'])
+    const res = await fed.request('GET', '/api/settings')
+    expect(laptop.request).toHaveBeenLastCalledWith('GET', '/api/settings', undefined)
+    expect(studio.request).toHaveBeenLastCalledWith('GET', '/api/settings', undefined)
+    expect(res).toMatchObject({ status: 200, body: { from: 'studio' } })
+  })
+
+  it('passes on the refusal of a settings read when the default member is the one refusing', async () => {
+    const { fed, studio } = await setup()
+    studio.peer = hello('studio', ['sessions', 'map', 'presence', 'group', 'settings-sync'])
+    studio.request.mockImplementation(async () => ({ status: 403, body: { error: 'not_granted' } }))
+    studio.request.mockClear()
+    await expect(fed.request('GET', '/api/settings')).resolves.toMatchObject({ status: 403 })
+    expect(studio.request).toHaveBeenCalledTimes(1)
   })
 
   it('makes the member the last session started on the default, and its minted id its own', async () => {

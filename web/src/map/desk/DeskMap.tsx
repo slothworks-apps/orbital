@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
+import { GripDots } from '../../ui/GripDots'
+import type { CSSProperties, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
 import {
   mapStatePills,
   parseContextThresholds,
@@ -23,6 +24,8 @@ import { stateColor, stateDot, stillDot } from '../../lib/stateStyle'
 import { decisionHeadline } from '../../lib/decisionCard'
 import { loginWaitLabels } from '../../lib/profileLogin'
 import { LoginCardBlock } from '../../panels/LoginNotice'
+import { useSessionMenu, useSessionMenuSubject } from '../../panels/SessionContextMenu'
+import { useSessionActions } from '../../store/sessionActions'
 import { contextLevelOklch, oklchCss, CONTEXT_CRITICAL_OKLCH } from '../../lib/usage'
 import { reportError } from '../../lib/errors'
 import { useNow } from '../../lib/useNow'
@@ -163,6 +166,37 @@ export function DeskMap() {
     if (card) dragRef.current = { kind: 'card', id: card.dataset.card!, dx: 0, dy: 0, ...base }
   }, [])
 
+  // Right-click on a card: the session's context menu, whose Open is the
+  // card's click (spec 2026-10-24-session-context-menu-design). Null without
+  // a host. A field in the card keeps the browser's own menu.
+  const openMenu = useSessionMenu('map', selectSession)
+  const onContextMenu = useCallback(
+    (e: ReactMouseEvent<HTMLDivElement>) => {
+      const target = e.target as Element
+      if (!openMenu || target.closest('input, textarea')) return
+      const card = target.closest<HTMLElement>('[data-card]')
+      if (!card) return
+      // A ctrl+click on a Mac arrives as a left press first: it is not also
+      // a click that selects the card on its release.
+      dragRef.current = null
+      openMenu(card.dataset.card!, e)
+    },
+    [openMenu],
+  )
+
+  // The desk holds still under an open context menu, as the Planets map does:
+  // the menu is about a card, and a scroll would carry it away from under
+  // it. A native listener: React's `onWheel` is passive (web/CLAUDE.md).
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      if (useSessionActions.getState().menu) e.preventDefault()
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
+
   const onPointerMove = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       const d = dragRef.current
@@ -248,6 +282,7 @@ export function DeskMap() {
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
+      onContextMenu={onContextMenu}
       onClick={(e) => {
         if (e.target === e.currentTarget || (e.target as Element).hasAttribute('data-desk-floor'))
           useOrbital.setState((s) => (s.ui.selectedId ? { ui: { ...s.ui, selectedId: null } } : s))
@@ -474,14 +509,7 @@ function MatHeader({
       title="Drag to reorder"
       className="flex h-[42px] flex-none cursor-grab items-center gap-[9px] rounded-t-[14px] border-b border-[rgba(150,205,255,.08)] pl-2.5 pr-3.5 select-none hover:bg-[rgba(150,205,255,.035)] active:cursor-grabbing"
     >
-      <span
-        aria-hidden
-        className="block h-3 w-2 flex-none opacity-70"
-        style={{
-          backgroundImage: 'radial-gradient(circle,rgba(160,190,225,.6) 0 1px,transparent 1.3px)',
-          backgroundSize: '4px 4px',
-        }}
-      />
+      <GripDots />
       <span
         className="block h-[7px] w-[7px] flex-none rounded-full"
         style={{ background: tagInk(hue) }}
@@ -570,6 +598,9 @@ const DeskCard = memo(function DeskCard({
   const fill = planet.contextFill
   const ended = key === 'ended'
   const detached = useOrbital((st) => st.detachedIds.includes(s.id))
+  // The open context menu is about this card (spec
+  // 2026-10-24-session-context-menu-design).
+  const menuSubject = useSessionMenuSubject('map') === s.id
   const openSubagent = useOrbital((st) => st.openSubagent)
   const failed = Boolean(s.lastCompactionFailed && fill)
   const showCompact =
@@ -620,6 +651,12 @@ const DeskCard = memo(function DeskCard({
         if ((e.target as Element).closest('button, input')) e.stopPropagation()
       }}
     >
+      {/* The context menu's subject, held while the menu is open. A card has
+          no hover look of its own to hold, so it borrows the Desk's one hover
+          fill, the mat header's (41a); the canvas has yet to draw this cue. */}
+      {menuSubject && !planet.selected && !lift && (
+        <span aria-hidden className="pointer-events-none absolute inset-0 block rounded-xl bg-[rgba(150,205,255,.035)]" />
+      )}
       {/* 41b: a hairline glint in the tag hue along the top edge marks a live
           session — working, waiting or asking. NEEDS INPUT adds its amber
           border on top of it. */}

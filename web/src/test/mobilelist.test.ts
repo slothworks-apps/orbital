@@ -3,8 +3,9 @@ import type { ApiSession, BackgroundTask, LimitWait, PendingDecision, Tag } from
 import { agoLabel, asOfLabel, basename, checkedLabel, homePath, relayHost } from '../mobile/format'
 import {
   decisionReason, endedHeading, gateReason, glyphFor, groupOf, groupSessions, inputReason, isGateRow, latestActivity, limitLine, moonsSummary,
-  moonsSummaryAsleep, primaryTag, stateLine, tagChips, tasksForRow,
+  moonsSummaryAsleep, stateLine, tagChips, tasksForRow,
 } from '../mobile/sessionList'
+import { primaryTag } from '../lib/primaryTag'
 
 function session(id: string, patch: Partial<ApiSession> = {}): ApiSession {
   return {

@@ -58,7 +58,7 @@ const FOLD_SCALE = 0.6
 const REDUCED_FADE_MS = 120
 
 /** 23c form 4: the ⋯ menu's width. */
-const MORE_MENU_PX = 252
+export const MORE_MENU_PX = 252
 
 type Motion = 'none' | 'full' | 'reduced'
 

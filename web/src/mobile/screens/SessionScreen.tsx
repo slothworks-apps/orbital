@@ -54,7 +54,7 @@ import { MobileScreen } from '../ui'
 import { WhereLine } from '../where/WhereLine'
 import { phoneLoginSurface } from '../session/loginSurface'
 import { SessionComposer } from './SessionComposer'
-import { primaryTag } from '../sessionList'
+import { primaryTag } from '../../lib/primaryTag'
 
 const EMPTY: ChatMessage[] = []
 const NO_SUBAGENTS: Subagent[] = []

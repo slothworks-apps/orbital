@@ -5,7 +5,7 @@ import { chipLabel } from '../subagents/model'
 import { MoonsSheet, takeReturnToSheet } from '../subagents/MoonsSheet'
 import { SheetPresence } from '../ui'
 import type { SlotProps } from './slot'
-import { primaryTag } from '../sessionList'
+import { primaryTag } from '../../lib/primaryTag'
 
 /** 9b's header draws at most this many moons before the count. */
 const MOONS_SHOWN = 3

@@ -7,7 +7,7 @@ import { useAppUpdate } from '../store/appUpdate'
 import { useOrbital } from '../store/store'
 import { Button } from '../ui/Button'
 import { Toggle } from '../ui/Checkbox'
-import { Row, SectionLabel } from './settingsRows'
+import { GroupLine, Row, SectionLabel } from './settingsRows'
 
 /** "Checked 2 h ago" moves in minutes at the finest, so it is re-read that often. */
 const CHECKED_TICK_MS = 60_000
@@ -52,6 +52,7 @@ export function UpdatesSection({ patchAndSet }: { patchAndSet: (patch: Record<st
 
   return (
     <div className="flex min-h-0 flex-col overflow-y-auto px-8 pb-5 pt-2">
+      <GroupLine />
       <SectionLabel first>VERSION</SectionLabel>
       <Row
         title="Version"

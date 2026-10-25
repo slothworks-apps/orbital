@@ -2,12 +2,13 @@ import Database from 'better-sqlite3';
 import { eq } from 'drizzle-orm';
 import { drizzle, type BetterSQLite3Database } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DATA_DIR_MODE } from '@orbital/shared/dataDir';
 import { fileURLToPath } from 'node:url';
 import * as schema from './schema.js';
-import { settings, tags } from './schema.js';
+import { tags } from './schema.js';
 import { AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY, DEFAULT_CONTINUE_TEXT } from '../limits/logic.js';
 import { FIRST_CLAUDE_DIR_ID } from '../claudeDirs/paths.js';
 import { DEFAULT_CLAUDE_DIR_KEY, LAST_CLAUDE_DIR_KEY } from '../claudeDirs/keys.js';
@@ -24,7 +25,7 @@ export const DEFAULT_MIGRATIONS_FOLDER = fileURLToPath(
   new URL('../../drizzle', import.meta.url),
 );
 
-const DEFAULT_SETTINGS: Record<string, string> = {
+export const DEFAULT_SETTINGS: Record<string, string> = {
   default_permission_mode: 'acceptEdits',
   default_project_dir: '',
   confirm_before_clear: 'true',
@@ -283,17 +284,28 @@ export function openDb(
   // Throws on a missing folder or a failed migration, and must keep throwing:
   // a database that skipped its migrations is worse than one that won't open.
   migrate(db, { migrationsFolder });
-  for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
-    db.insert(settings).values({ key, value }).onConflictDoNothing().run();
-  }
+  // Only the two columns every schema of `settings` has: a test opens an older
+  // database with the migrations cut short, and a seed naming the stamp
+  // columns would not run against it. A new row's stamp is the column default.
+  const seed = sqlite.prepare('INSERT OR IGNORE INTO `settings` (`key`, `value`) VALUES (?, ?)');
+  for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) seed.run(key, value);
   // Seeded only while no default exists, never by name: the default can be
   // renamed, and a name-keyed seed re-created it on every boot after that.
   const hasDefault = db.select({ id: tags.id }).from(tags).where(eq(tags.isDefault, 1)).get();
+  // Raw SQL naming only the columns the schema of `tags` has, as the
+  // settings seed above: Drizzle's insert lists every column of today's
+  // schema, which a database cut at an older migration (the migration
+  // tests) does not have yet. The group id is set here wherever the column
+  // exists, not left to the insert trigger, which a rebuild of the table by
+  // a later migration would drop. Its position is the column's default, so
+  // on a fresh database it is first.
   if (!hasDefault) {
-    db.insert(tags)
-      .values({ name: 'default', hue: 330, isDefault: 1 })
-      .onConflictDoUpdate({ target: tags.name, set: { isDefault: 1 } })
-      .run();
+    const hasUuid = sqlite.prepare("SELECT 1 FROM pragma_table_info('tags') WHERE name = 'uuid'").get() !== undefined;
+    if (hasUuid) {
+      sqlite.prepare("INSERT INTO `tags` (`name`, `hue`, `is_default`, `uuid`) VALUES ('default', 330, 1, ?) ON CONFLICT (`name`) DO UPDATE SET `is_default` = 1").run(randomUUID());
+    } else {
+      sqlite.prepare("INSERT INTO `tags` (`name`, `hue`, `is_default`) VALUES ('default', 330, 1) ON CONFLICT (`name`) DO UPDATE SET `is_default` = 1").run();
+    }
   }
   // Migration baseline (M12): a fresh or pre-Drizzle database has
   // user_version 0. Drizzle itself tracks applied migrations in its own

@@ -4,7 +4,7 @@
  */
 
 export type DeviceKind = 'desktop' | 'headless' | 'phone';
-export type Capability = 'sessions' | 'map' | 'ide' | 'folderPicker' | 'presence' | 'group';
+export type Capability = 'sessions' | 'map' | 'ide' | 'folderPicker' | 'presence' | 'group' | 'settings-sync';
 
 /**
  * The member of the group a session runs on, as the device showing it names
@@ -34,11 +34,13 @@ export const RESPONDER_FIRST_ID = 2 ** 31;
  * (spec 2026-10-16-device-group-design § 1, § 2). `group` is the roster
  * itself: a device that serves anything carries it, so a shipped phone
  * (always `[]`) never takes a group message (`Channel.groups`).
+ * `settings-sync`: it shares the group's settings
+ * (`SETTINGS_SYNC_CAPABILITY`, spec 2026-10-24-group-shared-settings-design).
  */
 export function capabilitiesOf(kind: DeviceKind): Capability[] {
   if (kind === 'phone') return [];
-  if (kind === 'headless') return ['sessions', 'group'];
-  return ['sessions', 'map', 'ide', 'folderPicker', 'presence', 'group'];
+  if (kind === 'headless') return ['sessions', 'group', 'settings-sync'];
+  return ['sessions', 'map', 'ide', 'folderPicker', 'presence', 'group', 'settings-sync'];
 }
 
 /**

@@ -1,3 +1,4 @@
+import { TAGS_TOPIC } from '@orbital/shared/tags'
 import { useEffect, useState } from 'react'
 import {
   useOrbital,
@@ -6,10 +7,12 @@ import {
   resolvePanelPairWidths,
   PANEL_GUTTER_PX,
 } from './store/store'
-import type { ErrorsEvent, RemoteEvent, SessionEvent, SessionsEvent } from './store/store'
+import type { ErrorsEvent, RemoteEvent, SessionEvent, SessionsEvent, SettingsEvent } from './store/store'
+import { SETTINGS_TOPIC } from '@orbital/shared/sharedSettings'
+import { reloadSharedTags } from './store/sharedTags'
 import { getSocket } from './lib/socket'
 import { useCommand } from './lib/commands'
-import { setMenuCommands } from './lib/desktop'
+import { notifyDesktopSettingsChanged, setMenuCommands } from './lib/desktop'
 import { menuCommands } from './lib/keymap'
 import { harnessEnabled, terminalEnabled } from './lib/experimental'
 import { nextNeedingInput, sidebarOrder, stepSession } from './lib/sidebarOrder'
@@ -19,6 +22,8 @@ import { STATS_PATH } from './stats/route'
 import type { ApiSession } from './lib/types'
 import { MapView } from './map/MapView'
 import { Sidebar } from './panels/Sidebar'
+import { SessionMenuHost } from './panels/SessionContextMenu'
+import { SessionDialogs } from './panels/SessionDialogs'
 import { DetailPanel } from './panels/DetailPanel'
 import { SubagentPanel } from './panels/SubagentPanel'
 import { TaskOutputPanel } from './panels/TaskOutputPanel'
@@ -69,8 +74,8 @@ const socket = getSocket()
  * App shell (final integration task): mounts the full-bleed `SpaceMap`,
  * the docked `Sidebar`/`DetailPanel`/`SubagentPanel`, the three dialogs
  * that don't own their own trigger+render site (`NewSessionDialog`/
- * `Settings` — `StopDialog`/`ClearDialog` are rendered by `DetailPanel`
- * itself, so they're deliberately NOT repeated here), the one place every
+ * `Settings`, and `SessionDialogs` — `StopDialog` is rendered by
+ * `DetailPanel` itself, so it is deliberately NOT repeated here), the one place every
  * message shows (`MapNoticeHost`, the replies included) and the WS status
  * banner. Owns the data lifecycle
  * (`loadInitial` + the `sessions`/`session:<id>` WS subscriptions) and the
@@ -84,6 +89,7 @@ export default function App() {
   const applySessionEvent = useOrbital((s) => s.applySessionEvent)
   const applyErrorsEvent = useOrbital((s) => s.applyErrorsEvent)
   const applyRemoteEvent = useOrbital((s) => s.applyRemoteEvent)
+  const applySettingsEvent = useOrbital((s) => s.applySettingsEvent)
   const refreshRemote = useOrbital((s) => s.refreshRemote)
   const setWsStatus = useOrbital((s) => s.setWsStatus)
   const setDialog = useOrbital((s) => s.setDialog)
@@ -233,6 +239,12 @@ export default function App() {
     return socket.subscribe('sessions', (msg: SessionsEvent) => queueSessionsEvent(msg))
   }, [queueSessionsEvent])
 
+  // `tags` topic: the tag list changed somewhere — another window, the phone,
+  // an agent — so read it again (spec 2026-10-25-tag-toggles-and-order-design § Sync).
+  useEffect(() => {
+    return socket.subscribe(TAGS_TOPIC, () => void useOrbital.getState().refreshTags())
+  }, [])
+
   // `errors` topic — the shared error log, subscribed for the app's whole
   // lifetime exactly like `sessions`, with the returned unsubscribe as this
   // effect's cleanup.
@@ -265,6 +277,16 @@ export default function App() {
     return socket.subscribe('remote', (msg: RemoteEvent) => applyRemoteEvent(msg))
   }, [applyRemoteEvent])
 
+  // `settings` topic — shared values another member of the group changed
+  // (spec 2026-10-24-group-shared-settings-design). The desktop's main
+  // process is told as after a save here: it sees no topic, and re-reads.
+  useEffect(() => {
+    return socket.subscribe(SETTINGS_TOPIC, (msg: SettingsEvent) => {
+      if (msg.event === 'tags') void reloadSharedTags()
+      else if (applySettingsEvent(msg)) notifyDesktopSettingsChanged()
+    })
+  }, [applySettingsEvent])
+
   // `session:<id>` topic follows the current selection: subscribing to the
   // newly-selected session and unsubscribing the previous one is exactly
   // what swapping this effect's dependency + cleanup gives for free, via
@@ -289,6 +311,9 @@ export default function App() {
     // Everything the shell renders sits one layer in from App's own, so any
     // panel or dialog outranks it for Escape.
     <EscapeBoundary>
+    {/* Right-click on a planet, a Desk card or a sidebar row opens the
+        session's context menu — here, and not in the website's demos. */}
+    <SessionMenuHost>
     <div className="relative h-screen w-screen overflow-hidden bg-space">
       <div className="absolute inset-0">
         <ErrorBoundary label="Space map">
@@ -402,11 +427,14 @@ export default function App() {
           layer" without a literal ReactDOM.createPortal — consistent with
           how Dialog/Settings implement their own overlay today. Tags & rules
           is not here because it is no longer a dialog: it is a section of
-          Settings. StopDialog/ClearDialog are intentionally absent too —
-          DetailPanel owns and renders them itself. */}
+          Settings. StopDialog is intentionally absent too — DetailPanel
+          owns and renders it itself. Take over, Clear and End are here
+          because the context menu opens them for sessions the panel is not
+          showing. */}
       <NewSessionDialog open={dialog === 'new'} onClose={() => setDialog(null)} />
       <Settings open={dialog === 'settings'} onClose={() => setDialog(null)} />
       <ErrorLog open={dialog === 'errors'} onClose={() => setDialog(null)} />
+      <SessionDialogs />
       {/* A `/compact` past running subagents, from the composer or the map's badge. */}
       <CompactDialog />
       {/* `/mcp` from the composer (spec 2026-10-01-mcp-servers-in-the-session-design). */}
@@ -417,6 +445,7 @@ export default function App() {
       {/* The way into the error log lives in SpaceMap's HUD now — an icon
           with the unseen count as its badge, riding the zoom column. */}
     </div>
+    </SessionMenuHost>
     </EscapeBoundary>
   )
 }

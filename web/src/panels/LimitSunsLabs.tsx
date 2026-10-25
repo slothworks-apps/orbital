@@ -23,7 +23,7 @@ import { Button } from '../ui/Button'
 import { Toggle } from '../ui/Checkbox'
 import { ClaudeDirMark } from '../ui/ClaudeDirMark'
 import { Segmented } from '../ui/Segmented'
-import { Row } from './settingsRows'
+import { Row, RowTitle, useDeviceOnlyMark } from './settingsRows'
 
 type Settings = Record<string, string | undefined>
 
@@ -89,6 +89,7 @@ export function LimitSunsLabs({
     <>
       <Row
         title="Show plan limits as suns on the map"
+        setting={LIMIT_SUNS_ENABLED_KEY}
         dimmed={apiKey}
         desc={
           <>
@@ -112,7 +113,7 @@ export function LimitSunsLabs({
       </Row>
       {on && (
         <div className="mb-[13px] ml-4 flex flex-col border-l border-[rgba(150,205,255,.12)] pl-4">
-          <SubRow title="Sun style" desc={STYLE_DESC[style]}>
+          <SubRow title="Sun style" setting={LIMIT_SUN_STYLE_KEY} desc={STYLE_DESC[style]}>
             <Segmented<SunStyle>
               label="Sun style"
               size="row"
@@ -124,6 +125,7 @@ export function LimitSunsLabs({
           {accounts.length !== 1 && (
             <SubRow
               title="Sun colours"
+              setting={LIMIT_SUN_COLORS_KEY}
               desc="Each account gets a star colour in the order it was signed in: yellow, white, blue, red. The colour only says whose sun it is. It never changes with usage. Picking a colour that is taken swaps the two."
             >
               {accounts.length === 0 ? (
@@ -172,6 +174,7 @@ export function LimitSunsLabs({
           )}
           <SubRow
             title="Sun positions"
+            setting={LIMIT_SUN_POSITIONS_KEY}
             desc="Kept for each account after you drag a sun. Reset puts every sun back at the top left of the map."
           >
             <Button
@@ -190,11 +193,23 @@ export function LimitSunsLabs({
 }
 
 /** 60e: a setting under the switch, indented behind a hairline; the control column lines up with `Row`'s. */
-function SubRow({ title, desc, children }: { title: string; desc: ReactNode; children: ReactNode }) {
+function SubRow({
+  title,
+  setting,
+  desc,
+  children,
+}: {
+  title: string
+  /** The key it edits, for `Row`'s THIS MAC ONLY. */
+  setting: string
+  desc: ReactNode
+  children: ReactNode
+}) {
+  const mark = useDeviceOnlyMark(setting)
   return (
     <div className="grid grid-cols-[1fr_320px] items-start gap-6 pt-3">
       <div>
-        <div className="text-[13.5px] font-semibold text-text-bright">{title}</div>
+        <RowTitle title={title} mark={mark} />
         <div className="mt-1 text-[12px] leading-[1.55] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">{desc}</div>
       </div>
       <div className="flex min-w-0 flex-col items-start gap-2.5">{children}</div>

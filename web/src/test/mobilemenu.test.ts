@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { ApiSession, BackgroundTask, OrbitalModel, SessionHarness, Subagent, Tag } from '../lib/types'
+import { menuFor } from '../lib/sessionMenu'
 import {
-  canSaveTitle, carriesHarness, clearKeepsLines, endStopsLines, menuFor, taskAge,
+  canSaveTitle, carriesHarness, clearKeepsLines, endStopsLines, taskAge,
 } from '../mobile/menu/sessionMenu'
 
 const NOW = 1_000_000_000

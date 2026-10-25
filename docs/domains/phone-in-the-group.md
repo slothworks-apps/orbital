@@ -100,8 +100,11 @@ hello. #79's `MultiClient`, with no main Mac:
   looked up — the relists in flight are waited for (bounded), then every
   ready member is asked — never sent to the default member. A request
   naming `machine` goes there; anything else to the default member (the
-  last one a session was started on, else the first ready one). The
-  first owner keeps a session while it is ready.
+  last one a session was started on, else the first ready one). A read of
+  `GET /api/settings` goes to a member whose hello names `settings-sync`
+  (the default when it does, else the first ready one that does), and to
+  the default only when none does. The first owner keeps a session while
+  it is ready.
 - Lists are merged across members; an offline member's last sessions
   stay, `online: false`, told in one `machine` event as on the Mac
   (`docs/domains/device-federation.md`). A relist that fails on the

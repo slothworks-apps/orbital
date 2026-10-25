@@ -15,6 +15,8 @@ import {
 import { onQuestionDraftsChanged, readQuestionDrafts, updateQuestionDrafts } from './questionDrafts'
 import { isAttachable, isSlashCommand, promptWithOpenFile, promptWithSelection, selectionId } from '../lib/ideSelection'
 import { withViewTransition } from '../lib/viewTransition'
+import { moveTagTo } from '../lib/tagFilter'
+import { nextTagHue } from '../lib/tagHues'
 import { focusSession } from '../lib/desktop'
 import { MAX_SUBAGENT_MESSAGES, shownStatus } from '../lib/types'
 import { EMPTY_OUTPUT, appendOutput, type OutputLines } from '../lib/backgroundTasks'
@@ -94,8 +96,12 @@ export type SessionEvent =
   | { event: 'stats' }
   /** The session is blocked on a question (spec: 2026-09-20-interactive-decisions-design). */
   | { event: 'decision_pending'; decision: PendingDecision }
-  /** It was settled — by this tab, another window, an interrupt, or the session ending. */
-  | { event: 'decision_resolved'; decisionId: string }
+  /**
+   * It was settled — by this tab, another window, the phone, an interrupt, or
+   * the session ending. A question answered carries its answers; an older
+   * Mac sends none.
+   */
+  | { event: 'decision_resolved'; decisionId: string; answers?: AnswerMap }
   /**
    * The transcript's live branch changed under the rows held — a rewind done
    * in the terminal, or an interrupt's dangling call dropped (spec
@@ -177,6 +183,14 @@ export type ErrorsEvent =
   | { event: 'reported'; id: number; issueUrl: string }
 
 /**
+ * Events on the `settings` topic (`SETTINGS_TOPIC`, spec
+ * 2026-10-24-group-shared-settings-design): shared values another member of
+ * the group changed, as they now stand on this server; `tags` when the tag
+ * list did (`reloadSharedTags`).
+ */
+export type SettingsEvent = { event: 'changed'; settings: Record<string, string> } | { event: 'tags' }
+
+/**
  * Events on the `remote` topic (`server/src/remote/service.ts`). A
  * `pair_request` is always followed by a `status` carrying the same request
  * as `pendingPair`, so only `status` is read.
@@ -221,6 +235,13 @@ export interface OrbitalUiState {
   hiddenDeviceIds?: string[]
   wsStatus: string
   dialog: null | 'new' | 'clear' | 'end' | 'stop' | 'take-over' | 'settings' | 'errors'
+  /**
+   * The session Clear, End or Take over is open for when it is not the
+   * selected one — the context menu opens them over the map without
+   * selecting (spec 2026-10-24-session-context-menu-design). Absent or null:
+   * the selected session, as the header opens them. Every `setDialog` sets it.
+   */
+  dialogSessionId?: string | null
   /**
    * The file the read-only viewer is showing over the app, or null when it
    * is closed (spec: 2026-09-19-file-viewer-design). Plain synchronous UI
@@ -615,6 +636,11 @@ export interface OrbitalActions {
   applySessionEvent(sessionId: string, msg: SessionEvent): void
   applyErrorsEvent(msg: ErrorsEvent): void
   markErrorsSeen(target: number[] | 'all'): Promise<void>
+  /**
+   * Values another member changed: merged into `settings`, so every view
+   * that reads them follows. False when the event carried nothing to apply.
+   */
+  applySettingsEvent(msg: SettingsEvent): boolean
   /** A `status` replaces the whole object; a `pair_request` is left to the `status` after it. */
   applyRemoteEvent(msg: RemoteEvent): void
   /** Stores a status the caller just got from the server. */
@@ -719,9 +745,16 @@ export interface OrbitalActions {
   endSession(id: string): Promise<void>
   /** Moves (or, with null, clears) a tag clump's stored home on the map. */
   setTagAnchor(tagId: number, anchor: { x: number; y: number } | null): Promise<void>
+  /** Moves a tag to `toIndex` in the one order every tag list follows (spec 2026-10-25-tag-toggles-and-order-design § 2). */
+  moveTag(tagId: number, toIndex: number): Promise<void>
+  /** Creates a tag with the next free swatch hue and answers its id; a failed create throws to the caller. */
+  createTag(name: string): Promise<number>
+  /** Reads the tag list again — the server announced a change, or a write was refused. A failed read keeps the list. */
+  refreshTags(): Promise<void>
   /** The hole's click: un-collapse the sidebar and scroll it to HISTORY. */
   revealHistory(): void
-  setDialog(dialog: OrbitalUiState['dialog']): void
+  /** `sessionId`: the session a session dialog is for, when not the selected one (`dialogSessionId`). */
+  setDialog(dialog: OrbitalUiState['dialog'], sessionId?: string): void
   /**
    * Takes the detached list the desktop app pushed. A selected session that
    * is now in it leaves the docked panel — one place per session.
@@ -1767,6 +1800,12 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }
 
     if (msg.event === 'decision_resolved') {
+      // Answers sent from elsewhere — the phone, another window — are what
+      // this tab's card shows until the tool_result arrives. This tab's own
+      // send already stands there and is not replaced.
+      if (msg.answers && !state.decisionAnswers[msg.decisionId]) {
+        set({ decisionAnswers: { ...state.decisionAnswers, [msg.decisionId]: msg.answers } })
+      }
       // Whoever settled it — this tab, the other window, an interrupt — the
       // card locks. Guarded on the id so a late broadcast for a decision
       // already superseded by a newer one cannot unlock the new one.
@@ -1881,6 +1920,12 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     } catch (err) {
       console.error('orbital: failed to mark errors seen', err)
     }
+  },
+
+  applySettingsEvent(msg) {
+    if (msg.event !== 'changed' || Object.keys(msg.settings).length === 0) return false
+    set((state) => ({ settings: { ...state.settings, ...msg.settings } }))
+    return true
   },
 
   applyRemoteEvent(msg) {
@@ -2536,6 +2581,49 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }
   },
 
+  /**
+   * Optimistic like `setTagAnchor`: the dragged chip or row lands at once.
+   * A failed save reads the list again rather than putting back the one from
+   * before the drag: another drag, a new tag or a refused stale list may have
+   * happened meanwhile, and the server is the one that knows.
+   */
+  async moveTag(tagId, toIndex) {
+    const tags = get().tags
+    const next = moveTagTo(tags, tagId, toIndex)
+    if (next === tags) return
+    set({ tags: next })
+    try {
+      await api.reorderTags(next.map((t) => t.id))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to reorder tags'
+      set({ toast: { kind: 'error', message } })
+      await get().refreshTags()
+    }
+  },
+
+  async createTag(name) {
+    const hue = nextTagHue(get().tags)
+    const id = await api.createTag({ name, hue })
+    // The tag exists now. Should the read fail, it joins the list as the
+    // server made it, so it can be picked and a retry finds the name.
+    try {
+      set({ tags: await api.listTags() })
+    } catch {
+      set((state) => ({
+        tags: [...state.tags, { id, name, hue, is_default: 0, anchor_x: null, anchor_y: null }],
+      }))
+    }
+    return id
+  },
+
+  async refreshTags() {
+    try {
+      set({ tags: await api.listTags() })
+    } catch {
+      // The list stands; the next announcement or reconnect reads it again.
+    }
+  },
+
   revealHistory() {
     // The un-collapse goes through the persisting setter on purpose: the
     // click is the user opening the sidebar, same as the rail's own button.
@@ -2545,8 +2633,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }))
   },
 
-  setDialog(dialog) {
-    set((state) => ({ ui: { ...state.ui, dialog } }))
+  setDialog(dialog, sessionId) {
+    set((state) => ({ ui: { ...state.ui, dialog, dialogSessionId: sessionId ?? null } }))
   },
 
   setDetached(ids) {
@@ -3146,6 +3234,32 @@ function applySessionsEvents(msgs: SessionsEvent[]) {
   }
   if (patch) useOrbital.setState(patch)
   for (const run of after) run()
+}
+
+/**
+ * The sessions of a REST snapshot that are not older than the store's copy
+ * of them, by `lastAt`. A socket event can land while the read is in flight,
+ * and the snapshot must not take that session back to where it stood before.
+ * A session the store does not hold, or holds without a `lastAt`, is kept;
+ * an equal `lastAt` is kept too, since what a resync is after (the tags a
+ * rule or a merge moved) does not move it.
+ */
+export function notOlderThanHeld(held: Record<string, ApiSession>, snapshot: ApiSession[]): ApiSession[] {
+  return snapshot.filter((session) => {
+    const heldAt = held[session.id]?.lastAt
+    return heldAt == null || (session.lastAt != null && session.lastAt >= heldAt)
+  })
+}
+
+/**
+ * Seats a REST snapshot of sessions as upserts in one store write, without
+ * the sessions the store already holds newer. The socket's queue is applied
+ * first, so the comparison is against everything this window has heard.
+ */
+export function applySessionsSnapshot(snapshot: ApiSession[]): void {
+  flushSessionsEvents()
+  const fresh = notOlderThanHeld(useOrbital.getState().sessions, snapshot)
+  applySessionsEvents(fresh.map((session) => ({ event: 'upsert', session })))
 }
 
 /**

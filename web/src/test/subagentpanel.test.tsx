@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import type { ApiSession, ChatMessage, Subagent } from '../lib/types'
 import { useOrbital } from '../store/store'
 import { SubagentPanel } from '../panels/SubagentPanel'
-import { elapsedMsFor } from '../lib/subagentPanel'
+import { elapsedMsFor, subagentModelFrom } from '../lib/subagentPanel'
 
 // Nothing in this component calls `api` — every test in this file exercises
 // pure rendering off store state already in place, never a fetch. Mocked the
@@ -487,6 +487,17 @@ describe('the agent ending under an open panel (C1)', () => {
 
     expect(screen.getByText('Run the eslint and jest suites')).toBeInTheDocument()
     expect(container.querySelector('[data-task-state="running"]')).toBeInTheDocument()
+  })
+})
+
+describe('subagentModelFrom', () => {
+  it('names the model from a tool call before the agent has written any text', () => {
+    const messages: ChatMessage[] = [
+      { id: 'u', role: 'user', text: 'find the bug' },
+      { id: 't', role: 'tool_use', toolName: 'Grep', toolUseId: 'g1', model: 'claude-haiku-4-5' },
+      { id: 'r', role: 'tool_result', toolUseId: 'g1', text: 'no matches' },
+    ]
+    expect(subagentModelFrom(messages)).toBe('claude-haiku-4-5')
   })
 })
 

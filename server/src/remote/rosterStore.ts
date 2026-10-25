@@ -10,6 +10,7 @@ import { EMPTY_ROSTER, RosterStateSchema, normalize, rosterDigest, rosterKey, ty
 import type { GroupExit } from '@orbital/shared/remote/group';
 import { groupDescriptions, groupExits, groupLeft, groupMembers, groupMembership, groupRoster, pendingRevokes } from '../db/schema.js';
 import type { OrbitalDb } from '../db/database.js';
+import { resetSharedStamps } from '../settings/sharedSettings.js';
 
 const byId = <T extends { id: string }>(x: T, y: T) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
 
@@ -57,12 +58,32 @@ export class RosterStore {
   }
 }
 
-/** The group this device belongs to or is joining (`GroupStorage.membership`), apart from the document. */
+/**
+ * Whether writing `next` over `prev` is this device joining a group: a
+ * member of one it did not found (`self` is not its primary), of a founding
+ * it was not a member of. A join made by a ceremony waits with no founding
+ * until the primary's first roster; taking that roster is the join.
+ */
+export function joinsGroup(prev: Membership | null, next: Membership | null, self: string | null): boolean {
+  if (next === null || !next.member || next.founding === null || self === null || next.group === self) return false;
+  return !(prev !== null && prev.member && prev.group === next.group && prev.founding === next.founding);
+}
+
+/**
+ * The group this device belongs to or is joining (`GroupStorage.membership`),
+ * apart from the document. Joining a group resets the shared settings'
+ * stamps in the same transaction (spec 2026-10-24-group-shared-settings-design
+ * § Joining), so the group's values replace this device's own.
+ */
 export class GroupMembershipStore {
-  constructor(private readonly db: OrbitalDb) {}
+  constructor(private readonly db: OrbitalDb, private readonly selfId: () => string | null = () => null) {}
 
   get(): Membership | null {
-    const row = this.db.select().from(groupMembership).all()[0];
+    return this.read(this.db);
+  }
+
+  private read(db: Pick<OrbitalDb, 'select'>): Membership | null {
+    const row = db.select().from(groupMembership).all()[0];
     if (!row) return null;
     const m: Membership = { group: row.groupId, founding: row.founding, version: row.version, member: row.member };
     if (row.leftFounding !== null && row.leftVersion !== null) m.left = { founding: row.leftFounding, version: row.leftVersion };
@@ -75,6 +96,7 @@ export class GroupMembershipStore {
 
   set(m: Membership | null): void {
     this.db.transaction((tx) => {
+      if (joinsGroup(this.read(tx), m, this.selfId())) resetSharedStamps(tx);
       tx.delete(groupMembership).run();
       if (m === null) return;
       tx.insert(groupMembership).values({
