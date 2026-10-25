@@ -84,8 +84,12 @@ export const GOLDEN_ANGLE = 2.39996
 /** Minimum empty clearance kept between two clusters' bounding circles. */
 export const CLUSTER_GAP = 1.0
 
-/** Vertical offset of a cluster's label anchor above its topmost planet. */
-export const LABEL_MARGIN = 0.5
+/**
+ * Vertical offset of a cluster's label anchor above its topmost planet, for
+ * the scene model's anchor only — the first frame, before the simulation has
+ * bodies. The live label keeps `CLUSTER_LABEL_GAP_PX` (`SpaceMap`).
+ */
+const LABEL_MARGIN = 0.5
 
 /**
  * How far past the cluster field's bounding circle the hole sits, in world

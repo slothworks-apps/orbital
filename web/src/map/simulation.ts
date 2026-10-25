@@ -30,6 +30,7 @@ import { stateDot, type MapStatePills } from '../lib/stateStyle'
 import { MAX_FRAME_DELTA_SEC } from './frameSchedule'
 import type { TrashDrop } from '../store/store'
 import { bodyZoomFactor } from './camera'
+import { fnv1a } from '../lib/hash'
 import { PLANET_BASE_RADIUS } from './layout'
 import {
   BADGE_OFFSET_X,
@@ -1008,12 +1009,7 @@ const SLOT_DIRECTIONS = 24
  * packings of it. A pair keeps the mean of its two.
  */
 function organicAir(id: string): number {
-  let h = 0x811c9dc5
-  for (let k = 0; k < id.length; k++) {
-    h ^= id.charCodeAt(k)
-    h = Math.imul(h, 0x01000193)
-  }
-  return ((h >>> 0) / 0x100000000) * ORGANIC_AIR_PX * OUTLINE_PER_PX
+  return (fnv1a(id) / 0x100000000) * ORGANIC_AIR_PX * OUTLINE_PER_PX
 }
 
 /** The most extra air `organicAir` gives a body, CSS px at OUTLINE_ZOOM. */

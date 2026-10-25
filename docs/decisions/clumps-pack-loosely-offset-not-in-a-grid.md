@@ -21,6 +21,16 @@ wide and flat, and boxes packed that tightly meet face to face: two planets
 stood exactly one above the other, larger clumps formed rows and columns.
 The map read as a spreadsheet of planets, not as a sky.
 
+That is not one person's taste. The map is a space map for everyone who
+opens it: planets in a sky, and a grid fights that picture for anyone.
+The grid also said nothing — no row or column meant anything — so its
+order was noise the eye still tried to read. Nothing is lost by dropping
+it: a planet's place never carried information. The cost is a one-time
+reshuffle of each tag's planets on the first launch after the update;
+from then on the packing is as stable as before. So it is the default,
+with no setting: a setting would ask every user to choose between two
+looks of the same automatic layout.
+
 ## Decision
 
 Two rules loosen the packing. Both come from the session ids, so the same

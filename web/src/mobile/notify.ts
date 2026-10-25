@@ -3,6 +3,7 @@ import {
   DEFAULT_NOTIFICATION_SETTINGS, SessionNotifier, type NotificationSettings, type SessionNotification,
 } from '@orbital/shared/notifications'
 import { PRESENCE_TOPIC, presenceFromFrame } from '@orbital/shared/presence'
+import { fnv1a } from '../lib/hash'
 import { decisionChipLabel, decisionHeadline, inputSummary } from '../lib/decisionCard'
 import type { ApiSession, PendingDecision } from '../lib/types'
 import { useOrbital } from '../store/store'
@@ -55,12 +56,7 @@ const SESSIONLESS_NOTIFICATION_ID = 1
  */
 export function notificationId(sessionId: string | null): number {
   if (sessionId === null) return SESSIONLESS_NOTIFICATION_ID
-  let hash = 0x811c9dc5
-  for (let i = 0; i < sessionId.length; i++) {
-    hash ^= sessionId.charCodeAt(i)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return (hash & 0x7fffffff) || SESSIONLESS_NOTIFICATION_ID + 1
+  return (fnv1a(sessionId) & 0x7fffffff) || SESSIONLESS_NOTIFICATION_ID + 1
 }
 
 /** The banner's second line, in characters: about one row of a phone's width. */

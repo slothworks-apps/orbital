@@ -27,7 +27,10 @@ function release(s: Scope): void {
   // Databases first: removing the directory under an open SQLite handle
   // leaves its WAL with nowhere to go.
   for (const close of s.closers.splice(0).reverse()) close();
-  for (const dir of s.dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  // Retried: a closed server can still be finishing a write into the
+  // directory (a session's stats, say), and the removal then meets a file
+  // that was not there when it listed the directory — ENOTEMPTY.
+  for (const dir of s.dirs.splice(0)) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 }
 
 beforeEach(() => {
