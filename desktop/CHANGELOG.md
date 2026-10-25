@@ -4,6 +4,12 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.42.1] — 2026-10-25
+### Changed
+- Planets of one tag gather in a looser, offset cluster with uneven gaps, instead of lining up in rows and columns.
+### Fixed
+- A tag's name on the map keeps clear of the planet under it at every zoom, and rises when that planet's subagents widen it.
+
 ## [0.42.0] — 2026-10-25
 ### Added
 - Right-click a planet, a Desk card or a session in the sidebar for a menu of what you can do with it: open, rename, retag, pin, copy its path, clear, end and more — without opening the session first.

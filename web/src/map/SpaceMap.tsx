@@ -48,7 +48,6 @@ import { FrameBudget, useMapFrame } from './FrameBudget'
 import { FrameScheduler, frameCap, parseMapFps } from './frameSchedule'
 import { useDocumentHidden, useWindowFocused } from '../lib/useWindowFocused'
 import type { SceneLabel } from './sceneModel'
-import { LABEL_MARGIN } from './layout'
 import {
   HOLE_DROP_RADIUS,
   createSimulation,
@@ -60,6 +59,7 @@ import {
   reconcileSimulation,
   settleSimulation,
   simulationAwake,
+  bodyTopAt,
   stepSimulation,
   type SimInput,
   type SimState,
@@ -178,13 +178,20 @@ function CameraRig({ camera: camState }: { camera: CameraState }) {
   return null
 }
 
+/** Air between a cluster label's bottom edge and the top of its clump, CSS px. */
+const CLUSTER_LABEL_GAP_PX = 14
+
 /**
  * A cluster's label, tracking the clump per frame: centred over the span of
  * the bodies of its tag that stay (not ones fading off the map, `leaving`)
  * and anchored above the topmost of them,
  * read straight off the simulation the same way the planets read their own
  * positions. Measured from the edges of each body's drawn box (`extent`), so
- * the label clears a reticle or a pill rather than the bare planet. Falls
+ * the label clears a reticle, a pill or a moon system rather than the bare
+ * planet. The top is taken at the live zoom (`bodyTopAt`): zoomed out past
+ * the zoom the extents are measured at, bodies are drawn bigger than them,
+ * and a label placed off the extent alone sat on the topmost planet. The
+ * label's bottom edge then rests CLUSTER_LABEL_GAP_PX above it. Falls
  * back to the scene model's anchor when the sim has no bodies for the tag
  * yet (first frame).
  *
@@ -203,18 +210,21 @@ function ClusterLabel({
   const groupRef = useRef<Group>(null)
 
   // Moves only with the bodies, whose motion `SimStepper` already reports.
-  useMapFrame(() => {
+  useMapFrame((state) => {
     if (!groupRef.current) return false
+    const zoom = state.camera.zoom
     let top = -Infinity
     let left = Infinity
     let right = -Infinity
     for (const body of simRef.current.bodies.values()) {
       if (body.tagId !== label.tagId || leaving.has(body.id)) continue
-      top = Math.max(top, body.y + body.extent.top)
+      top = Math.max(top, body.y + bodyTopAt(body, zoom))
       left = Math.min(left, body.x + body.extent.left)
       right = Math.max(right, body.x + body.extent.right)
     }
-    if (top > -Infinity) groupRef.current.position.set((left + right) / 2, top + LABEL_MARGIN, 0)
+    if (top > -Infinity) {
+      groupRef.current.position.set((left + right) / 2, top + CLUSTER_LABEL_GAP_PX / zoom, 0)
+    }
     else groupRef.current.position.set(label.x, label.y, 0)
     return false
   })
@@ -225,6 +235,10 @@ function ClusterLabel({
       <Html center zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
         <span
           style={{
+            // Bottom edge on the anchor rather than centred on it, so the gap
+            // is measured from the text, whatever its line height.
+            display: 'inline-block',
+            transform: 'translateY(-50%)',
             fontFamily: "'JetBrains Mono', ui-monospace, monospace",
             fontSize: 10,
             letterSpacing: '0.2em',
