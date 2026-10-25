@@ -106,7 +106,8 @@ once both have asked.
 
 **What is end-to-end encrypted.** Everything about your sessions - the
 session list, transcripts, files and images you open, messages you send,
-photos you attach - and the list of devices in your group travel between
+photos you attach - the list of devices in your group, and the settings and
+tags your Macs share with each other travel between
 two of your devices sealed with keys only those two devices hold (signed X25519 key exchange, AES-256-GCM, fresh
 keys for every connection). The relay passes these messages along and cannot
 read them. It does not store them: a message for a phone that is offline is
