@@ -54,7 +54,7 @@ export const SEED_RETRY_MS = 5_000;
 export const SEED_RETRY_MAX_MS = 5 * 60_000;
 
 export type Session = { id: string; tagIds?: number[]; status?: string; machine?: unknown; [key: string]: unknown };
-export type Tag = { id: number; name: string; hue?: number };
+export type Tag = { id: number; name: string; hue?: number; uuid?: string | null };
 
 export type MemberLink = {
   id: string;
@@ -124,7 +124,7 @@ export class FederationService implements LimitsMembers {
    */
   private readonly expected = new Map<string, string>();
   /** This device's tag ids by name; null until read again after a tag changed. */
-  private localTagMap: Map<string, number> | null = null;
+  private localTagMap: { byName: Map<string, number>; byUuid: Map<string, number> } | null = null;
   /** A snapshot write waiting out `SNAPSHOT_WRITE_MS`, per member. */
   private readonly pendingWrites = new Map<string, ReturnType<typeof setTimeout>>();
   private offs: (() => void)[] = [];
@@ -381,11 +381,27 @@ export class FederationService implements LimitsMembers {
     return this.request(link, 'PUT', `/api/sessions/${sessionId}/tags`, { tagIds: memberIds });
   }
 
-  /** The member's tag of the same name as this device's tag `localId`, made there when it has none. */
+  /**
+   * The member's tag of the same group id or name as this device's tag
+   * `localId`, made there when it has none. The list read at the seed may
+   * be older than the tag: a member that shares the tag list may have taken
+   * it since, so its list is read again before one is made.
+   */
   async peerTagId(link: MemberLink, localId: number): Promise<number | null> {
     const tag = this.opts.localTags().find((t) => t.id === localId);
     if (!tag) return null;
-    for (const t of link.tags.values()) if (t.name === tag.name) return t.id;
+    const held = (): number | null => {
+      for (const t of link.tags.values()) if ((tag.uuid && t.uuid === tag.uuid) || t.name === tag.name) return t.id;
+      return null;
+    };
+    if (held() !== null) return held();
+    const listed = await this.request(link, 'GET', '/api/tags');
+    const tagList = (listed.body as { tags?: Tag[] } | null)?.tags;
+    if (listed.status === 200 && Array.isArray(tagList)) {
+      link.tags = new Map(tagList.map((t) => [t.id, t]));
+      this.scheduleSnapshot(link);
+      if (held() !== null) return held();
+    }
     const made = await this.request(link, 'POST', '/api/tags', { name: tag.name, hue: tag.hue ?? 0 });
     const madeId = (made.body as { id?: unknown } | null)?.id;
     if (made.status !== 201 || typeof madeId !== 'number') return null;
@@ -917,9 +933,20 @@ export class FederationService implements LimitsMembers {
     else link.channel.unsubscribe(topic);
   }
 
-  /** Read once and kept until `tagsChanged`: a member's frames must not each cost a query. */
-  private localTagIds(): Map<string, number> {
-    this.localTagMap ??= new Map(this.opts.localTags().map((t) => [t.name, t.id]));
+  /**
+   * Read once and kept until `tagsChanged`: a member's frames must not each
+   * cost a query. Keyed by name and by group id (spec
+   * 2026-10-24-group-shared-settings-design § Tags), so a member's tag maps
+   * to the same tag here even while its name as last read is stale.
+   */
+  private localTagIds(): { byName: Map<string, number>; byUuid: Map<string, number> } {
+    if (!this.localTagMap) {
+      const local = this.opts.localTags();
+      this.localTagMap = {
+        byName: new Map(local.map((t) => [t.name, t.id])),
+        byUuid: new Map(local.flatMap((t) => (t.uuid ? [[t.uuid, t.id] as const] : []))),
+      };
+    }
     return this.localTagMap;
   }
 
@@ -936,7 +963,10 @@ export class FederationService implements LimitsMembers {
   private localize(link: MemberLink, session: Session): Session {
     const local = this.localTagIds();
     const tagIds = (session.tagIds ?? [])
-      .map((id) => local.get(link.tags.get(id)?.name ?? ''))
+      .map((id) => {
+        const tag = link.tags.get(id);
+        return (tag?.uuid ? local.byUuid.get(tag.uuid) : undefined) ?? local.byName.get(tag?.name ?? '');
+      })
       .filter((id): id is number => id !== undefined);
     return { ...session, tagIds, machine: this.machine(link) };
   }

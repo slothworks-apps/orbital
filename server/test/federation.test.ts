@@ -883,6 +883,8 @@ describe('FederationService alone in its group', () => {
     b.greet(desktopHello);
     await vi.advanceTimersByTimeAsync(0);
     const tag = federation.peerTagId(federation.link(B)!, 4);
+    // The member's list is read again first; the make is what stop interrupts.
+    await vi.advanceTimersByTimeAsync(0);
     federation.stop();
     saves.length = 0;
     made({ status: 201, body: { id: 9 } });

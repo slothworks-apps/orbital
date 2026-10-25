@@ -371,11 +371,11 @@ describe('default tag', () => {
     const dbPath = join(dir, 'index.db');
     // Every migration before the one that adds the unique index.
     const old = openDb(dbPath, migrationsBefore(dir, '_one_default_tag'));
-    old.insert(tags).values([
-      { name: 'atlas', hue: 150, isDefault: 1 },
-      { name: 'personal-again', hue: 330, isDefault: 1 },
-    ]).run();
-    const firstDefault = old.select().from(tags).where(eq(tags.isDefault, 1)).orderBy(tags.id).get();
+    // Raw SQL: the schema in code has columns this older table lacks.
+    const insert = old.$client.prepare('INSERT INTO tags (name, hue, is_default) VALUES (?, ?, 1)');
+    insert.run('atlas', 150);
+    insert.run('personal-again', 330);
+    const firstDefault = old.select({ id: tags.id }).from(tags).where(eq(tags.isDefault, 1)).orderBy(tags.id).get();
     old.$client.close();
 
     const db = openDb(dbPath);

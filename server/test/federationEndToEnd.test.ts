@@ -214,8 +214,9 @@ describe('federation: linked servers', () => {
     const onC = await c.api('GET', `/api/sessions/${minted}`);
     expect(onC.statusCode).toBe(200);
     const opsC = ((await c.api('GET', '/api/tags')).json().tags as { id: number; name: string }[]).find((t) => t.name === 'ops')!;
-    expect(opsC.id).not.toBe(ops);
+    // The tag list is shared, so the two ids may match; what A shows is its own tag either way.
     expect(onC.json().session.tagIds).toEqual([opsC.id]);
+    expect((await a.api('GET', `/api/sessions/${minted}`)).json().session.tagIds).toEqual([ops]);
     expect((await a.app.inject({ method: 'GET', url: `/api/sessions/${minted}`, headers: { [DEVICE_HEADER]: idC } })).statusCode).toBe(404);
 
     // A request over a channel that names another device is refused, never answered here or passed on.
@@ -240,14 +241,13 @@ describe('federation: linked servers', () => {
     const unknown = await a.api('GET', '/api/projects?machine=nobody');
     expect([unknown.statusCode, unknown.json()]).toEqual([404, { error: 'unknown_device' }]);
 
-    // A's tags land on B by name: B's own "red", made there.
+    // A's tags land on B by name: B's own "red", made there or taken from A's shared list.
     await a.api('POST', '/api/tags', { name: 'blue', hue: 200 });
     const red = (await a.api('POST', '/api/tags', { name: 'red', hue: 0 })).json().id as number;
     expect((await a.api('PUT', `/api/sessions/${SESSION_ID}/tags`, { tagIds: [red] })).statusCode).toBe(200);
     const tagsB = (await b.api('GET', '/api/tags')).json().tags as { id: number; name: string }[];
     const redB = tagsB.find((t) => t.name === 'red')!;
     expect(tagsB.filter((t) => t.name === 'red')).toHaveLength(1);
-    expect(redB.id).not.toBe(red);
     expect((await b.api('GET', `/api/sessions/${SESSION_ID}`)).json().session.tagIds).toEqual([redB.id]);
 
     // An image only B holds is served by A.

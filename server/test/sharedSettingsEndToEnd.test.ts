@@ -24,6 +24,10 @@ describe('settings the group shares, between two servers', () => {
     await a.api('PATCH', '/api/settings', { default_model: 'opus' });
     // Changed on the laptop after the studio's change, before it joins: the group's values still win.
     await b.api('PATCH', '/api/settings', { default_model: 'haiku', map_state_pills: 'label', sidebar_width: '420' });
+    // A tag of the same name on both, and one only the laptop has.
+    await a.api('POST', '/api/tags', { name: 'work', hue: 10 });
+    await b.api('POST', '/api/tags', { name: 'work', hue: 200 });
+    await b.api('POST', '/api/tags', { name: 'laptop-only', hue: 40 });
     const windowOnB = watch(b, 'settings');
 
     const qr = (await a.api('POST', '/api/remote/pair')).json().qr;
@@ -46,5 +50,16 @@ describe('settings the group shares, between two servers', () => {
     await until(async () => (await read(a)).confirm_before_clear === 'false', 10_000);
     await a.api('PATCH', '/api/settings', { map_theme: 'desk' });
     await until(async () => (await read(b)).map_theme === 'desk', 10_000);
+
+    // Tags: the group's "work" wins on the joining laptop, its own tag reaches the studio, and a rename travels.
+    type ListedTag = { id: number; name: string; hue: number; uuid: string };
+    const tagsOf = async (s: MacAndRelay) => (await s.api('GET', '/api/tags')).json().tags as ListedTag[];
+    await until(async () => (await tagsOf(a)).some((t) => t.name === 'laptop-only'), 10_000);
+    expect((await tagsOf(b)).find((t) => t.name === 'work')?.hue).toBe(10);
+    const laptopOnly = (await tagsOf(b)).find((t) => t.name === 'laptop-only')!;
+    expect((await tagsOf(a)).find((t) => t.name === 'laptop-only')?.uuid).toBe(laptopOnly.uuid);
+    await b.api('PATCH', `/api/tags/${laptopOnly.id}`, { name: 'travel' });
+    await until(async () => (await tagsOf(a)).some((t) => t.name === 'travel'), 10_000);
+    expect(windowOnB().some((f) => f.event === 'tags')).toBe(true);
   }, 30_000);
 });

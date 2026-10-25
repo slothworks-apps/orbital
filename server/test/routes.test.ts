@@ -13,6 +13,8 @@ import { OUTPUT_TAIL_BYTES } from '../src/files/taskOutput.js';
 import { ATTACHMENT_MAX_BYTES, FILE_ATTACHMENT_MAX_BYTES } from '../src/api/routes.js';
 import type { OrbitalDb } from '../src/db/database.js';
 import { SharedSettingsStore } from '../src/settings/sharedSettings.js';
+import { SharedTagsStore } from '../src/tags/sharedTags.js';
+import type { StampedTag } from '@orbital/shared/sharedSettings';
 import {
   countSweepable,
   parseRetentionDays,
@@ -525,7 +527,7 @@ describe('REST routes', () => {
   it('GET /api/tags and /api/tag-rules preserve original snake_case key order (derived projection maps)', async () => {
     const tagsRes = await app.inject({ method: 'GET', url: '/api/tags' });
     expect(Object.keys(tagsRes.json().tags[0])).toEqual([
-      'id', 'name', 'hue', 'is_default', 'anchor_x', 'anchor_y',
+      'id', 'name', 'hue', 'is_default', 'anchor_x', 'anchor_y', 'uuid',
     ]);
 
     await app.inject({
@@ -1125,11 +1127,12 @@ describe('REST routes', () => {
       sharedSettings: (db) => {
         const store = new SharedSettingsStore(db, () => 'self', () => now);
         return {
-          partner: () => false, list: () => store.list(), receive: () => {},
+          partner: () => false, list: () => store.list(), listTags: () => [], receive: () => {},
           changedLocally: (keys) => {
             pushed.push(keys);
             store.stampLocal(keys);
           },
+          tagChangedLocally: () => {}, tagDeletedLocally: () => {},
         };
       },
     });
@@ -1142,6 +1145,46 @@ describe('REST routes', () => {
     await shared.inject({ method: 'PATCH', url: '/api/settings', payload: { default_model: 'opus' } });
     expect(stamp('default_model')).toBe(100);
     expect(pushed).toEqual([['default_model', 'sidebar_width'], []]);
+  });
+
+  it('a tag create, rename, recolour or delete is stamped and pushed; an anchor move or an unchanged name is not', async () => {
+    let now = 100;
+    const pushed: StampedTag[][] = [];
+    const { app: shared, db: sharedDb } = makeApp({
+      sharedSettings: (db) => {
+        const tagStore = new SharedTagsStore(db, () => 'self', () => now);
+        return {
+          partner: () => false, list: () => ({}), listTags: () => tagStore.list(), receive: () => {}, changedLocally: () => {},
+          tagChangedLocally: (id) => { pushed.push([tagStore.stampLocal(id)!]); },
+          tagDeletedLocally: (uuid, name) => { pushed.push([tagStore.tombstone(uuid, name)!]); },
+        };
+      },
+    });
+    const created = await shared.inject({ method: 'POST', url: '/api/tags', payload: { name: 'ops', hue: 10 } });
+    const id = created.json().id as number;
+    const row = () => sharedDb.select().from(tags).where(eq(tags.id, id)).get()!;
+    expect(row()).toMatchObject({ stampAt: 100, stampOrigin: '' });
+    expect(row().uuid).toMatch(/^[0-9a-f-]{36}$/);
+    now = 200;
+    await shared.inject({ method: 'PATCH', url: `/api/tags/${id}`, payload: { anchor_x: 4, anchor_y: 5 } });
+    await shared.inject({ method: 'PATCH', url: `/api/tags/${id}`, payload: { name: 'ops' } });
+    expect(row().stampAt).toBe(100);
+    await shared.inject({ method: 'PATCH', url: `/api/tags/${id}`, payload: { hue: 40 } });
+    expect(row().stampAt).toBe(200);
+    // The stamps stay out of the list the app reads.
+    const listed = (await shared.inject({ method: 'GET', url: '/api/tags' })).json().tags as Record<string, unknown>[];
+    expect(listed.find((t) => t.id === id)).not.toHaveProperty('stamp_at');
+    now = 300;
+    const uuid = row().uuid;
+    await shared.inject({ method: 'DELETE', url: `/api/tags/${id}` });
+    // The default cannot be deleted, so nothing travels for it.
+    const def = sharedDb.select().from(tags).where(eq(tags.isDefault, 1)).get()!;
+    await shared.inject({ method: 'DELETE', url: `/api/tags/${def.id}` });
+    expect(pushed.map((p) => p[0])).toEqual([
+      expect.objectContaining({ name: 'ops', hue: 10, at: 100, origin: 'self' }),
+      expect.objectContaining({ name: 'ops', hue: 40, at: 200 }),
+      { uuid, name: 'ops', hue: 0, isDefault: false, at: 300, origin: 'self', deleted: true },
+    ]);
   });
 
   it('GET /api/settings leaves every remote_ key out for a member', async () => {

@@ -8,7 +8,8 @@
 
 /**
  * The hello capability of a device that takes part: it answers
- * `GET`/`POST /api/settings/shared`, pushes its changes and catches up.
+ * `GET`/`POST /api/settings/shared` (settings and tags), pushes its changes
+ * and catches up.
  * A member whose hello lacks it neither sends nor receives.
  */
 export const SETTINGS_SYNC_CAPABILITY = 'settings-sync';
@@ -125,11 +126,61 @@ export function readStampedSettings(raw: unknown, maxAt: number): Record<string,
 }
 
 /**
+ * One tag of the list the group shares (spec § Tags), as the routes carry it:
+ * its id across the group, the shared fields, and the stamp of their last
+ * change. Never the clump's anchor on the map: that is each device's layout.
+ * `deleted`: a tombstone, the tag deleted at `at`; its name lets a member
+ * that knows the tag only by name delete it too, and a later tag of the same
+ * name wins over it.
+ */
+export type StampedTag = {
+  uuid: string;
+  name: string;
+  hue: number;
+  isDefault: boolean;
+  at: number;
+  origin: string;
+  deleted?: true;
+};
+
+/** The longest group id and tag name a member's body may carry; anything longer is dropped. */
+const TAG_UUID_MAX = 64;
+const TAG_NAME_MAX = 200;
+
+/**
+ * The `tags` of a pushed or listed body read leniently, as
+ * `readStampedSettings` reads its settings: an entry without a usable group
+ * id, name, hue or stamp is dropped, and a time past `maxAt` is clamped.
+ */
+export function readStampedTags(raw: unknown, maxAt: number): StampedTag[] {
+  const tags = raw && typeof raw === 'object' ? (raw as { tags?: unknown }).tags : undefined;
+  if (!Array.isArray(tags)) return [];
+  const out: StampedTag[] = [];
+  for (const entry of tags) {
+    if (!entry || typeof entry !== 'object') continue;
+    const { uuid, name, hue, isDefault, at, origin, deleted } = entry as Record<string, unknown>;
+    if (typeof uuid !== 'string' || uuid === '' || uuid.length > TAG_UUID_MAX) continue;
+    if (typeof name !== 'string' || name.trim() === '' || name.length > TAG_NAME_MAX) continue;
+    if (typeof at !== 'number' || !Number.isFinite(at) || typeof origin !== 'string' || origin === '') continue;
+    const stamp = { at: Math.min(at, maxAt), origin };
+    if (deleted === true) {
+      out.push({ uuid, name, hue: 0, isDefault: false, ...stamp, deleted: true });
+      continue;
+    }
+    if (typeof hue !== 'number' || !Number.isFinite(hue) || typeof isDefault !== 'boolean') continue;
+    out.push({ uuid, name, hue, isDefault, ...stamp });
+  }
+  return out;
+}
+
+/**
  * The hub topic that tells this device's own windows that shared values
  * changed under them, taken from another member: `{ event: 'changed',
- * settings: { key: value } }`. Local only: no member or phone may watch it.
+ * settings: { key: value } }`, or `{ event: 'tags' }` when the tag list
+ * did (read it again, and the sessions whose tags it moved). Local only: no
+ * member or phone may watch it.
  */
 export const SETTINGS_TOPIC = 'settings';
 
-/** The route members read and push shared values on. */
+/** The route members read and push shared values on: `{ settings, tags }`, either part optional in a push. */
 export const SHARED_SETTINGS_PATH = '/api/settings/shared';

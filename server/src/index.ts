@@ -75,6 +75,7 @@ import { RemoteService } from './remote/service.js';
 import { registerFederationRoutes } from './federation/routes.js';
 import { FederationService } from './federation/service.js';
 import { SharedSettingsStore, SharedSettingsSync } from './settings/sharedSettings.js';
+import { SharedTagsStore } from './tags/sharedTags.js';
 import { memberHasGrant, parseGrants } from './remote/grants.js';
 import { SETTINGS_TOPIC } from '@orbital/shared/sharedSettings';
 import { MemberSnapshotStore } from './federation/store.js';
@@ -1574,12 +1575,18 @@ export async function buildServer(overrides: {
   // The settings the group shares (spec 2026-10-24-group-shared-settings-design).
   const sharedSettings = new SharedSettingsSync({
     store: new SharedSettingsStore(db, () => remote.selfId()),
+    tags: new SharedTagsStore(db, () => remote.selfId()),
     remote,
     granted: (id) => memberHasGrant(parseGrants(settingsStore.get('remote_grants')), id, 'settings'),
     // What a PATCH of the same keys sets off, and this device's windows told (a local topic).
     applied: (changed) => {
       settingsChangedEffects(Object.keys(changed), { limits, branchStatus });
       hub.publish(SETTINGS_TOPIC, { event: 'changed', settings: changed });
+    },
+    // A member's sessions show this device's tags of the same group id or name: read afresh.
+    tagsApplied: () => {
+      federation.tagsChanged();
+      hub.publish(SETTINGS_TOPIC, { event: 'tags' });
     },
   });
   // Before the routes: a request for a member's session must never reach a

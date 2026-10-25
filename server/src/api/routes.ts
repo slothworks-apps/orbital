@@ -7,6 +7,7 @@ import { parseTranscript } from '../transcript/parser.js';
 import { presentBranch, readTranscriptBranch, type BranchRead } from '../transcript/rewind.js';
 import { RewindStore, type PendingRewind } from '../rewind/store.js';
 import { regenerateRuleTags, matchRule } from '../tags/rules.js';
+import { deleteTag } from '../tags/sharedTags.js';
 import { expandHome } from '../paths.js';
 import { NamedPathCache, readFilePreview, readImageFile, readInSandboxes } from '../files/preview.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
@@ -222,7 +223,7 @@ export interface RouteContext {
    * a local change of one is stamped and pushed, and members read and push
    * them on `/api/settings/shared`. Absent, nothing is shared and those routes do not exist.
    */
-  sharedSettings?: Pick<SharedSettingsSync, 'partner' | 'list' | 'receive' | 'changedLocally'>;
+  sharedSettings?: Pick<SharedSettingsSync, 'partner' | 'list' | 'listTags' | 'receive' | 'changedLocally' | 'tagChangedLocally' | 'tagDeletedLocally'>;
   /** `POST /api/sessions` on a group member, for `spawn_session`'s `machine` (spec 2026-10-19-member-grants-design § 3). */
   spawnOnMember?: (machine: string, body: Record<string, unknown>) => Promise<{ status: number; body: unknown }>;
 }
@@ -2416,14 +2417,21 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     return { ok: true };
   });
 
+  // The stamps are the group's bookkeeping (`/api/settings/shared`), not part of a tag as the app reads it.
+  const { stamp_at: _stampAt, stamp_origin: _stampOrigin, ...tagListColumns } = tagColumns;
   app.get('/api/tags', () => ({
     // The default tag leads every tag list; the rest keep creation order.
-    tags: db.select(tagColumns).from(tags).orderBy(desc(tags.isDefault), tags.id).all(),
+    tags: db.select(tagListColumns).from(tags).orderBy(desc(tags.isDefault), tags.id).all(),
   }));
+  // A create, rename, recolour or delete is stamped and goes to every member
+  // that shares the tag list (spec 2026-10-24-group-shared-settings-design §
+  // Tags); a move of the clump's anchor is this device's layout and does not.
   app.post('/api/tags', (req, reply) => {
     const { name, hue } = req.body as { name: string; hue: number };
     const r = db.insert(tags).values({ name, hue }).run();
-    return reply.code(201).send({ id: Number(r.lastInsertRowid) });
+    const id = Number(r.lastInsertRowid);
+    ctx.sharedSettings?.tagChangedLocally(id);
+    return reply.code(201).send({ id });
   });
   app.patch('/api/tags/:id', (req, reply) => {
     const { id } = req.params as { id: string };
@@ -2445,13 +2453,18 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       set[column] = value;
     }
     if (Object.keys(set).length > 0) {
+      const before = db.select({ name: tags.name, hue: tags.hue }).from(tags).where(eq(tags.id, Number(id))).get();
       db.update(tags).set(set).where(eq(tags.id, Number(id))).run();
+      if (before && ((set.name !== undefined && set.name !== before.name) || (set.hue !== undefined && set.hue !== before.hue))) {
+        ctx.sharedSettings?.tagChangedLocally(Number(id));
+      }
     }
     return { ok: true };
   });
   app.delete('/api/tags/:id', (req) => {
     const { id } = (req.params as any) as { id: string };
-    db.delete(tags).where(and(eq(tags.id, Number(id)), eq(tags.isDefault, 0))).run();
+    const row = db.select({ uuid: tags.uuid, name: tags.name }).from(tags).where(eq(tags.id, Number(id))).get();
+    if (deleteTag(db, Number(id)) && row?.uuid) ctx.sharedSettings?.tagDeletedLocally(row.uuid, row.name);
     regenerateRuleTags(db);
     return { ok: true };
   });

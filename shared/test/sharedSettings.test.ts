@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  PER_DEVICE_SETTING_KEYS, SHARED_SETTING_KEYS, isPerDeviceSetting, isSharedSetting, readStampedSettings, stampBeats,
+  PER_DEVICE_SETTING_KEYS, SHARED_SETTING_KEYS, isPerDeviceSetting, isSharedSetting, readStampedSettings, readStampedTags, stampBeats,
   type SettingStamp,
 } from '../src/sharedSettings.js';
 
@@ -82,5 +82,32 @@ describe('readStampedSettings', () => {
     expect(readStampedSettings(null, 1)).toEqual({});
     expect(readStampedSettings({ settings: [] }, 1)).toEqual({});
     expect(readStampedSettings('x', 1)).toEqual({});
+  });
+});
+
+describe('readStampedTags', () => {
+  it('takes well-formed tags and tombstones, drops the rest, and clamps a time past the bound', () => {
+    const read = readStampedTags({
+      tags: [
+        { uuid: 'u1', name: 'work', hue: 10, isDefault: false, at: 5, origin: A, anchor_x: 3 },
+        { uuid: 'u2', name: 'gone', at: 9_999, origin: B, deleted: true },
+        { uuid: '', name: 'x', hue: 1, isDefault: false, at: 1, origin: A },
+        { uuid: 'u3', name: '  ', hue: 1, isDefault: false, at: 1, origin: A },
+        { uuid: 'u4', name: 'y', hue: '1', isDefault: false, at: 1, origin: A },
+        { uuid: 'u5', name: 'z', hue: 1, isDefault: false, at: 1, origin: '' },
+        { uuid: 'x'.repeat(65), name: 'long', hue: 1, isDefault: false, at: 1, origin: A },
+      ],
+    }, 100);
+    // The anchor never travels: an entry carries only the shared fields.
+    expect(read).toEqual([
+      { uuid: 'u1', name: 'work', hue: 10, isDefault: false, at: 5, origin: A },
+      { uuid: 'u2', name: 'gone', hue: 0, isDefault: false, at: 100, origin: B, deleted: true },
+    ]);
+  });
+
+  it('reads anything else as no tags', () => {
+    expect(readStampedTags({ settings: {} }, 1)).toEqual([]);
+    expect(readStampedTags({ tags: {} }, 1)).toEqual([]);
+    expect(readStampedTags(null, 1)).toEqual([]);
   });
 });

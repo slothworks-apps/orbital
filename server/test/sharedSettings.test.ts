@@ -8,7 +8,8 @@ import type { HelloMessage } from '@orbital/shared/remote/messages';
 import type { MemberView } from '@orbital/shared/remote/roster';
 import { SETTINGS_STAMP_SKEW_MS, isPerDeviceSetting, isSharedSetting } from '@orbital/shared/sharedSettings';
 import { DEFAULT_SETTINGS, openDb, type OrbitalDb } from '../src/db/database.js';
-import { settings } from '../src/db/schema.js';
+import { sessionTags, settings, tagRules, tags, tagTombstones, type Tag } from '../src/db/schema.js';
+import { SharedTagsStore } from '../src/tags/sharedTags.js';
 import { DEVICE_HEADER } from '../src/remote/inject.js';
 import { GroupMembershipStore, joinsGroup } from '../src/remote/rosterStore.js';
 import { SharedSettingsStore, SharedSettingsSync, registerSharedSettingsRoutes } from '../src/settings/sharedSettings.js';
@@ -58,9 +59,13 @@ function device(self: string, opts: { members?: MemberView[]; grants?: Record<st
   const channelListeners = new Set<(id: string, c: Channel) => void>();
   const statusListeners = new Set<() => void>();
   const applied: Record<string, string>[] = [];
+  const tagsApplied: number[] = [];
   const store = new SharedSettingsStore(db, () => self, opts.now);
+  const tagStore = new SharedTagsStore(db, () => self, opts.now);
   const sync = new SharedSettingsSync({
     store,
+    tags: tagStore,
+    tagsApplied: () => tagsApplied.push(1),
     remote: {
       onChannel: (l) => { channelListeners.add(l); return () => channelListeners.delete(l); },
       onStatus: (l) => { statusListeners.add(l); return () => statusListeners.delete(l); },
@@ -77,7 +82,7 @@ function device(self: string, opts: { members?: MemberView[]; grants?: Record<st
   registerSharedSettingsRoutes(app, sync);
   sync.start();
   return {
-    db, store, sync, app, applied, members,
+    db, store, sync, app, applied, members, tagStore, tagsApplied,
     /** A channel to `other`, announced as the remote announces a new one. */
     link(other: { app: FastifyInstance }, id: string, capabilities?: string[]): FakeChannel {
       const channel = new FakeChannel(other.app, self, capabilities);
@@ -91,6 +96,15 @@ function device(self: string, opts: { members?: MemberView[]; grants?: Record<st
         .onConflictDoUpdate({ target: settings.key, set: { value, stampAt: at, stampOrigin: origin } }).run();
     },
     value: (key: string) => db.select().from(settings).where(eq(settings.key, key)).get()?.value,
+    /** A tag made here, as `POST /api/tags` and a stamp at `at` would leave it. */
+    addTag(name: string, hue: number, at = 0, extra: Partial<typeof tags.$inferInsert> = {}): Tag {
+      return db.insert(tags).values({ name, hue, stampAt: at, ...extra }).returning().get();
+    },
+    tag: (name: string) => db.select().from(tags).where(eq(tags.name, name)).get(),
+    tagNames: () => db.select().from(tags).orderBy(tags.name).all().map((t) => t.name),
+    tagged(sessionId: string): number[] {
+      return db.select().from(sessionTags).where(eq(sessionTags.sessionId, sessionId)).all().map((r) => r.tagId);
+    },
   };
 }
 
@@ -308,5 +322,177 @@ describe('joining a group', () => {
     store.stampLocal(['default_model']);
     membership.set({ group: PRIMARY, founding: 'f1', version: 2, member: true });
     expect(store.stampOf('default_model')?.at).toBeGreaterThan(0);
+  });
+});
+
+describe('the tag migration', () => {
+  it('gives every existing tag a group id and keeps its row, sessions and anchor; a later insert gets one too', () => {
+    const dir = makeTmpDir('tag-ids');
+    const dbPath = join(dir, 'index.db');
+    const old = openDb(dbPath, migrationsBefore(dir, '_group_shared_tags'));
+    old.$client.prepare('INSERT INTO tags (id, name, hue, anchor_x, anchor_y) VALUES (7, ?, 40, 1.5, -2)').run('work');
+    old.$client.prepare('INSERT INTO session_tags (session_id, tag_id, origin) VALUES (?, 7, ?)').run('s1', 'manual');
+    old.$client.close();
+    const db = openDb(dbPath);
+    const all = db.select().from(tags).all();
+    expect(all.find((t) => t.id === 7)).toMatchObject({ name: 'work', hue: 40, anchorX: 1.5, anchorY: -2, stampAt: 0, stampOrigin: '' });
+    expect(new Set(all.map((t) => t.uuid)).size).toBe(all.length);
+    for (const t of all) expect(t.uuid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(db.select().from(sessionTags).all()).toEqual([{ sessionId: 's1', tagId: 7, origin: 'manual' }]);
+    // A raw insert, as the default tag's seed is, still gets an id.
+    db.$client.prepare("INSERT INTO tags (name, hue) VALUES ('raw', 1)").run();
+    expect(db.select().from(tags).where(eq(tags.name, 'raw')).get()?.uuid).toMatch(/^[0-9a-f-]{36}$/);
+    db.$client.close();
+  });
+});
+
+describe('the tag list the group shares', () => {
+  /** Two members whose channels are up both ways, caught up. */
+  async function pair(primary: ReturnType<typeof device>, laptop: ReturnType<typeof device>) {
+    const toLaptop = primary.link(laptop, LAPTOP);
+    const toPrimary = laptop.link(primary, PRIMARY);
+    toPrimary.up();
+    toLaptop.up();
+    await settle();
+    return { toLaptop, toPrimary };
+  }
+
+  it('lists tags and tombstones on the route, never an anchor', async () => {
+    const d = device(PRIMARY);
+    d.addTag('work', 10, 5, { anchorX: 3, anchorY: 4 });
+    d.tagStore.tombstone('gone-id', 'gone');
+    const res = await d.app.inject({ method: 'GET', url: '/api/settings/shared', headers: { [DEVICE_HEADER]: LAPTOP } });
+    const listed = res.json().tags as Record<string, unknown>[];
+    expect(listed.find((t) => t.name === 'work')).toEqual({ uuid: d.tag('work')!.uuid, name: 'work', hue: 10, isDefault: false, at: 5, origin: PRIMARY });
+    expect(listed.find((t) => t.name === 'gone')).toMatchObject({ uuid: 'gone-id', deleted: true });
+    // A push of tags from a phone changes nothing.
+    await d.app.inject({
+      method: 'POST', url: '/api/settings/shared', headers: { [DEVICE_HEADER]: PHONE },
+      payload: { tags: [{ uuid: 'x', name: 'phone', hue: 1, isDefault: false, at: 9, origin: PHONE }] },
+    });
+    expect(d.tag('phone')).toBeUndefined();
+  });
+
+  it('matches same-name tags at the first catch-up: both keep the winner\'s id, and each its sessions and anchor', async () => {
+    const primary = device(PRIMARY);
+    const laptop = device(LAPTOP);
+    const p = primary.addTag('work', 10, 0, { anchorX: 1, anchorY: 1 });
+    const l = laptop.addTag('work', 200, 50, { anchorX: 9, anchorY: 9 });
+    laptop.db.insert(sessionTags).values({ sessionId: 'mine', tagId: l.id, origin: 'manual' }).run();
+    primary.addTag('home', 30);
+    await pair(primary, laptop);
+    // The laptop's later change wins; the seeded defaults, untouched on both, go to the primary's.
+    for (const d of [primary, laptop]) {
+      expect(d.tag('work')).toMatchObject({ uuid: l.uuid, hue: 200 });
+      expect(d.tag('default')!.uuid).toBe(primary.tag('default')!.uuid);
+      expect(d.tagNames()).toEqual(['default', 'home', 'work']);
+    }
+    expect(primary.tag('work')).toMatchObject({ id: p.id, anchorX: 1, anchorY: 1 });
+    expect(laptop.tag('work')).toMatchObject({ id: l.id, anchorX: 9, anchorY: 9 });
+    expect(laptop.tagged('mine')).toEqual([l.id]);
+    expect(primary.tagsApplied.length).toBeGreaterThan(0);
+  });
+
+  it('a rename travels by group id, and a later push of an older state is ignored', async () => {
+    let now = 100;
+    const primary = device(PRIMARY, { now: () => now });
+    const laptop = device(LAPTOP);
+    const tag = primary.addTag('jobs', 10);
+    await pair(primary, laptop);
+    const before = laptop.tag('jobs')!;
+    primary.db.update(tags).set({ name: 'work' }).where(eq(tags.id, tag.id)).run();
+    primary.sync.tagChangedLocally(tag.id);
+    await settle();
+    expect(laptop.tag('work')).toMatchObject({ id: before.id, uuid: tag.uuid, stampAt: 100, stampOrigin: PRIMARY });
+    expect(laptop.tag('jobs')).toBeUndefined();
+    laptop.sync.receive({ tags: [{ uuid: tag.uuid, name: 'jobs', hue: 10, isDefault: false, at: 50, origin: BOX }] });
+    expect(laptop.tag('work')?.id).toBe(before.id);
+  });
+
+  it('a rename onto a name another tag holds merges the two into the winner, sessions and rules with it', () => {
+    const laptop = device(LAPTOP);
+    const work = laptop.addTag('work', 10, 20);
+    const jobs = laptop.addTag('jobs', 20, 10, { uuid: 'jobs-id' });
+    laptop.db.insert(sessionTags).values([
+      { sessionId: 'a', tagId: jobs.id, origin: 'manual' },
+      { sessionId: 'b', tagId: work.id, origin: 'manual' },
+      { sessionId: 'b', tagId: jobs.id, origin: 'manual' },
+    ]).run();
+    laptop.db.insert(tagRules).values({ tagId: jobs.id, position: 0, condition: 'title_contains', pattern: 'x' }).run();
+    // Elsewhere, "jobs" was renamed "work" after this device's "work" was last changed.
+    laptop.sync.receive({ tags: [{ uuid: 'jobs-id', name: 'work', hue: 20, isDefault: false, at: 30, origin: PRIMARY }] });
+    expect(laptop.tagNames()).toEqual(['default', 'work']);
+    expect(laptop.tag('work')).toMatchObject({ id: jobs.id, uuid: 'jobs-id', hue: 20 });
+    expect(laptop.tagged('a')).toEqual([jobs.id]);
+    expect(laptop.tagged('b')).toEqual([jobs.id]);
+    expect(laptop.db.select().from(tagRules).all().map((r) => r.tagId)).toEqual([jobs.id]);
+  });
+
+  it('a rename that loses to the tag holding the name merges into that tag', () => {
+    const laptop = device(LAPTOP);
+    const work = laptop.addTag('work', 10, 50);
+    const jobs = laptop.addTag('jobs', 20, 10, { uuid: 'jobs-id' });
+    laptop.db.insert(sessionTags).values({ sessionId: 'a', tagId: jobs.id, origin: 'manual' }).run();
+    laptop.sync.receive({ tags: [{ uuid: 'jobs-id', name: 'work', hue: 20, isDefault: false, at: 30, origin: PRIMARY }] });
+    expect(laptop.tagNames()).toEqual(['default', 'work']);
+    expect(laptop.tag('work')).toMatchObject({ id: work.id, hue: 10 });
+    expect(laptop.tagged('a')).toEqual([work.id]);
+  });
+
+  it('a delete reaches an offline member at its catch-up, its sessions falling back; a later re-create wins over it', async () => {
+    let now = 100;
+    const primary = device(PRIMARY, { now: () => now });
+    const laptop = device(LAPTOP);
+    const tag = primary.addTag('work', 10);
+    laptop.addTag('work', 10, 0, { uuid: tag.uuid });
+    const onLaptop = laptop.tag('work')!;
+    laptop.db.insert(sessionTags).values({ sessionId: 'a', tagId: onLaptop.id, origin: 'manual' }).run();
+    laptop.db.insert(tagRules).values({ tagId: onLaptop.id, position: 0, condition: 'title_contains', pattern: 'a' }).run();
+    // Deleted while the laptop is away.
+    primary.db.delete(tags).where(eq(tags.id, tag.id)).run();
+    primary.sync.tagDeletedLocally(tag.uuid!, 'work');
+    await pair(primary, laptop);
+    expect(laptop.tag('work')).toBeUndefined();
+    expect(laptop.db.select().from(tagTombstones).get()).toMatchObject({ uuid: tag.uuid, stampAt: 100, stampOrigin: PRIMARY });
+    // The same name made again later, under a new id: it wins over the tombstone everywhere.
+    laptop.sync.receive({ tags: [{ uuid: 'new-id', name: 'work', hue: 50, isDefault: false, at: 200, origin: PRIMARY }] });
+    expect(laptop.tag('work')).toMatchObject({ uuid: 'new-id', hue: 50 });
+    // A copy of the deleted tag from before the delete does not come back.
+    laptop.sync.receive({ tags: [{ uuid: 'old-copy', name: 'gone', hue: 1, isDefault: false, at: 50, origin: BOX }] });
+    laptop.sync.receive({ tags: [{ uuid: 'gone-id', name: 'gone', hue: 0, isDefault: false, at: 60, origin: BOX, deleted: true }] });
+    expect(laptop.tag('gone')).toBeUndefined();
+    laptop.sync.receive({ tags: [{ uuid: 'older', name: 'gone', hue: 1, isDefault: false, at: 55, origin: BOX }] });
+    expect(laptop.tag('gone')).toBeUndefined();
+  });
+
+  it('a tombstone of the default tag does not delete it: it is stamped anew and pushed back', async () => {
+    let now = 500;
+    const primary = device(PRIMARY);
+    const laptop = device(LAPTOP, { now: () => now });
+    await pair(primary, laptop);
+    const def = laptop.tag('default')!;
+    laptop.sync.receive({ tags: [{ uuid: def.uuid!, name: 'default', hue: 0, isDefault: false, at: 100, origin: BOX, deleted: true }] });
+    await settle();
+    expect(laptop.tag('default')).toMatchObject({ id: def.id, isDefault: 1, stampAt: 500, stampOrigin: '' });
+    expect(primary.tag('default')).toMatchObject({ uuid: def.uuid, stampAt: 500, stampOrigin: LAPTOP });
+  });
+
+  it('a joining member takes the group\'s tags, and keeps and pushes those whose names the group lacks', async () => {
+    let now = 1_000;
+    const primary = device(PRIMARY);
+    const laptop = device(LAPTOP, { now: () => now });
+    primary.addTag('work', 10, 5);
+    // Gone in the group long ago, under another id: the joining member's own tag of that name still stays.
+    primary.tagStore.tombstone('old-id', 'personal');
+    primary.db.update(tagTombstones).set({ stampAt: 7 }).run();
+    laptop.addTag('work', 99, 900);
+    laptop.addTag('personal', 40, 900);
+    new GroupMembershipStore(laptop.db, () => LAPTOP).set({ group: PRIMARY, founding: 'f1', version: 1, member: true });
+    expect(laptop.tag('work')).toMatchObject({ stampAt: -1, stampOrigin: '' });
+    await pair(primary, laptop);
+    for (const d of [primary, laptop]) {
+      expect(d.tag('work')).toMatchObject({ hue: 10, uuid: primary.tag('work')!.uuid });
+      expect(d.tag('personal')).toMatchObject({ hue: 40, uuid: laptop.tag('personal')!.uuid, stampAt: 1_000 });
+    }
   });
 });
