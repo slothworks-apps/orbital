@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
@@ -98,9 +99,38 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 20; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+/** Every file under `dir` whose name ends in `.ts` or `.tsx`, tests left out. */
+function sources(dir: string): string[] {
+  return readdirSync(dir, { recursive: true, encoding: 'utf8' })
+    .filter((f) => /\.tsx?$/.test(f) && !/(^|\/)test\//.test(f) && !f.includes('.test.'))
+    .map((f) => join(dir, f));
+}
+
+/**
+ * Words that read like a setting key where the sources name settings, but
+ * are not one: fields of other objects read off a `settings`-named value.
+ */
+const NOT_SETTINGS = new Set(['claude_code_version', 'claude_directory']);
+
 describe('the classes of settings', () => {
   it('places every seeded setting in exactly one class', () => {
     const unclassified = Object.keys(DEFAULT_SETTINGS).filter((k) => isSharedSetting(k) === isPerDeviceSetting(k));
+    expect(unclassified).toEqual([]);
+  });
+
+  it('places every setting the app reads or writes in exactly one class, seeded or not', () => {
+    // How the sources name a key: `settings.get('x')`, `settings.x`, `settings['x']`, and a `…_KEY`/`…_SETTING` constant.
+    const pattern = /settings(?:\.get|\.set)?\(?\s*\[?'([a-z][a-z0-9]*_[a-z0-9_]+)'|settings\.([a-z][a-z0-9]*_[a-z0-9_]+)|_(?:KEY|SETTING)\s*=\s*'([a-z][a-z0-9]*_[a-z0-9_]+)'/g;
+    const root = join(import.meta.dirname, '..', '..');
+    const keys = new Set<string>();
+    for (const dir of ['web/src', 'server/src', 'desktop/src', 'shared/src']) {
+      for (const file of sources(join(root, dir))) {
+        for (const m of readFileSync(file, 'utf8').matchAll(pattern)) keys.add(m[1] ?? m[2] ?? m[3]);
+      }
+    }
+    // The scan finds keys at all: a pattern that matched nothing would pass anything.
+    expect(keys.has('map_theme')).toBe(true);
+    const unclassified = [...keys].filter((k) => !NOT_SETTINGS.has(k) && isSharedSetting(k) === isPerDeviceSetting(k));
     expect(unclassified).toEqual([]);
   });
 });
