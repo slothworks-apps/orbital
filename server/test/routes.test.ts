@@ -1188,7 +1188,7 @@ describe('REST routes', () => {
     ]);
   });
 
-  it('a session\'s own change of a shared setting or a tag stays on this device: neither stamped nor pushed', async () => {
+  it('a session\'s own change of a shared setting stays on this device, its tag change goes to the group', async () => {
     const calls: string[] = [];
     const { app: shared, db: sharedDb } = makeApp({
       controlKey: 'session-key',
@@ -1205,12 +1205,12 @@ describe('REST routes', () => {
     const id = created.json().id as number;
     await shared.inject({ method: 'PATCH', url: `/api/tags/${id}`, payload: { hue: 40 }, headers: session });
     await shared.inject({ method: 'DELETE', url: `/api/tags/${id}`, headers: session });
-    expect(calls).toEqual([]);
+    expect(calls).toEqual([`tag ${id}`, `tag ${id}`, 'delete ops']);
     const row = sharedDb.select().from(settingsTable).where(eq(settingsTable.key, 'default_model')).get();
     expect(row).toMatchObject({ value: 'opus', stampAt: 0 });
     // A wrong key is not a session's: the user's own change travels.
     await shared.inject({ method: 'PATCH', url: '/api/settings', payload: { default_model: 'haiku' }, headers: { [CONTROL_HEADER]: 'guessed' } });
-    expect(calls).toEqual(['settings default_model']);
+    expect(calls).toEqual([`tag ${id}`, `tag ${id}`, 'delete ops', 'settings default_model']);
   });
 
   it('GET /api/settings leaves every remote_ key out for a member', async () => {

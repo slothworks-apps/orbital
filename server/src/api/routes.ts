@@ -2430,13 +2430,13 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   // A create, rename, recolour or delete is stamped and goes to every member
   // that shares the tag list (spec 2026-10-24-group-shared-settings-design §
   // Tags); a move of the clump's anchor is this device's layout and does not.
-  // A session's own change (its orbital tools) stays on this device.
-  const groupTags = (req: FastifyRequest) => (isControlRequest(req.headers, ctx.controlKey) ? undefined : ctx.sharedSettings);
+  // A session's own change goes to the group like any other: a tag carries no
+  // safety default, and a delete kept local would come back at the next catch-up.
   app.post('/api/tags', (req, reply) => {
     const { name, hue } = req.body as { name: string; hue: number };
     const r = db.insert(tags).values({ name, hue }).run();
     const id = Number(r.lastInsertRowid);
-    groupTags(req)?.tagChangedLocally(id);
+    ctx.sharedSettings?.tagChangedLocally(id);
     return reply.code(201).send({ id });
   });
   app.patch('/api/tags/:id', (req, reply) => {
@@ -2462,7 +2462,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       const before = db.select({ name: tags.name, hue: tags.hue }).from(tags).where(eq(tags.id, Number(id))).get();
       db.update(tags).set(set).where(eq(tags.id, Number(id))).run();
       if (before && ((set.name !== undefined && set.name !== before.name) || (set.hue !== undefined && set.hue !== before.hue))) {
-        groupTags(req)?.tagChangedLocally(Number(id));
+        ctx.sharedSettings?.tagChangedLocally(Number(id));
       }
     }
     return { ok: true };
@@ -2470,7 +2470,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   app.delete('/api/tags/:id', (req) => {
     const { id } = (req.params as any) as { id: string };
     const row = db.select({ uuid: tags.uuid, name: tags.name }).from(tags).where(eq(tags.id, Number(id))).get();
-    if (deleteTag(db, Number(id)) && row?.uuid) groupTags(req)?.tagDeletedLocally(row.uuid, row.name);
+    if (deleteTag(db, Number(id)) && row?.uuid) ctx.sharedSettings?.tagDeletedLocally(row.uuid, row.name);
     regenerateRuleTags(db);
     return { ok: true };
   });

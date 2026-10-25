@@ -1,7 +1,7 @@
 ---
 id: 2026-10-24-group-shared-settings-design
 title: Settings the group shares — one person's habits, the same on every Mac
-status: active
+status: done
 type: spec
 domain: remote
 related:
@@ -450,14 +450,13 @@ The shared tag list is built (`server/src/tags/sharedTags.ts`, migration
 Each point below is the implementer's call, made while fixing the review
 of the first build:
 
-- **A session's own change stays on its Mac.** A `PATCH /api/settings`,
-  and a tag create, rename, recolour or delete, that carries
-  `CONTROL_HEADER` (a session's orbital tools, such as `update_settings`)
-  is neither stamped nor pushed. It holds until the group changes that key
-  or tag later. Because a tag the session makes is not stamped either, a
-  member that lacks it still takes it at the next catch-up, and a tag a
-  session deletes comes back at the next catch-up with a member that holds
-  it: a session's tag change is not kept apart from the group.
+- **A session's own settings change stays on its Mac.** A `PATCH
+  /api/settings` that carries `CONTROL_HEADER` (a session's orbital tools,
+  such as `update_settings`) is neither stamped nor pushed, so a session
+  cannot set the permission mode or the instructions of every Mac. It holds
+  until the group changes that key later. A session's tag change goes to
+  the group like the user's: a tag carries no safety default, and a delete
+  kept local would come back at the next catch-up (writer's call).
 - **A catch-up counts only when it succeeds.** One that gets no answer, an
   answer other than 200, or values that cannot be taken is logged and
   tried again after `CATCH_UP_RETRY_MS`, doubling up to
