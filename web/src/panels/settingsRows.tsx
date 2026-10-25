@@ -89,18 +89,17 @@ export function ScopeLabel({ scope }: { scope: SettingsScope }) {
   )
 }
 
-/** The pill a per-device row of a mixed section carries beside its name (63c): PRIMARY's pill. */
-export function DeviceOnlyPill() {
-  return <QuietLabel>THIS MAC ONLY</QuietLabel>
-}
-
-/** A row's title, with THIS MAC ONLY 9px after it when `mark`. */
+/**
+ * A row's title, with THIS MAC ONLY 9px after it when `mark` — the pill a
+ * per-device row of a mixed section carries beside its name (63c): PRIMARY's
+ * pill.
+ */
 export function RowTitle({ title, mark }: { title: string; mark: boolean }) {
   if (!mark) return <div className="text-[13.5px] font-semibold text-text-bright">{title}</div>
   return (
     <div className="flex items-center gap-[9px] text-[13.5px] font-semibold text-text-bright">
       <span>{title}</span>
-      <DeviceOnlyPill />
+      <QuietLabel>THIS MAC ONLY</QuietLabel>
     </div>
   )
 }

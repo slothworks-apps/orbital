@@ -129,6 +129,7 @@ import {
   type SettingsSharing,
 } from './settingsRows'
 import { groupSharing } from '../lib/settingsScope'
+import { useSyncedDraft } from '../lib/syncedDraft'
 import {
   AUTO_CONTINUE_KEY,
   CONTINUE_TEXT_KEY,
@@ -560,10 +561,13 @@ export function Settings({ open, onClose }: SettingsProps) {
   const members = useOrbital((s) => s.remote?.group.members)
   const [projectDirDraft, setProjectDirDraft] = useState(settings.default_project_dir ?? '')
   const [cliPathDraft, setCliPathDraft] = useState(settings.claude_executable_path ?? '')
-  const [instructionsDraft, setInstructionsDraft] = useState(
+  // Shared across the group: a value another member sets while this is open
+  // reaches the field unless it holds an unsaved edit (`useSyncedDraft`).
+  const [instructionsDraft, setInstructionsDraft] = useSyncedDraft(
     settings.session_instructions_custom_text ?? '',
+    open,
   )
-  const [continueDraft, setContinueDraft] = useState(() => limitSettings(settings).text)
+  const [continueDraft, setContinueDraft] = useSyncedDraft(limitSettings(settings).text, open)
   /**
    * Orbital's tips, from the server. Null until the fetch lands and after a
    * failure: the list then simply does not draw, for the same reason
@@ -654,8 +658,6 @@ export function Settings({ open, onClose }: SettingsProps) {
     if (!open) return
     setProjectDirDraft(settings.default_project_dir ?? '')
     setCliPathDraft(settings.claude_executable_path ?? '')
-    setInstructionsDraft(settings.session_instructions_custom_text ?? '')
-    setContinueDraft(limitSettings(settings).text)
     // Only reseed on open — an in-flight PATCH from a prior keystroke resolving
     // must not fight the user's current typing while the panel stays open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -900,19 +902,10 @@ export function Settings({ open, onClose }: SettingsProps) {
    * database, not something the UI should invite by saving one; the old
    * stored values simply stand until a valid pair is typed.
    */
-  const [warnDraft, setWarnDraft] = useState(String(parseContextThresholds(settings).warn))
-  const [criticalDraft, setCriticalDraft] = useState(
-    String(parseContextThresholds(settings).critical),
-  )
-
-  useEffect(() => {
-    if (!open) return
-    const thresholds = parseContextThresholds(settings)
-    setWarnDraft(String(thresholds.warn))
-    setCriticalDraft(String(thresholds.critical))
-    // Only reseed on open, same reasoning as the project-dir draft above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  const thresholds = parseContextThresholds(settings)
+  // Shared across the group, as the instructions draft above.
+  const [warnDraft, setWarnDraft] = useSyncedDraft(String(thresholds.warn), open)
+  const [criticalDraft, setCriticalDraft] = useSyncedDraft(String(thresholds.critical), open)
 
   useEffect(() => {
     if (!open) return

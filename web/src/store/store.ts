@@ -1897,10 +1897,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   applySettingsEvent(msg) {
-    if (msg.event !== 'changed' || !msg.settings || typeof msg.settings !== 'object') return false
-    const changed = Object.entries(msg.settings).filter(([, v]) => typeof v === 'string')
-    if (changed.length === 0) return false
-    set((state) => ({ settings: { ...state.settings, ...Object.fromEntries(changed) } }))
+    if (msg.event !== 'changed' || Object.keys(msg.settings).length === 0) return false
+    set((state) => ({ settings: { ...state.settings, ...msg.settings } }))
     return true
   },
 
@@ -3167,6 +3165,32 @@ function applySessionsEvents(msgs: SessionsEvent[]) {
   }
   if (patch) useOrbital.setState(patch)
   for (const run of after) run()
+}
+
+/**
+ * The sessions of a REST snapshot that are not older than the store's copy
+ * of them, by `lastAt`. A socket event can land while the read is in flight,
+ * and the snapshot must not take that session back to where it stood before.
+ * A session the store does not hold, or holds without a `lastAt`, is kept;
+ * an equal `lastAt` is kept too, since what a resync is after (the tags a
+ * rule or a merge moved) does not move it.
+ */
+export function notOlderThanHeld(held: Record<string, ApiSession>, snapshot: ApiSession[]): ApiSession[] {
+  return snapshot.filter((session) => {
+    const heldAt = held[session.id]?.lastAt
+    return heldAt == null || (session.lastAt != null && session.lastAt >= heldAt)
+  })
+}
+
+/**
+ * Seats a REST snapshot of sessions as upserts in one store write, without
+ * the sessions the store already holds newer. The socket's queue is applied
+ * first, so the comparison is against everything this window has heard.
+ */
+export function applySessionsSnapshot(snapshot: ApiSession[]): void {
+  flushSessionsEvents()
+  const fresh = notOlderThanHeld(useOrbital.getState().sessions, snapshot)
+  applySessionsEvents(fresh.map((session) => ({ event: 'upsert', session })))
 }
 
 /**

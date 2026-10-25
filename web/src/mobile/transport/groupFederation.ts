@@ -240,6 +240,8 @@ export class GroupFederation implements SwappableClient {
     const channel = this.channelOf(target.id)
     if (!channel) throw new TunnelError('offline')
 
+    // Routed by `settingsSource`, not named by the caller.
+    const settingsRead = method === 'GET' && url.pathname === '/api/settings' && !url.searchParams.has('machine')
     let sent = body
     let sentPath = path
     if (url.searchParams.has('machine')) {
@@ -262,6 +264,14 @@ export class GroupFederation implements SwappableClient {
     } catch (err) {
       if (minted !== null) this.unexpect(target, minted)
       throw err
+    }
+    if (settingsRead && res.status === 403) {
+      // The member picked to share the group's settings refused this phone
+      // the read (no `settings` grant, say): the default member answers, as
+      // before the group shared them.
+      const fallback = this.defaultSource()
+      const fallbackChannel = fallback && fallback.id !== target.id ? this.channelOf(fallback.id) : null
+      if (fallbackChannel) return fallbackChannel.request(method, sentPath, sent)
     }
     const answer = isObject(res.body) ? res.body : null
     if (isSpawn) {
@@ -981,7 +991,8 @@ export class GroupFederation implements SwappableClient {
    * 2026-10-24-group-shared-settings-design § The phone): a member that
    * shares the group's settings, so every one answers the same; the default
    * member when it does, else the first that does. With none, the default
-   * member, as before.
+   * member, as before; and the default member again when the one picked
+   * refuses the read (`request`).
    */
   private settingsSource(): Source | null {
     const live = [...this.sourcesById.values()].filter((s) => this.channelOf(s.id) !== null)
