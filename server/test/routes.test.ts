@@ -46,7 +46,7 @@ import { TerminalStore } from '../src/terminal/store.js';
 import { RecentToolsStore } from '../src/transcript/recentTools.js';
 import { createImageStore, type ImageStore } from '../src/images/store.js';
 import { RemoteService } from '../src/remote/service.js';
-import { DEVICE_HEADER } from '../src/remote/inject.js';
+import { CONTROL_HEADER, DEVICE_HEADER } from '../src/remote/inject.js';
 import { createFileStore } from '../src/files/store.js';
 import { ErrorLog } from '../src/errors/log.js';
 import { Narrator, type NarrateQueryFn } from '../src/walkthrough/narrator.js';
@@ -170,7 +170,7 @@ function makeApp(opts: {
   projectsDir?: string; ide?: IdeStore; narrateQueryFn?: NarrateQueryFn; branchStatus?: BranchStatusStore;
   createIssue?: RouteContext['createIssue']; findSimilarIssues?: RouteContext['findSimilarIssues'];
   checkDuplicates?: RouteContext['checkDuplicates']; endCli?: RouteContext['endCli'];
-  sharedSettings?: (db: OrbitalDb) => RouteContext['sharedSettings'];
+  sharedSettings?: (db: OrbitalDb) => RouteContext['sharedSettings']; controlKey?: string;
 } = {}) {
   const db = openTmpDb('api');
   db.insert(tags).values({ id: 10, name: 'work', hue: 210 }).run();
@@ -291,6 +291,7 @@ function makeApp(opts: {
     // Never the real one: a test that forgot to stub it would signal a real pid.
     endCli: opts.endCli ?? (async () => { throw new Error('endCli is not stubbed'); }),
     sharedSettings: opts.sharedSettings?.(db),
+    controlKey: opts.controlKey,
   });
   return {
     app, db, runner, hub, registry, startCalls, sendCalls, modelCatalog, subagents, subagentTranscripts, backgroundTasks, errors,
@@ -1185,6 +1186,31 @@ describe('REST routes', () => {
       expect.objectContaining({ name: 'ops', hue: 40, at: 200 }),
       { uuid, name: 'ops', hue: 0, isDefault: false, at: 300, origin: 'self', deleted: true },
     ]);
+  });
+
+  it('a session\'s own change of a shared setting or a tag stays on this device: neither stamped nor pushed', async () => {
+    const calls: string[] = [];
+    const { app: shared, db: sharedDb } = makeApp({
+      controlKey: 'session-key',
+      sharedSettings: () => ({
+        partner: () => false, heardFrom: () => {}, grantsChanged: () => {}, list: () => ({}), listTags: () => [], receive: () => {},
+        changedLocally: (keys) => { calls.push(`settings ${keys.join(',')}`); },
+        tagChangedLocally: (id) => { calls.push(`tag ${id}`); },
+        tagDeletedLocally: (_uuid, name) => { calls.push(`delete ${name}`); },
+      }),
+    });
+    const session = { [CONTROL_HEADER]: 'session-key' };
+    await shared.inject({ method: 'PATCH', url: '/api/settings', payload: { default_model: 'opus' }, headers: session });
+    const created = await shared.inject({ method: 'POST', url: '/api/tags', payload: { name: 'ops', hue: 10 }, headers: session });
+    const id = created.json().id as number;
+    await shared.inject({ method: 'PATCH', url: `/api/tags/${id}`, payload: { hue: 40 }, headers: session });
+    await shared.inject({ method: 'DELETE', url: `/api/tags/${id}`, headers: session });
+    expect(calls).toEqual([]);
+    const row = sharedDb.select().from(settingsTable).where(eq(settingsTable.key, 'default_model')).get();
+    expect(row).toMatchObject({ value: 'opus', stampAt: 0 });
+    // A wrong key is not a session's: the user's own change travels.
+    await shared.inject({ method: 'PATCH', url: '/api/settings', payload: { default_model: 'haiku' }, headers: { [CONTROL_HEADER]: 'guessed' } });
+    expect(calls).toEqual(['settings default_model']);
   });
 
   it('GET /api/settings leaves every remote_ key out for a member', async () => {

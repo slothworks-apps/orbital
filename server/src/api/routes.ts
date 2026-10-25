@@ -69,7 +69,7 @@ import { dbFingerprints } from '../mcp/approvals.js';
 import type { McpConfig } from '../mcp/config.js';
 import { registerRemoteRoutes } from './remoteRoutes.js';
 import { memberRefusal } from '../remote/grants.js';
-import { DEVICE_HEADER } from '../remote/inject.js';
+import { DEVICE_HEADER, isControlRequest } from '../remote/inject.js';
 import type { DeliveryOutcome } from './delivery.js';
 import type { Presence } from '../remote/presence.js';
 import type { RemoteService } from '../remote/service.js';
@@ -222,6 +222,7 @@ export interface RouteContext {
    * The settings the group shares (spec 2026-10-24-group-shared-settings-design):
    * a local change of one is stamped and pushed, and members read and push
    * them on `/api/settings/shared`. Absent, nothing is shared and those routes do not exist.
+   * A session's own change (`CONTROL_HEADER`) stays on this device: it is neither stamped nor pushed.
    */
   sharedSettings?: Pick<
     SharedSettingsSync,
@@ -2429,11 +2430,13 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   // A create, rename, recolour or delete is stamped and goes to every member
   // that shares the tag list (spec 2026-10-24-group-shared-settings-design §
   // Tags); a move of the clump's anchor is this device's layout and does not.
+  // A session's own change (its orbital tools) stays on this device.
+  const groupTags = (req: FastifyRequest) => (isControlRequest(req.headers, ctx.controlKey) ? undefined : ctx.sharedSettings);
   app.post('/api/tags', (req, reply) => {
     const { name, hue } = req.body as { name: string; hue: number };
     const r = db.insert(tags).values({ name, hue }).run();
     const id = Number(r.lastInsertRowid);
-    ctx.sharedSettings?.tagChangedLocally(id);
+    groupTags(req)?.tagChangedLocally(id);
     return reply.code(201).send({ id });
   });
   app.patch('/api/tags/:id', (req, reply) => {
@@ -2459,7 +2462,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       const before = db.select({ name: tags.name, hue: tags.hue }).from(tags).where(eq(tags.id, Number(id))).get();
       db.update(tags).set(set).where(eq(tags.id, Number(id))).run();
       if (before && ((set.name !== undefined && set.name !== before.name) || (set.hue !== undefined && set.hue !== before.hue))) {
-        ctx.sharedSettings?.tagChangedLocally(Number(id));
+        groupTags(req)?.tagChangedLocally(Number(id));
       }
     }
     return { ok: true };
@@ -2467,7 +2470,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   app.delete('/api/tags/:id', (req) => {
     const { id } = (req.params as any) as { id: string };
     const row = db.select({ uuid: tags.uuid, name: tags.name }).from(tags).where(eq(tags.id, Number(id))).get();
-    if (deleteTag(db, Number(id)) && row?.uuid) ctx.sharedSettings?.tagDeletedLocally(row.uuid, row.name);
+    if (deleteTag(db, Number(id)) && row?.uuid) groupTags(req)?.tagDeletedLocally(row.uuid, row.name);
     regenerateRuleTags(db);
     return { ok: true };
   });
@@ -2823,7 +2826,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // A shared value that changed is stamped now and goes to every member
     // that shares it; one saved unchanged is not news (spec
     // 2026-10-24-group-shared-settings-design § How a shared value travels).
-    ctx.sharedSettings?.changedLocally(changed);
+    // A session's own write (its update_settings tool) applies on this device only.
+    if (!isControlRequest(req.headers, ctx.controlKey)) ctx.sharedSettings?.changedLocally(changed);
     // The switch, the relay URL and the relay secret apply now, not at the next boot. The Mac's
     // name restarts nothing: the service reads it fresh for every pairing
     // code, and a restart would drop every phone session and an open code at
