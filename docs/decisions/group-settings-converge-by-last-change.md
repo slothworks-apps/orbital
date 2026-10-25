@@ -37,7 +37,7 @@ over a channel per pair, and the group has one primary.
   supports sync, and compare everything when a channel comes back. A tie,
   which in practice is two untouched values, goes to the primary and then to
   the higher device id.
-- **A joining member resets its stamps to zero**, so the group's values
+- **A joining member resets its stamp times to -1**, below every value in the group, so the group's values
   replace its own.
 - **The tag list converges the same way**, per tag, with a group-wide id so
   a rename travels and a stamped tombstone so a delete does. Tag rules stay
