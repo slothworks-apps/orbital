@@ -343,8 +343,9 @@ below is the implementer's call:
   alike (a member without the grant is already refused `not_granted` by the
   channel before the route). A catch-up refused with `not_a_member` (the
   member has not yet taken the roster that names this device, as right
-  after a join) is asked again at the next status change; any other answer
-  ends that channel's catch-up.
+  after a join) is asked again when there is reason to, and any other
+  failure is tried again after a back-off (§ Implementation notes (review
+  fixes)).
 - **A member's federated Settings PATCH** of a shared key on this device
   counts as a local change: it is stamped with this device as origin and
   pushed to every member, the asking one included.
@@ -398,9 +399,10 @@ The shared tag list is built (`server/src/tags/sharedTags.ts`, migration
   Step 1 has not shipped, so no member speaks the settings-only shape, and
   `settings-sync` in the hello covers both.
 - **The group id** is a random version-4 uuid in `tags.uuid`. Existing tags
-  get one in the migration; a row inserted without one (the default tag's
-  seed, which is raw SQL so that tests opening an older schema keep
-  working) gets one from an insert trigger. `GET /api/tags` lists it beside
+  get one in the migration; a row inserted without one gets one from an
+  insert trigger. The default tag's seed (raw SQL, so that tests opening an
+  older schema keep working) sets its own wherever the column exists, so it
+  does not depend on the trigger surviving a later rebuild of the table. `GET /api/tags` lists it beside
   the old fields, and leaves the stamps out.
 - **The same tag** is, in this order: the one of the same group id, else
   of the same name, else, for a default, this device's default. The group
@@ -419,7 +421,9 @@ The shared tag list is built (`server/src/tags/sharedTags.ts`, migration
   a tag of its name whose stamp is older (the same tag, matched by name),
   and a live record of that name stamped before the delete is not taken.
   A later create of the same name gets a new id and a later stamp, and
-  wins. Tombstones are kept.
+  wins. A tombstone is kept for `TAG_TOMBSTONE_TTL_MS` (180 days) after
+  its stamp, then dropped: a member offline for longer brings the deleted
+  tag back at its next catch-up.
 - **A tombstone of the default** does not delete it: this device stamps
   the default now and pushes it, so the group takes it back. This is the
   one push a receiver makes.
@@ -440,6 +444,38 @@ The shared tag list is built (`server/src/tags/sharedTags.ts`, migration
   gets the union of the tags, tags of the same name become one under the
   primary's hue (both at 0), and a non-primary member's default takes the
   primary's default's name. Deletes from before the update do not travel.
+
+## Implementation notes (review fixes)
+
+Each point below is the implementer's call, made while fixing the review
+of the first build:
+
+- **A session's own change stays on its Mac.** A `PATCH /api/settings`,
+  and a tag create, rename, recolour or delete, that carries
+  `CONTROL_HEADER` (a session's orbital tools, such as `update_settings`)
+  is neither stamped nor pushed. It holds until the group changes that key
+  or tag later. Because a tag the session makes is not stamped either, a
+  member that lacks it still takes it at the next catch-up, and a tag a
+  session deletes comes back at the next catch-up with a member that holds
+  it: a session's tag change is not kept apart from the group.
+- **A catch-up counts only when it succeeds.** One that gets no answer, an
+  answer other than 200, or values that cannot be taken is logged and
+  tried again after `CATCH_UP_RETRY_MS`, doubling up to
+  `CATCH_UP_RETRY_MAX_MS` (as the federation's seed, `SEED_RETRY_MS`),
+  while the channel stays ready. A channel that goes unready and handshakes
+  again catches up again.
+- **A refusal (`not_a_member`) is asked again on a reason, not on every
+  status publish:** when this device's roster changes (who it names, their
+  kind, the primary), or when the member reads from or pushes to this
+  device, which shows it now counts this device as one that shares. A
+  member that does not grant this device `settings` therefore is not asked
+  again and again.
+- **A push a member does not take** is logged, and the member is owed:
+  its catch-up is tried again after the back-off, posting every shared
+  value and tag before it reads, so the change reaches it without waiting
+  for a reconnect.
+- **A change of a member's grants** starts a fresh catch-up with it, so
+  what changed while `settings` was off reaches this device.
 
 ## Testing
 

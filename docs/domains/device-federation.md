@@ -230,7 +230,9 @@ which device, an empty origin meaning this one. A seeded default and every
 row from before the migration is at 0. A `PATCH /api/settings` that changes
 a shared key's value stamps it now (`SharedSettingsSync.changedLocally`),
 also when the PATCH came from a member's federated Settings; one that saves
-the same value stamps nothing. One stamp beats another by `stampBeats`: the
+the same value stamps nothing, and a session's own PATCH (`CONTROL_HEADER`,
+its `update_settings` tool) is neither stamped nor pushed: it applies on
+this device only. One stamp beats another by `stampBeats`: the
 later time, then the group's primary as origin, then the higher origin id.
 
 **The route.** `GET /api/settings/shared` lists every shared key this
@@ -244,10 +246,18 @@ this device's clock plus `SETTINGS_STAMP_SKEW_MS` is clamped to it.
 **Push and catch-up.** A member shares when its hello names
 `settings-sync` (`capabilitiesOf` gives it to a desktop and a headless
 server). After a local change the changed keys go to every live partner
-that shares, over a ready channel. Once per ready channel to such a
-partner, this device reads its list; a list refused with `not_a_member`
-(the partner has not yet taken the roster that names this device) is asked
-again at the next status change. Every value whose stamp beats this
+that shares, over a ready channel; a partner that does not take a push is
+owed it, and its next catch-up try posts every value and tag first. Once
+per ready spell of a channel to such a partner (a channel that handshakes
+again starts over), this device reads its list. A read that fails, or whose
+values cannot be taken, is tried again after `CATCH_UP_RETRY_MS`, doubling
+up to `CATCH_UP_RETRY_MAX_MS`, while the channel stays ready. A read
+refused with `not_a_member` (the partner has not yet taken the roster that
+names this device, or does not grant it `settings`) is asked again only
+when this device's roster changes or the partner reads from or pushes to
+this device (`heardFrom`), not at every status publish. A change of a
+member's grants here (`PUT /api/remote/grants/:id`) starts a fresh
+catch-up with it (`grantsChanged`). Every value whose stamp beats this
 device's own, or that this device holds no row of, is taken with its stamp
 unchanged; nothing taken is forwarded. When a taken value differs from the
 one held, the same side effects as a PATCH run (`settingsChangedEffects`:
@@ -267,13 +277,16 @@ nothing.
 **Tags.** The same route carries the tag list: `GET` answers
 `{ settings, tags }`, `POST` takes either part (`readStampedTags`). Each
 tag has a group id (`tags.uuid`, migration `0035_group_shared_tags`; an
-insert trigger gives one to a row made without it) and a stamp; only the
+insert trigger gives one to a row made without it, and the default tag's
+seed sets its own) and a stamp; only the
 name, hue and default flag travel, never `anchor_x`/`anchor_y`, and tag
 rules and which sessions carry a tag stay on each device. `POST /api/tags`,
 a `PATCH` that changes the name or hue, and a `DELETE` stamp the tag (a
 delete writes a tombstone to `tag_tombstones`) and push it
 (`SharedSettingsSync.tagChangedLocally`, `tagDeletedLocally`); an anchor
-move does not. `SharedTagsStore.apply` (`server/src/tags/sharedTags.ts`)
+move does not, and neither does a session's own change (`CONTROL_HEADER`).
+A tombstone older than `TAG_TOMBSTONE_TTL_MS` is dropped when the list is
+read. `SharedTagsStore.apply` (`server/src/tags/sharedTags.ts`)
 takes a record that beats the same tag here — the one of the same group
 id, else of the same name, else, for a default, this device's default.
 A record landing on a name another tag holds merges the two into the one
