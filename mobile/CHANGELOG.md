@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Fixed
+- A long link, path or word in a message wraps onto the next line instead of pushing the conversation sideways.
 
 ## [0.20.0] — 2026-10-23
 ### Added

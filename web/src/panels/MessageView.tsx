@@ -384,7 +384,10 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
       {(hasText || (!command && !hasImages && files.length === 0)) && (
       <div
         className={[
-          'message-markdown [text-wrap:pretty]',
+          // A URL, a path or a word with no spaces breaks wherever it has to
+          // instead of widening the whole transcript; inherited by links,
+          // inline code and table cells, whose min-content shrinks with it.
+          'message-markdown [text-wrap:pretty] [overflow-wrap:anywhere]',
           // The caret has to sit on the same line as the text it trails, so
           // the closing paragraph goes inline while it is showing (1b).
           streaming ? '[&>p:last-child]:inline' : '',
@@ -392,6 +395,10 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
           '[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_table]:text-xs',
           '[&_th]:border [&_th]:border-panel-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left',
           '[&_td]:border [&_td]:border-panel-border [&_td]:px-2 [&_td]:py-1',
+          // In a cell only a link or code breaks mid-word: were every cell
+          // `anywhere`, the column holding a URL would squeeze its neighbours
+          // down to a letter a line.
+          '[&_th]:[overflow-wrap:break-word] [&_td]:[overflow-wrap:break-word] [&_td_a]:[overflow-wrap:anywhere] [&_td_code]:[overflow-wrap:anywhere]',
           '[&_a]:underline [&_a]:decoration-dotted',
           // Canvas 1b: the user's turn is an accent-tinted bubble with a
           // notched bottom-right corner (radius 12/12/4/12), 10px×14px
