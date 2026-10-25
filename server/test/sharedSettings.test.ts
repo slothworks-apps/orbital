@@ -538,7 +538,7 @@ describe('the tag list the group shares', () => {
   });
 
   it('a rename travels by group id, and a later push of an older state is ignored', async () => {
-    let now = 100;
+    const now = 100;
     const primary = device(PRIMARY, { now: () => now });
     const laptop = device(LAPTOP);
     const tag = primary.addTag('jobs', 10);
@@ -584,7 +584,7 @@ describe('the tag list the group shares', () => {
   });
 
   it('a delete reaches an offline member at its catch-up, its sessions falling back; a later re-create wins over it', async () => {
-    let now = 100;
+    const now = 100;
     const primary = device(PRIMARY, { now: () => now });
     const laptop = device(LAPTOP);
     const tag = primary.addTag('work', 10);
@@ -610,7 +610,7 @@ describe('the tag list the group shares', () => {
   });
 
   it('a tombstone of the default tag does not delete it: it is stamped anew and pushed back', async () => {
-    let now = 500;
+    const now = 500;
     const primary = device(PRIMARY);
     const laptop = device(LAPTOP, { now: () => now });
     await pair(primary, laptop);
@@ -622,7 +622,7 @@ describe('the tag list the group shares', () => {
   });
 
   it('a joining member takes the group\'s tags, and keeps and pushes those whose names the group lacks', async () => {
-    let now = 1_000;
+    const now = 1_000;
     const primary = device(PRIMARY);
     const laptop = device(LAPTOP, { now: () => now });
     primary.addTag('work', 10, 5);
