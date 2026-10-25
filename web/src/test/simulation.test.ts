@@ -431,9 +431,11 @@ describe('footprints and separation', () => {
 
   it('wakes a settled clump when a body grows a moon, so the springs walk it open', () => {
     const sim = pair(1)
+    // Centre to centre: the repack may turn the pair diagonal (`packSlots`).
+    const apart = () => Math.hypot(body(sim, 'p1').x - body(sim, 'p2').x, body(sim, 'p1').y - body(sim, 'p2').y)
     settleSimulation(sim)
     expect([...sim.bodies.values()].every((b) => b.asleep)).toBe(true)
-    const before = Math.hypot(body(sim, 'p1').x - body(sim, 'p2').x, 0)
+    const before = apart()
 
     reconcileSimulation(sim, {
       bodies: [
@@ -448,12 +450,12 @@ describe('footprints and separation', () => {
     // …and it opens gradually rather than jumping: one tick moves it a
     // little, the settle moves it the rest of the way.
     step(sim, 1)
-    const afterOneTick = Math.hypot(body(sim, 'p1').x - body(sim, 'p2').x, 0)
+    const afterOneTick = apart()
     expect(afterOneTick).toBeGreaterThan(before)
     expect(afterOneTick - before).toBeLessThan(0.1)
 
     settleSimulation(sim)
-    const settled = Math.hypot(body(sim, 'p1').x - body(sim, 'p2').x, 0)
+    const settled = apart()
     expect(settled).toBeGreaterThan(afterOneTick)
     expect(settled).toBeGreaterThan(2.04 + 1)
   })
@@ -503,7 +505,11 @@ describe('separation', () => {
       widest = Math.max(widest, Math.hypot(body(sim, 'p1').x - body(sim, 'p2').x, 0))
     }
     expect(ticks).toBeLessThan(3600)
-    expect(widest).toBeLessThan(REFERENCE_MIN * 1.02)
+    // The slots keep a pair's organic air on top of the minimum, so the
+    // pair rests a little past it; overshooting is going past where it rests.
+    const rest = Math.hypot(body(sim, 'p1').x - body(sim, 'p2').x, body(sim, 'p1').y - body(sim, 'p2').y)
+    expect(rest).toBeGreaterThan(REFERENCE_MIN * 0.98)
+    expect(widest).toBeLessThan(rest * 1.02)
   })
 
   it('pushes the same overlap equally hard whatever the pair’s size, and harder at full contact the bigger it is', () => {
@@ -797,6 +803,33 @@ describe('settled clusters keep a clump’s shape, not a column', () => {
       expect(ticksToSleep(sim)).toBeLessThan(SETTLE_BUDGET_TICKS)
     })
   }
+
+  it('neighbours sit offset like bricks, not square on like a grid', () => {
+    // Two neighbouring boxes facing each other across a gap (one above the
+    // other, or side by side) share most of that face only when they line up.
+    for (const [name, specs] of Object.entries(CLUSTERS)) {
+      const bodies = [...settledCluster(specs).bodies.values()]
+      for (let i = 0; i < bodies.length; i++) {
+        for (let j = i + 1; j < bodies.length; j++) {
+          const a = bodies[i]
+          const b = bodies[j]
+          const overX =
+            Math.min(a.x + a.extent.right, b.x + b.extent.right) - Math.max(a.x + a.extent.left, b.x + b.extent.left)
+          const overY =
+            Math.min(a.y + a.extent.top, b.y + b.extent.top) - Math.max(a.y + a.extent.bottom, b.y + b.extent.bottom)
+          const tallest = Math.max(a.extent.top - a.extent.bottom, b.extent.top - b.extent.bottom)
+          const widest = Math.max(a.extent.right - a.extent.left, b.extent.right - b.extent.left)
+          let share = 0
+          if (overX > 0 && -overY < tallest) {
+            share = overX / Math.min(a.extent.right - a.extent.left, b.extent.right - b.extent.left)
+          } else if (overY > 0 && -overX < widest) {
+            share = overY / Math.min(a.extent.top - a.extent.bottom, b.extent.top - b.extent.bottom)
+          }
+          expect(share, `${name}: ${a.id}/${b.id}`).toBeLessThan(0.9)
+        }
+      }
+    }
+  })
 
   it('two clumps homed too close for their boxes rest apart, however hard their homes pull', () => {
     // The layout spaces anchors for bare planets; clumps a label wide

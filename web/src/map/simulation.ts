@@ -818,6 +818,21 @@ export function bodyExtent(r: number, outline: PlanetOutline | null, out: Extent
 }
 
 /**
+ * How far above its centre `body`'s drawing reaches at the live `zoom`:
+ * `extent.top`, measured at OUTLINE_ZOOM, carried to that zoom's
+ * counter-zoom. Everything above the centre (the moon system, the reticle's
+ * brackets, the pill's anchor) is a body part scaled by `bodyZoomFactor`;
+ * the label hangs below and plays no part.
+ *
+ * For what sits on top of a clump (the cluster label), which has to clear
+ * the body as drawn, not as the layout measured it: zoomed out past
+ * OUTLINE_ZOOM, bodies are drawn bigger than their extents.
+ */
+export function bodyTopAt(body: SimBody, zoom: number): number {
+  return (body.extent.top / OUTLINE_BODY_FACTOR) * bodyZoomFactor(zoom)
+}
+
+/**
  * How close two bodies' centres may get when `b` lies in direction
  * (`ux`, `uy`) — a unit vector — from `a`: the distance along that line at
  * which their boxes (`bodyExtent`, at OUTLINE_ZOOM) stop overlapping with
@@ -897,6 +912,15 @@ function contact(
  * the spiral place keeps a body on the side of the clump it was seeded on,
  * so no two bodies have to pass through each other to reach their slots.
  *
+ * Packed only that tightly, the boxes met face to face and the clump read as
+ * a grid — rows and columns of planets, too orderly for a sky. Two things
+ * loosen it: each pair keeps a little more air than SAME_GAP, by an amount
+ * fixed by the two ids (`organicAir`), and a spot where the new box lines
+ * up with a neighbour across the face they share costs more
+ * (`alignmentCost`), so neighbours settle offset like bricks rather than
+ * square on. Both come from the ids, so the same clump always packs the
+ * same way.
+ *
  * Runs on reconcile, when a body arrives, leaves, changes tag or changes
  * size — never in the frame loop. Deterministic: the same model always
  * packs the same way.
@@ -931,6 +955,8 @@ function packSlots(sim: SimState): void {
     boxW /= members.length
     boxH /= members.length
 
+    const air = members.map((b) => organicAir(b.id))
+
     let sumX = 0
     let sumY = 0
     let weight = 0
@@ -948,10 +974,11 @@ function packSlots(sim: SimState): void {
           const angle = out + (k * 2 * Math.PI) / SLOT_DIRECTIONS
           const ux = Math.cos(angle)
           const uy = Math.sin(angle)
-          const t = clearAlong(members, i, body.seedX, body.seedY, ux, uy)
+          const t = clearAlong(members, air, i, body.seedX, body.seedY, ux, uy)
           const x = body.seedX + t * ux
           const y = body.seedY + t * uy
-          const spread = ((x - cx) / boxW) ** 2 + ((y - cy) / boxH) ** 2
+          const spread =
+            ((x - cx) / boxW) ** 2 + ((y - cy) / boxH) ** 2 + alignmentCost(members, i, x, y, boxW, boxH)
           if (spread < best - 1e-12) {
             best = spread
             body.slotX = x
@@ -975,13 +1002,74 @@ function packSlots(sim: SimState): void {
 const SLOT_DIRECTIONS = 24
 
 /**
+ * Extra air a body keeps from its tag-mates in `packSlots`, on top of
+ * SAME_GAP: up to ORGANIC_AIR_PX at OUTLINE_ZOOM, fixed by its id (FNV-1a),
+ * so a clump's spacing varies from pair to pair yet never between two
+ * packings of it. A pair keeps the mean of its two.
+ */
+function organicAir(id: string): number {
+  let h = 0x811c9dc5
+  for (let k = 0; k < id.length; k++) {
+    h ^= id.charCodeAt(k)
+    h = Math.imul(h, 0x01000193)
+  }
+  return ((h >>> 0) / 0x100000000) * ORGANIC_AIR_PX * OUTLINE_PER_PX
+}
+
+/** The most extra air `organicAir` gives a body, CSS px at OUTLINE_ZOOM. */
+const ORGANIC_AIR_PX = 20
+
+/**
+ * Of a box's shared face with a neighbour, the share that may line up with
+ * it before `alignmentCost` charges for it: half a box over is a brick's
+ * offset.
+ */
+const ALIGNED_SHARE = 0.5
+
+/** How much a fully lined-up neighbour costs `packSlots`, against a spot one box further out. */
+const ALIGNMENT_WEIGHT = 8
+
+/**
+ * What `packSlots` charges for placing `members[i]`'s box at (`x`, `y`)
+ * square on to a neighbour already placed: for every placed box it sits
+ * beside or above, within a box of it, the share of their facing sides
+ * that overlap past ALIGNED_SHARE, squared. Zero for a box offset by half
+ * a box or more, so the cheapest spots are the staggered ones.
+ */
+function alignmentCost(members: SimBody[], i: number, x: number, y: number, boxW: number, boxH: number): number {
+  const e = members[i].extent
+  let cost = 0
+  for (let j = 0; j < i; j++) {
+    const o = members[j]
+    const overX = Math.min(x + e.right, o.slotX + o.extent.right) - Math.max(x + e.left, o.slotX + o.extent.left)
+    const overY = Math.min(y + e.top, o.slotY + o.extent.top) - Math.max(y + e.bottom, o.slotY + o.extent.bottom)
+    let share = 0
+    if (overX > 0 && overY <= 0 && -overY < boxH) {
+      share = overX / Math.min(e.right - e.left, o.extent.right - o.extent.left)
+    } else if (overY > 0 && overX <= 0 && -overX < boxW) {
+      share = overY / Math.min(e.top - e.bottom, o.extent.top - o.extent.bottom)
+    }
+    if (share > ALIGNED_SHARE) cost += ALIGNMENT_WEIGHT * (share - ALIGNED_SHARE) ** 2
+  }
+  return cost
+}
+
+/**
  * How far from (`ox`, `oy`) along (`ux`, `uy`) `members[i]`'s box first
  * clears the boxes of `members[0..i-1]`, already placed at their slots.
  * Each placed box rules out one stretch of the ray (where it runs through
- * that box grown by the newcomer's, and SAME_GAP); the answer is the
- * nearest point outside all of them.
+ * that box grown by the newcomer's, SAME_GAP and the pair's `organicAir`);
+ * the answer is the nearest point outside all of them.
  */
-function clearAlong(members: SimBody[], i: number, ox: number, oy: number, ux: number, uy: number): number {
+function clearAlong(
+  members: SimBody[],
+  air: number[],
+  i: number,
+  ox: number,
+  oy: number,
+  ux: number,
+  uy: number
+): number {
   const e = members[i].extent
   let t = 0
   // Each pass moves t past every stretch it sits in; t only grows, so a
@@ -990,14 +1078,15 @@ function clearAlong(members: SimBody[], i: number, ox: number, oy: number, ux: n
     let moved = false
     for (let j = 0; j < i; j++) {
       const o = members[j]
+      const gap = SAME_GAP + (air[i] + air[j]) / 2
       const [inX, outX] = slab(
-        o.slotX + o.extent.left - e.right - SAME_GAP - ox,
-        o.slotX + o.extent.right - e.left + SAME_GAP - ox,
+        o.slotX + o.extent.left - e.right - gap - ox,
+        o.slotX + o.extent.right - e.left + gap - ox,
         ux
       )
       const [inY, outY] = slab(
-        o.slotY + o.extent.bottom - e.top - SAME_GAP - oy,
-        o.slotY + o.extent.top - e.bottom + SAME_GAP - oy,
+        o.slotY + o.extent.bottom - e.top - gap - oy,
+        o.slotY + o.extent.top - e.bottom + gap - oy,
         uy
       )
       const enter = Math.max(inX, inY)

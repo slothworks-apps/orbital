@@ -3,6 +3,10 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Changed
+- Planets of one tag gather in a looser, offset cluster with uneven gaps, instead of lining up in rows and columns.
+### Fixed
+- A tag's name on the map keeps clear of the planet under it at every zoom, and rises when that planet's subagents widen it.
 
 ## [0.42.0] — 2026-10-25
 ### Added
