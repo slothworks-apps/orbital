@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- A long link, path or word in a message wraps onto the next line instead of pushing the conversation sideways.
 
 ## [0.41.0] — 2026-10-23
 ### Added
