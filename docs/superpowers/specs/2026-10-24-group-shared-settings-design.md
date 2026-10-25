@@ -281,8 +281,9 @@ truth for every value; the rules it sets:
   the marks still show.
 - The marks never animate in.
 - Settings move as the canvas does: Review answers before send moves into
-  Permissions beside the guard gesture, and Appearance gets its own LAYOUT
-  section (per device). Only New sessions and Map mix.
+  Permissions beside the guard gesture. The canvas's LAYOUT section holds
+  the sidebar and panel widths, which Settings has no rows for, so it is
+  not built; the planet size stays in MAP with its pill, as in 63a.
 
 The canvas mocks a reduced Settings. Tabs it does not show take one label
 for the whole tab by the classes above: Profiles, Notifications, Harness
@@ -373,9 +374,9 @@ and the rules above leave open, each point is the builder's call:
   and reads its label from `isSharedSetting`; each row names its keys for
   its pill. Sections whose rows are not settings (Profiles, Harness
   templates, Devices, Updates, the tag list, the rules) state theirs.
-- **LAYOUT holds the planet size and its preview,** shown under Planets
-  only, as before. Settings has no rows for the sidebar or panel widths.
-  The two frame-rate caps stay in MAP with THIS MAC ONLY, so MAP is the
+- **No LAYOUT section:** Settings has no rows for the sidebar or panel
+  widths. The planet size (under Planets only, as before) and the two
+  frame-rate caps stay in MAP with THIS MAC ONLY, as in 63a, so MAP is the
   mixed section the rule above names.
 - **By the keys, Labs mixes** (the limit suns' positions are per device)
   **and Experimental is wholly shared** (none of its rows edits a per-device

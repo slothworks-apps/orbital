@@ -294,6 +294,7 @@ const SECTION_KEYS = {
   detailPanel: ['header_session_stats', 'header_pull_request', 'header_line_changes', 'end_closes_panel'],
   map: [
     'map_theme',
+    'planet_scale',
     'map_scale_labels',
     'map_show_model',
     'map_state_pills',
@@ -301,7 +302,6 @@ const SECTION_KEYS = {
     'map_fps_background',
     'map_show_trash',
   ],
-  layout: ['planet_scale'],
   contextUsage: [
     'map_show_context',
     'context_threshold_warn',
@@ -1805,6 +1805,101 @@ export function Settings({ open, onClose }: SettingsProps) {
                           onChange={(next) => void patchAndSet({ map_theme: next })}
                         />
                       </Row>
+                      {theme === 'planets' && (
+                        <>
+                          <Row
+                            title="Default planet size"
+                            setting="planet_scale"
+                            desc="Baseline scale for every body on the map. Tier differences are preserved — this multiplies the whole family. Orbit radii and zoom are unaffected."
+                          >
+                            <div className="flex w-full flex-col gap-[9px]">
+                              <div className="flex items-baseline gap-2">
+                                <span className="font-mono text-[15px] text-text-bright">
+                                  {planetScale.toFixed(2)}×
+                                </span>
+                                <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+                                  {scaleNote}
+                                </span>
+                                <span className="flex-1" />
+                                <button
+                                  type="button"
+                                  onClick={() => setPlanetScale(1)}
+                                  className="rounded-full border border-[rgba(150,205,255,.14)] px-[9px] py-[3px] font-mono text-[10px] tracking-[0.1em] text-[rgba(178,203,230,.85)] transition-colors hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.07)] hover:text-[#dce8f7]"
+                                >
+                                  RESET
+                                </button>
+                              </div>
+                              <input
+                                type="range"
+                                min={70}
+                                max={160}
+                                step={5}
+                                value={Math.round(planetScale * 100)}
+                                aria-label="Default planet size"
+                                onChange={(e) => setPlanetScale(Number(e.target.value) / 100)}
+                                onKeyDown={(e) => handleScaleKeys(e, planetScale)}
+                                className="h-[18px] w-full cursor-grab accent-accent"
+                              />
+                              <div className="flex justify-between font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+                                <span>0.70×</span>
+                                <span>1.00×</span>
+                                <span>1.60×</span>
+                              </div>
+                            </div>
+                          </Row>
+
+                          {/* Collapsible preview row (canvas 5a): full-width header
+                  button, the tier strip animates shut instead of unmounting. */}
+                          <div className="flex flex-col gap-3 border-t border-[rgba(150,205,255,.08)] py-[13px]">
+                            <button
+                              type="button"
+                              aria-expanded={previewOpen}
+                              onClick={() => setPreviewOpen((v) => !v)}
+                              className="flex items-start gap-2.5 text-left"
+                            >
+                              <span
+                                aria-hidden
+                                className="mt-[1px] grid h-4 w-4 flex-none place-items-center text-[9px] text-[rgba(160,190,225,.7)] transition-transform duration-[180ms]"
+                                style={{ transform: previewOpen ? undefined : 'rotate(-90deg)' }}
+                              >
+                                ▾
+                              </span>
+                              <span className="flex-1">
+                                <span className="flex items-center gap-2">
+                                  <span className="text-[13.5px] font-semibold text-text-bright">
+                                    Preview
+                                  </span>
+                                  {!previewOpen && (
+                                    <span className="font-mono text-[10px] tracking-[0.1em] text-[rgba(160,190,225,.55)]">
+                                      collapsed
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="mt-1 block text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+                                  The three size tiers at the current scale: ended, live, live with
+                                  subagents. Labels keep their 10 px mono floor at every scale.
+                                </span>
+                              </span>
+                            </button>
+                            <div
+                              className="box-border flex items-center justify-around gap-7 overflow-hidden rounded-[10px] border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.5)]"
+                              style={{
+                                height: previewOpen ? 300 : 0,
+                                opacity: previewOpen ? 1 : 0,
+                                padding: previewOpen ? '24px 28px' : '0px 28px',
+                                borderStyle: 'solid',
+                                borderWidth: previewOpen ? 1 : 0,
+                                transition:
+                                  'height .22s cubic-bezier(.2,.9,.25,1), opacity .18s ease, padding .22s ease',
+                              }}
+                            >
+                              {PREVIEW_TIERS.map((tier) => (
+                                <PreviewTier key={tier.base} tier={tier} scale={planetScale} />
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      )}
 
                       <Row
                         title="Scale labels with bodies"
@@ -1921,107 +2016,6 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
 
                       </ScopeSection>
-                      {/* `Feature - Shared settings` 63a: the layout rows have a
-                  section of their own, kept on each device. The planet size
-                  and its preview only under Planets, which draws planets. */}
-                      {theme === 'planets' && (
-                        <>
-                          <ScopeSection keys={SECTION_KEYS.layout}>
-                          <SectionLabel>LAYOUT</SectionLabel>
-                          <Row
-                            title="Default planet size"
-                            setting="planet_scale"
-                            desc="Baseline scale for every body on the map. Tier differences are preserved — this multiplies the whole family. Orbit radii and zoom are unaffected."
-                          >
-                            <div className="flex w-full flex-col gap-[9px]">
-                              <div className="flex items-baseline gap-2">
-                                <span className="font-mono text-[15px] text-text-bright">
-                                  {planetScale.toFixed(2)}×
-                                </span>
-                                <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
-                                  {scaleNote}
-                                </span>
-                                <span className="flex-1" />
-                                <button
-                                  type="button"
-                                  onClick={() => setPlanetScale(1)}
-                                  className="rounded-full border border-[rgba(150,205,255,.14)] px-[9px] py-[3px] font-mono text-[10px] tracking-[0.1em] text-[rgba(178,203,230,.85)] transition-colors hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.07)] hover:text-[#dce8f7]"
-                                >
-                                  RESET
-                                </button>
-                              </div>
-                              <input
-                                type="range"
-                                min={70}
-                                max={160}
-                                step={5}
-                                value={Math.round(planetScale * 100)}
-                                aria-label="Default planet size"
-                                onChange={(e) => setPlanetScale(Number(e.target.value) / 100)}
-                                onKeyDown={(e) => handleScaleKeys(e, planetScale)}
-                                className="h-[18px] w-full cursor-grab accent-accent"
-                              />
-                              <div className="flex justify-between font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
-                                <span>0.70×</span>
-                                <span>1.00×</span>
-                                <span>1.60×</span>
-                              </div>
-                            </div>
-                          </Row>
-
-                          {/* Collapsible preview row (canvas 5a): full-width header
-                  button, the tier strip animates shut instead of unmounting. */}
-                          <div className="flex flex-col gap-3 border-t border-[rgba(150,205,255,.08)] py-[13px]">
-                            <button
-                              type="button"
-                              aria-expanded={previewOpen}
-                              onClick={() => setPreviewOpen((v) => !v)}
-                              className="flex items-start gap-2.5 text-left"
-                            >
-                              <span
-                                aria-hidden
-                                className="mt-[1px] grid h-4 w-4 flex-none place-items-center text-[9px] text-[rgba(160,190,225,.7)] transition-transform duration-[180ms]"
-                                style={{ transform: previewOpen ? undefined : 'rotate(-90deg)' }}
-                              >
-                                ▾
-                              </span>
-                              <span className="flex-1">
-                                <span className="flex items-center gap-2">
-                                  <span className="text-[13.5px] font-semibold text-text-bright">
-                                    Preview
-                                  </span>
-                                  {!previewOpen && (
-                                    <span className="font-mono text-[10px] tracking-[0.1em] text-[rgba(160,190,225,.55)]">
-                                      collapsed
-                                    </span>
-                                  )}
-                                </span>
-                                <span className="mt-1 block text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
-                                  The three size tiers at the current scale: ended, live, live with
-                                  subagents. Labels keep their 10 px mono floor at every scale.
-                                </span>
-                              </span>
-                            </button>
-                            <div
-                              className="box-border flex items-center justify-around gap-7 overflow-hidden rounded-[10px] border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.5)]"
-                              style={{
-                                height: previewOpen ? 300 : 0,
-                                opacity: previewOpen ? 1 : 0,
-                                padding: previewOpen ? '24px 28px' : '0px 28px',
-                                borderStyle: 'solid',
-                                borderWidth: previewOpen ? 1 : 0,
-                                transition:
-                                  'height .22s cubic-bezier(.2,.9,.25,1), opacity .18s ease, padding .22s ease',
-                              }}
-                            >
-                              {PREVIEW_TIERS.map((tier) => (
-                                <PreviewTier key={tier.base} tier={tier} scale={planetScale} />
-                              ))}
-                            </div>
-                          </div>
-                          </ScopeSection>
-                        </>
-                      )}
 
                       {/* Its own kicker rather than three more rows under MAP: the
                   thresholds colour sidebar rows and gate the /compact badge
