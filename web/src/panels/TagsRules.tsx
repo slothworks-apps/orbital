@@ -11,6 +11,11 @@ import { Select } from '../ui/Select'
 import { Toggle } from '../ui/Checkbox'
 import { Input } from '../ui/Input'
 import { Chip } from '../ui/Chip'
+import { DragGhost } from '../ui/DragGhost'
+import { DropBar } from '../ui/DropBar'
+import { GripDots } from '../ui/GripDots'
+import { useReorderDrag } from '../ui/useReorderDrag'
+import { HUE_SWATCHES } from '../lib/tagHues'
 
 export interface TagsRulesSectionProps {
   /** True while this is the section Settings is showing. Gates the reset, the
@@ -21,9 +26,6 @@ export interface TagsRulesSectionProps {
    *  `Settings` now, so every mutation that lands reports upward. */
   onSaved: () => void
 }
-
-/** The design canvas's 8-swatch hue picker, verbatim from artboard 1e. */
-const HUE_SWATCHES = [210, 250, 290, 330, 20, 60, 110, 150]
 
 const CONDITION_OPTIONS: Array<{ value: TagRule['condition']; label: string }> = [
   { value: 'path_matches', label: 'path matches' },
@@ -59,6 +61,9 @@ const DEBOUNCE_MS = 400
  * to close over it during a drag.
  */
 const RULE_ROW_GAP = 4
+
+/** The flat drop bar sits this far above a tag card — the middle of the list's 6 px gap (canvas `Feature - Tag chips` 80d). */
+const TAG_BAR_INSET = 3
 
 /**
  * The drag gap-preview transition. `cubic-bezier(.2,.8,.2,1)` is the export's
@@ -275,6 +280,21 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
    * pattern field, wearing the accent border. This is that one row's id.
    */
   const [editingRuleId, setEditingRuleId] = useState<number | null>(null)
+  /**
+   * A tag card dragged by its grip lands in the gap the bar marks — the one
+   * tag order every list follows (canvas `Feature - Tag chips` 80d, spec
+   * 2026-10-25-tag-toggles-and-order-design § 2).
+   */
+  const moveTag = useOrbital((s) => s.moveTag)
+  const tagListRef = useRef<HTMLUListElement>(null)
+  const { drag: tagDrag, onPointerDown: pressTagGrip, swallowClick: draggedAway } = useReorderDrag(
+    tagListRef, 'column', TAG_BAR_INSET, (from, to) => {
+      const tag = tags[from]
+      if (tag) void moveTag(tag.id, to)
+    },
+  )
+  const draggedTag = tagDrag ? tags[tagDrag.from] : undefined
+  const createTag = useOrbital((s) => s.createTag)
   /** Rule currently being dragged by its grip, and the row index it is hovering over. */
   const [dragRuleId, setDragRuleId] = useState<number | null>(null)
   const [dropIndex, setDropIndex] = useState<number | null>(null)
@@ -467,9 +487,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
     const name = newTagName.trim()
     if (!name) return
     try {
-      await api.createTag({ name, hue: HUE_SWATCHES[tags.length % HUE_SWATCHES.length] })
-      const refreshed = await api.listTags()
-      useOrbital.setState({ tags: refreshed })
+      await createTag(name)
       setNewTagName('')
       markSaved()
     } catch (err) {
@@ -755,8 +773,8 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
               </button>
             </div>
 
-            <ul className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-3">
-              {tags.map((tag) => {
+            <ul ref={tagListRef} className="relative flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-3 pt-1">
+              {tags.map((tag, tagIdx) => {
                 const isSelected = tag.id === effectiveTagId
                 return (
                   // Canvas 1e: the selected card marks its rules on the right,
@@ -771,9 +789,13 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                   <li
                     key={tag.id}
                     data-tag-card={tag.id}
+                    data-reorder-item
                     data-selected={isSelected}
                     aria-current={isSelected ? 'true' : undefined}
-                    onClick={() => toggleTagSelection(tag.id)}
+                    // A grip drag let go over the card's body clicks the card: it selects nothing.
+                    onClick={() => {
+                      if (!draggedAway()) toggleTagSelection(tag.id)
+                    }}
                     style={
                       isSelected
                         ? {
@@ -784,12 +806,28 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                     }
                     className={[
                       'cursor-pointer rounded-xl border transition-colors',
+                      // The card stays behind as a faint copy while it is dragged (80d).
+                      tagDrag?.from === tagIdx ? 'opacity-35' : '',
+                      // 80d: 6px on the left, where the grip's 16px column sits.
                       isSelected
-                        ? 'flex flex-col gap-3 p-3.5'
-                        : 'flex items-center gap-3 border-[rgba(150,205,255,.1)] px-3.5 py-3 hover:bg-white/5',
+                        ? 'flex flex-col gap-3 py-3.5 pl-1.5 pr-3.5'
+                        : 'flex items-center gap-3 border-[rgba(150,205,255,.1)] py-3 pl-1.5 pr-3.5 hover:bg-white/5',
                     ].join(' ')}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      {/* 80d: the grip the rule rows carry. Only it starts a
+                          drag, so a click on the card still selects it. */}
+                      <button
+                        type="button"
+                        data-tag-grip={tag.id}
+                        aria-label={`Reorder ${tag.name}`}
+                        title="Drag to reorder"
+                        onClick={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => pressTagGrip(tagIdx, e)}
+                        className="grid h-7 w-4 flex-none cursor-grab touch-none place-items-center active:cursor-grabbing"
+                      >
+                        <GripDots />
+                      </button>
                       {/* The planet is 1e's anchor for the card, so it doubles
                           as the keyboard-reachable select/DEselect toggle —
                           `aria-pressed` carries the state, no extra chrome. */}
@@ -890,6 +928,19 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                   placeholder="New tag name…"
                 />
               </li>
+              {tagDrag?.drop && <DropBar bar={tagDrag.drop.bar} />}
+              {draggedTag && tagDrag && (
+                // 80d: the card lifts onto the dropdown panel colour and follows the pointer.
+                <DragGhost ghost={tagDrag.ghost} fullWidth>
+                  <div className="box-border flex w-full items-center gap-2 rounded-xl border border-[rgba(150,205,255,.3)] bg-[rgba(10,16,28,.96)] py-3.5 pl-1.5 pr-3.5 shadow-[0_14px_34px_rgba(0,0,0,.55)]">
+                    <span className="grid h-7 w-4 flex-none place-items-center">
+                      <GripDots />
+                    </span>
+                    <TagPlanet hue={draggedTag.hue} selected={false} />
+                    <span className="pl-1 text-sm font-semibold text-text-bright">{draggedTag.name}</span>
+                  </div>
+                </DragGhost>
+              )}
             </ul>
 
             <p className="px-5 pb-5 pt-3.5 text-[11.5px] leading-[1.5] text-[rgba(160,190,225,.6)]">
@@ -1025,7 +1076,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                       .filter(Boolean)
                       .join(' ')}
                   >
-                    {/* 1e's `⋮⋮` grip, now the real reorder control: draggable
+                    {/* 1e's grip, now the real reorder control: draggable
                         with the pointer AND operable from the keyboard with
                         ArrowUp/ArrowDown, because native HTML5 drag-and-drop
                         is not keyboard-accessible on its own and this is the
@@ -1088,9 +1139,10 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                           setDropIndex(null)
                           rowSlots.current = new Map()
                         }}
-                        className="block w-full cursor-grab rounded text-sm text-[rgba(160,190,225,.4)] transition-colors hover:text-text-soft focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent active:cursor-grabbing"
+                        // The dot grip the tag cards carry (canvas `Feature - Tag chips` 80e: tag row = rule row).
+                        className="grid h-5 w-full cursor-grab place-items-center rounded focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent active:cursor-grabbing"
                       >
-                        ⋮⋮
+                        <GripDots />
                       </button>
                       {targetsSelected && <span className="sr-only">Targets the selected tag</span>}
                     </span>

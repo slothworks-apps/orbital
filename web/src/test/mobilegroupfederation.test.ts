@@ -163,6 +163,17 @@ describe('GroupFederation', () => {
     expect(fed.ownerOf('l1')).toBe(LAPTOP)
   })
 
+  it('keeps each member\'s own tag order, one member after another', async () => {
+    // Spec 2026-10-25-tag-toggles-and-order-design § Phone: the laptop's order puts `zeta` before `work`.
+    const { fed } = await setup({
+      laptopAnswer: (method, path) =>
+        method === 'GET' && path === '/api/tags'
+          ? { status: 200, body: { tags: [{ id: 9, name: 'zeta', hue: 90 }, { id: 2, name: 'work', hue: 40 }, { id: 1, name: 'orbital', hue: 200 }] } }
+          : undefined,
+    })
+    expect([...(await localTags(fed)).keys()]).toEqual(['orbital', 'zeta', 'work'])
+  })
+
   it('asks each member for the phone\'s tag filter in its own ids', async () => {
     const { fed, studio, laptop } = await setup()
     const tags = await localTags(fed)

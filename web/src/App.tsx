@@ -1,3 +1,4 @@
+import { TAGS_TOPIC } from '@orbital/shared/tags'
 import { useEffect, useState } from 'react'
 import {
   useOrbital,
@@ -234,6 +235,12 @@ export default function App() {
   useEffect(() => {
     return socket.subscribe('sessions', (msg: SessionsEvent) => queueSessionsEvent(msg))
   }, [queueSessionsEvent])
+
+  // `tags` topic: the tag list changed somewhere — another window, the phone,
+  // an agent — so read it again (spec 2026-10-25-tag-toggles-and-order-design § Sync).
+  useEffect(() => {
+    return socket.subscribe(TAGS_TOPIC, () => void useOrbital.getState().refreshTags())
+  }, [])
 
   // `errors` topic — the shared error log, subscribed for the app's whole
   // lifetime exactly like `sessions`, with the returned unsubscribe as this

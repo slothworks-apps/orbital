@@ -244,6 +244,18 @@ export const ROUTES: Route[] = [
     answer: ({ server }) => ({ tags: server.world.tags satisfies Answer<'listTags'> }),
   },
   {
+    method: 'PUT',
+    path: '/api/tags/order',
+    calledBy: 'a tag chip dragged along the sidebar row',
+    answer: ({ server, body }) => {
+      const ids = (body as { ids?: number[] } | null)?.ids ?? []
+      const byId = new Map(server.world.tags.map((t) => [t.id, t]))
+      if (ids.length !== byId.size || !ids.every((id) => byId.has(id))) return undefined
+      server.world.tags = ids.map((id) => byId.get(id)!)
+      return { ok: true }
+    },
+  },
+  {
     method: 'GET',
     path: '/api/tag-rules',
     calledBy: 'store.loadInitial',
