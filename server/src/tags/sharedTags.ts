@@ -200,7 +200,11 @@ class ApplyRun {
     }
     const values = { uuid: r.uuid, name: r.name, hue: r.hue, isDefault, stampAt: r.at, stampOrigin: this.origin(r) };
     if (target) tx.update(tags).set(values).where(eq(tags.id, target.id)).run();
-    else tx.insert(tags).values(values).run();
+    else {
+      // A tag new to this device goes last in its order, as one created here does.
+      const { m } = tx.select({ m: sql<number>`COALESCE(MAX(${tags.position}), -1)` }).from(tags).get() as { m: number };
+      tx.insert(tags).values({ ...values, position: m + 1 }).run();
+    }
     this.changed = true;
   }
 

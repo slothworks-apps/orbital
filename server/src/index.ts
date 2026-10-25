@@ -78,6 +78,7 @@ import { SharedSettingsStore, SharedSettingsSync } from './settings/sharedSettin
 import { SharedTagsStore } from './tags/sharedTags.js';
 import { memberHasGrant, parseGrants } from './remote/grants.js';
 import { SETTINGS_TOPIC } from '@orbital/shared/sharedSettings';
+import { TAGS_TOPIC, type TagsChangedFrame } from '@orbital/shared/tags';
 import { MemberSnapshotStore } from './federation/store.js';
 import { remoteInjectOptions } from './remote/inject.js';
 import { registerServerUpdateRoutes } from './api/serverUpdate.js';
@@ -1587,6 +1588,8 @@ export async function buildServer(overrides: {
     tagsApplied: () => {
       federation.tagsChanged();
       hub.publish(SETTINGS_TOPIC, { event: 'tags' });
+      // The phone and the tag lists follow `TAGS_TOPIC`, as after a change made here.
+      hub.publish(TAGS_TOPIC, { event: 'changed' } satisfies TagsChangedFrame);
     },
   });
   // Before the routes: a request for a member's session must never reach a
