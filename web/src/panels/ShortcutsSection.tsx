@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { bindingCount, keymapGroups, type Row } from '../lib/keymap'
 import { Keycap } from '../ui/Keycap'
 import { useOrbital } from '../store/store'
+import { GroupLine } from './settingsRows'
 
 /**
  * Settings → Shortcuts (spec 2026-09-23-shortcuts-design § 6, canvas
@@ -29,6 +30,8 @@ export function ShortcutsSection() {
 
   return (
     <div className="flex min-h-0 flex-col">
+      {/* No scope label: nothing here is a setting. */}
+      <GroupLine className="shrink-0 px-8" />
       {/* Filter bar: 16/32/14 padding, hairline under it (artboard A). */}
       <div className="shrink-0 border-b border-[rgba(150,205,255,.08)] px-8 pb-3.5 pt-4">
         <div className="flex items-center gap-2.5 rounded-[9px] border border-panel-border bg-[rgba(4,8,16,.45)] px-3 py-2">

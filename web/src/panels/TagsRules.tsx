@@ -11,6 +11,7 @@ import { Select } from '../ui/Select'
 import { Toggle } from '../ui/Checkbox'
 import { Input } from '../ui/Input'
 import { Chip } from '../ui/Chip'
+import { ScopeLabel, useGroupSharing } from './settingsRows'
 
 export interface TagsRulesSectionProps {
   /** True while this is the section Settings is showing. Gates the reset, the
@@ -249,6 +250,12 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
   const tags = useOrbital(useShallow((s) => s.tags))
   const rules = useOrbital(useShallow((s) => s.rules))
   const sessions = useOrbital(useShallow((s) => s.sessions))
+  /**
+   * The tag list is shared by the group, the rules stay on each Mac (spec
+   * 2026-10-24-group-shared-settings-design § Tags). Neither heading has room
+   * at its right end beside its own words, so the scope goes on a line under it.
+   */
+  const { shown: marksShown } = useGroupSharing()
 
   /** Target-tag options for an open rule row — each carries its own tag's hue as the leading dot. */
   const tagOptions = useMemo(
@@ -754,6 +761,11 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                 + new tag
               </button>
             </div>
+            {marksShown && (
+              <div className="-mt-1 px-5 pb-2.5">
+                <ScopeLabel scope="shared" />
+              </div>
+            )}
 
             <ul className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-3">
               {tags.map((tag) => {
@@ -907,6 +919,11 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                 evaluated top → bottom, first match wins
               </span>
             </div>
+            {marksShown && (
+              <div className="-mt-1 px-[22px] pb-2.5">
+                <ScopeLabel scope="device" />
+              </div>
+            )}
 
             {/* Column captions (1e: 9.5px mono at .14em, 6px 28px). The list
                 below insets by 20px and each row by another 8px, so the two
