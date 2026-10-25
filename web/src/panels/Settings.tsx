@@ -958,7 +958,6 @@ export function Settings({ open, onClose }: SettingsProps) {
   const marks = useMemo<SettingsSharing>(
     () => (section === 'devices' ? sharing : { ...sharing, openDevices: () => selectSection('devices') }),
     // `selectSection` is a fresh closure each render but only sets state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [sharing, section],
   )
 
