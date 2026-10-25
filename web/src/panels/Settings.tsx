@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
@@ -38,7 +38,12 @@ import { api, type ServerHealth, type SessionTip } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { bindingCount, chordLabel, command, scopeCount } from '../lib/keymap'
 import { notifyDesktopSettingsChanged } from '../lib/desktop'
-import { notificationsAllOff, parseNotificationSettings, type NotificationSettings } from '@orbital/shared/notifications'
+import {
+  NOTIFICATION_SETTING_KEYS,
+  notificationsAllOff,
+  parseNotificationSettings,
+  type NotificationSettings,
+} from '@orbital/shared/notifications'
 import { notificationRowPatch } from '../lib/notificationsTip'
 import {
   EXPERIMENTAL_UNLOCKED_KEY,
@@ -58,6 +63,10 @@ import {
   TERMINAL_PLACEMENT_KEY,
   TERMINAL_CURSOR_KEY,
   TERMINAL_CURSOR_BLINK_KEY,
+  LIMIT_SUNS_ENABLED_KEY,
+  LIMIT_SUN_COLORS_KEY,
+  LIMIT_SUN_POSITIONS_KEY,
+  LIMIT_SUN_STYLE_KEY,
   terminalEnabled,
   terminalPlacement,
   terminalCursor,
@@ -110,7 +119,17 @@ import { SendFeedback, type FeedbackKind } from './SendFeedback'
 import { isDemo } from '../lib/demo'
 import { ISSUE_CHECK_ENABLED_KEY } from './report/logic'
 import { ReportDialog } from './report/ReportDialog'
-import { DEBOUNCE_MS, Row, SectionLabel } from './settingsRows'
+import {
+  DEBOUNCE_MS,
+  GroupLine,
+  Row,
+  ScopeSection,
+  SectionLabel,
+  SharingProvider,
+  type SettingsSharing,
+} from './settingsRows'
+import { groupSharing } from '../lib/settingsScope'
+import { useSyncedDraft } from '../lib/syncedDraft'
 import {
   AUTO_CONTINUE_KEY,
   CONTINUE_TEXT_KEY,
@@ -238,6 +257,70 @@ const NAV_ITEMS = [
 ] as const
 
 type SectionKey = (typeof NAV_ITEMS)[number]['key']
+
+/**
+ * The settings keys each section's rows edit. A heading's scope label is
+ * read from them (`scopeOfKeys`), so it follows the classification in
+ * `shared/sharedSettings.ts` rather than restating it (spec
+ * 2026-10-24-group-shared-settings-design § What the user sees in Settings).
+ * Each row names its own keys too (`Row`'s `setting`), for its pill.
+ */
+const SECTION_KEYS = {
+  claudeCode: ['claude_executable_path'],
+  data: ['delete_sessions_older_than_days'],
+  notifyWhen: [
+    NOTIFICATION_SETTING_KEYS.needsInput,
+    NOTIFICATION_SETTING_KEYS.sessionEnded,
+    NOTIFICATION_SETTING_KEYS.sessionFailed,
+  ],
+  delivery: [NOTIFICATION_SETTING_KEYS.sound, NOTIFICATION_SETTING_KEYS.onlyWhenBackground],
+  approving: ['permission_guard_gesture', 'questions_review_before_send'],
+  labs: [
+    HARNESS_ENABLED_KEY,
+    TERMINAL_ENABLED_KEY,
+    ISSUE_CHECK_ENABLED_KEY,
+    LIMIT_SUNS_ENABLED_KEY,
+    LIMIT_SUN_STYLE_KEY,
+    LIMIT_SUN_COLORS_KEY,
+    LIMIT_SUN_POSITIONS_KEY,
+  ],
+  experimental: [
+    ARCHIPELAGO_ENABLED_KEY,
+    WALKTHROUGH_ENABLED_KEY,
+    NARRATE_MODEL_KEY,
+    NARRATE_COMMENTARY_KEY,
+    MOON_ORBITS_KEY,
+  ],
+  terminal: [TERMINAL_PLACEMENT_KEY, TERMINAL_CURSOR_KEY, TERMINAL_CURSOR_BLINK_KEY],
+  detailPanel: ['header_session_stats', 'header_pull_request', 'header_line_changes', 'end_closes_panel'],
+  map: [
+    'map_theme',
+    'planet_scale',
+    'map_scale_labels',
+    'map_show_model',
+    'map_state_pills',
+    'map_fps_focused',
+    'map_fps_background',
+    'map_show_trash',
+  ],
+  contextUsage: [
+    'map_show_context',
+    'context_threshold_warn',
+    'context_threshold_critical',
+    'map_show_compact_badge',
+  ],
+  transcript: ['transcript_edit_diffs', 'transcript_expand_diff_on_permission'],
+  newSessions: [
+    'default_model',
+    'remember_model_per_project',
+    'default_permission_mode',
+    'default_project_dir',
+    'name_sessions_automatically',
+  ],
+  clear: ['confirm_before_clear'],
+  instructions: ['session_instructions_tips', 'session_instructions_custom', 'session_instructions_custom_text'],
+  limits: [AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY],
+} satisfies Record<string, readonly string[]>
 
 /** Sections stored under a key that has since been renamed, by their new key. */
 const RENAMED_SECTIONS: Record<string, SectionKey> = { mobile: 'devices' }
@@ -475,12 +558,16 @@ export function Settings({ open, onClose }: SettingsProps) {
   const models = useOrbital(useShallow((s) => s.models))
   const claudeDirCount = useOrbital((s) => s.claudeDirs.length)
   const hasUpdates = useAppUpdate((s) => s.source !== null)
+  const members = useOrbital((s) => s.remote?.group.members)
   const [projectDirDraft, setProjectDirDraft] = useState(settings.default_project_dir ?? '')
   const [cliPathDraft, setCliPathDraft] = useState(settings.claude_executable_path ?? '')
-  const [instructionsDraft, setInstructionsDraft] = useState(
+  // Shared across the group: a value another member sets while this is open
+  // reaches the field unless it holds an unsaved edit (`useSyncedDraft`).
+  const [instructionsDraft, setInstructionsDraft] = useSyncedDraft(
     settings.session_instructions_custom_text ?? '',
+    open,
   )
-  const [continueDraft, setContinueDraft] = useState(() => limitSettings(settings).text)
+  const [continueDraft, setContinueDraft] = useSyncedDraft(limitSettings(settings).text, open)
   /**
    * Orbital's tips, from the server. Null until the fetch lands and after a
    * failure: the list then simply does not draw, for the same reason
@@ -571,8 +658,6 @@ export function Settings({ open, onClose }: SettingsProps) {
     if (!open) return
     setProjectDirDraft(settings.default_project_dir ?? '')
     setCliPathDraft(settings.claude_executable_path ?? '')
-    setInstructionsDraft(settings.session_instructions_custom_text ?? '')
-    setContinueDraft(limitSettings(settings).text)
     // Only reseed on open — an in-flight PATCH from a prior keystroke resolving
     // must not fight the user's current typing while the panel stays open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -817,19 +902,10 @@ export function Settings({ open, onClose }: SettingsProps) {
    * database, not something the UI should invite by saving one; the old
    * stored values simply stand until a valid pair is typed.
    */
-  const [warnDraft, setWarnDraft] = useState(String(parseContextThresholds(settings).warn))
-  const [criticalDraft, setCriticalDraft] = useState(
-    String(parseContextThresholds(settings).critical),
-  )
-
-  useEffect(() => {
-    if (!open) return
-    const thresholds = parseContextThresholds(settings)
-    setWarnDraft(String(thresholds.warn))
-    setCriticalDraft(String(thresholds.critical))
-    // Only reseed on open, same reasoning as the project-dir draft above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+  const thresholds = parseContextThresholds(settings)
+  // Shared across the group, as the instructions draft above.
+  const [warnDraft, setWarnDraft] = useSyncedDraft(String(thresholds.warn), open)
+  const [criticalDraft, setCriticalDraft] = useSyncedDraft(String(thresholds.critical), open)
 
   useEffect(() => {
     if (!open) return
@@ -864,6 +940,19 @@ export function Settings({ open, onClose }: SettingsProps) {
   useEscapeLayer(open, onClose)
   // Held mounted through the close transition (see `ui/usePresence`).
   const { mounted, state: presence } = usePresence(open, MODAL_ENTER_MS, MODAL_EXIT_MS)
+
+  /**
+   * Whether this group shares settings with another Mac or server, and with
+   * which: the scope labels, pills and the group line show only then (spec
+   * 2026-10-24-group-shared-settings-design). "update it" opens Devices,
+   * except on Devices itself.
+   */
+  const sharing = useMemo<SettingsSharing>(() => groupSharing(members), [members])
+  const marks = useMemo<SettingsSharing>(
+    () => (section === 'devices' ? sharing : { ...sharing, openDevices: () => selectSection('devices') }),
+    // `selectSection` is a fresh closure each render but only sets state.
+    [sharing, section],
+  )
 
   const sectionTitle = NAV_ITEMS.find((item) => item.key === section)?.label ?? 'Sessions'
 
@@ -978,6 +1067,7 @@ export function Settings({ open, onClose }: SettingsProps) {
           ].join(' ')}
         >
           <Panel side="float" className="flex h-full w-full flex-col overflow-hidden">
+            <SharingProvider value={marks}>
             {/* Header: 22/28/18 padding per canvas 1h. */}
             <div
               className={`${editorTakesPanel ? 'hidden' : 'flex'} items-center gap-3.5 border-b border-[rgba(150,205,255,.1)] px-7 pb-[18px] pt-[22px]`}
@@ -1024,7 +1114,11 @@ export function Settings({ open, onClose }: SettingsProps) {
             the content column past the panel's clipped edge. */}
             <div
               className={[
-                'grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)]',
+                'grid min-h-0 flex-1',
+                // The group line over both of Tags & rules' columns takes a
+                // row of its own, so the nav spans two. Either way the last
+                // row is pinned to the body's height.
+                section === 'tags' && sharing.shown ? 'grid-rows-[auto_minmax(0,1fr)]' : 'grid-rows-[minmax(0,1fr)]',
                 section === 'tags'
                   ? 'grid-cols-[240px_minmax(0,330px)_minmax(0,1fr)]'
                   : editorTakesPanel
@@ -1036,7 +1130,7 @@ export function Settings({ open, onClose }: SettingsProps) {
               Only the section list scrolls when it does not fit; feedback and
               the versions stay pinned to the bottom. */}
               <nav
-                className={`${editorTakesPanel ? 'hidden' : 'flex'} min-h-0 flex-col border-r border-[rgba(150,205,255,.1)] px-3 py-4`}
+                className={`${editorTakesPanel ? 'hidden' : 'flex'} min-h-0 flex-col border-r border-[rgba(150,205,255,.1)] px-3 py-4 ${section === 'tags' && sharing.shown ? 'row-span-2' : ''}`}
                 aria-label="Settings sections"
               >
                 <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
@@ -1076,27 +1170,44 @@ export function Settings({ open, onClose }: SettingsProps) {
               nested conditional stops being readable, and only one of them
               is ever mounted, so their order here is not the nav's. */}
               {section === 'tags' ? (
-                <TagsRulesSection active onSaved={() => setSaved(true)} />
+                <>
+                  <GroupLine className="col-span-2 px-5" />
+                  <TagsRulesSection active onSaved={() => setSaved(true)} />
+                </>
               ) : section === 'harness' ? (
-                <HarnessTemplatesSection
-                  active
-                  onSaved={() => setSaved(true)}
-                  onEditingChange={setHarnessEditing}
-                />
+                // Its own frame, in a row that fills the column as the
+                // body's grid did: the group line goes over it (an empty
+                // row while there is none), and not over the editor, which
+                // takes the whole panel.
+                <div className="grid min-h-0 grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)]">
+                  <div>{!harnessEditing && <GroupLine className="px-8" scope="device" />}</div>
+                  <HarnessTemplatesSection
+                    active
+                    onSaved={() => setSaved(true)}
+                    onEditingChange={setHarnessEditing}
+                  />
+                </div>
               ) : section === 'devices' ? (
-                <DevicesSection
-                  patchAndSet={patchAndSet}
-                  onSaved={() => setSaved(true)}
-                  onOpenUpdates={hasUpdates ? () => selectSection('updates') : undefined}
-                />
+                <ScopeSection scope="device">
+                  <DevicesSection
+                    patchAndSet={patchAndSet}
+                    onSaved={() => setSaved(true)}
+                    onOpenUpdates={hasUpdates ? () => selectSection('updates') : undefined}
+                  />
+                </ScopeSection>
               ) : section === 'shortcuts' ? (
                 <ShortcutsSection />
               ) : section === 'updates' ? (
-                <UpdatesSection patchAndSet={patchAndSet} />
+                <ScopeSection scope="device">
+                  <UpdatesSection patchAndSet={patchAndSet} />
+                </ScopeSection>
               ) : (
                 <div className="flex min-h-0 flex-col overflow-y-auto px-8 pb-5 pt-2">
+                  {/* Profiles has no heading to carry its scope, so its group line does. */}
+                  <GroupLine scope={section === 'profiles' ? 'device' : undefined} />
                   {section === 'general' && (
                     <>
+                      <ScopeSection keys={SECTION_KEYS.claudeCode}>
                       <SectionLabel first>CLAUDE CODE</SectionLabel>
                       {/* Spec 2026-09-16-electron-wrapper-design § 3: empty
                     autodetects, a value overrides. Moved here out of NEW
@@ -1106,6 +1217,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                     imply the change reaches a running session. */}
                       <Row
                         title="Claude Code executable"
+                        setting="claude_executable_path"
                         desc="Leave empty to autodetect it from your PATH. A path here overrides the search for sessions started afterwards — the server reads it when it starts, so restart Orbital to apply a change."
                       >
                         <Input
@@ -1163,9 +1275,11 @@ export function Settings({ open, onClose }: SettingsProps) {
                         </Row>
                       )}
 
+                      </ScopeSection>
                       {/* The kicker is unconditional — the retention row below it
                     needs no server facts — but the Database row only draws
                     once a real path has arrived. */}
+                      <ScopeSection keys={SECTION_KEYS.data}>
                       <SectionLabel>DATA</SectionLabel>
                       {health?.paths?.dbPath && (
                         <>
@@ -1202,6 +1316,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                     rests on: index rows go, transcripts do not. */}
                       <Row
                         title="Delete sessions older than"
+                        setting="delete_sessions_older_than_days"
                         desc="Removes them from Orbital's index. Your transcripts stay in the Claude directory — Orbital only ever reads it — but a deleted session leaves the map, the sidebar and search. Pinned sessions are never deleted."
                       >
                         <Select
@@ -1246,6 +1361,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                           </div>
                         )}
                       </Row>
+                      </ScopeSection>
                     </>
                   )}
 
@@ -1270,9 +1386,11 @@ export function Settings({ open, onClose }: SettingsProps) {
                           Everything here starts off. Orbital stays silent until you turn something on.
                         </p>
                       )}
+                      <ScopeSection keys={SECTION_KEYS.notifyWhen}>
                       <SectionLabel first>NOTIFY ME WHEN</SectionLabel>
                       <Row
                         title="Needs input"
+                        setting={NOTIFICATION_SETTING_KEYS.needsInput}
                         desc="A session is waiting on a permission or a question, or has finished its turn."
                       >
                         <Toggle
@@ -1283,6 +1401,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
                       <Row
                         title="Session ended"
+                        setting={NOTIFICATION_SETTING_KEYS.sessionEnded}
                         desc="A session ended while it was still working."
                       >
                         <Toggle
@@ -1293,6 +1412,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
                       <Row
                         title="Session failed"
+                        setting={NOTIFICATION_SETTING_KEYS.sessionFailed}
                         desc="A session stopped on an error."
                       >
                         <Toggle
@@ -1302,13 +1422,16 @@ export function Settings({ open, onClose }: SettingsProps) {
                         />
                       </Row>
 
+                      </ScopeSection>
+                      <ScopeSection keys={SECTION_KEYS.delivery}>
                       {/* Canvas 1c DELIVERY: Sound first, then the background-only row. */}
                       <SectionLabel>DELIVERY</SectionLabel>
-                      <Row title="Sound" desc="A soft tone with each notification.">
+                      <Row title="Sound" setting={NOTIFICATION_SETTING_KEYS.sound} desc="A soft tone with each notification.">
                         <Toggle aria-label="Sound" checked={notify.sound} onChange={saveNotifyRow('sound')} />
                       </Row>
                       <Row
                         title="Only when Orbital is in the background"
+                        setting={NOTIFICATION_SETTING_KEYS.onlyWhenBackground}
                         desc={
                           notifyAnyEvent
                             ? 'A focused map already shows every one of these states, so interrupting over it is noise. Turn this off to be notified even with the window in front of you.'
@@ -1331,6 +1454,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                         Notifications are delivered by the desktop app. These settings are saved
                         from the browser too — Orbital picks them up when it next runs.
                       </p>
+                      </ScopeSection>
                     </>
                   )}
 
@@ -1342,9 +1466,11 @@ export function Settings({ open, onClose }: SettingsProps) {
                 owns what is drawn. */}
                   {section === 'permissions' && (
                     <>
+                      <ScopeSection keys={SECTION_KEYS.approving}>
                       <SectionLabel first>APPROVING</SectionLabel>
                       <Row
                         title="Guarded requests"
+                        setting="permission_guard_gesture"
                         desc="Some requests arrive flagged as ones no stray keystroke should approve. This is how much deliberate effort saying yes to those takes. Every other request approves on one click regardless."
                       >
                         <Segmented
@@ -1368,6 +1494,25 @@ export function Settings({ open, onClose }: SettingsProps) {
                               : 'no brake — guarded requests approve like any other'}
                         </span>
                       </Row>
+                      {/* `Feature - Question Card` 9h drew it as a section of its
+                          own at the end of Sessions (spec
+                          2026-10-21-question-card-go-back-design § Setting);
+                          beside the guard gesture since `Feature - Shared
+                          settings` 63a. */}
+                      <Row
+                        title="Review answers before sending"
+                        setting="questions_review_before_send"
+                        desc="When every question on a card has an answer, show them all with a Send button instead of sending with the last one. Any answer can be changed until you send. Your phone follows this setting."
+                      >
+                        <Toggle
+                          aria-label="Review answers before sending"
+                          checked={reviewAnswers}
+                          onChange={(checked) =>
+                            void patchAndSet({ questions_review_before_send: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
+                      </ScopeSection>
                     </>
                   )}
 
@@ -1378,9 +1523,11 @@ export function Settings({ open, onClose }: SettingsProps) {
                         Finished features you can try. Each stays off until you turn it on, and any of
                         them may still change, move into the regular settings, or be removed.
                       </p>
+                      <ScopeSection keys={SECTION_KEYS.labs}>
                       <SectionLabel first>FEATURES</SectionLabel>
                       <Row
                         title="Harness"
+                        setting={HARNESS_ENABLED_KEY}
                         desc="Automated checklists that guide a session through a multi-step task. The session runs steps automatically until it needs your approval or answer."
                       >
                         <Toggle
@@ -1396,6 +1543,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                           the terminal's own settings have their own section. */}
                       <Row
                         title="Terminal"
+                        setting={TERMINAL_ENABLED_KEY}
                         desc="Your own shell in the session's folder, as tabs beside the session. What you run in it is not sent to the agent. Its settings are in Terminal. Turning this off leaves running shells running."
                       >
                         <Toggle
@@ -1408,6 +1556,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
                       <Row
                         title="Check reports with Claude"
+                        setting={ISSUE_CHECK_ENABLED_KEY}
                         desc="In the review before a report goes to Orbital's GitHub, Claude reads it next to the newest issues and says which look like the same thing. One model call on your plan, only when you press Check with Claude."
                       >
                         <Toggle
@@ -1423,14 +1572,17 @@ export function Settings({ open, onClose }: SettingsProps) {
                         apiKey={health?.billing === 'api-key'}
                         patchAndSet={patchAndSet}
                       />
+                      </ScopeSection>
                     </>
                   )}
 
                   {section === 'experimental' && (
                     <>
+                      <ScopeSection keys={SECTION_KEYS.experimental}>
                       <SectionLabel first>FEATURES</SectionLabel>
                       <Row
                         title="Archipelago map"
+                        setting={ARCHIPELAGO_ENABLED_KEY}
                         desc="Offers Archipelago as a map theme in Appearance. It is not maintained: newer features may be missing from it, and it may break."
                       >
                         <Toggle
@@ -1445,6 +1597,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
                       <Row
                         title="Walkthrough"
+                        setting={WALKTHROUGH_ENABLED_KEY}
                         desc="The step-by-step review of what a session changed. Narrate reads the session's record separately and groups the steps under titles; the session itself is never touched."
                       >
                         <Toggle
@@ -1459,6 +1612,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
                       <Row
                         title="Narrate model"
+                        setting={NARRATE_MODEL_KEY}
                         desc="The model that reads a session's record and writes its narration. Takes effect on the next Narrate."
                       >
                         <ModelCards
@@ -1470,6 +1624,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
                       <Row
                         title="Comment for Narrate"
+                        setting={NARRATE_COMMENTARY_KEY}
                         desc="Asks Orbital's sessions to say what they change and why before each change, so Narrate has more to go on. Applies to sessions started or resumed while it is on, and makes them a little chattier."
                       >
                         <Toggle
@@ -1487,6 +1642,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                   follows the frame-rate sliders' pattern. */}
                       <Row
                         title="Moon orbits"
+                        setting={MOON_ORBITS_KEY}
                         desc="The most orbits a planet's subagents share. More moons than fit spread across them, never touching."
                       >
                         <ValueSlider
@@ -1500,14 +1656,17 @@ export function Settings({ open, onClose }: SettingsProps) {
                           onChange={(next) => void patchAndSet({ [MOON_ORBITS_KEY]: String(next) })}
                         />
                       </Row>
+                      </ScopeSection>
                     </>
                   )}
 
                   {section === 'terminal' && (
                     <>
+                      <ScopeSection keys={SECTION_KEYS.terminal}>
                       <SectionLabel first>TERMINAL</SectionLabel>
                       <Row
                         title="Terminal placement"
+                        setting={TERMINAL_PLACEMENT_KEY}
                         desc="A dock under the map, or a panel in the side slot the subagent and harness panels use."
                       >
                         <Segmented<TerminalPlacement>
@@ -1518,7 +1677,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                           onChange={(value) => void patchAndSet({ [TERMINAL_PLACEMENT_KEY]: value })}
                         />
                       </Row>
-                      <Row title="Terminal cursor" desc="An unfocused cursor is always hollow and never blinks.">
+                      <Row title="Terminal cursor" setting={TERMINAL_CURSOR_KEY} desc="An unfocused cursor is always hollow and never blinks.">
                         <Segmented<TerminalCursor>
                           label="Terminal cursor"
                           size="row"
@@ -1529,6 +1688,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
                       <Row
                         title="Blinking cursor"
+                        setting={TERMINAL_CURSOR_BLINK_KEY}
                         desc="The standard caret blink, only while the terminal has focus. Off, the cursor stays steady."
                       >
                         <Toggle
@@ -1539,11 +1699,13 @@ export function Settings({ open, onClose }: SettingsProps) {
                           }
                         />
                       </Row>
+                      </ScopeSection>
                     </>
                   )}
 
                   {section === 'appearance' && (
                     <>
+                      <ScopeSection keys={SECTION_KEYS.detailPanel}>
                       <SectionLabel first>DETAIL PANEL</SectionLabel>
                       {/* canvas `Feature - Header gauges` 11c. Per install, not per
                   session: it is a density preference about how a header is
@@ -1551,6 +1713,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                   same dialog behind it. */}
                       <Row
                         title="Session stats in the header"
+                        setting="header_session_stats"
                         desc="The bar shows busy time, cost and the four-way split without opening anything. Button only keeps the header quiet — the numbers are one click away."
                       >
                         {/* 11c draws the two positions stacked, each its own pill
@@ -1573,6 +1736,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                   header's other density choice. */}
                       <Row
                         title="Pull request in the header"
+                        setting="header_pull_request"
                         desc="Shows the branch's pull request number after the branch. Hover it for state, review and checks; click it to open the PR on GitHub. Uses the gh CLI."
                       >
                         {/* No gap: the line under the switch carries its own 8,
@@ -1591,6 +1755,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
                       <Row
                         title="Line changes in the header"
+                        setting="header_line_changes"
                         desc="What the branch changes against its parent branch, uncommitted work included. Split also shows the uncommitted part on its own."
                       >
                         <Segmented
@@ -1612,6 +1777,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       {/* No canvas row; it follows the toggle rows around it. */}
                       <Row
                         title="Close the panel after End session"
+                        setting="end_closes_panel"
                         desc="Ending a session with the header's End button also closes its panel. Off keeps the ended session open, its transcript readable."
                       >
                         <Toggle
@@ -1623,9 +1789,12 @@ export function Settings({ open, onClose }: SettingsProps) {
                         />
                       </Row>
 
+                      </ScopeSection>
+                      <ScopeSection keys={SECTION_KEYS.map}>
                       <SectionLabel>MAP</SectionLabel>
                       <Row
                         title="Theme"
+                        setting="map_theme"
                         desc="How the map is drawn. Planets is the familiar space view; Desk is an alternative renderer with the same functionality."
                       >
                         <Segmented
@@ -1639,6 +1808,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                         <>
                           <Row
                             title="Default planet size"
+                            setting="planet_scale"
                             desc="Baseline scale for every body on the map. Tier differences are preserved — this multiplies the whole family. Orbit radii and zoom are unaffected."
                           >
                             <div className="flex w-full flex-col gap-[9px]">
@@ -1732,6 +1902,7 @@ export function Settings({ open, onClose }: SettingsProps) {
 
                       <Row
                         title="Scale labels with bodies"
+                        setting="map_scale_labels"
                         desc="Off keeps session names at 11 px mono regardless of scale — better for dense maps at 1.40× and above."
                       >
                         <Toggle
@@ -1744,7 +1915,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
                       {/* canvas 4c, moved out of Sessions: what is drawn under a
                   planet's name is a drawing question. */}
-                      <Row title="Model name under planet label" desc="Family only (no version).">
+                      <Row title="Model name under planet label" setting="map_show_model" desc="Family only (no version).">
                         <div className="flex items-center gap-3">
                           <Toggle
                             aria-label="Model name under planet label"
@@ -1776,6 +1947,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                   summary line spell the word out either way. */}
                       <Row
                         title="State on the map"
+                        setting="map_state_pills"
                         desc="Dot keeps the map calm: each planet's state is a small coloured dot, spelled out when you point at the planet. Label always spells it out."
                       >
                         <Segmented
@@ -1797,6 +1969,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                   rows an artboard of their own. */}
                       <Row
                         title="Frame rate while focused"
+                        setting="map_fps_focused"
                         desc="Most frames a second the map draws while something on it moves and the window has focus. A still map draws nothing."
                       >
                         <ValueSlider
@@ -1811,6 +1984,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
                       <Row
                         title="Frame rate in the background"
+                        setting="map_fps_background"
                         desc="The same cap while another window has focus. At 0 the map pauses until you come back. A hidden window never draws."
                       >
                         <ValueSlider
@@ -1828,6 +2002,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                   then it follows the rows around it. */}
                       <Row
                         title="Show trash"
+                        setting="map_show_trash"
                         desc="The corner of the map where dropping an Orbital session ends it. Off hides it and the gesture; the End button in a session's header works either way."
                       >
                         <Toggle
@@ -1839,10 +2014,13 @@ export function Settings({ open, onClose }: SettingsProps) {
                         />
                       </Row>
 
+                      </ScopeSection>
+
                       {/* Its own kicker rather than three more rows under MAP: the
                   thresholds colour sidebar rows and gate the /compact badge
                   too, so filing them under a heading that says "map" would
                   misdescribe them (adr settings-sections-split-by-kind). */}
+                      <ScopeSection keys={SECTION_KEYS.contextUsage}>
                       <SectionLabel>CONTEXT USAGE</SectionLabel>
                       {/* canvas 1h: master switch for the arc, its ticks and the
                   /compact badge (spec context-fill-arc). Not itself in the
@@ -1851,6 +2029,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                   owner. */}
                       <Row
                         title="Context usage on planets"
+                        setting="map_show_context"
                         desc="A thin arc around each running web session showing how full its context window is. Terminal sessions have no usage data and never show one."
                       >
                         <Toggle
@@ -1870,6 +2049,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                   (oklch(72% .17 25)). */}
                       <Row
                         title="Context thresholds"
+                        setting={['context_threshold_warn', 'context_threshold_critical', 'map_show_compact_badge']}
                         desc="Arc turns amber above the first, red + pulse above the second. Sidebar rows and the /compact badge follow the same values."
                       >
                         <div className="flex items-center gap-3.5">
@@ -1937,9 +2117,12 @@ export function Settings({ open, onClose }: SettingsProps) {
                   place. In Appearance rather than Sessions because it changes
                   only what is drawn (canvas `Feature - Transcript blocks`
                   20f, which drew it under Sessions). */}
+                      </ScopeSection>
+                      <ScopeSection keys={SECTION_KEYS.transcript}>
                       <SectionLabel>TRANSCRIPT</SectionLabel>
                       <Row
                         title="Edit diffs"
+                        setting={['transcript_edit_diffs', 'transcript_expand_diff_on_permission']}
                         desc="How Edit and Write rows arrive in the transcript. Expanded shows a preview — the first hunk, at most a few lines — and opening a row by hand still shows all of it. Rows you have toggled keep your choice."
                       >
                         <Segmented
@@ -1962,14 +2145,17 @@ export function Settings({ open, onClose }: SettingsProps) {
                           label="Always expand an edit waiting for your permission"
                         />
                       </Row>
+                      </ScopeSection>
                     </>
                   )}
 
                   {section === 'sessions' && (
                     <>
+                      <ScopeSection keys={SECTION_KEYS.newSessions}>
                       <SectionLabel first>NEW SESSIONS</SectionLabel>
                       <Row
                         title="Default model"
+                        setting={['default_model', 'remember_model_per_project']}
                         desc="Pre-selected in the New session dialog. Never changes a running session."
                       >
                         <ModelCards
@@ -2007,6 +2193,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
                       <Row
                         title="Default permission mode"
+                        setting="default_permission_mode"
                         desc="Applied to every new session. Can be changed per session."
                       >
                         <ModeCards
@@ -2017,6 +2204,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
                       <Row
                         title="Default project directory"
+                        setting="default_project_dir"
                         desc="Pre-filled in the New session dialog."
                       >
                         <Input
@@ -2032,6 +2220,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
                       <Row
                         title="Name sessions automatically"
+                        setting="name_sessions_automatically"
                         desc="Asks a model (Haiku, billed like your sessions) to name each session Orbital starts from its first message, once. Off, a session is named after its first sentence; ⟳ beside a title names any session."
                       >
                         <Toggle
@@ -2042,9 +2231,12 @@ export function Settings({ open, onClose }: SettingsProps) {
                           }
                         />
                       </Row>
+                      </ScopeSection>
+                      <ScopeSection keys={SECTION_KEYS.clear}>
                       <SectionLabel>CLEAR &amp; LIFECYCLE</SectionLabel>
                       <Row
                         title="Confirm before Clear"
+                        setting="confirm_before_clear"
                         desc={`Show the confirmation dialog when running /clear or ${chordLabel(command('session.clear').chords[0])}.`}
                       >
                         <Toggle
@@ -2055,9 +2247,12 @@ export function Settings({ open, onClose }: SettingsProps) {
                           }
                         />
                       </Row>
+                      </ScopeSection>
+                      <ScopeSection keys={SECTION_KEYS.instructions}>
                       <SectionLabel>INSTRUCTIONS</SectionLabel>
                       <Row
                         title="Orbital's tips"
+                        setting="session_instructions_tips"
                         desc="Short instructions every session Orbital starts receives, so the model uses what Orbital can show: choices as cards, clickable file paths, background tasks. Applies from the next start."
                       >
                         <Toggle
@@ -2123,6 +2318,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       )}
                       <Row
                         title="Your instructions"
+                        setting={['session_instructions_custom', 'session_instructions_custom_text']}
                         desc="Your own text, appended to every session Orbital starts, after the tips. Applies from the next start. For one project, use that project's CLAUDE.md instead."
                       >
                         <Toggle
@@ -2146,11 +2342,14 @@ export function Settings({ open, onClose }: SettingsProps) {
                           className="resize-y"
                         />
                       </div>
+                      </ScopeSection>
                       {/* `Feature - Plan limits` 31c (spec
                           2026-10-03-usage-limits-design § 1 "Settings"). */}
+                      <ScopeSection keys={SECTION_KEYS.limits}>
                       <SectionLabel>LIMITS</SectionLabel>
                       <Row
                         title="Continue automatically after a limit reset"
+                        setting={AUTO_CONTINUE_KEY}
                         desc="When a session hits a plan limit, it waits. With this on, it sends the message below as soon as the window resets. With it off, the session stays idle until you write."
                       >
                         <Toggle
@@ -2167,6 +2366,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       >
                         <Row
                           title="Message sent on continue"
+                          setting={CONTINUE_TEXT_KEY}
                           desc="Sent as an ordinary user message, so it shows in the transcript like anything you type."
                         >
                           <TextArea
@@ -2195,27 +2395,13 @@ export function Settings({ open, onClose }: SettingsProps) {
                           </div>
                         </Row>
                       </div>
-                      {/* `Feature - Question Card` 9h: a section of its own at
-                          the end of Sessions (spec
-                          2026-10-21-question-card-go-back-design § Setting). */}
-                      <SectionLabel>QUESTIONS</SectionLabel>
-                      <Row
-                        title="Review answers before sending"
-                        desc="When every question on a card has an answer, show them all with a Send button instead of sending with the last one. Any answer can be changed until you send. Your phone follows this setting."
-                      >
-                        <Toggle
-                          aria-label="Review answers before sending"
-                          checked={reviewAnswers}
-                          onChange={(checked) =>
-                            void patchAndSet({ questions_review_before_send: checked ? 'true' : 'false' })
-                          }
-                        />
-                      </Row>
+                      </ScopeSection>
                     </>
                   )}
                 </div>
               )}
             </div>
+            </SharingProvider>
           </Panel>
         </div>
         {/* 61c: the review dialog stacks over Settings; Escape peels it first. */}

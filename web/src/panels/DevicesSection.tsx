@@ -36,7 +36,7 @@ import { KindGlyph } from '../ui/KindGlyph'
 import { MemberDot } from '../ui/MemberDot'
 import { PrimaryLabel } from '../ui/PrimaryLabel'
 import { JoinArea } from './JoinCard'
-import { DEBOUNCE_MS, Row, SectionLabel } from './settingsRows'
+import { DEBOUNCE_MS, GroupLine, Row, SectionLabel, useGroupSharing } from './settingsRows'
 
 const MUTED = 'text-[rgba(160,190,225,.6)]'
 /** A block under a section label that is not a `Row`: the same hairline rule and vertical rhythm. */
@@ -302,6 +302,7 @@ export function DevicesSection({
 
   return (
     <div className="flex min-h-0 flex-col overflow-y-auto px-8 pb-5 pt-2">
+      <GroupLine />
       <SectionLabel first>REMOTE</SectionLabel>
       <Row
         narrow
@@ -812,6 +813,8 @@ function Members({
   const [saving, setSaving] = useState<string | null>(null)
   /** A grant save that failed, said under that member rather than as a toast. */
   const [saveError, setSaveError] = useState<{ memberId: string; text: string } | null>(null)
+  /** The Macs and servers too old to share settings, said on their rows as the group line says it. */
+  const { old: notSharing } = useGroupSharing()
 
   const memberIds = rows.map((m) => m.id).join(',')
   useEffect(() => {
@@ -937,6 +940,12 @@ function Members({
                     {m.primary && <PrimaryLabel />}
                   </span>
                   <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{kindOs(m.kind, m.os, m.osVersion)}</span>
+                  {notSharing.some((o) => o.id === m.id) && (
+                    // In the needs-update line's type: the row's own quiet words.
+                    <span className="font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+                      doesn’t share settings yet — update it
+                    </span>
+                  )}
                   {m.needsUpdate && (
                     <span className="font-mono text-[10px] text-[rgba(160,190,225,.6)]">
                       {needsUpdateLine(m.needsUpdate, now)}

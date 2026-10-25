@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
+import { resyncRules, resyncSessions } from '../store/sharedTags'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
 import { tagColor } from '../lib/types'
@@ -16,6 +17,7 @@ import { DropBar } from '../ui/DropBar'
 import { GripDots } from '../ui/GripDots'
 import { useReorderDrag } from '../ui/useReorderDrag'
 import { HUE_SWATCHES } from '../lib/tagHues'
+import { ScopeLabel, useGroupSharing } from './settingsRows'
 
 export interface TagsRulesSectionProps {
   /** True while this is the section Settings is showing. Gates the reset, the
@@ -141,49 +143,6 @@ function TagPill({ hue, name }: { hue: number; name: string }) {
 }
 
 /**
- * Refetches rules from the server and replaces the store's copy wholesale.
- * Called from every rule-mutation handler's `catch` block (in addition to
- * `reportError`'s toast) so a failed PATCH — or, for the reorder swap
- * specifically, a *partial* failure where one of its two PATCHes succeeded
- * and the other didn't — can never leave the client silently diverged from
- * the server. There's no DB uniqueness constraint on `position`, so a
- * half-applied swap is a real possibility, not just a theoretical one.
- */
-async function resyncRules(): Promise<void> {
-  try {
-    const refreshed = await api.listTagRules()
-    useOrbital.setState({ rules: refreshed })
-  } catch {
-    // The resync itself failed (server unreachable, say) — nothing more to
-    // do here; the toast from the triggering mutation already told the user
-    // something went wrong, and the next successful mutation (or reopening
-    // the panel, which re-fetches via loadInitial) will resync again.
-  }
-}
-
-/**
- * Refetches sessions and re-applies them into the store as upserts.
- *
- * Rule/tag mutations that trigger server-side `regenerateRuleTags` (create,
- * patch, delete of a rule; the reorder swap; tag delete) change which tags
- * apply to which sessions, but the server has no push channel for that —
- * only the sessions the runner/registry itself upserts get a WS event. Left
- * alone, a session's `tagIds` in the client store would silently drift from
- * what the server now computes until something else (a reload, an unrelated
- * WS upsert) happened to refresh it. Called after every SUCCESSFUL mutation
- * of that kind, in addition to (not instead of) `resyncRules` for the rules
- * list itself.
- */
-async function resyncSessions(): Promise<void> {
-  try {
-    const refreshed = await api.listSessions({ limit: 200 })
-    refreshed.forEach((session) => useOrbital.getState().applySessionsEvent({ event: 'upsert', session }))
-  } catch {
-    // Best-effort — same rationale as resyncRules above.
-  }
-}
-
-/**
  * The 22px planet marble 1e uses instead of a flat colour dot — the same
  * radial body fill for every tag, with the tag's own hue carried by the rim
  * and the glow (canvas 1e: `0 0 14px …/.7` on the selected card, `0 0 12px
@@ -254,6 +213,12 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
   const tags = useOrbital(useShallow((s) => s.tags))
   const rules = useOrbital(useShallow((s) => s.rules))
   const sessions = useOrbital(useShallow((s) => s.sessions))
+  /**
+   * The tag list is shared by the group, the rules stay on each Mac (spec
+   * 2026-10-24-group-shared-settings-design § Tags). Neither heading has room
+   * at its right end beside its own words, so the scope goes on a line under it.
+   */
+  const { shown: marksShown } = useGroupSharing()
 
   /** Target-tag options for an open rule row — each carries its own tag's hue as the leading dot. */
   const tagOptions = useMemo(
@@ -772,6 +737,11 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                 + new tag
               </button>
             </div>
+            {marksShown && (
+              <div className="-mt-1 px-5 pb-2.5">
+                <ScopeLabel scope="shared" />
+              </div>
+            )}
 
             <ul ref={tagListRef} className="relative flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-3 pt-1">
               {tags.map((tag, tagIdx) => {
@@ -958,6 +928,11 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                 evaluated top → bottom, first match wins
               </span>
             </div>
+            {marksShown && (
+              <div className="-mt-1 px-[22px] pb-2.5">
+                <ScopeLabel scope="device" />
+              </div>
+            )}
 
             {/* Column captions (1e: 9.5px mono at .14em, 6px 28px). The list
                 below insets by 20px and each row by another 8px, so the two

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0747fb0f-0401-42bc-bd8e-1cb6de71a5bb",
+  "id": "59a4745b-e183-44cf-9f16-872245ecffb4",
   "prevId": "6bf75d0e-1344-44c9-8094-17ad85284bc9",
   "tables": {
     "background_tasks": {
@@ -2027,6 +2027,22 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "stamp_at": {
+          "name": "stamp_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "stamp_origin": {
+          "name": "stamp_origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
         }
       },
       "indexes": {},
@@ -2176,14 +2192,6 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
-        },
-        "position": {
-          "name": "position",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
         }
       },
       "indexes": {

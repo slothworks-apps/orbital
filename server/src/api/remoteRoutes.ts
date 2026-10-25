@@ -12,6 +12,8 @@ export function registerRemoteRoutes(
   remote: RemoteService,
   presence?: Presence,
   settings?: SettingsStore,
+  /** A member's grants changed here: the shared settings catch up with it afresh (`SharedSettingsSync.grantsChanged`). */
+  grantsChanged?: (id: string) => void,
 ): void {
   app.get('/api/remote', () => remote.status());
 
@@ -157,6 +159,7 @@ export function registerRemoteRoutes(
     if (!grants[id]) grants[id] = {};
     Object.assign(grants[id], body);
     settings.set(REMOTE_GRANTS_KEY, JSON.stringify(grants));
+    grantsChanged?.(id);
     return { grants: getMemberGrants(grants, id) };
   });
 }

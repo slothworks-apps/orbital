@@ -17,6 +17,9 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - Create a tag right from New Session with + New tag.
 - ⌘-click a tag to show only that tag.
 - Changing the filter animates the session list, and a change to your tags shows at once in every open window and on your phone.
+- Your habits in Settings — default model and permission mode, what the map and header show, the map's look, Labs switches and more — are now the same on every Mac and server in your group: change one anywhere and the others follow when they are online. Paths, layout, notifications and history cleanup stay per Mac. In a group with several Macs, the first time they connect after updating, the other Macs take the shared settings of the Mac that manages the group, unless you change one after updating; a Mac that joins a group takes the group's settings.
+- Your tags are now the same on every Mac and server in your group: creating, renaming, recolouring or deleting one on any Mac does the same on the others, and tags of the same name become one; each Mac's default tag takes the name of the one on the Mac that manages the group. Tag rules and where a tag's planets sit on the map stay per Mac.
+- With another Mac or server in your group, Settings marks which settings the group shares and which stay on this Mac, and names any Mac or server too old to share them. Review answers before sending moves to Settings → Permissions.
 
 ## [0.41.0] — 2026-10-23
 ### Added

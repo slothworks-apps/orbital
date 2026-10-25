@@ -95,8 +95,10 @@ export type MemberRow = MemberView & {
  * updates from the group, and on the phone, which keeps versions per device.
  * `osVersion`: the OS and its version its last hello named (`Ubuntu
  * 24.04`; this device's own for itself), null when not known; absent as
- * `version` is. `relayLocked`: this device is in a group, so the
- * relay URL and secret cannot change. `primary`: the group's primary, which
+ * `version` is. `settingsSync`: its last hello named `settings-sync` (true
+ * for this device), null before one; absent as `version` is.
+ * `relayLocked`: this device is in a group, so the relay URL and secret
+ * cannot change. `primary`: the group's primary, which
  * alone adds and removes members, null while this device holds no group;
  * `isPrimary`: this device is it. `ended`: the primary dissolved the group
  * or removed this device, until the user acknowledges the notice; null
@@ -107,7 +109,9 @@ export type MemberRow = MemberView & {
  * reads it (`GroupMember.expiredJoin`); null otherwise.
  */
 export type GroupStatus = {
-  members: (MemberRow & { tooOld: boolean; version?: string | null; osVersion?: string | null })[];
+  members: (MemberRow & {
+    tooOld: boolean; version?: string | null; osVersion?: string | null; settingsSync?: boolean | null;
+  })[];
   relayLocked: boolean;
   primary: PrimaryRef | null;
   isPrimary: boolean;

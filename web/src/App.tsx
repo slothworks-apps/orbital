@@ -7,10 +7,12 @@ import {
   resolvePanelPairWidths,
   PANEL_GUTTER_PX,
 } from './store/store'
-import type { ErrorsEvent, RemoteEvent, SessionEvent, SessionsEvent } from './store/store'
+import type { ErrorsEvent, RemoteEvent, SessionEvent, SessionsEvent, SettingsEvent } from './store/store'
+import { SETTINGS_TOPIC } from '@orbital/shared/sharedSettings'
+import { reloadSharedTags } from './store/sharedTags'
 import { getSocket } from './lib/socket'
 import { useCommand } from './lib/commands'
-import { setMenuCommands } from './lib/desktop'
+import { notifyDesktopSettingsChanged, setMenuCommands } from './lib/desktop'
 import { menuCommands } from './lib/keymap'
 import { harnessEnabled, terminalEnabled } from './lib/experimental'
 import { nextNeedingInput, sidebarOrder, stepSession } from './lib/sidebarOrder'
@@ -87,6 +89,7 @@ export default function App() {
   const applySessionEvent = useOrbital((s) => s.applySessionEvent)
   const applyErrorsEvent = useOrbital((s) => s.applyErrorsEvent)
   const applyRemoteEvent = useOrbital((s) => s.applyRemoteEvent)
+  const applySettingsEvent = useOrbital((s) => s.applySettingsEvent)
   const refreshRemote = useOrbital((s) => s.refreshRemote)
   const setWsStatus = useOrbital((s) => s.setWsStatus)
   const setDialog = useOrbital((s) => s.setDialog)
@@ -273,6 +276,16 @@ export default function App() {
   useEffect(() => {
     return socket.subscribe('remote', (msg: RemoteEvent) => applyRemoteEvent(msg))
   }, [applyRemoteEvent])
+
+  // `settings` topic — shared values another member of the group changed
+  // (spec 2026-10-24-group-shared-settings-design). The desktop's main
+  // process is told as after a save here: it sees no topic, and re-reads.
+  useEffect(() => {
+    return socket.subscribe(SETTINGS_TOPIC, (msg: SettingsEvent) => {
+      if (msg.event === 'tags') void reloadSharedTags()
+      else if (applySettingsEvent(msg)) notifyDesktopSettingsChanged()
+    })
+  }, [applySettingsEvent])
 
   // `session:<id>` topic follows the current selection: subscribing to the
   // newly-selected session and unsubscribing the previous one is exactly

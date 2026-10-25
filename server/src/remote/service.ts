@@ -12,6 +12,7 @@ import { PAIR_NAME_MAX_CHARS, type RelayToDevice } from '@orbital/shared/remote/
 import { initiates, osName } from '@orbital/shared/remote/device';
 import type { Role } from '@orbital/shared/remote/handshake';
 import { parseNotificationSettings } from '@orbital/shared/notifications';
+import { SETTINGS_SYNC_CAPABILITY } from '@orbital/shared/sharedSettings';
 import type { Channel } from '@orbital/shared/remote/channel';
 import { helloVersion, type HelloMessage } from '@orbital/shared/remote/messages';
 import { EMPTY_ROSTER, ROSTER_KIND_MAX_CHARS, type MemberView, type RosterState } from '@orbital/shared/remote/roster';
@@ -185,7 +186,7 @@ export class RemoteService {
   constructor(private readonly opts: RemoteServiceOptions) {
     this.devices = new DeviceStore(opts.db);
     this.roster = new RosterStore(opts.db);
-    this.membership = new GroupMembershipStore(opts.db);
+    this.membership = new GroupMembershipStore(opts.db, () => this.ownId());
     this.exits = new GroupExitStore(opts.db);
     this.pendingRevokes = new PendingRevokes(opts.db);
     this.now = opts.now ?? Date.now;
@@ -458,6 +459,8 @@ export class RemoteService {
         // What `servesServerUpdate` reads before the update routes are asked of a member.
         version: m.self ? this.opts.serverVersion : helloVersion(this.hellos.get(m.id) ?? null),
         osVersion: m.self ? this.opts.osVersion ?? null : this.hellos.get(m.id)?.osVersion ?? null,
+        // Whether Settings may name it among the members that share settings; null before its first hello.
+        settingsSync: m.self ? true : sharesSettings(this.hellos.get(m.id) ?? null),
       }));
       const primary = this.group.primary();
       // Before `joinExpired`: reading the join under way is what drops one whose code ran out.
@@ -841,4 +844,9 @@ export class RemoteService {
       }
     }
   }
+}
+
+/** Whether a member's last hello named `settings-sync`; null while none has come since this server started. */
+function sharesSettings(hello: HelloMessage | null): boolean | null {
+  return hello === null ? null : hello.capabilities?.includes(SETTINGS_SYNC_CAPABILITY) === true;
 }

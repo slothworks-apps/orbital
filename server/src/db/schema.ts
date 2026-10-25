@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { sql, getTableColumns } from 'drizzle-orm';
 import type { SQLiteTable } from 'drizzle-orm/sqlite-core';
 import {
@@ -282,11 +283,35 @@ export const tags = sqliteTable('tags', {
    * takes the last one. Ties, which only a seed can leave, fall back to id.
    */
   position: integer('position').notNull().default(0),
+  /**
+   * The tag's id across the group (spec 2026-10-24-group-shared-settings-design
+   * § Tags): a rename on one member renames the same tag on every other.
+   * Never null in practice: a row inserted without one gets one from the
+   * `tags_uuid_on_insert` trigger (migration `0035_group_shared_tags`).
+   */
+  uuid: text('uuid').$defaultFn(() => randomUUID()),
+  /** When the shared fields (name, hue, default) were last set, as a shared setting's stamp; the anchor is not one of them. */
+  stampAt: integer('stamp_at').notNull().default(0),
+  /** The device they were set on; empty for this device itself. */
+  stampOrigin: text('stamp_origin').notNull().default(''),
 }, (table) => [
   // Exactly one default tag: untagged sessions fall back to it, and a second
   // one would be undeletable dead weight (the delete route refuses defaults).
   uniqueIndex('tags_one_default').on(table.isDefault).where(sql`${table.isDefault} = 1`),
+  uniqueIndex('tags_uuid').on(table.uuid),
 ]);
+
+/**
+ * Tags deleted in the group (spec 2026-10-24-group-shared-settings-design §
+ * Tags → Deleting): the stamp travels so an offline member deletes the tag
+ * at its catch-up, and a later re-create of the same name wins over it.
+ */
+export const tagTombstones = sqliteTable('tag_tombstones', {
+  uuid: text('uuid').primaryKey(),
+  name: text('name').notNull(),
+  stampAt: integer('stamp_at').notNull(),
+  stampOrigin: text('stamp_origin').notNull(),
+});
 
 export const sessionTags = sqliteTable(
   'session_tags',
@@ -324,6 +349,15 @@ export const tagRules = sqliteTable(
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
+  /**
+   * When a shared value was set (spec 2026-10-24-group-shared-settings-design,
+   * `SettingStamp`): wall-clock ms; 0 for a seeded default or a value from
+   * before sync, -1 after this device joined a group. Read only for the keys
+   * in `SHARED_SETTING_KEYS`.
+   */
+  stampAt: integer('stamp_at').notNull().default(0),
+  /** The device the shared value was set on; empty for this device itself. */
+  stampOrigin: text('stamp_origin').notNull().default(''),
 });
 
 /**

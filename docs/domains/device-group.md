@@ -101,7 +101,11 @@ A device alone holds no roster. At a pairing (`ceremony.ts`):
   primary for the roster again once it has; the primary's add is refused
   at `ROSTER_MAX_ENTRIES` (`group_full`) and the pair it just made is
   revoked, never half added;
-- phone↔phone is refused on both sides.
+- phone↔phone is refused on both sides;
+- taking the primary's first roster after a join resets the stamps of the
+  settings the group shares, in the same write that records the
+  membership, so the group's values replace the newcomer's
+  (`docs/domains/device-federation.md` → Settings the group shares).
 
 A Mac from before this change that holds paired phones founds its group
 with them at its first start. A primary whose other members are only its

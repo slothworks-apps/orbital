@@ -8,6 +8,7 @@ import { parseTranscript } from '../transcript/parser.js';
 import { presentBranch, readTranscriptBranch, type BranchRead } from '../transcript/rewind.js';
 import { RewindStore, type PendingRewind } from '../rewind/store.js';
 import { regenerateRuleTags, matchRule } from '../tags/rules.js';
+import { deleteTag } from '../tags/sharedTags.js';
 import { expandHome } from '../paths.js';
 import { NamedPathCache, readFilePreview, readImageFile, readInSandboxes } from '../files/preview.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
@@ -69,7 +70,7 @@ import { dbFingerprints } from '../mcp/approvals.js';
 import type { McpConfig } from '../mcp/config.js';
 import { registerRemoteRoutes } from './remoteRoutes.js';
 import { memberRefusal } from '../remote/grants.js';
-import { DEVICE_HEADER } from '../remote/inject.js';
+import { DEVICE_HEADER, isControlRequest } from '../remote/inject.js';
 import type { DeliveryOutcome } from './delivery.js';
 import type { Presence } from '../remote/presence.js';
 import type { RemoteService } from '../remote/service.js';
@@ -81,6 +82,7 @@ import { narrationFields } from '../walkthrough/narration.js';
 import type { Narrator } from '../walkthrough/narrator.js';
 import type { Spine, Walkthrough } from '../walkthrough/types.js';
 import type { LimitsService } from '../limits/service.js';
+import { registerSharedSettingsRoutes, type SharedSettingsSync } from '../settings/sharedSettings.js';
 import { createIssue, ghLogin, MAX_BODY_CHARS, MAX_TITLE_CHARS, type IssueResult } from '../issues/github.js';
 import { hasBrew } from '../git/branchStatus.js';
 import { hostOsVersion } from '../remote/osVersion.js';
@@ -217,6 +219,16 @@ export interface RouteContext {
    * never accepted.
    */
   trees?: WorkingTrees;
+  /**
+   * The settings the group shares (spec 2026-10-24-group-shared-settings-design):
+   * a local change of one is stamped and pushed, and members read and push
+   * them on `/api/settings/shared`. Absent, nothing is shared and those routes do not exist.
+   * A session's own change (`CONTROL_HEADER`) stays on this device: it is neither stamped nor pushed.
+   */
+  sharedSettings?: Pick<
+    SharedSettingsSync,
+    'partner' | 'heardFrom' | 'grantsChanged' | 'list' | 'listTags' | 'receive' | 'changedLocally' | 'tagChangedLocally' | 'tagDeletedLocally'
+  >;
   /** `POST /api/sessions` on a group member, for `spawn_session`'s `machine` (spec 2026-10-19-member-grants-design § 3). */
   spawnOnMember?: (machine: string, body: Record<string, unknown>) => Promise<{ status: number; body: unknown }>;
 }
@@ -224,6 +236,21 @@ export interface RouteContext {
 /** What the routes use of one Claude directory's running context. */
 export interface RouteClaudeDirContext extends ClaudeDirContext {
   models: Pick<ModelCatalog, 'list' | 'learnedContextWindows' | 'validate'>;
+}
+
+/**
+ * What a change of these settings sets off beyond the write, wherever the
+ * change came from: a PATCH here, or a shared value taken from a member.
+ */
+export function settingsChangedEffects(
+  keys: Iterable<string>,
+  ctx: { limits?: Pick<LimitsService, 'settingsChanged'>; branchStatus: Pick<BranchStatusStore, 'settingsChanged'> },
+): void {
+  const changed = new Set(keys);
+  if (changed.has(AUTO_CONTINUE_KEY) || changed.has(CONTINUE_TEXT_KEY)) ctx.limits?.settingsChanged();
+  // Without a reload: a switch turned off drops the field from the open
+  // sessions, one turned on starts reading and fills it.
+  if (changed.has(PR_SETTING) || changed.has(LINES_SETTING)) ctx.branchStatus.settingsChanged();
 }
 
 const SIMULATED_OUTCOMES = new Set<string>(['success', 'success_no_post_tokens', 'failed', 'failed_no_error']);
@@ -465,7 +492,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const { db } = ctx;
   const mcpjsonFingerprints = dbFingerprints(db);
   if (ctx.devTools) registerDevRoutes(app, ctx);
-  registerRemoteRoutes(app, ctx.remote, ctx.presence, ctx.settings);
+  registerRemoteRoutes(app, ctx.remote, ctx.presence, ctx.settings, (id) => ctx.sharedSettings?.grantsChanged(id));
   /**
    * One reader for the whole server, because its whole job is to hold a tab
    * list still for a moment across the burst of requests one `@` produces
@@ -2397,11 +2424,18 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
 
   /** Every open window and phone reads the tag list again (`TAGS_TOPIC`). */
   const publishTagsChanged = () => ctx.hub.publish(TAGS_TOPIC, { event: 'changed' } satisfies TagsChangedFrame);
+  // The stamps are the group's bookkeeping (`/api/settings/shared`), not part of a tag as the app reads it.
+  const { stamp_at: _stampAt, stamp_origin: _stampOrigin, ...tagListColumns } = tagColumns;
   app.get('/api/tags', () => ({
     // In the order the user set; every tag list shows it as it comes, none
     // sorts on its own. The id only breaks a tie a seed can leave.
-    tags: db.select(tagColumns).from(tags).orderBy(tags.position, tags.id).all(),
+    tags: db.select(tagListColumns).from(tags).orderBy(tags.position, tags.id).all(),
   }));
+  // A create, rename, recolour or delete is stamped and goes to every member
+  // that shares the tag list (spec 2026-10-24-group-shared-settings-design §
+  // Tags); a move of the clump's anchor is this device's layout and does not.
+  // A session's own change goes to the group like any other: a tag carries no
+  // safety default, and a delete kept local would come back at the next catch-up.
   app.post('/api/tags', (req, reply) => {
     const { name, hue } = req.body as { name: string; hue: number };
     // A new tag goes last.
@@ -2410,8 +2444,10 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       .from(tags)
       .get() as { m: number };
     const r = db.insert(tags).values({ name, hue, position: maxRow.m + 1 }).run();
+    const id = Number(r.lastInsertRowid);
+    ctx.sharedSettings?.tagChangedLocally(id);
     publishTagsChanged();
-    return reply.code(201).send({ id: Number(r.lastInsertRowid) });
+    return reply.code(201).send({ id });
   });
   // The whole order at once, as the drag leaves it. Naming every tag exactly
   // once is the precondition: a list from a stale view (a tag added or
@@ -2456,14 +2492,19 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       set[column] = value;
     }
     if (Object.keys(set).length > 0) {
+      const before = db.select({ name: tags.name, hue: tags.hue }).from(tags).where(eq(tags.id, Number(id))).get();
       db.update(tags).set(set).where(eq(tags.id, Number(id))).run();
       publishTagsChanged();
+      if (before && ((set.name !== undefined && set.name !== before.name) || (set.hue !== undefined && set.hue !== before.hue))) {
+        ctx.sharedSettings?.tagChangedLocally(Number(id));
+      }
     }
     return { ok: true };
   });
   app.delete('/api/tags/:id', (req) => {
     const { id } = (req.params as any) as { id: string };
-    db.delete(tags).where(and(eq(tags.id, Number(id)), eq(tags.isDefault, 0))).run();
+    const row = db.select({ uuid: tags.uuid, name: tags.name }).from(tags).where(eq(tags.id, Number(id))).get();
+    if (deleteTag(db, Number(id)) && row?.uuid) ctx.sharedSettings?.tagDeletedLocally(row.uuid, row.name);
     regenerateRuleTags(db);
     publishTagsChanged();
     return { ok: true };
@@ -2792,11 +2833,11 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       return reply.code(403).send({ error: 'not_allowed' });
     }
     if (relayChange && ctx.remote.inGroup()) return reply.code(409).send({ error: 'in_group' });
-    let branchSettings = false;
     let remoteRestart = false;
     let remoteName = false;
-    let limitsSetting = false;
+    const changed: string[] = [];
     for (const [k, v] of Object.entries(req.body as Record<string, string>)) {
+      if (ctx.settings.get(k) !== String(v)) changed.push(k);
       // A restart of the remote drops every connected phone; saving a value
       // that did not change must not do that.
       if (k.startsWith('remote_') && ctx.settings.get(k) !== String(v)) {
@@ -2815,13 +2856,13 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
       // N sessions" before saving, and deferring the sweep would make that
       // confirmation a promise about some later restart.
       if (k === RETENTION_KEY) ctx.retention.sweep();
-      if (k === PR_SETTING || k === LINES_SETTING) branchSettings = true;
-      if (k === AUTO_CONTINUE_KEY || k === CONTINUE_TEXT_KEY) limitsSetting = true;
     }
-    if (limitsSetting) ctx.limits?.settingsChanged();
-    // Without a reload: a switch turned off drops the field from the open
-    // sessions, one turned on starts reading and fills it.
-    if (branchSettings) ctx.branchStatus.settingsChanged();
+    settingsChangedEffects(Object.keys(patch), ctx);
+    // A shared value that changed is stamped now and goes to every member
+    // that shares it; one saved unchanged is not news (spec
+    // 2026-10-24-group-shared-settings-design § How a shared value travels).
+    // A session's own write (its update_settings tool) applies on this device only.
+    if (!isControlRequest(req.headers, ctx.controlKey)) ctx.sharedSettings?.changedLocally(changed);
     // The switch, the relay URL and the relay secret apply now, not at the next boot. The Mac's
     // name restarts nothing: the service reads it fresh for every pairing
     // code, and a restart would drop every phone session and an open code at
@@ -2830,6 +2871,8 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     else if (remoteName) ctx.remote.nameChanged();
     return { ok: true };
   });
+
+  if (ctx.sharedSettings) registerSharedSettingsRoutes(app, ctx.sharedSettings);
 
   // Settings › Sessions › INSTRUCTIONS reads the tip list from here, never
   // from a copy in the web bundle: the preview must show what the running
