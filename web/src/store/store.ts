@@ -179,9 +179,10 @@ export type ErrorsEvent =
 /**
  * Events on the `settings` topic (`SETTINGS_TOPIC`, spec
  * 2026-10-24-group-shared-settings-design): shared values another member of
- * the group changed, as they now stand on this server.
+ * the group changed, as they now stand on this server; `tags` when the tag
+ * list did (`reloadSharedTags`).
  */
-export type SettingsEvent = { event: 'changed'; settings: Record<string, string> }
+export type SettingsEvent = { event: 'changed'; settings: Record<string, string> } | { event: 'tags' }
 
 /**
  * Events on the `remote` topic (`server/src/remote/service.ts`). A

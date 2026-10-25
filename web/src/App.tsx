@@ -8,6 +8,7 @@ import {
 } from './store/store'
 import type { ErrorsEvent, RemoteEvent, SessionEvent, SessionsEvent, SettingsEvent } from './store/store'
 import { SETTINGS_TOPIC } from '@orbital/shared/sharedSettings'
+import { reloadSharedTags } from './store/sharedTags'
 import { getSocket } from './lib/socket'
 import { useCommand } from './lib/commands'
 import { notifyDesktopSettingsChanged, setMenuCommands } from './lib/desktop'
@@ -272,7 +273,8 @@ export default function App() {
   // process is told as after a save here: it sees no topic, and re-reads.
   useEffect(() => {
     return socket.subscribe(SETTINGS_TOPIC, (msg: SettingsEvent) => {
-      if (applySettingsEvent(msg)) notifyDesktopSettingsChanged()
+      if (msg.event === 'tags') void reloadSharedTags()
+      else if (applySettingsEvent(msg)) notifyDesktopSettingsChanged()
     })
   }, [applySettingsEvent])
 
