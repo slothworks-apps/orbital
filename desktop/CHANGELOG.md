@@ -10,6 +10,8 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - In a short window, the end of a Settings section is no longer cut off below the window's edge; the section list scrolls when it does not fit, with Send feedback kept in view at its foot.
 - With two or more profiles, a planet's name on the map always shows its profile's letter, at every zoom; it used to appear only after zooming in, and the letter now sits in the middle of its tile.
 - A question answered on the phone, in a terminal or before a reload now shows as answered, with the answer given, instead of as an unanswered card.
+### Added
+- Right-click a planet, a Desk card or a session in the sidebar for a menu of what you can do with it: open, rename, retag, pin, copy its path, clear, end and more — without opening the session first.
 
 ## [0.41.0] — 2026-10-23
 ### Added

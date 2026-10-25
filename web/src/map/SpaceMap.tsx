@@ -25,6 +25,8 @@ import { reportError } from '../lib/errors'
 import { isMemberOffline } from '../lib/devices'
 import { useViewportWidth } from '../lib/useViewportWidth'
 import { EndDialog } from '../panels/EndDialog'
+import { useSessionMenu, useSessionMenuSubject } from '../panels/SessionContextMenu'
+import { useSessionActions } from '../store/sessionActions'
 import { mapTopInset, useWindowChromeEnv } from '../lib/windowChrome'
 import type { Subagent } from '../lib/types'
 import { holeLabelSizePx, labelFontPx } from './visuals'
@@ -778,6 +780,26 @@ export function SpaceMap() {
     },
     [selectPlanet]
   )
+  // Right-click on a planet: its context menu, whose Open is the click
+  // above (spec 2026-10-24-session-context-menu-design). Null without a
+  // host — the website's demos — so the planets take no right-click there.
+  const openMenu = useSessionMenu('map', selectPlanet)
+  const handleContextMenu = useMemo(
+    () =>
+      openMenu
+        ? (id: string, e: MouseEvent) => {
+            // A ctrl+click on a Mac arrives as a left press first, which armed
+            // a body drag (and a pan): with the button still down, a move
+            // would carry the planet off — onto the trash, even — under its
+            // own menu.
+            bodyDragRef.current = null
+            dragRef.current = null
+            openMenu(id, e)
+          }
+        : null,
+    [openMenu],
+  )
+  const menuSubjectId = useSessionMenuSubject('map')
   // The dot-mode pill's click. No drag guard: the disc keeps its presses from
   // the map, so no pan can have started on it, and `draggedRef` would only
   // hold whatever the previous gesture left there.
@@ -1032,6 +1054,9 @@ export function SpaceMap() {
 
   const handleWheel = useCallback(
     (e: ReactWheelEvent<HTMLDivElement>) => {
+      // The map holds still under an open context menu: the menu is about
+      // a planet, and zooming would carry it away from under the menu.
+      if (useSessionActions.getState().menu) return
       cancelCameraMotion()
       // Read the geometry out here, not inside the updater: React may run the
       // updater after the event has been handed back, when `currentTarget` is
@@ -1286,6 +1311,8 @@ export function SpaceMap() {
               compactingSince={planet.compactingSince}
               onCompactFailedClick={handleCompactFailed}
               onClick={handleSelect}
+              onContextMenu={handleContextMenu ?? undefined}
+              menuSubject={menuSubjectId === planet.session.id}
               statePills={pillMode}
               onPillClick={handlePillSelect}
               detached={detachedIds.includes(planet.session.id)}

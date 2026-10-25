@@ -1537,6 +1537,7 @@ describe('filter/search/dialog setters', () => {
       sourceFilter: 'web',
       wsStatus: 'open',
       dialog: 'new',
+      dialogSessionId: null,
       fileViewer: null,
       sidebarCollapsed: true,
     })

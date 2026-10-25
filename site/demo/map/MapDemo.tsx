@@ -4,6 +4,7 @@ import { useViewportWidth } from '../../../web/src/lib/useViewportWidth'
 import { SpaceMap } from '../../../web/src/map/SpaceMap'
 import { ComposerLockContext } from '../../../web/src/panels/Composer'
 import { DetailPanel } from '../../../web/src/panels/DetailPanel'
+import { SessionDialogs } from '../../../web/src/panels/SessionDialogs'
 import { ErrorLog } from '../../../web/src/panels/ErrorLog'
 import { NewSessionDialog } from '../../../web/src/panels/NewSessionDialog'
 import { Settings } from '../../../web/src/panels/Settings'
@@ -29,7 +30,7 @@ import { COMPOSER_LOCKED } from '../page'
  * Planets map, the collapsed sidebar, the detail and subagent panels docked
  * as the app docks them, the same socket subscriptions, and the three
  * dialogs the map and the sidebar open (New session, Settings, the error
- * log) — without the desktop bridge, the keymap, URL sync or the pages the
+ * log), and the header's Take over, Clear and End — without the desktop bridge, the keymap, URL sync or the pages the
  * app links to (`main.tsx` keeps a visitor on this page). The map is
  * `SpaceMap` directly, never `MapView`: Planets is the only theme the
  * website shows.
@@ -99,6 +100,7 @@ export function MapDemo() {
           <NewSessionDialog open={dialog === 'new'} onClose={closeDialog} />
           <Settings open={dialog === 'settings'} onClose={closeDialog} />
           <ErrorLog open={dialog === 'errors'} onClose={closeDialog} />
+          <SessionDialogs />
           <MapNoticeHost />
         </div>
       </EscapeBoundary>

@@ -226,6 +226,13 @@ export interface OrbitalUiState {
   wsStatus: string
   dialog: null | 'new' | 'clear' | 'end' | 'stop' | 'take-over' | 'settings' | 'errors'
   /**
+   * The session Clear, End or Take over is open for when it is not the
+   * selected one — the context menu opens them over the map without
+   * selecting (spec 2026-10-24-session-context-menu-design). Absent or null:
+   * the selected session, as the header opens them. Every `setDialog` sets it.
+   */
+  dialogSessionId?: string | null
+  /**
    * The file the read-only viewer is showing over the app, or null when it
    * is closed (spec: 2026-09-19-file-viewer-design). Plain synchronous UI
    * state like `selectedId` — never persisted; the URL mirror in
@@ -725,7 +732,8 @@ export interface OrbitalActions {
   setTagAnchor(tagId: number, anchor: { x: number; y: number } | null): Promise<void>
   /** The hole's click: un-collapse the sidebar and scroll it to HISTORY. */
   revealHistory(): void
-  setDialog(dialog: OrbitalUiState['dialog']): void
+  /** `sessionId`: the session a session dialog is for, when not the selected one (`dialogSessionId`). */
+  setDialog(dialog: OrbitalUiState['dialog'], sessionId?: string): void
   /**
    * Takes the detached list the desktop app pushed. A selected session that
    * is now in it leaves the docked panel — one place per session.
@@ -2555,8 +2563,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     }))
   },
 
-  setDialog(dialog) {
-    set((state) => ({ ui: { ...state.ui, dialog } }))
+  setDialog(dialog, sessionId) {
+    set((state) => ({ ui: { ...state.ui, dialog, dialogSessionId: sessionId ?? null } }))
   },
 
   setDetached(ids) {
