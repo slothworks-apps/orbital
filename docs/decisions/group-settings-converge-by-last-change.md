@@ -39,6 +39,9 @@ over a channel per pair, and the group has one primary.
   the higher device id.
 - **A joining member resets its stamps to zero**, so the group's values
   replace its own.
+- **The tag list converges the same way**, per tag, with a group-wide id so
+  a rename travels and a stamped tombstone so a delete does. Tag rules stay
+  on each device, because they match paths.
 - **No conflict prompt, no switch to turn it off.**
 
 ## Alternatives
