@@ -9,10 +9,10 @@ import type { MemberView } from '@orbital/shared/remote/roster';
 import { SETTINGS_STAMP_SKEW_MS, isPerDeviceSetting, isSharedSetting } from '@orbital/shared/sharedSettings';
 import { DEFAULT_SETTINGS, openDb, type OrbitalDb } from '../src/db/database.js';
 import { sessionTags, settings, tagRules, tags, tagTombstones, type Tag } from '../src/db/schema.js';
-import { SharedTagsStore } from '../src/tags/sharedTags.js';
+import { SharedTagsStore, TAG_TOMBSTONE_TTL_MS } from '../src/tags/sharedTags.js';
 import { DEVICE_HEADER } from '../src/remote/inject.js';
 import { GroupMembershipStore, joinsGroup } from '../src/remote/rosterStore.js';
-import { SharedSettingsStore, SharedSettingsSync, registerSharedSettingsRoutes } from '../src/settings/sharedSettings.js';
+import { CATCH_UP_RETRY_MS, SharedSettingsStore, SharedSettingsSync, registerSharedSettingsRoutes } from '../src/settings/sharedSettings.js';
 import { migrationsBefore } from './migrations.js';
 import { makeTmpDir, openTmpDb } from './tmp.js';
 
@@ -48,6 +48,12 @@ class FakeChannel {
   up(): void {
     this.ready = true;
     for (const l of [...this.listeners]) l({ type: 'ready', ready: true });
+  }
+
+  /** The tunnel under it is gone; `up` again is a new handshake on the same channel. */
+  down(): void {
+    this.ready = false;
+    for (const l of [...this.listeners]) l({ type: 'ready', ready: false });
   }
 }
 
@@ -108,9 +114,15 @@ function device(self: string, opts: { members?: MemberView[]; grants?: Record<st
   };
 }
 
+/** The stamp of one key as stored. */
+function stampOf(db: OrbitalDb, key: string): { at: number; origin: string } | null {
+  const row = db.select().from(settings).where(eq(settings.key, key)).get();
+  return row ? { at: row.stampAt, origin: row.stampOrigin } : null;
+}
+
 /** Every request a fake channel was asked has been answered. */
 async function settle(): Promise<void> {
-  for (let i = 0; i < 20; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve));
 }
 
 /** Every file under `dir` whose name ends in `.ts` or `.tsx`, tests left out. */
@@ -191,7 +203,7 @@ describe('/api/settings/shared', () => {
       method: 'POST', url: '/api/settings/shared', headers: { [DEVICE_HEADER]: LAPTOP },
       payload: { settings: { default_model: { value: 'opus', at: 10 ** 15, origin: LAPTOP } } },
     });
-    expect(d.store.stampOf('default_model')).toEqual({ at: 1_000 + SETTINGS_STAMP_SKEW_MS, origin: LAPTOP });
+    expect(stampOf(d.db, 'default_model')).toEqual({ at: 1_000 + SETTINGS_STAMP_SKEW_MS, origin: LAPTOP });
   });
 });
 
@@ -206,7 +218,7 @@ describe('applying a member\'s values', () => {
     } });
     expect(d.value('default_model')).toBe('opus');
     expect(d.value('confirm_before_clear')).toBe('false');
-    expect(d.store.stampOf('confirm_before_clear')).toEqual({ at: 60, origin: LAPTOP });
+    expect(stampOf(d.db, 'confirm_before_clear')).toEqual({ at: 60, origin: LAPTOP });
     expect(d.value('claude_executable_path')).toBe('');
     expect(d.applied).toEqual([{ confirm_before_clear: 'false' }]);
   });
@@ -218,7 +230,7 @@ describe('applying a member\'s values', () => {
       default_model: { value: 'sonnet', at: 0, origin: PRIMARY },
     } });
     expect(d.value('map_theme')).toBe('desk');
-    expect(d.store.stampOf('default_model')).toEqual({ at: 0, origin: PRIMARY });
+    expect(stampOf(d.db, 'default_model')).toEqual({ at: 0, origin: PRIMARY });
     expect(d.applied).toEqual([{ map_theme: 'desk' }]);
   });
 });
@@ -239,8 +251,8 @@ describe('a local change', () => {
     now = 900;
     primary.sync.changedLocally(['default_model', 'sidebar_width']);
     await settle();
-    expect(primary.store.stampOf('default_model')).toEqual({ at: 900, origin: '' });
-    expect(primary.store.stampOf('sidebar_width')).toEqual({ at: 0, origin: '' });
+    expect(stampOf(primary.db, 'default_model')).toEqual({ at: 900, origin: '' });
+    expect(stampOf(primary.db, 'sidebar_width')).toEqual({ at: 0, origin: '' });
     expect(toLaptop.request).toHaveBeenCalledWith('POST', '/api/settings/shared', {
       settings: { default_model: { value: 'opus', at: 900, origin: PRIMARY } },
     });
@@ -270,25 +282,136 @@ describe('catching up', () => {
       expect(d.value('map_theme')).toBe('desk');
       expect(d.value('confirm_before_clear')).toBe('true');
     }
-    expect(laptop.store.stampOf('default_model')).toEqual({ at: 0, origin: PRIMARY });
-    expect(primary.store.stampOf('map_theme')).toEqual({ at: 70, origin: LAPTOP });
+    expect(stampOf(laptop.db, 'default_model')).toEqual({ at: 0, origin: PRIMARY });
+    expect(stampOf(primary.db, 'map_theme')).toEqual({ at: 70, origin: LAPTOP });
     // Once per channel.
     toLaptop.up();
     await settle();
     expect(toLaptop.request).toHaveBeenCalledTimes(1);
   });
 
-  it('asks again once the member counts this device in its roster', async () => {
+  it('asks a member that refused again once it asks this device, or this device\'s roster changes; not at every status publish', async () => {
     const laptop = device(LAPTOP);
     // The primary has not taken the roster that adds the laptop yet.
     const primary = device(PRIMARY, { members: [member(PRIMARY, 'desktop', true)] });
     primary.set('default_model', 'opus', 10);
     const toPrimary = laptop.link(primary, PRIMARY);
+    const toLaptop = primary.link(laptop, LAPTOP);
     toPrimary.up();
     await settle();
     expect(laptop.value('default_model')).toBe('sonnet');
-    primary.members.push(member(LAPTOP));
+    // Presence and the like publish the status: a refusal is not asked again for that.
     laptop.statusChanged();
+    await settle();
+    expect(toPrimary.request).toHaveBeenCalledTimes(1);
+    // The primary takes the roster and catches up with the laptop: the laptop asks it again.
+    primary.members.push(member(LAPTOP));
+    toLaptop.up();
+    await settle();
+    expect(laptop.value('default_model')).toBe('opus');
+
+    // A refusal asked again at a change of this device's own roster.
+    const box = device(BOX, { members: [member(BOX, 'headless')] });
+    box.set('default_model', 'haiku', 20);
+    const toBox = laptop.link(box, BOX);
+    toBox.up();
+    await settle();
+    expect(laptop.value('default_model')).toBe('opus');
+    box.members.push(member(LAPTOP));
+    laptop.members.push(member('Z'.repeat(43)));
+    laptop.statusChanged();
+    await settle();
+    expect(laptop.value('default_model')).toBe('haiku');
+  });
+
+  it('catches up again when the same channel handshakes again', async () => {
+    const primary = device(PRIMARY);
+    const laptop = device(LAPTOP);
+    const toPrimary = laptop.link(primary, PRIMARY);
+    toPrimary.up();
+    await settle();
+    primary.set('default_model', 'opus', 10);
+    toPrimary.down();
+    toPrimary.up();
+    await settle();
+    expect(toPrimary.request).toHaveBeenCalledTimes(2);
+    expect(laptop.value('default_model')).toBe('opus');
+  });
+
+  it('tries a failed catch-up again after a back-off that doubles, and one whose values could not be taken', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const primary = device(PRIMARY);
+      const laptop = device(LAPTOP);
+      primary.set('default_model', 'opus', 10);
+      const toPrimary = laptop.link(primary, PRIMARY);
+      toPrimary.request.mockResolvedValueOnce({ status: 503, body: null });
+      toPrimary.request.mockRejectedValueOnce(new Error('timed out'));
+      toPrimary.up();
+      await settle();
+      expect(toPrimary.request).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(CATCH_UP_RETRY_MS);
+      await settle();
+      expect(toPrimary.request).toHaveBeenCalledTimes(2);
+      // The second failure waits twice as long.
+      await vi.advanceTimersByTimeAsync(CATCH_UP_RETRY_MS);
+      await settle();
+      expect(toPrimary.request).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(CATCH_UP_RETRY_MS);
+      await settle();
+      expect(toPrimary.request).toHaveBeenCalledTimes(3);
+      expect(laptop.value('default_model')).toBe('opus');
+
+      // Taking the values throws: logged, not an unhandled rejection, and tried again.
+      const box = device(BOX);
+      box.set('default_model', 'haiku', 20);
+      const apply = vi.spyOn(laptop.store, 'apply').mockImplementationOnce(() => { throw new Error('disk full'); });
+      const toBox = laptop.link(box, BOX);
+      toBox.up();
+      await settle();
+      expect(apply).toHaveBeenCalledTimes(1);
+      expect(laptop.value('default_model')).toBe('opus');
+      await vi.advanceTimersByTimeAsync(CATCH_UP_RETRY_MS);
+      await settle();
+      expect(laptop.value('default_model')).toBe('haiku');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('sends a member that did not take a push every value at its next try', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const primary = device(PRIMARY);
+      const laptop = device(LAPTOP);
+      const toLaptop = primary.link(laptop, LAPTOP);
+      toLaptop.up();
+      await settle();
+      primary.set('default_model', 'opus');
+      toLaptop.request.mockResolvedValueOnce({ status: 500, body: null });
+      primary.sync.changedLocally(['default_model']);
+      await settle();
+      expect(laptop.value('default_model')).toBe('sonnet');
+      await vi.advanceTimersByTimeAsync(CATCH_UP_RETRY_MS);
+      await settle();
+      expect(laptop.value('default_model')).toBe('opus');
+      expect(toLaptop.request).toHaveBeenLastCalledWith('GET', '/api/settings/shared', undefined);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('catches up afresh with a member whose settings grant is turned back on', async () => {
+    const grants: Record<string, boolean> = {};
+    const primary = device(PRIMARY);
+    const laptop = device(LAPTOP, { grants });
+    const toPrimary = laptop.link(primary, PRIMARY);
+    toPrimary.up();
+    await settle();
+    grants[PRIMARY] = false;
+    primary.set('default_model', 'opus', 10);
+    grants[PRIMARY] = true;
+    laptop.sync.grantsChanged(PRIMARY);
     await settle();
     expect(laptop.value('default_model')).toBe('opus');
   });
@@ -314,14 +437,14 @@ describe('joining a group', () => {
     const membership = new GroupMembershipStore(db, () => LAPTOP);
     db.update(settings).set({ stampAt: 80 }).run();
     membership.set({ group: PRIMARY, founding: null, version: 0, member: true, expires: 1 });
-    expect(store.stampOf('default_model')?.at).toBe(80);
+    expect(stampOf(db, 'default_model')?.at).toBe(80);
     membership.set({ group: PRIMARY, founding: 'f1', version: 1, member: true });
-    expect(store.stampOf('default_model')?.at).toBe(-1);
-    expect(store.stampOf('sidebar_width')?.at).toBe(80);
+    expect(stampOf(db, 'default_model')?.at).toBe(-1);
+    expect(stampOf(db, 'sidebar_width')?.at).toBe(80);
     // A later version of the same group resets nothing.
     store.stampLocal(['default_model']);
     membership.set({ group: PRIMARY, founding: 'f1', version: 2, member: true });
-    expect(store.stampOf('default_model')?.at).toBeGreaterThan(0);
+    expect(stampOf(db, 'default_model')?.at).toBeGreaterThan(0);
   });
 });
 
@@ -342,6 +465,16 @@ describe('the tag migration', () => {
     // A raw insert, as the default tag's seed is, still gets an id.
     db.$client.prepare("INSERT INTO tags (name, hue) VALUES ('raw', 1)").run();
     expect(db.select().from(tags).where(eq(tags.name, 'raw')).get()?.uuid).toMatch(/^[0-9a-f-]{36}$/);
+    db.$client.close();
+  });
+  it('seeds the default tag with a group id of its own, not the insert trigger\'s', () => {
+    const dir = makeTmpDir('default-id');
+    const dbPath = join(dir, 'index.db');
+    const first = openDb(dbPath);
+    first.$client.exec('DROP TRIGGER `tags_uuid_on_insert`; DELETE FROM `tags`;');
+    first.$client.close();
+    const db = openDb(dbPath);
+    expect(db.select().from(tags).where(eq(tags.isDefault, 1)).get()?.uuid).toMatch(/^[0-9a-f-]{36}$/);
     db.$client.close();
   });
 });
@@ -371,6 +504,17 @@ describe('the tag list the group shares', () => {
       payload: { tags: [{ uuid: 'x', name: 'phone', hue: 1, isDefault: false, at: 9, origin: PHONE }] },
     });
     expect(d.tag('phone')).toBeUndefined();
+  });
+
+  it('drops a tombstone older than its time to live, and lists the younger ones', () => {
+    let now = TAG_TOMBSTONE_TTL_MS + 1_000;
+    const d = device(PRIMARY, { now: () => now });
+    d.tagStore.tombstone('old-id', 'old');
+    now += 500;
+    d.tagStore.tombstone('new-id', 'new');
+    now += TAG_TOMBSTONE_TTL_MS - 200;
+    expect(d.sync.listTags().filter((t) => t.deleted).map((t) => t.uuid)).toEqual(['new-id']);
+    expect(d.db.select().from(tagTombstones).all().map((t) => t.uuid)).toEqual(['new-id']);
   });
 
   it('matches same-name tags at the first catch-up: both keep the winner\'s id, and each its sessions and anchor', async () => {

@@ -223,7 +223,10 @@ export interface RouteContext {
    * a local change of one is stamped and pushed, and members read and push
    * them on `/api/settings/shared`. Absent, nothing is shared and those routes do not exist.
    */
-  sharedSettings?: Pick<SharedSettingsSync, 'partner' | 'list' | 'listTags' | 'receive' | 'changedLocally' | 'tagChangedLocally' | 'tagDeletedLocally'>;
+  sharedSettings?: Pick<
+    SharedSettingsSync,
+    'partner' | 'heardFrom' | 'grantsChanged' | 'list' | 'listTags' | 'receive' | 'changedLocally' | 'tagChangedLocally' | 'tagDeletedLocally'
+  >;
   /** `POST /api/sessions` on a group member, for `spawn_session`'s `machine` (spec 2026-10-19-member-grants-design § 3). */
   spawnOnMember?: (machine: string, body: Record<string, unknown>) => Promise<{ status: number; body: unknown }>;
 }
@@ -487,7 +490,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   const { db } = ctx;
   const mcpjsonFingerprints = dbFingerprints(db);
   if (ctx.devTools) registerDevRoutes(app, ctx);
-  registerRemoteRoutes(app, ctx.remote, ctx.presence, ctx.settings);
+  registerRemoteRoutes(app, ctx.remote, ctx.presence, ctx.settings, (id) => ctx.sharedSettings?.grantsChanged(id));
   /**
    * One reader for the whole server, because its whole job is to hold a tab
    * list still for a moment across the burst of requests one `@` produces

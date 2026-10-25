@@ -8,7 +8,7 @@
  * member hears every change from the member that made it.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { eq, inArray } from 'drizzle-orm';
+import { inArray } from 'drizzle-orm';
 import { TunnelError, type Channel } from '@orbital/shared/remote/channel';
 import type { HelloMessage } from '@orbital/shared/remote/messages';
 import type { MemberView } from '@orbital/shared/remote/roster';
@@ -60,11 +60,13 @@ export class SharedSettingsStore {
     return out;
   }
 
-  /** A local change of these shared keys: stamped now, with this device as origin. */
-  stampLocal(keys: string[]): void {
+  /** A local change of these keys: the shared ones are stamped now, with this device as origin, and returned. */
+  stampLocal(keys: string[]): string[] {
     const shared = keys.filter(isSharedSetting);
-    if (shared.length === 0) return;
-    this.db.update(settings).set({ stampAt: this.now(), stampOrigin: '' }).where(inArray(settings.key, shared)).run();
+    if (shared.length > 0) {
+      this.db.update(settings).set({ stampAt: this.now(), stampOrigin: '' }).where(inArray(settings.key, shared)).run();
+    }
+    return shared;
   }
 
   /**
@@ -102,18 +104,21 @@ export class SharedSettingsStore {
   readTags(raw: unknown): StampedTag[] {
     return readStampedTags(raw, this.now() + SETTINGS_STAMP_SKEW_MS);
   }
-
-  /** The stamp of one key, for tests. */
-  stampOf(key: string): { at: number; origin: string } | null {
-    const row = this.db.select().from(settings).where(eq(settings.key, key)).get();
-    return row ? { at: row.stampAt, origin: row.stampOrigin } : null;
-  }
 }
+
+/**
+ * How long a member whose catch-up failed (no answer, or an answer other
+ * than its values) waits before it is asked again, doubling at each failure
+ * up to `CATCH_UP_RETRY_MAX_MS`, while its channel stays ready. As the seed
+ * of `FederationService` (`SEED_RETRY_MS`).
+ */
+export const CATCH_UP_RETRY_MS = 5_000;
+export const CATCH_UP_RETRY_MAX_MS = 5 * 60_000;
 
 export type SharedSettingsSyncOptions = {
   store: SharedSettingsStore;
-  /** The tag list the group shares (spec § Tags); absent, no tags travel. */
-  tags?: SharedTagsStore;
+  /** The tag list the group shares (spec § Tags). */
+  tags: SharedTagsStore;
   remote: {
     onChannel(listener: (id: string, channel: Channel) => void): () => void;
     onStatus(listener: () => void): () => void;
@@ -127,16 +132,37 @@ export type SharedSettingsSyncOptions = {
   /** Values taken from a member changed: what a local PATCH of them sets off, and the windows told. */
   applied: (changed: Record<string, string>) => void;
   /** Tags taken from a member changed the list: this device's windows read it again. */
-  tagsApplied?: () => void;
+  tagsApplied: () => void;
   log?: (message: string) => void;
 };
 
+/**
+ * Where the catch-up with one member stands, on one ready spell of its
+ * channel. `asking`: a request is out. `done`: its values are taken.
+ * `refused`: it does not count this device as a member that shares (`NOT_A_MEMBER`),
+ * and is asked again only when there is reason to think that changed.
+ * `failed`: asked again when `retry` fires. `owed`: a push to it failed, so
+ * the next try sends it every value and tag first.
+ */
+type CatchUp = {
+  channel: Channel;
+  state: 'asking' | 'done' | 'refused' | 'failed';
+  failures: number;
+  retry?: ReturnType<typeof setTimeout>;
+  owed: boolean;
+};
+
+/** A request to a member answered with anything but 200, or not at all. */
+type Outcome = 'ok' | 'refused' | 'failed';
+
 export class SharedSettingsSync {
-  /** The channels caught up on; a new channel to the same member catches up again. */
-  private readonly caughtUp = new WeakSet<Channel>();
+  /** Per member, the catch-up on its current channel; dropped when that channel stops being ready. */
+  private readonly catchUps = new Map<string, CatchUp>();
   private readonly channelOffs = new Map<string, { channel: Channel; off: () => void }>();
   private offs: (() => void)[] = [];
   private running = false;
+  /** The roster as last seen (`rosterKey`): a refused catch-up is asked again when it changes. */
+  private roster = '';
   private readonly log: (message: string) => void;
 
   constructor(private readonly opts: SharedSettingsSyncOptions) {
@@ -146,10 +172,11 @@ export class SharedSettingsSync {
   start(): void {
     if (this.running) return;
     this.running = true;
+    this.roster = this.rosterKey();
     this.offs = [
       this.opts.remote.onChannel((id, channel) => this.attach(id, channel)),
       // The roster may name a member only after its channel came up (a join): it catches up then.
-      this.opts.remote.onStatus(() => this.catchUpAll()),
+      this.opts.remote.onStatus(() => this.statusChanged()),
     ];
     for (const member of this.opts.remote.liveMembers()) {
       const channel = this.opts.remote.channel(member.id);
@@ -164,6 +191,7 @@ export class SharedSettingsSync {
     this.offs = [];
     for (const { off } of this.channelOffs.values()) off();
     this.channelOffs.clear();
+    for (const id of [...this.catchUps.keys()]) this.forget(id);
   }
 
   /**
@@ -177,6 +205,21 @@ export class SharedSettingsSync {
     return member !== undefined && member.kind !== 'phone' && this.opts.granted(id);
   }
 
+  /**
+   * `id` asked this device for its values or pushed some: it counts this
+   * device as a member that shares, so a catch-up it refused is asked again.
+   */
+  heardFrom(id: string): void {
+    const held = this.catchUps.get(id);
+    if (held?.state === 'refused') this.catchUp(id, held.channel, true);
+  }
+
+  /** The grants of `id` changed here: with `settings` on, it catches up afresh, as what changed meanwhile was not sent. */
+  grantsChanged(id: string): void {
+    const channel = this.syncChannel(id);
+    if (channel) this.catchUp(id, channel, true);
+  }
+
   /** Every shared value with its stamp, the empty origin named. */
   list(): Record<string, StampedSetting> {
     return this.opts.store.list();
@@ -184,26 +227,25 @@ export class SharedSettingsSync {
 
   /** Every tag and tombstone with its stamp. */
   listTags(): StampedTag[] {
-    return this.opts.tags?.list() ?? [];
+    return this.opts.tags.list();
   }
 
   /** A tag was created, renamed, recoloured or made the default here: stamped now and sent to every member that shares. */
   tagChangedLocally(id: number): void {
-    const record = this.opts.tags?.stampLocal(id);
-    if (record) this.pushTags([record]);
+    const record = this.opts.tags.stampLocal(id);
+    if (record) this.push({ tags: [record] });
   }
 
   /** A tag was deleted here: its tombstone is stamped now and sent. */
   tagDeletedLocally(uuid: string, name: string): void {
-    const record = this.opts.tags?.tombstone(uuid, name);
-    if (record) this.pushTags([record]);
+    const record = this.opts.tags.tombstone(uuid, name);
+    if (record) this.push({ tags: [record] });
   }
 
   /** A local PATCH changed these keys: the shared ones are stamped now and sent to every member that shares. */
   changedLocally(keys: string[]): void {
-    const shared = keys.filter(isSharedSetting);
+    const shared = this.opts.store.stampLocal(keys);
     if (shared.length === 0) return;
-    this.opts.store.stampLocal(shared);
     const all = this.opts.store.list();
     this.push({ settings: Object.fromEntries(shared.flatMap((k) => (all[k] ? [[k, all[k]]] : []))) });
   }
@@ -229,32 +271,51 @@ export class SharedSettingsSync {
    * push is the only thing a receiver ever sends on.
    */
   private takeTags(incoming: StampedTag[]): void {
-    if (!this.opts.tags || incoming.length === 0) return;
+    if (incoming.length === 0) return;
     const { changed, restamped } = this.opts.tags.apply(incoming, this.primary());
-    if (changed) this.opts.tagsApplied?.();
-    if (restamped.length > 0) this.pushTags(restamped);
+    if (changed) this.opts.tagsApplied();
+    if (restamped.length > 0) this.push({ tags: restamped });
   }
 
-  private pushTags(records: StampedTag[]): void {
-    this.push({ tags: records });
-  }
-
-  /** One body to every live member that shares, over a ready channel. */
+  /**
+   * One body to every live member that shares, over a ready channel. A
+   * member that does not take it is owed everything: its catch-up is tried
+   * again, with every value and tag sent first.
+   */
   private push(body: { settings?: Record<string, StampedSetting>; tags?: StampedTag[] }): void {
     for (const member of this.opts.remote.liveMembers()) {
       const channel = this.syncChannel(member.id);
-      if (channel) void this.ask(member.id, channel, 'POST', body);
+      if (!channel) continue;
+      void this.ask(member.id, channel, 'POST', body).then(({ outcome }) => {
+        if (outcome !== 'ok') this.owe(member.id, channel);
+      });
     }
+  }
+
+  /** A push to `id` failed: unless a catch-up is out, it is tried again after the back-off, sending everything first. */
+  private owe(id: string, channel: Channel): void {
+    if (this.syncChannel(id) !== channel) return;
+    this.log(`${id} did not take a change; it is sent every shared value at its next catch-up`);
+    let held = this.catchUps.get(id);
+    if (held?.channel !== channel) {
+      held = { channel, state: 'failed', failures: 0, owed: true };
+      this.catchUps.set(id, held);
+    }
+    held.owed = true;
+    if (held.state === 'done' || (held.state === 'failed' && held.retry === undefined)) this.failed(id, held);
   }
 
   private attach(id: string, channel: Channel): void {
     if (!this.running) return;
     this.channelOffs.get(id)?.off();
     const off = channel.on((event) => {
+      // A channel that handshakes again is a new ready spell: its catch-up starts over.
+      if (event.type === 'ready' && !event.ready && this.catchUps.get(id)?.channel === channel) this.forget(id);
       if (event.type === 'ready' && event.ready) this.catchUp(id, channel);
       if (event.type === 'closed') {
         off();
         if (this.channelOffs.get(id)?.channel === channel) this.channelOffs.delete(id);
+        if (this.catchUps.get(id)?.channel === channel) this.forget(id);
       }
     });
     this.channelOffs.set(id, { channel, off });
@@ -269,6 +330,22 @@ export class SharedSettingsSync {
     return hello?.capabilities?.includes(SETTINGS_SYNC_CAPABILITY) ? channel : null;
   }
 
+  /** Who the roster names and how: a change of it may turn a refusal into an answer. */
+  private rosterKey(): string {
+    return this.opts.remote.liveMembers().map((m) => `${m.id}:${m.kind}:${m.primary ? 1 : 0}`).sort().join(',');
+  }
+
+  /** A status publish: members not caught up yet catch up, and, if the roster changed, those that refused are asked again. */
+  private statusChanged(): void {
+    const roster = this.rosterKey();
+    const rosterChanged = roster !== this.roster;
+    this.roster = roster;
+    if (rosterChanged) {
+      for (const [id, held] of this.catchUps) if (held.state === 'refused') this.catchUp(id, held.channel, true);
+    }
+    this.catchUpAll();
+  }
+
   private catchUpAll(): void {
     if (!this.running) return;
     for (const member of this.opts.remote.liveMembers()) {
@@ -278,40 +355,98 @@ export class SharedSettingsSync {
   }
 
   /**
-   * Once per channel: the member's shared values are read and every one
-   * that beats this device's own is taken. The member's own ask covers the
-   * other direction. A member that does not count this device among its
-   * members yet (it has not taken the roster that adds it) is asked again at
-   * the next change of the roster.
+   * Once per ready spell of a channel: the member's shared values are read
+   * and every one that beats this device's own is taken. The member's own
+   * ask covers the other direction, except for a push it did not take,
+   * which is sent again here (`owed`). A failed catch-up is tried again
+   * after a back-off (`CATCH_UP_RETRY_MS`); one refused because the member
+   * does not count this device yet (it has not taken the roster that adds
+   * it) is asked again when this device's roster changes or the member asks
+   * this device (`heardFrom`). `again` asks a member that already answered.
    */
-  private catchUp(id: string, channel: Channel): void {
-    if (this.caughtUp.has(channel) || this.syncChannel(id) !== channel) return;
-    this.caughtUp.add(channel);
-    void this.ask(id, channel, 'GET').then((res) => {
-      if (res?.status === 403 && (res.body as { error?: unknown } | null)?.error === NOT_A_MEMBER) {
-        this.caughtUp.delete(channel);
-        return;
-      }
-      if (res?.status !== 200 || !this.running) return;
-      this.take(this.opts.store.read(res.body));
-      this.takeTags(this.opts.store.readTags(res.body));
-      // Tags kept from before joining that the group's list did not take over go to the group now.
-      const claimed = this.opts.tags?.claimJoined() ?? [];
-      if (claimed.length > 0) this.pushTags(claimed);
-    });
+  private catchUp(id: string, channel: Channel, again = false): void {
+    if (this.syncChannel(id) !== channel) return;
+    let held = this.catchUps.get(id);
+    if (held && held.channel !== channel) {
+      this.forget(id);
+      held = undefined;
+    }
+    if (held && (held.state === 'asking' || !again)) return;
+    const entry: CatchUp = held ?? { channel, state: 'asking', failures: 0, owed: false };
+    clearTimeout(entry.retry);
+    entry.retry = undefined;
+    entry.state = 'asking';
+    this.catchUps.set(id, entry);
+    void this.runCatchUp(id, entry);
   }
 
-  /** One request to a member; a channel that failed answers nothing, a refusal is logged. */
-  private async ask(id: string, channel: Channel, method: 'GET' | 'POST', body?: unknown): Promise<{ status: number; body: unknown } | null> {
+  private async runCatchUp(id: string, entry: CatchUp): Promise<void> {
+    const current = () => this.running && this.catchUps.get(id) === entry;
+    if (entry.owed) {
+      const { outcome } = await this.ask(id, entry.channel, 'POST', { settings: this.list(), tags: this.listTags() });
+      if (!current()) return;
+      if (outcome !== 'ok') return this.settle(id, entry, outcome);
+      entry.owed = false;
+    }
+    const { outcome, body } = await this.ask(id, entry.channel, 'GET');
+    if (!current()) return;
+    if (outcome !== 'ok') return this.settle(id, entry, outcome);
+    try {
+      this.receive(body);
+      // Tags kept from before joining that the group's list did not take over go to the group now.
+      const claimed = this.opts.tags.claimJoined();
+      if (claimed.length > 0) this.push({ tags: claimed });
+    } catch (err) {
+      this.log(`could not take what ${id} holds: ${err instanceof Error ? err.message : String(err)}`);
+      return this.settle(id, entry, 'failed');
+    }
+    this.settle(id, entry, 'ok');
+  }
+
+  /** Where a catch-up ended: done, refused until there is reason to ask again, or failed and tried again later. */
+  private settle(id: string, entry: CatchUp, outcome: Outcome): void {
+    if (outcome === 'ok') {
+      entry.state = 'done';
+      entry.failures = 0;
+      // A push that failed while this catch-up was out.
+      if (entry.owed) this.failed(id, entry);
+    } else if (outcome === 'refused') {
+      entry.state = 'refused';
+    } else {
+      this.failed(id, entry);
+    }
+  }
+
+  /** Asked again after `CATCH_UP_RETRY_MS`, doubling at each failure in a row up to `CATCH_UP_RETRY_MAX_MS`. */
+  private failed(id: string, entry: CatchUp): void {
+    entry.state = 'failed';
+    entry.failures += 1;
+    clearTimeout(entry.retry);
+    const delay = Math.min(CATCH_UP_RETRY_MS * 2 ** (entry.failures - 1), CATCH_UP_RETRY_MAX_MS);
+    const timer = setTimeout(() => {
+      entry.retry = undefined;
+      if (this.catchUps.get(id) === entry) this.catchUp(id, entry.channel, true);
+    }, delay);
+    timer.unref?.();
+    entry.retry = timer;
+  }
+
+  private forget(id: string): void {
+    clearTimeout(this.catchUps.get(id)?.retry);
+    this.catchUps.delete(id);
+  }
+
+  /** One request to a member: taken, refused as `NOT_A_MEMBER`, or failed; a failure other than a dropped tunnel is logged. */
+  private async ask(id: string, channel: Channel, method: 'GET' | 'POST', body?: unknown): Promise<{ outcome: Outcome; body?: unknown }> {
     try {
       const res = await channel.request(method, SHARED_SETTINGS_PATH, body);
-      if (res.status !== 200 && !(res.status === 403 && (res.body as { error?: unknown } | null)?.error === NOT_A_MEMBER)) {
-        this.log(`${id} answered ${res.status} to ${method} ${SHARED_SETTINGS_PATH}`);
-      }
-      return res;
+      if (res.status === 200) return { outcome: 'ok', body: res.body };
+      if (res.status === 403 && (res.body as { error?: unknown } | null)?.error === NOT_A_MEMBER) return { outcome: 'refused' };
+      this.log(`${id} answered ${res.status} to ${method} ${SHARED_SETTINGS_PATH}`);
+      return { outcome: 'failed' };
     } catch (err) {
       if (!(err instanceof TunnelError)) this.log(`could not reach ${id}: ${err instanceof Error ? err.message : String(err)}`);
-      return null;
+      return { outcome: 'failed' };
     }
   }
 }
@@ -324,11 +459,13 @@ export class SharedSettingsSync {
  * `PATCH /api/settings`, and the phone only reads `GET /api/settings`.
  */
 export function registerSharedSettingsRoutes(
-  app: FastifyInstance, sync: Pick<SharedSettingsSync, 'partner' | 'list' | 'listTags' | 'receive'>,
+  app: FastifyInstance, sync: Pick<SharedSettingsSync, 'partner' | 'heardFrom' | 'list' | 'listTags' | 'receive'>,
 ): void {
   const partner = (req: FastifyRequest): boolean => {
     const device = req.headers[DEVICE_HEADER];
-    return typeof device === 'string' && sync.partner(device);
+    if (typeof device !== 'string' || !sync.partner(device)) return false;
+    sync.heardFrom(device);
+    return true;
   };
   app.get(SHARED_SETTINGS_PATH, (req, reply) => {
     if (!partner(req)) return reply.code(403).send({ error: NOT_A_MEMBER });

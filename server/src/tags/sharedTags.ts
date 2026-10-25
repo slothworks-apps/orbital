@@ -6,7 +6,7 @@
  * tag rules stay on each device. Which sessions carry a tag stays too, except
  * that two tags found to be one move the loser's sessions to the winner.
  */
-import { and, eq, ne, sql } from 'drizzle-orm';
+import { and, eq, lt, ne, sql } from 'drizzle-orm';
 import { stampBeats, type SettingStamp, type StampedTag } from '@orbital/shared/sharedSettings';
 import type { OrbitalDb } from '../db/database.js';
 import { sessionTags, tagRules, tagTombstones, tags, type Tag } from '../db/schema.js';
@@ -14,6 +14,12 @@ import { regenerateRuleTags } from './rules.js';
 
 type Tx = Parameters<Parameters<OrbitalDb['transaction']>[0]>[0];
 type Tombstone = typeof tagTombstones.$inferSelect;
+
+/**
+ * How long a tombstone is kept after its delete. A member offline for longer
+ * never hears of the delete, and brings the tag back at its next catch-up.
+ */
+export const TAG_TOMBSTONE_TTL_MS = 180 * 24 * 60 * 60_000;
 
 /** What `SharedTagsStore.apply` did: whether the list changed, and the records this device stamped anew and must push. */
 export type TagsApplied = { changed: boolean; restamped: StampedTag[] };
@@ -35,10 +41,11 @@ export class SharedTagsStore {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /** Every tag and every tombstone, as members read them; none before this device has an id. */
+  /** Every tag and every tombstone younger than `TAG_TOMBSTONE_TTL_MS`, as members read them; none before this device has an id. */
   list(): StampedTag[] {
     const self = this.selfId();
     if (self === null) return [];
+    this.db.delete(tagTombstones).where(lt(tagTombstones.stampAt, this.now() - TAG_TOMBSTONE_TTL_MS)).run();
     const live = this.db.select().from(tags).orderBy(tags.id).all().flatMap((t) => (t.uuid ? [this.record(t, self)] : []));
     const dead = this.db.select().from(tagTombstones).all().map((t) => this.tombstoneRecord(t, self));
     return [...live, ...dead];

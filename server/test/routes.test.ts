@@ -1127,7 +1127,7 @@ describe('REST routes', () => {
       sharedSettings: (db) => {
         const store = new SharedSettingsStore(db, () => 'self', () => now);
         return {
-          partner: () => false, list: () => store.list(), listTags: () => [], receive: () => {},
+          partner: () => false, heardFrom: () => {}, grantsChanged: () => {}, list: () => store.list(), listTags: () => [], receive: () => {},
           changedLocally: (keys) => {
             pushed.push(keys);
             store.stampLocal(keys);
@@ -1136,7 +1136,7 @@ describe('REST routes', () => {
         };
       },
     });
-    const stamp = (key: string) => new SharedSettingsStore(sharedDb, () => 'self').stampOf(key)?.at;
+    const stamp = (key: string) => sharedDb.select().from(settingsTable).where(eq(settingsTable.key, key)).get()?.stampAt;
     await shared.inject({ method: 'PATCH', url: '/api/settings', payload: { default_model: 'opus', sidebar_width: '420' } });
     expect(stamp('default_model')).toBe(100);
     expect(stamp('sidebar_width')).toBe(0);
@@ -1154,7 +1154,7 @@ describe('REST routes', () => {
       sharedSettings: (db) => {
         const tagStore = new SharedTagsStore(db, () => 'self', () => now);
         return {
-          partner: () => false, list: () => ({}), listTags: () => tagStore.list(), receive: () => {}, changedLocally: () => {},
+          partner: () => false, heardFrom: () => {}, grantsChanged: () => {}, list: () => ({}), listTags: () => tagStore.list(), receive: () => {}, changedLocally: () => {},
           tagChangedLocally: (id) => { pushed.push([tagStore.stampLocal(id)!]); },
           tagDeletedLocally: (uuid, name) => { pushed.push([tagStore.tombstone(uuid, name)!]); },
         };
