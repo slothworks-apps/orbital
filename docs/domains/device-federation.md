@@ -93,7 +93,7 @@ another route. A channel download stops at the size the peer announced
 deadline.
 
 **What a federated session looks like.** The member's session with its
-tags mapped by name to this server's tag ids, and
+tags mapped to this server's tag ids by group id, else by name, and
 `machine: { id, name, kind, os, online, asOf }` from the roster entry;
 `asOf` is when the member was last heard from while it is offline, null
 while online. `MachineRef` lives in `shared/src/remote/device.ts`. A
@@ -135,7 +135,7 @@ routes (the token guard is an `onRequest` hook and runs first):
   session other than the one asked for has that session dropped;
   a composer's attachments are first sent to the member's image store
   (`putBlob`), a spawn's `tagId` and a tags `PUT` are mapped to the
-  member's tags of the same names (made there when missing). An offline
+  member's tags of the same group ids or names (made there when missing). An offline
   member answers 409 `member_offline`, a broken channel 502
   `member_unreachable`.
 - `GET /api/files/image?session=` goes through `getFile`;
@@ -263,6 +263,34 @@ of a founding it was not in (`joinsGroup`): taking the primary's first
 roster after a ceremony. Every value already in the group then beats this
 device's own. Founding, a later version of the same group and leaving reset
 nothing.
+
+**Tags.** The same route carries the tag list: `GET` answers
+`{ settings, tags }`, `POST` takes either part (`readStampedTags`). Each
+tag has a group id (`tags.uuid`, migration `0035_group_shared_tags`; an
+insert trigger gives one to a row made without it) and a stamp; only the
+name, hue and default flag travel, never `anchor_x`/`anchor_y`, and tag
+rules and which sessions carry a tag stay on each device. `POST /api/tags`,
+a `PATCH` that changes the name or hue, and a `DELETE` stamp the tag (a
+delete writes a tombstone to `tag_tombstones`) and push it
+(`SharedSettingsSync.tagChangedLocally`, `tagDeletedLocally`); an anchor
+move does not. `SharedTagsStore.apply` (`server/src/tags/sharedTags.ts`)
+takes a record that beats the same tag here — the one of the same group
+id, else of the same name, else, for a default, this device's default.
+A record landing on a name another tag holds merges the two into the one
+whose stamp wins: the loser's `session_tags` rows and this device's rules
+move to the winner and the loser goes. A tombstone deletes the tag of its
+group id, else an older tag of its name, as `DELETE /api/tags/:id` does
+(never the default: that is stamped now and pushed back instead) and
+`regenerateRuleTags` runs; a live record of that name stamped before the
+delete is not taken, a later one is. Taken tags publish
+`{ event: 'tags' }` on the local `settings` topic (the web app reads tags,
+rules and the newest sessions again) and reset the federation's tag map.
+Joining sets every tag (with this device as origin) and every tombstone to
+-1; after each catch-up the tags still at -1 that are this device's own are
+stamped now and pushed (`claimJoined`), so a joining device keeps the tags
+whose names the group lacks. Before making a tag on a member for a spawn or
+a tags `PUT` (`peerTagId`), the member's list is read again, since it may
+have taken the tag from this device's push.
 
 **A member too old** (no `settings-sync`) is neither pushed to nor read.
 **The phone** reads `GET /api/settings` from a member that shares

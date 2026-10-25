@@ -5,6 +5,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ## [Unreleased]
 ### Added
 - Your habits in Settings — default model and permission mode, what the map and header show, the map's look, Labs switches and more — are now the same on every Mac and server in your group: change one anywhere and the others follow when they are online. Paths, layout, notifications and history cleanup stay per Mac. In a group with several Macs, the first time they connect after updating, settings you have not changed since take the values of the Mac that manages the group; a Mac that joins a group takes the group's settings.
+- Your tags are now the same on every Mac and server in your group: creating, renaming, recolouring or deleting one on any Mac does the same on the others, and tags of the same name become one. Tag rules and where a tag's planets sit on the map stay per Mac.
 - With another Mac or server in your group, Settings marks which settings the group shares and which stay on this Mac, and names any Mac or server too old to share them. Review answers before sending moves to Settings → Permissions, and the planet size to a Layout section in Appearance.
 
 ## [0.41.0] — 2026-10-23

@@ -386,6 +386,60 @@ and the rules above leave open, each point is the builder's call:
   heading has room beside its own words, so each scope label sits on a line
   under its heading.
 
+## Implementation notes (step 2, tags)
+
+The shared tag list is built (`server/src/tags/sharedTags.ts`, migration
+`0035_group_shared_tags`). Each point below is the implementer's call:
+
+- **Transport: the step-1 routes carry tags.** `GET /api/settings/shared`
+  answers `{ settings, tags }` and `POST` takes either part, so one guard,
+  one grant, one clamp, one catch-up request and no new allowlist entry.
+  Step 1 has not shipped, so no member speaks the settings-only shape, and
+  `settings-sync` in the hello covers both.
+- **The group id** is a random version-4 uuid in `tags.uuid`. Existing tags
+  get one in the migration; a row inserted without one (the default tag's
+  seed, which is raw SQL so that tests opening an older schema keep
+  working) gets one from an insert trigger. `GET /api/tags` lists it beside
+  the old fields, and leaves the stamps out.
+- **The same tag** is, in this order: the one of the same group id, else
+  of the same name, else, for a default, this device's default. The group
+  has one default tag, so two members' defaults are always one tag, under
+  the winner's name.
+- **The default moves only by a claim:** a record that says "default" and
+  whose stamp beats the current default's takes the flag; a record that
+  says "not default" never takes it away, so a member is never without one.
+  No local route changes the default today; the sync carries it so that a
+  later one travels.
+- **A merge** (a winner landing on a name another tag holds) moves the
+  loser's `session_tags` rows and this device's rules to the winner, then
+  deletes the loser. The loser leaves no tombstone: a member that still
+  holds it meets the same two records and makes the same choice.
+- **A tombstone keeps the name.** It deletes the tag of its group id, else
+  a tag of its name whose stamp is older (the same tag, matched by name),
+  and a live record of that name stamped before the delete is not taken.
+  A later create of the same name gets a new id and a later stamp, and
+  wins. Tombstones are kept.
+- **A tombstone of the default** does not delete it: this device stamps
+  the default now and pushes it, so the group takes it back. This is the
+  one push a receiver makes.
+- **Joining** sets every tag to -1 with this device as origin, and every
+  tombstone to -1. The group's tags win by name; a tombstone matches a
+  tag at -1 by group id only, so the joining device's own tags survive an
+  old delete of the same name in the group. After each catch-up, the tags
+  still at -1 with this device as origin are stamped now and pushed
+  (`claimJoined`).
+- **Windows** hear `{ event: 'tags' }` on the local `settings` topic; the
+  web app reads the tags, the rules and the newest sessions again
+  (`web/src/store/sharedTags.ts`). The phone reads tags as before.
+- **Federation** maps a member's tag to this device's by group id first,
+  then by name, and before it makes a tag on a member for a spawn or a
+  tags `PUT`, reads the member's list again: the member may have taken the
+  tag from this device's push since its list was read.
+- **Existing groups:** at the first catch-up after updating, every member
+  gets the union of the tags, tags of the same name become one under the
+  primary's hue (both at 0), and a non-primary member's default takes the
+  primary's default's name. Deletes from before the update do not travel.
+
 ## Testing
 
 - The ordering: later wins, a tie goes to the primary origin and then to the
