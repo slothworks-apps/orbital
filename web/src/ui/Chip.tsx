@@ -21,6 +21,18 @@ export interface ChipProps {
   note?: string
   /** Half opacity: a device that is offline (canvas 50e). */
   dimmed?: boolean
+  /**
+   * How an active chip with a hue shows it: `hue` tints border and fill
+   * (canvas 1b, and 1d at .5/.12 for `size="field"`); `neutral` keeps the
+   * accent-blue pressed look of a filter (canvas `Feature - Tag chips` 80a).
+   */
+  activeTint?: 'hue' | 'neutral'
+  /** Muted ink and no dot: Clear and + New tag, the chips that are not tags (80e). */
+  muted?: boolean
+  /** The copy that follows the pointer while a chip is dragged: the dropdown panel colour and a shadow (80e). */
+  lifted?: boolean
+  /** `field` is New Session's 26 px chip (canvas 80c): every chip in that row, the name field included. */
+  size?: 'row' | 'field'
   /** Native tooltip — e.g. the full path behind a shortened label. */
   title?: string
   /** Gets the event, so a caller can read ⌘/ctrl from a click or a key press alike. */
@@ -29,17 +41,19 @@ export interface ChipProps {
 }
 
 export function Chip({
-  label, active = false, hue, dot = false, pulse = false, glyph, note, dimmed = false, title, onClick, onRemove,
+  label, active = false, hue, dot = false, pulse = false, glyph, note, dimmed = false, activeTint = 'hue', muted = false,
+  lifted = false, size = 'row', title, onClick, onRemove,
 }: ChipProps) {
   const interactive = Boolean(onClick)
-  const showDot = glyph === undefined && (hue !== undefined || dot)
+  const showDot = glyph === undefined && !muted && (hue !== undefined || dot)
   // Canvas 1a/1b: resting chips are neutral (hue lives only in the dot);
   // an ACTIVE hued chip gets a hue-tinted border + faint hue fill.
+  const field = size === 'field'
   const hueStyle: CSSProperties | undefined =
-    active && hue !== undefined
+    active && hue !== undefined && activeTint === 'hue'
       ? {
-          borderColor: `oklch(80% .13 ${hue} / .4)`,
-          background: `oklch(80% .13 ${hue} / .1)`,
+          borderColor: `oklch(80% .13 ${hue} / ${field ? '.5' : '.4'})`,
+          background: `oklch(80% .13 ${hue} / ${field ? '.12' : '.1'})`,
           color: '#e8eef8',
         }
       : undefined
@@ -69,13 +83,17 @@ export function Chip({
       onKeyDown={handleKeyDown}
       style={style}
       className={[
-        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors',
+        'inline-flex items-center gap-1.5 rounded-full border font-semibold transition-colors',
+        field ? 'box-border h-[26px] px-[11px] text-[11.5px]' : 'px-2.5 py-1 text-[11px]',
         interactive ? 'cursor-pointer select-none' : '',
-        active
-          ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
-          : glyph !== undefined
-            ? 'border-panel-border text-[rgba(160,190,225,.6)]'
-            : 'border-panel-border text-[rgba(220,235,255,.8)]',
+        lifted
+          ? 'whitespace-nowrap border-[rgba(150,205,255,.3)] bg-[rgba(10,16,28,.96)] text-text-bright shadow-[0_10px_24px_rgba(0,0,0,.5)]'
+          : active
+            ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
+            : glyph !== undefined || muted
+              ? 'border-panel-border text-[rgba(160,190,225,.6)]'
+              : 'border-panel-border text-[rgba(220,235,255,.8)]',
+        muted && interactive ? 'hover:border-[rgba(150,205,255,.3)] hover:text-text-bright' : '',
       ]
         .filter(Boolean)
         .join(' ')}

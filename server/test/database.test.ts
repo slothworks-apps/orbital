@@ -390,17 +390,43 @@ describe('default tag', () => {
     const dbPath = join(dir, 'index.db');
     // Every migration before the one that adds the unique index.
     const old = openDb(dbPath, migrationsBefore(dir, '_one_default_tag'));
-    old.insert(tags).values([
-      { name: 'atlas', hue: 150, isDefault: 1 },
-      { name: 'personal-again', hue: 330, isDefault: 1 },
-    ]).run();
-    const firstDefault = old.select().from(tags).where(eq(tags.isDefault, 1)).orderBy(tags.id).get();
+    old.$client.exec(`
+      INSERT INTO tags (name, hue, is_default) VALUES ('atlas', 150, 1), ('personal-again', 330, 1);
+    `);
+    const firstDefault = old.select({ id: tags.id }).from(tags).where(eq(tags.isDefault, 1)).orderBy(tags.id).get();
     old.$client.close();
 
     const db = openDb(dbPath);
     const defaults = db.select().from(tags).where(eq(tags.isDefault, 1)).all();
     expect(defaults.map((t) => t.id)).toEqual([firstDefault!.id]);
     expect(() => db.update(tags).set({ isDefault: 1 }).where(eq(tags.name, 'atlas')).run()).toThrow();
+    db.$client.close();
+  });
+});
+
+// Spec 2026-10-25-tag-toggles-and-order-design § 2: tags gain a stored order,
+// and an existing install's lists must not move when they do.
+describe('tag position migration', () => {
+  it('backfills the order lists had before: the default tag first, the rest by id', () => {
+    const dir = makeTmpDir('db-tag-position');
+    const dbPath = join(dir, 'index.db');
+    const old = openDb(dbPath, migrationsBefore(dir, '_tag_position'));
+    // The seeded default has the lowest id; move the default to a later tag
+    // so the backfill has to put it ahead of a lower id.
+    old.$client.exec(`
+      INSERT INTO tags (id, name, hue) VALUES (20, 'beta', 10), (30, 'gamma', 20), (40, 'delta', 30);
+      UPDATE tags SET is_default = 0;
+      UPDATE tags SET is_default = 1 WHERE id = 30;
+    `);
+    const seeded = (old.$client.prepare(`SELECT id FROM tags WHERE id < 20`).get() as { id: number }).id;
+    old.$client.close();
+
+    const db = openDb(dbPath);
+    const rows = db.$client.prepare('SELECT id, position FROM tags ORDER BY position').all() as
+      { id: number; position: number }[];
+    expect(rows).toEqual([
+      { id: 30, position: 0 }, { id: seeded, position: 1 }, { id: 20, position: 2 }, { id: 40, position: 3 },
+    ]);
     db.$client.close();
   });
 });

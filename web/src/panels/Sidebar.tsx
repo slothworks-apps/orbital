@@ -28,7 +28,7 @@ import { StateDot } from '../ui/StateDot'
 import type { ApiSession, SessionSource, Tag } from '../lib/types'
 import { Panel } from '../ui/Panel'
 import { Chip } from '../ui/Chip'
-import { toggleTag } from '../lib/tagFilter'
+import { TagFilterRow } from './TagFilterRow'
 import { Select } from '../ui/Select'
 import { Logo } from '../ui/Logo'
 import { PinButton } from '../ui/PinButton'
@@ -510,7 +510,6 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
   const selectedId = useOrbital((s) => s.ui.selectedId)
   const detachedIds = useOrbital((s) => s.detachedIds)
 
-  const setFilterTagIds = useOrbital((s) => s.setFilterTagIds)
   const setSearch = useOrbital((s) => s.setSearch)
   const setSourceFilter = useOrbital((s) => s.setSourceFilter)
   const setSidebarCollapsed = useOrbital((s) => s.setSidebarCollapsed)
@@ -853,25 +852,9 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         </div>
       )}
 
-      <div
-        className={[
-          'flex flex-wrap gap-1.5 px-3.5 pb-1.5',
-          showDeviceRow(chips) ? 'pt-2' : 'pt-3',
-        ].join(' ')}
-        role="group"
-        aria-label="Filter by tag"
-      >
-        <Chip label="All" active={filterTagIds.length === 0} onClick={() => setFilterTagIds([])} />
-        {tags.map((tag) => (
-          <Chip
-            key={tag.id}
-            label={tag.name}
-            hue={tag.hue}
-            active={filterTagIds.includes(tag.id)}
-            onClick={(e) => setFilterTagIds(e.metaKey || e.ctrlKey ? toggleTag(filterTagIds, tag.id) : [tag.id])}
-          />
-        ))}
-      </div>
+      <TagFilterRow
+        className={['flex flex-wrap gap-1.5 px-3.5 pb-1.5', showDeviceRow(chips) ? 'pt-2' : 'pt-3'].join(' ')}
+      />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {/* PINNED above ACTIVE (4a). Absent entirely while nothing is

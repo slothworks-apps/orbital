@@ -276,6 +276,12 @@ export const tags = sqliteTable('tags', {
    */
   anchorX: real('anchor_x'),
   anchorY: real('anchor_y'),
+  /**
+   * Where the tag stands in every tag list, ascending; the user sets it by
+   * dragging (spec 2026-10-25-tag-toggles-and-order-design § 2). A new tag
+   * takes the last one. Ties, which only a seed can leave, fall back to id.
+   */
+  position: integer('position').notNull().default(0),
 }, (table) => [
   // Exactly one default tag: untagged sessions fall back to it, and a second
   // one would be undeletable dead weight (the delete route refuses defaults).

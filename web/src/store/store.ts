@@ -15,6 +15,8 @@ import {
 import { onQuestionDraftsChanged, readQuestionDrafts, updateQuestionDrafts } from './questionDrafts'
 import { isAttachable, isSlashCommand, promptWithOpenFile, promptWithSelection, selectionId } from '../lib/ideSelection'
 import { withViewTransition } from '../lib/viewTransition'
+import { moveTagTo } from '../lib/tagFilter'
+import { nextTagHue } from '../lib/tagHues'
 import { focusSession } from '../lib/desktop'
 import { MAX_SUBAGENT_MESSAGES, shownStatus } from '../lib/types'
 import { EMPTY_OUTPUT, appendOutput, type OutputLines } from '../lib/backgroundTasks'
@@ -719,6 +721,10 @@ export interface OrbitalActions {
   endSession(id: string): Promise<void>
   /** Moves (or, with null, clears) a tag clump's stored home on the map. */
   setTagAnchor(tagId: number, anchor: { x: number; y: number } | null): Promise<void>
+  /** Moves a tag to `toIndex` in the one order every tag list follows (spec 2026-10-25-tag-toggles-and-order-design § 2). */
+  moveTag(tagId: number, toIndex: number): Promise<void>
+  /** Creates a tag with the next swatch hue, refreshes the list and answers its id; a failure throws to the caller. */
+  createTag(name: string): Promise<number>
   /** The hole's click: un-collapse the sidebar and scroll it to HISTORY. */
   revealHistory(): void
   setDialog(dialog: OrbitalUiState['dialog']): void
@@ -2534,6 +2540,30 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       const message = err instanceof Error ? err.message : 'Failed to save the cluster home'
       set({ toast: { kind: 'error', message } })
     }
+  },
+
+  /**
+   * Optimistic like `setTagAnchor`: the dragged chip or row lands at once,
+   * and a failed save puts the old order back and reports.
+   */
+  async moveTag(tagId, toIndex) {
+    const previous = get().tags
+    const next = moveTagTo(previous, tagId, toIndex)
+    if (next === previous) return
+    set({ tags: next })
+    try {
+      await api.reorderTags(next.map((t) => t.id))
+    } catch (err) {
+      set({ tags: previous })
+      const message = err instanceof Error ? err.message : 'Failed to reorder tags'
+      set({ toast: { kind: 'error', message } })
+    }
+  },
+
+  async createTag(name) {
+    const id = await api.createTag({ name, hue: nextTagHue(get().tags) })
+    set({ tags: await api.listTags() })
+    return id
   },
 
   revealHistory() {

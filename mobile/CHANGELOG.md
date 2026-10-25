@@ -3,6 +3,9 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Changed
+- Tags in the session list turn on and off with a tap, several at once; Clear turns them all off and replaces All.
+- Tags show in the order set on your Mac.
 
 ## [0.20.0] — 2026-10-23
 ### Added

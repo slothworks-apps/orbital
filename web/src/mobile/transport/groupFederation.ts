@@ -788,11 +788,12 @@ export class GroupFederation implements SwappableClient {
     const ready = this.readySources()
     if (ready.length === 0) throw new TunnelError('offline')
     await Promise.all(ready.map(([source]) => this.readTags(source)))
+    // Each member's own order (spec 2026-10-25-tag-toggles-and-order-design § Phone), members one after another.
     const byName = new Map<string, Tag>()
     for (const source of this.sourcesById.values()) {
       for (const tag of source.tags.values()) if (!byName.has(tag.name)) byName.set(tag.name, tag)
     }
-    const tags = [...byName.values()].map((t) => ({ ...t, id: this.localTagId(t.name) })).sort((a, b) => a.id - b.id)
+    const tags = [...byName.values()].map((t) => ({ ...t, id: this.localTagId(t.name) }))
     return { status: 200, body: { tags } }
   }
 

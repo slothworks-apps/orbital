@@ -289,11 +289,15 @@ export function openDb(
   // Seeded only while no default exists, never by name: the default can be
   // renamed, and a name-keyed seed re-created it on every boot after that.
   const hasDefault = db.select({ id: tags.id }).from(tags).where(eq(tags.isDefault, 1)).get();
+  // Written with its columns named, not through Drizzle: Drizzle's insert
+  // lists every column of today's schema, which a database cut at an older
+  // migration (the migration tests) does not have yet. Its position is the
+  // column's default, so on a fresh database it is first.
   if (!hasDefault) {
-    db.insert(tags)
-      .values({ name: 'default', hue: 330, isDefault: 1 })
-      .onConflictDoUpdate({ target: tags.name, set: { isDefault: 1 } })
-      .run();
+    sqlite.prepare(
+      `INSERT INTO tags (name, hue, is_default) VALUES ('default', 330, 1)
+       ON CONFLICT (name) DO UPDATE SET is_default = 1`,
+    ).run();
   }
   // Migration baseline (M12): a fresh or pre-Drizzle database has
   // user_version 0. Drizzle itself tracks applied migrations in its own

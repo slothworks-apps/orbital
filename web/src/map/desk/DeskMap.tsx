@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { GripDots } from '../../ui/GripDots'
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import {
   mapStatePills,
@@ -474,14 +475,7 @@ function MatHeader({
       title="Drag to reorder"
       className="flex h-[42px] flex-none cursor-grab items-center gap-[9px] rounded-t-[14px] border-b border-[rgba(150,205,255,.08)] pl-2.5 pr-3.5 select-none hover:bg-[rgba(150,205,255,.035)] active:cursor-grabbing"
     >
-      <span
-        aria-hidden
-        className="block h-3 w-2 flex-none opacity-70"
-        style={{
-          backgroundImage: 'radial-gradient(circle,rgba(160,190,225,.6) 0 1px,transparent 1.3px)',
-          backgroundSize: '4px 4px',
-        }}
-      />
+      <GripDots />
       <span
         className="block h-[7px] w-[7px] flex-none rounded-full"
         style={{ background: tagInk(hue) }}

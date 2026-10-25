@@ -746,6 +746,11 @@ export const api = {
     return data.id
   },
 
+  /** The whole tag order at once; `ids` must name every tag exactly once. */
+  async reorderTags(ids: number[]): Promise<void> {
+    await request('PUT', '/api/tags/order', { ids })
+  },
+
   async patchTag(
     id: number,
     // `anchor_*: null` clears the clump's stored home, so null and absent differ.

@@ -140,6 +140,8 @@ export const CONTROL_OPERATIONS: readonly ControlOperation[] = [
   { name: 'update_tag', area: 'tags', method: 'PATCH', path: '/api/tags/:id',
     does: 'Renames or recolours a tag, or moves its cluster on the map (null anchors lay it out automatically).',
     params: ['id: number', 'name?: string', 'hue?: number', 'anchor_x?: number | null', 'anchor_y?: number | null'] },
+  { name: 'reorder_tags', area: 'tags', method: 'PUT', path: '/api/tags/order',
+    does: 'Sets the order every tag list shows; ids must name every tag exactly once.', params: ['ids: number[]'] },
   { name: 'delete_tag', area: 'tags', method: 'DELETE', path: '/api/tags/:id', does: 'Deletes a tag (not the default one).', params: ['id: number'] },
   { name: 'set_session_tags', area: 'tags', method: 'PUT', path: '/api/sessions/:id/tags',
     does: 'Replaces a session\'s tags.', params: [ID, 'tagIds: number[]'] },

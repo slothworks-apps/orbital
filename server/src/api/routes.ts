@@ -2395,13 +2395,41 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
 
   app.get('/api/tags', () => ({
-    // The default tag leads every tag list; the rest keep creation order.
-    tags: db.select(tagColumns).from(tags).orderBy(desc(tags.isDefault), tags.id).all(),
+    // In the order the user set; every tag list shows it as it comes, none
+    // sorts on its own. The id only breaks a tie a seed can leave.
+    tags: db.select(tagColumns).from(tags).orderBy(tags.position, tags.id).all(),
   }));
   app.post('/api/tags', (req, reply) => {
     const { name, hue } = req.body as { name: string; hue: number };
-    const r = db.insert(tags).values({ name, hue }).run();
+    // A new tag goes last.
+    const maxRow = db
+      .select({ m: sql<number>`COALESCE(MAX(${tags.position}), -1)` })
+      .from(tags)
+      .get() as { m: number };
+    const r = db.insert(tags).values({ name, hue, position: maxRow.m + 1 }).run();
     return reply.code(201).send({ id: Number(r.lastInsertRowid) });
+  });
+  // The whole order at once, as the drag leaves it. Naming every tag exactly
+  // once is the precondition: a list from a stale view (a tag added or
+  // deleted meanwhile) is refused whole rather than half-applied. Not on the
+  // phone's allowlist: the phone shows the order, it does not set it.
+  app.put('/api/tags/order', (req, reply) => {
+    const ids = (req.body as { ids?: unknown } | null)?.ids;
+    if (!Array.isArray(ids) || !ids.every((id) => Number.isInteger(id))) {
+      return reply.code(400).send({ error: 'ids must be an array of tag ids' });
+    }
+    const done = db.transaction((tx) => {
+      const existing = new Set(tx.select({ id: tags.id }).from(tags).all().map((t) => t.id));
+      const named = new Set(ids as number[]);
+      if (named.size !== ids.length || named.size !== existing.size
+        || ![...named].every((id) => existing.has(id))) return false;
+      (ids as number[]).forEach((id, position) => {
+        tx.update(tags).set({ position }).where(eq(tags.id, id)).run();
+      });
+      return true;
+    });
+    if (!done) return reply.code(400).send({ error: 'ids must name every tag exactly once' });
+    return { ok: true };
   });
   app.patch('/api/tags/:id', (req, reply) => {
     const { id } = req.params as { id: string };

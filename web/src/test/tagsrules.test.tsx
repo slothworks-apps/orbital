@@ -724,12 +724,11 @@ describe('Settings › Tags & rules', () => {
     const grips = container.querySelectorAll('[data-rule-grip]')
     expect(grips).toHaveLength(2)
     grips.forEach((handle) => {
-      // Still 1e's `⋮⋮` glyph, but no longer decoration: it is the reorder
-      // control, so it must be a real button a keyboard can reach.
+      // Not decoration: it is the reorder control, so it must be a real
+      // button a keyboard can reach.
       expect(handle.tagName).toBe('BUTTON')
       expect(handle).not.toHaveAttribute('aria-hidden')
       expect(handle).toHaveAttribute('draggable', 'true')
-      expect(handle.textContent).toBe('⋮⋮')
     })
     // The name carries the rule AND its position, so arrowing is not blind.
     expect(grip(1)).toHaveAccessibleName('Reorder rule 1 of 2: path matches /work/** → work')

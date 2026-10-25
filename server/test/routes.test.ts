@@ -509,20 +509,52 @@ describe('REST routes', () => {
     expect(preview.json()).toMatchObject({ tagId });
   });
 
-  it('GET /api/tags lists the default tag first, whatever its id', async () => {
-    db.update(tags).set({ isDefault: 0 }).run();
-    db.update(tags).set({ isDefault: 1 }).where(eq(tags.id, 10)).run();
-    await app.inject({ method: 'POST', url: '/api/tags', payload: { name: 'later', hue: 40 } });
-    const res = await app.inject({ method: 'GET', url: '/api/tags' });
-    const ids = res.json().tags.map((t: { id: number }) => t.id);
-    expect(ids[0]).toBe(10);
-    expect(ids.slice(1)).toEqual([...ids.slice(1)].sort((a: number, b: number) => a - b));
+  // Spec 2026-10-25-tag-toggles-and-order-design § 2: the order is the user's.
+  describe('tag order', () => {
+    const tagIds = async () =>
+      (await app.inject({ method: 'GET', url: '/api/tags' })).json().tags.map((t: { id: number }) => t.id);
+
+    it('a new tag lands last', async () => {
+      const before = await tagIds();
+      const made = (await app.inject({ method: 'POST', url: '/api/tags', payload: { name: 'later', hue: 40 } })).json().id;
+      expect(await tagIds()).toEqual([...before, made]);
+    });
+
+    it('PUT /api/tags/order takes a full permutation and GET follows it, default tag included', async () => {
+      await app.inject({ method: 'POST', url: '/api/tags', payload: { name: 'later', hue: 40 } });
+      const reversed = [...(await tagIds())].reverse();
+      const res = await app.inject({ method: 'PUT', url: '/api/tags/order', payload: { ids: reversed } });
+      expect(res.statusCode).toBe(200);
+      expect(await tagIds()).toEqual(reversed);
+      // And a tag made after the reorder still goes last.
+      const made = (await app.inject({ method: 'POST', url: '/api/tags', payload: { name: 'newest', hue: 90 } })).json().id;
+      expect(await tagIds()).toEqual([...reversed, made]);
+    });
+
+    it('refuses a partial list, a duplicate, an unknown id or a malformed body, and changes nothing', async () => {
+      await app.inject({ method: 'POST', url: '/api/tags', payload: { name: 'later', hue: 40 } });
+      const before = await tagIds();
+      expect(before.length).toBeGreaterThanOrEqual(3);
+      const reversed = [...before].reverse();
+      for (const payload of [
+        { ids: reversed.slice(1) },
+        { ids: [reversed[0], ...reversed.slice(0, -1)] },
+        { ids: [...reversed.slice(0, -1), 9999] },
+        { ids: [...reversed, reversed[0]] },
+        { ids: reversed.map(String) },
+        {},
+      ]) {
+        const res = await app.inject({ method: 'PUT', url: '/api/tags/order', payload });
+        expect(res.statusCode).toBe(400);
+        expect(await tagIds()).toEqual(before);
+      }
+    });
   });
 
   it('GET /api/tags and /api/tag-rules preserve original snake_case key order (derived projection maps)', async () => {
     const tagsRes = await app.inject({ method: 'GET', url: '/api/tags' });
     expect(Object.keys(tagsRes.json().tags[0])).toEqual([
-      'id', 'name', 'hue', 'is_default', 'anchor_x', 'anchor_y',
+      'id', 'name', 'hue', 'is_default', 'anchor_x', 'anchor_y', 'position',
     ]);
 
     await app.inject({

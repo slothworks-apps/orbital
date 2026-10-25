@@ -3,6 +3,10 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Tags in the session list's filter turn on and off with a click, several at once; Clear turns them all off and replaces All.
+- Drag tags to put them in your order, in the session list or in Settings → Tags & rules; every tag list follows it.
+- Create a tag right from New Session with + New tag.
 
 ## [0.41.0] — 2026-10-23
 ### Added
