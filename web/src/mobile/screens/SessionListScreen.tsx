@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { timeAgo } from '../../lib/format'
 import { toggleTag } from '../../lib/tagFilter'
+import { sessionViewTransitionName, withViewTransition } from '../../lib/viewTransition'
 import { isReadOnly, tagColor, type ApiSession, type Tag } from '../../lib/types'
 import { useNow } from '../../lib/useNow'
 import { ClaudeDirMark, useClaudeDirMark } from '../../ui/ClaudeDirMark'
@@ -140,7 +141,7 @@ export function SessionListScreen() {
             <Chip
               key={tag.id}
               active={tagIds.includes(tag.id)}
-              onClick={() => setTagIds(toggleTag(tagIds, tag.id))}
+              onClick={() => withViewTransition(() => setTagIds(toggleTag(tagIds, tag.id)))}
               label={tag.name}
               count={live}
               hue={tag.hue}
@@ -149,7 +150,7 @@ export function SessionListScreen() {
           {/* Canvas `Feature - Tag chips` 80b: no All; Clear ends the row while a tag is on, pinned to the
               right edge over a fade so it never scrolls out of sight. The pin stays as the row's end padding. */}
           <div className="sticky right-0 flex flex-none bg-[linear-gradient(90deg,rgba(5,7,13,0),#05070d_14px)] pl-[18px] pr-4">
-            {tagIds.length > 0 && <Chip active={false} muted onClick={() => setTagIds([])} label="Clear" />}
+            {tagIds.length > 0 && <Chip active={false} muted onClick={() => withViewTransition(() => setTagIds([]))} label="Clear" />}
           </div>
         </div>
       )}
@@ -540,7 +541,11 @@ function SessionRow({
   // Expanded, the row lists what runs; the finished ones live behind the session's header chip.
   const tasks = tasksForRow(session.backgroundTasks).filter((task) => task.state === 'running')
   return (
-    <div className={[input ? '' : 'mx-3 border-b border-[rgba(150,205,255,.06)]', asleep ? 'opacity-[.55]' : ''].join(' ')}>
+    <div
+      // Its own snapshot when the tag filter changes: the row glides to its new place (80b).
+      style={{ viewTransitionName: sessionViewTransitionName(session.id) }}
+      className={[input ? '' : 'mx-3 border-b border-[rgba(150,205,255,.06)]', asleep ? 'opacity-[.55]' : ''].join(' ')}
+    >
       <button
         type="button"
         onClick={() => onOpen(session.id)}
@@ -765,6 +770,7 @@ function EndedRow({
     <button
       type="button"
       onClick={() => onOpen(session.id)}
+      style={{ viewTransitionName: sessionViewTransitionName(session.id) }}
       className={[
         'mx-3 flex min-h-13 w-[calc(100%-24px)] items-center gap-2.5 text-left',
         pinned ? 'px-2 py-1 opacity-80' : 'border-b border-[rgba(150,205,255,.05)] px-2 py-1 opacity-75',

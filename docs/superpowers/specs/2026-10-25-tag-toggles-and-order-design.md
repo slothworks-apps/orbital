@@ -125,6 +125,11 @@ Drawn in Claude Design, `Feature - Tag chips.dc.html` (80a sidebar, 80b phone,
   on the dropdown panel colour follows the pointer. A 2 px bar in body ink
   at 85 % marks the gap — upright between chips, flat between cards. A drop
   in place shows no bar, and Escape cancels. Nothing animates.
+- **Filtering animates the list** (80a, 80b): rows that drop out fade where
+  they stand and the rest glide into place. It is the view transition the
+  sidebar already runs for pinning, with the same 320 ms panel motion, on the
+  Mac and on the phone. It is skipped under reduced motion and where the
+  browser has no view transitions.
 - **Clear** is the resting chip in muted ink with no dot. On the phone it is
   pinned to the right edge of the scrolling row over a fade.
 - **Active filter chips** in the sidebar take the neutral pressed look, not

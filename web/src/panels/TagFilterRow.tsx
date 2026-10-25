@@ -2,6 +2,7 @@ import { useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useOrbital } from '../store/store'
 import { slotToIndex, toggleTag } from '../lib/tagFilter'
+import { withViewTransition } from '../lib/viewTransition'
 import { Chip } from '../ui/Chip'
 import { DropBar } from '../ui/DropBar'
 import { useReorderDrag } from '../ui/useReorderDrag'
@@ -44,12 +45,13 @@ export function TagFilterRow({ className }: { className: string }) {
             active={filterTagIds.includes(tag.id)}
             onClick={() => {
               if (swallowClick()) return
-              setFilterTagIds(toggleTag(filterTagIds, tag.id))
+              // Rows that drop out fade where they stand, the rest glide into place (80a).
+              withViewTransition(() => setFilterTagIds(toggleTag(filterTagIds, tag.id)))
             }}
           />
         </span>
       ))}
-      {filterTagIds.length > 0 && <Chip label="Clear" muted onClick={() => setFilterTagIds([])} />}
+      {filterTagIds.length > 0 && <Chip label="Clear" muted onClick={() => withViewTransition(() => setFilterTagIds([]))} />}
       {drag?.drop && drag.moves && <DropBar bar={drag.drop.bar} />}
       {dragged && drag && (
         <span
