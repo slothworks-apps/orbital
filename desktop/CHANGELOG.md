@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Right-click an image in the full-size viewer to copy it, copy its file's path or show the file in Finder.
 ### Fixed
 - A long file path in a message wraps with the sentence around it, instead of jumping onto a centred line of its own.
 

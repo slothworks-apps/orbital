@@ -8,6 +8,7 @@ type DesktopBridge = {
   notifySettingsChanged?: () => void
   requestNotificationPermission?: () => Promise<unknown>
   openNotificationSettings?: () => void
+  showInFolder?: (path: string) => void
   detachSession?: (id: string) => void
   focusSession?: (id: string) => void
   onDetachedChanged?: (cb: (ids: string[]) => void) => void
@@ -318,6 +319,19 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
 /** System Settings → Notifications, from the refused tip. A no-op in the browser. */
 export function openNotificationSettings(): void {
   bridge()?.openNotificationSettings?.()
+}
+
+/**
+ * Whether Show in Finder can work here: the desktop app, in a build whose
+ * preload carries it (spec 2026-10-26-media-viewer-context-menu-design).
+ */
+export function canShowInFolder(): boolean {
+  return typeof bridge()?.showInFolder === 'function'
+}
+
+/** Reveals an absolute path in Finder; main ignores anything else. */
+export function showInFolder(path: string): void {
+  bridge()?.showInFolder?.(path)
 }
 
 /**
