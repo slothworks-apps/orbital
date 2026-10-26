@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Rest the pointer on the floating sloth and it stops to say a line from space films and books.
 
 ## [0.43.0] — 2026-10-26
 ### Added
