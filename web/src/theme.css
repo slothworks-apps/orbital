@@ -332,11 +332,17 @@ body {
 
 /* Parked while the window is unfocused or hidden (spec
    2026-09-24-map-frame-budget-design § 3): nobody is watching it, and an
-   endless animation keeps the compositor awake. Parked too while it speaks
-   (Sloth.tsx), so the bubble stays over its head. */
+   endless animation keeps the compositor awake. */
 .orbital-sloth[data-paused],
 .orbital-sloth[data-paused] .orbital-sloth-bob,
 .orbital-sloth[data-paused] .orbital-sloth-tumble {
+  animation-play-state: paused;
+}
+
+/* While it speaks (Sloth.tsx) it stays in place, so the bubble stays over its
+   head, but goes on turning. */
+.orbital-sloth[data-speaking],
+.orbital-sloth[data-speaking] .orbital-sloth-bob {
   animation-play-state: paused;
 }
 

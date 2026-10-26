@@ -29,8 +29,8 @@ a line does not have to be about space to belong ("This is fine").
   anything adrift in zero g does. The turn has its own period, out of step
   with the drift's, so each lap of its path finds it facing another way.
 - Resting the pointer on the sloth for a moment (the header tooltips' delay)
-  stops it — drift, bob and turn all hold — and a bubble rises above it with
-  one line.
+  stops it in place — drift and bob hold, the slow turn goes on — and a
+  bubble rises above it with one line.
 - Moving the pointer away takes the bubble down and the sloth drifts on
   from where it stopped.
 - Each time it speaks it picks a line at random, never the one shown last.

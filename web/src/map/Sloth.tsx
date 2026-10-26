@@ -54,9 +54,8 @@ function nextQuote(previous: number | null): number {
   return previous !== null && pick >= previous ? pick + 1 : pick
 }
 
-/** The sprite's box, when the point lies on it or within `HIT_SLOP_PX` of it. */
-function hit(sprite: HTMLElement | null, x: number, y: number): DOMRect | null {
-  const r = sprite?.getBoundingClientRect()
+/** The box, when the point lies on it or within `HIT_SLOP_PX` of it. */
+function hit(r: DOMRect | undefined, x: number, y: number): DOMRect | null {
   if (!r) return null
   const inside =
     x >= r.left - HIT_SLOP_PX &&
@@ -68,7 +67,7 @@ function hit(sprite: HTMLElement | null, x: number, y: number): DOMRect | null {
 
 /**
  * The sloth easter egg: it drifts and tumbles slowly across the planet map and,
- * when the pointer rests on it, stops and says a line from pop culture
+ * when the pointer rests on it, stops drifting (it goes on turning) and says a line from pop culture
  * (spec: 2026-10-26-sloth-quotes-design). It speaks only when asked — a bubble
  * that appeared on its own would pull the eye, which the map never does
  * (`docs/why-orbital.md` → Nothing blinks).
@@ -89,7 +88,11 @@ export function Sloth({ paused }: { paused: boolean }) {
     let x = 0
     let y = 0
     let timer: ReturnType<typeof setTimeout> | null = null
-    let up = false
+    // The sprite's box when it began to speak. It keeps turning while it
+    // speaks, which grows and shrinks its live box; the pointer is tested
+    // against this one instead, so the turn alone never takes the bubble down.
+    let held: DOMRect | null = null
+    const box = () => held ?? sprite.current?.getBoundingClientRect()
     const cancel = () => {
       if (timer === null) return
       clearTimeout(timer)
@@ -97,8 +100,8 @@ export function Sloth({ paused }: { paused: boolean }) {
     }
     const hush = () => {
       cancel()
-      if (!up) return
-      up = false
+      if (!held) return
+      held = null
       setRect(null)
     }
     const onMove = (e: PointerEvent) => {
@@ -107,19 +110,18 @@ export function Sloth({ paused }: { paused: boolean }) {
       // Only over the open map: the sloth's path runs under the sidebar,
       // and a pointer over a panel is not looking at the sloth.
       const onMap = e.target instanceof HTMLCanvasElement
-      const box = onMap ? hit(sprite.current, x, y) : null
-      if (!box) return hush()
-      if (up || timer !== null) return
+      if (!onMap || !hit(box(), x, y)) return hush()
+      if (held || timer !== null) return
       // The sloth answers a pointer that rests on it, not one crossing it on
       // the way to a planet — the same rest the header's tooltips wait for.
       timer = setTimeout(() => {
         timer = null
-        const still = hit(sprite.current, x, y)
+        const still = hit(box(), x, y)
         if (!still) return
-        up = true
+        held = still
         setQuote((q) => nextQuote(q))
-        // Held still while it speaks (see `data-paused` below), so this box
-        // stays where the sloth is for as long as the bubble is up.
+        // It stops drifting while it speaks (`data-speaking` below), so this
+        // box stays where the sloth is for as long as the bubble is up.
         setRect(still)
       }, PIN_TOOLTIP_DELAY_MS)
     }
@@ -136,7 +138,8 @@ export function Sloth({ paused }: { paused: boolean }) {
   return (
     <div
       className="orbital-sloth pointer-events-none absolute"
-      data-paused={paused || speaking ? '' : undefined}
+      data-paused={paused ? '' : undefined}
+      data-speaking={speaking ? '' : undefined}
       style={{ left: `${SLOTH_LEFT_PERCENT}%`, top: `${SLOTH_TOP_PERCENT}%`, width: 16 }}
     >
       <div className="orbital-sloth-bob">
