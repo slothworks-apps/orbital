@@ -164,8 +164,17 @@ function ViewerBody({
   }
 
   // A press that closes the image's menu only closes the menu; the click it
-  // ends in must not go on to close the viewer.
-  const menuPress = useRef(false)
+  // ends in must not go on to close the viewer. Read on `window` in the
+  // capture phase, before the menu's own outside-press listener closes it.
+  const menuOpen = useRef(false)
+  const pressedWithMenu = useRef(false)
+  useEffect(() => {
+    const onPointerDown = () => {
+      pressedWithMenu.current = menuOpen.current
+    }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    return () => window.removeEventListener('pointerdown', onPointerDown, true)
+  }, [])
 
   const latest = useRef({ step, shown, page })
   latest.current = { step, shown, page }
@@ -210,7 +219,7 @@ function ViewerBody({
       data-state={entered ? 'entered' : exiting ? 'exiting' : 'entering'}
       inert={exiting || undefined}
       onClick={() => {
-        if (!menuPress.current) onClose()
+        if (!pressedWithMenu.current) onClose()
       }}
       style={{ transition: `opacity ${VIEWER_EXIT_MS}ms ease`, opacity: entered ? 1 : 0 }}
       className="orbital-no-drag fixed inset-0 z-50 bg-[rgba(2,4,9,.82)] backdrop-blur-[6px]"
@@ -234,7 +243,7 @@ function ViewerBody({
             page={page}
             onPage={setPage}
             onPages={setPages}
-            menuPress={menuPress}
+            menuOpen={menuOpen}
           />
         )}
       </div>
@@ -385,7 +394,7 @@ function Stage({
   page,
   onPage,
   onPages,
-  menuPress,
+  menuOpen,
 }: {
   sessionId: string
   item: MediaItem
@@ -393,10 +402,17 @@ function Stage({
   page: number
   onPage: (page: number) => void
   onPages: (pages: number | null) => void
-  menuPress: { current: boolean }
+  menuOpen: { current: boolean }
 }) {
   const [failed, setFailed] = useState(false)
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
+  const hasMenu = menuAt !== null
+  useEffect(() => {
+    menuOpen.current = hasMenu
+    return () => {
+      menuOpen.current = false
+    }
+  }, [hasMenu, menuOpen])
   const { url } = useMediaSourceUrl(sessionId, item)
   const pdf = usePdfDocument(item.kind === 'pdf' && !isGone(item) ? url : null, url ? pdfKey(url, item) : '')
   const maxWidth = Math.min(STAGE_MAX_W_PX, window.innerWidth - 2 * STAGE_SIDE_PX)
@@ -460,16 +476,19 @@ function Stage({
       className="block rounded-xl border border-[rgba(150,205,255,.22)] shadow-[0_40px_120px_rgba(0,0,0,.7)]"
     />
     {menuAt && (
-      <ImageMenu
-        // Keyed on the point: a right-click elsewhere is a new opening.
-        key={`${menuAt.x}:${menuAt.y}`}
-        at={menuAt}
-        sessionId={sessionId}
-        item={item}
-        url={url}
-        menuPress={menuPress}
-        onClose={() => setMenuAt(null)}
-      />
+      // The menu is portalled, but React still bubbles its clicks up this
+      // tree; a chosen row must not reach the backdrop and close the viewer.
+      <span onClick={(event) => event.stopPropagation()}>
+        <ImageMenu
+          // Keyed on the point: a right-click elsewhere is a new opening.
+          key={`${menuAt.x}:${menuAt.y}`}
+          at={menuAt}
+          sessionId={sessionId}
+          item={item}
+          url={url}
+          onClose={() => setMenuAt(null)}
+        />
+      </span>
     )}
     </>
   ) : null
@@ -490,31 +509,16 @@ function ImageMenu({
   sessionId,
   item,
   url,
-  menuPress,
   onClose,
 }: {
   at: { x: number; y: number }
   sessionId: string
   item: MediaItem
   url: string
-  menuPress: { current: boolean }
   onClose: () => void
 }) {
   const local = useOrbital((s) => !s.sessions[sessionId]?.machine)
   const { path, cwd } = item
-
-  // A press outside closes the menu on `pointerdown`; the click that follows
-  // lands on the backdrop, which must not read it as close-the-viewer.
-  useEffect(() => {
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.button !== 0 || (event.target instanceof Element && event.target.closest('[role="menu"]'))) return
-      menuPress.current = true
-      // The click comes in the same task as the pointerup, so this clears after it.
-      window.addEventListener('pointerup', () => setTimeout(() => (menuPress.current = false)), { once: true, capture: true })
-    }
-    document.addEventListener('pointerdown', onPointerDown, true)
-    return () => document.removeEventListener('pointerdown', onPointerDown, true)
-  }, [menuPress])
 
   /** The file on this Mac, absolute; null when the server cannot find it. */
   const locate = () => (path && local && sessionId ? api.locateFile(sessionId, path, cwd).catch(() => null) : Promise.resolve(null))
@@ -543,9 +547,8 @@ function ImageMenu({
       entries.push({
         key: 'show-in-finder',
         label: 'Show in Finder',
-        disabled: isGone(item),
         onSelect: () =>
-          void locate().then((found) => (found ? showInFolder(found) : failed('The file is no longer on disk'))),
+          void locate().then((found) => (found ? showInFolder(found) : failed('Could not find the file on disk'))),
       })
     }
   }

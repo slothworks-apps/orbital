@@ -29,7 +29,7 @@ menu, so a right-click on the image does nothing at all.
 
 A pasted screenshot or a tool's image lives in Orbital's image store; it has no
 path a person would want, so it gets Copy image alone. A file that is no
-longer on disk keeps Copy path, and Show in Finder is disabled.
+longer on disk draws no image, and so has no menu.
 
 The menu is the same `ContextMenu` the session menu uses (spec
 2026-10-24-session-context-menu-design): the same rows, keys and dismissal.

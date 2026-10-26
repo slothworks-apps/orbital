@@ -227,7 +227,10 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
       onKeyDown={(event) => {
         if (event.key !== 'Enter' && event.key !== ' ') return
         event.preventDefault()
-        event.currentTarget.click()
+        // As a native button's Enter did: the click keeps ⌥, so ⌥⏎ still opens the editor.
+        event.currentTarget.dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true, altKey: event.altKey, metaKey: event.metaKey, shiftKey: event.shiftKey, ctrlKey: event.ctrlKey }),
+        )
       }}
       onClick={(event) => {
         event.stopPropagation()
@@ -256,7 +259,7 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
         openFile(path, line, cwd)
       }}
       className={[
-        'group/path inline rounded-[4px] underline underline-offset-2 [overflow-wrap:anywhere] [box-decoration-break:clone]',
+        'group/path inline rounded-[4px] underline underline-offset-2 [overflow-wrap:anywhere] box-decoration-clone',
         '[font:inherit] transition-[background-color,color,text-decoration-color] duration-[120ms] ease-[ease]',
         VARIANT_CLASSES[variant],
         armed

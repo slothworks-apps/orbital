@@ -32,7 +32,10 @@ export async function copyImageToClipboard(url: string): Promise<boolean> {
   }
 }
 
-/** Any image the browser can decode, as PNG. An SVG is drawn at its own size. */
+/** The side an image with no intrinsic size is drawn at before it is copied. */
+const SIZELESS_IMAGE_PX = 1024
+
+/** Any image the browser can decode, as PNG, drawn at its own size where it has one. */
 async function reencodeAsPng(blob: Blob): Promise<Blob> {
   const objectUrl = URL.createObjectURL(blob)
   try {
@@ -40,8 +43,9 @@ async function reencodeAsPng(blob: Blob): Promise<Blob> {
     image.src = objectUrl
     await image.decode()
     const canvas = document.createElement('canvas')
-    canvas.width = image.naturalWidth
-    canvas.height = image.naturalHeight
+    // An SVG with only a `viewBox` has no size of its own.
+    canvas.width = image.naturalWidth || SIZELESS_IMAGE_PX
+    canvas.height = image.naturalHeight || SIZELESS_IMAGE_PX
     canvas.getContext('2d')?.drawImage(image, 0, 0)
     return await new Promise<Blob>((resolve, reject) =>
       canvas.toBlob((png) => (png ? resolve(png) : reject(new Error('the image would not encode as PNG'))), 'image/png'),
