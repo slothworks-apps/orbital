@@ -189,7 +189,7 @@ export function Sloth({ paused }: { paused: boolean }) {
           />
         </div>
       </div>
-      {speaking && <FloatingTooltip title={SLOTH_QUOTES[quote]} rect={rect} />}
+      {speaking && <FloatingTooltip title={SLOTH_QUOTES[quote]} rect={rect} tail />}
     </div>
   )
 }

@@ -42,7 +42,10 @@ a line does not have to be about space to belong ("This is fine").
   pixels outside the image.
 
 The bubble is the app's floating tooltip card (canvas 2d), carrying the line
-where the card puts its mono name.
+where the card puts its mono name, with a small speech tail off its
+bottom-left corner pointing down at the sloth, so it reads as the sloth
+talking. No artboard draws the tail yet; it takes the card's own fill and
+border, and Claude Design has the brief.
 
 ### The sloth never takes the pointer
 
