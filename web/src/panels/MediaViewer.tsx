@@ -4,11 +4,17 @@ import { createPortal } from 'react-dom'
 import type { MediaItem } from '../lib/types'
 import type { MediaTarget } from '../lib/media'
 import { isToolFrame, matchMediaItem, mediaClock, mediaSourceKey, mediaSourceLabel, positionIn, stepIndex } from '../lib/media'
+import { api } from '../lib/api'
+import { copyImageToClipboard, copyToClipboard } from '../lib/clipboard'
+import { canShowInFolder, showInFolder } from '../lib/desktop'
+import { reportError } from '../lib/errors'
 import { useMediaSourceUrl } from '../lib/images'
 import { isPdfPath } from '../lib/pathLinks'
 import { useHiddenSources, useMedia } from '../store/media'
 import { useOrbital } from '../store/store'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
+import { ContextMenu } from '../ui/ContextMenu'
+import type { MenuItem } from '../ui/Menu'
 import { usePresence } from '../ui/usePresence'
 import { GoneMark, MediaPicture, SourcesButton, isGone, pdfKey } from './MediaParts'
 import { PdfPager, usePdfDocument } from './PdfPages'
@@ -157,6 +163,19 @@ function ViewerBody({
     go(order[stepIndex(order.length, index, delta)])
   }
 
+  // A press that closes the image's menu only closes the menu; the click it
+  // ends in must not go on to close the viewer. Read on `window` in the
+  // capture phase, before the menu's own outside-press listener closes it.
+  const menuOpen = useRef(false)
+  const pressedWithMenu = useRef(false)
+  useEffect(() => {
+    const onPointerDown = () => {
+      pressedWithMenu.current = menuOpen.current
+    }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    return () => window.removeEventListener('pointerdown', onPointerDown, true)
+  }, [])
+
   const latest = useRef({ step, shown, page })
   latest.current = { step, shown, page }
   const [pages, setPages] = useState<number | null>(null)
@@ -199,7 +218,9 @@ function ViewerBody({
       aria-label={shown?.kind === 'pdf' ? 'PDF preview' : 'Image preview'}
       data-state={entered ? 'entered' : exiting ? 'exiting' : 'entering'}
       inert={exiting || undefined}
-      onClick={onClose}
+      onClick={() => {
+        if (!pressedWithMenu.current) onClose()
+      }}
       style={{ transition: `opacity ${VIEWER_EXIT_MS}ms ease`, opacity: entered ? 1 : 0 }}
       className="orbital-no-drag fixed inset-0 z-50 bg-[rgba(2,4,9,.82)] backdrop-blur-[6px]"
     >
@@ -222,6 +243,7 @@ function ViewerBody({
             page={page}
             onPage={setPage}
             onPages={setPages}
+            menuOpen={menuOpen}
           />
         )}
       </div>
@@ -372,6 +394,7 @@ function Stage({
   page,
   onPage,
   onPages,
+  menuOpen,
 }: {
   sessionId: string
   item: MediaItem
@@ -379,8 +402,17 @@ function Stage({
   page: number
   onPage: (page: number) => void
   onPages: (pages: number | null) => void
+  menuOpen: { current: boolean }
 }) {
   const [failed, setFailed] = useState(false)
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null)
+  const hasMenu = menuAt !== null
+  useEffect(() => {
+    menuOpen.current = hasMenu
+    return () => {
+      menuOpen.current = false
+    }
+  }, [hasMenu, menuOpen])
   const { url } = useMediaSourceUrl(sessionId, item)
   const pdf = usePdfDocument(item.kind === 'pdf' && !isGone(item) ? url : null, url ? pdfKey(url, item) : '')
   const maxWidth = Math.min(STAGE_MAX_W_PX, window.innerWidth - 2 * STAGE_SIDE_PX)
@@ -426,10 +458,15 @@ function Stage({
   }
 
   return url ? (
+    <>
     <img
       src={url}
       alt=""
       onClick={(event) => event.stopPropagation()}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        setMenuAt({ x: event.clientX, y: event.clientY })
+      }}
       onError={() => setFailed(true)}
       style={{
         // Never upscaled past the stored size — enlarging would invent detail (7d).
@@ -438,7 +475,85 @@ function Stage({
       }}
       className="block rounded-xl border border-[rgba(150,205,255,.22)] shadow-[0_40px_120px_rgba(0,0,0,.7)]"
     />
+    {menuAt && (
+      // The menu is portalled, but React still bubbles its clicks up this
+      // tree; a chosen row must not reach the backdrop and close the viewer.
+      <span onClick={(event) => event.stopPropagation()}>
+        <ImageMenu
+          // Keyed on the point: a right-click elsewhere is a new opening.
+          key={`${menuAt.x}:${menuAt.y}`}
+          at={menuAt}
+          sessionId={sessionId}
+          item={item}
+          url={url}
+          onClose={() => setMenuAt(null)}
+        />
+      </span>
+    )}
+    </>
   ) : null
+}
+
+/** What could not be done reaches the user the way the session menu's Copy path does (adr errors-are-recorded-not-announced). */
+function failed(message: string): void {
+  reportError(new Error(message), message)
+}
+
+/**
+ * The image's right-click menu (spec 2026-10-26-media-viewer-context-menu-design):
+ * Copy image always; Copy path and Show in Finder for a file a session named,
+ * Finder only in the desktop app and only for a session on this Mac.
+ */
+function ImageMenu({
+  at,
+  sessionId,
+  item,
+  url,
+  onClose,
+}: {
+  at: { x: number; y: number }
+  sessionId: string
+  item: MediaItem
+  url: string
+  onClose: () => void
+}) {
+  const local = useOrbital((s) => !s.sessions[sessionId]?.machine)
+  const { path, cwd } = item
+
+  /** The file on this Mac, absolute; null when the server cannot find it. */
+  const locate = () => (path && local && sessionId ? api.locateFile(sessionId, path, cwd).catch(() => null) : Promise.resolve(null))
+
+  const entries: MenuItem[] = [
+    {
+      key: 'copy-image',
+      label: 'Copy image',
+      onSelect: () =>
+        void copyImageToClipboard(url).then((ok) => ok || failed('Could not copy the image to the clipboard')),
+    },
+  ]
+  if (path) {
+    entries.push({
+      key: 'copy-path',
+      label: 'Copy path',
+      onSelect: () =>
+        void (async () => {
+          // A path already absolute is copied as the session wrote it; the
+          // server's answer is the real one (`/tmp` read as `/private/tmp`).
+          const absolute = path.startsWith('/') ? path : ((await locate()) ?? path)
+          if (!(await copyToClipboard(absolute))) failed('Could not copy the path to the clipboard')
+        })(),
+    })
+    if (canShowInFolder() && local) {
+      entries.push({
+        key: 'show-in-finder',
+        label: 'Show in Finder',
+        onSelect: () =>
+          void locate().then((found) => (found ? showInFolder(found) : failed('Could not find the file on disk'))),
+      })
+    }
+  }
+
+  return <ContextMenu at={at} entries={entries} aria-label="Image actions" onClose={onClose} />
 }
 
 /** 24e: 40px frames 4px apart; the current one in the accent with a 2px ring. Scrolls when the session has many. */

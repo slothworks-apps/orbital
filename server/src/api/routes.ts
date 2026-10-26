@@ -10,7 +10,7 @@ import { RewindStore, type PendingRewind } from '../rewind/store.js';
 import { regenerateRuleTags, matchRule } from '../tags/rules.js';
 import { deleteTag } from '../tags/sharedTags.js';
 import { expandHome } from '../paths.js';
-import { NamedPathCache, readFilePreview, readImageFile, readInSandboxes } from '../files/preview.js';
+import { NamedPathCache, readFilePreview, readImageFile, readInSandboxes, resolveForSession } from '../files/preview.js';
 import type { WorkingTrees } from '../git/workingTrees.js';
 import { completeFilePath } from '../files/complete.js';
 import { createDirectory, directoryState, listDirs } from '../files/directory.js';
@@ -926,6 +926,30 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
         return reply.code(413).send({ error: 'too_large', size: result.size });
       case 'not_image':
         return reply.code(415).send({ error: 'not_image' });
+    }
+  });
+
+  // Where a path a session names lies on disk — the file `/api/files/image`
+  // would read, found through the same sandboxes, without reading it. The
+  // media viewer's Copy path and Show in Finder ask it (spec
+  // 2026-10-26-media-viewer-context-menu-design): a relative path resolves
+  // against more than one tree, which only the server knows.
+  app.get('/api/files/locate', (req, reply) => {
+    const q = req.query as Record<string, string>;
+    if (!q.session || !q.path) return reply.code(400).send({ error: 'missing_params' });
+    const row = db.select(sessionColumns).from(sessions).where(eq(sessions.id, q.session)).get() as
+      | SessionRow
+      | undefined;
+    if (!row) return reply.code(404).send({ error: 'not_found' });
+    const named = namedBy(q.session, row);
+    const result = readInSandboxes(sandboxesOf(row, q.cwd), (cwd) => resolveForSession(cwd, q.path, named));
+    switch (result.kind) {
+      case 'ok':
+        return { path: result.path };
+      case 'not_found':
+        return reply.code(404).send({ error: 'not_found' });
+      case 'outside':
+        return reply.code(403).send({ error: 'outside_cwd' });
     }
   });
 

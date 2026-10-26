@@ -9,9 +9,11 @@ import { MediaViewer } from './MediaViewer'
 /**
  * The pressable file path (spec: 2026-09-19-file-viewer-design § The
  * pressable path; canvas 8a/8e). One component used by all three sites —
- * tool-row labels, expanded INPUT values and assistant prose. A real
- * `<button>` in tab order (⏎/space opens), `stopPropagation` on press so
- * the row it sits in never toggles.
+ * tool-row labels, expanded INPUT values and assistant prose. A
+ * `<span role="button">` in tab order (⏎/space opens), `stopPropagation` on
+ * press so the row it sits in never toggles. Not a `<button>`: a button is
+ * never truly inline, so a path longer than the line turned into a centred
+ * block of its own instead of wrapping with the sentence around it.
  *
  * Canvas 8e: hit pad `1px 5px`, radius 4, negative margin `0 -5px` so row
  * metrics hold; resting dotted underline `rgba(150,205,255,.3)` at 2px
@@ -196,8 +198,9 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
       : null
 
   const button = (
-    <button
-      type="button"
+    <span
+      role="button"
+      tabIndex={0}
       data-path-button
       data-open={isOpen || undefined}
       data-ide-armed={armed || undefined}
@@ -220,6 +223,14 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
         setHovered(false)
         setHeld(false)
         longPress.onPointerLeave?.()
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return
+        event.preventDefault()
+        // As a native button's Enter did: the click keeps ⌥, so ⌥⏎ still opens the editor.
+        event.currentTarget.dispatchEvent(
+          new MouseEvent('click', { bubbles: true, cancelable: true, altKey: event.altKey, metaKey: event.metaKey, shiftKey: event.shiftKey, ctrlKey: event.ctrlKey }),
+        )
       }}
       onClick={(event) => {
         event.stopPropagation()
@@ -248,7 +259,7 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
         openFile(path, line, cwd)
       }}
       className={[
-        'group/path inline rounded-[4px] border-0 bg-transparent underline underline-offset-2',
+        'group/path inline rounded-[4px] underline underline-offset-2 [overflow-wrap:anywhere] box-decoration-clone',
         '[font:inherit] transition-[background-color,color,text-decoration-color] duration-[120ms] ease-[ease]',
         VARIANT_CLASSES[variant],
         armed
@@ -296,7 +307,7 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
           {destination}
         </span>
       )}
-    </button>
+    </span>
   )
 
   if (!media || routed) return button

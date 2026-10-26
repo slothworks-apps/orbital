@@ -833,6 +833,23 @@ export const api = {
   },
 
   /**
+   * Where a path the session names lies on disk, absolute — the file
+   * `/api/files/image` would read (spec
+   * 2026-10-26-media-viewer-context-menu-design). Null when it is not there
+   * or not the session's to show.
+   */
+  async locateFile(sessionId: string, path: string, cwd?: string): Promise<string | null> {
+    const url = new URL('/api/files/locate', window.location.origin)
+    url.searchParams.set('session', sessionId)
+    url.searchParams.set('path', path)
+    if (cwd) url.searchParams.set('cwd', cwd)
+    const response = await apiFetch(url.pathname + url.search)
+    if (!response.ok) return null
+    const data = (await response.json()) as { path?: unknown }
+    return typeof data.path === 'string' ? data.path : null
+  },
+
+  /**
    * The undecided servers of a project's `.mcp.json`, for the New session
    * question (spec 2026-10-08-mcpjson-approval-design). Through the relay on
    * the phone.

@@ -26,6 +26,7 @@ import { appMenuTemplate, parseMenuCommands, type MenuCommand } from './lib/appM
 import { parseTerminalFocused, terminalKeyDecision } from './lib/terminalKeys';
 import { decideQuit, decideWindowClose, WorkingSessions } from './lib/background';
 import { pickerStartPath } from './lib/chooseDirectory';
+import { parseRevealPath } from './lib/showInFolder';
 import {
   decideWindowButtons,
   mainWindowUrl,
@@ -1639,6 +1640,12 @@ ipcMain.on('settings-changed', () => void loadSettings());
 // The refused tip's one way out (canvas 1d): System Settings → Notifications.
 ipcMain.on('open-notification-settings', () => {
   void shell.openExternal(NOTIFICATION_SETTINGS_URL);
+});
+// The media viewer's Show in Finder: reveals a file, never opens it.
+ipcMain.on('show-in-folder', (event, payload: unknown) => {
+  if (!fromOrbitalWindow(event.sender)) return;
+  const path = parseRevealPath(payload);
+  if (path !== null) shell.showItemInFolder(path);
 });
 
 // There is deliberately no `window-all-closed` handler: closing the window no

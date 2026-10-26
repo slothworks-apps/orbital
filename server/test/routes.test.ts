@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { eq } from 'drizzle-orm';
 import { EventEmitter } from 'node:events';
-import { appendFileSync, chmodSync, copyFileSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, copyFileSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { FILE_PREVIEW_MAX_BYTES } from '../src/files/preview.js';
@@ -2794,6 +2794,48 @@ describe('GET /api/files/image', () => {
     expect((await get('si', join(outside, 'secret.pdf'))).statusCode).toBe(403);
     writeFileSync(join(cwd, 'huge.pdf'), Buffer.alloc(FILE_PREVIEW_MAX_BYTES + 1));
     expect((await get('si', 'huge.pdf')).statusCode).toBe(413);
+  });
+});
+
+describe('GET /api/files/locate', () => {
+  let app: FastifyInstance;
+  let cwd: string;
+
+  beforeEach(() => {
+    const result = makeApp();
+    app = result.app;
+    cwd = makeTmpDir('locate');
+    result.db
+      .insert(sessions)
+      .values({
+        id: 'sl', projectDir: 'p', cwd, title: 'locate paths', lastAt: 300,
+        source: 'web', permissionMode: null,
+      })
+      .run();
+  });
+
+  const get = (session: string, path: string) =>
+    app.inject({
+      method: 'GET',
+      url: `/api/files/locate?session=${encodeURIComponent(session)}&path=${encodeURIComponent(path)}`,
+    });
+
+  it('answers the absolute path of a relative path inside the cwd', async () => {
+    mkdirSync(join(cwd, 'art'));
+    writeFileSync(join(cwd, 'art', 'shot.png'), 'x');
+    const res = await get('sl', 'art/shot.png');
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ path: join(realpathSync(cwd), 'art', 'shot.png') });
+  });
+
+  it('400s missing params, 404s an unknown session or a missing file, 403s a path outside', async () => {
+    expect((await app.inject({ method: 'GET', url: '/api/files/locate?session=sl' })).statusCode).toBe(400);
+    expect((await get('nope', 'a.png')).statusCode).toBe(404);
+    expect((await get('sl', 'ghost.png')).statusCode).toBe(404);
+    const outside = makeTmpDir('locate-outside');
+    writeFileSync(join(outside, 'secret.png'), 'x');
+    expect((await get('sl', join(outside, 'secret.png'))).statusCode).toBe(403);
+    expect((await get('sl', `../${basename(outside)}/secret.png`)).statusCode).toBe(403);
   });
 });
 

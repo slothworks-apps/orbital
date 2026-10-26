@@ -39,6 +39,12 @@ contextBridge.exposeInMainWorld('orbitalDesktop', {
   openNotificationSettings() {
     ipcRenderer.send('open-notification-settings');
   },
+  // The media viewer's Show in Finder (spec
+  // 2026-10-26-media-viewer-context-menu-design). Main takes an absolute path
+  // only.
+  showInFolder(path: string) {
+    ipcRenderer.send('show-in-folder', path);
+  },
   // Detached session windows: main owns the list and is the only thing that
   // can bring a window forward, so the renderer asks rather than acts
   // (spec: 2026-09-23-detached-session-windows-design). Only the main window

@@ -4,6 +4,12 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.43.0] — 2026-10-26
+### Added
+- Right-click an image in the full-size viewer to copy it, copy its file's path or show the file in Finder.
+### Fixed
+- A long file path in a message wraps with the sentence around it, instead of jumping onto a centred line of its own.
+
 ## [0.42.1] — 2026-10-25
 ### Changed
 - Planets of one tag gather in a looser, offset cluster with uneven gaps, instead of lining up in rows and columns.

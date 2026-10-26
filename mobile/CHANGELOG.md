@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.21.1] — 2026-10-26
+### Fixed
+- A long file path in a message wraps with the sentence around it, instead of jumping onto a centred line of its own.
+
 ## [0.21.0] — 2026-10-25
 ### Changed
 - Tags in the session list turn on and off with a tap, several at once; Clear turns them all off and replaces All.
