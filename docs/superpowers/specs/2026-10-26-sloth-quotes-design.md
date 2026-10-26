@@ -44,8 +44,8 @@ a line does not have to be about space to belong ("This is fine").
 The bubble is the app's floating tooltip card (canvas 2d), carrying the line
 where the card puts its mono name, with a small speech tail off its
 bottom-left corner pointing down at the sloth, so it reads as the sloth
-talking. No artboard draws the tail yet; it takes the card's own fill and
-border, and Claude Design has the brief.
+talking. The tail takes the card's own fill and border; it was settled in
+the browser with the maintainer, with no artboard of its own.
 
 ### The sloth never takes the pointer
 

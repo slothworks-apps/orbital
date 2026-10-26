@@ -318,8 +318,8 @@ export function FloatingTooltip({
   /**
    * A speech-bubble tail off the card's bottom-left corner, pointing down at
    * the rect — for a card that is something speaking rather than a note
-   * about it (the map's sloth, spec 2026-10-26-sloth-quotes-design). No
-   * artboard draws it yet; it takes the card's own fill and border.
+   * about it (the map's sloth, spec 2026-10-26-sloth-quotes-design). It has
+   * no artboard of its own; it takes the card's own fill and border.
    */
   tail?: boolean
 }) {
