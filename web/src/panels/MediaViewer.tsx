@@ -16,6 +16,7 @@ import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
 import { ContextMenu } from '../ui/ContextMenu'
 import type { MenuItem } from '../ui/Menu'
 import { usePresence } from '../ui/usePresence'
+import { CopyGlyph, FolderGlyph, ImageGlyph } from '../ui/UtilityButton'
 import { GoneMark, MediaPicture, SourcesButton, isGone, pdfKey } from './MediaParts'
 import { PdfPager, usePdfDocument } from './PdfPages'
 
@@ -527,6 +528,7 @@ function ImageMenu({
     {
       key: 'copy-image',
       label: 'Copy image',
+      icon: <ImageGlyph />,
       onSelect: () =>
         void copyImageToClipboard(url).then((ok) => ok || failed('Could not copy the image to the clipboard')),
     },
@@ -535,6 +537,7 @@ function ImageMenu({
     entries.push({
       key: 'copy-path',
       label: 'Copy path',
+      icon: <CopyGlyph />,
       onSelect: () =>
         void (async () => {
           // A path already absolute is copied as the session wrote it; the
@@ -547,6 +550,7 @@ function ImageMenu({
       entries.push({
         key: 'show-in-finder',
         label: 'Show in Finder',
+        icon: <FolderGlyph />,
         onSelect: () =>
           void locate().then((found) => (found ? showInFolder(found) : failed('Could not find the file on disk'))),
       })

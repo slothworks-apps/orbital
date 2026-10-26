@@ -33,7 +33,7 @@ longer on disk draws no image, and so has no menu.
 
 The menu is the same `ContextMenu` the session menu uses (spec
 2026-10-24-session-context-menu-design): the same rows, keys and dismissal.
-Its rows say what they do in words; no icons.
+Each row carries a glyph in the menu's icon column, built from boxes like the header's (`ImageGlyph`, `CopyGlyph`, `FolderGlyph`); the session menu's Copy path takes the same `CopyGlyph`.
 
 ## How it works
 
