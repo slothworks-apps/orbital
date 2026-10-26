@@ -49,13 +49,6 @@ export const DEFAULT_SETTINGS: Record<string, string> = {
    */
   map_show_trash: 'true',
   /**
-   * Appearance → whether the Planets map draws the floating sloth, the easter
-   * egg that speaks when the pointer rests on it (spec
-   * 2026-10-26-sloth-quotes-design). Default-on convention: read client-side
-   * as `!== 'false'`.
-   */
-  map_show_sloth: 'true',
-  /**
    * Where each limit sun sits on the map (spec 2026-10-20-limit-suns-design
    * § 4): a JSON object from the account key (`limitsAccountKey`) to
    * `{ x, y }` in map coordinates. An account without an entry sits at the

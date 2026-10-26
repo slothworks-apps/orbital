@@ -10,7 +10,6 @@ import {
   showContext,
   showCompactBadge,
   showTrash,
-  showSloth,
   endClosesPanel,
   reviewBeforeSend,
   headerSessionStats,
@@ -303,7 +302,6 @@ const SECTION_KEYS = {
     'map_fps_focused',
     'map_fps_background',
     'map_show_trash',
-    'map_show_sloth',
   ],
   contextUsage: [
     'map_show_context',
@@ -984,7 +982,6 @@ export function Settings({ open, onClose }: SettingsProps) {
   const rememberModelPerProject = settings.remember_model_per_project !== 'false'
   const mapShowModel = settings.map_show_model !== 'false'
   const mapShowTrash = showTrash(settings)
-  const mapShowSloth = showSloth(settings)
   const endClosesPanelOn = endClosesPanel(settings)
   // Context-fill arc (canvas 1h, spec context-fill-arc): master switch and
   // the /compact badge sub-toggle, both default-on.
@@ -2016,24 +2013,6 @@ export function Settings({ open, onClose }: SettingsProps) {
                           }
                         />
                       </Row>
-                      {/* spec 2026-10-26-sloth-quotes-design. The sloth lives on
-                  the Planets map only, so the row does too. No canvas row
-                  yet; it follows Show trash above. */}
-                      {theme === 'planets' && (
-                        <Row
-                          title="Floating sloth"
-                          setting="map_show_sloth"
-                          desc="A small sloth drifts across the map and says a line from space films and books when you rest the pointer on it. Off takes it off the map."
-                        >
-                          <Toggle
-                            aria-label="Floating sloth"
-                            checked={mapShowSloth}
-                            onChange={(checked) =>
-                              void patchAndSet({ map_show_sloth: checked ? 'true' : 'false' })
-                            }
-                          />
-                        </Row>
-                      )}
 
                       </ScopeSection>
 

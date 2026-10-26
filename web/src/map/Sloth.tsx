@@ -44,6 +44,7 @@ const SLOTH_QUOTES: readonly string[] = [
   'Look at me. I’m the captain now.',
   'This is fine.',
   'One small step for a sloth.',
+  'Slow and steady wins the race.',
   'You’re absolutely right!',
 ]
 
@@ -67,7 +68,7 @@ function hit(sprite: HTMLElement | null, x: number, y: number): DOMRect | null {
 
 /**
  * The sloth easter egg: it drifts and tumbles slowly across the planet map and,
- * when the pointer rests on it, stops and says a line from space pop culture
+ * when the pointer rests on it, stops and says a line from pop culture
  * (spec: 2026-10-26-sloth-quotes-design). It speaks only when asked — a bubble
  * that appeared on its own would pull the eye, which the map never does
  * (`docs/why-orbital.md` → Nothing blinks).

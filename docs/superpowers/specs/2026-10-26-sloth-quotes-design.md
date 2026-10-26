@@ -1,6 +1,6 @@
 ---
 id: 2026-10-26-sloth-quotes-design
-title: The floating sloth tumbles, and says a space quote when the pointer rests on it
+title: The floating sloth tumbles, and says a famous line when the pointer rests on it
 type: spec
 status: done
 domain: map
@@ -10,7 +10,7 @@ tags:
   - map
   - easter-egg
 ---
-# The floating sloth tumbles, and says a space quote when the pointer rests on it
+# The floating sloth tumbles, and says a famous line when the pointer rests on it
 
 **Status: done**, agreed in conversation 2026-10-26 from issue #155 and built
 the same day.
@@ -19,8 +19,9 @@ the same day.
 
 The sloth that drifts across the planet map is a quiet easter egg with
 nothing to find in it. Issue #155 asks for a speech bubble near its head
-with a pop-culture line from space — "Open the pod bay doors, HAL",
-"Don't Panic", "That's no moon".
+with a pop-culture line — "Open the pod bay doors, HAL",
+"Don't Panic", "That's no moon". Most come from space films and books, but
+a line does not have to be about space to belong ("This is fine").
 
 ## Behaviour
 
@@ -65,11 +66,10 @@ only when someone goes looking.
   lands on the sloth, so it costs no attention otherwise.
 - **What an existing user notices after updating:** the sloth turning
   slowly as it drifts; the quotes only if they rest the pointer on it.
-- **What can be set:** Settings → Appearance → MAP → Floating sloth
-  (`map_show_sloth`), on by default. Off takes the sloth off the map, quotes
-  and all, for anyone it bothers. It is one of the map's looks the group
-  shares, like Show trash, and the row is there only while the theme is
-  Planets.
+- **What can be set:** nothing. The sloth is the app's signature, not a
+  feature, so it has no switch; a switch to turn it off was built and taken
+  out again for that reason. It asks for no attention until someone rests
+  the pointer on it.
 - **Planets only.** The sloth lives on the Planets map; the Desk theme has
   never had one and does not get one.
 - **The website gets it too.** The site's map demo renders the same map, so

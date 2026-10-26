@@ -193,7 +193,6 @@ describe('openDb', () => {
       name_sessions_automatically: 'true',
       map_show_model: 'true',
       map_show_trash: 'true',
-      map_show_sloth: 'true',
       map_limit_sun_positions: '{}',
       map_limit_sun_style: 'eclipse',
       map_limit_sun_colors: '{}',

@@ -14,7 +14,6 @@ import {
   resolvePanelPairWidths,
   showCompactBadge,
   showContext,
-  showSloth,
   showTrash,
   trashDropFor,
   PANEL_GUTTER_PX,
@@ -532,7 +531,6 @@ export function SpaceMap() {
   // Read by the pills AND by the outlines below, so switching it respaces
   // the map live around the pills it now draws.
   const pillMode = useOrbital((s) => mapStatePills(s.settings))
-  const slothShown = useOrbital((s) => showSloth(s.settings))
   // Context arc settings (spec `context-fill-arc`). The fill itself is
   // already settings-gated in the scene model; these two are what only the
   // drawing needs — where the threshold marks sit, and whether the
@@ -1554,7 +1552,7 @@ export function SpaceMap() {
           </Button>
         </div>
 
-        {slothShown && <Sloth paused={!windowFocused || documentHidden} />}
+        <Sloth paused={!windowFocused || documentHidden} />
       </div>
     </div>
   )

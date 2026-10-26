@@ -3820,11 +3820,6 @@ export function showTrash(settings: Record<string, string>): boolean {
   return settings.map_show_trash !== 'false'
 }
 
-/** `map_show_sloth`, default on: only the literal `false` takes the floating sloth off the Planets map. */
-export function showSloth(settings: Record<string, string>): boolean {
-  return settings.map_show_sloth !== 'false'
-}
-
 /**
  * `questions_review_before_send`, default on (spec
  * 2026-10-21-question-card-go-back-design § Setting): only the literal
