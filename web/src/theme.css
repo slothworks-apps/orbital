@@ -274,7 +274,8 @@ body {
   }
 }
 
-/* Sloth easter egg (SpaceMap): slow wander across the map + a gentle bob. */
+/* Sloth easter egg (SpaceMap): slow wander across the map, a gentle bob and a
+   slow tumble, as anything adrift in zero g does. */
 @keyframes orbital-drift {
   0% {
     transform: translate(0, 0) rotate(-8deg);
@@ -317,11 +318,25 @@ body {
   animation: orbital-bob 5s ease-in-out infinite;
 }
 
+/* Its own period, out of step with the drift's, so the sloth comes round a
+   lap of its path facing another way each time. */
+@keyframes orbital-tumble {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+.orbital-sloth-tumble {
+  animation: orbital-tumble 210s linear infinite;
+}
+
 /* Parked while the window is unfocused or hidden (spec
    2026-09-24-map-frame-budget-design § 3): nobody is watching it, and an
-   endless animation keeps the compositor awake. */
+   endless animation keeps the compositor awake. Parked too while it speaks
+   (Sloth.tsx), so the bubble stays over its head. */
 .orbital-sloth[data-paused],
-.orbital-sloth[data-paused] .orbital-sloth-bob {
+.orbital-sloth[data-paused] .orbital-sloth-bob,
+.orbital-sloth[data-paused] .orbital-sloth-tumble {
   animation-play-state: paused;
 }
 
