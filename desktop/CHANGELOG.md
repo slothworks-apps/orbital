@@ -4,7 +4,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 ### Added
-- The floating sloth slowly tumbles as it drifts; rest the pointer on it and it stops to say a famous line from films and books.
+- The floating sloth slowly tumbles as it drifts; rest the pointer on it and it stops to say a famous line from films and books. Thanks to @N0x1k for the idea.
 
 ## [0.43.0] — 2026-10-26
 ### Added
