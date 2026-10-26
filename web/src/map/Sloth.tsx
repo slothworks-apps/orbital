@@ -52,6 +52,21 @@ const SLOTH_QUOTES: readonly string[] = [
   'One small step for a sloth.',
   'Slow and steady wins the race.',
   'You’re absolutely right!',
+  'Smoke me a kipper, I’ll be back for breakfast.',
+  'Everybody’s dead, Dave.',
+  'Step up to Red Alert! — Are you sure, sir? It does mean changing the bulb.',
+  'I’ve got an IQ of 6000. The same IQ as 6000 PE teachers.',
+  'Gazpacho soup!',
+  'Smeg.',
+  'It’s a trap!',
+  'These aren’t the droids you’re looking for.',
+  'I am Groot.',
+  'Make it so.',
+  'Danger, Will Robinson!',
+  'E.T. phone home.',
+  'Just keep swimming.',
+  'Hakuna matata.',
+  'I love it when a plan comes together.',
 ]
 
 /** A quote other than the one just shown, so hovering twice never repeats it. */
