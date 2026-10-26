@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Fixed
+- A long file path in a message wraps with the sentence around it, instead of jumping onto a centred line of its own.
 
 ## [0.21.0] — 2026-10-25
 ### Changed

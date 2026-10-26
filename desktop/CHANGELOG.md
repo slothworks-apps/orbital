@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- A long file path in a message wraps with the sentence around it, instead of jumping onto a centred line of its own.
 
 ## [0.42.1] — 2026-10-25
 ### Changed
