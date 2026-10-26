@@ -327,7 +327,7 @@ body {
 }
 
 .orbital-sloth-tumble {
-  animation: orbital-tumble 210s linear infinite;
+  animation: orbital-tumble 120s linear infinite;
 }
 
 /* Parked while the window is unfocused or hidden (spec

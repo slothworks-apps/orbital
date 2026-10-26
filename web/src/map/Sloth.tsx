@@ -22,7 +22,7 @@ const HIT_SLOP_PX = 8
  * How much faster the sloth turns while it speaks. Its drift stops then, and
  * the quicker turn keeps it alive in place; still slow enough to stay calm.
  */
-const SPEAKING_TURN_RATE = 7
+const SPEAKING_TURN_RATE = 4
 
 /** What the sloth says when the pointer finds it (issue #155). */
 const SLOTH_QUOTES: readonly string[] = [
