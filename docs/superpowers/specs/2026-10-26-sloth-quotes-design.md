@@ -65,8 +65,11 @@ only when someone goes looking.
   lands on the sloth, so it costs no attention otherwise.
 - **What an existing user notices after updating:** the sloth turning
   slowly as it drifts; the quotes only if they rest the pointer on it.
-- **What can be set:** nothing. A switch for an easter egg would cost more
-  than the egg.
+- **What can be set:** Settings → Appearance → MAP → Floating sloth
+  (`map_show_sloth`), on by default. Off takes the sloth off the map, quotes
+  and all, for anyone it bothers. It is one of the map's looks the group
+  shares, like Show trash, and the row is there only while the theme is
+  Planets.
 - **Planets only.** The sloth lives on the Planets map; the Desk theme has
   never had one and does not get one.
 - **The website gets it too.** The site's map demo renders the same map, so

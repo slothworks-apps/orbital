@@ -24,7 +24,7 @@ export const SHARED_SETTING_KEYS: readonly string[] = [
   'session_instructions_tips', 'session_instructions_custom', 'session_instructions_custom_text',
   'limits_auto_continue', 'limits_continue_text',
   // What the map and header show.
-  'map_show_model', 'map_show_trash', 'map_show_context', 'map_show_compact_badge', 'map_state_pills',
+  'map_show_model', 'map_show_trash', 'map_show_sloth', 'map_show_context', 'map_show_compact_badge', 'map_state_pills',
   'map_scale_labels', 'header_session_stats', 'header_pull_request', 'header_line_changes',
   // The look.
   'map_theme', 'map_limit_sun_style', 'map_limit_sun_colors',
