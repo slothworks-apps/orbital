@@ -18,6 +18,12 @@ const SLOTH_TOP_PERCENT = (640 / 900) * 100
  */
 const HIT_SLOP_PX = 8
 
+/**
+ * How much faster the sloth turns while it speaks. Its drift stops then, and
+ * the quicker turn keeps it alive in place; still slow enough to stay calm.
+ */
+const SPEAKING_TURN_RATE = 7
+
 /** What the sloth says when the pointer finds it (issue #155). */
 const SLOTH_QUOTES: readonly string[] = [
   'Open the pod bay doors, HAL.',
@@ -67,7 +73,7 @@ function hit(r: DOMRect | undefined, x: number, y: number): DOMRect | null {
 
 /**
  * The sloth easter egg: it drifts and tumbles slowly across the planet map and,
- * when the pointer rests on it, stops drifting (it goes on turning) and says a line from pop culture
+ * when the pointer rests on it, stops drifting (it turns a little faster instead) and says a line from pop culture
  * (spec: 2026-10-26-sloth-quotes-design). It speaks only when asked — a bubble
  * that appeared on its own would pull the eye, which the map never does
  * (`docs/why-orbital.md` → Nothing blinks).
@@ -81,7 +87,17 @@ export function Sloth({ paused }: { paused: boolean }) {
   const [quote, setQuote] = useState<number | null>(null)
   const [rect, setRect] = useState<DOMRect | null>(null)
   const sprite = useRef<HTMLImageElement | null>(null)
+  const tumble = useRef<HTMLDivElement | null>(null)
   const speaking = quote !== null && rect !== null
+
+  // Through the running animation rather than its CSS duration: a new
+  // duration would jump the turn to another angle, a new playback rate
+  // carries on from where it is.
+  useEffect(() => {
+    for (const turn of tumble.current?.getAnimations?.() ?? []) {
+      turn.updatePlaybackRate(speaking ? SPEAKING_TURN_RATE : 1)
+    }
+  }, [speaking])
 
   useEffect(() => {
     if (paused) return
@@ -143,7 +159,7 @@ export function Sloth({ paused }: { paused: boolean }) {
       style={{ left: `${SLOTH_LEFT_PERCENT}%`, top: `${SLOTH_TOP_PERCENT}%`, width: 16 }}
     >
       <div className="orbital-sloth-bob">
-        <div className="orbital-sloth-tumble">
+        <div ref={tumble} className="orbital-sloth-tumble">
           <img
             ref={sprite}
             src="/sloth.png"

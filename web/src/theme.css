@@ -340,7 +340,7 @@ body {
 }
 
 /* While it speaks (Sloth.tsx) it stays in place, so the bubble stays over its
-   head, but goes on turning. */
+   head, but goes on turning, faster (SPEAKING_TURN_RATE). */
 .orbital-sloth[data-speaking],
 .orbital-sloth[data-speaking] .orbital-sloth-bob {
   animation-play-state: paused;
