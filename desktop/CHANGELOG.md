@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- The floating sloth slowly tumbles as it drifts; rest the pointer on it and it stops to say a famous line from films and books. Thanks to @N0x1k for the idea.
 ### Changed
 - The image menu's rows and the session menu's Copy path carry icons, like the rest of the menu.
 ### Fixed
