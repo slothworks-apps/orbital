@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- The selection in VS Code keeps reaching Orbital after something else connects to the editor, instead of stopping until Orbital is restarted.
 
 ## [0.43.0] — 2026-10-26
 ### Added

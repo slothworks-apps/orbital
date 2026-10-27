@@ -51,6 +51,12 @@ connection to the same extension. **Both connections lived at once and both
 received notifications**, which is the fact the decision rests on: Orbital does
 not have to take the editor away from the terminal to use it.
 
+That fact is the JetBrains plugin's. Claude Code for VS Code (2.1.310)
+serves one client at a time and closes the previous one when another
+connects, so there Orbital and a terminal's CLI take the editor from each
+other; Orbital reconnects when it loses it (spec 2026-09-23-ide-bridge-design
+§ VS Code).
+
 The extension answered `tools/list` with `openDiff`, `close_tab`, `openFile`,
 `open_files`, `get_all_opened_file_paths`, `reformat_file` and
 `getDiagnostics`, and pushed `selection_changed` notifications carrying the

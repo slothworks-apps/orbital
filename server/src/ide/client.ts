@@ -17,7 +17,8 @@ import {
  *
  * Every failure here is silence. A refused upgrade, a token the extension no
  * longer honours, an editor that quits mid-call — each ends as `closed`, and
- * `IdeStore` drops the entry. Nothing on this path can throw into a session.
+ * `IdeStore` drops the entry, trying again while the lock stays. Nothing on
+ * this path can throw into a session.
  */
 
 /** How long the upgrade may take before the attempt is abandoned. */
