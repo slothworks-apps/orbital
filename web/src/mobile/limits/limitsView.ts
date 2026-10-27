@@ -36,7 +36,7 @@ export interface PhoneLimitGroup {
   /** The account's e-mail, else the directory's name. */
   title: string
   plan: string | null
-  /** The directories, then the devices once there are two: `Work · Oncall · on studio-mbp, build-box`. */
+  /** The directories, by device once there are two (60d): `studio-mbp: Work · build-box: Oncall, Work`. */
   meta: string
   stale: boolean
   /** False under an API key, or for an account with no plan windows. */
@@ -86,10 +86,11 @@ export function phoneLimitsView(dirs: readonly ClaudeDirLimits[], now: number): 
         estimate: null,
       })
     }
-    // One directory name on two devices (`~/.claude` on each) is listed once, and so is its tile.
-    const names = unique(view.dirs.map((d) => d.name).filter(Boolean))
-    const devices = view.devices.map((d) => d.name || UNNAMED_MAC)
-    const meta = [...names, ...(devices.length > 0 ? [`on ${devices.join(', ')}`] : [])].join(' · ')
+    const names = (dirs: typeof view.dirs) => dirs.map((d) => d.name).filter(Boolean).join(', ')
+    const meta =
+      view.devices.length > 0
+        ? view.devices.map((d) => `${d.name || UNNAMED_MAC}: ${names(d.dirs)}`).join(' · ')
+        : names(view.dirs)
     return {
       key: view.group.key,
       tiles: several ? unique(view.dirs.map((d) => d.mono)) : [],

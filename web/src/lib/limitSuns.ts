@@ -192,7 +192,12 @@ export function sunReading(windows: readonly LimitWindow[], now: number = Date.n
   }
 }
 
-/** The directory tiles a sun and its account head wear (60f, ONE PER ACCOUNT): at most two, then `+n`. */
+/**
+ * The directory tiles a sun and its account head wear (60f, ONE PER ACCOUNT):
+ * each monogram once — `~/.claude` on two devices is one `P` — at most two,
+ * then `+n`.
+ */
 export function sunTiles(monograms: readonly string[]): { tiles: string[]; more: number } {
-  return { tiles: monograms.slice(0, 2), more: Math.max(0, monograms.length - 2) }
+  const distinct = [...new Set(monograms)]
+  return { tiles: distinct.slice(0, 2), more: Math.max(0, distinct.length - 2) }
 }

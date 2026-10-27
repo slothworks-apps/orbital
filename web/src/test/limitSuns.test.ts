@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { LIMIT_SUN_COLORS_KEY, LIMIT_SUN_POSITIONS_KEY } from '../lib/experimental'
 import { estimateLine } from '../lib/limits'
-import { pickSunColor, sunColors, sunPositions, sunReading, withSunMoveUndone, withSunPosition } from '../lib/limitSuns'
+import { pickSunColor, sunColors, sunPositions, sunReading, sunTiles, withSunMoveUndone, withSunPosition } from '../lib/limitSuns'
 import type { LimitWindow } from '../lib/types'
 
 // Local times, so "today" is today whatever zone the suite runs in.
@@ -37,6 +37,14 @@ describe('sunColors', () => {
     expect(Object.fromEntries(sunColors(['b', 'a'], once))).toEqual({ a: 'white', b: 'yellow' })
     const free = { [LIMIT_SUN_COLORS_KEY]: pickSunColor(keys, once, 'a', 'red') }
     expect(Object.fromEntries(sunColors(keys, free))).toEqual({ a: 'red', b: 'yellow' })
+  })
+})
+
+describe('sunTiles', () => {
+  it('wears each monogram once, at most two, then counts the rest', () => {
+    expect(sunTiles(['P', 'P'])).toEqual({ tiles: ['P'], more: 0 })
+    expect(sunTiles(['W', 'O', 'W'])).toEqual({ tiles: ['W', 'O'], more: 0 })
+    expect(sunTiles(['W', 'O', 'W', 'X', 'Y'])).toEqual({ tiles: ['W', 'O'], more: 2 })
   })
 })
 

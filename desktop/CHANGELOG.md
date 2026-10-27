@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Changed
+- Plan limits lists an account's directories under the device each one is on, and a directory with the same mark on two devices shows its tile once.
 
 ## [0.44.0] — 2026-10-27
 ### Added

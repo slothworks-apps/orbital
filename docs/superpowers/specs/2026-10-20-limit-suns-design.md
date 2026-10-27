@@ -81,9 +81,15 @@ too. Everything in this spec therefore groups by account:
   the same device need one probe, not two. The waits keep using their own
   directory's windows, as today.
 - **The group's label:** the account's e-mail, plus the names of the
-  directories (and devices, when more than one) it covers. With a single
-  account and a single directory nothing is labelled, as with
-  `ClaudeDirMark` today.
+  directories it covers. With a single account and a single directory
+  nothing is labelled, as with `ClaudeDirMark` today. Once the page spans
+  more than one device, the directories are listed by device (60c, 60d):
+  a row per device, its name (`(this Mac)` on this one) and then its
+  directories, so a directory whose path is unknown here still says where
+  it lives. With one device the device rows are left out, since the name
+  of the only device tells nothing.
+- **The tiles** are the directories' monograms, each once: `~/.claude`
+  named Personal on two devices is one `P`, not two.
 - **The account's monogram** comes from the e-mail, by the same rules
   `web/src/lib/claudeDirs.ts` applies to directory names (clashes, two
   letters). Anything stored per account (a sun's position) is keyed by
