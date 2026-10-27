@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Fixed
+- Typing ``` and starting a new line in the message box opens a code block, as it already did after a space.
 
 ## [0.43.0] — 2026-10-26
 ### Added
