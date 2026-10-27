@@ -25,7 +25,7 @@ import { ContextMenu } from '../ui/ContextMenu'
 import { MENU_SEPARATOR } from '../ui/Menu'
 import type { MenuEntry, MenuItem } from '../ui/Menu'
 import { PinGlyph } from '../ui/PinButton'
-import { ClearGlyph, DetachGlyph, EndGlyph, RefreshGlyph } from '../ui/UtilityButton'
+import { ClearGlyph, CopyGlyph, DetachGlyph, EndGlyph, RefreshGlyph } from '../ui/UtilityButton'
 import { MORE_MENU_PX } from './UtilityStrip'
 
 /**
@@ -181,7 +181,7 @@ function SessionMenu({
           onSelect: () => void setSessionPinned(id, !pinned),
         }
       case 'copy-path':
-        return { key: action, label: 'Copy path', disabled, onSelect: () => void copyPath(path) }
+        return { key: action, label: 'Copy path', icon: <CopyGlyph />, disabled, onSelect: () => void copyPath(path) }
       case 'takeover':
         return { key: action, label: 'Take over', disabled, onSelect: () => askToTakeOver(id) }
       case 'clear':

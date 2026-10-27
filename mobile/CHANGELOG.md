@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.21.2] — 2026-10-27
+### Fixed
+- Typing ``` and starting a new line in the message box opens a code block, as it already did after a space.
+
 ## [0.21.1] — 2026-10-26
 ### Fixed
 - A long file path in a message wraps with the sentence around it, instead of jumping onto a centred line of its own.

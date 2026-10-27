@@ -405,3 +405,77 @@ export function StatsGlyph({ size = 'header' }: { size?: StatsGlyphSize }) {
     </span>
   )
 }
+
+/**
+ * Copy image: a picture frame — a peak and a sun inside it, the photo every
+ * app draws. The peak is a square turned 45° whose two upper edges show; the
+ * frame clips the rest.
+ */
+export function ImageGlyph() {
+  return (
+    <span
+      aria-hidden
+      className="relative block overflow-hidden box-border rounded-[2px]"
+      style={{ width: '13px', height: '11px', border: `${STROKE} solid currentColor` }}
+    >
+      <span className="absolute block rounded-full bg-current" style={{ right: '1.6px', top: '1.6px', width: '2.4px', height: '2.4px' }} />
+      <span
+        className="absolute box-border block"
+        style={{
+          left: '1px',
+          top: '4.6px',
+          width: '6px',
+          height: '6px',
+          borderTop: `${STROKE} solid currentColor`,
+          borderLeft: `${STROKE} solid currentColor`,
+          transform: 'rotate(45deg)',
+        }}
+      />
+    </span>
+  )
+}
+
+/**
+ * Copy: two sheets, the front one over the back — the copy mark. The back
+ * sheet draws only the edges the front leaves showing, so nothing has to
+ * paint over it in the row's own fill.
+ */
+export function CopyGlyph() {
+  const edge = 'absolute block rounded-[1px] bg-current'
+  return (
+    <span aria-hidden className="relative block" style={{ width: '12px', height: '12px' }}>
+      <span
+        className="absolute top-0 right-0 box-border block rounded-tr-[2px]"
+        style={{ width: '8px', height: '8px', borderTop: `${STROKE} solid currentColor`, borderRight: `${STROKE} solid currentColor` }}
+      />
+      <span className={edge} style={{ left: '4px', top: 0, width: STROKE, height: '3px' }} />
+      <span className={edge} style={{ right: 0, top: '6.6px', width: '3px', height: STROKE }} />
+      <span
+        className="absolute bottom-0 left-0 box-border block rounded-[2px]"
+        style={{ width: '8px', height: '8px', border: `${STROKE} solid currentColor` }}
+      />
+    </span>
+  )
+}
+
+/** Show in Finder: a folder — a body with a tab on its top-left edge. */
+export function FolderGlyph() {
+  return (
+    <span aria-hidden className="relative block" style={{ width: '13px', height: '11px' }}>
+      <span
+        className="absolute top-0 left-0 box-border block rounded-t-[2px]"
+        style={{
+          width: '6px',
+          height: '3px',
+          borderTop: `${STROKE} solid currentColor`,
+          borderLeft: `${STROKE} solid currentColor`,
+          borderRight: `${STROKE} solid currentColor`,
+        }}
+      />
+      <span
+        className="absolute bottom-0 left-0 box-border block rounded-[2px]"
+        style={{ width: '13px', height: '9px', border: `${STROKE} solid currentColor` }}
+      />
+    </span>
+  )
+}

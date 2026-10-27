@@ -693,6 +693,14 @@ export function Composer({
       return true
     }
     if (matches(command('composer.newline').chords[0], e)) {
+      // The editor's input rules read ⏎ as the `\n` that completes a line —
+      // `` ``` `` becomes a code block on it — but this handler runs before
+      // any plugin sees the key, so the newline is offered to them first.
+      const { view } = editor
+      const ruled = view.state.plugins.some(
+        (p) => (p.spec as { isInputRules?: boolean }).isInputRules && p.props.handleKeyDown?.call(p, view, e),
+      )
+      if (ruled) return true
       if (enter === 'send') {
         // What a bare ⏎ does in the dialog: a new item in a list, a new line
         // in code, a new paragraph anywhere else.

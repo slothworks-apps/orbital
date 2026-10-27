@@ -308,12 +308,20 @@ export function FloatingTooltip({
   aside,
   description,
   rect,
+  tail = false,
 }: {
   title: string
   /** Muted after the title, where `Tooltip` prints its shortcut. */
   aside?: string
   description?: string
   rect: DOMRect
+  /**
+   * A speech-bubble tail off the card's bottom-left corner, pointing down at
+   * the rect — for a card that is something speaking rather than a note
+   * about it (the map's sloth, spec 2026-10-26-sloth-quotes-design). It has
+   * no artboard of its own; it takes the card's own fill and border.
+   */
+  tail?: boolean
 }) {
   const left = Math.max(
     FLOATING_EDGE_PX,
@@ -334,6 +342,16 @@ export function FloatingTooltip({
         {aside && <span className={SHORTCUT_CLASS}>{aside}</span>}
       </span>
       {description && <span className={CARD_DESCRIPTION_CLASS}>{description}</span>}
+      {tail && (
+        // A square turned on its corner, its two lower edges bordered: the top
+        // half hides under the card, the bottom half is the tail, and it
+        // covers the card's own bottom border where the two meet. Solid fill,
+        // because the card's translucent one would let that border show through.
+        <span
+          aria-hidden
+          className="absolute -bottom-[5px] left-[6px] block h-[9px] w-[9px] rotate-45 border-r border-b border-[rgba(150,205,255,.16)] bg-[rgb(10,16,28)]"
+        />
+      )}
     </span>,
     document.body,
   )

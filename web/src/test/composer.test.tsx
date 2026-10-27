@@ -285,6 +285,23 @@ describe('Composer — enter behaviour', () => {
     expect(onSend).toHaveBeenCalledWith('- one\n- two')
   })
 
+  it('opens a code block on ``` and the newline key, in both mounts', () => {
+    const onSend = vi.fn()
+    const { unmount } = render(<Harness onSend={onSend} />)
+    clickAndType(field(), '```tsx')
+    fireEvent.keyDown(field(), { key: 'Enter', shiftKey: true })
+    typeInto(field(), 'const a = 1')
+    expect(blocks()[0]).toBe('codeBlock')
+    fireEvent.keyDown(field(), { key: 'Enter' })
+    expect(onSend).toHaveBeenCalledWith('```tsx\nconst a = 1\n```')
+    unmount()
+
+    render(<Harness enter="newline" />)
+    clickAndType(field(), '```')
+    fireEvent.keyDown(field(), { key: 'Enter' })
+    expect(blocks()[0]).toBe('codeBlock')
+  })
+
   it('nests a list item on Tab and lifts it back on ⇧Tab', () => {
     render(<Harness enter="newline" />)
     clickAndType(field(), '- one')

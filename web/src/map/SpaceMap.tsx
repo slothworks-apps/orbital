@@ -36,6 +36,7 @@ import { useCommand } from '../lib/commands'
 import { COMPACT_COMMAND, Planet } from './Planet'
 import { sendCompactAware, useCompactionUi } from '../store/compaction'
 import { Moon } from './Moon'
+import { Sloth } from './Sloth'
 import { Hole } from './Hole'
 import { LimitSunCard, LimitSuns, SUN_REACH, endSunDrag, startSunDrag, useSunState, type SunPress } from './LimitSun'
 import { DRAG_THRESHOLD_PX, sunPressMoved, type MapSun } from './sunModel'
@@ -118,16 +119,6 @@ const ZOOM_STEP_MS = 420
  * four times in a row — pressing fit again lands on the same frame.
  */
 const FIT_FLIGHT_MS = BODY_MOVE_MS
-
-/**
- * Sloth's resting position, expressed as a percentage of the map viewport
- * rather than a fixed pixel offset — the original design artboard is a
- * fixed 1440x900 canvas (sloth at left:120/top:640), but `SpaceMap` is a
- * full-bleed, arbitrarily-sized viewport, so a literal pixel offset would
- * drift off-proportion (or off-screen) at other viewport sizes.
- */
-const SLOTH_LEFT_PERCENT = (120 / 1440) * 100
-const SLOTH_TOP_PERCENT = (640 / 900) * 100
 
 /**
  * Map width the panels sit on, in CSS pixels — what `centerOn` and `fitView`
@@ -1561,24 +1552,7 @@ export function SpaceMap() {
           </Button>
         </div>
 
-        <div
-          className="orbital-sloth pointer-events-none absolute"
-          data-paused={windowFocused && !documentHidden ? undefined : ''}
-          style={{ left: `${SLOTH_LEFT_PERCENT}%`, top: `${SLOTH_TOP_PERCENT}%`, width: 16, opacity: 0.7 }}
-        >
-          <div className="orbital-sloth-bob">
-            <img
-              src="/sloth.png"
-              alt=""
-              style={{
-                display: 'block',
-                width: 16,
-                height: 'auto',
-                filter: 'drop-shadow(0 0 4px oklch(80% .13 210 / .35))',
-              }}
-            />
-          </div>
-        </div>
+        <Sloth paused={!windowFocused || documentHidden} />
       </div>
     </div>
   )

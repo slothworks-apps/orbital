@@ -4,6 +4,10 @@ All notable changes to the relay image. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.6.2] — 2026-10-27
+### Changed
+- Updated dependencies.
+
 ## [0.6.1] — 2026-10-19
 ### Fixed
 - The notification that wakes a phone says "A session has an update" instead of claiming a session needs your input, since it is also sent when a session only finished its turn, stopped or failed.
