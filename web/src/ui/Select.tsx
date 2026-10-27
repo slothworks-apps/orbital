@@ -25,6 +25,14 @@ export interface SelectOption<T> {
   sub?: string
   /** Listed but not pickable (canvas 50g: an offline or too-old device): muted, and a click or ⏎ does nothing. */
   inert?: boolean
+  /**
+   * Mono value after the label, on the row's right and on the `field`
+   * trigger (canvas `Feature - Text size` 6a: the percentage a text step
+   * gives).
+   */
+  trail?: string
+  /** The trigger's `trail`, where the chosen row's own would mislead (6a: the size that results, not the one saved). */
+  triggerTrail?: string
 }
 
 export interface SelectProps<T> {
@@ -340,7 +348,7 @@ export function Select<T extends string | number>({
   const lit = isGhost && (open || active)
   // Counts need a column that does not move between rows, so the ✓ gutter is
   // reserved for every row as soon as one option carries a count (3b).
-  const reserveCheck = options.some((o) => o.count !== undefined)
+  const reserveCheck = options.some((o) => o.count !== undefined || o.trail !== undefined)
   // 1e's pill borrows the hue for its border only; 1b's tag pill is filled
   // with it, and brightens on open (border .4 -> .7, fill .1 -> .16).
   const hue = selected?.dotColor
@@ -458,6 +466,13 @@ export function Select<T extends string | number>({
             )}
             <span aria-hidden className="flex-1" />
           </>
+        ) : (selected?.triggerTrail ?? selected?.trail) ? (
+          // 6a: the choice at 600, the value it gives in mono after it.
+          <>
+            <span className="min-w-0 truncate font-semibold">{label}</span>
+            <span className="shrink-0 font-mono fs-10.5 text-[rgba(160,190,225,.6)]">{selected.triggerTrail ?? selected.trail}</span>
+            <span aria-hidden className="flex-1" />
+          </>
         ) : (
           <span className="min-w-0 flex-1 truncate">{label}</span>
         )}
@@ -551,9 +566,11 @@ export function Select<T extends string | number>({
                     // would leave an arrowing keyboard user unable to tell
                     // the two apart — so the active row keeps the accent
                     // tint and only selection uses the canvas's.
+                    aria-disabled={option.inert || undefined}
                     className={[
-                      'flex shrink-0 cursor-pointer items-center gap-2 rounded-[7px] px-[9px] py-[7px]',
-                      isActive
+                      'flex shrink-0 items-center gap-2 rounded-[7px] px-[9px] py-[7px]',
+                      option.inert ? 'cursor-default opacity-[.38]' : 'cursor-pointer',
+                      isActive && !option.inert
                         ? 'bg-accent/10'
                         : isSelected
                           ? 'bg-[rgba(150,205,255,.09)]'
@@ -574,6 +591,11 @@ export function Select<T extends string | number>({
                     {option.count !== undefined && (
                       <span aria-hidden className="shrink-0 text-[rgba(160,190,225,.45)]">
                         {option.count}
+                      </span>
+                    )}
+                    {option.trail && (
+                      <span className="shrink-0 font-mono fs-10 tracking-[0.04em] text-[rgba(160,190,225,.6)]">
+                        {option.trail}
                       </span>
                     )}
                     {(isSelected || reserveCheck) && (

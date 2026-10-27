@@ -136,6 +136,7 @@ import {
   TRANSCRIPT_TEXT_SCALE_KEY,
   textScalePercent,
   textScaleSetting,
+  textScales,
   transcriptTextScaleSetting,
 } from '../lib/textScale'
 import { broadcastSettings } from '../lib/settingsBroadcast'
@@ -177,17 +178,76 @@ const HEADER_STATS_OPTIONS: Array<{ value: HeaderSessionStats; label: string }> 
   { value: 'button', label: 'button only' },
 ]
 
-/** Settings → Appearance → TEXT (spec 2026-10-27-text-size-design): each step named, its percentage on hover. */
+/**
+ * Settings → Appearance → TEXT (canvas `Feature - Text size` 6a): each step
+ * its name at 12/600 over its percentage in mono 9.5, the percentage lit on
+ * the chosen one.
+ */
 const TEXT_SCALE_OPTIONS = TEXT_SCALE_STEPS.map((step) => ({
   value: step.value,
-  label: step.name,
-  title: textScalePercent(step.value),
+  ariaLabel: `${step.name}, ${textScalePercent(step.value)}`,
+  label: (
+    <>
+      <span className="text-center font-sans fs-12 font-semibold leading-[1.2]">{step.name}</span>
+      <span className="font-mono fs-9.5 tracking-[0.04em] text-[rgba(160,190,225,.5)] group-aria-pressed:text-[rgba(200,225,250,.85)]">
+        {textScalePercent(step.value)}
+      </span>
+    </>
+  ),
 }))
-/** Five choices do not fit a segmented row, so the transcript's is a list; the percentage rides in the label. */
-const TRANSCRIPT_TEXT_SCALE_OPTIONS = [
-  { value: TRANSCRIPT_FOLLOWS_APP as string, label: 'Same as the app' },
-  ...TEXT_SCALE_STEPS.map((step) => ({ value: step.value, label: `${step.name} · ${textScalePercent(step.value)}` })),
-]
+
+/**
+ * 6a's transcript list: "Same as the app" at the app's percentage, then the
+ * steps; one below the app's step cannot be picked, since it would change
+ * nothing (`textScales` never puts the transcript under the app).
+ */
+function stepName(value: string): string {
+  return TEXT_SCALE_STEPS.find((step) => step.value === value)?.name ?? value
+}
+
+/**
+ * 6a's SAMPLE under the two rows: a session line at the app's size and a
+ * line of transcript at the transcript's, both following a pick at once.
+ */
+function TextSample({ app, transcript }: { app: string; transcript: string }) {
+  return (
+    <div className="mb-3.5 flex flex-col gap-2.5 rounded-[10px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.5)] px-4 py-3.5">
+      <div className="flex items-center gap-2.5 font-mono fs-10 tracking-[0.14em] text-[rgba(160,190,225,.55)]">
+        SAMPLE
+        <span aria-hidden className="flex-1" />
+        <span className="tracking-[0.08em]">
+          APP {app} · TRANSCRIPT {transcript}
+        </span>
+      </div>
+      <div className="flex items-center gap-2 border-b border-[rgba(150,205,255,.08)] pb-[9px]">
+        <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: 'oklch(80% .13 210)' }} />
+        <span className="fs-13 font-bold">auth-refactor</span>
+        <span className="min-w-0 truncate font-mono fs-11 text-[rgba(160,190,225,.7)]">~/work/platform/auth</span>
+        <span aria-hidden className="flex-1" />
+        <span className="font-mono fs-10.5 tracking-[0.08em] text-accent">WORKING</span>
+      </div>
+      <div data-text-scope="transcript" className="text-pretty fs-13 leading-[1.55] text-[rgba(232,238,248,.92)]">
+        Adding a 30 s skew to the expiry check and persisting the rotated token before it's returned.
+      </div>
+    </div>
+  )
+}
+
+function transcriptTextScaleOptions(app: string) {
+  return [
+    { value: TRANSCRIPT_FOLLOWS_APP as string, label: 'Same as the app', trail: textScalePercent(app) },
+    ...TEXT_SCALE_STEPS.map((step) => {
+      const below = Number(step.value) < Number(app)
+      return {
+        value: step.value,
+        label: step.name,
+        trail: below ? `${textScalePercent(step.value)} · below app` : textScalePercent(step.value),
+        triggerTrail: below ? textScalePercent(app) : undefined,
+        inert: below,
+      }
+    }),
+  ]
+}
 
 /** Settings → Appearance → "Line changes in the header" (canvas `Feature - Branch status` 1g). Off first: it is the default. */
 const LINE_CHANGES_OPTIONS: Array<{ value: LinesMode; label: string }> = [
@@ -578,6 +638,10 @@ function useDraftSave(open: boolean): (save: () => void) => () => void {
  */
 export function Settings({ open, onClose }: SettingsProps) {
   const settings = useOrbital(useShallow((s) => s.settings))
+  const appTextScale = textScaleSetting(settings)
+  const transcriptTextScale = transcriptTextScaleSetting(settings)
+  const transcriptBelowApp =
+    transcriptTextScale !== TRANSCRIPT_FOLLOWS_APP && Number(transcriptTextScale) < Number(appTextScale)
   const models = useOrbital(useShallow((s) => s.models))
   const claudeDirCount = useOrbital((s) => s.claudeDirs.length)
   const hasUpdates = useAppUpdate((s) => s.source !== null)
@@ -1740,9 +1804,11 @@ export function Settings({ open, onClose }: SettingsProps) {
                       >
                         <Segmented
                           label="Text size"
+                          size="steps"
                           options={TEXT_SCALE_OPTIONS}
-                          value={textScaleSetting(settings)}
+                          value={appTextScale}
                           onChange={(next) => void patchAndSet({ [TEXT_SCALE_KEY]: next })}
+                          className="w-full"
                         />
                       </Row>
                       <Row
@@ -1750,15 +1816,24 @@ export function Settings({ open, onClose }: SettingsProps) {
                         setting={TRANSCRIPT_TEXT_SCALE_KEY}
                         desc="The session transcript and its composer can be larger than the panels around them."
                       >
-                        <Select
-                          aria-label="Transcript text"
-                          font="sans"
-                          options={TRANSCRIPT_TEXT_SCALE_OPTIONS}
-                          value={transcriptTextScaleSetting(settings)}
-                          onChange={(next) => void patchAndSet({ [TRANSCRIPT_TEXT_SCALE_KEY]: next })}
-                          className="w-[220px]"
-                        />
+                        <div className="flex w-full flex-col gap-1.5">
+                          <Select
+                            aria-label="Transcript text"
+                            font="sans"
+                            options={transcriptTextScaleOptions(appTextScale)}
+                            value={transcriptTextScale}
+                            onChange={(next) => void patchAndSet({ [TRANSCRIPT_TEXT_SCALE_KEY]: next })}
+                            className="w-full"
+                          />
+                          {transcriptBelowApp && (
+                            <span className="font-mono fs-10 leading-[1.5] tracking-[0.04em] text-[rgba(160,190,225,.6)]">
+                              {stepName(transcriptTextScale)} is below the app text, so it follows the app at{' '}
+                              {textScalePercent(appTextScale)}
+                            </span>
+                          )}
+                        </div>
                       </Row>
+                      <TextSample app={textScalePercent(appTextScale)} transcript={textScalePercent(String(textScales(settings).transcript))} />
                       </ScopeSection>
                       <ScopeSection keys={SECTION_KEYS.detailPanel}>
                       <SectionLabel>DETAIL PANEL</SectionLabel>

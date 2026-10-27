@@ -19,9 +19,9 @@ export const TRANSCRIPT_FOLLOWS_APP = 'app'
 /** The steps, default first. Only larger than today: nothing goes below it. */
 export const TEXT_SCALE_STEPS = [
   { value: '1', name: 'Default' },
-  { value: '1.125', name: 'Large' },
-  { value: '1.25', name: 'Larger' },
-  { value: '1.5', name: 'Largest' },
+  { value: '1.125', name: 'Medium' },
+  { value: '1.25', name: 'Large' },
+  { value: '1.5', name: 'Extra large' },
 ] as const
 
 export type TextScaleValue = (typeof TEXT_SCALE_STEPS)[number]['value']
@@ -29,7 +29,7 @@ export type TextScaleValue = (typeof TEXT_SCALE_STEPS)[number]['value']
 export const TEXT_SCALE_MIN = 1
 export const TEXT_SCALE_MAX = Number(TEXT_SCALE_STEPS[TEXT_SCALE_STEPS.length - 1].value)
 
-/** A step's percentage, as its tooltip reads it: `112.5 %`. */
+/** A step's percentage, as Settings shows it beside the name: `112.5 %`. */
 export function textScalePercent(value: string): string {
   return `${Number(value) * 100} %`
 }
@@ -48,11 +48,16 @@ export function transcriptTextScaleSetting(settings: Settings): TextScaleValue |
   return stepOf(settings[TRANSCRIPT_TEXT_SCALE_KEY]) ?? TRANSCRIPT_FOLLOWS_APP
 }
 
-/** The two multipliers the root carries, the transcript's resolved to the app's when it follows. */
+/**
+ * The two multipliers the root carries. The transcript is never smaller than
+ * the app (canvas `Feature - Text size` 6a): while it follows, or while its
+ * own step is below the app's, it takes the app's. The saved step is kept,
+ * so lowering the app's brings it back.
+ */
 export function textScales(settings: Settings): { app: number; transcript: number } {
   const app = Number(textScaleSetting(settings))
   const own = transcriptTextScaleSetting(settings)
-  return { app, transcript: own === TRANSCRIPT_FOLLOWS_APP ? app : Number(own) }
+  return { app, transcript: own === TRANSCRIPT_FOLLOWS_APP ? app : Math.max(app, Number(own)) }
 }
 
 /** A measured multiplier (the phone's system size) held to the Mac's range. */

@@ -14,6 +14,10 @@ describe('textScales', () => {
     expect(textScales({ text_scale: '1.25', transcript_text_scale: '1.5' })).toEqual({ app: 1.25, transcript: 1.5 })
   })
 
+  it('never makes the transcript smaller than the app', () => {
+    expect(textScales({ text_scale: '1.5', transcript_text_scale: '1.125' })).toEqual({ app: 1.5, transcript: 1.5 })
+  })
+
   it('reads a value that is not a step as the default', () => {
     expect(textScales({ text_scale: '3', transcript_text_scale: '0.5' })).toEqual({ app: 1, transcript: 1 })
   })

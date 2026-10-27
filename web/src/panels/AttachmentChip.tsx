@@ -129,7 +129,14 @@ export function AttachmentChip({ chip, onRemove, onRetry }: AttachmentChipProps)
   )
 }
 
-/** The 36px square a file chip has in place of a thumbnail, and a receipt has at a smaller size. */
+/**
+ * The 36px square a file chip has in place of a thumbnail, and a receipt has
+ * at a smaller size. Its width is a floor, with side padding, so a
+ * four-letter extension at a larger text size widens the box instead of
+ * spilling out of it (canvas `Feature - Text size` 6c: min-width, 5px side
+ * padding, the height kept). The small box takes 4px: at 5, `YAML` would
+ * widen it already at the default size.
+ */
 export function FileGlyph({ name, className = '', small = false }: { name: string; className?: string; small?: boolean }) {
   return (
     <span
@@ -137,7 +144,7 @@ export function FileGlyph({ name, className = '', small = false }: { name: strin
       data-chip-thumb
       className={[
         'grid flex-none place-items-center rounded-[5px] border border-[rgba(150,205,255,.12)] bg-[rgba(150,205,255,.06)] font-mono tracking-[0.04em] text-[rgba(200,220,245,.8)]',
-        small ? 'h-5 w-7 fs-7.5' : 'h-9 w-9 fs-9',
+        small ? 'h-5 min-w-7 px-1 fs-7.5' : 'h-9 min-w-9 px-[5px] fs-9',
         className,
       ].join(' ')}
     >

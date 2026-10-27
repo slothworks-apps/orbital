@@ -84,14 +84,23 @@ the Mac the size is Orbital's own setting. The phone does have one
 
 Settings → Appearance gets two rows:
 
-- **Text size** — the whole app except the map's labels and the terminal. Steps:
-  Default, and three larger ones. *My call:* 100 %, 112.5 %, 125 %,
-  150 %. Each step is named in words and shows its percentage too —
-  beside the name or in a tooltip, as the design settles it. The builder
-  may tune the values.
+- **Text size** — the whole app except the map's labels and the terminal.
+  Steps: Default 100 %, Medium 112.5 %, Large 125 %, Extra large 150 %.
+  A segmented control, each segment its name over its percentage (canvas
+  `Feature - Text size` 6a: a tooltip would hide the very number someone
+  is choosing by).
 - **Transcript text** — "Same as the app" (default), or one of the same
-  steps. When set, it replaces the app step inside the transcript; it does
-  not multiply with it.
+  steps, in a dropdown that shows the size that results ("Same as the app
+  125 %"). When set, it replaces the app step inside the transcript; it
+  does not multiply with it. The transcript is never smaller than the app:
+  steps below the app's are listed but cannot be picked, and if the app's
+  step is raised past a saved choice the transcript follows the app, the
+  row says so, and the saved choice is kept for when the app's comes down.
+- A **sample** under the two rows shows a session line at the app's size
+  and a line of transcript at the transcript's, as they are picked.
+- A file attachment's type box has a minimum width with side padding
+  instead of a fixed width, so a four-letter extension fits at every step
+  (6c).
 
 "The transcript" is what is read in a session: the messages and their
 markdown and code, tool rows and their outputs, diffs, permission and
@@ -161,6 +170,13 @@ Settings through a `BroadcastChannel` (`lib/settingsBroadcast.ts`): the
 server does not publish a local PATCH to the windows.
 
 ## Design
+
+Drawn in Claude Design, `Feature - Text size.dc.html` (6a Settings, 6b the
+transcript at Extra large, 6c the parts). The canvas's scope notes say
+"desktop only" and "the Desk theme is untouched"; this spec keeps the
+phone following the system size and the Desk cards growing with the app,
+as agreed before the canvas was drawn.
+
 
 Where the rows sit and how they look comes from Claude Design. Prompt for
 it: *two rows in Settings → Appearance — "Text size" (four steps, default
