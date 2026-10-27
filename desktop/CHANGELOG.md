@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Changed
+- The image menu's rows and the session menu's Copy path carry icons, like the rest of the menu.
 ### Fixed
 - Typing ``` and starting a new line in the message box opens a code block, as it already did after a space.
 
