@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Changed
+- A long press on buttons, labels or the session list no longer selects their text; the transcript, the message box and the file and task output viewers stay selectable.
 
 ## [0.21.2] — 2026-10-27
 ### Fixed

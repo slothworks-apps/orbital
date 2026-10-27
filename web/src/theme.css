@@ -51,6 +51,35 @@ body {
   font-family: var(--font-sans);
 }
 
+/* Orbital is an app, not a page: dragging across a label, a button or the
+   sidebar must not paint a text selection, and an icon or a link must not
+   lift off as a drag image. What is there to be read and copied keeps both:
+   the transcript (the desktop panel, the subagent panel and the phone reuse
+   the same scroller), the content of a viewer (a file, a skill, a task's
+   output, an error) marked `data-selectable`, and whatever the user types. */
+body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+[data-transcript-scroller],
+[data-selectable],
+input,
+textarea,
+[contenteditable='true'] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+img,
+a {
+  -webkit-user-drag: none;
+}
+[data-transcript-scroller] img,
+[data-transcript-scroller] a,
+[data-selectable] img,
+[data-selectable] a {
+  -webkit-user-drag: auto;
+}
+
 /* Pinch belongs to the map, not to the document — see the note in index.html.
    `manipulation` drops double-tap-to-zoom (and its 300ms click delay) while
    leaving panels scrollable; `none` here would break the transcript and the

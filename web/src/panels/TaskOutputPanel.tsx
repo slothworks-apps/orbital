@@ -234,6 +234,7 @@ export function TaskOutputPanel({ widthPx, inWindow: inWindowProp = false, swap 
           ref={scrollRef}
           onScroll={onScroll}
           data-task-output
+          data-selectable
           className="min-h-0 flex-1 overflow-auto bg-[rgba(3,5,11,.45)] shadow-[inset_0_14px_24px_-18px_rgba(0,0,0,.9)]"
         >
           <div className="px-[18px] py-3 font-mono text-[11px] leading-[1.62] text-[rgba(214,226,244,.86)]">
