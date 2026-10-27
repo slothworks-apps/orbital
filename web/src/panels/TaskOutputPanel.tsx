@@ -175,7 +175,7 @@ export function TaskOutputPanel({ widthPx, inWindow: inWindowProp = false, swap 
 
         {/* 26b: the whole command, wrapped and never cut — the flags are the point. */}
         {task?.command && (
-          <div className="mt-2.5 whitespace-pre-wrap break-words rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.5)] px-2.5 py-2 font-mono text-[11px] leading-[1.5] text-text-bright">
+          <div data-selectable className="mt-2.5 whitespace-pre-wrap break-words rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.5)] px-2.5 py-2 font-mono text-[11px] leading-[1.5] text-text-bright">
             <span className="text-[rgba(160,190,225,.5)]">$ </span>
             {task.command}
           </div>

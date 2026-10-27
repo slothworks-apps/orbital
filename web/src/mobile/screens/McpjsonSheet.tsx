@@ -122,6 +122,7 @@ function ServerCard({
       </div>
       {/* Wrapped, never cut off: 47d's docker command runs over seven lines. */}
       <div
+        data-selectable
         className={[
           'rounded-[10px] border bg-[rgba(4,8,16,.7)] px-[11px] py-[9px] font-mono text-[12px] leading-[1.6] whitespace-pre-wrap text-[#dfeeff] [overflow-wrap:anywhere]',
           file ? 'border-[oklch(76%_.16_85/.3)]' : 'border-[rgba(150,205,255,.12)]',

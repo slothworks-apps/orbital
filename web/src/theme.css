@@ -52,29 +52,30 @@ body {
 }
 
 /* Orbital is an app, not a page: dragging across a label, a button or the
-   sidebar must not paint a text selection, and an icon or a link must not
-   lift off as a drag image. What is there to be read and copied keeps both:
-   the transcript (the desktop panel, the subagent panel and the phone reuse
-   the same scroller), the content of a viewer (a file, a skill, a task's
-   output, an error) marked `data-selectable`, and whatever the user types. */
+   sidebar must not paint a text selection, an icon or a link must not lift
+   off as a drag image, and on iOS a long press on one must not open the
+   system's preview menu. What is there to be read and copied is marked
+   `data-selectable` and keeps all three: the transcript, the content of a
+   viewer (a file, a skill, a task's output, an image), error detail and
+   commands. Whatever the user types keeps selection too. */
 body {
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
-[data-transcript-scroller],
 [data-selectable],
 input,
 textarea,
 [contenteditable='true'] {
   user-select: text;
   -webkit-user-select: text;
+  -webkit-touch-callout: default;
 }
 img,
 a {
   -webkit-user-drag: none;
 }
-[data-transcript-scroller] img,
-[data-transcript-scroller] a,
+img[data-selectable],
 [data-selectable] img,
 [data-selectable] a {
   -webkit-user-drag: auto;

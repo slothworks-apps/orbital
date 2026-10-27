@@ -507,7 +507,7 @@ function MatHeader({
     <header
       data-mat-handle={tagId}
       title="Drag to reorder"
-      className="flex h-[42px] flex-none cursor-grab items-center gap-[9px] rounded-t-[14px] border-b border-[rgba(150,205,255,.08)] pl-2.5 pr-3.5 select-none hover:bg-[rgba(150,205,255,.035)] active:cursor-grabbing"
+      className="flex h-[42px] flex-none cursor-grab items-center gap-[9px] rounded-t-[14px] border-b border-[rgba(150,205,255,.08)] pl-2.5 pr-3.5 hover:bg-[rgba(150,205,255,.035)] active:cursor-grabbing"
     >
       <GripDots />
       <span
@@ -631,7 +631,7 @@ const DeskCard = memo(function DeskCard({
       ref={cardRef}
       data-card={s.id}
       className={[
-        'relative shrink-0 cursor-pointer select-none rounded-xl text-text-bright',
+        'relative shrink-0 cursor-pointer rounded-xl text-text-bright',
         lift
           ? 'z-30'
           : 'transition-[opacity,transform,box-shadow,border-color,max-height] duration-[240ms] ease-out',

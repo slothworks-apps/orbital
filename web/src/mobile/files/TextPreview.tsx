@@ -309,6 +309,7 @@ export function TextPreview({
       </header>
       <div
         ref={scroller}
+        data-selectable
         className="relative min-h-0 flex-1 overflow-auto overscroll-contain bg-[rgba(2,4,9,.6)] [scrollbar-color:rgba(150,205,255,.22)_transparent] [scrollbar-width:thin]"
       >
         {body}

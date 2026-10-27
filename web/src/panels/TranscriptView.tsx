@@ -1030,6 +1030,7 @@ export function TranscriptView({
     <div
       ref={containerRef}
       data-transcript-scroller
+      data-selectable
       className="flex h-full flex-col gap-[14px] overflow-y-auto px-[22px] py-[18px]"
     >
       {/* The negative margin takes back the row gap the sentinel would

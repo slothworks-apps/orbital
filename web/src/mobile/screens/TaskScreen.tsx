@@ -151,6 +151,7 @@ function TaskView({ sessionId, taskId }: { sessionId: string; taskId: string }) 
       <div
         ref={follow.scroller}
         onScroll={follow.onScroll}
+        data-selectable
         className="min-h-0 flex-1 overflow-y-auto bg-[rgba(2,4,9,.7)] py-2.5"
       >
         {/* canvas 10g: the newest line sits on the bottom edge, the older ones above it. */}

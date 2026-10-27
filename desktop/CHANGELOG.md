@@ -4,7 +4,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 ### Changed
-- Dragging the pointer across buttons, labels or the sidebar no longer selects their text, and icons no longer lift off as a drag image; the transcript, the message box and the file, skill, task output and error viewers stay selectable.
+- Dragging the pointer across buttons, labels or the sidebar no longer selects their text, and icons no longer lift off as a drag image; the transcript, the message box, the file and skill viewers, task output, error detail and commands stay selectable, and an image still drags out of the full-size viewer.
 
 ## [0.44.0] — 2026-10-27
 ### Added
