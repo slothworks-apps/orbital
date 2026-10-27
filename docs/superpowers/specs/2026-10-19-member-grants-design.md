@@ -67,6 +67,14 @@ Under each other member of the group, the five grants as toggles, with
 one line of what each covers. A toggle saves at once. A phone row shows
 them too: a phone is a member like any other.
 
+The toggles are folded by default (canvas `Feature - Device group 2`
+50a): under the member's row one line, *Permissions on this Mac · all
+allowed* (or *4 of 5 allowed*, *none allowed*), says how many are on and
+opens or closes them. With several members the section stays short and
+each member's state reads without opening anything. Saving and a failed
+save's line under the member are the same open or folded; the grants hide
+while the row asks to confirm Remove or Update in place.
+
 ## 3. The orbital MCP on another device
 
 - `orbital_read` and `orbital_act` take an optional `machine`: the
@@ -84,8 +92,8 @@ them too: a phone is a member like any other.
 
 - For: anyone with more than one device in a group.
 - Lives: on by default; inert without a group.
-- An existing user notices: five toggles under each other device in
-  Settings → Devices. What members could do before stays on; upkeep and
+- An existing user notices: one folded *Permissions on this Mac* line
+  under each other device in Settings → Devices, opening its five toggles. What members could do before stays on; upkeep and
   IDE are new and off.
 - Can be set: each grant, per member, on the device it protects.
 
@@ -93,4 +101,5 @@ them too: a phone is a member like any other.
 
 A phone is a member like any other, so its grants show on the Mac and the
 Mac enforces them; nothing changes in the phone app. The phone runs no
-sessions of its own and has no grants to give, so it gets no toggles.
+sessions of its own and has no grants to give, so it gets no toggles —
+and folding them on the Mac leaves the phone's Devices screen as it is.

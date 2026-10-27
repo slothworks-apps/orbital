@@ -30,6 +30,7 @@ import type { GroupEnded, GroupMember, RemoteStatus } from '../lib/types'
 import type { UpdateWhen } from '@orbital/shared/remote/serverUpdate'
 import { Toggle } from '../ui/Checkbox'
 import { Button } from '../ui/Button'
+import { Collapse } from '../ui/Collapse'
 import { Dialog } from '../ui/Dialog'
 import { Input } from '../ui/Input'
 import { KindGlyph } from '../ui/KindGlyph'
@@ -720,43 +721,85 @@ const GRANT_LABELS: Record<string, { label: string; desc: string }> = {
   ide: { label: 'IDE on this Mac', desc: "open files and diagnostics in this Mac's editor" },
 }
 
+const GRANT_GROUPS: Array<keyof typeof GRANT_LABELS> = ['sessions', 'spawn', 'settings', 'manage', 'ide']
+
+/** Canvas 50a's word for how many of a member's grants are on. */
+function grantSummary(grants: Record<string, boolean>): string {
+  const n = GRANT_GROUPS.filter((g) => grants[g]).length
+  return n === GRANT_GROUPS.length ? 'all allowed' : n === 0 ? 'none allowed' : `${n} of ${GRANT_GROUPS.length} allowed`
+}
+
 /**
- * Grant toggles for a member (spec 2026-10-19-member-grants-design § 2).
+ * Grant toggles for a member (spec 2026-10-19-member-grants-design § 2,
+ * canvas `Feature - Device group 2` 50a): folded under one line that says how
+ * many are on, which opens and closes them.
  */
 function GrantToggles({
   memberId,
+  name,
   grants,
   saving,
   onToggle,
 }: {
   memberId: string
+  name: string
   grants: Record<string, boolean> | undefined
   saving: string | null
   onToggle: (memberId: string, group: string, checked: boolean) => Promise<void>
 }) {
+  const [open, setOpen] = useState(false)
   if (!grants) return null
-  const groups: Array<keyof typeof GRANT_LABELS> = ['sessions', 'spawn', 'settings', 'manage', 'ide']
+  const panelId = `grants-${memberId}`
   return (
-    <div className="border-t border-[rgba(150,205,255,.08)] bg-[rgba(150,205,255,.02)] px-4 py-2.5">
-      <div className="space-y-2">
-        {groups.map((group) => {
-          const { label, desc } = GRANT_LABELS[group]
-          return (
-            <div key={group} className="flex items-start gap-3">
-              <Toggle
-                aria-label={label}
-                checked={grants[group] ?? false}
-                disabled={saving === `${memberId}-${group}`}
-                onChange={(checked) => void onToggle(memberId, group, checked)}
-              />
-              <div className="flex flex-col gap-0.5">
-                <span className="text-[12px] text-text-bright">{label}</span>
-                {desc && <span className="text-[11px] text-[rgba(160,190,225,.55)]">{desc}</span>}
+    <div className="-mt-2 flex flex-col pl-[42px] pr-3">
+      <Button
+        variant="dashed-link"
+        size="grant-summary"
+        className="mb-2.5 self-start"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((o) => !o)}
+      >
+        Permissions on this Mac ·<span className="text-[rgba(200,220,245,.88)]">{grantSummary(grants)}</span>
+        <span
+          aria-hidden
+          className={`inline-grid w-2.5 place-items-center text-[rgba(160,190,225,.55)] transition-transform duration-[220ms] ${open ? 'rotate-90' : ''}`}
+        >
+          ›
+        </span>
+      </Button>
+      <Collapse open={open} id={panelId}>
+        <div className="flex flex-col border-t border-[rgba(150,205,255,.08)] pb-2 pt-1">
+          <span className="pb-0.5 pt-1.5 font-mono text-[9.5px] tracking-[.14em] text-[rgba(160,190,225,.5)]">
+            WHAT {name.toUpperCase()} MAY DO ON THIS MAC
+          </span>
+          {GRANT_GROUPS.map((group) => {
+            const { label, desc } = GRANT_LABELS[group]
+            const busy = saving === `${memberId}-${group}`
+            return (
+              <div key={group} className="flex items-start gap-3 py-[7px]">
+                <span className="mt-px">
+                  <Toggle
+                    aria-label={label}
+                    checked={grants[group] ?? false}
+                    disabled={busy}
+                    onChange={(checked) => void onToggle(memberId, group, checked)}
+                  />
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="text-[12.5px] font-semibold text-text-bright">{label}</span>
+                  {desc && (
+                    <span className="text-[11.5px] leading-[1.45] text-[rgba(160,190,225,.62)] [text-wrap:pretty]">{desc}</span>
+                  )}
+                </span>
+                <span className="w-16 shrink-0 pt-0.5 text-right font-mono text-[10px] text-[rgba(160,190,225,.55)]">
+                  {busy ? 'saving…' : ''}
+                </span>
               </div>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      </Collapse>
     </div>
   )
 }
@@ -1064,7 +1107,7 @@ function Members({
               </div>
             )}
             {asking !== m.id && (
-              <GrantToggles memberId={m.id} grants={grants[m.id]} saving={saving} onToggle={toggleGrant} />
+              <GrantToggles memberId={m.id} name={m.name} grants={grants[m.id]} saving={saving} onToggle={toggleGrant} />
             )}
             {saveError?.memberId === m.id && (
               <div role="alert" className="px-4 pb-2.5 text-[12.5px] leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
