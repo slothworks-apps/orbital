@@ -3,10 +3,13 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.44.0] — 2026-10-27
 ### Added
 - The floating sloth slowly tumbles as it drifts; rest the pointer on it and it stops to say a famous line from films and books. Thanks to @N0x1k for the idea.
 ### Changed
 - The image menu's rows and the session menu's Copy path carry icons, like the rest of the menu.
+- Updated dependencies, including the Claude Agent SDK.
 ### Fixed
 - Typing ``` and starting a new line in the message box opens a code block, as it already did after a space.
 - The selection in VS Code keeps reaching Orbital after something else connects to the editor, instead of stopping until Orbital is restarted.
