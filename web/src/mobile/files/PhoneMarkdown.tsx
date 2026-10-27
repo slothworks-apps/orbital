@@ -20,8 +20,8 @@ function at(node: ExtraProps['node']): { 'data-src-line'?: number } {
 // 10d·e "Rendered — sized for 390": the link is 10d's path style, its 12px
 // pad and negative margin making a 44px hit area without moving the line.
 const LINK = 'my-[-12px] py-3 text-[oklch(85%_0.12_205)] underline decoration-dotted underline-offset-[3px]'
-const INLINE_CODE = 'rounded-[4px] bg-[rgba(150,205,255,.08)] px-[5px] py-px font-mono text-[12.5px] text-[#dfeeff]'
-const BOX = 'grid h-4 w-4 flex-none place-items-center rounded-[4px] border mt-1 text-[10px] leading-none'
+const INLINE_CODE = 'rounded-[4px] bg-[rgba(150,205,255,.08)] px-[5px] py-px font-mono fs-12.5 text-[#dfeeff]'
+const BOX = 'grid h-4 w-4 flex-none place-items-center rounded-[4px] border mt-1 fs-10 leading-none'
 
 /** A fenced block: mono 12/1.7 in its own box that scrolls sideways, no line numbers (as 8b). */
 function CodeBlock({ code, lang }: { code: string; lang: string }) {
@@ -29,7 +29,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const tokens = useTokens(code, lang, lines.length)
   return (
     <div className="overflow-x-auto rounded-[9px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)]">
-      <div className="w-max px-3.5 py-[11px] font-mono text-[12px] leading-[1.7] whitespace-pre text-[rgba(214,230,248,.9)] [font-variant-ligatures:none] [overflow-wrap:normal]">
+      <div className="w-max px-3.5 py-[11px] font-mono fs-12 leading-[1.7] whitespace-pre text-[rgba(214,230,248,.9)] [font-variant-ligatures:none] [overflow-wrap:normal]">
         {lines.map((line, i) => (
           // A static list of lines: the index is a stable key.
           <div key={i}>
@@ -54,12 +54,12 @@ function components(onLink: (link: MarkdownLink) => void, path: string): Compone
   }
   return {
     h1: ({ node, children }) => (
-      <h1 {...at(node)} className="m-0 text-[22px] font-bold leading-[1.25] tracking-[-.015em] text-[#e8eef8] [text-wrap:balance]">
+      <h1 {...at(node)} className="m-0 fs-22 font-bold leading-[1.25] tracking-[-.015em] text-[#e8eef8] [text-wrap:balance]">
         {children}
       </h1>
     ),
     h2: ({ node, children }) => (
-      <h2 {...at(node)} className="m-0 mt-1.5 text-[17px] font-bold leading-[1.3] tracking-[-.01em] text-[#e8eef8]">
+      <h2 {...at(node)} className="m-0 mt-1.5 fs-17 font-bold leading-[1.3] tracking-[-.01em] text-[#e8eef8]">
         {children}
       </h2>
     ),
@@ -67,7 +67,7 @@ function components(onLink: (link: MarkdownLink) => void, path: string): Compone
       (['h3', 'h4', 'h5', 'h6'] as const).map((Tag) => [
         Tag,
         ({ node, children }: ComponentPropsWithoutRef<'h3'> & ExtraProps) => (
-          <Tag {...at(node)} className="m-0 mt-1 text-[15px] font-bold leading-[1.35] text-[#e8eef8]">
+          <Tag {...at(node)} className="m-0 mt-1 fs-15 font-bold leading-[1.35] text-[#e8eef8]">
             {children}
           </Tag>
         ),
@@ -87,7 +87,7 @@ function components(onLink: (link: MarkdownLink) => void, path: string): Compone
     img: ({ src, alt }) => {
       const href = typeof src === 'string' ? src : undefined
       return (
-        <a href={href} onClick={press(href)} className={`${LINK} font-mono text-[12.5px]`}>
+        <a href={href} onClick={press(href)} className={`${LINK} font-mono fs-12.5`}>
           {alt || href}
         </a>
       )
@@ -142,7 +142,7 @@ function components(onLink: (link: MarkdownLink) => void, path: string): Compone
     blockquote: ({ node, children }) => (
       <blockquote
         {...at(node)}
-        className="m-0 flex flex-col gap-2 rounded-r-lg border-l-2 border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.04)] px-3.5 py-2.5 text-[14.5px] leading-[1.6] text-[rgba(200,214,235,.85)]"
+        className="m-0 flex flex-col gap-2 rounded-r-lg border-l-2 border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.04)] px-3.5 py-2.5 fs-14.5 leading-[1.6] text-[rgba(200,214,235,.85)]"
       >
         {children}
       </blockquote>
@@ -150,7 +150,7 @@ function components(onLink: (link: MarkdownLink) => void, path: string): Compone
     // A table wider than the page scrolls inside its frame; the page itself never moves sideways.
     table: ({ node, children }) => (
       <div {...at(node)} className="overflow-x-auto rounded-[9px] border border-[rgba(150,205,255,.12)]">
-        <table className="w-full min-w-[300px] border-collapse text-[13.5px] leading-[1.4] [overflow-wrap:normal] [&_tr:last-child>td]:border-b-0">
+        <table className="w-full min-w-[300px] border-collapse fs-13.5 leading-[1.4] [overflow-wrap:normal] [&_tr:last-child>td]:border-b-0">
           {children}
         </table>
       </div>
@@ -158,7 +158,7 @@ function components(onLink: (link: MarkdownLink) => void, path: string): Compone
     th: ({ children, style }) => (
       <th
         style={style}
-        className="border-b border-[rgba(150,205,255,.12)] bg-[rgba(150,205,255,.04)] px-3 py-2 text-left font-mono text-[10px] font-normal uppercase tracking-[.14em] text-[rgba(160,190,225,.6)]"
+        className="border-b border-[rgba(150,205,255,.12)] bg-[rgba(150,205,255,.04)] px-3 py-2 text-left font-mono fs-10 font-normal uppercase tracking-[.14em] text-[rgba(160,190,225,.6)]"
       >
         {children}
       </th>
@@ -190,7 +190,7 @@ export const PhoneMarkdown = memo(function PhoneMarkdown({
   // Stable component types: a fresh set would remount the whole document on every render.
   const parts = useMemo(() => components(onLink, path), [onLink, path])
   return (
-    <div className="flex flex-col gap-3.5 px-5 pb-8 pt-[18px] text-[15px] leading-[1.6] text-[rgba(228,238,250,.9)] [overflow-wrap:anywhere]">
+    <div className="flex flex-col gap-3.5 px-5 pb-8 pt-[18px] fs-15 leading-[1.6] text-[rgba(228,238,250,.9)] [overflow-wrap:anywhere]">
       <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={urlTransform} components={parts}>
         {content}
       </ReactMarkdown>

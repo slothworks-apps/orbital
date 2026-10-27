@@ -13,7 +13,7 @@ import { extensionLabel } from '../lib/attachedFiles'
 
 /** 9e: chip 48px tall, 8px radius, padding `6 8 6 6`, 8px gap. */
 const CHIP_FRAME =
-  'relative flex h-12 items-center gap-2 overflow-hidden rounded-[8px] border border-[rgba(150,205,255,.16)] py-1.5 pl-1.5 pr-2'
+  'relative flex min-h-12 items-center gap-2 overflow-hidden rounded-[8px] border border-[rgba(150,205,255,.16)] py-1.5 pl-1.5 pr-2'
 
 export interface AttachmentChipProps {
   chip: Attachment
@@ -75,7 +75,7 @@ export function AttachmentChip({ chip, onRemove, onRetry }: AttachmentChipProps)
         <span
           data-chip-name
           className={[
-            'whitespace-nowrap font-mono text-[11px]',
+            'whitespace-nowrap font-mono fs-11',
             // 9d-B: a failed chip's name steps back to the muted row ink.
             failed ? 'text-[rgba(200,220,245,.8)]' : 'text-text-bright',
           ].join(' ')}
@@ -84,7 +84,7 @@ export function AttachmentChip({ chip, onRemove, onRetry }: AttachmentChipProps)
         </span>
         <span
           data-chip-meta
-          className="whitespace-nowrap font-mono text-[9.5px] text-[rgba(160,190,225,.55)]"
+          className="whitespace-nowrap font-mono fs-9.5 text-[rgba(160,190,225,.55)]"
         >
           {attachmentMeta(chip)}
         </span>
@@ -96,7 +96,7 @@ export function AttachmentChip({ chip, onRemove, onRetry }: AttachmentChipProps)
         <button
           type="button"
           onClick={() => onRetry(chip.id)}
-          className="flex-none rounded-[5px] border border-[rgba(150,205,255,.2)] px-2 py-[3px] font-mono text-[9.5px] tracking-[0.08em] text-[rgba(220,235,255,.9)] transition-colors duration-[120ms] ease-[ease] hover:border-[rgba(150,205,255,.42)]"
+          className="flex-none rounded-[5px] border border-[rgba(150,205,255,.2)] px-2 py-[3px] font-mono fs-9.5 tracking-[0.08em] text-[rgba(220,235,255,.9)] transition-colors duration-[120ms] ease-[ease] hover:border-[rgba(150,205,255,.42)]"
         >
           retry
         </button>
@@ -107,7 +107,7 @@ export function AttachmentChip({ chip, onRemove, onRetry }: AttachmentChipProps)
         type="button"
         aria-label="Remove attachment"
         onClick={() => onRemove(chip.id)}
-        className="grid h-[18px] w-[18px] flex-none place-items-center rounded-[5px] border border-[rgba(150,205,255,.14)] text-[11px] text-[rgba(200,220,245,.7)] transition-[border-color,color] duration-[120ms] ease-[ease] hover:border-[rgba(150,205,255,.42)] hover:text-[#f2f9ff]"
+        className="grid h-[18px] w-[18px] flex-none place-items-center rounded-[5px] border border-[rgba(150,205,255,.14)] fs-11 text-[rgba(200,220,245,.7)] transition-[border-color,color] duration-[120ms] ease-[ease] hover:border-[rgba(150,205,255,.42)] hover:text-[#f2f9ff]"
       >
         ×
       </button>
@@ -137,7 +137,7 @@ export function FileGlyph({ name, className = '', small = false }: { name: strin
       data-chip-thumb
       className={[
         'grid flex-none place-items-center rounded-[5px] border border-[rgba(150,205,255,.12)] bg-[rgba(150,205,255,.06)] font-mono tracking-[0.04em] text-[rgba(200,220,245,.8)]',
-        small ? 'h-5 w-7 text-[7.5px]' : 'h-9 w-9 text-[9px]',
+        small ? 'h-5 w-7 fs-7.5' : 'h-9 w-9 fs-9',
         className,
       ].join(' ')}
     >

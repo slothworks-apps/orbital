@@ -363,10 +363,10 @@ export function Dialog({
           ].join(' ')}
         >
           {eyebrow && (
-            <div className="font-mono text-[9.5px] tracking-[0.2em] text-[rgba(160,190,225,.55)]">{eyebrow}</div>
+            <div className="font-mono fs-9.5 tracking-[0.2em] text-[rgba(160,190,225,.55)]">{eyebrow}</div>
           )}
           {beforeTitle}
-          <h2 className="text-xl font-bold text-text-bright">{title}</h2>
+          <h2 className="fs-20 leading-(--text-xl--line-height) font-bold text-text-bright">{title}</h2>
           {children}
         </div>
       ) : (
@@ -411,7 +411,7 @@ export function Dialog({
           <div className="min-w-0 flex-1">
             {eyebrow && (
               <div
-                className={`flex items-center gap-2 font-mono text-[10px] tracking-[0.2em] ${frame.eyebrow}`}
+                className={`flex items-center gap-2 font-mono fs-10 tracking-[0.2em] ${frame.eyebrow}`}
               >
                 {eyebrowPulse && (
                   <span
@@ -426,14 +426,14 @@ export function Dialog({
               className={[
                 'truncate font-bold tracking-[-0.01em] text-text-bright',
                 // The form dialogs run a notch larger than the confirms.
-                ruledHeader ? 'mt-1 text-xl' : 'mt-2 text-[19px]',
+                ruledHeader ? 'mt-1 fs-20 leading-(--text-xl--line-height)' : 'mt-2 fs-19',
               ].join(' ')}
             >
               {title}
             </h2>
           </div>
           {headerMeta != null && (
-            <span className="shrink-0 self-start font-mono text-[10.5px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+            <span className="shrink-0 self-start font-mono fs-10.5 tracking-[0.06em] text-[rgba(160,190,225,.55)]">
               {headerMeta}
             </span>
           )}
@@ -446,7 +446,7 @@ export function Dialog({
               type="button"
               onClick={onClose}
               aria-label="Close dialog"
-              className={`shrink-0 ${headerAction != null ? 'self-center' : 'self-start'} rounded border border-[rgba(150,205,255,.2)] px-[7px] py-[3px] font-mono text-[10px] text-[rgba(200,220,245,.7)] transition-colors hover:bg-white/5`}
+              className={`shrink-0 ${headerAction != null ? 'self-center' : 'self-start'} rounded border border-[rgba(150,205,255,.2)] px-[7px] py-[3px] font-mono fs-10 text-[rgba(200,220,245,.7)] transition-colors hover:bg-white/5`}
             >
               esc
             </button>
@@ -477,7 +477,7 @@ export function Dialog({
             ].join(' ')}
           >
             {footerLead != null && <div className="flex min-w-0 items-center gap-2">{footerLead}</div>}
-            <div className="min-w-0 flex-1 truncate font-mono text-[10.5px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+            <div className="min-w-0 flex-1 truncate font-mono fs-10.5 tracking-[0.06em] text-[rgba(160,190,225,.55)]">
               {footerCaption}
             </div>
             <div className="flex shrink-0 items-center gap-2.5">{footer}</div>

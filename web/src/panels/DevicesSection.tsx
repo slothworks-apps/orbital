@@ -42,9 +42,9 @@ const MUTED = 'text-[rgba(160,190,225,.6)]'
 /** A block under a section label that is not a `Row`: the same hairline rule and vertical rhythm. */
 const BLOCK = 'border-t border-[rgba(150,205,255,.08)] py-[13px]'
 /** The kicker over each column of the group (canvas 50a: THIS DEVICE, IN THIS GROUP, ADD A DEVICE). */
-const KICKER = 'font-mono text-[10px] tracking-[0.18em] text-[rgba(160,190,225,.6)]'
+const KICKER = 'font-mono fs-10 tracking-[0.18em] text-[rgba(160,190,225,.6)]'
 /** The quiet caption beside a kicker (canvas 50a: EVERY DEVICE SEES THIS NAME). */
-const ASIDE = 'font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.45)]'
+const ASIDE = 'font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.45)]'
 /** The cards the group's columns sit in (canvas 50a). */
 const CARD = 'rounded-[12px] border border-[rgba(150,205,255,.12)] bg-[rgba(6,10,20,.55)]'
 /** "offline · seen …" moves in minutes at the finest (`timeAgo`), so it is re-read that often. */
@@ -52,7 +52,7 @@ const SEEN_TICK_MS = 60_000
 /** How much of the code `orbital join …` shows under the field (canvas 50a, 50q: `orb1q7kf…`). */
 const SERVER_CODE_SHOWN = 8
 /** The quiet mono line under a row's state or name (canvas 50q). */
-const SUBLINE = 'font-mono text-[10.5px] text-[rgba(160,190,225,.5)]'
+const SUBLINE = 'font-mono fs-10.5 text-[rgba(160,190,225,.5)]'
 
 /** The status line's dot (canvas 9q). Static: it never pulses, whatever the state. */
 const DOT: Record<RelayLineKind, string> = {
@@ -315,7 +315,7 @@ export function DevicesSection({
           onChange={(checked) => void patchAndSet({ remote_enabled: checked ? 'true' : 'false' })}
         />
         {!enabled ? (
-          <div className="flex items-center gap-2 font-mono text-[11px] text-[rgba(200,220,245,.82)]">
+          <div className="flex items-center gap-2 font-mono fs-11 text-[rgba(200,220,245,.82)]">
             {/* Canvas 50a: the hollow ring of an offline member, for a switch that is off. */}
             <MemberDot state="offline" sizePx={7} />
             off · this device is on its own
@@ -323,19 +323,19 @@ export function DevicesSection({
         ) : (
           line && (
             <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2 font-mono text-[11px] text-[rgba(200,220,245,.82)]">
+              <div className="flex items-center gap-2 font-mono fs-11 text-[rgba(200,220,245,.82)]">
                 <Dot className={DOT[line.kind]} />
                 {line.text}
               </div>
               {line.detail && (
-                <div className={`pl-[15px] font-mono text-[11px] ${MUTED} [overflow-wrap:anywhere]`}>{line.detail}</div>
+                <div className={`pl-[15px] font-mono fs-11 ${MUTED} [overflow-wrap:anywhere]`}>{line.detail}</div>
               )}
             </div>
           )
         )}
         {relayLocked ? (
           // Canvas 50a `relayLock`, 50p C: in a group the relay cannot change, and this says how it can again.
-          <span className="max-w-[300px] text-[11.5px] leading-[1.5] text-[rgba(160,190,225,.65)] [text-wrap:pretty]">
+          <span className="max-w-[300px] fs-11.5 leading-[1.5] text-[rgba(160,190,225,.65)] [text-wrap:pretty]">
             {relayLockedLine(view.role === 'member' ? 'member' : 'primary')}
           </span>
         ) : (
@@ -344,7 +344,7 @@ export function DevicesSection({
             type="button"
             aria-expanded={relayOpen}
             onClick={() => setRelayOpen((o) => !o)}
-            className="cursor-pointer border-b border-dashed border-[rgba(160,190,225,.45)] font-mono text-[10.5px] tracking-[0.06em] text-[rgba(200,220,245,.8)]"
+            className="cursor-pointer border-b border-dashed border-[rgba(160,190,225,.45)] font-mono fs-10.5 tracking-[0.06em] text-[rgba(200,220,245,.8)]"
           >
             {relayOpen ? 'Done' : 'Change relay'}
           </button>
@@ -396,8 +396,8 @@ export function DevicesSection({
             {rows.length === 0 ? (
               <div className="flex items-center gap-3.5 rounded-[12px] border border-dashed border-[rgba(150,205,255,.16)] px-4 py-[18px]">
                 <span className="flex flex-col gap-[3px]">
-                  <span className="text-[13.5px] font-semibold text-text-bright">Just this device</span>
-                  <span className="text-[12.5px] text-[rgba(160,190,225,.65)]">
+                  <span className="fs-13.5 font-semibold text-text-bright">Just this device</span>
+                  <span className="fs-12.5 text-[rgba(160,190,225,.65)]">
                     {/* The device being added reads 50b's words; one alone, 50a's. */}
                     {liveRemote.joining
                       ? "Paste a code from any device in your group, or show this device's code to one of them."
@@ -510,7 +510,7 @@ function TryAgain({ check }: { check: RelayCheck }) {
 function RelayWait({ kind, remote, check }: { kind: RelayLineKind; remote: RemoteStatus | null; check: RelayCheck }) {
   // No relay URL yet: nothing answered, and trying again cannot help.
   if (kind === 'failed' && remote?.relayUrl === '') {
-    return <span className={`text-[12.5px] leading-[1.5] ${MUTED}`}>Set a relay under Change relay to add a device.</span>
+    return <span className={`fs-12.5 leading-[1.5] ${MUTED}`}>Set a relay under Change relay to add a device.</span>
   }
   if ((kind === 'unreachable' || kind === 'failed') && remote?.relay !== 'too_old') {
     // `failed` carries the status's own reason (the same source as
@@ -518,7 +518,7 @@ function RelayWait({ kind, remote, check }: { kind: RelayLineKind; remote: Remot
     // better than the generic line, which stays for `unreachable`.
     return (
       <div className="flex flex-col items-start gap-2.5">
-        <span className={`text-[12.5px] leading-[1.5] ${MUTED}`}>
+        <span className={`fs-12.5 leading-[1.5] ${MUTED}`}>
           {kind === 'failed' && remote?.error
             ? remote.error
             : "The relay didn't answer. Check it under Change relay, or try again."}
@@ -527,7 +527,7 @@ function RelayWait({ kind, remote, check }: { kind: RelayLineKind; remote: Remot
       </div>
     )
   }
-  return <span className={`text-[12.5px] ${MUTED}`}>Waiting for the relay</span>
+  return <span className={`fs-12.5 ${MUTED}`}>Waiting for the relay</span>
 }
 
 /** The code twice, as a QR for a phone and one word for a desktop or a server, and its expiry (canvas 50a). */
@@ -564,7 +564,7 @@ function CodeArea({ pairing }: { pairing: PairingCode }) {
           {!open && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-[9px] rounded-[10px] bg-[rgba(5,7,13,.88)]">
               {expired && (
-                <span className="font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.7)]">CODE EXPIRED</span>
+                <span className="font-mono fs-9.5 tracking-[0.16em] text-[rgba(160,190,225,.7)]">CODE EXPIRED</span>
               )}
               {/* No code until asked for: each one opens a window in which a device can ask to pair. */}
               <Button variant="primary-flat" size="over-code" disabled={pairing.busy} onClick={() => void pairing.newCode()}>
@@ -574,18 +574,18 @@ function CodeArea({ pairing }: { pairing: PairingCode }) {
           )}
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-[5px]">
-          <span className="text-[13px] font-semibold text-text-bright">For a phone</span>
-          <span className="text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+          <span className="fs-13 font-semibold text-text-bright">For a phone</span>
+          <span className="fs-12 leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
             Scan it with Orbital on the phone.
           </span>
         </div>
       </div>
       <div className="flex flex-col gap-[7px]">
-        <span className="text-[13px] font-semibold text-text-bright">For a desktop or a server</span>
+        <span className="fs-13 font-semibold text-text-bright">For a desktop or a server</span>
         <div className="flex gap-1.5">
           {/* Double-click selects it all (50a ADD A DEVICE). */}
           <span
-            className={`min-w-0 flex-1 select-all overflow-hidden text-ellipsis whitespace-nowrap rounded-lg border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.6)] px-2.5 py-[7px] font-mono text-[11.5px] text-text-bright ${faded}`}
+            className={`min-w-0 flex-1 select-all overflow-hidden text-ellipsis whitespace-nowrap rounded-lg border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.6)] px-2.5 py-[7px] font-mono fs-11.5 text-text-bright ${faded}`}
           >
             {code?.word ?? ''}
           </span>
@@ -594,7 +594,7 @@ function CodeArea({ pairing }: { pairing: PairingCode }) {
           </Button>
         </div>
         {/* Canvas 50a, 50q: the code's start stands for it in the server's command. */}
-        <span className="font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.55)]">
+        <span className="font-mono fs-10 leading-[1.6] text-[rgba(160,190,225,.55)]">
           paste it in Devices there · on a server:
           <br />
           orbital join{code ? ` ${code.word.slice(0, SERVER_CODE_SHOWN)}…` : ''}
@@ -608,11 +608,11 @@ function CodeArea({ pairing }: { pairing: PairingCode }) {
             style={{ width: `${open && left ? left.fraction * 100 : 0}%` }}
           />
         </div>
-        <span className="min-h-[1lh] font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+        <span className="min-h-[1lh] font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
           {open && left ? `expires in ${left.label} · one device per code` : expired ? 'expired · make a new code' : ''}
         </span>
         {pairing.error && (
-          <span role="alert" className="text-[12.5px] leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+          <span role="alert" className="fs-12.5 leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
             {pairing.error}
           </span>
         )}
@@ -685,11 +685,11 @@ function ThisDevice({
                 onChange={(e) => setDraft(e.target.value)}
               />
             </span>
-            <span aria-hidden className="text-[11px] text-[rgba(160,190,225,.6)]">
+            <span aria-hidden className="fs-11 text-[rgba(160,190,225,.6)]">
               ✎
             </span>
           </label>
-          <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+          <span className="font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
             {kindOs(kind, self?.os ?? '', self?.osVersion)}
             {version ? ` · ${version}` : ''}
             {version && strip?.to ? ` → ${strip.to}` : ''}
@@ -699,7 +699,7 @@ function ThisDevice({
       </div>
       {line && (
         <div className="-mt-1 flex items-center gap-2.5 pb-3 pl-[42px] pr-4">
-          <span className="flex-1 font-mono text-[11px] text-[rgba(200,220,245,.85)]">{line}</span>
+          <span className="flex-1 font-mono fs-11 text-[rgba(200,220,245,.85)]">{line}</span>
           {link && onOpenUpdates && (
             <Button variant="dashed-link" size="link-mono" onClick={onOpenUpdates}>
               Settings → Updates ›
@@ -750,8 +750,8 @@ function GrantToggles({
                 onChange={(checked) => void onToggle(memberId, group, checked)}
               />
               <div className="flex flex-col gap-0.5">
-                <span className="text-[12px] text-text-bright">{label}</span>
-                {desc && <span className="text-[11px] text-[rgba(160,190,225,.55)]">{desc}</span>}
+                <span className="fs-12 text-text-bright">{label}</span>
+                {desc && <span className="fs-11 text-[rgba(160,190,225,.55)]">{desc}</span>}
               </div>
             </div>
           )
@@ -934,20 +934,20 @@ function Members({
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="flex min-w-0 items-center gap-2">
-                    <span className={`truncate text-[13.5px] font-semibold ${nameInk}`}>
+                    <span className={`truncate fs-13.5 font-semibold ${nameInk}`}>
                       {m.name}
                     </span>
                     {m.primary && <PrimaryLabel />}
                   </span>
-                  <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{kindOs(m.kind, m.os, m.osVersion)}</span>
+                  <span className="font-mono fs-10.5 text-[rgba(160,190,225,.6)]">{kindOs(m.kind, m.os, m.osVersion)}</span>
                   {notSharing.some((o) => o.id === m.id) && (
                     // In the needs-update line's type: the row's own quiet words.
-                    <span className="font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+                    <span className="font-mono fs-10 text-[rgba(160,190,225,.6)]">
                       doesn’t share settings yet — update it
                     </span>
                   )}
                   {m.needsUpdate && (
-                    <span className="font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+                    <span className="font-mono fs-10 text-[rgba(160,190,225,.6)]">
                       {needsUpdateLine(m.needsUpdate, now)}
                     </span>
                   )}
@@ -955,7 +955,7 @@ function Members({
                 {/* Canvas 50q: the version under the state, at the height of the kind · OS line. */}
                 <span className="flex w-[172px] flex-none flex-col gap-0.5">
                   <span
-                    className={`flex items-center gap-[7px] font-mono text-[11px] ${
+                    className={`flex items-center gap-[7px] font-mono fs-11 ${
                       !away && (state === 'online' || update.dim === false)
                         ? 'text-[rgba(200,220,245,.85)]'
                         : 'text-[rgba(160,190,225,.72)]'
@@ -989,7 +989,7 @@ function Members({
               </div>
             ) : (
               <div className="box-border flex min-h-[58px] items-center gap-2.5 bg-[rgba(150,205,255,.05)] py-2 pl-4 pr-3">
-                <span className="flex-1 text-[12.5px] leading-[1.45] text-text-bright [text-wrap:pretty]">
+                <span className="flex-1 fs-12.5 leading-[1.45] text-text-bright [text-wrap:pretty]">
                   {removeWords(m.name).question}{' '}
                   <span className="text-[rgba(160,190,225,.7)]">{removeWords(m.name).body}</span>
                 </span>
@@ -1005,7 +1005,7 @@ function Members({
               <div className="-mt-1 flex min-h-8 items-center gap-2.5 pb-2.5 pl-[42px] pr-3">
                 <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
                   <span
-                    className={`font-mono text-[11px] ${line.bright ? 'text-[rgba(200,220,245,.85)]' : 'text-[rgba(160,190,225,.72)]'}`}
+                    className={`font-mono fs-11 ${line.bright ? 'text-[rgba(200,220,245,.85)]' : 'text-[rgba(160,190,225,.72)]'}`}
                   >
                     {line.text}
                   </span>
@@ -1026,7 +1026,7 @@ function Members({
             {asking !== m.id && confirming && (
               // Canvas 50q/50t CONFIRM: the words, then the local Restart's three choices under them.
               <div className="-mt-0.5 flex flex-col gap-2 pb-3 pl-[42px] pr-3">
-                <span className="text-[12.5px] leading-[1.45] text-text-bright [text-wrap:pretty]">
+                <span className="fs-12.5 leading-[1.45] text-text-bright [text-wrap:pretty]">
                   {sessionsWords.question}{' '}
                   <span className="text-[rgba(160,190,225,.7)]">{sessionsWords.body}</span>
                 </span>
@@ -1059,7 +1059,7 @@ function Members({
               </div>
             )}
             {refusal?.id === m.id && (
-              <div role="alert" className="px-4 pb-2.5 text-[12.5px] leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+              <div role="alert" className="px-4 pb-2.5 fs-12.5 leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
                 {refusal.text}
               </div>
             )}
@@ -1067,7 +1067,7 @@ function Members({
               <GrantToggles memberId={m.id} grants={grants[m.id]} saving={saving} onToggle={toggleGrant} />
             )}
             {saveError?.memberId === m.id && (
-              <div role="alert" className="px-4 pb-2.5 text-[12.5px] leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+              <div role="alert" className="px-4 pb-2.5 fs-12.5 leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
                 {saveError.text}
               </div>
             )}
@@ -1108,8 +1108,8 @@ function EndedNotice({ ended }: { ended: GroupEnded }) {
         <KindGlyph kind="desktop" />
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-        <span className="text-[13.5px] font-semibold text-text-bright">{head}</span>
-        <span className="text-[12.5px] leading-[1.45] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">{body}</span>
+        <span className="fs-13.5 font-semibold text-text-bright">{head}</span>
+        <span className="fs-12.5 leading-[1.45] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">{body}</span>
       </span>
       <Button variant="outline" size="member" disabled={busy} onClick={() => void ok()}>
         OK
@@ -1131,17 +1131,17 @@ function Managed({ primary, kind, updating }: { primary: string; kind: string; u
           <KindGlyph kind={kind} />
         </span>
         <span className="flex flex-1 flex-col gap-[5px]">
-          <span className="text-[12.5px] leading-[1.5] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
+          <span className="fs-12.5 leading-[1.5] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
             <span className="font-semibold text-text-bright">{primary}</span> manages this group — add and remove devices there.
           </span>
           {/* Canvas 50r: a server primary adds and removes in its terminal. */}
           {kind === 'headless' && (
-            <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">on {primary}: orbital devices</span>
+            <span className="font-mono fs-10.5 text-[rgba(160,190,225,.55)]">on {primary}: orbital devices</span>
           )}
         </span>
       </div>
       {updating && (
-        <span className="border-t border-[rgba(150,205,255,.08)] pl-6 pt-2.5 text-[12px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+        <span className="border-t border-[rgba(150,205,255,.08)] pl-6 pt-2.5 fs-12 leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
           {primary} is updating. Adding and removing devices waits until it’s back; everything else keeps working.
         </span>
       )}
@@ -1201,8 +1201,8 @@ function Leave({
         <div className="flex flex-col gap-2.5">
           <div className="flex items-center gap-3">
             <span className="flex flex-1 flex-col gap-[3px]">
-              <span className="text-[13px] font-semibold text-text-bright">{words.title}</span>
-              <span className="text-[12px] leading-[1.45] text-[rgba(160,190,225,.7)]">{words.sub}</span>
+              <span className="fs-13 font-semibold text-text-bright">{words.title}</span>
+              <span className="fs-12 leading-[1.45] text-[rgba(160,190,225,.7)]">{words.sub}</span>
             </span>
             <Button
               variant="outline"
@@ -1216,11 +1216,11 @@ function Leave({
               {words.button}
             </Button>
           </div>
-          {line && <span className="text-[12.5px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">{line}</span>}
+          {line && <span className="fs-12.5 leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">{line}</span>}
         </div>
       ) : (
         <div className="flex flex-col gap-2.5">
-          <span className="text-[12.5px] leading-[1.5] text-text-bright [text-wrap:pretty]">
+          <span className="fs-12.5 leading-[1.5] text-text-bright [text-wrap:pretty]">
             {words.question} <span className="text-[rgba(160,190,225,.7)]">{words.body}</span>
           </span>
           <div className="flex justify-end gap-2">
@@ -1261,14 +1261,14 @@ function RelayTooOldCard({
         className="h-[150px] w-[150px] shrink-0 rounded-[12px] border border-dashed border-[rgba(150,205,255,.16)] bg-[rgba(6,10,20,.5)]"
       />
       <div className="flex min-w-0 flex-1 flex-col items-start gap-3">
-        <div className="text-[13.5px] font-semibold text-text-bright">The relay needs an update</div>
-        <div className="max-w-[460px] text-[12px] leading-[1.6] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+        <div className="fs-13.5 font-semibold text-text-bright">The relay needs an update</div>
+        <div className="max-w-[460px] fs-12 leading-[1.6] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
           The relay at <span className="font-mono text-text-bright">{host}</span> refused the connection: it’s older than
           this Orbital supports. Whoever runs it updates the relay image; Orbital reconnects on its own. The other
           devices can’t connect until then.
         </div>
         {checkedAt !== null && (
-          <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+          <span className="font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
             still {version ?? 'an older relay'} · {checkedLabel(checkedAt, now)}
           </span>
         )}
@@ -1480,7 +1480,7 @@ function RelaySettings({
           </>
         }
       >
-        <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+        <p className="fs-13 leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
           {ask.body(count)}
         </p>
       </Dialog>

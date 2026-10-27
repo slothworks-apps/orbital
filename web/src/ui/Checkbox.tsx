@@ -24,7 +24,7 @@ export function Checkbox({ checked, onChange, label, disabled = false, ...aria }
     // overflow-hidden ancestor's scrollHeight, and the browser scroll-on-focus
     // then scrolls that ancestor when the label is clicked — shearing the
     // whole layout (Settings dialog, 2026-09-20).
-    <label className="relative flex cursor-pointer select-none items-center gap-2.5 text-[12.5px] text-text-soft">
+    <label className="relative flex cursor-pointer select-none items-center gap-2.5 fs-12.5 text-text-soft">
       <input
         type="checkbox"
         className="peer sr-only"
@@ -40,7 +40,7 @@ export function Checkbox({ checked, onChange, label, disabled = false, ...aria }
       <span
         aria-hidden
         className={[
-          'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-[9px] leading-none transition-colors',
+          'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border fs-9 leading-none transition-colors',
           'peer-focus-visible:ring-1 peer-focus-visible:ring-accent',
           checked ? "border-accent bg-accent text-space after:content-['✓']" : 'border-panel-border bg-panel-solid',
         ].join(' ')}
@@ -61,7 +61,7 @@ export function Toggle({ checked, onChange, label, disabled = false, ...aria }: 
     // (canvas `Feature - Branch status` 1g, the PR switch without gh).
     <label
       className={[
-        'relative flex select-none items-center gap-2 text-sm text-text-soft',
+        'relative flex select-none items-center gap-2 fs-14 leading-(--text-sm--line-height) text-text-soft',
         disabled ? 'cursor-not-allowed opacity-45' : 'cursor-pointer',
       ].join(' ')}
     >

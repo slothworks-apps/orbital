@@ -34,12 +34,12 @@ export function LimitsScreen() {
         type="button"
         aria-label="Back"
         onClick={() => goBack()}
-        className="grid h-11 w-11 shrink-0 place-items-center text-[28px] leading-none text-[rgba(220,235,255,.85)]"
+        className="grid h-11 w-11 shrink-0 place-items-center fs-28 leading-none text-[rgba(220,235,255,.85)]"
       >
         ‹
       </button>
-      <h1 className="min-w-0 flex-1 text-[17px] font-bold">Limits</h1>
-      {view?.read && <span className="font-mono text-[11px] text-[rgba(160,190,225,.55)]">{view.read}</span>}
+      <h1 className="min-w-0 flex-1 fs-17 font-bold">Limits</h1>
+      {view?.read && <span className="font-mono fs-11 text-[rgba(160,190,225,.55)]">{view.read}</span>}
     </div>
   )
 
@@ -49,7 +49,7 @@ export function LimitsScreen() {
         {view?.stale && <StaleRow line={view.stale} reading={reading} onReadAgain={readAgain} />}
         {/* No member answered and none was ever read: 60d's stale row, with nothing under it. */}
         {!view && failed !== null && <StaleRow line="never read · no Mac answered" reading={reading} onReadAgain={readAgain} />}
-        {!view && failed === null && <span className="px-1 pt-5 font-mono text-[11px] text-[rgba(160,190,225,.6)]">reading…</span>}
+        {!view && failed === null && <span className="px-1 pt-5 font-mono fs-11 text-[rgba(160,190,225,.6)]">reading…</span>}
         {view?.groups.map((group) => <AccountSection key={group.key} group={group} />)}
       </div>
     </MobileScreen>
@@ -62,8 +62,8 @@ function StaleRow({ line, reading, onReadAgain }: { line: string; reading: boole
     <div className="mt-3 flex items-center gap-3 rounded-[14px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.7)] py-3 pl-3.5 pr-1.5">
       <span aria-hidden className="block h-4 w-4 shrink-0 rounded-full border border-dashed border-[rgba(200,215,235,.5)]" />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="text-[14px] font-semibold">May be out of date</span>
-        <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.65)] [overflow-wrap:anywhere]">{line}</span>
+        <span className="fs-14 font-semibold">May be out of date</span>
+        <span className="font-mono fs-10.5 text-[rgba(160,190,225,.65)] [overflow-wrap:anywhere]">{line}</span>
       </span>
       <SecondaryButton variant="compact" disabled={reading} onClick={onReadAgain}>
         {reading ? 'Reading…' : 'Read again'}
@@ -81,11 +81,11 @@ function AccountSection({ group }: { group: PhoneLimitGroup }) {
           {group.tiles.map((mono, i) => (
             <ClaudeDirMark key={i} mono={mono} size="phone" />
           ))}
-          <span className="min-w-0 flex-1 text-[15px] font-bold [overflow-wrap:anywhere]">{group.title}</span>
-          {group.plan && <span className="shrink-0 font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">{group.plan}</span>}
+          <span className="min-w-0 flex-1 fs-15 font-bold [overflow-wrap:anywhere]">{group.title}</span>
+          {group.plan && <span className="shrink-0 font-mono fs-10.5 text-[rgba(160,190,225,.55)]">{group.plan}</span>}
         </div>
         {group.meta && (
-          <div className="font-mono text-[10.5px] leading-[1.55] text-[rgba(160,190,225,.6)] [overflow-wrap:anywhere] [text-wrap:pretty]">
+          <div className="font-mono fs-10.5 leading-[1.55] text-[rgba(160,190,225,.6)] [overflow-wrap:anywhere] [text-wrap:pretty]">
             {group.meta}
           </div>
         )}
@@ -97,8 +97,8 @@ function AccountSection({ group }: { group: PhoneLimitGroup }) {
         ) : (
           <div className="flex flex-col gap-1 px-3.5 py-3">
             {/* The desktop's words for an account without plan windows (31a, `NotTracked`). */}
-            <span className="text-[14px] font-semibold">Limits aren't tracked</span>
-            <span className="text-[13px] leading-normal text-[rgba(190,212,238,.75)] [text-wrap:pretty]">
+            <span className="fs-14 font-semibold">Limits aren't tracked</span>
+            <span className="fs-13 leading-normal text-[rgba(190,212,238,.75)] [text-wrap:pretty]">
               This account has no plan windows — its usage is billed as it goes, so there is nothing to show here. Its
               sessions never wait for a reset.
             </span>
@@ -119,15 +119,15 @@ function WindowRow({ row, first }: { row: PhoneLimitRow; first: boolean }) {
       ].join(' ')}
     >
       <div className="flex items-baseline gap-2">
-        <span className="min-w-0 flex-1 text-[14.5px] font-semibold">{row.name}</span>
-        {row.word && <span className="font-mono text-[9.5px] tracking-[0.12em] text-[rgba(214,230,248,.8)]">{row.word}</span>}
-        <span className="font-mono text-[17px] leading-none">{row.value}</span>
+        <span className="min-w-0 flex-1 fs-14.5 font-semibold">{row.name}</span>
+        {row.word && <span className="font-mono fs-9.5 tracking-[0.12em] text-[rgba(214,230,248,.8)]">{row.word}</span>}
+        <span className="font-mono fs-17 leading-none">{row.value}</span>
       </div>
       <div className="h-1 overflow-hidden rounded-[2px] bg-[rgba(150,205,255,.1)]">
         <span className="block h-full rounded-[2px]" style={{ width: `${row.width}%`, background: FILL[row.severity] }} />
       </div>
       {(row.reset || row.estimate) && (
-        <div className="flex flex-col gap-0.5 font-mono text-[11px] leading-normal">
+        <div className="flex flex-col gap-0.5 font-mono fs-11 leading-normal">
           {row.reset && (
             <span className="text-[rgba(160,190,225,.6)]">
               resets <span className="text-text-bright">{row.reset}</span>

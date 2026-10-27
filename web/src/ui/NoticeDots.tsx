@@ -36,7 +36,7 @@ export function NoticeDots({
         />
       ))}
       {more > 0 && (
-        <span aria-hidden className="ml-0.5 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.6)]">
+        <span aria-hidden className="ml-0.5 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.6)]">
           +{more}
         </span>
       )}

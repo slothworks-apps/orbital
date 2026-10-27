@@ -147,7 +147,7 @@ function InputJson({ input }: { input: unknown }) {
   const json = JSON.stringify(input, null, 2) ?? ''
   const lines = json.split('\n')
   return (
-    <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+    <pre className="overflow-x-auto whitespace-pre-wrap font-mono fs-10.5 leading-[1.6] text-[rgba(160,190,225,.75)]">
       {lines.map((line, index) => {
         const trailing = index < lines.length - 1 ? '\n' : ''
         const match = PATH_FIELD_LINE.exec(line)
@@ -193,7 +193,7 @@ function InputJson({ input }: { input: unknown }) {
  * 9.5px mono caption, tracked out .16em (canvas 1b). */
 function SectionLabel({ children }: { children: string }) {
   return (
-    <div className="mb-1 font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.55)]">
+    <div className="mb-1 font-mono fs-9.5 tracking-[0.16em] text-[rgba(160,190,225,.55)]">
       {children}
     </div>
   )
@@ -370,7 +370,7 @@ export function ToolRow({
           aria-label={`${toolUse.toolName ?? 'Tool'}${label ? `: ${label}` : ''}`}
           className="absolute inset-0 h-full w-full"
         />
-        <div className="pointer-events-none relative flex w-full items-center gap-2 px-2.5 py-[7px] text-left font-mono text-[11.5px] text-[rgba(200,220,245,.8)]">
+        <div className="pointer-events-none relative flex w-full items-center gap-2 px-2.5 py-[7px] text-left font-mono fs-11.5 text-[rgba(200,220,245,.8)]">
           <span aria-hidden className="text-[rgba(160,190,225,.6)]">
             {expanded ? '▾' : '▸'}
           </span>
@@ -430,7 +430,7 @@ export function ToolRow({
                   e.stopPropagation()
                   onOpenSubagent(openableSubagent)
                 }}
-                className="font-mono text-[10.5px] tracking-[0.12em] text-[oklch(85%_0.12_205)] hover:underline"
+                className="font-mono fs-10.5 tracking-[0.12em] text-[oklch(85%_0.12_205)] hover:underline"
               >
                 OPEN →
               </button>
@@ -446,7 +446,7 @@ export function ToolRow({
                   e.stopPropagation()
                   onOpenTaskOutput(openableTask)
                 }}
-                className="font-mono text-[10.5px] tracking-[0.12em] text-[oklch(85%_0.12_205)] hover:underline"
+                className="font-mono fs-10.5 tracking-[0.12em] text-[oklch(85%_0.12_205)] hover:underline"
               >
                 OUTPUT →
               </button>
@@ -495,7 +495,7 @@ export function ToolRow({
               <SectionLabel>RESULT</SectionLabel>
               {wideImages ? (
                 // The images already stand under the row (above); the text is what is left.
-                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+                <pre className="overflow-x-auto whitespace-pre-wrap font-mono fs-10.5 leading-[1.6] text-[rgba(160,190,225,.75)]">
                   {toolResult.text}
                 </pre>
               ) : toolResult.images?.length ? (
@@ -516,7 +516,7 @@ export function ToolRow({
                         variant="tool"
                         source={toolUse.toolName ?? 'tool result'}
                       />
-                      <div className="min-w-0 font-mono text-[10.5px] leading-[1.7] text-[rgba(160,190,225,.6)]">
+                      <div className="min-w-0 font-mono fs-10.5 leading-[1.7] text-[rgba(160,190,225,.6)]">
                         {image.w && image.h ? (
                           <>
                             {image.w}×{image.h}
@@ -528,7 +528,7 @@ export function ToolRow({
                     </div>
                   ))}
                   {toolResult.text ? (
-                    <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+                    <pre className="overflow-x-auto whitespace-pre-wrap font-mono fs-10.5 leading-[1.6] text-[rgba(160,190,225,.75)]">
                       {toolResult.text}
                     </pre>
                   ) : null}
@@ -536,12 +536,12 @@ export function ToolRow({
                 </FileMessageContext.Provider>
               ) : toolUse.toolName === 'Bash' ? (
                 <pre
-                  className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]"
+                  className="overflow-x-auto whitespace-pre-wrap font-mono fs-10.5 leading-[1.6] text-[rgba(160,190,225,.75)]"
                   // `ansiToHtml` escapes its input before colorizing.
                   dangerouslySetInnerHTML={{ __html: ansiToHtml(toolResult.text ?? '') }}
                 />
               ) : (
-                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+                <pre className="overflow-x-auto whitespace-pre-wrap font-mono fs-10.5 leading-[1.6] text-[rgba(160,190,225,.75)]">
                   {toolResult.text}
                 </pre>
               )}

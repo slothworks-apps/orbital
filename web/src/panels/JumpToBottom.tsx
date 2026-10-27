@@ -75,6 +75,11 @@ const LABEL_TRANSITION = `opacity 420ms ${EASE_IN} 220ms`
  * as it was rather than collapsing on the way out (43e, NEW rule). */
 const FORGET_NEW_MS = 340
 
+/** A text size times the text step (spec 2026-10-27-text-size-design). */
+function scaled(px: number): string {
+  return `calc(${px}px * var(--text-scale, 1))`
+}
+
 /** `oklch(13% .02 262)` → `oklch(13% .02 262 / .92)`. */
 function withAlpha(oklch: string, alpha: number): string {
   return `${oklch.slice(0, -1)} / ${alpha})`
@@ -129,7 +134,11 @@ export function JumpToBottom({ state, surface, onJump }: JumpToBottomProps) {
   }, [state])
 
   const label = fresh ? 'Jump to the latest message — new messages below' : 'Jump to the latest message'
-  const width = fresh ? s.newWidth : s.height
+  // NEW's label grows with the text step (spec 2026-10-27-text-size-design);
+  // its padding and the arrow's cell do not, so only the label's share of
+  // `newWidth` is scaled and the default step stays 43e's width exactly.
+  const labelShare = s.newWidth - s.labelPad - s.arrowCell
+  const width = fresh ? `calc(${s.labelPad + s.arrowCell}px + ${labelShare}px * var(--text-scale, 1))` : s.height
 
   const scrimStyle: CSSProperties = {
     height: s.scrim,
@@ -195,7 +204,7 @@ export function JumpToBottom({ state, surface, onJump }: JumpToBottomProps) {
             className="shrink-0 whitespace-nowrap font-mono tracking-[0.14em]"
             style={{
               paddingLeft: s.labelPad,
-              fontSize: s.labelPx,
+              fontSize: scaled(s.labelPx),
               opacity: fresh ? 1 : 0,
               transition: reduced ? undefined : LABEL_TRANSITION,
             }}
@@ -205,7 +214,7 @@ export function JumpToBottom({ state, surface, onJump }: JumpToBottomProps) {
           <span
             aria-hidden
             className="grid shrink-0 place-items-center font-mono leading-none"
-            style={{ width: s.arrowCell, fontSize: s.arrowPx }}
+            style={{ width: s.arrowCell, fontSize: scaled(s.arrowPx) }}
           >
             ↓
           </span>

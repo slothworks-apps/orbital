@@ -119,7 +119,7 @@ function RailPage({
       {seen && (
         <PdfPageCanvas doc={doc} page={page} heightPx={RAIL_PAGE_H_PX} widthPx={RAIL_PAGE_W_PX} className="block object-contain" />
       )}
-      <span className="absolute bottom-0.5 right-[3px] font-mono text-[8px] text-[rgba(200,220,245,.6)]">{page}</span>
+      <span className="absolute bottom-0.5 right-[3px] font-mono fs-8 text-[rgba(200,220,245,.6)]">{page}</span>
     </button>
   )
 }

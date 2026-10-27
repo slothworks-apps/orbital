@@ -39,7 +39,7 @@ function GateThumb({ sessionId, path, offline }: { sessionId: string; path: stri
   if (notCached) {
     // canvas 10c second phone: nothing to show until the Mac wakes.
     return (
-      <span className="grid h-[54px] min-w-0 flex-1 place-items-center rounded-[8px] border border-dashed border-[rgba(150,205,255,.14)] px-1.5 font-mono text-[9.5px] text-[rgba(160,190,225,.5)]">
+      <span className="grid h-[54px] min-w-0 flex-1 place-items-center rounded-[8px] border border-dashed border-[rgba(150,205,255,.14)] px-1.5 font-mono fs-9.5 text-[rgba(160,190,225,.5)]">
         <span className="block max-w-full truncate">not cached</span>
       </span>
     )
@@ -51,7 +51,7 @@ function GateThumb({ sessionId, path, offline }: { sessionId: string; path: stri
       onClick={() => openFile({ sessionId, path, line: null })}
       className={[
         // canvas 10b: the thumbnail box; 10c's cached one sits on a quieter border.
-        'relative grid h-[54px] min-w-0 flex-1 place-items-center overflow-hidden rounded-[8px] border px-1.5 font-mono text-[9.5px] text-[rgba(200,220,245,.7)]',
+        'relative grid h-[54px] min-w-0 flex-1 place-items-center overflow-hidden rounded-[8px] border px-1.5 font-mono fs-9.5 text-[rgba(200,220,245,.7)]',
         offline ? 'border-[rgba(150,205,255,.14)]' : 'border-[rgba(150,205,255,.16)]',
         url ? '' : 'bg-[repeating-linear-gradient(135deg,rgba(150,205,255,.07)_0_6px,rgba(150,205,255,.02)_6px_12px)]',
       ].join(' ')}

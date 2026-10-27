@@ -442,7 +442,7 @@ export function MenuPopup({
                 // from the rows' edge; the first one gets more room
                 // above it than the ones between groups.
                 className={[
-                  'shrink-0 px-2.5 font-mono text-[9.5px] uppercase tracking-[.18em] text-[rgba(160,190,225,.6)]',
+                  'shrink-0 px-2.5 font-mono fs-9.5 uppercase tracking-[.18em] text-[rgba(160,190,225,.6)]',
                   i === 0 ? 'pt-2 pb-1.5' : 'py-1.5',
                 ].join(' ')}
               >
@@ -497,16 +497,16 @@ export function MenuPopup({
                   >
                     {entry.icon}
                   </span>
-                  <span className="min-w-0 flex-1 truncate font-sans text-[12.5px] font-semibold">{entry.label}</span>
+                  <span className="min-w-0 flex-1 truncate font-sans fs-12.5 font-semibold">{entry.label}</span>
                   {entry.detail !== undefined && (
-                    <span className="shrink-0 font-mono text-[10px] text-[rgba(160,190,225,.5)]">{entry.detail}</span>
+                    <span className="shrink-0 font-mono fs-10 text-[rgba(160,190,225,.5)]">{entry.detail}</span>
                   )}
                 </>
               )}
               {marksSelection && (
                 // 25a's mark: a fixed column in the accent, kept on
                 // every row so marking one shifts none.
-                <span aria-hidden className="block w-3 shrink-0 text-[11px] text-accent">
+                <span aria-hidden className="block w-3 shrink-0 fs-11 text-accent">
                   {entry.selected ? '✓' : null}
                 </span>
               )}

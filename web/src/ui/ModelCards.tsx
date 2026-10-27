@@ -47,13 +47,13 @@ function ActiveDot() {
 }
 
 function cardTitleClassName(compact: boolean): string {
-  return ['block truncate font-mono text-text-bright', compact ? 'text-[11.5px]' : 'text-xs'].join(' ')
+  return ['block truncate font-mono text-text-bright', compact ? 'fs-11.5' : 'fs-12 leading-(--text-xs--line-height)'].join(' ')
 }
 
 function blurbClassName(active: boolean): string {
   // canvas 4b body: 5px top margin.
   return [
-    'mt-[5px] block text-[11.5px] leading-[1.4] [text-wrap:pretty]',
+    'mt-[5px] block fs-11.5 leading-[1.4] [text-wrap:pretty]',
     active ? 'text-[rgba(200,220,245,.85)]' : 'text-[rgba(160,190,225,.7)]',
   ].join(' ')
 }
@@ -88,7 +88,7 @@ export function ModelCards({
 }: ModelCardsProps) {
   if (models.length === 0) {
     return (
-      <p className="rounded-[10px] border border-panel-border bg-[rgba(4,8,16,.4)] px-3.5 py-3 text-[11.5px] leading-[1.4] text-[rgba(160,190,225,.7)]">
+      <p className="rounded-[10px] border border-panel-border bg-[rgba(4,8,16,.4)] px-3.5 py-3 fs-11.5 leading-[1.4] text-[rgba(160,190,225,.7)]">
         The model list could not be read from Claude Code. Sessions still launch — they use whatever
         model Claude Code is configured with.
       </p>
@@ -122,7 +122,7 @@ export function ModelCards({
             <span className={cardTitleClassName(compact)}>{model.shortVersion}</span>
             {compact
               ? model.contextWindow !== null && (
-                  <span className="mt-1 block text-[11px] leading-[1.4] text-[rgba(160,190,225,.7)]">
+                  <span className="mt-1 block fs-11 leading-[1.4] text-[rgba(160,190,225,.7)]">
                     {formatContextWindow(model.contextWindow)} ctx
                   </span>
                 )
@@ -131,7 +131,7 @@ export function ModelCards({
               // canvas 4b meta line: 8px top margin, 9.5px mono, .1em tracking.
               <span
                 className={[
-                  'mt-2 flex items-center gap-2 font-mono text-[9.5px] tracking-[0.1em]',
+                  'mt-2 flex items-center gap-2 font-mono fs-9.5 tracking-[0.1em]',
                   active ? 'text-accent' : 'text-[rgba(160,190,225,.5)]',
                 ].join(' ')}
               >
@@ -142,7 +142,7 @@ export function ModelCards({
               </span>
             )}
             {compact && isDefault && (
-              <span className="mt-1 block font-mono text-[9.5px] tracking-[0.1em] text-[rgba(160,190,225,.5)]">
+              <span className="mt-1 block font-mono fs-9.5 tracking-[0.1em] text-[rgba(160,190,225,.5)]">
                 DEFAULT
               </span>
             )}

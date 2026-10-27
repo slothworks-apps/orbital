@@ -38,7 +38,7 @@ export function SessionComposer({ id }: { id: string }) {
     // controls under it dimmed with nothing to act on.
     return (
       <div className="border-t border-[rgba(150,205,255,.1)] bg-[rgba(6,10,20,.94)] px-3 pb-1 pt-2.5">
-        <div className="flex items-center gap-2.5 rounded-[10px] border border-dashed border-[rgba(150,205,255,.22)] px-3 py-3 text-[13px] text-text-muted">
+        <div className="flex items-center gap-2.5 rounded-[10px] border border-dashed border-[rgba(150,205,255,.22)] px-3 py-3 fs-13 text-text-muted">
           <LockIcon />
           <span className="min-w-0 truncate">{refused ?? `${mode.macName} is asleep — read only`}</span>
         </div>
@@ -49,7 +49,7 @@ export function SessionComposer({ id }: { id: string }) {
   if (mode.kind === 'terminal') {
     // 9p "TERMINAL SESSION · NO COMPOSER".
     return (
-      <div className="border-t border-panel-border px-4 py-3 text-center font-mono text-[11px] text-text-muted">
+      <div className="border-t border-panel-border px-4 py-3 text-center font-mono fs-11 text-text-muted">
         Started in Terminal — reply there.
       </div>
     )
@@ -183,7 +183,7 @@ function LiveComposer({ id }: { id: string }) {
         control={composer}
       />
       {error && (
-        <div role="alert" className="mt-2 px-1 font-mono text-[11px] text-[var(--state-input)]">
+        <div role="alert" className="mt-2 px-1 font-mono fs-11 text-[var(--state-input)]">
           {error}
         </div>
       )}
@@ -227,7 +227,7 @@ function Controls(
     <div className={['mt-1 flex items-center gap-0.5', live ? '' : 'opacity-40'].join(' ')}>
       {live?.hint ? (
         // Canvas 10b, third phone: the hint takes the photos' place.
-        <span className="min-w-0 flex-1 truncate pl-1.5 font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
+        <span className="min-w-0 flex-1 truncate pl-1.5 font-mono fs-10.5 text-[rgba(160,190,225,.55)]">
           {live.hint}
         </span>
       ) : (
@@ -242,7 +242,7 @@ function Controls(
           type="button"
           aria-label="Stop"
           onClick={live.onStop}
-          className="flex h-11 items-center gap-2 rounded-[12px] border border-[oklch(80%_.13_60/.5)] px-4 text-[14px] font-semibold text-[oklch(85%_.12_60)]"
+          className="flex h-11 items-center gap-2 rounded-[12px] border border-[oklch(80%_.13_60/.5)] px-4 fs-14 font-semibold text-[oklch(85%_.12_60)]"
         >
           <span aria-hidden className="block h-[9px] w-[9px] rounded-[1.5px] bg-current" />
           Stop
@@ -254,7 +254,7 @@ function Controls(
         onClick={() => live?.onSend()}
         disabled={!live || live.sendDisabled}
         // A round cyan disc that glows, faded while there is nothing to send (9b).
-        className="ml-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[oklch(85%_.12_205)] text-[18px] font-bold text-[#03111a] shadow-[0_0_18px_oklch(85%_.12_205/.4)] disabled:opacity-35 disabled:shadow-none"
+        className="ml-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[oklch(85%_.12_205)] fs-18 font-bold text-[#03111a] shadow-[0_0_18px_oklch(85%_.12_205/.4)] disabled:opacity-35 disabled:shadow-none"
       >
         ↑
       </button>

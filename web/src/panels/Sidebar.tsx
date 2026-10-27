@@ -93,7 +93,7 @@ function ReadOnlyBadge() {
   return (
     <span
       title="Attached from an external terminal · read-only in Orbital"
-      className="shrink-0 rounded border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.04)] px-[5px] py-px font-mono text-[9px] tracking-[0.1em] text-[rgba(160,190,225,.75)]"
+      className="shrink-0 rounded border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.04)] px-[5px] py-px font-mono fs-9 tracking-[0.1em] text-[rgba(160,190,225,.75)]"
     >
       read-only
     </span>
@@ -254,7 +254,7 @@ function IconButton({
       aria-label={label}
       title={title}
       onClick={onClick}
-      className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-panel-border text-sm text-[rgba(200,220,245,.7)] transition-colors hover:bg-white/5 hover:text-text-bright"
+      className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-panel-border fs-14 leading-(--text-sm--line-height) text-[rgba(200,220,245,.7)] transition-colors hover:bg-white/5 hover:text-text-bright"
     >
       <span aria-hidden>{glyph}</span>
     </button>
@@ -287,7 +287,7 @@ function RowStatus({ session }: { session: ApiSession }) {
     return (
       <span
         data-state="compacting"
-        className="orbital-compact-label-in flex shrink-0 items-center font-mono text-[9.5px] uppercase tracking-[0.08em] text-[rgba(214,228,246,.8)]"
+        className="orbital-compact-label-in flex shrink-0 items-center font-mono fs-9.5 uppercase tracking-[0.08em] text-[rgba(214,228,246,.8)]"
       >
         COMPACT {formatElapsed(now - compacting.startedAt)}
       </span>
@@ -299,7 +299,7 @@ function RowStatus({ session }: { session: ApiSession }) {
     return (
       <span
         data-state="limit"
-        className="flex shrink-0 items-center font-mono text-[9.5px] uppercase tracking-[0.08em] text-[rgba(214,230,248,.8)]"
+        className="flex shrink-0 items-center font-mono fs-9.5 uppercase tracking-[0.08em] text-[rgba(214,230,248,.8)]"
       >
         {limitWaitShort(session.limitWait)}
       </span>
@@ -311,7 +311,7 @@ function RowStatus({ session }: { session: ApiSession }) {
     return (
       <span
         data-state="login"
-        className="flex shrink-0 items-center font-mono text-[9.5px] uppercase tracking-[0.08em] text-[rgba(214,230,248,.8)]"
+        className="flex shrink-0 items-center font-mono fs-9.5 uppercase tracking-[0.08em] text-[rgba(214,230,248,.8)]"
       >
         {loginWaitLabels(session.loginWait, null).short}
       </span>
@@ -320,7 +320,7 @@ function RowStatus({ session }: { session: ApiSession }) {
   return (
     <span
       data-state={key}
-      className="flex shrink-0 items-center gap-[5px] font-mono text-[9.5px] uppercase tracking-[0.08em]"
+      className="flex shrink-0 items-center gap-[5px] font-mono fs-9.5 uppercase tracking-[0.08em]"
       style={{ color }}
     >
       <StateDot dot={stillDot(dot, offline)} color={color} solidPx={5} hollowPx={6} />
@@ -415,7 +415,7 @@ function SessionRow({
           <span className="flex min-w-0 items-center gap-1.5">
             <span
               className={[
-                'min-w-0 truncate text-[13px] text-text-bright',
+                'min-w-0 truncate fs-13 text-text-bright',
                 history ? 'font-medium' : 'font-semibold',
               ].join(' ')}
             >
@@ -435,14 +435,14 @@ function SessionRow({
             // path, at the same x on every row so a column of them can be
             // scanned. It takes the pointer for its tooltip and passes the
             // press on to the row.
-            <span className="mt-[3px] flex min-w-0 items-center gap-1.5 font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+            <span className="mt-[3px] flex min-w-0 items-center gap-1.5 font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
               <span className="pointer-events-auto flex" onClick={() => onSelect(session.id)}>
                 <ClaudeDirMark mono={dirMark.mono} title={dirMark.title} />
               </span>
               <span className="min-w-0 truncate">{meta}</span>
             </span>
           ) : (
-            <span className="block truncate font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+            <span className="block truncate font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
               {meta}
             </span>
           )}
@@ -488,7 +488,7 @@ function SectionHeading({
     <h3
       ref={headingRef}
       className={[
-        'flex items-center gap-2 px-[18px] pb-1.5 font-mono text-[10px] tracking-[0.18em] text-text-muted',
+        'flex items-center gap-2 px-[18px] pb-1.5 font-mono fs-10 tracking-[0.18em] text-text-muted',
         first ? 'pt-3.5' : 'pt-[18px]',
       ].join(' ')}
     >
@@ -821,7 +821,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         ].join(' ')}
       >
         <Logo dimmed={!windowFocused} />
-        <span className="text-[13px] font-bold tracking-[0.22em] text-text-bright">ORBITAL</span>
+        <span className="fs-13 font-bold tracking-[0.22em] text-text-bright">ORBITAL</span>
         <span className="flex-1" />
         <IconButton
           label="Collapse sidebar"
@@ -832,8 +832,8 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
       </div>
 
       {/* Search field verbatim from canvas 1a: dark inset container with a ⌕ glyph and a ⌘K keycap. */}
-      <label className="mx-3.5 flex items-center gap-2 rounded-[9px] border border-panel-border bg-[rgba(4,8,16,.6)] px-3 py-[9px] text-[13px] text-[rgba(160,190,225,.6)]">
-        <span aria-hidden className="text-sm">⌕</span>
+      <label className="mx-3.5 flex items-center gap-2 rounded-[9px] border border-panel-border bg-[rgba(4,8,16,.6)] px-3 py-[9px] fs-13 text-[rgba(160,190,225,.6)]">
+        <span aria-hidden className="fs-14 leading-(--text-sm--line-height)">⌕</span>
         <input
           id={SEARCH_INPUT_ID}
           type="search"
@@ -841,9 +841,9 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search sessions"
           aria-label="Search sessions"
-          className="min-w-0 flex-1 border-0 bg-transparent text-[13px] text-text-bright outline-none placeholder:text-[rgba(160,190,225,.6)]"
+          className="min-w-0 flex-1 border-0 bg-transparent fs-13 text-text-bright outline-none placeholder:text-[rgba(160,190,225,.6)]"
         />
-        <span className="rounded border border-[rgba(150,205,255,.18)] px-[5px] py-0.5 font-mono text-[10px] text-text-muted">
+        <span className="rounded border border-[rgba(150,205,255,.18)] px-[5px] py-0.5 font-mono fs-10 text-text-muted">
           {shortcutLabel('global.search')}
         </span>
       </label>
@@ -894,7 +894,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
                   history={s.status === 'ended'}
                   right={
                     s.status === 'ended' ? (
-                      <span className="font-mono text-[10px] text-text-muted">
+                      <span className="font-mono fs-10 text-text-muted">
                         {timeAgo(s.lastAt ?? Date.now())}
                       </span>
                     ) : (
@@ -954,7 +954,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
               deviceName={deviceNameOf(s)}
               history
               right={
-                <span className="font-mono text-[10px] text-text-muted">
+                <span className="font-mono fs-10 text-text-muted">
                   {timeAgo(s.lastAt ?? Date.now())}
                 </span>
               }
@@ -965,7 +965,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         <div ref={sentinelRef} data-testid="sidebar-sentinel" aria-hidden className="h-px" />
       </div>
 
-      <div className="flex items-center gap-2 border-t border-[rgba(150,205,255,.1)] px-[18px] py-3 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+      <div className="flex items-center gap-2 border-t border-[rgba(150,205,255,.1)] px-[18px] py-3 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.55)]">
         {/* 4a's footer carries the pin count beside the session count, and
             only while there is one to carry. */}
         <span>
@@ -988,7 +988,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           aria-label="Open settings"
           title={`Settings · ${shortcutLabel('global.settings')}`}
           onClick={() => setDialog('settings')}
-          className="flex h-6 items-center gap-[7px] rounded-[7px] border border-panel-border bg-[rgba(150,205,255,.05)] px-[9px] tracking-[0.14em] text-[rgba(200,220,245,.8)] transition-colors duration-[180ms] hover:bg-[rgba(150,205,255,.12)] hover:text-text-bright"
+          className="flex min-h-6 items-center gap-[7px] rounded-[7px] border border-panel-border bg-[rgba(150,205,255,.05)] px-[9px] tracking-[0.14em] text-[rgba(200,220,245,.8)] transition-colors duration-[180ms] hover:bg-[rgba(150,205,255,.12)] hover:text-text-bright"
         >
           <SettingsRing size={9} />
           SETTINGS

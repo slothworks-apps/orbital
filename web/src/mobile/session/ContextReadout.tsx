@@ -37,8 +37,8 @@ export function ContextReadout({ session, offline }: SlotProps) {
         className={['flex h-11 shrink-0 items-center gap-[7px] px-1', offline ? 'opacity-70' : ''].join(' ')}
       >
         <span className="flex flex-col items-end font-mono leading-[1.2]">
-          <span className="text-[11px] text-text-bright">{lines.used}</span>
-          {lines.window && <span className="text-[9.5px] text-[rgba(160,190,225,.55)]">{lines.window}</span>}
+          <span className="fs-11 text-text-bright">{lines.used}</span>
+          {lines.window && <span className="fs-9.5 text-[rgba(160,190,225,.55)]">{lines.window}</span>}
         </span>
         {ring && (
           <span

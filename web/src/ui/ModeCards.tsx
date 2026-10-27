@@ -72,7 +72,7 @@ export function ModeCards({ value, onChange, disabled = false, compact: compactP
             <span
               className={[
                 'flex items-center font-mono text-text-bright',
-                touch ? 'gap-[7px] text-[12px]' : compact ? 'gap-[7px] text-[11.5px]' : 'gap-2 text-xs',
+                touch ? 'gap-[7px] fs-12' : compact ? 'gap-[7px] fs-11.5' : 'gap-2 fs-12 leading-(--text-xs--line-height)',
               ].join(' ')}
             >
               <ModeDot mode={mode.value} />
@@ -81,7 +81,7 @@ export function ModeCards({ value, onChange, disabled = false, compact: compactP
             <span
               className={[
                 'block leading-[1.4] [text-wrap:pretty]',
-                touch ? 'mt-1 text-[11.5px] leading-[1.35]' : compact ? 'mt-1 text-[11px]' : 'mt-[5px] text-[11.5px]',
+                touch ? 'mt-1 fs-11.5 leading-[1.35]' : compact ? 'mt-1 fs-11' : 'mt-[5px] fs-11.5',
                 active && !compact ? 'text-[rgba(200,220,245,.85)]' : touch ? 'text-[rgba(160,190,225,.65)]' : 'text-[rgba(160,190,225,.7)]',
               ].join(' ')}
             >

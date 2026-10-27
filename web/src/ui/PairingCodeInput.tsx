@@ -28,8 +28,8 @@ const BOX_BORDER: Record<BoxState, string> = {
  * 50i: 42×56 boxes, mono 28px, a 7px gap and an 8px dash).
  */
 const SIZES = {
-  md: { box: 'h-[60px] w-11 text-[30px]', dash: 'w-2.5', row: 'gap-2' },
-  sm: { box: 'h-14 w-[42px] text-[28px]', dash: 'w-2', row: 'gap-[7px]' },
+  md: { box: 'min-h-[60px] w-11 fs-30', dash: 'w-2.5', row: 'gap-2' },
+  sm: { box: 'min-h-14 w-[42px] fs-28', dash: 'w-2', row: 'gap-[7px]' },
 } as const
 
 type Size = keyof typeof SIZES
@@ -93,7 +93,7 @@ export function PairingCodeInput({ value, onChange, onSubmit, disabled, autoFocu
         autoComplete="off"
         autoCapitalize="characters"
         spellCheck={false}
-        className="absolute inset-0 m-0 h-full w-full cursor-text border-0 p-0 text-[16px] opacity-0"
+        className="absolute inset-0 m-0 h-full w-full cursor-text border-0 p-0 fs-16 opacity-0"
       />
     </label>
   )

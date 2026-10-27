@@ -28,9 +28,9 @@ export function BranchSheet({ session, mac, onClose }: { session: ApiSession; ma
     <BottomSheet label="Branch" onDismiss={onClose}>
       <div className="flex max-h-[70vh] flex-col gap-3.5 overflow-y-auto px-1.5 pb-1">
         <div>
-          <div className="font-mono text-[10px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">BRANCH</div>
-          <div className="mt-2 font-mono text-[15px] leading-[1.4] text-text-bright [overflow-wrap:anywhere]">{git.ref}</div>
-          <div className="mt-1 font-mono text-[10px] text-[rgba(160,190,225,.5)]">{where}</div>
+          <div className="font-mono fs-10 tracking-[0.18em] text-[rgba(160,190,225,.6)]">BRANCH</div>
+          <div className="mt-2 font-mono fs-15 leading-[1.4] text-text-bright [overflow-wrap:anywhere]">{git.ref}</div>
+          <div className="mt-1 font-mono fs-10 text-[rgba(160,190,225,.5)]">{where}</div>
         </div>
         {lines && (
           <div className={`${RULE} pt-3.5`}>
@@ -39,14 +39,14 @@ export function BranchSheet({ session, mac, onClose }: { session: ApiSession; ma
         )}
         {pr && (
           <div className={`${RULE} flex flex-col gap-2.5 pt-3.5`}>
-            <span className="font-mono text-[11px] text-text-bright">Pull request #{pr.number}</span>
+            <span className="font-mono fs-11 text-text-bright">Pull request #{pr.number}</span>
             <PrRows pr={pr} />
             <StateButton onClick={() => window.open(pr.url, '_blank', 'noopener')}>Open on GitHub</StateButton>
-            <span className="font-mono text-[10px] text-[rgba(160,190,225,.5)] [overflow-wrap:anywhere]">{prUrlText(pr.url)}</span>
+            <span className="font-mono fs-10 text-[rgba(160,190,225,.5)] [overflow-wrap:anywhere]">{prUrlText(pr.url)}</span>
           </div>
         )}
         {!session.branch && (
-          <div className={`${RULE} pt-3.5 text-[12px] leading-[1.5] text-pretty text-[rgba(160,190,225,.75)]`}>
+          <div className={`${RULE} pt-3.5 fs-12 leading-[1.5] text-pretty text-[rgba(160,190,225,.75)]`}>
             Line changes and the pull request show here when they are on in Settings → Appearance on {mac}.
           </div>
         )}

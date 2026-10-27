@@ -199,6 +199,8 @@ describe('openDb', () => {
       end_closes_panel: 'true',
       questions_review_before_send: 'true',
       planet_scale: '1',
+      text_scale: '1',
+      transcript_text_scale: 'app',
       map_scale_labels: 'false',
       detail_panel_width: '450',
       sidebar_collapsed: 'false',

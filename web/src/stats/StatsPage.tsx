@@ -120,13 +120,13 @@ function StatsDashboard() {
       />
 
       {error !== null && (
-        <div className="rounded-[14px] border border-[rgba(255,138,122,.35)] bg-[rgba(4,8,16,.45)] px-[14px] py-3 font-mono text-[11.5px] text-[#ff8a7a]">
+        <div className="rounded-[14px] border border-[rgba(255,138,122,.35)] bg-[rgba(4,8,16,.45)] px-[14px] py-3 font-mono fs-11.5 text-[#ff8a7a]">
           stats unavailable — {error}
         </div>
       )}
 
       {overview === null && error === null && (
-        <div className="flex flex-1 items-center justify-center font-mono text-[11.5px] text-[rgba(160,190,225,.5)]">
+        <div className="flex flex-1 items-center justify-center font-mono fs-11.5 text-[rgba(160,190,225,.5)]">
           reading transcripts…
         </div>
       )}

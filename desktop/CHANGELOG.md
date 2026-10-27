@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Settings → Appearance can make the text larger, across the app and on its own for the session transcript. Spacing and the map's labels stay as they are. Thanks to @N0x1k for the idea.
 
 ## [0.44.0] — 2026-10-27
 ### Added

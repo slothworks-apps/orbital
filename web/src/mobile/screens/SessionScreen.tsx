@@ -162,12 +162,12 @@ function SessionView({ id }: { id: string }) {
           type="button"
           aria-label="Back to sessions"
           onClick={() => goBack()}
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] text-[28px] leading-none text-[rgba(220,235,255,.85)]"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] fs-28 leading-none text-[rgba(220,235,255,.85)]"
         >
           ‹
         </button>
         <div className="min-w-0 flex-1 pr-2">
-          <h1 className="flex text-[16.5px] font-bold tracking-[-0.01em]">
+          <h1 className="flex fs-16.5 font-bold tracking-[-0.01em]">
             <FullTextTip text={session?.title || 'Untitled session'} className="truncate">
               {session?.title || 'Untitled session'}
             </FullTextTip>

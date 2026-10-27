@@ -144,12 +144,12 @@ export function PairingScreen() {
           frame is where it comes back from: a tap opens it again. */}
       {scanner !== 'unsupported' && <ScanFrame onScan={() => void scan()} />}
       {scanner === 'installing' && (
-        <p className="text-center text-[13px] text-[rgba(160,190,225,.65)]">Scanner is installing — try again in a moment</p>
+        <p className="text-center fs-13 text-[rgba(160,190,225,.65)]">Scanner is installing — try again in a moment</p>
       )}
-      <p className="text-center text-[14px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+      <p className="text-center fs-14 leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
         On a desktop: Orbital → Settings → <span className="font-semibold text-text-bright">Devices</span>.
       </p>
-      <p className="max-w-[270px] text-center font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.55)]">
+      <p className="max-w-[270px] text-center font-mono fs-10.5 leading-[1.6] text-[rgba(160,190,225,.55)]">
         an older Orbital shows it under Settings → Mobile · no account · the code carries the relay address and the
         device&apos;s public key
       </p>
@@ -161,7 +161,7 @@ export function PairingScreen() {
             start(pasted)
           }}
         >
-          <label htmlFor="pairing-code" className="font-mono text-[10.5px] tracking-[0.14em] text-text-muted">
+          <label htmlFor="pairing-code" className="font-mono fs-10.5 tracking-[0.14em] text-text-muted">
             OR PASTE THE CODE&apos;S TEXT
           </label>
           <textarea
@@ -177,7 +177,7 @@ export function PairingScreen() {
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
-            className="rounded-[10px] border border-panel-border bg-[rgba(4,8,16,.6)] p-3 font-mono text-[12px] text-text-soft"
+            className="rounded-[10px] border border-panel-border bg-[rgba(4,8,16,.6)] p-3 font-mono fs-12 text-text-soft"
           />
           <SecondaryButton type="submit" disabled={!pasted.trim()}>
             Pair
@@ -185,7 +185,7 @@ export function PairingScreen() {
         </form>
       )}
       {identityIsDevOnly() && (
-        <p className="font-mono text-[10.5px] text-text-muted">dev only · this browser keeps the phone&apos;s key unprotected</p>
+        <p className="font-mono fs-10.5 text-text-muted">dev only · this browser keeps the phone&apos;s key unprotected</p>
       )}
     </Step>
   )
@@ -201,7 +201,7 @@ function ScanFrame({ onScan }: { onScan: () => void }) {
       onClick={onScan}
       className="relative mt-1.5 grid aspect-square w-full max-w-[300px] place-items-center overflow-hidden rounded-[24px] bg-[#080c16] bg-[image:repeating-linear-gradient(135deg,rgba(150,205,255,.06)_0_8px,rgba(150,205,255,.015)_8px_16px)]"
     >
-      <span className="font-mono text-[10px] tracking-[0.14em] text-[rgba(160,190,225,.5)]">TAP TO SCAN</span>
+      <span className="font-mono fs-10 tracking-[0.14em] text-[rgba(160,190,225,.5)]">TAP TO SCAN</span>
       <span aria-hidden className={`${corner} left-10 top-10 rounded-tl-[10px] border-l-[3px] border-t-[3px]`} />
       <span aria-hidden className={`${corner} right-10 top-10 rounded-tr-[10px] border-r-[3px] border-t-[3px]`} />
       <span aria-hidden className={`${corner} bottom-10 left-10 rounded-bl-[10px] border-b-[3px] border-l-[3px]`} />
@@ -262,8 +262,8 @@ function ErrorCardView({ error }: { error: string | ErrorCard }) {
       role="alert"
       className="flex flex-col gap-1.5 rounded-[14px] border border-[rgba(150,205,255,.14)] bg-[rgba(10,16,28,.7)] px-3.5 py-3 text-left"
     >
-      {card.title && <span className="text-[14px] font-semibold text-text-bright">{card.title}</span>}
-      <span className="text-[13px] leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">{card.body}</span>
+      {card.title && <span className="fs-14 font-semibold text-text-bright">{card.title}</span>}
+      <span className="fs-13 leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">{card.body}</span>
     </div>
   )
 }
@@ -302,9 +302,9 @@ function Step({
       )}
       <div className={['relative flex flex-col items-center gap-[18px] px-7', mark ? 'pt-24' : 'pt-7'].join(' ')}>
         {mark}
-        {label && <div className="font-mono text-[10px] tracking-[0.2em] text-[oklch(85%_.12_205/.85)]">{label}</div>}
-        <h1 className={['text-center text-[24px] font-bold tracking-[-0.01em]', mark ? 'mt-2' : ''].join(' ')}>{title}</h1>
-        {body && <p className="text-center text-[14px] leading-[1.55] text-[rgba(200,214,235,.85)]">{body}</p>}
+        {label && <div className="font-mono fs-10 tracking-[0.2em] text-[oklch(85%_.12_205/.85)]">{label}</div>}
+        <h1 className={['text-center fs-24 font-bold tracking-[-0.01em]', mark ? 'mt-2' : ''].join(' ')}>{title}</h1>
+        {body && <p className="text-center fs-14 leading-[1.55] text-[rgba(200,214,235,.85)]">{body}</p>}
         {children}
       </div>
     </MobileScreen>
@@ -326,7 +326,7 @@ function ConfirmStep({
       footer={<SecondaryButton onClick={onCancel}>Cancel</SecondaryButton>}
     >
       {/* Canvas 50i: the device by its glyph, name, kind and (once known) OS. The code carries no OS. */}
-      <div className="flex max-w-full items-center gap-2.5 rounded-[12px] border border-[rgba(150,205,255,.14)] bg-[rgba(10,16,28,.7)] px-3.5 py-2.5 font-mono text-[12px] text-[rgba(200,220,245,.85)]">
+      <div className="flex max-w-full items-center gap-2.5 rounded-[12px] border border-[rgba(150,205,255,.14)] bg-[rgba(10,16,28,.7)] px-3.5 py-2.5 font-mono fs-12 text-[rgba(200,220,245,.85)]">
         <KindGlyph kind={step.deviceKind} untitled />
         <span className="truncate">{step.macName}</span>
         <span className="shrink-0 text-[rgba(160,190,225,.5)]">· {kindOs(step.deviceKind, '')}</span>
@@ -335,11 +335,11 @@ function ConfirmStep({
         <FingerprintBoxes value={step.fingerprint} />
       </div>
       {/* The device asks for the code (spec 2026-10-06-pairing-code-and-app-lock-design § 1). */}
-      <p className="max-w-[300px] text-center text-[14px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+      <p className="max-w-[300px] text-center fs-14 leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
         {step.macName} is asking for these six characters now.
       </p>
       {/* No clock while the user types (canvas 50i): a code that runs out gets its own card. */}
-      <p className="mt-3.5 font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">waiting for {step.macName}</p>
+      <p className="mt-3.5 font-mono fs-10.5 text-[rgba(160,190,225,.6)]">waiting for {step.macName}</p>
     </Step>
   )
 }
@@ -357,7 +357,7 @@ function PairedStep({ step }: { step: Extract<PairingStep, { kind: 'paired' }> }
       glow="paired"
       footer={<PrimaryButton onClick={() => useMobile.getState().go('list')}>Open sessions</PrimaryButton>}
     >
-      <dl className="mt-3.5 flex w-full flex-col rounded-[14px] border border-[rgba(150,205,255,.12)] bg-[rgba(10,16,28,.6)] font-mono text-[11.5px] text-[rgba(160,190,225,.65)]">
+      <dl className="mt-3.5 flex w-full flex-col rounded-[14px] border border-[rgba(150,205,255,.12)] bg-[rgba(10,16,28,.6)] font-mono fs-11.5 text-[rgba(160,190,225,.65)]">
         {[
           ['relay', step.relayHost],
           ['encryption', 'end-to-end'],

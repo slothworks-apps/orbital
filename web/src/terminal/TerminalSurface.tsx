@@ -79,8 +79,8 @@ function CloseQuestion({ tab, label }: { tab: TerminalInfo; label: string }) {
       aria-label={`${label} is still running`}
       className="absolute top-8 -left-0.5 z-[6] flex w-[318px] flex-col gap-2.5 rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] p-3.5 font-sans whitespace-normal shadow-[0_24px_60px_rgba(0,0,0,.6)]"
     >
-      <div className="text-[13px] font-semibold text-[#e8eef8]">{label} is still running</div>
-      <div className="text-[12px] leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+      <div className="fs-13 font-semibold text-[#e8eef8]">{label} is still running</div>
+      <div className="fs-12 leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
         Closing the tab ends its shell and stops what runs in it. Hiding the terminal or switching session
         keeps it running.
       </div>
@@ -89,19 +89,19 @@ function CloseQuestion({ tab, label }: { tab: TerminalInfo; label: string }) {
           ref={keepRef}
           type="button"
           onClick={keep}
-          className="cursor-pointer rounded-[7px] border border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] px-3 py-1.5 text-[12px] font-bold text-[#e8eef8] shadow-[0_0_0_2px_oklch(85%_.12_205_/_.45)] focus-visible:outline-none"
+          className="cursor-pointer rounded-[7px] border border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] px-3 py-1.5 fs-12 font-bold text-[#e8eef8] shadow-[0_0_0_2px_oklch(85%_.12_205_/_.45)] focus-visible:outline-none"
         >
           Keep running
         </button>
         <button
           type="button"
           onClick={() => void useTerminals.getState().close(tab.id)}
-          className="cursor-pointer rounded-[7px] border border-[rgba(150,205,255,.14)] bg-transparent px-3 py-1.5 text-[12px] font-semibold text-[rgba(200,220,245,.85)] hover:border-[rgba(150,205,255,.3)] hover:text-[#e8eef8]"
+          className="cursor-pointer rounded-[7px] border border-[rgba(150,205,255,.14)] bg-transparent px-3 py-1.5 fs-12 font-semibold text-[rgba(200,220,245,.85)] hover:border-[rgba(150,205,255,.3)] hover:text-[#e8eef8]"
         >
           Stop and close
         </button>
         <span className="flex-1" />
-        <span className="font-mono text-[10px] text-[rgba(160,190,225,.5)]">⏎ keep</span>
+        <span className="font-mono fs-10 text-[rgba(160,190,225,.5)]">⏎ keep</span>
       </div>
     </div>
   )
@@ -127,7 +127,7 @@ function Tab({
   return (
     <div
       className={[
-        'relative flex h-[26px] min-w-0 shrink items-center gap-0.5 rounded-md border py-0 pr-[3px] pl-2.5 font-mono text-[11px] whitespace-nowrap',
+        'relative flex min-h-[26px] min-w-0 shrink items-center gap-0.5 rounded-md border py-0 pr-[3px] pl-2.5 font-mono fs-11 whitespace-nowrap',
         active
           ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)]'
           : 'border-transparent bg-transparent hover:bg-[rgba(150,205,255,.07)]',
@@ -225,7 +225,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
           aria-label="New tab"
           title={`New tab · ${shortcutLabel('terminal.new-tab')}`}
           onClick={() => void useTerminals.getState().open(sessionId)}
-          className="ml-0.5 grid h-[26px] w-[26px] flex-none cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 font-mono text-[15px] leading-none text-[rgba(200,220,245,.7)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8]"
+          className="ml-0.5 grid h-[26px] w-[26px] flex-none cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 font-mono fs-15 leading-none text-[rgba(200,220,245,.7)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8]"
         >
           +
         </button>
@@ -234,7 +234,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
             never make a tab shrink, where a high flex-shrink still takes a
             fraction of a pixel from every tab, enough to ellipsize it. */}
         {variant !== 'side' ? (
-          <span className="ml-3 min-w-0 flex-1 basis-0 truncate text-right font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+          <span className="ml-3 min-w-0 flex-1 basis-0 truncate text-right font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.5)]">
             yours · not sent to the agent
           </span>
         ) : (
@@ -243,7 +243,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
         {size && (
           <span
             className={[
-              'flex-none font-mono text-[10px] whitespace-nowrap text-[rgba(160,190,225,.45)]',
+              'flex-none font-mono fs-10 whitespace-nowrap text-[rgba(160,190,225,.45)]',
               variant !== 'side' ? 'ml-3' : '',
             ].join(' ')}
           >
@@ -254,7 +254,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
           type="button"
           onClick={() => toggleTerminalShown(sessionId)}
           title={`Hide the terminal · ${toggle} shows it again`}
-          className="ml-2 h-6 flex-none cursor-pointer rounded-md border-0 bg-transparent px-2 font-mono text-[10px] tracking-[0.06em] whitespace-nowrap text-[rgba(200,220,245,.7)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8]"
+          className="ml-2 min-h-6 flex-none cursor-pointer rounded-md border-0 bg-transparent px-2 font-mono fs-10 tracking-[0.06em] whitespace-nowrap text-[rgba(200,220,245,.7)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8]"
         >
           hide {toggle}
         </button>
@@ -262,7 +262,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
 
       <div
         className={[
-          'flex min-h-0 flex-1 flex-col pt-2 pr-3.5 pb-2.5 pl-3.5 font-mono text-[12.5px] leading-5 text-[#d3deef]',
+          'flex min-h-0 flex-1 flex-col pt-2 pr-3.5 pb-2.5 pl-3.5 font-mono fs-12.5 leading-5 text-[#d3deef]',
           variant === 'dock' ? 'rounded-b-[13px]' : '',
         ].join(' ')}
         style={{ background: TERMINAL_BG }}
@@ -276,7 +276,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
         </div>
         {ended && (
           // 48d: one neutral line, whatever the code.
-          <div className="mt-1.5 flex flex-none items-center gap-3 border-t border-[rgba(150,205,255,.12)] pt-2 text-[11px] leading-[18px] text-[rgba(160,190,225,.7)]">
+          <div className="mt-1.5 flex flex-none items-center gap-3 border-t border-[rgba(150,205,255,.12)] pt-2 fs-11 leading-[calc(18px*var(--text-scale,1))] text-[rgba(160,190,225,.7)]">
             <span>
               shell ended · exit {ended.exitCode}
               {endedAt !== undefined && endedAt !== null ? ` · ${clock(endedAt)}` : ''}
@@ -285,7 +285,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
             <button
               type="button"
               onClick={() => void useTerminals.getState().restart(ended.id)}
-              className="cursor-pointer rounded-[5px] border border-[rgba(150,205,255,.14)] bg-transparent px-2 py-0.5 font-mono text-[10.5px] text-[rgba(200,220,245,.85)] hover:border-[rgba(150,205,255,.3)] hover:text-[#e8eef8]"
+              className="cursor-pointer rounded-[5px] border border-[rgba(150,205,255,.14)] bg-transparent px-2 py-0.5 font-mono fs-10.5 text-[rgba(200,220,245,.85)] hover:border-[rgba(150,205,255,.3)] hover:text-[#e8eef8]"
             >
               ⏎ new shell here
             </button>
@@ -295,7 +295,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
       </div>
 
       {variant === 'side' && (
-        <div className="flex h-[30px] flex-none items-center gap-2 rounded-b-[13px] border-t border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.6)] px-3.5 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+        <div className="flex min-h-[30px] flex-none items-center gap-2 rounded-b-[13px] border-t border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.6)] px-3.5 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.5)]">
           your shell · not sent to the agent
           <span className="flex-1" />
           {session ? shortenPath(workingDirOf(session)) : ''}

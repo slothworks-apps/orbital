@@ -70,7 +70,7 @@ function rowUpdate(row: PhoneRow, u: MemberUpdate | undefined, selfId: string | 
 const LINK_WORDS = { online: 'online', connecting: 'connecting…', off: 'offline' } as const
 
 /** Text-link rows of ADD A DEVICE (canvas 50i): 56 px, a chevron at the end. */
-const LINK_ROW = 'flex min-h-14 w-full items-center gap-3 px-3.5 text-left text-[14px] font-semibold text-text-bright'
+const LINK_ROW = 'flex min-h-14 w-full items-center gap-3 px-3.5 text-left fs-14 font-semibold text-text-bright'
 
 /** A member's join date as the sheet's `joined` says it (canvas 50i: `12 Oct`). */
 function joinedDate(ts: number | null): string {
@@ -136,9 +136,9 @@ export function DevicesSection() {
             <KindGlyph kind="phone" untitled />
           </span>
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="truncate text-[14.5px] font-semibold">{name}</span>
+            <span className="truncate fs-14.5 font-semibold">{name}</span>
             {/* Canvas 50s: this phone's own version, and no Update — its store updates it. */}
-            <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+            <span className="font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
               {kindOs('phone', os, device?.osVersion)} · {__MOBILE_VERSION__}
             </span>
           </span>
@@ -170,12 +170,12 @@ export function DevicesSection() {
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
                   <span className="flex min-w-0 items-center gap-2">
-                    <span className={['truncate text-[14.5px] font-semibold', nameInk].join(' ')}>{row.name}</span>
+                    <span className={['truncate fs-14.5 font-semibold', nameInk].join(' ')}>{row.name}</span>
                     {row.primary && <PrimaryLabel />}
                   </span>
                   <span
                     className={[
-                      'flex items-center gap-[7px] font-mono text-[10.5px]',
+                      'flex items-center gap-[7px] font-mono fs-10.5',
                       !away && (row.state === 'online' || update.dim === false)
                         ? 'text-[rgba(200,220,245,.85)]'
                         : 'text-[rgba(160,190,225,.72)]',
@@ -185,12 +185,12 @@ export function DevicesSection() {
                     <span className="truncate">{update.words}</span>
                   </span>
                   {/* Canvas 50s: the version at the end of the kind · OS line. */}
-                  <span className="truncate font-mono text-[10px] text-[rgba(160,190,225,.42)]">
+                  <span className="truncate font-mono fs-10 text-[rgba(160,190,225,.42)]">
                     {row.kindOs}
                     {update.version ? ` · ${update.version}` : ''}
                   </span>
                 </span>
-                <span aria-hidden className="grid h-11 w-8 place-items-center text-[18px] text-[rgba(160,190,225,.5)]">
+                <span aria-hidden className="grid h-11 w-8 place-items-center fs-18 text-[rgba(160,190,225,.5)]">
                   ›
                 </span>
               </button>
@@ -200,7 +200,7 @@ export function DevicesSection() {
       )}
 
       {inGroup && primary && (
-        <p className="px-1 pt-2.5 text-[12.5px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+        <p className="px-1 pt-2.5 fs-12.5 leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
           <span className="font-semibold text-text-bright">{primary.name}</span> manages this group — add and remove devices
           there.
         </p>
@@ -221,22 +221,22 @@ export function DevicesSection() {
               >
                 <span className="min-w-0 flex-1 truncate">{review.name} wants to join</span>
                 <span className="text-accent">Review</span>
-                <span aria-hidden className="text-[18px] text-[rgba(160,190,225,.5)]">›</span>
+                <span aria-hidden className="fs-18 text-[rgba(160,190,225,.5)]">›</span>
               </button>
             )}
             <button type="button" onClick={() => go('pairing')} className={LINK_ROW}>
               <span className="flex-1">Scan another device&apos;s code</span>
-              <span aria-hidden className="text-[18px] text-[rgba(160,190,225,.5)]">›</span>
+              <span aria-hidden className="fs-18 text-[rgba(160,190,225,.5)]">›</span>
             </button>
             {/* Only with a client on a relay to show it from: a phone standalone after the group's ending keeps one. */}
             {(pairing || link !== 'off') && (
               <button type="button" onClick={() => go('code')} className={`${LINK_ROW} border-t border-[rgba(150,205,255,.08)]`}>
                 <span className="flex-1">Show this phone&apos;s code</span>
-                <span aria-hidden className="text-[18px] text-[rgba(160,190,225,.5)]">›</span>
+                <span aria-hidden className="fs-18 text-[rgba(160,190,225,.5)]">›</span>
               </button>
             )}
           </div>
-          <p className="px-1 pt-2 text-[12px] leading-[1.5] text-[rgba(160,190,225,.65)] [text-wrap:pretty]">
+          <p className="px-1 pt-2 fs-12 leading-[1.5] text-[rgba(160,190,225,.65)] [text-wrap:pretty]">
             Scan the QR on a desktop&apos;s Devices page, or show a code for a desktop or server to paste.
           </p>
         </>
@@ -247,8 +247,8 @@ export function DevicesSection() {
       <div className={CARD}>
         <div className="flex min-h-16 items-center gap-2.5 px-3.5">
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="text-[14px] font-semibold">Relay</span>
-            <span className="flex min-w-0 items-center gap-[7px] font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+            <span className="fs-14 font-semibold">Relay</span>
+            <span className="flex min-w-0 items-center gap-[7px] font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
               <MemberDot state={link === 'online' ? 'online' : 'offline'} sizePx={6} />
               <span className="truncate">
                 {LINK_WORDS[link]}
@@ -259,7 +259,7 @@ export function DevicesSection() {
         </div>
       </div>
       {inGroup && (
-        <p className="px-1 pt-2 text-[12px] leading-[1.5] text-[rgba(160,190,225,.65)] [text-wrap:pretty]">
+        <p className="px-1 pt-2 fs-12 leading-[1.5] text-[rgba(160,190,225,.65)] [text-wrap:pretty]">
           {relayLockedLine('member')}
         </p>
       )}
@@ -269,7 +269,7 @@ export function DevicesSection() {
           <button
             type="button"
             onClick={() => setLeaving(true)}
-            className="flex min-h-13 w-full items-center px-3.5 text-left text-[14px] font-semibold text-text-bright"
+            className="flex min-h-13 w-full items-center px-3.5 text-left fs-14 font-semibold text-text-bright"
           >
             Leave this group
           </button>
@@ -322,14 +322,14 @@ function EndedNotice({ ended }: { ended: GroupEnded }) {
           <KindGlyph kind="desktop" untitled />
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="text-[14.5px] font-semibold">{head}</span>
-          <span className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">{body}</span>
+          <span className="fs-14.5 font-semibold">{head}</span>
+          <span className="fs-13 leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">{body}</span>
         </span>
       </div>
       <button
         type="button"
         onClick={ok}
-        className="h-11 self-end rounded-[12px] border border-[rgba(150,205,255,.2)] px-5 text-[14px] font-semibold text-text-bright"
+        className="h-11 self-end rounded-[12px] border border-[rgba(150,205,255,.2)] px-5 fs-14 font-semibold text-text-bright"
       >
         OK
       </button>
@@ -438,13 +438,13 @@ function DeviceSheet({
           </span>
           <span className="flex min-w-0 flex-col gap-[3px]">
             <span className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-[18px] font-bold">{row.name}</span>
+              <span className="truncate fs-18 font-bold">{row.name}</span>
               {row.primary && <PrimaryLabel />}
             </span>
-            <span className="font-mono text-[11px] text-[rgba(160,190,225,.65)]">{row.kindOs}</span>
+            <span className="font-mono fs-11 text-[rgba(160,190,225,.65)]">{row.kindOs}</span>
           </span>
         </div>
-        <dl className="flex flex-col rounded-[14px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.5)] font-mono text-[11.5px] text-[rgba(160,190,225,.65)]">
+        <dl className="flex flex-col rounded-[14px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.5)] font-mono fs-11.5 text-[rgba(160,190,225,.65)]">
           <div className="flex items-center gap-2 px-3.5 py-3">
             <dt className="flex-1">state</dt>
             <Dot state={shown.dot ?? row.state} />
@@ -465,8 +465,8 @@ function DeviceSheet({
         {confirming ? (
           <>
             <div className="flex flex-col gap-1 px-1 pt-0.5">
-              <span className="text-[15px] font-bold text-text-bright">{sessions.question}</span>
-              <span className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)]">{sessions.body}</span>
+              <span className="fs-15 font-bold text-text-bright">{sessions.question}</span>
+              <span className="fs-13 leading-[1.5] text-[rgba(160,190,225,.72)]">{sessions.body}</span>
             </div>
             {/* Canvas 50s: the safe choice is the light, filled one; an update is no accent action. */}
             <PrimaryButton tone="light" disabled={starting} onClick={() => void confirmUpdate('idle')}>
@@ -482,13 +482,13 @@ function DeviceSheet({
             {line && (
               <>
                 <div className="flex flex-col gap-1 px-1 pt-0.5">
-                  <span className="text-[14px] font-semibold text-text-bright">{line.head}</span>
+                  <span className="fs-14 font-semibold text-text-bright">{line.head}</span>
                   {line.sub && (
-                    <span className="font-mono text-[11px] leading-[1.5] text-[rgba(160,190,225,.65)]">{line.sub}</span>
+                    <span className="font-mono fs-11 leading-[1.5] text-[rgba(160,190,225,.65)]">{line.sub}</span>
                   )}
                 </div>
                 {updateError && (
-                  <p role="alert" className="text-[13px] text-[rgba(200,214,235,.85)]">
+                  <p role="alert" className="fs-13 text-[rgba(200,214,235,.85)]">
                     {updateError}
                   </p>
                 )}
@@ -506,7 +506,7 @@ function DeviceSheet({
               <>
                 {/* Canvas 50s: with an update to say, the sheet says that instead of who removes devices. */}
                 {!line && (
-                  <p className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+                  <p className="fs-13 leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
                     {row.primary
                       ? `${primary} is this group’s primary. Only it adds and removes devices.`
                       : `Only ${primary} can remove ${row.name} from the group.`}
@@ -517,13 +517,13 @@ function DeviceSheet({
               </>
             ) : (
               <>
-                <p className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+                <p className="fs-13 leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
                   {alone
                     ? `${row.name} is the last device this phone reaches. Removing it forgets it here and opens the scanner.`
                     : `Removing ${row.name} ends this phone's pair with it.`}
                 </p>
                 {error && (
-                  <p role="alert" className="text-[13px] text-[rgba(200,214,235,.85)]">
+                  <p role="alert" className="fs-13 text-[rgba(200,214,235,.85)]">
                     {error}
                   </p>
                 )}
@@ -575,12 +575,12 @@ function LeaveSheet({ primary, onClose }: { primary: string; onClose: () => void
   return (
     <BottomSheet label="Leave the group?" onDismiss={onClose} variant="device">
       <div className="flex flex-col gap-3 pb-2">
-        <h2 className="pt-1.5 text-[18px] font-bold">Leave the group?</h2>
-        <p className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+        <h2 className="pt-1.5 fs-18 font-bold">Leave the group?</h2>
+        <p className="fs-13 leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
           This phone becomes standalone and stops seeing the group’s sessions. To join again, pair it with {primary}.
         </p>
         {refused && (
-          <p role="alert" className="text-[13px] text-[rgba(200,214,235,.85)]">
+          <p role="alert" className="fs-13 text-[rgba(200,214,235,.85)]">
             {refused === 'offline' ? LEAVE_OFFLINE : LEAVE_FAILED}
           </p>
         )}
@@ -600,7 +600,7 @@ function LeaveSheet({ primary, onClose }: { primary: string; onClose: () => void
               >
                 Forget this group on this phone
               </SecondaryButton>
-              <p className="px-1 text-[12px] leading-[1.5] text-[rgba(160,190,225,.65)]">
+              <p className="px-1 fs-12 leading-[1.5] text-[rgba(160,190,225,.65)]">
                 The group keeps listing this phone, and may still notify it, until its primary device removes it.
               </p>
             </>

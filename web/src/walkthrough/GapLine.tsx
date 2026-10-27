@@ -47,20 +47,20 @@ export function GapLine({ gap, label, prev }: GapLineProps) {
   return (
     <div className="flex flex-col gap-2">
       {prev && (
-        <span className="flex min-w-0 gap-1.5 font-mono text-[10.5px] text-[rgba(160,190,225,.45)]">
+        <span className="flex min-w-0 gap-1.5 font-mono fs-10.5 text-[rgba(160,190,225,.45)]">
           <span className="shrink-0">▲ step {prev.ordinal}</span>
           <span className="text-[rgba(150,205,255,.25)]">·</span>
           <span className="truncate">{prev.title}</span>
         </span>
       )}
       <div className="flex flex-col gap-1.5 rounded-[9px] border border-dotted border-[rgba(150,205,255,.25)] bg-[rgba(4,8,16,.35)] px-4 py-3">
-        <span className="flex font-mono text-[9.5px] tracking-[.14em] text-[rgba(160,190,225,.55)]">
+        <span className="flex font-mono fs-9.5 tracking-[.14em] text-[rgba(160,190,225,.55)]">
           {label}
           <span className="flex-1" />
           {gap.durationMs !== null && <span className="tracking-normal text-[rgba(160,190,225,.5)]">{formatDuration(gap.durationMs)}</span>}
         </span>
         {facts.length > 0 && (
-          <span className="flex flex-wrap gap-x-1.5 font-mono text-[11px] text-[rgba(200,220,245,.8)]">
+          <span className="flex flex-wrap gap-x-1.5 font-mono fs-11 text-[rgba(200,220,245,.8)]">
             {facts.map((fact, i) => (
               <Fragment key={i}>
                 {i > 0 && <span className="text-[rgba(150,205,255,.28)]">·</span>}
@@ -75,7 +75,7 @@ export function GapLine({ gap, label, prev }: GapLineProps) {
               {gap.said}
             </Words>
             {long && (
-              <button type="button" onClick={() => setOpen(!open)} className="pl-3.5 font-mono text-[10.5px] text-text-muted hover:underline">
+              <button type="button" onClick={() => setOpen(!open)} className="pl-3.5 font-mono fs-10.5 text-text-muted hover:underline">
                 {open ? 'less' : 'more'}
               </button>
             )}

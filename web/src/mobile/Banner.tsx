@@ -81,11 +81,11 @@ function BannerCard({ banner }: { banner: BannerContent }) {
         )}
         <div className="min-w-0 flex-1">
           {/* The title truncates; " needs input" after it always shows (9g). */}
-          <div className="flex min-w-0 text-[14px] font-semibold text-text-bright">
+          <div className="flex min-w-0 fs-14 font-semibold text-text-bright">
             <span className="truncate">{title}</span>
             {needsInput && <span className="shrink-0 whitespace-pre"> needs input</span>}
           </div>
-          <div className={`truncate text-[12.5px] ${needsInput ? 'text-[var(--state-input)]' : 'text-text-soft'}`}>
+          <div className={`truncate fs-12.5 ${needsInput ? 'text-[var(--state-input)]' : 'text-text-soft'}`}>
             {line}
           </div>
         </div>
@@ -93,7 +93,7 @@ function BannerCard({ banner }: { banner: BannerContent }) {
           <button
             type="button"
             onClick={view}
-            className="min-h-11 shrink-0 rounded-[10px] border border-accent/40 px-3 text-[14px] font-semibold text-accent"
+            className="min-h-11 shrink-0 rounded-[10px] border border-accent/40 px-3 fs-14 font-semibold text-accent"
           >
             View
           </button>

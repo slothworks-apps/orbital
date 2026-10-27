@@ -78,7 +78,7 @@ export function useDeviceOnlyMark(setting: string | readonly string[] | undefine
  */
 export function ScopeLabel({ scope }: { scope: SettingsScope }) {
   return (
-    <span className="inline-flex shrink-0 items-center gap-[7px] font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.55)]">
+    <span className="inline-flex shrink-0 items-center gap-[7px] font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.55)]">
       {scope === 'device' && (
         <span className="flex text-[rgba(200,220,245,.7)]">
           <KindGlyph kind="desktop" untitled />
@@ -95,9 +95,9 @@ export function ScopeLabel({ scope }: { scope: SettingsScope }) {
  * pill.
  */
 export function RowTitle({ title, mark }: { title: string; mark: boolean }) {
-  if (!mark) return <div className="text-[13.5px] font-semibold text-text-bright">{title}</div>
+  if (!mark) return <div className="fs-13.5 font-semibold text-text-bright">{title}</div>
   return (
-    <div className="flex items-center gap-[9px] text-[13.5px] font-semibold text-text-bright">
+    <div className="flex items-center gap-[9px] fs-13.5 font-semibold text-text-bright">
       <span>{title}</span>
       <QuietLabel>THIS MAC ONLY</QuietLabel>
     </div>
@@ -116,7 +116,7 @@ export function GroupLine({ scope, className = '' }: { scope?: SettingsScope; cl
   return (
     <div
       data-testid="group-line"
-      className={`flex flex-col gap-1 pb-3.5 pt-2.5 font-sans text-[12px] leading-[1.5] text-[rgba(160,190,225,.72)] ${className}`}
+      className={`flex flex-col gap-1 pb-3.5 pt-2.5 font-sans fs-12 leading-[1.5] text-[rgba(160,190,225,.72)] ${className}`}
     >
       <div className="flex items-baseline gap-3">
         <p className="min-w-0 flex-1 [text-wrap:pretty]">
@@ -153,7 +153,7 @@ export function GroupLine({ scope, className = '' }: { scope?: SettingsScope; cl
  * group shares settings, its right end says the section's scope (63c). */
 export function SectionLabel({ children, first = false }: { children: ReactNode; first?: boolean }) {
   const scope = useShownScope()
-  const kicker = `pb-1 font-mono text-[10px] tracking-[0.18em] text-[rgba(160,190,225,.6)] ${first ? 'pt-2' : 'pt-3.5'}`
+  const kicker = `pb-1 font-mono fs-10 tracking-[0.18em] text-[rgba(160,190,225,.6)] ${first ? 'pt-2' : 'pt-3.5'}`
   if (!scope) return <div className={kicker}>{children}</div>
   return (
     <div className={`flex items-center gap-3 ${kicker}`}>
@@ -192,7 +192,7 @@ export function Row({
     <div className={`grid ${grid} items-start border-t border-[rgba(150,205,255,.08)] py-[13px]`}>
       <div className={dimmed ? 'opacity-45' : undefined}>
         <RowTitle title={title} mark={mark} />
-        <div className="mt-1 text-[12px] leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+        <div className="mt-1 fs-12 leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
           {desc}
         </div>
       </div>

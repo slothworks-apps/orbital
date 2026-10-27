@@ -12,11 +12,11 @@ export type ClaudeDirMarkSize = 'desktop' | 'phone' | 'sheet'
 
 const SIZES = {
   /** 44b/44c/44e: sidebar meta line, detail chip, dialog trigger and menu rows, the waits list. */
-  desktop: 'min-w-[14px] h-[14px] px-[2.5px] rounded-[4px] text-[8.5px]',
+  desktop: 'min-w-[14px] min-h-[14px] px-[2.5px] rounded-[4px] fs-8.5',
   /** 44d's list row and New session row; 44a's Settings rows and 44e's group heads use it too. */
-  phone: 'min-w-4 h-4 px-[3px] rounded-[4.5px] text-[9.5px]',
+  phone: 'min-w-4 min-h-4 px-[3px] rounded-[4.5px] fs-9.5',
   /** 44d's bottom sheet rows. */
-  sheet: 'min-w-[18px] h-[18px] px-[3px] rounded-[5px] text-[10px]',
+  sheet: 'min-w-[18px] min-h-[18px] px-[3px] rounded-[5px] fs-10',
 } as const satisfies Record<ClaudeDirMarkSize, string>
 
 /**
@@ -83,7 +83,7 @@ export function ClaudeDirChip({ mark }: { mark: ClaudeDirMarkInfo }) {
     <span
       data-claude-dir-chip
       title={mark.title}
-      className="box-border flex min-w-0 max-w-40 items-center gap-1.5 rounded-[5px] border border-[rgba(150,205,255,.16)] py-[3px] pl-[5px] pr-[9px] font-mono text-[10.5px] text-[rgba(214,230,248,.88)]"
+      className="box-border flex min-w-0 max-w-40 items-center gap-1.5 rounded-[5px] border border-[rgba(150,205,255,.16)] py-[3px] pl-[5px] pr-[9px] font-mono fs-10.5 text-[rgba(214,230,248,.88)]"
     >
       <ClaudeDirMark mono={mark.mono} />
       <span className="min-w-0 truncate">{mark.name}</span>

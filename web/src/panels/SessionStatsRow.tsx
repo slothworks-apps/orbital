@@ -297,7 +297,7 @@ export function SessionStatsRow({
 
   const content = (
     <>
-      <div className="flex items-center gap-2.5 font-mono text-[10.5px] text-[#e8eef8]">
+      <div className="flex items-center gap-2.5 font-mono fs-10.5 text-[#e8eef8]">
         session stats
         <span className="flex-1" />
         {summary !== null ? (

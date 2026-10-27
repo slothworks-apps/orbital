@@ -33,7 +33,7 @@ import { AccentLink, FilledButton, HeadButton, HeaderBlock, Kicker, Label, Marke
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 const BOX = 'flex flex-col rounded-[9px] px-3 py-[11px]'
-const BODY = 'text-pretty text-[12px] leading-[1.55] text-[rgba(220,232,248,.88)]'
+const BODY = 'text-pretty fs-12 leading-[1.55] text-[rgba(220,232,248,.88)]'
 
 /** INSTRUCTIONS / DONE WHEN / VERIFY · RUNS AFTER EACH TICK (30d, the active step). */
 function Instructions({ step }: { step: SessionHarness['steps'][number] }) {
@@ -52,7 +52,7 @@ function Instructions({ step }: { step: SessionHarness['steps'][number] }) {
       {step.verify && (
         <div>
           <Label>VERIFY · RUNS AFTER EACH TICK</Label>
-          <div className="mt-[5px] whitespace-pre-wrap break-all rounded-[6px] bg-[rgba(2,4,9,.7)] px-[9px] py-[7px] font-mono text-[10.5px] leading-[1.5] text-[rgba(214,230,248,.9)]">
+          <div className="mt-[5px] whitespace-pre-wrap break-all rounded-[6px] bg-[rgba(2,4,9,.7)] px-[9px] py-[7px] font-mono fs-10.5 leading-[1.5] text-[rgba(214,230,248,.9)]">
             $ {step.verify}
           </div>
         </div>
@@ -65,7 +65,7 @@ function Instructions({ step }: { step: SessionHarness['steps'][number] }) {
 function BackNote({ head, children }: { head: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-[5px] border-l border-[rgba(220,235,255,.3)] pl-2.5">
-      <div className="font-mono text-[9px] tracking-[0.18em] text-[rgba(200,220,245,.75)]">{head}</div>
+      <div className="font-mono fs-9 tracking-[0.18em] text-[rgba(200,220,245,.75)]">{head}</div>
       <div className={`${BODY} leading-[1.55]`}>{children}</div>
     </div>
   )
@@ -109,10 +109,10 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-[9px] pb-[15px]">
         <button type="button" onClick={onToggle} aria-expanded={open} className="flex flex-col gap-1 text-left">
-          <span className="text-pretty text-[12.5px] font-semibold leading-[1.42]" style={{ color: m.titleInk }}>
+          <span className="text-pretty fs-12.5 font-semibold leading-[1.42]" style={{ color: m.titleInk }}>
             {step.title}
           </span>
-          <span className="font-mono text-[10px] tracking-[0.03em]" style={{ color: m.metaInk }}>
+          <span className="font-mono fs-10 tracking-[0.03em]" style={{ color: m.metaInk }}>
             {stepMeta(index, step, who)}
           </span>
         </button>
@@ -121,7 +121,7 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
           <BackNote head={`REVIEWER SENT THIS BACK · ${clock(lastReview.at)}`}>
             {lastReview.reasoning}
             {state.unsentFindings && (
-              <span className="mt-1 block font-mono text-[9.5px] text-[rgba(160,190,225,.55)]">
+              <span className="mt-1 block font-mono fs-9.5 text-[rgba(160,190,225,.55)]">
                 held · sent when auto-continue is back on
               </span>
             )}
@@ -137,7 +137,7 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
         {open && kind === 'waiting' && (
           <div className={`${BOX} gap-2.5 border border-[oklch(84%_.113_63_/_.35)] bg-[rgba(4,8,16,.5)]`}>
             {(state.summary ?? state.evidence) && <div className={`${BODY} text-[rgba(220,232,248,.9)]`}>{state.summary ?? state.evidence}</div>}
-            {waitMeta && <div className="font-mono text-[10px] text-[rgba(160,190,225,.65)]">{waitMeta}</div>}
+            {waitMeta && <div className="font-mono fs-10 text-[rgba(160,190,225,.65)]">{waitMeta}</div>}
             <div className="flex items-center gap-2">
               {!readOnly && (
                 <>
@@ -152,7 +152,7 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
               <span aria-hidden className="flex-1" />
               <AccentLink onClick={onRecord}>RECORD →</AccentLink>
             </div>
-            {!readOnly && <div className="font-mono text-[9.5px] text-[rgba(160,190,225,.5)]">Reopen sends nothing. You write what to change.</div>}
+            {!readOnly && <div className="font-mono fs-9.5 text-[rgba(160,190,225,.5)]">Reopen sends nothing. You write what to change.</div>}
           </div>
         )}
 
@@ -162,11 +162,11 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
               The reviewer is reading the step&apos;s record and its changes. It approves, approves unsure, or sends the step
               back with a reason.
             </div>
-            <div className="font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.6)]">
+            <div className="font-mono fs-10 leading-[1.6] text-[rgba(160,190,225,.6)]">
               reading · {range ? `diff ${range}` : 'the record'}
             </div>
             {!readOnly && (
-              <div className="flex gap-3.5 font-mono text-[10px] tracking-[0.06em]">
+              <div className="flex gap-3.5 font-mono fs-10 tracking-[0.06em]">
                 <button
                   type="button"
                   onClick={() => void act(sessionId, 'Failed to take the gate', () => api.decideHarnessStepMyself(sessionId, index))}
@@ -183,14 +183,14 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
         {open && isDone(kind) && (
           <div className="flex flex-col gap-[7px]">
             {(state.summary ?? state.evidence) && (
-              <div className="text-pretty text-[12px] leading-[1.55] text-[rgba(200,214,235,.8)]">{state.summary ?? state.evidence}</div>
+              <div className="text-pretty fs-12 leading-[1.55] text-[rgba(200,214,235,.8)]">{state.summary ?? state.evidence}</div>
             )}
             {kind === 'doneUnsure' && (
-              <div className="font-mono text-[10px] text-[rgba(220,235,255,.85)]">
+              <div className="font-mono fs-10 text-[rgba(220,235,255,.85)]">
                 ◇ reviewer unsure{questions ? ` · ${plural(questions, 'thing')} to look at` : ''}
               </div>
             )}
-            <div className="flex items-center gap-2 font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+            <div className="flex items-center gap-2 font-mono fs-10 text-[rgba(160,190,225,.6)]">
               {range && <span>{range}</span>}
               <span aria-hidden className="flex-1" />
               <AccentLink onClick={onRecord}>RECORD →</AccentLink>
@@ -205,7 +205,7 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
 /** A harness-level event between the steps (30g): a dashed row. */
 function EventRow({ text }: { text: string }) {
   return (
-    <div className="-mt-1 mb-3.5 flex items-center gap-2 font-mono text-[9.5px] tracking-[0.06em] text-[rgba(160,190,225,.6)]">
+    <div className="-mt-1 mb-3.5 flex items-center gap-2 font-mono fs-9.5 tracking-[0.06em] text-[rgba(160,190,225,.6)]">
       <span className="flex w-[14px] shrink-0 justify-center">
         <span aria-hidden className="block h-[1.4px] w-[7px] bg-[rgba(160,190,225,.6)]" />
       </span>
@@ -297,7 +297,7 @@ export function RunningView({
             body: (
               <span className="flex flex-col">
                 <span>Remove harness…</span>
-                <span className="mt-0.5 font-mono text-[10px] text-[rgba(160,190,225,.6)]">the conversation stays</span>
+                <span className="mt-0.5 font-mono fs-10 text-[rgba(160,190,225,.6)]">the conversation stays</span>
               </span>
             ),
             onSelect: () => setRemoving(true),
@@ -333,10 +333,10 @@ export function RunningView({
             {chrome.close}
           </>,
         )}
-        <div className="mt-2 text-[15px] font-semibold leading-[1.34] tracking-[-0.005em] text-text-bright">{harness.name}</div>
-        {inputs && <div className="mt-1 truncate font-mono text-[10px] text-[rgba(160,190,225,.6)]">{inputs}</div>}
+        <div className="mt-2 fs-15 font-semibold leading-[1.34] tracking-[-0.005em] text-text-bright">{harness.name}</div>
+        {inputs && <div className="mt-1 truncate font-mono fs-10 text-[rgba(160,190,225,.6)]">{inputs}</div>}
         <Segments kinds={kinds} className="mt-3" />
-        <div className="mt-2 flex items-center gap-2 font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+        <div className="mt-2 flex items-center gap-2 font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
           <span className="text-[#e8eef8]">{head.step}</span>
           <span className="text-[rgba(150,205,255,.3)]">·</span>
           <span style={{ color: head.ink }}>{head.status}</span>
@@ -345,7 +345,7 @@ export function RunningView({
         </div>
         {harness.paused && !readOnly && (
           <div className="mt-3 flex flex-col gap-[5px] rounded-lg border border-[rgba(150,205,255,.2)] bg-[rgba(150,205,255,.05)] px-3 py-2.5">
-            <div className="flex items-center gap-[7px] font-mono text-[9.5px] tracking-[0.16em] text-[rgba(220,235,255,.85)]">
+            <div className="flex items-center gap-[7px] font-mono fs-9.5 tracking-[0.16em] text-[rgba(220,235,255,.85)]">
               <span aria-hidden className="block size-1.5 rounded-[1px] bg-[rgba(200,220,245,.8)]" />
               PAUSED
               <span aria-hidden className="flex-1" />
@@ -354,10 +354,10 @@ export function RunningView({
               )}
             </div>
             {harness.pauseReason && (
-              <div className="text-pretty text-[12px] leading-[1.5] text-[rgba(228,238,250,.9)]">{harness.pauseReason}</div>
+              <div className="text-pretty fs-12 leading-[1.5] text-[rgba(228,238,250,.9)]">{harness.pauseReason}</div>
             )}
             {pauseHint(harness.pauseKind) && (
-              <div className="font-mono text-[9.5px] text-[rgba(160,190,225,.55)]">{pauseHint(harness.pauseKind)}</div>
+              <div className="font-mono fs-9.5 text-[rgba(160,190,225,.55)]">{pauseHint(harness.pauseKind)}</div>
             )}
           </div>
         )}
@@ -403,7 +403,7 @@ export function RunningView({
         })}
       </div>
 
-      <div className="flex items-center gap-2 border-t border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.4)] px-[18px] py-[11px] font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+      <div className="flex items-center gap-2 border-t border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.4)] px-[18px] py-[11px] font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.5)]">
         <span className="min-w-0">{readOnly ? `removed ${clock(harness.removedAt)} · the record is kept` : footerLine(auto, harness.options.lucky)}</span>
         <span aria-hidden className="flex-1" />
         {!readOnly && <span className="shrink-0">⎋ close</span>}

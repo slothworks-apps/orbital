@@ -144,11 +144,11 @@ export function RefusalBody({ label, sentence }: { label: string; sentence: Reac
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[10px] px-10 text-center">
       <span aria-hidden className="h-4 w-4 rounded-[4px] border border-[rgba(160,190,225,.35)]" />
-      <span className="font-mono text-[10px] tracking-[0.14em] text-[rgba(160,190,225,.55)]">
+      <span className="font-mono fs-10 tracking-[0.14em] text-[rgba(160,190,225,.55)]">
         {label}
       </span>
       {sentence && (
-        <span className="font-mono text-[11px] leading-[1.7] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+        <span className="font-mono fs-11 leading-[1.7] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
           {sentence}
         </span>
       )}
@@ -164,10 +164,10 @@ export function MarkdownBody({ content }: { content: string }) {
       <div
         className={[
           'mx-auto flex max-w-[660px] flex-col gap-[18px] px-6',
-          'text-[15px] leading-[1.75] text-[rgba(228,238,250,.9)] [text-wrap:pretty]',
+          'fs-15 leading-[1.75] text-[rgba(228,238,250,.9)] [text-wrap:pretty]',
           '[&_p]:m-0',
-          '[&_h1]:text-[26px] [&_h1]:font-bold [&_h1]:leading-[1.25] [&_h1]:tracking-[-.015em]',
-          '[&_h2]:text-[16px] [&_h2]:font-bold [&_h2]:tracking-[-.01em]',
+          '[&_h1]:fs-26 [&_h1]:font-bold [&_h1]:leading-[1.25] [&_h1]:tracking-[-.015em]',
+          '[&_h2]:fs-16 [&_h2]:font-bold [&_h2]:tracking-[-.01em]',
           '[&_ul]:m-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:m-0 [&_ol]:list-decimal [&_ol]:pl-5',
           '[&_blockquote]:m-0 [&_blockquote]:border-l-2 [&_blockquote]:border-[rgba(150,205,255,.3)] [&_blockquote]:bg-[rgba(150,205,255,.04)] [&_blockquote]:px-4 [&_blockquote]:py-3.5',
         ].join(' ')}
@@ -218,7 +218,7 @@ function SourceBody({
   return (
     <div
       ref={containerRef}
-      className="relative min-h-0 flex-1 overflow-auto font-mono text-[12.5px] leading-[22px]"
+      className="relative min-h-0 flex-1 overflow-auto font-mono fs-12.5 leading-[calc(22px*var(--text-scale,1))]"
     >
       <div className="relative min-h-full w-fit min-w-full py-3.5">
         {/* The gutter well (8c): 56px, rgba(4,8,16,.4), hairline right edge. */}
@@ -258,7 +258,7 @@ function SourceBody({
                     across rows copies the code alone, without the gutter. */}
                 <span
                   data-number={lineNumber}
-                  className="w-14 shrink-0 pr-3 text-right text-[11.5px] text-[rgba(160,190,225,.32)] before:content-[attr(data-number)]"
+                  className="w-14 shrink-0 pr-3 text-right fs-11.5 text-[rgba(160,190,225,.32)] before:content-[attr(data-number)]"
                   style={
                     isTarget
                       ? { color: TARGET_ACCENT }
@@ -542,6 +542,7 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
         role="dialog"
         aria-modal="true"
         aria-label={`File ${path}`}
+        data-text-scope="transcript"
         data-state={state}
         inert={state === 'exiting' || undefined}
         onClick={closeFile}
@@ -569,19 +570,19 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
               16 18 14 over a hairline rule. */}
           <div className="flex items-start gap-3 border-b border-[rgba(150,205,255,.1)] px-[18px] pb-3.5 pt-4">
             <div className="flex min-w-0 flex-1 flex-col gap-[7px]">
-              <div className="flex min-w-0 items-center gap-2 font-mono text-[14px] text-[rgba(160,190,225,.6)]">
+              <div className="flex min-w-0 items-center gap-2 font-mono fs-14 text-[rgba(160,190,225,.6)]">
                 <span className="min-w-0 truncate">
                   {directory && <span>{directory}</span>}
                   <span className="text-[#f2f9ff]">{basename}</span>
                 </span>
                 {line !== null && (
                   // The :line chip (8c): accent .12 fill, .4 border.
-                  <span className="shrink-0 rounded-[5px] border border-[oklch(85%_.12_205_/_.4)] bg-[oklch(85%_.12_205_/_.12)] px-[7px] py-[2px] text-[12px] text-[oklch(88%_.1_205)]">
+                  <span className="shrink-0 rounded-[5px] border border-[oklch(85%_.12_205_/_.4)] bg-[oklch(85%_.12_205_/_.12)] px-[7px] py-[2px] fs-12 text-[oklch(88%_.1_205)]">
                     :{line}
                   </span>
                 )}
               </div>
-              <div className="truncate font-mono text-[10.5px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+              <div className="truncate font-mono fs-10.5 tracking-[0.06em] text-[rgba(160,190,225,.55)]">
                 {meta}
               </div>
             </div>
@@ -602,7 +603,7 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
                 type="button"
                 data-ide-open-link
                 onClick={() => void openInIde(path, line)}
-                className="shrink-0 font-mono text-[10.5px] tracking-[0.04em] text-[rgba(160,190,225,.6)] underline decoration-dashed decoration-[rgba(150,205,255,.25)] underline-offset-[3px] transition-colors hover:text-[#f2f9ff]"
+                className="shrink-0 font-mono fs-10.5 tracking-[0.04em] text-[rgba(160,190,225,.6)] underline decoration-dashed decoration-[rgba(150,205,255,.25)] underline-offset-[3px] transition-colors hover:text-[#f2f9ff]"
               >
                 open in {ideName}
                 <span className="pl-2 tracking-[0.04em] text-[rgba(160,190,225,.4)] no-underline">
@@ -614,7 +615,7 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
               type="button"
               aria-label="Close"
               onClick={closeFile}
-              className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[8px] border border-[rgba(150,205,255,.2)] bg-[rgba(10,14,24,.7)] text-[15px] text-text-bright transition-colors hover:border-[rgba(150,205,255,.45)]"
+              className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[8px] border border-[rgba(150,205,255,.2)] bg-[rgba(10,14,24,.7)] fs-15 text-text-bright transition-colors hover:border-[rgba(150,205,255,.45)]"
             >
               ×
             </button>
@@ -667,7 +668,7 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
             // ReactMarkdown, no per-line rows. The file still opens.
             <pre
               data-degraded
-              className="min-h-0 flex-1 overflow-auto whitespace-pre px-[18px] py-3.5 font-mono text-[12.5px] leading-[22px] text-[rgba(214,230,248,.9)]"
+              className="min-h-0 flex-1 overflow-auto whitespace-pre px-[18px] py-3.5 font-mono fs-12.5 leading-[calc(22px*var(--text-scale,1))] text-[rgba(214,230,248,.9)]"
             >
               {preview.content}
             </pre>
@@ -687,7 +688,7 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
               fileViewer deliberately carries only {path, line, cwd}, so the
               footer names the session and the opening time — judgement
               call, marked. */}
-          <div className="flex items-center gap-2.5 border-t border-[rgba(150,205,255,.1)] px-[18px] py-2.5 font-mono text-[10px] tracking-[0.08em] text-[rgba(160,190,225,.55)]">
+          <div className="flex items-center gap-2.5 border-t border-[rgba(150,205,255,.1)] px-[18px] py-2.5 font-mono fs-10 tracking-[0.08em] text-[rgba(160,190,225,.55)]">
             <span className="rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-[2px] text-[rgba(200,220,245,.7)]">
               esc
             </span>

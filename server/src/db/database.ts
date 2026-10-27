@@ -86,6 +86,10 @@ export const DEFAULT_SETTINGS: Record<string, string> = {
    * `SpaceMap` — layout and orbits never see it, only drawn body scale.
    */
   planet_scale: '1',
+  /** Text size (spec 2026-10-27-text-size-design): the app's step, and the
+   * transcript's own, `app` while it follows the app's. */
+  text_scale: '1',
+  transcript_text_scale: 'app',
   /** Appearance → scale labels with bodies (canvas 5a). Off keeps session
    * names at their fixed 11px mono regardless of `planet_scale`. */
   map_scale_labels: 'false',

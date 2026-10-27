@@ -346,7 +346,7 @@ export function CompletionPopup({
         .join(' ')}
     >
       {/* Header rail — 8px/12px over a .08 hairline, mono 9.5 tracked .14em (9b). */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-[rgba(150,205,255,.08)] px-3 py-2 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.5)]">
+      <div className="flex shrink-0 items-center gap-2 border-b border-[rgba(150,205,255,.08)] px-3 py-2 font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.5)]">
         {kind === 'command' ? 'COMMANDS' : `FILES${dirLabel ? ` · ${dirLabel}` : ''}`}
         <span aria-hidden className="flex-1" />
         {/* "The head counts them" (canvas `Feature - IDE bridge` 20c); with no
@@ -359,8 +359,9 @@ export function CompletionPopup({
         role="listbox"
         id={listboxId}
         aria-label="Completions"
-        // 6 rows at 40px, then it scrolls (9b/9e).
-        style={{ maxHeight: `${VISIBLE_ROWS * ROW_HEIGHT_PX}px` }}
+        // 6 rows at 40px, then it scrolls (9b/9e). The rows grow with the
+        // text step, so the cap does too: still six rows at every step.
+        style={{ maxHeight: `calc(${VISIBLE_ROWS * ROW_HEIGHT_PX}px * var(--text-scale, 1))` }}
         className="flex min-h-0 flex-col overflow-y-auto overscroll-contain"
       >
         {rows.map((row, index) => {
@@ -393,13 +394,13 @@ export function CompletionPopup({
                 <>
                   <div className="min-w-0 flex-1">
                     <div
-                      className={`font-mono text-[12px] ${isSelected ? 'text-[#f2f9ff]' : 'text-text-bright'}`}
+                      className={`font-mono fs-12 ${isSelected ? 'text-[#f2f9ff]' : 'text-text-bright'}`}
                     >
                       /{row.name}
                     </div>
                     {row.description && (
                       <div
-                        className={`text-[10.5px] leading-[1.35] ${
+                        className={`fs-10.5 leading-[1.35] ${
                           isSelected ? 'text-[rgba(200,220,245,.7)]' : 'text-[rgba(160,190,225,.6)]'
                         }`}
                       >
@@ -408,7 +409,7 @@ export function CompletionPopup({
                     )}
                   </div>
                   <span
-                    className={`shrink-0 whitespace-nowrap font-mono text-[9px] tracking-[0.1em] ${
+                    className={`shrink-0 whitespace-nowrap font-mono fs-9 tracking-[0.1em] ${
                       isSelected ? 'text-[rgba(190,215,240,.6)]' : 'text-[rgba(160,190,225,.45)]'
                     }`}
                   >
@@ -449,7 +450,7 @@ export function CompletionPopup({
                     />
                   )}
                   <span
-                    className={`min-w-0 truncate font-mono text-[12px] ${
+                    className={`min-w-0 truncate font-mono fs-12 ${
                       isSelected ? 'text-[#f2f9ff]' : 'text-text-bright'
                     }`}
                   >
@@ -461,13 +462,13 @@ export function CompletionPopup({
                     )}
                   </span>
                   {row.dir && (
-                    <span className="shrink-0 font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">
+                    <span className="shrink-0 font-mono fs-10.5 text-[rgba(160,190,225,.5)]">
                       {row.dir}
                     </span>
                   )}
                   <span aria-hidden className="flex-1" />
                   <span
-                    className={`shrink-0 whitespace-nowrap font-mono text-[9.5px] tracking-[0.1em] ${
+                    className={`shrink-0 whitespace-nowrap font-mono fs-9.5 tracking-[0.1em] ${
                       isSelected ? 'text-[rgba(190,215,240,.6)]' : 'text-[rgba(160,190,225,.45)]'
                     }`}
                   >
@@ -490,7 +491,7 @@ export function CompletionPopup({
                 </>
               )}
               {isSelected && (
-                <span aria-hidden className="shrink-0 text-[11px] text-accent">
+                <span aria-hidden className="shrink-0 fs-11 text-accent">
                   ✓
                 </span>
               )}
@@ -500,7 +501,7 @@ export function CompletionPopup({
       </div>
 
       {/* Footer rail — 7px/12px, mono 9.5 tracked .1em (9b/9e). */}
-      <div className="flex shrink-0 items-center gap-2 border-t border-[rgba(150,205,255,.08)] px-3 py-[7px] font-mono text-[9.5px] tracking-[0.1em] text-[rgba(160,190,225,.45)]">
+      <div className="flex shrink-0 items-center gap-2 border-t border-[rgba(150,205,255,.08)] px-3 py-[7px] font-mono fs-9.5 tracking-[0.1em] text-[rgba(160,190,225,.45)]">
         ↑↓ MOVE · ⏎ OR TAB ACCEPT · ESC CLOSE
       </div>
     </div>,

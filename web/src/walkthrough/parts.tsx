@@ -18,9 +18,9 @@ const TONES = {
 } as const
 
 const SIZES = {
-  sm: 'rounded-[7px] px-3.5 py-[7px] text-[12.5px]', // canvas 21a/21b
-  md: 'rounded-lg px-[18px] py-2.5 text-[13px]', // canvas 21e footer
-  lg: 'rounded-[9px] px-[22px] py-3 text-[14px]', // canvas 21a Start
+  sm: 'rounded-[7px] px-3.5 py-[7px] fs-12.5', // canvas 21a/21b
+  md: 'rounded-lg px-[18px] py-2.5 fs-13', // canvas 21e footer
+  lg: 'rounded-[9px] px-[22px] py-3 fs-14', // canvas 21a Start
 } as const
 
 interface WalkButtonProps {
@@ -66,7 +66,7 @@ export function Words({ children, small = false, clamp = false }: { children: st
       <p
         className={[
           "whitespace-pre-wrap before:content-['“'] after:content-['”']",
-          small ? 'text-[12.5px] leading-[1.5] text-[rgba(200,214,235,.75)]' : 'text-[13px] leading-[1.55] text-[rgba(200,214,235,.8)]',
+          small ? 'fs-12.5 leading-[1.5] text-[rgba(200,214,235,.75)]' : 'fs-13 leading-[1.55] text-[rgba(200,214,235,.8)]',
           clamp ? 'line-clamp-3' : '',
         ].join(' ')}
       >

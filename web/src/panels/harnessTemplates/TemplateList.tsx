@@ -15,7 +15,7 @@ function FilterChip({ active, onClick, children }: { active: boolean; onClick: (
       aria-pressed={active}
       onClick={onClick}
       className={[
-        'rounded-full border px-2.5 py-1 font-mono text-[10.5px] transition-colors',
+        'rounded-full border px-2.5 py-1 font-mono fs-10.5 transition-colors',
         active
           ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
           : 'border-[rgba(150,205,255,.14)] text-[rgba(160,190,225,.7)] hover:bg-white/5',
@@ -55,7 +55,7 @@ function HeaderButtons({
         onClick={onNew}
         // 30j at rest; 30m draws it lit while its scope popover is open.
         className={[
-          'whitespace-nowrap rounded-lg border px-3 py-[7px] text-[12.5px] font-semibold transition-colors',
+          'whitespace-nowrap rounded-lg border px-3 py-[7px] fs-12.5 font-semibold transition-colors',
           newOpen
             ? 'border-accent/70 bg-accent/16 text-[oklch(90%_.09_205)]'
             : 'border-accent/60 bg-accent/10 text-[oklch(88%_.1_205)] hover:bg-accent/16',
@@ -99,15 +99,15 @@ function TemplateRow({
     >
       <div className="min-w-0">
         <div className="flex items-baseline gap-2">
-          <span className="truncate text-[13px] font-semibold">{template.name}</span>
+          <span className="truncate fs-13 font-semibold">{template.name}</span>
           {/* A conversation's draft, listed until Save (spec § 9); not in 30j, which draws none. */}
           {template.draft && (
-            <span className="shrink-0 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">draft · not saved</span>
+            <span className="shrink-0 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.55)]">draft · not saved</span>
           )}
         </div>
-        <div className="mt-[3px] truncate text-[11.5px] text-[rgba(160,190,225,.65)]">{template.description}</div>
+        <div className="mt-[3px] truncate fs-11.5 text-[rgba(160,190,225,.65)]">{template.description}</div>
       </div>
-      <span className="font-mono text-[10.5px] text-[rgba(200,220,245,.8)]">{stepsSummary(template.steps)}</span>
+      <span className="font-mono fs-10.5 text-[rgba(200,220,245,.8)]">{stepsSummary(template.steps)}</span>
       <div className="flex flex-wrap gap-[5px]">
         {template.tags.length > 0 ? (
           template.tags.map((name) => <TagPill key={name} name={name} hue={hueOf(name)} size="row" />)
@@ -115,7 +115,7 @@ function TemplateRow({
           <TagPill name={null} size="row" />
         )}
       </div>
-      <span className="flex min-w-0 items-center gap-[7px] font-mono text-[10.5px] text-text-bright">
+      <span className="flex min-w-0 items-center gap-[7px] font-mono fs-10.5 text-text-bright">
         <ScopeMark scope={template.scope} />
         <span className="truncate" title={template.scope.kind === 'project' ? template.scope.root : undefined}>
           {scopeName(template.scope)}
@@ -187,12 +187,12 @@ export function TemplateList({
             <span className="block h-px w-6 bg-[rgba(150,205,255,.2)]" />
             <span className="block h-2.5 w-2.5 rounded-full border-[1.4px] border-[rgba(160,190,225,.5)]" />
           </div>
-          <div className="text-[17px] font-bold">No harness templates yet</div>
-          <div className="max-w-[440px] text-[12.5px] leading-[1.6] text-[rgba(160,190,225,.75)] [text-wrap:pretty]">
+          <div className="fs-17 font-bold">No harness templates yet</div>
+          <div className="max-w-[440px] fs-12.5 leading-[1.6] text-[rgba(160,190,225,.75)] [text-wrap:pretty]">
             A template is a list of steps for one kind of work, like “build a component” or “fix a bug with a failing test
             first”. Sessions can follow it and tick the steps off. Gates wait for your OK.
           </div>
-          <div className="font-mono text-[10px] text-[rgba(160,190,225,.5)]">
+          <div className="font-mono fs-10 text-[rgba(160,190,225,.5)]">
             start from scratch with + New template, or describe it and let the assistant draft it
           </div>
         </div>
@@ -205,14 +205,14 @@ export function TemplateList({
   return (
     <div className="flex min-h-0 flex-col gap-3.5 px-8 pb-5 pt-[18px]">
       <div className="flex items-start gap-3">
-        <div className="flex-1 text-[12.5px] leading-[1.5] text-[rgba(160,190,225,.75)] [text-wrap:pretty]">
+        <div className="flex-1 fs-12.5 leading-[1.5] text-[rgba(160,190,225,.75)] [text-wrap:pretty]">
           Reusable step lists a session can follow. A global template is offered in every project; a project template only
           in its own.
         </div>
         <HeaderButtons {...headerButtons} />
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        <span className="mr-1 font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.55)]">SHOW</span>
+        <span className="mr-1 font-mono fs-9.5 tracking-[0.18em] text-[rgba(160,190,225,.55)]">SHOW</span>
         <FilterChip active={filter.kind === 'all'} onClick={() => onFilter({ kind: 'all' })}>
           All
         </FilterChip>
@@ -232,7 +232,7 @@ export function TemplateList({
       <div
         className={[
           COLUMNS,
-          'border-b border-[rgba(150,205,255,.1)] px-2.5 pb-2 font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.55)]',
+          'border-b border-[rgba(150,205,255,.1)] px-2.5 pb-2 font-mono fs-9.5 tracking-[0.18em] text-[rgba(160,190,225,.55)]',
         ].join(' ')}
       >
         <span>TEMPLATE</span>
@@ -244,7 +244,7 @@ export function TemplateList({
       <div className="flex min-h-0 flex-col gap-0.5 overflow-y-auto">
         {groups.map((group) => (
           <div key={group.key} className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-2 px-2.5 pb-1 pt-3 font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.6)]">
+            <div className="flex items-center gap-2 px-2.5 pb-1 pt-3 font-mono fs-9.5 tracking-[0.16em] text-[rgba(160,190,225,.6)]">
               {group.heading}
             </div>
             {group.templates.map((t) => (

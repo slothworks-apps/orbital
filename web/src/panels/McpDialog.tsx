@@ -96,7 +96,7 @@ interface FormState {
   confirmDiscard: 'list' | 'close' | null
 }
 
-const MONO_LABEL = 'font-mono text-[10px] tracking-[0.16em] text-[rgba(160,190,225,.6)]'
+const MONO_LABEL = 'font-mono fs-10 tracking-[0.16em] text-[rgba(160,190,225,.6)]'
 
 function McpPanel({
   sessionId,
@@ -485,7 +485,7 @@ function McpPanel({
       aboveFooter:
         ready && restartNeeded ? (
           <div className="flex items-center gap-3 rounded-[9px] border border-accent/35 bg-accent/6 py-2.5 pl-3.5 pr-3">
-            <span className="flex-1 text-[12.5px] leading-[1.45] text-text-bright">
+            <span className="flex-1 fs-12.5 leading-[1.45] text-text-bright">
               {restarting
                 ? 'Restarting the session…'
                 : 'Changes apply after the session restarts. The transcript is kept.'}
@@ -511,8 +511,8 @@ function McpPanel({
             + Add server
           </Button>
           {cliMissing && (
-            <span className="text-xs leading-[1.45] text-[rgba(160,190,225,.8)] text-pretty">
-              <span className="font-mono text-[11.5px] text-text-bright">claude</span> isn't on PATH
+            <span className="fs-12 leading-[1.45] text-[rgba(160,190,225,.8)] text-pretty">
+              <span className="font-mono fs-11.5 text-text-bright">claude</span> isn't on PATH
               — adding, editing and removing need the CLI.
             </span>
           )}
@@ -520,7 +520,7 @@ function McpPanel({
       ) : undefined,
       footer:
         ready && !cliMissing ? (
-          <span className="font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.45)]">
+          <span className="font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.45)]">
             via claude mcp · session {title}
           </span>
         ) : undefined,
@@ -532,14 +532,14 @@ function McpPanel({
         <Skeleton />
       ) : list.kind === 'error' ? (
         <div className="flex flex-col items-start gap-3 pb-1">
-          <div className="flex items-center gap-2.5 text-sm font-semibold">
+          <div className="flex items-center gap-2.5 fs-14 leading-(--text-sm--line-height) font-semibold">
             <span
               aria-hidden
               className="h-[7px] w-[7px] rounded-full bg-[#de3b3d] shadow-[0_0_8px_rgba(222,59,61,.7)]"
             />
             Couldn't read this session's servers.
           </div>
-          <pre className="self-stretch whitespace-pre-wrap rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)] [overflow-wrap:anywhere]">
+          <pre className="self-stretch whitespace-pre-wrap rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-[rgba(190,212,238,.8)] [overflow-wrap:anywhere]">
             {list.detail}
           </pre>
           <Button
@@ -558,8 +558,8 @@ function McpPanel({
           {/* Above the list in every state that shows switches — before the
               first click, not after (adr the-mcp-toggle-is-project-wide). */}
           {hasOwnServers(servers) && (
-            <div className="mb-1.5 flex items-start gap-2.5 rounded-lg border border-[rgba(150,205,255,.12)] bg-[rgba(150,205,255,.04)] px-3 py-[9px] text-xs leading-[1.45] text-[rgba(200,214,235,.85)] text-pretty">
-              <span className="flex-none pt-0.5 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.6)]">
+            <div className="mb-1.5 flex items-start gap-2.5 rounded-lg border border-[rgba(150,205,255,.12)] bg-[rgba(150,205,255,.04)] px-3 py-[9px] fs-12 leading-[1.45] text-[rgba(200,214,235,.85)] text-pretty">
+              <span className="flex-none pt-0.5 font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.6)]">
                 ON / OFF
               </span>
               <span>
@@ -590,7 +590,7 @@ function McpPanel({
             ))}
           </ul>
           {!hasOwnServers(servers) && (
-            <p className="pt-[26px] text-[13px] leading-normal text-[rgba(200,214,235,.85)] text-pretty">
+            <p className="pt-[26px] fs-13 leading-normal text-[rgba(200,214,235,.85)] text-pretty">
               No servers of your own yet. Add one for this project or for all your projects.
             </p>
           )}
@@ -650,7 +650,7 @@ function Note({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5 pb-2.5">
       <div className={MONO_LABEL}>{label}</div>
-      <div className="text-sm leading-normal text-text-bright text-pretty">{children}</div>
+      <div className="fs-14 leading-normal text-text-bright text-pretty">{children}</div>
     </div>
   )
 }
@@ -776,13 +776,13 @@ function ServerRow({
       <div className="flex min-w-0 flex-col gap-[5px]">
         <div
           className={[
-            'text-[13.5px] font-semibold leading-[1.35] [overflow-wrap:anywhere]',
+            'fs-13.5 font-semibold leading-[1.35] [overflow-wrap:anywhere]',
             kind === 'off' ? 'text-[rgba(220,235,255,.6)]' : 'text-text-bright',
           ].join(' ')}
         >
           {name}
         </div>
-        <div className="flex flex-wrap items-center gap-[7px] font-mono text-[10px] tracking-[0.1em] text-[rgba(160,190,225,.7)]">
+        <div className="flex flex-wrap items-center gap-[7px] font-mono fs-10 tracking-[0.1em] text-[rgba(160,190,225,.7)]">
           <span className={statusInk}>{mcpStatusLabel(row.status)}</span>
           {origin && (
             <>
@@ -802,25 +802,25 @@ function ServerRow({
           )}
         </div>
         {kind === 'login' && !loginable && (
-          <div className="text-xs leading-[1.45] text-[rgba(160,190,225,.75)] text-pretty">
+          <div className="fs-12 leading-[1.45] text-[rgba(160,190,225,.75)] text-pretty">
             A claude.ai connector — it is logged in on claude.ai, in its connector settings, not
             here.
           </div>
         )}
         {loginable && loginError && (
-          <div className="text-xs leading-[1.45] text-[rgba(160,190,225,.75)] text-pretty">
+          <div className="fs-12 leading-[1.45] text-[rgba(160,190,225,.75)] text-pretty">
             Log in from a terminal session in this project — Orbital couldn't open the login flow.
           </div>
         )}
       </div>
       <div className="flex items-center gap-1.5 pt-px">
         {activity ? (
-          <span className="font-mono text-[10px] tracking-[0.08em] text-[rgba(160,190,225,.7)]">
+          <span className="font-mono fs-10 tracking-[0.08em] text-[rgba(160,190,225,.7)]">
             <Working label={activity} />
           </span>
         ) : confirming ? (
           <>
-            <span className="text-xs text-[rgba(220,235,255,.85)]">
+            <span className="fs-12 leading-(--text-xs--line-height) text-[rgba(220,235,255,.85)]">
               Remove from {origin ?? 'its'} config?
             </span>
             <Button variant="pill" size="pill" onClick={onKeep}>
@@ -865,18 +865,18 @@ function ServerRow({
             }
           />
         ) : (
-          <span className="block w-8 text-center font-mono text-[9px] tracking-[0.12em] text-[rgba(160,190,225,.45)]">
+          <span className="block w-8 text-center font-mono fs-9 tracking-[0.12em] text-[rgba(160,190,225,.45)]">
             —
           </span>
         )}
       </div>
       {kind === 'failed' && row.error && (
-        <pre className="col-start-2 col-end-4 max-h-[120px] overflow-auto whitespace-pre-wrap rounded-[7px] border border-[#de3b3d]/28 bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(214,222,238,.85)] [overflow-wrap:anywhere]">
+        <pre className="col-start-2 col-end-4 max-h-[120px] overflow-auto whitespace-pre-wrap rounded-[7px] border border-[#de3b3d]/28 bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-[rgba(214,222,238,.85)] [overflow-wrap:anywhere]">
           {row.error}
         </pre>
       )}
       {loginable && loginError && (
-        <pre className="col-start-2 col-end-4 max-h-[120px] overflow-auto whitespace-pre-wrap rounded-[7px] border border-[#de3b3d]/28 bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(214,222,238,.85)] [overflow-wrap:anywhere]">
+        <pre className="col-start-2 col-end-4 max-h-[120px] overflow-auto whitespace-pre-wrap rounded-[7px] border border-[#de3b3d]/28 bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-[rgba(214,222,238,.85)] [overflow-wrap:anywhere]">
           {loginError}
         </pre>
       )}
@@ -929,7 +929,7 @@ function formViewParts({
   if (state.confirmDiscard) {
     lead = (
       <>
-        <span className="text-xs text-[rgba(220,235,255,.85)]">Discard your changes?</span>
+        <span className="fs-12 leading-(--text-xs--line-height) text-[rgba(220,235,255,.85)]">Discard your changes?</span>
         <Button variant="pill" size="pill" onClick={onKeepEditing}>
           Keep editing
         </Button>
@@ -941,7 +941,7 @@ function formViewParts({
   } else if (state.mode === 'edit' && form && !cliMissing) {
     lead = state.confirmRemove ? (
       <>
-        <span className="text-xs text-[rgba(220,235,255,.85)] [overflow-wrap:anywhere]">
+        <span className="fs-12 leading-(--text-xs--line-height) text-[rgba(220,235,255,.85)] [overflow-wrap:anywhere]">
           Remove {state.original?.label} from {state.original?.origin} config?
         </span>
         <Button variant="pill" size="pill" onClick={() => onState({ confirmRemove: false })}>
@@ -966,8 +966,8 @@ function formViewParts({
   let aboveFooter: ReactNode = undefined
   if (cliMissing) {
     aboveFooter = (
-      <p className="text-xs leading-[1.45] text-[rgba(160,190,225,.8)] text-pretty">
-        <span className="font-mono text-[11.5px] text-text-bright">claude</span> isn't on PATH —
+      <p className="fs-12 leading-[1.45] text-[rgba(160,190,225,.8)] text-pretty">
+        <span className="font-mono fs-11.5 text-text-bright">claude</span> isn't on PATH —
         adding, editing and removing need the CLI.
       </p>
     )
@@ -977,11 +977,11 @@ function formViewParts({
         role="alert"
         className="flex flex-col gap-1.5 rounded-lg border border-[#de3b3d]/45 bg-[#de3b3d]/7 px-3 py-2.5"
       >
-        <div className="flex items-center gap-2 font-mono text-[9.5px] tracking-[0.14em] text-[#ffb4ad]">
+        <div className="flex items-center gap-2 font-mono fs-9.5 tracking-[0.14em] text-[#ffb4ad]">
           <span aria-hidden className="block h-1.5 w-1.5 rounded-full bg-[#de3b3d]" />
           {state.refusal.cli ? 'CLI REFUSED · NOTHING WAS SAVED' : 'NOTHING WAS SAVED'}
         </div>
-        <pre className="max-h-[140px] overflow-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(222,230,244,.9)] [overflow-wrap:anywhere]">
+        <pre className="max-h-[140px] overflow-auto whitespace-pre-wrap font-mono fs-10.5 leading-[1.6] text-[rgba(222,230,244,.9)] [overflow-wrap:anywhere]">
           {[state.refusal.command, state.refusal.message].filter(Boolean).join('\n')}
         </pre>
       </div>
@@ -994,7 +994,7 @@ function formViewParts({
       <button
         type="button"
         onClick={onBack}
-        className="font-mono text-[10px] tracking-[0.2em] text-[#8fd8ff] transition-colors hover:text-[#c6ecff]"
+        className="font-mono fs-10 tracking-[0.2em] text-[#8fd8ff] transition-colors hover:text-[#c6ecff]"
       >
         ← SERVERS
       </button>
@@ -1004,7 +1004,7 @@ function formViewParts({
     footer: (
       <>
         {state.saving && (
-          <span className="font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.45)]">
+          <span className="font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.45)]">
             running claude mcp…
           </span>
         )}
@@ -1023,13 +1023,13 @@ function formViewParts({
     ),
     body: state.loadError ? (
       <div className="flex flex-col items-start gap-3 pb-1">
-        <div className="text-sm font-semibold">This server can't be edited here.</div>
-        <pre className="self-stretch whitespace-pre-wrap rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)] [overflow-wrap:anywhere]">
+        <div className="fs-14 leading-(--text-sm--line-height) font-semibold">This server can't be edited here.</div>
+        <pre className="self-stretch whitespace-pre-wrap rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-[rgba(190,212,238,.8)] [overflow-wrap:anywhere]">
           {state.loadError}
         </pre>
       </div>
     ) : !form ? (
-      <div className="font-mono text-[10.5px] tracking-[0.06em]">
+      <div className="font-mono fs-10.5 tracking-[0.06em]">
         <Working label="reading the definition…" />
       </div>
     ) : (
@@ -1064,10 +1064,10 @@ function formViewParts({
                     : 'border-[rgba(150,205,255,.14)] text-[rgba(220,235,255,.8)] hover:border-[rgba(150,205,255,.3)]',
                 ].join(' ')}
               >
-                <span className="text-[12.5px] font-semibold">{option.label}</span>
+                <span className="fs-12.5 font-semibold">{option.label}</span>
                 <span
                   className={[
-                    'font-mono text-[9.5px] tracking-[0.08em]',
+                    'font-mono fs-9.5 tracking-[0.08em]',
                     active ? 'text-[rgba(200,220,245,.7)]' : 'text-[rgba(160,190,225,.55)]',
                   ].join(' ')}
                 >
@@ -1099,7 +1099,7 @@ function formViewParts({
                   })
                 }}
                 className={[
-                  'rounded-full border px-3.5 py-[5px] font-mono text-[11.5px] transition-colors',
+                  'rounded-full border px-3.5 py-[5px] font-mono fs-11.5 transition-colors',
                   active
                     ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
                     : 'border-[rgba(150,205,255,.14)] text-[rgba(220,235,255,.75)] hover:border-[rgba(150,205,255,.3)]',
@@ -1195,7 +1195,7 @@ function formViewParts({
                   aria-pressed={shown}
                   onClick={() => onState({ revealed: shown ? null : i })}
                   className={[
-                    'h-8 w-[52px] rounded-lg border font-mono text-[10px] tracking-[0.06em] transition-colors',
+                    'min-h-8 w-[52px] rounded-lg border font-mono fs-10 tracking-[0.06em] transition-colors',
                     shown
                       ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
                       : 'border-[rgba(150,205,255,.14)] text-[rgba(200,220,245,.75)] hover:border-[rgba(150,205,255,.3)]',
@@ -1210,7 +1210,7 @@ function formViewParts({
                     const rest = form[kvKey].filter((_, j) => j !== i)
                     setRows(rest.length > 0 ? rest : [blankKvRow()], null)
                   }}
-                  className="h-8 w-8 rounded-lg border border-[rgba(150,205,255,.14)] text-sm text-[rgba(200,220,245,.6)] transition-colors hover:border-[rgba(150,205,255,.3)]"
+                  className="h-8 w-8 rounded-lg border border-[rgba(150,205,255,.14)] fs-14 leading-(--text-sm--line-height) text-[rgba(200,220,245,.6)] transition-colors hover:border-[rgba(150,205,255,.3)]"
                 >
                   ×
                 </button>
@@ -1221,11 +1221,11 @@ function formViewParts({
             <button
               type="button"
               onClick={() => setRows([...form[kvKey], blankKvRow()])}
-              className="py-1 font-mono text-[11px] text-[#8fd8ff] transition-colors hover:text-[#c6ecff]"
+              className="py-1 font-mono fs-11 text-[#8fd8ff] transition-colors hover:text-[#c6ecff]"
             >
               {kvKey === 'env' ? '+ Add variable' : '+ Add header'}
             </button>
-            <span className="text-[11.5px] text-[rgba(160,190,225,.55)]">
+            <span className="fs-11.5 text-[rgba(160,190,225,.55)]">
               Values are masked — reveal one row at a time.
             </span>
           </div>
@@ -1239,7 +1239,7 @@ function Field({ error, children }: { error: string | undefined; children: React
   return (
     <div className="flex flex-col gap-1.5">
       {children}
-      {error && <span className="text-[11.5px] text-[#ffaba3]">{error}</span>}
+      {error && <span className="fs-11.5 text-[#ffaba3]">{error}</span>}
     </div>
   )
 }

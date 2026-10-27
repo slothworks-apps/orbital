@@ -1407,7 +1407,7 @@ export function SpaceMap() {
             .join(' ')}
           style={{ right: overlayRightPx }}
         >
-          <div className="flex items-center gap-2 font-mono text-[10.5px] tracking-[0.1em] text-text-muted">
+          <div className="flex items-center gap-2 font-mono fs-10.5 tracking-[0.1em] text-text-muted">
             {aggregateSegments.map(({ key, text }, i) => {
               const color = stateColor(key)
               return (
@@ -1433,7 +1433,7 @@ export function SpaceMap() {
           data-overlay="camera-readout"
           style={{ bottom: overlayBottomPx, left: mapInsets.left }}
           className={[
-            'pointer-events-none absolute font-mono text-[10.5px] tracking-[0.08em] text-text-muted/70',
+            'pointer-events-none absolute font-mono fs-10.5 tracking-[0.08em] text-text-muted/70',
             overlayLeftTransition,
           ]
             .filter(Boolean)
@@ -1468,7 +1468,7 @@ export function SpaceMap() {
             title={`Error log · ${shortcutLabel('global.errors')}`}
             onClick={() => setDialog('errors')}
             className={[
-              'relative grid h-[34px] w-[34px] place-items-center rounded-[9px] border bg-[rgba(10,14,24,.92)] text-base font-bold leading-none transition-colors',
+              'relative grid h-[34px] w-[34px] place-items-center rounded-[9px] border bg-[rgba(10,14,24,.92)] fs-16 font-bold leading-none transition-colors',
               errorLogOpen
                 ? 'border-accent/50 text-text-bright shadow-[0_0_0_3px_rgba(89,228,243,.1)]'
                 : [
@@ -1482,7 +1482,7 @@ export function SpaceMap() {
               <span
                 aria-hidden
                 className={[
-                  'absolute -top-1.5 grid h-4 min-w-[16px] place-items-center rounded-full border border-[rgba(2,4,9,.8)] bg-[#de3b3d] font-mono text-[9.5px] font-medium tracking-[0.02em] text-white',
+                  'absolute -top-1.5 grid h-4 min-w-[16px] place-items-center rounded-full border border-[rgba(2,4,9,.8)] bg-[#de3b3d] font-mono fs-9.5 font-medium tracking-[0.02em] text-white',
                   // The wider 99+ badge hangs 4px further out (5c).
                   errorsUnseen > 99 ? '-right-2.5 px-[5px]' : '-right-1.5 px-1',
                 ].join(' ')}
@@ -1497,7 +1497,7 @@ export function SpaceMap() {
               type="button"
               aria-label="Zoom in"
               onClick={zoomIn}
-              className="grid h-[34px] w-[34px] place-items-center border-b border-[rgba(150,205,255,.1)] text-base text-text-bright hover:bg-white/5"
+              className="grid h-[34px] w-[34px] place-items-center border-b border-[rgba(150,205,255,.1)] fs-16 leading-(--text-base--line-height) text-text-bright hover:bg-white/5"
             >
               +
             </button>
@@ -1505,7 +1505,7 @@ export function SpaceMap() {
               type="button"
               aria-label="Zoom out"
               onClick={zoomOut}
-              className="grid h-[34px] w-[34px] place-items-center border-b border-[rgba(150,205,255,.1)] text-base text-text-bright hover:bg-white/5"
+              className="grid h-[34px] w-[34px] place-items-center border-b border-[rgba(150,205,255,.1)] fs-16 leading-(--text-base--line-height) text-text-bright hover:bg-white/5"
             >
               −
             </button>
@@ -1514,7 +1514,7 @@ export function SpaceMap() {
               aria-label="Fit view"
               title={`Fit view · ${shortcutLabel('map.fit')}`}
               onClick={handleFit}
-              className="grid h-[34px] w-[34px] place-items-center text-sm text-text-bright hover:bg-white/5"
+              className="grid h-[34px] w-[34px] place-items-center fs-14 leading-(--text-sm--line-height) text-text-bright hover:bg-white/5"
             >
               ⌖
             </button>
@@ -1544,9 +1544,9 @@ export function SpaceMap() {
             className="pointer-events-auto"
             onClick={() => setDialog('new')}
           >
-            <span aria-hidden className="text-base leading-none text-accent">+</span>
+            <span aria-hidden className="fs-16 leading-none text-accent">+</span>
             New session
-            <span className="rounded border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono text-[10px] text-[rgba(200,220,245,.7)]">
+            <span className="rounded border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono fs-10 text-[rgba(200,220,245,.7)]">
               {shortcutLabel('global.new-session')}
             </span>
           </Button>

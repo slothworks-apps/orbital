@@ -99,8 +99,8 @@ const TYPEAHEAD_MS = 500
 const tint = (color: string, pct: number) => `color-mix(in oklab, ${color} ${pct}%, transparent)`
 
 const triggerFont: Record<NonNullable<SelectProps<unknown>['font']>, string> = {
-  mono: 'font-mono text-xs',
-  sans: 'font-sans text-[12.5px]',
+  mono: 'font-mono fs-12 leading-(--text-xs--line-height)',
+  sans: 'font-sans fs-12.5',
 }
 
 /**
@@ -387,7 +387,7 @@ export function Select<T extends string | number>({
             ? // 61h's model chip: 4px/8px/4px/10px in a 999px hairline, mono
               // 10.5px; open lights the border to .3 over a .14 fill.
               [
-                'whitespace-nowrap rounded-full border py-1 pl-2.5 pr-2 font-mono text-[10.5px] text-[rgba(214,230,248,.85)]',
+                'whitespace-nowrap rounded-full border py-1 pl-2.5 pr-2 font-mono fs-10.5 text-[rgba(214,230,248,.85)]',
                 'transition-[background-color,border-color] duration-[180ms] ease-out',
                 open
                   ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)]'
@@ -397,7 +397,7 @@ export function Select<T extends string | number>({
             ? // 3a's origin trigger: 3px/7px inside a 6px radius, the heading's
               // own mono face at a looser .04em, transparent until it is lit.
               [
-                'rounded-md border px-[7px] py-[3px] font-mono text-[10px] tracking-[0.04em]',
+                'rounded-md border px-[7px] py-[3px] font-mono fs-10 tracking-[0.04em]',
                 'transition-[background-color,border-color,color] duration-[180ms] ease-out',
                 lit
                   ? 'border-[rgba(150,205,255,.22)] bg-[rgba(150,205,255,.12)] text-[oklch(90%_.06_205)]'
@@ -417,7 +417,7 @@ export function Select<T extends string | number>({
                 // hue-tinted border over a hue fill, 11px/600 label, chevron
                 // inline rather than in a gutter.
                 [
-                  'rounded-full border py-1 pl-2.5 pr-[9px] text-[11px] font-semibold',
+                  'rounded-full border py-1 pl-2.5 pr-[9px] fs-11 font-semibold',
                   'transition-[background-color,border-color] duration-[180ms] ease-out',
                   font === 'mono' ? 'font-mono' : 'font-sans',
                 ].join(' ')
@@ -425,7 +425,7 @@ export function Select<T extends string | number>({
                 ? // 1e's target-tag pill: 3px/9px inside a 999px hue-tinted
                   // border, 11px/600 label, chevron in the right gutter.
                   [
-                    'rounded-full border border-panel-border py-[3px] pl-[9px] pr-6 text-[11px] font-semibold',
+                    'rounded-full border border-panel-border py-[3px] pl-[9px] pr-6 fs-11 font-semibold',
                     font === 'mono' ? 'font-mono' : 'font-sans',
                   ].join(' ')
                 : // 1h's field: 8px/10px padding, a 26px right gutter for the
@@ -452,9 +452,9 @@ export function Select<T extends string | number>({
           // the caret pushed right.
           <>
             {selected?.glyph && <span aria-hidden className="flex shrink-0 text-text-bright">{selected.glyph}</span>}
-            <span className="shrink-0 text-[13px] font-semibold text-text-bright">{label}</span>
+            <span className="shrink-0 fs-13 font-semibold text-text-bright">{label}</span>
             {selected?.sub && (
-              <span className="min-w-0 truncate font-mono text-[11px] text-[rgba(160,190,225,.6)]">{selected.sub}</span>
+              <span className="min-w-0 truncate font-mono fs-11 text-[rgba(160,190,225,.6)]">{selected.sub}</span>
             )}
             <span aria-hidden className="flex-1" />
           </>
@@ -466,18 +466,18 @@ export function Select<T extends string | number>({
           data-caret
           className={
             isChip
-              ? 'block shrink-0 text-[8px] text-[rgba(160,190,225,.6)]'
+              ? 'block shrink-0 fs-8 text-[rgba(160,190,225,.6)]'
               : isDevice
               ? // 50g: 8px, inline, flips while open (`transform .2s ease`).
-                `block shrink-0 text-[8px] text-[rgba(160,190,225,.6)] transition-transform duration-200 ease-[ease] ${open ? 'rotate-180' : ''}`
+                `block shrink-0 fs-8 text-[rgba(160,190,225,.6)] transition-transform duration-200 ease-[ease] ${open ? 'rotate-180' : ''}`
               : isTag || isGhost
               ? // Inline, and it flips while the popup is open (1b, 3a).
-                `block shrink-0 text-[8px] opacity-70 transition-transform duration-200 ease-out ${open ? 'rotate-180' : ''}`
+                `block shrink-0 fs-8 opacity-70 transition-transform duration-200 ease-out ${open ? 'rotate-180' : ''}`
               : [
                   'pointer-events-none absolute top-1/2 -translate-y-1/2',
                   isPill
-                    ? 'right-2 text-[9px] text-text-muted'
-                    : 'right-2.5 text-[11px] text-[rgba(160,190,225,.6)]',
+                    ? 'right-2 fs-9 text-text-muted'
+                    : 'right-2.5 fs-11 text-[rgba(160,190,225,.6)]',
                 ].join(' ')
           }
         >
@@ -579,7 +579,7 @@ export function Select<T extends string | number>({
                     {(isSelected || reserveCheck) && (
                       <span
                         aria-hidden
-                        className={`shrink-0 text-[10px] text-accent ${isSelected ? '' : 'opacity-0'}`}
+                        className={`shrink-0 fs-10 text-accent ${isSelected ? '' : 'opacity-0'}`}
                       >
                         ✓
                       </span>
@@ -592,14 +592,14 @@ export function Select<T extends string | number>({
               // 61h: 6px/9px/4px under a .08 rule, mono 10px at .5.
               <div
                 id={footerId}
-                className="mt-0.5 shrink-0 border-t border-[rgba(150,205,255,.08)] px-[9px] pb-1 pt-1.5 font-mono text-[10px] leading-normal text-[rgba(160,190,225,.5)]"
+                className="mt-0.5 shrink-0 border-t border-[rgba(150,205,255,.08)] px-[9px] pb-1 pt-1.5 font-mono fs-10 leading-normal text-[rgba(160,190,225,.5)]"
               >
                 {footer}
               </div>
             ) : footer && (
               <div
                 id={footerId}
-                className="mx-[5px] mt-[3px] mb-0.5 shrink-0 border-t border-[rgba(150,205,255,.1)] pt-1.5 font-mono text-[9.5px] leading-[1.4] tracking-[.1em] text-[rgba(160,190,225,.5)]"
+                className="mx-[5px] mt-[3px] mb-0.5 shrink-0 border-t border-[rgba(150,205,255,.1)] pt-1.5 font-mono fs-9.5 leading-[1.4] tracking-[.1em] text-[rgba(160,190,225,.5)]"
               >
                 {footer}
               </div>
@@ -652,16 +652,16 @@ function DeviceRow<T>({
         .join(' ')}
     >
       {option.glyph && <span aria-hidden className="flex shrink-0">{option.glyph}</span>}
-      <span className="shrink-0 font-sans text-[13px] font-semibold">{option.label}</span>
+      <span className="shrink-0 font-sans fs-13 font-semibold">{option.label}</span>
       <span
         className={[
-          'min-w-0 flex-1 truncate font-mono text-[10.5px]',
+          'min-w-0 flex-1 truncate font-mono fs-10.5',
           option.inert ? 'text-[rgba(160,190,225,.5)]' : 'text-[rgba(160,190,225,.6)]',
         ].join(' ')}
       >
         {option.sub}
       </span>
-      <span aria-hidden className={`shrink-0 font-mono text-[10px] text-accent ${selected ? '' : 'opacity-0'}`}>
+      <span aria-hidden className={`shrink-0 font-mono fs-10 text-accent ${selected ? '' : 'opacity-0'}`}>
         ✓
       </span>
     </div>
@@ -709,12 +709,12 @@ function ChipRow<T>({
         .filter(Boolean)
         .join(' ')}
     >
-      <span aria-hidden className="w-2.5 shrink-0 font-sans text-[11px] text-accent">
+      <span aria-hidden className="w-2.5 shrink-0 font-sans fs-11 text-accent">
         {selected ? '✓' : ''}
       </span>
-      <span className="font-mono text-[11.5px]">{option.label}</span>
+      <span className="font-mono fs-11.5">{option.label}</span>
       <span aria-hidden className="flex-1" />
-      {option.sub && <span className="whitespace-nowrap font-sans text-[11px] text-[rgba(160,190,225,.6)]">{option.sub}</span>}
+      {option.sub && <span className="whitespace-nowrap font-sans fs-11 text-[rgba(160,190,225,.6)]">{option.sub}</span>}
     </div>
   )
 }

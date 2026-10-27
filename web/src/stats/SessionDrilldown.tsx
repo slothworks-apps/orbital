@@ -111,13 +111,13 @@ export function SessionDrilldown({ id }: { id: string }) {
   return (
     <StatsShell sky="session" bar={bar}>
       {error !== null && (
-        <div className="rounded-[14px] border border-[rgba(255,138,122,.35)] bg-[rgba(4,8,16,.45)] px-[14px] py-3 font-mono text-[11.5px] text-[#ff8a7a]">
+        <div className="rounded-[14px] border border-[rgba(255,138,122,.35)] bg-[rgba(4,8,16,.45)] px-[14px] py-3 font-mono fs-11.5 text-[#ff8a7a]">
           session stats unavailable — {error}
         </div>
       )}
 
       {detail === null && error === null && (
-        <div className="flex flex-1 items-center justify-center font-mono text-[11.5px] text-[rgba(160,190,225,.5)]">
+        <div className="flex flex-1 items-center justify-center font-mono fs-11.5 text-[rgba(160,190,225,.5)]">
           reading the transcript…
         </div>
       )}
@@ -207,8 +207,8 @@ function SessionMeta({
         }}
       />
       <div className="min-w-0">
-        <h1 className="truncate text-[21px] font-bold tracking-[-0.01em]">{session.title}</h1>
-        <div className="mt-[5px] truncate font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+        <h1 className="truncate fs-21 font-bold tracking-[-0.01em]">{session.title}</h1>
+        <div className="mt-[5px] truncate font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
           {meta.join(' · ')}
         </div>
       </div>
@@ -217,7 +217,7 @@ function SessionMeta({
           `selected-session-lives-in-the-url-query`). */}
       <a
         href={`/?${SESSION_PARAM}=${encodeURIComponent(session.id)}`}
-        className="rounded-lg border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.5)] px-[13px] py-[7px] font-mono text-[11px] text-text-soft no-underline"
+        className="rounded-lg border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.5)] px-[13px] py-[7px] font-mono fs-11 text-text-soft no-underline"
       >
         open transcript
       </a>
@@ -273,7 +273,7 @@ function SessionTiles({ detail, showWaits }: { detail: SessionStatsDetail; showW
             />
           ))}
         </div>
-        <div className="mt-[9px] flex flex-wrap gap-4 font-mono text-[10.5px] text-[rgba(160,190,225,.8)]">
+        <div className="mt-[9px] flex flex-wrap gap-4 font-mono fs-10.5 text-[rgba(160,190,225,.8)]">
           {TIME_CATEGORIES.map((category) => (
             <span key={category.field} className="flex items-center gap-1.5">
               <span
@@ -333,10 +333,10 @@ function Hero({
   unitLeading?: boolean
 }) {
   const unitSpan = unit ? (
-    <span className="text-[19px] text-[rgba(200,225,255,.75)]">{unit}</span>
+    <span className="fs-19 text-[rgba(200,225,255,.75)]">{unit}</span>
   ) : null
   return (
-    <div className="mt-2 font-mono text-[30px] leading-none tracking-[-0.02em] text-text-bright">
+    <div className="mt-2 font-mono fs-30 leading-none tracking-[-0.02em] text-text-bright">
       {unitLeading && unitSpan}
       {value}
       {!unitLeading && unitSpan}
@@ -347,7 +347,7 @@ function Hero({
 function SubLine({ children, tone }: { children: ReactNode; tone?: string }) {
   return (
     <div
-      className="mt-[7px] font-mono text-[10.5px]"
+      className="mt-[7px] font-mono fs-10.5"
       style={{ color: tone ?? 'rgba(160,190,225,.6)' }}
     >
       {children}
@@ -381,14 +381,14 @@ function SessionFindings({
       <div className="flex items-baseline">
         <div className={PANEL_LABEL_CLASS}>FINDINGS IN THIS SESSION</div>
         <span className="flex-1" />
-        <div className="font-mono text-[10px] text-[rgba(160,190,225,.45)]">
+        <div className="font-mono fs-10 text-[rgba(160,190,225,.45)]">
           {detail.findings.length}
         </div>
       </div>
 
       {detail.findings.length === 0 ? (
         <>
-          <div className="font-mono text-[11px] leading-[1.55] text-[rgba(160,190,225,.6)]">
+          <div className="font-mono fs-11 leading-[1.55] text-[rgba(160,190,225,.6)]">
             nothing to report in this session
           </div>
           <span className="flex-1" />
@@ -420,7 +420,7 @@ function SessionFindings({
         </Scroller>
       )}
 
-      <div className="font-mono text-[10.5px] leading-[1.55] text-[rgba(160,190,225,.5)]">
+      <div className="font-mono fs-10.5 leading-[1.55] text-[rgba(160,190,225,.5)]">
         Rules run over the stored transcript when the session ends, and every 10 turns while it is
         live.
       </div>
@@ -445,7 +445,7 @@ function MoneyPanel({ cost }: { cost: SessionStatsDetail['cost'] }) {
   return (
     <section aria-label="Where the money went" className={`${PANEL_CLASS} px-[18px] py-4`}>
       <div className={PANEL_LABEL_CLASS}>WHERE THE MONEY WENT</div>
-      <div className="mt-3 flex flex-col gap-[11px] font-mono text-[11.5px] text-text-bright">
+      <div className="mt-3 flex flex-col gap-[11px] font-mono fs-11.5 text-text-bright">
         {rows.map((row) => (
           <div key={row.label} className="flex items-center gap-3">
             <span className="w-[132px] shrink-0 text-[rgba(160,190,225,.75)]">{row.label}</span>
@@ -467,7 +467,7 @@ function MoneyPanel({ cost }: { cost: SessionStatsDetail['cost'] }) {
         <div className="mt-[3px] flex items-baseline border-t border-[rgba(150,205,255,.1)] pt-2.5">
           <span className="text-[rgba(160,190,225,.75)]">total</span>
           <span className="flex-1" />
-          <span className="text-[17px]">${formatCostAmount(cost.total)}</span>
+          <span className="fs-17">${formatCostAmount(cost.total)}</span>
         </div>
       </div>
     </section>

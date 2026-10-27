@@ -172,7 +172,7 @@ export function TextPreview({
             <div
               key={i}
               data-line={n}
-              className="flex font-mono text-[12px] leading-[1.75]"
+              className="flex font-mono fs-12 leading-[1.75]"
               style={hit ? { background: 'rgba(150,205,255,.07)' } : undefined}
             >
               {/* The number is drawn by ::before, so a selection copies the text without it.
@@ -255,13 +255,13 @@ export function TextPreview({
             type="button"
             aria-label="Back"
             onClick={onBack}
-            className="grid h-11 w-11 shrink-0 place-items-center text-[28px] leading-none text-[rgba(220,235,255,.85)]"
+            className="grid h-11 w-11 shrink-0 place-items-center fs-28 leading-none text-[rgba(220,235,255,.85)]"
           >
             ‹
           </button>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[16px] font-bold">{basename(path)}</div>
-            {sub && <div className="mt-0.5 truncate font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">{sub}</div>}
+            <div className="truncate fs-16 font-bold">{basename(path)}</div>
+            {sub && <div className="mt-0.5 truncate font-mono fs-10.5 text-[rgba(160,190,225,.65)]">{sub}</div>}
           </div>
           {isMarkdown && lines && (
             // 10d·e, the switch: a 76×28 pill whose two segments are each 38×44 to the finger.
@@ -269,8 +269,8 @@ export function TextPreview({
               <span aria-hidden className="pointer-events-none absolute inset-x-0 top-2 h-7 rounded-lg border border-[rgba(150,205,255,.14)]" />
               {(
                 [
-                  ['rendered', 'Rendered', 'Aa', 'font-sans text-[12px] font-bold tracking-[-.02em]'],
-                  ['source', 'Source', '</>', 'font-mono text-[10.5px] [font-variant-ligatures:none]'],
+                  ['rendered', 'Rendered', 'Aa', 'font-sans fs-12 font-bold tracking-[-.02em]'],
+                  ['source', 'Source', '</>', 'font-mono fs-10.5 [font-variant-ligatures:none]'],
                 ] as const
               ).map(([value, name, glyph, type]) => (
                 <button
@@ -301,7 +301,7 @@ export function TextPreview({
         </div>
         {shown && (
           <div className="pl-2.5">
-            <span className="rounded-[4px] border border-[rgba(150,205,255,.2)] px-[7px] py-[3px] font-mono text-[9px] tracking-[0.14em] text-[rgba(160,190,225,.75)]">
+            <span className="rounded-[4px] border border-[rgba(150,205,255,.2)] px-[7px] py-[3px] font-mono fs-9 tracking-[0.14em] text-[rgba(160,190,225,.75)]">
               READ-ONLY PREVIEW · {asOfLabel(shown.readAt, Date.now()).toUpperCase()}
             </span>
           </div>
@@ -314,14 +314,14 @@ export function TextPreview({
         {body}
       </div>
       <footer className="flex shrink-0 flex-col gap-2 border-t border-[rgba(150,205,255,.1)] bg-[rgba(6,10,20,.94)] px-4 pb-1.5 pt-2.5">
-        <div className="text-[12px] leading-[1.45] text-[rgba(160,190,225,.65)] [text-wrap:pretty]">
+        <div className="fs-12 leading-[1.45] text-[rgba(160,190,225,.65)] [text-wrap:pretty]">
           Text files up to {formatBytes(PHONE_TEXT_PREVIEW_MAX_BYTES)} preview here. Editing happens on the Mac.
         </div>
         <div className="flex gap-2">
           <button
             type="button"
             onClick={() => void copyToClipboard(path)}
-            className="h-13 flex-1 rounded-[14px] border border-[rgba(150,205,255,.22)] bg-transparent text-[14px] font-semibold text-[#e8eef8]"
+            className="h-13 flex-1 rounded-[14px] border border-[rgba(150,205,255,.22)] bg-transparent fs-14 font-semibold text-[#e8eef8]"
           >
             Copy path
           </button>
@@ -331,7 +331,7 @@ export function TextPreview({
               type="button"
               aria-pressed={wrap}
               onClick={() => setWrap((w) => !w)}
-              className="h-13 flex-1 rounded-[14px] border border-[rgba(150,205,255,.22)] bg-transparent text-[14px] font-semibold text-[#e8eef8]"
+              className="h-13 flex-1 rounded-[14px] border border-[rgba(150,205,255,.22)] bg-transparent fs-14 font-semibold text-[#e8eef8]"
             >
               Wrap · {wrap ? 'on' : 'off'}
             </button>

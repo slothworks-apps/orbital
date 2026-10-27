@@ -51,7 +51,7 @@ function slotChrome({ inWindow, swap, back, close }: { inWindow: boolean; swap: 
     close: swap ? null : close,
     swapStrip: swap ? (
       <div
-        className="orbital-drag-region -mx-[18px] -mt-4 flex h-10 items-center gap-2.5 pr-[18px] pt-3"
+        className="orbital-drag-region -mx-[18px] -mt-4 flex min-h-10 items-center gap-2.5 pr-[18px] pt-3"
         style={{ paddingLeft: WINDOW_STRIP_INSET_PX }}
       >
         {back}
@@ -212,7 +212,7 @@ export function HarnessRecordView({ sessionId, onClose }: { sessionId: string; o
 
   const harness = data?.sessionId === sessionId ? data.harness : undefined
   if (!harness || !data) {
-    return harness === null ? <div className="p-4 text-[12px] text-[rgba(160,190,225,.6)]">This session has no harness record.</div> : null
+    return harness === null ? <div className="p-4 fs-12 text-[rgba(160,190,225,.6)]">This session has no harness record.</div> : null
   }
   const chrome: Chrome = {
     inWindow: false,
@@ -222,7 +222,7 @@ export function HarnessRecordView({ sessionId, onClose }: { sessionId: string; o
         <CloseGlyph />
       </HeadButton>
     ) : null,
-    row: (children) => <div className="flex h-[22px] items-center gap-2">{children}</div>,
+    row: (children) => <div className="flex min-h-[22px] items-center gap-2">{children}</div>,
   }
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden">

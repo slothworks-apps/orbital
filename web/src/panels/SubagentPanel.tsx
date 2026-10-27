@@ -42,20 +42,20 @@ function StreamLostBody() {
         data-stream-lost-reason
         className="flex flex-col gap-[9px] rounded-[10px] border border-dashed border-[oklch(80%_0.13_60_/_0.45)] bg-[oklch(80%_0.13_60_/_0.05)] p-[14px]"
       >
-        <div className="font-mono text-[9.5px] tracking-[0.16em] text-[oklch(85%_0.12_60)]">
+        <div className="font-mono fs-9.5 tracking-[0.16em] text-[oklch(85%_0.12_60)]">
           TRANSCRIPT UNAVAILABLE
         </div>
-        <div className="text-[12.5px] leading-[1.6] text-[rgba(228,238,250,.9)] text-pretty">
+        <div className="fs-12.5 leading-[1.6] text-[rgba(228,238,250,.9)] text-pretty">
           The Orbital server lost this agent&rsquo;s buffer — most likely a restart. It was only
           ever held in memory, so there is nothing left to show here.
         </div>
-        <div className="font-mono text-[10px] leading-[1.7] text-[rgba(160,190,225,.65)]">
+        <div className="font-mono fs-10 leading-[1.7] text-[rgba(160,190,225,.65)]">
           this is not an empty run — the agent kept working
           <br />
           its report still lands in the parent transcript
         </div>
       </div>
-      <div className="flex items-center gap-2.5 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.4)]">
+      <div className="flex items-center gap-2.5 font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.4)]">
         <span
           aria-hidden
           className="h-px flex-1"
@@ -116,7 +116,7 @@ export function BackToSession({ parent, onBack }: { parent: ApiSession | undefin
       type="button"
       aria-label="Back to the session"
       onClick={onBack}
-      className="flex h-6 min-w-0 items-center gap-[7px] rounded-md border border-[rgba(150,205,255,.14)] px-[9px] font-mono text-[10.5px] text-text-bright transition-colors hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.08)]"
+      className="flex min-h-6 min-w-0 items-center gap-[7px] rounded-md border border-[rgba(150,205,255,.14)] px-[9px] font-mono fs-10.5 text-text-bright transition-colors hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.08)]"
     >
       <span aria-hidden>←</span>
       {key && (
@@ -327,7 +327,7 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
         {swap && (
           <div
             ref={titleRowRef}
-            className="orbital-drag-region -mx-[18px] -mt-4 flex h-10 items-center gap-2.5 pt-3 pr-[18px]"
+            className="orbital-drag-region -mx-[18px] -mt-4 flex min-h-10 items-center gap-2.5 pt-3 pr-[18px]"
             style={{ paddingLeft: WINDOW_STRIP_INSET_PX }}
           >
             <BackToSession parent={parentSession} onBack={closeSubagent} />
@@ -355,7 +355,7 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
                 : 'h-[22px]',
           ].join(' ')}
         >
-          <span className="font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.55)]">
+          <span className="font-mono fs-9.5 tracking-[0.18em] text-[rgba(160,190,225,.55)]">
             SUBAGENT · READ-ONLY
           </span>
           <span aria-hidden className="flex-1" />
@@ -380,12 +380,12 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
             brief still asks for the name itself, so it gets a plain
             breadcrumb line rather than the deferred `↖` control. */}
         {parentSession && (
-          <div className="mt-1 truncate font-mono text-[10px] text-text-muted">
+          <div className="mt-1 truncate font-mono fs-10 text-text-muted">
             {parentSession.title || 'Untitled session'}
           </div>
         )}
 
-        <div className="mt-2.5 line-clamp-2 text-pretty text-[15px] font-semibold leading-[1.34] tracking-[-0.005em] text-text-bright">
+        <div className="mt-2.5 line-clamp-2 text-pretty fs-15 font-semibold leading-[1.34] tracking-[-0.005em] text-text-bright">
           {subagent.name}
         </div>
 
@@ -404,7 +404,7 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
           />
         </div>
 
-        <div className="mt-[11px] flex items-center gap-2 font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+        <div className="mt-[11px] flex items-center gap-2 font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
           {modelLabel && <span>{modelLabel}</span>}
           <span aria-hidden className="flex-1" />
           <span data-elapsed className="text-[rgba(200,225,255,.85)]">
@@ -426,7 +426,7 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
           className="border-b border-[rgba(150,205,255,.1)] px-[18px] py-3"
         >
           <div className="flex flex-col gap-[7px] rounded-[9px] border border-[rgba(150,205,255,.26)] bg-[rgba(150,205,255,.07)] px-3 py-[11px]">
-            <div className="flex items-center gap-2 font-mono text-[9.5px] tracking-[0.16em] text-[rgba(210,230,250,.9)]">
+            <div className="flex items-center gap-2 font-mono fs-9.5 tracking-[0.16em] text-[rgba(210,230,250,.9)]">
               <span aria-hidden className="h-px w-3 bg-[rgba(210,230,250,.6)]" />
               TRUNCATED
               <span aria-hidden className="flex-1" />
@@ -434,7 +434,7 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
                 buffer {messages.length.toLocaleString()} steps
               </span>
             </div>
-            <div className="text-pretty text-[12px] leading-[1.55] text-[rgba(228,238,250,.88)]">
+            <div className="text-pretty fs-12 leading-[1.55] text-[rgba(228,238,250,.88)]">
               The first {droppedCount.toLocaleString()} steps of this run were dropped. What
               follows is the tail of the record, not the whole of it.
             </div>
@@ -474,7 +474,7 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
           (spec § "Read-only means read-only"). */}
       <div
         data-subagent-footer
-        className="flex items-center gap-2 border-t border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.4)] px-[18px] py-3 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]"
+        className="flex items-center gap-2 border-t border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.4)] px-[18px] py-3 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.5)]"
       >
         {/* Swap (25b): the composer is the session's, one ⎋ away. */}
         <span>{swap ? 'read-only · the composer is one step back' : 'read-only · a subagent takes no input'}</span>

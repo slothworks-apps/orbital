@@ -507,18 +507,18 @@ function MatHeader({
     <header
       data-mat-handle={tagId}
       title="Drag to reorder"
-      className="flex h-[42px] flex-none cursor-grab items-center gap-[9px] rounded-t-[14px] border-b border-[rgba(150,205,255,.08)] pl-2.5 pr-3.5 select-none hover:bg-[rgba(150,205,255,.035)] active:cursor-grabbing"
+      className="flex min-h-[42px] flex-none cursor-grab items-center gap-[9px] rounded-t-[14px] border-b border-[rgba(150,205,255,.08)] pl-2.5 pr-3.5 select-none hover:bg-[rgba(150,205,255,.035)] active:cursor-grabbing"
     >
       <GripDots />
       <span
         className="block h-[7px] w-[7px] flex-none rounded-full"
         style={{ background: tagInk(hue) }}
       />
-      <span className="font-mono text-[10.5px] tracking-[0.2em]" style={{ color: tagInk(hue) }}>
+      <span className="font-mono fs-10.5 tracking-[0.2em]" style={{ color: tagInk(hue) }}>
         {name}
       </span>
       {count && (
-        <span className="font-mono text-[10.5px] tracking-[0.1em] text-[rgba(160,190,225,.55)]">
+        <span className="font-mono fs-10.5 tracking-[0.1em] text-[rgba(160,190,225,.55)]">
           · {count}
         </span>
       )}
@@ -527,7 +527,7 @@ function MatHeader({
           <span
             key={k}
             title={`${n} ${k.replace('_', ' ')}`}
-            className="flex items-center gap-[5px] font-mono text-[10.5px] text-[rgba(214,230,248,.8)]"
+            className="flex items-center gap-[5px] font-mono fs-10.5 text-[rgba(214,230,248,.8)]"
           >
             <StateDot dot={countDot(k)} color={stateColor(k)} solidPx={6} hollowPx={6} />
             {n}
@@ -674,12 +674,12 @@ const DeskCard = memo(function DeskCard({
         <div className="flex items-center gap-[9px] px-3.5 py-[9px]">
           <span className="block h-[7px] w-[7px] flex-none rounded-full border-[1.5px] border-[rgba(160,190,225,.55)]" />
           <span
-            className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-[rgba(214,226,242,.85)]"
+            className="min-w-0 flex-1 truncate fs-12.5 font-semibold text-[rgba(214,226,242,.85)]"
             title={s.title}
           >
             {s.title}
           </span>
-          <span className="flex-none font-mono text-[9.5px] tracking-[0.12em] text-[rgba(160,190,225,.6)]">
+          <span className="flex-none font-mono fs-9.5 tracking-[0.12em] text-[rgba(160,190,225,.6)]">
             {planet.leaving ? 'ENDED' : 'PINNED · ENDED'}
           </span>
         </div>
@@ -691,7 +691,7 @@ const DeskCard = memo(function DeskCard({
               style={{ background: tagInk(planet.hue) }}
             />
             <span
-              className="line-clamp-2 min-w-0 flex-1 text-[13.5px] font-semibold leading-[1.38] tracking-[-0.005em] [text-wrap:pretty]"
+              className="line-clamp-2 min-w-0 flex-1 fs-13.5 font-semibold leading-[1.38] tracking-[-0.005em] [text-wrap:pretty]"
               title={s.title}
             >
               {s.title}
@@ -712,12 +712,12 @@ const DeskCard = memo(function DeskCard({
           </div>
 
           {(meta || planet.dated) && (
-            <div className="-mt-1 truncate pl-4 font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+            <div className="-mt-1 truncate pl-4 font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
               {planet.dated ? <WithAge text={meta} machine={s.machine} /> : meta}
             </div>
           )}
 
-          <div className="relative h-4 font-mono text-[11px]">
+          <div className="relative h-[calc(1rem*var(--text-scale,1))] font-mono fs-11">
             {last ? (
               <span
                 key={last.at}
@@ -903,7 +903,7 @@ function Pill({
     }
   }
   const chip =
-    'flex h-[18px] box-border items-center gap-1.5 whitespace-nowrap rounded-full border font-mono text-[9.5px] tracking-[0.12em]'
+    'flex min-h-[18px] box-border items-center gap-1.5 whitespace-nowrap rounded-full border font-mono fs-9.5 tracking-[0.12em]'
   if (mode === 'label')
     return (
       <span className={`${chip} pl-1.5 pr-2`} style={{ color: colour, borderColor: borderColour }}>
@@ -952,7 +952,7 @@ function SubagentRow({ sub, onOpen }: { sub: Subagent; onOpen: () => void }) {
       disabled={!openable}
       onClick={onOpen}
       aria-label={`Open subagent transcript: ${sub.name}`}
-      className="flex items-center gap-[9px] rounded-md px-1.5 py-1 text-left font-mono text-[11px] enabled:hover:bg-[rgba(150,205,255,.06)] disabled:cursor-default"
+      className="flex items-center gap-[9px] rounded-md px-1.5 py-1 text-left font-mono fs-11 enabled:hover:bg-[rgba(150,205,255,.06)] disabled:cursor-default"
     >
       <span className="box-border block h-1.5 w-1.5 flex-none rounded-full" style={dot} />
       <span
@@ -967,7 +967,7 @@ function SubagentRow({ sub, onOpen }: { sub: Subagent; onOpen: () => void }) {
       >
         {sub.name}
       </span>
-      <span className="text-[9.5px] tracking-[0.1em] text-[rgba(160,190,225,.55)]">
+      <span className="fs-9.5 tracking-[0.1em] text-[rgba(160,190,225,.55)]">
         {!openable ? 'INERT' : live ? 'RUNNING ›' : 'DONE ›'}
       </span>
     </button>
@@ -1030,7 +1030,7 @@ function DecisionBlock({
     <div className="flex flex-col gap-[9px] rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[linear-gradient(180deg,rgba(10,16,28,.72),rgba(5,9,18,.82))] px-3 pb-3 pt-[11px]">
       <div className="flex items-center gap-2">
         <span
-          className="rounded px-[7px] py-0.5 font-mono text-[9.5px] tracking-[0.14em] text-[#ffd2a8]"
+          className="rounded px-[7px] py-0.5 font-mono fs-9.5 tracking-[0.14em] text-[#ffd2a8]"
           style={{
             border: `1px solid color-mix(in oklch, ${stateColor('needs_input')} 35%, transparent)`,
             background: `color-mix(in oklch, ${stateColor('needs_input')} 10%, transparent)`,
@@ -1039,23 +1039,23 @@ function DecisionBlock({
           {kind}
         </span>
         {readOnly && (
-          <span className="font-mono text-[9.5px] tracking-[0.12em] text-[rgba(160,190,225,.6)]">
+          <span className="font-mono fs-9.5 tracking-[0.12em] text-[rgba(160,190,225,.6)]">
             TERMINAL SESSION
           </span>
         )}
       </div>
       {text && (
-        <div className="text-[12.5px] leading-[1.5] text-[rgba(232,238,248,.94)] [text-wrap:pretty]">
+        <div className="fs-12.5 leading-[1.5] text-[rgba(232,238,248,.94)] [text-wrap:pretty]">
           {text}
         </div>
       )}
       {detail && (
-        <div className="truncate rounded-md border border-[rgba(150,205,255,.08)] bg-[rgba(4,8,16,.6)] px-[9px] py-1.5 font-mono text-[10.5px] text-[rgba(214,230,248,.85)]">
+        <div className="truncate rounded-md border border-[rgba(150,205,255,.08)] bg-[rgba(4,8,16,.6)] px-[9px] py-1.5 font-mono fs-10.5 text-[rgba(214,230,248,.85)]">
           {detail}
         </div>
       )}
       {readOnly ? (
-        <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+        <div className="font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
           Answer it in the terminal.
         </div>
       ) : decision.kind !== 'question' ? (
@@ -1078,7 +1078,7 @@ function DecisionBlock({
                 aria-pressed={review ? chosen : undefined}
                 onClick={() => pickOption(single.question, o.label)}
                 className={[
-                  'flex items-center gap-[9px] rounded-[7px] border px-[9px] py-1.5 text-left text-[12px] transition-colors',
+                  'flex items-center gap-[9px] rounded-[7px] border px-[9px] py-1.5 text-left fs-12 transition-colors',
                   // 9g: the chosen chip takes the row's chosen state — ✓ and the accent fill.
                   chosen
                     ? 'border-accent/35 bg-accent/12 font-semibold text-[#e8eef8]'
@@ -1087,7 +1087,7 @@ function DecisionBlock({
               >
                 <span
                   className={[
-                    'font-mono text-[10px]',
+                    'font-mono fs-10',
                     chosen ? 'text-accent' : 'text-[rgba(160,190,225,.55)]',
                   ].join(' ')}
                 >
@@ -1099,7 +1099,7 @@ function DecisionBlock({
           })}
           {draft !== undefined && (
             // 9g: one mono line says the answer is a draft; the pill stays NEEDS INPUT.
-            <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+            <div className="font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
               {panelOpen ? 'draft · not sent · review in the panel →' : 'draft · not sent · open to send'}
             </div>
           )}
@@ -1130,7 +1130,7 @@ function ChipButton({
       type="button"
       onClick={onClick}
       className={[
-        'rounded-[7px] border px-3.5 py-1.5 text-[12px] font-semibold transition-colors hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.14)] hover:text-text-bright',
+        'rounded-[7px] border px-3.5 py-1.5 fs-12 font-semibold transition-colors hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.14)] hover:text-text-bright',
         primary
           ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
           : 'border-[rgba(150,205,255,.14)] text-[rgba(214,230,248,.85)]',
@@ -1165,7 +1165,7 @@ function Badge({
             color: '#e8eef8',
           }
         : { borderColor: 'rgba(150,205,255,.14)', color: 'rgba(160,190,225,.6)' }
-  const className = 'rounded-[5px] border px-[7px] py-0.5 font-mono text-[9.5px] tracking-[0.1em]'
+  const className = 'rounded-[5px] border px-[7px] py-0.5 font-mono fs-9.5 tracking-[0.1em]'
   return onClick ? (
     <button type="button" onClick={onClick} className={className} style={style}>
       {children}
@@ -1256,7 +1256,7 @@ function HistoryDrawer({
           />
         )}
       </span>
-      <span className="flex min-w-0 flex-col gap-[3px] font-mono text-[10.5px]">
+      <span className="flex min-w-0 flex-col gap-[3px] font-mono fs-10.5">
         <span className="tracking-[0.14em] text-text-bright">
           HISTORY · {count} session{count === 1 ? '' : 's'}
         </span>

@@ -48,6 +48,8 @@ export const PER_DEVICE_SETTING_KEYS: readonly string[] = [
   'delete_sessions_older_than_days',
   // The layout.
   'sidebar_collapsed', 'sidebar_width', 'detail_panel_width', 'planet_scale',
+  // Text size: a laptop and a desk monitor want different sizes.
+  'text_scale', 'transcript_text_scale',
   'map_fps_focused', 'map_fps_background', 'map_limit_sun_positions', 'settings_last_section',
   // Desktop notifications: each Mac sets its own.
   'notify_needs_input', 'notify_session_ended', 'notify_session_failed', 'notify_sound',

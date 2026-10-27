@@ -39,7 +39,7 @@ export function StateLine({ session, offline }: SlotProps) {
 
   return (
     <span
-      className="flex shrink-0 items-center gap-[7px] pr-2.5 font-mono text-[10.5px] tracking-[0.1em]"
+      className="flex shrink-0 items-center gap-[7px] pr-2.5 font-mono fs-10.5 tracking-[0.1em]"
       style={{ color: ink }}
     >
       {state.kind === 'plain' ? (

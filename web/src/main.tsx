@@ -16,6 +16,8 @@ import { parseStatsRoute } from './stats/route'
 import { parseLimitsRoute } from './limits/route'
 import { parseSessionWindowRoute } from './lib/sessionWindowRoute'
 import { parseWalkthroughRoute } from './walkthrough/route'
+import { applyTextScales, textScales } from './lib/textScale'
+import { onBroadcastSettings } from './lib/settingsBroadcast'
 
 // Lazy on EVERY side of the route branch, because importing `App.tsx` is
 // not free: it calls `getSocket()` at module scope (its once-per-page-load
@@ -117,6 +119,17 @@ if (sessionWindowId === null) {
     setFullScreen: setWindowFullScreen,
   })
 }
+
+/**
+ * Text size (spec 2026-10-27-text-size-design): the root carries the two
+ * steps in every window and follows them as they change, here or — through
+ * the broadcast — in another window's Settings.
+ */
+applyTextScales(document.documentElement, textScales(useOrbital.getState().settings))
+useOrbital.subscribe((state, prev) => {
+  if (state.settings !== prev.settings) applyTextScales(document.documentElement, textScales(state.settings))
+})
+onBroadcastSettings((patch) => useOrbital.setState((state) => ({ settings: { ...state.settings, ...patch } })))
 
 /**
  * The desktop app's update (canvas `Feature - App update`): the map's

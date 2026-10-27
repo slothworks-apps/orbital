@@ -95,9 +95,9 @@ export function SessionListScreen() {
     <>
       <div className="flex h-13 items-center gap-2.5 pl-5 pr-2">
         <OrbitalMark />
-        <span className="text-[13px] font-bold tracking-[0.22em]">ORBITAL</span>
+        <span className="fs-13 font-bold tracking-[0.22em]">ORBITAL</span>
         {/* Canvas 50j: in a group the header names no one Mac; the chips say who is up. */}
-        <span className="flex h-11 min-w-0 flex-1 items-center justify-end gap-[7px] px-2.5 font-mono text-[11.5px] text-[rgba(220,235,255,.85)]">
+        <span className="flex h-11 min-w-0 flex-1 items-center justify-end gap-[7px] px-2.5 font-mono fs-11.5 text-[rgba(220,235,255,.85)]">
           {!several && (
             <>
               <MacDot state={offline ? 'asleep' : link === 'online' ? 'online' : 'connecting'} />
@@ -160,11 +160,11 @@ export function SessionListScreen() {
         <section className="mx-3 mb-2.5 mt-0.5 flex items-start gap-3 rounded-[16px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.82)] py-3 pl-4 pr-3">
           <span aria-hidden className="mt-1 block h-3 w-3 shrink-0 rounded-full border-[1.5px] border-[rgba(200,215,235,.6)]" />
           <span className="flex min-w-0 flex-1 flex-col gap-1">
-            <span className="text-[14.5px] font-semibold">{mac} is asleep</span>
-            <span className="text-[12.5px] leading-[1.45] text-[rgba(160,190,225,.75)]">
+            <span className="fs-14.5 font-semibold">{mac} is asleep</span>
+            <span className="fs-12.5 leading-[1.45] text-[rgba(160,190,225,.75)]">
               Showing what it last sent. Reconnects on its own when the Mac wakes.
             </span>
-            <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+            <span className="font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
               {[asOf !== null ? asOfLabel(asOf, now) : null, checkedAt !== null ? checkedLabel(checkedAt, now) : null]
                 .filter(Boolean)
                 .join(' · ')}
@@ -174,7 +174,7 @@ export function SessionListScreen() {
             type="button"
             disabled={checking}
             onClick={() => void retry()}
-            className="h-11 shrink-0 rounded-[12px] border border-[rgba(150,205,255,.2)] px-3.5 text-[13px] font-semibold text-text-bright disabled:opacity-40"
+            className="h-11 shrink-0 rounded-[12px] border border-[rgba(150,205,255,.2)] px-3.5 fs-13 font-semibold text-text-bright disabled:opacity-40"
           >
             Retry
           </button>
@@ -191,13 +191,13 @@ export function SessionListScreen() {
       {offline ? (
         <div
           aria-disabled="true"
-          className="flex h-13 items-center justify-center rounded-[14px] border border-[rgba(150,205,255,.14)] px-4 text-center text-[14px] font-semibold text-[rgba(160,190,225,.6)]"
+          className="flex h-13 items-center justify-center rounded-[14px] border border-[rgba(150,205,255,.14)] px-4 text-center fs-14 font-semibold text-[rgba(160,190,225,.6)]"
         >
           {several ? 'New session · needs a device awake' : `New session · needs ${mac} awake`}
         </div>
       ) : (
         <PrimaryButton onClick={() => go('new')}>
-          <span aria-hidden className="text-[20px] font-medium leading-none">
+          <span aria-hidden className="fs-20 font-medium leading-none">
             +
           </span>
           New session
@@ -226,9 +226,9 @@ export function SessionListScreen() {
                     if (!endedOpen) void loadEndedFold()
                     setEndedOpen(!endedOpen)
                   }}
-                  className="mx-3 mt-2.5 flex h-12 w-[calc(100%-24px)] items-center gap-2.5 rounded-[12px] px-2 text-left font-mono text-[10.5px] tracking-[0.16em] text-[rgba(160,190,225,.6)]"
+                  className="mx-3 mt-2.5 flex h-12 w-[calc(100%-24px)] items-center gap-2.5 rounded-[12px] px-2 text-left font-mono fs-10.5 tracking-[0.16em] text-[rgba(160,190,225,.6)]"
                 >
-                  <span aria-hidden className="text-[9px]">
+                  <span aria-hidden className="fs-9">
                     {endedOpen ? '▾' : '▸'}
                   </span>
                   <span aria-hidden className="block h-2 w-2 rounded-full border border-[rgba(200,215,235,.45)]" />
@@ -287,13 +287,13 @@ export function SessionListScreen() {
                     : 'border-[rgba(255,187,123,.42)] bg-[linear-gradient(180deg,rgba(255,187,123,.09),rgba(255,187,123,.02))] shadow-[0_0_30px_rgba(255,187,123,.06)]',
                 ].join(' ')}
               >
-                <div className="flex items-center gap-2 px-4 pb-0.5 pt-3 font-mono text-[10.5px] tracking-[0.16em] text-[var(--state-input)]">
+                <div className="flex items-center gap-2 px-4 pb-0.5 pt-3 font-mono fs-10.5 tracking-[0.16em] text-[var(--state-input)]">
                   <span aria-hidden className={['block h-1.5 w-1.5 rounded-full bg-[var(--state-input)]', listOffline ? '' : 'orbital-breathe'].join(' ')} />
                   {label}
                 </div>
                 {rows}
                 {listOffline && (
-                  <p className="pb-3 pl-[70px] pr-4 text-[12px] leading-[1.4] text-[rgba(160,190,225,.6)]">
+                  <p className="pb-3 pl-[70px] pr-4 fs-12 leading-[1.4] text-[rgba(160,190,225,.6)]">
                     Readable, gates and cards included; answering waits for the Mac.
                   </p>
                 )}
@@ -302,14 +302,14 @@ export function SessionListScreen() {
           }
           return (
             <section key={group.key}>
-              <div className="px-5 pb-0.5 pt-3.5 font-mono text-[10.5px] tracking-[0.16em] text-[rgba(160,190,225,.6)]">{label}</div>
+              <div className="px-5 pb-0.5 pt-3.5 font-mono fs-10.5 tracking-[0.16em] text-[rgba(160,190,225,.6)]">{label}</div>
               {rows}
             </section>
           )
         })}
 
         {groups.length === 0 && (
-          <p className="px-8 py-10 text-center text-[13px] text-[rgba(160,190,225,.6)]">
+          <p className="px-8 py-10 text-center fs-13 text-[rgba(160,190,225,.6)]">
             {tagIds.length === 0 ? 'No sessions yet.' : `No live sessions with the selected tags.`}
           </p>
         )}
@@ -369,7 +369,7 @@ function Chip({
       aria-pressed={active}
       onClick={onClick}
       className={[
-        'flex h-9 shrink-0 items-center gap-[7px] rounded-full border px-[13px] text-[13px] font-semibold',
+        'flex h-9 shrink-0 items-center gap-[7px] rounded-full border px-[13px] fs-13 font-semibold',
         active
           ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
           : muted
@@ -379,7 +379,7 @@ function Chip({
     >
       {hue !== undefined && <span aria-hidden className="block h-1.5 w-1.5 rounded-full" style={{ background: tagColor(hue) }} />}
       <span>{label}</span>
-      {count !== undefined && <span className="font-mono text-[10.5px] font-normal text-[rgba(160,190,225,.6)]">{count}</span>}
+      {count !== undefined && <span className="font-mono fs-10.5 font-normal text-[rgba(160,190,225,.6)]">{count}</span>}
     </button>
   )
 }
@@ -398,15 +398,15 @@ function DeviceChipButton({ chip, on, onClick }: { chip: PhoneChip; on: boolean;
       title={`${chip.name} · ${chip.kind} · ${state}`}
       onClick={onClick}
       className={[
-        'flex h-9 shrink-0 items-center gap-[7px] rounded-full border px-3 text-[13px] font-semibold',
+        'flex h-9 shrink-0 items-center gap-[7px] rounded-full border px-3 fs-13 font-semibold',
         on ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright' : 'border-[rgba(150,205,255,.14)] text-[rgba(160,190,225,.6)]',
         chip.offline ? 'opacity-50' : '',
       ].join(' ')}
     >
       <KindGlyph kind={chip.kind} untitled />
       <span>{chip.label}</span>
-      {chip.update && <span className="font-mono text-[10px] font-normal text-[rgba(160,190,225,.75)]">update</span>}
-      <span className="font-mono text-[10.5px] font-normal text-[rgba(160,190,225,.6)]">{chip.count}</span>
+      {chip.update && <span className="font-mono fs-10 font-normal text-[rgba(160,190,225,.75)]">update</span>}
+      <span className="font-mono fs-10.5 font-normal text-[rgba(160,190,225,.6)]">{chip.count}</span>
     </button>
   )
 }
@@ -417,14 +417,14 @@ function AsleepDeviceCard({ card, checking, onRetry }: { card: AsleepCard; check
     <section className="mx-3 mb-2 flex items-center gap-3 rounded-[14px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.82)] py-1.5 pl-4 pr-1.5">
       <span aria-hidden className="box-border block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-[rgba(200,215,235,.6)]" />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-[13.5px] font-semibold">{card.name} is asleep</span>
-        <span className="truncate font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{card.line}</span>
+        <span className="truncate fs-13.5 font-semibold">{card.name} is asleep</span>
+        <span className="truncate font-mono fs-10.5 text-[rgba(160,190,225,.6)]">{card.line}</span>
       </span>
       <button
         type="button"
         disabled={checking}
         onClick={onRetry}
-        className="grid h-11 shrink-0 place-items-center rounded-[12px] border border-[rgba(150,205,255,.2)] px-3.5 text-[13px] font-semibold text-text-bright disabled:opacity-40"
+        className="grid h-11 shrink-0 place-items-center rounded-[12px] border border-[rgba(150,205,255,.2)] px-3.5 fs-13 font-semibold text-text-bright disabled:opacity-40"
       >
         Retry
       </button>
@@ -452,14 +452,14 @@ function UnreachableCard() {
   return (
     <section className="mx-3 mb-2 flex items-center gap-3 rounded-[14px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.82)] py-1.5 pl-4 pr-1.5">
       <span aria-hidden className="box-border block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-[rgba(200,215,235,.6)]" />
-      <span className="min-w-0 flex-1 py-1 text-[13.5px] font-semibold leading-[1.35]">
+      <span className="min-w-0 flex-1 py-1 fs-13.5 font-semibold leading-[1.35]">
         No device in your group can reach this phone right now.
       </span>
       <button
         type="button"
         disabled={busy}
         onClick={() => void pairAgain()}
-        className="grid h-11 shrink-0 place-items-center rounded-[12px] border border-[rgba(150,205,255,.2)] px-3.5 text-[13px] font-semibold text-text-bright disabled:opacity-40"
+        className="grid h-11 shrink-0 place-items-center rounded-[12px] border border-[rgba(150,205,255,.2)] px-3.5 fs-13 font-semibold text-text-bright disabled:opacity-40"
       >
         Pair again
       </button>
@@ -567,7 +567,7 @@ function SessionRow({
           <span className="flex min-w-0 items-center gap-[7px]">
             <span
               className={[
-                'truncate text-[15px] font-semibold',
+                'truncate fs-15 font-semibold',
                 offline
                   ? 'text-[rgba(232,238,248,.85)]'
                   : idle
@@ -581,7 +581,7 @@ function SessionRow({
             </span>
             {session.pinnedAt ? <PinMark ink={PIN_INK} dim={offline} /> : null}
             {isReadOnly(session) && (
-              <span className="shrink-0 rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono text-[9px] tracking-[0.12em] text-[rgba(160,190,225,.75)]">
+              <span className="shrink-0 rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono fs-9 tracking-[0.12em] text-[rgba(160,190,225,.75)]">
                 TERMINAL · READ-ONLY
               </span>
             )}
@@ -598,14 +598,14 @@ function SessionRow({
             ) : (
               <WhereLine session={session} dotColor={moonColor} variant="list" dim={offline} device={device} />
             ))}
-          {asleepCounts !== null && <span className="font-mono text-[11px] text-[rgba(160,190,225,.6)]">{asleepCounts}</span>}
+          {asleepCounts !== null && <span className="font-mono fs-11 text-[rgba(160,190,225,.6)]">{asleepCounts}</span>}
           {reason && (
-            <span className={['text-[12.5px] leading-[1.35]', offline ? 'text-[rgba(255,214,173,.75)]' : 'text-[#ffd6ad]'].join(' ')}>
+            <span className={['fs-12.5 leading-[1.35]', offline ? 'text-[rgba(255,214,173,.75)]' : 'text-[#ffd6ad]'].join(' ')}>
               {reason}
             </span>
           )}
           {waitLine && (
-            <span className={['text-[12.5px] leading-[1.35]', offline ? 'text-[rgba(200,215,235,.7)]' : 'text-[rgba(200,215,235,.8)]'].join(' ')}>
+            <span className={['fs-12.5 leading-[1.35]', offline ? 'text-[rgba(200,215,235,.7)]' : 'text-[rgba(200,215,235,.8)]'].join(' ')}>
               {waitLine}
             </span>
           )}
@@ -613,7 +613,7 @@ function SessionRow({
         {time !== null && (
           <span
             className={[
-              'shrink-0 self-start whitespace-nowrap pt-[3px] font-mono text-[11px]',
+              'shrink-0 self-start whitespace-nowrap pt-[3px] font-mono fs-11',
               input ? 'text-[var(--state-input)]' : offline ? 'text-[rgba(160,190,225,.5)]' : idle ? 'text-[rgba(160,190,225,.55)]' : 'text-[rgba(160,190,225,.65)]',
             ].join(' ')}
           >
@@ -640,14 +640,14 @@ function SessionRow({
               </span>
             )}
             {summary.subagents !== null && (
-              <span className="min-w-0 truncate font-mono text-[11px] text-[rgba(200,220,245,.75)]">{summary.subagents}</span>
+              <span className="min-w-0 truncate font-mono fs-11 text-[rgba(200,220,245,.75)]">{summary.subagents}</span>
             )}
             {summary.tasks !== null && (
-              <span className="font-mono text-[11px] text-[rgba(200,220,245,.75)]">
+              <span className="font-mono fs-11 text-[rgba(200,220,245,.75)]">
                 {summary.subagents !== null && <span className="text-[rgba(150,205,255,.3)]">· </span>}▣ {summary.tasks}
               </span>
             )}
-            <span aria-hidden className="text-[9px] text-[rgba(160,190,225,.6)]">
+            <span aria-hidden className="fs-9 text-[rgba(160,190,225,.6)]">
               {moonsOpen ? '▾' : '▸'}
             </span>
           </button>
@@ -670,14 +670,14 @@ function SessionRow({
                       <button
                         type="button"
                         onClick={() => onOpenSubagent({ sessionId: session.id, toolUseId })}
-                        className="flex h-11 w-full items-center gap-[9px] pl-3 text-left font-mono text-[11px]"
+                        className="flex h-11 w-full items-center gap-[9px] pl-3 text-left font-mono fs-11"
                       >
                         {body}
                         <Chevron />
                       </button>
                     ) : (
                       // A moon without its launching call cannot be opened (spec § 3): no ›.
-                      <span className="flex h-11 items-center gap-[9px] pl-3 pr-6 font-mono text-[11px]">{body}</span>
+                      <span className="flex h-11 items-center gap-[9px] pl-3 pr-6 font-mono fs-11">{body}</span>
                     )}
                   </li>
                 )
@@ -699,14 +699,14 @@ function SessionRow({
                       <button
                         type="button"
                         onClick={() => onOpenTask({ sessionId: session.id, taskId: task.id })}
-                        className="flex h-11 w-full items-center gap-[9px] pl-3 text-left font-mono text-[11px]"
+                        className="flex h-11 w-full items-center gap-[9px] pl-3 text-left font-mono fs-11"
                       >
                         {body}
                         <Chevron />
                       </button>
                     ) : (
                       // A task without an output file has nothing to open, as in the 10f sheet: no ›.
-                      <span className="flex h-11 items-center gap-[9px] pl-3 pr-6 font-mono text-[11px]">{body}</span>
+                      <span className="flex h-11 items-center gap-[9px] pl-3 pr-6 font-mono fs-11">{body}</span>
                     )}
                   </li>
                 )
@@ -722,7 +722,7 @@ function SessionRow({
 /** The › that ends an openable moons row (canvas 10a). */
 function Chevron() {
   return (
-    <span aria-hidden className="block w-6 shrink-0 text-center text-[14px] text-[rgba(160,190,225,.6)]">
+    <span aria-hidden className="block w-6 shrink-0 text-center fs-14 text-[rgba(160,190,225,.6)]">
       ›
     </span>
   )
@@ -780,12 +780,12 @@ function EndedRow({
       <PlanetGlyph session={session} offline={false} />
       <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
         <span className="flex min-w-0 items-center gap-[7px]">
-          <span className={['truncate text-[14px] font-semibold', pinned ? 'text-[rgba(220,235,255,.75)]' : 'text-[rgba(220,235,255,.7)]'].join(' ')}>
+          <span className={['truncate fs-14 font-semibold', pinned ? 'text-[rgba(220,235,255,.75)]' : 'text-[rgba(220,235,255,.7)]'].join(' ')}>
             {session.title || 'Untitled session'}
           </span>
           {pinned && <PinMark ink={PIN_INK_ENDED} />}
         </span>
-        <span className="flex items-center gap-1.5 font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
+        <span className="flex items-center gap-1.5 font-mono fs-10.5 text-[rgba(160,190,225,.55)]">
           <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full opacity-70" style={{ background: tag ? tagColor(tag.hue) : 'var(--state-neutral)' }} />
           <span className="truncate">
             {device && `${device} · `}
@@ -794,7 +794,7 @@ function EndedRow({
           </span>
         </span>
       </span>
-      {session.lastAt !== null && <span className="shrink-0 font-mono text-[11px] text-[rgba(160,190,225,.45)]">{timeAgo(session.lastAt, now)}</span>}
+      {session.lastAt !== null && <span className="shrink-0 font-mono fs-11 text-[rgba(160,190,225,.45)]">{timeAgo(session.lastAt, now)}</span>}
     </button>
   )
 }

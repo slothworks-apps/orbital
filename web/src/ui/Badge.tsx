@@ -91,7 +91,7 @@ export type BadgeProps =
 
 // Canvas 1b: squared-off mono chips (radius 5px), quiet dark fill.
 const baseClass =
-  'inline-flex items-center gap-1.5 rounded-[5px] border px-[9px] py-1 font-mono text-[10.5px] tracking-[0.04em]'
+  'inline-flex items-center gap-1.5 rounded-[5px] border px-[9px] py-1 font-mono fs-10.5 tracking-[0.04em]'
 
 /**
  * Canvas 11c's six-up state sheet, verbatim: one badge shell, only the
@@ -206,7 +206,7 @@ export function Badge(props: BadgeProps) {
         // One line always: an offline device's ` · AS OF 12 MIN AGO` would
         // otherwise wrap the chip in a crowded row. `min-w-0` lets the row
         // shrink it, and the words end in an ellipsis instead.
-        className="inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap rounded-[5px] border px-[9px] py-1 font-mono text-[10.5px] tracking-[0.08em]"
+        className="inline-flex min-w-0 items-center gap-1.5 whitespace-nowrap rounded-[5px] border px-[9px] py-1 font-mono fs-10.5 tracking-[0.08em]"
         style={{ color: tone.ink, borderColor: tone.border }}
       >
         <StateDot
@@ -233,7 +233,7 @@ export function Badge(props: BadgeProps) {
     return (
       <span
         data-variant="rewind"
-        className="inline-flex items-center gap-1.5 rounded-[5px] border border-[rgba(150,205,255,.2)] px-[9px] py-1 font-mono text-[10.5px] tracking-[0.08em]"
+        className="inline-flex items-center gap-1.5 rounded-[5px] border border-[rgba(150,205,255,.2)] px-[9px] py-1 font-mono fs-10.5 tracking-[0.08em]"
         style={{ color: ink }}
       >
         <StateDot dot={{ shape: 'hollow', motion: 'steady' }} color={ink} solidPx={6} hollowPx={7} />
@@ -248,7 +248,7 @@ export function Badge(props: BadgeProps) {
     return (
       <span
         data-variant="limit"
-        className="inline-flex items-center gap-1.5 rounded-[5px] border border-[rgba(150,205,255,.2)] px-[9px] py-1 font-mono text-[10.5px] tracking-[0.08em] text-[rgba(214,230,248,.9)]"
+        className="inline-flex items-center gap-1.5 rounded-[5px] border border-[rgba(150,205,255,.2)] px-[9px] py-1 font-mono fs-10.5 tracking-[0.08em] text-[rgba(214,230,248,.9)]"
       >
         <StateDot dot={{ shape: 'hollow', motion: 'steady' }} color="rgba(214,230,248,.8)" solidPx={6} hollowPx={7} />
         {props.label}
@@ -262,7 +262,7 @@ export function Badge(props: BadgeProps) {
     return (
       <span
         data-variant="compacting"
-        className="inline-flex items-center gap-1.5 rounded-[5px] border border-[rgba(150,205,255,.22)] px-[9px] py-1 font-mono text-[10.5px] tracking-[0.08em] text-[rgba(214,228,246,.82)]"
+        className="inline-flex items-center gap-1.5 rounded-[5px] border border-[rgba(150,205,255,.22)] px-[9px] py-1 font-mono fs-10.5 tracking-[0.08em] text-[rgba(214,228,246,.82)]"
       >
         COMPACTING
         <span className="text-[rgba(160,190,225,.6)]">{props.elapsed}</span>
@@ -289,7 +289,7 @@ export function Badge(props: BadgeProps) {
       >
         {props.value}
         {props.interactive && (
-          <span aria-hidden className="ml-[7px] text-[9px] text-[rgba(160,190,225,.6)]">
+          <span aria-hidden className="ml-[7px] fs-9 text-[rgba(160,190,225,.6)]">
             ▾
           </span>
         )}
@@ -314,7 +314,7 @@ export function Badge(props: BadgeProps) {
           // stylesheet order rather than by which one is meant to win
           // (web/CLAUDE.md), so this is its own literal rather than an
           // override appended to `baseClass`.
-          className="inline-flex items-center gap-1.5 rounded-[5px] border px-[9px] py-1 font-mono text-[9.5px] tracking-[0.16em]"
+          className="inline-flex items-center gap-1.5 rounded-[5px] border px-[9px] py-1 font-mono fs-9.5 tracking-[0.16em]"
           style={{
             borderColor: tone.border,
             borderStyle: tone.dashed ? 'dashed' : 'solid',
@@ -345,7 +345,7 @@ export function Badge(props: BadgeProps) {
         {props.truncated && (
           <span
             data-truncated
-            className="shrink-0 rounded-[4px] border border-[rgba(150,205,255,.26)] bg-[rgba(150,205,255,.07)] px-[7px] py-[3px] font-mono text-[9px] tracking-[0.14em] text-[rgba(210,230,250,.85)]"
+            className="shrink-0 rounded-[4px] border border-[rgba(150,205,255,.26)] bg-[rgba(150,205,255,.07)] px-[7px] py-[3px] font-mono fs-9 tracking-[0.14em] text-[rgba(210,230,250,.85)]"
           >
             TRUNCATED
           </span>

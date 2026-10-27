@@ -65,7 +65,7 @@ export function StepScreen({ id, session, walkthrough, index, onPrev, onNext, on
         <WalkButton tone="quiet" size="sm" disabled={index === 0} onClick={onPrev}>
           ← Previous
         </WalkButton>
-        <span className="flex-1 text-center font-mono text-[10.5px] tracking-[.1em] tabular-nums text-[rgba(160,190,225,.5)]">
+        <span className="flex-1 text-center font-mono fs-10.5 tracking-[.1em] tabular-nums text-[rgba(160,190,225,.5)]">
           {n} / {total}
         </span>
         <WalkButton tone="lit" size="sm" onClick={onNext}>

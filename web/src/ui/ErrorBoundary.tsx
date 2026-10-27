@@ -94,14 +94,14 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     return (
       <div
         role="alert"
-        className="flex h-full flex-col items-start justify-center gap-2 p-4 font-mono text-xs text-red-300"
+        className="flex h-full flex-col items-start justify-center gap-2 p-4 font-mono fs-12 leading-(--text-xs--line-height) text-red-300"
       >
         <span className="tracking-[0.1em]">⚠ {this.props.label} crashed</span>
-        <span className="max-w-full break-words text-[11px] text-red-300/70">{error.message}</span>
+        <span className="max-w-full break-words fs-11 text-red-300/70">{error.message}</span>
         <button
           type="button"
           onClick={() => window.location.reload()}
-          className="rounded-md border border-red-400/30 bg-red-400/10 px-2.5 py-1 text-[11px] text-red-200 hover:bg-red-400/20"
+          className="rounded-md border border-red-400/30 bg-red-400/10 px-2.5 py-1 fs-11 text-red-200 hover:bg-red-400/20"
         >
           Reload
         </button>

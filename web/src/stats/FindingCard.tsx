@@ -71,22 +71,22 @@ export function FindingCard({
   const body = (
     <>
       <div className="flex items-center gap-2">
-        <span className="rounded-[5px] border border-[var(--card-chip-border)] bg-[var(--card-chip)] px-[7px] py-0.5 font-mono text-[9px] tracking-[0.14em] text-[var(--card-ink)]">
+        <span className="rounded-[5px] border border-[var(--card-chip-border)] bg-[var(--card-chip)] px-[7px] py-0.5 font-mono fs-9 tracking-[0.14em] text-[var(--card-ink)]">
           {finding.severity.toUpperCase()}
         </span>
-        <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.7)]">{finding.rule}</span>
+        <span className="font-mono fs-10.5 text-[rgba(160,190,225,.7)]">{finding.rule}</span>
         <span className="flex-1" />
         {/* No stamp on the drilldown (10b): every card there was measured on
             the one session the page is already headed with. */}
         {jump === undefined && (
-          <span className="font-mono text-[10px] text-[rgba(160,190,225,.45)]">
+          <span className="font-mono fs-10 text-[rgba(160,190,225,.45)]">
             {formatFindingTime(finding.when, now)}
           </span>
         )}
       </div>
 
       <div
-        className={`mt-2 text-[13px] font-semibold leading-[1.35] text-pretty ${
+        className={`mt-2 fs-13 font-semibold leading-[1.35] text-pretty ${
           resolved ? 'line-through decoration-[rgba(160,190,225,.5)]' : ''
         }`}
       >
@@ -94,14 +94,14 @@ export function FindingCard({
       </div>
 
       {copy.evidence !== '' && (
-        <div className="mt-1.5 font-mono text-[10.5px] leading-[1.55] text-[rgba(160,190,225,.75)]">
+        <div className="mt-1.5 font-mono fs-10.5 leading-[1.55] text-[rgba(160,190,225,.75)]">
           {copy.evidence}
         </div>
       )}
 
       {jump !== undefined ? (
         <>
-          <div className="mt-[9px] flex items-center gap-4 font-mono text-[10.5px]">
+          <div className="mt-[9px] flex items-center gap-4 font-mono fs-10.5">
             <button type="button" onClick={jump.onJump} className="cursor-pointer text-[#8fd8ff]">
               jump to turn {jump.turnIndex + 1} ›
             </button>
@@ -117,13 +117,13 @@ export function FindingCard({
             )}
           </div>
           {whyOpen && copy.why !== undefined && (
-            <div className="mt-2 border-t border-[rgba(150,205,255,.1)] pt-2 text-[11.5px] leading-[1.55] text-pretty text-[rgba(160,190,225,.75)]">
+            <div className="mt-2 border-t border-[rgba(150,205,255,.1)] pt-2 fs-11.5 leading-[1.55] text-pretty text-[rgba(160,190,225,.75)]">
               {copy.why}
             </div>
           )}
         </>
       ) : (
-      <div className="mt-[9px] flex items-center gap-2 font-mono text-[10.5px]">
+      <div className="mt-[9px] flex items-center gap-2 font-mono fs-10.5">
         {copy.scope !== undefined ? (
           <span className="text-[rgba(160,190,225,.6)]">{copy.scope}</span>
         ) : (

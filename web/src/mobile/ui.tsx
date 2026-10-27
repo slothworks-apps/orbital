@@ -83,7 +83,7 @@ export function PrimaryButton({
       disabled={disabled}
       aria-disabled={ready ? undefined : true}
       className={[
-        'flex h-13 w-full items-center justify-center gap-2.5 rounded-[14px] px-4 text-[15px] font-bold',
+        'flex h-13 w-full items-center justify-center gap-2.5 rounded-[14px] px-4 fs-15 font-bold',
         ready ? fill : 'cursor-default border border-[rgba(150,205,255,.14)] bg-transparent text-[rgba(160,190,225,.5)]',
         !ready || tone === 'light' ? '' : variant === 'sheet' ? 'shadow-[0_0_18px_oklch(85%_.12_205/.3)]' : 'shadow-[0_0_22px_oklch(85%_.12_205/.3)]',
       ].join(' ')}
@@ -108,10 +108,10 @@ export function SecondaryButton({
       className={[
         'flex items-center justify-center border font-semibold text-text-bright disabled:opacity-40',
         variant === 'compact'
-          ? 'h-11 shrink-0 rounded-[10px] border-[rgba(150,205,255,.2)] px-3 text-[13px]'
+          ? 'h-11 shrink-0 rounded-[10px] border-[rgba(150,205,255,.2)] px-3 fs-13'
           : variant === 'sheet'
-            ? 'h-13 w-full rounded-[14px] border-[rgba(150,205,255,.22)] px-4 text-[14px]'
-            : 'h-13 w-full rounded-[14px] border-[rgba(150,205,255,.2)] px-4 text-[15px]',
+            ? 'h-13 w-full rounded-[14px] border-[rgba(150,205,255,.22)] px-4 fs-14'
+            : 'h-13 w-full rounded-[14px] border-[rgba(150,205,255,.2)] px-4 fs-15',
       ].join(' ')}
     >
       {children}
@@ -165,7 +165,7 @@ export function Toggle({
 /** 9f's section label over a card: mono caps, indented to the card's text. */
 export function SectionLabel({ children, first = false }: { children: ReactNode; first?: boolean }) {
   return (
-    <div className={['px-1 pb-2 font-mono text-[10px] tracking-[0.16em] text-[rgba(160,190,225,.6)]', first ? 'pt-3' : 'pt-5'].join(' ')}>
+    <div className={['px-1 pb-2 font-mono fs-10 tracking-[0.16em] text-[rgba(160,190,225,.6)]', first ? 'pt-3' : 'pt-5'].join(' ')}>
       {children}
     </div>
   )
@@ -174,7 +174,7 @@ export function SectionLabel({ children, first = false }: { children: ReactNode;
 /** 9d's section label, with the list's hint on its right. */
 export function FieldLabel({ children, hint }: { children: string; hint?: string }) {
   return (
-    <div className="flex items-baseline font-mono text-[10px] tracking-[0.16em] text-[rgba(160,190,225,.6)]">
+    <div className="flex items-baseline font-mono fs-10 tracking-[0.16em] text-[rgba(160,190,225,.6)]">
       {children}
       {hint && <span className="ml-auto min-w-0 truncate pl-3 tracking-[0.04em] text-[rgba(160,190,225,.45)]">{hint}</span>}
     </div>
@@ -230,7 +230,7 @@ export function LitMark({ variant }: { variant: 'paired' | 'lock' }) {
     <span
       aria-hidden
       className={[
-        'relative grid h-[72px] w-[72px] place-items-center rounded-full border-2 border-[oklch(85%_.12_205)] text-[26px] text-[oklch(85%_.12_205)]',
+        'relative grid h-[72px] w-[72px] place-items-center rounded-full border-2 border-[oklch(85%_.12_205)] fs-26 text-[oklch(85%_.12_205)]',
         variant === 'paired' ? 'shadow-[0_0_30px_oklch(85%_.12_205/.4)]' : 'shadow-[0_0_30px_oklch(85%_.12_205/.35)]',
       ].join(' ')}
     >
@@ -429,11 +429,11 @@ export function ConfirmBody({
   // shell's 10 plus this block's 8 (10i's confirms nest the same way).
   return (
     <div className="px-2">
-      <div className="pt-1.5 font-mono text-[10px] tracking-[0.2em] text-[oklch(85%_.12_205)]">{eyebrow}</div>
-      <h2 className="mt-2 text-[19px] font-bold tracking-[-0.01em]">{title}</h2>
-      <div className="mt-2.5 text-[13.5px] leading-[1.55] text-pretty text-[rgba(200,214,235,.85)]">{body}</div>
+      <div className="pt-1.5 font-mono fs-10 tracking-[0.2em] text-[oklch(85%_.12_205)]">{eyebrow}</div>
+      <h2 className="mt-2 fs-19 font-bold tracking-[-0.01em]">{title}</h2>
+      <div className="mt-2.5 fs-13.5 leading-[1.55] text-pretty text-[rgba(200,214,235,.85)]">{body}</div>
       {detail && (
-        <div className="mt-3 rounded-[10px] border border-[rgba(150,205,255,.12)] bg-[rgba(3,6,12,.6)] px-3 py-2.5 font-mono text-[11px] leading-[1.6] text-[rgba(200,220,245,.8)]">
+        <div className="mt-3 rounded-[10px] border border-[rgba(150,205,255,.12)] bg-[rgba(3,6,12,.6)] px-3 py-2.5 font-mono fs-11 leading-[1.6] text-[rgba(200,220,245,.8)]">
           {detail}
         </div>
       )}
@@ -462,7 +462,7 @@ export function AckLine({ mark, children, className = '' }: { mark: string; chil
   return (
     <div
       role="status"
-      className={`flex min-h-12 items-center gap-2.5 rounded-[12px] border border-[oklch(85%_.12_205/.35)] bg-[oklch(85%_.12_205/.1)] px-3 text-[13.5px] ${className}`}
+      className={`flex min-h-12 items-center gap-2.5 rounded-[12px] border border-[oklch(85%_.12_205/.35)] bg-[oklch(85%_.12_205/.1)] px-3 fs-13.5 ${className}`}
     >
       <span aria-hidden className="text-[oklch(85%_.12_205)]">{mark}</span>
       <span className="min-w-0 flex-1">{children}</span>

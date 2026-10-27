@@ -134,7 +134,7 @@ export function StepDiffView({
       <HeaderBlock chrome={chrome} pb={12}>
         {chrome.row(
           <>
-            <button type="button" onClick={onBack} className="font-mono text-[10.5px] text-[oklch(85%_.12_205)] hover:brightness-110">
+            <button type="button" onClick={onBack} className="font-mono fs-10.5 text-[oklch(85%_.12_205)] hover:brightness-110">
               ‹ record
             </button>
             <span aria-hidden className="flex-1" />
@@ -142,12 +142,12 @@ export function StepDiffView({
           </>,
         )}
         {state?.startHead && state.endHead && (
-          <div className="mt-2 font-mono text-[12px] text-[#e8eef8]">
+          <div className="mt-2 font-mono fs-12 text-[#e8eef8]">
             {shortSha(state.startHead)}..{shortSha(state.endHead)}
           </div>
         )}
         {diff && (
-          <div className="mt-1 flex gap-1 font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+          <div className="mt-1 flex gap-1 font-mono fs-10 text-[rgba(160,190,225,.6)]">
             {diff.commits !== null && `${plural(diff.commits, 'commit')} · `}
             {plural(files.length, 'file')} · <Counts added={diff.parsed.added} removed={diff.parsed.removed} />
             {diff.pushed === false && ' · local, not pushed'}
@@ -155,7 +155,7 @@ export function StepDiffView({
           </div>
         )}
         {files.length > 0 && (
-          <div className="mt-2.5 flex max-h-[160px] flex-col gap-0.5 overflow-y-auto font-mono text-[10.5px]">
+          <div className="mt-2.5 flex max-h-[160px] flex-col gap-0.5 overflow-y-auto font-mono fs-10.5">
             {files.map((f) => (
               <button
                 type="button"
@@ -174,7 +174,7 @@ export function StepDiffView({
           </div>
         )}
       </HeaderBlock>
-      <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto pb-3 pt-2 font-mono text-[10.5px] leading-[1.7]">
+      <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto pb-3 pt-2 font-mono fs-10.5 leading-[1.7]">
         {error && <div className="px-[18px] text-[rgba(160,190,225,.6)]">{error}</div>}
         {!diff && !error && !(state?.startHead && state.endHead) && (
           <div className="px-[18px] text-[rgba(160,190,225,.6)]">This step has no commit range.</div>
@@ -182,7 +182,7 @@ export function StepDiffView({
         {diff && files.length === 0 && <div className="px-[18px] text-[rgba(160,190,225,.6)]">No changes in this range.</div>}
         {diff && <DiffBody files={files} wide={false} unfolded={unfolded} unfold={(p) => setUnfolded((s) => new Set(s).add(p))} />}
       </div>
-      <div className="flex items-center gap-2 border-t border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.4)] px-[18px] py-[11px] font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+      <div className="flex items-center gap-2 border-t border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.4)] px-[18px] py-[11px] font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.5)]">
         unified{chrome.inWindow ? '' : ' · wide view in the full window'}
         <span aria-hidden className="flex-1" />
         <span>⎋ back</span>
@@ -198,8 +198,8 @@ export function WideStepDiff({ sessionId, harness, index }: { sessionId: string;
   const [unfolded, setUnfolded] = useState<Set<string>>(new Set())
   const files = diff?.parsed.files ?? []
   return (
-    <div className="flex min-h-0 flex-col overflow-y-auto border-l border-[rgba(150,205,255,.08)] bg-[rgba(2,4,9,.35)] font-mono text-[11px] leading-[1.75]">
-      <div className="flex gap-1 px-[18px] pb-1.5 pt-3.5 text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.55)]">
+    <div className="flex min-h-0 flex-col overflow-y-auto border-l border-[rgba(150,205,255,.08)] bg-[rgba(2,4,9,.35)] font-mono fs-11 leading-[1.75]">
+      <div className="flex gap-1 px-[18px] pb-1.5 pt-3.5 fs-9.5 tracking-[0.18em] text-[rgba(160,190,225,.55)]">
         DIFF
         {diff && (
           <>

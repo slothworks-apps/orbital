@@ -545,7 +545,7 @@ function ToolRunGroup({
         onClick={() => onToggle(!open)}
         aria-expanded={open}
         className={[
-          'group flex w-full items-center gap-2 rounded-[7px] border px-2.5 py-[7px] text-left font-mono text-[11.5px] text-[rgba(200,220,245,.8)]',
+          'group flex w-full items-center gap-2 rounded-[7px] border px-2.5 py-[7px] text-left font-mono fs-11.5 text-[rgba(200,220,245,.8)]',
           // Canvas 6b: open header keeps a brighter border + faint fill so
           // the group reads as one block; hover brightens further (6b D).
           open
@@ -559,7 +559,7 @@ function ToolRunGroup({
         <span
           aria-hidden
           className={[
-            'w-2 text-[9px] text-[rgba(160,190,225,.6)] transition-transform duration-[160ms] ease-out',
+            'w-2 fs-9 text-[rgba(160,190,225,.6)] transition-transform duration-[160ms] ease-out',
             open ? 'rotate-90' : '',
           ].join(' ')}
         >
@@ -631,7 +631,7 @@ function ToolRunGroup({
         // copy of itself in the stack that is still closing.
         <div
           data-live-tool
-          className="mt-1 flex items-center gap-2 rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-2.5 py-[7px] font-mono text-[11.5px] text-[rgba(200,220,245,.8)]"
+          className="mt-1 flex items-center gap-2 rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-2.5 py-[7px] font-mono fs-11.5 text-[rgba(200,220,245,.8)]"
         >
           <span aria-hidden className="w-2" />
           <span
@@ -1024,7 +1024,7 @@ export function TranscriptView({
   return (
     // The indicator sits over the scroll container, not inside it, so it does
     // not scroll away with the rows.
-    <div className="relative h-full">
+    <div className="relative h-full" data-text-scope="transcript">
     {/* Canvas 1b: the transcript owns the panel's 18px/22px inset and stacks
         its rows 14px apart. */}
     <div
@@ -1094,7 +1094,7 @@ export function TranscriptView({
           // the accent, 8px above the bubble.
           <div
             data-rewind-preview
-            className="mb-2 flex items-center gap-2.5 whitespace-nowrap font-mono text-[9.5px] tracking-[0.14em] text-accent"
+            className="mb-2 flex items-center gap-2.5 whitespace-nowrap font-mono fs-9.5 tracking-[0.14em] text-accent"
           >
             <span aria-hidden className="flex-1 border-t border-dashed border-accent/55" />
             REWIND TO HERE · {rewindCountFrom(all, index)} HIDDEN
@@ -1107,7 +1107,7 @@ export function TranscriptView({
           // row rhythm like any other group.
           <div
             data-model-divider
-            className="flex items-center gap-2.5 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.55)]"
+            className="flex items-center gap-2.5 font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.55)]"
           >
             <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
             <span>
@@ -1166,7 +1166,7 @@ export function TranscriptView({
           // Canvas 27c: a sent rewind is the model divider's solid system row.
           <div
             data-rewind-divider
-            className="flex items-center gap-2.5 whitespace-nowrap font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.55)]"
+            className="flex items-center gap-2.5 whitespace-nowrap font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.55)]"
           >
             <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
             <span>{rewindDividerLabel(group.item.message.rewind?.hiddenCount)}</span>
@@ -1191,7 +1191,7 @@ export function TranscriptView({
           // an ordinary user turn.
           <div
             data-limit-reset
-            className="flex items-center gap-2.5 whitespace-nowrap py-3 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.55)]"
+            className="flex items-center gap-2.5 whitespace-nowrap py-3 font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.55)]"
           >
             <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
             <span>

@@ -46,7 +46,7 @@ export function Marker({ kind, gate, size = 9 }: { kind: StepKind; gate: boolean
 /** Canvas 30b's switch: 26 × 14, a 10 px knob; acts at once, never confirmed (30f). */
 export function Switch({ on, label, onChange }: { on: boolean; label: string; onChange: (on: boolean) => void }) {
   return (
-    <label className="flex cursor-pointer select-none items-center gap-2 text-[12px] text-[rgba(220,235,255,.88)]">
+    <label className="flex cursor-pointer select-none items-center gap-2 fs-12 text-[rgba(220,235,255,.88)]">
       <button
         type="button"
         role="switch"
@@ -69,18 +69,18 @@ export function Switch({ on, label, onChange }: { on: boolean; label: string; on
 
 /** Section label: mono 9, tracking .18em (30d INSTRUCTIONS, 30e SUMMARY). */
 export function Label({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={`font-mono text-[9px] tracking-[0.18em] text-[rgba(160,190,225,.5)] ${className}`}>{children}</div>
+  return <div className={`font-mono fs-9 tracking-[0.18em] text-[rgba(160,190,225,.5)] ${className}`}>{children}</div>
 }
 
 /** The panel's small uppercase kicker: HARNESS (30b). */
 export function Kicker({ children }: { children: ReactNode }) {
-  return <span className="font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.55)]">{children}</span>
+  return <span className="font-mono fs-9.5 tracking-[0.18em] text-[rgba(160,190,225,.55)]">{children}</span>
 }
 
 /** The scope chip beside HARNESS (30b): "project · orbital". */
 export function ScopeChip({ text }: { text: string }) {
   return (
-    <span className="rounded-[4px] border border-[rgba(150,205,255,.14)] px-[7px] py-[2px] font-mono text-[9.5px] tracking-[0.04em] text-[rgba(200,220,245,.75)]">
+    <span className="rounded-[4px] border border-[rgba(150,205,255,.14)] px-[7px] py-[2px] font-mono fs-9.5 tracking-[0.04em] text-[rgba(200,220,245,.75)]">
       {text}
     </span>
   )
@@ -107,7 +107,7 @@ export function HeadButton({
     <button
       type="button"
       aria-label={label}
-      className="grid size-[22px] shrink-0 place-items-center rounded-[6px] text-[13px] tracking-[0.05em] text-[rgba(200,220,245,.7)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8]"
+      className="grid size-[22px] shrink-0 place-items-center rounded-[6px] fs-13 tracking-[0.05em] text-[rgba(200,220,245,.7)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8]"
       {...rest}
     >
       {children}
@@ -142,7 +142,7 @@ export function AccentLink({ children, onClick, className = '' }: { children: Re
     <button
       type="button"
       onClick={onClick}
-      className={`font-mono text-[10px] tracking-[0.08em] text-[oklch(85%_.12_205)] hover:brightness-110 ${className}`}
+      className={`font-mono fs-10 tracking-[0.08em] text-[oklch(85%_.12_205)] hover:brightness-110 ${className}`}
     >
       {children}
     </button>
@@ -156,7 +156,7 @@ export function OutlineButton({ children, onClick, disabled }: { children: React
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex items-center gap-[7px] rounded-[7px] border border-[rgba(150,205,255,.2)] px-[14px] py-[7px] text-[12px] font-semibold text-[rgba(220,235,255,.9)] hover:border-[rgba(150,205,255,.35)] hover:text-[#e8eef8] disabled:cursor-not-allowed disabled:opacity-40"
+      className="inline-flex items-center gap-[7px] rounded-[7px] border border-[rgba(150,205,255,.2)] px-[14px] py-[7px] fs-12 font-semibold text-[rgba(220,235,255,.9)] hover:border-[rgba(150,205,255,.35)] hover:text-[#e8eef8] disabled:cursor-not-allowed disabled:opacity-40"
     >
       {children}
     </button>
@@ -170,7 +170,7 @@ export function FilledButton({ children, onClick, disabled }: { children: ReactN
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="rounded-[7px] bg-[oklch(85%_.12_205)] px-[14px] py-[7px] text-[12px] font-bold text-[#03111a] hover:brightness-[1.08] disabled:cursor-not-allowed disabled:opacity-40"
+      className="rounded-[7px] bg-[oklch(85%_.12_205)] px-[14px] py-[7px] fs-12 font-bold text-[#03111a] hover:brightness-[1.08] disabled:cursor-not-allowed disabled:opacity-40"
     >
       {children}
     </button>

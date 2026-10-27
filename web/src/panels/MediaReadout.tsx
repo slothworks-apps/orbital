@@ -167,7 +167,7 @@ function GlancePopover({
       aria-label="Media"
       className={['orbital-no-drag orbital-popover-in fixed z-[60] w-[422px] overflow-hidden', POPUP_SHELL].join(' ')}
     >
-      <div className="flex items-center gap-2 border-b border-[rgba(150,205,255,.08)] px-3 py-[9px] font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.6)]">
+      <div className="flex items-center gap-2 border-b border-[rgba(150,205,255,.08)] px-3 py-[9px] font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.6)]">
         <span className="min-w-0 flex-1 truncate">{mediaCountLine(items, hidden)}</span>
         <span className="tracking-normal">
           <SourcesButton items={items} hidden={hidden} onChange={setHidden} />
@@ -185,7 +185,7 @@ function GlancePopover({
       <button
         type="button"
         onClick={onOpenGallery}
-        className="flex w-full items-center gap-2 border-t border-[rgba(150,205,255,.08)] px-3 py-[9px] text-left font-mono text-[10.5px] text-[#e8eef8] transition-colors duration-[160ms] hover:bg-[rgba(150,205,255,.09)]"
+        className="flex w-full items-center gap-2 border-t border-[rgba(150,205,255,.08)] px-3 py-[9px] text-left font-mono fs-10.5 text-[#e8eef8] transition-colors duration-[160ms] hover:bg-[rgba(150,205,255,.09)]"
       >
         Open gallery
         <span className="flex-1" />

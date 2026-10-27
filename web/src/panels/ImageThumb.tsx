@@ -95,7 +95,7 @@ export function ImageThumb({ image, variant, source, widthCapPx, messageId }: Im
         className="flex flex-col items-center justify-center gap-1.5 rounded-[6px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.6)]"
       >
         <span aria-hidden className="h-3.5 w-3.5 rounded-[3px] border border-[rgba(160,190,225,.35)]" />
-        <span className="font-mono text-[9px] tracking-[0.1em] text-[rgba(160,190,225,.5)]">
+        <span className="font-mono fs-9 tracking-[0.1em] text-[rgba(160,190,225,.5)]">
           NOT IN CACHE
         </span>
       </div>
@@ -112,7 +112,7 @@ export function ImageThumb({ image, variant, source, widthCapPx, messageId }: Im
         className="flex flex-col items-center justify-center gap-1.5 rounded-[6px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.6)]"
       >
         <span aria-hidden className="h-3.5 w-3.5 rounded-[3px] border border-[rgba(160,190,225,.35)]" />
-        <span className="font-mono text-[9px] tracking-[0.1em] text-[rgba(160,190,225,.5)]">
+        <span className="font-mono fs-9 tracking-[0.1em] text-[rgba(160,190,225,.5)]">
           COULDN&apos;T LOAD · RETRY
         </span>
       </button>
@@ -174,7 +174,7 @@ export function ImageThumb({ image, variant, source, widthCapPx, messageId }: Im
           // canvas 10d: the mark that says a press opens it full screen.
           <span
             aria-hidden
-            className="absolute bottom-2 right-2 grid h-7 w-7 place-items-center rounded-[8px] bg-[rgba(5,7,13,.75)] text-[13px] text-[#e8eef8]"
+            className="absolute bottom-2 right-2 grid h-7 w-7 place-items-center rounded-[8px] bg-[rgba(5,7,13,.75)] fs-13 text-[#e8eef8]"
           >
             ⤢
           </span>

@@ -66,10 +66,10 @@ export function GoneMark({ size }: { size: GoneSize }) {
       <span
         className={
           size === 'tile'
-            ? 'text-center font-mono text-[7.5px] tracking-[0.06em] text-[rgba(160,190,225,.5)]'
+            ? 'text-center font-mono fs-7.5 tracking-[0.06em] text-[rgba(160,190,225,.5)]'
             : size === 'reply'
-              ? 'font-mono text-[9px] tracking-[0.1em] text-[rgba(160,190,225,.5)]'
-              : 'font-mono text-[11px] tracking-[0.1em] text-[rgba(200,220,245,.75)]'
+              ? 'font-mono fs-9 tracking-[0.1em] text-[rgba(160,190,225,.5)]'
+              : 'font-mono fs-11 tracking-[0.1em] text-[rgba(200,220,245,.75)]'
         }
       >
         {size === 'tile' ? 'NOT ON DISK' : 'NO LONGER ON DISK'}
@@ -182,18 +182,18 @@ export function MediaTileButton({
         )}
         {tag && (
           <span
-            className={[TAG_CLASS, gallery ? 'bottom-[5px] left-[5px] text-[9.5px]' : 'bottom-1 left-1 text-[9px]'].join(' ')}
+            className={[TAG_CLASS, gallery ? 'bottom-[5px] left-[5px] fs-9.5' : 'bottom-1 left-1 fs-9'].join(' ')}
           >
             {tag}
           </span>
         )}
         {gallery && !gone && (
-          <span className="absolute right-[5px] top-1 font-mono text-[9px] text-[rgba(200,220,245,.6)]">
+          <span className="absolute right-[5px] top-1 font-mono fs-9 text-[rgba(200,220,245,.6)]">
             {mediaClock(cover.ts)}
           </span>
         )}
       </span>
-      <TileCaption caption={caption} className={gallery ? 'text-[9.5px]' : 'text-[9px]'} />
+      <TileCaption caption={caption} className={gallery ? 'fs-9.5' : 'fs-9'} />
     </button>
   )
 }
@@ -250,7 +250,7 @@ export function TileCaption({
 
 /** 24f A / 24b: the tag on a reply's PDF thumbnail. */
 export function PdfTag({ pages }: { pages: number | null }) {
-  return <span className={[TAG_CLASS, 'bottom-1 left-1 text-[9px]'].join(' ')}>{pages ? `PDF · ${pages}` : 'PDF'}</span>
+  return <span className={[TAG_CLASS, 'bottom-1 left-1 fs-9'].join(' ')}>{pages ? `PDF · ${pages}` : 'PDF'}</span>
 }
 
 /** 26a: the chip convention — resting hairline for everything, the filled chip once narrowed. */
@@ -293,13 +293,13 @@ export function SourcesButton({
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         className={[
-          'flex flex-none items-center gap-1.5 whitespace-nowrap rounded-full border px-[9px] py-[3px] font-mono text-[10px] tracking-[0.02em]',
+          'flex flex-none items-center gap-1.5 whitespace-nowrap rounded-full border px-[9px] py-[3px] font-mono fs-10 tracking-[0.02em]',
           'transition-[border-color,background-color,color] duration-[160ms] ease-[ease]',
           summary.filtered || open ? CHIP_ACTIVE : CHIP_REST,
         ].join(' ')}
       >
         {summary.label}
-        <span aria-hidden className="text-[8px] opacity-80">
+        <span aria-hidden className="fs-8 opacity-80">
           ▾
         </span>
       </button>
@@ -363,7 +363,7 @@ function SourcesList({
       onClick={(event) => event.stopPropagation()}
       className={['orbital-no-drag orbital-popover-in fixed z-[70] w-[264px] overflow-hidden font-mono', POPUP_SHELL].join(' ')}
     >
-      <div className="px-3 pb-1.5 pt-[9px] text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.55)]">SHOW IMAGES FROM</div>
+      <div className="px-3 pb-1.5 pt-[9px] fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.55)]">SHOW IMAGES FROM</div>
       {MEDIA_SOURCES.map((key) => {
         const count = counts[key]
         const on = sourceShown(key, hidden, counts)
@@ -384,11 +384,11 @@ function SourcesList({
               disabled={empty}
               onClick={(event) => (event.altKey ? only(key) : toggle(key))}
               className={[
-                'flex min-h-8 min-w-0 flex-1 items-center gap-2 px-1.5 py-1 text-left text-[11px] disabled:cursor-default',
+                'flex min-h-8 min-w-0 flex-1 items-center gap-2 px-1.5 py-1 text-left fs-11 disabled:cursor-default',
                 on && !empty ? 'text-[#e8eef8]' : 'text-[rgba(160,190,225,.55)]',
               ].join(' ')}
             >
-              <span aria-hidden className={['w-3 flex-none text-[11px]', ACCENT_INK].join(' ')}>
+              <span aria-hidden className={['w-3 flex-none fs-11', ACCENT_INK].join(' ')}>
                 {on && !empty ? '✓' : ''}
               </span>
               {key === 'subagent' && (
@@ -396,7 +396,7 @@ function SourcesList({
               )}
               <span className="flex min-w-0 flex-1 flex-col gap-px">
                 <span className="truncate">{SOURCE_LABELS[key]}</span>
-                {detail && <span className="truncate text-[9.5px] text-[rgba(160,190,225,.5)]">{detail}</span>}
+                {detail && <span className="truncate fs-9.5 text-[rgba(160,190,225,.5)]">{detail}</span>}
               </span>
             </button>
             <span className="flex w-11 flex-none justify-end pr-1.5">
@@ -404,12 +404,12 @@ function SourcesList({
                 <button
                   type="button"
                   onClick={() => only(key)}
-                  className="rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 text-[9.5px] text-[#e8eef8]"
+                  className="rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 fs-9.5 text-[#e8eef8]"
                 >
                   only
                 </button>
               ) : (
-                <span className="text-[10.5px] text-[rgba(160,190,225,.55)]">{count}</span>
+                <span className="fs-10.5 text-[rgba(160,190,225,.55)]">{count}</span>
               )}
             </span>
           </div>
@@ -421,14 +421,14 @@ function SourcesList({
           disabled={!filtered}
           onClick={() => onChange([])}
           className={[
-            'rounded-[5px] border border-[rgba(150,205,255,.2)] px-[9px] py-[3px] text-[10.5px] disabled:cursor-default',
+            'rounded-[5px] border border-[rgba(150,205,255,.2)] px-[9px] py-[3px] fs-10.5 disabled:cursor-default',
             filtered ? 'text-[#e8eef8]' : 'text-[rgba(160,190,225,.4)]',
           ].join(' ')}
         >
           Show all
         </button>
         <span className="flex-1" />
-        <span className="text-[9.5px] text-[rgba(160,190,225,.45)]">this session</span>
+        <span className="fs-9.5 text-[rgba(160,190,225,.45)]">this session</span>
       </div>
     </div>,
     document.body,
@@ -444,7 +444,7 @@ export function NothingShown({ hidden, onShowAll, className }: { hidden: number;
   return (
     <div
       className={[
-        'flex flex-col items-center justify-center gap-2 font-mono text-[10.5px] text-[rgba(160,190,225,.6)]',
+        'flex flex-col items-center justify-center gap-2 font-mono fs-10.5 text-[rgba(160,190,225,.6)]',
         className ?? '',
       ].join(' ')}
     >

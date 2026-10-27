@@ -40,6 +40,7 @@ import { TunnelSocket } from './transport/tunnelSocket'
 import { sessionSupports } from './version'
 import { decideWhatsNew } from './WhatsNew'
 import { makeTunnelUpload } from './transport/tunnelUpload'
+import { applySystemTextScale } from './platform/textScale'
 
 /**
  * A notification tapped to start the app arrives while boot is still
@@ -67,6 +68,7 @@ export async function boot(): Promise<void> {
   void installNotificationChannels()
   wireNotifications()
   configureTranscriptPages(TRANSCRIPT_PAGE_SIZE)
+  applySystemTextScale()
   configureApi({
     fetch: makeTunnelFetch(clientRef),
     upload: makeTunnelUpload(clientRef),
@@ -251,6 +253,7 @@ async function installLifecycle(): Promise<void> {
         return
       }
       useMobile.getState().returnToForeground()
+      applySystemTextScale()
       // Checked again on every return: 9s says so, and a lock set meanwhile lifts it.
       void recheckScreenLock()
       void recheckOnForeground()

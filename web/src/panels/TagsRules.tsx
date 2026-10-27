@@ -129,7 +129,7 @@ function TagPill({ hue, name }: { hue: number; name: string }) {
   return (
     <span
       data-rule-tag-pill
-      className="inline-flex w-fit min-w-0 items-center gap-1.5 rounded-full border px-[9px] py-[3px] text-[11px] font-semibold text-text-bright"
+      className="inline-flex w-fit min-w-0 items-center gap-1.5 rounded-full border px-[9px] py-[3px] fs-11 font-semibold text-text-bright"
       style={{ borderColor: `oklch(80% .13 ${hue} / .4)` }}
     >
       <span
@@ -726,7 +726,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
               what lives here is the column's own chrome (1e: 18/20/10 header,
               12px list gutter). */}
           <div className="flex min-h-0 flex-col border-r border-panel-border/60">
-            <div className="flex items-center px-5 pb-2.5 pt-[18px] font-mono text-[10px] tracking-[0.18em] text-text-muted">
+            <div className="flex items-center px-5 pb-2.5 pt-[18px] font-mono fs-10 tracking-[0.18em] text-text-muted">
               TAGS · {tags.length}
               <span className="flex-1" />
               <button
@@ -831,11 +831,11 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                         >
                           <TagNameField tag={tag} onCommit={(name) => void handleRenameTag(tag.id, name)} />
                         </div>
-                        <div className="mt-0.5 font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+                        <div className="mt-0.5 font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
                           {tagMeta(tag)}
                         </div>
                       </div>
-                      <span className="shrink-0 font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
+                      <span className="shrink-0 font-mono fs-10.5 text-[rgba(160,190,225,.55)]">
                         hue {tag.hue}
                       </span>
                     </div>
@@ -872,7 +872,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                           disabled={Boolean(tag.is_default)}
                           onClick={() => void handleDeleteTag(tag)}
                           aria-label={`Delete ${tag.name}`}
-                          className="shrink-0 font-mono text-[11px] text-[rgba(160,190,225,.6)] transition-colors hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-[rgba(160,190,225,.6)]"
+                          className="shrink-0 font-mono fs-11 text-[rgba(160,190,225,.6)] transition-colors hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-[rgba(160,190,225,.6)]"
                         >
                           delete
                         </button>
@@ -907,13 +907,13 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                       <GripDots />
                     </span>
                     <TagPlanet hue={draggedTag.hue} selected={false} />
-                    <span className="pl-1 text-sm font-semibold text-text-bright">{draggedTag.name}</span>
+                    <span className="pl-1 fs-14 leading-(--text-sm--line-height) font-semibold text-text-bright">{draggedTag.name}</span>
                   </div>
                 </DragGhost>
               )}
             </ul>
 
-            <p className="px-5 pb-5 pt-3.5 text-[11.5px] leading-[1.5] text-[rgba(160,190,225,.6)]">
+            <p className="px-5 pb-5 pt-3.5 fs-11.5 leading-[1.5] text-[rgba(160,190,225,.6)]">
               Tag hue drives the planet&apos;s atmosphere and ring. Untagged sessions fall back to{' '}
               <span className="font-mono text-[rgba(200,220,245,.8)]">{defaultTag?.name ?? 'the default tag'}</span>.
             </p>
@@ -921,7 +921,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
 
           {/* Right: the selected tag's rules */}
           <div className="flex min-h-0 flex-col">
-            <div className="flex items-center gap-3 px-[22px] pb-2.5 pt-[18px] font-mono text-[10px] tracking-[0.18em] text-text-muted">
+            <div className="flex items-center gap-3 px-[22px] pb-2.5 pt-[18px] font-mono fs-10 tracking-[0.18em] text-text-muted">
               AUTO-TAG RULES · {sortedRules.length}
               <span className="flex-1" />
               <span className="tracking-[0.04em] text-[rgba(160,190,225,.5)]">
@@ -938,7 +938,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                 below insets by 20px and each row by another 8px, so the two
                 grids line up on the same 28px gutter. */}
             <div
-              className={`grid ${RULE_GRID} items-center gap-3 px-[22px] py-1.5 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.45)]`}
+              className={`grid ${RULE_GRID} items-center gap-3 px-[22px] py-1.5 font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.45)]`}
             >
               <span />
               <span>CONDITION</span>
@@ -1181,8 +1181,8 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                         className="col-span-3 grid grid-cols-subgrid items-center rounded-[5px] text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
                       >
                         {/* 1e resting row: 13px sans condition, 12px mono pattern. */}
-                        <span className="truncate text-[13px]">{conditionLabel(rule.condition)}</span>
-                        <span className="truncate font-mono text-[12px] text-text-bright">
+                        <span className="truncate fs-13">{conditionLabel(rule.condition)}</span>
+                        <span className="truncate font-mono fs-12 text-text-bright">
                           {pattern || <span className="text-text-muted">—</span>}
                         </span>
                         <TagPill hue={hue} name={tagName} />
@@ -1220,7 +1220,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                 type="button"
                 data-testid="add-rule-row"
                 onClick={() => void handleAddRule()}
-                className="flex w-full items-center justify-center gap-2 rounded-[9px] border border-dashed border-[rgba(150,205,255,.2)] p-3 text-[12.5px] font-semibold text-accent transition-colors hover:border-accent/50 hover:bg-accent/5"
+                className="flex w-full items-center justify-center gap-2 rounded-[9px] border border-dashed border-[rgba(150,205,255,.2)] p-3 fs-12.5 font-semibold text-accent transition-colors hover:border-accent/50 hover:bg-accent/5"
               >
                 + Add rule
               </button>
@@ -1238,7 +1238,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
               data-testid="preview-result"
               className="mx-[22px] mb-5 mt-3 flex flex-wrap items-center gap-3 rounded-[9px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.35)] px-3.5 py-3"
             >
-              <span className="shrink-0 font-mono text-[10px] tracking-[0.16em] text-[rgba(160,190,225,.55)]">
+              <span className="shrink-0 font-mono fs-10 tracking-[0.16em] text-[rgba(160,190,225,.55)]">
                 PREVIEW
               </span>
               <Input
@@ -1257,13 +1257,13 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                   </span>
                   <Chip label={previewTag.name} hue={previewTag.hue} active />
                   {previewRuleIndex != null && previewRuleIndex > 0 && (
-                    <span className="shrink-0 font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">
+                    <span className="shrink-0 font-mono fs-10.5 text-[rgba(160,190,225,.5)]">
                       matched rule {previewRuleIndex}
                     </span>
                   )}
                 </>
               ) : previewPath.trim() ? (
-                <span className="shrink-0 font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">no match</span>
+                <span className="shrink-0 font-mono fs-10.5 text-[rgba(160,190,225,.5)]">no match</span>
               ) : null}
             </div>
           </div>

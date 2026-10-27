@@ -79,13 +79,13 @@ function TaskView({ sessionId, taskId }: { sessionId: string; taskId: string }) 
           type="button"
           aria-label={`Back to ${parentTitle}`}
           onClick={() => goBack()}
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] text-[28px] leading-none text-[rgba(220,235,255,.85)]"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] fs-28 leading-none text-[rgba(220,235,255,.85)]"
         >
           ‹
         </button>
         <div className="min-w-0 flex-1 pr-2">
-          <h1 className="truncate font-mono text-[15px] font-medium">▣ {task?.label ?? 'Background task'}</h1>
-          <div className="mt-0.5 truncate font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+          <h1 className="truncate font-mono fs-15 font-medium">▣ {task?.label ?? 'Background task'}</h1>
+          <div className="mt-0.5 truncate font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
             background task of {parentTitle}
             {task && ` · ${kindWord(task)}`}
           </div>
@@ -94,7 +94,7 @@ function TaskView({ sessionId, taskId }: { sessionId: string; taskId: string }) 
       {/* canvas 10g: the state word, "after … · hh:mm" once ended, Stop while it runs. */}
       <div className={['flex h-11 items-center gap-2.5 pl-2.5', shape?.canStop ? 'pr-1.5' : 'pr-3.5'].join(' ')}>
         {shape && (
-          <span className="flex items-center gap-[7px] font-mono text-[10.5px] tracking-[0.1em]" style={{ color: shape.ink }}>
+          <span className="flex items-center gap-[7px] font-mono fs-10.5 tracking-[0.1em]" style={{ color: shape.ink }}>
             {shape.dot && (
               <span
                 aria-hidden
@@ -105,14 +105,14 @@ function TaskView({ sessionId, taskId }: { sessionId: string; taskId: string }) 
             {shape.word}
           </span>
         )}
-        {shape?.after && <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">{shape.after}</span>}
+        {shape?.after && <span className="font-mono fs-10.5 text-[rgba(160,190,225,.55)]">{shape.after}</span>}
         <span aria-hidden className="flex-1" />
         {shape?.canStop && (
           <button
             type="button"
             disabled={stopping}
             onClick={() => setConfirming(true)}
-            className="flex h-11 items-center gap-2 rounded-[12px] border border-[oklch(80%_.13_60/.5)] px-3.5 text-[13.5px] font-semibold text-[oklch(85%_.12_60)] disabled:opacity-40"
+            className="flex h-11 items-center gap-2 rounded-[12px] border border-[oklch(80%_.13_60/.5)] px-3.5 fs-13.5 font-semibold text-[oklch(85%_.12_60)] disabled:opacity-40"
           >
             <span aria-hidden className="block h-[9px] w-[9px] rounded-[1.5px] bg-current" />
             Stop
@@ -124,7 +124,7 @@ function TaskView({ sessionId, taskId }: { sessionId: string; taskId: string }) 
 
   const footer = (
     // canvas 10g: the follow pill and what the output is; ended, that nothing is left to stop.
-    <div className="flex items-center gap-2.5 border-t border-[rgba(150,205,255,.1)] bg-[rgba(6,10,20,.94)] px-4 pb-1.5 pt-2.5 font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+    <div className="flex items-center gap-2.5 border-t border-[rgba(150,205,255,.1)] bg-[rgba(6,10,20,.94)] px-4 pb-1.5 pt-2.5 font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
       {shape?.live ? (
         <>
           <button type="button" onClick={follow.resume} className="flex h-11 items-center" aria-label={follow.paused ? 'Follow the output again' : 'Following the output'}>
@@ -159,13 +159,13 @@ function TaskView({ sessionId, taskId }: { sessionId: string; taskId: string }) 
             <OutputLine key={key} text={text} onOpen={(path, line) => openFile({ sessionId, path, line })} />
           ))}
           {shape?.cursor && !follow.paused && (
-            <div className="px-3.5 font-mono text-[11.5px] leading-[1.8]">
+            <div className="px-3.5 font-mono fs-11.5 leading-[1.8]">
               <span aria-hidden className="orbital-caret inline-block h-[13px] w-[7px] translate-y-[2px] bg-[oklch(85%_.12_205)]" />
             </div>
           )}
           {shape?.end && (
             <div
-              className="mx-3.5 mt-2 border-t border-[rgba(150,205,255,.12)] pt-2 font-mono text-[11px]"
+              className="mx-3.5 mt-2 border-t border-[rgba(150,205,255,.12)] pt-2 font-mono fs-11"
               style={{ color: shape.end.ink }}
             >
               {shape.end.text}
@@ -217,7 +217,7 @@ const OutputLine = memo(function OutputLine({ text, onOpen }: { text: string; on
   }
   if (at < text.length) parts.push(text.slice(at))
   return (
-    <div className="whitespace-pre-wrap break-all px-3.5 font-mono text-[11.5px] leading-[1.8] text-[rgba(214,230,248,.88)]">
+    <div className="whitespace-pre-wrap break-all px-3.5 font-mono fs-11.5 leading-[1.8] text-[rgba(214,230,248,.88)]">
       {parts.length > 0 ? parts : ' '}
     </div>
   )

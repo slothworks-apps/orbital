@@ -112,7 +112,7 @@ export function SubagentChip({ sessionId, subagents, compact = false, waiting = 
       onOpenChange={setOpen}
       footer={
         // 25a's hint strip, under the scroll.
-        <div className="mt-1 flex shrink-0 items-center gap-2 border-t border-[rgba(150,205,255,.08)] px-2.5 pt-2 pb-1 font-mono text-[9.5px] tracking-[.06em] text-[rgba(160,190,225,.45)]">
+        <div className="mt-1 flex shrink-0 items-center gap-2 border-t border-[rgba(150,205,255,.08)] px-2.5 pt-2 pb-1 font-mono fs-9.5 tracking-[.06em] text-[rgba(160,190,225,.45)]">
           ↑↓ move · ↵ open · ⎋ close
           <span aria-hidden className="flex-1" />
           this session only
@@ -126,7 +126,7 @@ export function SubagentChip({ sessionId, subagents, compact = false, waiting = 
           // 25a/25c's chip: as tall as the state badge beside it, so the row
           // does not grow; open is the standard active chip.
           className={[
-            'orbital-no-drag flex h-[22px] shrink-0 items-center gap-[7px] rounded-md border px-2 font-mono text-[10.5px]',
+            'orbital-no-drag flex min-h-[22px] shrink-0 items-center gap-[7px] rounded-md border px-2 font-mono fs-10.5',
             'transition-[background-color,border-color,color] duration-[180ms] ease-[ease] focus-visible:outline-none',
             isOpen
               ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
@@ -158,7 +158,7 @@ export function SubagentChip({ sessionId, subagents, compact = false, waiting = 
               </span>
             </span>
           ))}
-          <span aria-hidden className="text-[8px]">
+          <span aria-hidden className="fs-8">
             {isOpen ? '▴' : '▾'}
           </span>
         </button>
@@ -220,15 +220,15 @@ function SubagentRow({
         style={{ border: `${STATE_DOT_RING_PX}px solid ${ink}`, background: solid ? ink : 'transparent' }}
       />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate font-sans text-[12.5px] font-semibold text-text-bright">{subagent.name}</span>
-        <span className="flex gap-1.5 overflow-hidden font-mono text-[10px] whitespace-nowrap" style={{ color: MUTED_INK }}>
+        <span className="truncate font-sans fs-12.5 font-semibold text-text-bright">{subagent.name}</span>
+        <span className="flex gap-1.5 overflow-hidden font-mono fs-10 whitespace-nowrap" style={{ color: MUTED_INK }}>
           {type}
           {word && <span style={{ color: openable ? tone.ink : MUTED_INK }}>{word}</span>}
         </span>
       </span>
       {elapsed !== undefined && (
         <span
-          className="shrink-0 font-mono text-[10.5px]"
+          className="shrink-0 font-mono fs-10.5"
           // 25a: a running row's clock reads brighter than a frozen one.
           style={{ color: state === 'running' ? 'rgba(200,225,255,.85)' : 'rgba(160,190,225,.55)' }}
         >

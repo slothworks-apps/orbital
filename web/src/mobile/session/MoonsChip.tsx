@@ -36,7 +36,7 @@ export function MoonsChip({ session, offline }: SlotProps) {
         {/* canvas 9b at rest; canvas 10f the pressed pill while the sheet is up. */}
         <span
           className={[
-            'flex items-center gap-[5px] font-mono text-[10.5px]',
+            'flex items-center gap-[5px] font-mono fs-10.5',
             open
               ? 'h-8 rounded-[8px] border border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] px-[9px] text-text-bright'
               : 'px-2 text-[rgba(200,220,245,.75)]',

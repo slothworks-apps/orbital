@@ -23,10 +23,10 @@ function RunsOnCard({ session }: { session: ApiSession }) {
   const card = runsOn(session, members, openedAt)
   return (
     <span className="flex flex-col gap-[5px] font-mono">
-      <span className="text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.6)]">RUNS ON</span>
-      <span className="font-sans text-[12.5px] font-semibold text-[#e8eef8]">{card.name}</span>
-      <span className="text-[10px] text-[rgba(160,190,225,.65)]">{kindOs(card.kind, card.os)}</span>
-      <span className="flex items-center gap-[7px] text-[10px] text-[rgba(200,220,245,.85)]">
+      <span className="fs-9.5 tracking-[0.16em] text-[rgba(160,190,225,.6)]">RUNS ON</span>
+      <span className="font-sans fs-12.5 font-semibold text-[#e8eef8]">{card.name}</span>
+      <span className="fs-10 text-[rgba(160,190,225,.65)]">{kindOs(card.kind, card.os)}</span>
+      <span className="flex items-center gap-[7px] fs-10 text-[rgba(200,220,245,.85)]">
         <MemberDot state={RUNS_ON_DOT[card.dot]} sizePx={6} />
         {card.words}
       </span>
@@ -80,7 +80,7 @@ export function DevicePill({
     >
       <Tooltip variant="panel" shell="flyout" widthPx={RUNS_ON_WIDTH_PX} content={<RunsOnCard session={session} />}>
         <div
-          className="box-border flex h-5 cursor-default items-center gap-1.5 whitespace-nowrap rounded-[10px] border border-solid px-[9px] font-mono text-[10px] text-[rgba(214,230,248,.9)] shadow-[0_6px_18px_rgba(0,0,0,.45)] backdrop-blur-[12px] transition-[background,border-color] duration-[120ms] ease-[ease]"
+          className="box-border flex min-h-5 cursor-default items-center gap-1.5 whitespace-nowrap rounded-[10px] border border-solid px-[9px] font-mono fs-10 text-[rgba(214,230,248,.9)] shadow-[0_6px_18px_rgba(0,0,0,.45)] backdrop-blur-[12px] transition-[background,border-color] duration-[120ms] ease-[ease]"
           // Canvas 50f `fbBg`/`fbBd`: the tag hue at .1 over the panel's own dark, .18 and .85 on hover.
           style={{
             borderColor: `oklch(80% .13 ${hue} / ${hovered ? 0.85 : 0.55})`,

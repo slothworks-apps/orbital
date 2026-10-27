@@ -44,7 +44,7 @@ function Tile({
         {aside !== undefined && (
           <>
             <span className="flex-1" />
-            <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">{aside}</div>
+            <div className="font-mono fs-10.5 text-[rgba(160,190,225,.55)]">{aside}</div>
           </>
         )}
       </div>
@@ -64,10 +64,10 @@ function Hero({
   unitLeading?: boolean
 }) {
   const unitSpan = unit ? (
-    <span className="text-[24px] text-[rgba(200,225,255,.75)]">{unit}</span>
+    <span className="fs-24 text-[rgba(200,225,255,.75)]">{unit}</span>
   ) : null
   return (
-    <div className="mt-2.5 font-mono text-[40px] leading-none tracking-[-0.02em] text-text-bright">
+    <div className="mt-2.5 font-mono fs-40 leading-none tracking-[-0.02em] text-text-bright">
       {unitLeading && unitSpan}
       {value}
       {!unitLeading && unitSpan}
@@ -75,7 +75,7 @@ function Hero({
   )
 }
 
-const SUB_LINE_CLASS = 'mt-2.5 flex gap-[14px] font-mono text-[10.5px] text-[rgba(160,190,225,.7)]'
+const SUB_LINE_CLASS = 'mt-2.5 flex gap-[14px] font-mono fs-10.5 text-[rgba(160,190,225,.7)]'
 
 export function StatsTiles({
   totals,
@@ -134,7 +134,7 @@ export function StatsTiles({
         aside={`of ${formatStatsDuration(totals.wallClockMs)} wall clock`}
       >
         <div className="mt-2 flex items-end gap-[26px]">
-          <div className="font-mono text-[40px] leading-none tracking-[-0.02em] text-text-bright">
+          <div className="font-mono fs-40 leading-none tracking-[-0.02em] text-text-bright">
             {formatStatsDuration(busy)}
           </div>
           <div className="min-w-0 flex-1">
@@ -152,7 +152,7 @@ export function StatsTiles({
                 />
               ))}
             </div>
-            <div className="mt-[9px] flex flex-wrap gap-[18px] font-mono text-[10.5px] text-[rgba(160,190,225,.8)]">
+            <div className="mt-[9px] flex flex-wrap gap-[18px] font-mono fs-10.5 text-[rgba(160,190,225,.8)]">
               {TIME_CATEGORIES.map((category) => (
                 <span key={category.field} className="flex items-center gap-1.5">
                   <span

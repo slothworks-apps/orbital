@@ -138,7 +138,7 @@ export function TaskChip({ sessionId, tasks, compact = false, waiting = false, w
       align="left"
       withinRef={withinRef}
       footer={
-        <div className="mt-1 flex shrink-0 items-center gap-2 border-t border-[rgba(150,205,255,.08)] px-2.5 pt-2 pb-1 font-mono text-[9.5px] tracking-[.06em] text-[rgba(160,190,225,.45)]">
+        <div className="mt-1 flex shrink-0 items-center gap-2 border-t border-[rgba(150,205,255,.08)] px-2.5 pt-2 pb-1 font-mono fs-9.5 tracking-[.06em] text-[rgba(160,190,225,.45)]">
           {/* 26a's hint, alone: beside the subagent list's `this session only`
               it wraps at `LIST_WIDTH_PX`. */}
           <span className="whitespace-nowrap">↵ open output · ■ stops at once · ⎋ close</span>
@@ -153,7 +153,7 @@ export function TaskChip({ sessionId, tasks, compact = false, waiting = false, w
             title={title}
             {...props}
             className={[
-              'orbital-no-drag flex h-[22px] shrink-0 items-center gap-[7px] rounded-md border px-2 font-mono text-[10.5px]',
+              'orbital-no-drag flex min-h-[22px] shrink-0 items-center gap-[7px] rounded-md border px-2 font-mono fs-10.5',
               'transition-[background-color,border-color,color] duration-[180ms] ease-[ease] focus-visible:outline-none',
               active
                 ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
@@ -175,7 +175,7 @@ export function TaskChip({ sessionId, tasks, compact = false, waiting = false, w
                 <span style={segment.ink ? { color: segment.ink } : undefined}>{segment.text}</span>
               </span>
             ))}
-            <span aria-hidden className="text-[8px]">
+            <span aria-hidden className="fs-8">
               {isOpen ? '▴' : '▾'}
             </span>
           </button>
@@ -234,8 +234,8 @@ function TaskRow({
         }}
       />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate font-sans text-[12.5px] font-semibold text-text-bright">{task.label}</span>
-        <span className="flex min-w-0 gap-1.5 font-mono text-[10px] whitespace-nowrap" style={{ color: MUTED_INK }}>
+        <span className="truncate font-sans fs-12.5 font-semibold text-text-bright">{task.label}</span>
+        <span className="flex min-w-0 gap-1.5 font-mono fs-10 whitespace-nowrap" style={{ color: MUTED_INK }}>
           <span className="shrink-0">{kindWord(task)}</span>
           {word && (
             <span className="shrink-0" style={{ color: style.ink }}>
@@ -256,7 +256,7 @@ function TaskRow({
       </span>
       {elapsed !== undefined && (
         <span
-          className="shrink-0 font-mono text-[10.5px]"
+          className="shrink-0 font-mono fs-10.5"
           style={{ color: tone === 'running' ? 'rgba(200,225,255,.85)' : 'rgba(160,190,225,.55)' }}
         >
           {elapsed}

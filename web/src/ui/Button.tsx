@@ -113,59 +113,59 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
 // `lg` is the dialog footer button (1d: 9px/18px at 13px); `sm` is 1b's
 // in-panel Send/Stop (7px/14px at 12px).
 const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
-  sm: 'px-3.5 py-[7px] text-xs',
-  md: 'px-3.5 py-1.5 text-sm',
-  lg: 'px-[18px] py-[9px] text-[13px]',
+  sm: 'px-3.5 py-[7px] fs-12 leading-(--text-xs--line-height)',
+  md: 'px-3.5 py-1.5 fs-14 leading-(--text-sm--line-height)',
+  lg: 'px-[18px] py-[9px] fs-13',
   // 1d's Browse…: beside an `lg` field and as tall as it, so no padding of
   // its own on the vertical.
-  field: 'px-3.5 text-[12.5px]',
+  field: 'px-3.5 fs-12.5',
   // 5b's row pills: 4px/10px at 11px.
-  pill: 'px-2.5 py-1 text-[11px]',
+  pill: 'px-2.5 py-1 fs-11',
   // 27a's strip chip: 3px/9px at mono 10.5.
-  strip: 'px-[9px] py-[3px] text-[10.5px]',
+  strip: 'px-[9px] py-[3px] fs-10.5',
   // 27a's ↶: a 30px square, Send's height at `sm`.
   icon: 'h-[30px] w-[30px] p-0',
   // 44a's in-row buttons (Done, Browse…, Cancel, Remove): 6px/12px at 12px.
-  row: 'px-3 py-1.5 text-xs',
+  row: 'px-3 py-1.5 fs-12 leading-(--text-xs--line-height)',
   // 47a/47b's Allow / Don't allow: 34px tall at 12.5px, the width the grid gives.
-  choice: 'h-[34px] px-2 text-[12.5px]',
+  choice: 'min-h-[34px] px-2 fs-12.5',
   // 47c/47d's: the phone's 44px row at 14px.
-  'choice-touch': 'h-11 px-2 text-[14px]',
+  'choice-touch': 'min-h-11 px-2 fs-14',
   // 9o's Reject / Accept: 40px tall at 13.5px, sharing the card's width.
-  wide: 'h-10 flex-1 px-3.5 text-[13.5px]',
+  wide: 'min-h-10 flex-1 px-3.5 fs-13.5',
   // 1a's tip actions: 7px/14px at 13px, and 7px/11px for the text-only Settings →.
-  notice: 'px-3.5 py-[7px] text-[13px]',
-  'notice-link': 'px-[11px] py-[7px] text-[13px]',
+  notice: 'px-3.5 py-[7px] fs-13',
+  'notice-link': 'px-[11px] py-[7px] fs-13',
   // `Feature - Notice toast` 1b's Done under WHAT'S NEW: 8px/16px at 13px.
-  'notice-dialog': 'px-4 py-2 text-[13px]',
+  'notice-dialog': 'px-4 py-2 fs-13',
   // `Feature - App update`'s Check now in Settings › Updates: 6px/12px at 12.5px.
-  check: 'px-3 py-1.5 text-[12.5px]',
+  check: 'px-3 py-1.5 fs-12.5',
   // Canvas 50a's row actions (Remove, Cancel, Leave…): 32px tall, 14px sides, 12.5px.
-  member: 'h-8 px-3.5 text-[12.5px]',
+  member: 'min-h-8 px-3.5 fs-12.5',
   // `Feature - Remote update` 50q's confirm Cancel, a quiet text button beside `member`s: 32px tall, 12px sides, 12.5px.
-  'member-quiet': 'h-8 px-3 text-[12.5px]',
+  'member-quiet': 'min-h-8 px-3 fs-12.5',
   // `Feature - Remote update` 50q's Update and Try again on the line under a row: 30px tall, 12px sides, 12px.
-  'member-line': 'h-[30px] px-3 text-xs',
+  'member-line': 'min-h-[30px] px-3 fs-12 leading-(--text-xs--line-height)',
   // Canvas 50a's Copy, Join and New code beside a field: 31px tall, 12px sides, 12px.
-  'beside-field': 'h-[31px] px-3 text-xs',
+  'beside-field': 'min-h-[31px] px-3 fs-12 leading-(--text-xs--line-height)',
   // Canvas 50a's Show code / New code over the QR: 30px tall, 12px sides, 12px.
-  'over-code': 'h-[30px] px-3 text-xs',
+  'over-code': 'min-h-[30px] px-3 fs-12 leading-(--text-xs--line-height)',
   // Canvas 50g's folder chooser footer (Cancel, Choose this folder): 7px/14px
   // at 12.5px. 50g gives the hairlined Cancel 13px sides; one size is kept for both.
-  chooser: 'px-3.5 py-[7px] text-[12.5px]',
+  chooser: 'px-3.5 py-[7px] fs-12.5',
   // A link inside a line of text (50a's Pair by hand): no padding, the line's own type and ink.
   inline: '',
   // 50u's Settings → Updates › under this device: mono 10.5 with its tracking, in the row's brighter ink.
-  'link-mono': 'font-mono text-[10.5px] tracking-[0.04em] text-[rgba(200,220,245,.85)]',
+  'link-mono': 'font-mono fs-10.5 tracking-[0.04em] text-[rgba(200,220,245,.85)]',
   // `Feature - Feedback` 61c's Run in Orbital beside the command it runs: 6px/11px at 12px.
-  command: 'px-[11px] py-1.5 text-xs',
+  command: 'px-[11px] py-1.5 fs-12 leading-(--text-xs--line-height)',
   // `Feature - Log in` 62a: the lost-login notice's Log in / Cancel on its title row, 5px/11px at 12px,
   // on one line however narrow the row (62c's Settings row too).
-  'login-row': 'whitespace-nowrap px-[11px] py-[5px] text-xs',
+  'login-row': 'whitespace-nowrap px-[11px] py-[5px] fs-12 leading-(--text-xs--line-height)',
   // 62b: the same answer on a Desk card, 6px/14px at 12px.
-  'login-card': 'px-3.5 py-1.5 text-xs',
+  'login-card': 'px-3.5 py-1.5 fs-12 leading-(--text-xs--line-height)',
   // 62e: the phone notice's buttons, a 44px target at 14px.
-  touch: 'h-11 px-[18px] text-[14px]',
+  touch: 'min-h-11 px-[18px] fs-14',
 }
 
 export function Button({

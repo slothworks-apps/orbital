@@ -255,9 +255,9 @@ function ViewerBody({
           className="absolute inset-x-0 flex flex-col items-center gap-2 font-mono tracking-[0.06em]"
           style={{ top: STAGE_TOP_PX + stageHeight + 18 }}
         >
-          <div className="flex items-center gap-2.5 text-[11.5px] text-[#e8eef8]">
+          <div className="flex items-center gap-2.5 fs-11.5 text-[#e8eef8]">
             {isToolFrame(shown) && current && (
-              <span className="rounded-[3px] border border-[rgba(150,205,255,.2)] px-1.5 py-px text-[10px] text-[rgba(200,220,245,.85)]">
+              <span className="rounded-[3px] border border-[rgba(150,205,255,.2)] px-1.5 py-px fs-10 text-[rgba(200,220,245,.85)]">
                 ⚙ TOOL
               </span>
             )}
@@ -265,7 +265,7 @@ function ViewerBody({
             {current && shown.path && <span className="text-[rgba(150,205,255,.28)]">·</span>}
             {shown.path && <span className="text-[#dfeeff]">{shown.path}</span>}
           </div>
-          <div className="flex items-center gap-3 text-[10.5px] text-[rgba(160,190,225,.6)]">
+          <div className="flex items-center gap-3 fs-10.5 text-[rgba(160,190,225,.6)]">
             {current && <Meta item={shown} pages={pages} where={where} />}
             {current && (
               <>
@@ -273,7 +273,7 @@ function ViewerBody({
                 <button
                   type="button"
                   onClick={showInTranscript}
-                  className="rounded-[5px] border border-[rgba(150,205,255,.2)] bg-transparent px-[9px] py-[3px] font-mono text-[10.5px] text-[#e8eef8] transition-[border-color] duration-[160ms] ease-[ease] hover:border-[rgba(150,205,255,.45)]"
+                  className="rounded-[5px] border border-[rgba(150,205,255,.2)] bg-transparent px-[9px] py-[3px] font-mono fs-10.5 text-[#e8eef8] transition-[border-color] duration-[160ms] ease-[ease] hover:border-[rgba(150,205,255,.45)]"
                 >
                   ↩ Show in transcript
                 </button>
@@ -295,7 +295,7 @@ function ViewerBody({
           onClick={(event) => event.stopPropagation()}
           className="absolute inset-x-0 bottom-[30px] flex items-center justify-center gap-4"
         >
-          <span className="w-[150px] text-right font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+          <span className="w-[150px] text-right font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
             {index + 1} of {order.length}
           </span>
           <Filmstrip sessionId={sessionId!} order={order} current={current} onPick={go} />
@@ -319,12 +319,12 @@ function ViewerBody({
         type="button"
         aria-label="Close"
         onClick={onClose}
-        className="absolute right-7 top-7 grid h-[34px] w-[34px] place-items-center rounded-[9px] border border-[rgba(150,205,255,.2)] bg-[rgba(10,14,24,.7)] text-base text-text-bright transition-colors hover:border-[rgba(150,205,255,.45)]"
+        className="absolute right-7 top-7 grid h-[34px] w-[34px] place-items-center rounded-[9px] border border-[rgba(150,205,255,.2)] bg-[rgba(10,14,24,.7)] fs-16 leading-(--text-base--line-height) text-text-bright transition-colors hover:border-[rgba(150,205,255,.45)]"
       >
         ×
       </button>
       {shown?.kind === 'pdf' && pages && (
-        <div className="absolute right-7 top-[76px] text-right font-mono text-[10.5px] leading-[1.7] text-[rgba(160,190,225,.6)]">
+        <div className="absolute right-7 top-[76px] text-right font-mono fs-10.5 leading-[1.7] text-[rgba(160,190,225,.6)]">
           page {page} of {pages}
           <br />↑ ↓ or scroll for pages
         </div>
@@ -373,7 +373,7 @@ function ArrowButton({
       }}
       style={{ top }}
       className={[
-        'absolute grid h-11 w-11 place-items-center rounded-[10px] border border-[rgba(150,205,255,.2)] bg-[rgba(10,14,24,.7)] text-[20px] text-[#e8eef8]',
+        'absolute grid h-11 w-11 place-items-center rounded-[10px] border border-[rgba(150,205,255,.2)] bg-[rgba(10,14,24,.7)] fs-20 text-[#e8eef8]',
         'transition-[border-color] duration-[160ms] ease-[ease] hover:border-[rgba(150,205,255,.45)]',
         side === 'left' ? 'left-7' : 'right-7',
       ].join(' ')}
@@ -436,7 +436,7 @@ function Stage({
       >
         <GoneMark size="dialog" />
         {item.path && (
-          <span className="text-[10.5px] tracking-[0.04em] text-[rgba(160,190,225,.55)]">
+          <span className="fs-10.5 tracking-[0.04em] text-[rgba(160,190,225,.55)]">
             {[item.path, named && `named ${named}`, 'not on disk now'].filter(Boolean).join(' · ')}
           </span>
         )}
@@ -622,7 +622,7 @@ function FilmFrame({
     >
       {!isGone(item) && !gone && <MediaPicture sessionId={sessionId} item={item} fit="contain" onGone={() => setGone(true)} />}
       {isToolFrame(item) && (
-        <span className="absolute bottom-px left-0.5 font-mono text-[8px] text-[rgba(200,220,245,.8)]">⚙</span>
+        <span className="absolute bottom-px left-0.5 font-mono fs-8 text-[rgba(200,220,245,.8)]">⚙</span>
       )}
     </button>
   )

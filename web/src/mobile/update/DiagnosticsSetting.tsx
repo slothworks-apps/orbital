@@ -29,8 +29,8 @@ export function DiagnosticsSetting() {
     <div className={CARD}>
       <div className="flex min-h-15 items-center gap-2.5 py-2 pl-3.5 pr-1.5">
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="text-[14px] font-semibold">{TITLE}</span>
-          <span className="text-[11.5px] leading-[1.4] text-[rgba(160,190,225,.6)]">
+          <span className="fs-14 font-semibold">{TITLE}</span>
+          <span className="fs-11.5 leading-[1.4] text-[rgba(160,190,225,.6)]">
             Helps catch a broken update: install results, crashes and errors, the phone model and
             its system. Never your name, your sessions or anything on your Mac.
           </span>

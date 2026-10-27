@@ -159,7 +159,7 @@ function rememberLaunch(patch: Record<string, string>) {
 /** Group kicker from canvas 1d: mono 10px, .16em tracking, 8px to the control. */
 function FieldLabel({ children, htmlFor }: { children: ReactNode; htmlFor?: string }) {
   const className =
-    'flex items-center gap-2 font-mono text-[10px] tracking-[0.16em] text-[rgba(160,190,225,.6)]'
+    'flex items-center gap-2 font-mono fs-10 tracking-[0.16em] text-[rgba(160,190,225,.6)]'
   return htmlFor ? (
     <label htmlFor={htmlFor} className={className}>
       {children}
@@ -700,7 +700,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                 accent fill, a hairline on the outline. */}
             <span
               className={[
-                'rounded-[5px] font-mono text-[13px] font-medium tracking-[0.04em]',
+                'rounded-[5px] font-mono fs-13 font-medium tracking-[0.04em]',
                 ready ? 'bg-[rgba(3,17,26,.14)] px-1.5 py-0.5' : 'border border-[rgba(150,205,255,.12)] px-[5px] py-px',
               ].join(' ')}
             >
@@ -728,7 +728,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         footerCaption: undefined,
         footer: (
           <Button variant="primary" size="lg" disabled={pending} onClick={() => void handleCreateAndLaunch()}>
-            Create and launch <span className="font-mono text-[10px] opacity-70">{shortcutLabel('composer.start')}</span>
+            Create and launch <span className="font-mono fs-10 opacity-70">{shortcutLabel('composer.start')}</span>
           </Button>
         ),
       }
@@ -785,7 +785,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               onClick={() => void handleLaunch()}
               disabled={pending || !cwd.trim() || awaitingCustomModel || blocksLaunch(dirState)}
             >
-              Launch session <span className="font-mono text-[10px] opacity-70">⌘⏎</span>
+              Launch session <span className="font-mono fs-10 opacity-70">⌘⏎</span>
             </Button>
           </>
         }
@@ -870,8 +870,8 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                 </div>
                 {dirLine && (
                   // Copy and colour provisional until the canvas draws the line.
-                  <p className="flex items-center gap-2 px-0.5 text-[12px] text-[oklch(80%_.1_70)]">
-                    <span aria-hidden className="font-mono text-[11px]">!</span>
+                  <p className="flex items-center gap-2 px-0.5 fs-12 text-[oklch(80%_.1_70)]">
+                    <span aria-hidden className="font-mono fs-11">!</span>
                     {dirLine}
                   </p>
                 )}
@@ -881,7 +881,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                     role="group"
                     aria-label="Recent directories"
                   >
-                    <span className="mr-0.5 shrink-0 font-mono text-[10px] tracking-[0.08em] text-[rgba(160,190,225,.5)]">
+                    <span className="mr-0.5 shrink-0 font-mono fs-10 tracking-[0.08em] text-[rgba(160,190,225,.5)]">
                       RECENT
                     </span>
                     {/* Recent paths are mono pills in 1d (3px/9px, 10.5px), not the
@@ -893,7 +893,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                         title={dir}
                         data-active={dir === cwd}
                         onClick={() => setCwd(dir)}
-                        className="rounded-full border border-panel-border px-[9px] py-[3px] font-mono text-[10.5px] text-[rgba(200,220,245,.75)] transition-colors hover:border-accent/40 data-[active=true]:border-accent/50 data-[active=true]:text-text-bright"
+                        className="rounded-full border border-panel-border px-[9px] py-[3px] font-mono fs-10.5 text-[rgba(200,220,245,.75)] transition-colors hover:border-accent/40 data-[active=true]:border-accent/50 data-[active=true]:text-text-bright"
                       >
                         {shortenPath(dir)}
                       </button>
@@ -1070,10 +1070,10 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         </div>
         {missingDir && (
           <div className="flex flex-col gap-3">
-            <p className="break-all rounded-[10px] border border-panel-border bg-[rgba(4,8,16,.5)] px-3.5 py-3 font-mono text-[13px] text-text-bright">
+            <p className="break-all rounded-[10px] border border-panel-border bg-[rgba(4,8,16,.5)] px-3.5 py-3 font-mono fs-13 text-text-bright">
               {missingDir}
             </p>
-            <p className="text-[13px] leading-[1.5] text-[rgba(200,214,235,.88)]">
+            <p className="fs-13 leading-[1.5] text-[rgba(200,214,235,.88)]">
               This folder doesn't exist yet. Orbital can create it, with any missing folders above it, and launch the
               session there — or go back and change the path.
             </p>

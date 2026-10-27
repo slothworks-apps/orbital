@@ -180,9 +180,9 @@ function WhatsNewDialog({ open, installedAt, onClose }: { open: boolean; install
           {/* 1b: 22/20/16/28, ruled off. */}
           <header className="flex shrink-0 items-start gap-3 border-b border-[rgba(150,205,255,.1)] pb-4 pl-7 pr-5 pt-[22px]">
             <div className="flex-1">
-              <div className="font-mono text-[10px] tracking-[0.2em] text-[rgba(160,190,225,.65)]">WHAT’S NEW</div>
-              <h2 className="mt-1.5 text-[20px] font-bold tracking-[-0.01em]">Orbital {orbitalVersion}</h2>
-              <div className="mt-1 font-mono text-[11px] text-[rgba(160,190,225,.55)]">
+              <div className="font-mono fs-10 tracking-[0.2em] text-[rgba(160,190,225,.65)]">WHAT’S NEW</div>
+              <h2 className="mt-1.5 fs-20 font-bold tracking-[-0.01em]">Orbital {orbitalVersion}</h2>
+              <div className="mt-1 font-mono fs-11 text-[rgba(160,190,225,.55)]">
                 {installedLine(installedAt, Date.now())}
               </div>
             </div>
@@ -190,7 +190,7 @@ function WhatsNewDialog({ open, installedAt, onClose }: { open: boolean; install
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="grid h-[30px] w-[30px] place-items-center rounded-[7px] text-[16px] text-[rgba(160,190,225,.7)] transition-colors hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright"
+              className="grid h-[30px] w-[30px] place-items-center rounded-[7px] fs-16 text-[rgba(160,190,225,.7)] transition-colors hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright"
             >
               ×
             </button>
@@ -205,7 +205,7 @@ function WhatsNewDialog({ open, installedAt, onClose }: { open: boolean; install
               href={releaseNotesUrl(orbitalVersion)}
               target="_blank"
               rel="noreferrer"
-              className="font-mono text-[11px] tracking-[0.06em] text-[rgba(160,190,225,.75)] no-underline transition-colors hover:text-text-bright"
+              className="font-mono fs-11 tracking-[0.06em] text-[rgba(160,190,225,.75)] no-underline transition-colors hover:text-text-bright"
             >
               Release notes on GitHub ↗
             </a>

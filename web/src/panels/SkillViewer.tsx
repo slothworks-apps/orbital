@@ -97,6 +97,7 @@ export function SkillViewer({
         className="orbital-no-drag fixed inset-0 z-50 grid place-items-center bg-[rgba(2,4,9,.82)] p-6 backdrop-blur-[6px]"
       >
         <div
+          data-text-scope="transcript"
           onClick={(event) => event.stopPropagation()}
           style={{
             // The file viewer's markdown size (8e).
@@ -111,13 +112,13 @@ export function SkillViewer({
         >
           <div className="flex items-start gap-3 border-b border-[rgba(150,205,255,.1)] px-[18px] pb-3.5 pt-4">
             <div className="flex min-w-0 flex-1 flex-col gap-[7px]">
-              <div className="min-w-0 truncate font-mono text-[14px] text-[#f2f9ff]">/{shown}</div>
+              <div className="min-w-0 truncate font-mono fs-14 text-[#f2f9ff]">/{shown}</div>
               {content?.description && (
-                <div className="text-[12.5px] leading-[1.5] text-[rgba(160,190,225,.8)] [text-wrap:pretty]">
+                <div className="fs-12.5 leading-[1.5] text-[rgba(160,190,225,.8)] [text-wrap:pretty]">
                   {content.description}
                 </div>
               )}
-              <div className="truncate font-mono text-[10.5px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+              <div className="truncate font-mono fs-10.5 tracking-[0.06em] text-[rgba(160,190,225,.55)]">
                 {meta}
               </div>
             </div>
@@ -125,7 +126,7 @@ export function SkillViewer({
               type="button"
               aria-label="Close"
               onClick={onClose}
-              className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[8px] border border-[rgba(150,205,255,.2)] bg-[rgba(10,14,24,.7)] text-[15px] text-text-bright transition-colors hover:border-[rgba(150,205,255,.45)]"
+              className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[8px] border border-[rgba(150,205,255,.2)] bg-[rgba(10,14,24,.7)] fs-15 text-text-bright transition-colors hover:border-[rgba(150,205,255,.45)]"
             >
               ×
             </button>
@@ -139,7 +140,7 @@ export function SkillViewer({
             <MarkdownBody content={content.body} />
           )}
 
-          <div className="flex items-center gap-2.5 border-t border-[rgba(150,205,255,.1)] px-[18px] py-2.5 font-mono text-[10px] tracking-[0.08em] text-[rgba(160,190,225,.55)]">
+          <div className="flex items-center gap-2.5 border-t border-[rgba(150,205,255,.1)] px-[18px] py-2.5 font-mono fs-10 tracking-[0.08em] text-[rgba(160,190,225,.55)]">
             <span className="rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-[2px] text-[rgba(200,220,245,.7)]">
               esc
             </span>

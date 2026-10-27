@@ -49,12 +49,12 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
     <BottomSheet label="Send feedback" variant="feedback" onDismiss={onClose}>
       {/* 61i: the head 4/0/12/6 with a 44 px × at its right. */}
       <div className="flex items-center pb-3 pl-1.5 pt-1">
-        <div className="flex-1 font-mono text-[10.5px] tracking-[0.2em] text-[rgba(160,190,225,.65)]">SEND FEEDBACK</div>
+        <div className="flex-1 font-mono fs-10.5 tracking-[0.2em] text-[rgba(160,190,225,.65)]">SEND FEEDBACK</div>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="grid h-11 w-11 place-items-center text-[18px] text-[rgba(160,190,225,.7)]"
+          className="grid h-11 w-11 place-items-center fs-18 text-[rgba(160,190,225,.7)]"
         >
           ×
         </button>
@@ -70,12 +70,12 @@ export function FeedbackSheet({ onClose }: { onClose: () => void }) {
               i > 0 ? 'border-t border-[rgba(150,205,255,.08)]' : '',
             ].join(' ')}
           >
-            <span className="text-[15px] font-semibold">{choice.title}</span>
-            <span className="text-[12px] text-[rgba(160,190,225,.65)]">{choice.desc}</span>
+            <span className="fs-15 font-semibold">{choice.title}</span>
+            <span className="fs-12 text-[rgba(160,190,225,.65)]">{choice.desc}</span>
           </button>
         ))}
       </div>
-      <p className="px-1.5 pt-3 text-[12px] leading-[1.5] text-pretty text-[rgba(160,190,225,.65)]">
+      <p className="px-1.5 pt-3 fs-12 leading-[1.5] text-pretty text-[rgba(160,190,225,.65)]">
         Opens the new-issue form on GitHub in your browser. It's public; you review and send it there.
       </p>
     </BottomSheet>

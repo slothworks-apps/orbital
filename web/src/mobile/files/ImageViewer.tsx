@@ -349,13 +349,13 @@ export function ImagePage({
           type="button"
           aria-label="Back"
           onClick={onBack}
-          className="grid h-11 w-11 shrink-0 place-items-center text-[28px] leading-none text-[#e8eef8]"
+          className="grid h-11 w-11 shrink-0 place-items-center fs-28 leading-none text-[#e8eef8]"
         >
           ‹
         </button>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[15px] font-semibold">{name}</div>
-          {sub && <div className="mt-0.5 truncate font-mono text-[10.5px] text-[rgba(200,215,235,.7)]">{sub}</div>}
+          <div className="truncate fs-15 font-semibold">{name}</div>
+          {sub && <div className="mt-0.5 truncate font-mono fs-10.5 text-[rgba(200,215,235,.7)]">{sub}</div>}
         </div>
         {(url || view.phase === 'loading') && (
           <button
@@ -364,7 +364,7 @@ export function ImagePage({
             onClick={() => toggleAt(null, null)}
             // 10e2: dimmed until the image is in.
             className={[
-              'h-11 min-w-14 rounded-[12px] border border-[rgba(150,205,255,.2)] bg-[rgba(5,7,13,.6)] px-2.5 font-mono text-[11px] text-[#e8eef8] transition-opacity duration-[600ms]',
+              'h-11 min-w-14 rounded-[12px] border border-[rgba(150,205,255,.2)] bg-[rgba(5,7,13,.6)] px-2.5 font-mono fs-11 text-[#e8eef8] transition-opacity duration-[600ms]',
               url ? '' : 'opacity-40',
             ].join(' ')}
           >
@@ -398,7 +398,7 @@ export function ImagePage({
             ))}
           </div>
         )}
-        <div className="flex items-center gap-2 font-mono text-[11px] text-[rgba(200,215,235,.75)]">
+        <div className="flex items-center gap-2 font-mono fs-11 text-[rgba(200,215,235,.75)]">
           <span className="min-w-0 flex-1 truncate">
             {path ?? 'image'} · {caption}
           </span>

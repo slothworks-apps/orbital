@@ -18,21 +18,21 @@ const SIZES = {
   /** canvas 10a — tabs inside a panel heading (the tool leaderboard's). */
   tab: {
     shell: 'inline-flex rounded-[7px] border-[rgba(150,205,255,.18)]',
-    item: 'px-[11px] py-[5px] text-[10.5px]',
+    item: 'px-[11px] py-[5px] fs-10.5',
     on: ACCENT_ON,
     off: NEUTRAL_OFF,
   },
   /** canvas 10a — the stats filter bar. */
   filter: {
     shell: 'inline-flex rounded-lg border-[rgba(150,205,255,.18)]',
-    item: 'px-3.5 py-[7px] text-[11.5px]',
+    item: 'px-3.5 py-[7px] fs-11.5',
     on: ACCENT_ON,
     off: NEUTRAL_OFF,
   },
   /** canvas 1h — a control in the settings dialog's 320px column. */
   row: {
     shell: 'inline-flex rounded-lg border-[rgba(150,205,255,.18)]',
-    item: 'px-3 py-[7px] text-xs',
+    item: 'px-3 py-[7px] fs-12 leading-(--text-xs--line-height)',
     on: ACCENT_ON,
     off: NEUTRAL_OFF,
   },
@@ -45,7 +45,7 @@ const SIZES = {
    */
   field: {
     shell: 'flex rounded-[9px] border-[rgba(150,205,255,.16)]',
-    item: 'flex h-9 min-w-0 flex-1 items-center justify-center px-3 text-[11.5px] [&>span]:truncate',
+    item: 'flex min-h-9 min-w-0 flex-1 items-center justify-center px-3 fs-11.5 [&>span]:truncate',
     on: 'bg-accent/10 font-semibold text-text-bright',
     off: 'bg-transparent text-[rgba(200,220,245,.78)] hover:bg-[rgba(150,205,255,.07)]',
   },

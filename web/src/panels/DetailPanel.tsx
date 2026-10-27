@@ -107,7 +107,8 @@ const NO_TASKS: readonly BackgroundTask[] = []
 const TITLE_FONT_PX = 22
 const TITLE_LINE_HEIGHT = 1.15
 const TITLE_TYPE = {
-  fontSize: `${TITLE_FONT_PX}px`,
+  // Times the app's text step (spec 2026-10-27-text-size-design).
+  fontSize: `calc(${TITLE_FONT_PX}px * var(--text-scale, 1))`,
   fontWeight: 700,
   lineHeight: TITLE_LINE_HEIGHT,
   letterSpacing: '-0.015em',
@@ -453,7 +454,8 @@ export function DetailPanel({
   useEffect(() => {
     const el = titleFieldRef.current
     if (!el) return
-    const line = TITLE_FONT_PX * TITLE_LINE_HEIGHT
+    // The rendered size, not TITLE_FONT_PX: the text step scales it.
+    const line = (parseFloat(getComputedStyle(el).fontSize) || TITLE_FONT_PX) * TITLE_LINE_HEIGHT
     el.style.height = '0px'
     el.style.height = `${Math.min(Math.max(el.scrollHeight, line), line * TITLE_MAX_LINES)}px`
   }, [titleDraft, isEditingTitle])
@@ -849,7 +851,7 @@ export function DetailPanel({
         <div
           className={[
             'flex items-center',
-            standalone ? 'orbital-drag-region -mx-[22px] -mt-3 h-10 pt-3 pr-[22px]' : 'h-7',
+            standalone ? 'orbital-drag-region -mx-[22px] -mt-3 min-h-10 pt-3 pr-[22px]' : 'min-h-7',
           ].join(' ')}
           style={standalone ? { paddingLeft: WINDOW_STRIP_INSET_PX } : undefined}
         >
@@ -927,7 +929,7 @@ export function DetailPanel({
             )}
             <span
               aria-hidden
-              className="mt-1 shrink-0 text-xs"
+              className="mt-1 shrink-0 fs-12 leading-(--text-xs--line-height)"
               style={{ color: isEditingTitle ? 'rgba(160,190,225,.35)' : 'rgba(160,190,225,.6)' }}
             >
               ✎
@@ -1065,7 +1067,7 @@ export function DetailPanel({
                 <span
                   data-terminal-chip
                   title="Attached from an external terminal · Orbital measures no context for it"
-                  className="rounded-[4px] border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.04)] px-[7px] py-[3px] font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.75)]"
+                  className="rounded-[4px] border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.04)] px-[7px] py-[3px] font-mono fs-9.5 tracking-[0.16em] text-[rgba(160,190,225,.75)]"
                 >
                   TERMINAL
                 </span>
@@ -1113,7 +1115,7 @@ export function DetailPanel({
                 {contextNote && (
                   <span
                     data-context-note
-                    className="font-mono text-[9.5px] tracking-[0.16em] whitespace-nowrap"
+                    className="font-mono fs-9.5 tracking-[0.16em] whitespace-nowrap"
                     style={{ color: contextNote.ink }}
                   >
                     {contextNote.text}
@@ -1125,7 +1127,7 @@ export function DetailPanel({
                   className="flex items-baseline gap-1 font-mono whitespace-nowrap"
                 >
                   <span
-                    className="text-[12.5px] leading-none transition-colors duration-300"
+                    className="fs-12.5 leading-none transition-colors duration-300"
                     style={{
                       color: compacting ? COMPACTING_READOUT_INK : contextUsed != null ? contextInk : UNMEASURED_INK,
                     }}
@@ -1134,7 +1136,7 @@ export function DetailPanel({
                         a session past a mis-learned window says so. */}
                     {contextUsed != null ? formatTokens(contextUsed) : NO_VALUE}
                   </span>
-                  <span className="text-[10px] text-[rgba(160,190,225,.55)]">
+                  <span className="fs-10 text-[rgba(160,190,225,.55)]">
                     / {formatContextWindow(contextWindow)}
                   </span>
                 </span>
@@ -1205,7 +1207,7 @@ export function DetailPanel({
       {session?.interruptedAt != null && (
         <div
           data-interrupted-banner
-          className="mx-[22px] mb-3.5 rounded-[10px] border border-white/25 bg-white/[0.06] px-3.5 py-3 font-mono text-[10.5px] leading-[1.7] text-[rgba(220,235,255,.85)] [text-wrap:pretty]"
+          className="mx-[22px] mb-3.5 rounded-[10px] border border-white/25 bg-white/[0.06] px-3.5 py-3 font-mono fs-10.5 leading-[1.7] text-[rgba(220,235,255,.85)] [text-wrap:pretty]"
         >
           Turn interrupted by a server restart. The conversation is intact — ask again for
           whatever did not come back.
@@ -1216,7 +1218,7 @@ export function DetailPanel({
           left on the map. Only an ended session has either to say — a live
           one is not going anywhere. */}
       {footNote && (
-        <div className="mx-[22px] mb-3.5 rounded-[10px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3.5 py-3 font-mono text-[10.5px] leading-[1.7] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+        <div className="mx-[22px] mb-3.5 rounded-[10px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3.5 py-3 font-mono fs-10.5 leading-[1.7] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
           {footNote}
         </div>
       )}
@@ -1244,7 +1246,7 @@ export function DetailPanel({
           // Take over (spec 2026-10-21-take-over-terminal-session-design): a
           // CLI that is not plainly idle asks first, since what runs there
           // stops. The bar keeps its old height; placement awaits Claude Design.
-          <div className="flex items-center justify-between gap-3 rounded-[10px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.6)] py-[5px] pl-3 pr-[5px] font-mono text-[11.5px] text-text-muted">
+          <div className="flex items-center justify-between gap-3 rounded-[10px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.6)] py-[5px] pl-3 pr-[5px] font-mono fs-11.5 text-text-muted">
             runs in terminal — read-only
             {canTakeOver(session) && (
               <Button
@@ -1269,8 +1271,8 @@ export function DetailPanel({
               className="mt-[5px] box-border block size-2 flex-none rounded-full border-[1.3px] border-solid border-[rgba(200,215,235,.6)]"
             />
             <span className="flex flex-1 flex-col gap-1">
-              <span className="text-[13.5px] font-semibold text-text-bright">{lock.title}</span>
-              <span className="text-[12.5px] leading-normal text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+              <span className="fs-13.5 font-semibold text-text-bright">{lock.title}</span>
+              <span className="fs-12.5 leading-normal text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
                 {lock.body}
               </span>
             </span>

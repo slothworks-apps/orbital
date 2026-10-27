@@ -93,7 +93,7 @@ export function ModeSwitcher({ session, disabled }: { session: ApiSession; disab
             ref={popupRef}
             className="orbital-no-drag orbital-popover-in absolute right-0 top-[calc(100%+6px)] z-20 w-[300px] rounded-[10px] border border-[rgba(150,205,255,.22)] bg-gradient-to-b from-[rgba(18,26,44,.98)] to-[rgba(10,14,26,.98)] shadow-[0_20px_50px_rgba(0,0,0,.6),inset_0_1px_0_rgba(255,255,255,.06)]"
           >
-            <div className="px-3 pb-1.5 pt-2.5 font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">
+            <div className="px-3 pb-1.5 pt-2.5 font-mono fs-9.5 tracking-[0.18em] text-[rgba(160,190,225,.6)]">
               PERMISSION MODE · APPLIES NOW
             </div>
             <div role="listbox" aria-label="Permission mode" className="flex flex-col px-1.5 pb-1.5">
@@ -115,14 +115,14 @@ export function ModeSwitcher({ session, disabled }: { session: ApiSession; disab
                     <span className="min-w-0">
                       <span className="flex items-center gap-2">
                         <ModeDot mode={mode.value} />
-                        <span className="truncate font-mono text-xs text-text-bright">{mode.label}</span>
+                        <span className="truncate font-mono fs-12 leading-(--text-xs--line-height) text-text-bright">{mode.label}</span>
                       </span>
-                      <span className="mt-0.5 block pl-[15px] text-[11px] text-[rgba(160,190,225,.7)]">
+                      <span className="mt-0.5 block pl-[15px] fs-11 text-[rgba(160,190,225,.7)]">
                         {mode.description}
                       </span>
                     </span>
                     {selected && (
-                      <span className="font-mono text-[9.5px] tracking-[0.1em] text-accent">CURRENT</span>
+                      <span className="font-mono fs-9.5 tracking-[0.1em] text-accent">CURRENT</span>
                     )}
                   </button>
                 )

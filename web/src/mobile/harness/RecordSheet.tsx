@@ -32,7 +32,7 @@ export function RecordSheet({
       <div className="-mx-2.5 flex h-[calc(100dvh-194px)] flex-col">
         <div className="border-b border-[rgba(150,205,255,.08)] px-5 pb-3.5 pt-1">
           <div className="flex items-center">
-            <button type="button" onClick={onDismiss} className="-ml-2 h-11 px-2 font-mono text-[10.5px] text-[oklch(85%_.12_205)]">
+            <button type="button" onClick={onDismiss} className="-ml-2 h-11 px-2 font-mono fs-10.5 text-[oklch(85%_.12_205)]">
               ‹ steps
             </button>
             <span aria-hidden className="flex-1" />
@@ -44,9 +44,9 @@ export function RecordSheet({
             <span className="mt-[5px]">
               <Marker kind={kind} gate={isGateShape(kind, step)} />
             </span>
-            <div className="text-pretty text-[14px] font-semibold leading-[1.38] text-text-bright">{step.title}</div>
+            <div className="text-pretty fs-14 font-semibold leading-[1.38] text-text-bright">{step.title}</div>
           </div>
-          <div className="ml-[19px] mt-1.5 font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+          <div className="ml-[19px] mt-1.5 font-mono fs-10 text-[rgba(160,190,225,.6)]">
             {[meta, range].filter(Boolean).join(' · ')}
           </div>
         </div>

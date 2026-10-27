@@ -24,7 +24,7 @@ export function SessionMenuButton({ session, offline }: SlotProps) {
         onClick={() => setOpen(true)}
         aria-expanded={open}
         className={[
-          'grid h-11 w-11 shrink-0 place-items-center rounded-[12px] text-[18px]',
+          'grid h-11 w-11 shrink-0 place-items-center rounded-[12px] fs-18',
           open ? 'bg-[rgba(150,205,255,.1)] text-text-bright' : 'text-[rgba(200,220,245,.8)]',
         ].join(' ')}
       >

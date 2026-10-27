@@ -34,7 +34,7 @@ function ReportedChip({ url }: { url: string }) {
       target="_blank"
       rel="noreferrer"
       title={`Reported as issue #${n ?? ''} · opens on GitHub`}
-      className="inline-flex items-center rounded-full border border-[rgba(150,205,255,.14)] px-2.5 py-1 font-mono text-[11px] text-[rgba(220,235,255,.85)] no-underline transition-colors hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright"
+      className="inline-flex items-center rounded-full border border-[rgba(150,205,255,.14)] px-2.5 py-1 font-mono fs-11 text-[rgba(220,235,255,.85)] no-underline transition-colors hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright"
     >
       #{n ?? ''} ↗
     </a>
@@ -125,7 +125,7 @@ function ErrorRow({ error, onReport }: { error: ErrorRecord; onReport: (error: E
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div
           className={[
-            'flex flex-wrap items-center gap-2 font-mono text-[10px] tracking-[0.1em]',
+            'flex flex-wrap items-center gap-2 font-mono fs-10 tracking-[0.1em]',
             isDev ? 'text-[rgba(160,190,225,.55)]' : 'text-[rgba(160,190,225,.7)]',
           ].join(' ')}
         >
@@ -145,7 +145,7 @@ function ErrorRow({ error, onReport }: { error: ErrorRecord; onReport: (error: E
             <span className="text-[#ffb4ad]">{kindLabel(error.kind)}</span>
           )}
           {isDev && (
-            <span className="flex items-center rounded border border-dashed border-[rgba(160,190,225,.4)] px-1.5 py-px text-[9px] tracking-[0.14em] text-[rgba(160,190,225,.6)]">
+            <span className="flex items-center rounded border border-dashed border-[rgba(160,190,225,.4)] px-1.5 py-px fs-9 tracking-[0.14em] text-[rgba(160,190,225,.6)]">
               DEV
             </span>
           )}
@@ -159,7 +159,7 @@ function ErrorRow({ error, onReport }: { error: ErrorRecord; onReport: (error: E
         <div
           className={[
             'break-words leading-normal text-pretty',
-            isDev ? 'text-[12.5px] text-[rgba(190,212,238,.7)]' : 'text-[13px] text-text-bright',
+            isDev ? 'fs-12.5 text-[rgba(190,212,238,.7)]' : 'fs-13 text-text-bright',
           ].join(' ')}
         >
           {error.message}
@@ -170,12 +170,12 @@ function ErrorRow({ error, onReport }: { error: ErrorRecord; onReport: (error: E
           <Collapse open={expanded} id={bodyId} className="-mt-1.5">
           <div className="flex flex-col gap-1.5 pt-1.5">
             {error.context && (
-              <pre className="max-h-[150px] overflow-auto whitespace-pre-wrap break-words rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)]">
+              <pre className="max-h-[150px] overflow-auto whitespace-pre-wrap break-words rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-[rgba(190,212,238,.8)]">
                 {JSON.stringify(error.context, null, 2)}
               </pre>
             )}
             {error.detail && (
-              <pre className="max-h-[150px] overflow-auto whitespace-pre-wrap break-words rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)]">
+              <pre className="max-h-[150px] overflow-auto whitespace-pre-wrap break-words rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-[rgba(190,212,238,.8)]">
                 {error.detail}
               </pre>
             )}
@@ -269,7 +269,7 @@ export function ErrorLog({ open, onClose }: ErrorLogProps) {
       }
     >
       {rows.length === 0 ? (
-        <p className="orbital-arrive text-[13px] text-[rgba(200,214,235,.85)]">
+        <p className="orbital-arrive fs-13 text-[rgba(200,214,235,.85)]">
           No unread errors.
         </p>
       ) : (
