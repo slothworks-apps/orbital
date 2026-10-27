@@ -58,9 +58,9 @@ describe('accountViews', () => {
       ['self:1', 'Work', '~/.claude-work'],
       ['m1:1', 'Work', null],
     ])
-    expect(view.devices.map((d) => [d.name, d.kind, d.here, d.dirs.map((x) => x.key)])).toEqual([
-      ['studio-mbp', 'desktop', true, ['self:1']],
-      ['build-box', 'headless', false, ['m1:1']],
+    expect(view.devices.map((d) => [d.id, d.name, d.kind, d.dirs.map((x) => x.key)])).toEqual([
+      ['self', 'studio-mbp', 'desktop', ['self:1']],
+      ['m1', 'build-box', 'headless', ['m1:1']],
     ])
   })
 

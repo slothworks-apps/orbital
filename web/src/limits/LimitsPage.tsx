@@ -19,6 +19,7 @@ import type { ClaudeDirInfo, ClaudeDirLimits, LimitSeverity, LimitsWaitRow } fro
 import { claudeDirMonograms } from '../lib/claudeDirs'
 import { ClaudeDirMark } from '../ui/ClaudeDirMark'
 import { KindGlyph } from '../ui/KindGlyph'
+import { LOCAL_DEVICE } from '../lib/devices'
 import { mapHref } from '../walkthrough/route'
 import { PageBar } from '../ui/PageBar'
 import { StatsShell } from '../stats/StatsShell'
@@ -28,6 +29,7 @@ import {
   paceExplanation,
   sunAccountKeys,
   thisDevice,
+  UNNAMED_THIS_DEVICE,
   type AccountDevice,
   type AccountDir,
   type AccountView,
@@ -303,7 +305,7 @@ function AccountGroup({
                 <span className="flex items-center gap-[5px] whitespace-nowrap text-[rgba(160,190,225,.55)]">
                   <KindGlyph kind={device.kind} />
                   {device.name}
-                  {device.here && (
+                  {device.id === LOCAL_DEVICE && device.name !== UNNAMED_THIS_DEVICE && (
                     <span className="text-[rgba(160,190,225,.4)]">
                       {device.kind === 'desktop' ? '(this Mac)' : '(this device)'}
                     </span>

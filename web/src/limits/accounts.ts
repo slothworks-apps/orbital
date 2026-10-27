@@ -6,6 +6,7 @@ import {
   type LimitsAccountGroup,
 } from '@orbital/shared/limits'
 import { claudeDirDisplayPath, claudeDirMonograms } from '../lib/claudeDirs'
+import { deviceOf, LOCAL_DEVICE } from '../lib/devices'
 import type { EstimateLine } from '../lib/limits'
 import type { ClaudeDirInfo, ClaudeDirLimits, RemoteStatus } from '../lib/types'
 
@@ -88,10 +89,11 @@ export interface AccountDevice {
   kind: string
 }
 
-/** One device of an account's head (60c), with the account's directories on it. */
+/** This device's name in an account's head when the group has none for it. */
+export const UNNAMED_THIS_DEVICE = 'this device'
+
+/** One device of an account's head (60c), with the account's directories on it; this device's id is `LOCAL_DEVICE`. */
 export interface AccountDeviceDirs extends AccountDevice {
-  /** This device's own row. */
-  here: boolean
   dirs: AccountDir[]
 }
 
@@ -120,7 +122,7 @@ export function accountViews(
 ): AccountView[] {
   const byDevice = new Map<string, ClaudeDirLimits[]>()
   for (const d of dirs) {
-    const id = d.machine?.id ?? 'self'
+    const id = deviceOf(d)
     byDevice.set(id, [...(byDevice.get(id) ?? []), d])
   }
   const monograms = new Map([...byDevice].map(([id, list]) => [id, claudeDirMonograms(list)]))
@@ -128,26 +130,27 @@ export function accountViews(
 
   return groupLimitsByAccount(dirs).map((group) => {
     const reading = group.reading
-    const deviceOf = (e: ClaudeDirLimits) => e.machine?.id ?? 'self'
-    const accountDirs = group.entries.map((e): AccountDir => {
+    const accountDirs = group.entries.map((e) => {
+      const device = deviceOf(e)
       const info = e.machine ? undefined : input.dirInfo?.find((i) => i.id === e.id)
-      return {
-        key: `${deviceOf(e)}:${e.id}`,
+      const dir: AccountDir = {
+        key: `${device}:${e.id}`,
         name: e.name,
         path: info ? claudeDirDisplayPath(info.path) : null,
-        mono: monograms.get(deviceOf(e))?.get(e.id) ?? '?',
+        mono: monograms.get(device)?.get(e.id) ?? '?',
         missing: info?.exists === false,
       }
+      return { device, dir }
     })
-    const on = (device: string) => accountDirs.filter((_, i) => deviceOf(group.entries[i]) === device)
+    const on = (device: string) => accountDirs.filter((d) => d.device === device).map((d) => d.dir)
     const devices: AccountDeviceDirs[] = []
     if (severalDevices) {
       if (group.local) {
-        devices.push({ ...(input.self ?? { id: 'self', name: 'this device', kind: 'desktop' }), here: true, dirs: on('self') })
+        devices.push({ ...(input.self ?? { id: LOCAL_DEVICE, name: UNNAMED_THIS_DEVICE, kind: 'desktop' }), dirs: on(LOCAL_DEVICE) })
       }
       for (const m of group.machines) {
         const kind = group.entries.find((e) => e.machine?.id === m.id)?.machine?.kind ?? 'desktop'
-        devices.push({ id: m.id, name: m.name, kind, here: false, dirs: on(m.id) })
+        devices.push({ id: m.id, name: m.name, kind, dirs: on(m.id) })
       }
     }
     return {
@@ -155,7 +158,7 @@ export function accountViews(
       title: group.account ?? reading.name,
       plan: planLabel(reading.plan ?? group.entries.find((e) => e.plan)?.plan),
       stale: limitsReadingStale(reading, input.now),
-      dirs: accountDirs,
+      dirs: accountDirs.map((d) => d.dir),
       devices,
     }
   })
