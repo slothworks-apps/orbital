@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { mkdirSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { IdeStore, IDE_SELECTION_COALESCE_MS } from '../src/ide/store.js';
+import {
+  IdeStore,
+  IDE_RECONNECT_MAX_MS,
+  IDE_RECONNECT_MIN_MS,
+  IDE_RECONNECT_STABLE_MS,
+  IDE_SELECTION_COALESCE_MS,
+} from '../src/ide/store.js';
 import {
   CLOSE_TAB_TOOL,
   DIAGNOSTICS_TOOL,
@@ -201,6 +207,47 @@ describe('IdeStore: locks appearing and disappearing', () => {
     expect(store.locate('/w/a/src')).not.toBeNull();
     connection.emit('closed');
     expect(store.locate('/w/a/src')).toBeNull();
+  });
+
+  it('connects again while the lock stays, waiting longer each time the editor is taken away', () => {
+    vi.useFakeTimers();
+    // VS Code closes one client when another connects; the lock is untouched.
+    connect(60108, ['/w/a']).emit('closed');
+    expect(store.locate('/w/a/src')).toBeNull();
+
+    vi.advanceTimersByTime(IDE_RECONNECT_MIN_MS);
+    expect(made).toHaveLength(2);
+    made[1].connection.emit('ready', []);
+    expect(store.locate('/w/a/src')?.ideName).toBe('WebStorm');
+
+    // Taken away again at once: the wait doubles, so two clients that both
+    // retry do not trade the editor several times a second.
+    made[1].connection.emit('closed');
+    vi.advanceTimersByTime(IDE_RECONNECT_MIN_MS);
+    expect(made).toHaveLength(2);
+    vi.advanceTimersByTime(IDE_RECONNECT_MIN_MS);
+    expect(made).toHaveLength(3);
+
+    // A connection that lasted starts the next wait from the shortest again.
+    made[2].connection.emit('ready', []);
+    vi.advanceTimersByTime(IDE_RECONNECT_STABLE_MS);
+    made[2].connection.emit('closed');
+    vi.advanceTimersByTime(IDE_RECONNECT_MIN_MS);
+    expect(made).toHaveLength(4);
+  });
+
+  it('stops trying once the lock is gone, whether or not the watch said so', () => {
+    vi.useFakeTimers();
+    const name = writeLock(60108, ['/w/a']);
+    connect(60108, ['/w/a']).emit('closed');
+    store.applyLockEvent(name, 'unlink');
+    vi.advanceTimersByTime(IDE_RECONNECT_MAX_MS);
+    expect(made).toHaveLength(1);
+
+    connect(60109, ['/w/b']).emit('closed');
+    unlinkSync(join(lockDir, '60109.lock'));
+    vi.advanceTimersByTime(IDE_RECONNECT_MAX_MS * 2);
+    expect(made).toHaveLength(2);
   });
 
   it('ignores a lock it cannot act on, and does not retry it', () => {

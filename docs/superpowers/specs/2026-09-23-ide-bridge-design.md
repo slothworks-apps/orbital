@@ -99,6 +99,15 @@ the thing being tracked belongs to a directory, and several sessions share it.
   for a `HEAD` that moved — one helper now serves both.
 - A stale lock — the port refuses the connection — is left on disk. Deleting
   other processes' lock files is the CLI's job, not Orbital's.
+- A connection that goes away while its lock stays is tried again: the
+  editor is dropped at once, and the lock is read again after
+  `IDE_RECONNECT_MIN_MS`. Still there, it is connected to; gone, retrying
+  ends. Each retry whose connection goes away again doubles the wait, up to
+  `IDE_RECONNECT_MAX_MS`; one that lasted `IDE_RECONNECT_STABLE_MS` starts
+  from the shortest wait again. Without it an editor that served another
+  client instead (§ VS Code) stayed lost until Orbital restarted, because
+  nothing about the lock changes and no watch event comes. A stale lock is
+  retried at the longest wait, which costs one refused connection a minute.
 - A lock naming a `transport` other than `ws` is ignored rather than tried:
   the only client here speaks WebSocket. A lock that omits the field is taken
   at the word of everything else in it.
@@ -491,6 +500,17 @@ hold unchanged: the lock carries `ideName: "Visual Studio Code"`, and the
 names and arguments; open files take the other tool (§ Open files). The
 extension also pushes `diagnostics_changed` with the URIs whose findings
 moved, which nothing listens to yet.
+
+**One client at a time.** Claude Code for VS Code 2.1.310 keeps a single
+client per port: a new connection closes the one before it (its log says
+"Disconnecting previous WebSocket client"). Anything else that connects —
+a `claude` with `autoConnectIde` or in VS Code's terminal, a second Orbital
+server such as a dev server restarting under `tsx watch` — takes the editor
+from Orbital, and Orbital takes it back by reconnecting (§ Where it lives).
+Two clients that both retry trade it; the doubling wait keeps that to about
+once a minute. The note above that a CLI's connection stayed alive beside
+Orbital's does not hold for this build. The JetBrains plugin has no such
+limit.
 
 ## When there is no editor
 

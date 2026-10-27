@@ -42,6 +42,24 @@ import {
  */
 export const IDE_SELECTION_COALESCE_MS = 120;
 
+/**
+ * How soon a connection that went away is tried again while its lock is still
+ * on disk, and how far that wait doubles when the new one goes too.
+ *
+ * The VS Code extension serves one client at a time: a second one connecting
+ * — a `claude` started in its terminal, another Orbital server — closes the
+ * one before it. The lock is untouched by that, so no watch event ever says
+ * the editor is worth connecting to again; without a retry, Orbital stays
+ * without the editor until it restarts. The doubling is for two clients that
+ * both retry: each takes the editor from the other, and the waits stretch out
+ * instead of the two trading it several times a second.
+ */
+export const IDE_RECONNECT_MIN_MS = 1_000;
+export const IDE_RECONNECT_MAX_MS = 60_000;
+
+/** A connection that lived this long went away for a new reason: its retry starts from the shortest wait again. */
+export const IDE_RECONNECT_STABLE_MS = 60_000;
+
 /** One editor window: its lock, its socket, and what it last said. */
 interface Entry {
   lock: IdeLock;
@@ -60,6 +78,15 @@ interface Entry {
    * the one holding it goes.
    */
   activeAt: number;
+  /** When the handshake finished, for telling a lasting connection from a refused one. */
+  readyAt: number | null;
+}
+
+/** A port whose connection went away while its lock stayed: when it is tried again. */
+interface Reconnect {
+  lockDir: string;
+  timer: NodeJS.Timeout | null;
+  delayMs: number;
 }
 
 export interface IdeStoreOptions {
@@ -104,6 +131,7 @@ export class IdeStore extends EventEmitter {
   private connect: (lock: IdeLock) => IdeConnection;
 
   private byPort = new Map<number, Entry>();
+  private reconnects = new Map<number, Reconnect>();
   /** Counts uses, so `activeAt` orders editors whatever the wall clock does. */
   private uses = 0;
   /**
@@ -153,6 +181,7 @@ export class IdeStore extends EventEmitter {
     this.lockDirs.get(lockDir)?.close();
     this.lockDirs.delete(lockDir);
     for (const [port, dir] of [...this.lockDirByPort]) if (dir === lockDir) this.dropLock(port);
+    for (const [port, reconnect] of [...this.reconnects]) if (reconnect.lockDir === lockDir) this.cancelReconnect(port);
   }
 
   private startDir(lockDir: string): void {
@@ -335,7 +364,9 @@ export class IdeStore extends EventEmitter {
       const port = lockPortOf(fileName);
       // Only the directory the lock came from can take it away: another
       // directory's copy of the same port's file is not this one's editor.
-      if (port !== null && (this.lockDirByPort.get(port) ?? lockDir) === lockDir) this.dropLock(port);
+      if (port === null) return;
+      if ((this.lockDirByPort.get(port) ?? lockDir) === lockDir) this.dropLock(port);
+      if (this.reconnects.get(port)?.lockDir === lockDir) this.cancelReconnect(port);
       return;
     }
     // Unparseable, or not a lock at all: ignored, and not retried.
@@ -343,6 +374,9 @@ export class IdeStore extends EventEmitter {
 
     const existing = this.byPort.get(lock.port);
     if (existing && sameLock(existing.lock, lock)) return;
+    // The lock says to connect now, so a retry still waiting is beside the
+    // point; its wait is kept, in case this connection goes the same way.
+    this.stopReconnectTimer(lock.port);
     // A rewritten lock is a new editor session on that port — a token it
     // reissued, or a project it swapped. The old socket is worth nothing.
     if (existing) this.dropLock(lock.port);
@@ -354,6 +388,7 @@ export class IdeStore extends EventEmitter {
     for (const watch of this.lockDirs.values()) watch?.close();
     for (const lockDir of this.lockDirs.keys()) this.lockDirs.set(lockDir, null);
     this.started = false;
+    for (const port of [...this.reconnects.keys()]) this.cancelReconnect(port);
     // Emptied before the sockets go, so the drops have no resolution left to
     // invalidate: a server shutting down does not want a republish per
     // workspace on its way out.
@@ -391,11 +426,61 @@ export class IdeStore extends EventEmitter {
       queued: null,
       timer: null,
       activeAt: 0,
+      readyAt: null,
     };
     this.byPort.set(lock.port, entry);
     entry.connection.on('ready', () => this.onReady(entry));
     entry.connection.on('selection', (params: unknown) => this.onSelection(entry, params));
-    entry.connection.on('closed', () => this.dropLock(lock.port));
+    entry.connection.on('closed', () => this.onClosed(entry));
+  }
+
+  /**
+   * The socket went away while the lock may still be there — an editor that
+   * served another client instead, most often (`IDE_RECONNECT_MIN_MS`). The
+   * editor is dropped at once, so nothing waits on a dead socket, and the
+   * lock is read again after a wait: still there, it is connected to again;
+   * gone or changed, the watch has already said so or the read does.
+   */
+  private onClosed(entry: Entry): void {
+    const port = entry.lock.port;
+    const lockDir = this.lockDirByPort.get(port);
+    this.dropLock(port);
+    if (lockDir === undefined) return;
+    const lasted = entry.readyAt !== null && Date.now() - entry.readyAt >= IDE_RECONNECT_STABLE_MS;
+    const previous = this.reconnects.get(port)?.delayMs;
+    const delayMs = lasted || previous === undefined
+      ? IDE_RECONNECT_MIN_MS
+      : Math.min(previous * 2, IDE_RECONNECT_MAX_MS);
+    const reconnect: Reconnect = { lockDir, delayMs, timer: null };
+    reconnect.timer = setTimeout(() => {
+      reconnect.timer = null;
+      this.reopen(port, reconnect);
+    }, delayMs);
+    reconnect.timer.unref?.();
+    this.reconnects.set(port, reconnect);
+  }
+
+  /** The retry `onClosed` scheduled: the lock as it is on disk now, or the end of retrying. */
+  private reopen(port: number, reconnect: Reconnect): void {
+    if (this.reconnects.get(port) !== reconnect || this.byPort.has(port)) return;
+    const lock = this.readLock(reconnect.lockDir, `${port}.lock`);
+    if (!lock) {
+      this.reconnects.delete(port);
+      return;
+    }
+    this.addLock(lock);
+    this.lockDirByPort.set(port, reconnect.lockDir);
+  }
+
+  private stopReconnectTimer(port: number): void {
+    const reconnect = this.reconnects.get(port);
+    if (reconnect?.timer) clearTimeout(reconnect.timer);
+    if (reconnect) reconnect.timer = null;
+  }
+
+  private cancelReconnect(port: number): void {
+    this.stopReconnectTimer(port);
+    this.reconnects.delete(port);
   }
 
   private dropLock(port: number): void {
@@ -437,6 +522,7 @@ export class IdeStore extends EventEmitter {
   private onReady(entry: Entry): void {
     if (!this.byPort.has(entry.lock.port)) return;
     entry.ready = true;
+    entry.readyAt = Date.now();
     entry.activeAt = ++this.uses;
     // An editor that has just opened the project takes it, the way one that
     // has just been used does (`flush`). The newer connection is also the one
