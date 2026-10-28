@@ -13,7 +13,7 @@ import { extensionLabel } from '../lib/attachedFiles'
 
 /** 9e: chip 48px tall, 8px radius, padding `6 8 6 6`, 8px gap. */
 const CHIP_FRAME =
-  'relative flex min-h-12 items-center gap-2 overflow-hidden rounded-[8px] border border-[rgba(150,205,255,.16)] py-1.5 pl-1.5 pr-2'
+  'relative flex h-fit min-h-12 items-center gap-2 overflow-hidden rounded-[8px] border border-[rgba(150,205,255,.16)] py-1.5 pl-1.5 pr-2'
 
 export interface AttachmentChipProps {
   chip: Attachment

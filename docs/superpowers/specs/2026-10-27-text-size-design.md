@@ -165,9 +165,25 @@ step, so it was done across `web/src` at once; what separates the
 transcript from the rest is only the `data-text-scope="transcript"`
 marker on its roots. Both rows ship together.
 
-A detached session window hears a change made in the main window's
-Settings through a `BroadcastChannel` (`lib/settingsBroadcast.ts`): the
-server does not publish a local PATCH to the windows.
+How the windows agree on the size:
+
+- Every window paints first at the scales this origin last applied, kept
+  in `localStorage`, so a reload or a new window does not flash at the
+  default and jump.
+- A window that has loaded its settings applies theirs and stores them;
+  every other window follows through the `storage` event. That includes
+  Stats, Limits and the walkthrough page, which never load settings into
+  the store.
+- A saved setting also reaches the other windows' stores through a
+  `BroadcastChannel` (`lib/settingsBroadcast.ts`): the server does not
+  publish a local PATCH to the windows. A window whose first load is
+  still in flight keeps what arrived meanwhile over its older snapshot.
+- Code that measures rendered text in JS (the where-line fit, the title
+  field's height) re-measures on a `orbital:text-scale` window event.
+
+Popups portalled out of the transcript (the composer's completion list)
+carry `data-text-scope="transcript"` themselves. The website's demo hides
+the TEXT section: it does not run the root's scales.
 
 ## Design
 

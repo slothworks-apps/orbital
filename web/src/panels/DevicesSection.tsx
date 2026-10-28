@@ -608,7 +608,7 @@ function CodeArea({ pairing }: { pairing: PairingCode }) {
             style={{ width: `${open && left ? left.fraction * 100 : 0}%` }}
           />
         </div>
-        <span className="min-h-[1lh] font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
+        <span className="h-fit min-h-[1lh] font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
           {open && left ? `expires in ${left.label} · one device per code` : expired ? 'expired · make a new code' : ''}
         </span>
         {pairing.error && (

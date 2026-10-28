@@ -128,11 +128,11 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   // 44a's in-row buttons (Done, Browse…, Cancel, Remove): 6px/12px at 12px.
   row: 'px-3 py-1.5 fs-12 leading-(--text-xs--line-height)',
   // 47a/47b's Allow / Don't allow: 34px tall at 12.5px, the width the grid gives.
-  choice: 'min-h-[34px] px-2 fs-12.5',
+  choice: 'h-fit min-h-[34px] px-2 fs-12.5',
   // 47c/47d's: the phone's 44px row at 14px.
-  'choice-touch': 'min-h-11 px-2 fs-14',
+  'choice-touch': 'h-fit min-h-11 px-2 fs-14',
   // 9o's Reject / Accept: 40px tall at 13.5px, sharing the card's width.
-  wide: 'min-h-10 flex-1 px-3.5 fs-13.5',
+  wide: 'h-fit min-h-10 flex-1 px-3.5 fs-13.5',
   // 1a's tip actions: 7px/14px at 13px, and 7px/11px for the text-only Settings →.
   notice: 'px-3.5 py-[7px] fs-13',
   'notice-link': 'px-[11px] py-[7px] fs-13',
@@ -141,15 +141,15 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   // `Feature - App update`'s Check now in Settings › Updates: 6px/12px at 12.5px.
   check: 'px-3 py-1.5 fs-12.5',
   // Canvas 50a's row actions (Remove, Cancel, Leave…): 32px tall, 14px sides, 12.5px.
-  member: 'min-h-8 px-3.5 fs-12.5',
+  member: 'h-fit min-h-8 px-3.5 fs-12.5',
   // `Feature - Remote update` 50q's confirm Cancel, a quiet text button beside `member`s: 32px tall, 12px sides, 12.5px.
-  'member-quiet': 'min-h-8 px-3 fs-12.5',
+  'member-quiet': 'h-fit min-h-8 px-3 fs-12.5',
   // `Feature - Remote update` 50q's Update and Try again on the line under a row: 30px tall, 12px sides, 12px.
-  'member-line': 'min-h-[30px] px-3 fs-12 leading-(--text-xs--line-height)',
+  'member-line': 'h-fit min-h-[30px] px-3 fs-12 leading-(--text-xs--line-height)',
   // Canvas 50a's Copy, Join and New code beside a field: 31px tall, 12px sides, 12px.
-  'beside-field': 'min-h-[31px] px-3 fs-12 leading-(--text-xs--line-height)',
+  'beside-field': 'h-fit min-h-[31px] px-3 fs-12 leading-(--text-xs--line-height)',
   // Canvas 50a's Show code / New code over the QR: 30px tall, 12px sides, 12px.
-  'over-code': 'min-h-[30px] px-3 fs-12 leading-(--text-xs--line-height)',
+  'over-code': 'h-fit min-h-[30px] px-3 fs-12 leading-(--text-xs--line-height)',
   // Canvas 50g's folder chooser footer (Cancel, Choose this folder): 7px/14px
   // at 12.5px. 50g gives the hairlined Cancel 13px sides; one size is kept for both.
   chooser: 'px-3.5 py-[7px] fs-12.5',
@@ -165,7 +165,7 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   // 62b: the same answer on a Desk card, 6px/14px at 12px.
   'login-card': 'px-3.5 py-1.5 fs-12 leading-(--text-xs--line-height)',
   // 62e: the phone notice's buttons, a 44px target at 14px.
-  touch: 'min-h-11 px-[18px] fs-14',
+  touch: 'h-fit min-h-11 px-[18px] fs-14',
 }
 
 export function Button({

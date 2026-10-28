@@ -210,7 +210,7 @@ export function PairConfirmDialog() {
             {/* Never disabled while an answer is in flight: that would drop the
                 focus, and after a wrong code the user types straight on. */}
             <PairingCodeInput value={code} onChange={setCode} onSubmit={() => void answer(true)} autoFocus />
-            <div className="min-h-[18px] font-mono fs-11 text-[rgba(160,190,225,.7)]">
+            <div className="h-fit min-h-[18px] font-mono fs-11 text-[rgba(160,190,225,.7)]">
               {relayFailed
                 ? "The relay didn't answer. Try again."
                 : attemptsLeft !== null && attemptsLine(attemptsLeft)}

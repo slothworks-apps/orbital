@@ -68,7 +68,7 @@ export function TerminalChip({ sessionId }: { sessionId: string }) {
       title={terminalChipTitle(tabs, shortcutLabel('terminal.toggle'))}
       onClick={() => toggleTerminalShown(sessionId)}
       className={[
-        'flex min-h-[22px] flex-none cursor-pointer items-center gap-1.5 rounded-md border px-2 font-mono fs-10.5 whitespace-nowrap',
+        'flex h-fit min-h-[22px] flex-none cursor-pointer items-center gap-1.5 rounded-md border px-2 font-mono fs-10.5 whitespace-nowrap',
         'hover:border-[rgba(150,205,255,.3)] hover:text-[#e8eef8]',
         onScreen
           ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-[#e8eef8]'

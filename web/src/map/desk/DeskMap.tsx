@@ -507,7 +507,7 @@ function MatHeader({
     <header
       data-mat-handle={tagId}
       title="Drag to reorder"
-      className="flex min-h-[42px] flex-none cursor-grab items-center gap-[9px] rounded-t-[14px] border-b border-[rgba(150,205,255,.08)] pl-2.5 pr-3.5 select-none hover:bg-[rgba(150,205,255,.035)] active:cursor-grabbing"
+      className="flex h-fit min-h-[42px] flex-none cursor-grab items-center gap-[9px] rounded-t-[14px] border-b border-[rgba(150,205,255,.08)] pl-2.5 pr-3.5 select-none hover:bg-[rgba(150,205,255,.035)] active:cursor-grabbing"
     >
       <GripDots />
       <span
@@ -903,7 +903,7 @@ function Pill({
     }
   }
   const chip =
-    'flex min-h-[18px] box-border items-center gap-1.5 whitespace-nowrap rounded-full border font-mono fs-9.5 tracking-[0.12em]'
+    'flex h-fit min-h-[18px] box-border items-center gap-1.5 whitespace-nowrap rounded-full border font-mono fs-9.5 tracking-[0.12em]'
   if (mode === 'label')
     return (
       <span className={`${chip} pl-1.5 pr-2`} style={{ color: colour, borderColor: borderColour }}>

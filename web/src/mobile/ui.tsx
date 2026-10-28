@@ -462,7 +462,7 @@ export function AckLine({ mark, children, className = '' }: { mark: string; chil
   return (
     <div
       role="status"
-      className={`flex min-h-12 items-center gap-2.5 rounded-[12px] border border-[oklch(85%_.12_205/.35)] bg-[oklch(85%_.12_205/.1)] px-3 fs-13.5 ${className}`}
+      className={`flex h-fit min-h-12 items-center gap-2.5 rounded-[12px] border border-[oklch(85%_.12_205/.35)] bg-[oklch(85%_.12_205/.1)] px-3 fs-13.5 ${className}`}
     >
       <span aria-hidden className="text-[oklch(85%_.12_205)]">{mark}</span>
       <span className="min-w-0 flex-1">{children}</span>

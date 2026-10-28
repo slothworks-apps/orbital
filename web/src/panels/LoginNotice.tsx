@@ -618,7 +618,7 @@ export function LoginCodeEntry({
             onClick={() => openSignInPage(manualUrl)}
             className={[
               'flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 border border-[rgba(150,205,255,.18)] bg-transparent font-sans font-semibold text-[#8fd8ff] hover:bg-[rgba(150,205,255,.08)]',
-              t ? 'min-h-11 rounded-[9px] px-3.5 fs-14' : 'min-h-8 rounded-[8px] px-3 fs-12.5',
+              t ? 'h-fit min-h-11 rounded-[9px] px-3.5 fs-14' : 'h-fit min-h-8 rounded-[8px] px-3 fs-12.5',
             ].join(' ')}
           >
             <span>Open sign-in page</span>
@@ -649,7 +649,7 @@ export function LoginCodeEntry({
                 disabled={disabled}
                 className={[
                   'flex-none cursor-pointer border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.06)] font-sans font-semibold text-[rgba(220,235,255,.9)] disabled:opacity-40',
-                  t ? 'min-h-9 rounded-[7px] px-3 fs-13' : 'min-h-6 rounded-[6px] px-2.5 fs-11.5',
+                  t ? 'h-fit min-h-9 rounded-[7px] px-3 fs-13' : 'h-fit min-h-6 rounded-[6px] px-2.5 fs-11.5',
                 ].join(' ')}
               >
                 Paste

@@ -218,7 +218,7 @@ function SourceBody({
   return (
     <div
       ref={containerRef}
-      className="relative min-h-0 flex-1 overflow-auto font-mono fs-12.5 leading-[calc(22px*var(--text-scale,1))]"
+      className="relative h-fit min-h-0 flex-1 overflow-auto font-mono fs-12.5 leading-[calc(22px*var(--text-scale,1))]"
     >
       <div className="relative min-h-full w-fit min-w-full py-3.5">
         {/* The gutter well (8c): 56px, rgba(4,8,16,.4), hairline right edge. */}
@@ -668,7 +668,7 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
             // ReactMarkdown, no per-line rows. The file still opens.
             <pre
               data-degraded
-              className="min-h-0 flex-1 overflow-auto whitespace-pre px-[18px] py-3.5 font-mono fs-12.5 leading-[calc(22px*var(--text-scale,1))] text-[rgba(214,230,248,.9)]"
+              className="h-fit min-h-0 flex-1 overflow-auto whitespace-pre px-[18px] py-3.5 font-mono fs-12.5 leading-[calc(22px*var(--text-scale,1))] text-[rgba(214,230,248,.9)]"
             >
               {preview.content}
             </pre>

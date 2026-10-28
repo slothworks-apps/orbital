@@ -988,7 +988,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           aria-label="Open settings"
           title={`Settings · ${shortcutLabel('global.settings')}`}
           onClick={() => setDialog('settings')}
-          className="flex min-h-6 items-center gap-[7px] rounded-[7px] border border-panel-border bg-[rgba(150,205,255,.05)] px-[9px] tracking-[0.14em] text-[rgba(200,220,245,.8)] transition-colors duration-[180ms] hover:bg-[rgba(150,205,255,.12)] hover:text-text-bright"
+          className="flex h-fit min-h-6 items-center gap-[7px] rounded-[7px] border border-panel-border bg-[rgba(150,205,255,.05)] px-[9px] tracking-[0.14em] text-[rgba(200,220,245,.8)] transition-colors duration-[180ms] hover:bg-[rgba(150,205,255,.12)] hover:text-text-bright"
         >
           <SettingsRing size={9} />
           SETTINGS

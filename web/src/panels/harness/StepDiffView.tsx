@@ -174,7 +174,7 @@ export function StepDiffView({
           </div>
         )}
       </HeaderBlock>
-      <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto pb-3 pt-2 font-mono fs-10.5 leading-[1.7]">
+      <div ref={bodyRef} className="h-fit min-h-0 flex-1 overflow-y-auto pb-3 pt-2 font-mono fs-10.5 leading-[1.7]">
         {error && <div className="px-[18px] text-[rgba(160,190,225,.6)]">{error}</div>}
         {!diff && !error && !(state?.startHead && state.endHead) && (
           <div className="px-[18px] text-[rgba(160,190,225,.6)]">This step has no commit range.</div>
@@ -198,7 +198,7 @@ export function WideStepDiff({ sessionId, harness, index }: { sessionId: string;
   const [unfolded, setUnfolded] = useState<Set<string>>(new Set())
   const files = diff?.parsed.files ?? []
   return (
-    <div className="flex min-h-0 flex-col overflow-y-auto border-l border-[rgba(150,205,255,.08)] bg-[rgba(2,4,9,.35)] font-mono fs-11 leading-[1.75]">
+    <div className="flex h-fit min-h-0 flex-col overflow-y-auto border-l border-[rgba(150,205,255,.08)] bg-[rgba(2,4,9,.35)] font-mono fs-11 leading-[1.75]">
       <div className="flex gap-1 px-[18px] pb-1.5 pt-3.5 fs-9.5 tracking-[0.18em] text-[rgba(160,190,225,.55)]">
         DIFF
         {diff && (

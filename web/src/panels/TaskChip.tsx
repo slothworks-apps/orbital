@@ -153,7 +153,7 @@ export function TaskChip({ sessionId, tasks, compact = false, waiting = false, w
             title={title}
             {...props}
             className={[
-              'orbital-no-drag flex min-h-[22px] shrink-0 items-center gap-[7px] rounded-md border px-2 font-mono fs-10.5',
+              'orbital-no-drag flex h-fit min-h-[22px] shrink-0 items-center gap-[7px] rounded-md border px-2 font-mono fs-10.5',
               'transition-[background-color,border-color,color] duration-[180ms] ease-[ease] focus-visible:outline-none',
               active
                 ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'

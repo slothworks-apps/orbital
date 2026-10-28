@@ -85,7 +85,7 @@ export function CloseScreen({ id, session, walkthrough, onJump, bar }: CloseScre
                         type="button"
                         disabled={!stepById.has(stepId)}
                         onClick={() => onJump(stepId)}
-                        className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-[4px] border border-[rgba(150,205,255,.2)] px-[5px] fs-10 text-text-soft"
+                        className="inline-flex h-fit min-h-5 min-w-5 items-center justify-center rounded-[4px] border border-[rgba(150,205,255,.2)] px-[5px] fs-10 text-text-soft"
                       >
                         {ordinal(stepId)}
                       </button>

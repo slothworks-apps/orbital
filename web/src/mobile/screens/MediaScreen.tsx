@@ -85,7 +85,7 @@ function Gallery({ sessionId }: { sessionId: string }) {
             aria-haspopup="dialog"
             onClick={() => setSheet(true)}
             className={[
-              'inline-flex min-h-9 items-center gap-2 rounded-full border px-3.5 font-mono fs-11.5',
+              'inline-flex h-fit min-h-9 items-center gap-2 rounded-full border px-3.5 font-mono fs-11.5',
               summary.filtered ? CHIP_ACTIVE : CHIP_REST,
             ].join(' ')}
           >
@@ -155,7 +155,7 @@ function SourcesSheet({
               disabled={empty}
               onClick={() => toggle(key)}
               className={[
-                'flex min-h-13 w-full items-center gap-3 rounded-[10px] px-2.5 text-left fs-15',
+                'flex h-fit min-h-13 w-full items-center gap-3 rounded-[10px] px-2.5 text-left fs-15',
                 on ? 'text-[#e8eef8]' : 'text-[rgba(160,190,225,.6)]',
               ].join(' ')}
             >
@@ -187,7 +187,7 @@ function SourcesSheet({
           disabled={!summary.filtered}
           onClick={() => onChange([])}
           className={[
-            'flex min-h-13 w-full items-center rounded-[10px] px-2.5 text-left fs-15',
+            'flex h-fit min-h-13 w-full items-center rounded-[10px] px-2.5 text-left fs-15',
             summary.filtered ? 'text-[#e8eef8]' : 'text-[rgba(160,190,225,.4)]',
           ].join(' ')}
         >

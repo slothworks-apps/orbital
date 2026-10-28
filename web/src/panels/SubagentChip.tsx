@@ -126,7 +126,7 @@ export function SubagentChip({ sessionId, subagents, compact = false, waiting = 
           // 25a/25c's chip: as tall as the state badge beside it, so the row
           // does not grow; open is the standard active chip.
           className={[
-            'orbital-no-drag flex min-h-[22px] shrink-0 items-center gap-[7px] rounded-md border px-2 font-mono fs-10.5',
+            'orbital-no-drag flex h-fit min-h-[22px] shrink-0 items-center gap-[7px] rounded-md border px-2 font-mono fs-10.5',
             'transition-[background-color,border-color,color] duration-[180ms] ease-[ease] focus-visible:outline-none',
             isOpen
               ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'

@@ -19,6 +19,7 @@ import {
 } from './model'
 import { HeaderBlock, Kicker, Label, Marker, OutlineButton, type Chrome } from './parts'
 import { useStepDiff } from './useStepDiff'
+import { scaledPx } from '../../lib/textScale'
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -42,7 +43,7 @@ function DecisionCard({ d, wide }: { d: NonNullable<StepState['decisions']>[numb
         gridTemplateColumns: `${wide ? 60 : 52}px minmax(0,1fr)`,
         rowGap: wide ? 4 : 3,
         padding: wide ? '10px 12px' : '9px 10px',
-        fontSize: `calc(${wide ? 12 : 11.5}px * var(--text-scale, 1))`,
+        fontSize: scaledPx(wide ? 12 : 11.5),
       }}
     >
       <span className={key}>what</span>
@@ -87,7 +88,7 @@ function ReviewCard({ review, earlier, model, wide }: { review: StepReview; earl
             .join(' · ')}
         </span>
       </div>
-      <div className="text-pretty leading-[1.5] text-[rgba(220,232,248,.88)]" style={{ fontSize: `calc(${wide ? 12.5 : 11.5}px * var(--text-scale, 1))` }}>
+      <div className="text-pretty leading-[1.5] text-[rgba(220,232,248,.88)]" style={{ fontSize: scaledPx(wide ? 12.5 : 11.5) }}>
         {review.reasoning}
       </div>
       {(review.findings.length > 0 || review.checked.length > 0 || (!wide && earlier.length > 0)) && (
@@ -133,7 +134,7 @@ function Sections({
       {summary && (
         <div>
           <Label>SUMMARY</Label>
-          <div className="mt-1.5 text-pretty text-[rgba(220,232,248,.9)]" style={{ fontSize: `calc(${wide ? 13 : 12}px * var(--text-scale, 1))`, lineHeight: wide ? 1.6 : 1.58 }}>
+          <div className="mt-1.5 text-pretty text-[rgba(220,232,248,.9)]" style={{ fontSize: scaledPx(wide ? 13 : 12), lineHeight: wide ? 1.6 : 1.58 }}>
             {summary}
           </div>
         </div>
@@ -154,7 +155,7 @@ function Sections({
           <Label>OPEN QUESTIONS · TO LOOK AT</Label>
           <div
             className="mt-[7px] flex flex-col gap-1.5 leading-[1.5] text-[rgba(220,232,248,.88)]"
-            style={{ fontSize: `calc(${wide ? 12.5 : 11.5}px * var(--text-scale, 1))` }}
+            style={{ fontSize: scaledPx(wide ? 12.5 : 11.5) }}
           >
             {questions.map((q, i) => (
               <div key={i} className="flex gap-2">

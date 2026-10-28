@@ -265,7 +265,7 @@ export function SessionMenuSheet({
       <>
         {shape.inert ? (
           // canvas 10j MAC ASLEEP: one sentence above the inert items.
-          <div className="mx-2.5 mb-2.5 mt-0.5 flex min-h-11 items-center gap-2.5 rounded-[12px] border border-dashed border-[rgba(150,205,255,.18)] px-3 fs-13 text-[rgba(160,190,225,.75)]">
+          <div className="mx-2.5 mb-2.5 mt-0.5 flex h-fit min-h-11 items-center gap-2.5 rounded-[12px] border border-dashed border-[rgba(150,205,255,.18)] px-3 fs-13 text-[rgba(160,190,225,.75)]">
             <span aria-hidden className="box-border block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-[rgba(200,215,235,.6)]" />
             {refused ?? `${macName ?? 'Your Mac'} is asleep — these wait for it`}
           </div>

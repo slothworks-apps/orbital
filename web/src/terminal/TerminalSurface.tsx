@@ -127,7 +127,7 @@ function Tab({
   return (
     <div
       className={[
-        'relative flex min-h-[26px] min-w-0 shrink items-center gap-0.5 rounded-md border py-0 pr-[3px] pl-2.5 font-mono fs-11 whitespace-nowrap',
+        'relative flex h-fit min-h-[26px] min-w-0 shrink items-center gap-0.5 rounded-md border py-0 pr-[3px] pl-2.5 font-mono fs-11 whitespace-nowrap',
         active
           ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)]'
           : 'border-transparent bg-transparent hover:bg-[rgba(150,205,255,.07)]',
@@ -254,7 +254,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
           type="button"
           onClick={() => toggleTerminalShown(sessionId)}
           title={`Hide the terminal · ${toggle} shows it again`}
-          className="ml-2 min-h-6 flex-none cursor-pointer rounded-md border-0 bg-transparent px-2 font-mono fs-10 tracking-[0.06em] whitespace-nowrap text-[rgba(200,220,245,.7)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8]"
+          className="ml-2 h-fit min-h-6 flex-none cursor-pointer rounded-md border-0 bg-transparent px-2 font-mono fs-10 tracking-[0.06em] whitespace-nowrap text-[rgba(200,220,245,.7)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8]"
         >
           hide {toggle}
         </button>
@@ -262,7 +262,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
 
       <div
         className={[
-          'flex min-h-0 flex-1 flex-col pt-2 pr-3.5 pb-2.5 pl-3.5 font-mono fs-12.5 leading-5 text-[#d3deef]',
+          'flex h-fit min-h-0 flex-1 flex-col pt-2 pr-3.5 pb-2.5 pl-3.5 font-mono fs-12.5 leading-5 text-[#d3deef]',
           variant === 'dock' ? 'rounded-b-[13px]' : '',
         ].join(' ')}
         style={{ background: TERMINAL_BG }}
@@ -295,7 +295,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
       </div>
 
       {variant === 'side' && (
-        <div className="flex min-h-[30px] flex-none items-center gap-2 rounded-b-[13px] border-t border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.6)] px-3.5 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+        <div className="flex h-fit min-h-[30px] flex-none items-center gap-2 rounded-b-[13px] border-t border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.6)] px-3.5 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.5)]">
           your shell · not sent to the agent
           <span className="flex-1" />
           {session ? shortenPath(workingDirOf(session)) : ''}

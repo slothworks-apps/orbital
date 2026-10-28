@@ -11,6 +11,7 @@ import { usePresence } from '../ui/usePresence'
 import { EXITING } from '../ui/motion'
 import type { CompletionContext } from '../lib/composerTokens'
 import type { CommandSource, CompletionKey, FileCompletionEntry, SlashCommand } from '../lib/types'
+import { scaledPx } from '../lib/textScale'
 
 /**
  * The composer's completion list (spec: 2026-09-20-composer-design §
@@ -322,6 +323,9 @@ export function CompletionPopup({
     <div
       ref={popupRef}
       data-completion-popup
+      // Portalled out of the composer, so it names its own scope: the
+      // composer's list reads at the transcript's size.
+      data-text-scope="transcript"
       // Canvas 9b draws the popup literally: 10px radius, a flat
       // rgba(10,16,28,.96) fill, a .16 hairline and one soft drop shadow.
       // Portalled to <body> for the same reason ui/Select is — a filtered
@@ -361,7 +365,7 @@ export function CompletionPopup({
         aria-label="Completions"
         // 6 rows at 40px, then it scrolls (9b/9e). The rows grow with the
         // text step, so the cap does too: still six rows at every step.
-        style={{ maxHeight: `calc(${VISIBLE_ROWS * ROW_HEIGHT_PX}px * var(--text-scale, 1))` }}
+        style={{ maxHeight: scaledPx(VISIBLE_ROWS * ROW_HEIGHT_PX) }}
         className="flex min-h-0 flex-col overflow-y-auto overscroll-contain"
       >
         {rows.map((row, index) => {

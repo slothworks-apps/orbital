@@ -9,6 +9,7 @@ import { useSessionDeviceName } from '../useDevice'
 import { SheetPresence } from '../ui'
 import { BranchSheet } from './BranchSheet'
 import { TreesSheet } from './TreesSheet'
+import { useTextScaleVersion } from '../../lib/textScale'
 
 /**
  * The line under a session's title — project · ⎇ branch · worktree count —
@@ -48,6 +49,8 @@ function useWidth(): [(el: HTMLElement | null) => void, number | null, number | 
   const [el, setEl] = useState<HTMLElement | null>(null)
   const [width, setWidth] = useState<number | null>(null)
   const [fontPx, setFontPx] = useState<number | null>(null)
+  // A new system text size changes the font without changing the width.
+  const scaleVersion = useTextScaleVersion()
   useLayoutEffect(() => {
     if (!el) return
     const read = () => {
@@ -61,7 +64,7 @@ function useWidth(): [(el: HTMLElement | null) => void, number | null, number | 
     const observer = new ResizeObserver(read)
     observer.observe(el)
     return () => observer.disconnect()
-  }, [el])
+  }, [el, scaleVersion])
   return [setEl, width, fontPx]
 }
 

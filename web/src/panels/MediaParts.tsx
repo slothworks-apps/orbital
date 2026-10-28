@@ -384,7 +384,7 @@ function SourcesList({
               disabled={empty}
               onClick={(event) => (event.altKey ? only(key) : toggle(key))}
               className={[
-                'flex min-h-8 min-w-0 flex-1 items-center gap-2 px-1.5 py-1 text-left fs-11 disabled:cursor-default',
+                'flex h-fit min-h-8 min-w-0 flex-1 items-center gap-2 px-1.5 py-1 text-left fs-11 disabled:cursor-default',
                 on && !empty ? 'text-[#e8eef8]' : 'text-[rgba(160,190,225,.55)]',
               ].join(' ')}
             >

@@ -70,7 +70,7 @@ function rowUpdate(row: PhoneRow, u: MemberUpdate | undefined, selfId: string | 
 const LINK_WORDS = { online: 'online', connecting: 'connecting…', off: 'offline' } as const
 
 /** Text-link rows of ADD A DEVICE (canvas 50i): 56 px, a chevron at the end. */
-const LINK_ROW = 'flex min-h-14 w-full items-center gap-3 px-3.5 text-left fs-14 font-semibold text-text-bright'
+const LINK_ROW = 'flex h-fit min-h-14 w-full items-center gap-3 px-3.5 text-left fs-14 font-semibold text-text-bright'
 
 /** A member's join date as the sheet's `joined` says it (canvas 50i: `12 Oct`). */
 function joinedDate(ts: number | null): string {
@@ -269,7 +269,7 @@ export function DevicesSection() {
           <button
             type="button"
             onClick={() => setLeaving(true)}
-            className="flex min-h-13 w-full items-center px-3.5 text-left fs-14 font-semibold text-text-bright"
+            className="flex h-fit min-h-13 w-full items-center px-3.5 text-left fs-14 font-semibold text-text-bright"
           >
             Leave this group
           </button>

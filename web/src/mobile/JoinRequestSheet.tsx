@@ -156,7 +156,7 @@ function RequestSheet({
         )}
         {/* Never disabled while an answer is in flight: after a wrong code the user types straight on. */}
         <PairingCodeInput size="sm" value={code} onChange={setCode} onSubmit={() => void answer(true)} />
-        <div className="min-h-[18px] font-mono fs-11 text-[rgba(160,190,225,.75)]">{line}</div>
+        <div className="h-fit min-h-[18px] font-mono fs-11 text-[rgba(160,190,225,.75)]">{line}</div>
         <div className="grid w-full grid-cols-2 gap-2.5">
           <SecondaryButton disabled={busy} onClick={() => void answer(false)}>
             Reject

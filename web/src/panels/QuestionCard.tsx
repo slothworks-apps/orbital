@@ -602,7 +602,7 @@ function LiveCard({
               type="button"
               data-question-send
               onClick={send}
-              className="min-h-[50px] cursor-pointer rounded-[14px] border border-accent/50 bg-accent/16 fs-15 font-semibold text-[#e8eef8]"
+              className="h-fit min-h-[50px] cursor-pointer rounded-[14px] border border-accent/50 bg-accent/16 fs-15 font-semibold text-[#e8eef8]"
             >
               {multi ? 'Send answers' : 'Send answer'}
             </button>
@@ -1393,7 +1393,7 @@ function LiveBody({
               type="button"
               data-question-keep
               onClick={onKeep}
-              className="grid min-h-11 cursor-pointer place-items-center border-0 bg-transparent px-1 font-mono fs-10.5 text-[rgba(143,216,255,.85)]"
+              className="grid h-fit min-h-11 cursor-pointer place-items-center border-0 bg-transparent px-1 font-mono fs-10.5 text-[rgba(143,216,255,.85)]"
             >
               Keep
             </button>

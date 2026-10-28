@@ -137,7 +137,7 @@ export function TaskOutputPanel({ widthPx, inWindow: inWindowProp = false, swap 
         {swap && (
           <div
             ref={titleRowRef}
-            className="orbital-drag-region -mx-[18px] -mt-4 flex min-h-10 items-center gap-2.5 pt-3 pr-[18px]"
+            className="orbital-drag-region -mx-[18px] -mt-4 flex h-fit min-h-10 items-center gap-2.5 pt-3 pr-[18px]"
             style={{ paddingLeft: WINDOW_STRIP_INSET_PX }}
           >
             <BackToSession parent={session} onBack={close} />
@@ -181,7 +181,7 @@ export function TaskOutputPanel({ widthPx, inWindow: inWindowProp = false, swap 
           </div>
         )}
 
-        <div className="mt-3 flex min-h-[26px] items-center gap-2">
+        <div className="mt-3 flex h-fit min-h-[26px] items-center gap-2">
           {task && (
             <span
               data-task-badge

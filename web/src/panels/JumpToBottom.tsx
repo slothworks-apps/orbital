@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { chordLabel, command } from '../lib/keymap'
 import type { BottomIndicator } from './transcriptMotion'
+import { scaledPx } from '../lib/textScale'
 
 /** The three places a transcript is drawn (canvas `Feature - Jump to bottom` 43a, 43b, 43c). */
 export type JumpSurface = 'panel' | 'subagent' | 'phone'
@@ -74,11 +75,6 @@ const LABEL_TRANSITION = `opacity 420ms ${EASE_IN} 220ms`
 /** NEW is forgotten this long after the indicator starts leaving, so it leaves
  * as it was rather than collapsing on the way out (43e, NEW rule). */
 const FORGET_NEW_MS = 340
-
-/** A text size times the text step (spec 2026-10-27-text-size-design). */
-function scaled(px: number): string {
-  return `calc(${px}px * var(--text-scale, 1))`
-}
 
 /** `oklch(13% .02 262)` → `oklch(13% .02 262 / .92)`. */
 function withAlpha(oklch: string, alpha: number): string {
@@ -204,7 +200,7 @@ export function JumpToBottom({ state, surface, onJump }: JumpToBottomProps) {
             className="shrink-0 whitespace-nowrap font-mono tracking-[0.14em]"
             style={{
               paddingLeft: s.labelPad,
-              fontSize: scaled(s.labelPx),
+              fontSize: scaledPx(s.labelPx),
               opacity: fresh ? 1 : 0,
               transition: reduced ? undefined : LABEL_TRANSITION,
             }}
@@ -214,7 +210,7 @@ export function JumpToBottom({ state, surface, onJump }: JumpToBottomProps) {
           <span
             aria-hidden
             className="grid shrink-0 place-items-center font-mono leading-none"
-            style={{ width: s.arrowCell, fontSize: scaled(s.arrowPx) }}
+            style={{ width: s.arrowCell, fontSize: scaledPx(s.arrowPx) }}
           >
             ↓
           </span>

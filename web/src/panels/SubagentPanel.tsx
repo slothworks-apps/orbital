@@ -116,7 +116,7 @@ export function BackToSession({ parent, onBack }: { parent: ApiSession | undefin
       type="button"
       aria-label="Back to the session"
       onClick={onBack}
-      className="flex min-h-6 min-w-0 items-center gap-[7px] rounded-md border border-[rgba(150,205,255,.14)] px-[9px] font-mono fs-10.5 text-text-bright transition-colors hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.08)]"
+      className="flex h-fit min-h-6 min-w-0 items-center gap-[7px] rounded-md border border-[rgba(150,205,255,.14)] px-[9px] font-mono fs-10.5 text-text-bright transition-colors hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.08)]"
     >
       <span aria-hidden>←</span>
       {key && (
@@ -327,7 +327,7 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
         {swap && (
           <div
             ref={titleRowRef}
-            className="orbital-drag-region -mx-[18px] -mt-4 flex min-h-10 items-center gap-2.5 pt-3 pr-[18px]"
+            className="orbital-drag-region -mx-[18px] -mt-4 flex h-fit min-h-10 items-center gap-2.5 pt-3 pr-[18px]"
             style={{ paddingLeft: WINDOW_STRIP_INSET_PX }}
           >
             <BackToSession parent={parentSession} onBack={closeSubagent} />

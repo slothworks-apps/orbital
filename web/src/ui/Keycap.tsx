@@ -38,7 +38,7 @@ export function Keycap({ chord, display, muted, gesture }: KeycapProps) {
   return (
     <span
       className={[
-        'inline-flex min-h-6 items-center gap-1.5 rounded-[6px] border font-mono fs-11.5 tracking-[0.06em]',
+        'inline-flex h-fit min-h-6 items-center gap-1.5 rounded-[6px] border font-mono fs-11.5 tracking-[0.06em]',
         multiGlyph ? 'px-[9px]' : 'px-[7px]',
         gesture
           ? 'border-dashed border-[rgba(150,205,255,.2)] bg-transparent'

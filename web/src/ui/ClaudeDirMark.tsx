@@ -12,11 +12,11 @@ export type ClaudeDirMarkSize = 'desktop' | 'phone' | 'sheet'
 
 const SIZES = {
   /** 44b/44c/44e: sidebar meta line, detail chip, dialog trigger and menu rows, the waits list. */
-  desktop: 'min-w-[14px] min-h-[14px] px-[2.5px] rounded-[4px] fs-8.5',
+  desktop: 'min-w-[14px] h-fit min-h-[14px] px-[2.5px] rounded-[4px] fs-8.5',
   /** 44d's list row and New session row; 44a's Settings rows and 44e's group heads use it too. */
-  phone: 'min-w-4 min-h-4 px-[3px] rounded-[4.5px] fs-9.5',
+  phone: 'min-w-4 h-fit min-h-4 px-[3px] rounded-[4.5px] fs-9.5',
   /** 44d's bottom sheet rows. */
-  sheet: 'min-w-[18px] min-h-[18px] px-[3px] rounded-[5px] fs-10',
+  sheet: 'min-w-[18px] h-fit min-h-[18px] px-[3px] rounded-[5px] fs-10',
 } as const satisfies Record<ClaudeDirMarkSize, string>
 
 /**

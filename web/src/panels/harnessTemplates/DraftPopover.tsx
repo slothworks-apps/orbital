@@ -317,7 +317,7 @@ export function DraftPopover({
             autoFocus
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="min-h-[76px] resize-none rounded-lg border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.6)] px-2.5 py-[9px] fs-12.5 leading-[1.55] text-text-bright [field-sizing:content] [text-wrap:pretty] focus:border-accent/50 focus:outline-none"
+            className="h-fit min-h-[76px] resize-none rounded-lg border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.6)] px-2.5 py-[9px] fs-12.5 leading-[1.55] text-text-bright [field-sizing:content] [text-wrap:pretty] focus:border-accent/50 focus:outline-none"
           />
         </label>
 

@@ -1195,7 +1195,7 @@ function formViewParts({
                   aria-pressed={shown}
                   onClick={() => onState({ revealed: shown ? null : i })}
                   className={[
-                    'min-h-8 w-[52px] rounded-lg border font-mono fs-10 tracking-[0.06em] transition-colors',
+                    'h-fit min-h-8 w-[52px] rounded-lg border font-mono fs-10 tracking-[0.06em] transition-colors',
                     shown
                       ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
                       : 'border-[rgba(150,205,255,.14)] text-[rgba(200,220,245,.75)] hover:border-[rgba(150,205,255,.3)]',

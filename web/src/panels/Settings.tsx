@@ -134,9 +134,11 @@ import {
   TEXT_SCALE_STEPS,
   TRANSCRIPT_FOLLOWS_APP,
   TRANSCRIPT_TEXT_SCALE_KEY,
+  textScaleName,
   textScalePercent,
   textScaleSetting,
   textScales,
+  transcriptBelowApp,
   transcriptTextScaleSetting,
 } from '../lib/textScale'
 import { broadcastSettings } from '../lib/settingsBroadcast'
@@ -197,15 +199,6 @@ const TEXT_SCALE_OPTIONS = TEXT_SCALE_STEPS.map((step) => ({
 }))
 
 /**
- * 6a's transcript list: "Same as the app" at the app's percentage, then the
- * steps; one below the app's step cannot be picked, since it would change
- * nothing (`textScales` never puts the transcript under the app).
- */
-function stepName(value: string): string {
-  return TEXT_SCALE_STEPS.find((step) => step.value === value)?.name ?? value
-}
-
-/**
  * 6a's SAMPLE under the two rows: a session line at the app's size and a
  * line of transcript at the transcript's, both following a pick at once.
  */
@@ -233,6 +226,11 @@ function TextSample({ app, transcript }: { app: string; transcript: string }) {
   )
 }
 
+/**
+ * 6a's transcript list: "Same as the app" at the app's percentage, then the
+ * steps; one below the app's step cannot be picked, since it would change
+ * nothing (`textScales` never puts the transcript under the app).
+ */
 function transcriptTextScaleOptions(app: string) {
   return [
     { value: TRANSCRIPT_FOLLOWS_APP as string, label: 'Same as the app', trail: textScalePercent(app) },
@@ -640,8 +638,7 @@ export function Settings({ open, onClose }: SettingsProps) {
   const settings = useOrbital(useShallow((s) => s.settings))
   const appTextScale = textScaleSetting(settings)
   const transcriptTextScale = transcriptTextScaleSetting(settings)
-  const transcriptBelowApp =
-    transcriptTextScale !== TRANSCRIPT_FOLLOWS_APP && Number(transcriptTextScale) < Number(appTextScale)
+  const resolvedTextScales = textScales(settings)
   const models = useOrbital(useShallow((s) => s.models))
   const claudeDirCount = useOrbital((s) => s.claudeDirs.length)
   const hasUpdates = useAppUpdate((s) => s.source !== null)
@@ -1794,13 +1791,15 @@ export function Settings({ open, onClose }: SettingsProps) {
 
                   {section === 'appearance' && (
                     <>
+                      {/* Not in the website's demo: it does not run the root's scales. */}
+                      {!isDemo() && (
                       <ScopeSection keys={SECTION_KEYS.text}>
                       <SectionLabel first>TEXT</SectionLabel>
-                      {/* No canvas yet (spec 2026-10-27-text-size-design § Design). */}
+                      {/* canvas `Feature - Text size` 6a */}
                       <Row
                         title="Text size"
                         setting={TEXT_SCALE_KEY}
-                        desc="Larger letters across the app; spacing stays as it is. The map's labels keep their size."
+                        desc="Larger letters across the app; spacing stays as it is. Labels on the map's planets keep their size."
                       >
                         <Segmented
                           label="Text size"
@@ -1825,18 +1824,22 @@ export function Settings({ open, onClose }: SettingsProps) {
                             onChange={(next) => void patchAndSet({ [TRANSCRIPT_TEXT_SCALE_KEY]: next })}
                             className="w-full"
                           />
-                          {transcriptBelowApp && (
+                          {transcriptBelowApp(settings) && (
                             <span className="font-mono fs-10 leading-[1.5] tracking-[0.04em] text-[rgba(160,190,225,.6)]">
-                              {stepName(transcriptTextScale)} is below the app text, so it follows the app at{' '}
+                              {textScaleName(transcriptTextScale)} is below the app text, so it follows the app at{' '}
                               {textScalePercent(appTextScale)}
                             </span>
                           )}
                         </div>
                       </Row>
-                      <TextSample app={textScalePercent(appTextScale)} transcript={textScalePercent(String(textScales(settings).transcript))} />
+                      <TextSample
+                        app={textScalePercent(String(resolvedTextScales.app))}
+                        transcript={textScalePercent(String(resolvedTextScales.transcript))}
+                      />
                       </ScopeSection>
+                      )}
                       <ScopeSection keys={SECTION_KEYS.detailPanel}>
-                      <SectionLabel>DETAIL PANEL</SectionLabel>
+                      <SectionLabel first={isDemo()}>DETAIL PANEL</SectionLabel>
                       {/* canvas `Feature - Header gauges` 11c. Per install, not per
                   session: it is a density preference about how a header is
                   drawn, and both modes keep the same click target and the
@@ -1895,7 +1898,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                           onChange={(next) => void patchAndSet({ header_line_changes: next })}
                         />
                         {/* 1g: what the choice draws, on a sample branch. */}
-                        <span className="flex min-h-4 items-center gap-2 font-mono fs-11">
+                        <span className="flex h-fit min-h-4 items-center gap-2 font-mono fs-11">
                           <span className="fs-10 text-[rgba(160,190,225,.5)]">
                             {lineChangesPreview.length > 0 ? 'e.g.' : 'nothing drawn'}
                           </span>

@@ -199,7 +199,7 @@ export function PageBar({ route, surface, session = null, notice = null, onCrumb
 }
 
 /** Every item on the right (25b): 26 tall, rounded, mono, a little way off its neighbour. */
-const RIGHT_ITEM = 'ml-2 box-border min-h-[26px] rounded-[7px] font-mono whitespace-nowrap'
+const RIGHT_ITEM = 'ml-2 box-border h-fit min-h-[26px] rounded-[7px] font-mono whitespace-nowrap'
 
 /** The esc button's keyboard focus (25g FOCUS); the crumbs share it. */
 const FOCUS_RING =
@@ -230,7 +230,7 @@ function Crumb({
 }) {
   const isSession = crumb.kind === 'session'
   const className = [
-    'flex min-h-[26px] items-center gap-2 overflow-hidden whitespace-nowrap rounded-[7px] px-2 no-underline',
+    'flex h-fit min-h-[26px] items-center gap-2 overflow-hidden whitespace-nowrap rounded-[7px] px-2 no-underline',
     'transition-[background-color,color] duration-150',
     CRUMB_TYPE[crumb.kind],
     // The wordmark and the page's own crumb are bright; the way up is not.

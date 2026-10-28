@@ -3,8 +3,7 @@ import type { ReactElement, Ref } from 'react'
 import { lineGroups, linesReadout, prAriaLabel } from '../lib/branchStatus'
 import type { LinesMode } from '../lib/branchStatus'
 import { Tooltip } from '../ui/Tooltip'
-import { textScales } from '../lib/textScale'
-import { useOrbital } from '../store/store'
+import { useAppTextScale } from '../lib/textScale'
 import type { BranchLines, BranchPr, GitLocation, OtherTree } from '../lib/types'
 import {
   markOf,
@@ -398,7 +397,7 @@ export function WhereLine({
   // text step widens every character, so the row is fitted into the cell as
   // if it were that much narrower (spec 2026-10-27-text-size-design). The
   // gaps and marks do not grow, so this errs towards cutting a little early.
-  const textScale = useOrbital((s) => textScales(s.settings).app)
+  const textScale = useAppTextScale()
   const available =
     (cellWidthPx !== undefined && cellWidthPx > 0 ? cellWidthPx : panelWidthPx - ROW_CHROME_PX) / textScale
   const branch = shown?.ref ?? ''

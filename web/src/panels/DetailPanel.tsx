@@ -90,6 +90,7 @@ import { loginWaitLabels } from '../lib/profileLogin'
 import { ClaudeDirChip, useClaudeDirMark } from '../ui/ClaudeDirMark'
 import { useClaudeDirModels } from '../lib/useClaudeDirModels'
 import type { BackgroundTask, WalkthroughSummary } from '../lib/types'
+import { scaledPx, useTextScaleVersion } from '../lib/textScale'
 
 /** Hue the panel's accents fall back to when the session has no tag — the
  * export's own `oklch(85% .12 205)` accent (canvas 1b). */
@@ -108,7 +109,7 @@ const TITLE_FONT_PX = 22
 const TITLE_LINE_HEIGHT = 1.15
 const TITLE_TYPE = {
   // Times the app's text step (spec 2026-10-27-text-size-design).
-  fontSize: `calc(${TITLE_FONT_PX}px * var(--text-scale, 1))`,
+  fontSize: scaledPx(TITLE_FONT_PX),
   fontWeight: 700,
   lineHeight: TITLE_LINE_HEIGHT,
   letterSpacing: '-0.015em',
@@ -447,6 +448,8 @@ export function DetailPanel({
   }, [walkthroughOn, sessionId, sessionSource, sessionSettled])
   const walkthroughEntry = walkthroughOn && walkthroughSummary?.key === summaryKey ? walkthroughSummary.summary : null
 
+  // A new text step changes the line height under an open field.
+  const textScaleVersion = useTextScaleVersion()
   // The title field is one line until its own text needs a second, and stops
   // there (9e). On every keystroke, because the height is a function of the
   // text rather than of the element: the browser will not shrink a textarea
@@ -458,7 +461,7 @@ export function DetailPanel({
     const line = (parseFloat(getComputedStyle(el).fontSize) || TITLE_FONT_PX) * TITLE_LINE_HEIGHT
     el.style.height = '0px'
     el.style.height = `${Math.min(Math.max(el.scrollHeight, line), line * TITLE_MAX_LINES)}px`
-  }, [titleDraft, isEditingTitle])
+  }, [titleDraft, isEditingTitle, textScaleVersion])
 
   // The caret lands at the END of the name: the usual edit is fixing or
   // extending the tail, not retyping from the front.
@@ -851,7 +854,7 @@ export function DetailPanel({
         <div
           className={[
             'flex items-center',
-            standalone ? 'orbital-drag-region -mx-[22px] -mt-3 min-h-10 pt-3 pr-[22px]' : 'min-h-7',
+            standalone ? 'orbital-drag-region -mx-[22px] -mt-3 h-fit min-h-10 pt-3 pr-[22px]' : 'h-fit min-h-7',
           ].join(' ')}
           style={standalone ? { paddingLeft: WINDOW_STRIP_INSET_PX } : undefined}
         >

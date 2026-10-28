@@ -251,7 +251,7 @@ function LockedLine({ sessionId }: { sessionId: string }) {
   const macName = useSessionDeviceName(sessionId) ?? UNNAMED_MAC
   const refused = useSessionRefusedLine(sessionId)
   return (
-    <div className="box-border flex min-h-13 items-center gap-2.5 rounded-[14px] border border-dashed border-[rgba(150,205,255,.18)] px-3.5 fs-13.5 text-[rgba(160,190,225,.7)]">
+    <div className="box-border flex h-fit min-h-13 items-center gap-2.5 rounded-[14px] border border-dashed border-[rgba(150,205,255,.18)] px-3.5 fs-13.5 text-[rgba(160,190,225,.7)]">
       <span aria-hidden className="relative block h-[13px] w-[11px] shrink-0">
         <span className="absolute left-[1.5px] top-0 box-border block h-2 w-2 rounded-t-[4px] border-[1.5px] border-b-0 border-current" />
         <span className="absolute bottom-0 left-0 block h-[7px] w-[11px] rounded-[2px] bg-current" />

@@ -16,7 +16,7 @@ import { parseStatsRoute } from './stats/route'
 import { parseLimitsRoute } from './limits/route'
 import { parseSessionWindowRoute } from './lib/sessionWindowRoute'
 import { parseWalkthroughRoute } from './walkthrough/route'
-import { applyTextScales, textScales } from './lib/textScale'
+import { TEXT_SCALES_STORAGE_KEY, applyTextScales, rememberedTextScales, textScales } from './lib/textScale'
 import { onBroadcastSettings } from './lib/settingsBroadcast'
 
 // Lazy on EVERY side of the route branch, because importing `App.tsx` is
@@ -121,13 +121,23 @@ if (sessionWindowId === null) {
 }
 
 /**
- * Text size (spec 2026-10-27-text-size-design): the root carries the two
- * steps in every window and follows them as they change, here or — through
- * the broadcast — in another window's Settings.
+ * Text size (spec 2026-10-27-text-size-design). The root paints at the last
+ * scales this origin applied, before any settings arrive; once a window has
+ * its settings it applies theirs and remembers them, and every other window —
+ * a detached session's, Stats, Limits, which never load settings — follows
+ * through the `storage` event. A saved setting also reaches the other
+ * windows' stores through the broadcast.
  */
-applyTextScales(document.documentElement, textScales(useOrbital.getState().settings))
+const root = document.documentElement
+applyTextScales(root, rememberedTextScales(localStorage.getItem(TEXT_SCALES_STORAGE_KEY)))
 useOrbital.subscribe((state, prev) => {
-  if (state.settings !== prev.settings) applyTextScales(document.documentElement, textScales(state.settings))
+  if (!state.settingsLoaded || state.settings === prev.settings) return
+  const scales = textScales(state.settings)
+  applyTextScales(root, scales)
+  localStorage.setItem(TEXT_SCALES_STORAGE_KEY, JSON.stringify(scales))
+})
+window.addEventListener('storage', (event) => {
+  if (event.key === TEXT_SCALES_STORAGE_KEY) applyTextScales(root, rememberedTextScales(event.newValue))
 })
 onBroadcastSettings((patch) => useOrbital.setState((state) => ({ settings: { ...state.settings, ...patch } })))
 

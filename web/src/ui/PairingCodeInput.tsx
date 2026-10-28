@@ -28,8 +28,8 @@ const BOX_BORDER: Record<BoxState, string> = {
  * 50i: 42×56 boxes, mono 28px, a 7px gap and an 8px dash).
  */
 const SIZES = {
-  md: { box: 'min-h-[60px] w-11 fs-30', dash: 'w-2.5', row: 'gap-2' },
-  sm: { box: 'min-h-14 w-[42px] fs-28', dash: 'w-2', row: 'gap-[7px]' },
+  md: { box: 'h-fit min-h-[60px] w-11 fs-30', dash: 'w-2.5', row: 'gap-2' },
+  sm: { box: 'h-fit min-h-14 w-[42px] fs-28', dash: 'w-2', row: 'gap-[7px]' },
 } as const
 
 type Size = keyof typeof SIZES

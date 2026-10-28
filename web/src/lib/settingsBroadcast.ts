@@ -19,13 +19,9 @@ export function broadcastSettings(patch: Record<string, string>): void {
   shared()?.postMessage(patch)
 }
 
-export function onBroadcastSettings(apply: (patch: Record<string, string>) => void): () => void {
-  const target = shared()
-  if (!target) return () => {}
-  const listener = (event: MessageEvent) => {
+export function onBroadcastSettings(apply: (patch: Record<string, string>) => void): void {
+  shared()?.addEventListener('message', (event: MessageEvent) => {
     const patch: unknown = event.data
     if (patch && typeof patch === 'object') apply(patch as Record<string, string>)
-  }
-  target.addEventListener('message', listener)
-  return () => target.removeEventListener('message', listener)
+  })
 }

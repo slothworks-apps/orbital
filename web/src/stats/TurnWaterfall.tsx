@@ -341,7 +341,7 @@ function WaitBreak({ cut }: { cut: LaneBreak }) {
         aria-label={`waiting on you ${formatStatsDuration(cut.totalMs)}`}
         onMouseEnter={(event) => setAnchor(event.currentTarget.getBoundingClientRect())}
         onMouseLeave={() => setAnchor(null)}
-        className="absolute -top-[3px] flex min-h-5 items-center gap-[3px] whitespace-nowrap bg-[#0a0e19] font-mono fs-9.5 text-[rgba(200,220,245,.75)]"
+        className="absolute -top-[3px] flex h-fit min-h-5 items-center gap-[3px] whitespace-nowrap bg-[#0a0e19] font-mono fs-9.5 text-[rgba(200,220,245,.75)]"
         style={{ left: cut.left, width: cut.width }}
       >
         <span className="block h-3.5 w-px shrink-0 rotate-[20deg] bg-[rgba(160,190,225,.6)]" />

@@ -51,7 +51,7 @@ function slotChrome({ inWindow, swap, back, close }: { inWindow: boolean; swap: 
     close: swap ? null : close,
     swapStrip: swap ? (
       <div
-        className="orbital-drag-region -mx-[18px] -mt-4 flex min-h-10 items-center gap-2.5 pr-[18px] pt-3"
+        className="orbital-drag-region -mx-[18px] -mt-4 flex h-fit min-h-10 items-center gap-2.5 pr-[18px] pt-3"
         style={{ paddingLeft: WINDOW_STRIP_INSET_PX }}
       >
         {back}
@@ -222,7 +222,7 @@ export function HarnessRecordView({ sessionId, onClose }: { sessionId: string; o
         <CloseGlyph />
       </HeadButton>
     ) : null,
-    row: (children) => <div className="flex min-h-[22px] items-center gap-2">{children}</div>,
+    row: (children) => <div className="flex h-fit min-h-[22px] items-center gap-2">{children}</div>,
   }
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden">

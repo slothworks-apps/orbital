@@ -45,7 +45,7 @@ const SIZES = {
    */
   field: {
     shell: 'flex rounded-[9px] border-[rgba(150,205,255,.16)]',
-    item: 'flex min-h-9 min-w-0 flex-1 items-center justify-center px-3 fs-11.5 [&>span]:truncate',
+    item: 'flex h-fit min-h-9 min-w-0 flex-1 items-center justify-center px-3 fs-11.5 [&>span]:truncate',
     on: 'bg-accent/10 font-semibold text-text-bright',
     off: 'bg-transparent text-[rgba(200,220,245,.78)] hover:bg-[rgba(150,205,255,.07)]',
   },

@@ -93,7 +93,7 @@ function BannerCard({ banner }: { banner: BannerContent }) {
           <button
             type="button"
             onClick={view}
-            className="min-h-11 shrink-0 rounded-[10px] border border-accent/40 px-3 fs-14 font-semibold text-accent"
+            className="h-fit min-h-11 shrink-0 rounded-[10px] border border-accent/40 px-3 fs-14 font-semibold text-accent"
           >
             View
           </button>
