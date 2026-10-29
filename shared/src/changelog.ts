@@ -1,10 +1,12 @@
 /**
- * One version's notes from an app's own changelog (spec
+ * Release notes from an app's own changelog (spec
  * 2026-10-19-whats-new-design § Where the words come from): the Mac's
  * `desktop/CHANGELOG.md` and the phone's `mobile/CHANGELOG.md`, both in the
  * Keep a Changelog format, bundled at build time and read here for the
- * version that runs.
+ * version that runs and the versions before it the person skipped.
  */
+
+import { compareVersions } from './remote/version.js';
 
 /**
  * The Mac's server setting where WHAT'S NEW remembers the last version this
@@ -61,17 +63,80 @@ function plain(line: string): string {
 }
 
 /**
- * The part of `markdown` that is `version`'s, from its heading up to the
- * next version's, as written; empty when there is none. A build hands the
- * client only this (web `changelogSection.ts`), and `releaseNotes` reads the
+ * The most versions WHAT'S NEW tells at once: after skipping more, the
+ * newest this many. Enough for a week or two away, short of a wall of text.
+ */
+export const WHATS_NEW_MAX_VERSIONS = 10;
+
+/** A heading's version that reads as one: `Unreleased` and the like do not. */
+const RELEASE_VERSION = /^\d+(\.\d+)*$/;
+
+/** Each released version's heading in `markdown`: its version and its line, in file order. */
+function versionHeadings(lines: readonly string[]): { version: string; line: number }[] {
+  return lines.flatMap((line, i) => {
+    const version = VERSION_HEADING.exec(line)?.[1];
+    return version && RELEASE_VERSION.test(version) ? [{ version, line: i }] : [];
+  });
+}
+
+/**
+ * The versions WHAT'S NEW tells about, newest first: `version` and those
+ * before it down to the oldest the file lists, at most `max`. The build cut
+ * (`recentReleaseSections`) and the reading (`releaseNotesSince`) both take
+ * their versions from here, so a cut file answers as the whole one does.
+ */
+function recentVersions(markdown: string, version: string, max: number): string[] {
+  const listed = versionHeadings(markdown.split(/\r?\n/)).map((h) => h.version);
+  if (!listed.includes(version)) return [];
+  return listed
+    .filter((v) => compareVersions(v, version) <= 0)
+    .sort((a, b) => compareVersions(b, a))
+    .slice(0, max);
+}
+
+/**
+ * The part of `markdown` WHAT'S NEW can need for `version`: its section and
+ * those of the versions before it, at most `max` in all, as written and in
+ * file order; empty when the file has no section for `version`. Never
+ * `Unreleased`, nor a version newer than `version`. A build hands the client
+ * only this (web `changelogSection.ts`), and `releaseNotesSince` reads the
  * same notes from it as from the whole file.
  */
-export function releaseSection(markdown: string, version: string): string {
+export function recentReleaseSections(markdown: string, version: string, max = WHATS_NEW_MAX_VERSIONS): string {
   const lines = markdown.split(/\r?\n/);
-  const start = lines.findIndex((line) => VERSION_HEADING.exec(line)?.[1] === version);
-  if (start === -1) return '';
-  const next = lines.findIndex((line, i) => i > start && /^##\s/.test(line));
-  return lines.slice(start, next === -1 ? undefined : next).join('\n');
+  const keep = new Set(recentVersions(markdown, version, max));
+  const sections: string[] = [];
+  for (const { version: v, line } of versionHeadings(lines)) {
+    if (!keep.has(v)) continue;
+    const next = lines.findIndex((l, i) => i > line && /^##\s/.test(l));
+    sections.push(lines.slice(line, next === -1 ? undefined : next).join('\n'));
+  }
+  return sections.join('\n');
+}
+
+/**
+ * The notes WHAT'S NEW shows after an update from `seen` to `version`,
+ * newest first: every version newer than `seen` and not newer than
+ * `version` that has lines, at most `max` (the newest). Only `version`'s,
+ * as before skipping counted, when nothing earlier is known: no `seen` (a
+ * first install, an install from before WHAT'S NEW), a `seen` that is not a
+ * version number, or one not older than `version` (a downgrade). A `seen`
+ * the file does not list is compared by number all the same; one older than
+ * every version listed takes them all, up to `max`. Empty when `version`
+ * itself has no notes: then there is nothing to tell.
+ */
+export function releaseNotesSince(
+  markdown: string,
+  version: string,
+  seen?: string,
+  max = WHATS_NEW_MAX_VERSIONS,
+): ReleaseNotes[] {
+  const running = releaseNotes(markdown, version);
+  if (!running) return [];
+  if (!seen || !/^\d+(\.\d+)*(-.*)?$/.test(seen) || compareVersions(seen, version) >= 0) return [running];
+  return recentVersions(markdown, version, max)
+    .filter((v) => compareVersions(v, seen) > 0)
+    .flatMap((v) => (v === version ? [running] : (releaseNotes(markdown, v) ?? [])));
 }
 
 /**
@@ -122,7 +187,10 @@ export function releaseNotes(markdown: string, version: string): ReleaseNotes | 
   return date ? { version, date, sections } : { version, sections };
 }
 
-/** The lines the toast shows (1a): the first `count` across the sections, in their order. */
-export function firstReleaseNotes(notes: ReleaseNotes, count = 3): string[] {
-  return notes.sections.flatMap((s) => s.items).slice(0, count);
+/**
+ * The lines the toast shows (1a): the first `count` across the sections, in
+ * their order, the newest version's first and an older one's after them.
+ */
+export function firstReleaseNotes(notes: readonly ReleaseNotes[], count = 3): string[] {
+  return notes.flatMap((n) => n.sections.flatMap((s) => s.items)).slice(0, count);
 }

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { create } from 'zustand'
-import { WHATS_NEW_SEEN_KEY, firstReleaseNotes, releaseNotes } from '@orbital/shared/changelog'
+import {
+  WHATS_NEW_SEEN_KEY, firstReleaseNotes, releaseNotes, releaseNotesSince, type ReleaseNotes,
+} from '@orbital/shared/changelog'
 import changelog from '../../../desktop/CHANGELOG.md?raw'
 import { version as orbitalVersion } from '../../../desktop/package.json'
 import { api } from '../lib/api'
@@ -20,15 +22,16 @@ import {
   EXITING, MODAL_CLOSED, MODAL_ENTER_DURATION, MODAL_ENTER_MS, MODAL_EXIT_DURATION, MODAL_EXIT_MS, MODAL_OPEN,
   MODAL_TRANSITION, SCRIM_CLOSED, SCRIM_OPEN,
 } from '../ui/motion'
-import { ReleaseNoteSections } from '../ui/ReleaseNotes'
+import { ReleaseNoteVersions } from '../ui/ReleaseNotes'
 import { usePresence } from '../ui/usePresence'
 
 /**
  * WHAT'S NEW on the Mac (spec 2026-10-19-whats-new-design; canvas `Feature -
  * Notice toast` 1a, 1b, and `Feature - Remote update` 50v 04): the `changelog`
  * message of the map's notice queue, once after the version changes, with
- * the first lines of this version's section of `desktop/CHANGELOG.md` and
- * See all changes for the rest. After another member updated this Mac, who
+ * the first lines of `desktop/CHANGELOG.md` since the version this Mac ran
+ * before — this version's first, then any it skipped — and See all changes
+ * for the rest. After another member updated this Mac, who
  * and when heads it, and its end clears that receipt.
  *
  * What this Mac has seen is a server setting (`WHATS_NEW_SEEN_KEY`), beside
@@ -38,8 +41,8 @@ import { usePresence } from '../ui/usePresence'
 
 const WHATS_NEW_NOTICE_ID = 'whats-new'
 
-/** This version's notes, read once from the bundled changelog. */
-const NOTES = releaseNotes(changelog, orbitalVersion)
+/** Whether this version has notes, read once from the bundled changelog. */
+const HAS_NOTES = releaseNotes(changelog, orbitalVersion) !== null
 
 interface WhatsNewState {
   /** Whether this launch has decided yet. */
@@ -48,6 +51,8 @@ interface WhatsNewState {
   due: boolean
   /** When this Mac first ran this version. */
   installedAt: number
+  /** What the message tells, newest first: this version's notes and those of the versions skipped. */
+  notes: ReleaseNotes[]
   /**
    * × or Done was pressed: the message stays out of the queue, although main
    * clears the receipt a moment later — without it the receipt still there
@@ -56,7 +61,10 @@ interface WhatsNewState {
   ended: boolean
 }
 
-const useWhatsNew = create<WhatsNewState>()(() => ({ decided: false, due: false, installedAt: Date.now(), ended: false }))
+const useWhatsNew = create<WhatsNewState>()(() => ({
+  // Until it decides, this version's alone: a receipt can queue the message first.
+  decided: false, due: false, installedAt: Date.now(), notes: releaseNotesSince(changelog, orbitalVersion), ended: false,
+}))
 
 function remember(seen: SeenVersion): void {
   const value = serializeSeenVersion(seen)
@@ -73,13 +81,20 @@ export function useWhatsNewNotice(): void {
   const loaded = useOrbital((s) => s.settingsLoaded === true)
   useEffect(() => {
     if (!loaded || useWhatsNew.getState().decided) return
+    // What this Mac ran before is read here, before `remember` writes the
+    // running version over it; `launch.since` carries it.
     const launch = whatsNewOnLaunch({
       stored: parseSeenVersion(useOrbital.getState().settings[WHATS_NEW_SEEN_KEY]),
       version: orbitalVersion,
-      hasNotes: NOTES !== null,
+      hasNotes: HAS_NOTES,
       now: Date.now(),
     })
-    useWhatsNew.setState({ decided: true, due: launch.show, installedAt: launch.installedAt })
+    useWhatsNew.setState({
+      decided: true,
+      due: launch.show,
+      installedAt: launch.installedAt,
+      notes: releaseNotesSince(changelog, orbitalVersion, launch.since),
+    })
     if (launch.write) remember(launch.write)
   }, [loaded])
 
@@ -97,13 +112,17 @@ export function useWhatsNewNotice(): void {
 
 /** For the update demo: the message as after an update, whatever this Mac remembers. */
 export function showWhatsNewDemo(): void {
-  useWhatsNew.setState({ decided: true, due: true, installedAt: Date.now(), ended: false })
+  useWhatsNew.setState({
+    decided: true, due: true, installedAt: Date.now(), notes: releaseNotesSince(changelog, orbitalVersion), ended: false,
+  })
 }
 
 function WhatsNewNotice({ close }: { close: () => void }) {
   const receipt = useAppUpdate((s) => s.state?.receipt ?? null)
   const source = useAppUpdate((s) => s.source)
   const installedAt = useWhatsNew((s) => s.installedAt)
+  const notes = useWhatsNew((s) => s.notes)
+  const hasNotes = notes.length > 0
   const [open, setOpen] = useState(false)
 
   // × on the toast or the dialog closed: gone for good, and the receipt with
@@ -126,7 +145,7 @@ function WhatsNewNotice({ close }: { close: () => void }) {
         label={whatsNewHead(orbitalVersion)}
         onClose={end}
         actions={
-          NOTES && (
+          hasNotes && (
             <Button variant="lit" size="notice" onClick={() => setOpen(true)}>
               See all changes
             </Button>
@@ -134,21 +153,32 @@ function WhatsNewNotice({ close }: { close: () => void }) {
         }
       >
         {receipt && <MapNoticeText>{receiptLine(receipt)}</MapNoticeText>}
-        {NOTES && <MapNoticeList items={firstReleaseNotes(NOTES)} />}
+        {hasNotes && <MapNoticeList items={firstReleaseNotes(notes)} />}
       </MapNotice>
-      {NOTES && <WhatsNewDialog open={open} installedAt={installedAt} onClose={end} />}
+      {hasNotes && <WhatsNewDialog open={open} notes={notes} installedAt={installedAt} onClose={end} />}
     </>
   )
 }
 
 /**
- * See all changes (1b): the version's sections in a centred dialog over a
- * dimmed map, its release on GitHub, and Done. Closing it ends the message.
+ * See all changes (1b): the sections of this version, and of each version
+ * skipped under its own heading, in a centred dialog over a dimmed map, this
+ * version's release on GitHub, and Done. Closing it ends the message.
  */
-function WhatsNewDialog({ open, installedAt, onClose }: { open: boolean; installedAt: number; onClose: () => void }) {
+function WhatsNewDialog({
+  open,
+  notes,
+  installedAt,
+  onClose,
+}: {
+  open: boolean
+  notes: readonly ReleaseNotes[]
+  installedAt: number
+  onClose: () => void
+}) {
   useEscapeLayer(open, onClose)
   const { mounted, state } = usePresence(open, MODAL_ENTER_MS, MODAL_EXIT_MS)
-  if (!mounted || !NOTES) return null
+  if (!mounted) return null
   const entered = state === 'entered'
   const duration = state === 'exiting' ? MODAL_EXIT_DURATION : MODAL_ENTER_DURATION
 
@@ -197,7 +227,7 @@ function WhatsNewDialog({ open, installedAt, onClose }: { open: boolean; install
           </header>
           {/* 1b: 22 between sections, 22/28/24, scrolling past 440. */}
           <div className="flex max-h-[440px] min-h-0 flex-col gap-[22px] overflow-y-auto px-7 pb-6 pt-[22px]">
-            <ReleaseNoteSections sections={NOTES.sections} />
+            <ReleaseNoteVersions notes={notes} gap="gap-[22px]" ruled="pt-[22px]" />
           </div>
           {/* 1b: 14/20/16/28, ruled off. */}
           <footer className="flex shrink-0 items-center gap-2 border-t border-line/10 pb-4 pl-7 pr-5 pt-3.5">

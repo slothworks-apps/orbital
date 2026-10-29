@@ -4,6 +4,10 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.22.1] — 2026-10-29
+### Fixed
+- What's new lists every version since the one you last ran, so an update that skips a release no longer hides its changes.
+
 ## [0.22.0] — 2026-10-29
 ### Added
 - On iPhone, the app's text follows the system text size (Settings → Display & Brightness → Text Size), up to one and a half times today's size.
