@@ -16,6 +16,7 @@ import {
   isReadOnly,
   sessionStateKey,
   statePill,
+  tagTextColor,
   type PendingDecision,
   type SessionStateKey,
   type Subagent,
@@ -64,7 +65,7 @@ const LIFTED_SHADOW = (blur: string, alpha: number) =>
   `0 ${blur} ${swatch('shadow', alpha)},0 0 0 1px ${swatch('shadow', 0.3)},inset 0 1px 0 ${swatch('highlight', 0.07)}`
 
 const tagInk = (hue: number, alpha?: number) =>
-  `oklch(80% .13 ${hue}${alpha === undefined ? '' : ` / ${alpha}`})`
+  `oklch(var(--tb-l) var(--tb-c) ${hue}${alpha === undefined ? '' : ` / ${alpha}`})`
 
 type Drag =
   | {
@@ -516,7 +517,7 @@ function MatHeader({
         className="block h-[7px] w-[7px] flex-none rounded-full"
         style={{ background: tagInk(hue) }}
       />
-      <span className="font-mono fs-10.5 tracking-[0.2em]" style={{ color: tagInk(hue) }}>
+      <span className="font-mono fs-10.5 tracking-[0.2em]" style={{ color: tagTextColor(hue) }}>
         {name}
       </span>
       {count && (

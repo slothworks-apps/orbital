@@ -26,7 +26,7 @@ export type ColourTheme = {
 
 export const DEFAULT_COLOUR_THEME = 'deep-field'
 /** What Follow the system takes while the OS is in light mode, unless set (1f, 1k). */
-export const DEFAULT_LIGHT_COLOUR_THEME = 'infrared'
+export const DEFAULT_LIGHT_COLOUR_THEME = 'albedo'
 
 /** In the picker's order: dark first, then light (1f). */
 export const COLOUR_THEMES: readonly ColourTheme[] = [
@@ -38,7 +38,7 @@ export const COLOUR_THEMES: readonly ColourTheme[] = [
   { id: 'arctic', name: 'Arctic', kind: 'dark', after: 'Nord', swatch: ['#222630', '#2e333d', '#88cada'] },
   { id: 'ember', name: 'Ember', kind: 'dark', after: 'Gruvbox', swatch: ['#1e1c1b', '#2b2826', '#7abfc3'] },
   { id: 'slate', name: 'Slate', kind: 'dark', after: 'One Dark', swatch: ['#1e2229', '#292e38', '#5db2f7'] },
-  { id: 'infrared', name: 'Infrared', kind: 'light', after: null, swatch: ['#eff4f8', '#fbfdff', '#00677a'] },
+  { id: 'albedo', name: 'Albedo', kind: 'light', after: null, swatch: ['#eff4f8', '#fbfdff', '#00677a'] },
   { id: 'solar-light', name: 'Solar Light', kind: 'light', after: 'Solarized Light', swatch: ['#f0e7d2', '#fcf5e3', '#0062a1'] },
 ]
 
@@ -77,7 +77,7 @@ export function colourThemesEnabled(settings: Settings): boolean {
   return settings[COLOUR_THEMES_ENABLED_KEY] === 'true'
 }
 
-/** The Mac's choice. Following the system, light mode takes Infrared and dark mode the chosen theme (1f). */
+/** The Mac's choice. Following the system, light mode takes Albedo and dark mode the chosen theme (1f). */
 export function macColourChoice(settings: Settings): ColourChoice {
   const theme = knownColourTheme(settings[COLOUR_THEME_KEY], DEFAULT_COLOUR_THEME)
   return {

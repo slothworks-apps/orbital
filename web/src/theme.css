@@ -52,12 +52,26 @@
   /* Drop shadows and the top highlight of glass. Their own tokens because a
      light theme cannot darken with `shade` or lighten with `ink-50` (1b). */
   --color-shadow: var(--color-shade);
-  --color-highlight: var(--color-ink-50);
+  --color-highlight: #ffffff;
 
   /* The map backdrop (1i): the two nebula washes and the stars. */
   --color-nebula-a: #6e50dc;
   --color-nebula-b: #28aadc;
   --color-star: #ffffff;
+
+  /* The map's bodies (canvas `Feature - Colour themes` 1l): a working planet's
+     body from hi to lo, an idle one, an ended one, the black hole's void, and
+     a limit sun's unlit disc and eclipse shadow. Deep Field's are the literals
+     the map used before themes. */
+  --color-body-hi: oklch(30% 0.05 220);
+  --color-body-mid: oklch(20% 0.04 225);
+  --color-body-lo: oklch(16% 0.03 230);
+  --color-body-idle-hi: oklch(28% 0.05 220);
+  --color-body-idle-lo: oklch(18% 0.04 225);
+  --color-body-ended: oklch(16% 0.01 230);
+  --color-void: #000000;
+  --color-disc-off: oklch(19% 0.008 250);
+  --color-eclipse: oklch(15% 0.01 250);
 
   --font-sans: 'Manrope', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
@@ -99,20 +113,35 @@
   --state-border-a: 50%;
   --state-border-a-map: 75%;
   --state-border-a-map-rest: 30%;
+
+  /* Per theme kind (1l, 1m): tag hue lightness and chroma as text (`tt`) and
+     as a body (`tb`), whether glows paint (`glow-k`, 0 on light themes, where
+     a 1 px edge and a soft shadow stand in), and the limit sun's rim and arc. */
+  --tt-l: 80%;
+  --tt-c: 0.13;
+  --tb-l: 80%;
+  --tb-c: 0.13;
+  --glow-k: 1;
+  --edge-w: 0px;
+  --sun-l: 91%;
+  --sun-c: .09;
+  --sun-ra: .25;
 }
 
 /* Colour themes (spec 2026-10-29-colour-tokens-design, canvas `Feature -
    Colour themes`). Deep Field is the `@theme` above; every other theme only
    replaces token values, on the root, through `data-colours`
    (`lib/colourTheme.ts`). Values are the canvas's own oklch. */
-/* Infrared — light · for a bright room. */
-:root[data-colours='infrared'] {
+/* Albedo — light · for a bright room. */
+:root[data-colours='albedo'] {
   --color-space: oklch(96.5% 0.008 240);
   --color-space-deep: oklch(93% 0.015 220);
   --color-shade: oklch(40% 0.03 255);
   --color-panel: oklch(99.3% 0.003 240);
   --color-panel-solid: oklch(98.6% 0.004 240);
   --color-raised: oklch(100% 0 0);
+  --color-shadow: oklch(55% 0.03 255);
+  --color-highlight: oklch(100% 0 0);
   --color-line: oklch(42% 0.07 245);
   --color-ink-50: oklch(13% 0.02 255);
   --color-ink-100: oklch(15% 0.022 255);
@@ -137,8 +166,24 @@
   --color-nebula-a: oklch(70% 0.1 290);
   --color-nebula-b: oklch(75% 0.08 220);
   --color-star: oklch(35% 0.03 255);
-  --color-shadow: oklch(55% 0.03 255);
-  --color-highlight: var(--color-raised);
+  --color-body-hi: oklch(99% 0.008 240);
+  --color-body-mid: oklch(94% 0.012 240);
+  --color-body-lo: oklch(89% 0.016 240);
+  --color-body-idle-hi: oklch(98% 0.008 240);
+  --color-body-idle-lo: oklch(93% 0.012 240);
+  --color-body-ended: oklch(91% 0.004 240);
+  --color-void: oklch(20% 0.02 255);
+  --color-disc-off: oklch(93% 0.005 250);
+  --color-eclipse: oklch(80% 0.01 250);
+  --tt-l: 46%;
+  --tt-c: 0.11;
+  --tb-l: 58%;
+  --tb-c: 0.14;
+  --glow-k: 0;
+  --edge-w: 1px;
+  --sun-l: 58%;
+  --sun-c: .12;
+  --sun-ra: .8;
 }
 
 /* Event Horizon — dark · near-black, brighter ink. */
@@ -149,6 +194,8 @@
   --color-panel: oklch(11.5% 0.01 255);
   --color-panel-solid: oklch(13% 0.01 255);
   --color-raised: oklch(16% 0.012 255);
+  --color-shadow: oklch(3% 0.005 255);
+  --color-highlight: oklch(99% 0.003 250);
   --color-line: oklch(86% 0.07 240);
   --color-ink-50: oklch(99% 0.003 250);
   --color-ink-100: oklch(98% 0.004 250);
@@ -173,6 +220,24 @@
   --color-nebula-a: oklch(50% 0.12 290);
   --color-nebula-b: oklch(60% 0.09 220);
   --color-star: oklch(99% 0 0);
+  --color-body-hi: oklch(30% 0.05 220);
+  --color-body-mid: oklch(20% 0.04 225);
+  --color-body-lo: oklch(16% 0.03 230);
+  --color-body-idle-hi: oklch(28% 0.05 220);
+  --color-body-idle-lo: oklch(18% 0.04 225);
+  --color-body-ended: oklch(16% 0.01 230);
+  --color-void: oklch(0% 0 0);
+  --color-disc-off: oklch(19% 0.008 250);
+  --color-eclipse: oklch(15% 0.01 250);
+  --tt-l: 80%;
+  --tt-c: 0.13;
+  --tb-l: 80%;
+  --tb-c: 0.13;
+  --glow-k: 1;
+  --edge-w: 0px;
+  --sun-l: 91%;
+  --sun-c: .09;
+  --sun-ra: .25;
 }
 
 /* Solar Light — light · after Solarized Light. */
@@ -183,6 +248,8 @@
   --color-panel: oklch(97% 0.025 90);
   --color-panel-solid: oklch(96% 0.025 90);
   --color-raised: oklch(99% 0.015 90);
+  --color-shadow: oklch(52% 0.04 220);
+  --color-highlight: oklch(100% 0 0);
   --color-line: oklch(45% 0.04 210);
   --color-ink-50: oklch(13% 0.04 220);
   --color-ink-100: oklch(13.8% 0.04 220);
@@ -207,8 +274,24 @@
   --color-nebula-a: oklch(70% 0.09 280);
   --color-nebula-b: oklch(75% 0.07 185);
   --color-star: oklch(40% 0.04 220);
-  --color-shadow: oklch(55% 0.03 220);
-  --color-highlight: var(--color-raised);
+  --color-body-hi: oklch(99% 0.008 90);
+  --color-body-mid: oklch(94% 0.012 90);
+  --color-body-lo: oklch(89% 0.016 90);
+  --color-body-idle-hi: oklch(98% 0.008 90);
+  --color-body-idle-lo: oklch(93% 0.012 90);
+  --color-body-ended: oklch(91% 0.004 90);
+  --color-void: oklch(20% 0.02 255);
+  --color-disc-off: oklch(93% 0.005 250);
+  --color-eclipse: oklch(80% 0.01 250);
+  --tt-l: 46%;
+  --tt-c: 0.11;
+  --tb-l: 58%;
+  --tb-c: 0.14;
+  --glow-k: 0;
+  --edge-w: 1px;
+  --sun-l: 58%;
+  --sun-c: .12;
+  --sun-ra: .8;
 }
 
 /* Solar Dark — dark · after Solarized Dark. */
@@ -219,6 +302,8 @@
   --color-panel: oklch(27% 0.05 220);
   --color-panel-solid: oklch(29% 0.05 220);
   --color-raised: oklch(31% 0.05 220);
+  --color-shadow: oklch(14% 0.03 220);
+  --color-highlight: oklch(96% 0.025 90);
   --color-line: oklch(72% 0.04 200);
   --color-ink-50: oklch(96% 0.025 90);
   --color-ink-100: oklch(95.2% 0.024 102);
@@ -243,6 +328,24 @@
   --color-nebula-a: oklch(56% 0.13 280);
   --color-nebula-b: oklch(63% 0.1 185);
   --color-star: oklch(97% 0.025 90);
+  --color-body-hi: oklch(30% 0.05 220);
+  --color-body-mid: oklch(20% 0.04 220);
+  --color-body-lo: oklch(16% 0.03 220);
+  --color-body-idle-hi: oklch(28% 0.05 220);
+  --color-body-idle-lo: oklch(18% 0.04 220);
+  --color-body-ended: oklch(16% 0.01 220);
+  --color-void: oklch(4% 0.005 220);
+  --color-disc-off: oklch(19% 0.008 250);
+  --color-eclipse: oklch(15% 0.01 250);
+  --tt-l: 80%;
+  --tt-c: 0.13;
+  --tb-l: 80%;
+  --tb-c: 0.13;
+  --glow-k: 1;
+  --edge-w: 0px;
+  --sun-l: 91%;
+  --sun-c: .09;
+  --sun-ra: .25;
 }
 
 /* Molten — dark · after Monokai. */
@@ -253,6 +356,8 @@
   --color-panel: oklch(27% 0.01 115);
   --color-panel-solid: oklch(30% 0.01 115);
   --color-raised: oklch(31% 0.012 115);
+  --color-shadow: oklch(12% 0.008 115);
+  --color-highlight: oklch(98% 0.012 105);
   --color-line: oklch(90% 0.06 105);
   --color-ink-50: oklch(98% 0.012 105);
   --color-ink-100: oklch(97.1% 0.013 104);
@@ -277,6 +382,24 @@
   --color-nebula-a: oklch(68% 0.18 295);
   --color-nebula-b: oklch(88% 0.13 105);
   --color-star: oklch(98% 0.02 105);
+  --color-body-hi: oklch(30% 0.05 115);
+  --color-body-mid: oklch(20% 0.04 115);
+  --color-body-lo: oklch(16% 0.03 115);
+  --color-body-idle-hi: oklch(28% 0.05 115);
+  --color-body-idle-lo: oklch(18% 0.04 115);
+  --color-body-ended: oklch(16% 0.01 115);
+  --color-void: oklch(4% 0.005 115);
+  --color-disc-off: oklch(19% 0.008 250);
+  --color-eclipse: oklch(15% 0.01 250);
+  --tt-l: 80%;
+  --tt-c: 0.13;
+  --tb-l: 80%;
+  --tb-c: 0.13;
+  --glow-k: 1;
+  --edge-w: 0px;
+  --sun-l: 91%;
+  --sun-c: .09;
+  --sun-ra: .25;
 }
 
 /* Velvet — dark · after Dracula. */
@@ -287,6 +410,8 @@
   --color-panel: oklch(29% 0.02 280);
   --color-panel-solid: oklch(32% 0.02 280);
   --color-raised: oklch(33% 0.025 280);
+  --color-shadow: oklch(12% 0.015 280);
+  --color-highlight: oklch(99% 0.008 285);
   --color-line: oklch(80% 0.07 290);
   --color-ink-50: oklch(99% 0.008 285);
   --color-ink-100: oklch(98% 0.01 285);
@@ -311,6 +436,24 @@
   --color-nebula-a: oklch(72% 0.16 345);
   --color-nebula-b: oklch(74% 0.14 300);
   --color-star: oklch(98% 0.01 110);
+  --color-body-hi: oklch(30% 0.05 280);
+  --color-body-mid: oklch(20% 0.04 280);
+  --color-body-lo: oklch(16% 0.03 280);
+  --color-body-idle-hi: oklch(28% 0.05 280);
+  --color-body-idle-lo: oklch(18% 0.04 280);
+  --color-body-ended: oklch(16% 0.01 280);
+  --color-void: oklch(4% 0.005 280);
+  --color-disc-off: oklch(19% 0.008 250);
+  --color-eclipse: oklch(15% 0.01 250);
+  --tt-l: 80%;
+  --tt-c: 0.13;
+  --tb-l: 80%;
+  --tb-c: 0.13;
+  --glow-k: 1;
+  --edge-w: 0px;
+  --sun-l: 91%;
+  --sun-c: .09;
+  --sun-ra: .25;
 }
 
 /* Arctic — dark · after Nord. */
@@ -321,6 +464,8 @@
   --color-panel: oklch(32% 0.02 265);
   --color-panel-solid: oklch(35% 0.02 265);
   --color-raised: oklch(36% 0.02 265);
+  --color-shadow: oklch(16% 0.02 265);
+  --color-highlight: oklch(97% 0.01 265);
   --color-line: oklch(85% 0.03 250);
   --color-ink-50: oklch(97% 0.01 265);
   --color-ink-100: oklch(96.4% 0.011 265);
@@ -345,6 +490,24 @@
   --color-nebula-a: oklch(60% 0.06 250);
   --color-nebula-b: oklch(78% 0.06 215);
   --color-star: oklch(96% 0.01 265);
+  --color-body-hi: oklch(30% 0.05 265);
+  --color-body-mid: oklch(20% 0.04 265);
+  --color-body-lo: oklch(16% 0.03 265);
+  --color-body-idle-hi: oklch(28% 0.05 265);
+  --color-body-idle-lo: oklch(18% 0.04 265);
+  --color-body-ended: oklch(16% 0.01 265);
+  --color-void: oklch(4% 0.005 265);
+  --color-disc-off: oklch(19% 0.008 250);
+  --color-eclipse: oklch(15% 0.01 250);
+  --tt-l: 80%;
+  --tt-c: 0.13;
+  --tb-l: 80%;
+  --tb-c: 0.13;
+  --glow-k: 1;
+  --edge-w: 0px;
+  --sun-l: 91%;
+  --sun-c: .09;
+  --sun-ra: .25;
 }
 
 /* Ember — dark · after Gruvbox. */
@@ -355,6 +518,8 @@
   --color-panel: oklch(28% 0.005 60);
   --color-panel-solid: oklch(31% 0.006 60);
   --color-raised: oklch(32% 0.008 55);
+  --color-shadow: oklch(12% 0.004 60);
+  --color-highlight: oklch(93% 0.05 85);
   --color-line: oklch(88% 0.05 80);
   --color-ink-50: oklch(93% 0.05 85);
   --color-ink-100: oklch(92.6% 0.049 84);
@@ -379,6 +544,24 @@
   --color-nebula-a: oklch(60% 0.14 50);
   --color-nebula-b: oklch(70% 0.1 115);
   --color-star: oklch(92% 0.05 85);
+  --color-body-hi: oklch(30% 0.05 60);
+  --color-body-mid: oklch(20% 0.04 60);
+  --color-body-lo: oklch(16% 0.03 60);
+  --color-body-idle-hi: oklch(28% 0.05 60);
+  --color-body-idle-lo: oklch(18% 0.04 60);
+  --color-body-ended: oklch(16% 0.01 60);
+  --color-void: oklch(4% 0.005 60);
+  --color-disc-off: oklch(19% 0.008 250);
+  --color-eclipse: oklch(15% 0.01 250);
+  --tt-l: 80%;
+  --tt-c: 0.13;
+  --tb-l: 80%;
+  --tb-c: 0.13;
+  --glow-k: 1;
+  --edge-w: 0px;
+  --sun-l: 91%;
+  --sun-c: .09;
+  --sun-ra: .25;
 }
 
 /* Slate — dark · after One Dark. */
@@ -389,6 +572,8 @@
   --color-panel: oklch(30% 0.02 265);
   --color-panel-solid: oklch(33% 0.02 265);
   --color-raised: oklch(34% 0.02 265);
+  --color-shadow: oklch(14% 0.015 265);
+  --color-highlight: oklch(96% 0.01 265);
   --color-line: oklch(82% 0.04 255);
   --color-ink-50: oklch(96% 0.01 265);
   --color-ink-100: oklch(95.3% 0.011 265);
@@ -413,6 +598,24 @@
   --color-nebula-a: oklch(62% 0.14 320);
   --color-nebula-b: oklch(74% 0.12 245);
   --color-star: oklch(95% 0.01 265);
+  --color-body-hi: oklch(30% 0.05 265);
+  --color-body-mid: oklch(20% 0.04 265);
+  --color-body-lo: oklch(16% 0.03 265);
+  --color-body-idle-hi: oklch(28% 0.05 265);
+  --color-body-idle-lo: oklch(18% 0.04 265);
+  --color-body-ended: oklch(16% 0.01 265);
+  --color-void: oklch(4% 0.005 265);
+  --color-disc-off: oklch(19% 0.008 250);
+  --color-eclipse: oklch(15% 0.01 250);
+  --tt-l: 80%;
+  --tt-c: 0.13;
+  --tb-l: 80%;
+  --tb-c: 0.13;
+  --glow-k: 1;
+  --edge-w: 0px;
+  --sun-l: 91%;
+  --sun-c: .09;
+  --sun-ra: .25;
 }
 
 body {

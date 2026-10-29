@@ -183,7 +183,7 @@ export function Panel({
     bloom || useLiveWidth
       ? {
           ...(bloom
-            ? { boxShadow: `${sideShadow[side]}, 0 0 40px oklch(80% 0.13 ${glowHue} / 0.08)` }
+            ? { boxShadow: `${sideShadow[side]}, 0 0 40px oklch(var(--tb-l) var(--tb-c) ${glowHue} / 0.08)` }
             : undefined),
           ...(useLiveWidth ? { width: widthPx } : undefined),
         }

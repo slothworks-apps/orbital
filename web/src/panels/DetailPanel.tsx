@@ -692,9 +692,9 @@ export function DetailPanel({
   const headerHue = sessionTag?.hue
   const accent = tagColor(headerHue ?? ACCENT_HUE)
   /** The context fill's glow below the first threshold (canvas 1b-alt). */
-  const accentSoft55 = `oklch(80% 0.13 ${headerHue ?? ACCENT_HUE} / 0.55)`
+  const accentSoft55 = `oklch(var(--tb-l) var(--tb-c) ${headerHue ?? ACCENT_HUE} / 0.55)`
   /** The title's rule while it is being edited (9e-4). */
-  const accentSoft70 = `oklch(80% 0.13 ${headerHue ?? ACCENT_HUE} / 0.7)`
+  const accentSoft70 = `oklch(var(--tb-l) var(--tb-c) ${headerHue ?? ACCENT_HUE} / 0.7)`
 
   /**
    * The context gauge takes the map arc's colours past the same two

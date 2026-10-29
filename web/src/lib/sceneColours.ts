@@ -54,6 +54,15 @@ export const SCENE_TOKENS = [
   'nebula-a',
   'nebula-b',
   'star',
+  'body-hi',
+  'body-mid',
+  'body-lo',
+  'body-idle-hi',
+  'body-idle-lo',
+  'body-ended',
+  'void',
+  'disc-off',
+  'eclipse',
 ] as const satisfies readonly Token[]
 
 /**
@@ -90,10 +99,50 @@ export const DEEP_FIELD_FALLBACK: Readonly<Record<Token, string>> = {
   'danger-soft': '#fa8880',
   'danger-pale': '#ffb4ad',
   shadow: '#040810',
-  highlight: '#f2f9ff',
+  highlight: '#ffffff',
   'nebula-a': '#6e50dc',
   'nebula-b': '#28aadc',
   star: '#ffffff',
+  'body-hi': '#07333f',
+  'body-mid': '#001924',
+  'body-lo': '#010f18',
+  'body-idle-hi': '#012e3a',
+  'body-idle-lo': '#00151f',
+  'body-ended': '#090e11',
+  void: '#000000',
+  'disc-off': '#111417',
+  eclipse: '#080c0f',
+}
+
+/**
+ * What a theme's kind sets beside its colours (`theme.css` `:root`, canvas
+ * `Feature - Colour themes` 1l, 1m): the tag hue's lightness and chroma as a
+ * body, whether glows paint, the light themes' edge, and the limit sun's rim.
+ */
+export interface SceneKind {
+  /** `--tb-l`, `--tb-c`: a tag hue as a body, OKLCH lightness 0–1 and chroma. */
+  tagL: number
+  tagC: number
+  /** `--glow-k`: 1 where glows paint (dark themes), 0 where they do not. */
+  glowK: number
+  /** `--edge-w`: the 1 px edge in the tag hue a light theme draws round a body, in CSS px; 0 on a dark theme. */
+  edgeW: number
+  /** `--sun-l`, `--sun-c`, `--sun-ra`: a limit sun's rim and week arc, lightness 0–100 and chroma, and the rim's alpha. */
+  sunL: number
+  sunC: number
+  sunRa: number
+}
+
+/** Deep Field's, for the same moment as `DEEP_FIELD_FALLBACK`. */
+export const DARK_KIND: SceneKind = { tagL: 0.8, tagC: 0.13, glowK: 1, edgeW: 0, sunL: 91, sunC: 0.09, sunRa: 0.25 }
+
+/** Parses one of those variables: as a `fraction`, `80%` is 0.8; otherwise `1px` is 1 and `.13` is 0.13. */
+export function parseKindValue(raw: string, unit: 'fraction' | 'number'): number | null {
+  const value = raw.trim()
+  if (!value) return null
+  const n = parseFloat(value)
+  if (!Number.isFinite(n)) return null
+  return unit === 'fraction' && value.endsWith('%') ? n / 100 : n
 }
 
 // --- OKLab, for mixing the way CSS `color-mix(in oklab, …)` does -----------
@@ -142,41 +191,10 @@ export function lightness(rgb: Rgb): number {
   return rgbToOklab(rgb)[0]
 }
 
-/**
- * How much of the darker of `shade` and `ink-50` the hole keeps; the rest is
- * black. Deep Field's shade is no darker than its sky, so a hole of the token
- * alone would vanish into the space around it.
- */
-export const HOLE_TOKEN_SHARE = 0.4
-
-const BLACK: Rgb = [0, 0, 0]
-
-/**
- * The fill of the black hole and of anything that stands for "no light":
- * whichever of `shade` and `ink-50` is darker, pressed toward black. On a
- * dark theme that is the near-black shade; on a light one, where `shade` is
- * a mid grey, it is the dark ink — so the hole stays the darkest thing on the
- * map in every theme, and keeps the theme's tint.
- */
-export function holeDark(shade: Rgb, ink50: Rgb): Rgb {
-  const darker = lightness(ink50) < lightness(shade) ? ink50 : shade
-  return mixOklab(darker, BLACK, HOLE_TOKEN_SHARE)
-}
-
 // --- Derived colours with no token of their own ----------------------------
 // Each is a mix of tokens at a share that reproduces the canvas's own value
 // in Deep Field (the tests hold them to it), so it follows every other theme.
 
-/**
- * The working planet body's gradient (canvas 1a/1c/1f/2d:
- * `oklch(30% .05 220)`, `oklch(20% .04 225)` at 70 %, `oklch(16% .03 230)`):
- * the accent's share in a mix with `space-deep`, per stop.
- */
-export const BODY_WORKING_ACCENT = [0.17, 0.035, 0] as const
-/** The idle / needs-input body (`oklch(28% .05 220)`, `oklch(18% .04 225)` from 70 % on). */
-export const BODY_IDLE_ACCENT = [0.125, 0.01, 0.01] as const
-/** The ended body, flat `oklch(16% .01 230)`: `line`'s share in a mix with `space`. */
-export const BODY_ENDED_LINE = 0.035
 /**
  * The context arc past its second threshold (canvas 1i `oklch(72% .17 25)`):
  * `danger`'s share in a mix with `danger-soft`. Between the two, as the
@@ -192,32 +210,19 @@ export const CONTEXT_CRITICAL_DANGER = 0.185
 export const SCENE_CSS = {
   /** A directory tile on a planet label or a sun label, `oklch(34% .012 250)` (44f, 60a). */
   markTile: 'color-mix(in oklab, var(--color-ink-600) 27.5%, var(--color-space))',
-  /** A stale sun's disc, `oklch(19% .008 250)` (60a). */
-  sunStaleDisc: 'color-mix(in oklab, var(--color-ink-600) 6.5%, var(--color-space))',
-  /** A spent sun's disc and the eclipse shadow, `oklch(15% .01 250)` (60a). */
-  sunSpentDisc: 'color-mix(in oklab, var(--color-ink-600) 2%, var(--color-space))',
 } as const
 
-export type SceneColours = Readonly<Record<Token, THREE.Color>> & {
-  /** The colour theme's id; `deep-field` for the stylesheet's own palette. */
-  readonly id: string
-  readonly kind: ColourThemeKind
-  /** The same tokens as bytes, for canvas-2D textures and mixing. */
-  readonly rgb: Readonly<Record<Token, Rgb>>
-  /** `holeDark`: the black hole's disc and the working body's inner shade. */
-  readonly hole: THREE.Color
-  readonly glint: THREE.Color
-  /** The context arc past its second threshold. */
-  readonly contextCritical: THREE.Color
-  /** Gradient stops of the working and the idle body, offsets 0, .7 and 1. */
-  readonly bodyWorking: readonly [Rgb, Rgb, Rgb]
-  readonly bodyIdle: readonly [Rgb, Rgb, Rgb]
-  /** The flat ended body; a moon's ended disc too. */
-  readonly bodyEnded: THREE.Color
-  /** A moon's disc: the top of the working and the idle body. */
-  readonly discWorking: THREE.Color
-  readonly discIdle: THREE.Color
-}
+export type SceneColours = Readonly<Record<Token, THREE.Color>> &
+  Readonly<SceneKind> & {
+    /** The colour theme's id; `deep-field` for the stylesheet's own palette. */
+    readonly id: string
+    readonly kind: ColourThemeKind
+    /** The same tokens as bytes, for canvas-2D textures and mixing. */
+    readonly rgb: Readonly<Record<Token, Rgb>>
+    readonly glint: THREE.Color
+    /** The context arc past its second threshold. */
+    readonly contextCritical: THREE.Color
+  }
 
 /** sRGB bytes as a `THREE.Color` (three keeps it linear inside, as `new THREE.Color('#…')` does). */
 export function rgbColour([r, g, b]: Rgb): THREE.Color {
@@ -230,27 +235,25 @@ export function rgbCss([r, g, b]: Rgb): string {
 }
 
 /** Builds a theme's scene palette from its resolved tokens. Pure: no DOM. */
-export function buildSceneColours(id: string, kind: ColourThemeKind, rgb: Record<Token, Rgb>): SceneColours {
+export function buildSceneColours(
+  id: string,
+  kind: ColourThemeKind,
+  rgb: Record<Token, Rgb>,
+  sceneKind: SceneKind = DARK_KIND,
+): SceneColours {
   const colours = {} as Record<Token, THREE.Color>
   for (const token of SCENE_TOKENS) colours[token] = rgbColour(rgb[token])
-  const working = BODY_WORKING_ACCENT.map((share) => mixOklab(rgb.accent, rgb['space-deep'], share)) as unknown as [Rgb, Rgb, Rgb]
-  const idle = BODY_IDLE_ACCENT.map((share) => mixOklab(rgb.accent, rgb['space-deep'], share)) as unknown as [Rgb, Rgb, Rgb]
   return {
     ...colours,
+    ...sceneKind,
     id,
     kind,
     rgb,
-    hole: rgbColour(holeDark(rgb.shade, rgb['ink-50'])),
     // The brightest marks on a planet or a moon (the core, the needs-input
     // glow, the reticle): pure white on a dark sky, as they always were, and
     // the strongest ink on a light one.
     glint: kind === 'dark' ? new THREE.Color('#ffffff') : rgbColour(rgb['ink-50']),
     contextCritical: rgbColour(mixOklab(rgb.danger, rgb['danger-soft'], CONTEXT_CRITICAL_DANGER)),
-    bodyWorking: working,
-    bodyIdle: idle,
-    bodyEnded: rgbColour(mixOklab(rgb.line, rgb.space, BODY_ENDED_LINE)),
-    discWorking: rgbColour(working[0]),
-    discIdle: rgbColour(idle[0]),
   }
 }
 
@@ -316,7 +319,22 @@ export function readSceneColours(root: HTMLElement = document.documentElement): 
     if (!value) complete = false
     rgb[token] = value ?? parseHex(DEEP_FIELD_FALLBACK[token])!
   }
-  const palette = buildSceneColours(id, colourThemeById(id)?.kind ?? 'dark', rgb)
+  const read = (name: string, unit: 'fraction' | 'number', fallback: number) => {
+    const value = parseKindValue(style.getPropertyValue(name), unit)
+    if (value === null) complete = false
+    return value ?? fallback
+  }
+  const sceneKind: SceneKind = {
+    tagL: read('--tb-l', 'fraction', DARK_KIND.tagL),
+    tagC: read('--tb-c', 'number', DARK_KIND.tagC),
+    glowK: read('--glow-k', 'number', DARK_KIND.glowK),
+    edgeW: read('--edge-w', 'number', DARK_KIND.edgeW),
+    // The sun's lightness stays 0–100: it goes straight back into a CSS oklch().
+    sunL: read('--sun-l', 'number', DARK_KIND.sunL),
+    sunC: read('--sun-c', 'number', DARK_KIND.sunC),
+    sunRa: read('--sun-ra', 'number', DARK_KIND.sunRa),
+  }
+  const palette = buildSceneColours(id, colourThemeById(id)?.kind ?? 'dark', rgb, sceneKind)
   if (complete) cache.set(id, palette)
   return palette
 }

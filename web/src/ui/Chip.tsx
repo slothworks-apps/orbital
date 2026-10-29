@@ -58,8 +58,8 @@ export function Chip({
   const hueStyle: CSSProperties | undefined =
     active && hue !== undefined && activeTint === 'hue'
       ? {
-          borderColor: `oklch(80% .13 ${hue} / ${field ? '.5' : '.4'})`,
-          background: `oklch(80% .13 ${hue} / ${field ? '.12' : '.1'})`,
+          borderColor: `oklch(var(--tb-l) var(--tb-c) ${hue} / ${field ? '.5' : '.4'})`,
+          background: `oklch(var(--tb-l) var(--tb-c) ${hue} / ${field ? '.12' : '.1'})`,
           color: swatch('ink-100'),
         }
       : undefined

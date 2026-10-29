@@ -130,7 +130,7 @@ function TagPill({ hue, name }: { hue: number; name: string }) {
     <span
       data-rule-tag-pill
       className="inline-flex w-fit min-w-0 items-center gap-1.5 rounded-full border px-[9px] py-[3px] fs-11 font-semibold text-ink-100"
-      style={{ borderColor: `oklch(80% .13 ${hue} / .4)` }}
+      style={{ borderColor: `oklch(var(--tb-l) var(--tb-c) ${hue} / .4)` }}
     >
       <span
         aria-hidden
@@ -160,8 +160,8 @@ function TagPlanet({ hue, selected }: { hue: number; selected: boolean }) {
       className="block h-[22px] w-[22px] shrink-0 rounded-full"
       style={{
         background: 'radial-gradient(circle at 50% 45%, oklch(30% .05 220), oklch(20% .04 225) 70%)',
-        border: `1px solid oklch(80% .13 ${hue} / .55)`,
-        boxShadow: selected ? `0 0 14px oklch(80% .13 ${hue} / .7)` : `0 0 12px oklch(80% .13 ${hue} / .6)`,
+        border: `1px solid oklch(var(--tb-l) var(--tb-c) ${hue} / .55)`,
+        boxShadow: selected ? `0 0 14px oklch(var(--tb-l) var(--tb-c) ${hue} / .7)` : `0 0 12px oklch(var(--tb-l) var(--tb-c) ${hue} / .6)`,
       }}
     />
   )
@@ -769,8 +769,8 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                     style={
                       isSelected
                         ? {
-                            borderColor: `oklch(80% .13 ${tag.hue} / .4)`,
-                            background: `oklch(80% .13 ${tag.hue} / .06)`,
+                            borderColor: `oklch(var(--tb-l) var(--tb-c) ${tag.hue} / .4)`,
+                            background: `oklch(var(--tb-l) var(--tb-c) ${tag.hue} / .06)`,
                           }
                         : undefined
                     }
@@ -967,8 +967,8 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                 // two read as the same object. Deliberately NOT a dim — 1e
                 // already spends opacity on disabled rules.
                 if (!editing && targetsSelected) {
-                  rowStyle.borderColor = `oklch(80% .13 ${hue} / .4)`
-                  rowStyle.background = `oklch(80% .13 ${hue} / .06)`
+                  rowStyle.borderColor = `oklch(var(--tb-l) var(--tb-c) ${hue} / .4)`
+                  rowStyle.background = `oklch(var(--tb-l) var(--tb-c) ${hue} / .06)`
                 }
                 // Transform only — never top/margin/height, which would
                 // relayout the list on every dragover and fight the drag.

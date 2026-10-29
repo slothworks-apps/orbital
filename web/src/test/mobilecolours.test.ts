@@ -20,8 +20,8 @@ describe('the phone colour choice, as stored', () => {
   })
 
   it('keeps each appearance to themes of its own kind', () => {
-    const raw = JSON.stringify({ theme: 'infrared', followSystem: true, light: 'velvet', dark: 'solar-light' })
-    expect(parseColourChoice(raw)).toEqual({ ...DEFAULT_COLOUR_CHOICE, theme: 'infrared', followSystem: true })
+    const raw = JSON.stringify({ theme: 'albedo', followSystem: true, light: 'velvet', dark: 'solar-light' })
+    expect(parseColourChoice(raw)).toEqual({ ...DEFAULT_COLOUR_CHOICE, theme: 'albedo', followSystem: true })
   })
 
   it('follows the system only when stored as true', () => {

@@ -36,7 +36,7 @@ export function colourThemeOptions(): Array<SelectOption<string>> {
 /**
  * Settings → Appearance → COLOURS (canvas `Feature - Colour themes` 1f),
  * shown while Labs → Colour themes is on: the theme, and whether light mode
- * swaps it for Infrared. Writing the setting is all a pick does; `main.tsx`
+ * swaps it for Albedo. Writing the setting is all a pick does; `main.tsx`
  * repaints the root whenever settings change.
  */
 export function ColourThemeRows({

@@ -45,7 +45,7 @@ const STATE_OPTIONS = PLANET_STATES.map((state) => ({
 const HUE_OPTIONS = [210, 30, 140, 280, 350].map((hue) => ({
   value: hue,
   label: `hue ${hue}`,
-  dotColor: `oklch(80% .13 ${hue})`,
+  dotColor: `oklch(var(--tb-l) var(--tb-c) ${hue})`,
 }))
 
 /**

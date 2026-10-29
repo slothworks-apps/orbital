@@ -20,9 +20,9 @@ describe('colour themes', () => {
     expect(macColourTheme({ colour_themes_enabled: 'true', colour_theme: 'gone' }, true)).toBe('deep-field')
   })
 
-  it('takes Infrared in light mode and the chosen theme in dark mode while following the system', () => {
+  it('takes Albedo in light mode and the chosen theme in dark mode while following the system', () => {
     const settings = { colour_themes_enabled: 'true', colour_theme: 'arctic', colour_theme_follow_system: 'true' }
-    expect(macColourTheme(settings, false)).toBe('infrared')
+    expect(macColourTheme(settings, false)).toBe('albedo')
     expect(macColourTheme(settings, true)).toBe('arctic')
   })
 
@@ -35,8 +35,8 @@ describe('colour themes', () => {
 
   it('drops the attribute for Deep Field, which is the stylesheet itself', () => {
     const root = document.createElement('div')
-    applyColourTheme(root, 'infrared')
-    expect(root.dataset.colours).toBe('infrared')
+    applyColourTheme(root, 'albedo')
+    expect(root.dataset.colours).toBe('albedo')
     applyColourTheme(root, 'deep-field')
     expect(root.dataset.colours).toBeUndefined()
   })

@@ -33,6 +33,36 @@ export function glowTexture(): THREE.Texture | null {
   return glow
 }
 
+let shadow: THREE.Texture | null | undefined
+
+/**
+ * A soft disc for the drop shadow a light theme puts under a body (1l:
+ * `0 2px 8px` shadow): opaque out to `SHADOW_SOLID` of its radius, then
+ * fading to nothing at the edge. White, tinted by the material's colour like
+ * the glow. Sized by the caller so the fade spans the shadow's blur.
+ */
+export const SHADOW_SOLID = 0.72
+
+export function shadowTexture(): THREE.Texture | null {
+  if (shadow !== undefined) return shadow
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = 128
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    shadow = null
+    return shadow
+  }
+  const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64)
+  gradient.addColorStop(0, 'rgba(255,255,255,1)')
+  gradient.addColorStop(SHADOW_SOLID, 'rgba(255,255,255,1)')
+  gradient.addColorStop((SHADOW_SOLID + 1) / 2, 'rgba(255,255,255,0.45)')
+  gradient.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, 128, 128)
+  shadow = new THREE.CanvasTexture(canvas)
+  return shadow
+}
+
 /**
  * Builds one `radial-gradient(circle at 50% 45%, …)` body disc from
  * `[offset, colour]` stops.
@@ -70,26 +100,26 @@ function themedTexture(build: (palette: SceneColours) => THREE.Texture | null) {
 /**
  * Working planet body, per the canvas export's inline CSS (1a/1c/1f/2d):
  * `radial-gradient(circle at 50% 45%, oklch(30% .05 220), oklch(20% .04 225) 70%, oklch(16% .03 230))`,
- * taken from the palette (`bodyWorking` in `lib/sceneColours.ts`).
+ * the theme's `body-hi`, `body-mid` and `body-lo`.
  * Neutral (not tag-hued) and state-independent, so one shared texture.
  */
-export const bodyTexture = themedTexture(({ bodyWorking: [top, mid, edge] }) =>
+export const bodyTexture = themedTexture(({ rgb }) =>
   bodyGradient([
-    [0, top],
-    [0.7, mid],
-    [1, edge],
+    [0, rgb['body-hi']],
+    [0.7, rgb['body-mid']],
+    [1, rgb['body-lo']],
   ])
 )
 
 /**
  * Idle / needs-input planet body — the export uses a distinctly darker,
  * two-stop gradient for these states (1f, 1a, 2d):
- * `radial-gradient(circle at 50% 45%, oklch(28% .05 220), oklch(18% .04 225) 70%)`.
+ * `radial-gradient(circle at 50% 45%, oklch(28% .05 220), oklch(18% .04 225) 70%)` —
+ * the theme's `body-idle-hi` and `body-idle-lo`.
  */
-export const bodyIdleTexture = themedTexture(({ bodyIdle: [top, mid, edge] }) =>
+export const bodyIdleTexture = themedTexture(({ rgb }) =>
   bodyGradient([
-    [0, top],
-    [0.7, mid],
-    [1, edge],
+    [0, rgb['body-idle-hi']],
+    [0.7, rgb['body-idle-lo']],
   ])
 )

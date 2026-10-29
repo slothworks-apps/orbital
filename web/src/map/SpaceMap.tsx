@@ -234,7 +234,7 @@ function ClusterLabel({
             fontSize: 10,
             letterSpacing: '0.2em',
             textTransform: 'uppercase',
-            color: `oklch(80% .13 ${label.hue} / .45)`,
+            color: `oklch(var(--tt-l) var(--tt-c) ${label.hue} / .8)`,
             whiteSpace: 'nowrap',
             // A cluster left with only bodies whose device chip is off fades
             // with them (canvas 50e `transition:opacity .5s ease`).

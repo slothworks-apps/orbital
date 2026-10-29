@@ -87,7 +87,7 @@ pass decides whether they become tokens or go.
   (`oklch(80% .13 <hue>)`, the user's own colours), the archipelago's
   scenery, and the black of the phone's media viewers.
 - **Tag hues on light themes.** Mat names and tag counts in the tag hue (L 80%)
-  fail contrast on Infrared and Solar Light (canvas flag 6). Tags need a
+  fail contrast on Albedo and Solar Light (canvas flag 6). Tags need a
   lightness per theme before a light theme leaves Labs.
 - **Fills that are plain black or white** (`bg-black/30` behind code, a few
   `bg-white/10` chips) and the three tinted stars of the backdrop.
@@ -102,7 +102,7 @@ The token values are the canvas's own oklch and live in `theme.css`, one
 |---|---|---|---|
 | `deep-field` | Deep Field | dark, the default | today's palette |
 | `event-horizon` | Event Horizon | dark, near-black, brighter ink | — |
-| `infrared` | Infrared | light, for a bright room | — |
+| `albedo` | Albedo | light, for a bright room | — |
 | `solar-dark`, `solar-light` | Solar Dark, Solar Light | dark, light | Solarized |
 | `molten` | Molten | dark | Monokai |
 | `velvet` | Velvet | dark | Dracula |
@@ -110,8 +110,9 @@ The token values are the canvas's own oklch and live in `theme.css`, one
 | `ember` | Ember | dark | Gruvbox |
 | `slate` | Slate | dark | One Dark |
 
-The canvas called them Night, Daylight and Contrast; the shipped names are
-Deep Field, Infrared (a light sky that reads like an infrared photograph)
+The canvas first called them Night, Daylight and Contrast (and the light one
+Infrared for a while); the shipped names are
+Deep Field, Albedo (how much light a body reflects: a pale, reflective sky)
 and Event Horizon. All ten ship in the first round.
 
 Decisions taken from the canvas's flags (1b), each a visible change to Deep
@@ -126,7 +127,7 @@ Field:
 
 Added with the themes: `shadow` and `highlight` (a light theme cannot shade
 with `shade` or light with `ink-50`), and `nebula-a`, `nebula-b`, `star` for
-the map backdrop, which on Infrared reads as a star chart. Drop shadows and
+the map backdrop, which on Albedo reads as a star chart. Drop shadows and
 inset highlights were moved onto them.
 
 ### Mac
@@ -134,7 +135,7 @@ inset highlights were moved onto them.
 Labs → Colour themes turns the feature on. While it is on, Settings →
 Appearance gets COLOURS at the top: one dropdown grouped DARK / LIGHT with
 each theme's space, panel and accent as dots, and Follow the system, which
-takes Infrared while macOS is in light mode and the chosen theme otherwise.
+takes Albedo while macOS is in light mode and the chosen theme otherwise.
 Settings keys `colour_themes_enabled`, `colour_theme`,
 `colour_theme_follow_system`. A change repaints in the next frame; the last
 painted theme is remembered in `localStorage` so a reload paints it before

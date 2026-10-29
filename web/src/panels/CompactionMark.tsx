@@ -173,7 +173,7 @@ export function CompactionMark({
             />
             <span
               className="absolute inset-y-0 left-0 block rounded-[2px]"
-              style={{ width: `${barPost}%`, background: `oklch(80% .13 ${hue} / .85)` }}
+              style={{ width: `${barPost}%`, background: `oklch(var(--tb-l) var(--tb-c) ${hue} / .85)` }}
             />
           </div>
         )}

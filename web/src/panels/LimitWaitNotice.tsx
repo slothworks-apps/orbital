@@ -81,7 +81,7 @@ export function LimitWaitNotice({ sessionId, wait, hue }: { sessionId: string; w
         <div key={i} data-limit-queued className="flex flex-col items-end gap-1">
           <div
             className="max-w-[86%] whitespace-pre-wrap rounded-[12px_12px_4px_12px] border border-dashed px-3.5 py-2.5 fs-13 leading-[1.5] text-ink-100/80 [text-wrap:pretty]"
-            style={{ background: `oklch(80% .13 ${hue} / .06)`, borderColor: `oklch(80% .13 ${hue} / .3)` }}
+            style={{ background: `oklch(var(--tb-l) var(--tb-c) ${hue} / .06)`, borderColor: `oklch(var(--tb-l) var(--tb-c) ${hue} / .3)` }}
           >
             {text}
           </div>

@@ -90,7 +90,7 @@ export function LimitNotice({ session, offline }: SlotProps) {
           <div
             className="whitespace-pre-wrap rounded-[16px_16px_5px_16px] border border-dashed px-3.5 py-2.5 fs-14 leading-[1.5]"
             style={{
-              borderColor: `oklch(80% .13 ${hue} / ${offline ? '.3' : '.4'})`,
+              borderColor: `oklch(var(--tb-l) var(--tb-c) ${hue} / ${offline ? '.3' : '.4'})`,
               color: offline ? swatch('ink-100', 0.7) : swatch('ink-100', 0.85),
             }}
           >

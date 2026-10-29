@@ -38,6 +38,15 @@ export type Token =
   | 'nebula-a'
   | 'nebula-b'
   | 'star'
+  | 'body-hi'
+  | 'body-mid'
+  | 'body-lo'
+  | 'body-idle-hi'
+  | 'body-idle-lo'
+  | 'body-ended'
+  | 'void'
+  | 'disc-off'
+  | 'eclipse'
 
 export function swatch(token: Token, alpha = 1): string {
   if (alpha >= 1) return `var(--color-${token})`

@@ -17,7 +17,7 @@ import { useMapFrame } from './FrameBudget'
 import { mapSuns, sunCardPlacement, SUN_CARD_WIDTH_PX, SUN_PX, type MapSun } from './sunModel'
 import { sunLook } from './sunVisual'
 import { swatch } from '../lib/palette'
-import { SCENE_CSS } from '../lib/sceneColours'
+import { SCENE_CSS, useSceneColours } from '../lib/sceneColours'
 import {
   BODY_MOVE_MS,
   advancePointTween,
@@ -204,7 +204,11 @@ function LimitSun({
   const applied = useRef(-1)
   const ringOn = useSunState((s) => s.hovered === sun.key || s.dragging === sun.key)
   const dragging = useSunState((s) => s.dragging === sun.key)
-  const look = useMemo(() => sunLook(style, sun.reading, sun.color, sun.stale), [style, sun.reading, sun.color, sun.stale])
+  const { sunL, sunC, sunRa, glowK } = useSceneColours()
+  const look = useMemo(
+    () => sunLook(style, sun.reading, sun.color, sun.stale, { sunL, sunC, sunRa, glowK }),
+    [style, sun.reading, sun.color, sun.stale, sunL, sunC, sunRa, glowK],
+  )
   const reduced = prefersReducedMotion()
 
   // A sun without a stored position walks with the field, like the trash; a
@@ -363,7 +367,7 @@ function LimitSun({
                   width: 'calc(100% + 2px)',
                   left: `${look.shadowLeft}%`,
                   borderRadius: '50%',
-                  background: SCENE_CSS.sunSpentDisc,
+                  background: swatch('eclipse'),
                   opacity: look.shadowOp,
                   transition: fade('left,opacity', CROSS_FADE_MS),
                 }}

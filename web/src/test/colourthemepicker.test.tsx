@@ -39,7 +39,7 @@ beforeEach(() => {
 
 describe('Settings → Appearance → COLOURS (1f)', () => {
   it('is not offered until Labs → Colour themes is on', () => {
-    renderAppearance({ colour_theme: 'infrared' })
+    renderAppearance({ colour_theme: 'albedo' })
     expect(screen.queryByRole('combobox', { name: 'Colours', hidden: true })).toBeNull()
   })
 
@@ -53,11 +53,11 @@ describe('Settings → Appearance → COLOURS (1f)', () => {
     const light = screen.getByRole('group', { name: 'LIGHT', hidden: true })
     const darkCount = COLOUR_THEMES.filter((t) => t.kind === 'dark').length
     expect(within(dark).getAllByRole('option', { hidden: true })).toHaveLength(darkCount)
-    expect(within(light).getAllByRole('option', { hidden: true })[0].getAttribute('data-label')).toBe('Infrared')
+    expect(within(light).getAllByRole('option', { hidden: true })[0].getAttribute('data-label')).toBe('Albedo')
 
     // From Deep Field (first), down past every dark theme lands on the first light one.
     for (let i = 0; i < darkCount; i++) fireEvent.keyDown(trigger, { key: 'ArrowDown' })
     fireEvent.keyDown(trigger, { key: 'Enter' })
-    expect(api.patchSettings).toHaveBeenCalledWith({ colour_theme: 'infrared' })
+    expect(api.patchSettings).toHaveBeenCalledWith({ colour_theme: 'albedo' })
   })
 })

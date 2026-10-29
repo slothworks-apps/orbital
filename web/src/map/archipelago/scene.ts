@@ -1,7 +1,7 @@
 import type { ScenePlanet, SceneModel } from '../sceneModel'
 import type { CameraState } from '../camera'
 import { bodyZoomFactor } from '../camera'
-import { sessionStateKey, statePill, type SessionStateKey, type Subagent } from '../../lib/types'
+import { sessionStateKey, statePill, tagColor, type SessionStateKey, type Subagent } from '../../lib/types'
 import { stateColor } from '../../lib/stateStyle'
 import { swatch } from '../../lib/palette'
 import { truncateLabel } from '../visuals'
@@ -146,6 +146,11 @@ function el<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, 
 }
 
 const ease = (dt: number, k: number) => 1 - Math.exp(-dt * k)
+/**
+ * The village's roofs and keep in the tag's hue, as scenery. What marks a
+ * tag or a session — the plaque, the flag, a hull's outline — takes
+ * `tagColor` instead, which follows the colour theme (1m).
+ */
 const hsl = (hue: number, s: number, l: number, a = 1) => `hsl(${hue} ${s}% ${l}% / ${a})`
 const fmt = (n: number) => n.toFixed(3)
 
@@ -387,7 +392,7 @@ export class ArchipelagoScene {
     el('rect', { x: -15, y: -19, width: 30, height: 38, rx: 2, fill: hsl(hue, 45, 55, 0.75) }, kg)
     el('line', { x1: 0, x2: 0, y1: -19, y2: 19, stroke: '#0c1219', 'stroke-width': 1.4, opacity: 0.45 }, kg)
     const flagAt = polar(island, island.harbour + 0.35, coastRadius(island, island.harbour) * 0.78)
-    const flag = el('path', { fill: hsl(hue, 55, 60) }, g)
+    const flag = el('path', { fill: tagColor(hue) }, g)
     el('circle', { cx: fmt(flagAt.x), cy: fmt(flagAt.y), r: fmt(R * 0.011), fill: '#c9cfd8' }, g)
 
     const p = pier(island)
@@ -405,7 +410,7 @@ export class ArchipelagoScene {
     const plaque = document.createElement('div')
     plaque.className = 'pointer-events-auto absolute left-0 top-0 flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-lg border border-ink-50/8 bg-panel/80 px-2.5 py-1.5'
     plaque.dataset.island = String(island.tagId)
-    plaque.innerHTML = `<i style="width:3px;height:18px;border-radius:2px;background:${hsl(hue, 60, 65)}"></i><span data-name class="font-mono fs-11 font-semibold tracking-[0.16em] text-ink-100"></span>`
+    plaque.innerHTML = `<i style="width:3px;height:18px;border-radius:2px;background:${tagColor(hue)}"></i><span data-name class="font-mono fs-11 font-semibold tracking-[0.16em] text-ink-100"></span>`
     this.labelLayer.appendChild(plaque)
     return { island, anchor: { x: 0, y: 0 }, g, plaque, lights, flag, flagAt, key, working: 0 }
   }
@@ -763,7 +768,7 @@ export class ArchipelagoScene {
       // The lantern breathes slowly; nothing on the map blinks (why-orbital § Calm).
       v.halo.setAttribute('opacity', key === 'needs_input' ? fmt(0.7 + (reduced ? 0 : Math.sin(t * 0.8 + v.bob) * 0.18)) : '0')
       v.wins.forEach((r, i) => r.setAttribute('opacity', key === 'working' ? fmt(0.5 + (reduced ? 0 : 0.4 * Math.sin(t * 0.45 + i * 2 + v.bob))) : '0'))
-      v.hull.setAttribute('stroke', hsl(p.hue, 55, 62))
+      v.hull.setAttribute('stroke', tagColor(p.hue))
 
       let opacity = p.muted ? 0.28 : 1
       if (key === 'ended') opacity *= 0.55

@@ -3,7 +3,9 @@ import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import type { SceneHole } from './sceneModel'
 import { bodyZoomFactor } from './camera'
-import { useMapFrame } from './FrameBudget'
+import { useFrameScheduler, useMapFrame } from './FrameBudget'
+import { TickRing } from './Planet'
+import { shadowTexture, SHADOW_SOLID } from './textures'
 import { swatch } from '../lib/palette'
 import { useSceneColours } from '../lib/sceneColours'
 import { holeDropState, HOLE_DROP_RADIUS, type SimState } from './simulation'
@@ -39,13 +41,14 @@ import {
  * map does not draw, and clicking it opens the sidebar's HISTORY. The ring
  * flash on a drop that ends a session is driven imperatively through
  * `flashRef`, written by `SpaceMap` on release. Still drawn as the hole until
- * Claude Design draws the trash; the refused state borrows `--color-warning`
- * meanwhile.
+ * Claude Design draws the trash.
  *
- * Colours come from the colour theme's scene palette: the horizon ring is
- * `ink-50` (canvas `#f0f8ff`), the halo `line`, the disc `hole` — the
- * darkest of `shade` and `ink-50`, so the hole stays the darkest thing on
- * the map on a light theme too.
+ * Colours come from the colour theme's scene palette (canvas `Feature -
+ * Colour themes` 1l): the horizon ring is `ink-50` (canvas `#f0f8ff`), the
+ * halo `line`, the disc `void` — black on a dark theme, a dark ink on a
+ * light one, where a soft shadow under the ring stands in for the glow.
+ * Hovered, the ring rises to .8 and the halo to its drop-target strength;
+ * refusing a body, the ring turns dashed and muted — a "no" without red.
  *
  * Geometry transcribed from canvas 4a's hole block (50px disc, horizon ring
  * at inset -2, drop halo at inset -46, label column left of it), converted
@@ -76,12 +79,18 @@ const SIGNAL_SETTLED = 0.001
 const HINT_COLOR_REST = swatch('ink-900', 0.42)
 const HINT_COLOR_ELIGIBLE = swatch('ink-300', 0.75)
 const HINT_COLOR_ARMED = swatch('ink-50', 0.95)
-const HINT_COLOR_REFUSED = swatch('warning')
-/*
- * While a terminal body is over the trash the ring and halo tint toward the
- * palette's `warning` — the "no". No canvas yet; Claude Design will draw the
- * refused state.
- */
+const HINT_COLOR_REFUSED = swatch('ink-900', 0.6)
+/** Hovered (1l): the ring at .8. */
+const RING_HOVER_OPACITY = 0.8
+/** Refusing (1l): `1px dashed` muted ink, about as many dashes as a CSS border draws on the ring. */
+const REFUSED_DASH_COUNT = 28
+const REFUSED_DASH_DEG = 6.4
+const REFUSED_OPACITY = 0.6
+/** A light theme's shadow under the ring (1l `0 1px 5px` of `shadow` at .35), in place of a glow. */
+const SHADOW_OFFSET = 1 * PX
+const SHADOW_BLUR = 5 * PX
+const SHADOW_OPACITY = 0.35
+const SHADOW_SIZE = (2 * (RING_OUTER - SHADOW_BLUR)) / SHADOW_SOLID
 
 /** The ring flash on a drop that ends a session (canvas: `this.flash = 0.45`). */
 const FLASH_SEC = 0.45
@@ -131,12 +140,23 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
       }),
     []
   )
+  const refusedMaterial = useMemo(
+    () => new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, visible: false }),
+    []
+  )
+  const shadowMap = shadowTexture()
+  const shadowMaterial = useMemo(
+    () => new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, ...(shadowMap ? { map: shadowMap } : {}) }),
+    [shadowMap]
+  )
   useEffect(
     () => () => {
       ringMaterial.dispose()
       haloMaterial.dispose()
+      refusedMaterial.dispose()
+      shadowMaterial.dispose()
     },
-    [ringMaterial, haloMaterial]
+    [ringMaterial, haloMaterial, refusedMaterial, shadowMaterial]
   )
 
   // The resting colours, before the first paint and on a colour theme change;
@@ -144,7 +164,19 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
   useLayoutEffect(() => {
     ringMaterial.color.copy(palette['ink-50'])
     haloMaterial.color.copy(palette.line)
-  }, [ringMaterial, haloMaterial, palette])
+    refusedMaterial.color.copy(palette['ink-900'])
+    shadowMaterial.color.copy(palette.shadow)
+    shadowMaterial.opacity = SHADOW_OPACITY * (1 - palette.glowK)
+    shadowMaterial.visible = shadowMaterial.opacity > 0.001
+  }, [ringMaterial, haloMaterial, refusedMaterial, shadowMaterial, palette])
+
+  /** The pointer is over the hole: a ref and a frame, no render (the ring eases there in the loop). */
+  const scheduler = useFrameScheduler()
+  const hoveredRef = useRef(false)
+  const setHovered = (next: boolean) => {
+    hoveredRef.current = next
+    scheduler?.request()
+  }
 
   useEffect(() => {
     retargetPointTween(move, hole.x, hole.y, prefersReducedMotion())
@@ -154,6 +186,7 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
   const eligibleLevel = useRef(0)
   const armedLevel = useRef(0)
   const refusedLevel = useRef(0)
+  const hoverLevel = useRef(0)
   const hintRef = useRef<HTMLDivElement>(null)
 
   useMapFrame((state, delta) => {
@@ -185,22 +218,33 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
     const eligibleTarget = drop === 'none' ? 0 : 1
     const armedTarget = drop === 'armed' || drop === 'refused' ? 1 : 0
     const refusedTarget = drop === 'refused' ? 1 : 0
+    const hoverTarget = hoveredRef.current && drop === 'none' ? 1 : 0
     eligibleLevel.current += (eligibleTarget - eligibleLevel.current) * ease
     armedLevel.current += (armedTarget - armedLevel.current) * ease
     refusedLevel.current += (refusedTarget - refusedLevel.current) * ease
     if (Math.abs(eligibleTarget - eligibleLevel.current) < SIGNAL_SETTLED) eligibleLevel.current = eligibleTarget
     if (Math.abs(armedTarget - armedLevel.current) < SIGNAL_SETTLED) armedLevel.current = armedTarget
     if (Math.abs(refusedTarget - refusedLevel.current) < SIGNAL_SETTLED) refusedLevel.current = refusedTarget
+    hoverLevel.current += (hoverTarget - hoverLevel.current) * ease
+    if (Math.abs(hoverTarget - hoverLevel.current) < SIGNAL_SETTLED) hoverLevel.current = hoverTarget
     const eligible = eligibleLevel.current
     const armed = armedLevel.current
     const refused = refusedLevel.current
+    const hover = hoverLevel.current
 
-    ringMaterial.opacity = RING_OPACITY + (1 - RING_OPACITY) * Math.max(k, armed)
-    ringMaterial.color.copy(palette['ink-50']).lerp(palette.warning, refused)
+    // Refusing, the solid ring gives way to the dashed muted one (1l).
+    const ringOpacity =
+      RING_OPACITY + (RING_HOVER_OPACITY - RING_OPACITY) * hover + (1 - RING_OPACITY) * Math.max(k, armed - refused)
+    ringMaterial.opacity = Math.min(1, ringOpacity) * (1 - refused)
+    ringMaterial.visible = ringMaterial.opacity > 0.001
+    refusedMaterial.opacity = REFUSED_OPACITY * refused
+    refusedMaterial.visible = refusedMaterial.opacity > 0.001
     haloMaterial.opacity =
       HALO_OPACITY *
-      (1 + 3 * k + (HALO_ELIGIBLE_BOOST - 1) * eligible + (HALO_ARMED_BOOST - HALO_ELIGIBLE_BOOST) * armed)
-    haloMaterial.color.copy(palette.line).lerp(palette.warning, refused)
+      (1 +
+        3 * k +
+        (HALO_ELIGIBLE_BOOST - 1) * Math.max(eligible, hover) +
+        (HALO_ARMED_BOOST - HALO_ELIGIBLE_BOOST) * armed * (1 - refused))
 
     if (hintRef.current) {
       const text =
@@ -222,7 +266,8 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
       flashRef.current > 0 ||
       eligibleLevel.current !== eligibleTarget ||
       armedLevel.current !== armedTarget ||
-      refusedLevel.current !== refusedTarget
+      refusedLevel.current !== refusedTarget ||
+      hoverLevel.current !== hoverTarget
     )
   })
 
@@ -232,6 +277,8 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
       <mesh
         position={[0, 0, HOLE_Z]}
         material={haloMaterial}
+        onPointerOver={() => setHovered(true)}
+        onPointerOut={() => setHovered(false)}
         onClick={
           onOpen
             ? (e) => {
@@ -259,13 +306,27 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
         <circleGeometry args={[HALO_BAND_INNER, 32]} />
       </mesh>
 
+      {shadowMap && (
+        <mesh position={[0, -SHADOW_OFFSET, HOLE_Z + 0.0005]} material={shadowMaterial}>
+          <planeGeometry args={[SHADOW_SIZE, SHADOW_SIZE]} />
+        </mesh>
+      )}
       <mesh position={[0, 0, HOLE_Z + 0.001]} material={ringMaterial}>
         <ringGeometry args={[RING_INNER, RING_OUTER, 64]} />
       </mesh>
-      {/* The hole itself: flat dark, in front of the ring's inner edge. */}
+      <group position={[0, 0, HOLE_Z + 0.001]}>
+        <TickRing
+          count={REFUSED_DASH_COUNT}
+          radius={(RING_INNER + RING_OUTER) / 2}
+          widthDeg={REFUSED_DASH_DEG}
+          length={RING_OUTER - RING_INNER}
+          material={refusedMaterial}
+        />
+      </group>
+      {/* The hole itself: flat `void`, in front of the ring's inner edge. */}
       <mesh position={[0, 0, HOLE_Z + 0.002]}>
         <circleGeometry args={[HOLE_RADIUS, 64]} />
-        <meshBasicMaterial color={palette.hole} />
+        <meshBasicMaterial color={palette.void} />
       </mesh>
 
       {/* Label column, right-aligned against the hole (canvas 4a). Its type

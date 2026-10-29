@@ -1,17 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
-  BODY_ENDED_LINE,
-  BODY_IDLE_ACCENT,
-  BODY_WORKING_ACCENT,
-  buildSceneColours,
   CONTEXT_CRITICAL_DANGER,
   DEEP_FIELD_FALLBACK,
-  holeDark,
-  HOLE_TOKEN_SHARE,
   lightness,
   mixOklab,
   oklabToRgb,
   parseHex,
+  parseKindValue,
   SCENE_CSS,
   SCENE_TOKENS,
   type Rgb,
@@ -79,26 +74,14 @@ describe('scene palette', () => {
     expect(mixOklab(a, b, 0)).toEqual(b)
   })
 
-  it('reproduces the canvas body and arc colours in Deep Field', () => {
-    const p = buildSceneColours('deep-field', 'dark', DEEP_FIELD)
-    const near = (got: Rgb, canvas: string, within = 8) => expect(distance(got, oklch(canvas))).toBeLessThanOrEqual(within)
-    near(p.bodyWorking[0], 'oklch(30% 0.05 220)')
-    near(p.bodyWorking[1], 'oklch(20% 0.04 225)')
-    near(p.bodyWorking[2], 'oklch(16% 0.03 230)')
-    near(p.bodyIdle[0], 'oklch(28% 0.05 220)', 9)
-    near(p.bodyIdle[1], 'oklch(18% 0.04 225)')
-    near(mixOklab(DEEP_FIELD.line, DEEP_FIELD.space, BODY_ENDED_LINE), 'oklch(16% 0.01 230)')
-    near(mixOklab(DEEP_FIELD.danger, DEEP_FIELD['danger-soft'], CONTEXT_CRITICAL_DANGER), 'oklch(72% 0.17 25)')
-    // The shares are what the stops are built from.
-    expect(p.bodyWorking[0]).toEqual(mixOklab(DEEP_FIELD.accent, DEEP_FIELD['space-deep'], BODY_WORKING_ACCENT[0]))
-    expect(p.bodyIdle[0]).toEqual(mixOklab(DEEP_FIELD.accent, DEEP_FIELD['space-deep'], BODY_IDLE_ACCENT[0]))
+  it('reproduces the canvas critical arc in Deep Field', () => {
+    const arc = mixOklab(DEEP_FIELD.danger, DEEP_FIELD['danger-soft'], CONTEXT_CRITICAL_DANGER)
+    expect(distance(arc, oklch('oklch(72% 0.17 25)'))).toBeLessThanOrEqual(8)
   })
 
   it('reproduces the canvas DOM surfaces in Deep Field', () => {
     const canvas: Record<keyof typeof SCENE_CSS, string> = {
       markTile: 'oklch(34% 0.012 250)',
-      sunStaleDisc: 'oklch(19% 0.008 250)',
-      sunSpentDisc: 'oklch(15% 0.01 250)',
     }
     for (const [key, css] of Object.entries(SCENE_CSS) as [keyof typeof SCENE_CSS, string][]) {
       const [, a, share, b] = css.match(/var\(--color-([a-z0-9-]+)\) ([\d.]+)%, var\(--color-([a-z0-9-]+)\)/)!
@@ -108,22 +91,24 @@ describe('scene palette', () => {
   })
 })
 
-describe('holeDark', () => {
-  it('starts from the shade on a dark theme and from the dark ink on a light one', () => {
-    expect(holeDark(DEEP_FIELD.shade, DEEP_FIELD['ink-50'])).toEqual(mixOklab(DEEP_FIELD.shade, [0, 0, 0], HOLE_TOKEN_SHARE))
-    const infrared = THEMES.infrared
-    expect(holeDark(infrared.shade, infrared['ink-50'])).toEqual(mixOklab(infrared['ink-50'], [0, 0, 0], HOLE_TOKEN_SHARE))
+describe('the theme kind', () => {
+  it('parses the variables theme.css sets beside the colours', () => {
+    expect(parseKindValue('80%', 'fraction')).toBe(0.8)
+    expect(parseKindValue(' 0.13', 'number')).toBe(0.13)
+    expect(parseKindValue('.12', 'number')).toBe(0.12)
+    expect(parseKindValue('1px', 'number')).toBe(1)
+    expect(parseKindValue('91%', 'number')).toBe(91)
+    expect(parseKindValue('', 'number')).toBeNull()
+    expect(parseKindValue('none', 'number')).toBeNull()
   })
+})
 
-  it('stays the black the canvas draws in Deep Field', () => {
-    expect(distance(holeDark(DEEP_FIELD.shade, DEEP_FIELD['ink-50']), [0, 0, 0])).toBeLessThanOrEqual(8)
-  })
-
-  it('keeps the hole the darkest surface of the map in every theme', () => {
+describe('the black hole', () => {
+  it('stays darker than every surface of the map in every theme', () => {
     for (const [id, t] of [['deep-field', DEEP_FIELD], ...Object.entries(THEMES)] as [string, Record<Token, Rgb>][]) {
-      const hole = lightness(holeDark(t.shade, t['ink-50']))
-      for (const surface of ['space', 'space-deep', 'shade', 'panel', 'panel-solid', 'raised', 'ink-50'] as const) {
+      for (const surface of ['space', 'space-deep', 'panel', 'panel-solid', 'raised', 'body-hi', 'body-idle-hi'] as const) {
         // Black is as dark as it gets: a surface that already rounds to it ties.
+        const hole = lightness(t.void)
         expect([id, surface, hole < lightness(t[surface]) || hole === 0]).toEqual([id, surface, true])
       }
     }

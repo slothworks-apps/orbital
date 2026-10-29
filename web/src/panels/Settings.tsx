@@ -1657,7 +1657,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       <Row
                         title="Colour themes"
                         setting={COLOUR_THEMES_ENABLED_KEY}
-                        desc="Offers colour themes in Appearance: Infrared for a bright room, Event Horizon for more contrast, and palettes after Solarized, Monokai, Dracula, Nord, Gruvbox and One Dark."
+                        desc="Offers colour themes in Appearance: Albedo for a bright room, Event Horizon for more contrast, and palettes after Solarized, Monokai, Dracula, Nord, Gruvbox and One Dark."
                       >
                         <Toggle
                           aria-label="Colour themes"

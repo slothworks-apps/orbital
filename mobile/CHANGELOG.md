@@ -7,7 +7,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 ## [0.22.0] — 2026-10-29
 ### Added
 - On iPhone, the app's text follows the system text size (Settings → Display & Brightness → Text Size), up to one and a half times today's size.
-- Settings → Appearance can switch the app to another colour theme — Infrared for a bright room, Event Horizon for more contrast, and six palettes after popular editor themes — or follow the phone's light and dark mode. The phone keeps its own choice, separate from the Mac. In a light theme the status bar's icons turn dark; that part needs the update from TestFlight or Google Play.
+- Settings → Appearance can switch the app to another colour theme — Albedo for a bright room, Event Horizon for more contrast, and six palettes after popular editor themes — or follow the phone's light and dark mode. The phone keeps its own choice, separate from the Mac. In a light theme the status bar's icons turn dark; that part needs the update from TestFlight or Google Play.
 ### Changed
 - A long press on buttons, labels or the session list no longer selects their text or opens the system menu on a link; the transcript, the message box, file previews, task output, error detail and commands stay selectable.
 - Limits lists an account's directories under the device each one is on.
