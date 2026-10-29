@@ -57,7 +57,7 @@ import { useSceneColours, type SceneColours } from '../lib/sceneColours'
  * materializing shell) plus a white ripple/core for needs-input, never by
  * re-hue-ing. Task 9 extends the "white for emphasis" half of that rule to
  * HOVER (canvas 11e: "white rim, brighter core") — same mechanism
- * (`lerp(..., palette['ink-50'])`), a UI affordance rather than a new state, never
+ * (`lerp(..., palette.glint)`), a UI affordance rather than a new state, never
  * a new hue.
  *
  * Geometry is transcribed from the state sheet (artboard 1f in
@@ -540,7 +540,7 @@ function useMoonMaterials(palette: SceneColours): MoonMaterials {
 
   // The colours no state changes, from the colour theme; `applyState` owns the rest.
   useLayoutEffect(() => {
-    materials.ripple.color.copy(palette['ink-50'])
+    materials.ripple.color.copy(palette.glint)
     materials.matFill.color.copy(palette.discWorking)
   }, [materials, palette])
 
@@ -739,7 +739,7 @@ function MoonBody({
     // the ended grey — the same pair the parent planet applies.
     const mute = mutedOpacity(muteFade.value) * deviceOpacity(deviceFade.value, offlineFade.value)
     const grey = palette['ink-600']
-    const white = palette['ink-50']
+    const white = palette.glint
     const hueC = setOklchTagColor(hueColor.current, hueTween.value).lerp(grey, muteFade.value)
     const solid = 1 - b.materializing
     // Canvas 11e Hover: "white rim, brighter core, one outer halo ring" — the

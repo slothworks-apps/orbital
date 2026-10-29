@@ -73,15 +73,19 @@ pass decides whether they become tokens or go.
 
 ## 3. Not done yet
 
-- **Renderers that cannot read CSS variables:** three.js materials and textures
-  in `web/src/map`, canvas 2D and the terminal palette. They need the palette as a TypeScript object, switched
-  together with the CSS one.
+- **The terminal palette** (xterm) keeps its literals.
+- **The map on light themes** follows the tokens (`lib/sceneColours.ts` reads
+  the resolved tokens once per theme and hands three.js its colours; the
+  hole is the darker of `shade` and `ink-50` pressed toward black, so it stays
+  the darkest thing on the map; the brightest marks are pure white on a dark
+  theme and `ink-50` on a light one). How planets, the hole's halo and the
+  tag hues should look on a light sky waits for canvas artboards 1l and 1m.
 - **Shadows and gradients** written as arbitrary Tailwind values
   (`shadow-[0_0_8px_rgba(…)]`), and the black and white of drop shadows and
   inset highlights, which may not need a theme at all.
 - **Left literal on purpose:** the logo (a brand mark, not chrome), tag hues
-  (`oklch(80% .13 <hue>)`, the user's own colours), and the planet's
-  `STATE_INPUT_HEX`, which three.js reads.
+  (`oklch(80% .13 <hue>)`, the user's own colours), the archipelago's
+  scenery, and the black of the phone's media viewers.
 - **Tag hues on light themes.** Mat names and tag counts in the tag hue (L 80%)
   fail contrast on Infrared and Solar Light (canvas flag 6). Tags need a
   lightness per theme before a light theme leaves Labs.

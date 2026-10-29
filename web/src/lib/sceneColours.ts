@@ -206,6 +206,7 @@ export type SceneColours = Readonly<Record<Token, THREE.Color>> & {
   readonly rgb: Readonly<Record<Token, Rgb>>
   /** `holeDark`: the black hole's disc and the working body's inner shade. */
   readonly hole: THREE.Color
+  readonly glint: THREE.Color
   /** The context arc past its second threshold. */
   readonly contextCritical: THREE.Color
   /** Gradient stops of the working and the idle body, offsets 0, .7 and 1. */
@@ -240,6 +241,10 @@ export function buildSceneColours(id: string, kind: ColourThemeKind, rgb: Record
     kind,
     rgb,
     hole: rgbColour(holeDark(rgb.shade, rgb['ink-50'])),
+    // The brightest marks on a planet or a moon (the core, the needs-input
+    // glow, the reticle): pure white on a dark sky, as they always were, and
+    // the strongest ink on a light one.
+    glint: kind === 'dark' ? new THREE.Color('#ffffff') : rgbColour(rgb['ink-50']),
     contextCritical: rgbColour(mixOklab(rgb.danger, rgb['danger-soft'], CONTEXT_CRITICAL_DANGER)),
     bodyWorking: working,
     bodyIdle: idle,

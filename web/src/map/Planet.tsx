@@ -994,7 +994,7 @@ function SelectionReticle({
         <Line
           ref={ringRef}
           points={RETICLE_RING_POINTS}
-          color={palette['ink-50']}
+          color={palette.glint}
           lineWidth={1}
           dashed
           dashSize={RETICLE_DASH_SIZE}
@@ -1011,7 +1011,7 @@ function SelectionReticle({
             bracketRefs.current[i] = handle
           }}
           points={points}
-          color={palette['ink-50']}
+          color={palette.glint}
           lineWidth={1.5}
           transparent
         />
@@ -1485,7 +1485,7 @@ function usePlanetMaterials(palette: SceneColours): PlanetMaterials {
     PLANET_TICK_LAYERS.forEach((layer, i) => {
       if (layer.grey) materials.ticks[i].color.copy(palette['ink-600'])
     })
-    materials.coreGlowWhite.color.copy(palette['ink-50'])
+    materials.coreGlowWhite.color.copy(palette.glint)
     materials.ripple.color.copy(palette.warning)
     for (const ring of [...materials.condense, ...materials.condenseGlow]) ring.color.copy(palette['ink-400'])
   }, [materials, palette])
@@ -1910,7 +1910,7 @@ function PlanetBody({
     materials.coreGlowWhite.opacity = w.needs_input * CORE_GLOW_WHITE_OPACITY * fade
     materials.coreGlowWhite.visible = hasGlowTexture && materials.coreGlowWhite.opacity > 0.001
 
-    materials.core.color.copy(hueC).lerp(palette['ink-50'], w.needs_input)
+    materials.core.color.copy(hueC).lerp(palette.glint, w.needs_input)
     if (coreRef.current) coreRef.current.scale.setScalar(b.coreRadius)
 
     // The label is plain DOM: `group.visible = false` hides the meshes under
