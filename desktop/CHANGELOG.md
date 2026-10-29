@@ -3,19 +3,17 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
-### Added
-- Labs → Colour themes: pick a palette for the whole app in Settings → Appearance — Infrared for a bright room, Event Horizon for more contrast, and palettes after Solarized, Monokai, Dracula, Nord, Gruvbox and One Dark — or follow macOS's light and dark mode.
-### Changed
-- Muted text and small captions are a little brighter, so they are easier to read, and a context gauge past its critical line shows its number in white beside the red bar.
 
 ## [0.45.0] — 2026-10-29
 ### Added
 - Settings → Appearance can make the text larger, across the app and on its own for the session transcript. Spacing and the map's labels stay as they are. Thanks to @N0x1k for the idea.
+- Labs → Colour themes: pick a palette for the whole app in Settings → Appearance — Infrared for a bright room, Event Horizon for more contrast, and palettes after Solarized, Monokai, Dracula, Nord, Gruvbox and One Dark — or follow macOS's light and dark mode.
 ### Changed
 - In Settings → Devices, what each other device may do on this Mac is folded under one line saying how much is allowed; click it to see and change the toggles.
 - Dragging the pointer across buttons, labels or the sidebar no longer selects their text, and icons no longer lift off as a drag image; the transcript, the message box, the file and skill viewers, task output, error detail and commands stay selectable, and an image still drags out of the full-size viewer.
 - Plan limits lists an account's directories under the device each one is on, and a directory with the same mark on two devices shows its tile once.
 - Updated dependencies, including Electron.
+- Muted text and small captions are a little brighter, so they are easier to read, and a context gauge past its critical line shows its number in white beside the red bar.
 
 ## [0.44.0] — 2026-10-27
 ### Added

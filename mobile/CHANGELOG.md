@@ -3,18 +3,16 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
-### Added
-- Settings → Appearance can switch the app to another colour theme — Infrared for a bright room, Event Horizon for more contrast, and six palettes after popular editor themes — or follow the phone's light and dark mode. The phone keeps its own choice, separate from the Mac.
-### Changed
-- Muted text and small captions are a little brighter, so they are easier to read.
 
 ## [0.22.0] — 2026-10-29
 ### Added
 - On iPhone, the app's text follows the system text size (Settings → Display & Brightness → Text Size), up to one and a half times today's size.
+- Settings → Appearance can switch the app to another colour theme — Infrared for a bright room, Event Horizon for more contrast, and six palettes after popular editor themes — or follow the phone's light and dark mode. The phone keeps its own choice, separate from the Mac. In a light theme the status bar's icons turn dark; that part needs the update from TestFlight or Google Play.
 ### Changed
 - A long press on buttons, labels or the session list no longer selects their text or opens the system menu on a link; the transcript, the message box, file previews, task output, error detail and commands stay selectable.
 - Limits lists an account's directories under the device each one is on.
 - Updated dependencies.
+- Muted text and small captions are a little brighter, so they are easier to read.
 
 ## [0.21.2] — 2026-10-27
 ### Fixed

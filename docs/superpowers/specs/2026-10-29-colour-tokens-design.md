@@ -159,3 +159,10 @@ mode" and "In dark mode". Pairing does not copy it and nothing syncs in
 either direction, so there is no route and no `MAC_FEATURES` gate. The phone
 has no Labs; the picker is there for everyone, and Deep Field stays the
 default.
+
+The status bar follows the theme through `@capacitor/status-bar`: dark icons
+on a light theme, and on Android the bar takes the theme's `space`. That is a
+native plugin, so the shell went to 0.9.0 (store build); an older shell
+running the newer bundle keeps its dark bar, since the call is skipped while
+the plugin is missing. The native launch screen stays Deep Field: a cold
+start in a light theme shows it for a moment before the app paints.

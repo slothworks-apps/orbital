@@ -1,4 +1,6 @@
+import { Capacitor } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
+import { StatusBar, Style } from '@capacitor/status-bar'
 import { create } from 'zustand'
 import {
   DEFAULT_COLOUR_THEME,
@@ -109,10 +111,28 @@ function paint(id: string, fade: boolean): void {
   applyColourTheme(root, id)
   // The WebView's own controls and scrollbars follow the theme's kind.
   root.style.colorScheme = colourThemeById(id)?.kind ?? 'dark'
+  paintStatusBar(id)
   try {
     localStorage.setItem(PAINTED_COLOUR_THEME_KEY, id)
   } catch {
     // The preference still holds it; the next start paints Deep Field a moment longer.
+  }
+}
+
+/**
+ * The system's status bar follows the theme: dark icons on a light theme,
+ * light ones on a dark theme, and on Android the bar takes the theme's
+ * space colour. The native shell ships the plugin from 0.9.0 on; an older
+ * shell running a newer bundle keeps its dark bar.
+ */
+function paintStatusBar(id: string): void {
+  if (!Capacitor.isPluginAvailable('StatusBar')) return
+  const theme = colourThemeById(id)
+  if (!theme) return
+  // `Style.Light` is the style for a light background: dark icons.
+  void StatusBar.setStyle({ style: theme.kind === 'light' ? Style.Light : Style.Dark }).catch(() => {})
+  if (Capacitor.getPlatform() === 'android') {
+    void StatusBar.setBackgroundColor({ color: theme.swatch[0] }).catch(() => {})
   }
 }
 
