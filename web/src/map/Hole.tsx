@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, type MutableRefObject, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, type MutableRefObject, type RefObject } from 'react'
 import { Html } from '@react-three/drei'
 import * as THREE from 'three'
 import type { SceneHole } from './sceneModel'
 import { bodyZoomFactor } from './camera'
 import { useMapFrame } from './FrameBudget'
 import { swatch } from '../lib/palette'
+import { useSceneColours } from '../lib/sceneColours'
 import { holeDropState, HOLE_DROP_RADIUS, type SimState } from './simulation'
 import {
   HOLE_COUNT_FONT_PX,
@@ -41,6 +42,11 @@ import {
  * Claude Design draws the trash; the refused state borrows `--color-warning`
  * meanwhile.
  *
+ * Colours come from the colour theme's scene palette: the horizon ring is
+ * `ink-50` (canvas `#f0f8ff`), the halo `line`, the disc `hole` — the
+ * darkest of `shade` and `ink-50`, so the hole stays the darkest thing on
+ * the map on a light theme too.
+ *
  * Geometry transcribed from canvas 4a's hole block (50px disc, horizon ring
  * at inset -2, drop halo at inset -46, label column left of it), converted
  * at the same 34px = 1 world unit as `simulation.ts`.
@@ -52,13 +58,11 @@ const PX = 1 / 34
 /** Horizon ring: the disc's `inset:-2px` border. */
 const RING_INNER = HOLE_RADIUS
 const RING_OUTER = 27 * PX
-const RING_COLOR = '#f0f8ff'
 const RING_OPACITY = 0.55
 /** The drop halo's band (canvas gradient 42%→74% of the 71px box). The
  * radius itself lives in `simulation.ts` — it is the drop zone first,
  * a visual second. */
 const HALO_BAND_INNER = 0.55 * HOLE_DROP_RADIUS
-const HALO_COLOR = '#96cdff'
 const HALO_OPACITY = 0.07
 /** Halo boost while a body the trash takes is in hand… (drop-target signal) */
 const HALO_ELIGIBLE_BOOST = 2
@@ -73,15 +77,11 @@ const HINT_COLOR_REST = swatch('ink-900', 0.42)
 const HINT_COLOR_ELIGIBLE = swatch('ink-300', 0.75)
 const HINT_COLOR_ARMED = swatch('ink-50', 0.95)
 const HINT_COLOR_REFUSED = swatch('warning')
-/**
- * What the ring and halo tint toward while a terminal body is over the trash
- * — the "no". `--color-warning` in `theme.css`, repeated as a literal because
- * a three.js material cannot read a CSS variable. No canvas yet; Claude Design
- * will draw the refused state.
+/*
+ * While a terminal body is over the trash the ring and halo tint toward the
+ * palette's `warning` — the "no". No canvas yet; Claude Design will draw the
+ * refused state.
  */
-const REFUSED_COLOR = new THREE.Color('#ffbb7b')
-const RING_BASE_COLOR = new THREE.Color(RING_COLOR)
-const HALO_BASE_COLOR = new THREE.Color(HALO_COLOR)
 
 /** The ring flash on a drop that ends a session (canvas: `this.flash = 0.45`). */
 const FLASH_SEC = 0.45
@@ -112,10 +112,10 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
   // appearing or emptying) — rare, and it walks there like everything else.
   const move = useRef(createPointTween(hole.x, hole.y, BODY_MOVE_MS)).current
   const groupRef = useRef<THREE.Group>(null)
+  const palette = useSceneColours()
   const ringMaterial = useMemo(
     () =>
       new THREE.MeshBasicMaterial({
-        color: RING_COLOR,
         transparent: true,
         opacity: RING_OPACITY,
         depthWrite: false,
@@ -125,7 +125,6 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
   const haloMaterial = useMemo(
     () =>
       new THREE.MeshBasicMaterial({
-        color: HALO_COLOR,
         transparent: true,
         opacity: HALO_OPACITY,
         depthWrite: false,
@@ -139,6 +138,13 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
     },
     [ringMaterial, haloMaterial]
   )
+
+  // The resting colours, before the first paint and on a colour theme change;
+  // the frame loop tints from them while a drop is in play.
+  useLayoutEffect(() => {
+    ringMaterial.color.copy(palette['ink-50'])
+    haloMaterial.color.copy(palette.line)
+  }, [ringMaterial, haloMaterial, palette])
 
   useEffect(() => {
     retargetPointTween(move, hole.x, hole.y, prefersReducedMotion())
@@ -190,11 +196,11 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
     const refused = refusedLevel.current
 
     ringMaterial.opacity = RING_OPACITY + (1 - RING_OPACITY) * Math.max(k, armed)
-    ringMaterial.color.copy(RING_BASE_COLOR).lerp(REFUSED_COLOR, refused)
+    ringMaterial.color.copy(palette['ink-50']).lerp(palette.warning, refused)
     haloMaterial.opacity =
       HALO_OPACITY *
       (1 + 3 * k + (HALO_ELIGIBLE_BOOST - 1) * eligible + (HALO_ARMED_BOOST - HALO_ELIGIBLE_BOOST) * armed)
-    haloMaterial.color.copy(HALO_BASE_COLOR).lerp(REFUSED_COLOR, refused)
+    haloMaterial.color.copy(palette.line).lerp(palette.warning, refused)
 
     if (hintRef.current) {
       const text =
@@ -256,10 +262,10 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
       <mesh position={[0, 0, HOLE_Z + 0.001]} material={ringMaterial}>
         <ringGeometry args={[RING_INNER, RING_OUTER, 64]} />
       </mesh>
-      {/* The hole itself: flat black, in front of the ring's inner edge. */}
+      {/* The hole itself: flat dark, in front of the ring's inner edge. */}
       <mesh position={[0, 0, HOLE_Z + 0.002]}>
         <circleGeometry args={[HOLE_RADIUS, 64]} />
-        <meshBasicMaterial color="#000000" />
+        <meshBasicMaterial color={palette.hole} />
       </mesh>
 
       {/* Label column, right-aligned against the hole (canvas 4a). Its type

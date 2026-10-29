@@ -17,6 +17,7 @@ import { useMapFrame } from './FrameBudget'
 import { mapSuns, sunCardPlacement, SUN_CARD_WIDTH_PX, SUN_PX, type MapSun } from './sunModel'
 import { sunLook } from './sunVisual'
 import { swatch } from '../lib/palette'
+import { SCENE_CSS } from '../lib/sceneColours'
 import {
   BODY_MOVE_MS,
   advancePointTween,
@@ -362,7 +363,7 @@ function LimitSun({
                   width: 'calc(100% + 2px)',
                   left: `${look.shadowLeft}%`,
                   borderRadius: '50%',
-                  background: 'oklch(15% .01 250)',
+                  background: SCENE_CSS.sunSpentDisc,
                   opacity: look.shadowOp,
                   transition: fade('left,opacity', CROSS_FADE_MS),
                 }}
@@ -371,7 +372,7 @@ function LimitSun({
                 style={{
                   position: 'absolute',
                   inset: 0,
-                  background: 'repeating-linear-gradient(135deg,rgba(200,215,235,.22) 0 1.2px,transparent 1.2px 5px)',
+                  background: `repeating-linear-gradient(135deg,${swatch('ink-600', 0.22)} 0 1.2px,transparent 1.2px 5px)`,
                   opacity: look.hatchOp,
                   transition: fade('opacity', CROSS_FADE_MS),
                 }}
@@ -418,7 +419,7 @@ const TILE_STYLE = {
   height: 12,
   padding: '0 2px',
   borderRadius: 3.5,
-  background: 'oklch(34% .012 250)',
+  background: SCENE_CSS.markTile,
   boxShadow: `0 0 0 1.5px ${swatch('space')}`,
   fontSize: 7.5,
   fontWeight: 600,

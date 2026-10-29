@@ -1,4 +1,5 @@
 import { swatch } from '../lib/palette'
+import { SCENE_CSS } from '../lib/sceneColours'
 import { SUN_TINTS, sunDiscGradient, sunOklch, type SunColor, type SunReading, type SunStyle } from '../lib/limitSuns'
 
 /**
@@ -35,12 +36,12 @@ const INK = {
 /** 60f STALE: the label of a reading that is out of date. */
 const STALE_INK = swatch('ink-900', 0.6)
 /** 60a: the disc of a stale sun, and the dark a spent one goes to in Dim. */
-const STALE_DISC = 'oklch(19% .008 250)'
-const SPENT_DISC = 'oklch(15% .01 250)'
+const STALE_DISC = SCENE_CSS.sunStaleDisc
+const SPENT_DISC = SCENE_CSS.sunSpentDisc
 /** 60a Dim: the lightness the core darkens toward as the room is used. */
 const DIM_FLOOR_L = 15
-/** 60a: the part of the week arc already spent. */
-const ARC_SPENT = 'rgba(190,225,255,.12)'
+/** 60a: the part of the week arc already spent, `rgba(190,225,255,.12)`. */
+const ARC_SPENT = swatch('line', 0.12)
 
 export function sunLook(style: SunStyle, reading: SunReading, color: SunColor, stale: boolean): SunLook {
   const t = SUN_TINTS[color]

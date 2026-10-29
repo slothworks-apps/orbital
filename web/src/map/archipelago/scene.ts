@@ -3,6 +3,7 @@ import type { CameraState } from '../camera'
 import { bodyZoomFactor } from '../camera'
 import { sessionStateKey, statePill, type SessionStateKey, type Subagent } from '../../lib/types'
 import { stateColor } from '../../lib/stateStyle'
+import { swatch } from '../../lib/palette'
 import { truncateLabel } from '../visuals'
 import { decisionHeadline } from '../../lib/decisionCard'
 import {
@@ -45,7 +46,18 @@ const HULL_UNITS = 66
 const SHIP_SPEED = 0.6
 const BOAT_SPEED = 0.45
 const LEAVE_FADE_SEC = 0.5
-const CONTEXT_COLOURS = { ok: '#7fe3b0', warn: '#ffbb7b', critical: '#fa8880' } as const
+/*
+ * What says something on this map takes the palette's tokens, so it follows
+ * the colour theme; the scenery (islands, wood, sails, the warm lights, the
+ * waves) keeps its own colours.
+ */
+const CONTEXT_COLOURS = { ok: swatch('success'), warn: swatch('warning'), critical: swatch('danger-soft') } as const
+/** A compacting ship's ring, its arc and its word. */
+const COMPACTING_INK = swatch('sky-soft')
+/** The selected ship's dashed ring and corner brackets. */
+const SELECT_INK = swatch('ink-400')
+/** What a hull or a boat throws on the water. */
+const SHADOW_FILL = swatch('shadow')
 
 export interface SceneInput {
   model: SceneModel
@@ -185,7 +197,7 @@ export class ArchipelagoScene {
 
     const defs = el('defs', {}, this.svg)
     defs.innerHTML = `
-      <radialGradient id="arch-lantern"><stop offset="0" stop-color="#ffbb7b" stop-opacity=".7"/><stop offset=".45" stop-color="#ffbb7b" stop-opacity=".18"/><stop offset="1" stop-color="#ffbb7b" stop-opacity="0"/></radialGradient>
+      <radialGradient id="arch-lantern"><stop offset="0" stop-color="var(--color-warning)" stop-opacity=".7"/><stop offset=".45" stop-color="var(--color-warning)" stop-opacity=".18"/><stop offset="1" stop-color="var(--color-warning)" stop-opacity="0"/></radialGradient>
       <radialGradient id="arch-warm"><stop offset="0" stop-color="#f0d39a" stop-opacity=".5"/><stop offset="1" stop-color="#f0d39a" stop-opacity="0"/></radialGradient>
       <filter id="arch-soft" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation=".22"/></filter>`
     this.wavePattern = el('pattern', { id: 'arch-waves', patternUnits: 'userSpaceOnUse', width: 2.6, height: 1.7 }, defs)
@@ -439,15 +451,15 @@ export class ArchipelagoScene {
 
   private makeShip(p: ScenePlanet): ShipView {
     const id = p.session.id
-    const shadow = el('path', { d: HULL, fill: '#02060c', opacity: 0.5 }, this.layers.shadow)
+    const shadow = el('path', { d: HULL, fill: SHADOW_FILL, opacity: 0.5 }, this.layers.shadow)
     const g = el('g', { 'data-ship': id, class: 'cursor-pointer' }, this.layers.ships)
     const select = el('g', { opacity: 0 }, g)
-    el('circle', { r: 46, fill: 'none', stroke: '#dfe6f0', 'stroke-width': 1.4, 'stroke-dasharray': '6 9', opacity: 0.6 }, select)
+    el('circle', { r: 46, fill: 'none', stroke: SELECT_INK, 'stroke-width': 1.4, 'stroke-dasharray': '6 9', opacity: 0.6 }, select)
     for (const [sx, sy] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-      el('path', { d: `M${sx * 52} ${sy * 40} L${sx * 52} ${sy * 52} L${sx * 40} ${sy * 52}`, fill: 'none', stroke: '#dfe6f0', 'stroke-width': 1.6, opacity: 0.7 }, select)
+      el('path', { d: `M${sx * 52} ${sy * 40} L${sx * 52} ${sy * 52} L${sx * 40} ${sy * 52}`, fill: 'none', stroke: SELECT_INK, 'stroke-width': 1.6, opacity: 0.7 }, select)
     }
     const ring = el('path', { fill: 'none', 'stroke-width': 2.4, 'stroke-linecap': 'round' }, g)
-    const compactRings = [0, 1].map(() => el('circle', { r: 40, fill: 'none', stroke: '#bee1ff', 'stroke-width': 1.2, opacity: 0 }, g))
+    const compactRings = [0, 1].map(() => el('circle', { r: 40, fill: 'none', stroke: COMPACTING_INK, 'stroke-width': 1.2, opacity: 0 }, g))
     const body = el('g', {}, g)
     const halo = el('circle', { cx: -30, cy: 0, r: 54, fill: 'url(#arch-lantern)', opacity: 0 }, body)
     const hull = el('path', { d: HULL, fill: '#5b4936', 'stroke-width': 2.2 }, body)
@@ -576,22 +588,22 @@ export class ArchipelagoScene {
         ${word}
         ${detached ? '<span class="ml-1 fs-10 text-ink-900/70" title="Open in its own window">⧉</span>' : ''}
       </div>
-      <div data-detail class="mt-0.5 max-w-[240px] truncate font-mono fs-10.5" style="color:${pill && key !== 'waiting' ? colour : 'rgb(160 190 225 / .7)'}">${escape(sub)}</div>
+      <div data-detail class="mt-0.5 max-w-[240px] truncate font-mono fs-10.5" style="color:${pill && key !== 'waiting' ? colour : swatch('ink-900', 0.7)}">${escape(sub)}</div>
       ${p.modelFamily ? `<div data-detail class="font-mono fs-9.5 uppercase tracking-[0.12em] text-ink-900/49">${escape(p.modelFamily)}</div>` : ''}
-      ${p.compactingSince ? `<div class="mt-1 font-mono fs-9.5 tracking-[0.1em] text-[#bee1ff]" data-compacting="${p.compactingSince}">COMPACTING</div>` : ''}
+      ${p.compactingSince ? `<div class="mt-1 font-mono fs-9.5 tracking-[0.1em] text-sky-soft" data-compacting="${p.compactingSince}">COMPACTING</div>` : ''}
       ${compactBadge ? `<button type="button" data-action="compact" class="mt-1 rounded border border-danger-soft/50 px-1.5 py-0.5 font-mono fs-9.5 text-danger-soft">${Math.round((fill?.fraction ?? 0) * 100)}% · /compact</button>` : ''}
       ${failed ? `<button type="button" data-action="compact-failed" class="mt-1 rounded border border-danger-soft/50 px-1.5 py-0.5 font-mono fs-9.5 text-danger-soft">COMPACT FAILED · ${Math.round((fill?.fraction ?? 0) * 100)}%</button>` : ''}`
   }
 
   private makeBoat(sessionId: string, subagent: Subagent): BoatView {
     const ship = this.ships.get(sessionId)
-    const shadow = el('path', { d: BOAT, fill: '#02060c', opacity: 0.45 }, this.layers.shadow)
+    const shadow = el('path', { d: BOAT, fill: SHADOW_FILL, opacity: 0.45 }, this.layers.shadow)
     const openable = Boolean(subagent.toolUseId)
     const g = el('g', { 'data-boat': `${sessionId}:${subagent.id}`, class: openable ? 'cursor-pointer' : '' }, this.layers.boats)
-    const tether = el('line', { stroke: '#59e4f3', 'stroke-width': 0.02, 'stroke-dasharray': '.08 .08', opacity: 0 }, this.layers.boats)
-    const ring = el('circle', { r: 20, fill: 'none', stroke: '#59e4f3', 'stroke-width': 1.4, opacity: 0 }, g)
+    const tether = el('line', { stroke: swatch('accent'), 'stroke-width': 0.02, 'stroke-dasharray': '.08 .08', opacity: 0 }, this.layers.boats)
+    const ring = el('circle', { r: 20, fill: 'none', stroke: swatch('accent'), 'stroke-width': 1.4, opacity: 0 }, g)
     const body = el('g', {}, g)
-    el('path', { d: BOAT, fill: '#7d6a50', stroke: openable ? '#7fe3b0' : '#5d6676', 'stroke-width': 1.3 }, body)
+    el('path', { d: BOAT, fill: '#7d6a50', stroke: openable ? swatch('success') : '#5d6676', 'stroke-width': 1.3 }, body)
     const oars = el('path', { stroke: '#c9b48e', 'stroke-width': 1.2, 'stroke-linecap': 'round' }, body)
     el('circle', { cx: -2, cy: 0, r: 2.3, fill: '#d9dee6' }, body)
     const lantern = el('circle', { cx: -9, cy: 0, r: 7, fill: 'url(#arch-lantern)', opacity: 0 }, body)
@@ -778,7 +790,7 @@ export class ArchipelagoScene {
           d += `${i ? 'L' : 'M'}${fmt(Math.cos(a) * r)} ${fmt(Math.sin(a) * r)}`
         }
         v.ring.setAttribute('d', d)
-        v.ring.setAttribute('stroke', p.compactingSince ? '#bee1ff' : CONTEXT_COLOURS[fill.level])
+        v.ring.setAttribute('stroke', p.compactingSince ? COMPACTING_INK : CONTEXT_COLOURS[fill.level])
         const pulse = fill.level === 'critical' && !reduced ? 0.7 + 0.3 * Math.sin((t * Math.PI * 2) / 1.6) : 1
         v.ring.setAttribute('opacity', fmt((p.compactingSince ? 0.3 : fill.level === 'ok' ? 0.6 : 0.9) * pulse))
       } else v.ring.setAttribute('d', '')
@@ -895,7 +907,7 @@ export class ArchipelagoScene {
         : armed
           ? 'release to end'
           : `${count} session${count === 1 ? '' : 's'} · click to browse`
-      const html = `<div class="font-semibold text-ink-100/80">HISTORY</div><div class="mt-0.5 tracking-[0.04em]" style="color:${refused ? '#ffbb7b' : ''}">${text}</div>`
+      const html = `<div class="font-semibold text-ink-100/80">HISTORY</div><div class="mt-0.5 tracking-[0.04em]" style="color:${refused ? swatch('warning') : ''}">${text}</div>`
       if (this.hole.label.innerHTML !== html) this.hole.label.innerHTML = html
     }
   }
