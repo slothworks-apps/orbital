@@ -382,7 +382,7 @@ function SessionFindings({
       <div className="flex items-baseline">
         <div className={PANEL_LABEL_CLASS}>FINDINGS IN THIS SESSION</div>
         <span className="flex-1" />
-        <div className="font-mono fs-10 text-ink-900/45">
+        <div className="font-mono fs-10 text-ink-900/60">
           {detail.findings.length}
         </div>
       </div>

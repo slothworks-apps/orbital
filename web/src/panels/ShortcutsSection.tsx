@@ -116,7 +116,7 @@ function ShortcutRow({ row }: { row: Row }) {
         ))}
         {row.muted && (
           <>
-            <span className="font-mono fs-10.5 text-ink-900/45">/</span>
+            <span className="font-mono fs-10.5 text-ink-900/60">/</span>
             <Keycap muted display={row.muted} />
           </>
         )}

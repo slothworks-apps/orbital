@@ -33,7 +33,7 @@ export function FindingsFeed({
       <div className="flex items-baseline gap-2.5">
         <div className={PANEL_LABEL_CLASS}>FINDINGS</div>
         <span className="flex-1" />
-        <div className="font-mono fs-10 text-ink-900/45">
+        <div className="font-mono fs-10 text-ink-900/60">
           {findings.length} hits · {ruleCount} rules · click to open session
         </div>
       </div>

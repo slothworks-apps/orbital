@@ -130,7 +130,7 @@ export function CloseScreen({ id, session, walkthrough, onJump, bar }: CloseScre
                     return (
                       <span key={path} className="flex gap-1.5 font-mono fs-11 text-ink-900/70">
                         <span className="min-w-0 truncate">↶ {path}</span>
-                        {note && <span className="shrink-0 text-ink-900/45">{note}</span>}
+                        {note && <span className="shrink-0 text-ink-900/60">{note}</span>}
                       </span>
                     )
                   })}

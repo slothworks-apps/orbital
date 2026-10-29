@@ -328,7 +328,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
                 </label>
                 <label className="flex flex-col gap-1.5">
                   <span className={MONO_LABEL}>
-                    HOW TO REPRODUCE <span className="text-ink-900/45">· OPTIONAL</span>
+                    HOW TO REPRODUCE <span className="text-ink-900/60">· OPTIONAL</span>
                   </span>
                   <textarea
                     value={repro}
@@ -596,7 +596,7 @@ function Rail({
         <span className={MONO_LABEL}>SIMILAR ISSUES</span>
         <span className="flex-1" />
         {autoOn && searchable && (
-          <span className="font-mono fs-10 text-ink-900/45">
+          <span className="font-mono fs-10 text-ink-900/60">
             by title · {ghReady ? 'gh' : 'api.github.com'}
           </span>
         )}
@@ -710,7 +710,7 @@ function Rail({
 
       <span className="flex-1" />
       {checkEnabled && (
-        <div className="font-mono fs-10 leading-[1.55] text-ink-900/45">matches never block sending</div>
+        <div className="font-mono fs-10 leading-[1.55] text-ink-900/60">matches never block sending</div>
       )}
     </div>
   )

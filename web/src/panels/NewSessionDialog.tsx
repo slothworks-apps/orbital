@@ -837,7 +837,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               <div className="relative z-[2] flex flex-col gap-2">
                 <FieldLabel htmlFor="new-session-cwd">
                   PROJECT DIRECTORY
-                  {remote && <span className="tracking-[0.04em] text-ink-900/45">on {deviceName}</span>}
+                  {remote && <span className="tracking-[0.04em] text-ink-900/60">on {deviceName}</span>}
                 </FieldLabel>
                 <div className="flex gap-2">
                   <Input
@@ -925,7 +925,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                 <div className="flex flex-col gap-2">
                   <FieldLabel>
                     <span className="shrink-0 whitespace-nowrap">PROFILE</span>
-                    <span className="min-w-0 truncate tracking-[0.04em] text-ink-900/45">
+                    <span className="min-w-0 truncate tracking-[0.04em] text-ink-900/60">
                       · {claudeDirOriginHint(claudeDirOrigin)}
                     </span>
                     <span aria-hidden className="flex-1" />
@@ -945,7 +945,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                 <FieldLabel>
                   MODEL
                   {choosesDir && claudeDirName && (
-                    <span className="tracking-[0.04em] text-ink-900/45">· offered by {claudeDirName}’s account</span>
+                    <span className="tracking-[0.04em] text-ink-900/60">· offered by {claudeDirName}’s account</span>
                   )}
                   <span aria-hidden className="flex-1" />
                   {rememberPerProject && lastModelRow && (
@@ -999,7 +999,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               <div className="flex flex-col gap-2">
                 <FieldLabel>
                   TAG
-                  {tagHint && <span className="tracking-[0.04em] text-ink-900/45">{tagHint}</span>}
+                  {tagHint && <span className="tracking-[0.04em] text-ink-900/60">{tagHint}</span>}
                 </FieldLabel>
                 <div className="flex flex-wrap gap-1.5" role="group" aria-label="Tag">
                   {tags.map((tag) => (

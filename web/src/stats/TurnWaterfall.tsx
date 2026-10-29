@@ -346,9 +346,9 @@ function WaitBreak({ cut }: { cut: LaneBreak }) {
         style={{ left: cut.left, width: cut.width }}
       >
         <span className="block h-3.5 w-px shrink-0 rotate-[20deg] bg-ink-900/60" />
-        <span className="block flex-1 border-t border-dashed border-ink-900/45" />
+        <span className="block flex-1 border-t border-dashed border-ink-900/60" />
         {cut.label}
-        <span className="block flex-1 border-t border-dashed border-ink-900/45" />
+        <span className="block flex-1 border-t border-dashed border-ink-900/60" />
         <span className="block h-3.5 w-px shrink-0 rotate-[20deg] bg-ink-900/60" />
       </span>
       {anchor !== null &&
@@ -357,7 +357,7 @@ function WaitBreak({ cut }: { cut: LaneBreak }) {
             role="tooltip"
             // 10k: 25px under the break's top edge — 22 below the track it cuts.
             style={{ left: anchor.left, top: anchor.top + 25 }}
-            className="pointer-events-none fixed z-50 box-border flex w-[210px] flex-col gap-1 rounded-[10px] border border-line/16 bg-panel/96 px-[11px] py-[9px] font-mono fs-10.5 text-ink-100 shadow-[0_18px_44px_rgba(0,0,0,.6)]"
+            className="pointer-events-none fixed z-50 box-border flex w-[210px] flex-col gap-1 rounded-[10px] border border-line/16 bg-panel/96 px-[11px] py-[9px] font-mono fs-10.5 text-ink-100 shadow-[0_18px_44px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent)]"
           >
             <span className="fs-9.5 tracking-[0.14em] text-ink-900/60">
               WAITING ON YOU · {cut.waits.length}

@@ -78,7 +78,7 @@ export function ToolLeaderboard({
       </div>
 
       <div
-        className={`mt-2.5 grid ${COLUMNS} items-center gap-x-[14px] border-b border-line/8 pb-[7px] font-mono fs-9.5 tracking-[0.14em] text-ink-900/45`}
+        className={`mt-2.5 grid ${COLUMNS} items-center gap-x-[14px] border-b border-line/8 pb-[7px] font-mono fs-9.5 tracking-[0.14em] text-ink-900/60`}
       >
         <span>TOOL</span>
         <span>{tab === 'slowest' ? 'SHARE OF TOOL TIME' : 'SHARE OF RESULT TOKENS'}</span>

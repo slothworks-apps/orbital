@@ -59,7 +59,7 @@ export function StatsEmpty({ onStartSession }: { onStartSession: () => void }) {
         ))}
       </div>
 
-      <div className="mt-[26px] font-mono fs-10.5 text-ink-900/45">
+      <div className="mt-[26px] font-mono fs-10.5 text-ink-900/60">
         no data leaves this machine
       </div>
     </div>

@@ -194,7 +194,7 @@ const gutter: Record<NonNullable<DialogProps['size']>, string> = {
   xl: 'px-[26px]',
 }
 
-const BASE_SHADOW = '0 40px 120px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.07)'
+const BASE_SHADOW = '0 40px 120px color-mix(in oklab, var(--color-shadow) 70%, transparent), inset 0 1px 0 color-mix(in oklab, var(--color-highlight) 7%, transparent)'
 
 /** Frame edge + bloom, keyed by tone. The bloom is a touch stronger on the confirms. */
 const toneFrame = {
@@ -354,7 +354,7 @@ export function Dialog({
           aria-modal="true"
           aria-label={title}
           data-variant="card"
-          style={{ boxShadow: '0 40px 100px rgba(0,0,0,.7)' }}
+          style={{ boxShadow: '0 40px 100px color-mix(in oklab, var(--color-shadow) 70%, transparent)' }}
           className={[
             'relative flex max-h-full w-[460px] max-w-full flex-col items-center gap-4 overflow-y-auto rounded-2xl border border-line/20 bg-gradient-to-b from-panel-solid/97 to-space-deep/99 px-[30px] pb-6 pt-7 text-center font-sans text-ink-100',
             MODAL_TRANSITION,

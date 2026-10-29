@@ -236,7 +236,7 @@ export function TaskOutputPanel({ widthPx, inWindow: inWindowProp = false, swap 
           onScroll={onScroll}
           data-task-output
           data-selectable
-          className="min-h-0 flex-1 overflow-auto bg-space/45 shadow-[inset_0_14px_24px_-18px_rgba(0,0,0,.9)]"
+          className="min-h-0 flex-1 overflow-auto bg-space/45 shadow-[inset_0_14px_24px_-18px_color-mix(in_oklab,_var(--color-shadow)_90%,_transparent)]"
         >
           <div className="px-[18px] py-3 font-mono fs-11 leading-[1.62] text-ink-400/86">
             {lines.map((line, i) => (

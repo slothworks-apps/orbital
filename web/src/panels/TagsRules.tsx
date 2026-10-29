@@ -902,7 +902,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
               {draggedTag && tagDrag && (
                 // 80d: the card lifts onto the dropdown panel colour and follows the pointer.
                 <DragGhost ghost={tagDrag.ghost} fullWidth>
-                  <div className="box-border flex w-full items-center gap-2 rounded-xl border border-line/30 bg-panel/96 py-3.5 pl-1.5 pr-3.5 shadow-[0_14px_34px_rgba(0,0,0,.55)]">
+                  <div className="box-border flex w-full items-center gap-2 rounded-xl border border-line/30 bg-panel/96 py-3.5 pl-1.5 pr-3.5 shadow-[0_14px_34px_color-mix(in_oklab,_var(--color-shadow)_55%,_transparent)]">
                     <span className="grid h-7 w-4 flex-none place-items-center">
                       <GripDots />
                     </span>
@@ -938,7 +938,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                 below insets by 20px and each row by another 8px, so the two
                 grids line up on the same 28px gutter. */}
             <div
-              className={`grid ${RULE_GRID} items-center gap-3 px-[22px] py-1.5 font-mono fs-9.5 tracking-[0.14em] text-ink-900/45`}
+              className={`grid ${RULE_GRID} items-center gap-3 px-[22px] py-1.5 font-mono fs-9.5 tracking-[0.14em] text-ink-900/60`}
             >
               <span />
               <span>CONDITION</span>

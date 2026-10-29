@@ -176,7 +176,7 @@ export function FieldLabel({ children, hint }: { children: string; hint?: string
   return (
     <div className="flex items-baseline font-mono fs-10 tracking-[0.16em] text-ink-900/60">
       {children}
-      {hint && <span className="ml-auto min-w-0 truncate pl-3 tracking-[0.04em] text-ink-900/45">{hint}</span>}
+      {hint && <span className="ml-auto min-w-0 truncate pl-3 tracking-[0.04em] text-ink-900/60">{hint}</span>}
     </div>
   )
 }
@@ -264,20 +264,20 @@ const SHEET_VARIANTS = {
   menu: {
     backdrop: 'bg-space/62',
     panel:
-      'rounded-t-[22px] border border-b-0 border-line/16 bg-panel/96 px-2.5 shadow-[0_-20px_60px_rgba(0,0,0,.6)]',
+      'rounded-t-[22px] border border-b-0 border-line/16 bg-panel/96 px-2.5 shadow-[0_-20px_60px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent)]',
     handle: 'h-[22px]',
   },
   question: {
     backdrop: 'bg-space/60 backdrop-blur-[2px]',
     panel:
-      'flex max-h-[calc(100%-92px)] flex-col rounded-t-[24px] border-t border-line/20 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-raised)_97%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_99%,_transparent))] shadow-[0_-20px_60px_rgba(0,0,0,.6),inset_0_1px_0_rgba(255,255,255,.07)]',
+      'flex max-h-[calc(100%-92px)] flex-col rounded-t-[24px] border-t border-line/20 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-raised)_97%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_99%,_transparent))] shadow-[0_-20px_60px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent),inset_0_1px_0_color-mix(in_oklab,_var(--color-highlight)_7%,_transparent)]',
     handle: 'h-5 shrink-0',
   },
   /** Canvas 50i: a device's sheet, the join request and the confirms of Settings → Devices. */
   device: {
     backdrop: 'bg-space/62',
     panel:
-      'rounded-t-[26px] border-t border-line/18 bg-panel/98 px-4 shadow-[0_-20px_60px_rgba(0,0,0,.5)]',
+      'rounded-t-[26px] border-t border-line/18 bg-panel/98 px-4 shadow-[0_-20px_60px_color-mix(in_oklab,_var(--color-shadow)_50%,_transparent)]',
     handle: 'h-5',
   },
   /**

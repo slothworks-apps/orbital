@@ -93,7 +93,7 @@ export function Chip({
         field ? 'box-border h-fit min-h-[26px] px-[11px] fs-11.5' : 'px-2.5 py-1 fs-11',
         interactive ? 'cursor-pointer select-none' : '',
         lifted
-          ? 'whitespace-nowrap border-line/30 bg-panel/96 text-ink-100 shadow-[0_10px_24px_rgba(0,0,0,.5)]'
+          ? 'whitespace-nowrap border-line/30 bg-panel/96 text-ink-100 shadow-[0_10px_24px_color-mix(in_oklab,_var(--color-shadow)_50%,_transparent)]'
           : active
             ? 'border-line/30 bg-line/14 text-ink-100'
             : glyph !== undefined || muted

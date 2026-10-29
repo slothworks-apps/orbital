@@ -1133,7 +1133,16 @@ export function DetailPanel({
                   <span
                     className="fs-12.5 leading-none transition-colors duration-300"
                     style={{
-                      color: compacting ? COMPACTING_READOUT_INK : contextUsed != null ? contextInk : UNMEASURED_INK,
+                      // Past the critical line the number turns ink-100 beside the red
+                      // fill: red light enough to read stops looking critical
+                      // (canvas `Feature - Colour themes` 1b, flag 2).
+                      color: compacting
+                        ? COMPACTING_READOUT_INK
+                        : contextUsed == null
+                          ? UNMEASURED_INK
+                          : contextBarLevel === 'critical'
+                            ? swatch('ink-100')
+                            : contextInk,
                     }}
                   >
                     {/* The measurement itself, NOT the bar's clamped fraction:

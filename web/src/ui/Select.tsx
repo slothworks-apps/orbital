@@ -589,7 +589,7 @@ export function Select<T extends string | number>({
                     )}
                     <span className="min-w-0 flex-1 truncate">{option.label}</span>
                     {option.count !== undefined && (
-                      <span aria-hidden className="shrink-0 text-ink-900/45">
+                      <span aria-hidden className="shrink-0 text-ink-900/60">
                         {option.count}
                       </span>
                     )}

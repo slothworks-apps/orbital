@@ -157,7 +157,7 @@ export function PermissionCard({ sessionId, toolUse, toolResult, offline = false
     mode === 'interactive'
       ? 'text-accent/85'
       : mode === 'settled'
-        ? 'text-ink-900/45'
+        ? 'text-ink-900/60'
         : 'text-ink-900/50'
 
   const plan = planText(decision.input)

@@ -140,7 +140,7 @@ export function QuickStatsDialog({
           tabIndex={-1}
           onClick={(event) => event.stopPropagation()}
           style={{
-            boxShadow: '0 40px 120px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.07)',
+            boxShadow: '0 40px 120px color-mix(in oklab, var(--color-shadow) 70%, transparent), inset 0 1px 0 color-mix(in oklab, var(--color-highlight) 7%, transparent)',
           }}
           // 10f: 584 wide, radius 16, 1px rgba(150,205,255,.2) over the glass.
           className={[
@@ -294,7 +294,7 @@ function TimeSplit({
           </span>
         )}
         <span className="flex-1" />
-        <div className="font-mono fs-10 text-ink-900/45">
+        <div className="font-mono fs-10 text-ink-900/60">
           {elapsedMs === null
             ? 'no measured span'
             : `${formatStatsDuration(elapsedMs)} elapsed${
@@ -350,7 +350,7 @@ function TimeSplit({
         {showWaits ? (
           <span className="w-[70px] text-right">{formatStatsDuration(rollup.humanWaitMs)}</span>
         ) : (
-          <span className="text-ink-900/45">not work</span>
+          <span className="text-ink-900/60">not work</span>
         )}
       </div>
       {showWaits && (
@@ -358,7 +358,7 @@ function TimeSplit({
           <div className="mt-1 pl-[19px] font-mono fs-10.5 text-ink-900/60">
             {countLine}
           </div>
-          <div className="mt-2 font-mono fs-9.5 text-ink-900/45">
+          <div className="mt-2 font-mono fs-9.5 text-ink-900/60">
             shown because “Show time spent waiting on you” is on in /stats
           </div>
         </>

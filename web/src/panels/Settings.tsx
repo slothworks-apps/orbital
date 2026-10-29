@@ -488,7 +488,7 @@ const PREVIEW_TIERS = [
     body: 'radial-gradient(circle at 50% 45%, oklch(30% .05 220), oklch(20% .04 225) 70%, oklch(16% .03 230))',
     border: '1px solid oklch(80% .13 60 / .6)',
     core: 'oklch(80% .13 60 / .85)',
-    shadow: '0 0 22px oklch(80% .13 60 / .25), inset 0 0 0 5px rgba(0,0,0,.25)',
+    shadow: '0 0 22px oklch(80% .13 60 / .25), inset 0 0 0 5px color-mix(in oklab, var(--color-shadow) 25%, transparent)',
   },
 ]
 
@@ -1243,7 +1243,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                 </div>
                 {/* Not in the website's demo, where it would file a real issue. */}
                 {!isDemo() && <SendFeedback onPick={(kind) => setFeedback({ kind, open: true })} />}
-                <div className="px-3 py-2.5 font-mono fs-10 leading-[1.6] text-ink-900/45">
+                <div className="px-3 py-2.5 font-mono fs-10 leading-[1.6] text-ink-900/60">
                   <div>orbital {orbitalVersion}</div>
                   {claudeCodeVersion && <div>claude-code {claudeCodeVersion}</div>}
                 </div>
@@ -2069,7 +2069,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                               data-testid="map-model-sample"
                               className="font-mono fs-9.5 text-ink-900/70"
                             >
-                              <span className="text-ink-900/45">e.g. </span>
+                              <span className="text-ink-900/60">e.g. </span>
                               <span className="tracking-[0.1em]">{mapModelSample}</span>
                             </span>
                           )}

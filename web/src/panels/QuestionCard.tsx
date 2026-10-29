@@ -333,7 +333,7 @@ const NO_ANSWERS: AnswerMap = {}
 const NO_TICKS: string[] = []
 
 /** The status slot's ink on a quiet block (canvas 9e: ANSWERED, UNANSWERED). */
-const STATUS_QUIET = 'text-ink-900/45'
+const STATUS_QUIET = 'text-ink-900/60'
 
 /**
  * The pending card this tab can answer (spec
@@ -977,7 +977,7 @@ function QuestionBlock({
               ? 'text-accent/85'
               : state === 'terminal'
                 ? 'text-ink-900/50'
-                : 'text-ink-900/45',
+                : 'text-ink-900/60',
           ].join(' ')}
         >
           {status}
@@ -1035,7 +1035,7 @@ function AnsweredBody({
       ))}
       {text && <ChosenText text={text} />}
       {line && (
-        <div className="font-mono fs-10 tracking-[0.04em] text-ink-900/45">
+        <div className="font-mono fs-10 tracking-[0.04em] text-ink-900/60">
           {line}
         </div>
       )}
@@ -1245,7 +1245,7 @@ function LiveBody({
                   aria-hidden
                   className={[
                     GUTTER,
-                    chosen ? 'fs-11 text-accent' : focused ? 'text-accent' : 'text-ink-900/45',
+                    chosen ? 'fs-11 text-accent' : focused ? 'text-accent' : 'text-ink-900/60',
                   ].join(' ')}
                 >
                   {chosen ? '✓' : index + 1}
@@ -1330,7 +1330,7 @@ function LiveBody({
               aria-hidden
               className={[
                 GUTTER,
-                focus === otherIndex ? 'text-accent' : 'text-ink-900/45',
+                focus === otherIndex ? 'text-accent' : 'text-ink-900/60',
               ].join(' ')}
             >
               ↩
@@ -1401,7 +1401,7 @@ function LiveBody({
         ) : (
           // Canvas 9e / 9j: "keep link — mono 10 · rgba(143,216,255,.8)";
           // the row's ink, its gap above and the link's hover ink are 9e's.
-          <div className="flex items-center gap-2 pt-2.5 font-mono fs-10 text-ink-900/45">
+          <div className="flex items-center gap-2 pt-2.5 font-mono fs-10 text-ink-900/60">
             pick another option to change it
             <span aria-hidden className="flex-1" />
             <button

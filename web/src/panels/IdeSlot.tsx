@@ -204,7 +204,7 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
             </span>
             <span>:{shownCursor.lineStart}</span>
             <span aria-hidden className="flex-1" />
-            <span className="text-ink-900/45">{shownName}</span>
+            <span className="text-ink-900/60">{shownName}</span>
           </div>
 
           {lip && (
@@ -239,7 +239,7 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
                 <span className="text-ink-200">{elideFileName(lipParts(lip).file)}</span>
               </span>
               <span aria-hidden className="flex-1" />
-              <span className="text-ink-900/45">{shownName}</span>
+              <span className="text-ink-900/60">{shownName}</span>
               <button
                 type="button"
                 // The lip's × is a statement about THIS conversation, not about

@@ -113,7 +113,7 @@ export function SubagentChip({ sessionId, subagents, compact = false, waiting = 
       onOpenChange={setOpen}
       footer={
         // 25a's hint strip, under the scroll.
-        <div className="mt-1 flex shrink-0 items-center gap-2 border-t border-line/8 px-2.5 pt-2 pb-1 font-mono fs-9.5 tracking-[.06em] text-ink-900/45">
+        <div className="mt-1 flex shrink-0 items-center gap-2 border-t border-line/8 px-2.5 pt-2 pb-1 font-mono fs-9.5 tracking-[.06em] text-ink-900/60">
           ↑↓ move · ↵ open · ⎋ close
           <span aria-hidden className="flex-1" />
           this session only

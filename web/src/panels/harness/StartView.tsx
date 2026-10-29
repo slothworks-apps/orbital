@@ -33,7 +33,7 @@ function TemplateRow({ template, selected, onPick }: { template: HarnessTemplate
         aria-hidden
         className="block size-[10px] shrink-0 box-border rounded-full"
         style={{
-          border: `1.4px solid ${selected ? 'var(--color-accent)' : 'color-mix(in oklab, var(--color-ink-900) 45%, transparent)'}`,
+          border: `1.4px solid ${selected ? 'var(--color-accent)' : 'color-mix(in oklab, var(--color-ink-900) 60%, transparent)'}`,
           boxShadow: selected ? 'inset 0 0 0 2px var(--color-shade)' : undefined,
           background: selected ? swatch('accent') : 'transparent',
         }}

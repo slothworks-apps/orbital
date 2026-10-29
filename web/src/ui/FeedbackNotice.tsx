@@ -78,7 +78,7 @@ function FeedbackNotice() {
       data-kind={shown.kind}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
-      className="flex h-fit min-h-10 max-w-full items-center gap-2.5 whitespace-nowrap rounded-[10px] border border-line/12 bg-panel/90 pl-3.5 pr-1.5 fs-13 text-ink-400/94 shadow-[0_10px_28px_rgba(0,0,0,.45)] backdrop-blur-[12px]"
+      className="flex h-fit min-h-10 max-w-full items-center gap-2.5 whitespace-nowrap rounded-[10px] border border-line/12 bg-panel/90 pl-3.5 pr-1.5 fs-13 text-ink-400/94 shadow-[0_10px_28px_color-mix(in_oklab,_var(--color-shadow)_45%,_transparent)] backdrop-blur-[12px]"
     >
       {/* 3c: the only mark of a failure. oklch(66% .2 25), the errors log's red. */}
       {failed && <span aria-hidden className="block h-[7px] w-[7px] flex-none rounded-full bg-[oklch(66%_.2_25)]" />}

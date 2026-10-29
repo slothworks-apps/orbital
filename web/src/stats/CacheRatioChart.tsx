@@ -62,7 +62,7 @@ export function CacheRatioChart({
           </div>
         )}
         <span className="flex-1" />
-        <div className="font-mono fs-10 text-ink-900/45">
+        <div className="font-mono fs-10 text-ink-900/60">
           cached input ÷ total input · target ≥ {formatPercent(CACHE_TARGET_RATIO)}
         </div>
       </div>
@@ -114,7 +114,7 @@ export function CacheRatioChart({
           </svg>
         )}
 
-        <div className="absolute inset-x-0 -bottom-0.5 flex justify-between font-mono fs-10 text-ink-900/45">
+        <div className="absolute inset-x-0 -bottom-0.5 flex justify-between font-mono fs-10 text-ink-900/60">
           <span>{first ? `${shortDay(first.day)} · ${formatPercent(first.ratio)}` : ''}</span>
           <span>
             {last && last !== first ? `${shortDay(last.day)} · ${formatPercent(last.ratio)}` : ''}

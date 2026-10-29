@@ -139,7 +139,7 @@ export function TaskChip({ sessionId, tasks, compact = false, waiting = false, w
       align="left"
       withinRef={withinRef}
       footer={
-        <div className="mt-1 flex shrink-0 items-center gap-2 border-t border-line/8 px-2.5 pt-2 pb-1 font-mono fs-9.5 tracking-[.06em] text-ink-900/45">
+        <div className="mt-1 flex shrink-0 items-center gap-2 border-t border-line/8 px-2.5 pt-2 pb-1 font-mono fs-9.5 tracking-[.06em] text-ink-900/60">
           {/* 26a's hint, alone: beside the subagent list's `this session only`
               it wraps at `LIST_WIDTH_PX`. */}
           <span className="whitespace-nowrap">↵ open output · ■ stops at once · ⎋ close</span>

@@ -56,7 +56,7 @@ export function PinnedNotice({
     <section
       role="status"
       aria-label={label}
-      className="flex w-full flex-col gap-2.5 rounded-[16px] border border-line/16 bg-panel/96 pb-3.5 pl-4 pr-1 pt-1 text-left shadow-[0_14px_36px_rgba(0,0,0,.5),inset_0_1px_0_rgba(255,255,255,.05)] backdrop-blur-[12px]"
+      className="flex w-full flex-col gap-2.5 rounded-[16px] border border-line/16 bg-panel/96 pb-3.5 pl-4 pr-1 pt-1 text-left shadow-[0_14px_36px_color-mix(in_oklab,_var(--color-shadow)_50%,_transparent),inset_0_1px_0_color-mix(in_oklab,_var(--color-highlight)_5%,_transparent)] backdrop-blur-[12px]"
     >
       <div className="flex min-h-11 items-center">
         <span className="flex-1 font-mono fs-10.5 tracking-[0.16em] text-ink-900/65">{label}</span>

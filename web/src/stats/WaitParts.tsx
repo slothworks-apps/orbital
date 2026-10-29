@@ -164,7 +164,7 @@ export function WaitTile({
         </div>
       )}
       {footnote !== undefined && (
-        <div className="mt-[3px] font-mono fs-9 text-ink-900/45">* {footnote}</div>
+        <div className="mt-[3px] font-mono fs-9 text-ink-900/60">* {footnote}</div>
       )}
     </section>
   )
@@ -194,7 +194,7 @@ function CountLine({ line, starred }: { line: string; starred: boolean }) {
 /** The YOU chip of the leaderboard's wait group: dashed and neutral, never a category hue (10e). */
 export function YouChip() {
   return (
-    <span className="rounded-[4px] border border-dashed border-ink-900/45 px-[5px] py-px fs-8.5 tracking-[0.1em] text-ink-500/80">
+    <span className="rounded-[4px] border border-dashed border-ink-900/60 px-[5px] py-px fs-8.5 tracking-[0.1em] text-ink-500/80">
       YOU
     </span>
   )

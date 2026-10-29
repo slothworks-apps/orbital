@@ -238,7 +238,7 @@ export function SessionListScreen() {
                     {heading?.count != null && <> · {heading.count}</>}
                   </span>
                   {latest !== null && (
-                    <span className="ml-auto tracking-[0.04em] text-ink-900/45">latest {agoLabel(latest, now)}</span>
+                    <span className="ml-auto tracking-[0.04em] text-ink-900/60">latest {agoLabel(latest, now)}</span>
                   )}
                 </button>
                 {endedOpen && group.sessions.map((s) => <EndedRow key={s.id} session={s} tag={primaryTag(s.tagIds, tags)} device={withNames ? s.machine?.name : undefined} now={now} onOpen={openSession} />)}
@@ -274,7 +274,7 @@ export function SessionListScreen() {
           const label = (
             <>
               {GROUP_LABEL[group.key]} · {group.sessions.length}
-              {listOffline && <span className="tracking-[0.06em] text-ink-900/45"> · last known</span>}
+              {listOffline && <span className="tracking-[0.06em] text-ink-900/60"> · last known</span>}
             </>
           )
           if (group.key === 'input') {
@@ -795,7 +795,7 @@ function EndedRow({
           </span>
         </span>
       </span>
-      {session.lastAt !== null && <span className="shrink-0 font-mono fs-11 text-ink-900/45">{timeAgo(session.lastAt, now)}</span>}
+      {session.lastAt !== null && <span className="shrink-0 font-mono fs-11 text-ink-900/60">{timeAgo(session.lastAt, now)}</span>}
     </button>
   )
 }

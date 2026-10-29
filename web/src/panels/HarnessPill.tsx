@@ -185,7 +185,7 @@ function Pill({
       onFocus={() => onHover(true)}
       onBlur={() => onHover(false)}
       // `orbital-no-drag`: the main window's drag band would take a press near its top.
-      className="orbital-no-drag absolute z-30 box-border flex w-5 cursor-pointer flex-col items-center gap-[9px] rounded-[10px] border border-solid py-3 shadow-[0_6px_18px_rgba(0,0,0,.45)] backdrop-blur-[12px] transition-opacity duration-[180ms] ease-[ease] focus-visible:outline-none"
+      className="orbital-no-drag absolute z-30 box-border flex w-5 cursor-pointer flex-col items-center gap-[9px] rounded-[10px] border border-solid py-3 shadow-[0_6px_18px_color-mix(in_oklab,_var(--color-shadow)_45%,_transparent)] backdrop-blur-[12px] transition-opacity duration-[180ms] ease-[ease] focus-visible:outline-none"
       style={{
         top,
         right: edge === 'over' ? -11 : 6,
@@ -204,7 +204,7 @@ function Pill({
       {/* The flyout (30a-d): on the panel's side of the pill, its top on the pill's. */}
       <span
         aria-hidden
-        className="pointer-events-none absolute top-[-1px] right-[calc(100%+8px)] box-border flex w-[290px] cursor-default flex-col gap-1.5 rounded-[10px] border border-solid border-line/18 bg-panel/96 px-[13px] pt-[11px] pb-3 text-left shadow-[0_18px_50px_rgba(0,0,0,.6)]"
+        className="pointer-events-none absolute top-[-1px] right-[calc(100%+8px)] box-border flex w-[290px] cursor-default flex-col gap-1.5 rounded-[10px] border border-solid border-line/18 bg-panel/96 px-[13px] pt-[11px] pb-3 text-left shadow-[0_18px_50px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent)]"
         style={{
           opacity: flyout ? 1 : 0,
           visibility: flyout ? 'visible' : 'hidden',

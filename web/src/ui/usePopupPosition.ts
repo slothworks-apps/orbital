@@ -29,7 +29,7 @@ import type { RefObject } from 'react'
  */
 export const POPUP_SHELL = [
   'rounded-[10px] border border-line/16 bg-panel/96 backdrop-blur-[12px]',
-  'shadow-[0_14px_34px_rgba(0,0,0,.55)]',
+  'shadow-[0_14px_34px_color-mix(in_oklab,_var(--color-shadow)_55%,_transparent)]',
 ].join(' ')
 
 /** Minimum clearance between the popup and the edge of the viewport. */

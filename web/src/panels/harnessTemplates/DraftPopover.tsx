@@ -52,7 +52,7 @@ function SessionMeta({ session, now }: { session: PickerSession; now: number }) 
           </span>
         ))
       ) : (
-        <span className="text-ink-900/45">untagged</span>
+        <span className="text-ink-900/60">untagged</span>
       )}
       {session.lastAt !== null && (
         <>
@@ -161,7 +161,7 @@ function SessionPicker({
           <div className="px-2.5 py-2 font-mono fs-10.5 text-ink-900/50">no session matches</div>
         )}
       </div>
-      <div className="mt-1 flex items-center gap-2 border-t border-line/8 px-2.5 pb-1 pt-2 font-mono fs-9.5 tracking-[0.06em] text-ink-900/45">
+      <div className="mt-1 flex items-center gap-2 border-t border-line/8 px-2.5 pb-1 pt-2 font-mono fs-9.5 tracking-[0.06em] text-ink-900/60">
         ↑↓ move · ↵ pick · ⎋ close
         <span className="flex-1" />
         ended sessions included

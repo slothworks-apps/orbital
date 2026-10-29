@@ -79,7 +79,7 @@ export function Popover({
         data-harness-popover=""
         // 30l / 30m: a flat rgba(10,16,28,.96) fill, a .16 hairline, one soft drop shadow.
         className={[
-          'orbital-no-drag orbital-popover-in fixed z-[60] flex flex-col overflow-y-auto border border-line/16 bg-panel/96 text-ink-100 shadow-[0_24px_60px_rgba(0,0,0,.6)]',
+          'orbital-no-drag orbital-popover-in fixed z-[60] flex flex-col overflow-y-auto border border-line/16 bg-panel/96 text-ink-100 shadow-[0_24px_60px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent)]',
           radius === 12 ? 'rounded-xl' : 'rounded-[10px]',
           className ?? '',
         ].join(' ')}

@@ -83,7 +83,7 @@ export function FolderChooser({ machine, name, kind, start, recents, onChoose, o
 
   return (
     // canvas 50g: hung 70px below the field group's top, 8px wider on each side.
-    <div ref={box} className="absolute -left-2 -right-2 top-[70px] z-[8] flex flex-col overflow-hidden rounded-[10px] border border-line/16 bg-panel/97 shadow-[0_18px_44px_rgba(0,0,0,.6)] backdrop-blur-[12px]">
+    <div ref={box} className="absolute -left-2 -right-2 top-[70px] z-[8] flex flex-col overflow-hidden rounded-[10px] border border-line/16 bg-panel/97 shadow-[0_18px_44px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent)] backdrop-blur-[12px]">
       <div className="flex items-center gap-1.5 border-b border-line/10 px-3 py-2.5 font-mono fs-11 text-ink-900/70">
         <span className="flex shrink-0 text-ink-100">
           <KindGlyph kind={kind} />
@@ -113,7 +113,7 @@ export function FolderChooser({ machine, name, kind, start, recents, onChoose, o
           ))}
         </span>
         <span aria-hidden className="flex-1" />
-        <span className="shrink-0 whitespace-nowrap fs-9.5 tracking-[0.12em] text-ink-900/45">
+        <span className="shrink-0 whitespace-nowrap fs-9.5 tracking-[0.12em] text-ink-900/60">
           NO SYSTEM DIALOG ON THIS DEVICE
         </span>
       </div>

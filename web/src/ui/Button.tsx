@@ -58,7 +58,7 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   // backdrop blur, which reads as see-through wherever the button sits over a
   // planet rather than over empty space. Same colours, opaque — and with the
   // fill solid the blur has nothing left to blur, so it goes too.
-  cta: 'bg-gradient-to-b from-raised to-panel border border-accent/45 text-ink-100 font-semibold shadow-[0_0_24px_color-mix(in_oklab,_var(--color-accent)_20%,_transparent),0_12px_30px_rgba(0,0,0,.5)] hover:border-accent/70',
+  cta: 'bg-gradient-to-b from-raised to-panel border border-accent/45 text-ink-100 font-semibold shadow-[0_0_24px_color-mix(in_oklab,_var(--color-accent)_20%,_transparent),0_12px_30px_color-mix(in_oklab,_var(--color-shadow)_50%,_transparent)] hover:border-accent/70',
   // The error log's row actions (canvas 5b/5c): hairline pills whose active
   // state ("Hide detail") lights the fill, and a muted rank for dev records.
   pill: 'bg-transparent text-ink-200/80 font-semibold border border-line/14 hover:border-line/30 hover:bg-white/5',

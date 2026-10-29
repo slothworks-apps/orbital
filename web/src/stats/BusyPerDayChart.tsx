@@ -50,7 +50,7 @@ function DayTooltip({ day, flip, showWaits }: { day: StatsDayBusy; flip: boolean
     <div
       role="tooltip"
       style={flip ? { right: 56, bottom: 14 } : { left: 56, bottom: 14 }}
-      className="absolute z-10 w-[196px] rounded-[10px] border border-line/16 bg-panel/96 px-3 py-2.5 shadow-[0_18px_44px_rgba(0,0,0,.6)]"
+      className="absolute z-10 w-[196px] rounded-[10px] border border-line/16 bg-panel/96 px-3 py-2.5 shadow-[0_18px_44px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent)]"
     >
       <div className="font-mono fs-10 tracking-[0.14em] text-ink-900/60">
         {tooltipHeading(day.day)}
@@ -97,7 +97,7 @@ export function BusyPerDayChart({ days, showWaits }: { days: StatsDayBusy[]; sho
       <div className="flex items-baseline gap-[14px]">
         <div className={PANEL_LABEL_CLASS}>BUSY TIME PER DAY</div>
         <span className="flex-1" />
-        <div className="font-mono fs-10 text-ink-900/45">
+        <div className="font-mono fs-10 text-ink-900/60">
           stacked · API wait at the base
         </div>
       </div>

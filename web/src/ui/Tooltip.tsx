@@ -226,7 +226,7 @@ export function Tooltip(props: TooltipProps) {
             // 1f draws the one-line shell tighter and with a softer drop than
             // 2d's card, because it hangs off a text row rather than a control.
             variant === 'name'
-              ? 'max-w-[300px] rounded-[7px] px-2 py-[5px] shadow-[0_10px_26px_rgba(0,0,0,.5)]'
+              ? 'max-w-[300px] rounded-[7px] px-2 py-[5px] shadow-[0_10px_26px_color-mix(in_oklab,_var(--color-shadow)_50%,_transparent)]'
               : CARD_CLASS,
             align === 'right' ? 'right-0' : 'left-0',
           ].join(' ')}
@@ -274,12 +274,12 @@ const PANEL_WIDTH_PX = 264
 /** 1a: the bubble's left edge sits this far left of its trigger's, so its padding lines up with the text. */
 const PANEL_INSET_PX = 6
 const PANEL_CLASS =
-  'box-border flex w-[264px] flex-col gap-[9px] whitespace-normal rounded-lg border border-line/20 bg-panel/96 px-3 py-2.5 text-left shadow-[0_10px_26px_rgba(0,0,0,.5)]'
+  'box-border flex w-[264px] flex-col gap-[9px] whitespace-normal rounded-lg border border-line/20 bg-panel/96 px-3 py-2.5 text-left shadow-[0_10px_26px_color-mix(in_oklab,_var(--color-shadow)_50%,_transparent)]'
 /** Canvas 50f RUNS ON: `left:-1px`, so its border sits on the trigger's. */
 const FLYOUT_INSET_PX = 1
 const FLYOUT_CLASS =
-  'box-border flex flex-col gap-[5px] whitespace-normal rounded-[10px] border border-line/18 bg-panel px-[13px] pt-[11px] pb-3 text-left shadow-[0_18px_50px_rgba(0,0,0,.6)]'
-const CARD_CLASS = 'max-w-[340px] rounded-[9px] px-3 py-[9px] shadow-[0_16px_40px_rgba(0,0,0,.55)]'
+  'box-border flex flex-col gap-[5px] whitespace-normal rounded-[10px] border border-line/18 bg-panel px-[13px] pt-[11px] pb-3 text-left shadow-[0_18px_50px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent)]'
+const CARD_CLASS = 'max-w-[340px] rounded-[9px] px-3 py-[9px] shadow-[0_16px_40px_color-mix(in_oklab,_var(--color-shadow)_55%,_transparent)]'
 const CARD_TITLE_CLASS = 'block font-mono fs-11.5 text-ink-100'
 const SHORTCUT_CLASS = 'ml-2 whitespace-nowrap text-ink-900/55'
 const CARD_DESCRIPTION_CLASS =

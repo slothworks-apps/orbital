@@ -59,7 +59,7 @@ function BannerCard({ banner }: { banner: BannerContent }) {
         touchY.current = null
       }}
       className={[
-        'fixed inset-x-3 top-[calc(env(safe-area-inset-top)+8px)] z-30 rounded-[12px] border bg-panel-solid pb-1 pl-3 pr-2 pt-2 shadow-[0_8px_24px_rgba(0,0,0,.45)] transition-transform duration-200 ease-out motion-reduce:transition-none',
+        'fixed inset-x-3 top-[calc(env(safe-area-inset-top)+8px)] z-30 rounded-[12px] border bg-panel-solid pb-1 pl-3 pr-2 pt-2 shadow-[0_8px_24px_color-mix(in_oklab,_var(--color-shadow)_45%,_transparent)] transition-transform duration-200 ease-out motion-reduce:transition-none',
         needsInput ? INPUT_EDGE : 'border-line/14',
         shown ? 'translate-y-0' : '-translate-y-[calc(100%+env(safe-area-inset-top)+8px)]',
       ].join(' ')}

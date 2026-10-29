@@ -108,7 +108,7 @@ export function SkillViewer({
             transition: 'transform 180ms cubic-bezier(.2,.9,.25,1)',
             transform: entered ? 'scale(1)' : 'scale(.98)',
           }}
-          className="flex flex-col overflow-hidden rounded-[14px] border border-line/22 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel-solid)_96%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_98%,_transparent))] shadow-[0_40px_120px_rgba(0,0,0,.7)]"
+          className="flex flex-col overflow-hidden rounded-[14px] border border-line/22 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel-solid)_96%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_98%,_transparent))] shadow-[0_40px_120px_color-mix(in_oklab,_var(--color-shadow)_70%,_transparent)]"
         >
           <div className="flex items-start gap-3 border-b border-line/10 px-[18px] pb-3.5 pt-4">
             <div className="flex min-w-0 flex-1 flex-col gap-[7px]">

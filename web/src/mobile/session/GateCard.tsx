@@ -145,7 +145,7 @@ function WaitingCard({ sessionId, card }: { sessionId: string; card: GateCardDat
   return (
     <>
       {/* Canvas 10b: the 9c plan card's shell in amber. */}
-      <div className="overflow-hidden rounded-[16px] border border-warning/45 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel-solid)_92%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_96%,_transparent))] shadow-[0_0_26px_color-mix(in_oklab,_var(--color-warning)_8%,_transparent),0_10px_30px_rgba(0,0,0,.35)]">
+      <div className="overflow-hidden rounded-[16px] border border-warning/45 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel-solid)_92%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_96%,_transparent))] shadow-[0_0_26px_color-mix(in_oklab,_var(--color-warning)_8%,_transparent),0_10px_30px_color-mix(in_oklab,_var(--color-shadow)_35%,_transparent)]">
         <div className="px-3.5 pt-3">
           <CardHead
             step={card.step}

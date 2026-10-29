@@ -43,7 +43,7 @@ export function Keycap({ chord, display, muted, gesture }: KeycapProps) {
         gesture
           ? 'border-dashed border-line/20 bg-transparent'
           : 'border-line/16 bg-line/5',
-        gesture || muted ? 'text-ink-900/45' : 'text-ink-200/90',
+        gesture || muted ? 'text-ink-900/60' : 'text-ink-200/90',
       ].join(' ')}
     >
       {glyphs.map((glyph, i) => (

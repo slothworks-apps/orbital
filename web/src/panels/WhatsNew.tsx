@@ -171,7 +171,7 @@ function WhatsNewDialog({ open, installedAt, onClose }: { open: boolean; install
           aria-modal="true"
           aria-label="What's new"
           className={[
-            'flex max-h-full w-[620px] max-w-full flex-col rounded-2xl border border-line/20 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-raised)_96%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_98%,_transparent))] font-sans text-ink-100 shadow-[0_30px_80px_rgba(0,0,0,.6),inset_0_1px_0_rgba(255,255,255,.07)]',
+            'flex max-h-full w-[620px] max-w-full flex-col rounded-2xl border border-line/20 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-raised)_96%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_98%,_transparent))] font-sans text-ink-100 shadow-[0_30px_80px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent),inset_0_1px_0_color-mix(in_oklab,_var(--color-highlight)_7%,_transparent)]',
             MODAL_TRANSITION,
             duration,
             entered ? MODAL_OPEN : MODAL_CLOSED,

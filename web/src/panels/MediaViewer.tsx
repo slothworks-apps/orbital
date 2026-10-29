@@ -431,7 +431,7 @@ function Stage({
     return (
       <div
         onClick={(event) => event.stopPropagation()}
-        className="flex flex-col items-center justify-center gap-2.5 rounded-xl border border-line/10 bg-shade/60 font-mono tracking-[0.1em] shadow-[0_40px_120px_rgba(0,0,0,.7)]"
+        className="flex flex-col items-center justify-center gap-2.5 rounded-xl border border-line/10 bg-shade/60 font-mono tracking-[0.1em] shadow-[0_40px_120px_color-mix(in_oklab,_var(--color-shadow)_70%,_transparent)]"
         style={{ width: Math.round(w * k), height: Math.round(h * k) }}
       >
         <GoneMark size="dialog" />
@@ -475,7 +475,7 @@ function Stage({
         maxWidth: item.w ? Math.min(maxWidth, item.w) : maxWidth,
         maxHeight: item.h ? Math.min(stageHeight, item.h) : stageHeight,
       }}
-      className="block rounded-xl border border-line/22 shadow-[0_40px_120px_rgba(0,0,0,.7)]"
+      className="block rounded-xl border border-line/22 shadow-[0_40px_120px_color-mix(in_oklab,_var(--color-shadow)_70%,_transparent)]"
     />
     {menuAt && (
       // The menu is portalled, but React still bubbles its clicks up this

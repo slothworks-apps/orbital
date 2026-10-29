@@ -167,7 +167,7 @@ export function PdfPager({
           wheel.current = 0
           onPage(Math.max(1, Math.min(pages, page + step)))
         }}
-        className="relative overflow-hidden rounded-xl border border-line/22 bg-ink-200/10 shadow-[0_40px_120px_rgba(0,0,0,.7)]"
+        className="relative overflow-hidden rounded-xl border border-line/22 bg-ink-200/10 shadow-[0_40px_120px_color-mix(in_oklab,_var(--color-shadow)_70%,_transparent)]"
         style={{ width: widthPx, height: heightPx }}
       >
         <PdfPageCanvas doc={doc} page={page} heightPx={heightPx} widthPx={widthPx} className="block" />

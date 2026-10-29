@@ -136,7 +136,7 @@ export function ScopePicker({
           <div className="px-2.5 py-[7px] font-mono fs-10.5 text-ink-900/50">no project has run a session yet</div>
         )}
       </div>
-      <div className="mt-1 border-t border-line/8 px-2.5 pb-1 pt-2 font-mono fs-9.5 text-ink-900/45">
+      <div className="mt-1 border-t border-line/8 px-2.5 pb-1 pt-2 font-mono fs-9.5 text-ink-900/60">
         ↵ {footer(rows[highlight] ?? value)}
       </div>
     </Popover>

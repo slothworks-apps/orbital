@@ -910,7 +910,7 @@ export function Composer({
             // Canvas 9c / 9f D: the aside in the quieter .45 ink; it is the
             // first thing to go when the row runs short (a narrow panel), so
             // the sentence keeps its room.
-            <span className="hidden shrink-0 font-mono fs-10 tracking-[0.06em] text-ink-900/45 @min-[440px]:inline">
+            <span className="hidden shrink-0 font-mono fs-10 tracking-[0.06em] text-ink-900/60 @min-[440px]:inline">
               {hintAside}
             </span>
           )}

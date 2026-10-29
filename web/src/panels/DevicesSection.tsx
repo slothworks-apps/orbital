@@ -45,7 +45,7 @@ const BLOCK = 'border-t border-line/8 py-[13px]'
 /** The kicker over each column of the group (canvas 50a: THIS DEVICE, IN THIS GROUP, ADD A DEVICE). */
 const KICKER = 'font-mono fs-10 tracking-[0.18em] text-ink-900/60'
 /** The quiet caption beside a kicker (canvas 50a: EVERY DEVICE SEES THIS NAME). */
-const ASIDE = 'font-mono fs-9.5 tracking-[0.14em] text-ink-900/45'
+const ASIDE = 'font-mono fs-9.5 tracking-[0.14em] text-ink-900/60'
 /** The cards the group's columns sit in (canvas 50a). */
 const CARD = 'rounded-[12px] border border-line/12 bg-shade/55'
 /** "offline · seen …" moves in minutes at the finest (`timeAgo`), so it is re-read that often. */
@@ -57,8 +57,8 @@ const SUBLINE = 'font-mono fs-10.5 text-ink-900/50'
 
 /** The status line's dot (canvas 9q). Static: it never pulses, whatever the state. */
 const DOT: Record<RelayLineKind, string> = {
-  off: 'bg-ink-900/45',
-  connecting: 'bg-ink-900/45',
+  off: 'bg-ink-900/60',
+  connecting: 'bg-ink-900/60',
   online: 'bg-accent',
   unreachable: 'bg-[oklch(78%_.13_75_/_.8)]',
   failed: 'bg-[oklch(78%_.13_75_/_.8)]',
@@ -345,7 +345,7 @@ export function DevicesSection({
             type="button"
             aria-expanded={relayOpen}
             onClick={() => setRelayOpen((o) => !o)}
-            className="cursor-pointer border-b border-dashed border-ink-900/45 font-mono fs-10.5 tracking-[0.06em] text-ink-500/80"
+            className="cursor-pointer border-b border-dashed border-ink-900/60 font-mono fs-10.5 tracking-[0.06em] text-ink-500/80"
           >
             {relayOpen ? 'Done' : 'Change relay'}
           </button>

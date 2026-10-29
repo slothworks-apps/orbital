@@ -520,7 +520,7 @@ function McpPanel({
       ) : undefined,
       footer:
         ready && !cliMissing ? (
-          <span className="font-mono fs-10 tracking-[0.06em] text-ink-900/45">
+          <span className="font-mono fs-10 tracking-[0.06em] text-ink-900/60">
             via claude mcp · session {title}
           </span>
         ) : undefined,
@@ -865,7 +865,7 @@ function ServerRow({
             }
           />
         ) : (
-          <span className="block w-8 text-center font-mono fs-9 tracking-[0.12em] text-ink-900/45">
+          <span className="block w-8 text-center font-mono fs-9 tracking-[0.12em] text-ink-900/60">
             —
           </span>
         )}
@@ -1004,7 +1004,7 @@ function formViewParts({
     footer: (
       <>
         {state.saving && (
-          <span className="font-mono fs-10 tracking-[0.06em] text-ink-900/45">
+          <span className="font-mono fs-10 tracking-[0.06em] text-ink-900/60">
             running claude mcp…
           </span>
         )}

@@ -428,7 +428,7 @@ function SourcesList({
           Show all
         </button>
         <span className="flex-1" />
-        <span className="fs-9.5 text-ink-900/45">this session</span>
+        <span className="fs-9.5 text-ink-900/60">this session</span>
       </div>
     </div>,
     document.body,

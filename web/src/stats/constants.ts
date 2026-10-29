@@ -141,4 +141,4 @@ export const CHARS_PER_TOKEN = 4
  */
 export const WAIT_HATCH =
   'repeating-linear-gradient(135deg,color-mix(in oklab, var(--color-ink-900) 60%, transparent) 0 1px,transparent 1px 3px)'
-export const WAIT_OUTLINE = swatch('ink-900', 0.45)
+export const WAIT_OUTLINE = swatch('ink-900', 0.6)

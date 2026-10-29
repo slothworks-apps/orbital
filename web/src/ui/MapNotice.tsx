@@ -37,7 +37,7 @@ export function MapNotice({
     <div
       role="status"
       aria-label={label}
-      className="flex w-full flex-col gap-2.5 rounded-[12px] border border-line/16 bg-panel/96 py-3.5 pl-5 pr-3.5 text-left shadow-[0_18px_50px_rgba(0,0,0,.55),inset_0_1px_0_rgba(255,255,255,.05)] backdrop-blur-[12px]"
+      className="flex w-full flex-col gap-2.5 rounded-[12px] border border-line/16 bg-panel/96 py-3.5 pl-5 pr-3.5 text-left shadow-[0_18px_50px_color-mix(in_oklab,_var(--color-shadow)_55%,_transparent),inset_0_1px_0_color-mix(in_oklab,_var(--color-highlight)_5%,_transparent)] backdrop-blur-[12px]"
     >
       {/* `Feature - App update`: the head row is 28 tall, × or not. */}
       <div className="flex min-h-7 items-center gap-2">

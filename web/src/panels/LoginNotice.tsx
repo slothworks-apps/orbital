@@ -639,7 +639,7 @@ export function LoginCodeEntry({
               {...inputProps}
               placeholder="Paste the code the page shows"
               className={[
-                'm-0 min-w-0 flex-1 text-ellipsis border-0 bg-transparent p-0 font-mono text-ink-100 outline-none placeholder:text-ink-900/45',
+                'm-0 min-w-0 flex-1 text-ellipsis border-0 bg-transparent p-0 font-mono text-ink-100 outline-none placeholder:text-ink-900/60',
                 t ? 'fs-12' : 'fs-11',
               ].join(' ')}
             />
@@ -703,7 +703,7 @@ export function LoginCodeEntry({
         <input
           {...inputProps}
           placeholder="Paste the code that page shows"
-          className="m-0 min-w-0 flex-1 rounded-[7px] border border-line/16 bg-shade/60 px-[9px] py-1.5 font-mono fs-11 text-ink-100 outline-none placeholder:text-ink-900/45 focus:border-accent/50 focus:shadow-[0_0_0_3px_oklch(85%_.12_205_/_.1)]"
+          className="m-0 min-w-0 flex-1 rounded-[7px] border border-line/16 bg-shade/60 px-[9px] py-1.5 font-mono fs-11 text-ink-100 outline-none placeholder:text-ink-900/60 focus:border-accent/50 focus:shadow-[0_0_0_3px_oklch(85%_.12_205_/_.1)]"
         />
         <Button variant="lit" size="command" disabled={disabled || !ready} onClick={submit}>
           Submit

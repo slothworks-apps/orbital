@@ -290,7 +290,7 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
         <span
           className={
             isOpen && !armed && !showReceipt
-              ? 'text-ink-900/45'
+              ? 'text-ink-900/60'
               : 'text-ink-900/60 group-hover/path:text-ink-700/75'
           }
         >

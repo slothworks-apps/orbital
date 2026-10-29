@@ -334,7 +334,7 @@ export function CompletionPopup({
       className={[
         'orbital-no-drag fixed z-[60] flex flex-col overflow-hidden',
         'rounded-[10px] border border-line/16 bg-panel/96',
-        'shadow-[0_26px_70px_rgba(0,0,0,.6)]',
+        'shadow-[0_26px_70px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent)]',
         // 9e: open .12s cubic-bezier(.2,.9,.25,1), opacity with a 4px rise;
         // close .09s ease, opacity only. One duration and one easing at a
         // time — two of either would resolve by stylesheet order (web/CLAUDE.md).
@@ -414,7 +414,7 @@ export function CompletionPopup({
                   </div>
                   <span
                     className={`shrink-0 whitespace-nowrap font-mono fs-9 tracking-[0.1em] ${
-                      isSelected ? 'text-ink-700/60' : 'text-ink-900/45'
+                      isSelected ? 'text-ink-700/60' : 'text-ink-900/60'
                     }`}
                   >
                     {sourceLabel(row.source, row.name)}
@@ -473,7 +473,7 @@ export function CompletionPopup({
                   <span aria-hidden className="flex-1" />
                   <span
                     className={`shrink-0 whitespace-nowrap font-mono fs-9.5 tracking-[0.1em] ${
-                      isSelected ? 'text-ink-700/60' : 'text-ink-900/45'
+                      isSelected ? 'text-ink-700/60' : 'text-ink-900/60'
                     }`}
                   >
                     {row.entry.dir
@@ -505,7 +505,7 @@ export function CompletionPopup({
       </div>
 
       {/* Footer rail — 7px/12px, mono 9.5 tracked .1em (9b/9e). */}
-      <div className="flex shrink-0 items-center gap-2 border-t border-line/8 px-3 py-[7px] font-mono fs-9.5 tracking-[0.1em] text-ink-900/45">
+      <div className="flex shrink-0 items-center gap-2 border-t border-line/8 px-3 py-[7px] font-mono fs-9.5 tracking-[0.1em] text-ink-900/60">
         ↑↓ MOVE · ⏎ OR TAB ACCEPT · ESC CLOSE
       </div>
     </div>,

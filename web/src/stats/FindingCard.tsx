@@ -79,7 +79,7 @@ export function FindingCard({
         {/* No stamp on the drilldown (10b): every card there was measured on
             the one session the page is already headed with. */}
         {jump === undefined && (
-          <span className="font-mono fs-10 text-ink-900/45">
+          <span className="font-mono fs-10 text-ink-900/60">
             {formatFindingTime(finding.when, now)}
           </span>
         )}
@@ -133,10 +133,10 @@ export function FindingCard({
         )}
         <span className="flex-1" />
         {href === null ? (
-          <span className="text-ink-900/45">→</span>
+          <span className="text-ink-900/60">→</span>
         ) : (
           <>
-            <span className="whitespace-nowrap text-ink-900/45 group-hover:hidden">
+            <span className="whitespace-nowrap text-ink-900/60 group-hover:hidden">
               →
             </span>
             <span className="hidden whitespace-nowrap text-[var(--card-ink)] group-hover:inline">

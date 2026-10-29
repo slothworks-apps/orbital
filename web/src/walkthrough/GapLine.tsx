@@ -47,7 +47,7 @@ export function GapLine({ gap, label, prev }: GapLineProps) {
   return (
     <div className="flex flex-col gap-2">
       {prev && (
-        <span className="flex min-w-0 gap-1.5 font-mono fs-10.5 text-ink-900/45">
+        <span className="flex min-w-0 gap-1.5 font-mono fs-10.5 text-ink-900/60">
           <span className="shrink-0">▲ step {prev.ordinal}</span>
           <span className="text-line/25">·</span>
           <span className="truncate">{prev.title}</span>

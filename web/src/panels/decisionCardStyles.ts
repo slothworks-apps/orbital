@@ -91,7 +91,7 @@ export const CARD_SHELL =
   'orbital-card-in shrink-0 overflow-hidden rounded-[12px] border transition-[border-color,background-color] duration-200'
 
 /** 9a in situ: a pending card sits on a soft drop shadow in the panel. */
-export const CARD_SHADOW = 'shadow-[0_0_0_1px_rgba(0,0,0,.2),0_10px_30px_rgba(0,0,0,.35)]'
+export const CARD_SHADOW = 'shadow-[0_0_0_1px_color-mix(in_oklab,_var(--color-shadow)_20%,_transparent),0_10px_30px_color-mix(in_oklab,_var(--color-shadow)_35%,_transparent)]'
 
 /** The card's own padding, so a header and a body agree on the gutter. */
 export const CARD_PAD_X = 'px-[13px]'
@@ -116,7 +116,7 @@ export const HEADLINE = 'fs-13.5 font-semibold leading-[1.45] text-pretty'
  */
 export const CARD_GUARDED = 'border-ink-100/42'
 export const CARD_GUARDED_SHADOW =
-  'shadow-[0_0_0_3px_color-mix(in_oklab,_var(--color-ink-100)_5%,_transparent),0_0_0_1px_rgba(0,0,0,.2),0_10px_30px_rgba(0,0,0,.35)]'
+  'shadow-[0_0_0_3px_color-mix(in_oklab,_var(--color-ink-100)_5%,_transparent),0_0_0_1px_color-mix(in_oklab,_var(--color-shadow)_20%,_transparent),0_10px_30px_color-mix(in_oklab,_var(--color-shadow)_35%,_transparent)]'
 
 /** Canvas 20b A / 20a: the bridge's subtitle under the headline — 12 / 1.45. */
 export const SUBTITLE = 'fs-12 leading-[1.45] text-pretty text-ink-900/70'

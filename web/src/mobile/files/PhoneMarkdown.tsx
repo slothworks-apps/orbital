@@ -137,7 +137,7 @@ function components(onLink: (link: MarkdownLink) => void, path: string): Compone
           ✓
         </span>
       ) : (
-        <span aria-label="open" className={`${BOX} border-ink-900/45`} />
+        <span aria-label="open" className={`${BOX} border-ink-900/60`} />
       ),
     blockquote: ({ node, children }) => (
       <blockquote

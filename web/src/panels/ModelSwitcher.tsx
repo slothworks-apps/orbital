@@ -144,7 +144,7 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason, h
               inset top highlight `ui/Select.tsx`'s listbox uses. */}
           <div
             ref={popupRef}
-            className="orbital-no-drag orbital-popover-in absolute right-0 top-[calc(100%+6px)] z-20 w-[300px] rounded-[10px] border border-line/22 bg-gradient-to-b from-raised/98 to-panel/98 shadow-[0_20px_50px_rgba(0,0,0,.6),inset_0_1px_0_rgba(255,255,255,.06)]"
+            className="orbital-no-drag orbital-popover-in absolute right-0 top-[calc(100%+6px)] z-20 w-[300px] rounded-[10px] border border-line/22 bg-gradient-to-b from-raised/98 to-panel/98 shadow-[0_20px_50px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent),inset_0_1px_0_color-mix(in_oklab,_var(--color-highlight)_6%,_transparent)]"
           >
             <div className="px-3 pb-1.5 pt-2.5 font-mono fs-9.5 tracking-[0.18em] text-ink-900/60">
               MODEL · APPLIES FROM NEXT TURN

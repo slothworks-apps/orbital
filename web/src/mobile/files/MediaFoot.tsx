@@ -25,7 +25,7 @@ export function MediaFoot({
 }) {
   const clock = mediaClock(item.ts)
   return (
-    <div className="relative z-[2] flex shrink-0 flex-col gap-2.5 bg-[linear-gradient(0deg,rgba(0,0,0,.85),transparent)] px-4 pb-1.5 pt-[18px]">
+    <div className="relative z-[2] flex shrink-0 flex-col gap-2.5 bg-[linear-gradient(0deg,color-mix(in_oklab,var(--color-shadow)_85%,transparent),transparent)] px-4 pb-1.5 pt-[18px]">
       {above}
       {(chip || hint) && (
         <div className="flex items-center gap-2 font-mono fs-11 text-ink-600/75">

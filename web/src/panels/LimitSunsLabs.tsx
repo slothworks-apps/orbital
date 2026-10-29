@@ -39,7 +39,7 @@ const STYLE_DESC: Record<SunStyle, string> = {
 
 /** 60e: the picked colour's ring, and the hairline of the others. */
 const PICKED_RING = '0 0 0 2px var(--color-panel-solid),0 0 0 3.5px var(--color-accent)'
-const UNPICKED_RING = 'inset 0 0 0 1px rgba(255,255,255,.12)'
+const UNPICKED_RING = 'inset 0 0 0 1px color-mix(in oklab, var(--color-highlight) 12%, transparent)'
 
 /**
  * Settings → Labs → Limit suns (spec 2026-10-20-limit-suns-design § 4;
