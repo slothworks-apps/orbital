@@ -17,6 +17,14 @@ import { parseLimitsRoute } from './limits/route'
 import { parseSessionWindowRoute } from './lib/sessionWindowRoute'
 import { parseWalkthroughRoute } from './walkthrough/route'
 import { TEXT_SCALES_STORAGE_KEY, applyTextScales, rememberedTextScales, textScales } from './lib/textScale'
+import {
+  COLOUR_THEME_STORAGE_KEY,
+  DEFAULT_COLOUR_THEME,
+  applyColourTheme,
+  macColourTheme,
+  onSystemAppearanceChange,
+  systemPrefersDark,
+} from './lib/colourTheme'
 import { onBroadcastSettings } from './lib/settingsBroadcast'
 
 // Lazy on EVERY side of the route branch, because importing `App.tsx` is
@@ -138,6 +146,23 @@ useOrbital.subscribe((state, prev) => {
 })
 window.addEventListener('storage', (event) => {
   if (event.key === TEXT_SCALES_STORAGE_KEY) applyTextScales(root, rememberedTextScales(event.newValue))
+})
+
+/** Colour theme, remembered and followed across windows the same way. */
+applyColourTheme(root, localStorage.getItem(COLOUR_THEME_STORAGE_KEY) ?? DEFAULT_COLOUR_THEME)
+function paintColourTheme(): void {
+  const state = useOrbital.getState()
+  if (!state.settingsLoaded) return
+  const theme = macColourTheme(state.settings, systemPrefersDark())
+  applyColourTheme(root, theme)
+  localStorage.setItem(COLOUR_THEME_STORAGE_KEY, theme)
+}
+useOrbital.subscribe((state, prev) => {
+  if (state.settings !== prev.settings || state.settingsLoaded !== prev.settingsLoaded) paintColourTheme()
+})
+onSystemAppearanceChange(paintColourTheme)
+window.addEventListener('storage', (event) => {
+  if (event.key === COLOUR_THEME_STORAGE_KEY) applyColourTheme(root, event.newValue ?? DEFAULT_COLOUR_THEME)
 })
 onBroadcastSettings((patch) => useOrbital.setState((state) => ({ settings: { ...state.settings, ...patch } })))
 

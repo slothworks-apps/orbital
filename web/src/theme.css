@@ -28,7 +28,9 @@
   --color-ink-600: #c8d6eb;
   --color-ink-700: #bed4ee;
   --color-ink-800: #b2cbe6;
-  --color-ink-900: #a0bee1;
+  /* oklch(81.6% .06 252) — lifted from #a0bee1 so muted text (ink-900 at 60%)
+     passes AA on panel (canvas `Feature - Colour themes` 1b). */
+  --color-ink-900: #a8c6e9;
 
   /* Design accent: oklch(85% .12 205) — precomputed sRGB (three.js materials and Tailwind alpha modifiers need a literal). */
   --color-accent: #59e4f3;
@@ -46,6 +48,16 @@
      context gauge's critical red. */
   --color-danger-soft: #fa8880;
   --color-danger-pale: #ffb4ad;
+
+  /* Drop shadows and the top highlight of glass. Their own tokens because a
+     light theme cannot darken with `shade` or lighten with `ink-50` (1b). */
+  --color-shadow: var(--color-shade);
+  --color-highlight: var(--color-ink-50);
+
+  /* The map backdrop (1i): the two nebula washes and the stars. */
+  --color-nebula-a: #6e50dc;
+  --color-nebula-b: #28aadc;
+  --color-star: #ffffff;
 
   --font-sans: 'Manrope', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
@@ -87,6 +99,320 @@
   --state-border-a: 50%;
   --state-border-a-map: 75%;
   --state-border-a-map-rest: 30%;
+}
+
+/* Colour themes (spec 2026-10-29-colour-tokens-design, canvas `Feature -
+   Colour themes`). Deep Field is the `@theme` above; every other theme only
+   replaces token values, on the root, through `data-colours`
+   (`lib/colourTheme.ts`). Values are the canvas's own oklch. */
+/* Infrared — light · for a bright room. */
+:root[data-colours='infrared'] {
+  --color-space: oklch(96.5% 0.008 240);
+  --color-space-deep: oklch(93% 0.015 220);
+  --color-shade: oklch(40% 0.03 255);
+  --color-panel: oklch(99.3% 0.003 240);
+  --color-panel-solid: oklch(98.6% 0.004 240);
+  --color-raised: oklch(100% 0 0);
+  --color-line: oklch(42% 0.07 245);
+  --color-ink-50: oklch(13% 0.02 255);
+  --color-ink-100: oklch(15% 0.022 255);
+  --color-ink-200: oklch(16% 0.025 252);
+  --color-ink-300: oklch(17% 0.025 250);
+  --color-ink-400: oklch(17.5% 0.02 255);
+  --color-ink-500: oklch(18% 0.025 252);
+  --color-ink-600: oklch(18.5% 0.022 255);
+  --color-ink-700: oklch(19.5% 0.025 252);
+  --color-ink-800: oklch(20% 0.028 252);
+  --color-ink-900: oklch(21% 0.03 255);
+  --color-accent: oklch(47% 0.09 215);
+  --color-sky: oklch(47% 0.12 240);
+  --color-sky-soft: oklch(38% 0.1 240);
+  --color-warning: oklch(54% 0.1 68);
+  --color-warning-soft: oklch(40% 0.07 62);
+  --color-warning-deep: oklch(50% 0.13 58);
+  --color-success: oklch(47% 0.1 155);
+  --color-danger: oklch(54% 0.2 27);
+  --color-danger-soft: oklch(46% 0.1 15);
+  --color-danger-pale: oklch(40% 0.11 20);
+  --color-nebula-a: oklch(70% 0.1 290);
+  --color-nebula-b: oklch(75% 0.08 220);
+  --color-star: oklch(35% 0.03 255);
+  --color-shadow: oklch(55% 0.03 255);
+  --color-highlight: var(--color-raised);
+}
+
+/* Event Horizon — dark · near-black, brighter ink. */
+:root[data-colours='event-horizon'] {
+  --color-space: oklch(6% 0.006 255);
+  --color-space-deep: oklch(4% 0.01 220);
+  --color-shade: oklch(3% 0.005 255);
+  --color-panel: oklch(11.5% 0.01 255);
+  --color-panel-solid: oklch(13% 0.01 255);
+  --color-raised: oklch(16% 0.012 255);
+  --color-line: oklch(86% 0.07 240);
+  --color-ink-50: oklch(99% 0.003 250);
+  --color-ink-100: oklch(98% 0.004 250);
+  --color-ink-200: oklch(96.5% 0.01 250);
+  --color-ink-300: oklch(95.5% 0.012 250);
+  --color-ink-400: oklch(94.5% 0.01 255);
+  --color-ink-500: oklch(93.5% 0.015 250);
+  --color-ink-600: oklch(92.5% 0.012 255);
+  --color-ink-700: oklch(91.5% 0.018 250);
+  --color-ink-800: oklch(90.5% 0.02 250);
+  --color-ink-900: oklch(89% 0.025 250);
+  --color-accent: oklch(87% 0.14 205);
+  --color-sky: oklch(85% 0.11 235);
+  --color-sky-soft: oklch(93% 0.05 235);
+  --color-warning: oklch(85% 0.12 70);
+  --color-warning-soft: oklch(92% 0.06 70);
+  --color-warning-deep: oklch(80% 0.14 62);
+  --color-success: oklch(86% 0.13 155);
+  --color-danger: oklch(66% 0.22 27);
+  --color-danger-soft: oklch(80% 0.1 15);
+  --color-danger-pale: oklch(89% 0.06 18);
+  --color-nebula-a: oklch(50% 0.12 290);
+  --color-nebula-b: oklch(60% 0.09 220);
+  --color-star: oklch(99% 0 0);
+}
+
+/* Solar Light — light · after Solarized Light. */
+:root[data-colours='solar-light'] {
+  --color-space: oklch(93% 0.03 90);
+  --color-space-deep: oklch(96% 0.02 90);
+  --color-shade: oklch(40% 0.04 220);
+  --color-panel: oklch(97% 0.025 90);
+  --color-panel-solid: oklch(96% 0.025 90);
+  --color-raised: oklch(99% 0.015 90);
+  --color-line: oklch(45% 0.04 210);
+  --color-ink-50: oklch(13% 0.04 220);
+  --color-ink-100: oklch(13.8% 0.04 220);
+  --color-ink-200: oklch(14.6% 0.04 220);
+  --color-ink-300: oklch(15.3% 0.04 220);
+  --color-ink-400: oklch(16.1% 0.04 220);
+  --color-ink-500: oklch(16.9% 0.04 220);
+  --color-ink-600: oklch(17.7% 0.04 220);
+  --color-ink-700: oklch(18.4% 0.04 220);
+  --color-ink-800: oklch(19.2% 0.04 220);
+  --color-ink-900: oklch(20% 0.04 220);
+  --color-accent: oklch(48% 0.13 245);
+  --color-sky: oklch(48% 0.13 280);
+  --color-sky-soft: oklch(38% 0.11 280);
+  --color-warning: oklch(52% 0.11 80);
+  --color-warning-soft: oklch(40% 0.07 75);
+  --color-warning-deep: oklch(50% 0.14 50);
+  --color-success: oklch(48% 0.13 125);
+  --color-danger: oklch(52% 0.2 28);
+  --color-danger-soft: oklch(48% 0.1 32);
+  --color-danger-pale: oklch(40% 0.11 25);
+  --color-nebula-a: oklch(70% 0.09 280);
+  --color-nebula-b: oklch(75% 0.07 185);
+  --color-star: oklch(40% 0.04 220);
+  --color-shadow: oklch(55% 0.03 220);
+  --color-highlight: var(--color-raised);
+}
+
+/* Solar Dark — dark · after Solarized Dark. */
+:root[data-colours='solar-dark'] {
+  --color-space: oklch(24% 0.05 220);
+  --color-space-deep: oklch(19% 0.04 220);
+  --color-shade: oklch(14% 0.03 220);
+  --color-panel: oklch(27% 0.05 220);
+  --color-panel-solid: oklch(29% 0.05 220);
+  --color-raised: oklch(31% 0.05 220);
+  --color-line: oklch(72% 0.04 200);
+  --color-ink-50: oklch(96% 0.025 90);
+  --color-ink-100: oklch(95.2% 0.024 102);
+  --color-ink-200: oklch(94.4% 0.024 114);
+  --color-ink-300: oklch(93.7% 0.023 127);
+  --color-ink-400: oklch(92.9% 0.023 139);
+  --color-ink-500: oklch(92.1% 0.022 151);
+  --color-ink-600: oklch(91.3% 0.022 163);
+  --color-ink-700: oklch(90.6% 0.021 176);
+  --color-ink-800: oklch(89.8% 0.021 188);
+  --color-ink-900: oklch(89% 0.02 200);
+  --color-accent: oklch(70% 0.13 245);
+  --color-sky: oklch(74% 0.12 280);
+  --color-sky-soft: oklch(84% 0.08 280);
+  --color-warning: oklch(78% 0.13 85);
+  --color-warning-soft: oklch(90% 0.06 85);
+  --color-warning-deep: oklch(72% 0.15 60);
+  --color-success: oklch(74% 0.15 120);
+  --color-danger: oklch(62% 0.2 28);
+  --color-danger-soft: oklch(72% 0.1 32);
+  --color-danger-pale: oklch(84% 0.07 25);
+  --color-nebula-a: oklch(56% 0.13 280);
+  --color-nebula-b: oklch(63% 0.1 185);
+  --color-star: oklch(97% 0.025 90);
+}
+
+/* Molten — dark · after Monokai. */
+:root[data-colours='molten'] {
+  --color-space: oklch(22% 0.01 115);
+  --color-space-deep: oklch(18% 0.01 115);
+  --color-shade: oklch(12% 0.008 115);
+  --color-panel: oklch(27% 0.01 115);
+  --color-panel-solid: oklch(30% 0.01 115);
+  --color-raised: oklch(31% 0.012 115);
+  --color-line: oklch(90% 0.06 105);
+  --color-ink-50: oklch(98% 0.012 105);
+  --color-ink-100: oklch(97.1% 0.013 104);
+  --color-ink-200: oklch(96.2% 0.014 104);
+  --color-ink-300: oklch(95.3% 0.015 103);
+  --color-ink-400: oklch(94.4% 0.016 103);
+  --color-ink-500: oklch(93.6% 0.016 102);
+  --color-ink-600: oklch(92.7% 0.017 102);
+  --color-ink-700: oklch(91.8% 0.018 101);
+  --color-ink-800: oklch(90.9% 0.019 101);
+  --color-ink-900: oklch(90% 0.02 100);
+  --color-accent: oklch(84% 0.11 215);
+  --color-sky: oklch(74% 0.15 295);
+  --color-sky-soft: oklch(84% 0.09 295);
+  --color-warning: oklch(82% 0.12 70);
+  --color-warning-soft: oklch(90% 0.06 80);
+  --color-warning-deep: oklch(76% 0.16 58);
+  --color-success: oklch(84% 0.18 130);
+  --color-danger: oklch(64% 0.22 10);
+  --color-danger-soft: oklch(76% 0.09 30);
+  --color-danger-pale: oklch(86% 0.06 20);
+  --color-nebula-a: oklch(68% 0.18 295);
+  --color-nebula-b: oklch(88% 0.13 105);
+  --color-star: oklch(98% 0.02 105);
+}
+
+/* Velvet — dark · after Dracula. */
+:root[data-colours='velvet'] {
+  --color-space: oklch(24% 0.02 280);
+  --color-space-deep: oklch(19% 0.02 280);
+  --color-shade: oklch(12% 0.015 280);
+  --color-panel: oklch(29% 0.02 280);
+  --color-panel-solid: oklch(32% 0.02 280);
+  --color-raised: oklch(33% 0.025 280);
+  --color-line: oklch(80% 0.07 290);
+  --color-ink-50: oklch(99% 0.008 285);
+  --color-ink-100: oklch(98% 0.01 285);
+  --color-ink-200: oklch(97% 0.013 285);
+  --color-ink-300: oklch(96% 0.015 285);
+  --color-ink-400: oklch(95% 0.018 285);
+  --color-ink-500: oklch(94% 0.02 285);
+  --color-ink-600: oklch(93% 0.023 285);
+  --color-ink-700: oklch(92% 0.025 285);
+  --color-ink-800: oklch(91% 0.028 285);
+  --color-ink-900: oklch(90% 0.03 285);
+  --color-accent: oklch(78% 0.13 300);
+  --color-sky: oklch(87% 0.1 210);
+  --color-sky-soft: oklch(93% 0.05 210);
+  --color-warning: oklch(84% 0.12 65);
+  --color-warning-soft: oklch(92% 0.05 70);
+  --color-warning-deep: oklch(78% 0.14 55);
+  --color-success: oklch(86% 0.17 145);
+  --color-danger: oklch(66% 0.2 25);
+  --color-danger-soft: oklch(78% 0.08 25);
+  --color-danger-pale: oklch(88% 0.05 20);
+  --color-nebula-a: oklch(72% 0.16 345);
+  --color-nebula-b: oklch(74% 0.14 300);
+  --color-star: oklch(98% 0.01 110);
+}
+
+/* Arctic — dark · after Nord. */
+:root[data-colours='arctic'] {
+  --color-space: oklch(27% 0.02 265);
+  --color-space-deep: oklch(22% 0.02 265);
+  --color-shade: oklch(16% 0.02 265);
+  --color-panel: oklch(32% 0.02 265);
+  --color-panel-solid: oklch(35% 0.02 265);
+  --color-raised: oklch(36% 0.02 265);
+  --color-line: oklch(85% 0.03 250);
+  --color-ink-50: oklch(97% 0.01 265);
+  --color-ink-100: oklch(96.4% 0.011 265);
+  --color-ink-200: oklch(95.9% 0.011 265);
+  --color-ink-300: oklch(95.3% 0.012 265);
+  --color-ink-400: oklch(94.8% 0.012 265);
+  --color-ink-500: oklch(94.2% 0.013 265);
+  --color-ink-600: oklch(93.7% 0.013 265);
+  --color-ink-700: oklch(93.1% 0.014 265);
+  --color-ink-800: oklch(92.6% 0.014 265);
+  --color-ink-900: oklch(92% 0.015 265);
+  --color-accent: oklch(80% 0.07 215);
+  --color-sky: oklch(78% 0.07 250);
+  --color-sky-soft: oklch(88% 0.04 250);
+  --color-warning: oklch(85% 0.09 85);
+  --color-warning-soft: oklch(92% 0.04 85);
+  --color-warning-deep: oklch(74% 0.09 45);
+  --color-success: oklch(80% 0.09 130);
+  --color-danger: oklch(66% 0.14 20);
+  --color-danger-soft: oklch(78% 0.07 30);
+  --color-danger-pale: oklch(88% 0.04 25);
+  --color-nebula-a: oklch(60% 0.06 250);
+  --color-nebula-b: oklch(78% 0.06 215);
+  --color-star: oklch(96% 0.01 265);
+}
+
+/* Ember — dark · after Gruvbox. */
+:root[data-colours='ember'] {
+  --color-space: oklch(23% 0.004 60);
+  --color-space-deep: oklch(18% 0.004 60);
+  --color-shade: oklch(12% 0.004 60);
+  --color-panel: oklch(28% 0.005 60);
+  --color-panel-solid: oklch(31% 0.006 60);
+  --color-raised: oklch(32% 0.008 55);
+  --color-line: oklch(88% 0.05 80);
+  --color-ink-50: oklch(93% 0.05 85);
+  --color-ink-100: oklch(92.6% 0.049 84);
+  --color-ink-200: oklch(92.1% 0.048 84);
+  --color-ink-300: oklch(91.7% 0.047 83);
+  --color-ink-400: oklch(91.2% 0.046 83);
+  --color-ink-500: oklch(90.8% 0.044 82);
+  --color-ink-600: oklch(90.3% 0.043 82);
+  --color-ink-700: oklch(89.9% 0.042 81);
+  --color-ink-800: oklch(89.4% 0.041 81);
+  --color-ink-900: oklch(89% 0.04 80);
+  --color-accent: oklch(76% 0.07 200);
+  --color-sky: oklch(76% 0.09 355);
+  --color-sky-soft: oklch(86% 0.06 355);
+  --color-warning: oklch(83% 0.15 80);
+  --color-warning-soft: oklch(91% 0.06 85);
+  --color-warning-deep: oklch(72% 0.16 55);
+  --color-success: oklch(77% 0.16 115);
+  --color-danger: oklch(64% 0.2 30);
+  --color-danger-soft: oklch(75% 0.09 32);
+  --color-danger-pale: oklch(86% 0.06 30);
+  --color-nebula-a: oklch(60% 0.14 50);
+  --color-nebula-b: oklch(70% 0.1 115);
+  --color-star: oklch(92% 0.05 85);
+}
+
+/* Slate — dark · after One Dark. */
+:root[data-colours='slate'] {
+  --color-space: oklch(25% 0.015 265);
+  --color-space-deep: oklch(20% 0.015 265);
+  --color-shade: oklch(14% 0.015 265);
+  --color-panel: oklch(30% 0.02 265);
+  --color-panel-solid: oklch(33% 0.02 265);
+  --color-raised: oklch(34% 0.02 265);
+  --color-line: oklch(82% 0.04 255);
+  --color-ink-50: oklch(96% 0.01 265);
+  --color-ink-100: oklch(95.3% 0.011 265);
+  --color-ink-200: oklch(94.7% 0.011 265);
+  --color-ink-300: oklch(94% 0.012 265);
+  --color-ink-400: oklch(93.3% 0.012 265);
+  --color-ink-500: oklch(92.7% 0.013 265);
+  --color-ink-600: oklch(92% 0.013 265);
+  --color-ink-700: oklch(91.3% 0.014 265);
+  --color-ink-800: oklch(90.7% 0.014 265);
+  --color-ink-900: oklch(90% 0.015 265);
+  --color-accent: oklch(74% 0.13 245);
+  --color-sky: oklch(77% 0.09 210);
+  --color-sky-soft: oklch(86% 0.06 210);
+  --color-warning: oklch(84% 0.1 80);
+  --color-warning-soft: oklch(92% 0.05 80);
+  --color-warning-deep: oklch(74% 0.09 60);
+  --color-success: oklch(79% 0.12 135);
+  --color-danger: oklch(66% 0.16 18);
+  --color-danger-soft: oklch(78% 0.07 28);
+  --color-danger-pale: oklch(88% 0.05 20);
+  --color-nebula-a: oklch(62% 0.14 320);
+  --color-nebula-b: oklch(74% 0.12 245);
+  --color-star: oklch(95% 0.01 265);
 }
 
 body {
@@ -167,40 +493,40 @@ body {
    (transparent) WebGL canvas. */
 .orbital-nebula {
   background:
-    radial-gradient(ellipse 620px 420px at 28% 38%, rgba(110, 80, 220, 0.14), transparent),
-    radial-gradient(ellipse 760px 520px at 74% 68%, rgba(40, 170, 220, 0.09), transparent),
+    radial-gradient(ellipse 620px 420px at 28% 38%, color-mix(in oklab, var(--color-nebula-a) 14%, transparent), transparent),
+    radial-gradient(ellipse 760px 520px at 74% 68%, color-mix(in oklab, var(--color-nebula-b) 9%, transparent), transparent),
     radial-gradient(ellipse 500px 300px at 88% 18%, rgba(220, 120, 200, 0.05), transparent);
 }
 
 .orbital-stars-far {
   background-image:
-    radial-gradient(circle at 6% 9%, rgba(255, 255, 255, 0.85) 0 0.7px, transparent 1.4px),
-    radial-gradient(circle at 21% 30%, rgba(255, 255, 255, 0.5) 0 0.6px, transparent 1.2px),
-    radial-gradient(circle at 37% 7%, rgba(255, 255, 255, 0.7) 0 0.9px, transparent 1.6px),
-    radial-gradient(circle at 52% 50%, rgba(255, 255, 255, 0.6) 0 0.6px, transparent 1.2px),
-    radial-gradient(circle at 75% 22%, rgba(255, 255, 255, 0.45) 0 0.5px, transparent 1px),
-    radial-gradient(circle at 85% 65%, rgba(255, 255, 255, 0.8) 0 0.8px, transparent 1.5px),
-    radial-gradient(circle at 15% 75%, rgba(255, 255, 255, 0.55) 0 0.6px, transparent 1.2px),
-    radial-gradient(circle at 32% 88%, rgba(255, 255, 255, 0.4) 0 0.5px, transparent 1px),
-    radial-gradient(circle at 62% 82%, rgba(255, 255, 255, 0.7) 0 0.7px, transparent 1.4px),
-    radial-gradient(circle at 95% 42%, rgba(255, 255, 255, 0.5) 0 0.6px, transparent 1.2px),
-    radial-gradient(circle at 45% 27%, rgba(255, 255, 255, 0.4) 0 0.5px, transparent 1px),
-    radial-gradient(circle at 80% 5%, rgba(255, 255, 255, 0.6) 0 0.6px, transparent 1.2px),
-    radial-gradient(circle at 5% 55%, rgba(255, 255, 255, 0.45) 0 0.5px, transparent 1px),
-    radial-gradient(circle at 97% 95%, rgba(255, 255, 255, 0.6) 0 0.7px, transparent 1.4px),
-    radial-gradient(circle at 58% 67%, rgba(255, 255, 255, 0.35) 0 0.5px, transparent 1px),
+    radial-gradient(circle at 6% 9%, color-mix(in oklab, var(--color-star) 85%, transparent) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 21% 30%, color-mix(in oklab, var(--color-star) 50%, transparent) 0 0.6px, transparent 1.2px),
+    radial-gradient(circle at 37% 7%, color-mix(in oklab, var(--color-star) 70%, transparent) 0 0.9px, transparent 1.6px),
+    radial-gradient(circle at 52% 50%, color-mix(in oklab, var(--color-star) 60%, transparent) 0 0.6px, transparent 1.2px),
+    radial-gradient(circle at 75% 22%, color-mix(in oklab, var(--color-star) 45%, transparent) 0 0.5px, transparent 1px),
+    radial-gradient(circle at 85% 65%, color-mix(in oklab, var(--color-star) 80%, transparent) 0 0.8px, transparent 1.5px),
+    radial-gradient(circle at 15% 75%, color-mix(in oklab, var(--color-star) 55%, transparent) 0 0.6px, transparent 1.2px),
+    radial-gradient(circle at 32% 88%, color-mix(in oklab, var(--color-star) 40%, transparent) 0 0.5px, transparent 1px),
+    radial-gradient(circle at 62% 82%, color-mix(in oklab, var(--color-star) 70%, transparent) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 95% 42%, color-mix(in oklab, var(--color-star) 50%, transparent) 0 0.6px, transparent 1.2px),
+    radial-gradient(circle at 45% 27%, color-mix(in oklab, var(--color-star) 40%, transparent) 0 0.5px, transparent 1px),
+    radial-gradient(circle at 80% 5%, color-mix(in oklab, var(--color-star) 60%, transparent) 0 0.6px, transparent 1.2px),
+    radial-gradient(circle at 5% 55%, color-mix(in oklab, var(--color-star) 45%, transparent) 0 0.5px, transparent 1px),
+    radial-gradient(circle at 97% 95%, color-mix(in oklab, var(--color-star) 60%, transparent) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 58% 67%, color-mix(in oklab, var(--color-star) 35%, transparent) 0 0.5px, transparent 1px),
     radial-gradient(circle at 70% 40%, rgba(180, 210, 255, 0.6) 0 0.8px, transparent 1.6px);
   background-size: 480px 480px;
 }
 
 .orbital-stars-near {
   background-image:
-    radial-gradient(circle at 12% 20%, rgba(255, 255, 255, 0.95) 0 1px, transparent 2px),
+    radial-gradient(circle at 12% 20%, color-mix(in oklab, var(--color-star) 95%, transparent) 0 1px, transparent 2px),
     radial-gradient(circle at 68% 12%, rgba(200, 225, 255, 0.9) 0 1.1px, transparent 2.2px),
-    radial-gradient(circle at 40% 60%, rgba(255, 255, 255, 0.85) 0 0.9px, transparent 1.9px),
+    radial-gradient(circle at 40% 60%, color-mix(in oklab, var(--color-star) 85%, transparent) 0 0.9px, transparent 1.9px),
     radial-gradient(circle at 88% 78%, rgba(255, 240, 220, 0.9) 0 1px, transparent 2px),
-    radial-gradient(circle at 24% 90%, rgba(255, 255, 255, 0.8) 0 0.9px, transparent 1.9px),
-    radial-gradient(circle at 78% 45%, rgba(255, 255, 255, 0.7) 0 0.8px, transparent 1.7px);
+    radial-gradient(circle at 24% 90%, color-mix(in oklab, var(--color-star) 80%, transparent) 0 0.9px, transparent 1.9px),
+    radial-gradient(circle at 78% 45%, color-mix(in oklab, var(--color-star) 70%, transparent) 0 0.8px, transparent 1.7px);
   background-size: 900px 900px;
 }
 
@@ -211,29 +537,29 @@ body {
    being mostly empty space around one unlit body. */
 .orbital-stats-stars {
   background-image:
-    radial-gradient(circle at 6% 9%, rgba(255, 255, 255, 0.6) 0 0.7px, transparent 1.4px),
-    radial-gradient(circle at 37% 7%, rgba(255, 255, 255, 0.45) 0 0.8px, transparent 1.6px),
-    radial-gradient(circle at 85% 65%, rgba(255, 255, 255, 0.5) 0 0.8px, transparent 1.5px),
-    radial-gradient(circle at 15% 75%, rgba(255, 255, 255, 0.35) 0 0.6px, transparent 1.2px),
-    radial-gradient(circle at 62% 92%, rgba(255, 255, 255, 0.4) 0 0.7px, transparent 1.4px);
+    radial-gradient(circle at 6% 9%, color-mix(in oklab, var(--color-star) 60%, transparent) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 37% 7%, color-mix(in oklab, var(--color-star) 45%, transparent) 0 0.8px, transparent 1.6px),
+    radial-gradient(circle at 85% 65%, color-mix(in oklab, var(--color-star) 50%, transparent) 0 0.8px, transparent 1.5px),
+    radial-gradient(circle at 15% 75%, color-mix(in oklab, var(--color-star) 35%, transparent) 0 0.6px, transparent 1.2px),
+    radial-gradient(circle at 62% 92%, color-mix(in oklab, var(--color-star) 40%, transparent) 0 0.7px, transparent 1.4px);
   background-size: 460px 460px;
 }
 
 .orbital-stats-stars-empty {
   background-image:
-    radial-gradient(circle at 10% 12%, rgba(255, 255, 255, 0.45) 0 0.7px, transparent 1.4px),
-    radial-gradient(circle at 44% 8%, rgba(255, 255, 255, 0.35) 0 0.6px, transparent 1.2px),
-    radial-gradient(circle at 82% 62%, rgba(255, 255, 255, 0.4) 0 0.7px, transparent 1.4px),
-    radial-gradient(circle at 24% 84%, rgba(255, 255, 255, 0.3) 0 0.6px, transparent 1.2px);
+    radial-gradient(circle at 10% 12%, color-mix(in oklab, var(--color-star) 45%, transparent) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 44% 8%, color-mix(in oklab, var(--color-star) 35%, transparent) 0 0.6px, transparent 1.2px),
+    radial-gradient(circle at 82% 62%, color-mix(in oklab, var(--color-star) 40%, transparent) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 24% 84%, color-mix(in oklab, var(--color-star) 30%, transparent) 0 0.6px, transparent 1.2px);
   background-size: 440px 440px;
 }
 
 .orbital-stats-stars-session {
   background-image:
-    radial-gradient(circle at 12% 14%, rgba(255, 255, 255, 0.5) 0 0.7px, transparent 1.4px),
-    radial-gradient(circle at 48% 6%, rgba(255, 255, 255, 0.4) 0 0.7px, transparent 1.4px),
-    radial-gradient(circle at 88% 58%, rgba(255, 255, 255, 0.45) 0 0.7px, transparent 1.4px),
-    radial-gradient(circle at 26% 82%, rgba(255, 255, 255, 0.35) 0 0.6px, transparent 1.2px);
+    radial-gradient(circle at 12% 14%, color-mix(in oklab, var(--color-star) 50%, transparent) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 48% 6%, color-mix(in oklab, var(--color-star) 40%, transparent) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 88% 58%, color-mix(in oklab, var(--color-star) 45%, transparent) 0 0.7px, transparent 1.4px),
+    radial-gradient(circle at 26% 82%, color-mix(in oklab, var(--color-star) 35%, transparent) 0 0.6px, transparent 1.2px);
   background-size: 440px 440px;
 }
 

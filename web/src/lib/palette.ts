@@ -33,6 +33,11 @@ export type Token =
   | 'danger'
   | 'danger-soft'
   | 'danger-pale'
+  | 'shadow'
+  | 'highlight'
+  | 'nebula-a'
+  | 'nebula-b'
+  | 'star'
 
 export function swatch(token: Token, alpha = 1): string {
   if (alpha >= 1) return `var(--color-${token})`
