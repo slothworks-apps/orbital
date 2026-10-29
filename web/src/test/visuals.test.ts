@@ -366,10 +366,9 @@ describe('blendPlanet', () => {
     expect(b.corePulse).toBeCloseTo(0.25, 12)
     expect(b.corePulseSec).toBeCloseTo(2.4, 12)
 
-    // Waiting never blinks (1l), so working → needs-input keeps working's period too.
+    // Between two blinking states the period itself interpolates.
     const both = blendPlanet({ working: 0.5, idle: 0, needs_input: 0.5, ended: 0 }, createPlanetBlend())
-    expect(both.corePulse).toBeCloseTo(0.5, 12)
-    expect(both.corePulseSec).toBeCloseTo(2.4, 12)
+    expect(both.corePulseSec).toBeCloseTo((2.4 + 1.2) / 2, 12)
 
     // Nothing pulsing at all reports no period, not an infinitely fast one.
     expect(blendPlanet({ working: 0, idle: 1, needs_input: 0, ended: 0 }, createPlanetBlend()).corePulseSec).toBe(0)

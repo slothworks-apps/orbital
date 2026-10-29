@@ -30,14 +30,6 @@ cutting a turn short, not someone waiting on you. Planet bodies, the other rings
 tag dot keep the tag hue, which the user can set to anything, so a state label can sit next to
 a planet in its own colour.
 
-Amended by [[2026-10-29-colour-tokens-design]] (canvas `Feature - Colour
-themes` 1l): the planet now carries three more state marks. A waiting
-planet's core is a steady amber (it used to blink white), a DONE planet has a
-solid `--state-done` ring and core, and an INTERRUPTED planet a dashed
-`--state-interrupted` ring with a hollow core, a shape of its own so it never
-reads as the context gauge's critical red. Bodies, moons, glow and the tag
-ring still keep the tag hue.
-
 The phone's session list follows the same rule: its planets take the hue of
 the session's tag, picked as the map picks it (the first tag that still
 exists, else the default tag); IDLE is quieter and ENDED stays grey. The

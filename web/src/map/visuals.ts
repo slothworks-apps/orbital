@@ -193,9 +193,8 @@ const PLANET_VISUALS: Record<SessionStatus, Omit<PlanetVisuals, 'reticle'>> = {
     rippleActive: false,
     dimmed: false,
   },
-  // 1f: the idle body + tick ring exactly, plus an `orb-pulse-out` ripple at
-  // inset -21 and a 16px core. 1l: the core is amber and never blinks —
-  // waiting is calm (why-orbital § Nothing blinks); `Planet` colours it.
+  // 1f: the idle body + tick ring exactly, plus a white `orb-pulse-out`
+  // ripple at inset -21 and a white 16px core blinking at 1.2s.
   needs_input: {
     tickSpin: 0,
     tickCount: 45,
@@ -205,8 +204,8 @@ const PLANET_VISUALS: Record<SessionStatus, Omit<PlanetVisuals, 'reticle'>> = {
     tickOpacity: 0.45,
     arcOpacity: 0,
     arcSpin: 0,
-    corePulse: 0,
-    corePulseSec: 0,
+    corePulse: 1,
+    corePulseSec: 1.2,
     coreOpacity: 1,
     coreRadius: px(16 / 2),
     haloOpacity: 0,
