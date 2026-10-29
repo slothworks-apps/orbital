@@ -39,6 +39,7 @@ import { OFFLINE_OPACITY } from '../visuals'
 import { isMemberOffline } from '../../lib/devices'
 import { COMPACT_COMMAND } from '../Planet'
 import { MapShell, useMapInsets } from '../shell/MapShell'
+import { swatch } from '../../lib/palette'
 import { anchorForMatMove, cardOrder, matDropSlot, matOrder } from './order'
 
 const DRAG_THRESHOLD_PX = 3
@@ -51,14 +52,16 @@ const CARD_GAP_PX = 10
 /** Canvas 50h: a card whose device chip goes off folds away in 240 ms. */
 const CARD_FOLD_MS = 240
 
-/** 41a/41b surfaces: panel glass for the mat, one step brighter for the card. */
-const MAT_GLASS = 'linear-gradient(180deg,rgba(14,20,34,.6),rgba(8,12,22,.68))'
-const MAT_LIFTED = 'linear-gradient(180deg,rgb(16,23,38),rgb(10,14,25))'
-const CARD_GLASS = 'linear-gradient(180deg,rgba(16,24,40,.72),rgba(9,14,26,.78))'
-const CARD_LIFTED = 'linear-gradient(180deg,rgb(17,25,41),rgb(10,15,27))'
-const LIFTED_BORDER = 'rgba(150,205,255,.32)'
-const INSET_LIGHT = 'inset 0 1px 0 rgba(255,255,255,.04)'
-const ACCENT = 'oklch(85% .12 205)'
+/** 41a/41b surfaces: panel glass for the mat, one step brighter for the card
+ * (raised over panel; `Feature - Colour themes` 1j). */
+const MAT_GLASS = `linear-gradient(180deg,${swatch('raised', 0.6)},${swatch('panel', 0.68)})`
+const MAT_LIFTED = `linear-gradient(180deg,${swatch('raised')},${swatch('panel')})`
+const CARD_GLASS = `linear-gradient(180deg,${swatch('raised', 0.72)},${swatch('panel', 0.78)})`
+const CARD_LIFTED = MAT_LIFTED
+const LIFTED_BORDER = swatch('line', 0.32)
+const INSET_LIGHT = `inset 0 1px 0 ${swatch('highlight', 0.04)}`
+const LIFTED_SHADOW = (blur: string, alpha: number) =>
+  `0 ${blur} ${swatch('shadow', alpha)},0 0 0 1px ${swatch('shadow', 0.3)},inset 0 1px 0 ${swatch('highlight', 0.07)}`
 
 const tagInk = (hue: number, alpha?: number) =>
   `oklch(80% .13 ${hue}${alpha === undefined ? '' : ` / ${alpha}`})`
@@ -294,7 +297,7 @@ export function DeskMap() {
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            'radial-gradient(ellipse 620px 420px at 28% 38%,rgba(110,80,220,.11),transparent),radial-gradient(ellipse 760px 520px at 74% 68%,rgba(40,170,220,.07),transparent)',
+            `radial-gradient(ellipse 620px 420px at 28% 38%,${swatch('nebula-a', 0.11)},transparent),radial-gradient(ellipse 760px 520px at 74% 68%,${swatch('nebula-b', 0.07)},transparent)`,
         }}
       />
       <div
@@ -411,10 +414,8 @@ function Mat({
         left: liftedLeft,
         transform: lifted ? 'translateY(-8px)' : undefined,
         background: lifted ? MAT_LIFTED : MAT_GLASS,
-        borderColor: lifted ? LIFTED_BORDER : 'rgba(150,205,255,.1)',
-        boxShadow: lifted
-          ? '0 30px 70px rgba(0,0,0,.65),0 0 0 1px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.07)'
-          : INSET_LIGHT,
+        borderColor: lifted ? LIFTED_BORDER : swatch('line', 0.1),
+        boxShadow: lifted ? LIFTED_SHADOW('30px 70px', 0.65) : INSET_LIGHT,
       }}
     >
       <MatHeader
@@ -458,6 +459,7 @@ function MatBody({ children }: { children: React.ReactNode }) {
     for (const child of Array.from(ref.current.children)) ro.observe(child)
     return () => ro.disconnect()
   })
+  // A mask reads only alpha: its black is no colour of the chrome.
   const fade = more ? 'linear-gradient(180deg,#000 calc(100% - 56px),transparent)' : undefined
   return (
     <div
@@ -547,10 +549,10 @@ function compactSession(id: string) {
 
 /** 41c tool strip: kind told by height and shape, never by hue. */
 const TICK: Record<'edit' | 'bash' | 'read' | 'agent', CSSProperties> = {
-  edit: { width: 2, height: 12, background: 'rgba(232,238,248,.9)', borderRadius: 1 },
-  bash: { width: 2, height: 8, background: 'rgba(214,230,248,.62)', borderRadius: 1 },
-  read: { width: 1, height: 5, background: 'rgba(190,212,238,.5)' },
-  agent: { width: 6, height: 6, border: '1px solid rgba(232,238,248,.8)', borderRadius: '50%' },
+  edit: { width: 2, height: 12, background: swatch('ink-100', 0.9), borderRadius: 1 },
+  bash: { width: 2, height: 8, background: swatch('ink-400', 0.62), borderRadius: 1 },
+  read: { width: 1, height: 5, background: swatch('ink-700', 0.5) },
+  agent: { width: 6, height: 6, border: `1px solid ${swatch('ink-100', 0.8)}`, borderRadius: '50%' },
 }
 
 const toolKind = (name: string): keyof typeof TICK =>
@@ -613,17 +615,16 @@ const DeskCard = memo(function DeskCard({
   const cardRef = useRef<HTMLElement>(null)
   useFold(cardRef, planet.deviceOff)
 
-  let border = '1px solid rgba(150,205,255,.12)'
+  let border = `1px solid ${swatch('line', 0.12)}`
   let shadow = INSET_LIGHT
   if (needs) border = `1px solid color-mix(in oklch, ${stateColor('needs_input')} 30%, transparent)`
   if (lift) {
     border = `1px solid ${LIFTED_BORDER}`
-    shadow =
-      '0 26px 60px rgba(0,0,0,.6),0 0 0 1px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.07)'
+    shadow = LIFTED_SHADOW('26px 60px', 0.6)
   }
   if (planet.selected) {
-    border = `1.5px solid ${ACCENT}`
-    shadow = `inset 0 1px 0 rgba(255,255,255,.05),0 0 0 3px oklch(85% .12 205 / .16),0 0 24px oklch(85% .12 205 / .1)`
+    border = `1.5px solid ${swatch('accent')}`
+    shadow = `inset 0 1px 0 ${swatch('highlight', 0.05)},0 0 0 3px ${swatch('accent', 0.16)},0 0 24px ${swatch('accent', 0.1)}`
   }
 
   return (
@@ -780,7 +781,7 @@ const DeskCard = memo(function DeskCard({
                     style={{
                       width: `${Math.round(fill.fraction * 100)}%`,
                       background: planet.compactingSince
-                        ? 'rgba(190,212,238,.25)'
+                        ? swatch('ink-700', 0.25)
                         : oklchCss(contextLevelOklch(fill.level)),
                     }}
                   />
@@ -942,10 +943,10 @@ function SubagentRow({ sub, onOpen }: { sub: Subagent; onOpen: () => void }) {
   const openable = Boolean(sub.toolUseId)
   const live = sub.state !== 'ended'
   const dot: CSSProperties = !openable
-    ? { border: '1px dashed rgba(160,190,225,.4)' }
+    ? { border: `1px dashed ${swatch('ink-900', 0.4)}` }
     : live
-      ? { background: 'rgba(232,238,248,.85)' }
-      : { border: '1px solid rgba(160,190,225,.55)' }
+      ? { background: swatch('ink-100', 0.85) }
+      : { border: `1px solid ${swatch('ink-900', 0.55)}` }
   return (
     <button
       type="button"
@@ -959,10 +960,10 @@ function SubagentRow({ sub, onOpen }: { sub: Subagent; onOpen: () => void }) {
         className="min-w-0 flex-1 truncate"
         style={{
           color: !openable
-            ? 'rgba(160,190,225,.45)'
+            ? swatch('ink-900', 0.45)
             : live
-              ? 'rgba(232,238,248,.9)'
-              : 'rgba(160,190,225,.6)',
+              ? swatch('ink-100', 0.9)
+              : swatch('ink-900', 0.6),
         }}
       >
         {sub.name}
@@ -1027,7 +1028,7 @@ function DecisionBlock({
   const text = decision.kind === 'question' ? questions[0]?.question : decisionHeadline(decision)
   const detail = decisionDetail(decision)
   return (
-    <div className="flex flex-col gap-[9px] rounded-[10px] border border-line/16 bg-[linear-gradient(180deg,rgba(10,16,28,.72),rgba(5,9,18,.82))] px-3 pb-3 pt-[11px]">
+    <div className="flex flex-col gap-[9px] rounded-[10px] border border-line/16 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_72%,_transparent),color-mix(in_oklab,_var(--color-shade)_82%,_transparent))] px-3 pb-3 pt-[11px]">
       <div className="flex items-center gap-2">
         <span
           className="rounded px-[7px] py-0.5 font-mono fs-9.5 tracking-[0.14em] text-warning-soft"
@@ -1156,15 +1157,17 @@ function Badge({
       ? {
           borderColor: oklchCss(CONTEXT_CRITICAL_OKLCH, 0.45),
           background: oklchCss(CONTEXT_CRITICAL_OKLCH, 0.1),
-          color: 'oklch(82% .1 25)',
+          // The number in ink beside the red, as the detail panel's critical
+          // read-out (`Feature - Colour themes` 1b, flag 2).
+          color: swatch('ink-100'),
         }
       : tone === 'failed'
         ? {
-            borderColor: 'rgba(232,238,248,.45)',
-            background: 'rgba(232,238,248,.06)',
-            color: '#e8eef8',
+            borderColor: swatch('ink-100', 0.45),
+            background: swatch('ink-100', 0.06),
+            color: swatch('ink-100'),
           }
-        : { borderColor: 'rgba(150,205,255,.14)', color: 'rgba(160,190,225,.6)' }
+        : { borderColor: swatch('line', 0.14), color: swatch('ink-900', 0.6) }
   const className = 'rounded-[5px] border px-[7px] py-0.5 font-mono fs-9.5 tracking-[0.1em]'
   return onClick ? (
     <button type="button" onClick={onClick} className={className} style={style}>
@@ -1179,6 +1182,9 @@ function Badge({
 
 type DrawerState = 'resting' | 'eligible' | 'armed' | 'refused'
 
+const DRAWER_GLASS = `linear-gradient(180deg,${swatch('raised', 0.72)},${swatch('panel', 0.78)})`
+const DRAWER_SHADOW = `0 12px 30px ${swatch('shadow', 0.4)}`
+
 /** 41e: resting, eligible (a card is being dragged), armed (over the drawer), refused (a terminal session). */
 const DRAWER: Record<
   DrawerState,
@@ -1186,35 +1192,37 @@ const DRAWER: Record<
 > = {
   resting: {
     sub: 'click to browse',
-    subInk: 'rgba(160,190,225,.6)',
-    border: '1px solid rgba(150,205,255,.16)',
-    bg: 'linear-gradient(180deg,rgba(14,20,34,.72),rgba(8,12,22,.78))',
-    shadow: '0 12px 30px rgba(0,0,0,.4)',
-    glyph: 'rgba(200,220,245,.7)',
+    subInk: swatch('ink-900', 0.6),
+    border: `1px solid ${swatch('line', 0.16)}`,
+    bg: DRAWER_GLASS,
+    shadow: DRAWER_SHADOW,
+    glyph: swatch('ink-500', 0.7),
   },
   eligible: {
     sub: 'drop here to end the session',
-    subInk: 'rgba(214,230,248,.85)',
-    border: '1px dashed rgba(150,205,255,.42)',
-    bg: 'linear-gradient(180deg,rgba(14,20,34,.72),rgba(8,12,22,.78))',
-    shadow: '0 12px 30px rgba(0,0,0,.4)',
-    glyph: 'rgba(214,230,248,.85)',
+    subInk: swatch('ink-400', 0.85),
+    border: `1px dashed ${swatch('line', 0.42)}`,
+    bg: DRAWER_GLASS,
+    shadow: DRAWER_SHADOW,
+    glyph: swatch('ink-400', 0.85),
   },
   armed: {
     sub: 'release to end',
-    subInk: '#e8eef8',
-    border: '1px solid rgba(232,238,248,.55)',
-    bg: 'linear-gradient(180deg,rgb(34,48,72),rgb(20,29,47))',
-    shadow: '0 0 0 4px rgba(150,205,255,.07),0 12px 30px rgba(0,0,0,.4)',
-    glyph: '#e8eef8',
+    subInk: swatch('ink-100'),
+    border: `1px solid ${swatch('ink-100', 0.55)}`,
+    // Lit glass: the drawer's surfaces with line mixed in (no token sits
+    // near the lit sRGB on its own).
+    bg: `linear-gradient(180deg,color-mix(in oklab,${swatch('line')} 17%,${swatch('raised')}),color-mix(in oklab,${swatch('line')} 10%,${swatch('panel')}))`,
+    shadow: `0 0 0 4px ${swatch('line', 0.07)},${DRAWER_SHADOW}`,
+    glyph: swatch('ink-100'),
   },
   refused: {
     sub: "can't end a terminal session",
-    subInk: 'rgba(160,190,225,.6)',
-    border: '1px solid rgba(150,205,255,.14)',
-    bg: 'linear-gradient(180deg,rgb(14,20,33),rgb(9,13,23))',
-    shadow: '0 12px 30px rgba(0,0,0,.4)',
-    glyph: 'rgba(160,190,225,.6)',
+    subInk: swatch('ink-900', 0.6),
+    border: `1px solid ${swatch('line', 0.14)}`,
+    bg: `linear-gradient(180deg,${swatch('raised')},${swatch('panel')})`,
+    shadow: DRAWER_SHADOW,
+    glyph: swatch('ink-900', 0.6),
   },
 }
 

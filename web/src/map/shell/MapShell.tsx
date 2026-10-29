@@ -205,7 +205,7 @@ export function MapShell(props: {
             className={[
               'relative grid h-[34px] w-[34px] place-items-center rounded-[9px] border bg-panel/92 fs-16 font-bold leading-none transition-colors',
               errorLogOpen
-                ? 'border-accent/50 text-ink-100 shadow-[0_0_0_3px_rgba(89,228,243,.1)]'
+                ? 'border-accent/50 text-ink-100 shadow-[0_0_0_3px_color-mix(in_oklab,_var(--color-accent)_10%,_transparent)]'
                 : [
                     'border-line/16 hover:border-line/30 hover:bg-line/10 hover:text-white',
                     errorsUnseen > 0 ? 'text-ink-100' : 'text-ink-500/60',

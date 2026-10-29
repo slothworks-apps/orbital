@@ -16,6 +16,7 @@ import { bodyZoomFactor, type CameraState } from './camera'
 import { useMapFrame } from './FrameBudget'
 import { mapSuns, sunCardPlacement, SUN_CARD_WIDTH_PX, SUN_PX, type MapSun } from './sunModel'
 import { sunLook } from './sunVisual'
+import { swatch } from '../lib/palette'
 import {
   BODY_MOVE_MS,
   advancePointTween,
@@ -337,7 +338,7 @@ function LimitSun({
                 position: 'absolute',
                 inset: -SUN_RING_OUT_PX,
                 borderRadius: '50%',
-                border: '1px solid rgba(150,205,255,.32)',
+                border: `1px solid ${swatch('line', 0.32)}`,
                 opacity: ringOn ? 1 : 0,
                 transition: fade('opacity', RING_FADE_MS),
               }}
@@ -418,19 +419,19 @@ const TILE_STYLE = {
   padding: '0 2px',
   borderRadius: 3.5,
   background: 'oklch(34% .012 250)',
-  boxShadow: '0 0 0 1.5px #05070d',
+  boxShadow: `0 0 0 1.5px ${swatch('space')}`,
   fontSize: 7.5,
   fontWeight: 600,
   lineHeight: 1,
-  color: '#eef4fc',
+  color: swatch('ink-50'),
 } as const
 
 /** 60b: a row's fill by its ink step, LIMIT REACHED included. */
 const FILL: Record<LimitSeverity | 'reached', string> = {
-  normal: 'rgba(150,205,255,.42)',
-  warning: 'rgba(214,230,248,.72)',
-  critical: '#e8eef8',
-  reached: '#e8eef8',
+  normal: swatch('line', 0.42),
+  warning: swatch('ink-400', 0.72),
+  critical: swatch('ink-100'),
+  reached: swatch('ink-100'),
 }
 
 /**
@@ -547,7 +548,7 @@ function CardRow({
         <span>{reset ?? ''}</span>
         <span className="flex-1" />
         {estimate && (
-          <span style={{ color: estimate.lit ? 'rgba(160,190,225,.75)' : 'rgba(160,190,225,.55)' }}>
+          <span style={{ color: swatch('ink-900', estimate.lit ? 0.75 : 0.55) }}>
             {estimate.before}
             <span className="text-ink-100">{estimate.at}</span>
             {estimate.after}

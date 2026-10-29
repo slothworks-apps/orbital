@@ -325,7 +325,7 @@ export function ArchipelagoMap() {
       onClick={handleClick}
     >
       <div ref={hostRef} className="absolute inset-0" />
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_45%_50%,transparent_55%,rgba(3,7,14,.55))]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_45%_50%,transparent_55%,color-mix(in_oklab,_var(--color-shade)_55%,_transparent))]" />
       <MapShell
         model={model}
         camera={camera}

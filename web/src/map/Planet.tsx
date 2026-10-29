@@ -95,6 +95,7 @@ import { DetachGlyph } from '../ui/UtilityButton'
 import { useClaudeDirMark } from '../ui/ClaudeDirMark'
 import { localClaudeDirId } from '../lib/devices'
 import { WithAge } from './WithAge'
+import { swatch } from '../lib/palette'
 import {
   COMPACTED_CAPTION_MS,
   COMPACTING_SWITCH_MS,
@@ -280,10 +281,10 @@ const WHITE_COLOR = new THREE.Color(WHITE)
  * happens mid-tween, where no render is — so there is exactly one owner.
  */
 // LABEL_TOP_REST_Y, LABEL_GAUGED_REST_Y and LABEL_SELECTED_REST_Y are in `visuals.ts`.
-const LABEL_COLOR_ACTIVE = 'rgba(220,235,255,.85)'
-const LABEL_COLOR_DIMMED = 'rgba(160,190,225,.6)'
+const LABEL_COLOR_ACTIVE = swatch('ink-200', 0.85)
+const LABEL_COLOR_DIMMED = swatch('ink-900', 0.6)
 /** Family line under the title (canvas 4a). Subordinate to the name in both states. */
-const LABEL_MODEL_COLOR = 'rgba(160,190,225,.7)'
+const LABEL_MODEL_COLOR = swatch('ink-900', 0.7)
 
 /**
  * Hover-expanded label (idea doc `expand-a-planet-label-on-hover`). The
@@ -295,7 +296,7 @@ const LABEL_MODEL_COLOR = 'rgba(160,190,225,.7)'
 const HOVER_LABEL_ENTER_MS = 160
 const HOVER_LABEL_EXIT_MS = 120
 const HOVER_LABEL_MAX_WIDTH_PX = 240
-const HOVER_LABEL_SCRIM = 'rgba(4,8,16,.85)'
+const HOVER_LABEL_SCRIM = swatch('shade', 0.85)
 
 /** The map mark's side, 44f "Sizes". */
 const MAP_MARK_PX = 12
@@ -317,14 +318,14 @@ const MAP_MARK_STYLE = {
   padding: '0 2px',
   borderRadius: 3,
   background: 'oklch(34% .012 250)',
-  boxShadow: '0 0 0 1.5px rgba(6,10,20,.85)',
+  boxShadow: `0 0 0 1.5px ${swatch('shade', 0.85)}`,
   fontFamily: "'JetBrains Mono', ui-monospace, monospace",
   fontSize: 7.5,
   fontWeight: 600,
   letterSpacing: 0,
   lineHeight: `${MAP_MARK_PX}px`,
   textAlign: 'center',
-  color: 'rgba(226,236,250,.9)',
+  color: swatch('ink-100', 0.9),
 } as const
 
 /** Label to mark, 44b. */
@@ -374,10 +375,10 @@ const BODY_WORKING_Z = -0.001
 const DETACH_BADGE_CORNER = px((48 + 22) * (50 / 48))
 /** The badge's box and its ink, verbatim from 22e. Neutral, never the tag hue. */
 const DETACH_BADGE_PX = 20
-const DETACH_BADGE_BG = 'rgba(5,7,13,.85)'
-const DETACH_BADGE_INK = 'rgba(230,245,255,.7)'
+const DETACH_BADGE_BG = swatch('space', 0.85)
+const DETACH_BADGE_INK = swatch('ink-100', 0.7)
 /** A click on the planet focuses the window; the badge answers with one flash (22e). */
-const DETACH_BADGE_FLASH_INK = '#e8eef8'
+const DETACH_BADGE_FLASH_INK = swatch('ink-100')
 const DETACH_BADGE_FLASH_MS = 160
 /** The window closed: the badge goes, and nothing else moves (22e). */
 const DETACH_BADGE_EXIT_MS = 200
@@ -483,14 +484,14 @@ const CONDENSE_GLOW_OPACITY = 0.12
 /** After a success the arc drains to its new value (26e: 700 ms). */
 const ARC_DRAIN_MS = 700
 /** 26e "map pill": `COMPACTING` in the compacting grey over a .22 hairline. */
-const COMPACTING_PILL_BORDER = 'rgba(150,205,255,.22)'
-const COMPACTING_PILL_INK = 'rgba(214,228,246,.85)'
+const COMPACTING_PILL_BORDER = swatch('line', 0.22)
+const COMPACTING_PILL_INK = swatch('ink-400', 0.85)
 /** Both pills' second word — the timer, the percentage. */
-const PILL_SUB_INK = 'rgba(160,190,225,.6)'
+const PILL_SUB_INK = swatch('ink-900', 0.6)
 /** 26e "failure badge": the /compact badge's red border, a lighter red word. */
 const COMPACT_FAILED_INK = 'oklch(80% .12 25)'
 /** 26b's caption under the label after a success: 9.5px at .08em. */
-const COMPACTED_CAPTION_INK = 'rgba(200,220,245,.75)'
+const COMPACTED_CAPTION_INK = swatch('ink-500', 0.75)
 
 /** One axis of a cubic Bézier with endpoints (0,0) and (1,1). */
 function bezierAxis(t: number, p1: number, p2: number): number {
@@ -1228,12 +1229,14 @@ function CompactBadge({
           gap: 6,
           padding: '3px 8px',
           borderRadius: 999,
-          background: 'rgba(6,10,20,.9)',
+          background: swatch('shade', 0.9),
           border: `1px solid ${oklchCss(CONTEXT_CRITICAL_OKLCH, 0.7)}`,
           fontFamily: "'JetBrains Mono', ui-monospace, monospace",
           fontSize: 9.5,
           letterSpacing: '0.08em',
-          color: '#fff',
+          // The critical number in ink beside the red, as the detail panel's
+          // read-out (`Feature - Colour themes` 1b, flag 2).
+          color: swatch('ink-100'),
           whiteSpace: 'nowrap',
           cursor: 'pointer',
           pointerEvents: 'auto',
@@ -1278,7 +1281,7 @@ function CompactingPill({
           gap: 6,
           padding: '3px 8px',
           borderRadius: 999,
-          background: 'rgba(6,10,20,.88)',
+          background: swatch('shade', 0.88),
           border: `1px solid ${COMPACTING_PILL_BORDER}`,
           fontFamily: "'JetBrains Mono', ui-monospace, monospace",
           fontSize: 9.5,
@@ -1331,7 +1334,7 @@ function CompactFailedBadge({
           gap: 6,
           padding: '3px 8px',
           borderRadius: 999,
-          background: 'rgba(6,10,20,.88)',
+          background: swatch('shade', 0.88),
           border: `1px solid ${oklchCss(CONTEXT_CRITICAL_OKLCH, 0.7)}`,
           fontFamily: "'JetBrains Mono', ui-monospace, monospace",
           fontSize: 9.5,
@@ -2454,12 +2457,12 @@ function PlanetBody({
                     margin: `${LIMIT_PILL_GAP_PX}px auto 0`,
                     padding: `${LIMIT_PILL_PAD_Y_PX}px ${LIMIT_PILL_PAD_X_PX}px`,
                     borderRadius: 999,
-                    background: 'rgba(6,10,20,.9)',
-                    border: `${LIMIT_PILL_BORDER_PX}px solid rgba(150,205,255,.26)`,
+                    background: swatch('shade', 0.9),
+                    border: `${LIMIT_PILL_BORDER_PX}px solid ${swatch('line', 0.26)}`,
                     fontFamily: "'JetBrains Mono', ui-monospace, monospace",
                     fontSize: LIMIT_PILL_FONT_PX,
                     letterSpacing: `${LIMIT_PILL_TRACKING_EM}em`,
-                    color: 'rgba(214,230,248,.9)',
+                    color: swatch('ink-400', 0.9),
                     whiteSpace: 'nowrap',
                   }}
                 >

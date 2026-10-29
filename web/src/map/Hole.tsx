@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import type { SceneHole } from './sceneModel'
 import { bodyZoomFactor } from './camera'
 import { useMapFrame } from './FrameBudget'
+import { swatch } from '../lib/palette'
 import { holeDropState, HOLE_DROP_RADIUS, type SimState } from './simulation'
 import {
   HOLE_COUNT_FONT_PX,
@@ -68,10 +69,10 @@ const SIGNAL_EASE = 10
 /** An eased emphasis this close to its target has arrived, and snaps to it so the map can stop drawing. */
 const SIGNAL_SETTLED = 0.001
 /** Hint colours per drop state; the copy (`HOLE_HINT_*`) is written imperatively, no re-render per frame. */
-const HINT_COLOR_REST = 'rgba(160,190,225,.42)'
-const HINT_COLOR_ELIGIBLE = 'rgba(200,225,255,.75)'
-const HINT_COLOR_ARMED = 'rgba(240,248,255,.95)'
-const HINT_COLOR_REFUSED = 'var(--color-warning)'
+const HINT_COLOR_REST = swatch('ink-900', 0.42)
+const HINT_COLOR_ELIGIBLE = swatch('ink-300', 0.75)
+const HINT_COLOR_ARMED = swatch('ink-50', 0.95)
+const HINT_COLOR_REFUSED = swatch('warning')
 /**
  * What the ring and halo tint toward while a terminal body is over the trash
  * — the "no". `--color-warning` in `theme.css`, repeated as a literal because
@@ -284,7 +285,7 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
             style={{
               fontSize: HOLE_TITLE_FONT_PX,
               letterSpacing: `${HOLE_TITLE_TRACKING_EM}em`,
-              color: 'rgba(240,248,255,.8)',
+              color: swatch('ink-50', 0.8),
             }}
           >
             {HOLE_TITLE}
@@ -293,7 +294,7 @@ export function Hole({ hole, flashRef, simRef, dragRef, onOpen }: HoleProps) {
             style={{
               fontSize: HOLE_COUNT_FONT_PX,
               letterSpacing: `${HOLE_COUNT_TRACKING_EM}em`,
-              color: 'rgba(160,190,225,.6)',
+              color: swatch('ink-900', 0.6),
             }}
           >
             {holeCountLine(hole.count)}

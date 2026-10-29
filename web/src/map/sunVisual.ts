@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { SUN_TINTS, sunDiscGradient, sunOklch, type SunColor, type SunReading, type SunStyle } from '../lib/limitSuns'
 
 /**
@@ -26,13 +27,13 @@ export interface SunLook {
 
 /** 31a's three steps of one ink, the label's colour by severity (60a: `INK`). */
 const INK = {
-  normal: 'rgba(160,190,225,.72)',
-  warning: 'rgba(214,230,248,.86)',
-  critical: '#e8eef8',
-  reached: '#e8eef8',
+  normal: swatch('ink-900', 0.72),
+  warning: swatch('ink-400', 0.86),
+  critical: swatch('ink-100'),
+  reached: swatch('ink-100'),
 } as const
 /** 60f STALE: the label of a reading that is out of date. */
-const STALE_INK = 'rgba(160,190,225,.6)'
+const STALE_INK = swatch('ink-900', 0.6)
 /** 60a: the disc of a stale sun, and the dark a spent one goes to in Dim. */
 const STALE_DISC = 'oklch(19% .008 250)'
 const SPENT_DISC = 'oklch(15% .01 250)'

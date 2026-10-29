@@ -4,7 +4,6 @@ import * as THREE from 'three'
 import type { Subagent } from '../lib/types'
 import { REFERENCE_ZOOM, bodyDesignPxToScreenPx, bodyZoomFactor } from './camera'
 import { useFrameOnRender, useFrameScheduler, useMapFrame } from './FrameBudget'
-import { oklchCss, type Oklch } from '../lib/usage'
 import {
   MAT_RING_MAX_SCALE,
   MAT_RING_MIN_SCALE,
@@ -44,6 +43,7 @@ import {
 import { glowTexture } from './textures'
 import { oklchTagColor, setOklchTagColor, TickRing } from './Planet'
 import type { SimBody } from './simulation'
+import { swatch } from '../lib/palette'
 
 /**
  * Small disc orbiting its parent planet, driven purely by props + an
@@ -197,11 +197,6 @@ const MOON_TETHER_LENGTH_PX = 64
 const MOON_HOVER_DISC_BRIGHTEN = 0.15
 const MOON_HOVER_GLOW_BOOST = 1.15
 
-/** The design accent (`oklch(85% .12 205)`, `--color-accent` in theme.css) —
- * the active ring/bracket-adjacent tether's colour, spec § 8's own fallback
- * accent, reused here via `oklchCss` rather than a second hand-picked hex. */
-const MOON_ACCENT_OKLCH: Oklch = { lightness: 0.85, chroma: 0.12, hue: 205 }
-
 /** The four corner brackets' signs — same shape as `Planet.tsx`'s `BRACKET_SIGNS`. */
 const MOON_BRACKET_CORNERS: readonly (readonly [1 | -1, 1 | -1])[] = [
   [-1, -1],
@@ -291,10 +286,12 @@ export function MoonControl({
   // are not floored: they describe the moon, and a halo that refused to
   // shrink below a floor would sit visibly off the thing it rings.
   const hitAreaPx = Math.max(MOON_HIT_AREA_PX * scale, MOON_HIT_AREA_MIN_CSS_PX)
-  const accentBorder = oklchCss(MOON_ACCENT_OKLCH, 0.9)
-  const activeGlow = oklchCss(MOON_ACCENT_OKLCH, 0.35)
-  const haloGlow = oklchCss(MOON_ACCENT_OKLCH, 0.28)
-  const accentDash = oklchCss(MOON_ACCENT_OKLCH, 0.55)
+  // The active ring and the tether take the design accent (spec § 8's own
+  // fallback accent); they are DOM, so the token follows the colour theme.
+  const accentBorder = swatch('accent', 0.9)
+  const activeGlow = swatch('accent', 0.35)
+  const haloGlow = swatch('accent', 0.28)
+  const accentDash = swatch('accent', 0.55)
 
   return (
     <button
@@ -343,7 +340,7 @@ export function MoonControl({
             marginLeft: -haloR,
             marginTop: -haloR,
             borderRadius: '50%',
-            border: '1px solid rgba(230,245,255,.55)',
+            border: `1px solid ${swatch('ink-100', 0.55)}`,
             boxShadow: `0 0 16px ${haloGlow}`,
           }}
         />
@@ -412,12 +409,12 @@ export function MoonControl({
             alignItems: 'center',
             padding: '3px 8px',
             borderRadius: 999,
-            background: 'rgba(6,10,20,.92)',
-            border: '1px solid rgba(150,205,255,.3)',
+            background: swatch('shade', 0.92),
+            border: `1px solid ${swatch('line', 0.3)}`,
             fontFamily: "'JetBrains Mono', ui-monospace, monospace",
             fontSize: 9.5,
             letterSpacing: '0.08em',
-            color: '#e8eef8',
+            color: swatch('ink-100'),
             whiteSpace: 'nowrap',
             pointerEvents: 'none',
           }}
