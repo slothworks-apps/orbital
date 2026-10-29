@@ -242,7 +242,7 @@ function Controls(
           type="button"
           aria-label="Stop"
           onClick={live.onStop}
-          className="flex h-11 items-center gap-2 rounded-[12px] border border-[oklch(80%_.13_60/.5)] px-4 fs-14 font-semibold text-warning"
+          className="flex h-11 items-center gap-2 rounded-[12px] border border-warning/50 px-4 fs-14 font-semibold text-warning"
         >
           <span aria-hidden className="block h-[9px] w-[9px] rounded-[1.5px] bg-current" />
           Stop

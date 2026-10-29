@@ -103,13 +103,13 @@ import {
   formatElapsed,
 } from '../lib/compaction'
 import { CONTEXT_CRITICAL_OKLCH, oklchCss, type ContextLevel, type ContextThresholds, type Oklch } from '../lib/usage'
-import { SCENE_CSS, useSceneColours, type SceneColours } from '../lib/sceneColours'
+import { oklabToLinearSrgb, SCENE_CSS, useSceneColours, type SceneColours } from '../lib/sceneColours'
 
 /**
  * Flat 2D parametric planet for the orthographic top-down space map.
  * Pure props in, no store/api imports — Task 9 wires this to live data.
  *
- * BINDING rule: hue (via `oklchTagColor`) always paints the atmosphere ring
+ * BINDING rule: hue (via `setOklchTagColor`) always paints the atmosphere ring
  * and (for non-ended states) the bright core; session STATE is expressed
  * only through `planetVisuals` (tick spin, core blink, halo breathing,
  * ripple) plus a white core/ripple for needs-input — never by picking a
@@ -674,18 +674,21 @@ export interface PlanetProps {
   onBodyPointerDown?: (sessionId: string, e: ThreeEvent<PointerEvent>) => void
 }
 
+/** `setOklchTagColor`'s scratch, so the per-frame tween allocates nothing. */
+const LINEAR = [0, 0, 0]
+
 /**
  * Writes the app's `tagColor(hue)` (`oklch(<lightness> <chroma> <hue>)`) into
  * an existing THREE.Color. three@0.162's `Color.setStyle` does not parse
  * `oklch()` strings, so the OKLCH -> linear-sRGB math (Björn Ottosson's
- * OKLab) is inlined here rather than passing the CSS string straight into a
- * material.
+ * OKLab, `oklabToLinearSrgb` in `lib/sceneColours.ts`) runs here rather than
+ * passing the CSS string straight into a material.
  *
  * Mutating form: the hue tween recomputes this every frame while a session is
  * being retagged, and a planet that allocated a Color per frame would hand
  * the GC 50+ objects a frame across the map.
  *
- * The matrices below produce LINEAR sRGB primaries — three's default
+ * The matrices produce LINEAR sRGB primaries — three's default
  * working color space — so the result is loaded via
  * `THREE.LinearSRGBColorSpace` (a no-op copy). Loading it as
  * `THREE.SRGBColorSpace` instead would tell three the values are still
@@ -700,33 +703,14 @@ export function setOklchTagColor(
   chroma = 0.13
 ): THREE.Color {
   const hRad = (hue * Math.PI) / 180
-  const a = chroma * Math.cos(hRad)
-  const b = chroma * Math.sin(hRad)
-
-  const l_ = lightness + 0.3963377774 * a + 0.2158037573 * b
-  const m_ = lightness - 0.1055613458 * a - 0.0638541728 * b
-  const s_ = lightness - 0.0894841775 * a - 1.291485548 * b
-
-  const l = l_ ** 3
-  const m = m_ ** 3
-  const s = s_ ** 3
-
-  const r = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
-  const g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
-  const bl = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
-
+  oklabToLinearSrgb(lightness, chroma * Math.cos(hRad), chroma * Math.sin(hRad), LINEAR)
   target.setRGB(
-    THREE.MathUtils.clamp(r, 0, 1),
-    THREE.MathUtils.clamp(g, 0, 1),
-    THREE.MathUtils.clamp(bl, 0, 1),
+    THREE.MathUtils.clamp(LINEAR[0], 0, 1),
+    THREE.MathUtils.clamp(LINEAR[1], 0, 1),
+    THREE.MathUtils.clamp(LINEAR[2], 0, 1),
     THREE.LinearSRGBColorSpace
   )
   return target
-}
-
-/** Allocating form of `setOklchTagColor`, for one-off/static colours. */
-export function oklchTagColor(hue: number, lightness = 0.8, chroma = 0.13): THREE.Color {
-  return setOklchTagColor(new THREE.Color(), hue, lightness, chroma)
 }
 
 /**

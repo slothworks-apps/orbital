@@ -109,12 +109,12 @@ const baseClass =
  */
 function runningTone(hue: number) {
   return {
-    border: `oklch(85% .12 ${hue} / .45)`,
-    bg: `oklch(85% .12 ${hue} / .12)`,
-    ink: `oklch(88% .1 ${hue})`,
+    border: `oklch(var(--tb-l) var(--tb-c) ${hue} / .45)`,
+    bg: `oklch(var(--tb-l) var(--tb-c) ${hue} / .12)`,
+    ink: `oklch(var(--tt-l) var(--tt-c) ${hue})`,
     dashed: false,
     dot: 'circle' as const,
-    dotColor: `oklch(85% .12 ${hue})`,
+    dotColor: `oklch(var(--tb-l) var(--tb-c) ${hue})`,
     glow: true,
     blink: true,
     label: 'RUNNING',
@@ -141,11 +141,11 @@ export const TASK_TONE: Record<
   // has no session hue to pass (a legend, a fixture with no tag).
   running: runningTone(205),
   completed: {
-    border: 'oklch(80% .13 150 / .45)',
-    bg: 'oklch(80% .13 150 / .12)',
-    ink: 'oklch(82% .13 150)',
+    border: 'oklch(var(--tb-l) var(--tb-c) 150 / .45)',
+    bg: 'oklch(var(--tb-l) var(--tb-c) 150 / .12)',
+    ink: swatch('success'),
     dot: 'circle',
-    dotColor: 'oklch(80% .13 150)',
+    dotColor: 'oklch(var(--tb-l) var(--tb-c) 150)',
     label: 'COMPLETED',
   },
   failed: {
@@ -167,8 +167,8 @@ export const TASK_TONE: Record<
     label: 'STOPPED',
   },
   stream_lost: {
-    border: 'oklch(80% .13 60 / .6)',
-    bg: 'oklch(80% .13 60 / .1)',
+    border: 'oklch(var(--tb-l) var(--tb-c) 60 / .6)',
+    bg: 'oklch(var(--tb-l) var(--tb-c) 60 / .1)',
     ink: swatch('warning'),
     dashed: true,
     dot: 'hollow',

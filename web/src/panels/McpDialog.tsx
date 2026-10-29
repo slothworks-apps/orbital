@@ -1239,7 +1239,7 @@ function Field({ error, children }: { error: string | undefined; children: React
   return (
     <div className="flex flex-col gap-1.5">
       {children}
-      {error && <span className="fs-11.5 text-[#ffaba3]">{error}</span>}
+      {error && <span className="fs-11.5 text-danger-pale">{error}</span>}
     </div>
   )
 }

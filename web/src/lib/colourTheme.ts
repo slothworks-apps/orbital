@@ -56,6 +56,21 @@ export function knownColourTheme(raw: string | null | undefined, fallback: strin
   return colourThemeById(raw)?.id ?? fallback
 }
 
+/** A stored id for a slot of one kind: anything unknown, removed or of the other kind is the fallback. */
+export function knownColourThemeOfKind(raw: unknown, kind: ColourThemeKind, fallback: string): string {
+  const theme = typeof raw === 'string' ? colourThemeById(raw) : null
+  return theme && theme.kind === kind ? theme.id : fallback
+}
+
+/** A picker's group headings, by kind (1f, 1k B). */
+export const COLOUR_THEME_KIND_LABEL: Record<ColourThemeKind, string> = { dark: 'DARK', light: 'LIGHT' }
+
+/** What a picker says beside a theme's name (1f, 1k B): the editor palette it is after; Deep Field is the default. */
+export function colourThemeInspiration(theme: ColourTheme): string | null {
+  if (theme.after) return `after ${theme.after}`
+  return theme.id === DEFAULT_COLOUR_THEME ? 'default' : null
+}
+
 /** What a device has chosen: one theme, or one per OS appearance while following it. */
 export type ColourChoice = { theme: string; followSystem: boolean; light: string; dark: string }
 
@@ -72,19 +87,30 @@ export function resolveColourTheme(choice: ColourChoice, systemDark: boolean): s
 export const COLOUR_THEMES_ENABLED_KEY = 'colour_themes_enabled'
 export const COLOUR_THEME_KEY = 'colour_theme'
 export const COLOUR_THEME_FOLLOW_SYSTEM_KEY = 'colour_theme_follow_system'
+/** Following the system: the theme for macOS's Light mode, and the one for its Dark mode. */
+export const COLOUR_THEME_LIGHT_KEY = 'colour_theme_light'
+export const COLOUR_THEME_DARK_KEY = 'colour_theme_dark'
 
 export function colourThemesEnabled(settings: Settings): boolean {
   return settings[COLOUR_THEMES_ENABLED_KEY] === 'true'
 }
 
-/** The Mac's choice. Following the system, light mode takes Albedo and dark mode the chosen theme (1f). */
+/**
+ * The Mac's choice, as the phone's. Following the system, each appearance
+ * takes its own theme; until one is picked, light mode takes Albedo and dark
+ * mode the one theme chosen before, if it is a dark one, or Deep Field.
+ */
 export function macColourChoice(settings: Settings): ColourChoice {
   const theme = knownColourTheme(settings[COLOUR_THEME_KEY], DEFAULT_COLOUR_THEME)
   return {
     theme,
     followSystem: settings[COLOUR_THEME_FOLLOW_SYSTEM_KEY] === 'true',
-    light: DEFAULT_LIGHT_COLOUR_THEME,
-    dark: theme,
+    light: knownColourThemeOfKind(settings[COLOUR_THEME_LIGHT_KEY], 'light', DEFAULT_LIGHT_COLOUR_THEME),
+    dark: knownColourThemeOfKind(
+      settings[COLOUR_THEME_DARK_KEY],
+      'dark',
+      knownColourThemeOfKind(theme, 'dark', DEFAULT_COLOUR_THEME),
+    ),
   }
 }
 
@@ -94,11 +120,31 @@ export function macColourTheme(settings: Settings, systemDark: boolean): string 
   return resolveColourTheme(macColourChoice(settings), systemDark)
 }
 
-/** Paints `root` in a theme. Deep Field is the stylesheet's own palette, so it drops the attribute. */
+/**
+ * Paints `root` in a theme. Deep Field is the stylesheet's own palette, so it
+ * drops the attribute. `color-scheme` follows the theme's kind, so native
+ * parts of fields (caret, autofill, spelling menus) match it.
+ */
 export function applyColourTheme(root: HTMLElement, id: string): void {
   const known = knownColourTheme(id, DEFAULT_COLOUR_THEME)
   if (known === DEFAULT_COLOUR_THEME) delete root.dataset.colours
   else root.dataset.colours = known
+  root.style.colorScheme = colourThemeById(known)?.kind ?? 'dark'
+}
+
+/**
+ * A resolved token as `#rrggbb`, painted on a 1×1 canvas so an oklch() or a
+ * var() value comes out as sRGB. Null where there is no canvas (jsdom).
+ */
+export function resolvedTokenHex(root: HTMLElement, token: string): string | null {
+  const value = getComputedStyle(root).getPropertyValue(`--color-${token}`).trim()
+  if (!value) return null
+  const ctx = document.createElement('canvas').getContext('2d')
+  if (!ctx) return null
+  ctx.fillStyle = value
+  ctx.fillRect(0, 0, 1, 1)
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data
+  return `#${[r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('')}`
 }
 
 /**

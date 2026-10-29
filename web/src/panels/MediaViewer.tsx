@@ -615,7 +615,7 @@ function FilmFrame({
       aria-current={current || undefined}
       onClick={onPick}
       className={[
-        'relative block h-10 w-10 flex-none overflow-hidden rounded-[5px] border bg-shade p-0',
+        'relative block h-10 w-10 flex-none overflow-hidden rounded-[5px] border bg-space p-0',
         current
           ? 'border-accent/90 shadow-[0_0_0_2px_color-mix(in_oklab,var(--color-accent)_20%,transparent)]'
           : 'border-line/14',

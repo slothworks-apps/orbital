@@ -219,7 +219,7 @@ function PhoneTile({ sessionId, tile, onOpen }: { sessionId: string; tile: Media
     >
       <span
         className={[
-          'relative aspect-square w-full overflow-hidden rounded-[3px] border border-line/10 bg-shade',
+          'relative aspect-square w-full overflow-hidden rounded-[3px] border border-line/10 bg-space',
           gone ? 'flex flex-col items-center justify-center gap-[5px]' : 'block',
         ].join(' ')}
       >

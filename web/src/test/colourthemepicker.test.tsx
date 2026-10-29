@@ -60,4 +60,20 @@ describe('Settings → Appearance → COLOURS (1f)', () => {
     fireEvent.keyDown(trigger, { key: 'Enter' })
     expect(api.patchSettings).toHaveBeenCalledWith({ colour_theme: 'albedo' })
   })
+
+  it('splits into a light and a dark row while following the system, each listing its kind only', () => {
+    renderAppearance({ colour_themes_enabled: 'true', colour_theme: 'velvet', colour_theme_follow_system: 'true' })
+    expect(screen.queryByRole('combobox', { name: 'Colours', hidden: true })).toBeNull()
+    const light = screen.getByRole('combobox', { name: 'In light mode', hidden: true })
+    const dark = screen.getByRole('combobox', { name: 'In dark mode', hidden: true })
+    expect(light.getAttribute('data-value')).toBe('albedo')
+    expect(dark.getAttribute('data-value')).toBe('velvet')
+
+    fireEvent.keyDown(light, { key: 'ArrowDown' })
+    const options = screen.getAllByRole('option', { hidden: true })
+    expect(options).toHaveLength(COLOUR_THEMES.filter((t) => t.kind === 'light').length)
+    fireEvent.keyDown(light, { key: 'ArrowDown' })
+    fireEvent.keyDown(light, { key: 'Enter' })
+    expect(api.patchSettings).toHaveBeenCalledWith({ colour_theme_light: 'solar-light' })
+  })
 })

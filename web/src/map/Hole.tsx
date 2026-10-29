@@ -85,6 +85,7 @@ const RING_HOVER_OPACITY = 0.8
 /** Refusing (1l): `1px dashed` muted ink, about as many dashes as a CSS border draws on the ring. */
 const REFUSED_DASH_COUNT = 28
 const REFUSED_DASH_DEG = 6.4
+/** The ring's `1px dashed var(--u-muted)` (1l): muted is `ink-900` at 60 % (the colour themes canvas's uses table). */
 const REFUSED_OPACITY = 0.6
 /** A light theme's shadow under the ring (1l `0 1px 5px` of `shadow` at .35), in place of a glow. */
 const SHADOW_OFFSET = 1 * PX

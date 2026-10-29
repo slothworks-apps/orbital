@@ -99,7 +99,7 @@ export function RewindDialog({ sessionId }: { sessionId: string }) {
                 <span aria-hidden className="flex-1" />
                 {item.elapsed && (
                   // oklch(80% .13 60): the amber of the frame's glow.
-                  <span className="shrink-0 whitespace-nowrap text-[oklch(80%_.13_60)]">{item.elapsed}</span>
+                  <span className="shrink-0 whitespace-nowrap text-warning">{item.elapsed}</span>
                 )}
               </li>
             ))}

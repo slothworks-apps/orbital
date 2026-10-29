@@ -31,6 +31,7 @@ import {
   decideWindowButtons,
   mainWindowUrl,
   parseMainWindowPath,
+  parseThemeBackground,
   parseWindowButtonsVisible,
 } from './lib/mainWindow';
 import { SessionNotifier, parseNotificationSettings, type SessionNotification } from './lib/notifications';
@@ -131,6 +132,9 @@ const SESSION_WINDOW_MIN_HEIGHT = 520;
 // The panel's own top stop, painted before the page loads so the window does
 // not flash on open (22b).
 const SESSION_WINDOW_BACKGROUND = '#0f1524';
+// The colour theme's panel top once a page has said it (`theme-background`):
+// a detached window then opens in the theme, not in Deep Field's dark.
+let sessionWindowBackground = SESSION_WINDOW_BACKGROUND;
 // Row 1 of the panel doubles as the title bar (22b): the lights sit centred on
 // that row, and the row's left padding is sized to clear them.
 const SESSION_WINDOW_TRAFFIC_LIGHTS = { x: 14, y: 20 };
@@ -805,7 +809,7 @@ function openSessionWindow(sessionId: string): void {
     minHeight: SESSION_WINDOW_MIN_HEIGHT,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: SESSION_WINDOW_TRAFFIC_LIGHTS,
-    backgroundColor: SESSION_WINDOW_BACKGROUND,
+    backgroundColor: sessionWindowBackground,
     webPreferences,
   });
   confineToOrbital(detached.webContents);
@@ -1564,6 +1568,15 @@ ipcMain.on('set-window-buttons-visible', (event, payload: unknown) => {
   if (!win || BrowserWindow.fromWebContents(event.sender) !== win) return;
   const visible = parseWindowButtonsVisible(payload);
   if (visible !== null) setMainWindowButtons(visible);
+});
+// The colour theme's panel top (spec 2026-10-29-colour-tokens-design): new
+// detached windows open in it, and the open ones repaint their own background
+// so a resize or a reload does not show the old colour.
+ipcMain.on('theme-background', (_event, payload: unknown) => {
+  const colour = parseThemeBackground(payload);
+  if (colour === null || colour === sessionWindowBackground) return;
+  sessionWindowBackground = colour;
+  for (const open of sessionWindows.values()) if (!open.isDestroyed()) open.setBackgroundColor(colour);
 });
 // The keymap's menu commands (spec: 2026-09-23-shortcuts-design § 5). Only
 // the main window's list is heard, and the list comes from a page, so it is

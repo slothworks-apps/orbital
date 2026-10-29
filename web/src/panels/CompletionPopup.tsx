@@ -460,7 +460,7 @@ export function CompletionPopup({
                   >
                     {row.entry.name}
                     {row.entry.dir && (
-                      <span data-dir-slash className="text-[oklch(88%_.1_205)]">
+                      <span data-dir-slash className="text-sky-soft">
                         /
                       </span>
                     )}

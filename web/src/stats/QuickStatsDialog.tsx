@@ -157,7 +157,7 @@ export function QuickStatsDialog({
               aria-hidden
               className="block h-2.5 w-2.5 shrink-0 rounded-full"
               style={{
-                background: 'oklch(80% .13 210)',
+                background: 'oklch(var(--tb-l) var(--tb-c) 210)',
                 boxShadow: '0 0 10px oklch(80% .13 210 / .7)',
               }}
             />

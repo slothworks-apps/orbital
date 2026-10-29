@@ -59,7 +59,7 @@ export const PER_DEVICE_SETTING_KEYS: readonly string[] = [
   // Found after the first list: the terminal's place on this screen, and what this device has shown or unlocked.
   'terminal_placement', 'terminal_dock_height', 'gh_tip', 'experimental_unlocked',
   // The colour theme: a bright room and macOS's appearance belong to this Mac, as text size does.
-  'colour_theme', 'colour_theme_follow_system',
+  'colour_theme', 'colour_theme_follow_system', 'colour_theme_light', 'colour_theme_dark',
 ];
 
 const PER_DEVICE_PREFIXES = ['remote_', 'new_session_last_'];

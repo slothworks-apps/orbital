@@ -96,7 +96,7 @@ const sideChrome: Record<NonNullable<PanelProps['side']>, string> = {
   // dark gradient, and an INSET shadow — 24px positive x-offset — instead of
   // a drop shadow, so the panel's own left inner edge reads as recessed.
   subagent: [
-    'bg-gradient-to-b from-panel/90 to-shade/94',
+    'bg-gradient-to-b from-panel/90 to-space/94',
     'border border-line/10',
     'shadow-[inset_24px_0_40px_-28px_color-mix(in_oklab,_var(--color-shadow)_90%,_transparent),inset_0_1px_0_color-mix(in_oklab,_var(--color-highlight)_3%,_transparent)]',
   ].join(' '),
@@ -137,7 +137,7 @@ export const WINDOW_STRIP_INSET_PX = 80
  * 22f; this is the one place the separation lives.
  */
 const subagentWindowChrome = [
-  'bg-gradient-to-b from-panel/90 to-shade/94',
+  'bg-gradient-to-b from-panel/90 to-space/94',
   'border-l border-line/10',
   'shadow-[inset_24px_0_40px_-28px_color-mix(in_oklab,_var(--color-shadow)_90%,_transparent)]',
 ].join(' ')

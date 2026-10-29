@@ -870,7 +870,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                 </div>
                 {dirLine && (
                   // Copy and colour provisional until the canvas draws the line.
-                  <p className="flex items-center gap-2 px-0.5 fs-12 text-[oklch(80%_.1_70)]">
+                  <p className="flex items-center gap-2 px-0.5 fs-12 text-warning">
                     <span aria-hidden className="font-mono fs-11">!</span>
                     {dirLine}
                   </p>

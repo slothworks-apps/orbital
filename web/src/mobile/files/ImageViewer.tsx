@@ -335,7 +335,7 @@ export function ImagePage({
   ) : null
 
   return (
-    <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-black text-ink-100">
+    <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-space text-ink-100">
       <div
         ref={stageRef}
         onDoubleClick={(e) => toggleAt(e.clientX, e.clientY)}
@@ -344,7 +344,7 @@ export function ImagePage({
         {area}
       </div>
       {/* Canvas 10d: the header over the image, 56px on a fade from black. */}
-      <div className="relative z-[2] flex h-14 shrink-0 items-center gap-1 bg-[linear-gradient(180deg,rgba(0,0,0,.7),transparent)] pl-1.5 pr-2.5">
+      <div className="relative z-[2] flex h-14 shrink-0 items-center gap-1 bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-space)_70%,transparent),transparent)] pl-1.5 pr-2.5">
         <button
           type="button"
           aria-label="Back"
@@ -382,7 +382,7 @@ export function ImagePage({
         />
       ) : (
       /* Canvas 10d: the foot — the pages, then the path and the session with its time. */
-      <div className="relative z-[2] flex shrink-0 flex-col gap-2.5 bg-[linear-gradient(0deg,rgba(0,0,0,.8),transparent)] px-4 pb-1.5 pt-4">
+      <div className="relative z-[2] flex shrink-0 flex-col gap-2.5 bg-[linear-gradient(0deg,color-mix(in_oklab,var(--color-space)_80%,transparent),transparent)] px-4 pb-1.5 pt-4">
         {shown?.cached && (
           <div>
             <CachedChip asOf={asOfLabel(shown.readAt, now)} />

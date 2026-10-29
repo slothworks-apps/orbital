@@ -23,8 +23,10 @@ import {
   applyColourTheme,
   macColourTheme,
   onSystemAppearanceChange,
+  resolvedTokenHex,
   systemPrefersDark,
 } from './lib/colourTheme'
+import { setThemeBackground } from './lib/desktop'
 import { onBroadcastSettings } from './lib/settingsBroadcast'
 
 // Lazy on EVERY side of the route branch, because importing `App.tsx` is
@@ -156,6 +158,9 @@ function paintColourTheme(): void {
   const theme = macColourTheme(state.settings, systemPrefersDark())
   applyColourTheme(root, theme)
   localStorage.setItem(COLOUR_THEME_STORAGE_KEY, theme)
+  // The panel's top stop, which a detached window paints before it loads.
+  const background = resolvedTokenHex(root, 'raised')
+  if (background) setThemeBackground(background)
 }
 useOrbital.subscribe((state, prev) => {
   if (state.settings !== prev.settings || state.settingsLoaded !== prev.settingsLoaded) paintColourTheme()

@@ -22,7 +22,6 @@ def capacitor_pods
   pod 'CapacitorLocalNotifications', :path => '../../../node_modules/@capacitor/local-notifications'
   pod 'CapacitorPreferences', :path => '../../../node_modules/@capacitor/preferences'
   pod 'CapacitorSplashScreen', :path => '../../../node_modules/@capacitor/splash-screen'
-  pod 'CapacitorStatusBar', :path => '../../../node_modules/@capacitor/status-bar'
   pod 'CapgoCapacitorUpdater', :path => '../../../node_modules/@capgo/capacitor-updater'
 end
 

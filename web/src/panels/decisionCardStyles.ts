@@ -33,7 +33,7 @@ export const CARD_READONLY =
 /** Canvas 9b: chip is mono 10 at .14em tracking in a 3px/8px, r4 box. */
 export const CHIP_BASE =
   'shrink-0 rounded-[4px] border px-2 py-[3px] font-mono fs-10 tracking-[0.14em]'
-export const CHIP_PENDING = 'border-accent/35 bg-accent/12 text-[oklch(90%_.08_205)]'
+export const CHIP_PENDING = 'border-accent/35 bg-accent/12 text-sky-soft'
 export const CHIP_QUIET = 'border-line/18 text-ink-700/70'
 
 /** Canvas 9b: the status slot opposite the chip — mono 9.5 at .12em. */

@@ -427,7 +427,7 @@ export function Select<T extends string | number>({
                 'rounded-md border px-[7px] py-[3px] font-mono fs-10 tracking-[0.04em]',
                 'transition-[background-color,border-color,color] duration-[180ms] ease-out',
                 lit
-                  ? 'border-line/22 bg-line/12 text-[oklch(90%_.06_205)]'
+                  ? 'border-line/22 bg-line/12 text-sky-soft'
                   : 'border-transparent bg-transparent text-inherit hover:bg-line/10',
               ].join(' ')
             : isSwatch

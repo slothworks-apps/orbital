@@ -185,7 +185,7 @@ export function Sloth({ paused }: { paused: boolean }) {
               height: 'auto',
               opacity: 0.7,
               // A glow: gone on a light theme (`--glow-k`, 1l).
-              filter: 'drop-shadow(0 0 4px oklch(80% .13 210 / calc(.35 * var(--glow-k))))',
+              filter: 'drop-shadow(0 0 4px oklch(var(--tb-l) var(--tb-c) 210 / calc(.35 * var(--glow-k))))',
             }}
           />
         </div>

@@ -97,12 +97,12 @@ export function PdfPage({
   }
 
   return (
-    <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-black text-ink-100">
+    <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-space text-ink-100">
       <div ref={scrollRef} className="absolute inset-0 overflow-y-auto overscroll-contain">
         {area}
       </div>
       {/* Canvas 24g: the header over the pages, 56px on a fade from black. */}
-      <div className="relative z-[2] flex h-14 shrink-0 items-center gap-1 bg-[linear-gradient(180deg,rgba(0,0,0,.8),transparent)] pl-1.5 pr-2.5">
+      <div className="relative z-[2] flex h-14 shrink-0 items-center gap-1 bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-space)_80%,transparent),transparent)] pl-1.5 pr-2.5">
         <button
           type="button"
           aria-label="Back"

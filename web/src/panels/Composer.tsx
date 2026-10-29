@@ -932,8 +932,8 @@ export function Composer({
             aria-hidden
             className="orbital-droppulse pointer-events-none absolute inset-0 flex min-h-24 flex-col items-center justify-center gap-2 rounded-[10px] border-2 border-dashed border-accent/50 bg-accent/7"
           >
-            <span className="block h-4 w-4 rounded-[4px] border border-[oklch(88%_.1_205_/_.7)]" />
-            <span className="font-mono fs-10 tracking-[0.14em] text-[oklch(90%_.06_205)]">
+            <span className="block h-4 w-4 rounded-[4px] border border-sky-soft/70" />
+            <span className="font-mono fs-10 tracking-[0.14em] text-sky-soft">
               DROP TO ATTACH
             </span>
             <span className="font-mono fs-9.5 tracking-[0.06em] text-ink-700/60">

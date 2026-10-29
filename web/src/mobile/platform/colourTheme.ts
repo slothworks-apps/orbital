@@ -1,18 +1,20 @@
-import { Capacitor } from '@capacitor/core'
+import { SystemBars, SystemBarsStyle } from '@capacitor/core'
 import { Preferences } from '@capacitor/preferences'
-import { StatusBar, Style } from '@capacitor/status-bar'
 import { create } from 'zustand'
 import {
   DEFAULT_COLOUR_THEME,
   DEFAULT_LIGHT_COLOUR_THEME,
   applyColourTheme,
   colourThemeById,
+  knownColourTheme,
+  knownColourThemeOfKind,
   onSystemAppearanceChange,
   resolveColourTheme,
   systemPrefersDark,
   type ColourChoice,
   type ColourThemeKind,
 } from '../../lib/colourTheme'
+import { prefersReducedMotion } from '../../ui/usePresence'
 
 /**
  * The phone's colour theme (canvas `Feature - Colour themes` 1k, spec
@@ -41,13 +43,6 @@ export const DEFAULT_COLOUR_CHOICE: ColourChoice = {
   dark: DEFAULT_COLOUR_THEME,
 }
 
-/** A theme id for a slot of one kind; anything unknown, removed or of the other kind is the slot's default. */
-function themeOfKind(raw: unknown, kind: ColourThemeKind | null, fallback: string): string {
-  const theme = typeof raw === 'string' ? colourThemeById(raw) : null
-  if (!theme || (kind && theme.kind !== kind)) return fallback
-  return theme.id
-}
-
 /** The stored choice, field by field: what cannot be read falls back on its own and leaves the rest. */
 export function parseColourChoice(raw: string | null): ColourChoice {
   if (!raw) return DEFAULT_COLOUR_CHOICE
@@ -60,10 +55,10 @@ export function parseColourChoice(raw: string | null): ColourChoice {
   if (typeof value !== 'object' || value === null) return DEFAULT_COLOUR_CHOICE
   const v = value as Record<string, unknown>
   return {
-    theme: themeOfKind(v.theme, null, DEFAULT_COLOUR_THEME),
+    theme: knownColourTheme(typeof v.theme === 'string' ? v.theme : null, DEFAULT_COLOUR_THEME),
     followSystem: v.followSystem === true,
-    light: themeOfKind(v.light, 'light', DEFAULT_LIGHT_COLOUR_THEME),
-    dark: themeOfKind(v.dark, 'dark', DEFAULT_COLOUR_THEME),
+    light: knownColourThemeOfKind(v.light, 'light', DEFAULT_LIGHT_COLOUR_THEME),
+    dark: knownColourThemeOfKind(v.dark, 'dark', DEFAULT_COLOUR_THEME),
   }
 }
 
@@ -85,10 +80,6 @@ export const usePhoneColours = create<PhoneColours>()(() => ({
   painted: DEFAULT_COLOUR_THEME,
 }))
 
-function reducedMotion(): boolean {
-  return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-}
-
 let fadeTimer: ReturnType<typeof setTimeout> | null = null
 
 /**
@@ -98,7 +89,7 @@ let fadeTimer: ReturnType<typeof setTimeout> | null = null
  */
 function paint(id: string, fade: boolean): void {
   const root = document.documentElement
-  if (fade && !reducedMotion()) {
+  if (fade && !prefersReducedMotion()) {
     root.style.setProperty('--colours-fade', `${COLOUR_CROSSFADE_MS}ms`)
     root.dataset.coloursFading = ''
     if (fadeTimer) clearTimeout(fadeTimer)
@@ -109,8 +100,6 @@ function paint(id: string, fade: boolean): void {
     }, COLOUR_CROSSFADE_MS)
   }
   applyColourTheme(root, id)
-  // The WebView's own controls and scrollbars follow the theme's kind.
-  root.style.colorScheme = colourThemeById(id)?.kind ?? 'dark'
   paintStatusBar(id)
   try {
     localStorage.setItem(PAINTED_COLOUR_THEME_KEY, id)
@@ -121,19 +110,16 @@ function paint(id: string, fade: boolean): void {
 
 /**
  * The system's status bar follows the theme: dark icons on a light theme,
- * light ones on a dark theme, and on Android the bar takes the theme's
- * space colour. The native shell ships the plugin from 0.9.0 on; an older
- * shell running a newer bundle keeps its dark bar.
+ * light ones on a dark theme. `SystemBars` is part of Capacitor's core, so
+ * every shell has it and a bundle carries the change. On Android the page
+ * draws edge-to-edge, so the bar shows the page's own space behind it.
  */
 function paintStatusBar(id: string): void {
-  if (!Capacitor.isPluginAvailable('StatusBar')) return
   const theme = colourThemeById(id)
   if (!theme) return
-  // `Style.Light` is the style for a light background: dark icons.
-  void StatusBar.setStyle({ style: theme.kind === 'light' ? Style.Light : Style.Dark }).catch(() => {})
-  if (Capacitor.getPlatform() === 'android') {
-    void StatusBar.setBackgroundColor({ color: theme.swatch[0] }).catch(() => {})
-  }
+  // `SystemBarsStyle.Light` is the style for a light background: dark icons.
+  const style = theme.kind === 'light' ? SystemBarsStyle.Light : SystemBarsStyle.Dark
+  void SystemBars.setStyle({ style }).catch(() => {})
 }
 
 function repaint(fade: boolean): void {
@@ -151,7 +137,7 @@ export function paintLastColourTheme(): void {
   } catch {
     // No storage: Deep Field until the preference is read.
   }
-  const theme = colourThemeById(last)?.id ?? DEFAULT_COLOUR_THEME
+  const theme = knownColourTheme(last, DEFAULT_COLOUR_THEME)
   usePhoneColours.setState({ painted: theme })
   paint(theme, false)
 }

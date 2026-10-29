@@ -7,7 +7,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ## [0.45.0] — 2026-10-29
 ### Added
 - Settings → Appearance can make the text larger, across the app and on its own for the session transcript. Spacing and the map's labels stay as they are. Thanks to @N0x1k for the idea.
-- Labs → Colour themes: pick a palette for the whole app in Settings → Appearance — Albedo for a bright room, Event Horizon for more contrast, and palettes after Solarized, Monokai, Dracula, Nord, Gruvbox and One Dark — or follow macOS's light and dark mode.
+- Labs → Colour themes: pick a palette for the whole app in Settings → Appearance — Albedo for a bright room, Event Horizon for more contrast, and palettes after Solarized, Monokai, Dracula, Nord, Gruvbox and One Dark — or follow macOS's light and dark mode with a theme for each.
 ### Changed
 - In Settings → Devices, what each other device may do on this Mac is folded under one line saying how much is allowed; click it to see and change the toggles.
 - Dragging the pointer across buttons, labels or the sidebar no longer selects their text, and icons no longer lift off as a drag image; the transcript, the message box, the file and skill viewers, task output, error detail and commands stay selectable, and an image still drags out of the full-size viewer.

@@ -91,7 +91,7 @@ export function Counts({ counts }: { counts: { added: number; removed: number } 
   if (!counts || (counts.added === 0 && counts.removed === 0)) return null
   return (
     <span className="flex shrink-0 gap-1.5 tabular-nums">
-      {counts.added > 0 && <span className="text-[oklch(82%_.14_145)]">+{counts.added}</span>}
+      {counts.added > 0 && <span className="text-success">+{counts.added}</span>}
       {counts.removed > 0 && <span className="text-[oklch(72%_.15_22)]">−{counts.removed}</span>}
     </span>
   )

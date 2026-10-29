@@ -59,20 +59,6 @@
   --color-nebula-b: #28aadc;
   --color-star: #ffffff;
 
-  /* The map's bodies (canvas `Feature - Colour themes` 1l): a working planet's
-     body from hi to lo, an idle one, an ended one, the black hole's void, and
-     a limit sun's unlit disc and eclipse shadow. Deep Field's are the literals
-     the map used before themes. */
-  --color-body-hi: oklch(30% 0.05 220);
-  --color-body-mid: oklch(20% 0.04 225);
-  --color-body-lo: oklch(16% 0.03 230);
-  --color-body-idle-hi: oklch(28% 0.05 220);
-  --color-body-idle-lo: oklch(18% 0.04 225);
-  --color-body-ended: oklch(16% 0.01 230);
-  --color-void: #000000;
-  --color-disc-off: oklch(19% 0.008 250);
-  --color-eclipse: oklch(15% 0.01 250);
-
   --font-sans: 'Manrope', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
@@ -98,6 +84,22 @@
    the tag hue (spec 2026-09-24-state-colours-design). Which state takes which
    token is decided in one place, `lib/stateStyle.ts`. */
 :root {
+  /* The map's bodies (canvas `Feature - Colour themes` 1l): a working planet's
+     body from hi to lo, an idle one, an ended one, the black hole's void, and
+     a limit sun's unlit disc and eclipse shadow. Deep Field's are the literals
+     the map used before themes. They sit outside `@theme` because no Tailwind
+     utility uses them, and Tailwind drops an unused `@theme` variable from the
+     build; three.js and inline styles read them through `var()`. */
+  --color-body-hi: oklch(30% 0.05 220);
+  --color-body-mid: oklch(20% 0.04 225);
+  --color-body-lo: oklch(16% 0.03 230);
+  --color-body-idle-hi: oklch(28% 0.05 220);
+  --color-body-idle-lo: oklch(18% 0.04 225);
+  --color-body-ended: oklch(16% 0.01 230);
+  --color-void: #000000;
+  --color-disc-off: oklch(19% 0.008 250);
+  --color-eclipse: oklch(15% 0.01 250);
+
   --state-input: var(--color-warning);
   --state-interrupted: var(--color-danger-soft);
   --state-done: var(--color-success);

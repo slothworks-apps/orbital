@@ -1,18 +1,15 @@
-import { COLOUR_THEMES, DEFAULT_COLOUR_THEME, type ColourTheme, type ColourThemeKind } from '../../lib/colourTheme'
+import {
+  COLOUR_THEME_KIND_LABEL,
+  colourThemeInspiration,
+  colourThemesOfKind,
+  type ColourThemeKind,
+} from '../../lib/colourTheme'
 import { setPhoneColours, usePhoneColours } from '../platform/colourTheme'
 import { useMobile } from '../state'
 import { CARD, MobileScreen } from '../ui'
+import { ThemeSwatch } from './ThemeSwatch'
 
-const GROUPS: readonly { kind: ColourThemeKind; label: string }[] = [
-  { kind: 'dark', label: 'DARK' },
-  { kind: 'light', label: 'LIGHT' },
-]
-
-/** What a row says under its name (1k B): the editor palette it is after; Deep Field is the default. */
-function inspiration(theme: ColourTheme): string | null {
-  if (theme.after) return `after ${theme.after}`
-  return theme.id === DEFAULT_COLOUR_THEME ? 'default' : null
-}
+const KINDS: readonly ColourThemeKind[] = ['dark', 'light']
 
 /**
  * Canvas `Feature - Colour themes` 1k B: the Colours list, pushed over
@@ -24,7 +21,7 @@ export function ColoursScreen() {
   const goBack = useMobile((s) => s.goBack)
   const slot = useMobile((s) => s.colourSlot)
   const current = usePhoneColours((s) => s.choice[slot])
-  const groups = slot === 'theme' ? GROUPS : GROUPS.filter((g) => g.kind === slot)
+  const kinds = slot === 'theme' ? KINDS : [slot]
 
   const header = (
     <div className="flex h-13 items-center gap-1 px-1.5">
@@ -43,13 +40,15 @@ export function ColoursScreen() {
   return (
     <MobileScreen header={header}>
       <div className="flex flex-col px-4 pb-4 pt-0.5">
-        {groups.map((group) => (
-          <div key={group.kind} role="radiogroup" aria-label={group.label}>
-            <div className="px-1 pb-2 pt-4 font-mono fs-10 tracking-[0.16em] text-ink-900/60">{group.label}</div>
+        {kinds.map((kind) => (
+          <div key={kind} role="radiogroup" aria-label={COLOUR_THEME_KIND_LABEL[kind]}>
+            <div className="px-1 pb-2 pt-4 font-mono fs-10 tracking-[0.16em] text-ink-900/60">
+              {COLOUR_THEME_KIND_LABEL[kind]}
+            </div>
             <div className={CARD}>
-              {COLOUR_THEMES.filter((theme) => theme.kind === group.kind).map((theme, i) => {
+              {colourThemesOfKind(kind).map((theme, i) => {
                 const on = theme.id === current
-                const after = inspiration(theme)
+                const after = colourThemeInspiration(theme)
                 return (
                   <button
                     key={theme.id}
@@ -63,11 +62,7 @@ export function ColoursScreen() {
                     ].join(' ')}
                   >
                     {/* The theme's own colours, not the live tokens: each row shows what it would paint. */}
-                    <span aria-hidden className="flex shrink-0 overflow-hidden rounded-[5px] ring-1 ring-line/12">
-                      {theme.swatch.map((colour, j) => (
-                        <span key={j} className="block h-[22px] w-3" style={{ background: colour }} />
-                      ))}
-                    </span>
+                    <ThemeSwatch colours={theme.swatch} size="md" />
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <span className={['fs-14.5', on ? 'font-bold' : 'font-medium'].join(' ')}>{theme.name}</span>
                       {after && <span className="font-mono fs-10.5 text-ink-900/60">{after}</span>}

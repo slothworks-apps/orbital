@@ -203,7 +203,7 @@ function SessionMeta({
       <span
         className="mb-1.5 block h-[11px] w-[11px] rounded-full"
         style={{
-          background: 'oklch(80% .13 210)',
+          background: 'oklch(var(--tb-l) var(--tb-c) 210)',
           boxShadow: '0 0 10px oklch(80% .13 210 / .7)',
         }}
       />

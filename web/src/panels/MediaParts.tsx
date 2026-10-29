@@ -120,7 +120,7 @@ export function MediaPicture({
 export type TileVariant = 'glance' | 'gallery'
 
 /** 26d B: the letterbox is the tile's own near-black, not a new colour. */
-const TILE_FILL = 'bg-shade'
+const TILE_FILL = 'bg-space'
 
 /**
  * One grid tile (24b's glance, 24d's gallery; 26a, 26d): the whole image

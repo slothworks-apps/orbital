@@ -121,6 +121,8 @@ import { isDemo } from '../lib/demo'
 import {
   COLOUR_THEMES_ENABLED_KEY,
   COLOUR_THEME_FOLLOW_SYSTEM_KEY,
+  COLOUR_THEME_LIGHT_KEY,
+  COLOUR_THEME_DARK_KEY,
   COLOUR_THEME_KEY,
   colourThemesEnabled,
 } from '../lib/colourTheme'
@@ -221,7 +223,7 @@ function TextSample({ app, transcript }: { app: string; transcript: string }) {
         </span>
       </div>
       <div className="flex items-center gap-2 border-b border-line/8 pb-[9px]">
-        <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: 'oklch(80% .13 210)' }} />
+        <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: 'oklch(var(--tb-l) var(--tb-c) 210)' }} />
         <span className="fs-13 font-bold">auth-refactor</span>
         <span className="min-w-0 truncate font-mono fs-11 text-ink-900/70">~/work/platform/auth</span>
         <span aria-hidden className="flex-1" />
@@ -381,7 +383,7 @@ const SECTION_KEYS = {
     MOON_ORBITS_KEY,
   ],
   terminal: [TERMINAL_PLACEMENT_KEY, TERMINAL_CURSOR_KEY, TERMINAL_CURSOR_BLINK_KEY],
-  colours: [COLOUR_THEME_KEY, COLOUR_THEME_FOLLOW_SYSTEM_KEY],
+  colours: [COLOUR_THEME_KEY, COLOUR_THEME_FOLLOW_SYSTEM_KEY, COLOUR_THEME_LIGHT_KEY, COLOUR_THEME_DARK_KEY],
   text: [TEXT_SCALE_KEY, TRANSCRIPT_TEXT_SCALE_KEY],
   detailPanel: ['header_session_stats', 'header_pull_request', 'header_line_changes', 'end_closes_panel'],
   map: [
@@ -480,11 +482,11 @@ const PREVIEW_TIERS = [
     capK: 0.24,
     inset: '-22%',
     dim: false,
-    ring: 'repeating-conic-gradient(oklch(80% .13 210 / .45) 0 1.5deg, transparent 1.5deg 8deg)',
+    ring: 'repeating-conic-gradient(oklch(var(--tb-l) var(--tb-c) 210 / .45) 0 1.5deg, transparent 1.5deg 8deg)',
     mask: [5, 4],
     body: 'radial-gradient(circle at 50% 45%, oklch(28% .05 220), oklch(18% .04 225) 70%)',
-    border: '1px solid oklch(80% .13 210 / .45)',
-    core: 'oklch(80% .13 210 / .8)',
+    border: '1px solid oklch(var(--tb-l) var(--tb-c) 210 / .45)',
+    core: 'oklch(var(--tb-l) var(--tb-c) 210 / .8)',
     shadow: undefined,
   },
   {
@@ -492,12 +494,12 @@ const PREVIEW_TIERS = [
     capK: 0.28,
     inset: '-26%',
     dim: false,
-    ring: 'repeating-conic-gradient(oklch(80% .13 60 / .5) 0 1.2deg, transparent 1.2deg 6deg)',
+    ring: 'repeating-conic-gradient(oklch(var(--tb-l) var(--tb-c) 60 / .5) 0 1.2deg, transparent 1.2deg 6deg)',
     mask: [6, 5],
     body: 'radial-gradient(circle at 50% 45%, oklch(30% .05 220), oklch(20% .04 225) 70%, oklch(16% .03 230))',
-    border: '1px solid oklch(80% .13 60 / .6)',
-    core: 'oklch(80% .13 60 / .85)',
-    shadow: '0 0 22px oklch(80% .13 60 / .25), inset 0 0 0 5px color-mix(in oklab, var(--color-shadow) 25%, transparent)',
+    border: '1px solid oklch(var(--tb-l) var(--tb-c) 60 / .6)',
+    core: 'oklch(var(--tb-l) var(--tb-c) 60 / .85)',
+    shadow: '0 0 22px oklch(var(--tb-l) var(--tb-c) 60 / .25), inset 0 0 0 5px color-mix(in oklab, var(--color-shadow) 25%, transparent)',
   },
 ]
 
@@ -1444,7 +1446,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                                   setRetentionPrompt(null)
                                   void patchAndSet({ delete_sessions_older_than_days: value })
                                 }}
-                                className="rounded-full border border-[oklch(72%_.17_25_/_.5)] bg-[oklch(72%_.17_25_/_.15)] px-3 py-[4px] font-mono fs-10 tracking-[0.1em] text-[#f3dcdc] transition-colors hover:bg-[oklch(72%_.17_25_/_.25)]"
+                                className="rounded-full border border-danger-soft/50 bg-danger-soft/15 px-3 py-[4px] font-mono fs-10 tracking-[0.1em] text-danger-pale transition-colors hover:bg-danger-soft/25"
                               >
                                 DELETE
                               </button>
@@ -2225,7 +2227,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                           <span
                             aria-hidden
                             className="h-[2px] w-[26px]"
-                            style={{ background: 'oklch(80% .13 210 / .6)' }}
+                            style={{ background: 'oklch(var(--tb-l) var(--tb-c) 210 / .6)' }}
                           />
                           <label className="flex items-center gap-1.5 font-mono fs-12 leading-(--text-xs--line-height) text-ink-900/70">
                             <Input
@@ -2245,7 +2247,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                           <span
                             aria-hidden
                             className="h-[2px] w-[26px]"
-                            style={{ background: 'oklch(80% .13 60)' }}
+                            style={{ background: 'oklch(var(--tb-l) var(--tb-c) 60)' }}
                           />
                           <label className="flex items-center gap-1.5 font-mono fs-12 leading-(--text-xs--line-height) text-ink-900/70">
                             <Input

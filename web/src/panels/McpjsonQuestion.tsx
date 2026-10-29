@@ -83,7 +83,7 @@ function McpjsonRow({
           {file ? (
             // 2d: the amber of the auto permission mode ("runs unchecked"), a
             // dot and the label only — oklch(76% .16 85) dot, oklch(84% .12 85) ink.
-            <span className="inline-flex items-center gap-1.5 font-mono fs-10 tracking-[0.12em] text-[oklch(84%_.12_85)]">
+            <span className="inline-flex items-center gap-1.5 font-mono fs-10 tracking-[0.12em] text-warning">
               <span aria-hidden className="block h-1.5 w-1.5 rounded-full bg-[oklch(76%_.16_85)]" />
               {sourceLabel('file')}
             </span>

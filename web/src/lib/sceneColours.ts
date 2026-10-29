@@ -1,8 +1,8 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useSyncExternalStore } from 'react'
 import { invalidate } from '@react-three/fiber'
 import * as THREE from 'three'
 import { colourThemeById, DEFAULT_COLOUR_THEME, type ColourThemeKind } from './colourTheme'
-import type { Token } from './palette'
+import { DEEP_FIELD_FALLBACK, TOKENS, type Token } from './palette'
 
 /**
  * The palette for what cannot read a CSS variable: three.js materials and
@@ -19,100 +19,6 @@ import type { Token } from './palette'
 
 /** sRGB, 0–255 per channel. */
 export type Rgb = readonly [number, number, number]
-
-/** Every token of `theme.css`, the same list as `Token` in `palette.ts`. */
-export const SCENE_TOKENS = [
-  'space',
-  'space-deep',
-  'shade',
-  'panel',
-  'panel-solid',
-  'raised',
-  'line',
-  'ink-50',
-  'ink-100',
-  'ink-200',
-  'ink-300',
-  'ink-400',
-  'ink-500',
-  'ink-600',
-  'ink-700',
-  'ink-800',
-  'ink-900',
-  'accent',
-  'sky',
-  'sky-soft',
-  'warning',
-  'warning-soft',
-  'warning-deep',
-  'success',
-  'danger',
-  'danger-soft',
-  'danger-pale',
-  'shadow',
-  'highlight',
-  'nebula-a',
-  'nebula-b',
-  'star',
-  'body-hi',
-  'body-mid',
-  'body-lo',
-  'body-idle-hi',
-  'body-idle-lo',
-  'body-ended',
-  'void',
-  'disc-off',
-  'eclipse',
-] as const satisfies readonly Token[]
-
-/**
- * Deep Field's `@theme` values, for the one moment the stylesheet is not
- * there yet (and jsdom, which never loads it). A test holds this table to
- * `theme.css`, so it cannot drift from it.
- */
-export const DEEP_FIELD_FALLBACK: Readonly<Record<Token, string>> = {
-  space: '#05070d',
-  'space-deep': '#03111a',
-  shade: '#040810',
-  panel: '#0a101c',
-  'panel-solid': '#0a1220',
-  raised: '#101626',
-  line: '#96cdff',
-  'ink-50': '#f2f9ff',
-  'ink-100': '#e8eef8',
-  'ink-200': '#dcebff',
-  'ink-300': '#cfe6ff',
-  'ink-400': '#d6e2f2',
-  'ink-500': '#c8dcf5',
-  'ink-600': '#c8d6eb',
-  'ink-700': '#bed4ee',
-  'ink-800': '#b2cbe6',
-  'ink-900': '#a8c6e9',
-  accent: '#59e4f3',
-  sky: '#8fd8ff',
-  'sky-soft': '#c6ecff',
-  warning: '#ffbb7b',
-  'warning-soft': '#ffd6ad',
-  'warning-deep': '#fba962',
-  success: '#7fe3b0',
-  danger: '#de3b3d',
-  'danger-soft': '#fa8880',
-  'danger-pale': '#ffb4ad',
-  shadow: '#040810',
-  highlight: '#ffffff',
-  'nebula-a': '#6e50dc',
-  'nebula-b': '#28aadc',
-  star: '#ffffff',
-  'body-hi': '#07333f',
-  'body-mid': '#001924',
-  'body-lo': '#010f18',
-  'body-idle-hi': '#012e3a',
-  'body-idle-lo': '#00151f',
-  'body-ended': '#090e11',
-  void: '#000000',
-  'disc-off': '#111417',
-  eclipse: '#080c0f',
-}
 
 /**
  * What a theme's kind sets beside its colours (`theme.css` `:root`, canvas
@@ -133,7 +39,7 @@ export interface SceneKind {
   sunRa: number
 }
 
-/** Deep Field's, for the same moment as `DEEP_FIELD_FALLBACK`. */
+/** Deep Field's, for the same moment as `DEEP_FIELD_FALLBACK` (`palette.ts`). */
 export const DARK_KIND: SceneKind = { tagL: 0.8, tagC: 0.13, glowK: 1, edgeW: 0, sunL: 91, sunC: 0.09, sunRa: 0.25 }
 
 /** Parses one of those variables: as a `fraction`, `80%` is 0.8; otherwise `1px` is 1 and `.13` is 0.13. */
@@ -165,17 +71,25 @@ export function rgbToOklab([r8, g8, b8]: Rgb): [number, number, number] {
   ]
 }
 
-/** OKLab → sRGB, clipped into the gamut and rounded to bytes. */
-export function oklabToRgb([L, A, B]: readonly [number, number, number]): Rgb {
+/**
+ * OKLab → LINEAR sRGB, unclipped, into `out` (no allocation: the planet's hue
+ * tween runs it every frame). The one copy of the inverse matrices.
+ */
+export function oklabToLinearSrgb(L: number, A: number, B: number, out: number[]): number[] {
   const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3
   const m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3
   const s = (L - 0.0894841775 * A - 1.291485548 * B) ** 3
-  const linear = [
-    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
-  ]
-  const [r, g, b] = linear.map((c) => Math.round(Math.min(1, Math.max(0, toGamma(Math.max(0, c)))) * 255))
+  out[0] = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
+  out[1] = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
+  out[2] = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
+  return out
+}
+
+/** OKLab → sRGB, clipped into the gamut and rounded to bytes. */
+export function oklabToRgb([L, A, B]: readonly [number, number, number]): Rgb {
+  const [r, g, b] = oklabToLinearSrgb(L, A, B, [0, 0, 0]).map((c) =>
+    Math.round(Math.min(1, Math.max(0, toGamma(Math.max(0, c)))) * 255),
+  )
   return [r, g, b]
 }
 
@@ -242,7 +156,7 @@ export function buildSceneColours(
   sceneKind: SceneKind = DARK_KIND,
 ): SceneColours {
   const colours = {} as Record<Token, THREE.Color>
-  for (const token of SCENE_TOKENS) colours[token] = rgbColour(rgb[token])
+  for (const token of TOKENS) colours[token] = rgbColour(rgb[token])
   return {
     ...colours,
     ...sceneKind,
@@ -296,16 +210,34 @@ function resolve(value: string): Rgb | null {
   return [r, g, b]
 }
 
+/**
+ * The built palettes by theme id. Emptied only when the stylesheet may have
+ * changed under them — the window's `load` and, in dev, a hot-reloaded CSS
+ * file — so a theme costs one read of the root, whatever that read found.
+ */
 const cache = new Map<string, SceneColours>()
 
 function themeIdOf(root: HTMLElement): string {
   return root.dataset.colours ?? DEFAULT_COLOUR_THEME
 }
 
+/** The variables a read found empty, each named once per page in dev (jsdom under Vitest finds none, and says nothing). */
+const warned = new Set<string>()
+
+function warnMissing(id: string, missing: string[]): void {
+  if (!import.meta.env.DEV || import.meta.env.MODE === 'test' || missing.length === 0) return
+  const fresh = missing.filter((name) => !warned.has(name))
+  if (fresh.length === 0) return
+  fresh.forEach((name) => warned.add(name))
+  console.warn(`sceneColours: theme '${id}' has no value for ${fresh.join(', ')}; the map paints Deep Field's.`)
+}
+
 /**
- * The scene palette of the theme `root` paints in now. Cached per theme id;
- * a read that found the stylesheet missing stands in Deep Field's values and
- * is not cached, so the next read (the `load` below) takes the real ones.
+ * The scene palette of the theme `root` paints in now, cached per theme id. A
+ * variable the read finds missing (the stylesheet not there yet, or a token a
+ * build dropped) stands in Deep Field's value and is cached all the same, so
+ * it never makes the palette rebuild on every refresh; the `load` below
+ * clears the cache for the read that comes after the stylesheet.
  */
 export function readSceneColours(root: HTMLElement = document.documentElement): SceneColours {
   const id = themeIdOf(root)
@@ -313,15 +245,15 @@ export function readSceneColours(root: HTMLElement = document.documentElement): 
   if (hit) return hit
   const style = getComputedStyle(root)
   const rgb = {} as Record<Token, Rgb>
-  let complete = true
-  for (const token of SCENE_TOKENS) {
+  const missing: string[] = []
+  for (const token of TOKENS) {
     const value = resolve(style.getPropertyValue(`--color-${token}`).trim())
-    if (!value) complete = false
+    if (!value) missing.push(`--color-${token}`)
     rgb[token] = value ?? parseHex(DEEP_FIELD_FALLBACK[token])!
   }
   const read = (name: string, unit: 'fraction' | 'number', fallback: number) => {
     const value = parseKindValue(style.getPropertyValue(name), unit)
-    if (value === null) complete = false
+    if (value === null) missing.push(name)
     return value ?? fallback
   }
   const sceneKind: SceneKind = {
@@ -334,8 +266,9 @@ export function readSceneColours(root: HTMLElement = document.documentElement): 
     sunC: read('--sun-c', 'number', DARK_KIND.sunC),
     sunRa: read('--sun-ra', 'number', DARK_KIND.sunRa),
   }
+  warnMissing(id, missing)
   const palette = buildSceneColours(id, colourThemeById(id)?.kind ?? 'dark', rgb, sceneKind)
-  if (complete) cache.set(id, palette)
+  cache.set(id, palette)
   return palette
 }
 
@@ -354,7 +287,9 @@ function refresh(): void {
   invalidate()
 }
 
-function onLoad(): void {
+/** The stylesheet may have changed: read every theme afresh. */
+function reread(): void {
+  cache.clear()
   refresh()
 }
 
@@ -364,16 +299,26 @@ function subscribe(listener: () => void): () => void {
     observer = new MutationObserver(refresh)
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-colours'] })
     // The stylesheet may land after the first read (dev's injected CSS).
-    if (document.readyState !== 'complete') window.addEventListener('load', onLoad, { once: true })
+    if (document.readyState !== 'complete') window.addEventListener('load', reread, { once: true })
+    // Nothing watched the root while no map was mounted: a theme chosen in
+    // between (on Desk or Archipelago, say) is read now, not left stale.
+    refresh()
   }
   return () => {
     listeners.delete(listener)
     if (listeners.size === 0 && observer) {
       observer.disconnect()
       observer = null
-      window.removeEventListener('load', onLoad)
+      window.removeEventListener('load', reread)
     }
   }
+}
+
+// Dev: a hot-reloaded stylesheet carries new token values the cache has not seen.
+if (import.meta.hot) {
+  import.meta.hot.on('vite:afterUpdate', ({ updates }) => {
+    if (updates.some((update) => update.path.endsWith('.css'))) reread()
+  })
 }
 
 function snapshot(): SceneColours {
@@ -383,18 +328,10 @@ function snapshot(): SceneColours {
 
 /**
  * The scene palette of the active colour theme. Re-renders the caller when
- * `data-colours` on `<html>` changes, and asks every map canvas for a frame,
- * so a `frameloop="demand"` canvas paints the new colours on the next one.
+ * `data-colours` on `<html>` changes; the store asks every map canvas for a
+ * frame at the same time, so a `frameloop="demand"` canvas paints the new
+ * colours on the next one.
  */
 export function useSceneColours(): SceneColours {
-  const palette = useSyncExternalStore(subscribe, snapshot, snapshot)
-  const first = useRef(true)
-  useEffect(() => {
-    if (first.current) {
-      first.current = false
-      return
-    }
-    invalidate()
-  }, [palette])
-  return palette
+  return useSyncExternalStore(subscribe, snapshot, snapshot)
 }

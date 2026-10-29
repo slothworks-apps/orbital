@@ -191,8 +191,8 @@ export function JumpToBottom({ state, surface, onJump }: JumpToBottomProps) {
             'flex items-center justify-end overflow-hidden rounded-full border bg-[oklch(20%_.022_258)] group-hover:bg-[oklch(23%_.025_255)]',
             'group-focus-visible:outline-2 group-focus-visible:outline-offset-2 group-focus-visible:outline-accent group-focus-visible:outline-solid',
             fresh
-              ? 'border-[oklch(82%_.085_236_/_.34)] text-[oklch(94%_.012_255)]'
-              : 'border-[oklch(82%_.085_236_/_.22)] text-[oklch(80%_.035_245)] group-hover:border-[oklch(82%_.085_236_/_.34)]',
+              ? 'border-sky/34 text-ink-100'
+              : 'border-sky/22 text-ink-800 group-hover:border-sky/34',
           ].join(' ')}
           style={pillStyle}
         >

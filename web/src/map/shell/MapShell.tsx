@@ -171,11 +171,12 @@ export function MapShell(props: {
 
       {/* Camera readout */}
       {props.showCameraReadout !== false && (
+        // Canvas 1a/2a: `rgba(160,190,225,.5)`, ink-900 at 50.
         <div
           data-overlay="camera-readout"
           style={{ bottom: overlayBottomPx, left: mapInsets.left }}
           className={[
-            'pointer-events-none absolute font-mono fs-10.5 tracking-[0.08em] text-ink-900/49',
+            'pointer-events-none absolute font-mono fs-10.5 tracking-[0.08em] text-ink-900/50',
             overlayLeftTransition,
           ]
             .filter(Boolean)

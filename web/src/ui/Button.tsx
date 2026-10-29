@@ -69,7 +69,7 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   // The MCP dialog's confirming Remove (canvas `Feature - MCP dialog` 12a/12b): the error-log
   // red, oklch(60% .2 25) → #de3b3d, as a hairline and a wash, with oklch(86% .08 25) → #ffbdb7 ink.
   'pill-danger':
-    'bg-danger/14 text-[#ffbdb7] font-semibold border border-danger/55 hover:bg-danger/25',
+    'bg-danger/14 text-danger-pale font-semibold border border-danger/55 hover:bg-danger/25',
   // Canvas 27a: the composer strip's Cancel / Cancel rewind — a hairline
   // chip in regular weight that lights its fill on hover.
   strip:

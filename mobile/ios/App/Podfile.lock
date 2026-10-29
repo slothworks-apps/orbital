@@ -30,8 +30,6 @@ PODS:
     - Capacitor
   - CapacitorSplashScreen (8.0.2):
     - Capacitor
-  - CapacitorStatusBar (8.0.4):
-    - Capacitor
   - CapgoCapacitorUpdater (8.51.25):
     - Alamofire (= 5.10.2)
     - Capacitor
@@ -138,7 +136,6 @@ DEPENDENCIES:
   - "CapacitorMlkitBarcodeScanning (from `../../../node_modules/@capacitor-mlkit/barcode-scanning`)"
   - "CapacitorPreferences (from `../../../node_modules/@capacitor/preferences`)"
   - "CapacitorSplashScreen (from `../../../node_modules/@capacitor/splash-screen`)"
-  - "CapacitorStatusBar (from `../../../node_modules/@capacitor/status-bar`)"
   - "CapgoCapacitorUpdater (from `../../../node_modules/@capgo/capacitor-updater`)"
 
 SPEC REPOS:
@@ -192,8 +189,6 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/@capacitor/preferences"
   CapacitorSplashScreen:
     :path: "../../../node_modules/@capacitor/splash-screen"
-  CapacitorStatusBar:
-    :path: "../../../node_modules/@capacitor/status-bar"
   CapgoCapacitorUpdater:
     :path: "../../../node_modules/@capgo/capacitor-updater"
 
@@ -212,7 +207,6 @@ SPEC CHECKSUMS:
   CapacitorMlkitBarcodeScanning: 1070a9d56dd84c08a7354d12354293daeee28100
   CapacitorPreferences: cca2021f386efb75947c850334447d9ff22b14f1
   CapacitorSplashScreen: 7bf61c2001557ff9e195e601c6b87344480d3c65
-  CapacitorStatusBar: ff844df1f126da6c4fbc4028272425fa3a91e7e3
   CapgoCapacitorUpdater: b95a7de96a5f9e790dc3e4f22bc8d267a068fd81
   FirebaseCore: c990214798d7c568ad436a15ba7da25c7a278c9a
   FirebaseCoreInternal: 656b1c2fd5a1c5976183dc54b73deda78fb26ee3
@@ -235,6 +229,6 @@ SPEC CHECKSUMS:
   Version: de5907f2c5d0f3cf21708db7801d1d5401139486
   ZIPFoundation: dfd3d681c4053ff7e2f7350bc4e53b5dba3f5351
 
-PODFILE CHECKSUM: 04f86f9416f3442f964896153300a4e44e23310a
+PODFILE CHECKSUM: d6d47cf1d7b0efaada97bd95e56ed4c2087238e4
 
 COCOAPODS: 1.17.0

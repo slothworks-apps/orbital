@@ -50,7 +50,7 @@ export const VIEWER_ENTER_MS = 180
 export const VIEWER_EXIT_MS = 140
 
 /** Target-line accent (canvas 8e "target number"): oklch(88% .1 205). */
-const TARGET_ACCENT = 'oklch(88% .1 205)'
+const TARGET_ACCENT = swatch('sky-soft')
 
 /**
  * The shortcut drawn beside the header's "open in <editor>" link (canvas 20d
@@ -579,7 +579,7 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
                 </span>
                 {line !== null && (
                   // The :line chip (8c): accent .12 fill, .4 border.
-                  <span className="shrink-0 rounded-[5px] border border-accent/40 bg-accent/12 px-[7px] py-[2px] fs-12 text-[oklch(88%_.1_205)]">
+                  <span className="shrink-0 rounded-[5px] border border-accent/40 bg-accent/12 px-[7px] py-[2px] fs-12 text-sky-soft">
                     :{line}
                   </span>
                 )}

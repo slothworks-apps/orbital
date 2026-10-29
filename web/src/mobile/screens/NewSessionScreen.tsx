@@ -324,7 +324,7 @@ export function NewSessionScreen() {
   const fieldBorder = notFound
     ? 'border-[oklch(70%_.14_25/.7)]'
     : dirLine
-      ? 'border-[oklch(80%_.12_70/.6)]'
+      ? 'border-warning/60'
     : typed
       ? 'border-accent/55'
       : 'border-line/18'
@@ -364,7 +364,7 @@ export function NewSessionScreen() {
             )}
           </div>
           {notFound && (
-            <p className="flex items-center gap-2 px-1 fs-12.5 text-[oklch(80%_.1_25)]">
+            <p className="flex items-center gap-2 px-1 fs-12.5 text-danger-soft">
               <span aria-hidden className="font-mono fs-11">
                 !
               </span>
@@ -373,7 +373,7 @@ export function NewSessionScreen() {
           )}
           {dirLine && (
             // Copy and colour provisional until the canvas draws the line.
-            <p className="flex items-center gap-2 px-1 fs-12.5 text-[oklch(82%_.1_70)]">
+            <p className="flex items-center gap-2 px-1 fs-12.5 text-warning">
               <span aria-hidden className="font-mono fs-11">
                 !
               </span>
@@ -670,7 +670,7 @@ function ModelSegments({ models, value, onChange }: { models: OrbitalModel[]; va
               'h-11 min-w-0 truncate px-1 font-mono fs-12.5',
               active
                 ? 'bg-[color-mix(in_oklab,var(--color-accent)_10%,var(--color-space))] font-semibold text-accent'
-                : 'bg-shade text-ink-200/85',
+                : 'bg-space text-ink-200/85',
             ].join(' ')}
           >
             {m.shortVersion}
@@ -679,7 +679,7 @@ function ModelSegments({ models, value, onChange }: { models: OrbitalModel[]; va
       })}
       {/* Fill the last row so the separators do not show through as a block. */}
       {Array.from({ length: (4 - (models.length % 4)) % 4 }, (_, i) => (
-        <span key={`pad-${i}`} aria-hidden className="bg-shade" />
+        <span key={`pad-${i}`} aria-hidden className="bg-space" />
       ))}
     </div>
   )

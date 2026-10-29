@@ -15,6 +15,7 @@ type DesktopBridge = {
   openInMainWindow?: (path: string) => void
   setSubagentPanel?: (state: SubagentPanelState) => Promise<SubagentPanelAnswer | undefined>
   setWindowButtonsVisible?: (visible: boolean) => void
+  setThemeBackground?: (colour: string) => void
   onFullScreenChanged?: (cb: (fullScreen: boolean) => void) => void
   setMenuCommands?: (items: MenuCommand[]) => void
   onCommand?: (cb: (id: string) => void) => void
@@ -212,6 +213,15 @@ export function initDesktopBridge(handlers: {
  */
 export function setWindowButtonsVisible(visible: boolean): void {
   bridge()?.setWindowButtonsVisible?.(visible)
+}
+
+/**
+ * Tells main the colour theme's panel top (`#rrggbb`), which it paints behind
+ * a window before the page loads (spec 2026-10-29-colour-tokens-design). A
+ * no-op in the browser.
+ */
+export function setThemeBackground(colour: string): void {
+  bridge()?.setThemeBackground?.(colour)
 }
 
 /**

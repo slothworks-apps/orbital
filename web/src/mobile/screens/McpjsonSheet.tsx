@@ -112,7 +112,7 @@ function ServerCard({
         <span className="font-mono fs-14 font-semibold text-ink-100">{server.name}</span>
         {file ? (
           // 2d / 47c: the auto permission mode's amber, a dot and the label only.
-          <span className="inline-flex items-center gap-1.5 font-mono fs-9.5 tracking-[0.12em] text-[oklch(84%_.12_85)]">
+          <span className="inline-flex items-center gap-1.5 font-mono fs-9.5 tracking-[0.12em] text-warning">
             <span aria-hidden className="block h-1.5 w-1.5 rounded-full bg-[oklch(76%_.16_85)]" />
             {sourceLabel('file')}
           </span>

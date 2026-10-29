@@ -22,7 +22,7 @@ import { useNow } from '../lib/useNow'
  */
 
 /** 26d's failure red: the heading ink, its rules and the card's border. */
-const FAILED_INK = 'oklch(80% .12 25)'
+const FAILED_INK = swatch('danger-soft')
 const FAILED_RULE = 'oklch(72% .17 25 / .4)'
 const FAILED_BORDER = 'oklch(72% .17 25 / .3)'
 /** The successful mark's copy (26d). */

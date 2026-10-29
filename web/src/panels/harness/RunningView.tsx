@@ -136,7 +136,7 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
         {open && showInstructions && <Instructions step={step} />}
 
         {open && kind === 'waiting' && (
-          <div className={`${BOX} gap-2.5 border border-[oklch(84%_.113_63_/_.35)] bg-space/50`}>
+          <div className={`${BOX} gap-2.5 border border-warning/35 bg-space/50`}>
             {(state.summary ?? state.evidence) && <div className={`${BODY} text-ink-400/90`}>{state.summary ?? state.evidence}</div>}
             {waitMeta && <div className="font-mono fs-10 text-ink-900/65">{waitMeta}</div>}
             <div className="flex items-center gap-2">

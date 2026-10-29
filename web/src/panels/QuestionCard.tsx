@@ -1234,7 +1234,7 @@ function LiveBody({
                   className={[
                     'mt-px grid h-[14px] w-[14px] shrink-0 place-items-center rounded-[4px] border fs-9',
                     ticked
-                      ? 'border-accent/70 bg-accent/22 text-[oklch(92%_.09_205)]'
+                      ? 'border-accent/70 bg-accent/22 text-sky-soft'
                       : 'border-line/28',
                   ].join(' ')}
                 >

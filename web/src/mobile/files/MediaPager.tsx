@@ -113,13 +113,13 @@ function GonePage({
   useSwipe(stage, onPage, onBack)
   const sub = ['not on disk', count > 1 ? `${index + 1} of ${count}` : null].filter(Boolean).join(' · ')
   return (
-    <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-black text-ink-100">
+    <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-space text-ink-100">
       <div ref={stage} className="absolute inset-0 flex items-center justify-center px-6">
         <div className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-[12px] border border-line/10 bg-space/60">
           <GoneMark size="dialog" />
         </div>
       </div>
-      <div className="relative z-[2] flex h-14 shrink-0 items-center gap-1 bg-[linear-gradient(180deg,rgba(0,0,0,.7),transparent)] pl-1.5 pr-2.5">
+      <div className="relative z-[2] flex h-14 shrink-0 items-center gap-1 bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-space)_70%,transparent),transparent)] pl-1.5 pr-2.5">
         <button
           type="button"
           aria-label="Back"

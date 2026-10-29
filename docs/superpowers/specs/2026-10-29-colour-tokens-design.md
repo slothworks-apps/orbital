@@ -92,15 +92,12 @@ pass decides whether they become tokens or go.
 - **Left literal on purpose:** the logo (a brand mark, not chrome), tag hues
   (`oklch(80% .13 <hue>)`, the user's own colours), the archipelago's
   scenery, and the black of the phone's media viewers.
-- **Tag hues on light themes.** Mat names and tag counts in the tag hue (L 80%)
-  fail contrast on Albedo and Solar Light (canvas flag 6). Tags need a
-  lightness per theme before a light theme leaves Labs.
 - **Fills that are plain black or white** (`bg-black/30` behind code, a few
   `bg-white/10` chips) and the three tinted stars of the backdrop.
 
 ## 4. The themes
 
-Source: Claude Design, `Feature - Colour themes.dc.html`, artboards 1a–1k.
+Source: Claude Design, `Feature - Colour themes.dc.html`, artboards 1a–1m.
 The token values are the canvas's own oklch and live in `theme.css`, one
 `:root[data-colours='<id>']` block per theme; `lib/colourTheme.ts` lists them.
 
@@ -141,9 +138,21 @@ inset highlights were moved onto them.
 Labs → Colour themes turns the feature on. While it is on, Settings →
 Appearance gets COLOURS at the top: one dropdown grouped DARK / LIGHT with
 each theme's space, panel and accent as dots, and Follow the system, which
-takes Albedo while macOS is in light mode and the chosen theme otherwise.
-Settings keys `colour_themes_enabled`, `colour_theme`,
-`colour_theme_follow_system`. A change repaints in the next frame; the last
+turns the one row into two, "In light mode" (light themes, Albedo by
+default) and "In dark mode" (dark themes), as on the phone. Settings keys
+`colour_themes_enabled`, `colour_theme`, `colour_theme_follow_system`,
+`colour_theme_light`, `colour_theme_dark`. The Labs switch is shared across a
+device group like every Labs switch; the theme and its follow keys are this
+Mac's own, like text size, because a bright room belongs to one machine.
+
+A detached session window opens in the theme: the page tells the Electron
+main process the theme's `raised` colour (`theme-background`), which it
+paints behind new session windows before they load. `color-scheme` follows
+the theme's kind, so a field's caret and menus match it.
+
+On a device without `color-mix()` (iOS before 16.2), `swatch()` and
+Tailwind's own fallback give Deep Field's colours at the same alpha: the
+themes do not apply there, and nothing disappears. A change repaints in the next frame; the last
 painted theme is remembered in `localStorage` so a reload paints it before
 settings arrive, and other windows follow through the `storage` event.
 
@@ -154,8 +163,12 @@ settings arrive, and other windows follow through the `storage` event.
   a theme possible.
 - **Where it lives:** Labs on the Mac; Deep Field stays the default.
 - **What someone updating notices:** muted text and captions a little
-  brighter, the critical context number in white. Nothing else until Labs →
-  Colour themes is on.
+  brighter, the critical context number in white, and on the map a steady
+  amber core for a waiting session (it used to blink), a green ring for a
+  finished one, a dashed ring for an interrupted one and brighter cluster
+  names. Nothing else on the Mac until Labs → Colour themes is on. The phone
+  has no Labs: every phone gets Settings → Appearance → Colours, with Deep
+  Field as the default.
 - **What can be set:** the theme, and whether it follows the OS's light and
   dark mode.
 
@@ -171,9 +184,9 @@ either direction, so there is no route and no `MAC_FEATURES` gate. The phone
 has no Labs; the picker is there for everyone, and Deep Field stays the
 default.
 
-The status bar follows the theme through `@capacitor/status-bar`: dark icons
-on a light theme, and on Android the bar takes the theme's `space`. That is a
-native plugin, so the shell went to 0.9.0 (store build); an older shell
-running the newer bundle keeps its dark bar, since the call is skipped while
-the plugin is missing. The native launch screen stays Deep Field: a cold
+The status bar follows the theme through `SystemBars`, which Capacitor's
+core already carries: dark icons on a light theme, light ones on a dark
+theme. Every shipped shell has it, so the change goes over the air, with no
+native plugin and no store build. Android draws edge-to-edge, so the bar
+has no colour of its own and shows the page behind it. The native launch screen stays Deep Field: a cold
 start in a light theme shows it for a moment before the app paints.

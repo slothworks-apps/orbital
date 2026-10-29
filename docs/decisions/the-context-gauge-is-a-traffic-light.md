@@ -36,6 +36,12 @@ A token count against an unknown context window has no level, so the
 detail panel's read-out keeps the session accent there. Green would claim
 there is room when nothing knows that.
 
+Amended 2026-10-29 (spec 2026-10-29-colour-tokens-design, canvas `Feature -
+Colour themes` 1b flag 2): past the critical line the read-out's number is
+`ink-100` beside the red fill, on the Mac's detail panel and the Desk card.
+A red light enough to read as text on a dark panel stops looking critical;
+the fill and the arc keep `contextLevelOklch`.
+
 ## Options ruled out
 
 - **A new green matched to 1i's amber** (`oklch(80% .13 150)`). The owner

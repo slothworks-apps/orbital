@@ -1,17 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import {
-  CONTEXT_CRITICAL_DANGER,
-  DEEP_FIELD_FALLBACK,
-  lightness,
-  mixOklab,
-  oklabToRgb,
-  parseHex,
-  parseKindValue,
-  SCENE_CSS,
-  SCENE_TOKENS,
-  type Rgb,
-} from '../lib/sceneColours'
-import type { Token } from '../lib/palette'
+import { lightness, mixOklab, oklabToRgb, parseHex, parseKindValue, type Rgb } from '../lib/sceneColours'
+import { DEEP_FIELD_FALLBACK, TOKENS, type Token } from '../lib/palette'
+import { COLOUR_THEMES, DEFAULT_COLOUR_THEME } from '../lib/colourTheme'
 
 type Fs = { readFileSync(path: URL, encoding: 'utf8'): string }
 // Through `process` rather than an import: web/'s tsconfig carries no Node
@@ -28,6 +18,11 @@ function oklch(value: string): Rgb {
   return oklabToRgb([Number(l) / 100, Number(c) * Math.cos(rad), Number(c) * Math.sin(rad)])
 }
 
+/** The `--color-*` names a block defines. */
+function namesOf(block: string): Set<string> {
+  return new Set([...block.matchAll(/--color-([a-z0-9-]+):/g)].map(([, name]) => name))
+}
+
 /** A theme block's token values, `var()` references resolved within the block or against Deep Field. */
 function tokensOf(block: string, base?: Record<Token, Rgb>): Record<Token, Rgb> {
   const raw = new Map<string, string>()
@@ -40,31 +35,42 @@ function tokensOf(block: string, base?: Record<Token, Rgb>): Record<Token, Rgb> 
     if (ref) return value(ref[1])
     return v.startsWith('#') ? parseHex(v)! : oklch(v)
   }
-  for (const token of SCENE_TOKENS) out[token] = value(token)
+  for (const token of TOKENS) out[token] = value(token)
   return out
 }
 
-const themeBlock = THEME_CSS.match(/@theme \{([\s\S]*?)\n\}/)![1]
-const DEEP_FIELD = tokensOf(themeBlock)
+// Deep Field is the `@theme` and the plain `:root` blocks: the tokens no
+// Tailwind utility uses sit in `:root`, or the build would drop them.
+const deepFieldBlock = [
+  THEME_CSS.match(/^@theme \{([\s\S]*?)\n\}/m)![1],
+  ...[...THEME_CSS.matchAll(/^:root \{([\s\S]*?)\n\}/gm)].map(([, block]) => block),
+].join('\n')
+const DEEP_FIELD = tokensOf(deepFieldBlock)
+const THEME_BLOCKS = new Map(
+  [...THEME_CSS.matchAll(/:root\[data-colours='([a-z-]+)'\] \{([\s\S]*?)\n\}/g)].map(([, id, block]) => [id, block]),
+)
 const THEMES = Object.fromEntries(
-  [...THEME_CSS.matchAll(/:root\[data-colours='([a-z-]+)'\] \{([\s\S]*?)\n\}/g)].map(([, id, block]) => [
-    id,
-    tokensOf(block, DEEP_FIELD),
-  ]),
+  [...THEME_BLOCKS].map(([id, block]) => [id, tokensOf(block, DEEP_FIELD)]),
 ) as Record<string, Record<Token, Rgb>>
 
-/** Largest per-channel difference. */
-const distance = (a: Rgb, b: Rgb) => Math.max(...a.map((v, i) => Math.abs(v - b[i])))
-
 describe('scene palette', () => {
-  it('falls back to exactly the @theme values of theme.css', () => {
-    for (const token of SCENE_TOKENS) {
+  it('falls back to exactly the Deep Field values of theme.css', () => {
+    for (const token of TOKENS) {
       expect([token, parseHex(DEEP_FIELD_FALLBACK[token])]).toEqual([token, DEEP_FIELD[token]])
     }
   })
 
-  it('reads every theme theme.css defines', () => {
-    expect(Object.keys(THEMES).length).toBeGreaterThanOrEqual(9)
+  it('has Deep Field define exactly the tokens of TOKENS', () => {
+    expect([...namesOf(deepFieldBlock)].sort()).toEqual([...TOKENS].sort())
+  })
+
+  it('has a block in theme.css for every colour theme, defining every token', () => {
+    const others = COLOUR_THEMES.filter((theme) => theme.id !== DEFAULT_COLOUR_THEME).map((theme) => theme.id)
+    expect([...THEME_BLOCKS.keys()].sort()).toEqual(others.sort())
+    for (const [id, block] of THEME_BLOCKS) {
+      const names = namesOf(block)
+      expect([id, TOKENS.filter((token) => !names.has(token))]).toEqual([id, []])
+    }
   })
 
   it('mixes like color-mix(in oklab): the ends are the colours themselves', () => {
@@ -72,22 +78,6 @@ describe('scene palette', () => {
     const b: Rgb = [5, 7, 13]
     expect(mixOklab(a, b, 1)).toEqual(a)
     expect(mixOklab(a, b, 0)).toEqual(b)
-  })
-
-  it('reproduces the canvas critical arc in Deep Field', () => {
-    const arc = mixOklab(DEEP_FIELD.danger, DEEP_FIELD['danger-soft'], CONTEXT_CRITICAL_DANGER)
-    expect(distance(arc, oklch('oklch(72% 0.17 25)'))).toBeLessThanOrEqual(8)
-  })
-
-  it('reproduces the canvas DOM surfaces in Deep Field', () => {
-    const canvas: Record<keyof typeof SCENE_CSS, string> = {
-      markTile: 'oklch(34% 0.012 250)',
-    }
-    for (const [key, css] of Object.entries(SCENE_CSS) as [keyof typeof SCENE_CSS, string][]) {
-      const [, a, share, b] = css.match(/var\(--color-([a-z0-9-]+)\) ([\d.]+)%, var\(--color-([a-z0-9-]+)\)/)!
-      const mixed = mixOklab(DEEP_FIELD[a as Token], DEEP_FIELD[b as Token], Number(share) / 100)
-      expect([key, distance(mixed, oklch(canvas[key])) <= 4]).toEqual([key, true])
-    }
   })
 })
 

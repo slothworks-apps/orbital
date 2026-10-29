@@ -2,6 +2,7 @@ import { colourThemeById } from '../../lib/colourTheme'
 import { setPhoneColours, usePhoneColours } from '../platform/colourTheme'
 import { useMobile } from '../state'
 import { CARD, SectionLabel, Toggle } from '../ui'
+import { ThemeSwatch } from './ThemeSwatch'
 
 const FOLLOW_LABEL = 'Follow the system'
 
@@ -82,13 +83,7 @@ function ColoursRow({
       ].join(' ')}
     >
       <span className="flex-1 fs-14 font-semibold">{label}</span>
-      {live && (
-        <span aria-hidden className="flex overflow-hidden rounded-[4px] ring-1 ring-line/12">
-          <span className="block h-3 w-2.5 bg-space" />
-          <span className="block h-3 w-2.5 bg-panel" />
-          <span className="block h-3 w-2.5 bg-accent" />
-        </span>
-      )}
+      {live && <ThemeSwatch size="sm" />}
       <span className="fs-14 text-ink-900/60">{colourThemeById(theme)?.name}</span>
       <span aria-hidden className="w-5 text-center fs-18 text-ink-900/60">
         ›

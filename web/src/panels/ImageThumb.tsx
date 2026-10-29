@@ -42,7 +42,7 @@ export type ThumbVariant = 'user-solo' | 'user' | 'tool' | 'tool-wide'
 
 const FRAME_CLASSES: Record<ThumbVariant, string> = {
   'user-solo':
-    'rounded-[12px_12px_4px_12px] border-[oklch(80%_.13_210_/_.3)] hover:border-[oklch(80%_.13_210_/_.6)]',
+    'rounded-[12px_12px_4px_12px] border-[oklch(var(--tb-l)_var(--tb-c)_210_/_.3)] hover:border-[oklch(var(--tb-l)_var(--tb-c)_210_/_.6)]',
   user: 'rounded-lg border-line/18 hover:border-line/42',
   tool: 'rounded-[6px] border-line/12 hover:border-line/42',
   // canvas 10d

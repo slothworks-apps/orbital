@@ -57,8 +57,8 @@ function HeaderButtons({
         className={[
           'whitespace-nowrap rounded-lg border px-3 py-[7px] fs-12.5 font-semibold transition-colors',
           newOpen
-            ? 'border-accent/70 bg-accent/16 text-[oklch(90%_.09_205)]'
-            : 'border-accent/60 bg-accent/10 text-[oklch(88%_.1_205)] hover:bg-accent/16',
+            ? 'border-accent/70 bg-accent/16 text-sky-soft'
+            : 'border-accent/60 bg-accent/10 text-sky-soft hover:bg-accent/16',
         ].join(' ')}
       >
         + New template
