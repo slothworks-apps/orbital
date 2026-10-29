@@ -1,3 +1,4 @@
+import { swatch } from '../../lib/palette'
 import { useRef, useState } from 'react'
 import type { SessionHarness } from '../../lib/types'
 import { pad2, shortSha } from './model'
@@ -5,8 +6,8 @@ import { FILE_FOLD_LINES, foldFile, type PatchFile } from './patch'
 import { HeaderBlock, Kicker, type Chrome } from './parts'
 import { useStepDiff } from './useStepDiff'
 
-const MINT = '#7fe3b0'
-const RED = '#fa8880'
+const MINT = swatch('success')
+const RED = swatch('danger-soft')
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -14,8 +15,8 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 function Counts({ added, removed }: { added: number; removed: number }) {
   return (
     <>
-      <span style={{ color: added ? MINT : 'rgba(160,190,225,.4)' }}>+{added}</span>
-      <span style={{ color: removed ? RED : 'rgba(160,190,225,.4)' }}>−{removed}</span>
+      <span style={{ color: added ? MINT : swatch('ink-900', 0.4) }}>+{added}</span>
+      <span style={{ color: removed ? RED : swatch('ink-900', 0.4) }}>−{removed}</span>
     </>
   )
 }
@@ -25,24 +26,24 @@ function FileDiff({ file, wide, unfolded, onUnfold }: { file: PatchFile; wide: b
   const { hunks, more } = unfolded ? { hunks: file.hunks, more: 0 } : foldFile(file, FILE_FOLD_LINES)
   return (
     <div data-file={file.path}>
-      <div className="mb-0.5 mt-2.5 flex items-center gap-2 border-y border-b-[rgba(150,205,255,.06)] border-t-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.6)] px-[18px] py-1.5 text-[#e8eef8]">
+      <div className="mb-0.5 mt-2.5 flex items-center gap-2 border-y border-b-line/6 border-t-line/10 bg-space/60 px-[18px] py-1.5 text-ink-100">
         <span className="min-w-0 flex-1 truncate">{file.oldPath && file.oldPath !== file.path ? `${file.oldPath} → ${file.path}` : file.path}</span>
-        <span className="shrink-0 text-[rgba(160,190,225,.6)]">
+        <span className="shrink-0 text-ink-900/60">
           +{file.added} −{file.removed}
         </span>
       </div>
-      {file.binary && <div className="px-[18px] py-0.5 text-[rgba(160,190,225,.55)]">binary file</div>}
+      {file.binary && <div className="px-[18px] py-0.5 text-ink-900/55">binary file</div>}
       {hunks.map((h, i) => (
         <div key={i}>
-          <div className="truncate whitespace-nowrap px-[18px] py-0.5 text-[rgba(160,190,225,.55)]">{h.header}</div>
+          <div className="truncate whitespace-nowrap px-[18px] py-0.5 text-ink-900/55">{h.header}</div>
           {h.lines.map((l, j) => (
             <div
               key={j}
               className="flex"
-              style={{ background: l.kind === 'add' ? 'rgba(127,227,176,.08)' : l.kind === 'del' ? 'rgba(250,136,128,.09)' : undefined }}
+              style={{ background: l.kind === 'add' ? swatch('success', 0.08) : l.kind === 'del' ? swatch('danger-soft', 0.09) : undefined }}
             >
               <span
-                className="shrink-0 box-border text-right text-[rgba(160,190,225,.35)]"
+                className="shrink-0 box-border text-right text-ink-900/35"
                 style={{ width: wide ? 44 : 38, paddingRight: wide ? 10 : 8 }}
               >
                 {l.line}
@@ -55,7 +56,7 @@ function FileDiff({ file, wide, unfolded, onUnfold }: { file: PatchFile; wide: b
               </span>
               <span
                 className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-pre pr-3"
-                style={{ color: l.kind === 'add' ? '#c9f3dc' : l.kind === 'del' ? '#fbcfcb' : 'rgba(200,214,235,.75)' }}
+                style={{ color: l.kind === 'add' ? '#c9f3dc' : l.kind === 'del' ? '#fbcfcb' : swatch('ink-600', 0.75) }}
               >
                 {l.text}
               </span>
@@ -67,7 +68,7 @@ function FileDiff({ file, wide, unfolded, onUnfold }: { file: PatchFile; wide: b
         <button
           type="button"
           onClick={onUnfold}
-          className="block px-[18px] py-1.5 text-left tracking-[0.04em] text-[oklch(85%_.12_205)] hover:brightness-110"
+          className="block px-[18px] py-1.5 text-left tracking-[0.04em] text-accent hover:brightness-110"
         >
           ⋯ {plural(more, 'more line')}
         </button>
@@ -134,7 +135,7 @@ export function StepDiffView({
       <HeaderBlock chrome={chrome} pb={12}>
         {chrome.row(
           <>
-            <button type="button" onClick={onBack} className="font-mono text-[10.5px] text-[oklch(85%_.12_205)] hover:brightness-110">
+            <button type="button" onClick={onBack} className="font-mono fs-10.5 text-accent hover:brightness-110">
               ‹ record
             </button>
             <span aria-hidden className="flex-1" />
@@ -142,12 +143,12 @@ export function StepDiffView({
           </>,
         )}
         {state?.startHead && state.endHead && (
-          <div className="mt-2 font-mono text-[12px] text-[#e8eef8]">
+          <div className="mt-2 font-mono fs-12 text-ink-100">
             {shortSha(state.startHead)}..{shortSha(state.endHead)}
           </div>
         )}
         {diff && (
-          <div className="mt-1 flex gap-1 font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+          <div className="mt-1 flex gap-1 font-mono fs-10 text-ink-900/60">
             {diff.commits !== null && `${plural(diff.commits, 'commit')} · `}
             {plural(files.length, 'file')} · <Counts added={diff.parsed.added} removed={diff.parsed.removed} />
             {diff.pushed === false && ' · local, not pushed'}
@@ -155,16 +156,16 @@ export function StepDiffView({
           </div>
         )}
         {files.length > 0 && (
-          <div className="mt-2.5 flex max-h-[160px] flex-col gap-0.5 overflow-y-auto font-mono text-[10.5px]">
+          <div className="mt-2.5 flex max-h-[160px] flex-col gap-0.5 overflow-y-auto font-mono fs-10.5">
             {files.map((f) => (
               <button
                 type="button"
                 key={f.path}
                 onClick={() => pick(f.path)}
-                className="flex gap-2 rounded-[5px] px-1.5 py-1 text-left hover:bg-[rgba(150,205,255,.05)]"
+                className="flex gap-2 rounded-[5px] px-1.5 py-1 text-left hover:bg-line/5"
                 style={{
-                  background: f.path === current ? 'rgba(150,205,255,.08)' : undefined,
-                  color: f.path === current ? '#e8eef8' : 'rgba(200,214,235,.8)',
+                  background: f.path === current ? swatch('line', 0.08) : undefined,
+                  color: f.path === current ? swatch('ink-100') : swatch('ink-600', 0.8),
                 }}
               >
                 <span className="min-w-0 flex-1 truncate">{f.path}</span>
@@ -174,15 +175,15 @@ export function StepDiffView({
           </div>
         )}
       </HeaderBlock>
-      <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto pb-3 pt-2 font-mono text-[10.5px] leading-[1.7]">
-        {error && <div className="px-[18px] text-[rgba(160,190,225,.6)]">{error}</div>}
+      <div ref={bodyRef} className="h-fit min-h-0 flex-1 overflow-y-auto pb-3 pt-2 font-mono fs-10.5 leading-[1.7]">
+        {error && <div className="px-[18px] text-ink-900/60">{error}</div>}
         {!diff && !error && !(state?.startHead && state.endHead) && (
-          <div className="px-[18px] text-[rgba(160,190,225,.6)]">This step has no commit range.</div>
+          <div className="px-[18px] text-ink-900/60">This step has no commit range.</div>
         )}
-        {diff && files.length === 0 && <div className="px-[18px] text-[rgba(160,190,225,.6)]">No changes in this range.</div>}
+        {diff && files.length === 0 && <div className="px-[18px] text-ink-900/60">No changes in this range.</div>}
         {diff && <DiffBody files={files} wide={false} unfolded={unfolded} unfold={(p) => setUnfolded((s) => new Set(s).add(p))} />}
       </div>
-      <div className="flex items-center gap-2 border-t border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.4)] px-[18px] py-[11px] font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+      <div className="flex items-center gap-2 border-t border-line/10 bg-space/40 px-[18px] py-[11px] font-mono fs-10 tracking-[0.06em] text-ink-900/50">
         unified{chrome.inWindow ? '' : ' · wide view in the full window'}
         <span aria-hidden className="flex-1" />
         <span>⎋ back</span>
@@ -198,8 +199,8 @@ export function WideStepDiff({ sessionId, harness, index }: { sessionId: string;
   const [unfolded, setUnfolded] = useState<Set<string>>(new Set())
   const files = diff?.parsed.files ?? []
   return (
-    <div className="flex min-h-0 flex-col overflow-y-auto border-l border-[rgba(150,205,255,.08)] bg-[rgba(2,4,9,.35)] font-mono text-[11px] leading-[1.75]">
-      <div className="flex gap-1 px-[18px] pb-1.5 pt-3.5 text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.55)]">
+    <div className="flex h-fit min-h-0 flex-col overflow-y-auto border-l border-line/8 bg-space/35 font-mono fs-11 leading-[1.75]">
+      <div className="flex gap-1 px-[18px] pb-1.5 pt-3.5 fs-9.5 tracking-[0.18em] text-ink-900/55">
         DIFF
         {diff && (
           <>
@@ -208,8 +209,8 @@ export function WideStepDiff({ sessionId, harness, index }: { sessionId: string;
           </>
         )}
       </div>
-      {error && <div className="px-[18px] text-[rgba(160,190,225,.6)]">{error}</div>}
-      {!(state?.startHead && state.endHead) && <div className="px-[18px] text-[rgba(160,190,225,.6)]">This step has no commit range.</div>}
+      {error && <div className="px-[18px] text-ink-900/60">{error}</div>}
+      {!(state?.startHead && state.endHead) && <div className="px-[18px] text-ink-900/60">This step has no commit range.</div>}
       {diff && <DiffBody files={files} wide unfolded={unfolded} unfold={(p) => setUnfolded((s) => new Set(s).add(p))} />}
     </div>
   )

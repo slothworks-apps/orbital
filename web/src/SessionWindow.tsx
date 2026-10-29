@@ -230,7 +230,7 @@ export function SessionWindow({ id }: { id: string }) {
           <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex justify-center pt-3">
             <span
               role="status"
-              className="pointer-events-auto rounded-full border border-panel-border bg-panel px-3 py-1 font-mono text-[11px] tracking-[0.1em] text-text-bright backdrop-blur-md"
+              className="pointer-events-auto rounded-full border border-line/14 bg-panel/88 px-3 py-1 font-mono fs-11 tracking-[0.1em] text-ink-100 backdrop-blur-md"
             >
               reconnecting…
             </span>

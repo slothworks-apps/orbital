@@ -13,9 +13,9 @@ import { useViewportHeight } from './useTerminalHost'
  * docked-panels-are-opaque-not-frosted-glass) — around the opaque body.
  */
 const FRAME = [
-  'rounded-[14px] border border-[rgba(150,205,255,.18)]',
-  'bg-gradient-to-b from-[rgba(14,20,34,.9)] to-[rgba(8,12,22,.94)]',
-  'shadow-[0_30px_80px_rgba(0,0,0,.55),inset_0_1px_0_rgba(255,255,255,.06)]',
+  'rounded-[14px] border border-line/18',
+  'bg-gradient-to-b from-panel-solid/90 to-space-deep/94',
+  'shadow-[0_30px_80px_color-mix(in_oklab,var(--color-shadow)_55%,transparent),inset_0_1px_0_color-mix(in_oklab,var(--color-highlight)_6%,transparent)]',
 ].join(' ')
 
 /**
@@ -79,7 +79,7 @@ function DockHandle({ handle }: { handle: ReturnType<typeof useDockHeight>['hand
     >
       <span
         aria-hidden
-        className="absolute top-[5px] left-1/2 -ml-4 block h-[3px] w-8 rounded-[2px] bg-[rgba(150,205,255,.18)]"
+        className="absolute top-[5px] left-1/2 -ml-4 block h-[3px] w-8 rounded-[2px] bg-line/18"
       />
     </div>
   )
@@ -113,7 +113,7 @@ export function TerminalWindowDock({ sessionId }: { sessionId: string }) {
   return (
     <div
       data-terminal-dock
-      className="relative flex flex-none flex-col border-t border-[rgba(150,205,255,.18)] bg-gradient-to-b from-[#0f1524] to-[#080c16]"
+      className="relative flex flex-none flex-col border-t border-line/18 bg-gradient-to-b from-raised to-space-deep"
       style={{ height }}
     >
       <DockHandle handle={handle} />

@@ -49,7 +49,7 @@ export interface Command {
   /** A pointer gesture drawn as a dashed cap, e.g. '⌥-click'. */
   gesture?: string
   /**
-   * The Labs switch the command belongs to. While it is off the command is
+   * The feature switch the command belongs to. While it is off the command is
    * left out of the menu, where it would do nothing, but stays in the
    * Shortcuts pane marked as off, so the feature can be found. Experimental
    * features get no command at all: they show nowhere outside their switch.
@@ -698,14 +698,14 @@ function commandCaps(cmd: Command): string[][] {
   return [chordGlyphs(cmd.chords[0])]
 }
 
-/** Appended to the note of a command whose Labs feature is switched off. */
-const LABS_OFF_NOTE = 'in Labs, off'
+/** Appended to the note of a command whose feature is switched off. */
+const FEATURE_OFF_NOTE = 'off in Settings'
 
 function commandRow(cmd: Command, settings?: Settings): Row {
   return {
     id: cmd.id,
     label: cmd.label,
-    note: available(cmd, settings) ? cmd.note : [cmd.note, LABS_OFF_NOTE].filter(Boolean).join(' · '),
+    note: available(cmd, settings) ? cmd.note : [cmd.note, FEATURE_OFF_NOTE].filter(Boolean).join(' · '),
     caps: commandCaps(cmd),
     muted: !cmd.display && cmd.chords.length > 1 ? chordGlyphs(cmd.chords[1]) : undefined,
     gesture: cmd.gesture,
@@ -720,7 +720,7 @@ function rowHaystack(row: Row): string {
 
 /**
  * The pane's data (§ 6): `SCOPES` order, filtered by `query`; scopes with no
- * matching row drop out. Every command is listed, a switched-off Labs one
+ * matching row drop out. Every command is listed, a switched-off feature's one
  * with a note saying so.
  */
 export function keymapGroups(query = '', settings?: Settings): Group[] {

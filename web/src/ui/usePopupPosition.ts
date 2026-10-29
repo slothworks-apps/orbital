@@ -28,8 +28,8 @@ import type { RefObject } from 'react'
  * listbox and 23c's menu differ there.
  */
 export const POPUP_SHELL = [
-  'rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] backdrop-blur-[12px]',
-  'shadow-[0_14px_34px_rgba(0,0,0,.55)]',
+  'rounded-[10px] border border-line/16 bg-panel/96 backdrop-blur-[12px]',
+  'shadow-[0_14px_34px_color-mix(in_oklab,_var(--color-shadow)_55%,_transparent)]',
 ].join(' ')
 
 /** Minimum clearance between the popup and the edge of the viewport. */

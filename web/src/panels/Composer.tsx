@@ -76,7 +76,7 @@ import { completionKeyId } from '../lib/completionKey'
  * Body text metrics — canvas 9a/9e: prose 13.5px at 1.62. Formatting that
  * changes size (a heading, a code block) sets its own on top.
  */
-export const FIELD_METRICS = 'font-sans text-[13.5px] leading-[1.62] whitespace-pre-wrap break-words'
+export const FIELD_METRICS = 'font-sans fs-13.5 leading-[1.62] whitespace-pre-wrap break-words'
 
 /**
  * The field stops growing here and starts scrolling — eight lines at 13.5/1.62.
@@ -106,7 +106,7 @@ const POPUP_HINT = '⏎ accept · esc closes the list · ⌘V paste image'
  * its content, then scrolls, accent caret. `tabindex` makes it focusable
  * where contenteditable alone is not (jsdom); a browser already treats it so.
  */
-const FIELD_CLASS = `orbital-composer-field block min-h-[36px] w-full overflow-y-auto text-text-bright caret-accent focus:outline-none ${FIELD_METRICS}`
+const FIELD_CLASS = `orbital-composer-field block min-h-[36px] w-full overflow-y-auto text-ink-100 caret-accent focus:outline-none ${FIELD_METRICS}`
 
 /**
  * The `/` or `@` token the caret is in, read off the text of the block it
@@ -718,7 +718,7 @@ export function Composer({
   }
 
   return (
-    <div className={className}>
+    <div className={className} data-text-scope="transcript">
       <div
         ref={wellRef}
         onMouseOver={handleWellMouseOver}
@@ -737,7 +737,7 @@ export function Composer({
         className={[
           'relative flex flex-col gap-2.5 rounded-[10px] border transition-[border-color,background-color] duration-300',
           // 26c: a locked well drops to a .08 hairline over a .3 fill.
-          locked ? 'bg-[rgba(4,8,16,.3)]' : 'bg-[rgba(4,8,16,.6)]',
+          locked ? 'bg-space/30' : 'bg-space/60',
           variant === 'dialog' ? 'min-h-24 px-3.5 pb-2.5 pt-3' : 'px-3 pb-2.5 pt-3',
           // 9c-1: the marker is 96px tall, so the panel's well grows to it for
           // the duration of the drag — the dialog's already is.
@@ -746,12 +746,12 @@ export function Composer({
           // typed". The typed state is the same chrome focus already wears,
           // which is why they share a branch.
           locked
-            ? 'border-[rgba(150,205,255,.08)]'
+            ? 'border-line/8'
             : focused || emphasized || (answering && value.length > 0)
             ? 'border-accent/50 ring-[3px] ring-accent/10'
             : answering
               ? 'border-accent/38'
-              : 'border-[rgba(150,205,255,.18)]',
+              : 'border-line/18',
         ].join(' ')}
       >
         {/* The editor slot, on the well's top edge (canvas `Feature - IDE
@@ -773,7 +773,7 @@ export function Composer({
         {strip && (
           <div
             data-composer-strip
-            className="-mt-0.5 flex items-center gap-2 border-b border-[rgba(150,205,255,.1)] pb-2.5 font-mono text-[10.5px] text-[rgba(200,220,245,.85)]"
+            className="-mt-0.5 flex items-center gap-2 border-b border-line/10 pb-2.5 font-mono fs-10.5 text-ink-500/85"
           >
             {strip}
           </div>
@@ -800,11 +800,11 @@ export function Composer({
         {anyFailed && (
           <div
             data-testid="attachment-note"
-            className="flex items-center gap-2 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]"
+            className="flex items-center gap-2 font-mono fs-10 tracking-[0.06em] text-ink-900/50"
           >
             <span
               aria-hidden
-              className="block h-[11px] w-[11px] shrink-0 rounded-[3px] border border-[rgba(160,190,225,.35)]"
+              className="block h-[11px] w-[11px] shrink-0 rounded-[3px] border border-ink-900/35"
             />
             The upload didn&apos;t finish. Nothing else was lost.
           </div>
@@ -839,7 +839,7 @@ export function Composer({
           className="@container flex items-center gap-2"
         >
           {popupShown ? (
-            <span className="font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+            <span className="font-mono fs-10 tracking-[0.06em] text-ink-900/50">
               {POPUP_HINT}
             </span>
           ) : refusal ? (
@@ -848,26 +848,26 @@ export function Composer({
               // In .16s, out .2s (9e). 9d-C's voice: an 11px glyph, the label
               // tracked out, the measured fact in brighter ink, one sentence.
               className={[
-                'flex items-center gap-2 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]',
+                'flex items-center gap-2 font-mono fs-10 tracking-[0.06em] text-ink-900/55',
                 refusal.exiting ? 'orbital-refusal-out' : 'orbital-refusal-in',
               ].join(' ')}
             >
               <span
                 aria-hidden
-                className="block h-[11px] w-[11px] shrink-0 rounded-[3px] border border-[rgba(160,190,225,.35)]"
+                className="block h-[11px] w-[11px] shrink-0 rounded-[3px] border border-ink-900/35"
               />
-              <span className="tracking-[0.14em] text-[rgba(160,190,225,.5)]">{refusal.label}</span>
-              <span aria-hidden className="text-[rgba(150,205,255,.28)]">
+              <span className="tracking-[0.14em] text-ink-900/50">{refusal.label}</span>
+              <span aria-hidden className="text-line/28">
                 ·
               </span>
-              <span className="text-[rgba(220,235,255,.8)]">{refusal.fact}</span>
+              <span className="text-ink-200/80">{refusal.fact}</span>
               {refusal.tail}
             </span>
           ) : note ? (
-            <span className="flex items-center gap-2 font-mono text-[11px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+            <span className="flex items-center gap-2 font-mono fs-11 tracking-[0.06em] text-ink-900/50">
               <span
                 aria-hidden
-                className="block h-[11px] w-[11px] shrink-0 rounded-[3px] border border-[rgba(160,190,225,.35)]"
+                className="block h-[11px] w-[11px] shrink-0 rounded-[3px] border border-ink-900/35"
               />
               {note}
             </span>
@@ -876,7 +876,7 @@ export function Composer({
             // it — the one line that says ⏎ no longer starts a new turn.
             <span
               className={[
-                'flex items-center gap-1.5 font-mono text-[10px] tracking-[0.06em] text-accent/90',
+                'flex items-center gap-1.5 font-mono fs-10 tracking-[0.06em] text-accent/90',
                 hintAside ? 'min-w-0' : '',
               ].join(' ')}
             >
@@ -889,15 +889,15 @@ export function Composer({
           ) : (
             <span
               className={[
-                'font-mono text-[10px] tracking-[0.06em]',
+                'font-mono fs-10 tracking-[0.06em]',
                 hintAside ? 'min-w-0 truncate' : '',
                 locked
-                  ? 'text-[rgba(160,190,225,.25)]'
+                  ? 'text-ink-900/25'
                   : hintBright
-                    ? 'text-[rgba(200,220,245,.7)]'
+                    ? 'text-ink-500/70'
                     : hintHeld
-                      ? 'text-[rgba(160,190,225,.6)]'
-                      : 'text-[rgba(160,190,225,.5)]',
+                      ? 'text-ink-900/60'
+                      : 'text-ink-900/50',
               ].join(' ')}
             >
               {/* Pick mode, a pending rewind and a held ⏎ say what ⏎ does now;
@@ -910,12 +910,12 @@ export function Composer({
             // Canvas 9c / 9f D: the aside in the quieter .45 ink; it is the
             // first thing to go when the row runs short (a narrow panel), so
             // the sentence keeps its room.
-            <span className="hidden shrink-0 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.45)] @min-[440px]:inline">
+            <span className="hidden shrink-0 font-mono fs-10 tracking-[0.06em] text-ink-900/60 @min-[440px]:inline">
               {hintAside}
             </span>
           )}
           {locked && (
-            <span data-composer-locked className="font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.25)]">
+            <span data-composer-locked className="font-mono fs-10 tracking-[0.06em] text-ink-900/25">
               LOCKED
             </span>
           )}
@@ -932,11 +932,11 @@ export function Composer({
             aria-hidden
             className="orbital-droppulse pointer-events-none absolute inset-0 flex min-h-24 flex-col items-center justify-center gap-2 rounded-[10px] border-2 border-dashed border-accent/50 bg-accent/7"
           >
-            <span className="block h-4 w-4 rounded-[4px] border border-[oklch(88%_.1_205_/_.7)]" />
-            <span className="font-mono text-[10px] tracking-[0.14em] text-[oklch(90%_.06_205)]">
+            <span className="block h-4 w-4 rounded-[4px] border border-sky-soft/70" />
+            <span className="font-mono fs-10 tracking-[0.14em] text-sky-soft">
               DROP TO ATTACH
             </span>
-            <span className="font-mono text-[9.5px] tracking-[0.06em] text-[rgba(190,215,240,.6)]">
+            <span className="font-mono fs-9.5 tracking-[0.06em] text-ink-700/60">
               {ATTACHMENT_TYPES_LINE}
             </span>
           </div>

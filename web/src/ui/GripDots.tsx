@@ -9,7 +9,7 @@ export function GripDots() {
       aria-hidden
       className="block h-3 w-2 flex-none opacity-70"
       style={{
-        backgroundImage: 'radial-gradient(circle,rgba(160,190,225,.6) 0 1px,transparent 1.3px)',
+        backgroundImage: 'radial-gradient(circle,color-mix(in oklab, var(--color-ink-900) 60%, transparent) 0 1px,transparent 1.3px)',
         backgroundSize: '4px 4px',
       }}
     />

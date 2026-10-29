@@ -158,7 +158,7 @@ function WhatsNewDialog({ open, installedAt, onClose }: { open: boolean; install
         inert={state === 'exiting' || undefined}
         className={[
           // 1b: the map dimmed at .55 under a 3 px blur.
-          'orbital-no-drag fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.55)] p-6 backdrop-blur-[3px]',
+          'orbital-no-drag fixed inset-0 z-50 flex items-center justify-center bg-shade/55 p-6 backdrop-blur-[3px]',
           MODAL_TRANSITION,
           duration,
           entered ? SCRIM_OPEN : SCRIM_CLOSED,
@@ -171,18 +171,18 @@ function WhatsNewDialog({ open, installedAt, onClose }: { open: boolean; install
           aria-modal="true"
           aria-label="What's new"
           className={[
-            'flex max-h-full w-[620px] max-w-full flex-col rounded-2xl border border-[rgba(150,205,255,.2)] bg-[linear-gradient(180deg,rgba(16,22,38,.96),rgba(8,12,22,.98))] font-sans text-text-bright shadow-[0_30px_80px_rgba(0,0,0,.6),inset_0_1px_0_rgba(255,255,255,.07)]',
+            'flex max-h-full w-[620px] max-w-full flex-col rounded-2xl border border-line/20 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-raised)_96%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_98%,_transparent))] font-sans text-ink-100 shadow-[0_30px_80px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent),inset_0_1px_0_color-mix(in_oklab,_var(--color-highlight)_7%,_transparent)]',
             MODAL_TRANSITION,
             duration,
             entered ? MODAL_OPEN : MODAL_CLOSED,
           ].join(' ')}
         >
           {/* 1b: 22/20/16/28, ruled off. */}
-          <header className="flex shrink-0 items-start gap-3 border-b border-[rgba(150,205,255,.1)] pb-4 pl-7 pr-5 pt-[22px]">
+          <header className="flex shrink-0 items-start gap-3 border-b border-line/10 pb-4 pl-7 pr-5 pt-[22px]">
             <div className="flex-1">
-              <div className="font-mono text-[10px] tracking-[0.2em] text-[rgba(160,190,225,.65)]">WHAT’S NEW</div>
-              <h2 className="mt-1.5 text-[20px] font-bold tracking-[-0.01em]">Orbital {orbitalVersion}</h2>
-              <div className="mt-1 font-mono text-[11px] text-[rgba(160,190,225,.55)]">
+              <div className="font-mono fs-10 tracking-[0.2em] text-ink-900/65">WHAT’S NEW</div>
+              <h2 className="mt-1.5 fs-20 font-bold tracking-[-0.01em]">Orbital {orbitalVersion}</h2>
+              <div className="mt-1 font-mono fs-11 text-ink-900/55">
                 {installedLine(installedAt, Date.now())}
               </div>
             </div>
@@ -190,7 +190,7 @@ function WhatsNewDialog({ open, installedAt, onClose }: { open: boolean; install
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="grid h-[30px] w-[30px] place-items-center rounded-[7px] text-[16px] text-[rgba(160,190,225,.7)] transition-colors hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright"
+              className="grid h-[30px] w-[30px] place-items-center rounded-[7px] fs-16 text-ink-900/70 transition-colors hover:bg-line/8 hover:text-ink-100"
             >
               ×
             </button>
@@ -200,12 +200,12 @@ function WhatsNewDialog({ open, installedAt, onClose }: { open: boolean; install
             <ReleaseNoteSections sections={NOTES.sections} />
           </div>
           {/* 1b: 14/20/16/28, ruled off. */}
-          <footer className="flex shrink-0 items-center gap-2 border-t border-[rgba(150,205,255,.1)] pb-4 pl-7 pr-5 pt-3.5">
+          <footer className="flex shrink-0 items-center gap-2 border-t border-line/10 pb-4 pl-7 pr-5 pt-3.5">
             <a
               href={releaseNotesUrl(orbitalVersion)}
               target="_blank"
               rel="noreferrer"
-              className="font-mono text-[11px] tracking-[0.06em] text-[rgba(160,190,225,.75)] no-underline transition-colors hover:text-text-bright"
+              className="font-mono fs-11 tracking-[0.06em] text-ink-900/75 no-underline transition-colors hover:text-ink-100"
             >
               Release notes on GitHub ↗
             </a>

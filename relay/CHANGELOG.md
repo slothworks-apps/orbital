@@ -4,6 +4,10 @@ All notable changes to the relay image. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.6.3] — 2026-10-29
+### Changed
+- Updated dependencies.
+
 ## [0.6.2] — 2026-10-27
 ### Changed
 - Updated dependencies.

@@ -71,8 +71,8 @@ export function TakeOverDialog({ open, sessionId, onClose }: { open: boolean; se
         </>
       }
     >
-      <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
-        {session?.title && <span className="font-mono text-text-bright">{session.title}</span>}
+      <p className="fs-13 leading-[1.55] text-ink-600/85 [text-wrap:pretty]">
+        {session?.title && <span className="font-mono text-ink-100">{session.title}</span>}
         {session?.title ? ' is' : 'This session is'} busy in a terminal. Taking it over quits the CLI there,
         and the turn or question it is on stops; the conversation goes on here.
       </p>

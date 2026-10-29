@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { api } from '../lib/api'
 import { limitSunsEnabled } from '../lib/experimental'
@@ -19,6 +20,7 @@ import type { ClaudeDirInfo, ClaudeDirLimits, LimitSeverity, LimitsWaitRow } fro
 import { claudeDirMonograms } from '../lib/claudeDirs'
 import { ClaudeDirMark } from '../ui/ClaudeDirMark'
 import { KindGlyph } from '../ui/KindGlyph'
+import { LOCAL_DEVICE } from '../lib/devices'
 import { mapHref } from '../walkthrough/route'
 import { PageBar } from '../ui/PageBar'
 import { StatsShell } from '../stats/StatsShell'
@@ -28,7 +30,9 @@ import {
   paceExplanation,
   sunAccountKeys,
   thisDevice,
+  UNNAMED_THIS_DEVICE,
   type AccountDevice,
+  type AccountDir,
   type AccountView,
   type EstimateWords,
 } from './accounts'
@@ -124,16 +128,16 @@ export function LimitsPage({ account = null }: { account?: string | null }) {
     <StatsShell sky="limits" bar={<PageBar route={{ page: 'limits' }} surface="sky" />}>
       <div className="flex min-h-0 flex-1 gap-[18px]">
         {/* 31a / 60c: the windows' panel. */}
-        <section className="flex min-w-0 flex-1 flex-col overflow-y-auto rounded-[13px] border border-[rgba(150,205,255,.12)] bg-[rgba(6,10,20,.55)] px-7 pb-2 pt-6">
+        <section className="flex min-w-0 flex-1 flex-col overflow-y-auto rounded-[13px] border border-line/12 bg-space/55 px-7 pb-2 pt-6">
           <div className={`flex items-baseline gap-3 ${grouped ? 'pb-2.5' : 'pb-[18px]'}`}>
-            <span className="text-[19px] font-bold text-text-bright">Plan limits</span>
-            <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
+            <span className="fs-19 font-bold text-ink-100">Plan limits</span>
+            <span className="font-mono fs-10.5 text-ink-900/55">
               {single?.group.account ? `as reported by Claude · ${single.group.account}` : 'as reported by Claude'}
             </span>
             <span className="flex-1" />
             <span
-              className="font-mono text-[10.5px]"
-              style={{ color: single?.stale ? 'rgba(220,235,255,.85)' : 'rgba(160,190,225,.55)' }}
+              className="font-mono fs-10.5"
+              style={{ color: single?.stale ? swatch('ink-200', 0.85) : swatch('ink-900', 0.55) }}
             >
               {headerLine}
             </span>
@@ -169,7 +173,7 @@ export function LimitsPage({ account = null }: { account?: string | null }) {
         <div className="flex w-[360px] flex-none flex-col gap-[18px]">
           {nothingTracked ? (
             <Card label="WAITING FOR A RESET">
-              <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">— not tracked</div>
+              <div className="font-mono fs-10.5 text-ink-900/50">— not tracked</div>
             </Card>
           ) : (
             waits.length > 0 && (
@@ -186,7 +190,7 @@ export function LimitsPage({ account = null }: { account?: string | null }) {
                   )
                 })}
                 {localMarks && (
-                  <div className="font-mono text-[10px] leading-[1.7] text-[rgba(160,190,225,.5)]">
+                  <div className="font-mono fs-10 leading-[1.7] text-ink-900/50">
                     a session waits on its own directory's window only
                   </div>
                 )}
@@ -195,20 +199,20 @@ export function LimitsPage({ account = null }: { account?: string | null }) {
           )}
           {!nothingTracked && (
             <Card label="AT THIS PACE" gap={10}>
-              <div className="text-[12.5px] leading-[1.6] text-[rgba(190,212,238,.8)] [text-wrap:pretty]">
+              <div className="fs-12.5 leading-[1.6] text-ink-700/80 [text-wrap:pretty]">
                 {paceExplanation()}
               </div>
             </Card>
           )}
           <Card label="AFTER A RESET" gap={10}>
-            <div className="text-[12.5px] leading-[1.6] text-[rgba(190,212,238,.8)] [text-wrap:pretty]">
+            <div className="fs-12.5 leading-[1.6] text-ink-700/80 [text-wrap:pretty]">
               {autoContinue
                 ? `Waiting sessions send “${text}” when their window resets. Cancel it per session in the transcript.`
                 : 'Automatic continue is off. Waiting sessions show the reset time and stay idle until you write.'}
             </div>
             <a
               href={settingsHref('sessions')}
-              className="font-mono text-[10.5px] text-[#8fd8ff] no-underline hover:text-[#c6ecff]"
+              className="font-mono fs-10.5 text-sky no-underline hover:text-sky-soft"
             >
               Settings → Sessions ›
             </a>
@@ -216,6 +220,21 @@ export function LimitsPage({ account = null }: { account?: string | null }) {
         </div>
       </div>
     </StatsShell>
+  )
+}
+
+/** An account's directories on one device (60c): each name, its path where known, `·` between them. */
+function DirRun({ dirs }: { dirs: readonly AccountDir[] }) {
+  return (
+    <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+      {dirs.map((d, i) => (
+        <Fragment key={d.key}>
+          <span className="text-ink-400/88">{d.name}</span>
+          {d.path && <span>{d.path}</span>}
+          {i < dirs.length - 1 && <span className="text-line/25">·</span>}
+        </Fragment>
+      ))}
+    </span>
   )
 }
 
@@ -252,8 +271,8 @@ function AccountGroup({
   return (
     <div data-limits-account={view.group.key} className="flex scroll-mt-2 flex-col">
       <div
-        className="-mx-3 flex flex-col gap-[7px] rounded-lg border-t border-[rgba(150,205,255,.14)] px-3 pb-3 pt-4 transition-[background] duration-1000 ease-[ease]"
-        style={{ background: lit ? 'rgba(150,205,255,.07)' : 'transparent' }}
+        className="-mx-3 flex flex-col gap-[7px] rounded-lg border-t border-line/14 px-3 pb-3 pt-4 transition-[background] duration-1000 ease-[ease]"
+        style={{ background: lit ? swatch('line', 0.07) : 'transparent' }}
       >
         <div className="flex items-center gap-2">
           <span
@@ -263,59 +282,59 @@ function AccountGroup({
           />
           {showTiles && tiles.map((mono, i) => <ClaudeDirMark key={i} mono={mono} size="phone" />)}
           {showTiles && more > 0 && <ClaudeDirMark mono={`+${more}`} size="phone" />}
-          <span className="min-w-0 truncate text-[14.5px] font-bold text-text-bright">{view.title}</span>
+          <span className="min-w-0 truncate fs-14.5 font-bold text-ink-100">{view.title}</span>
           {view.plan && (
-            <span className="flex-none font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">{view.plan}</span>
+            <span className="flex-none font-mono fs-10.5 text-ink-900/55">{view.plan}</span>
           )}
           <span className="flex-1" />
-          {lit && <span className="font-mono text-[10px] text-[rgba(160,190,225,.5)]">opened from the map ·</span>}
+          {lit && <span className="font-mono fs-10 text-ink-900/50">opened from the map ·</span>}
           {!missing && (
             <span
-              className="font-mono text-[10.5px]"
-              style={{ color: view.stale ? 'rgba(220,235,255,.85)' : 'rgba(160,190,225,.55)' }}
+              className="font-mono fs-10.5"
+              style={{ color: view.stale ? swatch('ink-200', 0.85) : swatch('ink-900', 0.55) }}
             >
               {readLineOf(view, now)}
             </span>
           )}
           {!missing && dir.tracked && view.stale && <ReadAgain onClick={onReadAgain} disabled={reading} />}
         </div>
-        <div className="flex flex-wrap items-center gap-[18px] font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
-          <span className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[rgba(160,190,225,.45)]">directories</span>
-            {view.dirs.map((d, i) => (
-              <Fragment key={d.key}>
-                <span className="text-[rgba(214,230,248,.88)]">{d.name}</span>
-                {d.path && <span>{d.path}</span>}
-                {i < view.dirs.length - 1 && <span className="text-[rgba(150,205,255,.25)]">·</span>}
-              </Fragment>
-            ))}
-          </span>
-          {view.devices.length > 0 && (
-            <span className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[rgba(160,190,225,.45)]">devices</span>
-              {view.devices.map((device) => (
-                <span key={device.id} className="flex items-center gap-[5px] text-[rgba(214,230,248,.8)]">
+        {view.devices.length > 0 ? (
+          // 60c: a row per device — its glyph and name, then its directories.
+          <div className="grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-4 gap-y-[5px] font-mono fs-10.5 text-ink-900/65">
+            {view.devices.map((device) => (
+              <Fragment key={device.id}>
+                <span className="flex items-center gap-[5px] whitespace-nowrap text-ink-900/55">
                   <KindGlyph kind={device.kind} />
                   {device.name}
+                  {device.id === LOCAL_DEVICE && device.name !== UNNAMED_THIS_DEVICE && (
+                    <span className="text-ink-900/40">
+                      {device.kind === 'desktop' ? '(this Mac)' : '(this device)'}
+                    </span>
+                  )}
                 </span>
-              ))}
-            </span>
-          )}
-        </div>
+                <DirRun dirs={device.dirs} />
+              </Fragment>
+            ))}
+          </div>
+        ) : (
+          <div className="font-mono fs-10.5 text-ink-900/65">
+            <DirRun dirs={view.dirs} />
+          </div>
+        )}
       </div>
       {missing ? (
         <QuietRow
-          ring="rgba(200,215,235,.25)"
+          ring={swatch('ink-600', 0.25)}
           title="Not found on disk"
-          titleInk="rgba(232,238,248,.7)"
+          titleInk={swatch('ink-100', 0.7)}
           mono
           text={`${view.dirs.map((d) => d.path).filter(Boolean).join(' · ')} · nothing to read`}
         />
       ) : !dir.tracked ? (
         <QuietRow
-          ring="rgba(200,215,235,.35)"
+          ring={swatch('ink-600', 0.35)}
           title="Limits not tracked"
-          titleInk="rgba(232,238,248,.85)"
+          titleInk={swatch('ink-100', 0.85)}
           text="Claude reports no plan windows for this account. Its sessions never wait for a reset."
         />
       ) : (
@@ -341,7 +360,7 @@ function ReadAgain({ onClick, disabled }: { onClick: () => void; disabled: boole
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="ml-1 cursor-pointer rounded-[7px] border border-[rgba(150,205,255,.14)] bg-[rgba(150,205,255,.05)] px-2.5 py-1 font-mono text-[10px] tracking-[0.12em] text-[rgba(200,220,245,.85)] transition-colors duration-150 hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.12)] hover:text-text-bright disabled:cursor-default"
+      className="ml-1 cursor-pointer rounded-[7px] border border-line/14 bg-line/5 px-2.5 py-1 font-mono fs-10 tracking-[0.12em] text-ink-500/85 transition-colors duration-150 hover:border-line/30 hover:bg-line/12 hover:text-ink-100 disabled:cursor-default"
     >
       READ AGAIN
     </button>
@@ -407,9 +426,9 @@ function estimateOf(window: ClaudeDirLimits['windows'][number], stale: boolean, 
 
 /** 31d: three steps of one neutral ink — the fill brightens, nothing takes a hue. */
 const FILL: Record<LimitSeverity, string> = {
-  normal: 'rgba(150,205,255,.42)',
-  warning: 'rgba(214,230,248,.72)',
-  critical: '#e8eef8',
+  normal: swatch('line', 0.42),
+  warning: swatch('ink-400', 0.72),
+  critical: swatch('ink-100'),
 }
 
 /** One window (31a's grid: name · bar · value · reset). */
@@ -445,42 +464,42 @@ function WindowRow({
       className={[
         'grid items-center gap-7 border-t',
         compact
-          ? 'grid-cols-[200px_minmax(0,1fr)_120px_170px] border-[rgba(150,205,255,.07)] py-3.5'
-          : 'grid-cols-[230px_minmax(0,1fr)_120px_190px] border-[rgba(150,205,255,.08)] py-5',
+          ? 'grid-cols-[200px_minmax(0,1fr)_120px_170px] border-line/7 py-3.5'
+          : 'grid-cols-[230px_minmax(0,1fr)_120px_190px] border-line/8 py-5',
       ].join(' ')}
     >
       <div className="min-w-0">
-        <div className={`${compact ? 'text-[13.5px]' : 'text-[14px]'} font-semibold text-text-bright`}>{name}</div>
+        <div className={`${compact ? 'fs-13.5' : 'fs-14'} font-semibold text-ink-100`}>{name}</div>
         {sub && (
-          <div className={`${compact ? 'mt-[3px]' : 'mt-1'} font-mono text-[10.5px] text-[rgba(160,190,225,.6)]`}>{sub}</div>
+          <div className={`${compact ? 'mt-[3px]' : 'mt-1'} font-mono fs-10.5 text-ink-900/60`}>{sub}</div>
         )}
       </div>
       <div className="flex min-w-0 flex-col gap-2">
-        <div className="relative h-1 overflow-hidden rounded-[2px] bg-[rgba(150,205,255,.1)]">
+        <div className="relative h-1 overflow-hidden rounded-[2px] bg-line/10">
           <span className="block h-full rounded-[2px]" style={{ width: `${width}%`, background: FILL[severity] }} />
         </div>
         {estimate && (
           <span
-            className="font-mono text-[10.5px]"
-            style={{ color: estimate.lit ? 'rgba(160,190,225,.75)' : 'rgba(160,190,225,.55)' }}
+            className="font-mono fs-10.5"
+            style={{ color: estimate.lit ? swatch('ink-900', 0.75) : swatch('ink-900', 0.55) }}
           >
             {estimate.before}
-            {estimate.at && <span className="text-text-bright">{estimate.at}</span>}
+            {estimate.at && <span className="text-ink-100">{estimate.at}</span>}
             {estimate.after}
           </span>
         )}
       </div>
       <div className="flex flex-col items-end gap-[5px]">
         <span
-          className={`font-mono leading-none text-text-bright ${money ? 'text-[14px]' : compact ? 'text-[18px]' : 'text-[20px]'}`}
+          className={`font-mono leading-none text-ink-100 ${money ? 'fs-14' : compact ? 'fs-18' : 'fs-20'}`}
         >
           {value}
         </span>
-        {word && <span className="font-mono text-[9.5px] tracking-[0.14em] text-[rgba(214,230,248,.8)]">{word}</span>}
+        {word && <span className="font-mono fs-9.5 tracking-[0.14em] text-ink-400/80">{word}</span>}
       </div>
-      <div className="flex flex-col gap-1 font-mono text-[11px]">
-        <span className="text-[rgba(160,190,225,.55)]">{resetsAt ? 'resets' : 'reset'}</span>
-        <span className="text-text-bright">{formatResetCell(resetsAt, now)}</span>
+      <div className="flex flex-col gap-1 font-mono fs-11">
+        <span className="text-ink-900/55">{resetsAt ? 'resets' : 'reset'}</span>
+        <span className="text-ink-100">{formatResetCell(resetsAt, now)}</span>
       </div>
     </div>
   )
@@ -489,10 +508,10 @@ function WindowRow({
 function Card({ label, gap = 12, children }: { label: string; gap?: number; children: ReactNode }) {
   return (
     <div
-      className="flex flex-col rounded-[13px] border border-[rgba(150,205,255,.12)] bg-[rgba(6,10,20,.55)] px-6 py-[22px]"
+      className="flex flex-col rounded-[13px] border border-line/12 bg-space/55 px-6 py-[22px]"
       style={{ gap }}
     >
-      <span className="font-mono text-[9.5px] tracking-[0.2em] text-[rgba(160,190,225,.6)]">{label}</span>
+      <span className="font-mono fs-9.5 tracking-[0.2em] text-ink-900/60">{label}</span>
       {children}
     </div>
   )
@@ -503,15 +522,15 @@ function WaitRow({ wait, now, mono }: { wait: LimitsWaitRow; now: number; mono?:
   return (
     <a
       href={mapHref(wait.sessionId)}
-      className="flex items-center gap-2.5 rounded-[9px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3 py-2.5 text-text-bright no-underline transition-colors duration-150 hover:border-[rgba(150,205,255,.2)]"
+      className="flex items-center gap-2.5 rounded-[9px] border border-line/10 bg-space/45 px-3 py-2.5 text-ink-100 no-underline transition-colors duration-150 hover:border-line/20"
     >
       <span
         aria-hidden
-        className="block h-[7px] w-[7px] flex-none rounded-full border-[1.5px] border-solid border-[rgba(214,230,248,.8)]"
+        className="block h-[7px] w-[7px] flex-none rounded-full border-[1.5px] border-solid border-ink-400/80"
       />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[13px] font-semibold">{wait.title}</div>
-        <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+        <div className="truncate fs-13 font-semibold">{wait.title}</div>
+        <div className="mt-0.5 flex items-center gap-1.5 font-mono fs-10.5 text-ink-900/65">
           {/* 44e: the waiting session's directory, with two or more. */}
           {mono !== undefined && <ClaudeDirMark mono={mono} />}
           <span className="min-w-0">
@@ -519,7 +538,7 @@ function WaitRow({ wait, now, mono }: { wait: LimitsWaitRow; now: number; mono?:
           </span>
         </div>
       </div>
-      <span className="font-mono text-[11px] text-text-bright">{formatResetAt(wait.resetsAt, now)}</span>
+      <span className="font-mono fs-11 text-ink-100">{formatResetAt(wait.resetsAt, now)}</span>
     </a>
   )
 }
@@ -532,16 +551,16 @@ function WaitRow({ wait, now, mono }: { wait: LimitsWaitRow; now: number; mono?:
  */
 function NotTracked({ apiKey, several = false }: { apiKey: boolean; several?: boolean }) {
   return (
-    <div className="flex flex-1 flex-col items-start justify-center gap-3 border-t border-[rgba(150,205,255,.08)] pb-[60px] pl-1">
-      <span aria-hidden className="block h-10 w-10 rounded-full border border-dashed border-[rgba(200,215,235,.35)]" />
-      <div className="text-[17px] font-bold text-text-bright">Limits aren't tracked</div>
-      <div className="max-w-[520px] text-[13px] leading-[1.6] text-[rgba(190,212,238,.75)] [text-wrap:pretty]">
+    <div className="flex flex-1 flex-col items-start justify-center gap-3 border-t border-line/8 pb-[60px] pl-1">
+      <span aria-hidden className="block h-10 w-10 rounded-full border border-dashed border-ink-600/35" />
+      <div className="fs-17 font-bold text-ink-100">Limits aren't tracked</div>
+      <div className="max-w-[520px] fs-13 leading-[1.6] text-ink-700/75 [text-wrap:pretty]">
         {apiKey
           ? `Orbital is signed in with an API key. API usage is billed per token and has no plan windows, so there is nothing to show here. ${several ? 'The key overrides the login of every directory, so no directory has limits either.' : 'Sessions never wait for a reset.'}`
           : 'This account has no plan windows — its usage is billed as it goes, so there is nothing to show here. Its sessions never wait for a reset.'}
       </div>
       {apiKey && (
-        <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+        <div className="font-mono fs-10.5 text-ink-900/60">
           sign in with a Claude account in Settings → General to track limits
         </div>
       )}
@@ -568,20 +587,20 @@ function QuietRow({
   mono?: boolean
 }) {
   return (
-    <div className="flex items-center gap-3 border-t border-[rgba(150,205,255,.07)] pb-4 pt-3.5">
+    <div className="flex items-center gap-3 border-t border-line/7 pb-4 pt-3.5">
       <span
         aria-hidden
         className="box-border block h-4 w-4 flex-none rounded-full border border-dashed"
         style={{ borderColor: ring }}
       />
-      <span className="flex-none text-[13px] font-semibold" style={{ color: titleInk }}>
+      <span className="flex-none fs-13 font-semibold" style={{ color: titleInk }}>
         {title}
       </span>
       <span
         className={
           mono
-            ? 'min-w-0 font-mono text-[11px] text-[rgba(160,190,225,.55)]'
-            : 'min-w-0 text-[12.5px] text-[rgba(160,190,225,.7)]'
+            ? 'min-w-0 font-mono fs-11 text-ink-900/55'
+            : 'min-w-0 fs-12.5 text-ink-900/70'
         }
       >
         {text}

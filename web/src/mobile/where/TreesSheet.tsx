@@ -30,29 +30,29 @@ export function TreesSheet({ session, onClose }: { session: ApiSession; onClose:
   return (
     <BottomSheet label="Worktrees" onDismiss={onClose}>
       <div className="max-h-[70vh] overflow-y-auto px-2 pb-2">
-        <div className="pt-1.5 font-mono text-[10px] tracking-[0.2em] text-[rgba(160,190,225,.6)]">WORKTREES</div>
+        <div className="pt-1.5 font-mono fs-10 tracking-[0.2em] text-ink-900/60">WORKTREES</div>
         {form.kind === 'plain' ? (
-          <div className="mt-2 text-[19px] font-bold tracking-[-0.01em]">No subagents in other worktrees</div>
+          <div className="mt-2 fs-19 font-bold tracking-[-0.01em]">No subagents in other worktrees</div>
         ) : (
           <>
-            <div className="mt-2 text-[19px] font-bold tracking-[-0.01em]">{treesHeadText(form)}</div>
-            <div className="mt-1.5 text-[13.5px] leading-[1.5] text-pretty text-[rgba(200,214,235,.75)]">
+            <div className="mt-2 fs-19 font-bold tracking-[-0.01em]">{treesHeadText(form)}</div>
+            <div className="mt-1.5 fs-13.5 leading-[1.5] text-pretty text-ink-600/75">
               Where the running subagents of {title} are working right now.
             </div>
             <ul className="mt-3 flex flex-col">
               {list.rows.map((row) => (
-                <li key={row.root} className="flex flex-col gap-1.5 border-t border-[rgba(150,205,255,.08)] py-3">
-                  <div className="flex items-center gap-2 whitespace-nowrap font-mono text-[12.5px]">
+                <li key={row.root} className="flex flex-col gap-1.5 border-t border-line/8 py-3">
+                  <div className="flex items-center gap-2 whitespace-nowrap font-mono fs-12.5">
                     <ListMark mark={row.mark} />
-                    <span className="min-w-0 flex-1 truncate text-text-bright">
+                    <span className="min-w-0 flex-1 truncate text-ink-100">
                       {truncateMiddle(refs.get(row.root) ?? '', SHEET_BRANCH_CH)}
                     </span>
-                    <span className="text-[11px] text-[rgba(160,190,225,.6)]">{row.dir}</span>
+                    <span className="fs-11 text-ink-900/60">{row.dir}</span>
                   </div>
                   <div className="flex flex-col gap-[3px] pl-[21px]">
                     {row.agents.map((agent, i) => (
-                      <span key={i} className="grid grid-cols-[10px_minmax(0,1fr)] text-[13.5px] leading-[1.4] text-[rgba(200,214,235,.85)]">
-                        <span aria-hidden className="text-[rgba(160,190,225,.5)]">
+                      <span key={i} className="grid grid-cols-[10px_minmax(0,1fr)] fs-13.5 leading-[1.4] text-ink-600/85">
+                        <span aria-hidden className="text-ink-900/50">
                           ·
                         </span>
                         <span className="text-pretty">{agent}</span>
@@ -63,7 +63,7 @@ export function TreesSheet({ session, onClose }: { session: ApiSession; onClose:
               ))}
             </ul>
             {list.more > 0 && (
-              <div className="border-t border-[rgba(150,205,255,.08)] pb-0.5 pt-3 font-mono text-[12px] text-[rgba(160,190,225,.6)]">
+              <div className="border-t border-line/8 pb-0.5 pt-3 font-mono fs-12 text-ink-900/60">
                 {treesMoreText(list.more)}
               </div>
             )}

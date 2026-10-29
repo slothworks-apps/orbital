@@ -75,8 +75,8 @@ export function FullTextTip({
           <div
             role="tooltip"
             className={[
-              'fixed z-50 rounded-[8px] border border-[rgba(150,205,255,.2)] bg-[rgba(10,16,28,.97)] px-2.5 py-1.5 text-text-bright shadow-[0_6px_24px_rgba(0,0,0,.5)] [overflow-wrap:anywhere]',
-              mono ? 'font-mono text-[11.5px]' : 'text-[13.5px]',
+              'fixed z-50 rounded-[8px] border border-line/20 bg-panel/97 px-2.5 py-1.5 text-ink-100 shadow-[0_6px_24px_color-mix(in_oklab,_var(--color-shadow)_50%,_transparent)] [overflow-wrap:anywhere]',
+              mono ? 'font-mono fs-11.5' : 'fs-13.5',
             ].join(' ')}
             style={{ top: at.top, left: at.left, maxWidth: `calc(100vw - ${at.left + EDGE_PX}px)` }}
           >

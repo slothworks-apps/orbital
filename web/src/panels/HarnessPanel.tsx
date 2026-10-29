@@ -27,14 +27,14 @@ function FullFrame({ inWindow, children }: { inWindow: boolean; children: ReactN
   const viewportWidth = useViewportWidth()
   const sidebarPx = useOrbital((s) => (s.ui.sidebarCollapsed ? RAIL_PX : parseSidebarWidth(s.settings, viewportWidth)))
   const frame = inWindow
-    ? 'fixed inset-0 bg-space bg-[image:linear-gradient(180deg,rgba(10,15,27,.92),rgba(5,8,16,.95))]'
+    ? 'fixed inset-0 bg-space bg-[image:linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_92%,_transparent),color-mix(in_oklab,_var(--color-space)_95%,_transparent))]'
     : // Opaque under the gradient: the frame covers the docked panels, which must not show through.
-      'fixed rounded-[14px] border border-[rgba(150,205,255,.12)] bg-space bg-[image:linear-gradient(180deg,rgba(10,15,27,.92),rgba(5,8,16,.95))]'
+      'fixed rounded-[14px] border border-line/12 bg-space bg-[image:linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_92%,_transparent),color-mix(in_oklab,_var(--color-space)_95%,_transparent))]'
   return createPortal(
     <div
       role="region"
       aria-label="Harness, full window"
-      className={`${frame} z-30 overflow-hidden font-sans text-text-bright`}
+      className={`${frame} z-30 overflow-hidden font-sans text-ink-100`}
       style={inWindow ? undefined : { left: EDGE_PX + sidebarPx + EDGE_PX, right: EDGE_PX, top: EDGE_PX, bottom: EDGE_PX }}
     >
       {!inWindow && <DashedSeam />}
@@ -51,7 +51,7 @@ function slotChrome({ inWindow, swap, back, close }: { inWindow: boolean; swap: 
     close: swap ? null : close,
     swapStrip: swap ? (
       <div
-        className="orbital-drag-region -mx-[18px] -mt-4 flex h-10 items-center gap-2.5 pr-[18px] pt-3"
+        className="orbital-drag-region -mx-[18px] -mt-4 flex h-fit min-h-10 items-center gap-2.5 pr-[18px] pt-3"
         style={{ paddingLeft: WINDOW_STRIP_INSET_PX }}
       >
         {back}
@@ -212,7 +212,7 @@ export function HarnessRecordView({ sessionId, onClose }: { sessionId: string; o
 
   const harness = data?.sessionId === sessionId ? data.harness : undefined
   if (!harness || !data) {
-    return harness === null ? <div className="p-4 text-[12px] text-[rgba(160,190,225,.6)]">This session has no harness record.</div> : null
+    return harness === null ? <div className="p-4 fs-12 text-ink-900/60">This session has no harness record.</div> : null
   }
   const chrome: Chrome = {
     inWindow: false,
@@ -222,7 +222,7 @@ export function HarnessRecordView({ sessionId, onClose }: { sessionId: string; o
         <CloseGlyph />
       </HeadButton>
     ) : null,
-    row: (children) => <div className="flex h-[22px] items-center gap-2">{children}</div>,
+    row: (children) => <div className="flex h-fit min-h-[22px] items-center gap-2">{children}</div>,
   }
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden">

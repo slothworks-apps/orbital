@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { useState } from 'react'
 import type { ChatMessage, CompactionMark as Mark } from '../lib/types'
 import { Button } from '../ui/Button'
@@ -21,7 +22,7 @@ import { useNow } from '../lib/useNow'
  */
 
 /** 26d's failure red: the heading ink, its rules and the card's border. */
-const FAILED_INK = 'oklch(80% .12 25)'
+const FAILED_INK = swatch('danger-soft')
 const FAILED_RULE = 'oklch(72% .17 25 / .4)'
 const FAILED_BORDER = 'oklch(72% .17 25 / .3)'
 /** The successful mark's copy (26d). */
@@ -32,11 +33,11 @@ const FAILED_NOTE = 'Nothing was summarized, so Claude still has everything abov
 function Heading({ text, failed }: { text: string; failed: boolean }) {
   // 26d: mono 9.5 at .16em between two hairlines — grey for a cut, red for a
   // failure, which cut nothing and so is not drawn as a cut.
-  const rule = failed ? FAILED_RULE : 'rgba(150,205,255,.3)'
+  const rule = failed ? FAILED_RULE : swatch('line', 0.3)
   return (
     <div
-      className="flex items-center gap-2.5 font-mono text-[9.5px] tracking-[0.16em]"
-      style={{ color: failed ? FAILED_INK : 'rgba(214,228,246,.82)' }}
+      className="flex items-center gap-2.5 font-mono fs-9.5 tracking-[0.16em]"
+      style={{ color: failed ? FAILED_INK : swatch('ink-400', 0.82) }}
     >
       <span aria-hidden className="block h-px flex-1" style={{ background: rule }} />
       {text}
@@ -97,12 +98,12 @@ export function CompactionMark({
       <div data-compaction-mark="failed" data-compaction-id={message.id} className="flex flex-col gap-2">
         <Heading text="COMPACTION FAILED" failed />
         <div
-          className="flex flex-col gap-[9px] rounded-lg border bg-[rgba(4,8,16,.5)] px-3 py-2.5"
+          className="flex flex-col gap-[9px] rounded-lg border bg-space/50 px-3 py-2.5"
           style={{ borderColor: FAILED_BORDER }}
         >
-          <div className="flex items-baseline gap-2 font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+          <div className="flex items-baseline gap-2 font-mono fs-10.5 text-ink-900/65">
             {mark.preTokens !== null && (
-              <span className="text-[12.5px] text-[#e8eef8]">{formatCompactTokens(mark.preTokens)}</span>
+              <span className="fs-12.5 text-ink-100">{formatCompactTokens(mark.preTokens)}</span>
             )}
             <span>unchanged</span>
             <span aria-hidden className="flex-1" />
@@ -110,12 +111,12 @@ export function CompactionMark({
           </div>
           {/* Quoted exactly — the reason is the one thing a developer needs. */}
           <div
-            className="whitespace-pre-wrap break-words rounded-md bg-[rgba(2,4,9,.6)] px-2.5 py-2 font-mono text-[10.5px] leading-[1.55]"
+            className="whitespace-pre-wrap break-words rounded-md bg-space/60 px-2.5 py-2 font-mono fs-10.5 leading-[1.55]"
             style={{ color: FAILED_INK }}
           >
             {mark.error ?? 'No reason given'}
           </div>
-          <div className="text-xs leading-normal text-[rgba(190,212,238,.82)] [text-wrap:pretty]">{FAILED_NOTE}</div>
+          <div className="fs-12 leading-normal text-ink-700/82 [text-wrap:pretty]">{FAILED_NOTE}</div>
           <div className="flex items-center gap-2">
             <Button
               variant="pill"
@@ -151,10 +152,10 @@ export function CompactionMark({
   return (
     <div data-compaction-mark="success" data-compaction-id={message.id} className="flex flex-col gap-2">
       <Heading text={heading} failed={false} />
-      <div className="flex flex-col gap-[9px] rounded-lg border border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.5)] px-3 py-2.5">
-        <div className="flex items-baseline gap-2 font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+      <div className="flex flex-col gap-[9px] rounded-lg border border-line/14 bg-space/50 px-3 py-2.5">
+        <div className="flex items-baseline gap-2 font-mono fs-10.5 text-ink-900/65">
           {mark.preTokens !== null && (
-            <span className="text-[12.5px] text-[#e8eef8]">
+            <span className="fs-12.5 text-ink-100">
               {formatCompactTokens(mark.preTokens)}
               {mark.postTokens !== null && ` → ${formatCompactTokens(mark.postTokens)}`}
             </span>
@@ -165,29 +166,29 @@ export function CompactionMark({
         </div>
         {/* No "after", no bar: nothing is drawn that was not reported. */}
         {barPre !== null && barPost !== null && (
-          <div aria-hidden className="relative h-[3px] rounded-[2px] bg-[rgba(150,205,255,.08)]">
+          <div aria-hidden className="relative h-[3px] rounded-[2px] bg-line/8">
             <span
-              className="absolute inset-y-0 left-0 block rounded-[2px] bg-[rgba(160,190,225,.22)]"
+              className="absolute inset-y-0 left-0 block rounded-[2px] bg-ink-900/22"
               style={{ width: `${barPre}%` }}
             />
             <span
               className="absolute inset-y-0 left-0 block rounded-[2px]"
-              style={{ width: `${barPost}%`, background: `oklch(80% .13 ${hue} / .85)` }}
+              style={{ width: `${barPost}%`, background: `oklch(var(--tb-l) var(--tb-c) ${hue} / .85)` }}
             />
           </div>
         )}
-        <div className="text-xs leading-normal text-[rgba(190,212,238,.82)] [text-wrap:pretty]">{SUMMARY_NOTE}</div>
+        <div className="fs-12 leading-normal text-ink-700/82 [text-wrap:pretty]">{SUMMARY_NOTE}</div>
         {mark.summary && (
           <>
             <button
               type="button"
               aria-expanded={summaryOpen}
               onClick={() => setSummaryOpen((open) => !open)}
-              className="flex items-center gap-1.5 self-start font-mono text-[10.5px] text-[rgba(200,220,245,.8)] hover:text-[#e8eef8]"
+              className="flex items-center gap-1.5 self-start font-mono fs-10.5 text-ink-500/80 hover:text-ink-100"
             >
               <span
                 aria-hidden
-                className="inline-block text-[9px] text-[rgba(160,190,225,.6)] transition-transform duration-150"
+                className="inline-block fs-9 text-ink-900/60 transition-transform duration-150"
                 style={{ transform: summaryOpen ? 'rotate(90deg)' : 'none' }}
               >
                 ▸
@@ -195,7 +196,7 @@ export function CompactionMark({
               summary
             </button>
             {summaryOpen && (
-              <pre className="m-0 whitespace-pre-wrap break-words rounded-md border border-[rgba(150,205,255,.1)] bg-[rgba(2,4,9,.6)] px-[11px] py-[9px] font-mono text-[10.5px] leading-[1.6] text-[rgba(170,195,225,.8)]">
+              <pre className="m-0 whitespace-pre-wrap break-words rounded-md border border-line/10 bg-space/60 px-[11px] py-[9px] font-mono fs-10.5 leading-[1.6] text-ink-800/80">
                 {mark.summary}
               </pre>
             )}
@@ -237,17 +238,17 @@ export function CompactingBlock({
     <div
       data-compacting-block
       role="status"
-      className="flex shrink-0 flex-col gap-2.5 rounded-[9px] border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.55)] px-3.5 py-3"
+      className="flex shrink-0 flex-col gap-2.5 rounded-[9px] border border-line/16 bg-space/55 px-3.5 py-3"
     >
-      <div className="flex items-baseline gap-2 font-mono text-[10px] tracking-[0.16em] text-[rgba(214,228,246,.85)]">
+      <div className="flex items-baseline gap-2 font-mono fs-10 tracking-[0.16em] text-ink-400/85">
         COMPACTING CONTEXT
         <span aria-hidden className="flex-1" />
-        <span className="text-[11px] tracking-[0.04em] text-[#e8eef8]">{formatElapsed(now - startedAt)}</span>
+        <span className="fs-11 tracking-[0.04em] text-ink-100">{formatElapsed(now - startedAt)}</span>
       </div>
-      <div aria-hidden className="relative h-[2px] overflow-hidden rounded-[1px] bg-[rgba(150,205,255,.1)]">
-        <span className="orbital-shimmer absolute inset-y-0 left-0 block w-[30%] rounded-[1px] bg-[image:linear-gradient(90deg,transparent,rgba(214,228,246,.55),transparent)]" />
+      <div aria-hidden className="relative h-[2px] overflow-hidden rounded-[1px] bg-line/10">
+        <span className="orbital-shimmer absolute inset-y-0 left-0 block w-[30%] rounded-[1px] bg-[image:linear-gradient(90deg,transparent,color-mix(in_oklab,_var(--color-ink-400)_55%,_transparent),transparent)]" />
       </div>
-      <div className="text-xs leading-normal text-[rgba(190,212,238,.8)] [text-wrap:pretty]">
+      <div className="fs-12 leading-normal text-ink-700/80 [text-wrap:pretty]">
         {cause} Claude is summarizing the conversation above and will carry on by itself when it&apos;s done.
       </div>
     </div>

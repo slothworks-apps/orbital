@@ -39,19 +39,19 @@ const key = new PluginKey<DecorationSet>('composerTokens')
 // width of its glyphs and nothing around it moves when it is recognised. No
 // transition — 9e: "meant to read as the field having always known".
 const COMMAND_CLASS =
-  '-mx-[5px] box-decoration-clone rounded-[4px] bg-[rgba(150,205,255,.13)] px-[5px] py-px text-[#f2f9ff] transition-none'
+  '-mx-[5px] box-decoration-clone rounded-[4px] bg-line/13 px-[5px] py-px text-ink-50 transition-none'
 // 9a/9e: .06 fill + a 1px .18 ring under #dfeeff ink. A mention with a
 // `:line` suffix is drawn as two spans — ProseMirror wraps each differently
 // decorated stretch of text on its own — so the ring is split by side, and
 // the seam between them has none.
 const MENTION_FILL =
-  'box-decoration-clone bg-[rgba(150,205,255,.06)] py-px text-[#dfeeff] transition-none'
-const MENTION_CLASS = `${MENTION_FILL} -mx-[5px] rounded-[4px] px-[5px] shadow-[inset_0_0_0_1px_rgba(150,205,255,.18)]`
-const MENTION_HEAD_CLASS = `${MENTION_FILL} -ml-[5px] rounded-l-[4px] pl-[5px] shadow-[inset_1px_1px_0_rgba(150,205,255,.18),inset_0_-1px_0_rgba(150,205,255,.18)]`
-const MENTION_SUFFIX_CLASS = `${MENTION_FILL} -mr-[5px] rounded-r-[4px] pr-[5px] text-[rgba(160,190,225,.6)] shadow-[inset_-1px_1px_0_rgba(150,205,255,.18),inset_0_-1px_0_rgba(150,205,255,.18)]`
+  'box-decoration-clone bg-line/6 py-px text-ink-200 transition-none'
+const MENTION_CLASS = `${MENTION_FILL} -mx-[5px] rounded-[4px] px-[5px] shadow-[inset_0_0_0_1px_color-mix(in_oklab,_var(--color-line)_18%,_transparent)]`
+const MENTION_HEAD_CLASS = `${MENTION_FILL} -ml-[5px] rounded-l-[4px] pl-[5px] shadow-[inset_1px_1px_0_color-mix(in_oklab,_var(--color-line)_18%,_transparent),inset_0_-1px_0_color-mix(in_oklab,_var(--color-line)_18%,_transparent)]`
+const MENTION_SUFFIX_CLASS = `${MENTION_FILL} -mr-[5px] rounded-r-[4px] pr-[5px] text-ink-900/60 shadow-[inset_-1px_1px_0_color-mix(in_oklab,_var(--color-line)_18%,_transparent),inset_0_-1px_0_color-mix(in_oklab,_var(--color-line)_18%,_transparent)]`
 // The ghost is in the hint line's ink (9e), and is not text: it cannot be
 // selected, clicked into or sent.
-const HINT_CLASS = 'pointer-events-none select-none text-[rgba(160,190,225,.5)]'
+const HINT_CLASS = 'pointer-events-none select-none text-ink-900/50'
 
 /** A slug that starts a word, then exactly one space, then the caret. */
 const COMMAND_BEFORE_CARET = /(?:^|\s)\/([A-Za-z0-9][A-Za-z0-9:._-]*) $/

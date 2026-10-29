@@ -30,11 +30,11 @@ export function MobileScreen({
       {glow && (
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_320px_260px_at_20%_10%,rgba(110,80,220,.13),transparent),radial-gradient(ellipse_360px_300px_at_90%_85%,rgba(40,170,220,.08),transparent)]"
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_320px_260px_at_20%_10%,color-mix(in_oklab,var(--color-nebula-a)_13%,transparent),transparent),radial-gradient(ellipse_360px_300px_at_90%_85%,color-mix(in_oklab,var(--color-nebula-b)_8%,transparent),transparent)]"
         />
       )}
       {header && (
-        <header className={['relative shrink-0', divider ? 'border-b border-panel-border bg-[rgba(5,7,13,.92)]' : ''].join(' ')}>
+        <header className={['relative shrink-0', divider ? 'border-b border-line/14 bg-space/92' : ''].join(' ')}>
           {header}
         </header>
       )}
@@ -74,8 +74,8 @@ export function PrimaryButton({
   children, onClick, disabled, type = 'button', variant = 'screen', ready = true, tone = 'accent',
 }: ButtonProps & { ready?: boolean; tone?: 'accent' | 'light' }) {
   const fill = tone === 'light'
-    ? 'bg-[#e8eef8] text-[#05070d] disabled:opacity-40'
-    : 'bg-[oklch(85%_.12_205)] text-[#03111a] disabled:opacity-35 disabled:shadow-none'
+    ? 'bg-ink-100 text-space disabled:opacity-40'
+    : 'bg-accent text-space-deep disabled:opacity-35 disabled:shadow-none'
   return (
     <button
       type={type}
@@ -83,9 +83,9 @@ export function PrimaryButton({
       disabled={disabled}
       aria-disabled={ready ? undefined : true}
       className={[
-        'flex h-13 w-full items-center justify-center gap-2.5 rounded-[14px] px-4 text-[15px] font-bold',
-        ready ? fill : 'cursor-default border border-[rgba(150,205,255,.14)] bg-transparent text-[rgba(160,190,225,.5)]',
-        !ready || tone === 'light' ? '' : variant === 'sheet' ? 'shadow-[0_0_18px_oklch(85%_.12_205/.3)]' : 'shadow-[0_0_22px_oklch(85%_.12_205/.3)]',
+        'flex h-13 w-full items-center justify-center gap-2.5 rounded-[14px] px-4 fs-15 font-bold',
+        ready ? fill : 'cursor-default border border-line/14 bg-transparent text-ink-900/50',
+        !ready || tone === 'light' ? '' : variant === 'sheet' ? 'shadow-[0_0_18px_color-mix(in_oklab,var(--color-accent)_30%,transparent)]' : 'shadow-[0_0_22px_color-mix(in_oklab,var(--color-accent)_30%,transparent)]',
       ].join(' ')}
     >
       {children}
@@ -106,12 +106,12 @@ export function SecondaryButton({
       onClick={onClick}
       disabled={disabled}
       className={[
-        'flex items-center justify-center border font-semibold text-text-bright disabled:opacity-40',
+        'flex items-center justify-center border font-semibold text-ink-100 disabled:opacity-40',
         variant === 'compact'
-          ? 'h-11 shrink-0 rounded-[10px] border-[rgba(150,205,255,.2)] px-3 text-[13px]'
+          ? 'h-11 shrink-0 rounded-[10px] border-line/20 px-3 fs-13'
           : variant === 'sheet'
-            ? 'h-13 w-full rounded-[14px] border-[rgba(150,205,255,.22)] px-4 text-[14px]'
-            : 'h-13 w-full rounded-[14px] border-[rgba(150,205,255,.2)] px-4 text-[15px]',
+            ? 'h-13 w-full rounded-[14px] border-line/22 px-4 fs-14'
+            : 'h-13 w-full rounded-[14px] border-line/20 px-4 fs-15',
       ].join(' ')}
     >
       {children}
@@ -148,13 +148,13 @@ export function Toggle({
         aria-hidden
         className={[
           'relative block h-6 w-10 rounded-full transition-[background-color] duration-[180ms] ease-out',
-          checked ? 'bg-[oklch(85%_.12_205)] shadow-[0_0_10px_oklch(85%_.12_205/.45)]' : 'bg-[rgba(150,205,255,.16)]',
+          checked ? 'bg-accent shadow-[0_0_10px_color-mix(in_oklab,var(--color-accent)_45%,transparent)]' : 'bg-line/16',
         ].join(' ')}
       >
         <span
           className={[
             'absolute top-[3px] block h-[18px] w-[18px] rounded-full transition-[left] duration-[180ms] ease-out',
-            checked ? 'left-[19px] bg-[#03111a]' : 'left-[3px] bg-[rgba(220,235,255,.85)]',
+            checked ? 'left-[19px] bg-space-deep' : 'left-[3px] bg-ink-200/85',
           ].join(' ')}
         />
       </span>
@@ -165,7 +165,7 @@ export function Toggle({
 /** 9f's section label over a card: mono caps, indented to the card's text. */
 export function SectionLabel({ children, first = false }: { children: ReactNode; first?: boolean }) {
   return (
-    <div className={['px-1 pb-2 font-mono text-[10px] tracking-[0.16em] text-[rgba(160,190,225,.6)]', first ? 'pt-3' : 'pt-5'].join(' ')}>
+    <div className={['px-1 pb-2 font-mono fs-10 tracking-[0.16em] text-ink-900/60', first ? 'pt-3' : 'pt-5'].join(' ')}>
       {children}
     </div>
   )
@@ -174,15 +174,15 @@ export function SectionLabel({ children, first = false }: { children: ReactNode;
 /** 9d's section label, with the list's hint on its right. */
 export function FieldLabel({ children, hint }: { children: string; hint?: string }) {
   return (
-    <div className="flex items-baseline font-mono text-[10px] tracking-[0.16em] text-[rgba(160,190,225,.6)]">
+    <div className="flex items-baseline font-mono fs-10 tracking-[0.16em] text-ink-900/60">
       {children}
-      {hint && <span className="ml-auto min-w-0 truncate pl-3 tracking-[0.04em] text-[rgba(160,190,225,.45)]">{hint}</span>}
+      {hint && <span className="ml-auto min-w-0 truncate pl-3 tracking-[0.04em] text-ink-900/60">{hint}</span>}
     </div>
   )
 }
 
 /** 9f's grouped card: rows inside, hairlines between them. */
-export const CARD = 'overflow-hidden rounded-[14px] border border-[rgba(150,205,255,.12)] bg-[rgba(10,16,28,.6)]'
+export const CARD = 'overflow-hidden rounded-[14px] border border-line/12 bg-panel/60'
 
 /**
  * 9h and 9i's mark: the Orbital ring and its moon drawn in grey — news, not
@@ -190,8 +190,8 @@ export const CARD = 'overflow-hidden rounded-[14px] border border-[rgba(150,205,
  */
 export function QuietMark() {
   return (
-    <span aria-hidden className="relative block h-16 w-16 rounded-full border-[1.5px] border-[rgba(200,215,235,.4)]">
-      <span className="absolute -right-1.5 top-1 block h-3 w-3 rounded-full border-[1.5px] border-[rgba(200,215,235,.4)] bg-space" />
+    <span aria-hidden className="relative block h-16 w-16 rounded-full border-[1.5px] border-ink-600/40">
+      <span className="absolute -right-1.5 top-1 block h-3 w-3 rounded-full border-[1.5px] border-ink-600/40 bg-space" />
     </span>
   )
 }
@@ -230,12 +230,12 @@ export function LitMark({ variant }: { variant: 'paired' | 'lock' }) {
     <span
       aria-hidden
       className={[
-        'relative grid h-[72px] w-[72px] place-items-center rounded-full border-2 border-[oklch(85%_.12_205)] text-[26px] text-[oklch(85%_.12_205)]',
-        variant === 'paired' ? 'shadow-[0_0_30px_oklch(85%_.12_205/.4)]' : 'shadow-[0_0_30px_oklch(85%_.12_205/.35)]',
+        'relative grid h-[72px] w-[72px] place-items-center rounded-full border-2 border-accent fs-26 text-accent',
+        variant === 'paired' ? 'shadow-[0_0_30px_color-mix(in_oklab,var(--color-accent)_40%,transparent)]' : 'shadow-[0_0_30px_color-mix(in_oklab,var(--color-accent)_35%,transparent)]',
       ].join(' ')}
     >
       {variant === 'paired' && '✓'}
-      <span className="absolute right-0.5 top-0.5 block h-3.5 w-3.5 rounded-full bg-[oklch(85%_.12_205)] shadow-[0_0_12px_oklch(85%_.12_205)]" />
+      <span className="absolute right-0.5 top-0.5 block h-3.5 w-3.5 rounded-full bg-accent shadow-[0_0_12px_var(--color-accent)]" />
     </span>
   )
 }
@@ -262,22 +262,22 @@ const SHEET_SWIPE_DISMISS_PX = 60
  */
 const SHEET_VARIANTS = {
   menu: {
-    backdrop: 'bg-[rgba(2,3,8,.62)]',
+    backdrop: 'bg-space/62',
     panel:
-      'rounded-t-[22px] border border-b-0 border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] px-2.5 shadow-[0_-20px_60px_rgba(0,0,0,.6)]',
+      'rounded-t-[22px] border border-b-0 border-line/16 bg-panel/96 px-2.5 shadow-[0_-20px_60px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent)]',
     handle: 'h-[22px]',
   },
   question: {
-    backdrop: 'bg-[rgba(2,4,9,.6)] backdrop-blur-[2px]',
+    backdrop: 'bg-space/60 backdrop-blur-[2px]',
     panel:
-      'flex max-h-[calc(100%-92px)] flex-col rounded-t-[24px] border-t border-[rgba(150,205,255,.2)] bg-[linear-gradient(180deg,rgba(16,22,38,.97),rgba(8,12,22,.99))] shadow-[0_-20px_60px_rgba(0,0,0,.6),inset_0_1px_0_rgba(255,255,255,.07)]',
+      'flex max-h-[calc(100%-92px)] flex-col rounded-t-[24px] border-t border-line/20 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-raised)_97%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_99%,_transparent))] shadow-[0_-20px_60px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent),inset_0_1px_0_color-mix(in_oklab,_var(--color-highlight)_7%,_transparent)]',
     handle: 'h-5 shrink-0',
   },
   /** Canvas 50i: a device's sheet, the join request and the confirms of Settings → Devices. */
   device: {
-    backdrop: 'bg-[rgba(2,3,8,.62)]',
+    backdrop: 'bg-space/62',
     panel:
-      'rounded-t-[26px] border-t border-[rgba(150,205,255,.18)] bg-[rgba(10,16,28,.98)] px-4 shadow-[0_-20px_60px_rgba(0,0,0,.5)]',
+      'rounded-t-[26px] border-t border-line/18 bg-panel/98 px-4 shadow-[0_-20px_60px_color-mix(in_oklab,_var(--color-shadow)_50%,_transparent)]',
     handle: 'h-5',
   },
   /**
@@ -285,16 +285,16 @@ const SHEET_VARIANTS = {
    * a column whose middle scrolls between a fixed head and Done.
    */
   notes: {
-    backdrop: 'bg-[rgba(2,4,9,.55)]',
+    backdrop: 'bg-space/55',
     panel:
-      'flex h-[84%] flex-col rounded-t-[26px] border-t border-[rgba(150,205,255,.2)] bg-[linear-gradient(180deg,rgba(16,22,38,.98),rgba(8,12,22,.99))]',
+      'flex h-[84%] flex-col rounded-t-[26px] border-t border-line/20 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-raised)_98%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_99%,_transparent))]',
     handle: 'h-5 shrink-0',
   },
   /** `Feature - Feedback` 61i: Settings → Send feedback, a short sheet of two choices. */
   feedback: {
-    backdrop: 'bg-[rgba(2,4,9,.55)]',
+    backdrop: 'bg-space/55',
     panel:
-      'rounded-t-[26px] border-t border-[rgba(150,205,255,.2)] bg-[linear-gradient(180deg,rgba(16,22,38,.98),rgba(8,12,22,.99))] px-4',
+      'rounded-t-[26px] border-t border-line/20 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-raised)_98%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_99%,_transparent))] px-4',
     handle: 'h-5',
   },
 } as const
@@ -357,7 +357,7 @@ export function BottomSheet({
         className={['orbital-sheet-panel relative pb-[max(22px,env(safe-area-inset-bottom))]', look.panel].join(' ')}
       >
         <div aria-hidden className={['grid place-items-center', look.handle].join(' ')}>
-          <span className="block h-1 w-9 rounded-[2px] bg-[rgba(200,220,245,.3)]" />
+          <span className="block h-1 w-9 rounded-[2px] bg-ink-500/30" />
         </div>
         {children}
       </div>
@@ -429,11 +429,11 @@ export function ConfirmBody({
   // shell's 10 plus this block's 8 (10i's confirms nest the same way).
   return (
     <div className="px-2">
-      <div className="pt-1.5 font-mono text-[10px] tracking-[0.2em] text-[oklch(85%_.12_205)]">{eyebrow}</div>
-      <h2 className="mt-2 text-[19px] font-bold tracking-[-0.01em]">{title}</h2>
-      <div className="mt-2.5 text-[13.5px] leading-[1.55] text-pretty text-[rgba(200,214,235,.85)]">{body}</div>
+      <div className="pt-1.5 font-mono fs-10 tracking-[0.2em] text-accent">{eyebrow}</div>
+      <h2 className="mt-2 fs-19 font-bold tracking-[-0.01em]">{title}</h2>
+      <div className="mt-2.5 fs-13.5 leading-[1.55] text-pretty text-ink-600/85">{body}</div>
       {detail && (
-        <div className="mt-3 rounded-[10px] border border-[rgba(150,205,255,.12)] bg-[rgba(3,6,12,.6)] px-3 py-2.5 font-mono text-[11px] leading-[1.6] text-[rgba(200,220,245,.8)]">
+        <div className="mt-3 rounded-[10px] border border-line/12 bg-space/60 px-3 py-2.5 font-mono fs-11 leading-[1.6] text-ink-500/80">
           {detail}
         </div>
       )}
@@ -462,9 +462,9 @@ export function AckLine({ mark, children, className = '' }: { mark: string; chil
   return (
     <div
       role="status"
-      className={`flex min-h-12 items-center gap-2.5 rounded-[12px] border border-[oklch(85%_.12_205/.35)] bg-[oklch(85%_.12_205/.1)] px-3 text-[13.5px] ${className}`}
+      className={`flex h-fit min-h-12 items-center gap-2.5 rounded-[12px] border border-accent/35 bg-accent/10 px-3 fs-13.5 ${className}`}
     >
-      <span aria-hidden className="text-[oklch(85%_.12_205)]">{mark}</span>
+      <span aria-hidden className="text-accent">{mark}</span>
       <span className="min-w-0 flex-1">{children}</span>
     </div>
   )

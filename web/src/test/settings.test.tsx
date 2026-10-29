@@ -27,7 +27,7 @@ import { api } from '../lib/api'
  * every time somebody makes that decision on purpose.
  */
 function openSection(
-  label: 'General' | 'Sessions' | 'Notifications' | 'Appearance' | 'Tags & rules'
+  label: 'General' | 'Sessions' | 'Notifications' | 'Appearance' | 'Tags & rules' | 'Harness' | 'Terminal'
 ): void {
   fireEvent.click(screen.getByRole('button', { name: label, hidden: true }))
   // A nav click persists the section (`settings_last_section`), so without
@@ -475,6 +475,37 @@ describe('Settings — General', () => {
 // Profiles, once Claude directories (spec 2026-10-04-multiple-claude-directories-design § 1)
 // ---------------------------------------------------------------------------
 
+// A section that holds a feature's switch: the switch is always there, the
+// feature's own content only while it is on.
+describe('Settings — a feature behind its own switch', () => {
+  it('shows the terminal\'s settings only once Terminal is on', () => {
+    resetStore()
+    const { rerender } = render(<Settings open onClose={vi.fn()} />)
+    openSection('Terminal')
+    fireEvent.click(screen.getByRole('switch', { name: 'Terminal', hidden: true }))
+    expect(api.patchSettings).toHaveBeenCalledWith({ terminal_enabled: 'true' })
+    expect(screen.queryByText('Terminal placement')).toBeNull()
+
+    act(() => useOrbital.setState((s) => ({ settings: { ...s.settings, terminal_enabled: 'true' } })))
+    rerender(<Settings open onClose={vi.fn()} />)
+    expect(screen.getByText('Terminal placement')).toBeInTheDocument()
+  })
+
+  it('reads the harness templates only once Harness is on', async () => {
+    vi.mocked(api.listHarnessTemplates).mockResolvedValue({ templates: [] })
+    vi.mocked(api.listHarnessProjects).mockResolvedValue({ projects: [] })
+    resetStore()
+    const { rerender } = render(<Settings open onClose={vi.fn()} />)
+    openSection('Harness')
+    expect(screen.getByRole('switch', { name: 'Harness', hidden: true })).toBeInTheDocument()
+    expect(api.listHarnessTemplates).not.toHaveBeenCalled()
+
+    act(() => useOrbital.setState((s) => ({ settings: { ...s.settings, harness_enabled: 'true' } })))
+    rerender(<Settings open onClose={vi.fn()} />)
+    await waitFor(() => expect(api.listHarnessTemplates).toHaveBeenCalled())
+  })
+})
+
 describe('Settings — Profiles', () => {
   // The tests swap the store's `loadSessions` for a spy; the rest of the file needs the real one.
   const realLoadSessions = useOrbital.getState().loadSessions
@@ -636,9 +667,15 @@ describe('Settings — remembered section', () => {
     expect(initialSection({ settings_last_section: 'mobile' })).toBe('devices')
   })
 
-  it('resumes Terminal only while the terminal is switched on', () => {
-    expect(initialSection({ settings_last_section: 'terminal' })).toBe('general')
-    expect(initialSection({ settings_last_section: 'terminal', terminal_enabled: 'true' })).toBe('terminal')
+  // Harness and Terminal hold their own switches, so they are listed with them off.
+  it('resumes Harness and Terminal whether or not they are switched on', () => {
+    expect(initialSection({ settings_last_section: 'terminal' })).toBe('terminal')
+    expect(initialSection({ settings_last_section: 'harness' })).toBe('harness')
+  })
+
+  // Labs holds nothing now, so it is not listed and a stored visit cannot strand the user there.
+  it('falls back for a stored visit to an empty Labs', () => {
+    expect(initialSection({ settings_last_section: 'labs' })).toBe('general')
   })
 
   it('resumes Experimental only while it is unlocked', () => {
@@ -730,20 +767,5 @@ describe('Settings — Appearance (canvas 5a)', () => {
       expect(api.patchSettings).toHaveBeenCalledWith({ map_scale_labels: 'true' })
     )
     expect(useOrbital.getState().settings.map_scale_labels).toBe('true')
-  })
-
-  it('the preview row shows the three tier diameters at the current scale and collapses', () => {
-    renderSettings({ settings: { planet_scale: '1.5' } })
-    openAppearance()
-
-    // 34/60/92 px tiers × 1.5, rounded to whole pixels (canvas 5b).
-    expect(screen.getByText('51px')).toBeInTheDocument()
-    expect(screen.getByText('90px')).toBeInTheDocument()
-    expect(screen.getByText('138px')).toBeInTheDocument()
-
-    const toggle = screen.getByRole('button', { name: /preview/i, hidden: true })
-    expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    fireEvent.click(toggle)
-    expect(toggle).toHaveAttribute('aria-expanded', 'false')
   })
 })

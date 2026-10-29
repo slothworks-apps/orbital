@@ -12,11 +12,11 @@ export function ReleaseNoteSections({ sections }: { sections: readonly ReleaseNo
       {sections.map((section) => (
         // 1b, 2b: 8 between the title and each line.
         <section key={section.title} aria-label={section.title} className="flex flex-col gap-2">
-          <h3 className="font-mono text-[10px] font-normal tracking-[0.18em] text-[rgba(160,190,225,.6)]">{section.title}</h3>
+          <h3 className="font-mono fs-10 font-normal tracking-[0.18em] text-ink-900/60">{section.title}</h3>
           <ul className="flex flex-col gap-2">
             {section.items.map((item, i) => (
-              <li key={i} className="flex gap-2.5 text-[14px] leading-[1.5] text-[rgba(214,226,242,.92)]">
-                <span aria-hidden className="flex-none text-[rgba(160,190,225,.55)]">
+              <li key={i} className="flex gap-2.5 fs-14 leading-[1.5] text-ink-400/92">
+                <span aria-hidden className="flex-none text-ink-900/55">
                   –
                 </span>
                 <span className="[text-wrap:pretty]">{item}</span>

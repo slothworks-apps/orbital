@@ -55,7 +55,7 @@ export const IDE_MODIFIER_LABEL = '⌥'
  * both, and records "new colours: none" — every value here is already in the
  * panel's vocabulary.
  */
-const IDE_SUFFIX_CLASS = 'pl-2 font-mono text-[10px] text-[rgba(160,190,225,.55)]'
+const IDE_SUFFIX_CLASS = 'pl-2 font-mono fs-10 text-ink-900/55'
 
 /** Where the button sits — only ink and box metrics differ (canvas 8a). */
 export type PathButtonVariant = 'row' | 'input' | 'prose' | 'code'
@@ -76,14 +76,14 @@ export interface PathButtonProps {
 
 const VARIANT_CLASSES: Record<PathButtonVariant, string> = {
   // 8a collapsed-row label: #e8eef8 ink over the row's own mono type.
-  row: 'mx-[-5px] px-[5px] py-px text-[#e8eef8]',
+  row: 'mx-[-5px] px-[5px] py-px text-ink-100',
   // 8a INPUT frame: the value's slightly softer ink, same box.
-  input: 'mx-[-5px] px-[5px] py-px text-[rgba(220,235,255,.9)]',
+  input: 'mx-[-5px] px-[5px] py-px text-ink-200/90',
   // 8a assistant prose: mono 11.5px inside 13px prose, tighter box.
-  prose: 'mx-[-4px] px-[4px] py-px font-mono text-[11.5px] text-[#e8eef8]',
+  prose: 'mx-[-4px] px-[4px] py-px font-mono fs-11.5 text-ink-100',
   // Inside an inline code chip, which already sets the type and the box:
   // only the ink and a hit pad that stays within the chip's padding.
-  code: 'mx-[-2px] px-[2px] py-0 text-[#e8eef8]',
+  code: 'mx-[-2px] px-[2px] py-0 text-ink-100',
 }
 
 /**
@@ -267,21 +267,21 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
             // any more — and what is left is the solid accent underline over
             // bright ink. Dropping the fill is the whole tell: the same
             // gesture with a different destination, not a harder hover.
-            'cursor-pointer text-[#e8eef8] decoration-solid decoration-[oklch(85%_.12_205)]'
+            'cursor-pointer text-ink-100 decoration-solid decoration-accent'
           : showReceipt
             ? // 20d AFTER ⌥-CLICK: the span reads at rest again while the
               // receipt holds beside it. The pointer is usually still on the
               // path, so the hover emphasis has to be suppressed rather than
               // merely not applied.
-              'cursor-pointer decoration-dotted decoration-[rgba(150,205,255,.3)]'
+              'cursor-pointer decoration-dotted decoration-line/30'
             : isOpen
               ? // 8e OPEN: dimmed pill, faded dotted underline, dead press.
-                'cursor-default bg-[rgba(150,205,255,.06)] text-[rgba(200,220,245,.6)] decoration-dotted decoration-[rgba(150,205,255,.2)]'
+                'cursor-default bg-line/6 text-ink-500/60 decoration-dotted decoration-line/20'
               : [
-                  'cursor-pointer decoration-dotted decoration-[rgba(150,205,255,.3)]',
-                  'hover:bg-[rgba(150,205,255,.12)] hover:text-[#f2f9ff] hover:decoration-solid hover:decoration-[oklch(85%_.12_205_/_.8)]',
-                  'active:bg-[rgba(150,205,255,.18)]',
-                  'focus-visible:bg-[rgba(150,205,255,.08)] focus-visible:shadow-[0_0_0_2px_oklch(85%_.12_205_/_.55)] focus-visible:outline-none',
+                  'cursor-pointer decoration-dotted decoration-line/30',
+                  'hover:bg-line/12 hover:text-ink-50 hover:decoration-solid hover:decoration-accent/80',
+                  'active:bg-line/18',
+                  'focus-visible:bg-line/8 focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--color-accent)_55%,transparent)] focus-visible:outline-none',
                 ].join(' '),
       ].join(' ')}
     >
@@ -290,8 +290,8 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
         <span
           className={
             isOpen && !armed && !showReceipt
-              ? 'text-[rgba(160,190,225,.45)]'
-              : 'text-[rgba(160,190,225,.6)] group-hover/path:text-[rgba(190,215,240,.75)]'
+              ? 'text-ink-900/60'
+              : 'text-ink-900/60 group-hover/path:text-ink-700/75'
           }
         >
           {lineSuffix}

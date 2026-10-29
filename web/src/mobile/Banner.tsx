@@ -59,8 +59,8 @@ function BannerCard({ banner }: { banner: BannerContent }) {
         touchY.current = null
       }}
       className={[
-        'fixed inset-x-3 top-[calc(env(safe-area-inset-top)+8px)] z-30 rounded-[12px] border bg-panel-solid pb-1 pl-3 pr-2 pt-2 shadow-[0_8px_24px_rgba(0,0,0,.45)] transition-transform duration-200 ease-out motion-reduce:transition-none',
-        needsInput ? INPUT_EDGE : 'border-panel-border',
+        'fixed inset-x-3 top-[calc(env(safe-area-inset-top)+8px)] z-30 rounded-[12px] border bg-panel-solid pb-1 pl-3 pr-2 pt-2 shadow-[0_8px_24px_color-mix(in_oklab,_var(--color-shadow)_45%,_transparent)] transition-transform duration-200 ease-out motion-reduce:transition-none',
+        needsInput ? INPUT_EDGE : 'border-line/14',
         shown ? 'translate-y-0' : '-translate-y-[calc(100%+env(safe-area-inset-top)+8px)]',
       ].join(' ')}
     >
@@ -81,11 +81,11 @@ function BannerCard({ banner }: { banner: BannerContent }) {
         )}
         <div className="min-w-0 flex-1">
           {/* The title truncates; " needs input" after it always shows (9g). */}
-          <div className="flex min-w-0 text-[14px] font-semibold text-text-bright">
+          <div className="flex min-w-0 fs-14 font-semibold text-ink-100">
             <span className="truncate">{title}</span>
             {needsInput && <span className="shrink-0 whitespace-pre"> needs input</span>}
           </div>
-          <div className={`truncate text-[12.5px] ${needsInput ? 'text-[var(--state-input)]' : 'text-text-soft'}`}>
+          <div className={`truncate fs-12.5 ${needsInput ? 'text-[var(--state-input)]' : 'text-ink-300'}`}>
             {line}
           </div>
         </div>
@@ -93,14 +93,14 @@ function BannerCard({ banner }: { banner: BannerContent }) {
           <button
             type="button"
             onClick={view}
-            className="min-h-11 shrink-0 rounded-[10px] border border-accent/40 px-3 text-[14px] font-semibold text-accent"
+            className="h-fit min-h-11 shrink-0 rounded-[10px] border border-accent/40 px-3 fs-14 font-semibold text-accent"
           >
             View
           </button>
         )}
       </div>
       {/* The grip: the banner goes on a swipe up. */}
-      <span aria-hidden className="mx-auto mt-1 block h-[3px] w-7 rounded-full bg-[rgba(160,190,225,.3)]" />
+      <span aria-hidden className="mx-auto mt-1 block h-[3px] w-7 rounded-full bg-ink-900/30" />
     </div>
   )
 }

@@ -274,11 +274,21 @@ describe('DevicesSection', () => {
 describe('DevicesSection — what another member may do here', () => {
   const GRANTS = { sessions: true, spawn: true, settings: true, manage: false, ide: false }
 
+  /** Folded under one line saying how many are on (canvas `Feature - Device group 2` 50a); it opens them. */
+  async function openGrants(row: HTMLElement) {
+    await userEvent.click(await within(row).findByRole('button', { name: /Permissions on this Mac/ }))
+  }
+
   it('on a member that is not the primary too: toggles under each other member, none under this device', async () => {
     vi.mocked(api.getRemoteGrants).mockResolvedValue({ grants: { b1: GRANTS } })
     renderWith(asMember(status([member({ id: 'b1', name: 'build-box', primary: true })])))
     const row = document.querySelector('[data-member="b1"]') as HTMLElement
-    expect(await within(row).findByRole('switch', { name: 'IDE on this Mac' })).not.toBeChecked()
+    const summary = await within(row).findByRole('button', { name: /Permissions on this Mac/ })
+    expect(summary).toHaveTextContent('3 of 5 allowed')
+    expect(summary).toHaveAttribute('aria-expanded', 'false')
+    expect(within(row).queryByRole('switch')).toBeNull()
+    await userEvent.click(summary)
+    expect(within(row).getByRole('switch', { name: 'IDE on this Mac' })).not.toBeChecked()
     expect(within(row).getByRole('switch', { name: 'Start sessions' })).toBeChecked()
     expect(screen.getAllByRole('switch', { name: 'Start sessions' })).toHaveLength(1)
   })
@@ -288,10 +298,12 @@ describe('DevicesSection — what another member may do here', () => {
     vi.mocked(api.updateRemoteGrants).mockResolvedValueOnce({ grants: { ...GRANTS, ide: true } })
     renderWith(status([member({ id: 'b1', name: 'build-box' })]))
     const row = screen.getByText('build-box').closest('[data-member]') as HTMLElement
+    await openGrants(row)
     const ide = await within(row).findByRole('switch', { name: 'IDE on this Mac' })
     await userEvent.click(ide)
     expect(api.updateRemoteGrants).toHaveBeenCalledWith('b1', { ide: true })
     await waitFor(() => expect(ide).toBeChecked())
+    expect(within(row).getByRole('button', { name: /Permissions on this Mac/ })).toHaveTextContent('4 of 5 allowed')
 
     vi.mocked(api.updateRemoteGrants).mockRejectedValueOnce(new Error('down'))
     const manage = within(row).getByRole('switch', { name: 'Upkeep of this Mac' })

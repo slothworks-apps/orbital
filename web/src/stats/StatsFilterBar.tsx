@@ -83,13 +83,13 @@ export function StatsFilterBar({
 
       <span className="flex-1" />
       {summary !== null && (
-        <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">
+        <div className="font-mono fs-10.5 text-ink-900/50">
           {rangeLabel(summary.windowStart, summary.windowEnd)} · {summary.sessionCount} sessions ·
           local data only
         </div>
       )}
       {/* 10i: a hairline divider, then the switch at the row's right end. */}
-      <span aria-hidden className="block h-5 w-px bg-[rgba(150,205,255,.14)]" />
+      <span aria-hidden className="block h-5 w-px bg-line/14" />
       <WaitSwitch on={showWaits} onChange={onShowWaits} />
     </div>
   )

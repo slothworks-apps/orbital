@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import type { CSSProperties } from 'react'
 
 /** A device group member's state as its dot draws it. */
@@ -11,10 +12,10 @@ export type MemberDotState = 'online' | 'offline' | 'linking' | 'notLinked' | 'u
  */
 const MEMBER_DOT: Record<MemberDotState, CSSProperties> = {
   online: { background: 'var(--color-accent)' },
-  offline: { border: '1.3px solid rgba(200,215,235,.6)' },
-  linking: { border: '1.3px dashed rgba(200,215,235,.6)' },
-  notLinked: { border: '1.3px solid rgba(200,215,235,.32)' },
-  update: { background: 'rgba(232,238,248,.85)' },
+  offline: { border: '1.3px solid color-mix(in oklab, var(--color-ink-600) 60%, transparent)' },
+  linking: { border: '1.3px dashed color-mix(in oklab, var(--color-ink-600) 60%, transparent)' },
+  notLinked: { border: '1.3px solid color-mix(in oklab, var(--color-ink-600) 32%, transparent)' },
+  update: { background: swatch('ink-100', 0.85) },
 }
 
 /**

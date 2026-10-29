@@ -111,12 +111,12 @@ export function PinButton({
   const chrome = pinned
     ? [
         'border-transparent text-accent opacity-100',
-        'group-hover/row:border-[rgba(150,205,255,.3)] group-hover/row:bg-[rgba(150,205,255,.14)]',
+        'group-hover/row:border-line/30 group-hover/row:bg-line/14',
       ].join(' ')
     : [
-        'border-[rgba(150,205,255,.14)] text-[rgba(200,220,245,.7)] opacity-0',
-        'group-hover/row:opacity-100 group-hover/row:border-[rgba(150,205,255,.26)]',
-        'group-hover/row:bg-[rgba(150,205,255,.09)] group-hover/row:text-[#dce8f7]',
+        'border-line/14 text-ink-500/70 opacity-0',
+        'group-hover/row:opacity-100 group-hover/row:border-line/26',
+        'group-hover/row:bg-line/9 group-hover/row:text-ink-400',
         'focus-visible:opacity-100',
       ].join(' ')
 

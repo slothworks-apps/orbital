@@ -23,10 +23,10 @@ function TabChip({ active, onClick, children }: { active: boolean; onClick: () =
       aria-pressed={active}
       onClick={onClick}
       className={[
-        'whitespace-nowrap rounded-full border px-[11px] py-[5px] text-[11.5px] font-semibold transition-colors',
+        'whitespace-nowrap rounded-full border px-[11px] py-[5px] fs-11.5 font-semibold transition-colors',
         active
-          ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
-          : 'border-[rgba(150,205,255,.14)] text-[rgba(160,190,225,.7)] hover:bg-white/5',
+          ? 'border-line/30 bg-line/14 text-ink-100'
+          : 'border-line/14 text-ink-900/70 hover:bg-ink-50/5',
       ].join(' ')}
     >
       {children}
@@ -36,10 +36,10 @@ function TabChip({ active, onClick, children }: { active: boolean; onClick: () =
 
 /** The mono second line of an example session: ▢ project · tag dots | untagged · ran … (30l). */
 function SessionMeta({ session, now }: { session: PickerSession; now: number }) {
-  const sep = <span className="text-[rgba(150,205,255,.3)]">·</span>
+  const sep = <span className="text-line/30">·</span>
   return (
-    <span className="flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-[rgba(160,190,225,.62)]">
-      <span className="flex items-center gap-[5px] text-[rgba(220,235,255,.85)]">
+    <span className="flex flex-wrap items-center gap-1.5 font-mono fs-10 text-ink-900/62">
+      <span className="flex items-center gap-[5px] text-ink-200/85">
         <ScopeMark scope="project" />
         {session.project}
       </span>
@@ -52,7 +52,7 @@ function SessionMeta({ session, now }: { session: PickerSession; now: number }) 
           </span>
         ))
       ) : (
-        <span className="text-[rgba(160,190,225,.45)]">untagged</span>
+        <span className="text-ink-900/60">untagged</span>
       )}
       {session.lastAt !== null && (
         <>
@@ -124,9 +124,9 @@ function SessionPicker({
           setHighlight(0)
         }}
         onKeyDown={onKeyDown}
-        className="mx-0.5 mb-1.5 mt-0.5 rounded-[7px] border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.6)] px-2.5 py-[7px] text-[12px] text-text-bright placeholder:text-[rgba(160,190,225,.55)] focus:border-[rgba(150,205,255,.32)] focus:outline-none"
+        className="mx-0.5 mb-1.5 mt-0.5 rounded-[7px] border border-line/16 bg-space/60 px-2.5 py-[7px] fs-12 text-ink-100 placeholder:text-ink-900/55 focus:border-line/32 focus:outline-none"
       />
-      <div className="px-2.5 pb-1 pt-1.5 font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">
+      <div className="px-2.5 pb-1 pt-1.5 font-mono fs-9.5 tracking-[0.18em] text-ink-900/60">
         RECENT · ALL PROJECTS
       </div>
       <div role="listbox" aria-label="Example session" className="flex max-h-[380px] flex-col gap-0.5 overflow-y-auto">
@@ -146,22 +146,22 @@ function SessionPicker({
               onClick={() => onPick(selected ? null : s.id)}
               className={[
                 'flex items-start gap-2.5 rounded-[7px] px-2.5 py-2 text-left transition-colors',
-                selected ? 'bg-[rgba(150,205,255,.08)]' : i === highlight ? 'bg-[rgba(150,205,255,.07)]' : '',
+                selected ? 'bg-line/8' : i === highlight ? 'bg-line/7' : '',
               ].join(' ')}
             >
               <span className="flex min-w-0 flex-1 flex-col gap-1">
-                <span className="line-clamp-2 text-[12.5px] font-semibold leading-[1.38] [text-wrap:pretty]">{s.title}</span>
+                <span className="line-clamp-2 fs-12.5 font-semibold leading-[1.38] [text-wrap:pretty]">{s.title}</span>
                 <SessionMeta session={s} now={now} />
               </span>
-              <span className={['mt-0.5 text-[11px] text-accent', selected ? 'visible' : 'invisible'].join(' ')}>✓</span>
+              <span className={['mt-0.5 fs-11 text-accent', selected ? 'visible' : 'invisible'].join(' ')}>✓</span>
             </button>
           )
         })}
         {rows.length === 0 && (
-          <div className="px-2.5 py-2 font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">no session matches</div>
+          <div className="px-2.5 py-2 font-mono fs-10.5 text-ink-900/50">no session matches</div>
         )}
       </div>
-      <div className="mt-1 flex items-center gap-2 border-t border-[rgba(150,205,255,.08)] px-2.5 pb-1 pt-2 font-mono text-[9.5px] tracking-[0.06em] text-[rgba(160,190,225,.45)]">
+      <div className="mt-1 flex items-center gap-2 border-t border-line/8 px-2.5 pb-1 pt-2 font-mono fs-9.5 tracking-[0.06em] text-ink-900/60">
         ↑↓ move · ↵ pick · ⎋ close
         <span className="flex-1" />
         ended sessions included
@@ -297,11 +297,11 @@ export function DraftPopover({
   }
 
   const canFill = description.trim() !== '' || exampleId !== null
-  const fieldLabel = 'text-[12px] font-semibold'
+  const fieldLabel = 'fs-12 font-semibold'
 
   return (
     <Popover open={open} anchorRef={anchorRef} onClose={onClose} width={440} radius={12}>
-      <div className="flex items-center gap-1.5 border-b border-[rgba(150,205,255,.1)] px-3.5 py-3">
+      <div className="flex items-center gap-1.5 border-b border-line/10 px-3.5 py-3">
         <TabChip active={tab === 'fill'} onClick={() => setTab('fill')}>
           Fill this editor
         </TabChip>
@@ -317,7 +317,7 @@ export function DraftPopover({
             autoFocus
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="min-h-[76px] resize-none rounded-lg border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.6)] px-2.5 py-[9px] text-[12.5px] leading-[1.55] text-text-bright [field-sizing:content] [text-wrap:pretty] focus:border-accent/50 focus:outline-none"
+            className="h-fit min-h-[76px] resize-none rounded-lg border border-line/16 bg-space/60 px-2.5 py-[9px] fs-12.5 leading-[1.55] text-ink-100 [field-sizing:content] [text-wrap:pretty] focus:border-accent/50 focus:outline-none"
           />
         </label>
 
@@ -325,7 +325,7 @@ export function DraftPopover({
           <div className="flex flex-col gap-[5px]">
             <span className={fieldLabel}>
               Example session{' '}
-              <span className="font-medium text-[rgba(160,190,225,.6)]">optional · it learns the steps from what happened</span>
+              <span className="font-medium text-ink-900/60">optional · it learns the steps from what happened</span>
             </span>
             <button
               ref={exampleRef}
@@ -334,19 +334,19 @@ export function DraftPopover({
               aria-expanded={picking === 'session'}
               onClick={() => setPicking(picking === 'session' ? null : 'session')}
               className={[
-                'flex items-center gap-2.5 rounded-lg border bg-[rgba(4,8,16,.6)] px-2.5 py-2 text-left',
-                picking === 'session' ? 'border-[rgba(150,205,255,.3)]' : 'border-[rgba(150,205,255,.16)] hover:border-[rgba(150,205,255,.3)]',
+                'flex items-center gap-2.5 rounded-lg border bg-space/60 px-2.5 py-2 text-left',
+                picking === 'session' ? 'border-line/30' : 'border-line/16 hover:border-line/30',
               ].join(' ')}
             >
               {example ? (
                 <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                  <span className="truncate text-[12px] font-semibold">{example.title}</span>
+                  <span className="truncate fs-12 font-semibold">{example.title}</span>
                   <SessionMeta session={example} now={now} />
                 </span>
               ) : (
-                <span className="flex-1 text-[12px] text-[rgba(160,190,225,.55)]">None — pick a session it can learn from</span>
+                <span className="flex-1 fs-12 text-ink-900/55">None — pick a session it can learn from</span>
               )}
-              <span className="text-[9px] text-[rgba(160,190,225,.6)]">{picking === 'session' ? '▴' : '▾'}</span>
+              <span className="fs-9 text-ink-900/60">{picking === 'session' ? '▴' : '▾'}</span>
             </button>
           </div>
         )}
@@ -361,7 +361,7 @@ export function DraftPopover({
               Sonnet
             </Seg>
           </SegShell>
-          <span className="font-mono text-[10px] text-[rgba(160,190,225,.55)]">default · Sonnet is cheaper</span>
+          <span className="font-mono fs-10 text-ink-900/55">default · Sonnet is cheaper</span>
         </div>
 
         <div className="flex items-center gap-2.5">
@@ -372,44 +372,44 @@ export function DraftPopover({
             aria-haspopup="listbox"
             aria-expanded={picking === 'scope'}
             onClick={() => setPicking(picking === 'scope' ? null : 'scope')}
-            className="flex items-center gap-[7px] rounded-[7px] border border-[rgba(150,205,255,.18)] px-2.5 py-[5px] font-mono text-[11px] text-text-bright hover:bg-white/5"
+            className="flex items-center gap-[7px] rounded-[7px] border border-line/18 px-2.5 py-[5px] font-mono fs-11 text-ink-100 hover:bg-ink-50/5"
           >
             <ScopeMark scope={scope} />
             {scope.kind === 'global' ? 'Global' : scope.name}
-            <span className="text-[8px] text-[rgba(160,190,225,.6)]">▾</span>
+            <span className="fs-8 text-ink-900/60">▾</span>
           </button>
-          {scopeNote && <span className="font-mono text-[10px] text-[rgba(160,190,225,.55)]">{scopeNote}</span>}
+          {scopeNote && <span className="font-mono fs-10 text-ink-900/55">{scopeNote}</span>}
         </div>
 
         {tab === 'conversation' && (
-          <div className="text-[12px] leading-[1.55] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
+          <div className="fs-12 leading-[1.55] text-ink-600/82 [text-wrap:pretty]">
             Opens a new session{conversationProject ? ` in ${conversationProject}` : ''} that asks you about the work, step by
             step, and then writes the template into Settings as a draft. Nothing is saved until you open it here and press
             Save.
           </div>
         )}
 
-        {error && <div className="text-[12px] leading-[1.5]" style={{ color: KEY_WARNING }}>{error}</div>}
+        {error && <div className="fs-12 leading-[1.5]" style={{ color: KEY_WARNING }}>{error}</div>}
       </div>
 
-      <div className="flex items-center gap-2.5 border-t border-[rgba(150,205,255,.1)] px-3.5 py-3">
-        <span className="font-mono text-[9.5px] text-[rgba(160,190,225,.55)]">
+      <div className="flex items-center gap-2.5 border-t border-line/10 px-3.5 py-3">
+        <span className="font-mono fs-9.5 text-ink-900/55">
           {tab === 'fill' ? 'unsaved until Save' : 'opens a new session'}
         </span>
         <span className="flex-1" />
         <button
           type="button"
           onClick={onClose}
-          className="whitespace-nowrap rounded-lg border border-[rgba(150,205,255,.18)] px-3 py-[7px] text-[12px] font-semibold text-[rgba(220,235,255,.9)] hover:bg-white/5"
+          className="whitespace-nowrap rounded-lg border border-line/18 px-3 py-[7px] fs-12 font-semibold text-ink-200/90 hover:bg-ink-50/5"
         >
           Cancel
         </button>
         {tab === 'fill' ? (
-          <button type="button" disabled={busy || !canFill} onClick={() => void fill()} className={[PRIMARY_BUTTON, 'text-[12px]'].join(' ')}>
+          <button type="button" disabled={busy || !canFill} onClick={() => void fill()} className={[PRIMARY_BUTTON, 'fs-12'].join(' ')}>
             {busy ? 'Drafting…' : 'Draft into editor'}
           </button>
         ) : (
-          <button type="button" disabled={busy} onClick={() => void converse()} className={[PRIMARY_BUTTON, 'text-[12px]'].join(' ')}>
+          <button type="button" disabled={busy} onClick={() => void converse()} className={[PRIMARY_BUTTON, 'fs-12'].join(' ')}>
             Open conversation
           </button>
         )}

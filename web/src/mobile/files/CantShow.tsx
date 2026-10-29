@@ -18,11 +18,11 @@ export function CantShow({ path, size, outside = false }: { path: string | null;
   const detail = [path, size !== null ? formatBytes(size) : null].filter(Boolean).join(' · ')
   return (
     <div className="flex flex-col justify-center gap-2.5 px-3.5">
-      <span aria-hidden className="block h-[42px] w-[34px] rounded-[5px] border-[1.5px] border-[rgba(200,215,235,.45)]" />
-      <span className="text-[13px] font-semibold">
+      <span aria-hidden className="block h-[42px] w-[34px] rounded-[5px] border-[1.5px] border-ink-600/45" />
+      <span className="fs-13 font-semibold">
         {outside ? 'Not on the phone — outside the session’s folder' : 'This file can’t be shown on the phone'}
       </span>
-      {detail && <span className="break-all font-mono text-[10px] text-[rgba(160,190,225,.6)]">{detail}</span>}
+      {detail && <span className="break-all font-mono fs-10 text-ink-900/60">{detail}</span>}
       {path && (
         <StateButton quiet onClick={() => void copyToClipboard(path)}>
           Copy path

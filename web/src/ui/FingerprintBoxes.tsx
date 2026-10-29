@@ -7,13 +7,13 @@ type Size = 'md' | 'sm'
  */
 const SIZES: Record<Size, { box: string; rule: string; row: string }> = {
   md: {
-    box: 'h-14 w-10 rounded-[10px] text-[28px]',
-    rule: 'mx-1 h-[2px] w-2.5 rounded-full bg-[rgba(150,205,255,.35)]',
+    box: 'h-fit min-h-14 w-10 rounded-[10px] fs-28',
+    rule: 'mx-1 h-[2px] w-2.5 rounded-full bg-line/35',
     row: 'gap-2',
   },
   sm: {
-    box: 'h-12 w-[34px] rounded-[9px] text-[24px]',
-    rule: 'h-[2px] w-2 bg-[rgba(160,190,225,.4)]',
+    box: 'h-fit min-h-12 w-[34px] rounded-[9px] fs-24',
+    rule: 'h-[2px] w-2 bg-ink-900/40',
     row: 'gap-1.5',
   },
 }
@@ -22,7 +22,7 @@ const SIZES: Record<Size, { box: string; rule: string; row: string }> = {
 function CodeBox({ char, size }: { char: string; size: Size }) {
   return (
     <span
-      className={`flex items-center justify-center border border-[rgba(150,205,255,.24)] bg-[rgba(4,8,16,.6)] font-mono text-text-bright ${SIZES[size].box}`}
+      className={`flex items-center justify-center border border-line/24 bg-space/60 font-mono text-ink-100 ${SIZES[size].box}`}
     >
       {char}
     </span>

@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import type { SessionStatus } from '../lib/types'
 import { tagColor } from '../lib/types'
 
@@ -7,7 +8,7 @@ export interface StatusDotProps {
   hue?: number
 }
 
-const neutral = 'rgb(160 190 225 / 0.7)'
+const neutral = swatch('ink-900', 0.7)
 
 export function StatusDot({ status, hue }: StatusDotProps) {
   const baseColor = hue !== undefined ? tagColor(hue) : neutral
@@ -17,7 +18,7 @@ export function StatusDot({ status, hue }: StatusDotProps) {
       data-status={status}
       className={[
         'relative inline-flex h-2.5 w-2.5 rounded-full',
-        status === 'ended' ? 'opacity-40 ring-1 ring-inset ring-text-muted' : '',
+        status === 'ended' ? 'opacity-40 ring-1 ring-inset ring-ink-900/70' : '',
         status === 'working' ? 'orbital-pulse' : '',
       ]
         .filter(Boolean)
@@ -28,7 +29,7 @@ export function StatusDot({ status, hue }: StatusDotProps) {
       }}
     >
       {status === 'needs_input' && (
-        <span aria-hidden className="orbital-pulse absolute -inset-[3px] rounded-full border border-white" />
+        <span aria-hidden className="orbital-pulse absolute -inset-[3px] rounded-full border border-ink-50" />
       )}
     </span>
   )

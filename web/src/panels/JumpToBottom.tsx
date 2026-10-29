@@ -1,6 +1,8 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { chordLabel, command } from '../lib/keymap'
 import type { BottomIndicator } from './transcriptMotion'
+import { scaledPx } from '../lib/textScale'
+import { swatch, type Token } from '../lib/palette'
 
 /** The three places a transcript is drawn (canvas `Feature - Jump to bottom` 43a, 43b, 43c). */
 export type JumpSurface = 'panel' | 'subagent' | 'phone'
@@ -22,8 +24,8 @@ const SURFACES = {
     bottom: 12,
     hitPad: 0,
     scrim: 44,
-    fill: 'oklch(13% .02 262)',
-    shadow: '0 6px 18px oklch(0% 0 0 / .5)',
+    fill: 'panel' as Token,
+    shadow: `0 6px 18px ${swatch('shadow', 0.5)}`,
   },
   subagent: {
     height: 28,
@@ -36,8 +38,8 @@ const SURFACES = {
     bottom: 12,
     hitPad: 0,
     scrim: 40,
-    fill: 'oklch(11% .02 262)',
-    shadow: '0 6px 18px oklch(0% 0 0 / .5)',
+    fill: 'space' as Token,
+    shadow: `0 6px 18px ${swatch('shadow', 0.5)}`,
   },
   // Bigger to the finger than to the eye: `hitPad` is transparent.
   phone: {
@@ -51,8 +53,8 @@ const SURFACES = {
     bottom: 12,
     hitPad: 4,
     scrim: 56,
-    fill: 'oklch(10% .015 262)',
-    shadow: '0 8px 22px oklch(0% 0 0 / .55)',
+    fill: 'space' as Token,
+    shadow: `0 8px 22px ${swatch('shadow', 0.55)}`,
   },
 } as const satisfies Record<JumpSurface, unknown>
 
@@ -75,9 +77,14 @@ const LABEL_TRANSITION = `opacity 420ms ${EASE_IN} 220ms`
  * as it was rather than collapsing on the way out (43e, NEW rule). */
 const FORGET_NEW_MS = 340
 
-/** `oklch(13% .02 262)` → `oklch(13% .02 262 / .92)`. */
-function withAlpha(oklch: string, alpha: number): string {
-  return `${oklch.slice(0, -1)} / ${alpha})`
+/**
+ * The transcript's own surface at a strength. 43e drew it as oklch 13% / 11% /
+ * 10% at hue 262; the tokens are the transcript panel and the space behind
+ * the subagent panel and the phone, so the scrim melts into the surface in
+ * every colour theme.
+ */
+function withAlpha(fill: Token, alpha: number): string {
+  return alpha <= 0 ? `color-mix(in oklab, var(--color-${fill}) 0%, transparent)` : swatch(fill, alpha)
 }
 
 function usePrefersReducedMotion(): boolean {
@@ -129,7 +136,11 @@ export function JumpToBottom({ state, surface, onJump }: JumpToBottomProps) {
   }, [state])
 
   const label = fresh ? 'Jump to the latest message — new messages below' : 'Jump to the latest message'
-  const width = fresh ? s.newWidth : s.height
+  // NEW's label grows with the text step (spec 2026-10-27-text-size-design);
+  // its padding and the arrow's cell do not, so only the label's share of
+  // `newWidth` is scaled and the default step stays 43e's width exactly.
+  const labelShare = s.newWidth - s.labelPad - s.arrowCell
+  const width = fresh ? `calc(${s.labelPad + s.arrowCell}px + ${labelShare}px * var(--text-scale, 1))` : s.height
 
   const scrimStyle: CSSProperties = {
     height: s.scrim,
@@ -154,7 +165,7 @@ export function JumpToBottom({ state, surface, onJump }: JumpToBottomProps) {
   const pillStyle: CSSProperties = {
     height: s.height,
     width,
-    boxShadow: `0 0 0 1px ${s.fill}, ${s.shadow}`,
+    boxShadow: `0 0 0 1px ${swatch(s.fill)}, ${s.shadow}`,
     transition: reduced ? undefined : TRANSITION_IN,
   }
 
@@ -183,11 +194,11 @@ export function JumpToBottom({ state, surface, onJump }: JumpToBottomProps) {
       >
         <span
           className={[
-            'flex items-center justify-end overflow-hidden rounded-full border bg-[oklch(20%_.022_258)] group-hover:bg-[oklch(23%_.025_255)]',
+            'flex items-center justify-end overflow-hidden rounded-full border bg-raised group-hover:bg-[color-mix(in_oklab,var(--color-raised),var(--color-ink-50)_6%)]',
             'group-focus-visible:outline-2 group-focus-visible:outline-offset-2 group-focus-visible:outline-accent group-focus-visible:outline-solid',
             fresh
-              ? 'border-[oklch(82%_.085_236_/_.34)] text-[oklch(94%_.012_255)]'
-              : 'border-[oklch(82%_.085_236_/_.22)] text-[oklch(80%_.035_245)] group-hover:border-[oklch(82%_.085_236_/_.34)]',
+              ? 'border-sky/34 text-ink-100'
+              : 'border-sky/22 text-ink-800 group-hover:border-sky/34',
           ].join(' ')}
           style={pillStyle}
         >
@@ -195,7 +206,7 @@ export function JumpToBottom({ state, surface, onJump }: JumpToBottomProps) {
             className="shrink-0 whitespace-nowrap font-mono tracking-[0.14em]"
             style={{
               paddingLeft: s.labelPad,
-              fontSize: s.labelPx,
+              fontSize: scaledPx(s.labelPx),
               opacity: fresh ? 1 : 0,
               transition: reduced ? undefined : LABEL_TRANSITION,
             }}
@@ -205,7 +216,7 @@ export function JumpToBottom({ state, surface, onJump }: JumpToBottomProps) {
           <span
             aria-hidden
             className="grid shrink-0 place-items-center font-mono leading-none"
-            style={{ width: s.arrowCell, fontSize: s.arrowPx }}
+            style={{ width: s.arrowCell, fontSize: scaledPx(s.arrowPx) }}
           >
             ↓
           </span>

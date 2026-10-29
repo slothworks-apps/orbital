@@ -79,8 +79,8 @@ export function ModeSwitcher({ session, disabled }: { session: ApiSession; disab
           onClick={() => setOpen((v) => !v)}
           className={[
             'flex h-[22px] w-6 items-center justify-center rounded-[5px] border',
-            'bg-[rgba(4,8,16,.5)] transition-colors outline-none',
-            open ? 'border-accent/55' : 'border-[rgba(150,205,255,.2)]',
+            'bg-space/50 transition-colors outline-none',
+            open ? 'border-accent/55' : 'border-line/20',
             'hover:border-accent/55 focus-visible:border-accent/55',
           ].join(' ')}
         >
@@ -91,9 +91,9 @@ export function ModeSwitcher({ session, disabled }: { session: ApiSession; disab
         <EscapeBoundary>
           <div
             ref={popupRef}
-            className="orbital-no-drag orbital-popover-in absolute right-0 top-[calc(100%+6px)] z-20 w-[300px] rounded-[10px] border border-[rgba(150,205,255,.22)] bg-gradient-to-b from-[rgba(18,26,44,.98)] to-[rgba(10,14,26,.98)] shadow-[0_20px_50px_rgba(0,0,0,.6),inset_0_1px_0_rgba(255,255,255,.06)]"
+            className="orbital-no-drag orbital-popover-in absolute right-0 top-[calc(100%+6px)] z-20 w-[300px] rounded-[10px] border border-line/22 bg-gradient-to-b from-raised/98 to-panel/98 shadow-[0_20px_50px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent),inset_0_1px_0_color-mix(in_oklab,_var(--color-highlight)_6%,_transparent)]"
           >
-            <div className="px-3 pb-1.5 pt-2.5 font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">
+            <div className="px-3 pb-1.5 pt-2.5 font-mono fs-9.5 tracking-[0.18em] text-ink-900/60">
               PERMISSION MODE · APPLIES NOW
             </div>
             <div role="listbox" aria-label="Permission mode" className="flex flex-col px-1.5 pb-1.5">
@@ -109,20 +109,20 @@ export function ModeSwitcher({ session, disabled }: { session: ApiSession; disab
                     onClick={() => choose(mode.value)}
                     className={[
                       'grid grid-cols-[1fr_auto] items-center gap-2 rounded-[7px] border px-2 py-[9px] text-left',
-                      selected ? 'border-accent/35 bg-accent/10' : 'border-transparent hover:bg-white/5',
+                      selected ? 'border-accent/35 bg-accent/10' : 'border-transparent hover:bg-ink-50/5',
                     ].join(' ')}
                   >
                     <span className="min-w-0">
                       <span className="flex items-center gap-2">
                         <ModeDot mode={mode.value} />
-                        <span className="truncate font-mono text-xs text-text-bright">{mode.label}</span>
+                        <span className="truncate font-mono fs-12 leading-(--text-xs--line-height) text-ink-100">{mode.label}</span>
                       </span>
-                      <span className="mt-0.5 block pl-[15px] text-[11px] text-[rgba(160,190,225,.7)]">
+                      <span className="mt-0.5 block pl-[15px] fs-11 text-ink-900/70">
                         {mode.description}
                       </span>
                     </span>
                     {selected && (
-                      <span className="font-mono text-[9.5px] tracking-[0.1em] text-accent">CURRENT</span>
+                      <span className="font-mono fs-9.5 tracking-[0.1em] text-accent">CURRENT</span>
                     )}
                   </button>
                 )

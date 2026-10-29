@@ -115,14 +115,14 @@ export function ClaudeDirHeaderControl({
           </span>
           <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
             <span className="flex min-w-0 items-center gap-[7px]">
-              <span className="min-w-0 truncate font-sans text-[12.5px] font-semibold text-text-bright">{dir.name}</span>
+              <span className="min-w-0 truncate font-sans fs-12.5 font-semibold text-ink-100">{dir.name}</span>
               {dir.id === defaultId && (
-                <span className="flex-none font-mono text-[8.5px] tracking-[0.12em] text-[rgba(160,190,225,.55)]">
+                <span className="flex-none font-mono fs-8.5 tracking-[0.12em] text-ink-900/55">
                   DEFAULT
                 </span>
               )}
             </span>
-            <span className="truncate font-mono text-[10px] text-[rgba(160,190,225,.6)]">{claudeDirSubline(dir)}</span>
+            <span className="truncate font-mono fs-10 text-ink-900/60">{claudeDirSubline(dir)}</span>
           </span>
         </span>
       ),
@@ -137,7 +137,7 @@ export function ClaudeDirHeaderControl({
       footer={
         <div
           role="note"
-          className="mx-[5px] mb-0.5 mt-[3px] border-t border-[rgba(150,205,255,.1)] pt-1.5 font-mono text-[9.5px] leading-normal tracking-[0.1em] text-[rgba(160,190,225,.5)]"
+          className="mx-[5px] mb-0.5 mt-[3px] border-t border-line/10 pt-1.5 font-mono fs-9.5 leading-normal tracking-[0.1em] text-ink-900/50"
         >
           {originNote(origin)}
         </div>
@@ -148,14 +148,14 @@ export function ClaudeDirHeaderControl({
           type="button"
           title={`Profile for this session · ${shortcutLabel('composer.next-claude-dir')} next`}
           className={[
-            'box-border flex max-w-60 items-center gap-2 rounded-[7px] border py-[5px] pl-2.5 pr-[9px] font-mono text-[10.5px] text-[rgba(214,230,248,.9)] transition-colors hover:bg-[rgba(150,205,255,.08)]',
-            open ? 'border-[rgba(150,205,255,.26)] bg-[rgba(150,205,255,.1)]' : 'border-[rgba(150,205,255,.14)] bg-transparent',
+            'box-border flex max-w-60 items-center gap-2 rounded-[7px] border py-[5px] pl-2.5 pr-[9px] font-mono fs-10.5 text-ink-400/90 transition-colors hover:bg-line/8',
+            open ? 'border-line/26 bg-line/10' : 'border-line/14 bg-transparent',
           ].join(' ')}
         >
-          <span className="flex-none text-[9px] tracking-[0.16em] text-[rgba(160,190,225,.55)]">PROFILE</span>
+          <span className="flex-none fs-9 tracking-[0.16em] text-ink-900/55">PROFILE</span>
           {chosen && <ClaudeDirMark mono={monograms.get(chosen.id) ?? '?'} />}
           <span className="min-w-0 max-w-[120px] truncate">{chosen?.name ?? ''}</span>
-          <span aria-hidden className="flex-none text-[8px] text-[rgba(160,190,225,.6)]">
+          <span aria-hidden className="flex-none fs-8 text-ink-900/60">
             ▾
           </span>
         </button>

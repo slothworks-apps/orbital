@@ -11,7 +11,7 @@ export function DropBar({ bar }: { bar: DropSlot['bar'] }) {
     <span
       aria-hidden
       data-drop-bar
-      className="pointer-events-none absolute block rounded-[1px] bg-[rgba(220,235,255,.85)]"
+      className="pointer-events-none absolute block rounded-[1px] bg-ink-200/85"
       style={
         upright
           ? { left: bar.x, top: bar.y, width: 2, height: bar.height, marginLeft: -1 }

@@ -43,7 +43,7 @@ export function StepScreen({ id, session, walkthrough, index, onPrev, onNext, on
 
       <div className="flex min-h-0 flex-1">
         <aside
-          className="shrink-0 overflow-y-auto border-r border-[rgba(150,205,255,.08)] py-[18px]"
+          className="shrink-0 overflow-y-auto border-r border-line/8 py-[18px]"
           style={{ width: RAIL_WIDTH_PX + railInset, paddingLeft: RAIL_PAD_PX + railInset, paddingRight: RAIL_PAD_PX }}
         >
           <StepRail walkthrough={walkthrough} currentId={step.id} onJump={onJump} />
@@ -61,11 +61,11 @@ export function StepScreen({ id, session, walkthrough, index, onPrev, onNext, on
         </main>
       </div>
 
-      <footer className="flex h-[60px] shrink-0 items-center gap-4 border-t border-[rgba(150,205,255,.08)] px-12">
+      <footer className="flex h-[60px] shrink-0 items-center gap-4 border-t border-line/8 px-12">
         <WalkButton tone="quiet" size="sm" disabled={index === 0} onClick={onPrev}>
           ← Previous
         </WalkButton>
-        <span className="flex-1 text-center font-mono text-[10.5px] tracking-[.1em] tabular-nums text-[rgba(160,190,225,.5)]">
+        <span className="flex-1 text-center font-mono fs-10.5 tracking-[.1em] tabular-nums text-ink-900/50">
           {n} / {total}
         </span>
         <WalkButton tone="lit" size="sm" onClick={onNext}>

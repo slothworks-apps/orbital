@@ -62,7 +62,7 @@ export function ScopePicker({
     const selected = scopeKey(scope) === scopeKey(value)
     const lit = index === highlight
     const base = 'flex w-full rounded-[7px] text-left transition-colors'
-    const fill = lit ? 'bg-[rgba(150,205,255,.08)]' : 'hover:bg-[rgba(150,205,255,.05)]'
+    const fill = lit ? 'bg-line/8' : 'hover:bg-line/5'
     if (scope.kind === 'global') {
       return (
         <button
@@ -78,10 +78,10 @@ export function ScopePicker({
             <ScopeMark scope="global" size={8} border={1.4} />
           </span>
           <span className="flex-1">
-            <span className="block text-[12.5px] font-semibold">Global</span>
-            <span className="mt-0.5 block text-[11px] text-[rgba(160,190,225,.65)]">Offered when starting a harness in any project</span>
+            <span className="block fs-12.5 font-semibold">Global</span>
+            <span className="mt-0.5 block fs-11 text-ink-900/65">Offered when starting a harness in any project</span>
           </span>
-          {selected && <span className="text-[11px] text-accent">✓</span>}
+          {selected && <span className="fs-11 text-accent">✓</span>}
         </button>
       )
     }
@@ -99,16 +99,16 @@ export function ScopePicker({
         <ScopeMark scope="project" size={8} border={1.4} />
         <span
           className={[
-            'min-w-0 flex-1 truncate font-mono text-[11.5px]',
-            selected ? 'text-text-bright' : 'text-[rgba(220,235,255,.85)]',
+            'min-w-0 flex-1 truncate font-mono fs-11.5',
+            selected ? 'text-ink-100' : 'text-ink-200/85',
           ].join(' ')}
         >
           {scope.name}
         </span>
         {scope.root === cameFromRoot && (
-          <span className="font-mono text-[9.5px] text-[rgba(160,190,225,.55)]">where you came from</span>
+          <span className="font-mono fs-9.5 text-ink-900/55">where you came from</span>
         )}
-        {selected && <span className="text-[11px] text-accent">✓</span>}
+        {selected && <span className="fs-11 text-accent">✓</span>}
       </button>
     )
   }
@@ -123,20 +123,20 @@ export function ScopePicker({
         onKeyDown={onKeyDown}
         className="flex flex-col gap-0.5 focus:outline-none"
       >
-        <div className="px-2.5 pb-1.5 pt-2 font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">
+        <div className="px-2.5 pb-1.5 pt-2 font-mono fs-9.5 tracking-[0.18em] text-ink-900/60">
           WHERE DOES IT LIVE?
         </div>
         {row(rows[0], 0)}
-        <div className="mx-2.5 my-1 h-px bg-[rgba(150,205,255,.1)]" />
-        <div className="px-2.5 pb-0.5 pt-1.5 font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">
+        <div className="mx-2.5 my-1 h-px bg-line/10" />
+        <div className="px-2.5 pb-0.5 pt-1.5 font-mono fs-9.5 tracking-[0.18em] text-ink-900/60">
           ONE PROJECT · ONLY ITS SESSIONS
         </div>
         {rows.slice(1).map((scope, i) => row(scope, i + 1))}
         {rows.length === 1 && (
-          <div className="px-2.5 py-[7px] font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">no project has run a session yet</div>
+          <div className="px-2.5 py-[7px] font-mono fs-10.5 text-ink-900/50">no project has run a session yet</div>
         )}
       </div>
-      <div className="mt-1 border-t border-[rgba(150,205,255,.08)] px-2.5 pb-1 pt-2 font-mono text-[9.5px] text-[rgba(160,190,225,.45)]">
+      <div className="mt-1 border-t border-line/8 px-2.5 pb-1 pt-2 font-mono fs-9.5 text-ink-900/60">
         ↵ {footer(rows[highlight] ?? value)}
       </div>
     </Popover>

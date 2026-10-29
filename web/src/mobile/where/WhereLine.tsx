@@ -9,6 +9,7 @@ import { useSessionDeviceName } from '../useDevice'
 import { SheetPresence } from '../ui'
 import { BranchSheet } from './BranchSheet'
 import { TreesSheet } from './TreesSheet'
+import { useTextScaleVersion } from '../../lib/textScale'
 
 /**
  * The line under a session's title — project · ⎇ branch · worktree count —
@@ -35,27 +36,36 @@ import { TreesSheet } from './TreesSheet'
 const CARET_PX = 13
 
 const VARIANTS = {
-  list: { fontPx: 11, text: 'text-[11px]', ink: 'text-[rgba(160,190,225,.7)]', dimInk: 'text-[rgba(160,190,225,.65)]' },
-  header: { fontPx: 10.5, text: 'text-[10.5px]', ink: 'text-[rgba(160,190,225,.65)]', dimInk: 'text-[rgba(160,190,225,.65)]' },
+  list: { fontPx: 11, text: 'fs-11', ink: 'text-ink-900/70', dimInk: 'text-ink-900/65' },
+  header: { fontPx: 10.5, text: 'fs-10.5', ink: 'text-ink-900/65', dimInk: 'text-ink-900/65' },
 } as const
 
-/** The element's laid-out width, kept current; null until measured (and in jsdom, which lays nothing out). */
-function useWidth(): [(el: HTMLElement | null) => void, number | null] {
+/**
+ * The element's laid-out width and font size, kept current; null until
+ * measured (and in jsdom, which lays nothing out). The font size is read, not
+ * assumed, because the system's text size scales it (spec 2026-10-27-text-size-design).
+ */
+function useWidth(): [(el: HTMLElement | null) => void, number | null, number | null] {
   const [el, setEl] = useState<HTMLElement | null>(null)
   const [width, setWidth] = useState<number | null>(null)
+  const [fontPx, setFontPx] = useState<number | null>(null)
+  // A new system text size changes the font without changing the width.
+  const scaleVersion = useTextScaleVersion()
   useLayoutEffect(() => {
     if (!el) return
     const read = () => {
       const w = el.getBoundingClientRect().width
       setWidth(w > 0 ? w : null)
+      const f = parseFloat(getComputedStyle(el).fontSize)
+      setFontPx(f > 0 ? f : null)
     }
     read()
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(read)
     observer.observe(el)
     return () => observer.disconnect()
-  }, [el])
-  return [setEl, width]
+  }, [el, scaleVersion])
+  return [setEl, width, fontPx]
 }
 
 export function WhereLine({
@@ -74,7 +84,7 @@ export function WhereLine({
   /** The device the session runs on, leading the line after the dot while two or more devices show (canvas 50j). */
   device?: string
 }) {
-  const [ref, width] = useWidth()
+  const [ref, width, measuredFontPx] = useWidth()
   const [open, setOpen] = useState(false)
   const [branchOpen, setBranchOpen] = useState(false)
   const mac = useSessionDeviceName(session.id) ?? 'the Mac'
@@ -86,18 +96,19 @@ export function WhereLine({
   const project = basename(session.cwd)
   // Form B draws the worktree count in the branch's place.
   const branch = form.kind === 'trees' ? '' : (git?.ref ?? '')
+  const charPx = charPxOf(width === null ? v.fontPx : (measuredFontPx ?? v.fontPx))
   const fit = fitWhere({
     project,
     branch,
     inWorktree,
     form,
     // The device's name and its separator take their share before the rest is fitted.
-    availPx: width === null || !device ? width : width - (device.length + 1) * charPxOf(v.fontPx) - 2 * GAP_PX,
-    charPx: charPxOf(v.fontPx),
+    availPx: width === null || !device ? width : width - (device.length + 1) * charPx - 2 * GAP_PX,
+    charPx,
     caretPx: header ? CARET_PX : 0,
   })
   const sep = (
-    <span aria-hidden className="shrink-0 text-[rgba(150,205,255,.3)]">
+    <span aria-hidden className="shrink-0 text-line/30">
       ·
     </span>
   )
@@ -107,7 +118,7 @@ export function WhereLine({
         {fit.count === 'compact' && <TreeMark />}
         <span>{fit.count === 'compact' ? treesCompactText(form) : treesCountText(form)}</span>
         {header && (
-          <span aria-hidden className="text-[8px] text-[rgba(160,190,225,.6)]">
+          <span aria-hidden className="fs-8 text-ink-900/60">
             ▾
           </span>
         )}
@@ -119,7 +130,7 @@ export function WhereLine({
       <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dotColor }} />
       {device && (
         <>
-          <span className="min-w-0 shrink truncate text-[rgba(200,220,245,.85)]">{device}</span>
+          <span className="min-w-0 shrink truncate text-ink-500/85">{device}</span>
           {sep}
         </>
       )}

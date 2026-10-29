@@ -78,34 +78,34 @@ export function RewindDialog({ sessionId }: { sessionId: string }) {
     >
       {/* Canvas 27b/27c: body 13/1.55, the list 14px under it, the note 12px under that. */}
       <div className="flex flex-col">
-        <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+        <p className="fs-13 leading-[1.55] text-ink-600/85 [text-wrap:pretty]">
           {confirmation?.body}
         </p>
         {confirmation && confirmation.items.length > 0 && (
           <ul
             data-rewind-confirm-items
-            className="mt-3.5 flex flex-col rounded-lg border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] py-1"
+            className="mt-3.5 flex flex-col rounded-lg border border-line/10 bg-space/45 py-1"
           >
             {confirmation.items.map((item, i) => (
               <li
                 key={i}
-                className="flex items-center gap-2 px-3 py-1.5 font-mono text-[11px] text-[rgba(160,190,225,.75)]"
+                className="flex items-center gap-2 px-3 py-1.5 font-mono fs-11 text-ink-900/75"
               >
-                <span aria-hidden className="w-3 shrink-0 text-[rgba(160,190,225,.55)]">
+                <span aria-hidden className="w-3 shrink-0 text-ink-900/55">
                   {item.glyph}
                 </span>
-                <span className="shrink-0 text-[rgba(160,190,225,.6)]">{item.kind}</span>
-                <span className="min-w-0 truncate text-text-bright">{item.label}</span>
+                <span className="shrink-0 text-ink-900/60">{item.kind}</span>
+                <span className="min-w-0 truncate text-ink-100">{item.label}</span>
                 <span aria-hidden className="flex-1" />
                 {item.elapsed && (
                   // oklch(80% .13 60): the amber of the frame's glow.
-                  <span className="shrink-0 whitespace-nowrap text-[oklch(80%_.13_60)]">{item.elapsed}</span>
+                  <span className="shrink-0 whitespace-nowrap text-warning">{item.elapsed}</span>
                 )}
               </li>
             ))}
           </ul>
         )}
-        <p className="mt-3 text-[12px] leading-[1.55] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+        <p className="mt-3 fs-12 leading-[1.55] text-ink-900/70 [text-wrap:pretty]">
           Files on disk stay as they are. You can still cancel the rewind afterwards, but ended tasks
           don&apos;t restart.
         </p>

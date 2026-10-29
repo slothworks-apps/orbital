@@ -136,7 +136,7 @@ export function SessionMenuSheet({
         title="End this session?"
         body={
           <>
-            <span className="font-mono text-text-bright">{title}</span> stops and moves to Ended — the transcript
+            <span className="font-mono text-ink-100">{title}</span> stops and moves to Ended — the transcript
             stays readable there.
           </>
         }
@@ -155,7 +155,7 @@ export function SessionMenuSheet({
         title="Take over from the terminal?"
         body={
           <>
-            <span className="font-mono text-text-bright">{title}</span> runs in a terminal on the Mac. Taking it over quits
+            <span className="font-mono text-ink-100">{title}</span> runs in a terminal on the Mac. Taking it over quits
             the CLI there, and whatever it is doing stops; the conversation goes on here.
           </>
         }
@@ -190,13 +190,13 @@ export function SessionMenuSheet({
     )
   } else {
     const rows: Record<MenuItem, ReactNode> = {
-      rename: <Row key="rename" glyph={<span className="text-[rgba(200,220,245,.7)]">{TEXT_PENCIL}</span>} label="Rename" onPress={() => setView('rename')} />,
+      rename: <Row key="rename" glyph={<span className="text-ink-500/70">{TEXT_PENCIL}</span>} label="Rename" onPress={() => setView('rename')} />,
       tag: (
         <Row
           key="tag"
           glyph={<span className="block h-2 w-2 rounded-full" style={{ background: tag ? tagColor(tag.hue) : 'var(--state-neutral)' }} />}
           label="Change tag"
-          hint={<span className="text-[rgba(160,190,225,.6)]">{tag ? `${tag.name} ›` : '›'}</span>}
+          hint={<span className="text-ink-900/60">{tag ? `${tag.name} ›` : '›'}</span>}
           onPress={() => setView('tag')}
         />
       ),
@@ -205,14 +205,14 @@ export function SessionMenuSheet({
           key="pin"
           glyph={<PinGlyph />}
           label={pinned ? 'Unpin' : 'Pin to top'}
-          hint={pinned ? <span className="text-[oklch(85%_.12_205)]">pinned</span> : undefined}
+          hint={pinned ? <span className="text-accent">pinned</span> : undefined}
           onPress={togglePin}
         />
       ),
       takeover: (
         <Row
           key="takeover"
-          glyph={<span className="text-[rgba(200,220,245,.7)]">→</span>}
+          glyph={<span className="text-ink-500/70">→</span>}
           label="Take over"
           hint={<AsksFirst />}
           onPress={() => setView('takeover')}
@@ -221,7 +221,7 @@ export function SessionMenuSheet({
       clear: (
         <Row
           key="clear"
-          glyph={<span className="text-[rgba(200,220,245,.7)]">↺</span>}
+          glyph={<span className="text-ink-500/70">↺</span>}
           label="Clear and start over"
           hint={<AsksFirst />}
           onPress={() => setView('clear')}
@@ -230,7 +230,7 @@ export function SessionMenuSheet({
       end: (
         <Row
           key="end"
-          glyph={<span className="box-border block h-[9px] w-[9px] rounded-[1.5px] border-[1.5px] border-[rgba(200,220,245,.7)]" />}
+          glyph={<span className="box-border block h-[9px] w-[9px] rounded-[1.5px] border-[1.5px] border-ink-500/70" />}
           label="End session"
           hint={<AsksFirst />}
           onPress={() => setView('end')}
@@ -247,17 +247,17 @@ export function SessionMenuSheet({
             <Row
               glyph={<MediaGlyph />}
               label="Media"
-              hint={<span className="text-[rgba(160,190,225,.6)]">{mediaCount} ›</span>}
+              hint={<span className="text-ink-900/60">{mediaCount} ›</span>}
               onPress={() => {
                 onClose()
                 useMobile.getState().openMedia(id)
               }}
             />
-            <div className="mx-2.5 my-1.5 h-px bg-[rgba(150,205,255,.1)]" />
+            <div className="mx-2.5 my-1.5 h-px bg-line/10" />
           </>
         )}
         {quick.map((item) => rows[item])}
-        {(deliberate.length > 0 || shape.terminalNote) && <div className="mx-2.5 my-1.5 h-px bg-[rgba(150,205,255,.1)]" />}
+        {(deliberate.length > 0 || shape.terminalNote) && <div className="mx-2.5 my-1.5 h-px bg-line/10" />}
         {deliberate.map((item) => rows[item])}
       </>
     )
@@ -265,8 +265,8 @@ export function SessionMenuSheet({
       <>
         {shape.inert ? (
           // canvas 10j MAC ASLEEP: one sentence above the inert items.
-          <div className="mx-2.5 mb-2.5 mt-0.5 flex min-h-11 items-center gap-2.5 rounded-[12px] border border-dashed border-[rgba(150,205,255,.18)] px-3 text-[13px] text-[rgba(160,190,225,.75)]">
-            <span aria-hidden className="box-border block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-[rgba(200,215,235,.6)]" />
+          <div className="mx-2.5 mb-2.5 mt-0.5 flex h-fit min-h-11 items-center gap-2.5 rounded-[12px] border border-dashed border-line/18 px-3 fs-13 text-ink-900/75">
+            <span aria-hidden className="box-border block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-ink-600/60" />
             {refused ?? `${macName ?? 'Your Mac'} is asleep — these wait for it`}
           </div>
         ) : (
@@ -282,8 +282,8 @@ export function SessionMenuSheet({
         )}
         {shape.terminalNote && (
           // canvas 10j Terminal menu: where End and Clear live instead.
-          <div className="flex gap-2.5 px-2.5 pb-1 pt-2.5 text-[12.5px] leading-[1.5] text-pretty text-[rgba(160,190,225,.7)]">
-            <span className="mt-0.5 h-fit flex-none rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono text-[9px] tracking-[0.12em]">
+          <div className="flex gap-2.5 px-2.5 pb-1 pt-2.5 fs-12.5 leading-[1.5] text-pretty text-ink-900/70">
+            <span className="mt-0.5 h-fit flex-none rounded-[4px] border border-line/20 px-1.5 py-0.5 font-mono fs-9 tracking-[0.12em]">
               READ-ONLY
             </span>
             {canTakeOver
@@ -310,25 +310,25 @@ function Row({ glyph, label, hint, onPress }: { glyph: ReactNode; label: string;
     <button
       type="button"
       onClick={onPress}
-      className="flex h-13 w-full items-center gap-3 rounded-[10px] px-2.5 text-left text-[15px] text-text-bright"
+      className="flex h-13 w-full items-center gap-3 rounded-[10px] px-2.5 text-left fs-15 text-ink-100"
     >
       <span aria-hidden className="grid w-5 place-items-center text-center">{glyph}</span>
       <span className="flex-1">{label}</span>
-      {hint && <span className="font-mono text-[11px]">{hint}</span>}
+      {hint && <span className="font-mono fs-11">{hint}</span>}
     </button>
   )
 }
 
 function AsksFirst() {
-  return <span className="text-[rgba(160,190,225,.5)]">asks first</span>
+  return <span className="text-ink-900/50">asks first</span>
 }
 
 /** canvas 10i: the pin — a ring on a short stem. */
 function PinGlyph() {
   return (
     <span className="relative block h-3.5 w-5">
-      <span className="absolute left-[6.5px] top-0 box-border block h-[7px] w-[7px] rounded-full border-[1.5px] border-[rgba(200,220,245,.75)]" />
-      <span className="absolute left-[9.3px] top-[7px] block h-[7px] w-[1.4px] rounded-[1px] bg-[rgba(200,220,245,.75)]" />
+      <span className="absolute left-[6.5px] top-0 box-border block h-[7px] w-[7px] rounded-full border-[1.5px] border-ink-500/75" />
+      <span className="absolute left-[9.3px] top-[7px] block h-[7px] w-[1.4px] rounded-[1px] bg-ink-500/75" />
     </span>
   )
 }
@@ -336,7 +336,7 @@ function PinGlyph() {
 /** canvas 24g: the media glyph — four 5px squares, 2px apart. */
 function MediaGlyph() {
   return (
-    <span className="grid grid-cols-[repeat(2,5px)] gap-0.5 text-[rgba(200,220,245,.75)]">
+    <span className="grid grid-cols-[repeat(2,5px)] gap-0.5 text-ink-500/75">
       {[0, 1, 2, 3].map((i) => (
         <span key={i} className="block h-[5px] w-[5px] rounded-[1.2px] bg-current" />
       ))}

@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { SessionStatsDetail } from '../lib/types'
@@ -54,7 +55,7 @@ const SLOWEST_SEGMENT_GAP_PCT = 1
  * local tool time still includes the wait on a permission prompt (10k). */
 const CAVEAT_FIELD = 'localToolMs'
 
-const CAVEAT_INK = '#ffbb7b'
+const CAVEAT_INK = swatch('warning')
 
 export interface QuickStatsDialogProps {
   open: boolean
@@ -124,7 +125,7 @@ export function QuickStatsDialog({
         onClick={onClose}
         // 10e: backdrop rgba(2,4,9,.58) + 4px blur.
         className={[
-          'orbital-no-drag fixed inset-0 z-50 grid place-items-center bg-[rgba(2,4,9,.58)] p-6 backdrop-blur-[4px]',
+          'orbital-no-drag fixed inset-0 z-50 grid place-items-center bg-shade/58 p-6 backdrop-blur-[4px]',
           MODAL_TRANSITION,
           duration,
           entered ? SCRIM_OPEN : SCRIM_CLOSED,
@@ -139,38 +140,38 @@ export function QuickStatsDialog({
           tabIndex={-1}
           onClick={(event) => event.stopPropagation()}
           style={{
-            boxShadow: '0 40px 120px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.07)',
+            boxShadow: '0 40px 120px color-mix(in oklab, var(--color-shadow) 70%, transparent), inset 0 1px 0 color-mix(in oklab, var(--color-highlight) 7%, transparent)',
           }}
           // 10f: 584 wide, radius 16, 1px rgba(150,205,255,.2) over the glass.
           className={[
             'flex max-h-full w-[584px] max-w-full flex-col overflow-hidden rounded-2xl border',
-            'border-[rgba(150,205,255,.2)] bg-[linear-gradient(180deg,rgba(16,22,38,.94),rgba(8,12,22,.96))]',
-            'font-sans text-text-bright outline-none backdrop-blur-[28px]',
+            'border-line/20 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-raised)_94%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_96%,_transparent))]',
+            'font-sans text-ink-100 outline-none backdrop-blur-[28px]',
             MODAL_TRANSITION,
             duration,
             entered ? MODAL_OPEN : MODAL_CLOSED,
           ].join(' ')}
         >
-          <header className="flex shrink-0 items-center gap-3 border-b border-[rgba(150,205,255,.1)] px-6 pb-4 pt-5">
+          <header className="flex shrink-0 items-center gap-3 border-b border-line/10 px-6 pb-4 pt-5">
             <span
               aria-hidden
               className="block h-2.5 w-2.5 shrink-0 rounded-full"
               style={{
-                background: 'oklch(80% .13 210)',
+                background: 'oklch(var(--tb-l) var(--tb-c) 210)',
                 boxShadow: '0 0 10px oklch(80% .13 210 / .7)',
               }}
             />
             <div className="min-w-0 flex-1">
-              <div className="font-mono text-[10px] tracking-[0.2em] text-[oklch(85%_.12_205_/_.8)]">
+              <div className="font-mono fs-10 tracking-[0.2em] text-accent/80">
                 SESSION STATS
               </div>
-              <div className="mt-1 truncate text-[17px] font-bold tracking-[-0.01em]">{title}</div>
+              <div className="mt-1 truncate fs-17 font-bold tracking-[-0.01em]">{title}</div>
             </div>
             <button
               type="button"
               onClick={onClose}
               aria-label="Close session stats"
-              className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[7px] border border-[rgba(150,205,255,.14)] text-[13px] text-[rgba(200,220,245,.7)] transition-colors hover:bg-white/5 hover:text-text-bright"
+              className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[7px] border border-line/14 fs-13 text-ink-500/70 transition-colors hover:bg-ink-50/5 hover:text-ink-100"
             >
               ✕
             </button>
@@ -210,7 +211,7 @@ export function QuickStatsDialog({
                   so the browser owns the navigation and ⌘-click opens a tab. */}
               <a
                 href={sessionStatsPath(session.id)}
-                className="shrink-0 rounded-[9px] bg-[oklch(85%_.12_205)] px-3.5 py-2 font-mono text-[11px] font-bold text-[#03111a] no-underline"
+                className="shrink-0 rounded-[9px] bg-accent px-3.5 py-2 font-mono fs-11 font-bold text-space-deep no-underline"
               >
                 full stats →
               </a>
@@ -236,17 +237,17 @@ function Tile({
   children: ReactNode
 }) {
   const unitSpan = unit ? (
-    <span className="text-[15px] text-[rgba(200,225,255,.75)]">{unit}</span>
+    <span className="fs-15 text-ink-300/75">{unit}</span>
   ) : null
   return (
     <section
       aria-label={label}
-      className="min-w-0 flex-1 rounded-xl border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3.5 py-3"
+      className="min-w-0 flex-1 rounded-xl border border-line/10 bg-space/45 px-3.5 py-3"
     >
-      <div className="font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">
+      <div className="font-mono fs-9.5 tracking-[0.18em] text-ink-900/60">
         {label}
       </div>
-      <div className="mt-[7px] truncate font-mono text-[24px] leading-none tracking-[-0.02em]">
+      <div className="mt-[7px] truncate font-mono fs-24 leading-none tracking-[-0.02em]">
         {unitLeading && unitSpan}
         {children}
         {!unitLeading && unitSpan}
@@ -284,16 +285,16 @@ function TimeSplit({
   return (
     <section aria-label="Time split">
       <div className="flex items-baseline gap-2.5">
-        <div className="font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">
+        <div className="font-mono fs-9.5 tracking-[0.18em] text-ink-900/60">
           TIME SPLIT
         </div>
         {terminal && (
-          <span className="rounded-[4px] border border-[rgba(150,205,255,.18)] px-1.5 py-px font-mono text-[9px] tracking-[0.12em] text-[rgba(160,190,225,.7)]">
+          <span className="rounded-[4px] border border-line/18 px-1.5 py-px font-mono fs-9 tracking-[0.12em] text-ink-900/70">
             TERMINAL
           </span>
         )}
         <span className="flex-1" />
-        <div className="font-mono text-[10px] text-[rgba(160,190,225,.45)]">
+        <div className="font-mono fs-10 text-ink-900/60">
           {elapsedMs === null
             ? 'no measured span'
             : `${formatStatsDuration(elapsedMs)} elapsed${
@@ -314,7 +315,7 @@ function TimeSplit({
         ))}
       </div>
 
-      <div className="mt-3 flex flex-col gap-2 font-mono text-[11.5px]">
+      <div className="mt-3 flex flex-col gap-2 font-mono fs-11.5">
         {TIME_CATEGORIES.map((category) => (
           <div key={category.field} className="flex items-center gap-2.5">
             <span
@@ -322,7 +323,7 @@ function TimeSplit({
               className="block h-[9px] w-[9px] shrink-0 rounded-[2px]"
               style={{ background: category.color }}
             />
-            <span className="text-[rgba(200,225,255,.85)]">
+            <span className="text-ink-300/85">
               {category.label}
               {terminal && category.field === CAVEAT_FIELD && (
                 <>
@@ -332,7 +333,7 @@ function TimeSplit({
               )}
             </span>
             <span className="flex-1" />
-            <span className="text-[rgba(160,190,225,.6)]">
+            <span className="text-ink-900/60">
               {formatPercent(share(rollup[category.field]))}
             </span>
             <span className="w-[70px] text-right">
@@ -342,28 +343,28 @@ function TimeSplit({
         ))}
       </div>
 
-      <div className="mt-3 flex items-center gap-2.5 border-t border-dashed border-[rgba(160,190,225,.2)] pt-2.5 font-mono text-[11px] text-[rgba(200,220,245,.8)]">
+      <div className="mt-3 flex items-center gap-2.5 border-t border-dashed border-ink-900/20 pt-2.5 font-mono fs-11 text-ink-500/80">
         <WaitSwatch hatched={showWaits} size={9} />
         {showWaits ? 'waiting on you' : countLine}
         <span className="flex-1" />
         {showWaits ? (
           <span className="w-[70px] text-right">{formatStatsDuration(rollup.humanWaitMs)}</span>
         ) : (
-          <span className="text-[rgba(160,190,225,.45)]">not work</span>
+          <span className="text-ink-900/60">not work</span>
         )}
       </div>
       {showWaits && (
         <>
-          <div className="mt-1 pl-[19px] font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+          <div className="mt-1 pl-[19px] font-mono fs-10.5 text-ink-900/60">
             {countLine}
           </div>
-          <div className="mt-2 font-mono text-[9.5px] text-[rgba(160,190,225,.45)]">
+          <div className="mt-2 font-mono fs-9.5 text-ink-900/60">
             shown because “Show time spent waiting on you” is on in /stats
           </div>
         </>
       )}
       {terminal && (
-        <div className="mt-2.5 font-mono text-[10px] leading-[1.5] text-[rgba(160,190,225,.55)]">
+        <div className="mt-2.5 font-mono fs-10 leading-[1.5] text-ink-900/55">
           <span style={{ color: CAVEAT_INK }}>†</span> terminal session — permission-prompt waits
           can&apos;t be measured, local-tool time is an upper bound
         </div>
@@ -390,11 +391,11 @@ function SlowestTurns({ detail, live }: { detail: SessionStatsDetail; live: bool
   const currentIndex = live ? detail.turns.length - 1 : -1
 
   return (
-    <section aria-label="Slowest turns" className="border-t border-[rgba(150,205,255,.1)] pt-4">
-      <div className="font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">
+    <section aria-label="Slowest turns" className="border-t border-line/10 pt-4">
+      <div className="font-mono fs-9.5 tracking-[0.18em] text-ink-900/60">
         SLOWEST TURNS
       </div>
-      <div className="mt-2.5 flex flex-col gap-[7px] font-mono text-[11px]">
+      <div className="mt-2.5 flex flex-col gap-[7px] font-mono fs-11">
         {turns.map((turn) => {
           // The phases share the track LESS the hairline gaps between them, so a
           // busy turn's segments plus its gaps still land inside the track and
@@ -411,12 +412,12 @@ function SlowestTurns({ detail, live }: { detail: SessionStatsDetail; live: bool
               data-turn={turnLabel(turn.index)}
               className="flex items-center gap-2.5"
             >
-              <span className="w-[30px] shrink-0 text-[rgba(160,190,225,.6)]">
+              <span className="w-[30px] shrink-0 text-ink-900/60">
                 {turnLabel(turn.index)}
               </span>
               {/* The track is its own hue here, a step darker than the bars'
                   elsewhere in the dialog (10f). */}
-              <span className="relative block h-2.5 flex-1 overflow-hidden rounded-[3px] bg-[rgba(150,205,255,.05)]">
+              <span className="relative block h-2.5 flex-1 overflow-hidden rounded-[3px] bg-line/5">
                 {turn.phases.map((phase) => {
                   const width = phase.share * fill
                   const style = { left: `${left}%`, width: `${width}%` }
@@ -480,16 +481,16 @@ function FindingRow({
       }}
     >
       <span
-        className="shrink-0 rounded-[5px] border px-[7px] py-0.5 font-mono text-[9px] tracking-[0.14em]"
+        className="shrink-0 rounded-[5px] border px-[7px] py-0.5 font-mono fs-9 tracking-[0.14em]"
         style={{ color: style.ink, background: style.chipFill, borderColor: style.chipBorder }}
       >
         {finding.severity.toUpperCase()}
       </span>
-      <div className="flex-1 text-[12.5px] font-semibold leading-[1.35] text-pretty">{headline}</div>
+      <div className="flex-1 fs-12.5 font-semibold leading-[1.35] text-pretty">{headline}</div>
       {turnIndex >= 0 && (
         <a
           href={sessionStatsPath(detail.session.id, uuid)}
-          className="shrink-0 font-mono text-[10.5px] text-[#8fd8ff] no-underline"
+          className="shrink-0 font-mono fs-10.5 text-sky no-underline"
         >
           turn {turnIndex + 1} ›
         </a>

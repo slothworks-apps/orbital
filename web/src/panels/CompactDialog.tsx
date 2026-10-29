@@ -67,7 +67,7 @@ export function CompactDialog() {
         </>
       }
     >
-      <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+      <p className="fs-13 leading-[1.55] text-ink-600/85 [text-wrap:pretty]">
         {count === 1 ? 'It keeps' : 'They keep'} running and {count === 1 ? 'its result still comes' : 'their results still come'}{' '}
         back. Claude will only remember a summary of why it started {count === 1 ? 'it' : 'them'}.
       </p>

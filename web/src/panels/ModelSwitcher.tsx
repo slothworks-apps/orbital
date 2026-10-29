@@ -144,9 +144,9 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason, h
               inset top highlight `ui/Select.tsx`'s listbox uses. */}
           <div
             ref={popupRef}
-            className="orbital-no-drag orbital-popover-in absolute right-0 top-[calc(100%+6px)] z-20 w-[300px] rounded-[10px] border border-[rgba(150,205,255,.22)] bg-gradient-to-b from-[rgba(18,26,44,.98)] to-[rgba(10,14,26,.98)] shadow-[0_20px_50px_rgba(0,0,0,.6),inset_0_1px_0_rgba(255,255,255,.06)]"
+            className="orbital-no-drag orbital-popover-in absolute right-0 top-[calc(100%+6px)] z-20 w-[300px] rounded-[10px] border border-line/22 bg-gradient-to-b from-raised/98 to-panel/98 shadow-[0_20px_50px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent),inset_0_1px_0_color-mix(in_oklab,_var(--color-highlight)_6%,_transparent)]"
           >
-            <div className="px-3 pb-1.5 pt-2.5 font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">
+            <div className="px-3 pb-1.5 pt-2.5 font-mono fs-9.5 tracking-[0.18em] text-ink-900/60">
               MODEL · APPLIES FROM NEXT TURN
             </div>
             <div role="listbox" aria-label="Model" className="flex flex-col px-1.5 pb-1.5">
@@ -162,23 +162,23 @@ export function ModelSwitcher({ session, models, defaultValue, disabledReason, h
                     onClick={() => choose(model)}
                     className={[
                       'grid grid-cols-[1fr_auto] items-center gap-2 rounded-[7px] border px-2 py-[9px] text-left',
-                      selected ? 'border-accent/35 bg-accent/10' : 'border-transparent hover:bg-white/5',
+                      selected ? 'border-accent/35 bg-accent/10' : 'border-transparent hover:bg-ink-50/5',
                     ].join(' ')}
                   >
                     <span className="min-w-0">
-                      <span className="block truncate font-mono text-xs text-text-bright">{modelChipLabel(model)}</span>
-                      <span className="mt-0.5 block text-[11px] text-[rgba(160,190,225,.7)]">{model.blurb}</span>
+                      <span className="block truncate font-mono fs-12 leading-(--text-xs--line-height) text-ink-100">{modelChipLabel(model)}</span>
+                      <span className="mt-0.5 block fs-11 text-ink-900/70">{model.blurb}</span>
                     </span>
                     {selected ? (
-                      <span className="font-mono text-[9.5px] tracking-[0.1em] text-accent">CURRENT</span>
+                      <span className="font-mono fs-9.5 tracking-[0.1em] text-accent">CURRENT</span>
                     ) : model.value === defaultValue ? (
-                      <span className="font-mono text-[9.5px] tracking-[0.1em] text-[rgba(160,190,225,.5)]">DEFAULT</span>
+                      <span className="font-mono fs-9.5 tracking-[0.1em] text-ink-900/50">DEFAULT</span>
                     ) : null}
                   </button>
                 )
               })}
             </div>
-            <div className="border-t border-[rgba(150,205,255,.1)] px-3 pb-2.5 pt-2 font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.6)] [text-wrap:pretty]">
+            <div className="border-t border-line/10 px-3 pb-2.5 pt-2 font-mono fs-10 leading-[1.6] text-ink-900/60 [text-wrap:pretty]">
               Context is kept. A divider marks the switch in the transcript.
             </div>
           </div>
@@ -250,7 +250,7 @@ function SwitchDialog({
         </>
       }
     >
-      <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+      <p className="fs-13 leading-[1.55] text-ink-600/85 [text-wrap:pretty]">
         {modelSwitchCost(name, contextTokens)}
       </p>
     </Dialog>

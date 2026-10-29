@@ -16,6 +16,8 @@ import { bodyZoomFactor, type CameraState } from './camera'
 import { useMapFrame } from './FrameBudget'
 import { mapSuns, sunCardPlacement, SUN_CARD_WIDTH_PX, SUN_PX, type MapSun } from './sunModel'
 import { sunLook } from './sunVisual'
+import { swatch } from '../lib/palette'
+import { SCENE_CSS, useSceneColours } from '../lib/sceneColours'
 import {
   BODY_MOVE_MS,
   advancePointTween,
@@ -134,8 +136,8 @@ export interface LimitSunsProps {
 }
 
 /**
- * Every sun, inside the map's `Canvas`; mounted only while Labs → Limit suns
- * is on. Memoised: a pan re-renders the map on every move, and the suns have
+ * Every sun, inside the map's `Canvas`; mounted only while Appearance →
+ * Limit suns is on. Memoised: a pan re-renders the map on every move, and the suns have
  * nothing to change for it — the frame loop moves them.
  */
 export const LimitSuns = memo(function LimitSuns({ hole, planetScale, layerRef, pressRef, onPress }: LimitSunsProps) {
@@ -202,7 +204,11 @@ function LimitSun({
   const applied = useRef(-1)
   const ringOn = useSunState((s) => s.hovered === sun.key || s.dragging === sun.key)
   const dragging = useSunState((s) => s.dragging === sun.key)
-  const look = useMemo(() => sunLook(style, sun.reading, sun.color, sun.stale), [style, sun.reading, sun.color, sun.stale])
+  const { sunL, sunC, sunRa, glowK } = useSceneColours()
+  const look = useMemo(
+    () => sunLook(style, sun.reading, sun.color, sun.stale, { sunL, sunC, sunRa, glowK }),
+    [style, sun.reading, sun.color, sun.stale, sunL, sunC, sunRa, glowK],
+  )
   const reduced = prefersReducedMotion()
 
   // A sun without a stored position walks with the field, like the trash; a
@@ -337,7 +343,7 @@ function LimitSun({
                 position: 'absolute',
                 inset: -SUN_RING_OUT_PX,
                 borderRadius: '50%',
-                border: '1px solid rgba(150,205,255,.32)',
+                border: `1px solid ${swatch('line', 0.32)}`,
                 opacity: ringOn ? 1 : 0,
                 transition: fade('opacity', RING_FADE_MS),
               }}
@@ -361,7 +367,7 @@ function LimitSun({
                   width: 'calc(100% + 2px)',
                   left: `${look.shadowLeft}%`,
                   borderRadius: '50%',
-                  background: 'oklch(15% .01 250)',
+                  background: swatch('eclipse'),
                   opacity: look.shadowOp,
                   transition: fade('left,opacity', CROSS_FADE_MS),
                 }}
@@ -370,7 +376,7 @@ function LimitSun({
                 style={{
                   position: 'absolute',
                   inset: 0,
-                  background: 'repeating-linear-gradient(135deg,rgba(200,215,235,.22) 0 1.2px,transparent 1.2px 5px)',
+                  background: `repeating-linear-gradient(135deg,${swatch('ink-600', 0.22)} 0 1.2px,transparent 1.2px 5px)`,
                   opacity: look.hatchOp,
                   transition: fade('opacity', CROSS_FADE_MS),
                 }}
@@ -417,20 +423,20 @@ const TILE_STYLE = {
   height: 12,
   padding: '0 2px',
   borderRadius: 3.5,
-  background: 'oklch(34% .012 250)',
-  boxShadow: '0 0 0 1.5px #05070d',
+  background: SCENE_CSS.markTile,
+  boxShadow: `0 0 0 1.5px ${swatch('space')}`,
   fontSize: 7.5,
   fontWeight: 600,
   lineHeight: 1,
-  color: '#eef4fc',
+  color: swatch('ink-50'),
 } as const
 
 /** 60b: a row's fill by its ink step, LIMIT REACHED included. */
 const FILL: Record<LimitSeverity | 'reached', string> = {
-  normal: 'rgba(150,205,255,.42)',
-  warning: 'rgba(214,230,248,.72)',
-  critical: '#e8eef8',
-  reached: '#e8eef8',
+  normal: swatch('line', 0.42),
+  warning: swatch('ink-400', 0.72),
+  critical: swatch('ink-100'),
+  reached: swatch('ink-100'),
 }
 
 /**
@@ -464,7 +470,7 @@ export function LimitSunCard({
   return (
     <div
       data-limit-sun-card
-      className={['orbital-popover-in pointer-events-none absolute flex flex-col gap-0.5 text-[#e8eef8]', POPUP_SHELL].join(' ')}
+      className={['orbital-popover-in pointer-events-none absolute flex flex-col gap-0.5 text-ink-100', POPUP_SHELL].join(' ')}
       style={{ left, top, width: SUN_CARD_WIDTH_PX, boxSizing: 'border-box', padding: '12px 14px 10px' }}
     >
       <div className="flex items-center gap-1.5 pb-2">
@@ -472,8 +478,8 @@ export function LimitSunCard({
         {sun.tiles.map((t) => (
           <ClaudeDirMark key={t} mono={t} />
         ))}
-        <span className="min-w-0 flex-1 truncate text-[12.5px] font-bold">{sun.title}</span>
-        <span className="font-mono text-[10px] text-[rgba(160,190,225,.55)]">
+        <span className="min-w-0 flex-1 truncate fs-12.5 font-bold">{sun.title}</span>
+        <span className="font-mono fs-10 text-ink-900/55">
           {sun.stale ? `last read ${sun.readClock}` : `read ${sun.readClock}`}
         </span>
       </div>
@@ -503,7 +509,7 @@ export function LimitSunCard({
           dim={sun.stale}
         />
       )}
-      <div className="border-t border-[rgba(150,205,255,.08)] pt-2 font-mono text-[9.5px] tracking-[0.06em] text-[rgba(160,190,225,.45)]">
+      <div className="border-t border-line/8 pt-2 font-mono fs-9.5 tracking-[0.06em] text-ink-900/45">
         click: open Limits · drag: move
       </div>
     </div>
@@ -529,27 +535,27 @@ function CardRow({
 }) {
   return (
     <div
-      className="flex flex-col gap-[5px] border-t border-[rgba(150,205,255,.08)] py-2"
+      className="flex flex-col gap-[5px] border-t border-line/8 py-2"
       // 60b: a stale account's rows at .6.
       style={{ opacity: dim ? 0.6 : 1 }}
     >
       <div className="flex items-baseline gap-2">
-        <span className="flex-1 text-xs font-semibold">{name}</span>
-        <span className="font-mono text-xs">{value}</span>
+        <span className="flex-1 fs-12 leading-(--text-xs--line-height) font-semibold">{name}</span>
+        <span className="font-mono fs-12 leading-(--text-xs--line-height)">{value}</span>
       </div>
-      <div className="h-[3px] overflow-hidden rounded-[2px] bg-[rgba(150,205,255,.1)]">
+      <div className="h-[3px] overflow-hidden rounded-[2px] bg-line/10">
         <span
           className="block h-full rounded-[2px]"
           style={{ width: `${Math.min(Math.max(percent, 0), 100)}%`, background: fill }}
         />
       </div>
-      <div className="flex gap-2 font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+      <div className="flex gap-2 font-mono fs-10 text-ink-900/60">
         <span>{reset ?? ''}</span>
         <span className="flex-1" />
         {estimate && (
-          <span style={{ color: estimate.lit ? 'rgba(160,190,225,.75)' : 'rgba(160,190,225,.55)' }}>
+          <span style={{ color: swatch('ink-900', estimate.lit ? 0.75 : 0.55) }}>
             {estimate.before}
-            <span className="text-[#e8eef8]">{estimate.at}</span>
+            <span className="text-ink-100">{estimate.at}</span>
             {estimate.after}
           </span>
         )}

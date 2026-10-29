@@ -25,12 +25,12 @@ export function MediaFoot({
 }) {
   const clock = mediaClock(item.ts)
   return (
-    <div className="relative z-[2] flex shrink-0 flex-col gap-2.5 bg-[linear-gradient(0deg,rgba(0,0,0,.85),transparent)] px-4 pb-1.5 pt-[18px]">
+    <div className="relative z-[2] flex shrink-0 flex-col gap-2.5 bg-[linear-gradient(0deg,color-mix(in_oklab,var(--color-shadow)_85%,transparent),transparent)] px-4 pb-1.5 pt-[18px]">
       {above}
       {(chip || hint) && (
-        <div className="flex items-center gap-2 font-mono text-[11px] text-[rgba(200,215,235,.75)]">
+        <div className="flex items-center gap-2 font-mono fs-11 text-ink-600/75">
           {chip && (
-            <span className="rounded-full border border-[rgba(150,205,255,.2)] bg-[rgba(5,7,13,.75)] px-2 py-[3px] text-[#e8eef8]">
+            <span className="rounded-full border border-line/20 bg-space/75 px-2 py-[3px] text-ink-100">
               {chip}
             </span>
           )}
@@ -39,13 +39,13 @@ export function MediaFoot({
         </div>
       )}
       <div className="flex items-center gap-2">
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[rgba(200,215,235,.75)]">
+        <span className="min-w-0 flex-1 truncate font-mono fs-11 text-ink-600/75">
           {[mediaSourceLabel(item), clock].filter(Boolean).join(' · ')}
         </span>
         <button
           type="button"
           onClick={onShowInChat}
-          className="flex h-11 shrink-0 items-center rounded-[12px] border border-[rgba(150,205,255,.22)] bg-[rgba(5,7,13,.6)] px-3.5 text-[13px] font-semibold text-[#e8eef8]"
+          className="flex h-11 shrink-0 items-center rounded-[12px] border border-line/22 bg-space/60 px-3.5 fs-13 font-semibold text-ink-100"
         >
           ↩ Show in chat
         </button>

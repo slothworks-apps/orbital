@@ -4,7 +4,6 @@ import * as THREE from 'three'
 import type { Subagent } from '../lib/types'
 import { REFERENCE_ZOOM, bodyDesignPxToScreenPx, bodyZoomFactor } from './camera'
 import { useFrameOnRender, useFrameScheduler, useMapFrame } from './FrameBudget'
-import { oklchCss, type Oklch } from '../lib/usage'
 import {
   MAT_RING_MAX_SCALE,
   MAT_RING_MIN_SCALE,
@@ -41,9 +40,11 @@ import {
   useScaleTween,
   useStateMix,
 } from './transition'
-import { glowTexture } from './textures'
-import { oklchTagColor, setOklchTagColor, TickRing } from './Planet'
+import { glowTexture, shadowTexture, SHADOW_SOLID } from './textures'
+import { setOklchTagColor, TickRing } from './Planet'
 import type { SimBody } from './simulation'
+import { swatch } from '../lib/palette'
+import { useSceneColours, type SceneColours } from '../lib/sceneColours'
 
 /**
  * Small disc orbiting its parent planet, driven purely by props + an
@@ -56,7 +57,7 @@ import type { SimBody } from './simulation'
  * materializing shell) plus a white ripple/core for needs-input, never by
  * re-hue-ing. Task 9 extends the "white for emphasis" half of that rule to
  * HOVER (canvas 11e: "white rim, brighter core") — same mechanism
- * (`lerp(..., WHITE_COLOR)`), a UI affordance rather than a new state, never
+ * (`lerp(..., palette.glint)`), a UI affordance rather than a new state, never
  * a new hue.
  *
  * Geometry is transcribed from the state sheet (artboard 1f in
@@ -95,19 +96,27 @@ import type { SimBody } from './simulation'
 /** 1px rim straddling the disc edge (`border:1px solid hue/<x>`). */
 const RIM_WIDTH = 0.01
 
-/** Dark disc fills: `oklch(30% .05 220)` working/materializing, `oklch(28% .05 220)` idle/needs-input. */
-const DISC_COLOR = oklchTagColor(220, 0.3, 0.05)
-const DISC_COLOR_IDLE = oklchTagColor(220, 0.28, 0.05)
-/** Ended moon: flat `oklch(16% .01 230)` like the ended planet body. */
-const DISC_COLOR_ENDED = oklchTagColor(230, 0.16, 0.01)
+/**
+ * A light theme's edge and shadow round the disc, as on a planet (1l): 1px
+ * of the tag hue at .55 outside the rim, and `0 2px 8px` of `shadow` at .28.
+ * In world units, the moons' 0.01 per design px.
+ */
+const MOON_EDGE_WIDTH = 0.01
+const MOON_EDGE_OPACITY = 0.55
+const MOON_SHADOW_OFFSET = 0.02
+const MOON_SHADOW_BLUR = 0.08
+const MOON_SHADOW_OPACITY = 0.28
 
-/** Per-state disc fill, summed by weight so the fill eases across a state change. */
-const DISC_COLORS: Record<Subagent['state'], THREE.Color> = {
-  materializing: DISC_COLOR,
-  working: DISC_COLOR,
-  idle: DISC_COLOR_IDLE,
-  needs_input: DISC_COLOR_IDLE,
-  ended: DISC_COLOR_ENDED,
+/**
+ * Per-state disc fill, summed by weight so the fill eases across a state
+ * change: `oklch(30% .05 220)` working/materializing, `oklch(28% .05 220)`
+ * idle/needs-input — the tops of the planet's body gradients — and the ended
+ * planet's flat `oklch(16% .01 230)`, all from the scene palette.
+ */
+function discColour(state: Subagent['state'], palette: SceneColours): THREE.Color {
+  if (state === 'ended') return palette['body-ended']
+  if (state === 'idle' || state === 'needs_input') return palette['body-idle-hi']
+  return palette['body-hi']
 }
 
 /** `orb-blink`: opacity 1 → .3 → 1. */
@@ -141,11 +150,10 @@ interface OrbitRider {
  */
 const orbitRiders = new Map<string, Set<OrbitRider>>()
 
-/** Ended grey — `rgba(200,215,235)` in the canvas export. */
-const GREY = '#c8d7eb'
-const WHITE = '#ffffff'
-const GREY_COLOR = new THREE.Color(GREY)
-const WHITE_COLOR = new THREE.Color(WHITE)
+/*
+ * The canvas's ended grey `rgba(200,215,235)` is the palette's `ink-600`, its
+ * white `ink-50` (`useSceneColours`), so a light theme draws them dark.
+ */
 
 // --- Interactivity (task 9, spec § 5 / canvas 11e) ------------------------
 // Quoted in DESIGN px, like every other value on this map, and converted to
@@ -196,11 +204,6 @@ const MOON_TETHER_LENGTH_PX = 64
 /** How much the hover disc/rim/glow brighten toward white (11e: "brighter core"). */
 const MOON_HOVER_DISC_BRIGHTEN = 0.15
 const MOON_HOVER_GLOW_BOOST = 1.15
-
-/** The design accent (`oklch(85% .12 205)`, `--color-accent` in theme.css) —
- * the active ring/bracket-adjacent tether's colour, spec § 8's own fallback
- * accent, reused here via `oklchCss` rather than a second hand-picked hex. */
-const MOON_ACCENT_OKLCH: Oklch = { lightness: 0.85, chroma: 0.12, hue: 205 }
 
 /** The four corner brackets' signs — same shape as `Planet.tsx`'s `BRACKET_SIGNS`. */
 const MOON_BRACKET_CORNERS: readonly (readonly [1 | -1, 1 | -1])[] = [
@@ -291,10 +294,13 @@ export function MoonControl({
   // are not floored: they describe the moon, and a halo that refused to
   // shrink below a floor would sit visibly off the thing it rings.
   const hitAreaPx = Math.max(MOON_HIT_AREA_PX * scale, MOON_HIT_AREA_MIN_CSS_PX)
-  const accentBorder = oklchCss(MOON_ACCENT_OKLCH, 0.9)
-  const activeGlow = oklchCss(MOON_ACCENT_OKLCH, 0.35)
-  const haloGlow = oklchCss(MOON_ACCENT_OKLCH, 0.28)
-  const accentDash = oklchCss(MOON_ACCENT_OKLCH, 0.55)
+  // The active ring and the tether take the design accent (spec § 8's own
+  // fallback accent); they are DOM, so the token follows the colour theme.
+  const accentBorder = swatch('accent', 0.9)
+  // Glows, so a light theme drops them (`--glow-k`, 1l).
+  const activeGlow = 'color-mix(in oklab, var(--color-accent) calc(35% * var(--glow-k)), transparent)'
+  const haloGlow = 'color-mix(in oklab, var(--color-accent) calc(28% * var(--glow-k)), transparent)'
+  const accentDash = swatch('accent', 0.55)
 
   return (
     <button
@@ -343,7 +349,7 @@ export function MoonControl({
             marginLeft: -haloR,
             marginTop: -haloR,
             borderRadius: '50%',
-            border: '1px solid rgba(230,245,255,.55)',
+            border: `1px solid ${swatch('ink-100', 0.55)}`,
             boxShadow: `0 0 16px ${haloGlow}`,
           }}
         />
@@ -378,10 +384,10 @@ export function MoonControl({
                 top: `calc(50% + ${sy * bracketR - (sy > 0 ? bracketArm : 0)}px)`,
                 width: bracketArm,
                 height: bracketArm,
-                borderLeft: sx < 0 ? '1.5px solid #fff' : undefined,
-                borderRight: sx > 0 ? '1.5px solid #fff' : undefined,
-                borderTop: sy < 0 ? '1.5px solid #fff' : undefined,
-                borderBottom: sy > 0 ? '1.5px solid #fff' : undefined,
+                borderLeft: sx < 0 ? `1.5px solid ${swatch('ink-50')}` : undefined,
+                borderRight: sx > 0 ? `1.5px solid ${swatch('ink-50')}` : undefined,
+                borderTop: sy < 0 ? `1.5px solid ${swatch('ink-50')}` : undefined,
+                borderBottom: sy > 0 ? `1.5px solid ${swatch('ink-50')}` : undefined,
               }}
             />
           ))}
@@ -412,12 +418,12 @@ export function MoonControl({
             alignItems: 'center',
             padding: '3px 8px',
             borderRadius: 999,
-            background: 'rgba(6,10,20,.92)',
-            border: '1px solid rgba(150,205,255,.3)',
+            background: swatch('space', 0.92),
+            border: `1px solid ${swatch('line', 0.3)}`,
             fontFamily: "'JetBrains Mono', ui-monospace, monospace",
             fontSize: 9.5,
             letterSpacing: '0.08em',
-            color: '#e8eef8',
+            color: swatch('ink-100'),
             whiteSpace: 'nowrap',
             pointerEvents: 'none',
           }}
@@ -523,27 +529,37 @@ interface MoonMaterials {
   ripple: THREE.MeshBasicMaterial
   ticks: THREE.MeshBasicMaterial
   matFill: THREE.MeshBasicMaterial
+  edge: THREE.MeshBasicMaterial
+  shadow: THREE.MeshBasicMaterial
 }
 
 /** One material set per moon, created once and mutated by the frame loop. */
-function useMoonMaterials(): MoonMaterials {
+function useMoonMaterials(palette: SceneColours): MoonMaterials {
   const materials = useMemo<MoonMaterials>(() => {
-    const soft = (color?: THREE.Color | string, map?: THREE.Texture | null) => {
+    const soft = (map?: THREE.Texture | null) => {
       const material = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false })
-      if (color !== undefined) material.color.set(color)
       if (map) material.map = map
       return material
     }
     return {
-      glow: soft(undefined, glowTexture()),
+      glow: soft(glowTexture()),
       disc: soft(),
       rim: soft(),
       core: soft(),
-      ripple: soft(WHITE),
+      ripple: soft(),
       ticks: soft(),
-      matFill: soft(DISC_COLOR),
+      matFill: soft(),
+      edge: soft(),
+      shadow: soft(shadowTexture()),
     }
   }, [])
+
+  // The colours no state changes, from the colour theme; `applyState` owns the rest.
+  useLayoutEffect(() => {
+    materials.ripple.color.copy(palette.glint)
+    materials.matFill.color.copy(palette['body-hi'])
+    materials.shadow.color.copy(palette.shadow)
+  }, [materials, palette])
 
   useEffect(
     () => () => {
@@ -621,8 +637,10 @@ function MoonBody({
   // The parent planet's device fades, on the same tweens (`Planet`).
   const deviceFade = useFadeTween(!deviceOff, DEVICE_FADE_MS, DEVICE_FADE_MS)
   const offlineFade = useFadeTween(offline, DEVICE_FADE_MS, DEVICE_FADE_MS)
-  const materials = useMoonMaterials()
+  const palette = useSceneColours()
+  const materials = useMoonMaterials(palette)
   const hasGlowTexture = glowTexture() !== null
+  const hasShadowTexture = shadowTexture() !== null
 
   /**
    * The disc + rim are drawn as unit geometry inside a group scaled to the
@@ -634,6 +652,8 @@ function MoonBody({
   const targetDiscRadius = useMemo(() => moonVisuals(effectiveState).discRadius, [effectiveState])
   const rimInner = 1 - RIM_WIDTH / 2 / targetDiscRadius
   const rimOuter = 1 + RIM_WIDTH / 2 / targetDiscRadius
+  const edgeOuter = rimOuter + MOON_EDGE_WIDTH / targetDiscRadius
+  const shadowSize = (2 * (1 - MOON_SHADOW_BLUR / targetDiscRadius)) / SHADOW_SOLID
 
   const trailPoints = useMemo(() => circlePoints(orbitRadius, 64), [orbitRadius])
 
@@ -689,6 +709,11 @@ function MoonBody({
   const hueColor = useRef(new THREE.Color())
   const blendRef = useRef(blendMoon(mix.weights, createMoonBlend()))
   const settled = useRef(false)
+  // A colour theme change repaints a resting moon: `applyState` writes the
+  // palette's colours too.
+  useLayoutEffect(() => {
+    settled.current = false
+  }, [palette])
   // Mirrors `MoonControl`'s own hover/focus state for the material blend
   // below — a ref, not React state, because nothing here needs a re-render;
   // `applyState` reads it directly from the frame loop. `settled.current`
@@ -733,8 +758,15 @@ function MoonBody({
     // The search mute: the whole moon down by `mutedOpacity`, its hue toward
     // the ended grey — the same pair the parent planet applies.
     const mute = mutedOpacity(muteFade.value) * deviceOpacity(deviceFade.value, offlineFade.value)
-    const hueC = setOklchTagColor(hueColor.current, hueTween.value).lerp(GREY_COLOR, muteFade.value)
+    const grey = palette['ink-600']
+    const white = palette.glint
+    const hueC = setOklchTagColor(hueColor.current, hueTween.value, palette.tagL, palette.tagC).lerp(
+      grey,
+      muteFade.value,
+    )
     const solid = 1 - b.materializing
+    // Glows paint on a dark theme only; a light one edges and shadows the disc (1l).
+    const glowK = palette.glowK
     // Canvas 11e Hover: "white rim, brighter core, one outer halo ring" — the
     // ring/label are `MoonControl`'s own DOM (see `Moon`'s "INTERACTIVITY"
     // doc); the rim/core/glow brightening below is the one piece that has to
@@ -745,9 +777,9 @@ function MoonBody({
 
     // 1f: the needs-input moon's glow is the white `0 0 10px #fff` on its core;
     // every other state glows in the tag hue off the disc.
-    materials.glow.color.copy(hueC).lerp(WHITE_COLOR, w.needs_input)
-    materials.glow.opacity = Math.min(1, b.glowOpacity * (hoverAmt ? MOON_HOVER_GLOW_BOOST : 1)) * mute
-    materials.glow.visible = hasGlowTexture && b.glowOpacity > 0.001 && b.glowSize > 0
+    materials.glow.color.copy(hueC).lerp(white, w.needs_input)
+    materials.glow.opacity = Math.min(1, b.glowOpacity * (hoverAmt ? MOON_HOVER_GLOW_BOOST : 1)) * mute * glowK
+    materials.glow.visible = hasGlowTexture && materials.glow.opacity > 0.001 && b.glowSize > 0
     if (glowRef.current) glowRef.current.scale.setScalar(b.glowSize)
 
     let r = 0
@@ -756,30 +788,36 @@ function MoonBody({
     for (const state of MOON_STATES) {
       const weight = w[state]
       if (weight === 0) continue
-      const c = DISC_COLORS[state]
+      const c = discColour(state, palette)
       r += weight * c.r
       g += weight * c.g
       bl += weight * c.b
     }
     materials.disc.color.setRGB(r, g, bl)
-    if (hoverAmt) materials.disc.color.lerp(WHITE_COLOR, MOON_HOVER_DISC_BRIGHTEN)
+    if (hoverAmt) materials.disc.color.lerp(white, MOON_HOVER_DISC_BRIGHTEN)
     materials.disc.opacity = solid * b.dim * mute
     materials.disc.visible = materials.disc.opacity > 0.001
 
-    materials.rim.color.copy(hueC).lerp(GREY_COLOR, w.ended).lerp(WHITE_COLOR, hoverAmt)
+    materials.rim.color.copy(hueC).lerp(grey, w.ended).lerp(white, hoverAmt)
     materials.rim.opacity = b.rimOpacity * solid * b.dim * mute
     materials.rim.visible = materials.rim.opacity > 0.001
+    const lit = solid * (1 - w.ended) * mute
+    materials.edge.color.copy(hueC)
+    materials.edge.opacity = MOON_EDGE_OPACITY * Math.min(1, palette.edgeW) * lit
+    materials.edge.visible = materials.edge.opacity > 0.001
+    materials.shadow.opacity = MOON_SHADOW_OPACITY * (1 - glowK) * lit
+    materials.shadow.visible = hasShadowTexture && materials.shadow.opacity > 0.001
     if (discGroupRef.current) discGroupRef.current.scale.setScalar(b.discRadius)
 
     materials.ticks.color.copy(hueC)
     materials.ticks.opacity = w.working * MOON_TICK_OPACITY * mute
     materials.ticks.visible = materials.ticks.opacity > 0.001
 
-    materials.core.color.copy(hueC).lerp(WHITE_COLOR, Math.max(w.needs_input, hoverAmt))
+    materials.core.color.copy(hueC).lerp(white, Math.max(w.needs_input, hoverAmt))
     if (coreRef.current) coreRef.current.scale.setScalar(b.coreRadius)
 
     if (trailRef.current) {
-      trailRef.current.material.color.copy(hueC).lerp(GREY_COLOR, w.ended)
+      trailRef.current.material.color.copy(hueC).lerp(grey, w.ended)
       trailRef.current.material.opacity = b.trailOpacity * mute
     }
     if (shellLineRef.current) shellLineRef.current.material.color.copy(hueC)
@@ -953,6 +991,14 @@ function MoonBody({
           <mesh material={materials.rim}>
             <ringGeometry args={[rimInner, rimOuter, 32]} />
           </mesh>
+          <mesh material={materials.edge}>
+            <ringGeometry args={[rimOuter, edgeOuter, 32]} />
+          </mesh>
+          {hasShadowTexture && (
+            <mesh position={[0, -MOON_SHADOW_OFFSET / targetDiscRadius, -0.011]} material={materials.shadow}>
+              <planeGeometry args={[shadowSize, shadowSize]} />
+            </mesh>
+          )}
         </group>
 
         <group ref={shellGroupRef}>

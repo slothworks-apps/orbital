@@ -236,7 +236,7 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
     return (
       <div
         data-history-unkept
-        className="flex h-full items-center justify-center px-[22px] text-center font-mono text-[11px] text-[rgba(160,190,225,.55)]"
+        className="flex h-full items-center justify-center px-[22px] text-center font-mono fs-11 text-ink-900/55"
       >
         Nothing from {unkeptFrom} is kept here yet.
       </div>
@@ -283,11 +283,11 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
             // pending — dashed, because nothing is final yet.
             <div
               data-rewind-pending
-              className="flex shrink-0 items-center gap-2.5 whitespace-nowrap py-1 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(200,220,245,.75)]"
+              className="flex shrink-0 items-center gap-2.5 whitespace-nowrap py-1 font-mono fs-9.5 tracking-[0.14em] text-ink-500/75"
             >
-              <span aria-hidden className="flex-1 border-t border-dashed border-[rgba(150,205,255,.3)]" />
+              <span aria-hidden className="flex-1 border-t border-dashed border-line/30" />
               {pendingHidden} HIDDEN · BACK ON CANCEL
-              <span aria-hidden className="flex-1 border-t border-dashed border-[rgba(150,205,255,.3)]" />
+              <span aria-hidden className="flex-1 border-t border-dashed border-line/30" />
             </div>
           )}
           {compacting && (
@@ -301,7 +301,7 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
           {(recorded || hasError) && (
             <div
               role="alert"
-              className="flex items-center gap-2 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 font-mono text-xs text-red-300"
+              className="flex items-center gap-2 rounded-md border border-red-400/30 bg-red-400/10 px-3 py-2 font-mono fs-12 leading-(--text-xs--line-height) text-red-300"
             >
               <span aria-hidden>⚠</span>
               {/* The heuristic stays underneath as the fallback: a CLI that exits

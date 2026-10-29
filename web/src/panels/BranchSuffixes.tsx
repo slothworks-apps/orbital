@@ -23,7 +23,7 @@ function Ring({ dimmed = false }: { dimmed?: boolean }) {
   return (
     <span
       aria-hidden
-      className="box-border block flex-none rounded-full border-[1.2px] border-[rgba(160,190,225,.85)]"
+      className="box-border block flex-none rounded-full border-[1.2px] border-ink-900/85"
       style={{ width: RING_PX, height: RING_PX, opacity: dimmed ? 0 : 1 }}
     />
   )
@@ -32,7 +32,7 @@ function Ring({ dimmed = false }: { dimmed?: boolean }) {
 /** The `+n −n` groups, in the transcript's diff pair. */
 export function LineGroups({ groups }: { groups: LineGroup[] }) {
   return (
-    <span className="flex flex-none items-center font-mono text-[11px]" style={{ gap: LINE_GROUP_GAP_PX }}>
+    <span className="flex flex-none items-center font-mono fs-11" style={{ gap: LINE_GROUP_GAP_PX }}>
       {groups.map((g, i) => (
         <span key={i} className="flex items-center" style={{ gap: LINE_PAIR_GAP_PX }}>
           {g.uncommitted && <Ring />}
@@ -44,19 +44,19 @@ export function LineGroups({ groups }: { groups: LineGroup[] }) {
   )
 }
 
-const TIP_LABEL = 'text-[9.5px] tracking-[.14em] text-[rgba(160,190,225,.6)]'
-const TIP_RULE = 'border-t border-[rgba(150,205,255,.1)]'
+const TIP_LABEL = 'fs-9.5 tracking-[.14em] text-ink-900/60'
+const TIP_RULE = 'border-t border-line/10'
 
 /** 1e's state · review · checks rows; the phone's branch sheet draws the same. */
 export function PrRows({ pr }: { pr: BranchPr }) {
   const row = (label: string, value: string) => (
     <>
       <span className={TIP_LABEL}>{label}</span>
-      <span className="text-text-bright">{value}</span>
+      <span className="text-ink-100">{value}</span>
     </>
   )
   return (
-    <span className="grid grid-cols-[58px_minmax(0,1fr)] items-baseline gap-x-2.5 gap-y-1.5 font-mono text-[11px] leading-[1.4]">
+    <span className="grid grid-cols-[58px_minmax(0,1fr)] items-baseline gap-x-2.5 gap-y-1.5 font-mono fs-11 leading-[1.4]">
       {row('STATE', prStateText(pr))}
       {row('REVIEW', prReviewText(pr))}
       {row('CHECKS', prChecksText(pr))}
@@ -69,12 +69,12 @@ export function PrTooltipContent({ pr }: { pr: BranchPr }) {
   return (
     <>
       <span className="flex items-baseline gap-2 font-mono">
-        <span className="text-[11px] text-text-bright">Pull request #{pr.number}</span>
+        <span className="fs-11 text-ink-100">Pull request #{pr.number}</span>
         <span className="flex-1" />
-        <span className="text-[10px] text-[rgba(160,190,225,.6)]">↗ GitHub</span>
+        <span className="fs-10 text-ink-900/60">↗ GitHub</span>
       </span>
       <PrRows pr={pr} />
-      <span className={`${TIP_RULE} pt-2 font-mono text-[10px] text-[rgba(160,190,225,.6)] [overflow-wrap:anywhere]`}>
+      <span className={`${TIP_RULE} pt-2 font-mono fs-10 text-ink-900/60 [overflow-wrap:anywhere]`}>
         click opens {prUrlText(pr.url)}
       </span>
     </>
@@ -96,9 +96,9 @@ interface LinesTipProps {
 export function LinesTooltipContent({ lines, branch, detached }: LinesTipProps) {
   const { committed, uncommitted, parent } = lines
   const row = (label: string, ring: boolean, added: number, removed: number, total = false): ReactNode => (
-    <span className={`flex items-center gap-1.5 font-mono text-[11px] ${total ? `${TIP_RULE} pt-[7px]` : ''}`}>
+    <span className={`flex items-center gap-1.5 font-mono fs-11 ${total ? `${TIP_RULE} pt-[7px]` : ''}`}>
       {total ? <span className="block flex-none" style={{ width: RING_PX }} /> : <Ring dimmed={!ring} />}
-      <span className={`flex-1 ${total ? 'text-text-bright' : 'text-[rgba(200,220,245,.8)]'}`}>{label}</span>
+      <span className={`flex-1 ${total ? 'text-ink-100' : 'text-ink-500/80'}`}>{label}</span>
       <span className={`min-w-[48px] text-right ${DIFF_ADDED_INK_CLASS}`}>{addedText(added)}</span>
       <span className={`min-w-[40px] text-right ${DIFF_REMOVED_INK_CLASS}`}>{removedText(removed)}</span>
     </span>
@@ -108,7 +108,7 @@ export function LinesTooltipContent({ lines, branch, detached }: LinesTipProps) 
       <span className="flex items-baseline gap-2 font-mono">
         <span className={TIP_LABEL}>LINE CHANGES</span>
         <span className="flex-1" />
-        <span className="text-[10.5px] text-text-bright">
+        <span className="fs-10.5 text-ink-100">
           {parent ? `against ${parent}` : `on ${branch}, no parent`}
         </span>
       </span>
@@ -123,7 +123,7 @@ export function LinesTooltipContent({ lines, branch, detached }: LinesTipProps) 
             true,
           )
         : (
-          <span className={`${TIP_RULE} pt-[7px] text-[11.5px] leading-[1.45] text-[rgba(190,212,238,.75)] [text-wrap:pretty]`}>
+          <span className={`${TIP_RULE} pt-[7px] fs-11.5 leading-[1.45] text-ink-700/75 [text-wrap:pretty]`}>
             {/* 1e draws the default branch's sentence; a detached HEAD has no
                 parent either (spec § Line changes), so it gets its own first
                 clause and the same reason. */}
@@ -139,8 +139,8 @@ export function LinesTooltipContent({ lines, branch, detached }: LinesTipProps) 
 export function BranchLinesTooltipContent(props: LinesTipProps) {
   return (
     <>
-      <span className="font-mono text-[11px] leading-[1.45] text-text-bright [overflow-wrap:anywhere]">{props.branch}</span>
-      <span className="block h-px bg-[rgba(150,205,255,.1)]" />
+      <span className="font-mono fs-11 leading-[1.45] text-ink-100 [overflow-wrap:anywhere]">{props.branch}</span>
+      <span className="block h-px bg-line/10" />
       <LinesTooltipContent {...props} />
     </>
   )

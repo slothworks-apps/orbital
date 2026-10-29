@@ -82,31 +82,31 @@ const sideRounding: Record<NonNullable<PanelProps['side']>, string> = {
  */
 const sideChrome: Record<NonNullable<PanelProps['side']>, string> = {
   left: [
-    'bg-gradient-to-b from-[rgba(14,20,34,.92)] to-[rgba(8,12,22,.95)]',
-    'border border-[rgba(150,205,255,.16)]',
-    'shadow-[0_30px_80px_rgba(0,0,0,.5),inset_0_1px_0_rgba(255,255,255,.06)]',
+    'bg-gradient-to-b from-panel-solid/92 to-space-deep/95',
+    'border border-line/16',
+    'shadow-[0_30px_80px_color-mix(in_oklab,_var(--color-shadow)_50%,_transparent),inset_0_1px_0_color-mix(in_oklab,_var(--color-highlight)_6%,_transparent)]',
   ].join(' '),
   right: [
-    'bg-gradient-to-b from-[rgba(14,20,34,.95)] to-[rgba(8,12,22,.97)]',
-    'border border-[rgba(150,205,255,.18)]',
-    'shadow-[0_30px_80px_rgba(0,0,0,.55),inset_0_1px_0_rgba(255,255,255,.06)]',
+    'bg-gradient-to-b from-panel-solid/95 to-space-deep/97',
+    'border border-line/18',
+    'shadow-[0_30px_80px_color-mix(in_oklab,_var(--color-shadow)_55%,_transparent),inset_0_1px_0_color-mix(in_oklab,_var(--color-highlight)_6%,_transparent)]',
   ].join(' '),
   // Canvas 11b, verbatim: no blur at all (it is meant to read as flatter and
   // darker than `right`, not as another pane of the same glass), a plain
   // dark gradient, and an INSET shadow — 24px positive x-offset — instead of
   // a drop shadow, so the panel's own left inner edge reads as recessed.
   subagent: [
-    'bg-gradient-to-b from-[rgba(10,15,27,.9)] to-[rgba(5,8,16,.94)]',
-    'border border-[rgba(150,205,255,.1)]',
-    'shadow-[inset_24px_0_40px_-28px_rgba(0,0,0,.9),inset_0_1px_0_rgba(255,255,255,.03)]',
+    'bg-gradient-to-b from-panel/90 to-space/94',
+    'border border-line/10',
+    'shadow-[inset_24px_0_40px_-28px_color-mix(in_oklab,_var(--color-shadow)_90%,_transparent),inset_0_1px_0_color-mix(in_oklab,_var(--color-highlight)_3%,_transparent)]',
   ].join(' '),
   // `float` is the centred 1120×740 modal panel of 1e/1h — it sits over a
   // scrim rather than over the map, so it is the densest and most opaque of
   // the three, with a much deeper shadow.
   float: [
-    'bg-gradient-to-b from-[rgba(16,22,38,.88)] to-[rgba(8,12,22,.94)]',
-    'border border-[rgba(150,205,255,.2)] backdrop-blur-[28px]',
-    'shadow-[0_40px_120px_rgba(0,0,0,.7),inset_0_1px_0_rgba(255,255,255,.07)]',
+    'bg-gradient-to-b from-raised/88 to-space-deep/94',
+    'border border-line/20 backdrop-blur-[28px]',
+    'shadow-[0_40px_120px_color-mix(in_oklab,_var(--color-shadow)_70%,_transparent),inset_0_1px_0_color-mix(in_oklab,_var(--color-highlight)_7%,_transparent)]',
   ].join(' '),
 }
 
@@ -117,7 +117,7 @@ const sideChrome: Record<NonNullable<PanelProps['side']>, string> = {
  * detail panel's own two stops taken to full opacity. No radius, no border,
  * no blur, no bloom.
  */
-const windowChrome = 'bg-gradient-to-b from-[#0f1524] to-[#080c16]'
+const windowChrome = 'bg-gradient-to-b from-raised to-space-deep'
 
 /**
  * Row 1's left inset in a detached window, where the row doubles as the
@@ -137,21 +137,21 @@ export const WINDOW_STRIP_INSET_PX = 80
  * 22f; this is the one place the separation lives.
  */
 const subagentWindowChrome = [
-  'bg-gradient-to-b from-[rgba(10,15,27,.9)] to-[rgba(5,8,16,.94)]',
-  'border-l border-[rgba(150,205,255,.1)]',
-  'shadow-[inset_24px_0_40px_-28px_rgba(0,0,0,.9)]',
+  'bg-gradient-to-b from-panel/90 to-space/94',
+  'border-l border-line/10',
+  'shadow-[inset_24px_0_40px_-28px_color-mix(in_oklab,_var(--color-shadow)_90%,_transparent)]',
 ].join(' ')
 
 /** Drop shadow list for `sideChrome[side]`, re-stated so the hue bloom can extend it. */
 const sideShadow: Record<NonNullable<PanelProps['side']>, string> = {
-  left: '0 30px 80px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.06)',
-  right: '0 30px 80px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06)',
+  left: '0 30px 80px color-mix(in oklab, var(--color-shadow) 50%, transparent), inset 0 1px 0 color-mix(in oklab, var(--color-highlight) 6%, transparent)',
+  right: '0 30px 80px color-mix(in oklab, var(--color-shadow) 55%, transparent), inset 0 1px 0 color-mix(in oklab, var(--color-highlight) 6%, transparent)',
   // No hue bloom on this panel in the canvas (11b draws none, matching the
   // detail panel's own "omitted = no bloom" convention above) — restated
   // here only so every `side` has an entry and `glowHue` stays type-safe if
   // a future caller ever passes one anyway.
-  subagent: 'inset 24px 0 40px -28px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.03)',
-  float: '0 40px 120px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.07)',
+  subagent: 'inset 24px 0 40px -28px color-mix(in oklab, var(--color-shadow) 90%, transparent), inset 0 1px 0 color-mix(in oklab, var(--color-highlight) 3%, transparent)',
+  float: '0 40px 120px color-mix(in oklab, var(--color-shadow) 70%, transparent), inset 0 1px 0 color-mix(in oklab, var(--color-highlight) 7%, transparent)',
 }
 
 export function Panel({
@@ -183,7 +183,7 @@ export function Panel({
     bloom || useLiveWidth
       ? {
           ...(bloom
-            ? { boxShadow: `${sideShadow[side]}, 0 0 40px oklch(80% 0.13 ${glowHue} / 0.08)` }
+            ? { boxShadow: `${sideShadow[side]}, 0 0 40px oklch(var(--tb-l) var(--tb-c) ${glowHue} / 0.08)` }
             : undefined),
           ...(useLiveWidth ? { width: widthPx } : undefined),
         }

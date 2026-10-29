@@ -34,7 +34,7 @@ function ReportedChip({ url }: { url: string }) {
       target="_blank"
       rel="noreferrer"
       title={`Reported as issue #${n ?? ''} · opens on GitHub`}
-      className="inline-flex items-center rounded-full border border-[rgba(150,205,255,.14)] px-2.5 py-1 font-mono text-[11px] text-[rgba(220,235,255,.85)] no-underline transition-colors hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright"
+      className="inline-flex items-center rounded-full border border-line/14 px-2.5 py-1 font-mono fs-11 text-ink-200/85 no-underline transition-colors hover:bg-line/8 hover:text-ink-100"
     >
       #{n ?? ''} ↗
     </a>
@@ -65,7 +65,7 @@ function ErrorRow({ error, onReport }: { error: ErrorRecord; onReport: (error: E
   // precomputed to #de3b3d for Tailwind arbitrary values (see theme.css for
   // the convention). Kind ink is oklch(85% .1 25) → #ffb4ad.
   const separator = (
-    <span aria-hidden className={isDev ? 'text-[rgba(150,205,255,.2)]' : 'text-[rgba(150,205,255,.28)]'}>
+    <span aria-hidden className={isDev ? 'text-line/20' : 'text-line/28'}>
       ·
     </span>
   )
@@ -105,8 +105,8 @@ function ErrorRow({ error, onReport }: { error: ErrorRecord; onReport: (error: E
   return (
     <div
       className={[
-        'flex items-start gap-2.5 border-b border-[rgba(150,205,255,.07)] px-2.5 py-[13px]',
-        unseen ? 'bg-[rgba(150,205,255,.05)]' : '',
+        'flex items-start gap-2.5 border-b border-line/7 px-2.5 py-[13px]',
+        unseen ? 'bg-line/5' : '',
       ]
         .filter(Boolean)
         .join(' ')}
@@ -116,17 +116,17 @@ function ErrorRow({ error, onReport }: { error: ErrorRecord; onReport: (error: E
         className={[
           'mt-[5px] h-1.5 w-1.5 flex-none rounded-full',
           isDev
-            ? 'box-border border border-[rgba(160,190,225,.5)]'
+            ? 'box-border border border-ink-900/50'
             : unseen
-              ? 'bg-[#de3b3d] shadow-[0_0_10px_#de3b3d]'
-              : 'bg-[#de3b3d] shadow-[0_0_8px_rgba(222,59,61,.7)]',
+              ? 'bg-danger shadow-[0_0_10px_var(--color-danger)]'
+              : 'bg-danger shadow-[0_0_8px_color-mix(in_oklab,_var(--color-danger)_70%,_transparent)]',
         ].join(' ')}
       />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div
           className={[
-            'flex flex-wrap items-center gap-2 font-mono text-[10px] tracking-[0.1em]',
-            isDev ? 'text-[rgba(160,190,225,.55)]' : 'text-[rgba(160,190,225,.7)]',
+            'flex flex-wrap items-center gap-2 font-mono fs-10 tracking-[0.1em]',
+            isDev ? 'text-ink-900/55' : 'text-ink-900/70',
           ].join(' ')}
         >
           {new Date(error.at).toLocaleString()}
@@ -142,24 +142,25 @@ function ErrorRow({ error, onReport }: { error: ErrorRecord; onReport: (error: E
           {isDev ? (
             kindLabel(error.kind)
           ) : (
-            <span className="text-[#ffb4ad]">{kindLabel(error.kind)}</span>
+            <span className="text-danger-pale">{kindLabel(error.kind)}</span>
           )}
           {isDev && (
-            <span className="flex items-center rounded border border-dashed border-[rgba(160,190,225,.4)] px-1.5 py-px text-[9px] tracking-[0.14em] text-[rgba(160,190,225,.6)]">
+            <span className="flex items-center rounded border border-dashed border-ink-900/40 px-1.5 py-px fs-9 tracking-[0.14em] text-ink-900/60">
               DEV
             </span>
           )}
           {unseen && (
             <>
               {separator}
-              <span className="text-[rgba(200,220,245,.75)]">UNSEEN</span>
+              <span className="text-ink-500/75">UNSEEN</span>
             </>
           )}
         </div>
         <div
+          data-selectable
           className={[
             'break-words leading-normal text-pretty',
-            isDev ? 'text-[12.5px] text-[rgba(190,212,238,.7)]' : 'text-[13px] text-text-bright',
+            isDev ? 'fs-12.5 text-ink-700/70' : 'fs-13 text-ink-100',
           ].join(' ')}
         >
           {error.message}
@@ -170,12 +171,12 @@ function ErrorRow({ error, onReport }: { error: ErrorRecord; onReport: (error: E
           <Collapse open={expanded} id={bodyId} className="-mt-1.5">
           <div className="flex flex-col gap-1.5 pt-1.5">
             {error.context && (
-              <pre className="max-h-[150px] overflow-auto whitespace-pre-wrap break-words rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)]">
+              <pre data-selectable className="max-h-[150px] overflow-auto whitespace-pre-wrap break-words rounded-[7px] border border-line/12 bg-space/55 px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-ink-700/80">
                 {JSON.stringify(error.context, null, 2)}
               </pre>
             )}
             {error.detail && (
-              <pre className="max-h-[150px] overflow-auto whitespace-pre-wrap break-words rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)]">
+              <pre data-selectable className="max-h-[150px] overflow-auto whitespace-pre-wrap break-words rounded-[7px] border border-line/12 bg-space/55 px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-ink-700/80">
                 {error.detail}
               </pre>
             )}
@@ -269,7 +270,7 @@ export function ErrorLog({ open, onClose }: ErrorLogProps) {
       }
     >
       {rows.length === 0 ? (
-        <p className="orbital-arrive text-[13px] text-[rgba(200,214,235,.85)]">
+        <p className="orbital-arrive fs-13 text-ink-600/85">
           No unread errors.
         </p>
       ) : (

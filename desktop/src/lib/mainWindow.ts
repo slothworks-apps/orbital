@@ -19,6 +19,16 @@ export function parseWindowButtonsVisible(payload: unknown): boolean | null {
 }
 
 /**
+ * `theme-background` as main reads it: the colour theme's panel top, which
+ * a window paints before its page loads so opening one does not flash the
+ * default dark (spec 2026-10-29-colour-tokens-design). Only `#rrggbb` gets
+ * through; anything else is dropped and the window keeps what it had.
+ */
+export function parseThemeBackground(payload: unknown): string | null {
+  return typeof payload === 'string' && /^#[0-9a-f]{6}$/i.test(payload) ? payload.toLowerCase() : null;
+}
+
+/**
  * `full-screen-changed` as the preload reads it. Only a literal `true` is full
  * screen: a malformed message leaves the renderer in the windowed layout, the
  * one where every control still clears the lights.

@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode, Ref } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -93,7 +94,7 @@ function ReadOnlyBadge() {
   return (
     <span
       title="Attached from an external terminal · read-only in Orbital"
-      className="shrink-0 rounded border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.04)] px-[5px] py-px font-mono text-[9px] tracking-[0.1em] text-[rgba(160,190,225,.75)]"
+      className="shrink-0 rounded border border-line/18 bg-line/4 px-[5px] py-px font-mono fs-9 tracking-[0.1em] text-ink-900/75"
     >
       read-only
     </span>
@@ -128,7 +129,7 @@ function RowDot({
   /** Its device is offline: what it last said is not live, so the busy disc loses its glow (canvas 50e `live = WORKING && !off`). */
   offline?: boolean
 }) {
-  const color = hue !== undefined ? tagColor(hue) : 'rgba(160,190,225,.6)'
+  const color = hue !== undefined ? tagColor(hue) : swatch('ink-900', 0.6)
   const box = { width: `${size}px`, height: `${size}px` }
   if (status === 'idle' || status === 'ended') {
     return (
@@ -194,15 +195,15 @@ function StatsLink({ size }: { size: 'footer' | 'rail' }) {
       aria-label={label}
       title={`${label} · ${shortcutLabel('global.stats')}`}
       className={[
-        'grid shrink-0 place-items-center bg-[rgba(150,205,255,.05)] no-underline',
-        'text-[rgba(200,220,245,.8)] transition-colors duration-[180ms] hover:text-text-bright',
+        'grid shrink-0 place-items-center bg-line/5 no-underline',
+        'text-ink-500/80 transition-colors duration-[180ms] hover:text-ink-100',
         // 11d draws the footer icon at the settings pill's own height and
         // chrome; both pin that height with the same class so their edges
         // line up — the pill's padding alone leaves it a pixel taller than
         // the icon. The rail's is the rail settings button, glyph and all.
         size === 'footer'
-          ? 'h-6 w-[26px] rounded-[7px] border border-panel-border hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.12)]'
-          : 'h-[30px] w-[30px] rounded-lg border border-panel-border hover:bg-[rgba(150,205,255,.13)]',
+          ? 'h-6 w-[26px] rounded-[7px] border border-line/14 hover:border-line/30 hover:bg-line/12'
+          : 'h-[30px] w-[30px] rounded-lg border border-line/14 hover:bg-line/13',
       ].join(' ')}
     >
       <StatsGlyph size={size === 'footer' ? 'footer' : 'header'} />
@@ -224,11 +225,11 @@ function LimitsLink({ size }: { size: 'footer' | 'rail' }) {
       aria-label={label}
       title={label}
       className={[
-        'grid shrink-0 place-items-center bg-[rgba(150,205,255,.05)] no-underline',
-        'text-[rgba(200,220,245,.8)] transition-colors duration-[180ms] hover:text-text-bright',
+        'grid shrink-0 place-items-center bg-line/5 no-underline',
+        'text-ink-500/80 transition-colors duration-[180ms] hover:text-ink-100',
         size === 'footer'
-          ? 'h-6 w-[26px] rounded-[7px] border border-panel-border hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.12)]'
-          : 'h-[30px] w-[30px] rounded-lg border border-panel-border hover:bg-[rgba(150,205,255,.13)]',
+          ? 'h-6 w-[26px] rounded-[7px] border border-line/14 hover:border-line/30 hover:bg-line/12'
+          : 'h-[30px] w-[30px] rounded-lg border border-line/14 hover:bg-line/13',
       ].join(' ')}
     >
       <LimitsGlyph size={size} />
@@ -254,7 +255,7 @@ function IconButton({
       aria-label={label}
       title={title}
       onClick={onClick}
-      className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-panel-border text-sm text-[rgba(200,220,245,.7)] transition-colors hover:bg-white/5 hover:text-text-bright"
+      className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-line/14 fs-14 leading-(--text-sm--line-height) text-ink-500/70 transition-colors hover:bg-ink-50/5 hover:text-ink-100"
     >
       <span aria-hidden>{glyph}</span>
     </button>
@@ -287,7 +288,7 @@ function RowStatus({ session }: { session: ApiSession }) {
     return (
       <span
         data-state="compacting"
-        className="orbital-compact-label-in flex shrink-0 items-center font-mono text-[9.5px] uppercase tracking-[0.08em] text-[rgba(214,228,246,.8)]"
+        className="orbital-compact-label-in flex shrink-0 items-center font-mono fs-9.5 uppercase tracking-[0.08em] text-ink-400/80"
       >
         COMPACT {formatElapsed(now - compacting.startedAt)}
       </span>
@@ -299,7 +300,7 @@ function RowStatus({ session }: { session: ApiSession }) {
     return (
       <span
         data-state="limit"
-        className="flex shrink-0 items-center font-mono text-[9.5px] uppercase tracking-[0.08em] text-[rgba(214,230,248,.8)]"
+        className="flex shrink-0 items-center font-mono fs-9.5 uppercase tracking-[0.08em] text-ink-400/80"
       >
         {limitWaitShort(session.limitWait)}
       </span>
@@ -311,7 +312,7 @@ function RowStatus({ session }: { session: ApiSession }) {
     return (
       <span
         data-state="login"
-        className="flex shrink-0 items-center font-mono text-[9.5px] uppercase tracking-[0.08em] text-[rgba(214,230,248,.8)]"
+        className="flex shrink-0 items-center font-mono fs-9.5 uppercase tracking-[0.08em] text-ink-400/80"
       >
         {loginWaitLabels(session.loginWait, null).short}
       </span>
@@ -320,7 +321,7 @@ function RowStatus({ session }: { session: ApiSession }) {
   return (
     <span
       data-state={key}
-      className="flex shrink-0 items-center gap-[5px] font-mono text-[9.5px] uppercase tracking-[0.08em]"
+      className="flex shrink-0 items-center gap-[5px] font-mono fs-9.5 uppercase tracking-[0.08em]"
       style={{ color }}
     >
       <StateDot dot={stillDot(dot, offline)} color={color} solidPx={5} hollowPx={6} />
@@ -382,14 +383,14 @@ function SessionRow({
       style={{ viewTransitionName: sessionViewTransitionName(session.id) }}
       onContextMenu={onContextMenu ? (e) => onContextMenu(session.id, e) : undefined}
       className={[
-        'group/row relative rounded-lg transition-colors hover:bg-white/5',
-        menuSubject && !selected ? 'bg-white/5' : '',
+        'group/row relative rounded-lg transition-colors hover:bg-ink-50/5',
+        menuSubject && !selected ? 'bg-ink-50/5' : '',
         // 1a dims ended rows; per-row rather than on the list, because 4c
         // puts ended and live rows side by side inside PINNED. 50e halves a
         // row whose device is offline, ended or not.
         offline ? 'opacity-50' : history ? 'opacity-75' : '',
         selected
-          ? 'border border-[rgba(150,205,255,.12)] bg-[rgba(150,205,255,.07)]'
+          ? 'border border-line/12 bg-line/7'
           : 'border border-transparent',
       ].join(' ')}
     >
@@ -415,7 +416,7 @@ function SessionRow({
           <span className="flex min-w-0 items-center gap-1.5">
             <span
               className={[
-                'min-w-0 truncate text-[13px] text-text-bright',
+                'min-w-0 truncate fs-13 text-ink-100',
                 history ? 'font-medium' : 'font-semibold',
               ].join(' ')}
             >
@@ -424,7 +425,7 @@ function SessionRow({
             {/* 22e: the planet's badge glyph, bare — the row's way of saying
                 the session is in a window of its own. Static, neutral ink. */}
             {detached && (
-              <span className="flex shrink-0 text-[rgba(160,190,225,.6)]">
+              <span className="flex shrink-0 text-ink-900/60">
                 <DetachGlyph />
               </span>
             )}
@@ -435,14 +436,14 @@ function SessionRow({
             // path, at the same x on every row so a column of them can be
             // scanned. It takes the pointer for its tooltip and passes the
             // press on to the row.
-            <span className="mt-[3px] flex min-w-0 items-center gap-1.5 font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+            <span className="mt-[3px] flex min-w-0 items-center gap-1.5 font-mono fs-10.5 text-ink-900/65">
               <span className="pointer-events-auto flex" onClick={() => onSelect(session.id)}>
                 <ClaudeDirMark mono={dirMark.mono} title={dirMark.title} />
               </span>
               <span className="min-w-0 truncate">{meta}</span>
             </span>
           ) : (
-            <span className="block truncate font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+            <span className="block truncate font-mono fs-10.5 text-ink-900/65">
               {meta}
             </span>
           )}
@@ -488,7 +489,7 @@ function SectionHeading({
     <h3
       ref={headingRef}
       className={[
-        'flex items-center gap-2 px-[18px] pb-1.5 font-mono text-[10px] tracking-[0.18em] text-text-muted',
+        'flex items-center gap-2 px-[18px] pb-1.5 font-mono fs-10 tracking-[0.18em] text-ink-900/70',
         first ? 'pt-3.5' : 'pt-[18px]',
       ].join(' ')}
     >
@@ -742,7 +743,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           onPointerCancel={handleWidthPointerUp}
           onDoubleClick={handleWidthReset}
           // `orbital-no-drag`: its top runs under the window's drag band (24a).
-          className="orbital-no-drag absolute inset-y-0 right-0 z-20 w-2 cursor-col-resize touch-none hover:bg-[rgba(150,205,255,.08)]"
+          className="orbital-no-drag absolute inset-y-0 right-0 z-20 w-2 cursor-col-resize touch-none hover:bg-line/8"
         />
       )}
       {/* The detail panel's top glint (1b), in the accent: the sidebar has
@@ -768,7 +769,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           glyph="»"
           onClick={() => setSidebarCollapsed(false)}
         />
-        <span aria-hidden className="h-px w-5 bg-panel-border" />
+        <span aria-hidden className="h-px w-5 bg-line/14" />
         {active.slice(0, 8).map((s) => (
           <RowDot key={s.id} hue={rowHue(s, tags)} status={s.status} size={8} offline={machineOffline(s)} />
         ))}
@@ -783,7 +784,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           aria-label="Open settings"
           title={`Settings · ${shortcutLabel('global.settings')}`}
           onClick={() => setDialog('settings')}
-          className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-lg border border-panel-border bg-[rgba(150,205,255,.05)] transition-colors duration-[180ms] hover:bg-[rgba(150,205,255,.13)]"
+          className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-lg border border-line/14 bg-line/5 transition-colors duration-[180ms] hover:bg-line/13"
         >
           <SettingsRing size={12} />
         </button>
@@ -821,7 +822,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         ].join(' ')}
       >
         <Logo dimmed={!windowFocused} />
-        <span className="text-[13px] font-bold tracking-[0.22em] text-text-bright">ORBITAL</span>
+        <span className="fs-13 font-bold tracking-[0.22em] text-ink-100">ORBITAL</span>
         <span className="flex-1" />
         <IconButton
           label="Collapse sidebar"
@@ -832,8 +833,8 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
       </div>
 
       {/* Search field verbatim from canvas 1a: dark inset container with a ⌕ glyph and a ⌘K keycap. */}
-      <label className="mx-3.5 flex items-center gap-2 rounded-[9px] border border-panel-border bg-[rgba(4,8,16,.6)] px-3 py-[9px] text-[13px] text-[rgba(160,190,225,.6)]">
-        <span aria-hidden className="text-sm">⌕</span>
+      <label className="mx-3.5 flex items-center gap-2 rounded-[9px] border border-line/14 bg-space/60 px-3 py-[9px] fs-13 text-ink-900/60">
+        <span aria-hidden className="fs-14 leading-(--text-sm--line-height)">⌕</span>
         <input
           id={SEARCH_INPUT_ID}
           type="search"
@@ -841,9 +842,9 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search sessions"
           aria-label="Search sessions"
-          className="min-w-0 flex-1 border-0 bg-transparent text-[13px] text-text-bright outline-none placeholder:text-[rgba(160,190,225,.6)]"
+          className="min-w-0 flex-1 border-0 bg-transparent fs-13 text-ink-100 outline-none placeholder:text-ink-900/60"
         />
-        <span className="rounded border border-[rgba(150,205,255,.18)] px-[5px] py-0.5 font-mono text-[10px] text-text-muted">
+        <span className="rounded border border-line/18 px-[5px] py-0.5 font-mono fs-10 text-ink-900/70">
           {shortcutLabel('global.search')}
         </span>
       </label>
@@ -894,7 +895,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
                   history={s.status === 'ended'}
                   right={
                     s.status === 'ended' ? (
-                      <span className="font-mono text-[10px] text-text-muted">
+                      <span className="font-mono fs-10 text-ink-900/70">
                         {timeAgo(s.lastAt ?? Date.now())}
                       </span>
                     ) : (
@@ -954,7 +955,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
               deviceName={deviceNameOf(s)}
               history
               right={
-                <span className="font-mono text-[10px] text-text-muted">
+                <span className="font-mono fs-10 text-ink-900/70">
                   {timeAgo(s.lastAt ?? Date.now())}
                 </span>
               }
@@ -965,7 +966,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
         <div ref={sentinelRef} data-testid="sidebar-sentinel" aria-hidden className="h-px" />
       </div>
 
-      <div className="flex items-center gap-2 border-t border-[rgba(150,205,255,.1)] px-[18px] py-3 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+      <div className="flex items-center gap-2 border-t border-line/10 px-[18px] py-3 font-mono fs-10 tracking-[0.06em] text-ink-900/55">
         {/* 4a's footer carries the pin count beside the session count, and
             only while there is one to carry. */}
         <span>
@@ -988,7 +989,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
           aria-label="Open settings"
           title={`Settings · ${shortcutLabel('global.settings')}`}
           onClick={() => setDialog('settings')}
-          className="flex h-6 items-center gap-[7px] rounded-[7px] border border-panel-border bg-[rgba(150,205,255,.05)] px-[9px] tracking-[0.14em] text-[rgba(200,220,245,.8)] transition-colors duration-[180ms] hover:bg-[rgba(150,205,255,.12)] hover:text-text-bright"
+          className="flex h-fit min-h-6 items-center gap-[7px] rounded-[7px] border border-line/14 bg-line/5 px-[9px] tracking-[0.14em] text-ink-500/80 transition-colors duration-[180ms] hover:bg-line/12 hover:text-ink-100"
         >
           <SettingsRing size={9} />
           SETTINGS

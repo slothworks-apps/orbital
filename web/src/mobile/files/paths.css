@@ -23,7 +23,7 @@
 /* 10d: in prose the path is mono 12.5px inside 14px text. */
 :root[data-platform='mobile'] [data-path-button][data-variant='prose'] {
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale, 1));
 }
 
 /* Spec § 8 Decision 8: a path the phone cannot show is no link — plain mono
@@ -34,5 +34,5 @@
   user-select: none;
 }
 :root[data-platform='mobile'] .message-markdown [data-path-plain]:not(code *) {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale, 1));
 }

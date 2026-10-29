@@ -136,7 +136,7 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
             Cancel
           </Button>
           <Button variant="primary" size="lg" onClick={() => void handleClear()} disabled={pending}>
-            <span aria-hidden className="text-sm leading-none">
+            <span aria-hidden className="fs-14 leading-none">
               ↻
             </span>
             Clear &amp; start new
@@ -146,15 +146,15 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
     >
       <div className="flex flex-col">
         {/* Copy + geometry from canvas 1g. */}
-        <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+        <p className="fs-13 leading-[1.55] text-ink-600/85 [text-wrap:pretty]">
           {session?.title && (
-            <span className="font-mono text-text-bright">{session.title}</span>
+            <span className="font-mono text-ink-100">{session.title}</span>
           )}
           {session?.title ? ' ends' : 'This session ends'} and moves to history. A new session starts in
           the same project and inherits its settings.
         </p>
 
-        <div className="mt-3.5 rounded-[9px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3.5 py-3 font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+        <div className="mt-3.5 rounded-[9px] border border-line/10 bg-space/45 px-3.5 py-3 font-mono fs-10.5 leading-[1.6] text-ink-900/75">
           <div className="truncate">
             {session?.permissionMode ?? 'mode'} ·{' '}
             {tagNames.length > 0 ? tagNames.join(', ') : 'tags'} · same directory
@@ -167,9 +167,9 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
               checked={carryHarness}
               onChange={setCarryHarness}
               label={
-                <span className="text-[12px] text-[rgba(160,190,225,.75)]">
+                <span className="fs-12 text-ink-900/75">
                   Continue the harness in the new session{' '}
-                  <span className="font-mono text-[10px] text-[rgba(160,190,225,.5)]">
+                  <span className="font-mono fs-10 text-ink-900/50">
                     ({carriedStep(carryable)})
                   </span>
                 </span>
@@ -183,9 +183,9 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
             checked={dontAskAgain}
             onChange={setDontAskAgain}
             label={
-              <span className="text-[12px] text-[rgba(160,190,225,.75)]">
+              <span className="fs-12 text-ink-900/75">
                 Don&apos;t ask again{' '}
-                <span className="font-mono text-[10px] text-[rgba(160,190,225,.5)]">
+                <span className="font-mono fs-10 text-ink-900/50">
                   (Settings → Sessions)
                 </span>
               </span>

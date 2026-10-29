@@ -4,6 +4,7 @@ import {
   mainWindowUrl,
   parseFullScreen,
   parseMainWindowPath,
+  parseThemeBackground,
   parseWindowButtonsVisible,
 } from '../src/lib/mainWindow';
 
@@ -89,5 +90,16 @@ describe('decideWindowButtons', () => {
   it('leaves the lights to macOS in full screen, whatever was asked', () => {
     expect(decideWindowButtons(true, true)).toBeNull();
     expect(decideWindowButtons(false, true)).toBeNull();
+  });
+});
+
+describe('parseThemeBackground', () => {
+  it('takes a six-digit hex colour, lower-cased', () => {
+    expect(parseThemeBackground('#0F1524')).toBe('#0f1524');
+  });
+  it('drops anything else', () => {
+    for (const payload of ['red', '#fff', '#0f1524ff', 'rgb(0,0,0)', 42, null, undefined, { colour: '#000000' }]) {
+      expect(parseThemeBackground(payload)).toBeNull();
+    }
   });
 });

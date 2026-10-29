@@ -81,6 +81,11 @@ contextBridge.exposeInMainWorld('orbitalDesktop', {
   setWindowButtonsVisible(visible: boolean) {
     ipcRenderer.send('set-window-buttons-visible', visible);
   },
+  // The colour theme's panel top, which main paints behind a window before
+  // its page loads (spec 2026-10-29-colour-tokens-design).
+  setThemeBackground(colour: string) {
+    ipcRenderer.send('theme-background', colour);
+  },
   onFullScreenChanged(cb: (fullScreen: boolean) => void) {
     ipcRenderer.on('full-screen-changed', (_e, fullScreen) => cb(parseFullScreen(fullScreen)));
   },

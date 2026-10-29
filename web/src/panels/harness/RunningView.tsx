@@ -1,3 +1,4 @@
+import { swatch } from '../../lib/palette'
 import { useState, type ReactNode } from 'react'
 import { useOrbital } from '../../store/store'
 import { api } from '../../lib/api'
@@ -33,12 +34,12 @@ import { AccentLink, FilledButton, HeadButton, HeaderBlock, Kicker, Label, Marke
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 const BOX = 'flex flex-col rounded-[9px] px-3 py-[11px]'
-const BODY = 'text-pretty text-[12px] leading-[1.55] text-[rgba(220,232,248,.88)]'
+const BODY = 'text-pretty fs-12 leading-[1.55] text-ink-400/88'
 
 /** INSTRUCTIONS / DONE WHEN / VERIFY · RUNS AFTER EACH TICK (30d, the active step). */
 function Instructions({ step }: { step: SessionHarness['steps'][number] }) {
   return (
-    <div className={`${BOX} gap-2.5 border border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.5)]`}>
+    <div className={`${BOX} gap-2.5 border border-line/14 bg-space/50`}>
       <div>
         <Label>INSTRUCTIONS</Label>
         <div className={`mt-[5px] whitespace-pre-wrap ${BODY}`}>{step.instructions}</div>
@@ -52,7 +53,7 @@ function Instructions({ step }: { step: SessionHarness['steps'][number] }) {
       {step.verify && (
         <div>
           <Label>VERIFY · RUNS AFTER EACH TICK</Label>
-          <div className="mt-[5px] whitespace-pre-wrap break-all rounded-[6px] bg-[rgba(2,4,9,.7)] px-[9px] py-[7px] font-mono text-[10.5px] leading-[1.5] text-[rgba(214,230,248,.9)]">
+          <div data-selectable className="mt-[5px] whitespace-pre-wrap break-all rounded-[6px] bg-space/70 px-[9px] py-[7px] font-mono fs-10.5 leading-[1.5] text-ink-400/90">
             $ {step.verify}
           </div>
         </div>
@@ -64,8 +65,8 @@ function Instructions({ step }: { step: SessionHarness['steps'][number] }) {
 /** A left-ruled note over the instructions: why the step is active again (30d B). */
 function BackNote({ head, children }: { head: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-[5px] border-l border-[rgba(220,235,255,.3)] pl-2.5">
-      <div className="font-mono text-[9px] tracking-[0.18em] text-[rgba(200,220,245,.75)]">{head}</div>
+    <div className="flex flex-col gap-[5px] border-l border-ink-200/30 pl-2.5">
+      <div className="font-mono fs-9 tracking-[0.18em] text-ink-500/75">{head}</div>
       <div className={`${BODY} leading-[1.55]`}>{children}</div>
     </div>
   )
@@ -105,14 +106,14 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
         <span className="mt-[5px]">
           <Marker kind={kind} gate={isGateShape(kind, step)} />
         </span>
-        {!last && <span aria-hidden className="mt-[7px] block w-px flex-1 bg-[rgba(150,205,255,.12)]" />}
+        {!last && <span aria-hidden className="mt-[7px] block w-px flex-1 bg-line/12" />}
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-[9px] pb-[15px]">
         <button type="button" onClick={onToggle} aria-expanded={open} className="flex flex-col gap-1 text-left">
-          <span className="text-pretty text-[12.5px] font-semibold leading-[1.42]" style={{ color: m.titleInk }}>
+          <span className="text-pretty fs-12.5 font-semibold leading-[1.42]" style={{ color: m.titleInk }}>
             {step.title}
           </span>
-          <span className="font-mono text-[10px] tracking-[0.03em]" style={{ color: m.metaInk }}>
+          <span className="font-mono fs-10 tracking-[0.03em]" style={{ color: m.metaInk }}>
             {stepMeta(index, step, who)}
           </span>
         </button>
@@ -121,7 +122,7 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
           <BackNote head={`REVIEWER SENT THIS BACK · ${clock(lastReview.at)}`}>
             {lastReview.reasoning}
             {state.unsentFindings && (
-              <span className="mt-1 block font-mono text-[9.5px] text-[rgba(160,190,225,.55)]">
+              <span className="mt-1 block font-mono fs-9.5 text-ink-900/55">
                 held · sent when auto-continue is back on
               </span>
             )}
@@ -135,9 +136,9 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
         {open && showInstructions && <Instructions step={step} />}
 
         {open && kind === 'waiting' && (
-          <div className={`${BOX} gap-2.5 border border-[oklch(84%_.113_63_/_.35)] bg-[rgba(4,8,16,.5)]`}>
-            {(state.summary ?? state.evidence) && <div className={`${BODY} text-[rgba(220,232,248,.9)]`}>{state.summary ?? state.evidence}</div>}
-            {waitMeta && <div className="font-mono text-[10px] text-[rgba(160,190,225,.65)]">{waitMeta}</div>}
+          <div className={`${BOX} gap-2.5 border border-warning/35 bg-space/50`}>
+            {(state.summary ?? state.evidence) && <div className={`${BODY} text-ink-400/90`}>{state.summary ?? state.evidence}</div>}
+            {waitMeta && <div className="font-mono fs-10 text-ink-900/65">{waitMeta}</div>}
             <div className="flex items-center gap-2">
               {!readOnly && (
                 <>
@@ -152,29 +153,29 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
               <span aria-hidden className="flex-1" />
               <AccentLink onClick={onRecord}>RECORD →</AccentLink>
             </div>
-            {!readOnly && <div className="font-mono text-[9.5px] text-[rgba(160,190,225,.5)]">Reopen sends nothing. You write what to change.</div>}
+            {!readOnly && <div className="font-mono fs-9.5 text-ink-900/50">Reopen sends nothing. You write what to change.</div>}
           </div>
         )}
 
         {open && kind === 'reviewing' && (
-          <div className={`${BOX} gap-2 border border-dashed border-[rgba(220,235,255,.22)] bg-[rgba(4,8,16,.4)]`}>
+          <div className={`${BOX} gap-2 border border-dashed border-ink-200/22 bg-space/40`}>
             <div className={BODY}>
               The reviewer is reading the step&apos;s record and its changes. It approves, approves unsure, or sends the step
               back with a reason.
             </div>
-            <div className="font-mono text-[10px] leading-[1.6] text-[rgba(160,190,225,.6)]">
+            <div className="font-mono fs-10 leading-[1.6] text-ink-900/60">
               reading · {range ? `diff ${range}` : 'the record'}
             </div>
             {!readOnly && (
-              <div className="flex gap-3.5 font-mono text-[10px] tracking-[0.06em]">
+              <div className="flex gap-3.5 font-mono fs-10 tracking-[0.06em]">
                 <button
                   type="button"
                   onClick={() => void act(sessionId, 'Failed to take the gate', () => api.decideHarnessStepMyself(sessionId, index))}
-                  className="shrink-0 text-left text-[oklch(85%_.12_205)] hover:brightness-110"
+                  className="shrink-0 text-left text-accent hover:brightness-110"
                 >
                   Decide myself
                 </button>
-                <span className="text-[rgba(160,190,225,.6)]">the reviewer stops, the gate waits for you</span>
+                <span className="text-ink-900/60">the reviewer stops, the gate waits for you</span>
               </div>
             )}
           </div>
@@ -183,14 +184,14 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
         {open && isDone(kind) && (
           <div className="flex flex-col gap-[7px]">
             {(state.summary ?? state.evidence) && (
-              <div className="text-pretty text-[12px] leading-[1.55] text-[rgba(200,214,235,.8)]">{state.summary ?? state.evidence}</div>
+              <div className="text-pretty fs-12 leading-[1.55] text-ink-600/80">{state.summary ?? state.evidence}</div>
             )}
             {kind === 'doneUnsure' && (
-              <div className="font-mono text-[10px] text-[rgba(220,235,255,.85)]">
+              <div className="font-mono fs-10 text-ink-200/85">
                 ◇ reviewer unsure{questions ? ` · ${plural(questions, 'thing')} to look at` : ''}
               </div>
             )}
-            <div className="flex items-center gap-2 font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+            <div className="flex items-center gap-2 font-mono fs-10 text-ink-900/60">
               {range && <span>{range}</span>}
               <span aria-hidden className="flex-1" />
               <AccentLink onClick={onRecord}>RECORD →</AccentLink>
@@ -205,15 +206,15 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
 /** A harness-level event between the steps (30g): a dashed row. */
 function EventRow({ text }: { text: string }) {
   return (
-    <div className="-mt-1 mb-3.5 flex items-center gap-2 font-mono text-[9.5px] tracking-[0.06em] text-[rgba(160,190,225,.6)]">
+    <div className="-mt-1 mb-3.5 flex items-center gap-2 font-mono fs-9.5 tracking-[0.06em] text-ink-900/60">
       <span className="flex w-[14px] shrink-0 justify-center">
-        <span aria-hidden className="block h-[1.4px] w-[7px] bg-[rgba(160,190,225,.6)]" />
+        <span aria-hidden className="block h-[1.4px] w-[7px] bg-ink-900/60" />
       </span>
       <span className="shrink-0">{text}</span>
       <span
         aria-hidden
         className="block h-px flex-1"
-        style={{ background: 'repeating-linear-gradient(90deg,rgba(150,205,255,.2) 0 3px,transparent 3px 8px)' }}
+        style={{ background: 'repeating-linear-gradient(90deg,color-mix(in oklab, var(--color-line) 20%, transparent) 0 3px,transparent 3px 8px)' }}
       />
     </div>
   )
@@ -297,7 +298,7 @@ export function RunningView({
             body: (
               <span className="flex flex-col">
                 <span>Remove harness…</span>
-                <span className="mt-0.5 font-mono text-[10px] text-[rgba(160,190,225,.6)]">the conversation stays</span>
+                <span className="mt-0.5 font-mono fs-10 text-ink-900/60">the conversation stays</span>
               </span>
             ),
             onSelect: () => setRemoving(true),
@@ -320,7 +321,7 @@ export function RunningView({
               widthPx={236}
               align="right"
               renderTrigger={(props, isOpen) => (
-                <HeadButton label="More" {...props} style={isOpen ? { background: 'rgba(150,205,255,.09)', color: '#e8eef8' } : undefined}>
+                <HeadButton label="More" {...props} style={isOpen ? { background: swatch('line', 0.09), color: swatch('ink-100') } : undefined}>
                   ⋯
                 </HeadButton>
               )}
@@ -333,36 +334,36 @@ export function RunningView({
             {chrome.close}
           </>,
         )}
-        <div className="mt-2 text-[15px] font-semibold leading-[1.34] tracking-[-0.005em] text-text-bright">{harness.name}</div>
-        {inputs && <div className="mt-1 truncate font-mono text-[10px] text-[rgba(160,190,225,.6)]">{inputs}</div>}
+        <div className="mt-2 fs-15 font-semibold leading-[1.34] tracking-[-0.005em] text-ink-100">{harness.name}</div>
+        {inputs && <div className="mt-1 truncate font-mono fs-10 text-ink-900/60">{inputs}</div>}
         <Segments kinds={kinds} className="mt-3" />
-        <div className="mt-2 flex items-center gap-2 font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
-          <span className="text-[#e8eef8]">{head.step}</span>
-          <span className="text-[rgba(150,205,255,.3)]">·</span>
+        <div className="mt-2 flex items-center gap-2 font-mono fs-10.5 text-ink-900/60">
+          <span className="text-ink-100">{head.step}</span>
+          <span className="text-line/30">·</span>
           <span style={{ color: head.ink }}>{head.status}</span>
           <span aria-hidden className="flex-1" />
           <span>started {clock(harness.createdAt)}</span>
         </div>
         {harness.paused && !readOnly && (
-          <div className="mt-3 flex flex-col gap-[5px] rounded-lg border border-[rgba(150,205,255,.2)] bg-[rgba(150,205,255,.05)] px-3 py-2.5">
-            <div className="flex items-center gap-[7px] font-mono text-[9.5px] tracking-[0.16em] text-[rgba(220,235,255,.85)]">
-              <span aria-hidden className="block size-1.5 rounded-[1px] bg-[rgba(200,220,245,.8)]" />
+          <div className="mt-3 flex flex-col gap-[5px] rounded-lg border border-line/20 bg-line/5 px-3 py-2.5">
+            <div className="flex items-center gap-[7px] font-mono fs-9.5 tracking-[0.16em] text-ink-200/85">
+              <span aria-hidden className="block size-1.5 rounded-[1px] bg-ink-500/80" />
               PAUSED
               <span aria-hidden className="flex-1" />
               {harness.pauseKind && (
-                <span className="tracking-[0.04em] text-[rgba(160,190,225,.6)]">{PAUSE_LABEL[harness.pauseKind]}</span>
+                <span className="tracking-[0.04em] text-ink-900/60">{PAUSE_LABEL[harness.pauseKind]}</span>
               )}
             </div>
             {harness.pauseReason && (
-              <div className="text-pretty text-[12px] leading-[1.5] text-[rgba(228,238,250,.9)]">{harness.pauseReason}</div>
+              <div className="text-pretty fs-12 leading-[1.5] text-ink-100/90">{harness.pauseReason}</div>
             )}
             {pauseHint(harness.pauseKind) && (
-              <div className="font-mono text-[9.5px] text-[rgba(160,190,225,.55)]">{pauseHint(harness.pauseKind)}</div>
+              <div className="font-mono fs-9.5 text-ink-900/55">{pauseHint(harness.pauseKind)}</div>
             )}
           </div>
         )}
         {!readOnly && (
-          <div className="mt-3 flex items-center gap-[18px] border-t border-[rgba(150,205,255,.08)] pt-3">
+          <div className="mt-3 flex items-center gap-[18px] border-t border-line/8 pt-3">
             <Switch
               on={auto}
               label="Auto-continue"
@@ -403,7 +404,7 @@ export function RunningView({
         })}
       </div>
 
-      <div className="flex items-center gap-2 border-t border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.4)] px-[18px] py-[11px] font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+      <div className="flex items-center gap-2 border-t border-line/10 bg-space/40 px-[18px] py-[11px] font-mono fs-10 tracking-[0.06em] text-ink-900/50">
         <span className="min-w-0">{readOnly ? `removed ${clock(harness.removedAt)} · the record is kept` : footerLine(auto, harness.options.lucky)}</span>
         <span aria-hidden className="flex-1" />
         {!readOnly && <span className="shrink-0">⎋ close</span>}

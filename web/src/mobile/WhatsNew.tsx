@@ -132,16 +132,16 @@ function WhatsNewNotice({ close }: { close: () => void }) {
         {open && (
           <BottomSheet label="What's new" variant="notes" onDismiss={end} swipeToDismiss>
             {/* 2b: 4/8/14/22, ruled off; the title block 6 px down. */}
-            <div className="flex shrink-0 items-start border-b border-[rgba(150,205,255,.1)] pb-3.5 pl-[22px] pr-2 pt-1">
+            <div className="flex shrink-0 items-start border-b border-line/10 pb-3.5 pl-[22px] pr-2 pt-1">
               <div className="flex-1 pt-1.5">
-                <div className="font-mono text-[10.5px] tracking-[0.2em] text-[rgba(160,190,225,.65)]">WHAT’S NEW</div>
-                <h2 className="mt-1.5 text-[20px] font-bold text-text-bright">Orbital {launch.version}</h2>
+                <div className="font-mono fs-10.5 tracking-[0.2em] text-ink-900/65">WHAT’S NEW</div>
+                <h2 className="mt-1.5 fs-20 font-bold text-ink-100">Orbital {launch.version}</h2>
               </div>
               <button
                 type="button"
                 onClick={end}
                 aria-label="Close"
-                className="grid h-11 w-11 place-items-center text-[18px] text-[rgba(160,190,225,.7)]"
+                className="grid h-11 w-11 place-items-center fs-18 text-ink-900/70"
               >
                 ×
               </button>
@@ -151,7 +151,7 @@ function WhatsNewNotice({ close }: { close: () => void }) {
               <ReleaseNoteSections sections={notes.sections} />
             </div>
             {/* 2b: 10/16 over Done; the sheet's own bottom inset stands for the home indicator. */}
-            <div className="flex shrink-0 border-t border-[rgba(150,205,255,.08)] px-4 pb-1.5 pt-2.5">
+            <div className="flex shrink-0 border-t border-line/8 px-4 pb-1.5 pt-2.5">
               <NoticeButton lit size="sheet" onClick={end}>
                 Done
               </NoticeButton>

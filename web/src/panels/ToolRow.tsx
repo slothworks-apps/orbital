@@ -147,7 +147,7 @@ function InputJson({ input }: { input: unknown }) {
   const json = JSON.stringify(input, null, 2) ?? ''
   const lines = json.split('\n')
   return (
-    <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+    <pre className="overflow-x-auto whitespace-pre-wrap font-mono fs-10.5 leading-[1.6] text-ink-900/75">
       {lines.map((line, index) => {
         const trailing = index < lines.length - 1 ? '\n' : ''
         const match = PATH_FIELD_LINE.exec(line)
@@ -193,7 +193,7 @@ function InputJson({ input }: { input: unknown }) {
  * 9.5px mono caption, tracked out .16em (canvas 1b). */
 function SectionLabel({ children }: { children: string }) {
   return (
-    <div className="mb-1 font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.55)]">
+    <div className="mb-1 font-mono fs-9.5 tracking-[0.16em] text-ink-900/55">
       {children}
     </div>
   )
@@ -345,8 +345,8 @@ export function ToolRow({
       className={[
         'overflow-hidden rounded-[7px] border',
         expanded
-          ? 'border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.55)]'
-          : 'border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)]',
+          ? 'border-line/18 bg-space/55'
+          : 'border-line/10 bg-space/45',
       ].join(' ')}
     >
       {/* Two sibling interactive elements — a nested <button> inside the
@@ -360,7 +360,7 @@ export function ToolRow({
           or holds keyboard focus. */}
       <div
         data-tool-header
-        className="relative [&:hover:not(:has([data-path-button]:hover)):not(:has([data-path-button]:focus-visible))]:bg-white/5"
+        className="relative [&:hover:not(:has([data-path-button]:hover)):not(:has([data-path-button]:focus-visible))]:bg-ink-50/5"
       >
         <button
           type="button"
@@ -370,11 +370,11 @@ export function ToolRow({
           aria-label={`${toolUse.toolName ?? 'Tool'}${label ? `: ${label}` : ''}`}
           className="absolute inset-0 h-full w-full"
         />
-        <div className="pointer-events-none relative flex w-full items-center gap-2 px-2.5 py-[7px] text-left font-mono text-[11.5px] text-[rgba(200,220,245,.8)]">
-          <span aria-hidden className="text-[rgba(160,190,225,.6)]">
+        <div className="pointer-events-none relative flex w-full items-center gap-2 px-2.5 py-[7px] text-left font-mono fs-11.5 text-ink-500/80">
+          <span aria-hidden className="text-ink-900/60">
             {expanded ? '▾' : '▸'}
           </span>
-          <span aria-hidden className="text-[rgba(160,190,225,.6)]">
+          <span aria-hidden className="text-ink-900/60">
             ⚙
           </span>
           <span className="min-w-0 flex-1 truncate">
@@ -385,7 +385,7 @@ export function ToolRow({
                 <PathButton path={pressablePath} variant="row" />
               </span>
             ) : (
-              <span className="text-text-bright">{label}</span>
+              <span className="text-ink-100">{label}</span>
             )}
           </span>
           {/* The skim line: how much this call changed, without opening it.
@@ -415,7 +415,7 @@ export function ToolRow({
             // gap between its tool_use and tool_result timestamps. Absent
             // (not "0s") when either side has no timestamp, or the call is
             // still running — see `toolDurationMs`.
-            <span className="shrink-0 text-[rgba(160,190,225,.5)]">· {duration}</span>
+            <span className="shrink-0 text-ink-900/50">· {duration}</span>
           )}
           {!phone && openableSubagent && onOpenSubagent && (
             // Canvas 11a: `oklch(85% .12 205)`, tracked .12em. A sibling of
@@ -430,7 +430,7 @@ export function ToolRow({
                   e.stopPropagation()
                   onOpenSubagent(openableSubagent)
                 }}
-                className="font-mono text-[10.5px] tracking-[0.12em] text-[oklch(85%_0.12_205)] hover:underline"
+                className="font-mono fs-10.5 tracking-[0.12em] text-accent hover:underline"
               >
                 OPEN →
               </button>
@@ -446,7 +446,7 @@ export function ToolRow({
                   e.stopPropagation()
                   onOpenTaskOutput(openableTask)
                 }}
-                className="font-mono text-[10.5px] tracking-[0.12em] text-[oklch(85%_0.12_205)] hover:underline"
+                className="font-mono fs-10.5 tracking-[0.12em] text-accent hover:underline"
               >
                 OUTPUT →
               </button>
@@ -457,7 +457,7 @@ export function ToolRow({
               data-testid="tool-running-dot"
               aria-label="running"
               aria-hidden
-              className="orbital-pulse h-1.5 w-1.5 shrink-0 rounded-full bg-text-soft"
+              className="orbital-pulse h-1.5 w-1.5 shrink-0 rounded-full bg-ink-300"
             />
           )}
         </div>
@@ -478,7 +478,7 @@ export function ToolRow({
       )}
 
       {expanded && (
-        <div className="flex flex-col gap-2 border-t border-[rgba(150,205,255,.08)] px-3 pb-2.5 pt-2">
+        <div className="flex flex-col gap-2 border-t border-line/8 px-3 pb-2.5 pt-2">
           <div>
             <SectionLabel>{change ? changeSectionLabel(change, failed) : 'INPUT'}</SectionLabel>
             {change ? (
@@ -495,7 +495,7 @@ export function ToolRow({
               <SectionLabel>RESULT</SectionLabel>
               {wideImages ? (
                 // The images already stand under the row (above); the text is what is left.
-                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+                <pre className="overflow-x-auto whitespace-pre-wrap font-mono fs-10.5 leading-[1.6] text-ink-900/75">
                   {toolResult.text}
                 </pre>
               ) : toolResult.images?.length ? (
@@ -516,7 +516,7 @@ export function ToolRow({
                         variant="tool"
                         source={toolUse.toolName ?? 'tool result'}
                       />
-                      <div className="min-w-0 font-mono text-[10.5px] leading-[1.7] text-[rgba(160,190,225,.6)]">
+                      <div className="min-w-0 font-mono fs-10.5 leading-[1.7] text-ink-900/60">
                         {image.w && image.h ? (
                           <>
                             {image.w}×{image.h}
@@ -528,7 +528,7 @@ export function ToolRow({
                     </div>
                   ))}
                   {toolResult.text ? (
-                    <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+                    <pre className="overflow-x-auto whitespace-pre-wrap font-mono fs-10.5 leading-[1.6] text-ink-900/75">
                       {toolResult.text}
                     </pre>
                   ) : null}
@@ -536,12 +536,12 @@ export function ToolRow({
                 </FileMessageContext.Provider>
               ) : toolUse.toolName === 'Bash' ? (
                 <pre
-                  className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]"
+                  className="overflow-x-auto whitespace-pre-wrap font-mono fs-10.5 leading-[1.6] text-ink-900/75"
                   // `ansiToHtml` escapes its input before colorizing.
                   dangerouslySetInnerHTML={{ __html: ansiToHtml(toolResult.text ?? '') }}
                 />
               ) : (
-                <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+                <pre className="overflow-x-auto whitespace-pre-wrap font-mono fs-10.5 leading-[1.6] text-ink-900/75">
                   {toolResult.text}
                 </pre>
               )}

@@ -150,7 +150,7 @@ describe('ReportDialog', () => {
     expect(create).toBeEnabled()
   })
 
-  it('offers Check with Claude only while Labs has it on', async () => {
+  it('offers Check with Claude only while its setting is on', async () => {
     vi.mocked(api.ghStatus).mockResolvedValue({ status: 'ready' })
     render(<ReportDialog open kind="idea" onClose={() => {}} />)
     await screen.findByRole('button', { name: 'Create issue' })

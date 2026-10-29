@@ -1,3 +1,4 @@
+import { swatch } from '../../lib/palette'
 /**
  * Small pieces Settings → Harness templates draws in more than one place:
  * the anchored popover shell, the ◯ / ▢ scope mark, the tag pill, the
@@ -14,17 +15,17 @@ import { usePopupPosition } from '../../ui/usePopupPosition'
 import { keyedParts } from './logic'
 
 /** Mono section label: 30k's ABOUT / INPUTS / HOW IT RUNS / STEPS. */
-export const SECTION_LABEL = 'font-mono text-[10px] tracking-[0.18em] text-[rgba(160,190,225,.6)]'
+export const SECTION_LABEL = 'font-mono fs-10 tracking-[0.18em] text-ink-900/60'
 /** Mono field label inside a step (30k: INSTRUCTIONS, DONE WHEN). */
-export const FIELD_LABEL = 'font-mono text-[9px] tracking-[0.16em] text-[rgba(160,190,225,.5)]'
+export const FIELD_LABEL = 'font-mono fs-9 tracking-[0.16em] text-ink-900/50'
 /** 30j / 30k: the secondary header button (Draft…, Draft with the assistant…). */
 export const SECONDARY_BUTTON =
-  'whitespace-nowrap rounded-lg border border-[rgba(150,205,255,.18)] px-3 py-[7px] text-[12.5px] font-semibold text-[rgba(220,235,255,.9)] transition-colors hover:bg-white/5'
+  'whitespace-nowrap rounded-lg border border-line/18 px-3 py-[7px] fs-12.5 font-semibold text-ink-200/90 transition-colors hover:bg-ink-50/5'
 /** 30k's Save, 30l's Draft into editor: the filled accent button, no bloom. */
 export const PRIMARY_BUTTON =
-  'whitespace-nowrap rounded-lg bg-accent px-3.5 py-[7px] font-bold text-space-deep transition-colors hover:bg-text-soft disabled:cursor-not-allowed disabled:opacity-40'
+  'whitespace-nowrap rounded-lg bg-accent px-3.5 py-[7px] font-bold text-space-deep transition-colors hover:bg-ink-300 disabled:cursor-not-allowed disabled:opacity-40'
 /** The "unknown key" / "unused" mark: amber, oklch(85% .12 60) = --color-warning. */
-export const KEY_WARNING = 'rgba(255,187,123,.85)'
+export const KEY_WARNING = swatch('warning', 0.85)
 
 /**
  * A popover hung off an anchor (30l, 30m): portalled, placed by
@@ -78,7 +79,7 @@ export function Popover({
         data-harness-popover=""
         // 30l / 30m: a flat rgba(10,16,28,.96) fill, a .16 hairline, one soft drop shadow.
         className={[
-          'orbital-no-drag orbital-popover-in fixed z-[60] flex flex-col overflow-y-auto border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] text-text-bright shadow-[0_24px_60px_rgba(0,0,0,.6)]',
+          'orbital-no-drag orbital-popover-in fixed z-[60] flex flex-col overflow-y-auto border border-line/16 bg-panel/96 text-ink-100 shadow-[0_24px_60px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent)]',
           radius === 12 ? 'rounded-xl' : 'rounded-[10px]',
           className ?? '',
         ].join(' ')}
@@ -97,7 +98,7 @@ export function ScopeMark({ scope, size = 7, border = 1.3 }: { scope: TemplateSc
   return (
     <span
       aria-hidden
-      className="inline-block shrink-0 border-[rgba(200,220,245,.7)]"
+      className="inline-block shrink-0 border-ink-500/70"
       style={{ width: size, height: size, borderWidth: border, borderStyle: 'solid', borderRadius: kind === 'global' ? '50%' : 2 }}
     />
   )
@@ -129,8 +130,8 @@ export function TagPill({
       className={[
         'inline-flex items-center rounded-full border font-semibold',
         size === 'row'
-          ? 'gap-[5px] border-[rgba(150,205,255,.14)] px-2 py-0.5 text-[10.5px] text-[rgba(220,235,255,.8)]'
-          : 'gap-1.5 border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] px-[9px] py-[3px] text-[11px] text-text-bright',
+          ? 'gap-[5px] border-line/14 px-2 py-0.5 fs-10.5 text-ink-200/80'
+          : 'gap-1.5 border-line/30 bg-line/14 px-[9px] py-[3px] fs-11 text-ink-100',
       ].join(' ')}
     >
       <span
@@ -144,7 +145,7 @@ export function TagPill({
           type="button"
           aria-label={`Remove ${name}`}
           onClick={onRemove}
-          className="-mr-0.5 leading-none text-[rgba(160,190,225,.6)] hover:text-text-bright"
+          className="-mr-0.5 leading-none text-ink-900/60 hover:text-ink-100"
         >
           ×
         </button>
@@ -164,8 +165,8 @@ export function SegShell({ label, radius, children }: { label: string; radius: 7
       role="group"
       aria-label={label}
       className={[
-        'inline-flex flex-none overflow-hidden whitespace-nowrap border border-[rgba(150,205,255,.18)] font-mono',
-        radius === 7 ? 'rounded-[7px]' : 'rounded-lg bg-[rgba(4,8,16,.5)]',
+        'inline-flex flex-none overflow-hidden whitespace-nowrap border border-line/18 font-mono',
+        radius === 7 ? 'rounded-[7px]' : 'rounded-lg bg-space/50',
       ].join(' ')}
     >
       {children}
@@ -201,9 +202,9 @@ export function Seg({
       {...aria}
       className={[
         'py-1.5 transition-colors',
-        pad === 'wide' ? 'px-[11px] text-[11.5px]' : 'px-2.5 text-[11px]',
-        first ? '' : 'border-l border-[rgba(150,205,255,.12)]',
-        active ? 'bg-accent/10 font-semibold text-accent' : 'text-[rgba(220,235,255,.85)] hover:bg-white/5',
+        pad === 'wide' ? 'px-[11px] fs-11.5' : 'px-2.5 fs-11',
+        first ? '' : 'border-l border-line/12',
+        active ? 'bg-accent/10 font-semibold text-accent' : 'text-ink-200/85 hover:bg-ink-50/5',
       ].join(' ')}
     >
       {children}
@@ -254,7 +255,7 @@ export function KeyedTextArea({
 } & Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange'>) {
   const style: CSSProperties = { minHeight }
   return (
-    <div className={['relative focus-within:border-[rgba(150,205,255,.32)]', box].join(' ')}>
+    <div className={['relative focus-within:border-line/32', box].join(' ')}>
       <div aria-hidden className={['pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words text-transparent', type].join(' ')}>
         {keyedParts(value, known).map((part, i) =>
           part.unknown ? (
@@ -273,7 +274,7 @@ export function KeyedTextArea({
         rows={1}
         style={style}
         className={[
-          'relative block w-full resize-none bg-transparent [field-sizing:content] placeholder:text-[rgba(160,190,225,.4)] focus:outline-none',
+          'relative block w-full resize-none bg-transparent [field-sizing:content] placeholder:text-ink-900/40 focus:outline-none',
           type,
         ].join(' ')}
       />

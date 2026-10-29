@@ -23,7 +23,7 @@ export function ModeSwitch({ session, offline }: SlotProps) {
   if (!current) return null
   const label = permissionMode(current)?.label ?? current
   const box = (
-    <span className="grid h-7 w-7 place-items-center rounded-[6px] border border-[rgba(150,205,255,.2)]">
+    <span className="grid h-7 w-7 place-items-center rounded-[6px] border border-line/20">
       <ModeDot mode={current} size={8} />
     </span>
   )

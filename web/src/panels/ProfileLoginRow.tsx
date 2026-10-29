@@ -60,7 +60,7 @@ export function ProfileLoginRow({
 
   return (
     <div data-profile-login className="flex flex-col gap-3 pb-4 pl-4 pr-3">
-      <div className="ml-7 grid grid-cols-[120px_minmax(0,1fr)_auto] items-center gap-x-3.5 gap-y-2.5 border-t border-[rgba(150,205,255,.07)] pt-3">
+      <div className="ml-7 grid grid-cols-[120px_minmax(0,1fr)_auto] items-center gap-x-3.5 gap-y-2.5 border-t border-line/7 pt-3">
         <LoginLine
           label="ACCOUNT"
           line={account}
@@ -86,7 +86,7 @@ export function ProfileLoginRow({
               type="button"
               aria-expanded={unfolded}
               onClick={() => setUnfolded((u) => !u)}
-              className="cursor-pointer self-start border-0 bg-transparent p-0 font-mono text-[10.5px] text-[#8fd8ff] hover:text-[#c6ecff]"
+              className="cursor-pointer self-start border-0 bg-transparent p-0 font-mono fs-10.5 text-sky hover:text-sky-soft"
             >
               {unfolded ? 'Hide ‹' : 'Browser didn’t open? ›'}
             </button>
@@ -106,8 +106,8 @@ export function ProfileLoginRow({
       )}
       {codeRun && remote && (
         // 62g: the code flow in place of the browser login, never folded.
-        <div className="ml-[162px] flex max-w-[520px] flex-col gap-2.5 rounded-[9px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.5)] px-3.5 py-3">
-          <span className="font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.55)]">
+        <div className="ml-[162px] flex max-w-[520px] flex-col gap-2.5 rounded-[9px] border border-line/12 bg-space/50 px-3.5 py-3">
+          <span className="font-mono fs-9.5 tracking-[0.16em] text-ink-900/55">
             {codeRun.kind === 'design'
               ? 'CLAUDE DESIGN SIGN-IN FROM THIS MAC'
               : `LOG IN TO ${(dir.name || 'THE PROFILE').toUpperCase()} FROM THIS MAC`}
@@ -123,19 +123,19 @@ export function ProfileLoginRow({
       )}
 
       {entry.error && (
-        <span role="status" className="ml-[162px] font-mono text-[10.5px] leading-[1.6] text-[rgba(220,235,255,.85)] [text-wrap:pretty]">
+        <span role="status" className="ml-[162px] font-mono fs-10.5 leading-[1.6] text-ink-200/85 [text-wrap:pretty]">
           {entry.error}
         </span>
       )}
       {limited && (
-        <div className="ml-7 font-mono text-[10.5px] leading-[1.7] text-[rgba(214,230,248,.75)] [text-wrap:pretty]">
+        <div className="ml-7 font-mono fs-10.5 leading-[1.7] text-ink-400/75 [text-wrap:pretty]">
           {entry.refused === 'no_grant'
             ? `This Mac has no “Upkeep of this Mac” grant on ${macName} · log in on that Mac to change a login`
             : `${macName} needs an Orbital update before logins can be done from here · until then, log in on that Mac`}
         </div>
       )}
       {!cli && !limited && (
-        <div className="ml-7 font-mono text-[10.5px] leading-[1.7] text-[rgba(160,190,225,.6)]">
+        <div className="ml-7 font-mono fs-10.5 leading-[1.7] text-ink-900/60">
           Orbital knows no Claude Code executable on this Mac.
         </div>
       )}
@@ -160,13 +160,13 @@ interface Line {
 function LoginLine({ label, line, disabled, onAct }: { label: string; line: Line; disabled: boolean; onAct?: () => void }) {
   return (
     <>
-      <span className="font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.55)]">{label}</span>
+      <span className="font-mono fs-9.5 tracking-[0.16em] text-ink-900/55">{label}</span>
       <div className="flex min-w-0 flex-col gap-[3px]">
-        <span className={['truncate font-mono text-[12px]', line.bright ? 'text-text-bright' : 'text-[rgba(160,190,225,.7)]'].join(' ')}>
+        <span className={['truncate font-mono fs-12', line.bright ? 'text-ink-100' : 'text-ink-900/70'].join(' ')}>
           {line.value}
         </span>
         {line.sub && (
-          <span className="font-mono text-[10.5px] leading-[1.5] text-[rgba(160,190,225,.55)] [text-wrap:pretty]">{line.sub}</span>
+          <span className="font-mono fs-10.5 leading-[1.5] text-ink-900/55 [text-wrap:pretty]">{line.sub}</span>
         )}
       </div>
       {line.button && onAct ? (

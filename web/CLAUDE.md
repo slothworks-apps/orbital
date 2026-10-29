@@ -60,6 +60,19 @@ Note for anyone adding wheel handling: React attaches `wheel` (and
 an `onWheel` prop silently does nothing. Attach manually with
 `{ passive: false }`.
 
+## Text is not selectable unless it is there to be read
+
+`theme.css` turns text selection, the native drag of images and links and
+the iOS long-press menu off for the whole document. Orbital is an app: a drag
+across a button, a label or the sidebar painting a selection makes it look
+like a web page.
+
+They come back only in form fields and in elements marked `data-selectable`:
+the transcript, the file and skill viewers, a task's output and command, the
+media viewer's image, error detail, commands shown to be run. A new surface
+that shows something worth copying — output, a path, a message, a command —
+gets `data-selectable` on its content, not on its chrome.
+
 ## Design values come from the canvas, never from the eye
 
 `Orbital.dc.html` carries literal inline CSS for every artboard. Read the
@@ -78,6 +91,25 @@ re-deriving it.
 Colours in the export are `oklch(...)`. Where a literal is needed (Tailwind
 alpha modifiers, three.js materials), precompute the sRGB value and note the
 oklch source next to it, the way `theme.css` does.
+
+## Colours are tokens, never literals
+
+Every colour of the chrome comes from the palette in `theme.css` `@theme`,
+with its strength as an alpha modifier: `text-ink-900/60`, `border-line/14`,
+not `text-[rgba(160,190,225,.6)]`. In an inline style or an SVG attribute,
+`swatch('ink-900', 0.6)` from `lib/palette.ts`; in plain CSS,
+`color-mix(in oklab, var(--color-line) 18%, transparent)`. three.js, canvas
+2D and xterm cannot read a CSS variable and keep literals for now. Colour themes
+work by overriding those tokens, so a literal is a spot no theme can reach
+(spec `2026-10-29-colour-tokens-design`).
+
+A canvas colour with no token yet: take the nearest token if it is within a
+few units per channel, otherwise add a token with its oklch source noted.
+Tokens stay opaque; never bake alpha into one. `shade` is only for what
+darkens the page behind a dialog or a sheet (a `fixed inset-0` backdrop)
+and, through `shadow`, for drop shadows; a field, a well, a pill or a card
+is `space`, `panel` or `raised`. In Deep Field they look alike, in a light
+theme they are opposites.
 
 ## `className` on a UI primitive is layout-only
 

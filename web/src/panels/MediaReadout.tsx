@@ -77,8 +77,8 @@ export function MediaReadout({ sessionId, onScreen }: { sessionId: string; onScr
         className={[
           'orbital-no-drag -my-[3px] grid h-[22px] w-[22px] place-items-center rounded-[5px] border p-0 transition-[border-color] duration-[160ms] ease-[ease]',
           active
-            ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-[#e8eef8]'
-            : 'border-[rgba(150,205,255,.14)] bg-transparent text-[rgba(200,220,245,.75)] hover:border-[rgba(150,205,255,.3)]',
+            ? 'border-line/30 bg-line/14 text-ink-100'
+            : 'border-line/14 bg-transparent text-ink-500/75 hover:border-line/30',
         ].join(' ')}
       >
         <MediaGlyph />
@@ -167,7 +167,7 @@ function GlancePopover({
       aria-label="Media"
       className={['orbital-no-drag orbital-popover-in fixed z-[60] w-[422px] overflow-hidden', POPUP_SHELL].join(' ')}
     >
-      <div className="flex items-center gap-2 border-b border-[rgba(150,205,255,.08)] px-3 py-[9px] font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.6)]">
+      <div className="flex items-center gap-2 border-b border-line/8 px-3 py-[9px] font-mono fs-9.5 tracking-[0.14em] text-ink-900/60">
         <span className="min-w-0 flex-1 truncate">{mediaCountLine(items, hidden)}</span>
         <span className="tracking-normal">
           <SourcesButton items={items} hidden={hidden} onChange={setHidden} />
@@ -185,11 +185,11 @@ function GlancePopover({
       <button
         type="button"
         onClick={onOpenGallery}
-        className="flex w-full items-center gap-2 border-t border-[rgba(150,205,255,.08)] px-3 py-[9px] text-left font-mono text-[10.5px] text-[#e8eef8] transition-colors duration-[160ms] hover:bg-[rgba(150,205,255,.09)]"
+        className="flex w-full items-center gap-2 border-t border-line/8 px-3 py-[9px] text-left font-mono fs-10.5 text-ink-100 transition-colors duration-[160ms] hover:bg-line/9"
       >
         Open gallery
         <span className="flex-1" />
-        <span className="text-[rgba(160,190,225,.5)]">
+        <span className="text-ink-900/50">
           latest {GLANCE_TILES} · {shortcutLabel('session.media')}
         </span>
       </button>

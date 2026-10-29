@@ -43,7 +43,7 @@ export function Scroller({
         {children}
       </div>
       {!atEnd && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-[linear-gradient(180deg,transparent,rgba(10,15,26,.95)_78%)]" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-[linear-gradient(180deg,transparent,color-mix(in_oklab,_var(--color-panel)_95%,_transparent)_78%)]" />
       )}
     </div>
   )

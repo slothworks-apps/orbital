@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react'
 import { useEscapeLayer } from './escapeLayer'
@@ -25,6 +25,26 @@ export interface SelectOption<T> {
   sub?: string
   /** Listed but not pickable (canvas 50g: an offline or too-old device): muted, and a click or ⏎ does nothing. */
   inert?: boolean
+  /**
+   * Mono value after the label, on the row's right and on the `field`
+   * trigger (canvas `Feature - Text size` 6a: the percentage a text step
+   * gives).
+   */
+  trail?: string
+  /** The trigger's `trail`, where the chosen row's own would mislead (6a: the size that results, not the one saved). */
+  triggerTrail?: string
+  /**
+   * The heading of the group the option belongs to (artboard 1f's DARK /
+   * LIGHT). Consecutive options with the same `group` sit under one heading,
+   * wrapped in a `role="group"` it labels; type-ahead and the arrows skip it.
+   */
+  group?: string
+  /**
+   * A strip of colour blocks leading the row and the `swatch` trigger
+   * (artboard 1f: a colour theme's space · panel · accent). The one place a
+   * colour literal belongs in the chrome: it shows another palette, not this one.
+   */
+  swatch?: readonly string[]
 }
 
 export interface SelectProps<T> {
@@ -50,9 +70,13 @@ export interface SelectProps<T> {
    * field — the glyph, the name and its sub-line on one roomier row;
    * `chip` is 61h's model chip in the report dialog (`Feature - Feedback`) — a
    * small mono pill whose menu hangs off its right edge, the ✓ leading each
-   * row and the option's `sub` trailing it as a short description.
+   * row and the option's `sub` trailing it as a short description;
+   * `swatch` is artboard 1f's colour theme picker (`Feature - Colour themes`) —
+   * a roomier field carrying the option's swatch, its name and its
+   * `triggerTrail`, over a menu with the ✓ leading each row and capped at
+   * `SWATCH_LIST_MAX_HEIGHT`.
    */
-  variant?: 'field' | 'pill' | 'tag' | 'ghost' | 'device' | 'chip'
+  variant?: 'field' | 'pill' | 'tag' | 'ghost' | 'device' | 'chip' | 'swatch'
   /**
    * `ghost` only: keep the lit chrome while the control is closed, because
    * its value is doing something visible (a filter that is narrowing a list).
@@ -87,6 +111,8 @@ const TAG_POPUP_MIN_WIDTH = 168
 const GHOST_POPUP_MIN_WIDTH = 186
 /** The `chip` popup's width (canvas 61h's model menu). */
 const CHIP_POPUP_MIN_WIDTH = 220
+/** The `swatch` menu scrolls past this height (artboard 1f). */
+const SWATCH_LIST_MAX_HEIGHT = 330
 /** Type-ahead buffer lifetime, the same window the platform controls use. */
 const TYPEAHEAD_MS = 500
 
@@ -99,8 +125,8 @@ const TYPEAHEAD_MS = 500
 const tint = (color: string, pct: number) => `color-mix(in oklab, ${color} ${pct}%, transparent)`
 
 const triggerFont: Record<NonNullable<SelectProps<unknown>['font']>, string> = {
-  mono: 'font-mono text-xs',
-  sans: 'font-sans text-[12.5px]',
+  mono: 'font-mono fs-12 leading-(--text-xs--line-height)',
+  sans: 'font-sans fs-12.5',
 }
 
 /**
@@ -335,12 +361,13 @@ export function Select<T extends string | number>({
   const isGhost = variant === 'ghost'
   const isDevice = variant === 'device'
   const isChip = variant === 'chip'
+  const isSwatch = variant === 'swatch'
   // 3a paints the ghost trigger in two states only: bare, or lit. Open and
   // "narrowing something" are the same state — both mean it has the floor.
   const lit = isGhost && (open || active)
   // Counts need a column that does not move between rows, so the ✓ gutter is
   // reserved for every row as soon as one option carries a count (3b).
-  const reserveCheck = options.some((o) => o.count !== undefined)
+  const reserveCheck = options.some((o) => o.count !== undefined || o.trail !== undefined)
   // 1e's pill borrows the hue for its border only; 1b's tag pill is filled
   // with it, and brightens on open (border .4 -> .7, fill .1 -> .16).
   const hue = selected?.dotColor
@@ -378,46 +405,53 @@ export function Select<T extends string | number>({
           // so a caller's `w-[200px]` never has to out-order a built-in
           // `w-full` in the stylesheet (see the v4 footguns in web/CLAUDE.md).
           'relative inline-flex min-w-0 cursor-pointer items-center text-left disabled:cursor-not-allowed disabled:opacity-50',
-          isGhost || isChip ? 'gap-[5px]' : isDevice ? 'gap-2.5' : 'gap-1.5',
+          isGhost || isChip ? 'gap-[5px]' : isDevice || isSwatch ? 'gap-2.5' : 'gap-1.5',
           // The ghost branch owns its own ink in both states, so it must not
-          // also inherit `text-text-bright` — two colour utilities on one
+          // also inherit `text-ink-100` — two colour utilities on one
           // element are settled by stylesheet order, not by this array's.
-          isGhost || isChip ? '' : 'text-text-bright',
+          isGhost || isChip ? '' : 'text-ink-100',
           isChip
             ? // 61h's model chip: 4px/8px/4px/10px in a 999px hairline, mono
               // 10.5px; open lights the border to .3 over a .14 fill.
               [
-                'whitespace-nowrap rounded-full border py-1 pl-2.5 pr-2 font-mono text-[10.5px] text-[rgba(214,230,248,.85)]',
+                'whitespace-nowrap rounded-full border py-1 pl-2.5 pr-2 font-mono fs-10.5 text-ink-400/85',
                 'transition-[background-color,border-color] duration-[180ms] ease-out',
                 open
-                  ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)]'
-                  : 'border-[rgba(150,205,255,.14)] bg-transparent hover:bg-[rgba(150,205,255,.06)]',
+                  ? 'border-line/30 bg-line/14'
+                  : 'border-line/14 bg-transparent hover:bg-line/6',
               ].join(' ')
             : isGhost
             ? // 3a's origin trigger: 3px/7px inside a 6px radius, the heading's
               // own mono face at a looser .04em, transparent until it is lit.
               [
-                'rounded-md border px-[7px] py-[3px] font-mono text-[10px] tracking-[0.04em]',
+                'rounded-md border px-[7px] py-[3px] font-mono fs-10 tracking-[0.04em]',
                 'transition-[background-color,border-color,color] duration-[180ms] ease-out',
                 lit
-                  ? 'border-[rgba(150,205,255,.22)] bg-[rgba(150,205,255,.12)] text-[oklch(90%_.06_205)]'
-                  : 'border-transparent bg-transparent text-inherit hover:bg-[rgba(150,205,255,.1)]',
+                  ? 'border-line/22 bg-line/12 text-sky-soft'
+                  : 'border-transparent bg-transparent text-inherit hover:bg-line/10',
+              ].join(' ')
+            : isSwatch
+            ? // 1f's colour field: 9px/12px inside a 10px radius, a .3 border
+              // over the input well (space at .6), the dialog's 13px sans.
+              [
+                'rounded-[10px] border border-line/30 bg-space/60 px-3 py-[9px] font-sans fs-13',
+                'transition-colors hover:border-accent/40 focus:border-accent/60 focus:outline-none',
               ].join(' ')
             : isDevice
               ? // 50g's DEVICE field: 9px/12px inside a 9px radius over the
                 // field fill; the border lights to the accent at .5 while open,
                 // `border-color .18s ease`.
                 [
-                  'rounded-[9px] border bg-[rgba(4,8,16,.6)] px-3 py-[9px] font-sans',
+                  'rounded-[9px] border bg-space/60 px-3 py-[9px] font-sans',
                   'transition-[border-color] duration-[180ms] ease-[ease]',
-                  open ? 'border-[oklch(85%_.12_205/.5)]' : 'border-[rgba(150,205,255,.18)]',
+                  open ? 'border-accent/50' : 'border-line/18',
                 ].join(' ')
             : isTag
               ? // 1b's session-tag pill: 4px/9px/4px/10px inside a 999px
                 // hue-tinted border over a hue fill, 11px/600 label, chevron
                 // inline rather than in a gutter.
                 [
-                  'rounded-full border py-1 pl-2.5 pr-[9px] text-[11px] font-semibold',
+                  'rounded-full border py-1 pl-2.5 pr-[9px] fs-11 font-semibold',
                   'transition-[background-color,border-color] duration-[180ms] ease-out',
                   font === 'mono' ? 'font-mono' : 'font-sans',
                 ].join(' ')
@@ -425,13 +459,13 @@ export function Select<T extends string | number>({
                 ? // 1e's target-tag pill: 3px/9px inside a 999px hue-tinted
                   // border, 11px/600 label, chevron in the right gutter.
                   [
-                    'rounded-full border border-panel-border py-[3px] pl-[9px] pr-6 text-[11px] font-semibold',
+                    'rounded-full border border-line/14 py-[3px] pl-[9px] pr-6 fs-11 font-semibold',
                     font === 'mono' ? 'font-mono' : 'font-sans',
                   ].join(' ')
                 : // 1h's field: 8px/10px padding, a 26px right gutter for the
                   // chevron, 8px radius over the rgba(4,8,16,.6) fill.
                   [
-                    'rounded-lg border border-panel-border bg-[rgba(4,8,16,.6)] py-2 pl-2.5 pr-[26px] transition-colors',
+                    'rounded-lg border border-line/14 bg-space/60 py-2 pl-2.5 pr-[26px] transition-colors',
                     'hover:border-accent/40 focus:border-accent/60 focus:outline-none',
                     triggerFont[font],
                   ].join(' '),
@@ -447,15 +481,34 @@ export function Select<T extends string | number>({
             style={{ background: selected.dotColor }}
           />
         )}
-        {isDevice ? (
+        {isSwatch ? (
+          // 1f: the swatch at 12×14 a block, the name at 600, the kind in mono 10.5.
+          <>
+            {selected?.swatch && <SwatchStrip colours={selected.swatch} size="trigger" />}
+            <span className="min-w-0 truncate font-semibold">{label}</span>
+            {(selected?.triggerTrail ?? selected?.trail) && (
+              <span className="shrink-0 font-mono fs-10.5 text-ink-900/60">
+                {selected?.triggerTrail ?? selected?.trail}
+              </span>
+            )}
+            <span aria-hidden className="flex-1" />
+          </>
+        ) : isDevice ? (
           // 50g: glyph, the name at 13px/600, the sub-line in mono 11px, then
           // the caret pushed right.
           <>
-            {selected?.glyph && <span aria-hidden className="flex shrink-0 text-text-bright">{selected.glyph}</span>}
-            <span className="shrink-0 text-[13px] font-semibold text-text-bright">{label}</span>
+            {selected?.glyph && <span aria-hidden className="flex shrink-0 text-ink-100">{selected.glyph}</span>}
+            <span className="shrink-0 fs-13 font-semibold text-ink-100">{label}</span>
             {selected?.sub && (
-              <span className="min-w-0 truncate font-mono text-[11px] text-[rgba(160,190,225,.6)]">{selected.sub}</span>
+              <span className="min-w-0 truncate font-mono fs-11 text-ink-900/60">{selected.sub}</span>
             )}
+            <span aria-hidden className="flex-1" />
+          </>
+        ) : (selected?.triggerTrail ?? selected?.trail) ? (
+          // 6a: the choice at 600, the value it gives in mono after it.
+          <>
+            <span className="min-w-0 truncate font-semibold">{label}</span>
+            <span className="shrink-0 font-mono fs-10.5 text-ink-900/60">{selected.triggerTrail ?? selected.trail}</span>
             <span aria-hidden className="flex-1" />
           </>
         ) : (
@@ -466,18 +519,21 @@ export function Select<T extends string | number>({
           data-caret
           className={
             isChip
-              ? 'block shrink-0 text-[8px] text-[rgba(160,190,225,.6)]'
+              ? 'block shrink-0 fs-8 text-ink-900/60'
+              : isSwatch
+              ? // 1f: 9px, inline at the right end.
+                'block shrink-0 fs-9 text-ink-900/60'
               : isDevice
               ? // 50g: 8px, inline, flips while open (`transform .2s ease`).
-                `block shrink-0 text-[8px] text-[rgba(160,190,225,.6)] transition-transform duration-200 ease-[ease] ${open ? 'rotate-180' : ''}`
+                `block shrink-0 fs-8 text-ink-900/60 transition-transform duration-200 ease-[ease] ${open ? 'rotate-180' : ''}`
               : isTag || isGhost
               ? // Inline, and it flips while the popup is open (1b, 3a).
-                `block shrink-0 text-[8px] opacity-70 transition-transform duration-200 ease-out ${open ? 'rotate-180' : ''}`
+                `block shrink-0 fs-8 opacity-70 transition-transform duration-200 ease-out ${open ? 'rotate-180' : ''}`
               : [
                   'pointer-events-none absolute top-1/2 -translate-y-1/2',
                   isPill
-                    ? 'right-2 text-[9px] text-text-muted'
-                    : 'right-2.5 text-[11px] text-[rgba(160,190,225,.6)]',
+                    ? 'right-2 fs-9 text-ink-900/70'
+                    : 'right-2.5 fs-11 text-ink-900/60',
                 ].join(' ')
           }
         >
@@ -506,84 +562,123 @@ export function Select<T extends string | number>({
               aria-labelledby={aria['aria-labelledby']}
               aria-activedescendant={options.length > 0 ? optionId(activeIndex) : undefined}
               className="flex min-h-0 flex-col gap-0.5 overflow-y-auto overscroll-contain"
+              style={isSwatch ? { maxHeight: SWATCH_LIST_MAX_HEIGHT } : undefined}
             >
-              {options.map((option, index) => {
-                const isSelected = option.value === value
-                const isActive = index === activeIndex
-                if (isChip) {
-                  return (
-                    <ChipRow
-                      key={String(option.value)}
-                      id={optionId(index)}
-                      option={option}
-                      selected={isSelected}
-                      active={isActive}
-                      onHover={() => setActiveIndex(index)}
-                      onPick={() => commit(index)}
-                    />
-                  )
-                }
-                if (isDevice) {
-                  return (
-                    <DeviceRow
-                      key={String(option.value)}
-                      id={optionId(index)}
-                      option={option}
-                      selected={isSelected}
-                      active={isActive}
-                      onHover={() => setActiveIndex(index)}
-                      onPick={() => commit(index)}
-                    />
-                  )
-                }
-                return (
-                  <div
-                    key={String(option.value)}
-                    id={optionId(index)}
-                    role="option"
-                    aria-selected={isSelected}
-                    data-label={option.label}
-                    data-active={isActive || undefined}
-                    onMouseMove={() => setActiveIndex(index)}
-                    onClick={() => commit(index)}
-                    // 1b rows: 7px/9px inside a 7px radius, 8px gap. The
-                    // canvas paints hover and selection the SAME tint, which
-                    // would leave an arrowing keyboard user unable to tell
-                    // the two apart — so the active row keeps the accent
-                    // tint and only selection uses the canvas's.
-                    className={[
-                      'flex shrink-0 cursor-pointer items-center gap-2 rounded-[7px] px-[9px] py-[7px]',
-                      isActive
-                        ? 'bg-accent/10'
-                        : isSelected
-                          ? 'bg-[rgba(150,205,255,.09)]'
-                          : '',
-                      isSelected ? 'text-accent' : 'text-text-bright',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                  >
-                    {option.dotColor && (
-                      <span
-                        aria-hidden
-                        className="block h-1.5 w-1.5 shrink-0 rounded-full"
-                        style={{ background: option.dotColor }}
+              {groupRuns(options).map((run) => {
+                const rows = run.indices.map((index) => {
+                  const option = options[index]
+                  const isSelected = option.value === value
+                  const isActive = index === activeIndex
+                  if (isChip) {
+                    return (
+                      <ChipRow
+                        key={String(option.value)}
+                        id={optionId(index)}
+                        option={option}
+                        selected={isSelected}
+                        active={isActive}
+                        onHover={() => setActiveIndex(index)}
+                        onPick={() => commit(index)}
                       />
-                    )}
-                    <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                    {option.count !== undefined && (
-                      <span aria-hidden className="shrink-0 text-[rgba(160,190,225,.45)]">
-                        {option.count}
-                      </span>
-                    )}
-                    {(isSelected || reserveCheck) && (
-                      <span
-                        aria-hidden
-                        className={`shrink-0 text-[10px] text-accent ${isSelected ? '' : 'opacity-0'}`}
-                      >
-                        ✓
-                      </span>
-                    )}
+                    )
+                  }
+                  if (isSwatch) {
+                    return (
+                      <SwatchRow
+                        key={String(option.value)}
+                        id={optionId(index)}
+                        option={option}
+                        selected={isSelected}
+                        active={isActive}
+                        onHover={() => setActiveIndex(index)}
+                        onPick={() => commit(index)}
+                      />
+                    )
+                  }
+                  if (isDevice) {
+                    return (
+                      <DeviceRow
+                        key={String(option.value)}
+                        id={optionId(index)}
+                        option={option}
+                        selected={isSelected}
+                        active={isActive}
+                        onHover={() => setActiveIndex(index)}
+                        onPick={() => commit(index)}
+                      />
+                    )
+                  }
+                  return (
+                    <div
+                      key={String(option.value)}
+                      id={optionId(index)}
+                      role="option"
+                      aria-selected={isSelected}
+                      data-label={option.label}
+                      data-active={isActive || undefined}
+                      onMouseMove={() => setActiveIndex(index)}
+                      onClick={() => commit(index)}
+                      // 1b rows: 7px/9px inside a 7px radius, 8px gap. The
+                      // canvas paints hover and selection the SAME tint, which
+                      // would leave an arrowing keyboard user unable to tell
+                      // the two apart — so the active row keeps the accent
+                      // tint and only selection uses the canvas's.
+                      aria-disabled={option.inert || undefined}
+                      className={[
+                        'flex shrink-0 items-center gap-2 rounded-[7px] px-[9px] py-[7px]',
+                        option.inert ? 'cursor-default opacity-[.38]' : 'cursor-pointer',
+                        isActive && !option.inert
+                          ? 'bg-accent/10'
+                          : isSelected
+                            ? 'bg-line/9'
+                            : '',
+                        isSelected ? 'text-accent' : 'text-ink-100',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                    >
+                      {option.dotColor && (
+                        <span
+                          aria-hidden
+                          className="block h-1.5 w-1.5 shrink-0 rounded-full"
+                          style={{ background: option.dotColor }}
+                        />
+                      )}
+                      <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                      {option.count !== undefined && (
+                        <span aria-hidden className="shrink-0 text-ink-900/60">
+                          {option.count}
+                        </span>
+                      )}
+                      {option.trail && (
+                        <span className="shrink-0 font-mono fs-10 tracking-[0.04em] text-ink-900/60">
+                          {option.trail}
+                        </span>
+                      )}
+                      {(isSelected || reserveCheck) && (
+                        <span
+                          aria-hidden
+                          className={`shrink-0 fs-10 text-accent ${isSelected ? '' : 'opacity-0'}`}
+                        >
+                          ✓
+                        </span>
+                      )}
+                    </div>
+                  )
+                })
+                if (run.group === undefined) return <Fragment key={`run-${run.indices[0]}`}>{rows}</Fragment>
+                const headingId = `${listboxId}-group-${run.indices[0]}`
+                return (
+                  <div key={headingId} role="group" aria-labelledby={headingId} className="flex shrink-0 flex-col gap-0.5">
+                    {/* 1f: 8px/10px/4px, mono 9.5 at .18em in muted ink. */}
+                    <div
+                      id={headingId}
+                      role="presentation"
+                      className="px-2.5 pb-1 pt-2 font-mono fs-9.5 tracking-[0.18em] text-ink-900/60"
+                    >
+                      {run.group}
+                    </div>
+                    {rows}
                   </div>
                 )
               })}
@@ -592,14 +687,14 @@ export function Select<T extends string | number>({
               // 61h: 6px/9px/4px under a .08 rule, mono 10px at .5.
               <div
                 id={footerId}
-                className="mt-0.5 shrink-0 border-t border-[rgba(150,205,255,.08)] px-[9px] pb-1 pt-1.5 font-mono text-[10px] leading-normal text-[rgba(160,190,225,.5)]"
+                className="mt-0.5 shrink-0 border-t border-line/8 px-[9px] pb-1 pt-1.5 font-mono fs-10 leading-normal text-ink-900/50"
               >
                 {footer}
               </div>
             ) : footer && (
               <div
                 id={footerId}
-                className="mx-[5px] mt-[3px] mb-0.5 shrink-0 border-t border-[rgba(150,205,255,.1)] pt-1.5 font-mono text-[9.5px] leading-[1.4] tracking-[.1em] text-[rgba(160,190,225,.5)]"
+                className="mx-[5px] mt-[3px] mb-0.5 shrink-0 border-t border-line/10 pt-1.5 font-mono fs-9.5 leading-[1.4] tracking-[.1em] text-ink-900/50"
               >
                 {footer}
               </div>
@@ -645,25 +740,106 @@ function DeviceRow<T>({
       onClick={onPick}
       className={[
         'flex shrink-0 items-center gap-2.5 rounded-[7px] px-2.5 py-2',
-        option.inert ? 'cursor-default text-[rgba(160,190,225,.5)]' : 'cursor-pointer text-text-bright',
-        active ? 'bg-[rgba(150,205,255,.09)]' : selected ? 'bg-[rgba(150,205,255,.07)]' : '',
+        option.inert ? 'cursor-default text-ink-900/50' : 'cursor-pointer text-ink-100',
+        active ? 'bg-line/9' : selected ? 'bg-line/7' : '',
       ]
         .filter(Boolean)
         .join(' ')}
     >
       {option.glyph && <span aria-hidden className="flex shrink-0">{option.glyph}</span>}
-      <span className="shrink-0 font-sans text-[13px] font-semibold">{option.label}</span>
+      <span className="shrink-0 font-sans fs-13 font-semibold">{option.label}</span>
       <span
         className={[
-          'min-w-0 flex-1 truncate font-mono text-[10.5px]',
-          option.inert ? 'text-[rgba(160,190,225,.5)]' : 'text-[rgba(160,190,225,.6)]',
+          'min-w-0 flex-1 truncate font-mono fs-10.5',
+          option.inert ? 'text-ink-900/50' : 'text-ink-900/60',
         ].join(' ')}
       >
         {option.sub}
       </span>
-      <span aria-hidden className={`shrink-0 font-mono text-[10px] text-accent ${selected ? '' : 'opacity-0'}`}>
+      <span aria-hidden className={`shrink-0 font-mono fs-10 text-accent ${selected ? '' : 'opacity-0'}`}>
         ✓
       </span>
+    </div>
+  )
+}
+
+/**
+ * The options in runs that share a `group`, in their order: one run per
+ * heading, and a run with no group for options that carry none.
+ */
+function groupRuns<T>(options: ReadonlyArray<SelectOption<T>>): Array<{ group?: string; indices: number[] }> {
+  const runs: Array<{ group?: string; indices: number[] }> = []
+  options.forEach((option, index) => {
+    const last = runs[runs.length - 1]
+    if (last && last.group === option.group) last.indices.push(index)
+    else runs.push({ group: option.group, indices: [index] })
+  })
+  return runs
+}
+
+/**
+ * Artboard 1f's swatch: the colours side by side, 12×14 a block on the
+ * trigger and 10×12 in the menu, inside a 4px radius ringed by the control
+ * hairline.
+ */
+function SwatchStrip({ colours, size }: { colours: readonly string[]; size: 'trigger' | 'row' }) {
+  const block = size === 'trigger' ? 'h-3.5 w-3' : 'h-3 w-2.5'
+  return (
+    <span aria-hidden className="flex shrink-0 overflow-hidden rounded-[4px] ring-1 ring-line/16">
+      {colours.map((colour, i) => (
+        <span key={i} className={`block ${block}`} style={{ background: colour }} />
+      ))}
+    </span>
+  )
+}
+
+/**
+ * One row of the `swatch` menu (artboard 1f): 7px/10px inside a 7px radius,
+ * 9px gaps; a 14px ✓ column first, the swatch, the name (600 on the chosen
+ * row, 500 on the rest), and the `trail` pushed right in mono 10px. The
+ * chosen row rests on the row fill; the active one (hover or arrows) a step
+ * brighter.
+ */
+function SwatchRow<T>({
+  id,
+  option,
+  selected,
+  active,
+  onHover,
+  onPick,
+}: {
+  id: string
+  option: SelectOption<T>
+  selected: boolean
+  active: boolean
+  onHover: () => void
+  onPick: () => void
+}) {
+  return (
+    <div
+      id={id}
+      role="option"
+      aria-selected={selected}
+      aria-disabled={option.inert || undefined}
+      data-label={option.label}
+      data-active={active || undefined}
+      onMouseMove={onHover}
+      onClick={onPick}
+      className={[
+        'flex shrink-0 items-center gap-[9px] rounded-[7px] px-2.5 py-[7px] font-sans fs-13 text-ink-100',
+        option.inert ? 'cursor-default opacity-[.38]' : 'cursor-pointer',
+        active && !option.inert ? 'bg-line/10' : selected ? 'bg-line/7' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <span aria-hidden className={`w-3.5 shrink-0 text-accent ${selected ? '' : 'invisible'}`}>
+        ✓
+      </span>
+      {option.swatch && <SwatchStrip colours={option.swatch} size="row" />}
+      <span className={`min-w-0 truncate ${selected ? 'font-semibold' : 'font-medium'}`}>{option.label}</span>
+      <span aria-hidden className="flex-1" />
+      {option.trail && <span className="shrink-0 font-mono fs-10 text-ink-900/60">{option.trail}</span>}
     </div>
   )
 }
@@ -703,18 +879,18 @@ function ChipRow<T>({
       onMouseMove={onHover}
       onClick={onPick}
       className={[
-        'flex shrink-0 cursor-pointer items-baseline gap-2 rounded-[7px] px-[9px] py-[7px] text-text-bright',
-        active ? 'bg-[rgba(150,205,255,.08)]' : '',
+        'flex shrink-0 cursor-pointer items-baseline gap-2 rounded-[7px] px-[9px] py-[7px] text-ink-100',
+        active ? 'bg-line/8' : '',
       ]
         .filter(Boolean)
         .join(' ')}
     >
-      <span aria-hidden className="w-2.5 shrink-0 font-sans text-[11px] text-accent">
+      <span aria-hidden className="w-2.5 shrink-0 font-sans fs-11 text-accent">
         {selected ? '✓' : ''}
       </span>
-      <span className="font-mono text-[11.5px]">{option.label}</span>
+      <span className="font-mono fs-11.5">{option.label}</span>
       <span aria-hidden className="flex-1" />
-      {option.sub && <span className="whitespace-nowrap font-sans text-[11px] text-[rgba(160,190,225,.6)]">{option.sub}</span>}
+      {option.sub && <span className="whitespace-nowrap font-sans fs-11 text-ink-900/60">{option.sub}</span>}
     </div>
   )
 }

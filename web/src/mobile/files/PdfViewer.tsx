@@ -97,23 +97,23 @@ export function PdfPage({
   }
 
   return (
-    <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-black text-[#e8eef8]">
+    <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-space text-ink-100">
       <div ref={scrollRef} className="absolute inset-0 overflow-y-auto overscroll-contain">
         {area}
       </div>
       {/* Canvas 24g: the header over the pages, 56px on a fade from black. */}
-      <div className="relative z-[2] flex h-14 shrink-0 items-center gap-1 bg-[linear-gradient(180deg,rgba(0,0,0,.8),transparent)] pl-1.5 pr-2.5">
+      <div className="relative z-[2] flex h-14 shrink-0 items-center gap-1 bg-[linear-gradient(180deg,color-mix(in_oklab,var(--color-space)_80%,transparent),transparent)] pl-1.5 pr-2.5">
         <button
           type="button"
           aria-label="Back"
           onClick={onBack}
-          className="grid h-11 w-11 shrink-0 place-items-center text-[28px] leading-none text-[#e8eef8]"
+          className="grid h-11 w-11 shrink-0 place-items-center fs-28 leading-none text-ink-100"
         >
           ‹
         </button>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[15px] font-semibold">{basename(path)}</div>
-          <div className="mt-0.5 truncate font-mono text-[10.5px] text-[rgba(200,215,235,.7)]">{sub}</div>
+          <div className="truncate fs-15 font-semibold">{basename(path)}</div>
+          <div className="mt-0.5 truncate font-mono fs-10.5 text-ink-600/70">{sub}</div>
         </div>
       </div>
       <div className="pointer-events-none flex-1" />
@@ -201,7 +201,7 @@ function PdfSheet({ doc, page, width, height }: { doc: PDFDocumentProxy; page: n
     <div
       ref={ref}
       aria-label={`Page ${page}`}
-      className="flex-none overflow-hidden rounded-[4px] bg-[rgba(220,232,250,.1)]"
+      className="flex-none overflow-hidden rounded-[4px] bg-ink-200/10"
       style={{ width, height }}
     >
       {seen && <PdfPageCanvas doc={doc} page={page} heightPx={height} widthPx={width} className="block" />}

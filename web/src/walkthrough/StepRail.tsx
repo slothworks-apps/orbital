@@ -40,7 +40,7 @@ export function StepRail({ walkthrough, currentId, onJump }: StepRailProps) {
       {railGroups(walkthrough).map((group, g) => (
         <div key={g} className="flex flex-col gap-0.5">
           {group.title && (
-            <span className="px-2.5 pt-1 pb-1.5 font-mono text-[9.5px] uppercase tracking-[.14em] text-[rgba(160,190,225,.55)]">{group.title}</span>
+            <span className="px-2.5 pt-1 pb-1.5 font-mono fs-9.5 uppercase tracking-[.14em] text-ink-900/55">{group.title}</span>
           )}
           {group.steps.map((step) => {
             const current = step.id === currentId
@@ -53,7 +53,7 @@ export function StepRail({ walkthrough, currentId, onJump }: StepRailProps) {
             return (
               <div key={step.id} className="flex flex-col gap-0.5">
                 {band !== null && (
-                  <div className="mx-2.5 my-1 border-y border-dotted border-[rgba(150,205,255,.2)] py-1.5 font-mono text-[9.5px] text-[rgba(160,190,225,.5)]">
+                  <div className="mx-2.5 my-1 border-y border-dotted border-line/20 py-1.5 font-mono fs-9.5 text-ink-900/50">
                     <span className="tracking-[.1em]">···</span>
                     {band && ` ${band}`}
                   </div>
@@ -65,13 +65,13 @@ export function StepRail({ walkthrough, currentId, onJump }: StepRailProps) {
                   className={[
                     'flex items-start gap-2.5 rounded-[7px] px-2.5 py-[7px] text-left',
                     // canvas 21b: the current row's inset bar is the accent, oklch(85% .12 205).
-                    current ? 'bg-[rgba(150,205,255,.1)] shadow-[inset_2px_0_0_oklch(85%_.12_205)]' : 'hover:bg-[rgba(150,205,255,.07)]',
+                    current ? 'bg-line/10 shadow-[inset_2px_0_0_var(--color-accent)]' : 'hover:bg-line/7',
                   ].join(' ')}
                 >
                   <span
                     className={[
-                      'w-4 shrink-0 font-mono text-[10.5px] leading-[1.5] tabular-nums',
-                      current ? 'text-text-soft' : 'text-[rgba(160,190,225,.5)]',
+                      'w-4 shrink-0 font-mono fs-10.5 leading-[1.5] tabular-nums',
+                      current ? 'text-ink-300' : 'text-ink-900/50',
                     ].join(' ')}
                   >
                     {step.ordinal}
@@ -79,16 +79,16 @@ export function StepRail({ walkthrough, currentId, onJump }: StepRailProps) {
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span
                       className={[
-                        'truncate text-[12.5px] leading-[1.5]',
-                        current ? 'text-white' : isBlind ? 'text-[rgba(160,190,225,.5)]' : 'text-text-bright',
+                        'truncate fs-12.5 leading-[1.5]',
+                        current ? 'text-ink-50' : isBlind ? 'text-ink-900/50' : 'text-ink-100',
                       ].join(' ')}
                     >
                       {stepLabel(walkthrough, step)}
                     </span>
-                    {meta && <span className="truncate font-mono text-[9.5px] text-[rgba(160,190,225,.5)]">{meta}</span>}
+                    {meta && <span className="truncate font-mono fs-9.5 text-ink-900/50">{meta}</span>}
                   </span>
-                  {isBlind && <span className="shrink-0 font-mono text-[10px] text-[rgba(160,190,225,.6)]">{blindMark(step)}</span>}
-                  {notApplied && <span className="shrink-0 font-mono text-[10px] text-[rgba(160,190,225,.6)]">not applied</span>}
+                  {isBlind && <span className="shrink-0 font-mono fs-10 text-ink-900/60">{blindMark(step)}</span>}
+                  {notApplied && <span className="shrink-0 font-mono fs-10 text-ink-900/60">not applied</span>}
                 </button>
               </div>
             )

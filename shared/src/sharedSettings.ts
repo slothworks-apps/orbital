@@ -28,7 +28,7 @@ export const SHARED_SETTING_KEYS: readonly string[] = [
   'map_scale_labels', 'header_session_stats', 'header_pull_request', 'header_line_changes',
   // The look.
   'map_theme', 'map_limit_sun_style', 'map_limit_sun_colors',
-  // The Labs switches.
+  // The feature switches.
   'harness_enabled', 'walkthrough_enabled', 'archipelago_enabled', 'limit_suns_enabled',
   // Found after the first list (spec § Which settings are shared).
   'map_moon_orbits', 'stats_show_human_wait', 'narrate_model', 'narrate_commentary',
@@ -48,6 +48,8 @@ export const PER_DEVICE_SETTING_KEYS: readonly string[] = [
   'delete_sessions_older_than_days',
   // The layout.
   'sidebar_collapsed', 'sidebar_width', 'detail_panel_width', 'planet_scale',
+  // Text size: a laptop and a desk monitor want different sizes.
+  'text_scale', 'transcript_text_scale',
   'map_fps_focused', 'map_fps_background', 'map_limit_sun_positions', 'settings_last_section',
   // Desktop notifications: each Mac sets its own.
   'notify_needs_input', 'notify_session_ended', 'notify_session_failed', 'notify_sound',
@@ -56,6 +58,8 @@ export const PER_DEVICE_SETTING_KEYS: readonly string[] = [
   'whats_new_seen', 'models_catalog', 'model_context_windows', 'cli_built_in_commands',
   // Found after the first list: the terminal's place on this screen, and what this device has shown or unlocked.
   'terminal_placement', 'terminal_dock_height', 'gh_tip', 'experimental_unlocked',
+  // The colour theme: a bright room and macOS's appearance belong to this Mac, as text size does.
+  'colour_theme', 'colour_theme_follow_system', 'colour_theme_light', 'colour_theme_dark',
 ];
 
 const PER_DEVICE_PREFIXES = ['remote_', 'new_session_last_'];

@@ -1,3 +1,4 @@
+import { swatch } from '../../lib/palette'
 import { useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { timeAgo } from '../../lib/format'
@@ -95,13 +96,13 @@ export function SessionListScreen() {
     <>
       <div className="flex h-13 items-center gap-2.5 pl-5 pr-2">
         <OrbitalMark />
-        <span className="text-[13px] font-bold tracking-[0.22em]">ORBITAL</span>
+        <span className="fs-13 font-bold tracking-[0.22em]">ORBITAL</span>
         {/* Canvas 50j: in a group the header names no one Mac; the chips say who is up. */}
-        <span className="flex h-11 min-w-0 flex-1 items-center justify-end gap-[7px] px-2.5 font-mono text-[11.5px] text-[rgba(220,235,255,.85)]">
+        <span className="flex h-11 min-w-0 flex-1 items-center justify-end gap-[7px] px-2.5 font-mono fs-11.5 text-ink-200/85">
           {!several && (
             <>
               <MacDot state={offline ? 'asleep' : link === 'online' ? 'online' : 'connecting'} />
-              <span className={['truncate', offline ? 'text-[rgba(200,215,235,.65)]' : ''].join(' ')}>{mac}</span>
+              <span className={['truncate', offline ? 'text-ink-600/65' : ''].join(' ')}>{mac}</span>
             </>
           )}
         </span>
@@ -112,13 +113,13 @@ export function SessionListScreen() {
             type="button"
             aria-label="Limits"
             onClick={() => go('limits')}
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] text-[rgba(214,230,248,.85)]"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] text-ink-400/85"
           >
             <LimitsGlyph size="phone" />
           </button>
         )}
         <button type="button" aria-label="Settings" onClick={() => go('settings')} className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px]">
-          <span aria-hidden className="block h-4 w-4 rounded-full border-[1.5px] border-dashed border-[oklch(85%_.12_205)]" />
+          <span aria-hidden className="block h-4 w-4 rounded-full border-[1.5px] border-dashed border-accent" />
         </button>
       </div>
 
@@ -150,21 +151,21 @@ export function SessionListScreen() {
           ))}
           {/* Canvas `Feature - Tag chips` 80b: no All; Clear ends the row while a tag is on, pinned to the
               right edge over a fade so it never scrolls out of sight. The pin stays as the row's end padding. */}
-          <div className="sticky right-0 flex flex-none bg-[linear-gradient(90deg,rgba(5,7,13,0),#05070d_14px)] pl-[18px] pr-4">
+          <div className="sticky right-0 flex flex-none bg-[linear-gradient(90deg,color-mix(in_oklab,_var(--color-space)_0%,_transparent),#05070d_14px)] pl-[18px] pr-4">
             {tagIds.length > 0 && <Chip active={false} muted onClick={() => withViewTransition(() => setTagIds([]))} label="Clear" />}
           </div>
         </div>
       )}
 
       {offline && !several && (
-        <section className="mx-3 mb-2.5 mt-0.5 flex items-start gap-3 rounded-[16px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.82)] py-3 pl-4 pr-3">
-          <span aria-hidden className="mt-1 block h-3 w-3 shrink-0 rounded-full border-[1.5px] border-[rgba(200,215,235,.6)]" />
+        <section className="mx-3 mb-2.5 mt-0.5 flex items-start gap-3 rounded-[16px] border border-line/16 bg-panel/82 py-3 pl-4 pr-3">
+          <span aria-hidden className="mt-1 block h-3 w-3 shrink-0 rounded-full border-[1.5px] border-ink-600/60" />
           <span className="flex min-w-0 flex-1 flex-col gap-1">
-            <span className="text-[14.5px] font-semibold">{mac} is asleep</span>
-            <span className="text-[12.5px] leading-[1.45] text-[rgba(160,190,225,.75)]">
+            <span className="fs-14.5 font-semibold">{mac} is asleep</span>
+            <span className="fs-12.5 leading-[1.45] text-ink-900/75">
               Showing what it last sent. Reconnects on its own when the Mac wakes.
             </span>
-            <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+            <span className="font-mono fs-10.5 text-ink-900/60">
               {[asOf !== null ? asOfLabel(asOf, now) : null, checkedAt !== null ? checkedLabel(checkedAt, now) : null]
                 .filter(Boolean)
                 .join(' · ')}
@@ -174,7 +175,7 @@ export function SessionListScreen() {
             type="button"
             disabled={checking}
             onClick={() => void retry()}
-            className="h-11 shrink-0 rounded-[12px] border border-[rgba(150,205,255,.2)] px-3.5 text-[13px] font-semibold text-text-bright disabled:opacity-40"
+            className="h-11 shrink-0 rounded-[12px] border border-line/20 px-3.5 fs-13 font-semibold text-ink-100 disabled:opacity-40"
           >
             Retry
           </button>
@@ -187,17 +188,17 @@ export function SessionListScreen() {
 
   // 9a: the one action, pinned under the list; inert while the Mac is asleep.
   const footer = (
-    <div className="border-t border-[rgba(150,205,255,.08)] bg-[linear-gradient(180deg,transparent,rgba(5,7,13,.95)_30%)] px-4 pb-1.5 pt-2.5">
+    <div className="border-t border-line/8 bg-[linear-gradient(180deg,transparent,color-mix(in_oklab,_var(--color-space)_95%,_transparent)_30%)] px-4 pb-1.5 pt-2.5">
       {offline ? (
         <div
           aria-disabled="true"
-          className="flex h-13 items-center justify-center rounded-[14px] border border-[rgba(150,205,255,.14)] px-4 text-center text-[14px] font-semibold text-[rgba(160,190,225,.6)]"
+          className="flex h-13 items-center justify-center rounded-[14px] border border-line/14 px-4 text-center fs-14 font-semibold text-ink-900/60"
         >
           {several ? 'New session · needs a device awake' : `New session · needs ${mac} awake`}
         </div>
       ) : (
         <PrimaryButton onClick={() => go('new')}>
-          <span aria-hidden className="text-[20px] font-medium leading-none">
+          <span aria-hidden className="fs-20 font-medium leading-none">
             +
           </span>
           New session
@@ -226,18 +227,18 @@ export function SessionListScreen() {
                     if (!endedOpen) void loadEndedFold()
                     setEndedOpen(!endedOpen)
                   }}
-                  className="mx-3 mt-2.5 flex h-12 w-[calc(100%-24px)] items-center gap-2.5 rounded-[12px] px-2 text-left font-mono text-[10.5px] tracking-[0.16em] text-[rgba(160,190,225,.6)]"
+                  className="mx-3 mt-2.5 flex h-12 w-[calc(100%-24px)] items-center gap-2.5 rounded-[12px] px-2 text-left font-mono fs-10.5 tracking-[0.16em] text-ink-900/60"
                 >
-                  <span aria-hidden className="text-[9px]">
+                  <span aria-hidden className="fs-9">
                     {endedOpen ? '▾' : '▸'}
                   </span>
-                  <span aria-hidden className="block h-2 w-2 rounded-full border border-[rgba(200,215,235,.45)]" />
+                  <span aria-hidden className="block h-2 w-2 rounded-full border border-ink-600/45" />
                   <span>
                     {GROUP_LABEL.ended}
                     {heading?.count != null && <> · {heading.count}</>}
                   </span>
                   {latest !== null && (
-                    <span className="ml-auto tracking-[0.04em] text-[rgba(160,190,225,.45)]">latest {agoLabel(latest, now)}</span>
+                    <span className="ml-auto tracking-[0.04em] text-ink-900/60">latest {agoLabel(latest, now)}</span>
                   )}
                 </button>
                 {endedOpen && group.sessions.map((s) => <EndedRow key={s.id} session={s} tag={primaryTag(s.tagIds, tags)} device={withNames ? s.machine?.name : undefined} now={now} onOpen={openSession} />)}
@@ -273,7 +274,7 @@ export function SessionListScreen() {
           const label = (
             <>
               {GROUP_LABEL[group.key]} · {group.sessions.length}
-              {listOffline && <span className="tracking-[0.06em] text-[rgba(160,190,225,.45)]"> · last known</span>}
+              {listOffline && <span className="tracking-[0.06em] text-ink-900/60"> · last known</span>}
             </>
           )
           if (group.key === 'input') {
@@ -283,17 +284,17 @@ export function SessionListScreen() {
                 className={[
                   'mx-3 mb-1.5 overflow-hidden rounded-[18px] border',
                   listOffline
-                    ? 'border-[rgba(255,187,123,.28)] bg-[rgba(255,187,123,.04)]'
-                    : 'border-[rgba(255,187,123,.42)] bg-[linear-gradient(180deg,rgba(255,187,123,.09),rgba(255,187,123,.02))] shadow-[0_0_30px_rgba(255,187,123,.06)]',
+                    ? 'border-warning/28 bg-warning/4'
+                    : 'border-warning/42 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-warning)_9%,_transparent),color-mix(in_oklab,_var(--color-warning)_2%,_transparent))] shadow-[0_0_30px_color-mix(in_oklab,_var(--color-warning)_6%,_transparent)]',
                 ].join(' ')}
               >
-                <div className="flex items-center gap-2 px-4 pb-0.5 pt-3 font-mono text-[10.5px] tracking-[0.16em] text-[var(--state-input)]">
+                <div className="flex items-center gap-2 px-4 pb-0.5 pt-3 font-mono fs-10.5 tracking-[0.16em] text-[var(--state-input)]">
                   <span aria-hidden className={['block h-1.5 w-1.5 rounded-full bg-[var(--state-input)]', listOffline ? '' : 'orbital-breathe'].join(' ')} />
                   {label}
                 </div>
                 {rows}
                 {listOffline && (
-                  <p className="pb-3 pl-[70px] pr-4 text-[12px] leading-[1.4] text-[rgba(160,190,225,.6)]">
+                  <p className="pb-3 pl-[70px] pr-4 fs-12 leading-[1.4] text-ink-900/60">
                     Readable, gates and cards included; answering waits for the Mac.
                   </p>
                 )}
@@ -302,14 +303,14 @@ export function SessionListScreen() {
           }
           return (
             <section key={group.key}>
-              <div className="px-5 pb-0.5 pt-3.5 font-mono text-[10.5px] tracking-[0.16em] text-[rgba(160,190,225,.6)]">{label}</div>
+              <div className="px-5 pb-0.5 pt-3.5 font-mono fs-10.5 tracking-[0.16em] text-ink-900/60">{label}</div>
               {rows}
             </section>
           )
         })}
 
         {groups.length === 0 && (
-          <p className="px-8 py-10 text-center text-[13px] text-[rgba(160,190,225,.6)]">
+          <p className="px-8 py-10 text-center fs-13 text-ink-900/60">
             {tagIds.length === 0 ? 'No sessions yet.' : `No live sessions with the selected tags.`}
           </p>
         )}
@@ -323,9 +324,9 @@ function OrbitalMark() {
   return (
     <span
       aria-hidden
-      className="relative block h-4 w-4 shrink-0 rounded-full border-[1.5px] border-[oklch(85%_.12_205)] shadow-[0_0_10px_oklch(85%_.12_205/.5)]"
+      className="relative block h-4 w-4 shrink-0 rounded-full border-[1.5px] border-accent shadow-[0_0_10px_color-mix(in_oklab,var(--color-accent)_50%,transparent)]"
     >
-      <span className="absolute -right-px -top-px block h-[5px] w-[5px] rounded-full bg-[oklch(85%_.12_205)]" />
+      <span className="absolute -right-px -top-px block h-[5px] w-[5px] rounded-full bg-accent" />
     </span>
   )
 }
@@ -333,15 +334,15 @@ function OrbitalMark() {
 /** The Mac's presence beside its name: lit online, hollow asleep, dim while the relay link comes up. */
 function MacDot({ state }: { state: 'online' | 'asleep' | 'connecting' }) {
   if (state === 'asleep') {
-    return <span role="img" aria-label="asleep" className="block h-[7px] w-[7px] shrink-0 rounded-full border-[1.2px] border-[rgba(200,215,235,.6)]" />
+    return <span role="img" aria-label="asleep" className="block h-[7px] w-[7px] shrink-0 rounded-full border-[1.2px] border-ink-600/60" />
   }
   return (
     <span
       role="img"
       aria-label={state === 'online' ? 'online' : 'connecting to the relay'}
       className={[
-        'block h-[7px] w-[7px] shrink-0 rounded-full bg-[oklch(85%_.12_205)]',
-        state === 'online' ? 'shadow-[0_0_8px_oklch(85%_.12_205)]' : 'opacity-40',
+        'block h-[7px] w-[7px] shrink-0 rounded-full bg-accent',
+        state === 'online' ? 'shadow-[0_0_8px_var(--color-accent)]' : 'opacity-40',
       ].join(' ')}
     />
   )
@@ -369,17 +370,17 @@ function Chip({
       aria-pressed={active}
       onClick={onClick}
       className={[
-        'flex h-9 shrink-0 items-center gap-[7px] rounded-full border px-[13px] text-[13px] font-semibold',
+        'flex h-9 shrink-0 items-center gap-[7px] rounded-full border px-[13px] fs-13 font-semibold',
         active
-          ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
+          ? 'border-line/30 bg-line/14 text-ink-100'
           : muted
-            ? 'border-[rgba(150,205,255,.14)] text-[rgba(160,190,225,.6)]'
-            : 'border-[rgba(150,205,255,.14)] text-[rgba(200,220,245,.75)]',
+            ? 'border-line/14 text-ink-900/60'
+            : 'border-line/14 text-ink-500/75',
       ].join(' ')}
     >
       {hue !== undefined && <span aria-hidden className="block h-1.5 w-1.5 rounded-full" style={{ background: tagColor(hue) }} />}
       <span>{label}</span>
-      {count !== undefined && <span className="font-mono text-[10.5px] font-normal text-[rgba(160,190,225,.6)]">{count}</span>}
+      {count !== undefined && <span className="font-mono fs-10.5 font-normal text-ink-900/60">{count}</span>}
     </button>
   )
 }
@@ -398,15 +399,15 @@ function DeviceChipButton({ chip, on, onClick }: { chip: PhoneChip; on: boolean;
       title={`${chip.name} · ${chip.kind} · ${state}`}
       onClick={onClick}
       className={[
-        'flex h-9 shrink-0 items-center gap-[7px] rounded-full border px-3 text-[13px] font-semibold',
-        on ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright' : 'border-[rgba(150,205,255,.14)] text-[rgba(160,190,225,.6)]',
+        'flex h-9 shrink-0 items-center gap-[7px] rounded-full border px-3 fs-13 font-semibold',
+        on ? 'border-line/30 bg-line/14 text-ink-100' : 'border-line/14 text-ink-900/60',
         chip.offline ? 'opacity-50' : '',
       ].join(' ')}
     >
       <KindGlyph kind={chip.kind} untitled />
       <span>{chip.label}</span>
-      {chip.update && <span className="font-mono text-[10px] font-normal text-[rgba(160,190,225,.75)]">update</span>}
-      <span className="font-mono text-[10.5px] font-normal text-[rgba(160,190,225,.6)]">{chip.count}</span>
+      {chip.update && <span className="font-mono fs-10 font-normal text-ink-900/75">update</span>}
+      <span className="font-mono fs-10.5 font-normal text-ink-900/60">{chip.count}</span>
     </button>
   )
 }
@@ -414,17 +415,17 @@ function DeviceChipButton({ chip, on, onClick }: { chip: PhoneChip; on: boolean;
 /** One asleep device in a group (canvas 50j ASLEEP, PER DEVICE): its rows stay below, dimmed. */
 function AsleepDeviceCard({ card, checking, onRetry }: { card: AsleepCard; checking: boolean; onRetry: () => void }) {
   return (
-    <section className="mx-3 mb-2 flex items-center gap-3 rounded-[14px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.82)] py-1.5 pl-4 pr-1.5">
-      <span aria-hidden className="box-border block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-[rgba(200,215,235,.6)]" />
+    <section className="mx-3 mb-2 flex items-center gap-3 rounded-[14px] border border-line/16 bg-panel/82 py-1.5 pl-4 pr-1.5">
+      <span aria-hidden className="box-border block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-ink-600/60" />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-[13.5px] font-semibold">{card.name} is asleep</span>
-        <span className="truncate font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{card.line}</span>
+        <span className="truncate fs-13.5 font-semibold">{card.name} is asleep</span>
+        <span className="truncate font-mono fs-10.5 text-ink-900/60">{card.line}</span>
       </span>
       <button
         type="button"
         disabled={checking}
         onClick={onRetry}
-        className="grid h-11 shrink-0 place-items-center rounded-[12px] border border-[rgba(150,205,255,.2)] px-3.5 text-[13px] font-semibold text-text-bright disabled:opacity-40"
+        className="grid h-11 shrink-0 place-items-center rounded-[12px] border border-line/20 px-3.5 fs-13 font-semibold text-ink-100 disabled:opacity-40"
       >
         Retry
       </button>
@@ -450,16 +451,16 @@ function UnreachableCard() {
     }
   }
   return (
-    <section className="mx-3 mb-2 flex items-center gap-3 rounded-[14px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.82)] py-1.5 pl-4 pr-1.5">
-      <span aria-hidden className="box-border block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-[rgba(200,215,235,.6)]" />
-      <span className="min-w-0 flex-1 py-1 text-[13.5px] font-semibold leading-[1.35]">
+    <section className="mx-3 mb-2 flex items-center gap-3 rounded-[14px] border border-line/16 bg-panel/82 py-1.5 pl-4 pr-1.5">
+      <span aria-hidden className="box-border block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-ink-600/60" />
+      <span className="min-w-0 flex-1 py-1 fs-13.5 font-semibold leading-[1.35]">
         No device in your group can reach this phone right now.
       </span>
       <button
         type="button"
         disabled={busy}
         onClick={() => void pairAgain()}
-        className="grid h-11 shrink-0 place-items-center rounded-[12px] border border-[rgba(150,205,255,.2)] px-3.5 text-[13px] font-semibold text-text-bright disabled:opacity-40"
+        className="grid h-11 shrink-0 place-items-center rounded-[12px] border border-line/20 px-3.5 fs-13 font-semibold text-ink-100 disabled:opacity-40"
       >
         Pair again
       </button>
@@ -478,8 +479,8 @@ function PinMark({ ink, dim = false }: { ink: string; dim?: boolean }) {
 }
 
 /** Canvas 10a: the title row's ink for the pin. */
-const PIN_INK = 'rgba(200,220,245,.75)'
-const PIN_INK_ENDED = 'rgba(200,220,245,.65)'
+const PIN_INK = swatch('ink-500', 0.75)
+const PIN_INK_ENDED = swatch('ink-500', 0.65)
 
 function SessionRow({
   session,
@@ -545,7 +546,7 @@ function SessionRow({
     <div
       // Its own snapshot when the tag filter changes: the row glides to its new place (80b).
       style={{ viewTransitionName: sessionViewTransitionName(session.id) }}
-      className={[input ? '' : 'mx-3 border-b border-[rgba(150,205,255,.06)]', asleep ? 'opacity-[.55]' : ''].join(' ')}
+      className={[input ? '' : 'mx-3 border-b border-line/6', asleep ? 'opacity-[.55]' : ''].join(' ')}
     >
       <button
         type="button"
@@ -567,21 +568,21 @@ function SessionRow({
           <span className="flex min-w-0 items-center gap-[7px]">
             <span
               className={[
-                'truncate text-[15px] font-semibold',
+                'truncate fs-15 font-semibold',
                 offline
-                  ? 'text-[rgba(232,238,248,.85)]'
+                  ? 'text-ink-100/85'
                   : idle
-                    ? 'text-[rgba(232,238,248,.88)]'
+                    ? 'text-ink-100/88'
                     : group === 'limit'
-                      ? 'text-[rgba(232,238,248,.9)]'
-                      : 'text-text-bright',
+                      ? 'text-ink-100/90'
+                      : 'text-ink-100',
               ].join(' ')}
             >
               {session.title || 'Untitled session'}
             </span>
             {session.pinnedAt ? <PinMark ink={PIN_INK} dim={offline} /> : null}
             {isReadOnly(session) && (
-              <span className="shrink-0 rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono text-[9px] tracking-[0.12em] text-[rgba(160,190,225,.75)]">
+              <span className="shrink-0 rounded-[4px] border border-line/20 px-1.5 py-0.5 font-mono fs-9 tracking-[0.12em] text-ink-900/75">
                 TERMINAL · READ-ONLY
               </span>
             )}
@@ -598,14 +599,14 @@ function SessionRow({
             ) : (
               <WhereLine session={session} dotColor={moonColor} variant="list" dim={offline} device={device} />
             ))}
-          {asleepCounts !== null && <span className="font-mono text-[11px] text-[rgba(160,190,225,.6)]">{asleepCounts}</span>}
+          {asleepCounts !== null && <span className="font-mono fs-11 text-ink-900/60">{asleepCounts}</span>}
           {reason && (
-            <span className={['text-[12.5px] leading-[1.35]', offline ? 'text-[rgba(255,214,173,.75)]' : 'text-[#ffd6ad]'].join(' ')}>
+            <span className={['fs-12.5 leading-[1.35]', offline ? 'text-warning-soft/75' : 'text-warning-soft'].join(' ')}>
               {reason}
             </span>
           )}
           {waitLine && (
-            <span className={['text-[12.5px] leading-[1.35]', offline ? 'text-[rgba(200,215,235,.7)]' : 'text-[rgba(200,215,235,.8)]'].join(' ')}>
+            <span className={['fs-12.5 leading-[1.35]', offline ? 'text-ink-600/70' : 'text-ink-600/80'].join(' ')}>
               {waitLine}
             </span>
           )}
@@ -613,8 +614,8 @@ function SessionRow({
         {time !== null && (
           <span
             className={[
-              'shrink-0 self-start whitespace-nowrap pt-[3px] font-mono text-[11px]',
-              input ? 'text-[var(--state-input)]' : offline ? 'text-[rgba(160,190,225,.5)]' : idle ? 'text-[rgba(160,190,225,.55)]' : 'text-[rgba(160,190,225,.65)]',
+              'shrink-0 self-start whitespace-nowrap pt-[3px] font-mono fs-11',
+              input ? 'text-[var(--state-input)]' : offline ? 'text-ink-900/50' : idle ? 'text-ink-900/55' : 'text-ink-900/65',
             ].join(' ')}
           >
             {time}
@@ -640,28 +641,28 @@ function SessionRow({
               </span>
             )}
             {summary.subagents !== null && (
-              <span className="min-w-0 truncate font-mono text-[11px] text-[rgba(200,220,245,.75)]">{summary.subagents}</span>
+              <span className="min-w-0 truncate font-mono fs-11 text-ink-500/75">{summary.subagents}</span>
             )}
             {summary.tasks !== null && (
-              <span className="font-mono text-[11px] text-[rgba(200,220,245,.75)]">
-                {summary.subagents !== null && <span className="text-[rgba(150,205,255,.3)]">· </span>}▣ {summary.tasks}
+              <span className="font-mono fs-11 text-ink-500/75">
+                {summary.subagents !== null && <span className="text-line/30">· </span>}▣ {summary.tasks}
               </span>
             )}
-            <span aria-hidden className="text-[9px] text-[rgba(160,190,225,.6)]">
+            <span aria-hidden className="fs-9 text-ink-900/60">
               {moonsOpen ? '▾' : '▸'}
             </span>
           </button>
           {moonsOpen && (
             // Canvas 10a: 44 px rows ending in ›; a subagent opens 10f, ▣ a task 10g.
-            <ul className="-mt-1 mb-2 ml-[62px] flex flex-col border-l border-[rgba(150,205,255,.12)]">
+            <ul className="-mt-1 mb-2 ml-[62px] flex flex-col border-l border-line/12">
               {runningMoons.map((agent) => {
                 const toolUseId = agent.toolUseId
                 const body = (
                   <>
                     <Moon color={moonColor} running={agent.state !== 'ended'} small />
-                    <span className="min-w-0 truncate text-text-bright">{agent.name}</span>
+                    <span className="min-w-0 truncate text-ink-100">{agent.name}</span>
                     <span className="flex-1" />
-                    <span className="shrink-0 text-[rgba(160,190,225,.65)]">{subagentStatus(agent, now)}</span>
+                    <span className="shrink-0 text-ink-900/65">{subagentStatus(agent, now)}</span>
                   </>
                 )
                 return (
@@ -670,14 +671,14 @@ function SessionRow({
                       <button
                         type="button"
                         onClick={() => onOpenSubagent({ sessionId: session.id, toolUseId })}
-                        className="flex h-11 w-full items-center gap-[9px] pl-3 text-left font-mono text-[11px]"
+                        className="flex h-11 w-full items-center gap-[9px] pl-3 text-left font-mono fs-11"
                       >
                         {body}
                         <Chevron />
                       </button>
                     ) : (
                       // A moon without its launching call cannot be opened (spec § 3): no ›.
-                      <span className="flex h-11 items-center gap-[9px] pl-3 pr-6 font-mono text-[11px]">{body}</span>
+                      <span className="flex h-11 items-center gap-[9px] pl-3 pr-6 font-mono fs-11">{body}</span>
                     )}
                   </li>
                 )
@@ -685,12 +686,12 @@ function SessionRow({
               {tasks.map((task) => {
                 const body = (
                   <>
-                    <span aria-hidden className="block w-2 shrink-0 text-center text-[rgba(200,220,245,.75)]">
+                    <span aria-hidden className="block w-2 shrink-0 text-center text-ink-500/75">
                       ▣
                     </span>
-                    <span className="min-w-0 truncate text-text-bright">{task.label}</span>
+                    <span className="min-w-0 truncate text-ink-100">{task.label}</span>
                     <span className="flex-1" />
-                    <span className="shrink-0 text-[rgba(160,190,225,.65)]">{taskStatus(task, now)}</span>
+                    <span className="shrink-0 text-ink-900/65">{taskStatus(task, now)}</span>
                   </>
                 )
                 return (
@@ -699,14 +700,14 @@ function SessionRow({
                       <button
                         type="button"
                         onClick={() => onOpenTask({ sessionId: session.id, taskId: task.id })}
-                        className="flex h-11 w-full items-center gap-[9px] pl-3 text-left font-mono text-[11px]"
+                        className="flex h-11 w-full items-center gap-[9px] pl-3 text-left font-mono fs-11"
                       >
                         {body}
                         <Chevron />
                       </button>
                     ) : (
                       // A task without an output file has nothing to open, as in the 10f sheet: no ›.
-                      <span className="flex h-11 items-center gap-[9px] pl-3 pr-6 font-mono text-[11px]">{body}</span>
+                      <span className="flex h-11 items-center gap-[9px] pl-3 pr-6 font-mono fs-11">{body}</span>
                     )}
                   </li>
                 )
@@ -722,7 +723,7 @@ function SessionRow({
 /** The › that ends an openable moons row (canvas 10a). */
 function Chevron() {
   return (
-    <span aria-hidden className="block w-6 shrink-0 text-center text-[14px] text-[rgba(160,190,225,.6)]">
+    <span aria-hidden className="block w-6 shrink-0 text-center fs-14 text-ink-900/60">
       ›
     </span>
   )
@@ -737,11 +738,11 @@ function Moon({ color, running, small = false }: { color: string; running: boole
     <span
       aria-hidden
       className={[
-        'box-border block shrink-0 rounded-full border bg-[oklch(30%_.05_220)]',
+        'box-border block shrink-0 rounded-full border bg-[var(--color-body-hi)]',
         small ? 'h-2 w-2' : 'h-[9px] w-[9px]',
         running ? 'orbital-pulse' : '',
       ].join(' ')}
-      style={{ borderColor: running ? color : 'rgba(200,215,235,.35)' }}
+      style={{ borderColor: running ? color : swatch('ink-600', 0.35) }}
     />
   )
 }
@@ -774,18 +775,18 @@ function EndedRow({
       style={{ viewTransitionName: sessionViewTransitionName(session.id) }}
       className={[
         'mx-3 flex min-h-13 w-[calc(100%-24px)] items-center gap-2.5 text-left',
-        pinned ? 'px-2 py-1 opacity-80' : 'border-b border-[rgba(150,205,255,.05)] px-2 py-1 opacity-75',
+        pinned ? 'px-2 py-1 opacity-80' : 'border-b border-line/5 px-2 py-1 opacity-75',
       ].join(' ')}
     >
       <PlanetGlyph session={session} offline={false} />
       <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
         <span className="flex min-w-0 items-center gap-[7px]">
-          <span className={['truncate text-[14px] font-semibold', pinned ? 'text-[rgba(220,235,255,.75)]' : 'text-[rgba(220,235,255,.7)]'].join(' ')}>
+          <span className={['truncate fs-14 font-semibold', pinned ? 'text-ink-200/75' : 'text-ink-200/70'].join(' ')}>
             {session.title || 'Untitled session'}
           </span>
           {pinned && <PinMark ink={PIN_INK_ENDED} />}
         </span>
-        <span className="flex items-center gap-1.5 font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
+        <span className="flex items-center gap-1.5 font-mono fs-10.5 text-ink-900/55">
           <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full opacity-70" style={{ background: tag ? tagColor(tag.hue) : 'var(--state-neutral)' }} />
           <span className="truncate">
             {device && `${device} · `}
@@ -794,7 +795,7 @@ function EndedRow({
           </span>
         </span>
       </span>
-      {session.lastAt !== null && <span className="shrink-0 font-mono text-[11px] text-[rgba(160,190,225,.45)]">{timeAgo(session.lastAt, now)}</span>}
+      {session.lastAt !== null && <span className="shrink-0 font-mono fs-11 text-ink-900/60">{timeAgo(session.lastAt, now)}</span>}
     </button>
   )
 }

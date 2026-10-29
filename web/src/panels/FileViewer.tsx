@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
@@ -49,7 +50,7 @@ export const VIEWER_ENTER_MS = 180
 export const VIEWER_EXIT_MS = 140
 
 /** Target-line accent (canvas 8e "target number"): oklch(88% .1 205). */
-const TARGET_ACCENT = 'oklch(88% .1 205)'
+const TARGET_ACCENT = swatch('sky-soft')
 
 /**
  * The shortcut drawn beside the header's "open in <editor>" link (canvas 20d
@@ -70,8 +71,8 @@ const IDE_VIEWER_SHORTCUT_LABEL = `${IDE_MODIFIER_LABEL}⏎`
 const DIAGNOSTIC_INK: Record<IdeDiagnosticSeverity, string> = {
   error: '#ff9b9b',
   warning: 'var(--color-warning)',
-  info: 'rgba(160,190,225,.7)',
-  hint: 'rgba(160,190,225,.7)',
+  info: swatch('ink-900', 0.7),
+  hint: swatch('ink-900', 0.7),
 }
 
 /** Worst first — what the gutter number takes its colour from. */
@@ -121,11 +122,11 @@ function SkeletonBody() {
         <div
           key={width}
           data-skeleton
-          className="relative h-[11px] overflow-hidden rounded-[3px] bg-[rgba(150,205,255,.07)]"
+          className="relative h-[11px] overflow-hidden rounded-[3px] bg-line/7"
           style={{ width: `${width}%` }}
         >
           <div
-            className="absolute inset-0 bg-[linear-gradient(90deg,transparent,rgba(150,205,255,.1),transparent)]"
+            className="absolute inset-0 bg-[linear-gradient(90deg,transparent,color-mix(in_oklab,_var(--color-line)_10%,_transparent),transparent)]"
             style={{ animation: `orbital-sweep 1.4s ease-in-out ${index * 0.1}s infinite` }}
           />
         </div>
@@ -143,12 +144,12 @@ function SkeletonBody() {
 export function RefusalBody({ label, sentence }: { label: string; sentence: React.ReactNode | null }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-[10px] px-10 text-center">
-      <span aria-hidden className="h-4 w-4 rounded-[4px] border border-[rgba(160,190,225,.35)]" />
-      <span className="font-mono text-[10px] tracking-[0.14em] text-[rgba(160,190,225,.55)]">
+      <span aria-hidden className="h-4 w-4 rounded-[4px] border border-ink-900/35" />
+      <span className="font-mono fs-10 tracking-[0.14em] text-ink-900/55">
         {label}
       </span>
       {sentence && (
-        <span className="font-mono text-[11px] leading-[1.7] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+        <span className="font-mono fs-11 leading-[1.7] text-ink-900/70 [text-wrap:pretty]">
           {sentence}
         </span>
       )}
@@ -160,16 +161,16 @@ export function RefusalBody({ label, sentence }: { label: string; sentence: Reac
  * centred, 15/1.75 body, 26px/700 h1, 18px block gap, 34px top inset. */
 export function MarkdownBody({ content }: { content: string }) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto pb-10 pt-[34px]">
+    <div data-selectable className="min-h-0 flex-1 overflow-y-auto pb-10 pt-[34px]">
       <div
         className={[
           'mx-auto flex max-w-[660px] flex-col gap-[18px] px-6',
-          'text-[15px] leading-[1.75] text-[rgba(228,238,250,.9)] [text-wrap:pretty]',
+          'fs-15 leading-[1.75] text-ink-100/90 [text-wrap:pretty]',
           '[&_p]:m-0',
-          '[&_h1]:text-[26px] [&_h1]:font-bold [&_h1]:leading-[1.25] [&_h1]:tracking-[-.015em]',
-          '[&_h2]:text-[16px] [&_h2]:font-bold [&_h2]:tracking-[-.01em]',
+          '[&_h1]:fs-26 [&_h1]:font-bold [&_h1]:leading-[1.25] [&_h1]:tracking-[-.015em]',
+          '[&_h2]:fs-16 [&_h2]:font-bold [&_h2]:tracking-[-.01em]',
           '[&_ul]:m-0 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:m-0 [&_ol]:list-decimal [&_ol]:pl-5',
-          '[&_blockquote]:m-0 [&_blockquote]:border-l-2 [&_blockquote]:border-[rgba(150,205,255,.3)] [&_blockquote]:bg-[rgba(150,205,255,.04)] [&_blockquote]:px-4 [&_blockquote]:py-3.5',
+          '[&_blockquote]:m-0 [&_blockquote]:border-l-2 [&_blockquote]:border-line/30 [&_blockquote]:bg-line/4 [&_blockquote]:px-4 [&_blockquote]:py-3.5',
         ].join(' ')}
       >
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ code: Code, pre: Pre }}>
@@ -218,13 +219,14 @@ function SourceBody({
   return (
     <div
       ref={containerRef}
-      className="relative min-h-0 flex-1 overflow-auto font-mono text-[12.5px] leading-[22px]"
+      data-selectable
+      className="relative h-fit min-h-0 flex-1 overflow-auto font-mono fs-12.5 leading-[calc(22px*var(--text-scale,1))]"
     >
       <div className="relative min-h-full w-fit min-w-full py-3.5">
         {/* The gutter well (8c): 56px, rgba(4,8,16,.4), hairline right edge. */}
         <div
           aria-hidden
-          className="absolute inset-y-0 left-0 w-14 border-r border-[rgba(150,205,255,.08)] bg-[rgba(4,8,16,.4)]"
+          className="absolute inset-y-0 left-0 w-14 border-r border-line/8 bg-space/40"
         />
         <div className="relative">
           {lines.map((text, index) => {
@@ -248,7 +250,7 @@ function SourceBody({
                   isTarget
                     ? // 8e: wash rgba(150,205,255,.07) + inset 2px accent rail.
                       {
-                        background: 'rgba(150,205,255,.07)',
+                        background: swatch('line', 0.07),
                         boxShadow: `inset 2px 0 0 ${TARGET_ACCENT}`,
                       }
                     : undefined
@@ -258,7 +260,7 @@ function SourceBody({
                     across rows copies the code alone, without the gutter. */}
                 <span
                   data-number={lineNumber}
-                  className="w-14 shrink-0 pr-3 text-right text-[11.5px] text-[rgba(160,190,225,.32)] before:content-[attr(data-number)]"
+                  className="w-14 shrink-0 pr-3 text-right fs-11.5 text-ink-900/32 before:content-[attr(data-number)]"
                   style={
                     isTarget
                       ? { color: TARGET_ACCENT }
@@ -268,7 +270,7 @@ function SourceBody({
                   }
                   title={found ? found.map(describeDiagnostic).join('\n') : undefined}
                 />
-                <span className="whitespace-pre pl-[18px] pr-5 text-[rgba(214,230,248,.9)]">
+                <span className="whitespace-pre pl-[18px] pr-5 text-ink-400/90">
                   {tokens
                     ? tokens[index].map((token, tokenIndex) => (
                         // A static token list: the index is a stable key.
@@ -314,7 +316,7 @@ export function FileViewer({ session }: FileViewerProps) {
       outside={(cwd) => (
         <>
           Orbital reads inside{' '}
-          <span className="text-[rgba(220,235,255,.85)]">{cwd ?? workingDirOf(session)}</span> and files this
+          <span className="text-ink-200/85">{cwd ?? workingDirOf(session)}</span> and files this
           session named.
         </>
       )}
@@ -354,7 +356,7 @@ export function ProjectFileViewer({ cwd, server, onClose, machine }: ProjectFile
       ideName={null}
       outside={() => (
         <>
-          Orbital reads inside <span className="text-[rgba(220,235,255,.85)]">{cwd}</span>.
+          Orbital reads inside <span className="text-ink-200/85">{cwd}</span>.
         </>
       )}
       openedFrom="New session"
@@ -542,12 +544,13 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
         role="dialog"
         aria-modal="true"
         aria-label={`File ${path}`}
+        data-text-scope="transcript"
         data-state={state}
         inert={state === 'exiting' || undefined}
         onClick={closeFile}
         // 8e transitions: backdrop .14s; rgba(2,4,9,.82) + blur 6.
         style={{ transition: 'opacity 140ms ease', opacity: entered ? 1 : 0 }}
-        className="orbital-no-drag fixed inset-0 z-50 grid place-items-center bg-[rgba(2,4,9,.82)] p-6 backdrop-blur-[6px]"
+        className="orbital-no-drag fixed inset-0 z-50 grid place-items-center bg-shade/82 p-6 backdrop-blur-[6px]"
       >
         <div
           onClick={(event) => event.stopPropagation()}
@@ -562,26 +565,26 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
             transition: 'transform 180ms cubic-bezier(.2,.9,.25,1)',
             transform: entered ? 'scale(1)' : 'scale(.98)',
           }}
-          className="flex flex-col overflow-hidden rounded-[14px] border border-[rgba(150,205,255,.22)] bg-[linear-gradient(180deg,rgba(14,20,34,.96),rgba(8,12,22,.98))] shadow-[0_40px_120px_rgba(0,0,0,.7)]"
+          className="flex flex-col overflow-hidden rounded-[14px] border border-line/22 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel-solid)_96%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_98%,_transparent))] shadow-[0_40px_120px_color-mix(in_oklab,_var(--color-shadow)_70%,_transparent)]"
         >
           {/* Header (8b/8c): real from the first frame — the path is known
               client-side, so nothing moves when the read finishes. Pad
               16 18 14 over a hairline rule. */}
-          <div className="flex items-start gap-3 border-b border-[rgba(150,205,255,.1)] px-[18px] pb-3.5 pt-4">
+          <div className="flex items-start gap-3 border-b border-line/10 px-[18px] pb-3.5 pt-4">
             <div className="flex min-w-0 flex-1 flex-col gap-[7px]">
-              <div className="flex min-w-0 items-center gap-2 font-mono text-[14px] text-[rgba(160,190,225,.6)]">
+              <div className="flex min-w-0 items-center gap-2 font-mono fs-14 text-ink-900/60">
                 <span className="min-w-0 truncate">
                   {directory && <span>{directory}</span>}
-                  <span className="text-[#f2f9ff]">{basename}</span>
+                  <span className="text-ink-50">{basename}</span>
                 </span>
                 {line !== null && (
                   // The :line chip (8c): accent .12 fill, .4 border.
-                  <span className="shrink-0 rounded-[5px] border border-[oklch(85%_.12_205_/_.4)] bg-[oklch(85%_.12_205_/_.12)] px-[7px] py-[2px] text-[12px] text-[oklch(88%_.1_205)]">
+                  <span className="shrink-0 rounded-[5px] border border-accent/40 bg-accent/12 px-[7px] py-[2px] fs-12 text-sky-soft">
                     :{line}
                   </span>
                 )}
               </div>
-              <div className="truncate font-mono text-[10.5px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+              <div className="truncate font-mono fs-10.5 tracking-[0.06em] text-ink-900/55">
                 {meta}
               </div>
             </div>
@@ -593,8 +596,8 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
                 gesture, so someone who uses this twice starts ⌥-clicking the
                 path directly and never comes back here.
 
-                20d: link `rgba(160,190,225,.6)` under a dashed
-                `rgba(150,205,255,.25)`, tracking .04em against the row's own
+                20d: link swatch('ink-900', 0.6) under a dashed
+                swatch('line', 0.25), tracking .04em against the row's own
                 .1em; the shortcut behind it at `.4`. Absent with no editor,
                 which is also how the gesture says it is unavailable. */}
             {ideName && (
@@ -602,10 +605,10 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
                 type="button"
                 data-ide-open-link
                 onClick={() => void openInIde(path, line)}
-                className="shrink-0 font-mono text-[10.5px] tracking-[0.04em] text-[rgba(160,190,225,.6)] underline decoration-dashed decoration-[rgba(150,205,255,.25)] underline-offset-[3px] transition-colors hover:text-[#f2f9ff]"
+                className="shrink-0 font-mono fs-10.5 tracking-[0.04em] text-ink-900/60 underline decoration-dashed decoration-line/25 underline-offset-[3px] transition-colors hover:text-ink-50"
               >
                 open in {ideName}
-                <span className="pl-2 tracking-[0.04em] text-[rgba(160,190,225,.4)] no-underline">
+                <span className="pl-2 tracking-[0.04em] text-ink-900/40 no-underline">
                   {IDE_VIEWER_SHORTCUT_LABEL}
                 </span>
               </button>
@@ -614,7 +617,7 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
               type="button"
               aria-label="Close"
               onClick={closeFile}
-              className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[8px] border border-[rgba(150,205,255,.2)] bg-[rgba(10,14,24,.7)] text-[15px] text-text-bright transition-colors hover:border-[rgba(150,205,255,.45)]"
+              className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[8px] border border-line/20 bg-panel/70 fs-15 text-ink-100 transition-colors hover:border-line/45"
             >
               ×
             </button>
@@ -643,9 +646,9 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
               label="TOO LARGE TO PREVIEW"
               sentence={
                 <>
-                  <span className="text-[rgba(220,235,255,.85)]">{formatBytes(preview.size)}</span>{' '}
+                  <span className="text-ink-200/85">{formatBytes(preview.size)}</span>{' '}
                   over the{' '}
-                  <span className="text-[rgba(220,235,255,.85)]">
+                  <span className="text-ink-200/85">
                     {formatBytes(FILE_PREVIEW_MAX_BYTES)}
                   </span>{' '}
                   ceiling.
@@ -657,7 +660,7 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
               label="BINARY FILE"
               sentence={
                 <>
-                  <span className="text-[rgba(220,235,255,.85)]">{preview.mediaType}</span> —
+                  <span className="text-ink-200/85">{preview.mediaType}</span> —
                   nothing to read as text.
                 </>
               }
@@ -667,7 +670,8 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
             // ReactMarkdown, no per-line rows. The file still opens.
             <pre
               data-degraded
-              className="min-h-0 flex-1 overflow-auto whitespace-pre px-[18px] py-3.5 font-mono text-[12.5px] leading-[22px] text-[rgba(214,230,248,.9)]"
+              data-selectable
+              className="h-fit min-h-0 flex-1 overflow-auto whitespace-pre px-[18px] py-3.5 font-mono fs-12.5 leading-[calc(22px*var(--text-scale,1))] text-ink-400/90"
             >
               {preview.content}
             </pre>
@@ -687,8 +691,8 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
               fileViewer deliberately carries only {path, line, cwd}, so the
               footer names the session and the opening time — judgement
               call, marked. */}
-          <div className="flex items-center gap-2.5 border-t border-[rgba(150,205,255,.1)] px-[18px] py-2.5 font-mono text-[10px] tracking-[0.08em] text-[rgba(160,190,225,.55)]">
-            <span className="rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-[2px] text-[rgba(200,220,245,.7)]">
+          <div className="flex items-center gap-2.5 border-t border-line/10 px-[18px] py-2.5 font-mono fs-10 tracking-[0.08em] text-ink-900/55">
+            <span className="rounded-[4px] border border-line/20 px-1.5 py-[2px] text-ink-500/70">
               esc
             </span>
             closes · read-only snapshot

@@ -6,7 +6,6 @@ import type { ApiSession } from '../lib/types'
 import { gateWaits, loginLost, sessionStateKey, shownStatus, statePill, type SessionStateKey } from '../lib/types'
 import {
   OFFLINE_STATE_INK,
-  STATE_INPUT_HEX,
   stateBorder,
   stateColor,
   stateDot,
@@ -86,7 +85,7 @@ import {
   useScaleTween,
   useStateMix,
 } from './transition'
-import { glowTexture, bodyTexture, bodyIdleTexture } from './textures'
+import { glowTexture, bodyTexture, bodyIdleTexture, shadowTexture, SHADOW_SOLID } from './textures'
 import { bodyZoomFactor } from './camera'
 import type { SimBody } from './simulation'
 import { useFrameOnRender, useMapFrame } from './FrameBudget'
@@ -95,6 +94,7 @@ import { DetachGlyph } from '../ui/UtilityButton'
 import { useClaudeDirMark } from '../ui/ClaudeDirMark'
 import { localClaudeDirId } from '../lib/devices'
 import { WithAge } from './WithAge'
+import { swatch } from '../lib/palette'
 import {
   COMPACTED_CAPTION_MS,
   COMPACTING_SWITCH_MS,
@@ -102,19 +102,14 @@ import {
   formatCompactTokens,
   formatElapsed,
 } from '../lib/compaction'
-import {
-  CONTEXT_CRITICAL_OKLCH,
-  contextLevelOklch,
-  oklchCss,
-  type ContextThresholds,
-  type Oklch,
-} from '../lib/usage'
+import { CONTEXT_CRITICAL_OKLCH, oklchCss, type ContextLevel, type ContextThresholds, type Oklch } from '../lib/usage'
+import { oklabToLinearSrgb, SCENE_CSS, useSceneColours, type SceneColours } from '../lib/sceneColours'
 
 /**
  * Flat 2D parametric planet for the orthographic top-down space map.
  * Pure props in, no store/api imports — Task 9 wires this to live data.
  *
- * BINDING rule: hue (via `oklchTagColor`) always paints the atmosphere ring
+ * BINDING rule: hue (via `setOklchTagColor`) always paints the atmosphere ring
  * and (for non-ended states) the bright core; session STATE is expressed
  * only through `planetVisuals` (tick spin, core blink, halo breathing,
  * ripple) plus a white core/ripple for needs-input — never by picking a
@@ -156,11 +151,6 @@ const px = (designPx: number) => (designPx / 50) * BODY_RADIUS
 /** 31b: the limit pill's dot, hollow and steady — "not running, nothing to do". */
 const LIMIT_PILL_DOT = { shape: 'hollow', motion: 'steady' } as const
 
-/** Ended body: flat `oklch(16% .01 230)` per the canvas, no gradient. */
-const BODY_ENDED_LIGHTNESS = 0.16
-const BODY_ENDED_CHROMA = 0.01
-const BODY_ENDED_HUE = 230
-
 /** 1px hue border straddling the body edge; alpha varies by state (1f: .6 working, .45 idle/needs-input, grey .35 ended). */
 const BORDER_INNER = px(49.5)
 const BORDER_OUTER = px(50.5)
@@ -168,10 +158,42 @@ const BORDER_OPACITY_ACTIVE = 0.6
 const BORDER_OPACITY_IDLE = 0.45
 const BORDER_OPACITY_ENDED = 0.35
 
-/** Working body's `inset 0 0 0 6px rgba(0,0,0,.25)` — a dark rim inside the edge. */
+/**
+ * Working body's `inset 0 0 0 6px` rim inside the edge, in `void`: at .25 on a
+ * dark theme, .06 on a light one, where the sphere is pale (1l `--u-pinset`).
+ */
 const INNER_SHADE_INNER = px(50 - 6)
 const INNER_SHADE_OUTER = px(50)
 const INNER_SHADE_OPACITY = 0.25
+const INNER_SHADE_OPACITY_LIGHT = 0.06
+
+/**
+ * What a light theme draws round a body in place of its glow (1l): a 1 px
+ * edge in the tag hue at .55 just outside the border (`0 0 0 var(--edge-w)`),
+ * and a soft shadow, `0 2px 8px` in the `shadow` token at .28. Neither is
+ * drawn on a dark theme (`--edge-w` 0, `--glow-k` 1), nor round an ended body.
+ */
+const EDGE_INNER = px(50.5)
+const EDGE_OPACITY = 0.55
+const SHADOW_OFFSET = px(2)
+const SHADOW_BLUR = px(8)
+const SHADOW_OPACITY = 0.28
+/** The shadow sprite: its opaque part ends `SHADOW_BLUR` inside the body's edge, its fade `SHADOW_BLUR` outside. */
+const SHADOW_SIZE = (2 * (BODY_RADIUS - SHADOW_BLUR)) / SHADOW_SOLID
+
+/**
+ * DONE and INTERRUPTED on the body (1l): a 1.5px ring at `inset:-8px` round
+ * the 70px body — solid `success` for done, dashed `danger-soft` for
+ * interrupted — and the core in `success`, or a hollow `danger-soft` core of
+ * 11px, both normalised to the 100px body. Never the critical red.
+ */
+const STATE_RING_OUTER = px(((35 + 8) / 35) * 50)
+const STATE_RING_INNER = STATE_RING_OUTER - px(1.5)
+/** A CSS dashed 1.5px border on that ring: about 30 dashes, as long as their gaps. */
+const STATE_DASH_COUNT = 30
+const STATE_DASH_DEG = 6
+const STATE_HOLLOW_OUTER = px((5.5 / 35) * 50)
+const STATE_HOLLOW_INNER = STATE_HOLLOW_OUTER - px(1.5)
 
 /**
  * Breathing halo: `radial-gradient(circle, transparent 58%, hue/.18 72%,
@@ -202,7 +224,7 @@ const ARC_PITCH_DEG = 90
 const BLINK_DEPTH = 0.7
 
 /** `orb-pulse-out 2.4s ease-out`: scale 1 → 1.9, opacity .9 → 0, at the idle tick ring's radius (inset -21).
- * Amber `--state-input` (`STATE_INPUT_HEX`), not white: the ring says "you are
+ * Amber `--state-input` (the palette's `warning`), not white: the ring says "you are
  * being waited for", a state signal, so it takes the state colour rather than
  * the tag hue (spec 2026-09-24-state-colours-design). */
 const RIPPLE_MAX_SCALE = 1.9
@@ -233,19 +255,17 @@ const RETICLE_RADIUS = px(92)
 const RETICLE_SPIN_SPEED = (Math.PI * 2) / 160
 const RETICLE_DASH_SIZE = 0.08
 const RETICLE_DASH_GAP = 0.06
-const RETICLE_COLOR = '#e6f5ff'
 const RETICLE_OPACITY = 0.7
 // BRACKET_INSET (the `±50px` corner spans) is in `visuals.ts`: the simulation measures it.
 const BRACKET_LENGTH = px(10)
 
-/** Ended grey — `rgba(200,215,235)` in the canvas export. */
-const GREY = '#c8d7eb'
-const WHITE = '#ffffff'
-const BLACK = '#000000'
-
-/** Scratch colours for the per-frame hue → grey / hue → white mixes. Module-level and used synchronously, so one pair serves every planet without allocating. */
-const GREY_COLOR = new THREE.Color(GREY)
-const WHITE_COLOR = new THREE.Color(WHITE)
+/*
+ * Colours come from the colour theme's scene palette (`useSceneColours`),
+ * never literals: the canvas's white is `ink-50`, its ended grey
+ * `rgba(200,215,235)` is `ink-600`, its black is `hole` (the darkest of
+ * `shade` and `ink-50`, so it stays dark on a light theme). The reticle's
+ * `#e6f5ff` is `ink-50` too.
+ */
 
 /**
  * The label is anchored by its TOP edge, which is what the export measures:
@@ -280,10 +300,10 @@ const WHITE_COLOR = new THREE.Color(WHITE)
  * happens mid-tween, where no render is — so there is exactly one owner.
  */
 // LABEL_TOP_REST_Y, LABEL_GAUGED_REST_Y and LABEL_SELECTED_REST_Y are in `visuals.ts`.
-const LABEL_COLOR_ACTIVE = 'rgba(220,235,255,.85)'
-const LABEL_COLOR_DIMMED = 'rgba(160,190,225,.6)'
+const LABEL_COLOR_ACTIVE = swatch('ink-200', 0.85)
+const LABEL_COLOR_DIMMED = swatch('ink-900', 0.6)
 /** Family line under the title (canvas 4a). Subordinate to the name in both states. */
-const LABEL_MODEL_COLOR = 'rgba(160,190,225,.7)'
+const LABEL_MODEL_COLOR = swatch('ink-900', 0.7)
 
 /**
  * Hover-expanded label (idea doc `expand-a-planet-label-on-hover`). The
@@ -295,7 +315,7 @@ const LABEL_MODEL_COLOR = 'rgba(160,190,225,.7)'
 const HOVER_LABEL_ENTER_MS = 160
 const HOVER_LABEL_EXIT_MS = 120
 const HOVER_LABEL_MAX_WIDTH_PX = 240
-const HOVER_LABEL_SCRIM = 'rgba(4,8,16,.85)'
+const HOVER_LABEL_SCRIM = swatch('space', 0.85)
 
 /** The map mark's side, 44f "Sizes". */
 const MAP_MARK_PX = 12
@@ -316,15 +336,15 @@ const MAP_MARK_STYLE = {
   height: MAP_MARK_PX,
   padding: '0 2px',
   borderRadius: 3,
-  background: 'oklch(34% .012 250)',
-  boxShadow: '0 0 0 1.5px rgba(6,10,20,.85)',
+  background: SCENE_CSS.markTile,
+  boxShadow: `0 0 0 1.5px ${swatch('space', 0.85)}`,
   fontFamily: "'JetBrains Mono', ui-monospace, monospace",
   fontSize: 7.5,
   fontWeight: 600,
   letterSpacing: 0,
   lineHeight: `${MAP_MARK_PX}px`,
   textAlign: 'center',
-  color: 'rgba(226,236,250,.9)',
+  color: swatch('ink-100', 0.9),
 } as const
 
 /** Label to mark, 44b. */
@@ -374,10 +394,10 @@ const BODY_WORKING_Z = -0.001
 const DETACH_BADGE_CORNER = px((48 + 22) * (50 / 48))
 /** The badge's box and its ink, verbatim from 22e. Neutral, never the tag hue. */
 const DETACH_BADGE_PX = 20
-const DETACH_BADGE_BG = 'rgba(5,7,13,.85)'
-const DETACH_BADGE_INK = 'rgba(230,245,255,.7)'
+const DETACH_BADGE_BG = swatch('space', 0.85)
+const DETACH_BADGE_INK = swatch('ink-100', 0.7)
 /** A click on the planet focuses the window; the badge answers with one flash (22e). */
-const DETACH_BADGE_FLASH_INK = '#e8eef8'
+const DETACH_BADGE_FLASH_INK = swatch('ink-100')
 const DETACH_BADGE_FLASH_MS = 160
 /** The window closed: the badge goes, and nothing else moves (22e). */
 const DETACH_BADGE_EXIT_MS = 200
@@ -407,10 +427,8 @@ const CONTEXT_TICK_OUTER = CONTEXT_GAUGE_OUTER
 const CONTEXT_TICK_INNER = px(86)
 /** Each threshold mark is a 2° slice (`179deg 181deg`, `287deg 289deg`). */
 const CONTEXT_TICK_WIDTH_DEG = 2
-/** Unfilled track `rgba(190,225,255,.1)`, marks `rgba(240,248,255,.8)`. */
-const CONTEXT_TRACK_COLOR = '#bee1ff'
+/** Unfilled track `rgba(190,225,255,.1)` (`line`), marks `rgba(240,248,255,.8)` (`ink-50`). */
 const CONTEXT_TRACK_OPACITY = 0.1
-const CONTEXT_TICK_COLOR = '#f0f8ff'
 const CONTEXT_TICK_OPACITY = 0.8
 /** Below the first threshold the fill is the tag hue at `/ 0.6`; past it, opaque. */
 const CONTEXT_OK_OPACITY = 0.6
@@ -451,17 +469,16 @@ const COMPACT_COMMAND_OKLCH: Oklch = { lightness: 0.8, chroma: 0.15, hue: 25 }
 const COMPACT_CORE_OUTER = px(8)
 const COMPACT_CORE_INNER = px(8 - 1.5)
 const COMPACT_CORE_OPACITY = 0.75
-/** The greyed arc: `rgba(200,215,235,.3)` (GREY at .3), and the threshold marks at `opacity: .3`. */
+/** The greyed arc: `rgba(200,215,235,.3)` (`ink-600` at .3), and the threshold marks at `opacity: .3`. */
 const COMPACT_ARC_OPACITY = 0.3
 const COMPACT_TICKS_FACTOR = 0.3
 /**
  * The condensing rings: `inset: arcIn` — the context fill ring's own radius
- * — with a 1.5px `rgba(214,228,246,.8)` border, drawn in to `scale(.56)`,
- * which is the body's edge.
+ * — with a 1.5px `rgba(214,228,246,.8)` border (`ink-400`), drawn in to
+ * `scale(.56)`, which is the body's edge.
  */
 const CONDENSE_OUTER = CONTEXT_FILL_OUTER
 const CONDENSE_INNER = px(90 - 1.5)
-const CONDENSE_COLOR = '#d6e4f6'
 const CONDENSE_OPACITY = 0.8
 const CONDENSE_END_SCALE = 0.56
 /** `orb-condense 3.2s`; the second ring runs half a cycle (1.6 s) off the first. */
@@ -483,14 +500,14 @@ const CONDENSE_GLOW_OPACITY = 0.12
 /** After a success the arc drains to its new value (26e: 700 ms). */
 const ARC_DRAIN_MS = 700
 /** 26e "map pill": `COMPACTING` in the compacting grey over a .22 hairline. */
-const COMPACTING_PILL_BORDER = 'rgba(150,205,255,.22)'
-const COMPACTING_PILL_INK = 'rgba(214,228,246,.85)'
+const COMPACTING_PILL_BORDER = swatch('line', 0.22)
+const COMPACTING_PILL_INK = swatch('ink-400', 0.85)
 /** Both pills' second word — the timer, the percentage. */
-const PILL_SUB_INK = 'rgba(160,190,225,.6)'
+const PILL_SUB_INK = swatch('ink-900', 0.6)
 /** 26e "failure badge": the /compact badge's red border, a lighter red word. */
 const COMPACT_FAILED_INK = 'oklch(80% .12 25)'
 /** 26b's caption under the label after a success: 9.5px at .08em. */
-const COMPACTED_CAPTION_INK = 'rgba(200,220,245,.75)'
+const COMPACTED_CAPTION_INK = swatch('ink-500', 0.75)
 
 /** One axis of a cubic Bézier with endpoints (0,0) and (1,1). */
 function bezierAxis(t: number, p1: number, p2: number): number {
@@ -657,18 +674,21 @@ export interface PlanetProps {
   onBodyPointerDown?: (sessionId: string, e: ThreeEvent<PointerEvent>) => void
 }
 
+/** `setOklchTagColor`'s scratch, so the per-frame tween allocates nothing. */
+const LINEAR = [0, 0, 0]
+
 /**
  * Writes the app's `tagColor(hue)` (`oklch(<lightness> <chroma> <hue>)`) into
  * an existing THREE.Color. three@0.162's `Color.setStyle` does not parse
  * `oklch()` strings, so the OKLCH -> linear-sRGB math (Björn Ottosson's
- * OKLab) is inlined here rather than passing the CSS string straight into a
- * material.
+ * OKLab, `oklabToLinearSrgb` in `lib/sceneColours.ts`) runs here rather than
+ * passing the CSS string straight into a material.
  *
  * Mutating form: the hue tween recomputes this every frame while a session is
  * being retagged, and a planet that allocated a Color per frame would hand
  * the GC 50+ objects a frame across the map.
  *
- * The matrices below produce LINEAR sRGB primaries — three's default
+ * The matrices produce LINEAR sRGB primaries — three's default
  * working color space — so the result is loaded via
  * `THREE.LinearSRGBColorSpace` (a no-op copy). Loading it as
  * `THREE.SRGBColorSpace` instead would tell three the values are still
@@ -683,37 +703,27 @@ export function setOklchTagColor(
   chroma = 0.13
 ): THREE.Color {
   const hRad = (hue * Math.PI) / 180
-  const a = chroma * Math.cos(hRad)
-  const b = chroma * Math.sin(hRad)
-
-  const l_ = lightness + 0.3963377774 * a + 0.2158037573 * b
-  const m_ = lightness - 0.1055613458 * a - 0.0638541728 * b
-  const s_ = lightness - 0.0894841775 * a - 1.291485548 * b
-
-  const l = l_ ** 3
-  const m = m_ ** 3
-  const s = s_ ** 3
-
-  const r = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
-  const g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
-  const bl = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
-
+  oklabToLinearSrgb(lightness, chroma * Math.cos(hRad), chroma * Math.sin(hRad), LINEAR)
   target.setRGB(
-    THREE.MathUtils.clamp(r, 0, 1),
-    THREE.MathUtils.clamp(g, 0, 1),
-    THREE.MathUtils.clamp(bl, 0, 1),
+    THREE.MathUtils.clamp(LINEAR[0], 0, 1),
+    THREE.MathUtils.clamp(LINEAR[1], 0, 1),
+    THREE.MathUtils.clamp(LINEAR[2], 0, 1),
     THREE.LinearSRGBColorSpace
   )
   return target
 }
 
-/** Allocating form of `setOklchTagColor`, for one-off/static colours. */
-export function oklchTagColor(hue: number, lightness = 0.8, chroma = 0.13): THREE.Color {
-  return setOklchTagColor(new THREE.Color(), hue, lightness, chroma)
+/**
+ * The context arc's colour by level (1i): green, amber, red — the palette's
+ * `success`, `warning-deep` and `contextCritical`, the same on every planet
+ * and never the tag hue. The DOM half (the detail panel's bar) keeps
+ * `contextLevelOklch`.
+ */
+function contextArcColour(level: ContextLevel, palette: SceneColours): THREE.Color {
+  if (level === 'critical') return palette.contextCritical
+  if (level === 'warn') return palette['warning-deep']
+  return palette.success
 }
-
-/** Flat ended-body color (`oklch(16% .01 230)` in the canvas) — active bodies use `bodyTexture()`. */
-const BODY_ENDED_COLOR = oklchTagColor(BODY_ENDED_HUE, BODY_ENDED_LIGHTNESS, BODY_ENDED_CHROMA)
 
 /**
  * Radial ring of thin instanced tick marks; rotated as a group in useFrame.
@@ -980,6 +990,7 @@ function SelectionReticle({
   ringRef: RefObject<LineHandle | null>
   bracketRefs: RefObject<(LineHandle | null)[]>
 }) {
+  const palette = useSceneColours()
   // Rule 1 in this file's header, for the reticle: the frame loop owns these
   // opacities, so they cannot also be JSX props. As props R3F re-applied `0`
   // on every render and blanked the reticle for a frame — and a SELECTED
@@ -999,7 +1010,7 @@ function SelectionReticle({
         <Line
           ref={ringRef}
           points={RETICLE_RING_POINTS}
-          color={RETICLE_COLOR}
+          color={palette.glint}
           lineWidth={1}
           dashed
           dashSize={RETICLE_DASH_SIZE}
@@ -1016,7 +1027,7 @@ function SelectionReticle({
             bracketRefs.current[i] = handle
           }}
           points={points}
-          color={WHITE}
+          color={palette.glint}
           lineWidth={1.5}
           transparent
         />
@@ -1228,12 +1239,14 @@ function CompactBadge({
           gap: 6,
           padding: '3px 8px',
           borderRadius: 999,
-          background: 'rgba(6,10,20,.9)',
+          background: swatch('space', 0.9),
           border: `1px solid ${oklchCss(CONTEXT_CRITICAL_OKLCH, 0.7)}`,
           fontFamily: "'JetBrains Mono', ui-monospace, monospace",
           fontSize: 9.5,
           letterSpacing: '0.08em',
-          color: '#fff',
+          // The critical number in ink beside the red, as the detail panel's
+          // read-out (`Feature - Colour themes` 1b, flag 2).
+          color: swatch('ink-100'),
           whiteSpace: 'nowrap',
           cursor: 'pointer',
           pointerEvents: 'auto',
@@ -1278,7 +1291,7 @@ function CompactingPill({
           gap: 6,
           padding: '3px 8px',
           borderRadius: 999,
-          background: 'rgba(6,10,20,.88)',
+          background: swatch('space', 0.88),
           border: `1px solid ${COMPACTING_PILL_BORDER}`,
           fontFamily: "'JetBrains Mono', ui-monospace, monospace",
           fontSize: 9.5,
@@ -1331,7 +1344,7 @@ function CompactFailedBadge({
           gap: 6,
           padding: '3px 8px',
           borderRadius: 999,
-          background: 'rgba(6,10,20,.88)',
+          background: swatch('space', 0.88),
           border: `1px solid ${oklchCss(CONTEXT_CRITICAL_OKLCH, 0.7)}`,
           fontFamily: "'JetBrains Mono', ui-monospace, monospace",
           fontSize: 9.5,
@@ -1416,6 +1429,20 @@ interface PlanetMaterials {
   coreHollow: THREE.MeshBasicMaterial
   condense: THREE.MeshBasicMaterial[]
   condenseGlow: THREE.MeshBasicMaterial[]
+  /** A light theme's edge and shadow (1l). */
+  edge: THREE.MeshBasicMaterial
+  shadow: THREE.MeshBasicMaterial
+  /** DONE's solid ring, INTERRUPTED's dashed one and its hollow core (1l). */
+  doneRing: THREE.MeshBasicMaterial
+  interruptedRing: THREE.MeshBasicMaterial
+  interruptedCore: THREE.MeshBasicMaterial
+}
+
+/** Swaps a material's texture; a material that gains or loses one recompiles. */
+function setMap(material: THREE.MeshBasicMaterial, map: THREE.Texture | null): void {
+  if (material.map === map) return
+  if (Boolean(material.map) !== Boolean(map)) material.needsUpdate = true
+  material.map = map
 }
 
 /**
@@ -1423,14 +1450,13 @@ interface PlanetMaterials {
  * Per-planet rather than shared because every one of these carries that
  * planet's own hue, opacity and visibility.
  */
-function usePlanetMaterials(): PlanetMaterials {
+function usePlanetMaterials(palette: SceneColours): PlanetMaterials {
   const materials = useMemo<PlanetMaterials>(() => {
     // `MeshBasicMaterial`'s constructor warns on an explicitly-undefined
     // parameter, so optional ones are only set when they exist (textures are
     // null wherever no 2D canvas is available).
-    const soft = (color?: THREE.Color | string, map?: THREE.Texture | null) => {
+    const soft = (map?: THREE.Texture | null) => {
       const material = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false })
-      if (color !== undefined) material.color.set(color)
       if (map) material.map = map
       return material
     }
@@ -1439,35 +1465,67 @@ function usePlanetMaterials(): PlanetMaterials {
     // The gauge starts invisible and is faded in by the frame loop, so it
     // cannot flash at full strength for the frame before the first
     // `applyState` — same reasoning as the reticle's zeroing below.
-    const gauge = (color?: THREE.Color | string) => {
-      const material = soft(color)
+    const gauge = () => {
+      const material = soft()
       material.opacity = 0
       material.visible = false
       return material
     }
     return {
-      glow: soft(undefined, glowMap),
+      glow: soft(glowMap),
       halo: soft(),
       arc: soft(),
-      contextTrack: gauge(CONTEXT_TRACK_COLOR),
+      contextTrack: gauge(),
       contextFill: gauge(),
-      contextTicks: gauge(CONTEXT_TICK_COLOR),
-      bodyEnded: soft(BODY_ENDED_COLOR),
-      bodyIdle: soft(undefined, bodyIdleTexture()),
-      bodyWorking: soft(undefined, bodyTexture()),
-      innerShade: soft(BLACK),
+      contextTicks: gauge(),
+      bodyEnded: soft(),
+      bodyIdle: soft(),
+      bodyWorking: soft(),
+      innerShade: soft(),
       border: soft(),
-      ticks: PLANET_TICK_LAYERS.map((layer) => soft(layer.grey ? GREY : undefined)),
-      coreGlowHue: soft(undefined, glowMap),
-      coreGlowWhite: soft(WHITE, glowMap),
+      ticks: PLANET_TICK_LAYERS.map(() => soft()),
+      coreGlowHue: soft(glowMap),
+      coreGlowWhite: soft(glowMap),
       core,
-      ripple: soft(STATE_INPUT_HEX),
+      ripple: soft(),
       // Hidden until a compaction fades them in, for the same reason as the gauge.
       coreHollow: gauge(),
-      condense: [gauge(CONDENSE_COLOR), gauge(CONDENSE_COLOR)],
-      condenseGlow: [gauge(CONDENSE_COLOR), gauge(CONDENSE_COLOR)],
+      condense: [gauge(), gauge()],
+      condenseGlow: [gauge(), gauge()],
+      edge: gauge(),
+      shadow: (() => {
+        const material = soft(shadowTexture())
+        material.visible = false
+        return material
+      })(),
+      doneRing: gauge(),
+      interruptedRing: gauge(),
+      interruptedCore: gauge(),
     }
   }, [])
+
+  // The colours no state changes: the theme's, written before the first
+  // paint and again whenever the colour theme changes. The ones the state
+  // decides are `applyState`'s.
+  useLayoutEffect(() => {
+    materials.contextTrack.color.copy(palette.line)
+    materials.contextTicks.color.copy(palette['ink-50'])
+    materials.bodyEnded.color.copy(palette['body-ended'])
+    setMap(materials.bodyIdle, bodyIdleTexture(palette))
+    setMap(materials.bodyWorking, bodyTexture(palette))
+    materials.innerShade.color.copy(palette.void)
+    PLANET_TICK_LAYERS.forEach((layer, i) => {
+      if (layer.grey) materials.ticks[i].color.copy(palette['ink-600'])
+    })
+    // The waiting core's glow, in the core's own amber (1l).
+    materials.coreGlowWhite.color.copy(palette.warning)
+    materials.ripple.color.copy(palette.warning)
+    materials.shadow.color.copy(palette.shadow)
+    materials.doneRing.color.copy(palette.success)
+    materials.interruptedRing.color.copy(palette['danger-soft'])
+    materials.interruptedCore.color.copy(palette['danger-soft'])
+    for (const ring of [...materials.condense, ...materials.condenseGlow]) ring.color.copy(palette['ink-400'])
+  }, [materials, palette])
 
   useEffect(
     () => () => {
@@ -1558,13 +1616,15 @@ function PlanetBody({
   const offlineFade = useFadeTween(offline, DEVICE_FADE_MS, DEVICE_FADE_MS)
   /** The whole-planet opacity the device contributes, right now. */
   const deviceAlpha = () => deviceOpacity(deviceFade.value, offlineFade.value)
-  const materials = usePlanetMaterials()
+  const palette = useSceneColours()
+  const materials = usePlanetMaterials(palette)
 
-  // Textures are process-wide singletons; null only where no 2D canvas exists
-  // (jsdom), in which case the gradient bodies are skipped and the flat fill
-  // stands in — same fallback as before.
-  const hasBodyTextures = bodyTexture() !== null && bodyIdleTexture() !== null
+  // Textures are shared by every planet (one per colour theme); null only
+  // where no 2D canvas exists (jsdom), in which case the gradient bodies are
+  // skipped and the flat fill stands in — same fallback as before.
+  const hasBodyTextures = bodyTexture(palette) !== null && bodyIdleTexture(palette) !== null
   const hasGlowTexture = glowTexture() !== null
+  const hasShadowTexture = shadowTexture() !== null
 
   // Kept mounted through their fade-out, so deselecting and leaving
   // needs-input dissolve instead of being yanked out of the tree by React.
@@ -1628,6 +1688,19 @@ function PlanetBody({
     STATE_TRANSITION_MS,
     STATE_TRANSITION_MS,
   )
+  /**
+   * What the body itself says of the state (1l): an amber core while the
+   * session waits on the human, a green ring and core once its turn is DONE,
+   * a dashed coral ring round a hollow core once INTERRUPTED. Faded on the
+   * state change's own pace, since DONE and NEEDS INPUT share a status and the
+   * mix never moves between them.
+   */
+  const stateKeyNow = sessionStateKey(session)
+  const inputFade = useFadeTween(stateKeyNow === 'needs_input', STATE_TRANSITION_MS, STATE_TRANSITION_MS)
+  const doneFade = useFadeTween(stateKeyNow === 'done', STATE_TRANSITION_MS, STATE_TRANSITION_MS)
+  const interruptedFade = useFadeTween(stateKeyNow === 'interrupted', STATE_TRANSITION_MS, STATE_TRANSITION_MS)
+  /** INTERRUPTED's share as `applyState` last wrote it: the solid core gives way to the hollow one. */
+  const interruptedShare = useRef(0)
   /** The last pill it had, so a pill on its way out fades with its own word and colour. */
   const lastPill = useRef(pill)
   if (pill) lastPill.current = pill
@@ -1798,7 +1871,7 @@ function PlanetBody({
    */
   useLayoutEffect(() => {
     settled.current = false
-  }, [shownFill?.level])
+  }, [shownFill?.level, palette])
 
   // A search-muted planet's label drops to the ended ink too — the colour
   // rides the label's own CSS transition, the opacity the frame loop below.
@@ -1818,11 +1891,24 @@ function PlanetBody({
     const b = blendRef.current
     // Desaturated toward the ended grey by the mute weight, here where the
     // hue is resolved, so every layer that wears the hue greys with it.
-    const hueC = setOklchTagColor(hueColor.current, hueTween.value).lerp(GREY_COLOR, muteFade.value)
+    const grey = palette['ink-600']
+    const hueC = setOklchTagColor(hueColor.current, hueTween.value, palette.tagL, palette.tagC).lerp(
+      grey,
+      muteFade.value,
+    )
     const idleShare = w.idle + w.needs_input
+    // Glows paint on a dark theme only (1l `--glow-k`); a light one draws an
+    // edge and a shadow instead.
+    const glowK = palette.glowK
+    // The state marks belong to a live body that is not compacting.
+    const marks = (1 - w.ended) * (1 - compactFade.value)
+    const waiting = inputFade.value * marks
+    const done = doneFade.value * marks
+    const interrupted = interruptedFade.value * marks
+    interruptedShare.current = interrupted
 
     materials.glow.color.copy(hueC)
-    materials.glow.opacity = w.working * GLOW_OPACITY * fade
+    materials.glow.opacity = w.working * GLOW_OPACITY * fade * glowK
     materials.glow.visible = hasGlowTexture && materials.glow.opacity > 0.001
 
     materials.halo.color.copy(hueC)
@@ -1835,11 +1921,11 @@ function PlanetBody({
     // amber, then red — the same on every planet, never the tag hue. The
     // opacities (and the critical pulse) belong to the frame loop below.
     if (shownFill) {
-      const gauge = contextLevelOklch(shownFill.level)
-      setOklchTagColor(materials.contextFill.color, gauge.hue, gauge.lightness, gauge.chroma)
+      materials.contextFill.color
+        .copy(contextArcColour(shownFill.level, palette))
         // A compacting arc goes to the grey (26b), whatever its level.
-        .lerp(GREY_COLOR, compactFade.value)
-        .lerp(GREY_COLOR, muteFade.value)
+        .lerp(grey, compactFade.value)
+        .lerp(grey, muteFade.value)
     }
     materials.coreHollow.color.copy(hueC)
 
@@ -1859,10 +1945,25 @@ function PlanetBody({
       materials.bodyWorking.visible = false
     }
 
-    materials.innerShade.opacity = w.working * INNER_SHADE_OPACITY * fade
+    materials.innerShade.opacity =
+      w.working * (INNER_SHADE_OPACITY * glowK + INNER_SHADE_OPACITY_LIGHT * (1 - glowK)) * fade
     materials.innerShade.visible = materials.innerShade.opacity > 0.001
 
-    materials.border.color.copy(hueC).lerp(GREY_COLOR, w.ended)
+    const lit = (1 - w.ended) * fade
+    materials.edge.color.copy(hueC)
+    materials.edge.opacity = EDGE_OPACITY * Math.min(1, palette.edgeW) * lit
+    materials.edge.visible = materials.edge.opacity > 0.001
+    materials.shadow.opacity = SHADOW_OPACITY * (1 - glowK) * lit
+    materials.shadow.visible = hasShadowTexture && materials.shadow.opacity > 0.001
+
+    materials.doneRing.opacity = done * fade
+    materials.doneRing.visible = materials.doneRing.opacity > 0.001
+    materials.interruptedRing.opacity = interrupted * fade
+    materials.interruptedRing.visible = materials.interruptedRing.opacity > 0.001
+    materials.interruptedCore.opacity = interrupted * fade
+    materials.interruptedCore.visible = materials.interruptedCore.opacity > 0.001
+
+    materials.border.color.copy(hueC).lerp(grey, w.ended)
     materials.border.opacity =
       (w.working * BORDER_OPACITY_ACTIVE +
         idleShare * BORDER_OPACITY_IDLE +
@@ -1882,12 +1983,13 @@ function PlanetBody({
     })
 
     materials.coreGlowHue.color.copy(hueC)
-    materials.coreGlowHue.opacity = w.needs_input * CORE_GLOW_HUE_OPACITY * fade
+    materials.coreGlowHue.opacity = waiting * CORE_GLOW_HUE_OPACITY * fade * glowK
     materials.coreGlowHue.visible = hasGlowTexture && materials.coreGlowHue.opacity > 0.001
-    materials.coreGlowWhite.opacity = w.needs_input * CORE_GLOW_WHITE_OPACITY * fade
+    materials.coreGlowWhite.opacity = waiting * CORE_GLOW_WHITE_OPACITY * fade * glowK
     materials.coreGlowWhite.visible = hasGlowTexture && materials.coreGlowWhite.opacity > 0.001
 
-    materials.core.color.copy(hueC).lerp(WHITE_COLOR, w.needs_input)
+    // The core: the tag hue, amber while it waits, green once done (1l).
+    materials.core.color.copy(hueC).lerp(palette.warning, waiting).lerp(palette.success, done)
     if (coreRef.current) coreRef.current.scale.setScalar(b.coreRadius)
 
     // The label is plain DOM: `group.visible = false` hides the meshes under
@@ -1912,7 +2014,9 @@ function PlanetBody({
     const deviceMoved = advanceTween(deviceFade, delta)
     const offlineMoved = advanceTween(offlineFade, delta)
     const compactMoved = advanceTween(compactFade, delta)
-    const fadeMoved = muteMoved || deviceMoved || offlineMoved
+    // The state marks only need `applyState` while they move, like the fades.
+    const marksMoved = [inputFade, doneFade, interruptedFade].map((tween) => advanceTween(tween, delta)).some(Boolean)
+    const fadeMoved = muteMoved || deviceMoved || offlineMoved || marksMoved
     const b = blendRef.current
     if (mixMoved) blendPlanet(mix.weights, b)
     // The hide fade and the search mute multiply into every opacity (and the
@@ -2054,7 +2158,7 @@ function PlanetBody({
     const blink = ambient && b.corePulse > 0 ? 1 - BLINK_DEPTH * b.corePulse * oscillate(corePhase.current, 1) : 1
     // The solid core gives way to the hollow ring while compacting (26b).
     const held = compactFade.value
-    materials.core.opacity = b.coreOpacity * blink * b.dim * whole * (1 - held)
+    materials.core.opacity = b.coreOpacity * blink * b.dim * whole * (1 - held) * (1 - interruptedShare.current)
     materials.core.visible = materials.core.opacity > 0.001
     materials.coreHollow.opacity = COMPACT_CORE_OPACITY * held * whole
     materials.coreHollow.visible = materials.coreHollow.opacity > 0.001
@@ -2073,7 +2177,7 @@ function PlanetBody({
         const alpha = condenseState.current.opacity * held * whole
         materials.condense[i].opacity = CONDENSE_OPACITY * alpha
         materials.condense[i].visible = materials.condense[i].opacity > 0.001
-        materials.condenseGlow[i].opacity = CONDENSE_GLOW_OPACITY * alpha
+        materials.condenseGlow[i].opacity = CONDENSE_GLOW_OPACITY * alpha * palette.glowK
         materials.condenseGlow[i].visible = materials.condenseGlow[i].opacity > 0.001
       }
     } else {
@@ -2207,6 +2311,11 @@ function PlanetBody({
           <planeGeometry args={[GLOW_SIZE, GLOW_SIZE]} />
         </mesh>
       )}
+      {hasShadowTexture && (
+        <mesh position={[0, -SHADOW_OFFSET, HALO_Z - 0.001]} material={materials.shadow}>
+          <planeGeometry args={[SHADOW_SIZE, SHADOW_SIZE]} />
+        </mesh>
+      )}
 
       <mesh position={[0, 0, HALO_Z]} material={materials.halo}>
         <ringGeometry args={[HALO_RING_INNER, HALO_RING_OUTER, 64]} />
@@ -2237,6 +2346,22 @@ function PlanetBody({
       <mesh position={[0, 0, BODY_Z]} material={materials.border}>
         <ringGeometry args={[BORDER_INNER, BORDER_OUTER, 64]} />
       </mesh>
+      <mesh position={[0, 0, BODY_Z]} material={materials.edge}>
+        <ringGeometry args={[EDGE_INNER, EDGE_INNER + px(1), 64]} />
+      </mesh>
+
+      <mesh position={[0, 0, BODY_Z]} material={materials.doneRing}>
+        <ringGeometry args={[STATE_RING_INNER, STATE_RING_OUTER, 64]} />
+      </mesh>
+      <group position={[0, 0, BODY_Z]}>
+        <TickRing
+          count={STATE_DASH_COUNT}
+          radius={(STATE_RING_INNER + STATE_RING_OUTER) / 2}
+          widthDeg={STATE_DASH_DEG}
+          length={STATE_RING_OUTER - STATE_RING_INNER}
+          material={materials.interruptedRing}
+        />
+      </group>
 
       <group ref={tickGroupRef} position={[0, 0, BODY_Z]}>
         {PLANET_TICK_LAYERS.map((layer, i) => (
@@ -2270,6 +2395,9 @@ function PlanetBody({
 
       <mesh ref={coreHollowRef} position={[0, 0, CORE_Z]} material={materials.coreHollow}>
         <ringGeometry args={[COMPACT_CORE_INNER, COMPACT_CORE_OUTER, 32]} />
+      </mesh>
+      <mesh position={[0, 0, CORE_Z]} material={materials.interruptedCore}>
+        <ringGeometry args={[STATE_HOLLOW_INNER, STATE_HOLLOW_OUTER, 32]} />
       </mesh>
 
       {/* The condensing rings (26b). Scaled from the frame loop, which owns
@@ -2454,12 +2582,12 @@ function PlanetBody({
                     margin: `${LIMIT_PILL_GAP_PX}px auto 0`,
                     padding: `${LIMIT_PILL_PAD_Y_PX}px ${LIMIT_PILL_PAD_X_PX}px`,
                     borderRadius: 999,
-                    background: 'rgba(6,10,20,.9)',
-                    border: `${LIMIT_PILL_BORDER_PX}px solid rgba(150,205,255,.26)`,
+                    background: swatch('space', 0.9),
+                    border: `${LIMIT_PILL_BORDER_PX}px solid ${swatch('line', 0.26)}`,
                     fontFamily: "'JetBrains Mono', ui-monospace, monospace",
                     fontSize: LIMIT_PILL_FONT_PX,
                     letterSpacing: `${LIMIT_PILL_TRACKING_EM}em`,
-                    color: 'rgba(214,230,248,.9)',
+                    color: swatch('ink-400', 0.9),
                     whiteSpace: 'nowrap',
                   }}
                 >

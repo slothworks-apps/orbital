@@ -14,13 +14,13 @@ export type StatsSky = 'dashboard' | 'empty' | 'session' | 'limits'
 
 const WASH: Record<StatsSky, string> = {
   dashboard:
-    'bg-[radial-gradient(ellipse_620px_420px_at_22%_18%,rgba(110,80,220,.12),transparent),radial-gradient(ellipse_760px_520px_at_82%_78%,rgba(40,170,220,.07),transparent)]',
+    'bg-[radial-gradient(ellipse_620px_420px_at_22%_18%,color-mix(in_oklab,var(--color-nebula-a)_12%,transparent),transparent),radial-gradient(ellipse_760px_520px_at_82%_78%,color-mix(in_oklab,var(--color-nebula-b)_7%,transparent),transparent)]',
   empty: 'bg-[radial-gradient(ellipse_700px_460px_at_50%_46%,rgba(70,90,220,.09),transparent)]',
   session:
-    'bg-[radial-gradient(ellipse_620px_420px_at_78%_14%,rgba(110,80,220,.1),transparent),radial-gradient(ellipse_700px_500px_at_18%_86%,rgba(40,170,220,.06),transparent)]',
+    'bg-[radial-gradient(ellipse_620px_420px_at_78%_14%,color-mix(in_oklab,var(--color-nebula-a)_10%,transparent),transparent),radial-gradient(ellipse_700px_500px_at_18%_86%,color-mix(in_oklab,var(--color-nebula-b)_6%,transparent),transparent)]',
   // `Feature - Plan limits` 31a: the two washes, and no stars.
   limits:
-    'bg-[radial-gradient(ellipse_620px_420px_at_28%_38%,rgba(110,80,220,.1),transparent),radial-gradient(ellipse_760px_520px_at_74%_68%,rgba(40,170,220,.07),transparent)]',
+    'bg-[radial-gradient(ellipse_620px_420px_at_28%_38%,color-mix(in_oklab,var(--color-nebula-a)_10%,transparent),transparent),radial-gradient(ellipse_760px_520px_at_74%_68%,color-mix(in_oklab,var(--color-nebula-b)_7%,transparent),transparent)]',
 }
 
 const STARS: Record<StatsSky, string> = {

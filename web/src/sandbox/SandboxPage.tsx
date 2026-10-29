@@ -45,7 +45,7 @@ const STATE_OPTIONS = PLANET_STATES.map((state) => ({
 const HUE_OPTIONS = [210, 30, 140, 280, 350].map((hue) => ({
   value: hue,
   label: `hue ${hue}`,
-  dotColor: `oklch(80% .13 ${hue})`,
+  dotColor: `oklch(var(--tb-l) var(--tb-c) ${hue})`,
 }))
 
 /**
@@ -181,14 +181,14 @@ export function SandboxPage() {
 
       <Panel side="float" className="absolute left-4 top-4 z-10 w-[240px]">
         <div className="flex flex-col gap-4 p-4">
-          <h1 className="font-mono text-[11px] tracking-[0.14em] text-text-bright">
+          <h1 className="font-mono fs-11 tracking-[0.14em] text-ink-100">
             PLANET SANDBOX
           </h1>
 
           <div className="flex flex-col gap-1.5">
             <label
               id="sandbox-state-label"
-              className="font-mono text-[10px] tracking-[0.1em] text-text-soft"
+              className="font-mono fs-10 tracking-[0.1em] text-ink-300"
             >
               STATE
             </label>
@@ -204,7 +204,7 @@ export function SandboxPage() {
           <div className="flex flex-col gap-1.5">
             <label
               id="sandbox-hue-label"
-              className="font-mono text-[10px] tracking-[0.1em] text-text-soft"
+              className="font-mono fs-10 tracking-[0.1em] text-ink-300"
             >
               TAG HUE
             </label>
@@ -220,7 +220,7 @@ export function SandboxPage() {
           <div className="flex flex-col gap-1.5">
             <label
               id="sandbox-context-label"
-              className="font-mono text-[10px] tracking-[0.1em] text-text-soft"
+              className="font-mono fs-10 tracking-[0.1em] text-ink-300"
             >
               CONTEXT FILL
             </label>
@@ -236,7 +236,7 @@ export function SandboxPage() {
           <div className="flex flex-col gap-1.5">
             <label
               id="sandbox-moons-label"
-              className="font-mono text-[10px] tracking-[0.1em] text-text-soft"
+              className="font-mono fs-10 tracking-[0.1em] text-ink-300"
             >
               MOONS
             </label>

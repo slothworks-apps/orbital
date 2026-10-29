@@ -1,12 +1,12 @@
 import { LIMIT_SUN_COLORS_KEY, LIMIT_SUN_POSITIONS_KEY, LIMIT_SUN_STYLE_KEY } from './experimental'
-import { formatResetShort, isFiveHourKind, isWeeklyAllKind, limitSeverity } from './limits'
-import type { LimitSeverity, LimitWindow } from './types'
+import { extraUsageValue, formatResetShort, isFiveHourKind, isWeeklyAllKind, limitSeverity } from './limits'
+import type { ExtraUsage, LimitSeverity, LimitWindow } from './types'
 
 /**
  * The limit suns (spec 2026-10-20-limit-suns-design § 4; canvas `Feature -
  * Limit sun` 60a–60f): what a sun shows of its account's windows, which star
  * colour each account wears, its style, and where it sits. Pure: the map,
- * the limits page and Settings → Labs read the same answers.
+ * the limits page and Settings → Appearance read the same answers.
  */
 
 type Settings = Record<string, string | undefined>
@@ -152,13 +152,19 @@ export function withSunMoveUndone(
  * What one sun shows (60f, MIDDLE + RING). The middle is the room left right
  * now, the more spent of the 5-hour and the weekly all-models window: with
  * the week spent the 5-hour window cannot be used either. The ring is what
- * is left of the week. Model windows and extra usage are not on the sun.
+ * is left of the week. Model windows are not on the sun.
+ *
+ * An account with no 5-hour or weekly window, only a spend limit (an
+ * enterprise plan's extra usage), has nothing else to show: its middle is
+ * the share of the money spent, its label the money, and it has no ring.
  */
 export interface SunReading {
   /** Spent of the room right now, 0…1. */
   spentNow: number
   /** Left of the week, 0…1. */
   weekLeft: number
+  /** False for a spend-only account, which has no week to draw a ring for. */
+  hasWeek: boolean
   /** `5h 62 % · wk 40 %`, or `limit · resets 15:00` once a window is spent. */
   label: string
   /** The label's ink step (31a's three steps of one ink), `reached` at 100 %. */
@@ -167,9 +173,31 @@ export interface SunReading {
 
 const SEVERITY_RANK: Record<LimitSeverity, number> = { normal: 0, warning: 1, critical: 2 }
 
-export function sunReading(windows: readonly LimitWindow[], now: number = Date.now()): SunReading {
+/** A spend limit's share used, 0…1, or null when it has no cap to measure against. */
+function spendShare(extra: ExtraUsage | null | undefined): number | null {
+  if (!extra?.enabled) return null
+  if (extra.percent !== null) return Math.max(0, Math.min(extra.percent, 100)) / 100
+  if (extra.usedCredits === null || !extra.monthlyLimit) return null
+  return Math.max(0, Math.min(extra.usedCredits / extra.monthlyLimit, 1))
+}
+
+export function sunReading(
+  windows: readonly LimitWindow[],
+  now: number = Date.now(),
+  extra?: ExtraUsage | null,
+): SunReading {
   const five = windows.find((w) => isFiveHourKind(w.kind))
   const week = windows.find((w) => isWeeklyAllKind(w.kind))
+  const share = five || week ? null : spendShare(extra)
+  if (share !== null && extra) {
+    return {
+      spentNow: share,
+      weekLeft: 1,
+      hasWeek: false,
+      label: extraUsageValue(extra) ?? `${Math.round(share * 100)} %`,
+      severity: share >= 1 ? 'reached' : 'normal',
+    }
+  }
   const pct = (w: LimitWindow | undefined) => Math.max(0, Math.min(w?.percent ?? 0, 100))
   const spent = [five, week].filter((w): w is LimitWindow => w !== undefined && w.percent >= 100)
   // Both spent: the later reset is when work can start again.
@@ -185,6 +213,7 @@ export function sunReading(windows: readonly LimitWindow[], now: number = Date.n
   return {
     spentNow: Math.max(pct(five), pct(week)) / 100,
     weekLeft: 1 - pct(week) / 100,
+    hasWeek: true,
     label: blocking
       ? `limit · resets ${formatResetShort(blocking.resetsAt, now)}`
       : `5h ${Math.round(five?.percent ?? 0)} % · wk ${Math.round(week?.percent ?? 0)} %`,
@@ -192,7 +221,12 @@ export function sunReading(windows: readonly LimitWindow[], now: number = Date.n
   }
 }
 
-/** The directory tiles a sun and its account head wear (60f, ONE PER ACCOUNT): at most two, then `+n`. */
+/**
+ * The directory tiles a sun and its account head wear (60f, ONE PER ACCOUNT):
+ * each monogram once — `~/.claude` on two devices is one `P` — at most two,
+ * then `+n`.
+ */
 export function sunTiles(monograms: readonly string[]): { tiles: string[]; more: number } {
-  return { tiles: monograms.slice(0, 2), more: Math.max(0, monograms.length - 2) }
+  const distinct = [...new Set(monograms)]
+  return { tiles: distinct.slice(0, 2), more: Math.max(0, distinct.length - 2) }
 }

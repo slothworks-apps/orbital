@@ -15,6 +15,8 @@ tags:
 ---
 # A terminal inside Orbital, in the session's directory
 
+> Promoted out of Labs on 2026-10-29 ([[labs-features-move-to-regular-settings]]): the Terminal section is always listed with its switch on top, still off by default.
+
 Orbital is meant to replace the CLI, yet the work around an agent still sends
 you to a terminal: `git status`, running the tests yourself, starting the dev
 server you want to look at. This puts that terminal inside Orbital, next to the

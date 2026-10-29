@@ -9,12 +9,12 @@
  */
 export function StatsEmpty({ onStartSession }: { onStartSession: () => void }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center rounded-[14px] border border-dashed border-[rgba(150,205,255,.12)] px-10 py-16">
+    <div className="flex flex-1 flex-col items-center justify-center rounded-[14px] border border-dashed border-line/12 px-10 py-16">
       {/* The unmeasured planet: a dim body inside a dashed orbit. */}
       <div aria-hidden className="relative h-[92px] w-[92px]">
-        <div className="absolute inset-0 rounded-full border border-[rgba(150,205,255,.18)] bg-[radial-gradient(circle_at_50%_45%,oklch(24%_.03_225),oklch(15%_.02_230)_72%)]" />
+        <div className="absolute inset-0 rounded-full border border-line/18 bg-[radial-gradient(circle_at_50%_45%,var(--color-body-idle-hi),var(--color-body-lo)_72%)]" />
         <div
-          className="absolute -inset-[22px] rounded-full bg-[repeating-conic-gradient(rgba(150,205,255,.22)_0_1.6deg,transparent_1.6deg_9deg)]"
+          className="absolute -inset-[22px] rounded-full bg-[repeating-conic-gradient(color-mix(in_oklab,_var(--color-line)_22%,_transparent)_0_1.6deg,transparent_1.6deg_9deg)]"
           style={{
             // The ring is the gradient with its middle masked out; written
             // here rather than as a utility because Tailwind emits no
@@ -26,8 +26,8 @@ export function StatsEmpty({ onStartSession }: { onStartSession: () => void }) {
         />
       </div>
 
-      <h2 className="mt-[30px] text-[19px] font-bold tracking-[-0.01em]">Nothing measured yet</h2>
-      <p className="mt-2.5 max-w-[520px] text-center text-[13px] leading-[1.6] text-[rgba(160,190,225,.75)] text-pretty">
+      <h2 className="mt-[30px] fs-19 font-bold tracking-[-0.01em]">Nothing measured yet</h2>
+      <p className="mt-2.5 max-w-[520px] text-center fs-13 leading-[1.6] text-ink-900/75 text-pretty">
         Stats are computed from the transcripts on this machine. Finish one session and the tiles,
         the time split and the first findings appear here — usually within a minute of the session
         ending.
@@ -37,7 +37,7 @@ export function StatsEmpty({ onStartSession }: { onStartSession: () => void }) {
         <button
           type="button"
           onClick={onStartSession}
-          className="cursor-pointer rounded-[9px] bg-accent px-4 py-[9px] font-mono text-[11.5px] font-bold text-space-deep"
+          className="cursor-pointer rounded-[9px] bg-accent px-4 py-[9px] font-mono fs-11.5 font-bold text-space-deep"
         >
           start a session
         </button>
@@ -47,19 +47,19 @@ export function StatsEmpty({ onStartSession }: { onStartSession: () => void }) {
         {['TOTAL TOKENS', 'COST', 'AGENT BUSY TIME'].map((label) => (
           <div
             key={label}
-            className="h-[74px] w-[196px] rounded-xl border border-[rgba(150,205,255,.09)] bg-[rgba(8,12,22,.5)] px-[15px] py-[13px]"
+            className="h-[74px] w-[196px] rounded-xl border border-line/9 bg-space-deep/50 px-[15px] py-[13px]"
           >
-            <div className="font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.4)]">
+            <div className="font-mono fs-9.5 tracking-[0.18em] text-ink-900/40">
               {label}
             </div>
-            <div className="mt-[9px] font-mono text-[26px] leading-none text-[rgba(160,190,225,.3)]">
+            <div className="mt-[9px] font-mono fs-26 leading-none text-ink-900/30">
               —
             </div>
           </div>
         ))}
       </div>
 
-      <div className="mt-[26px] font-mono text-[10.5px] text-[rgba(160,190,225,.45)]">
+      <div className="mt-[26px] font-mono fs-10.5 text-ink-900/60">
         no data leaves this machine
       </div>
     </div>

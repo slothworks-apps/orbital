@@ -24,7 +24,7 @@ export function Checkbox({ checked, onChange, label, disabled = false, ...aria }
     // overflow-hidden ancestor's scrollHeight, and the browser scroll-on-focus
     // then scrolls that ancestor when the label is clicked — shearing the
     // whole layout (Settings dialog, 2026-09-20).
-    <label className="relative flex cursor-pointer select-none items-center gap-2.5 text-[12.5px] text-text-soft">
+    <label className="relative flex cursor-pointer select-none items-center gap-2.5 fs-12.5 text-ink-300">
       <input
         type="checkbox"
         className="peer sr-only"
@@ -40,9 +40,9 @@ export function Checkbox({ checked, onChange, label, disabled = false, ...aria }
       <span
         aria-hidden
         className={[
-          'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border text-[9px] leading-none transition-colors',
+          'flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border fs-9 leading-none transition-colors',
           'peer-focus-visible:ring-1 peer-focus-visible:ring-accent',
-          checked ? "border-accent bg-accent text-space after:content-['✓']" : 'border-panel-border bg-panel-solid',
+          checked ? "border-accent bg-accent text-space after:content-['✓']" : 'border-line/14 bg-panel-solid',
         ].join(' ')}
       />
       {label}
@@ -61,7 +61,7 @@ export function Toggle({ checked, onChange, label, disabled = false, ...aria }: 
     // (canvas `Feature - Branch status` 1g, the PR switch without gh).
     <label
       className={[
-        'relative flex select-none items-center gap-2 text-sm text-text-soft',
+        'relative flex select-none items-center gap-2 fs-14 leading-(--text-sm--line-height) text-ink-300',
         disabled ? 'cursor-not-allowed opacity-45' : 'cursor-pointer',
       ].join(' ')}
     >
@@ -85,14 +85,14 @@ export function Toggle({ checked, onChange, label, disabled = false, ...aria }: 
           'relative h-[18px] w-8 shrink-0 rounded-full border transition-colors',
           'peer-focus-visible:ring-1 peer-focus-visible:ring-accent',
           checked
-            ? 'border-transparent bg-accent shadow-[0_0_10px_rgba(89,228,243,.5)]'
-            : 'border-panel-border bg-panel-solid',
+            ? 'border-transparent bg-accent shadow-[0_0_10px_color-mix(in_oklab,_var(--color-accent)_50%,_transparent)]'
+            : 'border-line/14 bg-panel-solid',
         ].join(' ')}
       >
         <span
           className={[
             'absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 rounded-full transition-all',
-            checked ? 'left-[calc(100%-1rem)] bg-space-deep' : 'left-0.5 bg-text-muted',
+            checked ? 'left-[calc(100%-1rem)] bg-space-deep' : 'left-0.5 bg-ink-900/70',
           ].join(' ')}
         />
       </span>

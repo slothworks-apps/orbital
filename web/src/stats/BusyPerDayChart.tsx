@@ -50,12 +50,12 @@ function DayTooltip({ day, flip, showWaits }: { day: StatsDayBusy; flip: boolean
     <div
       role="tooltip"
       style={flip ? { right: 56, bottom: 14 } : { left: 56, bottom: 14 }}
-      className="absolute z-10 w-[196px] rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] px-3 py-2.5 shadow-[0_18px_44px_rgba(0,0,0,.6)]"
+      className="absolute z-10 w-[196px] rounded-[10px] border border-line/16 bg-panel/96 px-3 py-2.5 shadow-[0_18px_44px_color-mix(in_oklab,_var(--color-shadow)_60%,_transparent)]"
     >
-      <div className="font-mono text-[10px] tracking-[0.14em] text-[rgba(160,190,225,.6)]">
+      <div className="font-mono fs-10 tracking-[0.14em] text-ink-900/60">
         {tooltipHeading(day.day)}
       </div>
-      <div className="mt-2 flex flex-col gap-[5px] font-mono text-[11px] text-text-bright">
+      <div className="mt-2 flex flex-col gap-[5px] font-mono fs-11 text-ink-100">
         {TIME_CATEGORIES.map((category) => (
           <div key={category.field} className="flex items-center gap-2">
             <span className="block h-2 w-2 rounded-[2px]" style={{ background: category.color }} />
@@ -64,14 +64,14 @@ function DayTooltip({ day, flip, showWaits }: { day: StatsDayBusy; flip: boolean
             {formatStatsDuration(day[category.field])}
           </div>
         ))}
-        <div className="mt-1 flex border-t border-[rgba(150,205,255,.12)] pt-1.5 text-[rgba(160,190,225,.8)]">
+        <div className="mt-1 flex border-t border-line/12 pt-1.5 text-ink-900/80">
           busy
           <span className="flex-1" />
           {formatStatsDuration(day.busyMs)}
         </div>
         {/* Under busy, never in it: the columns stay work only (10i). */}
         {showWaits && (
-          <div className="flex items-center gap-2 text-[rgba(160,190,225,.65)]">
+          <div className="flex items-center gap-2 text-ink-900/65">
             <WaitSwatch hatched />
             waiting on you
             <span className="flex-1" />
@@ -97,21 +97,21 @@ export function BusyPerDayChart({ days, showWaits }: { days: StatsDayBusy[]; sho
       <div className="flex items-baseline gap-[14px]">
         <div className={PANEL_LABEL_CLASS}>BUSY TIME PER DAY</div>
         <span className="flex-1" />
-        <div className="font-mono text-[10px] text-[rgba(160,190,225,.45)]">
+        <div className="font-mono fs-10 text-ink-900/60">
           stacked · API wait at the base
         </div>
       </div>
 
       <div className="relative mt-3.5" style={{ height: DAY_PLOT_HEIGHT }}>
-        <div className="absolute inset-x-0 bottom-0 h-px bg-[rgba(150,205,255,.18)]" />
+        <div className="absolute inset-x-0 bottom-0 h-px bg-line/18" />
         {peak > 0 && (
           <>
             <div
-              className="absolute inset-x-0 h-px bg-[rgba(150,205,255,.07)]"
+              className="absolute inset-x-0 h-px bg-line/7"
               style={{ bottom: DAY_PLOT_HEIGHT / 2 }}
             />
             <div
-              className="absolute left-0 font-mono text-[9.5px] text-[rgba(160,190,225,.4)]"
+              className="absolute left-0 font-mono fs-9.5 text-ink-900/40"
               style={{ bottom: DAY_PLOT_HEIGHT / 2 + 3 }}
             >
               {formatStatsDuration(peak / 2)}
@@ -146,7 +146,7 @@ export function BusyPerDayChart({ days, showWaits }: { days: StatsDayBusy[]; sho
                   // 10e: a 1px outline plus a 26px cyan glow, on the whole
                   // column rather than the segment under the cursor.
                   boxShadow: isHovered
-                    ? '0 0 0 1px rgba(150,205,255,.3), 0 0 26px rgba(89,228,243,.18)'
+                    ? '0 0 0 1px color-mix(in oklab, var(--color-line) 30%, transparent), 0 0 26px color-mix(in oklab, var(--color-accent) 18%, transparent)'
                     : undefined,
                 }}
                 className="relative flex flex-col outline-none transition-[box-shadow] duration-[120ms] hover:duration-[80ms] focus-visible:duration-[80ms]"
@@ -168,12 +168,12 @@ export function BusyPerDayChart({ days, showWaits }: { days: StatsDayBusy[]; sho
         </div>
       </div>
 
-      <div className="mt-2 flex justify-between font-mono text-[10px] text-[rgba(160,190,225,.5)]">
+      <div className="mt-2 flex justify-between font-mono fs-10 text-ink-900/50">
         {days.map((day, index) => (
           <span
             key={day.day}
             style={{ width }}
-            className={`text-center ${hovered === day.day ? 'text-text-soft' : ''}`}
+            className={`text-center ${hovered === day.day ? 'text-ink-300' : ''}`}
           >
             {tickLabel(day.day, index, days.length)}
           </span>

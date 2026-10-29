@@ -1,3 +1,4 @@
+import { swatch } from '../../lib/palette'
 import type { ReactElement } from 'react'
 import type { GitMark } from '../../lib/whereForm'
 
@@ -9,7 +10,7 @@ import type { GitMark } from '../../lib/whereForm'
  * line's.
  */
 
-const MARK_INK = 'rgba(160,190,225,.75)'
+const MARK_INK = swatch('ink-900', 0.75)
 const STROKE = 1.4
 
 function TrunkMark() {

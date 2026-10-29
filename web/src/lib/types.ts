@@ -1175,7 +1175,17 @@ export interface SubagentTranscript {
  */
 export const MAX_SUBAGENT_MESSAGES = 2000
 
-export const tagColor = (hue: number) => `oklch(80% 0.13 ${hue})`
+/**
+ * A tag's colour as a body: dots, rims, bars, borders and fills. Its hue is
+ * the user's; lightness and chroma come from the colour theme's kind
+ * (`--tb-l` / `--tb-c` in `theme.css`, canvas `Feature - Colour themes` 1m),
+ * 80% .13 on a dark theme as always, darker on a light one.
+ */
+export const tagColor = (hue: number) => `oklch(var(--tb-l) var(--tb-c) ${hue})`
+
+/** A tag's colour as text (mat names, cluster labels, tag counts): `--tt-l` / `--tt-c`, readable on a light panel too (1m). */
+export const tagTextColor = (hue: number, alpha?: number) =>
+  alpha === undefined ? `oklch(var(--tt-l) var(--tt-c) ${hue})` : `oklch(var(--tt-l) var(--tt-c) ${hue} / ${alpha})`
 
 /**
  * How many of a session's subagents are still out working, when that is the

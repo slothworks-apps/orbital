@@ -1,3 +1,4 @@
+import { swatch } from '../../lib/palette'
 import type { CSSProperties } from 'react'
 import { compactingOf } from '../../lib/compaction'
 import { dotMotionClass, stateColor } from '../../lib/stateStyle'
@@ -54,12 +55,12 @@ const RING_OUTSET_PX = 5
  * `rgba(214,228,246,.8)`, and the hollow core's opacity. The second ring
  * runs half of `orbital-condense`'s cycle behind the first.
  */
-const CONDENSE_BORDER = '1.5px solid rgba(214,228,246,.8)'
+const CONDENSE_BORDER = '1.5px solid color-mix(in oklab, var(--color-ink-400) 80%, transparent)'
 const CONDENSE_STAGGER = '-1.6s'
 const COMPACT_CORE_OPACITY = 0.75
 
 /** The planet when no tag resolves at all (no default tag either): the list's muted ink. */
-const UNTAGGED_INK = 'rgba(200,215,235,.7)'
+const UNTAGGED_INK = swatch('ink-600', 0.7)
 
 /**
  * A session's planet in the list (9a, 9p "STATE GLYPH · 28 PX"): a tick
@@ -89,7 +90,7 @@ export function PlanetGlyph({ session, hue, offline }: { session: PlanetFields; 
     return (
       <span aria-hidden className="grid h-11 w-11 shrink-0 place-items-center">
         <span
-          className="block rounded-full border border-[rgba(200,215,235,.35)] bg-[oklch(17%_.01_230)] opacity-60"
+          className="block rounded-full border border-ink-600/35 bg-[var(--color-body-ended)] opacity-60"
           style={{ width: PLANET_ENDED_PX, height: PLANET_ENDED_PX }}
         />
       </span>
@@ -114,7 +115,7 @@ export function PlanetGlyph({ session, hue, offline }: { session: PlanetFields; 
     animation: offline || gate || compacting ? undefined : RING_SPIN[key],
   }
   const body: CSSProperties = {
-    background: `radial-gradient(circle at 50% 42%, ${mix(quiet ? 12 : 22, 'oklch(22% .02 230)')}, ${mix(quiet ? 4 : 10, 'oklch(14% .015 230)')} 72%)`,
+    background: `radial-gradient(circle at 50% 42%, ${mix(quiet ? 12 : 22, 'var(--color-body-idle-lo)')}, ${mix(quiet ? 4 : 10, 'var(--color-body-ended)')} 72%)`,
     border: `1px solid ${mix(quiet ? 50 : offline ? 45 : 62, 'transparent')}`,
     boxShadow: quiet || offline ? undefined : `0 0 13px ${mix(32, 'transparent')}`,
   }

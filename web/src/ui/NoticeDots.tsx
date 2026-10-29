@@ -31,12 +31,12 @@ export function NoticeDots({
           className={[
             'block rounded-full',
             dot,
-            state === 'current' ? 'bg-text-bright' : 'border border-[rgba(160,190,225,.6)]',
+            state === 'current' ? 'bg-ink-100' : 'border border-ink-900/60',
           ].join(' ')}
         />
       ))}
       {more > 0 && (
-        <span aria-hidden className="ml-0.5 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.6)]">
+        <span aria-hidden className="ml-0.5 font-mono fs-10 tracking-[0.06em] text-ink-900/60">
           +{more}
         </span>
       )}

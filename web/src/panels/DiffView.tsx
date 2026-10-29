@@ -46,14 +46,14 @@ import type { FileChange } from '../lib/fileEdit'
  * never-a-status — all still hold, and hold more easily with no hue at all.
  */
 const ROW_CLASSES: Record<DiffLine['kind'], string> = {
-  add: 'bg-[rgba(200,225,255,.075)] text-[#f2f6fc]',
-  del: 'bg-[rgba(0,0,0,.42)] text-[rgba(160,190,225,.56)]',
-  context: 'text-[rgba(200,220,245,.62)]',
+  add: 'bg-ink-300/7.5 text-ink-50',
+  del: 'bg-space/42 text-ink-900/56',
+  context: 'text-ink-500/62',
 }
 
 const GLYPH_CLASSES: Record<DiffLine['kind'], string> = {
-  add: 'text-[#ffffff]',
-  del: 'text-[rgba(160,190,225,.7)]',
+  add: 'text-ink-50',
+  del: 'text-ink-900/70',
   // 20d draws the context sign transparent: the column is held open so every
   // line's text starts at one x, but an unchanged line is not signed.
   context: 'text-transparent',
@@ -154,7 +154,7 @@ function useFragmentTokens(text: string, lang: string, lineCount: number): CodeT
  *  the rows' text cell rather than with their sign column. */
 function Gap({ count }: { count: number }) {
   return (
-    <div className="flex items-center gap-2 bg-[rgba(150,205,255,.045)] py-[3px] pl-4 text-[rgba(160,190,225,.55)]">
+    <div className="flex items-center gap-2 bg-line/4.5 py-[3px] pl-4 text-ink-900/55">
       <span aria-hidden>⋯</span>
       <span>
         {count} unchanged {count === 1 ? 'line' : 'lines'}
@@ -166,7 +166,7 @@ function Gap({ count }: { count: number }) {
 /** A sentence about what the diff is or is not — never styled as an error
  *  (20d-E: "failure is ink + wording, not red"). 20d's footnote ink. */
 function Note({ children }: { children: React.ReactNode }) {
-  return <div className="px-1 pb-1 text-[rgba(160,190,225,.6)]">{children}</div>
+  return <div className="px-1 pb-1 text-ink-900/60">{children}</div>
 }
 
 /**
@@ -177,14 +177,14 @@ function Note({ children }: { children: React.ReactNode }) {
  */
 const UNKNOWN_HATCH = {
   backgroundImage:
-    'repeating-linear-gradient(135deg,rgba(150,205,255,.06) 0 2px,transparent 2px 6px)',
+    'repeating-linear-gradient(135deg,color-mix(in oklab, var(--color-line) 6%, transparent) 0 2px,transparent 2px 6px)',
 }
 
 function UnknownNote({ children }: { children: React.ReactNode }) {
   return (
     <div
       style={UNKNOWN_HATCH}
-      className="px-[10px] py-[6px] tracking-[.04em] text-[rgba(200,220,245,.8)]"
+      className="px-[10px] py-[6px] tracking-[.04em] text-ink-500/80"
     >
       {children}
     </div>
@@ -204,10 +204,10 @@ function Frame({ children, proposed = false }: { children: React.ReactNode; prop
   return (
     <div
       className={[
-        'overflow-x-auto rounded-[7px] border py-1 font-mono text-[10.5px] leading-[1.6]',
+        'overflow-x-auto rounded-[7px] border py-1 font-mono fs-10.5 leading-[1.6]',
         proposed
-          ? 'border-dashed border-[rgba(150,205,255,.3)] bg-[rgba(10,15,26,.6)] opacity-[.72]'
-          : 'border-[rgba(150,205,255,.18)] bg-[rgba(10,15,26,.9)]',
+          ? 'border-dashed border-line/30 bg-panel/60 opacity-[.72]'
+          : 'border-line/18 bg-panel/90',
       ].join(' ')}
     >
       {children}
@@ -383,7 +383,7 @@ export function ChangeView({
 }) {
   if (change.kind === 'edit') {
     return (
-      <div className="flex flex-col gap-1 font-mono text-[10.5px] leading-[1.6]">
+      <div className="flex flex-col gap-1 font-mono fs-10.5 leading-[1.6]">
         {change.replaceAll && (
           <Note>Applied to every occurrence in the file, not only the one shown.</Note>
         )}
@@ -398,7 +398,7 @@ export function ChangeView({
 
   if (change.kind === 'write') {
     return (
-      <div className="flex flex-col gap-1 font-mono text-[10.5px] leading-[1.6]">
+      <div className="flex flex-col gap-1 font-mono fs-10.5 leading-[1.6]">
         {/* The honest line. Orbital never held the previous contents of a file
             it did not itself read, so an overwrite has no before side to draw
             and says so rather than showing the new text as if it were all
@@ -427,7 +427,7 @@ export function ChangeView({
   }
 
   return (
-    <div className="flex flex-col gap-1 font-mono text-[10.5px] leading-[1.6]">
+    <div className="flex flex-col gap-1 font-mono fs-10.5 leading-[1.6]">
       {/* A replaced cell is the notebook's version of an overwrite: the new
           source is known and the old one never was, so it wears the same
           "unknown" hatch a `Write` over an existing file does. Deleting and

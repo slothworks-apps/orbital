@@ -33,13 +33,13 @@ export function FindingsFeed({
       <div className="flex items-baseline gap-2.5">
         <div className={PANEL_LABEL_CLASS}>FINDINGS</div>
         <span className="flex-1" />
-        <div className="font-mono text-[10px] text-[rgba(160,190,225,.45)]">
+        <div className="font-mono fs-10 text-ink-900/60">
           {findings.length} hits · {ruleCount} rules · click to open session
         </div>
       </div>
 
       {!judging || findings.length === 0 ? (
-        <div className="font-mono text-[11px] leading-[1.55] text-[rgba(160,190,225,.6)]">
+        <div className="font-mono fs-11 leading-[1.55] text-ink-900/60">
           {judging ? 'nothing to report in this window' : 'needs more sessions to judge'}
         </div>
       ) : (

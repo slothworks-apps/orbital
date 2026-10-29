@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { copyToClipboard } from '../lib/clipboard'
 import { claudeDirDisplayPath } from '../lib/claudeDirs'
@@ -133,13 +134,13 @@ export function LoginLostRow({
     if (!text && !link) return null
     return (
       <div data-login-notice="cli" className="flex flex-col gap-1.5">
-        {text && <div className="font-mono text-[11px] leading-[1.6] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">{text}</div>}
+        {text && <div className="font-mono fs-11 leading-[1.6] text-ink-900/70 [text-wrap:pretty]">{text}</div>}
         {/* 62d edge cases: shown, not driven — the profile logs in from Settings. */}
         {link && (
           <button
             type="button"
             onClick={() => openSettingsSection('profiles')}
-            className="cursor-pointer self-start border-0 bg-transparent p-0 font-mono text-[10.5px] text-[#8fd8ff] hover:text-[#c6ecff]"
+            className="cursor-pointer self-start border-0 bg-transparent p-0 font-mono fs-10.5 text-sky hover:text-sky-soft"
           >
             log in from Settings → Profiles ›
           </button>
@@ -314,20 +315,20 @@ function LoginDivider({ label, phone }: { label: string; phone: boolean }) {
     <div
       data-login-restored
       className={[
-        'flex items-center gap-2.5 font-mono text-[9.5px] tracking-[0.12em] text-[rgba(160,190,225,.6)]',
+        'flex items-center gap-2.5 font-mono fs-9.5 tracking-[0.12em] text-ink-900/60',
         phone ? 'py-1' : 'py-0.5',
       ].join(' ')}
     >
-      <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
+      <span aria-hidden className="h-px flex-1 bg-line/12" />
       <span className="text-center [text-wrap:pretty]">{label}</span>
-      <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
+      <span aria-hidden className="h-px flex-1 bg-line/12" />
     </div>
   )
 }
 
 /** 62a, 62e: the notice's dot, and the hollow ring's ink while the login runs. */
 const NOTICE_DOT_PX = 8
-const REST_INK = 'rgba(214,230,248,.8)'
+const REST_INK = swatch('ink-400', 0.8)
 const REST_DOT = { shape: 'hollow', motion: 'steady' } as const
 
 /**
@@ -375,20 +376,20 @@ function LoginBlock({
     return (
       <div
         data-login-notice={dot}
-        className="flex flex-col gap-2.5 rounded-[12px] border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.5)] px-4 py-3.5"
+        className="flex flex-col gap-2.5 rounded-[12px] border border-line/16 bg-space/50 px-4 py-3.5"
       >
         <div className="flex items-start gap-2.5">
           {mark}
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <span className="text-[15px] font-semibold leading-[1.35] text-text-bright [text-wrap:pretty]">{title}</span>
-            <span className="font-mono text-[11.5px] leading-[1.6] text-[rgba(160,190,225,.7)] [overflow-wrap:anywhere] [text-wrap:pretty]">
+            <span className="fs-15 font-semibold leading-[1.35] text-ink-100 [text-wrap:pretty]">{title}</span>
+            <span className="font-mono fs-11.5 leading-[1.6] text-ink-900/70 [overflow-wrap:anywhere] [text-wrap:pretty]">
               {sub}
             </span>
             {note && (
-              <span className="font-mono text-[11.5px] leading-[1.6] text-[rgba(160,190,225,.5)] [text-wrap:pretty]">{note}</span>
+              <span className="font-mono fs-11.5 leading-[1.6] text-ink-900/50 [text-wrap:pretty]">{note}</span>
             )}
-            {also && <span className="font-mono text-[11.5px] leading-[1.6] text-[rgba(160,190,225,.5)]">{also}</span>}
-            {error && <span className="font-mono text-[11.5px] leading-[1.6] text-[rgba(220,235,255,.85)]">{error}</span>}
+            {also && <span className="font-mono fs-11.5 leading-[1.6] text-ink-900/50">{also}</span>}
+            {error && <span className="font-mono fs-11.5 leading-[1.6] text-ink-200/85">{error}</span>}
           </div>
         </div>
         {action && <div className="flex pl-[18px]">{action}</div>}
@@ -399,26 +400,26 @@ function LoginBlock({
   return (
     <div
       data-login-notice={dot}
-      className="flex flex-col gap-2 rounded-[9px] border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.5)] px-3.5 py-3"
+      className="flex flex-col gap-2 rounded-[9px] border border-line/16 bg-space/50 px-3.5 py-3"
     >
       <div className="flex items-center gap-2.5">
         {mark}
-        <span className="min-w-0 flex-1 text-[13px] font-semibold text-text-bright">{title}</span>
+        <span className="min-w-0 flex-1 fs-13 font-semibold text-ink-100">{title}</span>
         {action}
       </div>
-      <div className="pl-[18px] font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.65)] [overflow-wrap:anywhere] [text-wrap:pretty]">
+      <div className="pl-[18px] font-mono fs-10.5 leading-[1.6] text-ink-900/65 [overflow-wrap:anywhere] [text-wrap:pretty]">
         {sub}
       </div>
-      {note && <div className="pl-[18px] font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.5)] [text-wrap:pretty]">{note}</div>}
-      {also && <div className="pl-[18px] font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">{also}</div>}
-      {error && <div className="pl-[18px] font-mono text-[10.5px] leading-[1.6] text-[rgba(220,235,255,.85)]">{error}</div>}
+      {note && <div className="pl-[18px] font-mono fs-10.5 leading-[1.6] text-ink-900/50 [text-wrap:pretty]">{note}</div>}
+      {also && <div className="pl-[18px] font-mono fs-10.5 text-ink-900/50">{also}</div>}
+      {error && <div className="pl-[18px] font-mono fs-10.5 leading-[1.6] text-ink-200/85">{error}</div>}
       {children}
       {settingsLink && (
-        <div className="flex gap-3.5 pl-[18px] font-mono text-[10.5px]">
+        <div className="flex gap-3.5 pl-[18px] font-mono fs-10.5">
           <button
             type="button"
             onClick={() => openSettingsSection('profiles')}
-            className="cursor-pointer border-0 bg-transparent p-0 font-mono text-[10.5px] text-[#8fd8ff] hover:text-[#c6ecff]"
+            className="cursor-pointer border-0 bg-transparent p-0 font-mono fs-10.5 text-sky hover:text-sky-soft"
           >
             profile settings ›
           </button>
@@ -484,7 +485,7 @@ export function LoginRunning({
           type="button"
           aria-expanded={unfolded}
           onClick={() => setUnfolded((u) => !u)}
-          className="ml-[18px] cursor-pointer self-start border-0 bg-transparent p-0 font-mono text-[10.5px] text-[#8fd8ff] hover:text-[#c6ecff]"
+          className="ml-[18px] cursor-pointer self-start border-0 bg-transparent p-0 font-mono fs-10.5 text-sky hover:text-sky-soft"
         >
           {unfolded ? 'Hide ‹' : 'Browser didn’t open? ›'}
         </button>
@@ -603,7 +604,7 @@ export function LoginCodeEntry({
     },
   } as const
   const step = (n: number, size: string) => (
-    <span className={['w-2.5 flex-none font-mono text-[rgba(160,190,225,.5)]', size].join(' ')}>{n}</span>
+    <span className={['w-2.5 flex-none font-mono text-ink-900/50', size].join(' ')}>{n}</span>
   )
 
   if (phone || onCancel) {
@@ -612,13 +613,13 @@ export function LoginCodeEntry({
     return (
       <div data-login-code className={['flex flex-col', t ? 'gap-2.5 pl-[18px]' : 'gap-2.5'].join(' ')}>
         <div className="flex items-center gap-2.5">
-          {step(1, t ? 'text-[11.5px]' : 'text-[10.5px]')}
+          {step(1, t ? 'fs-11.5' : 'fs-10.5')}
           <button
             type="button"
             onClick={() => openSignInPage(manualUrl)}
             className={[
-              'flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 border border-[rgba(150,205,255,.18)] bg-transparent font-sans font-semibold text-[#8fd8ff] hover:bg-[rgba(150,205,255,.08)]',
-              t ? 'h-11 rounded-[9px] px-3.5 text-[14px]' : 'h-8 rounded-[8px] px-3 text-[12.5px]',
+              'flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 border border-line/18 bg-transparent font-sans font-semibold text-sky hover:bg-line/8',
+              t ? 'h-fit min-h-11 rounded-[9px] px-3.5 fs-14' : 'h-fit min-h-8 rounded-[8px] px-3 fs-12.5',
             ].join(' ')}
           >
             <span>Open sign-in page</span>
@@ -626,20 +627,20 @@ export function LoginCodeEntry({
           </button>
         </div>
         <div className="flex items-center gap-2.5">
-          {step(2, t ? 'text-[11.5px]' : 'text-[10.5px]')}
+          {step(2, t ? 'fs-11.5' : 'fs-10.5')}
           <div
             className={[
-              'flex min-w-0 flex-1 items-center gap-1.5 border bg-[rgba(4,8,16,.6)] pr-1',
+              'flex min-w-0 flex-1 items-center gap-1.5 border bg-space/60 pr-1',
               t ? 'h-11 rounded-[9px] pl-3' : 'h-8 rounded-[8px] pl-2.5',
-              code ? 'border-[oklch(85%_.12_205_/_.5)]' : 'border-[rgba(150,205,255,.16)]',
+              code ? 'border-accent/50' : 'border-line/16',
             ].join(' ')}
           >
             <input
               {...inputProps}
               placeholder="Paste the code the page shows"
               className={[
-                'm-0 min-w-0 flex-1 text-ellipsis border-0 bg-transparent p-0 font-mono text-text-bright outline-none placeholder:text-[rgba(160,190,225,.45)]',
-                t ? 'text-[12px]' : 'text-[11px]',
+                'm-0 min-w-0 flex-1 text-ellipsis border-0 bg-transparent p-0 font-mono text-ink-100 outline-none placeholder:text-ink-900/60',
+                t ? 'fs-12' : 'fs-11',
               ].join(' ')}
             />
             {read && !pasteRefused && (
@@ -648,8 +649,8 @@ export function LoginCodeEntry({
                 onClick={() => void paste()}
                 disabled={disabled}
                 className={[
-                  'flex-none cursor-pointer border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.06)] font-sans font-semibold text-[rgba(220,235,255,.9)] disabled:opacity-40',
-                  t ? 'h-9 rounded-[7px] px-3 text-[13px]' : 'h-6 rounded-[6px] px-2.5 text-[11.5px]',
+                  'flex-none cursor-pointer border border-line/18 bg-line/6 font-sans font-semibold text-ink-200/90 disabled:opacity-40',
+                  t ? 'h-fit min-h-9 rounded-[7px] px-3 fs-13' : 'h-fit min-h-6 rounded-[6px] px-2.5 fs-11.5',
                 ].join(' ')}
               >
                 Paste
@@ -676,15 +677,15 @@ export function LoginCodeEntry({
       data-login-code
       className={[
         indent ? 'ml-[18px]' : '',
-        'flex flex-col gap-[9px] rounded-[8px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3 py-2.5',
+        'flex flex-col gap-[9px] rounded-[8px] border border-line/10 bg-space/45 px-3 py-2.5',
       ].join(' ')}
     >
-      <div className="flex items-baseline gap-[9px] font-mono text-[10.5px]">
-        {step(1, 'text-[10.5px]')}
+      <div className="flex items-baseline gap-[9px] font-mono fs-10.5">
+        {step(1, 'fs-10.5')}
         <button
           type="button"
           onClick={() => openSignInPage(manualUrl)}
-          className="cursor-pointer border-0 bg-transparent p-0 font-mono text-[10.5px] text-[#8fd8ff] hover:text-[#c6ecff]"
+          className="cursor-pointer border-0 bg-transparent p-0 font-mono fs-10.5 text-sky hover:text-sky-soft"
         >
           Open the sign-in page ↗
         </button>
@@ -692,17 +693,17 @@ export function LoginCodeEntry({
         <button
           type="button"
           onClick={() => void copyToClipboard(manualUrl).then(setCopied)}
-          className="cursor-pointer border-0 bg-transparent p-0 font-mono text-[10.5px] text-[rgba(160,190,225,.55)] hover:text-[#c6ecff]"
+          className="cursor-pointer border-0 bg-transparent p-0 font-mono fs-10.5 text-ink-900/55 hover:text-sky-soft"
         >
           {copied ? 'copied' : 'copy link'}
         </button>
       </div>
       <div className="flex items-center gap-[9px]">
-        {step(2, 'text-[10.5px]')}
+        {step(2, 'fs-10.5')}
         <input
           {...inputProps}
           placeholder="Paste the code that page shows"
-          className="m-0 min-w-0 flex-1 rounded-[7px] border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.6)] px-[9px] py-1.5 font-mono text-[11px] text-text-bright outline-none placeholder:text-[rgba(160,190,225,.45)] focus:border-[oklch(85%_.12_205_/_.5)] focus:shadow-[0_0_0_3px_oklch(85%_.12_205_/_.1)]"
+          className="m-0 min-w-0 flex-1 rounded-[7px] border border-line/16 bg-space/60 px-[9px] py-1.5 font-mono fs-11 text-ink-100 outline-none placeholder:text-ink-900/60 focus:border-accent/50 focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-accent)_10%,transparent)]"
         />
         <Button variant="lit" size="command" disabled={disabled || !ready} onClick={submit}>
           Submit
@@ -758,21 +759,21 @@ export function LoginCardBlock({ session, offline }: { session: ApiSession; offl
   return (
     <div
       data-login-card
-      className="flex flex-col gap-[9px] rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(5,9,18,.82)] bg-[image:linear-gradient(180deg,rgba(10,16,28,.72),rgba(5,9,18,.82))] px-3 pb-3 pt-[11px]"
+      className="flex flex-col gap-[9px] rounded-[10px] border border-line/16 bg-space/82 bg-[image:linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_72%,_transparent),color-mix(in_oklab,_var(--color-space)_82%,_transparent))] px-3 pb-3 pt-[11px]"
     >
       <div className="flex items-center gap-2">
         <span
           className={[
-            'rounded-[4px] border px-[7px] py-0.5 font-mono text-[9.5px] tracking-[0.14em]',
+            'rounded-[4px] border px-[7px] py-0.5 font-mono fs-9.5 tracking-[0.14em]',
             running
-              ? 'border-[rgba(150,205,255,.22)] bg-transparent text-[rgba(214,230,248,.8)]'
-              : 'border-[rgba(255,187,123,.35)] bg-[rgba(255,187,123,.1)] text-[#ffd2a8]',
+              ? 'border-line/22 bg-transparent text-ink-400/80'
+              : 'border-warning/35 bg-warning/10 text-warning-soft',
           ].join(' ')}
         >
           {chip}
         </span>
       </div>
-      <div className="text-[12.5px] leading-[1.5] text-[rgba(232,238,248,.94)] [text-wrap:pretty]">{text}</div>
+      <div className="fs-12.5 leading-[1.5] text-ink-100/94 [text-wrap:pretty]">{text}</div>
       {(running || canStart) && (
         <div className="flex gap-1.5">
           {running ? (

@@ -4,6 +4,16 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 
 ## [Unreleased]
 
+## [0.22.0] — 2026-10-29
+### Added
+- On iPhone, the app's text follows the system text size (Settings → Display & Brightness → Text Size), up to one and a half times today's size.
+- Settings → Appearance can switch the app to another colour theme — Albedo for a bright room, Event Horizon for more contrast, and six palettes after popular editor themes — or follow the phone's light and dark mode. The phone keeps its own choice, separate from the Mac. The status bar follows the theme too, dark icons on a light one, with no store update needed.
+### Changed
+- A long press on buttons, labels or the session list no longer selects their text or opens the system menu on a link; the transcript, the message box, file previews, task output, error detail and commands stay selectable.
+- Limits lists an account's directories under the device each one is on.
+- Updated dependencies.
+- Muted text and small captions are a little brighter, so they are easier to read.
+
 ## [0.21.2] — 2026-10-27
 ### Fixed
 - Typing ``` and starting a new line in the message box opens a code block, as it already did after a space.

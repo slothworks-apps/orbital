@@ -269,19 +269,19 @@ export function NewSessionScreen() {
         type="button"
         aria-label="Close"
         onClick={() => goBack()}
-        className="grid h-11 w-11 place-items-center text-[22px] text-[rgba(220,235,255,.85)]"
+        className="grid h-11 w-11 place-items-center fs-22 text-ink-200/85"
       >
         ×
       </button>
-      <h1 className="flex-1 text-[17px] font-bold">New session</h1>
+      <h1 className="flex-1 fs-17 font-bold">New session</h1>
       {/* Canvas 50j: with a DEVICE field the header names no device. */}
       {!several && (
-        <span className="flex min-w-0 items-center gap-1.5 pr-3.5 font-mono text-[11px] text-[rgba(160,190,225,.7)]">
+        <span className="flex min-w-0 items-center gap-1.5 pr-3.5 font-mono fs-11 text-ink-900/70">
           <span
             aria-hidden
             className={[
               'block h-1.5 w-1.5 shrink-0 rounded-full',
-              asleep ? 'border border-[rgba(200,215,235,.6)]' : 'bg-[oklch(85%_.12_205)]',
+              asleep ? 'border border-ink-600/60' : 'bg-accent',
             ].join(' ')}
           />
           <span className="truncate">{mac}</span>
@@ -293,12 +293,12 @@ export function NewSessionScreen() {
   const startLabel = chosenAsleep ? `Start · needs ${mac} awake` : several ? `Start on ${mac}` : 'Start session'
 
   const footer = (
-    <div className="border-t border-[rgba(150,205,255,.08)] px-4 pb-1.5 pt-2.5">
+    <div className="border-t border-line/8 px-4 pb-1.5 pt-2.5">
       <PrimaryButton onClick={() => void start()} disabled={!canStart}>
         {startLabel}
       </PrimaryButton>
       {failure && (
-        <p role="alert" className="mt-2 text-center text-[13px] text-[var(--state-input)]">
+        <p role="alert" className="mt-2 text-center fs-13 text-[var(--state-input)]">
           {failure}
         </p>
       )}
@@ -308,11 +308,11 @@ export function NewSessionScreen() {
   /** The row the field already names wears the ✓ (9d). */
   const chosenCwd = cwd.trim()
   const check = (path: string) => (
-    <span aria-hidden className={['w-3 shrink-0 font-mono text-[12px] text-[oklch(85%_.12_205)]', path === chosenCwd ? '' : 'opacity-0'].join(' ')}>
+    <span aria-hidden className={['w-3 shrink-0 font-mono fs-12 text-accent', path === chosenCwd ? '' : 'opacity-0'].join(' ')}>
       ✓
     </span>
   )
-  const picked = (path: string) => (path === chosenCwd ? 'bg-[oklch(85%_.12_205/.08)]' : '')
+  const picked = (path: string) => (path === chosenCwd ? 'bg-accent/8' : '')
 
   const typed = cwd.trim() !== ''
   const rows = list.kind === 'rows' ? list.rows : []
@@ -324,10 +324,10 @@ export function NewSessionScreen() {
   const fieldBorder = notFound
     ? 'border-[oklch(70%_.14_25/.7)]'
     : dirLine
-      ? 'border-[oklch(80%_.12_70/.6)]'
+      ? 'border-warning/60'
     : typed
-      ? 'border-[oklch(85%_.12_205/.55)]'
-      : 'border-[rgba(150,205,255,.18)]'
+      ? 'border-accent/55'
+      : 'border-line/18'
 
   return (
     <MobileScreen header={header} footer={footer}>
@@ -340,7 +340,7 @@ export function NewSessionScreen() {
         )}
         <div className="flex flex-col gap-2">
           <FieldLabel hint={hint}>DIRECTORY</FieldLabel>
-          <div className={['flex h-13 items-center gap-2 rounded-[14px] border bg-[rgba(4,8,16,.6)] pl-3.5 pr-1.5', fieldBorder].join(' ')}>
+          <div className={['flex h-13 items-center gap-2 rounded-[14px] border bg-space/60 pl-3.5 pr-1.5', fieldBorder].join(' ')}>
             <input
               aria-label="Directory"
               value={cwd}
@@ -350,22 +350,22 @@ export function NewSessionScreen() {
               autoCapitalize="off"
               autoCorrect="off"
               spellCheck={false}
-              className="h-full min-w-0 flex-1 bg-transparent font-mono text-[13px] text-text-bright outline-none placeholder:text-text-muted"
+              className="h-full min-w-0 flex-1 bg-transparent font-mono fs-13 text-ink-100 outline-none placeholder:text-ink-900/70"
             />
             {cwd && (
               <button
                 type="button"
                 aria-label="Clear"
                 onClick={() => editCwd('')}
-                className="grid h-11 w-11 shrink-0 place-items-center text-[18px] text-[rgba(160,190,225,.7)]"
+                className="grid h-11 w-11 shrink-0 place-items-center fs-18 text-ink-900/70"
               >
                 ×
               </button>
             )}
           </div>
           {notFound && (
-            <p className="flex items-center gap-2 px-1 text-[12.5px] text-[oklch(80%_.1_25)]">
-              <span aria-hidden className="font-mono text-[11px]">
+            <p className="flex items-center gap-2 px-1 fs-12.5 text-danger-soft">
+              <span aria-hidden className="font-mono fs-11">
                 !
               </span>
               Directory not found on {mac}
@@ -373,8 +373,8 @@ export function NewSessionScreen() {
           )}
           {dirLine && (
             // Copy and colour provisional until the canvas draws the line.
-            <p className="flex items-center gap-2 px-1 text-[12.5px] text-[oklch(82%_.1_70)]">
-              <span aria-hidden className="font-mono text-[11px]">
+            <p className="flex items-center gap-2 px-1 fs-12.5 text-warning">
+              <span aria-hidden className="font-mono fs-11">
                 !
               </span>
               {dirLine}
@@ -382,7 +382,7 @@ export function NewSessionScreen() {
           )}
 
           {/* 9d: one panel; past COLLAPSED_ROWS it folds to a window with "Show all N" under it. */}
-          <div className="overflow-hidden rounded-[14px] border border-[rgba(150,205,255,.12)] bg-[rgba(10,16,28,.6)]">
+          <div className="overflow-hidden rounded-[14px] border border-line/12 bg-panel/60">
             <div
               className="overflow-y-auto overscroll-contain transition-[max-height] duration-[320ms] ease-[cubic-bezier(.2,.8,.25,1)]"
               style={{ maxHeight: listOpen || !canExpand ? undefined : COLLAPSED_LIST_PX }}
@@ -396,7 +396,7 @@ export function NewSessionScreen() {
                     onClick={() => editCwd(row.cwd)}
                     className={[
                       'flex min-h-14 w-full items-center gap-3 px-3.5 py-2 text-left',
-                      i > 0 ? 'border-t border-[rgba(150,205,255,.08)]' : '',
+                      i > 0 ? 'border-t border-line/8' : '',
                       picked(row.cwd),
                     ].join(' ')}
                   >
@@ -406,11 +406,11 @@ export function NewSessionScreen() {
                       style={{ background: hue !== undefined ? tagColor(hue) : 'var(--state-neutral)' }}
                     />
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="truncate text-[14px] font-bold text-text-bright">{basename(row.cwd)}</span>
-                      <span className="truncate font-mono text-[11px] text-[rgba(160,190,225,.65)]">{homePath(row.cwd)}</span>
+                      <span className="truncate fs-14 font-bold text-ink-100">{basename(row.cwd)}</span>
+                      <span className="truncate font-mono fs-11 text-ink-900/65">{homePath(row.cwd)}</span>
                     </span>
                     {row.lastAt !== null && (
-                      <span className="shrink-0 font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">{timeAgo(row.lastAt, now)}</span>
+                      <span className="shrink-0 font-mono fs-10.5 text-ink-900/50">{timeAgo(row.lastAt, now)}</span>
                     )}
                     {check(row.cwd)}
                   </button>
@@ -422,20 +422,20 @@ export function NewSessionScreen() {
                   onClick={() => editCwd(list.path)}
                   className={['flex min-h-15 w-full items-center gap-3 px-3.5 py-2.5 text-left', picked(list.path)].join(' ')}
                 >
-                  <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full border-[1.3px] border-[rgba(200,215,235,.55)]" />
+                  <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full border-[1.3px] border-ink-600/55" />
                   <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                    <span className="truncate text-[14px] font-semibold text-text-bright">
-                      Use <span className="font-mono text-[12.5px] font-normal">{list.path}</span> as is
+                    <span className="truncate fs-14 font-semibold text-ink-100">
+                      Use <span className="font-mono fs-12.5 font-normal">{list.path}</span> as is
                     </span>
-                    <span className="text-[11.5px] leading-[1.4] text-[rgba(160,190,225,.6)]">{mac} checks it exists when the session starts</span>
+                    <span className="fs-11.5 leading-[1.4] text-ink-900/60">{mac} checks it exists when the session starts</span>
                   </span>
                   {check(list.path)}
                 </button>
               )}
               {list.kind === 'no-match' && (
                 <div className="flex flex-col gap-[3px] p-3.5">
-                  <span className="text-[14px] font-semibold text-[rgba(232,238,248,.85)]">No directory matches “{list.query}”</span>
-                  <span className="text-[11.5px] text-[rgba(160,190,225,.6)]">Type a full path (~/… or /…) to use any directory.</span>
+                  <span className="fs-14 font-semibold text-ink-100/85">No directory matches “{list.query}”</span>
+                  <span className="fs-11.5 text-ink-900/60">Type a full path (~/… or /…) to use any directory.</span>
                 </div>
               )}
             </div>
@@ -444,9 +444,9 @@ export function NewSessionScreen() {
                 type="button"
                 aria-expanded={listOpen}
                 onClick={() => setListOpen(!listOpen)}
-                className="flex h-11 w-full items-center justify-center gap-2 border-t border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.5)] font-mono text-[11px] text-[rgba(200,220,245,.8)]"
+                className="flex h-11 w-full items-center justify-center gap-2 border-t border-line/12 bg-space/50 font-mono fs-11 text-ink-500/80"
               >
-                <span aria-hidden className="text-[9px] text-[rgba(160,190,225,.6)]">
+                <span aria-hidden className="fs-9 text-ink-900/60">
                   {listOpen ? '▴' : '▾'}
                 </span>
                 {listOpen ? 'Show less' : `Show all ${rows.length}`}
@@ -513,7 +513,7 @@ export function NewSessionScreen() {
           <SlashButton disabled={pending || asleep || !cwd.trim()} onSlash={() => composer.current?.startCommand()} />
         </div>
         {photoError && (
-          <div role="alert" className="px-1 font-mono text-[11px] text-[var(--state-input)]">
+          <div role="alert" className="px-1 font-mono fs-11 text-[var(--state-input)]">
             {photoError}
           </div>
         )}
@@ -569,16 +569,16 @@ function DeviceField({ option, onOpen }: { option: DeviceOption | null; onOpen: 
       type="button"
       aria-haspopup="dialog"
       onClick={onOpen}
-      className="flex min-h-14 items-center gap-3 rounded-[14px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.6)] pl-3.5 pr-2.5 text-left"
+      className="flex min-h-14 items-center gap-3 rounded-[14px] border border-line/18 bg-space/60 pl-3.5 pr-2.5 text-left"
     >
-      <span className="flex text-text-bright">
+      <span className="flex text-ink-100">
         <KindGlyph kind={option?.kind ?? 'desktop'} untitled />
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-[15px] font-semibold text-text-bright">{option?.name ?? 'Choose a device'}</span>
-        {option && <span className="truncate font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{option.sub}</span>}
+        <span className="truncate fs-15 font-semibold text-ink-100">{option?.name ?? 'Choose a device'}</span>
+        {option && <span className="truncate font-mono fs-10.5 text-ink-900/60">{option.sub}</span>}
       </span>
-      <span aria-hidden className="grid h-11 w-8 shrink-0 place-items-center text-[10px] text-[rgba(160,190,225,.6)]">
+      <span aria-hidden className="grid h-11 w-8 shrink-0 place-items-center fs-10 text-ink-900/60">
         ▾
       </span>
     </button>
@@ -600,8 +600,8 @@ function DeviceSheet({
   return (
     <BottomSheet label="Run it on" onDismiss={onClose} variant="device">
       <div className="flex flex-col gap-3 pb-2">
-        <h2 className="text-[18px] font-bold">Run it on</h2>
-        <div role="radiogroup" aria-label="Device" className="overflow-hidden rounded-[14px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.5)]">
+        <h2 className="fs-18 font-bold">Run it on</h2>
+        <div role="radiogroup" aria-label="Device" className="overflow-hidden rounded-[14px] border border-line/12 bg-space/50">
           {options.map((o, i) => (
             <button
               key={o.id}
@@ -614,18 +614,18 @@ function DeviceSheet({
               }}
               className={[
                 'flex min-h-14 w-full items-center gap-3 px-3.5 text-left',
-                i > 0 ? 'border-t border-[rgba(150,205,255,.08)]' : '',
-                o.inert ? 'cursor-default text-[rgba(160,190,225,.5)]' : 'text-text-bright',
+                i > 0 ? 'border-t border-line/8' : '',
+                o.inert ? 'cursor-default text-ink-900/50' : 'text-ink-100',
               ].join(' ')}
             >
               <span className="flex">
                 <KindGlyph kind={o.kind} untitled />
               </span>
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="truncate text-[14.5px] font-semibold">{o.name}</span>
-                <span className="truncate font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{o.sub}</span>
+                <span className="truncate fs-14.5 font-semibold">{o.name}</span>
+                <span className="truncate font-mono fs-10.5 text-ink-900/60">{o.sub}</span>
               </span>
-              <span aria-hidden className={['font-mono text-[13px] text-[oklch(85%_.12_205)]', o.id === value ? '' : 'opacity-0'].join(' ')}>
+              <span aria-hidden className={['font-mono fs-13 text-accent', o.id === value ? '' : 'opacity-0'].join(' ')}>
                 ✓
               </span>
             </button>
@@ -645,7 +645,7 @@ function DeviceSheet({
 function ModelSegments({ models, value, onChange }: { models: OrbitalModel[]; value: string | null; onChange: (value: string) => void }) {
   if (models.length === 0) {
     return (
-      <p className="rounded-[12px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.5)] px-3.5 py-3 text-[11.5px] leading-[1.4] text-[rgba(160,190,225,.7)]">
+      <p className="rounded-[12px] border border-line/18 bg-space/50 px-3.5 py-3 fs-11.5 leading-[1.4] text-ink-900/70">
         The model list could not be read. The session uses whatever model Claude Code is set to.
       </p>
     )
@@ -654,7 +654,7 @@ function ModelSegments({ models, value, onChange }: { models: OrbitalModel[]; va
     <div
       role="radiogroup"
       aria-label="Model"
-      className="grid grid-cols-4 gap-px overflow-hidden rounded-[12px] border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.12)]"
+      className="grid grid-cols-4 gap-px overflow-hidden rounded-[12px] border border-line/18 bg-line/12"
     >
       {models.map((m) => {
         const active = m.value === value
@@ -667,10 +667,10 @@ function ModelSegments({ models, value, onChange }: { models: OrbitalModel[]; va
             onClick={() => onChange(m.value)}
             className={[
               // The 1px gap over the container's fill draws 9d's separators, between rows too.
-              'h-11 min-w-0 truncate px-1 font-mono text-[12.5px]',
+              'h-11 min-w-0 truncate px-1 font-mono fs-12.5',
               active
-                ? 'bg-[color-mix(in_oklab,oklch(85%_.12_205)_10%,#070b13)] font-semibold text-[oklch(85%_.12_205)]'
-                : 'bg-[#070b13] text-[rgba(220,235,255,.85)]',
+                ? 'bg-[color-mix(in_oklab,var(--color-accent)_10%,var(--color-space))] font-semibold text-accent'
+                : 'bg-space text-ink-200/85',
             ].join(' ')}
           >
             {m.shortVersion}
@@ -679,7 +679,7 @@ function ModelSegments({ models, value, onChange }: { models: OrbitalModel[]; va
       })}
       {/* Fill the last row so the separators do not show through as a block. */}
       {Array.from({ length: (4 - (models.length % 4)) % 4 }, (_, i) => (
-        <span key={`pad-${i}`} aria-hidden className="bg-[#070b13]" />
+        <span key={`pad-${i}`} aria-hidden className="bg-space" />
       ))}
     </div>
   )

@@ -180,10 +180,10 @@ const frameRadius: Record<NonNullable<DialogProps['size']>, string> = {
 
 /** Width + glass fill per artboard. */
 const sizeClasses: Record<NonNullable<DialogProps['size']>, string> = {
-  sm: 'w-[440px] bg-gradient-to-b from-[rgba(16,22,38,.94)] to-[rgba(8,12,22,.97)]',
-  md: 'w-[560px] bg-gradient-to-b from-[rgba(16,22,38,.94)] to-[rgba(8,12,22,.97)]',
-  lg: 'w-[660px] bg-gradient-to-b from-[rgba(16,22,38,.9)] to-[rgba(8,12,22,.94)]',
-  xl: 'w-[760px] bg-gradient-to-b from-[rgba(16,22,38,.9)] to-[rgba(8,12,22,.94)]',
+  sm: 'w-[440px] bg-gradient-to-b from-raised/94 to-space-deep/97',
+  md: 'w-[560px] bg-gradient-to-b from-raised/94 to-space-deep/97',
+  lg: 'w-[660px] bg-gradient-to-b from-raised/90 to-space-deep/94',
+  xl: 'w-[760px] bg-gradient-to-b from-raised/90 to-space-deep/94',
 }
 
 /** Inner gutter: confirms sit at 24px, the form dialogs at 26px. */
@@ -194,7 +194,7 @@ const gutter: Record<NonNullable<DialogProps['size']>, string> = {
   xl: 'px-[26px]',
 }
 
-const BASE_SHADOW = '0 40px 120px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.07)'
+const BASE_SHADOW = '0 40px 120px color-mix(in oklab, var(--color-shadow) 70%, transparent), inset 0 1px 0 color-mix(in oklab, var(--color-highlight) 7%, transparent)'
 
 /** Frame edge + bloom, keyed by tone. The bloom is a touch stronger on the confirms. */
 const toneFrame = {
@@ -202,15 +202,15 @@ const toneFrame = {
     border: 'border-accent/40',
     corner: 'border-accent',
     eyebrow: 'text-accent',
-    dot: 'bg-accent shadow-[0_0_8px_#59e4f3]',
-    bloom: '0 0 60px rgba(89,228,243,.12)',
+    dot: 'bg-accent shadow-[0_0_8px_var(--color-accent)]',
+    bloom: '0 0 60px color-mix(in oklab, var(--color-accent) 12%, transparent)',
   },
   warning: {
-    border: 'border-[rgba(251,169,98,.4)]',
+    border: 'border-warning-deep/40',
     corner: 'border-warning',
     eyebrow: 'text-warning',
-    dot: 'bg-[#fba962] shadow-[0_0_8px_#fba962]',
-    bloom: '0 0 60px rgba(251,169,98,.12)',
+    dot: 'bg-warning-deep shadow-[0_0_8px_var(--color-warning-deep)]',
+    bloom: '0 0 60px color-mix(in oklab, var(--color-warning-deep) 12%, transparent)',
   },
 } as const
 
@@ -312,8 +312,8 @@ export function Dialog({
         // The review dialog stacks over the dialog it came from (canvas
         // 61a/61c): a plain .5 scrim, no second blur, and above the first.
         variant === 'review'
-          ? 'orbital-no-drag fixed inset-0 z-[55] flex items-center justify-center bg-[rgba(2,4,9,.5)] p-6'
-          : 'orbital-no-drag fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.55)] p-6 backdrop-blur-[3px]',
+          ? 'orbital-no-drag fixed inset-0 z-[55] flex items-center justify-center bg-shade/50 p-6'
+          : 'orbital-no-drag fixed inset-0 z-50 flex items-center justify-center bg-shade/55 p-6 backdrop-blur-[3px]',
         anchored ? '!items-start' : '',
         MODAL_TRANSITION,
         duration,
@@ -337,7 +337,7 @@ export function Dialog({
             ...(anchored && { marginTop: anchor }),
           }}
           className={[
-            'relative flex max-h-full w-[900px] max-w-full flex-col rounded-2xl border border-[rgba(150,205,255,.2)] bg-gradient-to-b from-[rgba(16,22,38,.97)] to-[rgba(8,12,22,.98)] text-left font-sans text-text-bright backdrop-blur-[28px]',
+            'relative flex max-h-full w-[900px] max-w-full flex-col rounded-2xl border border-line/20 bg-gradient-to-b from-raised/97 to-space-deep/98 text-left font-sans text-ink-100 backdrop-blur-[28px]',
             MODAL_TRANSITION,
             duration,
             entered ? MODAL_OPEN : MODAL_CLOSED,
@@ -354,19 +354,19 @@ export function Dialog({
           aria-modal="true"
           aria-label={title}
           data-variant="card"
-          style={{ boxShadow: '0 40px 100px rgba(0,0,0,.7)' }}
+          style={{ boxShadow: '0 40px 100px color-mix(in oklab, var(--color-shadow) 70%, transparent)' }}
           className={[
-            'relative flex max-h-full w-[460px] max-w-full flex-col items-center gap-4 overflow-y-auto rounded-2xl border border-[rgba(150,205,255,.2)] bg-gradient-to-b from-[rgba(14,20,34,.97)] to-[rgba(8,12,22,.99)] px-[30px] pb-6 pt-7 text-center font-sans text-text-bright',
+            'relative flex max-h-full w-[460px] max-w-full flex-col items-center gap-4 overflow-y-auto rounded-2xl border border-line/20 bg-gradient-to-b from-panel-solid/97 to-space-deep/99 px-[30px] pb-6 pt-7 text-center font-sans text-ink-100',
             MODAL_TRANSITION,
             duration,
             entered ? MODAL_OPEN : MODAL_CLOSED,
           ].join(' ')}
         >
           {eyebrow && (
-            <div className="font-mono text-[9.5px] tracking-[0.2em] text-[rgba(160,190,225,.55)]">{eyebrow}</div>
+            <div className="font-mono fs-9.5 tracking-[0.2em] text-ink-900/55">{eyebrow}</div>
           )}
           {beforeTitle}
-          <h2 className="text-xl font-bold text-text-bright">{title}</h2>
+          <h2 className="fs-20 leading-(--text-xl--line-height) font-bold text-ink-100">{title}</h2>
           {children}
         </div>
       ) : (
@@ -384,7 +384,7 @@ export function Dialog({
           ...(anchored && { marginTop: anchor }),
         }}
         className={[
-          'relative flex max-h-full max-w-full flex-col border font-sans text-text-bright backdrop-blur-[28px]',
+          'relative flex max-h-full max-w-full flex-col border font-sans text-ink-100 backdrop-blur-[28px]',
           sizeClasses[size],
           frameRadius[size],
           frame.border,
@@ -404,14 +404,14 @@ export function Dialog({
         <header
           className={[
             'flex shrink-0 items-center gap-3 pt-[22px]',
-            ruledHeader ? 'border-b border-[rgba(150,205,255,.1)] pb-[18px]' : 'pb-0',
+            ruledHeader ? 'border-b border-line/10 pb-[18px]' : 'pb-0',
             gutter[size],
           ].join(' ')}
         >
           <div className="min-w-0 flex-1">
             {eyebrow && (
               <div
-                className={`flex items-center gap-2 font-mono text-[10px] tracking-[0.2em] ${frame.eyebrow}`}
+                className={`flex items-center gap-2 font-mono fs-10 tracking-[0.2em] ${frame.eyebrow}`}
               >
                 {eyebrowPulse && (
                   <span
@@ -424,16 +424,16 @@ export function Dialog({
             )}
             <h2
               className={[
-                'truncate font-bold tracking-[-0.01em] text-text-bright',
+                'truncate font-bold tracking-[-0.01em] text-ink-100',
                 // The form dialogs run a notch larger than the confirms.
-                ruledHeader ? 'mt-1 text-xl' : 'mt-2 text-[19px]',
+                ruledHeader ? 'mt-1 fs-20 leading-(--text-xl--line-height)' : 'mt-2 fs-19',
               ].join(' ')}
             >
               {title}
             </h2>
           </div>
           {headerMeta != null && (
-            <span className="shrink-0 self-start font-mono text-[10.5px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+            <span className="shrink-0 self-start font-mono fs-10.5 tracking-[0.06em] text-ink-900/55">
               {headerMeta}
             </span>
           )}
@@ -446,7 +446,7 @@ export function Dialog({
               type="button"
               onClick={onClose}
               aria-label="Close dialog"
-              className={`shrink-0 ${headerAction != null ? 'self-center' : 'self-start'} rounded border border-[rgba(150,205,255,.2)] px-[7px] py-[3px] font-mono text-[10px] text-[rgba(200,220,245,.7)] transition-colors hover:bg-white/5`}
+              className={`shrink-0 ${headerAction != null ? 'self-center' : 'self-start'} rounded border border-line/20 px-[7px] py-[3px] font-mono fs-10 text-ink-500/70 transition-colors hover:bg-ink-50/5`}
             >
               esc
             </button>
@@ -471,13 +471,13 @@ export function Dialog({
         {(footer || footerCaption || footerLead) && (
           <footer
             className={[
-              'flex shrink-0 items-center gap-2.5 border-t border-[rgba(150,205,255,.1)]',
+              'flex shrink-0 items-center gap-2.5 border-t border-line/10',
               ruledHeader ? 'pt-4 pb-5' : 'pt-3.5 pb-[18px]',
               gutter[size],
             ].join(' ')}
           >
             {footerLead != null && <div className="flex min-w-0 items-center gap-2">{footerLead}</div>}
-            <div className="min-w-0 flex-1 truncate font-mono text-[10.5px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+            <div className="min-w-0 flex-1 truncate font-mono fs-10.5 tracking-[0.06em] text-ink-900/55">
               {footerCaption}
             </div>
             <div className="flex shrink-0 items-center gap-2.5">{footer}</div>
@@ -499,7 +499,7 @@ export function Dialog({
             'pointer-events-none absolute inset-0 border transition-[border-color,box-shadow] duration-[120ms] ease-in',
             frameRadius[size],
             dropArmed
-              ? 'border-[oklch(85%_.12_205_/_.45)] shadow-[inset_0_0_0_1px_oklch(85%_.12_205_/_.12)]'
+              ? 'border-accent/45 shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--color-accent)_12%,transparent)]'
               : 'border-transparent',
           ].join(' ')}
         />

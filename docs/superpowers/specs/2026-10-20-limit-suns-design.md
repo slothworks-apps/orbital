@@ -28,6 +28,8 @@ overview of the limits it has not had so far.
 
 ## Scope
 
+> Promoted out of Labs on 2026-10-29 ([[labs-features-move-to-regular-settings]]): the switch now lives in Settings → Appearance → MAP, still off by default. Where this spec says Labs, read that.
+
 - **For:** people who hit the 5-hour or weekly limit often enough to want
   to see it coming, which is common among people running several sessions
   at once. People who never hit it lose nothing: the suns are off.
@@ -81,9 +83,15 @@ too. Everything in this spec therefore groups by account:
   the same device need one probe, not two. The waits keep using their own
   directory's windows, as today.
 - **The group's label:** the account's e-mail, plus the names of the
-  directories (and devices, when more than one) it covers. With a single
-  account and a single directory nothing is labelled, as with
-  `ClaudeDirMark` today.
+  directories it covers. With a single account and a single directory
+  nothing is labelled, as with `ClaudeDirMark` today. Once the page spans
+  more than one device, the directories are listed by device (60c, 60d):
+  a row per device, its name (`(this Mac)` on this one) and then its
+  directories, so a directory whose path is unknown here still says where
+  it lives. With one device the device rows are left out, since the name
+  of the only device tells nothing.
+- **The tiles** are the directories' monograms, each once: `~/.claude`
+  named Personal on two devices is one `P`, not two.
 - **The account's monogram** comes from the e-mail, by the same rules
   `web/src/lib/claudeDirs.ts` applies to directory names (clashes, two
   letters). Anything stored per account (a sun's position) is keyed by
@@ -229,6 +237,7 @@ has no map. The suns are a map element, so leaving them out is what
 | the window resets | readings of the old window are dropped; the pace restarts from the window average |
 | the percent falls between readings (a reset the server moved) | readings before the drop are discarded |
 | the Labs switch goes off | suns go; their stored positions stay |
+| an account with no 5-hour or weekly window, only a spend limit (an Enterprise plan's extra usage) | the sun's middle is the share of the money spent, its label the money (`$71.02 / $500`), no week ring; reached at the cap |
 
 ## Tests
 

@@ -1,5 +1,6 @@
 import { Banner } from './Banner'
 import { JoinRequestSheet } from './JoinRequestSheet'
+import { ColoursScreen } from './screens/ColoursScreen'
 import { FileScreen } from './screens/FileScreen'
 import { LimitsScreen } from './screens/LimitsScreen'
 import { LockScreen } from './screens/LockScreen'
@@ -36,13 +37,13 @@ export function MobileApp() {
   const restarting = usePhoneUpdate((s) => (s.shown?.phase === 'restarting' ? s.shown.bundle.version : null))
   if (screenLock) {
     return (
-      <div className="h-full bg-space font-sans text-text-bright">
+      <div className="h-full bg-space font-sans text-ink-100">
         <ScreenLockScreen />
       </div>
     )
   }
   return (
-    <div className="h-full bg-space font-sans text-text-bright">
+    <div className="h-full bg-space font-sans text-ink-100">
       {!locked && <Banner />}
       {screen === 'pairing' && <PairingScreen />}
       {screen === 'list' && <SessionListScreen />}
@@ -53,6 +54,7 @@ export function MobileApp() {
       {screen === 'file' && <FileScreen />}
       {screen === 'settings' && <SettingsScreen />}
       {screen === 'code' && <OwnCodeScreen />}
+      {screen === 'colours' && <ColoursScreen />}
       {screen === 'new' && <NewSessionScreen />}
       {screen === 'limits' && <LimitsScreen />}
       {screen === 'unpaired' && <UnpairedScreen />}

@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -90,6 +91,7 @@ import { loginWaitLabels } from '../lib/profileLogin'
 import { ClaudeDirChip, useClaudeDirMark } from '../ui/ClaudeDirMark'
 import { useClaudeDirModels } from '../lib/useClaudeDirModels'
 import type { BackgroundTask, WalkthroughSummary } from '../lib/types'
+import { scaledPx, useTextScaleVersion } from '../lib/textScale'
 
 /** Hue the panel's accents fall back to when the session has no tag — the
  * export's own `oklch(85% .12 205)` accent (canvas 1b). */
@@ -107,7 +109,8 @@ const NO_TASKS: readonly BackgroundTask[] = []
 const TITLE_FONT_PX = 22
 const TITLE_LINE_HEIGHT = 1.15
 const TITLE_TYPE = {
-  fontSize: `${TITLE_FONT_PX}px`,
+  // Times the app's text step (spec 2026-10-27-text-size-design).
+  fontSize: scaledPx(TITLE_FONT_PX),
   fontWeight: 700,
   lineHeight: TITLE_LINE_HEIGHT,
   letterSpacing: '-0.015em',
@@ -127,14 +130,14 @@ const NO_VALUE = '—'
 
 /** The unmeasured read-out and its note (canvas 1b-alt): deliberately NOT the
  * session's hue, so an em dash cannot be mistaken for a reading. */
-const UNMEASURED_INK = 'rgba(150,205,255,.3)'
+const UNMEASURED_INK = swatch('line', 0.3)
 /**
  * The gauge while the session compacts (26c/26e): the old number held at .55,
  * the bar greyed like the map's arc, and a note that says why.
  */
-const COMPACTING_READOUT_INK = 'rgba(200,215,235,.55)'
-const COMPACTING_BAR_INK = 'rgba(200,215,235,.3)'
-const COMPACTING_NOTE_INK = 'rgba(160,190,225,.6)'
+const COMPACTING_READOUT_INK = swatch('ink-600', 0.55)
+const COMPACTING_BAR_INK = swatch('ink-600', 0.3)
+const COMPACTING_NOTE_INK = swatch('ink-900', 0.6)
 
 /**
  * Right-hand detail panel (artboard 1b, header re-cut by `Feature - Detail
@@ -446,6 +449,8 @@ export function DetailPanel({
   }, [walkthroughOn, sessionId, sessionSource, sessionSettled])
   const walkthroughEntry = walkthroughOn && walkthroughSummary?.key === summaryKey ? walkthroughSummary.summary : null
 
+  // A new text step changes the line height under an open field.
+  const textScaleVersion = useTextScaleVersion()
   // The title field is one line until its own text needs a second, and stops
   // there (9e). On every keystroke, because the height is a function of the
   // text rather than of the element: the browser will not shrink a textarea
@@ -453,10 +458,11 @@ export function DetailPanel({
   useEffect(() => {
     const el = titleFieldRef.current
     if (!el) return
-    const line = TITLE_FONT_PX * TITLE_LINE_HEIGHT
+    // The rendered size, not TITLE_FONT_PX: the text step scales it.
+    const line = (parseFloat(getComputedStyle(el).fontSize) || TITLE_FONT_PX) * TITLE_LINE_HEIGHT
     el.style.height = '0px'
     el.style.height = `${Math.min(Math.max(el.scrollHeight, line), line * TITLE_MAX_LINES)}px`
-  }, [titleDraft, isEditingTitle])
+  }, [titleDraft, isEditingTitle, textScaleVersion])
 
   // The caret lands at the END of the name: the usual edit is fixing or
   // extending the tail, not retyping from the front.
@@ -686,9 +692,9 @@ export function DetailPanel({
   const headerHue = sessionTag?.hue
   const accent = tagColor(headerHue ?? ACCENT_HUE)
   /** The context fill's glow below the first threshold (canvas 1b-alt). */
-  const accentSoft55 = `oklch(80% 0.13 ${headerHue ?? ACCENT_HUE} / 0.55)`
+  const accentSoft55 = `oklch(var(--tb-l) var(--tb-c) ${headerHue ?? ACCENT_HUE} / 0.55)`
   /** The title's rule while it is being edited (9e-4). */
-  const accentSoft70 = `oklch(80% 0.13 ${headerHue ?? ACCENT_HUE} / 0.7)`
+  const accentSoft70 = `oklch(var(--tb-l) var(--tb-c) ${headerHue ?? ACCENT_HUE} / 0.7)`
 
   /**
    * The context gauge takes the map arc's colours past the same two
@@ -816,7 +822,7 @@ export function DetailPanel({
         onDoubleClick={handleWidthReset}
         // `orbital-no-drag`: its top runs under the main window's drag band
         // (canvas `Feature - Main window chrome` 24a), which would take it.
-        className="orbital-no-drag absolute inset-y-0 left-0 z-20 w-2 cursor-col-resize touch-none hover:bg-[rgba(150,205,255,.08)]"
+        className="orbital-no-drag absolute inset-y-0 left-0 z-20 w-2 cursor-col-resize touch-none hover:bg-line/8"
       />
       )}
       {/* Top hairline glint in the session's tag hue (canvas 1b). A detached
@@ -834,7 +840,7 @@ export function DetailPanel({
           clickable there. */}
       <div
         className={[
-          'orbital-band-controls border-b border-panel-border px-[22px] pt-3 pb-4',
+          'orbital-band-controls border-b border-line/14 px-[22px] pt-3 pb-4',
           dropArmed ? 'opacity-40' : '',
         ].join(' ')}
       >
@@ -849,7 +855,7 @@ export function DetailPanel({
         <div
           className={[
             'flex items-center',
-            standalone ? 'orbital-drag-region -mx-[22px] -mt-3 h-10 pt-3 pr-[22px]' : 'h-7',
+            standalone ? 'orbital-drag-region -mx-[22px] -mt-3 h-fit min-h-10 pt-3 pr-[22px]' : 'h-fit min-h-7',
           ].join(' ')}
           style={standalone ? { paddingLeft: WINDOW_STRIP_INSET_PX } : undefined}
         >
@@ -885,7 +891,7 @@ export function DetailPanel({
             // session's own accent, the same signal the caret carries.
             style={{
               borderBottomStyle: isEditingTitle ? 'solid' : 'dashed',
-              borderBottomColor: isEditingTitle ? accentSoft70 : 'rgba(150,205,255,.35)',
+              borderBottomColor: isEditingTitle ? accentSoft70 : swatch('line', 0.35),
             }}
           >
             {isEditingTitle ? (
@@ -905,7 +911,7 @@ export function DetailPanel({
                 // Scrolls rather than clips past the second line: the clamp
                 // is how a title is READ, and a caret you cannot see is not a
                 // way to write one.
-                className="min-w-0 flex-1 resize-none overflow-y-auto bg-transparent text-text-bright focus:outline-none"
+                className="min-w-0 flex-1 resize-none overflow-y-auto bg-transparent text-ink-100 focus:outline-none"
                 style={TITLE_TYPE}
               />
             ) : (
@@ -913,7 +919,7 @@ export function DetailPanel({
                 type="button"
                 title="Rename this session"
                 onClick={beginTitleEdit}
-                className="min-w-0 flex-1 cursor-text text-left text-text-bright transition-opacity duration-200"
+                className="min-w-0 flex-1 cursor-text text-left text-ink-100 transition-opacity duration-200"
                 // 9d: the old name stays on screen at 45% while the model
                 // writes the new one, so the row neither empties nor jumps.
                 style={{ ...TITLE_TYPE, opacity: retitling ? 0.45 : 1 }}
@@ -927,8 +933,8 @@ export function DetailPanel({
             )}
             <span
               aria-hidden
-              className="mt-1 shrink-0 text-xs"
-              style={{ color: isEditingTitle ? 'rgba(160,190,225,.35)' : 'rgba(160,190,225,.6)' }}
+              className="mt-1 shrink-0 fs-12 leading-(--text-xs--line-height)"
+              style={{ color: isEditingTitle ? swatch('ink-900', 0.35) : swatch('ink-900', 0.6) }}
             >
               ✎
             </span>
@@ -1065,7 +1071,7 @@ export function DetailPanel({
                 <span
                   data-terminal-chip
                   title="Attached from an external terminal · Orbital measures no context for it"
-                  className="rounded-[4px] border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.04)] px-[7px] py-[3px] font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.75)]"
+                  className="rounded-[4px] border border-line/18 bg-line/4 px-[7px] py-[3px] font-mono fs-9.5 tracking-[0.16em] text-ink-900/75"
                 >
                   TERMINAL
                 </span>
@@ -1079,7 +1085,7 @@ export function DetailPanel({
                 `Feature - Terminal` 48e: bar flex, gap 12, read-out right). */}
             {showContext && (
               <div className="mt-[9px] flex items-center gap-3">
-                <div className="relative h-[3px] min-w-0 flex-1 overflow-hidden rounded-[2px] bg-[rgba(150,205,255,.12)]">
+                <div className="relative h-[3px] min-w-0 flex-1 overflow-hidden rounded-[2px] bg-line/12">
                   {contextPercent !== undefined && (
                     <span
                       role="progressbar"
@@ -1105,7 +1111,7 @@ export function DetailPanel({
                       key={percent}
                       aria-hidden
                       data-context-notch={percent}
-                      className="absolute top-0 bottom-0 w-[1.5px] bg-[rgba(4,8,16,.8)]"
+                      className="absolute top-0 bottom-0 w-[1.5px] bg-space/80"
                       style={{ left: `${percent}%` }}
                     />
                   ))}
@@ -1113,7 +1119,7 @@ export function DetailPanel({
                 {contextNote && (
                   <span
                     data-context-note
-                    className="font-mono text-[9.5px] tracking-[0.16em] whitespace-nowrap"
+                    className="font-mono fs-9.5 tracking-[0.16em] whitespace-nowrap"
                     style={{ color: contextNote.ink }}
                   >
                     {contextNote.text}
@@ -1125,16 +1131,25 @@ export function DetailPanel({
                   className="flex items-baseline gap-1 font-mono whitespace-nowrap"
                 >
                   <span
-                    className="text-[12.5px] leading-none transition-colors duration-300"
+                    className="fs-12.5 leading-none transition-colors duration-300"
                     style={{
-                      color: compacting ? COMPACTING_READOUT_INK : contextUsed != null ? contextInk : UNMEASURED_INK,
+                      // Past the critical line the number turns ink-100 beside the red
+                      // fill: red light enough to read stops looking critical
+                      // (canvas `Feature - Colour themes` 1b, flag 2).
+                      color: compacting
+                        ? COMPACTING_READOUT_INK
+                        : contextUsed == null
+                          ? UNMEASURED_INK
+                          : contextBarLevel === 'critical'
+                            ? swatch('ink-100')
+                            : contextInk,
                     }}
                   >
                     {/* The measurement itself, NOT the bar's clamped fraction:
                         a session past a mis-learned window says so. */}
                     {contextUsed != null ? formatTokens(contextUsed) : NO_VALUE}
                   </span>
-                  <span className="text-[10px] text-[rgba(160,190,225,.55)]">
+                  <span className="fs-10 text-ink-900/55">
                     / {formatContextWindow(contextWindow)}
                   </span>
                 </span>
@@ -1205,7 +1220,7 @@ export function DetailPanel({
       {session?.interruptedAt != null && (
         <div
           data-interrupted-banner
-          className="mx-[22px] mb-3.5 rounded-[10px] border border-white/25 bg-white/[0.06] px-3.5 py-3 font-mono text-[10.5px] leading-[1.7] text-[rgba(220,235,255,.85)] [text-wrap:pretty]"
+          className="mx-[22px] mb-3.5 rounded-[10px] border border-ink-50/25 bg-ink-50/[0.06] px-3.5 py-3 font-mono fs-10.5 leading-[1.7] text-ink-200/85 [text-wrap:pretty]"
         >
           Turn interrupted by a server restart. The conversation is intact — ask again for
           whatever did not come back.
@@ -1216,14 +1231,14 @@ export function DetailPanel({
           left on the map. Only an ended session has either to say — a live
           one is not going anywhere. */}
       {footNote && (
-        <div className="mx-[22px] mb-3.5 rounded-[10px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3.5 py-3 font-mono text-[10.5px] leading-[1.7] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+        <div className="mx-[22px] mb-3.5 rounded-[10px] border border-line/10 bg-space/45 px-3.5 py-3 font-mono fs-10.5 leading-[1.7] text-ink-900/70 [text-wrap:pretty]">
           {footNote}
         </div>
       )}
 
       {/* Composer — canvas 1b: padding 14px 16px 16px over a hairline rule. */}
       <div
-        className="border-t border-panel-border px-4 pb-4 pt-3.5"
+        className="border-t border-line/14 px-4 pb-4 pt-3.5"
         // Canvas 9f D: during the review ⇧⇥ from the composer jumps to the
         // card's Send.
         onKeyDownCapture={(e) => {
@@ -1244,7 +1259,7 @@ export function DetailPanel({
           // Take over (spec 2026-10-21-take-over-terminal-session-design): a
           // CLI that is not plainly idle asks first, since what runs there
           // stops. The bar keeps its old height; placement awaits Claude Design.
-          <div className="flex items-center justify-between gap-3 rounded-[10px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.6)] py-[5px] pl-3 pr-[5px] font-mono text-[11.5px] text-text-muted">
+          <div className="flex items-center justify-between gap-3 rounded-[10px] border border-line/18 bg-space/60 py-[5px] pl-3 pr-[5px] font-mono fs-11.5 text-ink-900/70">
             runs in terminal — read-only
             {canTakeOver(session) && (
               <Button
@@ -1262,15 +1277,15 @@ export function DetailPanel({
           <div
             data-device-lock
             aria-disabled="true"
-            className="flex items-start gap-3 rounded-[10px] border border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.4)] px-3.5 py-[13px]"
+            className="flex items-start gap-3 rounded-[10px] border border-line/14 bg-space/40 px-3.5 py-[13px]"
           >
             <span
               aria-hidden
-              className="mt-[5px] box-border block size-2 flex-none rounded-full border-[1.3px] border-solid border-[rgba(200,215,235,.6)]"
+              className="mt-[5px] box-border block size-2 flex-none rounded-full border-[1.3px] border-solid border-ink-600/60"
             />
             <span className="flex flex-1 flex-col gap-1">
-              <span className="text-[13.5px] font-semibold text-text-bright">{lock.title}</span>
-              <span className="text-[12.5px] leading-normal text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+              <span className="fs-13.5 font-semibold text-ink-100">{lock.title}</span>
+              <span className="fs-12.5 leading-normal text-ink-900/72 [text-wrap:pretty]">
                 {lock.body}
               </span>
             </span>
@@ -1332,7 +1347,7 @@ export function DetailPanel({
                   <span className="flex text-accent">
                     <RewindGlyph size="strip" />
                   </span>
-                  <span className="text-text-bright">Pick one of your messages to rewind to</span>
+                  <span className="text-ink-100">Pick one of your messages to rewind to</span>
                   <span aria-hidden className="flex-1" />
                   <Button variant="strip" size="strip" onClick={leavePick}>
                     Cancel
@@ -1344,8 +1359,8 @@ export function DetailPanel({
                   <span className="flex text-accent">
                     <RewindGlyph size="strip" />
                   </span>
-                  <span className="text-text-bright">Rewound</span>
-                  <span aria-hidden className="text-[rgba(150,205,255,.3)]">
+                  <span className="text-ink-100">Rewound</span>
+                  <span aria-hidden className="text-line/30">
                     ·
                   </span>
                   <span data-rewind-hidden>
@@ -1477,7 +1492,7 @@ export function DetailPanel({
           // Square in a detached window, where the panel has no radius (22b).
           standalone ? '' : 'rounded-[14px]',
           dropArmed
-            ? 'border-[oklch(85%_.12_205_/_.45)] shadow-[inset_0_0_0_1px_oklch(85%_.12_205_/_.12)]'
+            ? 'border-accent/45 shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--color-accent)_12%,transparent)]'
             : 'border-transparent',
         ].join(' ')}
       />

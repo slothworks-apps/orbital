@@ -6,13 +6,14 @@ import {
   type LimitsAccountGroup,
 } from '@orbital/shared/limits'
 import { claudeDirDisplayPath, claudeDirMonograms } from '../lib/claudeDirs'
+import { deviceOf, LOCAL_DEVICE } from '../lib/devices'
 import type { EstimateLine } from '../lib/limits'
 import type { ClaudeDirInfo, ClaudeDirLimits, RemoteStatus } from '../lib/types'
 
 /**
  * The limits page by account (spec 2026-10-20-limit-suns-design § 1, § 3;
  * canvas `Feature - Limit sun` 60c): what each account's head says, and the
- * words of the run-out estimate. Pure, so Settings → Labs can list the same
+ * words of the run-out estimate. Pure, so Settings → Appearance can list the same
  * accounts the page does.
  */
 
@@ -88,6 +89,14 @@ export interface AccountDevice {
   kind: string
 }
 
+/** This device's name in an account's head when the group has none for it. */
+export const UNNAMED_THIS_DEVICE = 'this device'
+
+/** One device of an account's head (60c), with the account's directories on it; this device's id is `LOCAL_DEVICE`. */
+export interface AccountDeviceDirs extends AccountDevice {
+  dirs: AccountDir[]
+}
+
 /** One account's group on the page. */
 export interface AccountView {
   group: LimitsAccountGroup<ClaudeDirLimits>
@@ -97,14 +106,15 @@ export interface AccountView {
   /** Out of date by `limitsReadingStale`: the estimate is hidden and the read line says so. */
   stale: boolean
   dirs: AccountDir[]
-  devices: AccountDevice[]
+  /** The devices with their directories, once the page spans two devices; empty before. */
+  devices: AccountDeviceDirs[]
 }
 
 /**
  * Every account's view, in the snapshot's order. Each device's directories
  * are given monograms among themselves, so a tile reads as that device's
- * planets do. The devices are listed only once a group spans more than one
- * device somewhere on the page; this device's name is `thisDevice`'s.
+ * planets do. The devices, each with its directories, are listed only once
+ * the page spans more than one device; this device's name is `thisDevice`'s.
  */
 export function accountViews(
   dirs: readonly ClaudeDirLimits[],
@@ -112,7 +122,7 @@ export function accountViews(
 ): AccountView[] {
   const byDevice = new Map<string, ClaudeDirLimits[]>()
   for (const d of dirs) {
-    const id = d.machine?.id ?? 'self'
+    const id = deviceOf(d)
     byDevice.set(id, [...(byDevice.get(id) ?? []), d])
   }
   const monograms = new Map([...byDevice].map(([id, list]) => [id, claudeDirMonograms(list)]))
@@ -120,12 +130,27 @@ export function accountViews(
 
   return groupLimitsByAccount(dirs).map((group) => {
     const reading = group.reading
-    const devices: AccountDevice[] = []
+    const accountDirs = group.entries.map((e) => {
+      const device = deviceOf(e)
+      const info = e.machine ? undefined : input.dirInfo?.find((i) => i.id === e.id)
+      const dir: AccountDir = {
+        key: `${device}:${e.id}`,
+        name: e.name,
+        path: info ? claudeDirDisplayPath(info.path) : null,
+        mono: monograms.get(device)?.get(e.id) ?? '?',
+        missing: info?.exists === false,
+      }
+      return { device, dir }
+    })
+    const on = (device: string) => accountDirs.filter((d) => d.device === device).map((d) => d.dir)
+    const devices: AccountDeviceDirs[] = []
     if (severalDevices) {
-      if (group.local) devices.push(input.self ?? { id: 'self', name: 'this device', kind: 'desktop' })
+      if (group.local) {
+        devices.push({ ...(input.self ?? { id: LOCAL_DEVICE, name: UNNAMED_THIS_DEVICE, kind: 'desktop' }), dirs: on(LOCAL_DEVICE) })
+      }
       for (const m of group.machines) {
         const kind = group.entries.find((e) => e.machine?.id === m.id)?.machine?.kind ?? 'desktop'
-        devices.push({ id: m.id, name: m.name, kind })
+        devices.push({ id: m.id, name: m.name, kind, dirs: on(m.id) })
       }
     }
     return {
@@ -133,17 +158,7 @@ export function accountViews(
       title: group.account ?? reading.name,
       plan: planLabel(reading.plan ?? group.entries.find((e) => e.plan)?.plan),
       stale: limitsReadingStale(reading, input.now),
-      dirs: group.entries.map((e) => {
-        const device = e.machine?.id ?? 'self'
-        const info = e.machine ? undefined : input.dirInfo?.find((i) => i.id === e.id)
-        return {
-          key: `${device}:${e.id}`,
-          name: e.name,
-          path: info ? claudeDirDisplayPath(info.path) : null,
-          mono: monograms.get(device)?.get(e.id) ?? '?',
-          missing: info?.exists === false,
-        }
-      }),
+      dirs: accountDirs.map((d) => d.dir),
       devices,
     }
   })

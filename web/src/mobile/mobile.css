@@ -99,7 +99,7 @@
   padding: 12px 14px;
 }
 :root[data-platform='mobile'] .message-markdown {
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale, 1));
   line-height: 1.55;
 }
 
@@ -155,4 +155,21 @@
  */
 :root[data-platform='mobile'] [data-question-card] [data-question-reopen] {
   min-height: 64px;
+}
+
+/*
+ * Canvas `Feature - Colour themes` 1k: a change of theme — picked in
+ * Settings, or the OS switching while the phone follows it — crossfades, so
+ * nothing flashes. `platform/colourTheme.ts` sets the attribute, sets
+ * `--colours-fade` to `COLOUR_CROSSFADE_MS` and clears both after it. Every element, since the tokens change under
+ * all of them at once; only for that moment, and never under reduced motion,
+ * where the attribute is not set at all.
+ */
+:root[data-colours-fading],
+:root[data-colours-fading] *,
+:root[data-colours-fading] *::before,
+:root[data-colours-fading] *::after {
+  transition-property: background-color, border-color, color, fill, stroke, box-shadow, outline-color, text-decoration-color !important;
+  transition-duration: var(--colours-fade) !important;
+  transition-timing-function: ease !important;
 }

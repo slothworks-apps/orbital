@@ -1,3 +1,4 @@
+import { swatch } from '../../lib/palette'
 import { useState } from 'react'
 import { WINDOW_STRIP_INSET_PX } from '../../ui/Panel'
 import type { HarnessEvent, SessionHarness } from '../../lib/types'
@@ -57,24 +58,24 @@ export function FullWindow({
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
       <div
-        className={`flex items-center gap-4 border-b border-[rgba(150,205,255,.1)] px-6 py-4 ${inWindow ? 'orbital-drag-region' : 'orbital-band-controls'}`}
+        className={`flex items-center gap-4 border-b border-line/10 px-6 py-4 ${inWindow ? 'orbital-drag-region' : 'orbital-band-controls'}`}
         style={inWindow ? { paddingLeft: WINDOW_STRIP_INSET_PX } : undefined}
       >
         <button
           type="button"
           onClick={onExit}
-          className="min-w-0 max-w-[220px] truncate font-mono text-[10.5px] text-[oklch(85%_.12_205)] hover:brightness-110"
+          className="min-w-0 max-w-[220px] truncate font-mono fs-10.5 text-accent hover:brightness-110"
         >
           ↖ {sessionTitle}
         </button>
-        <span aria-hidden className="block h-[18px] w-px shrink-0 bg-[rgba(150,205,255,.14)]" />
+        <span aria-hidden className="block h-[18px] w-px shrink-0 bg-line/14" />
         <div className="flex min-w-0 flex-col gap-[3px]">
           <div className="flex items-center gap-2">
             <Kicker>HARNESS</Kicker>
             {chip && <ScopeChip text={chip} />}
             {harness.removedAt !== null && <ScopeChip text="removed" />}
           </div>
-          <div className="truncate text-[17px] font-bold text-text-bright">
+          <div className="truncate fs-17 font-bold text-ink-100">
             {harness.name}
             {firstInput ? ` · ${firstInput}` : ''}
           </div>
@@ -82,8 +83,8 @@ export function FullWindow({
         <span aria-hidden className="flex-1" />
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <Segments kinds={kinds} className="w-[220px]" />
-          <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
-            <span className="text-[#e8eef8]">{readout[0]}</span>
+          <div className="font-mono fs-10.5 text-ink-900/65">
+            <span className="text-ink-100">{readout[0]}</span>
             {readout.slice(1).map((r) => ` · ${r}`)}
           </div>
         </div>
@@ -92,14 +93,14 @@ export function FullWindow({
           aria-label="Back to the panel"
           title="Back to the panel"
           onClick={onExit}
-          className="grid size-[22px] shrink-0 place-items-center rounded-[6px] font-mono text-[12px] text-[rgba(200,220,245,.7)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8]"
+          className="grid size-[22px] shrink-0 place-items-center rounded-[6px] font-mono fs-12 text-ink-500/70 hover:bg-line/9 hover:text-ink-100"
         >
           ⎋
         </button>
       </div>
       {/* 30h's 340 · flex · 520 assumes the 56 px rail; as shares, an open sidebar narrows all three instead of crushing the record. */}
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(240px,340fr)_minmax(320px,480fr)_minmax(300px,520fr)]">
-        <div className="flex min-h-0 flex-col gap-1 overflow-y-auto border-r border-[rgba(150,205,255,.08)] px-3.5 py-4">
+        <div className="flex min-h-0 flex-col gap-1 overflow-y-auto border-r border-line/8 px-3.5 py-4">
           {harness.steps.map((step, i) => {
             const s = steps[i]
             const on = i === index
@@ -109,17 +110,17 @@ export function FullWindow({
                 key={step.id}
                 onClick={() => setPick(i)}
                 aria-current={on || undefined}
-                className="flex gap-2.5 rounded-lg border px-2.5 py-[9px] text-left hover:bg-[rgba(150,205,255,.06)]"
-                style={{ borderColor: on ? 'rgba(150,205,255,.22)' : 'transparent', background: on ? 'rgba(150,205,255,.08)' : undefined }}
+                className="flex gap-2.5 rounded-lg border px-2.5 py-[9px] text-left hover:bg-line/6"
+                style={{ borderColor: on ? swatch('line', 0.22) : 'transparent', background: on ? swatch('line', 0.08) : undefined }}
               >
                 <span className="mt-[5px]">
                   <Marker kind={s.kind} gate={isGateShape(s.kind, step)} />
                 </span>
                 <span className="flex min-w-0 flex-col gap-1">
-                  <span className="text-pretty text-[12.5px] font-semibold leading-[1.4]" style={{ color: MARKER[s.kind].titleInk }}>
+                  <span className="text-pretty fs-12.5 font-semibold leading-[1.4]" style={{ color: MARKER[s.kind].titleInk }}>
                     {step.title}
                   </span>
-                  <span className="font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+                  <span className="font-mono fs-10 text-ink-900/60">
                     {stepMeta(i, step, stepWho(s.kind, step, s.state, harness, s.own))}
                   </span>
                 </span>
@@ -142,7 +143,7 @@ export function FullWindow({
         {harness.steps.length > 0 ? <WideStepDiff key={`d${index}`} sessionId={sessionId} harness={harness} index={index} /> : <div />}
       </div>
       {harness.removedAt !== null && (
-        <div className="border-t border-[rgba(150,205,255,.1)] px-6 py-2 font-mono text-[10px] text-[rgba(160,190,225,.5)]">
+        <div className="border-t border-line/10 px-6 py-2 font-mono fs-10 text-ink-900/50">
           removed {clock(harness.removedAt)} · the record is kept
         </div>
       )}

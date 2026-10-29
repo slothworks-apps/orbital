@@ -1,3 +1,4 @@
+import { swatch } from '../../lib/palette'
 import { timeAgo } from '../../lib/format'
 import { stateColor } from '../../lib/stateStyle'
 import { sessionStateKey } from '../../lib/types'
@@ -14,9 +15,9 @@ import type { SlotProps } from './slot'
  * reviewer and 10b's reopened step. Never amber — none of them asks anything.
  */
 const NEUTRAL_INK: Record<Exclude<HeaderStateKind, 'plain' | 'gate'>, string> = {
-  limit: 'rgba(200,215,235,.8)',
-  reviewer: 'rgba(200,215,235,.75)',
-  reopened: 'rgba(200,215,235,.75)',
+  limit: swatch('ink-600', 0.8),
+  reviewer: swatch('ink-600', 0.75),
+  reopened: swatch('ink-600', 0.75),
 }
 
 /**
@@ -39,7 +40,7 @@ export function StateLine({ session, offline }: SlotProps) {
 
   return (
     <span
-      className="flex shrink-0 items-center gap-[7px] pr-2.5 font-mono text-[10.5px] tracking-[0.1em]"
+      className="flex shrink-0 items-center gap-[7px] pr-2.5 font-mono fs-10.5 tracking-[0.1em]"
       style={{ color: ink }}
     >
       {state.kind === 'plain' ? (
@@ -55,7 +56,7 @@ export function StateLine({ session, offline }: SlotProps) {
         // Canvas 10k, 10c: a hollow 7 px dot, still.
         <span
           aria-hidden
-          className="box-border block h-[7px] w-[7px] shrink-0 rounded-full border-[1.5px] border-[rgba(200,215,235,.75)]"
+          className="box-border block h-[7px] w-[7px] shrink-0 rounded-full border-[1.5px] border-ink-600/75"
         />
       )}
       {state.word}

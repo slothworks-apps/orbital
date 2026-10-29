@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { useEffect, useState } from 'react'
 import type { MouseEvent, RefObject } from 'react'
 import { useOrbital } from '../store/store'
@@ -25,11 +26,11 @@ const LIST_WIDTH_PX = 372
 const LIST_MAX_ROWS = 8
 const LIST_GAP_PX = 8
 /** Canvas 26e: the meta line's ink. */
-const MUTED_INK = 'rgba(160,190,225,.6)'
+const MUTED_INK = swatch('ink-900', 0.6)
 /** 26e: a row's `no output` stands in for the command, one step dimmer. */
-const NO_COMMAND_INK = 'rgba(160,190,225,.4)'
+const NO_COMMAND_INK = swatch('ink-900', 0.4)
 /** 26e: the dashed grey ring of a task that ended without saying how. */
-const UNKNOWN_INK = 'rgba(160,190,225,.6)'
+const UNKNOWN_INK = swatch('ink-900', 0.6)
 
 /** 25c's table, read for 26e's five tones; `unknown` is 26e's one addition. */
 function toneStyle(tone: TaskTone): { ink: string; solid: boolean; square: boolean; dashed: boolean; blink: boolean } {
@@ -121,7 +122,7 @@ export function TaskChip({ sessionId, tasks, compact = false, waiting = false, w
     if (waiting) segments.push({ text: taskPhrase(runningKinds, false), ink: 'var(--state-active)' })
     else {
       segments.push({ text: compact ? String(model.running) : `${model.running} running`, ink: 'var(--state-active)' })
-      if (age) segments.push({ text: age, ink: 'rgba(200,225,255,.9)' })
+      if (age) segments.push({ text: age, ink: swatch('ink-300', 0.9) })
     }
   } else {
     segments.push({ text: `${model.ended - model.failed} ended` })
@@ -138,7 +139,7 @@ export function TaskChip({ sessionId, tasks, compact = false, waiting = false, w
       align="left"
       withinRef={withinRef}
       footer={
-        <div className="mt-1 flex shrink-0 items-center gap-2 border-t border-[rgba(150,205,255,.08)] px-2.5 pt-2 pb-1 font-mono text-[9.5px] tracking-[.06em] text-[rgba(160,190,225,.45)]">
+        <div className="mt-1 flex shrink-0 items-center gap-2 border-t border-line/8 px-2.5 pt-2 pb-1 font-mono fs-9.5 tracking-[.06em] text-ink-900/60">
           {/* 26a's hint, alone: beside the subagent list's `this session only`
               it wraps at `LIST_WIDTH_PX`. */}
           <span className="whitespace-nowrap">↵ open output · ■ stops at once · ⎋ close</span>
@@ -153,14 +154,14 @@ export function TaskChip({ sessionId, tasks, compact = false, waiting = false, w
             title={title}
             {...props}
             className={[
-              'orbital-no-drag flex h-[22px] shrink-0 items-center gap-[7px] rounded-md border px-2 font-mono text-[10.5px]',
+              'orbital-no-drag flex h-fit min-h-[22px] shrink-0 items-center gap-[7px] rounded-md border px-2 font-mono fs-10.5',
               'transition-[background-color,border-color,color] duration-[180ms] ease-[ease] focus-visible:outline-none',
               active
-                ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
+                ? 'border-line/30 bg-line/14 text-ink-100'
                 : [
-                    'border-[rgba(150,205,255,.14)] text-[rgba(160,190,225,.75)]',
-                    'hover:border-[rgba(150,205,255,.3)] hover:text-text-bright',
-                    'focus-visible:border-[oklch(85%_.12_205_/_.7)] focus-visible:text-text-bright',
+                    'border-line/14 text-ink-900/75',
+                    'hover:border-line/30 hover:text-ink-100',
+                    'focus-visible:border-accent/70 focus-visible:text-ink-100',
                   ].join(' '),
             ].join(' ')}
           >
@@ -168,14 +169,14 @@ export function TaskChip({ sessionId, tasks, compact = false, waiting = false, w
             {segments.map((segment, i) => (
               <span key={i} className="contents">
                 {i > 0 && (
-                  <span aria-hidden className="text-[rgba(150,205,255,.3)]">
+                  <span aria-hidden className="text-line/30">
                     ·
                   </span>
                 )}
                 <span style={segment.ink ? { color: segment.ink } : undefined}>{segment.text}</span>
               </span>
             ))}
-            <span aria-hidden className="text-[8px]">
+            <span aria-hidden className="fs-8">
               {isOpen ? '▴' : '▾'}
             </span>
           </button>
@@ -234,8 +235,8 @@ function TaskRow({
         }}
       />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate font-sans text-[12.5px] font-semibold text-text-bright">{task.label}</span>
-        <span className="flex min-w-0 gap-1.5 font-mono text-[10px] whitespace-nowrap" style={{ color: MUTED_INK }}>
+        <span className="truncate font-sans fs-12.5 font-semibold text-ink-100">{task.label}</span>
+        <span className="flex min-w-0 gap-1.5 font-mono fs-10 whitespace-nowrap" style={{ color: MUTED_INK }}>
           <span className="shrink-0">{kindWord(task)}</span>
           {word && (
             <span className="shrink-0" style={{ color: style.ink }}>
@@ -244,7 +245,7 @@ function TaskRow({
           )}
           {meta && (
             <>
-              <span aria-hidden className="shrink-0 text-[rgba(150,205,255,.3)]">
+              <span aria-hidden className="shrink-0 text-line/30">
                 ·
               </span>
               <span className="truncate" style={{ color: hasCommand ? MUTED_INK : NO_COMMAND_INK }}>
@@ -256,8 +257,8 @@ function TaskRow({
       </span>
       {elapsed !== undefined && (
         <span
-          className="shrink-0 font-mono text-[10.5px]"
-          style={{ color: tone === 'running' ? 'rgba(200,225,255,.85)' : 'rgba(160,190,225,.55)' }}
+          className="shrink-0 font-mono fs-10.5"
+          style={{ color: tone === 'running' ? swatch('ink-300', 0.85) : swatch('ink-900', 0.55) }}
         >
           {elapsed}
         </span>
@@ -292,10 +293,10 @@ export function StopButton({ label, stopping, onStop }: { label: string; stoppin
         'grid h-6 w-6 shrink-0 place-items-center rounded-md border',
         'transition-[background-color,border-color,color] duration-[180ms] ease-[ease]',
         stopping
-          ? 'orbital-pulse cursor-default border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.5)] text-[rgba(200,220,245,.45)]'
+          ? 'orbital-pulse cursor-default border-line/18 bg-space/50 text-ink-500/45'
           : [
-              'border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.5)] text-[rgba(200,220,245,.75)]',
-              'hover:border-[rgba(255,187,123,.6)] hover:bg-[rgba(255,187,123,.08)] hover:text-[#ffbb7b]',
+              'border-line/18 bg-space/50 text-ink-500/75',
+              'hover:border-warning/60 hover:bg-warning/8 hover:text-warning',
             ].join(' '),
       ].join(' ')}
     >
