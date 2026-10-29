@@ -15,6 +15,8 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - Updated dependencies, including Electron.
 - Muted text and small captions are a little brighter, so they are easier to read, and a context gauge past its critical line shows its number in white beside the red bar.
 - On the map, a session waiting for your answer has a steady amber core instead of a blinking white one, a finished session a green ring, and an interrupted one a dashed red ring; cluster names are easier to read.
+### Fixed
+- A plan-limit sun for an account with only a spending limit, as on an Enterprise plan, now shows the money spent and eclipses by its share of the limit, instead of empty 5-hour and weekly readings.
 
 ## [0.44.0] — 2026-10-27
 ### Added

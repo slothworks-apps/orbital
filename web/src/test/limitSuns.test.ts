@@ -74,7 +74,7 @@ describe('withSunMoveUndone', () => {
 describe('sunReading', () => {
   it('takes the middle from the more spent of the 5-hour and the weekly window, the ring from the week', () => {
     const r = sunReading([win('session', 62, { severity: 'warning' }), win('weekly_all', 40), win('weekly_scoped', 99)], NOW)
-    expect(r).toEqual({ spentNow: 0.62, weekLeft: 0.6, label: '5h 62 % · wk 40 %', severity: 'warning' })
+    expect(r).toEqual({ spentNow: 0.62, weekLeft: 0.6, hasWeek: true, label: '5h 62 % · wk 40 %', severity: 'warning' })
     expect(sunReading([win('session', 20), win('weekly_all', 92)], NOW).spentNow).toBe(0.92)
   })
 
@@ -82,6 +82,37 @@ describe('sunReading', () => {
     expect(sunReading([win('session', 100), win('weekly_all', 72, { resetsAt: at(22, 9) })], NOW).label).toBe('limit · resets 15:00')
     const both = sunReading([win('session', 100), win('weekly_all', 100, { resetsAt: at(22, 9) })], NOW)
     expect(both).toMatchObject({ spentNow: 1, weekLeft: 0, label: 'limit · resets Thu 09:00', severity: 'reached' })
+  })
+})
+
+describe('sunReading for a spend-only account', () => {
+  const extra = (used: number | null, limit: number | null, percent: number | null = null) => ({
+    enabled: true,
+    usedCredits: used,
+    monthlyLimit: limit,
+    percent,
+    currency: 'USD',
+  })
+
+  it('takes the middle from the money spent and draws no ring', () => {
+    expect(sunReading([], NOW, extra(7102, 50000))).toEqual({
+      spentNow: 0.14204,
+      weekLeft: 1,
+      hasWeek: false,
+      label: '$71.02 / $500',
+      severity: 'normal',
+    })
+  })
+
+  it('prefers the server percent, and is reached at the cap', () => {
+    expect(sunReading([], NOW, extra(7102, 50000, 20)).spentNow).toBe(0.2)
+    expect(sunReading([], NOW, extra(50000, 50000)).severity).toBe('reached')
+  })
+
+  it('keeps the windows when the plan has them, and ignores a spend with no cap', () => {
+    expect(sunReading([win('session', 30)], NOW, extra(7102, 50000))).toMatchObject({ spentNow: 0.3, hasWeek: true })
+    expect(sunReading([], NOW, extra(7102, null))).toMatchObject({ spentNow: 0, hasWeek: true })
+    expect(sunReading([], NOW, { ...extra(7102, 50000), enabled: false }).hasWeek).toBe(true)
   })
 })
 

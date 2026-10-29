@@ -96,7 +96,8 @@ export function sunLook(
     haloBg: `radial-gradient(closest-side,${sunOklch(color, 0.26)},${sunOklch(color, 0.07)} 55%,transparent)`,
     coronaShadow: `0 0 0 1.5px ${rimOklch(color, 0.6, kind)},0 0 12px ${sunOklch(color, +(0.25 * glowK).toFixed(3))}`,
     arcBg: `conic-gradient(from 0deg,${rimOklch(color, 0.85, kind)} 0 ${arcDeg}deg,${ARC_SPENT} ${arcDeg}deg 360deg)`,
-    arcOp: 1,
+    // A spend-only account has no week, so no ring (limitSuns `hasWeek`).
+    arcOp: reading.hasWeek === false ? 0 : 1,
     rimStyle: 'solid' as const,
     hatchOp: 0,
     ink: INK[reading.severity],

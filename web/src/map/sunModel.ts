@@ -107,7 +107,7 @@ export function mapSuns(
   if (!snapshot) return []
   // The page's own account views, so a sun wears the tiles its account head
   // wears on /limits, and its colour is taken in the same order there and in
-  // Settings → Labs.
+  // Settings → Appearance.
   const views = accountViews(snapshot.dirs, { dirInfo: null, self: null, now })
   const keys = sunAccountKeys(views)
   const colors = sunColors(keys, settings)
@@ -125,7 +125,7 @@ export function mapSuns(
       group,
       title: view.title,
       color: one ? 'yellow' : (colors.get(group.key) ?? 'yellow'),
-      reading: sunReading(group.reading.windows, now),
+      reading: sunReading(group.reading.windows, now, group.reading.extraUsage),
       stale: view.stale,
       readClock: formatResetShort(group.reading.readAt, now),
       tiles: one ? [] : [...tiles.tiles, ...(tiles.more > 0 ? [`+${tiles.more}`] : [])],

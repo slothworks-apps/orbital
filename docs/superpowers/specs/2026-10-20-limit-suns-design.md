@@ -235,6 +235,7 @@ has no map. The suns are a map element, so leaving them out is what
 | the window resets | readings of the old window are dropped; the pace restarts from the window average |
 | the percent falls between readings (a reset the server moved) | readings before the drop are discarded |
 | the Labs switch goes off | suns go; their stored positions stay |
+| an account with no 5-hour or weekly window, only a spend limit (an Enterprise plan's extra usage) | the sun's middle is the share of the money spent, its label the money (`$71.02 / $500`), no week ring; reached at the cap |
 
 ## Tests
 
