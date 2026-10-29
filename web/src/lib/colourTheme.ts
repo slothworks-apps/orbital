@@ -5,8 +5,7 @@
  * and Deep Field, the default, is the `@theme` itself, so it carries no
  * attribute at all.
  *
- * On the Mac the choice is a setting, offered in Appearance while Labs →
- * Colour themes is on. The phone keeps its own choice on the phone
+ * On the Mac the choice is a setting in Appearance → COLOURS. The phone keeps its own choice on the phone
  * (`mobile/platform/colourTheme.ts`); nothing syncs between them.
  */
 
@@ -18,8 +17,6 @@ export type ColourTheme = {
   id: string
   name: string
   kind: ColourThemeKind
-  /** The editor palette it is after, shown beside the name (1f). */
-  after: string | null
   /** space · panel · accent, the picker's three dots (1f). */
   swatch: readonly [string, string, string]
 }
@@ -30,16 +27,16 @@ export const DEFAULT_LIGHT_COLOUR_THEME = 'albedo'
 
 /** In the picker's order: dark first, then light (1f). */
 export const COLOUR_THEMES: readonly ColourTheme[] = [
-  { id: 'deep-field', name: 'Deep Field', kind: 'dark', after: null, swatch: ['#05070d', '#0a101c', '#59e4f3'] },
-  { id: 'event-horizon', name: 'Event Horizon', kind: 'dark', after: null, swatch: ['#000101', '#030508', '#35eeff'] },
-  { id: 'solar-dark', name: 'Solar Dark', kind: 'dark', after: 'Solarized Dark', swatch: ['#00242f', '#002c37', '#4fa6e9'] },
-  { id: 'molten', name: 'Molten', kind: 'dark', after: 'Monokai', swatch: ['#1a1b16', '#262722', '#6addf7'] },
-  { id: 'velvet', name: 'Velvet', kind: 'dark', after: 'Dracula', swatch: ['#1d1e29', '#292a35', '#c4a4fe'] },
-  { id: 'arctic', name: 'Arctic', kind: 'dark', after: 'Nord', swatch: ['#222630', '#2e333d', '#88cada'] },
-  { id: 'ember', name: 'Ember', kind: 'dark', after: 'Gruvbox', swatch: ['#1e1c1b', '#2b2826', '#7abfc3'] },
-  { id: 'slate', name: 'Slate', kind: 'dark', after: 'One Dark', swatch: ['#1e2229', '#292e38', '#5db2f7'] },
-  { id: 'albedo', name: 'Albedo', kind: 'light', after: null, swatch: ['#eff4f8', '#fbfdff', '#00677a'] },
-  { id: 'solar-light', name: 'Solar Light', kind: 'light', after: 'Solarized Light', swatch: ['#f0e7d2', '#fcf5e3', '#0062a1'] },
+  { id: 'deep-field', name: 'Deep Field', kind: 'dark', swatch: ['#05070d', '#0a101c', '#59e4f3'] },
+  { id: 'event-horizon', name: 'Event Horizon', kind: 'dark', swatch: ['#000101', '#030508', '#35eeff'] },
+  { id: 'solar-dark', name: 'Solar Dark', kind: 'dark', swatch: ['#00242f', '#002c37', '#4fa6e9'] },
+  { id: 'molten', name: 'Molten', kind: 'dark', swatch: ['#1a1b16', '#262722', '#6addf7'] },
+  { id: 'velvet', name: 'Velvet', kind: 'dark', swatch: ['#1d1e29', '#292a35', '#c4a4fe'] },
+  { id: 'arctic', name: 'Arctic', kind: 'dark', swatch: ['#222630', '#2e333d', '#88cada'] },
+  { id: 'ember', name: 'Ember', kind: 'dark', swatch: ['#1e1c1b', '#2b2826', '#7abfc3'] },
+  { id: 'slate', name: 'Slate', kind: 'dark', swatch: ['#1e2229', '#292e38', '#5db2f7'] },
+  { id: 'albedo', name: 'Albedo', kind: 'light', swatch: ['#eff4f8', '#fbfdff', '#00677a'] },
+  { id: 'solar-light', name: 'Solar Light', kind: 'light', swatch: ['#f0e7d2', '#fcf5e3', '#0062a1'] },
 ]
 
 export function colourThemeById(id: string | null | undefined): ColourTheme | null {
@@ -65,9 +62,8 @@ export function knownColourThemeOfKind(raw: unknown, kind: ColourThemeKind, fall
 /** A picker's group headings, by kind (1f, 1k B). */
 export const COLOUR_THEME_KIND_LABEL: Record<ColourThemeKind, string> = { dark: 'DARK', light: 'LIGHT' }
 
-/** What a picker says beside a theme's name (1f, 1k B): the editor palette it is after; Deep Field is the default. */
-export function colourThemeInspiration(theme: ColourTheme): string | null {
-  if (theme.after) return `after ${theme.after}`
+/** What a picker says beside a theme's name (1f, 1k B): "default" beside Deep Field, nothing beside the others. */
+export function colourThemeNote(theme: ColourTheme): string | null {
   return theme.id === DEFAULT_COLOUR_THEME ? 'default' : null
 }
 
@@ -82,18 +78,12 @@ export function resolveColourTheme(choice: ColourChoice, systemDark: boolean): s
     : knownColourTheme(choice.light, DEFAULT_LIGHT_COLOUR_THEME)
 }
 
-/* The Mac's settings. The Labs switch gates the whole feature: while it is
-   off the app paints Deep Field whatever else is stored. */
-export const COLOUR_THEMES_ENABLED_KEY = 'colour_themes_enabled'
+/* The Mac's settings. Until a theme is picked, the app paints Deep Field. */
 export const COLOUR_THEME_KEY = 'colour_theme'
 export const COLOUR_THEME_FOLLOW_SYSTEM_KEY = 'colour_theme_follow_system'
 /** Following the system: the theme for macOS's Light mode, and the one for its Dark mode. */
 export const COLOUR_THEME_LIGHT_KEY = 'colour_theme_light'
 export const COLOUR_THEME_DARK_KEY = 'colour_theme_dark'
-
-export function colourThemesEnabled(settings: Settings): boolean {
-  return settings[COLOUR_THEMES_ENABLED_KEY] === 'true'
-}
 
 /**
  * The Mac's choice, as the phone's. Following the system, each appearance
@@ -116,7 +106,6 @@ export function macColourChoice(settings: Settings): ColourChoice {
 
 /** The theme the Mac paints with now. */
 export function macColourTheme(settings: Settings, systemDark: boolean): string {
-  if (!colourThemesEnabled(settings)) return DEFAULT_COLOUR_THEME
   return resolveColourTheme(macColourChoice(settings), systemDark)
 }
 

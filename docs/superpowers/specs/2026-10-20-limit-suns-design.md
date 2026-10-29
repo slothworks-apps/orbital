@@ -28,6 +28,8 @@ overview of the limits it has not had so far.
 
 ## Scope
 
+> Promoted out of Labs on 2026-10-29 ([[labs-features-move-to-regular-settings]]): the switch now lives in Settings → Appearance → MAP, still off by default. Where this spec says Labs, read that.
+
 - **For:** people who hit the 5-hour or weekly limit often enough to want
   to see it coming, which is common among people running several sessions
   at once. People who never hit it lose nothing: the suns are off.

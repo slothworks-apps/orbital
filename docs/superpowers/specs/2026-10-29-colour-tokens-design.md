@@ -135,15 +135,14 @@ inset highlights were moved onto them.
 
 ### Mac
 
-Labs → Colour themes turns the feature on. While it is on, Settings →
-Appearance gets COLOURS at the top: one dropdown grouped DARK / LIGHT with
-each theme's space, panel and accent as dots, and Follow the system, which
+Settings → Appearance has COLOURS at the top, for everyone (it was behind
+a Labs switch until [[labs-features-move-to-regular-settings]]; Deep Field,
+the default, changes nothing until a theme is picked): one dropdown grouped DARK / LIGHT with
+each theme's space, panel and accent as dots and only Deep Field marked `default`, and Follow the system, which
 turns the one row into two, "In light mode" (light themes, Albedo by
 default) and "In dark mode" (dark themes), as on the phone. Settings keys
-`colour_themes_enabled`, `colour_theme`, `colour_theme_follow_system`,
-`colour_theme_light`, `colour_theme_dark`. The Labs switch is shared across a
-device group like every Labs switch; the theme and its follow keys are this
-Mac's own, like text size, because a bright room belongs to one machine.
+`colour_theme`, `colour_theme_follow_system`, `colour_theme_light`,
+`colour_theme_dark`, all this Mac's own, like text size, because a bright room belongs to one machine.
 
 A detached session window opens in the theme: the page tells the Electron
 main process the theme's `raised` colour (`theme-background`), which it
@@ -161,14 +160,13 @@ settings arrive, and other windows follow through the `storage` event.
 - **Who it is for:** anyone who wants Orbital in another palette (a light
   room, a contrast need). This change alone is for developers: it is what makes
   a theme possible.
-- **Where it lives:** Labs on the Mac; Deep Field stays the default.
+- **Where it lives:** Settings → Appearance → COLOURS on the Mac and the phone; Deep Field stays the default.
 - **What someone updating notices:** muted text and captions a little
   brighter, the critical context number in white, and on the map a steady
   amber core for a waiting session (it used to blink), a green ring for a
   finished one, a dashed ring for an interrupted one and brighter cluster
-  names. Nothing else on the Mac until Labs → Colour themes is on. The phone
-  has no Labs: every phone gets Settings → Appearance → Colours, with Deep
-  Field as the default.
+  names, and a new COLOURS group in Appearance. Nothing else until a theme
+  is picked.
 - **What can be set:** the theme, and whether it follows the OS's light and
   dark mode.
 

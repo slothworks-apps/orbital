@@ -28,8 +28,8 @@ export const SHARED_SETTING_KEYS: readonly string[] = [
   'map_scale_labels', 'header_session_stats', 'header_pull_request', 'header_line_changes',
   // The look.
   'map_theme', 'map_limit_sun_style', 'map_limit_sun_colors',
-  // The Labs switches.
-  'harness_enabled', 'walkthrough_enabled', 'archipelago_enabled', 'limit_suns_enabled', 'colour_themes_enabled',
+  // The feature switches.
+  'harness_enabled', 'walkthrough_enabled', 'archipelago_enabled', 'limit_suns_enabled',
   // Found after the first list (spec § Which settings are shared).
   'map_moon_orbits', 'stats_show_human_wait', 'narrate_model', 'narrate_commentary',
   'issue_check_enabled', 'issue_check_model', 'terminal_enabled', 'terminal_cursor', 'terminal_cursor_blink',

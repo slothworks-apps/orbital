@@ -1,6 +1,6 @@
 import {
   COLOUR_THEME_KIND_LABEL,
-  colourThemeInspiration,
+  colourThemeNote,
   colourThemesOfKind,
   type ColourThemeKind,
 } from '../../lib/colourTheme'
@@ -48,7 +48,7 @@ export function ColoursScreen() {
             <div className={CARD}>
               {colourThemesOfKind(kind).map((theme, i) => {
                 const on = theme.id === current
-                const after = colourThemeInspiration(theme)
+                const note = colourThemeNote(theme)
                 return (
                   <button
                     key={theme.id}
@@ -65,7 +65,7 @@ export function ColoursScreen() {
                     <ThemeSwatch colours={theme.swatch} size="md" />
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <span className={['fs-14.5', on ? 'font-bold' : 'font-medium'].join(' ')}>{theme.name}</span>
-                      {after && <span className="font-mono fs-10.5 text-ink-900/60">{after}</span>}
+                      {note && <span className="font-mono fs-10.5 text-ink-900/60">{note}</span>}
                     </span>
                     <span aria-hidden className={['w-5 fs-16 text-accent', on ? '' : 'invisible'].join(' ')}>
                       ✓

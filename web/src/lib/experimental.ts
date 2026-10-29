@@ -1,8 +1,9 @@
 /**
- * Features that ship in the DMG but are off until turned on in Settings,
- * from one of two sections (docs/why-orbital.md → Experimental, Labs, and
- * out). Labs, always listed, holds finished features to try: Harness and
- * Terminal. Experimental holds work in progress (adr:
+ * Features that ship in the DMG but are off until turned on in Settings
+ * (docs/why-orbital.md → Experimental, Labs, and out). Harness, Terminal
+ * and Limit suns have left Labs for the regular settings, each still off
+ * until turned on; Labs is listed only while it holds a feature.
+ * Experimental holds work in progress (adr:
  * walkthrough-sits-behind-an-experimental-switch) and only appears once
  * `EXPERIMENTAL_UNLOCKED_KEY` is set, which the reveal chord toggles while
  * Settings is open.
@@ -26,9 +27,9 @@ export const HARNESS_ENABLED_KEY = 'harness_enabled'
 export const ARCHIPELAGO_ENABLED_KEY = 'archipelago_enabled'
 /**
  * The user's own shells beside a session (spec
- * 2026-10-05-embedded-terminal-design § Behind an experimental switch; now in
- * Labs). Off,
- * nothing of the terminal shows; shells already running keep running.
+ * 2026-10-05-embedded-terminal-design § Behind an experimental switch; now
+ * Settings → Terminal). Off, nothing of the terminal shows; shells already
+ * running keep running.
  */
 export const TERMINAL_ENABLED_KEY = 'terminal_enabled'
 /** Where the terminal sits: the dock under the map (48a) or the side slot (48b). */
@@ -37,7 +38,7 @@ export const TERMINAL_CURSOR_KEY = 'terminal_cursor'
 export const TERMINAL_CURSOR_BLINK_KEY = 'terminal_cursor_blink'
 /**
  * One sun per Claude account on the map, dimming as its plan's usage runs
- * out (spec 2026-10-20-limit-suns-design § 4; Labs). Off, the map draws none.
+ * out (spec 2026-10-20-limit-suns-design § 4; Settings → Appearance). Off, the map draws none.
  */
 export const LIMIT_SUNS_ENABLED_KEY = 'limit_suns_enabled'
 /** Where each sun sits: JSON, account key to map coordinates. The server's default is `{}`. */

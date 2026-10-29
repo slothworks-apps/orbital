@@ -42,12 +42,12 @@ const PICKED_RING = '0 0 0 2px var(--color-panel-solid),0 0 0 3.5px var(--color-
 const UNPICKED_RING = 'inset 0 0 0 1px color-mix(in oklab, var(--color-highlight) 12%, transparent)'
 
 /**
- * Settings → Labs → Limit suns (spec 2026-10-20-limit-suns-design § 4;
+ * Settings → Appearance → MAP → Limit suns (spec 2026-10-20-limit-suns-design § 4;
  * canvas `Feature - Limit sun` 60e): the switch, and while it is on, the
  * sun's style, each account's star colour and the reset of the positions.
  * An API-key login has no plan windows, so the row is off and says why.
  */
-export function LimitSunsLabs({
+export function LimitSunsSetting({
   settings,
   apiKey,
   patchAndSet,

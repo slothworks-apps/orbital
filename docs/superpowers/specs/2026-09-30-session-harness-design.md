@@ -14,6 +14,8 @@ tags:
 ---
 # Session harness — a template's checklist that a session follows to the end
 
+> Promoted out of Labs on 2026-10-29 ([[labs-features-move-to-regular-settings]]): the Harness section is always listed with its switch on top, still off by default.
+
 No design on the Claude Design canvas yet. The UI here is built from the
 existing panels and primitives and is to be redrawn once artboards exist.
 

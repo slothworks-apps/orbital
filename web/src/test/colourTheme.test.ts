@@ -12,17 +12,17 @@ describe('colour themes', () => {
     expect(new Set(COLOUR_THEMES.map((theme) => theme.id)).size).toBe(COLOUR_THEMES.length)
   })
 
-  it('paints Deep Field on the Mac until Labs turns themes on', () => {
-    expect(macColourTheme({ colour_theme: 'velvet' }, true)).toBe('deep-field')
-    expect(macColourTheme({ colour_themes_enabled: 'true', colour_theme: 'velvet' }, true)).toBe('velvet')
+  it('paints Deep Field on the Mac until a theme is picked, and the picked one after', () => {
+    expect(macColourTheme({}, true)).toBe('deep-field')
+    expect(macColourTheme({ colour_theme: 'velvet' }, true)).toBe('velvet')
   })
 
   it('falls back to Deep Field for an unknown or removed theme', () => {
-    expect(macColourTheme({ colour_themes_enabled: 'true', colour_theme: 'gone' }, true)).toBe('deep-field')
+    expect(macColourTheme({ colour_theme: 'gone' }, true)).toBe('deep-field')
   })
 
   it('takes Albedo in light mode and the chosen dark theme in dark mode until each is picked', () => {
-    const settings = { colour_themes_enabled: 'true', colour_theme: 'arctic', colour_theme_follow_system: 'true' }
+    const settings = { colour_theme: 'arctic', colour_theme_follow_system: 'true' }
     expect(macColourTheme(settings, false)).toBe('albedo')
     expect(macColourTheme(settings, true)).toBe('arctic')
     // A light theme chosen before has no place in dark mode.
@@ -31,7 +31,6 @@ describe('colour themes', () => {
 
   it('takes the theme picked for each appearance while following the system', () => {
     const settings = {
-      colour_themes_enabled: 'true',
       colour_theme: 'arctic',
       colour_theme_follow_system: 'true',
       colour_theme_light: 'solar-light',

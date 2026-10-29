@@ -645,7 +645,7 @@ export function SpaceMap() {
   // Appearance → Show trash (spec 2026-09-24-sessions-end-only-by-hand-design
   // § 3). Off: no trash drawn, no halo in the physics, no drop-to-end.
   const trashShown = showTrash(settings)
-  // Labs → Limit suns (spec 2026-10-20-limit-suns-design § 4). Off: no sun,
+  // Appearance → Limit suns (spec 2026-10-20-limit-suns-design § 4). Off: no sun,
   // no `limits` subscription, nothing else changes.
   const sunsOn = limitSunsEnabled(settings)
   /** The DOM layer under the canvas the suns are drawn into, so the planets draw over them. */

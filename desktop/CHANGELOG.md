@@ -7,7 +7,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ## [0.45.0] — 2026-10-29
 ### Added
 - Settings → Appearance can make the text larger, across the app and on its own for the session transcript. Spacing and the map's labels stay as they are. Thanks to @N0x1k for the idea.
-- Labs → Colour themes: pick a palette for the whole app in Settings → Appearance — Albedo for a bright room, Event Horizon for more contrast, and palettes after Solarized, Monokai, Dracula, Nord, Gruvbox and One Dark — or follow macOS's light and dark mode with a theme for each.
+- Settings → Appearance → Colours: pick a palette for the whole app — Albedo for a bright room, Event Horizon for more contrast, and palettes after Solarized, Monokai, Dracula, Nord, Gruvbox and One Dark — or follow macOS's light and dark mode with a theme for each.
 ### Changed
 - In Settings → Devices, what each other device may do on this Mac is folded under one line saying how much is allowed; click it to see and change the toggles.
 - Dragging the pointer across buttons, labels or the sidebar no longer selects their text, and icons no longer lift off as a drag image; the transcript, the message box, the file and skill viewers, task output, error detail and commands stay selectable, and an image still drags out of the full-size viewer.
@@ -15,6 +15,8 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - Updated dependencies, including Electron.
 - Muted text and small captions are a little brighter, so they are easier to read, and a context gauge past its critical line shows its number in white beside the red bar.
 - On the map, a session waiting for your answer has a steady amber core instead of a blinking white one, a finished session a green ring, and an interrupted one a dashed red ring; cluster names are easier to read.
+- Harness, Terminal, checking reports with Claude and plan limits as suns are out of Labs: Harness and Terminal have their own sections in Settings with the switch on top, the report check is in General, the suns in Appearance → Map. Each stays off until you turn it on.
+- Settings → Appearance no longer shows a preview under Default planet size; the map shows the size.
 ### Fixed
 - A plan-limit sun for an account with only a spending limit, as on an Enterprise plan, now shows the money spent and eclipses by its share of the limit, instead of empty 5-hour and weekly readings.
 

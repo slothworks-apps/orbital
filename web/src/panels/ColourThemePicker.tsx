@@ -5,7 +5,7 @@ import {
   COLOUR_THEME_KEY,
   COLOUR_THEME_KIND_LABEL,
   COLOUR_THEME_LIGHT_KEY,
-  colourThemeInspiration,
+  colourThemeNote,
   colourThemesOfKind,
   macColourChoice,
   type ColourThemeKind,
@@ -28,14 +28,14 @@ export function colourThemeOptions(kind?: ColourThemeKind): Array<SelectOption<s
     label: theme.name,
     group: COLOUR_THEME_KIND_LABEL[theme.kind],
     swatch: theme.swatch,
-    trail: colourThemeInspiration(theme) ?? undefined,
+    trail: colourThemeNote(theme) ?? undefined,
     triggerTrail: theme.kind,
   }))
 }
 
 /**
- * Settings → Appearance → COLOURS (canvas `Feature - Colour themes` 1f),
- * shown while Labs → Colour themes is on: the theme, or with Follow the
+ * Settings → Appearance → COLOURS (canvas `Feature - Colour themes` 1f):
+ * the theme, or with Follow the
  * system on, one per macOS appearance, as on the phone (1k). Writing the
  * setting is all a pick does; `main.tsx` repaints the root whenever settings
  * change.

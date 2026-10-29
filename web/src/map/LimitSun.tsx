@@ -136,8 +136,8 @@ export interface LimitSunsProps {
 }
 
 /**
- * Every sun, inside the map's `Canvas`; mounted only while Labs → Limit suns
- * is on. Memoised: a pan re-renders the map on every move, and the suns have
+ * Every sun, inside the map's `Canvas`; mounted only while Appearance →
+ * Limit suns is on. Memoised: a pan re-renders the map on every move, and the suns have
  * nothing to change for it — the frame loop moves them.
  */
 export const LimitSuns = memo(function LimitSuns({ hole, planetScale, layerRef, pressRef, onPress }: LimitSunsProps) {

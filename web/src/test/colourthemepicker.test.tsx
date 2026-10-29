@@ -38,13 +38,8 @@ beforeEach(() => {
 })
 
 describe('Settings → Appearance → COLOURS (1f)', () => {
-  it('is not offered until Labs → Colour themes is on', () => {
-    renderAppearance({ colour_theme: 'albedo' })
-    expect(screen.queryByRole('combobox', { name: 'Colours', hidden: true })).toBeNull()
-  })
-
   it('lists the themes under their kind and saves the one picked across the group boundary', () => {
-    renderAppearance({ colour_themes_enabled: 'true' })
+    renderAppearance({})
     const trigger = screen.getByRole('combobox', { name: 'Colours', hidden: true })
     expect(trigger.getAttribute('data-value')).toBe('deep-field')
 
@@ -62,7 +57,7 @@ describe('Settings → Appearance → COLOURS (1f)', () => {
   })
 
   it('splits into a light and a dark row while following the system, each listing its kind only', () => {
-    renderAppearance({ colour_themes_enabled: 'true', colour_theme: 'velvet', colour_theme_follow_system: 'true' })
+    renderAppearance({ colour_theme: 'velvet', colour_theme_follow_system: 'true' })
     expect(screen.queryByRole('combobox', { name: 'Colours', hidden: true })).toBeNull()
     const light = screen.getByRole('combobox', { name: 'In light mode', hidden: true })
     const dark = screen.getByRole('combobox', { name: 'In dark mode', hidden: true })

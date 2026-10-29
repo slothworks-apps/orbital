@@ -252,7 +252,7 @@ export function StartView({ sessionId, chrome }: { sessionId: string; chrome: Ch
                           </button>
                         </div>
                         <div className="font-mono fs-9.5 text-ink-900/50">
-                          both open Settings → Harness templates · scope pre-set to {projectName}
+                          both open Settings → Harness · scope pre-set to {projectName}
                         </div>
                       </>
                     )}
@@ -270,7 +270,7 @@ export function StartView({ sessionId, chrome }: { sessionId: string; chrome: Ch
             )}
             {!projectName && globalTemplates.length === 0 && (
               <div className="text-pretty fs-12.5 leading-[1.55] text-ink-600/85">
-                No harness templates yet. Create one in Settings → Harness templates.
+                No harness templates yet. Create one in Settings → Harness.
               </div>
             )}
           </>

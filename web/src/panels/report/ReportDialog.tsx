@@ -509,7 +509,7 @@ function Rail({
   title: string
   markdown: string
   ghReady: boolean
-  /** Labs → Check reports with Claude; without it the rail is the title search alone. */
+  /** General → Check reports with Claude; without it the rail is the title search alone. */
   checkEnabled: boolean
   keptModel: string | undefined
   catalog: Parameters<typeof checkModels>[0]

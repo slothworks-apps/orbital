@@ -17,7 +17,7 @@ import { GroupLine } from './settingsRows'
 export function ShortcutsSection() {
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
-  // A switched-off Labs feature's keys are marked as off.
+  // A switched-off feature's keys are marked as off.
   const settings = useOrbital((s) => s.settings)
   const groups = keymapGroups(query, settings)
   const shown = groups.reduce((sum, group) => sum + group.rows.length, 0)

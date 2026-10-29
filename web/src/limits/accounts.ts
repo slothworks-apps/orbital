@@ -13,7 +13,7 @@ import type { ClaudeDirInfo, ClaudeDirLimits, RemoteStatus } from '../lib/types'
 /**
  * The limits page by account (spec 2026-10-20-limit-suns-design § 1, § 3;
  * canvas `Feature - Limit sun` 60c): what each account's head says, and the
- * words of the run-out estimate. Pure, so Settings → Labs can list the same
+ * words of the run-out estimate. Pure, so Settings → Appearance can list the same
  * accounts the page does.
  */
 

@@ -112,19 +112,17 @@ import { ShortcutsSection } from './ShortcutsSection'
 import { HarnessTemplatesSection } from './HarnessTemplates'
 import { DevicesSection } from './DevicesSection'
 import { UpdatesSection } from './UpdatesSection'
-import { LimitSunsLabs } from './LimitSunsLabs'
+import { LimitSunsSetting } from './LimitSunsSetting'
 import { useAppUpdate } from '../store/appUpdate'
 import { ProfilesSection } from './ProfilesSection'
 import { GhLine } from './GhLine'
 import { SendFeedback, type FeedbackKind } from './SendFeedback'
 import { isDemo } from '../lib/demo'
 import {
-  COLOUR_THEMES_ENABLED_KEY,
   COLOUR_THEME_FOLLOW_SYSTEM_KEY,
   COLOUR_THEME_LIGHT_KEY,
   COLOUR_THEME_DARK_KEY,
   COLOUR_THEME_KEY,
-  colourThemesEnabled,
 } from '../lib/colourTheme'
 import { ColourThemeRows } from './ColourThemePicker'
 import { ISSUE_CHECK_ENABLED_KEY } from './report/logic'
@@ -326,8 +324,9 @@ const NAV_ITEMS = [
   { key: 'notifications', label: 'Notifications', disabled: false },
   { key: 'permissions', label: 'Permissions', disabled: false },
   { key: 'tags', label: 'Tags & rules', disabled: false },
-  { key: 'harness', label: 'Harness templates', disabled: false },
-  // Listed only while Labs → Terminal is on, as Harness is.
+  // Harness and Terminal left Labs for good: each section is always listed,
+  // with its switch at the top and the rest below it only while it is on.
+  { key: 'harness', label: 'Harness', disabled: false },
   { key: 'terminal', label: 'Terminal', disabled: false },
   { key: 'appearance', label: 'Appearance', disabled: false },
   // Always listed, not behind Experimental: the section is inert until its
@@ -339,7 +338,9 @@ const NAV_ITEMS = [
   // only where the update bridge is, so never in a browser or on the phone.
   { key: 'updates', label: 'Updates', disabled: false },
   // Finished features to try, each off until turned on (docs/why-orbital.md
-  // → Experimental, Labs, and out). Always listed.
+  // → Experimental, Labs, and out). Listed only while it holds a feature
+  // (`SECTION_KEYS.labs`): everything it held has moved into the regular
+  // settings, and an empty section would read as broken.
   { key: 'labs', label: 'Labs', disabled: false },
   // Work in progress, listed only once the reveal chord has unlocked it
   // (`lib/experimental`).
@@ -365,16 +366,9 @@ const SECTION_KEYS = {
   ],
   delivery: [NOTIFICATION_SETTING_KEYS.sound, NOTIFICATION_SETTING_KEYS.onlyWhenBackground],
   approving: ['permission_guard_gesture', 'questions_review_before_send'],
-  labs: [
-    HARNESS_ENABLED_KEY,
-    TERMINAL_ENABLED_KEY,
-    COLOUR_THEMES_ENABLED_KEY,
-    ISSUE_CHECK_ENABLED_KEY,
-    LIMIT_SUNS_ENABLED_KEY,
-    LIMIT_SUN_STYLE_KEY,
-    LIMIT_SUN_COLORS_KEY,
-    LIMIT_SUN_POSITIONS_KEY,
-  ],
+  reports: [ISSUE_CHECK_ENABLED_KEY],
+  // Empty: the next feature to try adds its keys here, and the nav lists Labs again.
+  labs: [] as string[],
   experimental: [
     ARCHIPELAGO_ENABLED_KEY,
     WALKTHROUGH_ENABLED_KEY,
@@ -382,7 +376,8 @@ const SECTION_KEYS = {
     NARRATE_COMMENTARY_KEY,
     MOON_ORBITS_KEY,
   ],
-  terminal: [TERMINAL_PLACEMENT_KEY, TERMINAL_CURSOR_KEY, TERMINAL_CURSOR_BLINK_KEY],
+  harness: [HARNESS_ENABLED_KEY],
+  terminal: [TERMINAL_ENABLED_KEY, TERMINAL_PLACEMENT_KEY, TERMINAL_CURSOR_KEY, TERMINAL_CURSOR_BLINK_KEY],
   colours: [COLOUR_THEME_KEY, COLOUR_THEME_FOLLOW_SYSTEM_KEY, COLOUR_THEME_LIGHT_KEY, COLOUR_THEME_DARK_KEY],
   text: [TEXT_SCALE_KEY, TRANSCRIPT_TEXT_SCALE_KEY],
   detailPanel: ['header_session_stats', 'header_pull_request', 'header_line_changes', 'end_closes_panel'],
@@ -395,6 +390,10 @@ const SECTION_KEYS = {
     'map_fps_focused',
     'map_fps_background',
     'map_show_trash',
+    LIMIT_SUNS_ENABLED_KEY,
+    LIMIT_SUN_STYLE_KEY,
+    LIMIT_SUN_COLORS_KEY,
+    LIMIT_SUN_POSITIONS_KEY,
   ],
   contextUsage: [
     'map_show_context',
@@ -440,111 +439,20 @@ export function initialSection(
 }
 
 /**
- * The nav as drawn: Experimental stays out until unlocked, Harness and
- * Terminal until enabled, Updates outside the desktop app.
+ * The nav as drawn: Experimental stays out until unlocked, Labs while it
+ * holds nothing, Updates outside the desktop app.
  */
 function visibleNavItems(settings: Record<string, string | undefined>, hasUpdates: boolean) {
   return NAV_ITEMS.filter(
     (item) =>
       (item.key !== 'experimental' || experimentalUnlocked(settings)) &&
-      (item.key !== 'harness' || harnessEnabled(settings)) &&
-      (item.key !== 'terminal' || terminalEnabled(settings)) &&
+      (item.key !== 'labs' || SECTION_KEYS.labs.length > 0) &&
       (item.key !== 'updates' || hasUpdates),
   )
 }
 
 /** Nav row geometry from canvas 1h: 9px/12px padding, 8px radius, 13px. */
 const NAV_ROW = 'flex items-center gap-2.5 rounded-lg border px-3 py-[9px] text-left fs-13'
-
-/**
- * The Appearance preview's three size tiers, transcribed from canvas 5a
- * (ended · live · live with subagents). `base` is the 1.00× diameter in px,
- * `capK` the canvas's caption-gap coefficient (`margin-top = base × scale ×
- * capK + 8`). The tick ring is the artboard's `repeating-conic-gradient`
- * masked to a band `mask[0]`/`mask[1]` px inside the edge; the lg tier's
- * ring spin is left out — a settings illustration, not the map.
- */
-const PREVIEW_TIERS = [
-  {
-    base: 34,
-    capK: 0.24,
-    inset: '-22%',
-    dim: true,
-    ring: 'repeating-conic-gradient(color-mix(in oklab, var(--color-ink-600) 40%, transparent) 0 2deg, transparent 2deg 12deg)',
-    mask: [3, 2],
-    body: 'var(--color-body-ended)',
-    border: '1px solid color-mix(in oklab, var(--color-ink-600) 35%, transparent)',
-    core: null as string | null,
-    shadow: undefined as string | undefined,
-  },
-  {
-    base: 60,
-    capK: 0.24,
-    inset: '-22%',
-    dim: false,
-    ring: 'repeating-conic-gradient(oklch(var(--tb-l) var(--tb-c) 210 / .45) 0 1.5deg, transparent 1.5deg 8deg)',
-    mask: [5, 4],
-    body: 'radial-gradient(circle at 50% 45%, var(--color-body-idle-hi), var(--color-body-idle-lo) 70%)',
-    border: '1px solid oklch(var(--tb-l) var(--tb-c) 210 / .45)',
-    core: 'oklch(var(--tb-l) var(--tb-c) 210 / .8)',
-    shadow: undefined,
-  },
-  {
-    base: 92,
-    capK: 0.28,
-    inset: '-26%',
-    dim: false,
-    ring: 'repeating-conic-gradient(oklch(var(--tb-l) var(--tb-c) 60 / .5) 0 1.2deg, transparent 1.2deg 6deg)',
-    mask: [6, 5],
-    body: 'radial-gradient(circle at 50% 45%, var(--color-body-hi), var(--color-body-mid) 70%, var(--color-body-lo))',
-    border: '1px solid oklch(var(--tb-l) var(--tb-c) 60 / .6)',
-    core: 'oklch(var(--tb-l) var(--tb-c) 60 / .85)',
-    shadow: '0 0 22px oklch(var(--tb-l) var(--tb-c) 60 / .25), inset 0 0 0 5px color-mix(in oklab, var(--color-shadow) 25%, transparent)',
-  },
-]
-
-/** One mock body of the Appearance preview (canvas 5a), sized to the live scale. */
-function PreviewTier({ tier, scale }: { tier: (typeof PREVIEW_TIERS)[number]; scale: number }) {
-  const size = Math.round(tier.base * scale)
-  const maskCss = `radial-gradient(farthest-side, transparent calc(100% - ${tier.mask[0]}px), #000 calc(100% - ${tier.mask[1]}px))`
-  return (
-    <div className="flex flex-none flex-col items-center">
-      <div
-        className="relative transition-[width,height] duration-[180ms] ease-out"
-        style={{ width: size, height: size, opacity: tier.dim ? 0.6 : undefined }}
-      >
-        <span
-          aria-hidden
-          className="absolute block rounded-full"
-          style={{
-            inset: tier.inset,
-            background: tier.ring,
-            maskImage: maskCss,
-            WebkitMaskImage: maskCss,
-          }}
-        />
-        <span
-          aria-hidden
-          className="absolute inset-0 block rounded-full"
-          style={{ background: tier.body, border: tier.border, boxShadow: tier.shadow }}
-        />
-        {tier.core && (
-          <span
-            aria-hidden
-            className="absolute left-1/2 top-1/2 block h-[16%] w-[16%] -translate-x-1/2 -translate-y-1/2 rounded-full"
-            style={{ background: tier.core }}
-          />
-        )}
-      </div>
-      <div
-        className="font-mono fs-10 tracking-[0.06em] text-ink-900/60"
-        style={{ marginTop: Math.round(tier.base * scale * tier.capK + 8) }}
-      >
-        {size}px
-      </div>
-    </div>
-  )
-}
 
 /**
  * A whole-number setting in the "Default planet size" slider's shape
@@ -712,9 +620,6 @@ export function Settings({ open, onClose }: SettingsProps) {
   // Harness templates' editor takes the whole panel, header and nav included (canvas 30k).
   const [harnessEditing, setHarnessEditing] = useState(false)
   const editorTakesPanel = section === 'harness' && harnessEditing
-  // Appearance preview (canvas 5a): open by default, collapse state lives
-  // only for the dialog's visit — deliberately not persisted (spec).
-  const [previewOpen, setPreviewOpen] = useState(true)
   /** Other picked for the default model, before any id has validated. */
   const [otherModelPicked, setOtherModelPicked] = useState(false)
 
@@ -724,8 +629,7 @@ export function Settings({ open, onClose }: SettingsProps) {
     // stale "saved · just now" — the dialog is held mounted across `open`.
     setSection(initialSection(useOrbital.getState().settings))
     setSaved(false)
-    setPreviewOpen(true)
-    // Collapsed on every visit, like the planet-size preview above starts open.
+    // Collapsed on every visit.
     setTipsOpen(false)
     setOtherModelPicked(false)
     // `settings` deliberately absent: this reseeds per visit, and reading it
@@ -1112,8 +1016,9 @@ export function Settings({ open, onClose }: SettingsProps) {
   const lineChangesPreview = lineGroups(LINE_CHANGES_SAMPLE, lineChanges)
   const statePills = mapStatePills(settings)
   const theme = mapTheme(settings)
-  // Appearance → COLOURS (1f): only while its Labs switch is on, and never in the website's demo.
-  const coloursShown = colourThemesEnabled(settings) && !isDemo()
+  const harnessOn = harnessEnabled(settings)
+  // Appearance → COLOURS (1f): never in the website's demo, which does not repaint the root.
+  const coloursShown = !isDemo()
   const editDiffs = settings.transcript_edit_diffs === 'expanded' ? 'expanded' : 'collapsed'
   const expandDiffOnPermissionRow = expandDiffOnPermission(settings)
   const guard = guardGesture(settings)
@@ -1275,17 +1180,50 @@ export function Settings({ open, onClose }: SettingsProps) {
                   <TagsRulesSection active onSaved={() => setSaved(true)} />
                 </>
               ) : section === 'harness' ? (
-                // Its own frame, in a row that fills the column as the
-                // body's grid did: the group line goes over it (an empty
-                // row while there is none), and not over the editor, which
-                // takes the whole panel.
-                <div className="grid min-h-0 grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)]">
-                  <div>{!harnessEditing && <GroupLine className="px-8" scope="device" />}</div>
-                  <HarnessTemplatesSection
-                    active
-                    onSaved={() => setSaved(true)}
-                    onEditingChange={setHarnessEditing}
-                  />
+                // Its own frame: the switch, then while it is on the
+                // templates, in a row that fills the column as the body's
+                // grid did. The group line and the switch go over them (an
+                // empty row while there is none), and not over the editor,
+                // which takes the whole panel.
+                <div className="grid min-h-0 grid-cols-[minmax(0,1fr)] grid-rows-[auto_auto_minmax(0,1fr)]">
+                  <div>{!harnessEditing && <GroupLine className="px-8" />}</div>
+                  <div className="px-8 pt-2">
+                    {!harnessEditing && (
+                      <>
+                        <ScopeSection keys={SECTION_KEYS.harness}>
+                          <SectionLabel first>HARNESS</SectionLabel>
+                          <Row
+                            title="Harness"
+                            setting={HARNESS_ENABLED_KEY}
+                            desc="Automated checklists that guide a session through a multi-step task. The session runs steps automatically until it needs your approval or answer."
+                          >
+                            <Toggle
+                              aria-label="Harness"
+                              checked={harnessOn}
+                              onChange={(checked) =>
+                                void patchAndSet({ [HARNESS_ENABLED_KEY]: checked ? 'true' : 'false' })
+                              }
+                            />
+                          </Row>
+                        </ScopeSection>
+                        {/* The templates are kept on this Mac, the switch is shared. */}
+                        {harnessOn && (
+                          <ScopeSection scope="device">
+                            <SectionLabel>TEMPLATES</SectionLabel>
+                          </ScopeSection>
+                        )}
+                      </>
+                    )}
+                  </div>
+                  {harnessOn ? (
+                    <HarnessTemplatesSection
+                      active
+                      onSaved={() => setSaved(true)}
+                      onEditingChange={setHarnessEditing}
+                    />
+                  ) : (
+                    <div />
+                  )}
                 </div>
               ) : section === 'devices' ? (
                 <ScopeSection scope="device">
@@ -1462,6 +1400,27 @@ export function Settings({ open, onClose }: SettingsProps) {
                         )}
                       </Row>
                       </ScopeSection>
+                      {/* What Report a bug and Suggest a feature do before a
+                          report goes out. Not in the website's demo, which
+                          sends no report either. */}
+                      {!isDemo() && (
+                        <ScopeSection keys={SECTION_KEYS.reports}>
+                          <SectionLabel>REPORTS</SectionLabel>
+                          <Row
+                            title="Check reports with Claude"
+                            setting={ISSUE_CHECK_ENABLED_KEY}
+                            desc="In the review before a report goes to Orbital's GitHub, Claude reads it next to the newest issues and says which look like the same thing. One model call on your plan, only when you press Check with Claude."
+                          >
+                            <Toggle
+                              aria-label="Check reports with Claude"
+                              checked={settings[ISSUE_CHECK_ENABLED_KEY] === 'true'}
+                              onChange={(checked) =>
+                                void patchAndSet({ [ISSUE_CHECK_ENABLED_KEY]: checked ? 'true' : 'false' })
+                              }
+                            />
+                          </Row>
+                        </ScopeSection>
+                      )}
                     </>
                   )}
 
@@ -1625,68 +1584,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </p>
                       <ScopeSection keys={SECTION_KEYS.labs}>
                       <SectionLabel first>FEATURES</SectionLabel>
-                      <Row
-                        title="Harness"
-                        setting={HARNESS_ENABLED_KEY}
-                        desc="Automated checklists that guide a session through a multi-step task. The session runs steps automatically until it needs your approval or answer."
-                      >
-                        <Toggle
-                          aria-label="Harness"
-                          checked={harnessEnabled(settings)}
-                          onChange={(checked) =>
-                            void patchAndSet({ [HARNESS_ENABLED_KEY]: checked ? 'true' : 'false' })
-                          }
-                        />
-                      </Row>
-                      {/* Spec 2026-10-05-embedded-terminal-design § Behind an
-                          experimental switch: the switch only; while it is on,
-                          the terminal's own settings have their own section. */}
-                      <Row
-                        title="Terminal"
-                        setting={TERMINAL_ENABLED_KEY}
-                        desc="Your own shell in the session's folder, as tabs beside the session. What you run in it is not sent to the agent. Its settings are in Terminal. Turning this off leaves running shells running."
-                      >
-                        <Toggle
-                          aria-label="Terminal"
-                          checked={terminalEnabled(settings)}
-                          onChange={(checked) =>
-                            void patchAndSet({ [TERMINAL_ENABLED_KEY]: checked ? 'true' : 'false' })
-                          }
-                        />
-                      </Row>
-                      {/* Canvas `Feature - Colour themes`: the switch only; while
-                          it is on, the picker is Appearance's COLOURS group (1f). */}
-                      <Row
-                        title="Colour themes"
-                        setting={COLOUR_THEMES_ENABLED_KEY}
-                        desc="Offers colour themes in Appearance: Albedo for a bright room, Event Horizon for more contrast, and palettes after Solarized, Monokai, Dracula, Nord, Gruvbox and One Dark."
-                      >
-                        <Toggle
-                          aria-label="Colour themes"
-                          checked={colourThemesEnabled(settings)}
-                          onChange={(checked) =>
-                            void patchAndSet({ [COLOUR_THEMES_ENABLED_KEY]: checked ? 'true' : 'false' })
-                          }
-                        />
-                      </Row>
-                      <Row
-                        title="Check reports with Claude"
-                        setting={ISSUE_CHECK_ENABLED_KEY}
-                        desc="In the review before a report goes to Orbital's GitHub, Claude reads it next to the newest issues and says which look like the same thing. One model call on your plan, only when you press Check with Claude."
-                      >
-                        <Toggle
-                          aria-label="Check reports with Claude"
-                          checked={settings[ISSUE_CHECK_ENABLED_KEY] === 'true'}
-                          onChange={(checked) =>
-                            void patchAndSet({ [ISSUE_CHECK_ENABLED_KEY]: checked ? 'true' : 'false' })
-                          }
-                        />
-                      </Row>
-                      <LimitSunsLabs
-                        settings={settings}
-                        apiKey={health?.billing === 'api-key'}
-                        patchAndSet={patchAndSet}
-                      />
+                      {/* The next feature to try goes here, its keys in SECTION_KEYS.labs. */}
                       </ScopeSection>
                     </>
                   )}
@@ -1779,6 +1677,24 @@ export function Settings({ open, onClose }: SettingsProps) {
                     <>
                       <ScopeSection keys={SECTION_KEYS.terminal}>
                       <SectionLabel first>TERMINAL</SectionLabel>
+                      {/* Spec 2026-10-05-embedded-terminal-design § Behind an
+                          experimental switch: the switch first; the terminal's
+                          own settings below it only while it is on. */}
+                      <Row
+                        title="Terminal"
+                        setting={TERMINAL_ENABLED_KEY}
+                        desc="Your own shell in the session's folder, as tabs beside the session. What you run in it is not sent to the agent. Turning this off leaves running shells running."
+                      >
+                        <Toggle
+                          aria-label="Terminal"
+                          checked={terminalEnabled(settings)}
+                          onChange={(checked) =>
+                            void patchAndSet({ [TERMINAL_ENABLED_KEY]: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
+                      {terminalEnabled(settings) && (
+                      <>
                       <Row
                         title="Terminal placement"
                         setting={TERMINAL_PLACEMENT_KEY}
@@ -1814,15 +1730,16 @@ export function Settings({ open, onClose }: SettingsProps) {
                           }
                         />
                       </Row>
+                      </>
+                      )}
                       </ScopeSection>
                     </>
                   )}
 
                   {section === 'appearance' && (
                     <>
-                      {/* Canvas `Feature - Colour themes` 1f, above TEXT, while
-                          Labs → Colour themes is on. Not in the website's demo,
-                          which does not repaint the root either. */}
+                      {/* Canvas `Feature - Colour themes` 1f, above TEXT. Not in
+                          the website's demo, which does not repaint the root. */}
                       {coloursShown && (
                         <ScopeSection keys={SECTION_KEYS.colours}>
                           <SectionLabel first>COLOURS</SectionLabel>
@@ -1976,99 +1893,46 @@ export function Settings({ open, onClose }: SettingsProps) {
                         />
                       </Row>
                       {theme === 'planets' && (
-                        <>
-                          <Row
-                            title="Default planet size"
-                            setting="planet_scale"
-                            desc="Baseline scale for every body on the map. Tier differences are preserved — this multiplies the whole family. Orbit radii and zoom are unaffected."
-                          >
-                            <div className="flex w-full flex-col gap-[9px]">
-                              <div className="flex items-baseline gap-2">
-                                <span className="font-mono fs-15 text-ink-100">
-                                  {planetScale.toFixed(2)}×
-                                </span>
-                                <span className="font-mono fs-10.5 text-ink-900/60">
-                                  {scaleNote}
-                                </span>
-                                <span className="flex-1" />
-                                <button
-                                  type="button"
-                                  onClick={() => setPlanetScale(1)}
-                                  className="rounded-full border border-line/14 px-[9px] py-[3px] font-mono fs-10 tracking-[0.1em] text-ink-800/85 transition-colors hover:border-line/26 hover:bg-line/7 hover:text-ink-400"
-                                >
-                                  RESET
-                                </button>
-                              </div>
-                              <input
-                                type="range"
-                                min={70}
-                                max={160}
-                                step={5}
-                                value={Math.round(planetScale * 100)}
-                                aria-label="Default planet size"
-                                onChange={(e) => setPlanetScale(Number(e.target.value) / 100)}
-                                onKeyDown={(e) => handleScaleKeys(e, planetScale)}
-                                className="h-[18px] w-full cursor-grab accent-accent"
-                              />
-                              <div className="flex justify-between font-mono fs-10 tracking-[0.06em] text-ink-900/55">
-                                <span>0.70×</span>
-                                <span>1.00×</span>
-                                <span>1.60×</span>
-                              </div>
-                            </div>
-                          </Row>
-
-                          {/* Collapsible preview row (canvas 5a): full-width header
-                  button, the tier strip animates shut instead of unmounting. */}
-                          <div className="flex flex-col gap-3 border-t border-line/8 py-[13px]">
-                            <button
-                              type="button"
-                              aria-expanded={previewOpen}
-                              onClick={() => setPreviewOpen((v) => !v)}
-                              className="flex items-start gap-2.5 text-left"
-                            >
-                              <span
-                                aria-hidden
-                                className="mt-[1px] grid h-4 w-4 flex-none place-items-center fs-9 text-ink-900/70 transition-transform duration-[180ms]"
-                                style={{ transform: previewOpen ? undefined : 'rotate(-90deg)' }}
+                        <Row
+                          title="Default planet size"
+                          setting="planet_scale"
+                          desc="Baseline scale for every body on the map. Tier differences are preserved — this multiplies the whole family. Orbit radii and zoom are unaffected."
+                        >
+                          <div className="flex w-full flex-col gap-[9px]">
+                            <div className="flex items-baseline gap-2">
+                              <span className="font-mono fs-15 text-ink-100">
+                                {planetScale.toFixed(2)}×
+                              </span>
+                              <span className="font-mono fs-10.5 text-ink-900/60">
+                                {scaleNote}
+                              </span>
+                              <span className="flex-1" />
+                              <button
+                                type="button"
+                                onClick={() => setPlanetScale(1)}
+                                className="rounded-full border border-line/14 px-[9px] py-[3px] font-mono fs-10 tracking-[0.1em] text-ink-800/85 transition-colors hover:border-line/26 hover:bg-line/7 hover:text-ink-400"
                               >
-                                ▾
-                              </span>
-                              <span className="flex-1">
-                                <span className="flex items-center gap-2">
-                                  <span className="fs-13.5 font-semibold text-ink-100">
-                                    Preview
-                                  </span>
-                                  {!previewOpen && (
-                                    <span className="font-mono fs-10 tracking-[0.1em] text-ink-900/55">
-                                      collapsed
-                                    </span>
-                                  )}
-                                </span>
-                                <span className="mt-1 block fs-12 leading-[1.5] text-ink-900/70 [text-wrap:pretty]">
-                                  The three size tiers at the current scale: ended, live, live with
-                                  subagents. Labels keep their 10 px mono floor at every scale.
-                                </span>
-                              </span>
-                            </button>
-                            <div
-                              className="box-border flex items-center justify-around gap-7 overflow-hidden rounded-[10px] border-line/10 bg-space/50"
-                              style={{
-                                height: previewOpen ? 300 : 0,
-                                opacity: previewOpen ? 1 : 0,
-                                padding: previewOpen ? '24px 28px' : '0px 28px',
-                                borderStyle: 'solid',
-                                borderWidth: previewOpen ? 1 : 0,
-                                transition:
-                                  'height .22s cubic-bezier(.2,.9,.25,1), opacity .18s ease, padding .22s ease',
-                              }}
-                            >
-                              {PREVIEW_TIERS.map((tier) => (
-                                <PreviewTier key={tier.base} tier={tier} scale={planetScale} />
-                              ))}
+                                RESET
+                              </button>
+                            </div>
+                            <input
+                              type="range"
+                              min={70}
+                              max={160}
+                              step={5}
+                              value={Math.round(planetScale * 100)}
+                              aria-label="Default planet size"
+                              onChange={(e) => setPlanetScale(Number(e.target.value) / 100)}
+                              onKeyDown={(e) => handleScaleKeys(e, planetScale)}
+                              className="h-[18px] w-full cursor-grab accent-accent"
+                            />
+                            <div className="flex justify-between font-mono fs-10 tracking-[0.06em] text-ink-900/55">
+                              <span>0.70×</span>
+                              <span>1.00×</span>
+                              <span>1.60×</span>
                             </div>
                           </div>
-                        </>
+                        </Row>
                       )}
 
                       <Row
@@ -2184,6 +2048,11 @@ export function Settings({ open, onClose }: SettingsProps) {
                           }
                         />
                       </Row>
+                      <LimitSunsSetting
+                        settings={settings}
+                        apiKey={health?.billing === 'api-key'}
+                        patchAndSet={patchAndSet}
+                      />
 
                       </ScopeSection>
 
@@ -2213,11 +2082,9 @@ export function Settings({ open, onClose }: SettingsProps) {
                       </Row>
                       {/* canvas 1h "Context thresholds" row verbatim, minus the
                   Planet-size radio above it (out of scope). Colour dashes use
-                  the same three OKLCH literals as the arc itself and the
-                  preview above: ok-level blue (`PREVIEW_TIERS`'s live tier,
-                  oklch(80% .13 210)), the amber of its subagent tier
-                  (oklch(80% .13 60)), and the spec's critical red
-                  (oklch(72% .17 25)). */}
+                  the same three OKLCH literals as the arc itself: ok-level
+                  blue (oklch(80% .13 210)), amber (oklch(80% .13 60)), and
+                  the spec's critical red (oklch(72% .17 25)). */}
                       <Row
                         title="Context thresholds"
                         setting={['context_threshold_warn', 'context_threshold_critical', 'map_show_compact_badge']}

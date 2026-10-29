@@ -25,7 +25,7 @@ export const CHECKED_ISSUES = 40
 /** The pause after the last keystroke in the title before it is searched. */
 export const SIMILAR_DEBOUNCE_MS = 400
 
-/** Labs → Check reports with Claude: the CLAUDE row of the rail shows only while it is on. */
+/** General → REPORTS → Check reports with Claude: the CLAUDE row of the rail shows only while it is on. */
 export const ISSUE_CHECK_ENABLED_KEY = 'issue_check_enabled'
 
 /** The setting that keeps the check's model for next time (canvas 61h: "kept for next time"). */

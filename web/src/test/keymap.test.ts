@@ -171,16 +171,16 @@ describe('keymapGroups', () => {
   it('yields no groups for a query that matches nothing', () => {
     expect(keymapGroups('zzzzzz-no-match')).toEqual([])
   })
-  it('lists the keys of a switched-off Labs feature, marked as off', () => {
+  it('lists the keys of a switched-off feature, marked as off', () => {
     const note = (settings: Record<string, string>, id: string) =>
       keymapGroups('', settings).flatMap((g) => g.rows).find((r) => r.id === id)?.note
-    expect(note({}, 'terminal.toggle')).toBe('the first press starts a shell · in Labs, off')
-    expect(note({}, 'session.harness')).toBe('opens or closes it · in Labs, off')
+    expect(note({}, 'terminal.toggle')).toBe('the first press starts a shell · off in Settings')
+    expect(note({}, 'session.harness')).toBe('opens or closes it · off in Settings')
     expect(keymapGroups('', {}).map((g) => g.scope)).toContain('terminal')
     expect(scopeCount()).toBe(SCOPES.length)
     expect(bindingCount()).toBe(COMMANDS.length)
     expect(note({ terminal_enabled: 'true' }, 'terminal.toggle')).toBe('the first press starts a shell')
-    expect(keymapGroups('labs', {}).flatMap((g) => g.rows).length).toBeGreaterThan(0)
+    expect(keymapGroups('off in settings', {}).flatMap((g) => g.rows).length).toBeGreaterThan(0)
   })
 
   it('drops a switched-off feature from the desktop menu', () => {

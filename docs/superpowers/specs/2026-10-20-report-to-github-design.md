@@ -235,6 +235,8 @@ run it in the background and show the one-time code as soon as gh prints it.
 
 ## Scope
 
+> Promoted out of Labs on 2026-10-29 ([[labs-features-move-to-regular-settings]]): Check reports with Claude now lives in Settings → General → REPORTS, still off by default.
+
 - **Who it is for:** everyone using Orbital who runs into an error or has
   something to say — and the maintainer, who gets reports with the version
   and the stack already in them.

@@ -809,7 +809,7 @@ export interface OrbitalActions {
   /** Opens the Harness panel on this session, or closes it when it is already open on it. */
   openHarness(sessionId: string, opts?: { full?: boolean }): void
   closeHarness(): void
-  /** Opens Settings on Harness templates with `focus` for it to read. */
+  /** Opens Settings on Harness with `focus` for it to read. */
   openHarnessTemplates(focus: HarnessTemplatesFocus): void
   /** Applies one event off the open view's `task-output:` topic. */
   applyTaskOutputEvent(sessionId: string, taskId: string, msg: TaskOutputEvent): void
@@ -3013,7 +3013,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   openHarnessTemplates(focus) {
-    // In memory only: Settings opens on its last section, and this visit's is Harness templates.
+    // In memory only: Settings opens on its last section, and this visit's is Harness.
     set((state) => ({
       harnessTemplatesFocus: focus,
       settings: { ...state.settings, settings_last_section: 'harness' },
