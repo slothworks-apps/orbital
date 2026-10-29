@@ -35,16 +35,16 @@ export function RenameSheet({
         if (saveable) onSave(draft.trim())
       }}
     >
-      <div className="font-mono text-[10px] tracking-[0.2em] text-[rgba(160,190,225,.6)]">RENAME</div>
+      <div className="font-mono fs-10 tracking-[0.2em] text-[rgba(160,190,225,.6)]">RENAME</div>
       <input
         ref={field}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         aria-label="Session title"
         enterKeyHint="done"
-        className="mt-2.5 box-border h-13 w-full rounded-[14px] border border-[oklch(85%_.12_205/.5)] bg-[rgba(4,8,16,.6)] px-3.5 text-[15px] text-text-bright shadow-[0_0_0_3px_oklch(85%_.12_205/.1)] outline-none"
+        className="mt-2.5 box-border h-13 w-full rounded-[14px] border border-[oklch(85%_.12_205/.5)] bg-[rgba(4,8,16,.6)] px-3.5 fs-15 text-text-bright shadow-[0_0_0_3px_oklch(85%_.12_205/.1)] outline-none"
       />
-      <div className="mt-2 font-mono text-[10px] text-[rgba(160,190,225,.55)]">
+      <div className="mt-2 font-mono fs-10 text-[rgba(160,190,225,.55)]">
         only Orbital&apos;s label · the folder and branch don&apos;t change
       </div>
       <div className="mt-3.5 flex gap-2">

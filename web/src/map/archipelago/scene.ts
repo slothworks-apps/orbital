@@ -178,6 +178,9 @@ export class ArchipelagoScene {
     host.appendChild(this.svg)
     this.labelLayer = document.createElement('div')
     this.labelLayer.className = 'pointer-events-none absolute inset-0 overflow-hidden'
+    // Every label here sits at a body (the hole, islands, ships, boats), and
+    // those keep their size whatever the text step (spec 2026-10-27-text-size-design).
+    this.labelLayer.style.setProperty('--text-scale', '1')
     host.appendChild(this.labelLayer)
 
     const defs = el('defs', {}, this.svg)
@@ -214,7 +217,7 @@ export class ArchipelagoScene {
     el('circle', { cx: 0, cy: 1.12, r: 0.1, fill: '#f0d39a' }, hg)
     const beam = el('path', { d: '', fill: '#f0d39a', opacity: 0.08 }, hg)
     const label = document.createElement('div')
-    label.className = 'pointer-events-auto absolute left-0 top-0 cursor-pointer whitespace-nowrap rounded-lg border border-[rgba(150,205,255,.12)] bg-[rgba(8,13,22,.82)] px-2.5 py-1.5 font-mono text-[10px] tracking-[0.12em] text-text-muted'
+    label.className = 'pointer-events-auto absolute left-0 top-0 cursor-pointer whitespace-nowrap rounded-lg border border-[rgba(150,205,255,.12)] bg-[rgba(8,13,22,.82)] px-2.5 py-1.5 font-mono fs-10 tracking-[0.12em] text-text-muted'
     label.dataset.hole = ''
     this.labelLayer.appendChild(label)
     this.hole = { g: hg, beam, glow, label, at: { x: 0, y: 0 }, visible: true }
@@ -390,7 +393,7 @@ export class ArchipelagoScene {
     const plaque = document.createElement('div')
     plaque.className = 'pointer-events-auto absolute left-0 top-0 flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-lg border border-[rgba(255,255,255,.08)] bg-[rgba(10,16,26,.8)] px-2.5 py-1.5'
     plaque.dataset.island = String(island.tagId)
-    plaque.innerHTML = `<i style="width:3px;height:18px;border-radius:2px;background:${hsl(hue, 60, 65)}"></i><span data-name class="font-mono text-[11px] font-semibold tracking-[0.16em] text-text-bright"></span>`
+    plaque.innerHTML = `<i style="width:3px;height:18px;border-radius:2px;background:${hsl(hue, 60, 65)}"></i><span data-name class="font-mono fs-11 font-semibold tracking-[0.16em] text-text-bright"></span>`
     this.labelLayer.appendChild(plaque)
     return { island, anchor: { x: 0, y: 0 }, g, plaque, lights, flag, flagAt, key, working: 0 }
   }
@@ -558,7 +561,7 @@ export class ArchipelagoScene {
     if (labelKey === v.labelKey) return
     v.labelKey = labelKey
     const colour = stateColor(key)
-    const word = input.statePills === 'label' && pill ? `<span class="ml-1 font-mono text-[9.5px] tracking-[0.1em]" style="color:${colour}">${escape(pill.label)}</span>` : ''
+    const word = input.statePills === 'label' && pill ? `<span class="ml-1 font-mono fs-9.5 tracking-[0.1em]" style="color:${colour}">${escape(pill.label)}</span>` : ''
     const title = truncateLabel(s.title)
     v.label.title = s.title
     v.label.className = [
@@ -569,15 +572,15 @@ export class ArchipelagoScene {
     v.label.innerHTML = `
       <div class="flex items-center gap-1.5 whitespace-nowrap">
         <i class="inline-block h-[7px] w-[7px] shrink-0 rounded-full" style="background:${key === 'idle' || key === 'ended' ? 'transparent' : colour};box-shadow:inset 0 0 0 1.5px ${colour}"></i>
-        <span class="font-mono text-[11.5px] font-medium text-text-bright">${escape(title)}</span>
+        <span class="font-mono fs-11.5 font-medium text-text-bright">${escape(title)}</span>
         ${word}
-        ${detached ? '<span class="ml-1 text-[10px] text-text-muted" title="Open in its own window">⧉</span>' : ''}
+        ${detached ? '<span class="ml-1 fs-10 text-text-muted" title="Open in its own window">⧉</span>' : ''}
       </div>
-      <div data-detail class="mt-0.5 max-w-[240px] truncate font-mono text-[10.5px]" style="color:${pill && key !== 'waiting' ? colour : 'rgb(160 190 225 / .7)'}">${escape(sub)}</div>
-      ${p.modelFamily ? `<div data-detail class="font-mono text-[9.5px] uppercase tracking-[0.12em] text-text-muted/70">${escape(p.modelFamily)}</div>` : ''}
-      ${p.compactingSince ? `<div class="mt-1 font-mono text-[9.5px] tracking-[0.1em] text-[#bee1ff]" data-compacting="${p.compactingSince}">COMPACTING</div>` : ''}
-      ${compactBadge ? `<button type="button" data-action="compact" class="mt-1 rounded border border-[#fa8880]/50 px-1.5 py-0.5 font-mono text-[9.5px] text-[#fa8880]">${Math.round((fill?.fraction ?? 0) * 100)}% · /compact</button>` : ''}
-      ${failed ? `<button type="button" data-action="compact-failed" class="mt-1 rounded border border-[#fa8880]/50 px-1.5 py-0.5 font-mono text-[9.5px] text-[#fa8880]">COMPACT FAILED · ${Math.round((fill?.fraction ?? 0) * 100)}%</button>` : ''}`
+      <div data-detail class="mt-0.5 max-w-[240px] truncate font-mono fs-10.5" style="color:${pill && key !== 'waiting' ? colour : 'rgb(160 190 225 / .7)'}">${escape(sub)}</div>
+      ${p.modelFamily ? `<div data-detail class="font-mono fs-9.5 uppercase tracking-[0.12em] text-text-muted/70">${escape(p.modelFamily)}</div>` : ''}
+      ${p.compactingSince ? `<div class="mt-1 font-mono fs-9.5 tracking-[0.1em] text-[#bee1ff]" data-compacting="${p.compactingSince}">COMPACTING</div>` : ''}
+      ${compactBadge ? `<button type="button" data-action="compact" class="mt-1 rounded border border-[#fa8880]/50 px-1.5 py-0.5 font-mono fs-9.5 text-[#fa8880]">${Math.round((fill?.fraction ?? 0) * 100)}% · /compact</button>` : ''}
+      ${failed ? `<button type="button" data-action="compact-failed" class="mt-1 rounded border border-[#fa8880]/50 px-1.5 py-0.5 font-mono fs-9.5 text-[#fa8880]">COMPACT FAILED · ${Math.round((fill?.fraction ?? 0) * 100)}%</button>` : ''}`
   }
 
   private makeBoat(sessionId: string, subagent: Subagent): BoatView {
@@ -593,7 +596,7 @@ export class ArchipelagoScene {
     el('circle', { cx: -2, cy: 0, r: 2.3, fill: '#d9dee6' }, body)
     const lantern = el('circle', { cx: -9, cy: 0, r: 7, fill: 'url(#arch-lantern)', opacity: 0 }, body)
     const label = document.createElement('div')
-    label.className = 'pointer-events-none absolute left-0 top-0 whitespace-nowrap font-mono text-[10px] text-[#a9d9c0] opacity-0 transition-opacity duration-500'
+    label.className = 'pointer-events-none absolute left-0 top-0 whitespace-nowrap font-mono fs-10 text-[#a9d9c0] opacity-0 transition-opacity duration-500'
     label.textContent = subagent.name
     this.labelLayer.appendChild(label)
     const from = ship ? { x: ship.x, y: ship.y, h: ship.h } : { x: 0, y: 0, h: 0 }

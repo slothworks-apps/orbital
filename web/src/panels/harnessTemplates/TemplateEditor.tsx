@@ -56,13 +56,13 @@ export function EditorHeader({
         type="button"
         aria-label="Back to the templates"
         onClick={onBack}
-        className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-panel-border text-sm text-[rgba(200,220,245,.7)] transition-colors hover:bg-white/5 hover:text-text-bright"
+        className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-panel-border fs-14 leading-(--text-sm--line-height) text-[rgba(200,220,245,.7)] transition-colors hover:bg-white/5 hover:text-text-bright"
       >
         ‹
       </button>
       <div className="min-w-0 flex-1">
-        <div className="font-mono text-[10px] tracking-[0.2em] text-accent/80">SETTINGS · HARNESS TEMPLATES</div>
-        <h2 className="mt-1 truncate text-xl font-bold tracking-[-0.01em] text-text-bright">{name.trim() || 'New template'}</h2>
+        <div className="font-mono fs-10 tracking-[0.2em] text-accent/80">SETTINGS · HARNESS TEMPLATES</div>
+        <h2 className="mt-1 truncate fs-20 leading-(--text-xl--line-height) font-bold tracking-[-0.01em] text-text-bright">{name.trim() || 'New template'}</h2>
       </div>
       <button
         ref={draftRef}
@@ -74,8 +74,8 @@ export function EditorHeader({
       >
         Draft…
       </button>
-      {status && <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">{status}</span>}
-      <button type="button" disabled={saving || !dirty} onClick={onSave} className={[PRIMARY_BUTTON, 'text-[12.5px]'].join(' ')}>
+      {status && <span className="font-mono fs-10.5 text-[rgba(160,190,225,.55)]">{status}</span>}
+      <button type="button" disabled={saving || !dirty} onClick={onSave} className={[PRIMARY_BUTTON, 'fs-12.5'].join(' ')}>
         Save
       </button>
     </div>
@@ -114,7 +114,7 @@ function StepCard({
   onChange: (patch: Partial<HarnessStep>) => void
   onRemove: () => void
 }) {
-  const arrow = 'cursor-pointer px-[3px] text-[8px] leading-none text-[rgba(200,220,245,.75)] disabled:cursor-default disabled:opacity-30'
+  const arrow = 'cursor-pointer px-[3px] fs-8 leading-none text-[rgba(200,220,245,.75)] disabled:cursor-default disabled:opacity-30'
   return (
     <div
       className={[
@@ -131,14 +131,14 @@ function StepCard({
             ▼
           </button>
         </span>
-        <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{String(index + 1).padStart(2, '0')}</span>
+        <span className="font-mono fs-10.5 text-[rgba(160,190,225,.6)]">{String(index + 1).padStart(2, '0')}</span>
         <StepMark mode={step.mode} />
         <button type="button" aria-expanded={open} onClick={onToggle} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
-          <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold">
+          <span className="min-w-0 flex-1 truncate fs-12.5 font-semibold">
             {step.title.trim() ? <KeyedText text={step.title} known={known} /> : <span className="text-[rgba(160,190,225,.5)]">Untitled step</span>}
           </span>
-          <span className="font-mono text-[10px] text-[rgba(160,190,225,.6)]">{step.mode}</span>
-          <span className="w-2.5 text-[9px] text-[rgba(160,190,225,.6)]">{open ? '▾' : '▸'}</span>
+          <span className="font-mono fs-10 text-[rgba(160,190,225,.6)]">{step.mode}</span>
+          <span className="w-2.5 fs-9 text-[rgba(160,190,225,.6)]">{open ? '▾' : '▸'}</span>
         </button>
       </div>
       {open && (
@@ -148,7 +148,7 @@ function StepCard({
               aria-label="Step title"
               value={step.title}
               onChange={(e) => onChange({ title: e.target.value })}
-              className={['min-w-0 flex-1 px-[9px] py-[7px] text-[12px] text-text-bright focus:border-[rgba(150,205,255,.32)] focus:outline-none', STEP_WELL].join(' ')}
+              className={['min-w-0 flex-1 px-[9px] py-[7px] fs-12 text-text-bright focus:border-[rgba(150,205,255,.32)] focus:outline-none', STEP_WELL].join(' ')}
             />
             <SegShell label="Step kind" radius={7}>
               <Seg first pad="narrow" active={step.mode === 'auto'} onClick={() => onChange({ mode: 'auto' })}>
@@ -166,7 +166,7 @@ function StepCard({
               onChange={(instructions) => onChange({ instructions })}
               known={known}
               box={STEP_WELL}
-              type="px-[9px] py-2 text-[12px] leading-[1.55] text-[rgba(220,232,248,.9)]"
+              type="px-[9px] py-2 fs-12 leading-[1.55] text-[rgba(220,232,248,.9)]"
               minHeight={54}
             />
           </label>
@@ -178,7 +178,7 @@ function StepCard({
                 onChange={(doneWhen) => onChange({ doneWhen })}
                 known={known}
                 box={STEP_WELL}
-                type="px-[9px] py-2 text-[11.5px] leading-[1.5] text-[rgba(220,232,248,.9)]"
+                type="px-[9px] py-2 fs-11.5 leading-[1.5] text-[rgba(220,232,248,.9)]"
                 minHeight={34}
               />
             </label>
@@ -189,13 +189,13 @@ function StepCard({
                 onChange={(verify) => onChange({ verify: verify || undefined })}
                 known={known}
                 box="rounded-[7px] border border-[rgba(150,205,255,.16)] bg-[rgba(2,4,9,.8)]"
-                type="break-all px-[9px] py-2 font-mono text-[10.5px] leading-[1.5] text-[rgba(214,230,248,.9)]"
+                type="break-all px-[9px] py-2 font-mono fs-10.5 leading-[1.5] text-[rgba(214,230,248,.9)]"
                 minHeight={34}
                 spellCheck={false}
               />
             </label>
           </div>
-          <div className="flex items-center gap-2.5 font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+          <div className="flex items-center gap-2.5 font-mono fs-10 text-[rgba(160,190,225,.6)]">
             inputs resolve when the harness starts · a gate waits for an OK once ticked
             <span className="flex-1" />
             <button type="button" onClick={onRemove} className="text-[rgba(220,235,255,.8)] hover:text-text-bright">
@@ -266,7 +266,7 @@ export function TemplateEditor({
 
   const row = (label: string, children: ReactNode) => (
     <div className="flex items-center gap-1.5">
-      <span className="w-[62px] flex-none text-[12px] font-semibold">{label}</span>
+      <span className="w-[62px] flex-none fs-12 font-semibold">{label}</span>
       {children}
     </div>
   )
@@ -276,21 +276,21 @@ export function TemplateEditor({
       <div className="flex min-h-0 flex-col gap-2.5 overflow-y-auto overflow-x-hidden border-r border-[rgba(150,205,255,.1)] pb-4 pl-7 pr-[26px] pt-3.5">
         <div className={SECTION_LABEL}>ABOUT</div>
         <label className="flex flex-col gap-[5px]">
-          <span className="text-[12px] font-semibold">Name</span>
+          <span className="fs-12 font-semibold">Name</span>
           <input
             value={draft.name}
             onChange={(e) => onChange({ ...draft, name: e.target.value })}
-            className={['px-2.5 py-1.5 text-[12.5px] text-text-bright focus:border-[rgba(150,205,255,.32)] focus:outline-none', WELL].join(' ')}
+            className={['px-2.5 py-1.5 fs-12.5 text-text-bright focus:border-[rgba(150,205,255,.32)] focus:outline-none', WELL].join(' ')}
           />
         </label>
         <label className="flex flex-col gap-[5px]">
-          <span className="text-[12px] font-semibold">Description</span>
+          <span className="fs-12 font-semibold">Description</span>
           <textarea
             rows={1}
             value={draft.description}
             onChange={(e) => onChange({ ...draft, description: e.target.value })}
             className={[
-              'resize-none px-2.5 py-1.5 text-[12px] leading-[1.5] text-[rgba(220,235,255,.9)] [field-sizing:content] focus:border-[rgba(150,205,255,.32)] focus:outline-none',
+              'resize-none px-2.5 py-1.5 fs-12 leading-[1.5] text-[rgba(220,235,255,.9)] [field-sizing:content] focus:border-[rgba(150,205,255,.32)] focus:outline-none',
               WELL,
             ].join(' ')}
           />
@@ -321,7 +321,7 @@ export function TemplateEditor({
                   <button
                     {...props}
                     type="button"
-                    className="rounded-full border border-dashed border-[rgba(150,205,255,.2)] px-[9px] py-[3px] text-[11px] text-[rgba(160,190,225,.7)] hover:bg-white/5"
+                    className="rounded-full border border-dashed border-[rgba(150,205,255,.2)] px-[9px] py-[3px] fs-11 text-[rgba(160,190,225,.7)] hover:bg-white/5"
                   >
                     + tag
                   </button>
@@ -357,7 +357,7 @@ export function TemplateEditor({
           </button>
         </div>
         {draft.inputs.length > 0 && (
-          <div className="grid grid-cols-[86px_110px_minmax(0,1fr)_12px] gap-1.5 font-mono text-[9px] tracking-[0.14em] text-[rgba(160,190,225,.5)]">
+          <div className="grid grid-cols-[86px_110px_minmax(0,1fr)_12px] gap-1.5 font-mono fs-9 tracking-[0.14em] text-[rgba(160,190,225,.5)]">
             <span>KEY</span>
             <span>LABEL</span>
             <span>HINT</span>
@@ -373,25 +373,25 @@ export function TemplateEditor({
                 value={input.key}
                 spellCheck={false}
                 onChange={(e) => setInput(i, { key: e.target.value })}
-                className={['font-mono text-[10.5px] text-accent', INPUT_CELL].join(' ')}
+                className={['font-mono fs-10.5 text-accent', INPUT_CELL].join(' ')}
               />
               <input
                 aria-label="Label"
                 value={input.label}
                 onChange={(e) => setInput(i, { label: e.target.value })}
-                className={['text-[11px] text-text-bright', INPUT_CELL].join(' ')}
+                className={['fs-11 text-text-bright', INPUT_CELL].join(' ')}
               />
               <span className="relative min-w-0">
                 <input
                   aria-label="Hint"
                   value={input.hint ?? ''}
                   onChange={(e) => setInput(i, { hint: e.target.value || undefined })}
-                  className={['w-full text-[11px] text-[rgba(200,214,235,.8)]', unused ? 'pr-12' : '', INPUT_CELL].join(' ')}
+                  className={['w-full fs-11 text-[rgba(200,214,235,.8)]', unused ? 'pr-12' : '', INPUT_CELL].join(' ')}
                 />
                 {unused && (
                   <span
                     title="No step uses this input"
-                    className="pointer-events-none absolute right-[7px] top-1/2 -translate-y-1/2 font-mono text-[9.5px]"
+                    className="pointer-events-none absolute right-[7px] top-1/2 -translate-y-1/2 font-mono fs-9.5"
                     style={{ color: KEY_WARNING }}
                   >
                     unused
@@ -402,14 +402,14 @@ export function TemplateEditor({
                 type="button"
                 aria-label={`Remove ${input.key || 'input'}`}
                 onClick={() => onChange({ ...draft, inputs: draft.inputs.filter((_, j) => j !== i) })}
-                className="text-[10px] text-[rgba(160,190,225,.5)] hover:text-text-bright"
+                className="fs-10 text-[rgba(160,190,225,.5)] hover:text-text-bright"
               >
                 ✕
               </button>
             </div>
           )
         })}
-        <div className="font-mono text-[9.5px] text-[rgba(160,190,225,.55)]">
+        <div className="font-mono fs-9.5 text-[rgba(160,190,225,.55)]">
           Use an input in any step as {'{{key}}'}. Starting the harness asks for each one.
         </div>
 
@@ -424,7 +424,7 @@ export function TemplateEditor({
           onChange={(on) => onChange({ ...draft, options: { ...draft.options, lucky: on } })}
           label={<span className="text-text-bright">Feeling lucky by default</span>}
         />
-        <div className="grid grid-cols-[minmax(0,1fr)_58px] items-center gap-x-3 gap-y-1.5 text-[12px] text-[rgba(220,235,255,.85)]">
+        <div className="grid grid-cols-[minmax(0,1fr)_58px] items-center gap-x-3 gap-y-1.5 fs-12 text-[rgba(220,235,255,.85)]">
           {(
             [
               ['maxAutoRounds', 'Messages sent on its own, at most'],
@@ -441,13 +441,13 @@ export function TemplateEditor({
                   const n = Number(e.target.value)
                   if (e.target.value !== '' && Number.isInteger(n) && n >= 0) onChange({ ...draft, options: { ...draft.options, [key]: n } })
                 }}
-                className="w-full rounded-md border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.6)] px-2 py-[5px] text-center font-mono text-[11.5px] text-text-bright focus:border-[rgba(150,205,255,.32)] focus:outline-none"
+                className="w-full rounded-md border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.6)] px-2 py-[5px] text-center font-mono fs-11.5 text-text-bright focus:border-[rgba(150,205,255,.32)] focus:outline-none"
               />
             </label>
           ))}
         </div>
         {error && (
-          <div className="text-[12px] leading-[1.5]" style={{ color: KEY_WARNING }}>
+          <div className="fs-12 leading-[1.5]" style={{ color: KEY_WARNING }}>
             {error}
           </div>
         )}
@@ -476,7 +476,7 @@ export function TemplateEditor({
         <button
           type="button"
           onClick={addStep}
-          className="flex-none rounded-[9px] border border-dashed border-[rgba(150,205,255,.18)] px-2.5 py-2 text-left text-[12px] font-semibold text-[rgba(160,190,225,.75)] hover:bg-white/5"
+          className="flex-none rounded-[9px] border border-dashed border-[rgba(150,205,255,.18)] px-2.5 py-2 text-left fs-12 font-semibold text-[rgba(160,190,225,.75)] hover:bg-white/5"
         >
           + Add step
         </button>

@@ -94,7 +94,7 @@ function NotificationsTip({ close }: { close: () => void }) {
     // 1b: exactly what was switched on, ticked in the accent.
     return (
       <MapNotice label="NOTIFICATIONS · ON" closeLabel="Close" onClose={close}>
-        <div className="flex items-center gap-5 text-[14px] font-semibold text-text-bright">
+        <div className="flex items-center gap-5 fs-14 font-semibold text-text-bright">
           {['Needs input', 'Session failed'].map((row) => (
             <span key={row} className="flex items-center gap-2">
               <span aria-hidden className="text-accent">
@@ -104,7 +104,7 @@ function NotificationsTip({ close }: { close: () => void }) {
             </span>
           ))}
         </div>
-        <p className="text-[13px] leading-[1.5] text-[rgba(160,190,225,.75)] [text-wrap:pretty]">
+        <p className="fs-13 leading-[1.5] text-[rgba(160,190,225,.75)] [text-wrap:pretty]">
           Sound and Session ended stay off.{' '}
           <button type="button" onClick={toSettings} className="text-[rgba(214,226,242,.92)] underline">
             Settings

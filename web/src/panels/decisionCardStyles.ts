@@ -32,12 +32,12 @@ export const CARD_READONLY =
 
 /** Canvas 9b: chip is mono 10 at .14em tracking in a 3px/8px, r4 box. */
 export const CHIP_BASE =
-  'shrink-0 rounded-[4px] border px-2 py-[3px] font-mono text-[10px] tracking-[0.14em]'
+  'shrink-0 rounded-[4px] border px-2 py-[3px] font-mono fs-10 tracking-[0.14em]'
 export const CHIP_PENDING = 'border-accent/35 bg-accent/12 text-[oklch(90%_.08_205)]'
 export const CHIP_QUIET = 'border-[rgba(150,205,255,.18)] text-[rgba(190,215,240,.7)]'
 
 /** Canvas 9b: the status slot opposite the chip — mono 9.5 at .12em. */
-export const STATUS_BASE = 'shrink-0 font-mono text-[9.5px] tracking-[0.12em]'
+export const STATUS_BASE = 'shrink-0 font-mono fs-9.5 tracking-[0.12em]'
 
 /** Canvas 9d METRICS: "option row — 9px 11px · r9 · gap 6". */
 export const ROW_BASE =
@@ -63,7 +63,7 @@ export const ROW_OTHER_OPEN =
   'flex w-full flex-col gap-[7px] rounded-[9px] border border-accent/55 bg-accent/6 px-[11px] py-[9px] shadow-[0_0_0_2px_oklch(85%_.12_205_/_.18)]'
 
 /** Canvas 9d METRICS: "marker gutter — 12px · mono 10 / ✓ 11". */
-export const GUTTER = 'w-3 shrink-0 text-center font-mono text-[10px] leading-[1.5]'
+export const GUTTER = 'w-3 shrink-0 text-center font-mono fs-10 leading-[1.5]'
 
 /**
  * Canvas 9b: label 13/600/1.3 over description 11.5/1.4. Neither carries its
@@ -75,8 +75,8 @@ export const GUTTER = 'w-3 shrink-0 text-center font-mono text-[10px] leading-[1
  * chosen. A long unbroken token (a path, a URL) breaks too — the card is
  * `overflow-hidden`, so otherwise it would be clipped at the right edge.
  */
-export const LABEL = 'text-[13px] font-semibold leading-[1.3] [overflow-wrap:anywhere]'
-export const DESCRIPTION = 'text-[11.5px] leading-[1.4] [overflow-wrap:anywhere]'
+export const LABEL = 'fs-13 font-semibold leading-[1.3] [overflow-wrap:anywhere]'
+export const DESCRIPTION = 'fs-11.5 leading-[1.4] [overflow-wrap:anywhere]'
 /** Canvas 9d COLOUR: "label / description ink — #e8eef8 / rgba(160,190,225,.62)". */
 export const DESCRIPTION_INK = 'text-[rgba(160,190,225,.62)]'
 
@@ -97,7 +97,7 @@ export const CARD_SHADOW = 'shadow-[0_0_0_1px_rgba(0,0,0,.2),0_10px_30px_rgba(0,
 export const CARD_PAD_X = 'px-[13px]'
 
 /** Canvas 9d METRICS / 20b: "question type — 13.5px / 600 / 1.45" — the card's headline. */
-export const HEADLINE = 'text-[13.5px] font-semibold leading-[1.45] text-pretty'
+export const HEADLINE = 'fs-13.5 font-semibold leading-[1.45] text-pretty'
 
 // ---------------------------------------------------------------------------
 // From here down: the permission card's own vocabulary, canvas
@@ -119,11 +119,11 @@ export const CARD_GUARDED_SHADOW =
   'shadow-[0_0_0_3px_rgba(232,238,248,.05),0_0_0_1px_rgba(0,0,0,.2),0_10px_30px_rgba(0,0,0,.35)]'
 
 /** Canvas 20b A / 20a: the bridge's subtitle under the headline — 12 / 1.45. */
-export const SUBTITLE = 'text-[12px] leading-[1.45] text-pretty text-[rgba(160,190,225,.7)]'
+export const SUBTITLE = 'fs-12 leading-[1.45] text-pretty text-[rgba(160,190,225,.7)]'
 
 /** Canvas 20a: the detail `<pre>` inside a card's input box — mono 10.5 / 1.6. */
 export const MONO_BLOCK =
-  'm-0 overflow-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(200,220,245,.85)]'
+  'm-0 overflow-auto whitespace-pre-wrap font-mono fs-10.5 leading-[1.6] text-[rgba(200,220,245,.85)]'
 
 /** Canvas 20b A/B/C: the summary box — r7, hairline, near-black fill. */
 export const MONO_FRAME =
@@ -136,17 +136,17 @@ export const PLAN_FRAME =
   'overflow-hidden rounded-[8px] border border-[rgba(150,205,255,.12)] bg-[rgba(3,6,12,.7)]'
 /** Canvas 20a: the hairline above an opened detail, reused as the block's label strip. */
 export const MONO_EYEBROW =
-  'border-b border-[rgba(150,205,255,.08)] px-2.5 py-[7px] font-mono text-[9.5px] tracking-[0.12em] text-[rgba(160,190,225,.55)]'
+  'border-b border-[rgba(150,205,255,.08)] px-2.5 py-[7px] font-mono fs-9.5 tracking-[0.12em] text-[rgba(160,190,225,.55)]'
 
 /** Canvas 20b D: the line under a block that counts what it holds. */
-export const META_LINE = 'font-mono text-[10px] text-[rgba(160,190,225,.5)]'
+export const META_LINE = 'font-mono fs-10 text-[rgba(160,190,225,.5)]'
 
 /**
  * Canvas 20b / 20a: the dashed note a card ends on when the answer has to
  * happen somewhere else — a watched terminal (20b H), another window (20b G).
  */
 export const NOTE_DASHED =
-  'flex items-center gap-2 rounded-[8px] border border-dashed border-[rgba(150,205,255,.18)] bg-[rgba(3,6,12,.5)] px-2.5 py-2 font-mono text-[10px]'
+  'flex items-center gap-2 rounded-[8px] border border-dashed border-[rgba(150,205,255,.18)] bg-[rgba(3,6,12,.5)] px-2.5 py-2 font-mono fs-10'
 
 /**
  * Canvas 20b F: the settled card's verdict row. An approval keeps the accent
@@ -161,7 +161,7 @@ export const ROW_VERDICT_DENIED = 'border-[rgba(150,205,255,.22)]'
  * form is every other action on the card.
  */
 export const BUTTON_BASE =
-  'shrink-0 cursor-pointer rounded-[8px] border px-3.5 py-1.5 text-[12px] font-semibold transition-[border-color,background-color] duration-[160ms] ease-[ease] focus:outline-none'
+  'shrink-0 cursor-pointer rounded-[8px] border px-3.5 py-1.5 fs-12 font-semibold transition-[border-color,background-color] duration-[160ms] ease-[ease] focus:outline-none'
 export const BUTTON_ACCENT =
   'border-accent/55 bg-accent/16 text-[#e8eef8] shadow-[0_0_0_2px_oklch(85%_.12_205_/_.18)] hover:border-accent/80 hover:bg-accent/26'
 /**

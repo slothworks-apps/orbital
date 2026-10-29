@@ -35,7 +35,7 @@ function Heading({ text, failed }: { text: string; failed: boolean }) {
   const rule = failed ? FAILED_RULE : 'rgba(150,205,255,.3)'
   return (
     <div
-      className="flex items-center gap-2.5 font-mono text-[9.5px] tracking-[0.16em]"
+      className="flex items-center gap-2.5 font-mono fs-9.5 tracking-[0.16em]"
       style={{ color: failed ? FAILED_INK : 'rgba(214,228,246,.82)' }}
     >
       <span aria-hidden className="block h-px flex-1" style={{ background: rule }} />
@@ -100,9 +100,9 @@ export function CompactionMark({
           className="flex flex-col gap-[9px] rounded-lg border bg-[rgba(4,8,16,.5)] px-3 py-2.5"
           style={{ borderColor: FAILED_BORDER }}
         >
-          <div className="flex items-baseline gap-2 font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+          <div className="flex items-baseline gap-2 font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
             {mark.preTokens !== null && (
-              <span className="text-[12.5px] text-[#e8eef8]">{formatCompactTokens(mark.preTokens)}</span>
+              <span className="fs-12.5 text-[#e8eef8]">{formatCompactTokens(mark.preTokens)}</span>
             )}
             <span>unchanged</span>
             <span aria-hidden className="flex-1" />
@@ -110,12 +110,12 @@ export function CompactionMark({
           </div>
           {/* Quoted exactly — the reason is the one thing a developer needs. */}
           <div
-            className="whitespace-pre-wrap break-words rounded-md bg-[rgba(2,4,9,.6)] px-2.5 py-2 font-mono text-[10.5px] leading-[1.55]"
+            className="whitespace-pre-wrap break-words rounded-md bg-[rgba(2,4,9,.6)] px-2.5 py-2 font-mono fs-10.5 leading-[1.55]"
             style={{ color: FAILED_INK }}
           >
             {mark.error ?? 'No reason given'}
           </div>
-          <div className="text-xs leading-normal text-[rgba(190,212,238,.82)] [text-wrap:pretty]">{FAILED_NOTE}</div>
+          <div className="fs-12 leading-normal text-[rgba(190,212,238,.82)] [text-wrap:pretty]">{FAILED_NOTE}</div>
           <div className="flex items-center gap-2">
             <Button
               variant="pill"
@@ -152,9 +152,9 @@ export function CompactionMark({
     <div data-compaction-mark="success" data-compaction-id={message.id} className="flex flex-col gap-2">
       <Heading text={heading} failed={false} />
       <div className="flex flex-col gap-[9px] rounded-lg border border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.5)] px-3 py-2.5">
-        <div className="flex items-baseline gap-2 font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+        <div className="flex items-baseline gap-2 font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
           {mark.preTokens !== null && (
-            <span className="text-[12.5px] text-[#e8eef8]">
+            <span className="fs-12.5 text-[#e8eef8]">
               {formatCompactTokens(mark.preTokens)}
               {mark.postTokens !== null && ` → ${formatCompactTokens(mark.postTokens)}`}
             </span>
@@ -176,18 +176,18 @@ export function CompactionMark({
             />
           </div>
         )}
-        <div className="text-xs leading-normal text-[rgba(190,212,238,.82)] [text-wrap:pretty]">{SUMMARY_NOTE}</div>
+        <div className="fs-12 leading-normal text-[rgba(190,212,238,.82)] [text-wrap:pretty]">{SUMMARY_NOTE}</div>
         {mark.summary && (
           <>
             <button
               type="button"
               aria-expanded={summaryOpen}
               onClick={() => setSummaryOpen((open) => !open)}
-              className="flex items-center gap-1.5 self-start font-mono text-[10.5px] text-[rgba(200,220,245,.8)] hover:text-[#e8eef8]"
+              className="flex items-center gap-1.5 self-start font-mono fs-10.5 text-[rgba(200,220,245,.8)] hover:text-[#e8eef8]"
             >
               <span
                 aria-hidden
-                className="inline-block text-[9px] text-[rgba(160,190,225,.6)] transition-transform duration-150"
+                className="inline-block fs-9 text-[rgba(160,190,225,.6)] transition-transform duration-150"
                 style={{ transform: summaryOpen ? 'rotate(90deg)' : 'none' }}
               >
                 ▸
@@ -195,7 +195,7 @@ export function CompactionMark({
               summary
             </button>
             {summaryOpen && (
-              <pre className="m-0 whitespace-pre-wrap break-words rounded-md border border-[rgba(150,205,255,.1)] bg-[rgba(2,4,9,.6)] px-[11px] py-[9px] font-mono text-[10.5px] leading-[1.6] text-[rgba(170,195,225,.8)]">
+              <pre className="m-0 whitespace-pre-wrap break-words rounded-md border border-[rgba(150,205,255,.1)] bg-[rgba(2,4,9,.6)] px-[11px] py-[9px] font-mono fs-10.5 leading-[1.6] text-[rgba(170,195,225,.8)]">
                 {mark.summary}
               </pre>
             )}
@@ -239,15 +239,15 @@ export function CompactingBlock({
       role="status"
       className="flex shrink-0 flex-col gap-2.5 rounded-[9px] border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.55)] px-3.5 py-3"
     >
-      <div className="flex items-baseline gap-2 font-mono text-[10px] tracking-[0.16em] text-[rgba(214,228,246,.85)]">
+      <div className="flex items-baseline gap-2 font-mono fs-10 tracking-[0.16em] text-[rgba(214,228,246,.85)]">
         COMPACTING CONTEXT
         <span aria-hidden className="flex-1" />
-        <span className="text-[11px] tracking-[0.04em] text-[#e8eef8]">{formatElapsed(now - startedAt)}</span>
+        <span className="fs-11 tracking-[0.04em] text-[#e8eef8]">{formatElapsed(now - startedAt)}</span>
       </div>
       <div aria-hidden className="relative h-[2px] overflow-hidden rounded-[1px] bg-[rgba(150,205,255,.1)]">
         <span className="orbital-shimmer absolute inset-y-0 left-0 block w-[30%] rounded-[1px] bg-[image:linear-gradient(90deg,transparent,rgba(214,228,246,.55),transparent)]" />
       </div>
-      <div className="text-xs leading-normal text-[rgba(190,212,238,.8)] [text-wrap:pretty]">
+      <div className="fs-12 leading-normal text-[rgba(190,212,238,.8)] [text-wrap:pretty]">
         {cause} Claude is summarizing the conversation above and will carry on by itself when it&apos;s done.
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { tagColor, type Tag } from '../../lib/types'
 
 /** canvas 10i, 10j: the mono caps line heading a menu sheet (the session's title, CHANGE TAG). */
-export const SHEET_LABEL = 'px-2.5 pb-2 pt-0.5 font-mono text-[10px] tracking-[0.18em] text-[rgba(160,190,225,.6)]'
+export const SHEET_LABEL = 'px-2.5 pb-2 pt-0.5 font-mono fs-10 tracking-[0.18em] text-[rgba(160,190,225,.6)]'
 
 /**
  * Change tag, swapped into the ⋯ sheet (canvas 10i, 10j CHANGE TAG): the
@@ -30,7 +30,7 @@ export function TagSheet({
             onClick={() => onPick(tag.id)}
             aria-pressed={current}
             className={[
-              'flex h-13 w-full items-center gap-3 rounded-[10px] px-2.5 text-left text-[15px] text-text-bright',
+              'flex h-13 w-full items-center gap-3 rounded-[10px] px-2.5 text-left fs-15 text-text-bright',
               current ? 'bg-[rgba(150,205,255,.09)]' : '',
             ].join(' ')}
           >

@@ -210,7 +210,7 @@ export function PermissionCard({ sessionId, toolUse, toolResult, offline = false
               decision instead, which leaves the tool unsaid — so the name
               stays, at the header's quiet mono weight. */}
           {decision.toolName && (
-            <span className="min-w-0 truncate font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+            <span className="min-w-0 truncate font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.55)]">
               {decision.toolName}
             </span>
           )}
@@ -299,7 +299,7 @@ export function PermissionCard({ sessionId, toolUse, toolResult, offline = false
           >
             <span
               aria-hidden
-              className={`shrink-0 text-[11px] leading-[1.5] ${
+              className={`shrink-0 fs-11 leading-[1.5] ${
                 approved ? 'text-accent' : 'text-[rgba(200,220,245,.8)]'
               }`}
             >
@@ -310,7 +310,7 @@ export function PermissionCard({ sessionId, toolUse, toolResult, offline = false
                 {verdictLabel(decision.kind, approved)}
               </span>
               {!approved && sentVerdict?.message && (
-                <span className="text-[12px] leading-[1.45] text-pretty text-[rgba(200,220,245,.85)]">
+                <span className="fs-12 leading-[1.45] text-pretty text-[rgba(200,220,245,.85)]">
                   {`“${sentVerdict.message}”`}
                 </span>
               )}
@@ -418,9 +418,9 @@ function Verdict({
                 onResolve({ approved: false, ...(reason.trim() ? { message: reason } : {}) })
               }
             }}
-            className="block w-full resize-none border-0 bg-transparent p-0 text-[13px] leading-[1.45] text-[#e8eef8] caret-accent focus:outline-none"
+            className="block w-full resize-none border-0 bg-transparent p-0 fs-13 leading-[1.45] text-[#e8eef8] caret-accent focus:outline-none"
           />
-          <div className="flex items-center gap-2 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+          <div className="flex items-center gap-2 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.5)]">
             ⏎ send · esc back
             <span aria-hidden className="flex-1" />
             <span>
@@ -442,7 +442,7 @@ function Verdict({
           {declineLabel}
         </button>
         {reasonOpen && (
-          <span className="font-mono text-[10px] text-[rgba(160,190,225,.5)]">
+          <span className="font-mono fs-10 text-[rgba(160,190,225,.5)]">
             or send it with no reason
           </span>
         )}

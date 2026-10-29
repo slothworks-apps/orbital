@@ -62,7 +62,7 @@ export function StepBody({ id, session, walkthrough, step, onJump }: StepBodyPro
     ),
   ]
   const fateRows = (row: FateRow) => (
-    <div key={row.key} className="flex items-center gap-1.5 border-t border-[rgba(150,205,255,.08)] px-2.5 py-[7px] font-mono text-[10.5px] text-[rgba(200,220,245,.8)]">
+    <div key={row.key} className="flex items-center gap-1.5 border-t border-[rgba(150,205,255,.08)] px-2.5 py-[7px] font-mono fs-10.5 text-[rgba(200,220,245,.8)]">
       <span className="text-text-bright">{FATE_GLYPH[row.kind]}</span>
       <span>{row.verb}</span>
       <JumpLink onJump={jumpTo(row.stepId)}>step {stepById.get(row.stepId)?.ordinal ?? '?'}</JumpLink>
@@ -83,18 +83,18 @@ export function StepBody({ id, session, walkthrough, step, onJump }: StepBodyPro
   return (
     <article className="flex flex-1 flex-col gap-5">
       <header className="flex flex-col gap-2.5">
-        <span className="font-mono text-[10px] tracking-[.18em] text-[rgba(160,190,225,.6)]">
+        <span className="font-mono fs-10 tracking-[.18em] text-[rgba(160,190,225,.6)]">
           STEP {step.ordinal} OF {total}
           {eyebrowTail && ` · ${eyebrowTail}`}
         </span>
-        <h2 className="text-[26px] font-bold leading-[1.2] tracking-[-.015em] text-text-bright">{title}</h2>
-        {intent?.summary && <p className="text-[13.5px] leading-[1.6] text-[rgba(200,214,235,.9)]">{intent.summary}</p>}
+        <h2 className="fs-26 font-bold leading-[1.2] tracking-[-.015em] text-text-bright">{title}</h2>
+        {intent?.summary && <p className="fs-13.5 leading-[1.6] text-[rgba(200,214,235,.9)]">{intent.summary}</p>}
         {intent?.title && step.narration && <Words>{step.narration}</Words>}
       </header>
 
       {folded && (
-        <div className="flex items-center gap-2 rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-2.5 py-[7px] font-mono text-[11.5px] text-[rgba(200,220,245,.8)]">
-          <span className="text-[9px] text-text-muted">▸</span>
+        <div className="flex items-center gap-2 rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-2.5 py-[7px] font-mono fs-11.5 text-[rgba(200,220,245,.8)]">
+          <span className="fs-9 text-text-muted">▸</span>
           <span className="text-text-muted">⚙</span>
           <span className="text-text-bright">{folded}</span>
           <span className="text-[rgba(150,205,255,.28)]">·</span>
@@ -106,7 +106,7 @@ export function StepBody({ id, session, walkthrough, step, onJump }: StepBodyPro
 
       {step.subagent ? (
         <section className="flex flex-col gap-3">
-          <span className="font-mono text-[10px] tracking-[.18em] text-[rgba(160,190,225,.6)]">SUBAGENT · {step.subagent.name}</span>
+          <span className="font-mono fs-10 tracking-[.18em] text-[rgba(160,190,225,.6)]">SUBAGENT · {step.subagent.name}</span>
           {step.subagent.prompt && <Words small>{step.subagent.prompt}</Words>}
           {step.subagent.steps.map((sub, i) => (
             <SubStep key={sub.id} id={id} session={session} parent={step.ordinal} index={i + 1} sub={sub} />
@@ -140,15 +140,15 @@ function SubStep({ id, session, parent, index, sub }: { id: string; session: Api
   const title = sub.narration.split('\n')[0]?.trim() || paths.join(', ')
   return (
     <details className="group rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] open:border-[rgba(150,205,255,.18)] open:bg-[rgba(150,205,255,.05)]">
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-2 font-mono text-[11.5px] text-[rgba(200,220,245,.8)] [&::-webkit-details-marker]:hidden">
-        <span className="text-[9px] text-text-muted">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-2 font-mono fs-11.5 text-[rgba(200,220,245,.8)] [&::-webkit-details-marker]:hidden">
+        <span className="fs-9 text-text-muted">
           <span className="group-open:hidden">▸</span>
           <span className="hidden group-open:inline">▾</span>
         </span>
         <span className="text-text-muted">
           {parent}.{index}
         </span>
-        <span className="min-w-0 truncate font-sans text-[12.5px] text-text-bright">{title}</span>
+        <span className="min-w-0 truncate font-sans fs-12.5 text-text-bright">{title}</span>
         {paths.length > 0 && title !== paths.join(', ') && (
           <>
             <span className="text-[rgba(150,205,255,.28)]">·</span>
@@ -206,11 +206,11 @@ function FileBlock({ id, session, call, inset = false, children }: { id: string;
     >
       <div
         className={[
-          'flex items-center gap-2 px-2.5 py-[7px] font-mono text-[11.5px] text-[rgba(200,220,245,.8)]',
+          'flex items-center gap-2 px-2.5 py-[7px] font-mono fs-11.5 text-[rgba(200,220,245,.8)]',
           inset ? 'border-t border-[rgba(150,205,255,.08)]' : '',
         ].join(' ')}
       >
-        {!inset && <span className="text-[9px] text-text-muted">▾</span>}
+        {!inset && <span className="fs-9 text-text-muted">▾</span>}
         <span className="text-text-muted">⚙</span>
         <span className="min-w-0 truncate">
           {call.call.toolName}: <span className="text-text-bright">{path}</span>
@@ -227,14 +227,14 @@ function FileBlock({ id, session, call, inset = false, children }: { id: string;
             // `orbital-speaks-to-the-ide-itself`): a failure means the editor
             // went away, which is not news.
             onClick={() => void api.ideOpenFile(id, path, null).catch(() => false)}
-            className="shrink-0 border-b border-dashed border-[rgba(150,205,255,.25)] text-[10px] text-[rgba(160,190,225,.55)]"
+            className="shrink-0 border-b border-dashed border-[rgba(150,205,255,.25)] fs-10 text-[rgba(160,190,225,.55)]"
           >
             open in {ide.ideName} ↗
           </button>
         )}
       </div>
       {failed && call.result?.text && (
-        <div className="border-t border-dashed border-[rgba(150,205,255,.16)] px-2.5 py-1.5 font-mono text-[10.5px] whitespace-pre-wrap text-text-bright">
+        <div className="border-t border-dashed border-[rgba(150,205,255,.16)] px-2.5 py-1.5 font-mono fs-10.5 whitespace-pre-wrap text-text-bright">
           <span className="text-text-muted">error · </span>
           {call.result.text}
         </div>
@@ -243,7 +243,7 @@ function FileBlock({ id, session, call, inset = false, children }: { id: string;
         {change ? (
           <ChangeView change={change} isError={failed} />
         ) : (
-          <pre className="overflow-x-auto whitespace-pre-wrap px-2.5 font-mono text-[10.5px] text-text-muted">
+          <pre className="overflow-x-auto whitespace-pre-wrap px-2.5 font-mono fs-10.5 text-text-muted">
             {JSON.stringify(call.call.toolInput, null, 2)}
           </pre>
         )}
@@ -257,7 +257,7 @@ function Tag({ dashed = false, children }: { dashed?: boolean; children: string 
   return (
     <span
       className={[
-        'shrink-0 rounded-[4px] border border-[rgba(150,205,255,.3)] px-1.5 py-px text-[9.5px] tracking-[.12em] text-[rgba(200,220,245,.75)]',
+        'shrink-0 rounded-[4px] border border-[rgba(150,205,255,.3)] px-1.5 py-px fs-9.5 tracking-[.12em] text-[rgba(200,220,245,.75)]',
         dashed ? 'border-dashed' : '',
       ].join(' ')}
     >

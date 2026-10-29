@@ -55,7 +55,7 @@ export const IDE_MODIFIER_LABEL = '⌥'
  * both, and records "new colours: none" — every value here is already in the
  * panel's vocabulary.
  */
-const IDE_SUFFIX_CLASS = 'pl-2 font-mono text-[10px] text-[rgba(160,190,225,.55)]'
+const IDE_SUFFIX_CLASS = 'pl-2 font-mono fs-10 text-[rgba(160,190,225,.55)]'
 
 /** Where the button sits — only ink and box metrics differ (canvas 8a). */
 export type PathButtonVariant = 'row' | 'input' | 'prose' | 'code'
@@ -80,7 +80,7 @@ const VARIANT_CLASSES: Record<PathButtonVariant, string> = {
   // 8a INPUT frame: the value's slightly softer ink, same box.
   input: 'mx-[-5px] px-[5px] py-px text-[rgba(220,235,255,.9)]',
   // 8a assistant prose: mono 11.5px inside 13px prose, tighter box.
-  prose: 'mx-[-4px] px-[4px] py-px font-mono text-[11.5px] text-[#e8eef8]',
+  prose: 'mx-[-4px] px-[4px] py-px font-mono fs-11.5 text-[#e8eef8]',
   // Inside an inline code chip, which already sets the type and the box:
   // only the ink and a hit pad that stays within the chip's padding.
   code: 'mx-[-2px] px-[2px] py-0 text-[#e8eef8]',

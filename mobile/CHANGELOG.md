@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Added
+- On iPhone, the app's text follows the system text size (Settings → Display & Brightness → Text Size), up to one and a half times today's size.
 ### Changed
 - A long press on buttons, labels or the session list no longer selects their text or opens the system menu on a link; the transcript, the message box, file previews, task output, error detail and commands stay selectable.
 - Limits lists an account's directories under the device each one is on.

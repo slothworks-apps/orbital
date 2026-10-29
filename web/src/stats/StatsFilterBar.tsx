@@ -83,7 +83,7 @@ export function StatsFilterBar({
 
       <span className="flex-1" />
       {summary !== null && (
-        <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">
+        <div className="font-mono fs-10.5 text-[rgba(160,190,225,.5)]">
           {rangeLabel(summary.windowStart, summary.windowEnd)} · {summary.sessionCount} sessions ·
           local data only
         </div>

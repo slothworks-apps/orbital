@@ -57,7 +57,7 @@ export function CloseScreen({ id, session, walkthrough, onJump, bar }: CloseScre
       {bar}
 
       <main className="flex flex-1 flex-col gap-[30px] px-24 pt-11">
-        <h1 className="text-[32px] font-bold tracking-[-.02em] text-text-bright">
+        <h1 className="fs-32 font-bold tracking-[-.02em] text-text-bright">
           {plural(steps.length, 'step', 'steps')}, {plural(walkthrough.files.length, 'file', 'files')},{' '}
           {plural(blind.length, 'blind alley', 'blind alleys')}
         </h1>
@@ -71,13 +71,13 @@ export function CloseScreen({ id, session, walkthrough, onJump, bar }: CloseScre
                 <div
                   key={file.path}
                   className={[
-                    'flex items-center gap-2 rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-2.5 py-2 font-mono text-[11.5px]',
+                    'flex items-center gap-2 rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-2.5 py-2 font-mono fs-11.5',
                     reverted ? 'text-[rgba(160,190,225,.5)]' : 'text-text-bright',
                   ].join(' ')}
                 >
                   <span className="shrink-0 text-text-muted">{reverted ? '↶' : '⚙'}</span>
                   <span className="min-w-0 flex-1 truncate">{file.path}</span>
-                  {note && <span className="shrink-0 text-[10px] text-[rgba(160,190,225,.55)]">{note}</span>}
+                  {note && <span className="shrink-0 fs-10 text-[rgba(160,190,225,.55)]">{note}</span>}
                   <span className="flex shrink-0 gap-1">
                     {file.steps.map((stepId) => (
                       <button
@@ -85,7 +85,7 @@ export function CloseScreen({ id, session, walkthrough, onJump, bar }: CloseScre
                         type="button"
                         disabled={!stepById.has(stepId)}
                         onClick={() => onJump(stepId)}
-                        className="inline-flex h-5 min-w-5 items-center justify-center rounded-[4px] border border-[rgba(150,205,255,.2)] px-[5px] text-[10px] text-text-soft"
+                        className="inline-flex h-fit min-h-5 min-w-5 items-center justify-center rounded-[4px] border border-[rgba(150,205,255,.2)] px-[5px] fs-10 text-text-soft"
                       >
                         {ordinal(stepId)}
                       </button>
@@ -104,8 +104,8 @@ export function CloseScreen({ id, session, walkthrough, onJump, bar }: CloseScre
               const paths = [...new Set(group.steps.flatMap(callsOf).map(pathOf).filter((p): p is string => !!p))]
               return (
                 <div key={key} className="flex flex-col gap-2 rounded-[9px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.4)] px-3.5 py-3">
-                  <span className="text-[13.5px] font-semibold text-text-bright">{group.title || stepLabel(walkthrough, first)}</span>
-                  <span className="font-mono text-[10.5px] text-text-muted">
+                  <span className="fs-13.5 font-semibold text-text-bright">{group.title || stepLabel(walkthrough, first)}</span>
+                  <span className="font-mono fs-10.5 text-text-muted">
                     {first === last ? (
                       <>
                         step <JumpLink onJump={jumpTo(first.id)}>{first.ordinal}</JumpLink>
@@ -123,12 +123,12 @@ export function CloseScreen({ id, session, walkthrough, onJump, bar }: CloseScre
                       </>
                     )}
                   </span>
-                  {group.summary && <p className="text-[12.5px] leading-[1.55] text-[rgba(200,214,235,.8)]">{group.summary}</p>}
+                  {group.summary && <p className="fs-12.5 leading-[1.55] text-[rgba(200,214,235,.8)]">{group.summary}</p>}
                   {paths.map((path) => {
                     const file = fileByPath.get(path)
                     const note = file ? fileNote(file) : null
                     return (
-                      <span key={path} className="flex gap-1.5 font-mono text-[11px] text-text-muted">
+                      <span key={path} className="flex gap-1.5 font-mono fs-11 text-text-muted">
                         <span className="min-w-0 truncate">↶ {path}</span>
                         {note && <span className="shrink-0 text-[rgba(160,190,225,.45)]">{note}</span>}
                       </span>
@@ -142,31 +142,31 @@ export function CloseScreen({ id, session, walkthrough, onJump, bar }: CloseScre
           <Column title="STILL OPEN" empty={open.length === 0 && !busy && !after ? 'nothing open' : null}>
             {open.map(({ step, call }) => (
               <div key={call.call.id} className="flex flex-col gap-1.5 rounded-[9px] border border-dashed border-[rgba(150,205,255,.3)] bg-[rgba(4,8,16,.4)] px-3.5 py-3">
-                <span className="flex items-center gap-2 font-mono text-[11.5px] text-text-muted">
+                <span className="flex items-center gap-2 font-mono fs-11.5 text-text-muted">
                   <span className="min-w-0 truncate">
                     ⚙ {call.call.toolName}: <span className="text-text-bright">{pathOf(call)}</span>
                   </span>
                   <span className="flex-1" />
-                  <span className="shrink-0 text-[9.5px] tracking-[.12em] text-text-bright">NOT APPLIED</span>
+                  <span className="shrink-0 fs-9.5 tracking-[.12em] text-text-bright">NOT APPLIED</span>
                 </span>
                 {call.result?.text && (
-                  <span className="whitespace-pre-wrap font-mono text-[10.5px] text-text-bright">
+                  <span className="whitespace-pre-wrap font-mono fs-10.5 text-text-bright">
                     <span className="text-text-muted">error · </span>
                     {call.result.text}
                   </span>
                 )}
-                <span className="text-[12.5px] text-[rgba(200,214,235,.8)]">
+                <span className="fs-12.5 text-[rgba(200,214,235,.8)]">
                   Go to step <JumpLink onJump={jumpTo(step.id)}>{step.ordinal}</JumpLink>.
                 </span>
               </div>
             ))}
             {busy && (
               <div className="flex flex-col gap-1.5 rounded-[9px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.4)] px-3.5 py-3">
-                <span className="flex items-center gap-2 font-mono text-[11.5px] text-text-bright">
+                <span className="flex items-center gap-2 font-mono fs-11.5 text-text-bright">
                   <BlinkDot bright />
                   {session.status === 'working' ? 'the session is still working' : 'the session is waiting on a decision'}
                 </span>
-                <p className="text-[12.5px] text-[rgba(200,214,235,.8)]">
+                <p className="fs-12.5 text-[rgba(200,214,235,.8)]">
                   Steps may still be added after {steps.length}; the cover&apos;s counts and this page update when it settles.
                 </p>
               </div>
@@ -182,7 +182,7 @@ export function CloseScreen({ id, session, walkthrough, onJump, bar }: CloseScre
             Open the transcript
           </WalkButton>
           <span className="flex-1" />
-          <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">esc · back to the map</span>
+          <span className="font-mono fs-10.5 text-[rgba(160,190,225,.5)]">esc · back to the map</span>
         </footer>
       </main>
     </div>
@@ -192,8 +192,8 @@ export function CloseScreen({ id, session, walkthrough, onJump, bar }: CloseScre
 function Column({ title, empty, children }: { title: string; empty: string | null; children: ReactNode }) {
   return (
     <section className="flex min-w-0 flex-col gap-2.5">
-      <span className="border-b border-[rgba(150,205,255,.1)] pb-2 font-mono text-[10px] tracking-[.18em] text-[rgba(160,190,225,.6)]">{title}</span>
-      {empty && <span className="font-mono text-[11px] text-text-muted">{empty}</span>}
+      <span className="border-b border-[rgba(150,205,255,.1)] pb-2 font-mono fs-10 tracking-[.18em] text-[rgba(160,190,225,.6)]">{title}</span>
+      {empty && <span className="font-mono fs-11 text-text-muted">{empty}</span>}
       {children}
     </section>
   )

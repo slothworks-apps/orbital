@@ -78,7 +78,7 @@ export function RewindDialog({ sessionId }: { sessionId: string }) {
     >
       {/* Canvas 27b/27c: body 13/1.55, the list 14px under it, the note 12px under that. */}
       <div className="flex flex-col">
-        <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+        <p className="fs-13 leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
           {confirmation?.body}
         </p>
         {confirmation && confirmation.items.length > 0 && (
@@ -89,7 +89,7 @@ export function RewindDialog({ sessionId }: { sessionId: string }) {
             {confirmation.items.map((item, i) => (
               <li
                 key={i}
-                className="flex items-center gap-2 px-3 py-1.5 font-mono text-[11px] text-[rgba(160,190,225,.75)]"
+                className="flex items-center gap-2 px-3 py-1.5 font-mono fs-11 text-[rgba(160,190,225,.75)]"
               >
                 <span aria-hidden className="w-3 shrink-0 text-[rgba(160,190,225,.55)]">
                   {item.glyph}
@@ -105,7 +105,7 @@ export function RewindDialog({ sessionId }: { sessionId: string }) {
             ))}
           </ul>
         )}
-        <p className="mt-3 text-[12px] leading-[1.55] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+        <p className="mt-3 fs-12 leading-[1.55] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
           Files on disk stay as they are. You can still cancel the rewind afterwards, but ended tasks
           don&apos;t restart.
         </p>

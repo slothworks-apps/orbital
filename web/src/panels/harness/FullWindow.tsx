@@ -63,7 +63,7 @@ export function FullWindow({
         <button
           type="button"
           onClick={onExit}
-          className="min-w-0 max-w-[220px] truncate font-mono text-[10.5px] text-[oklch(85%_.12_205)] hover:brightness-110"
+          className="min-w-0 max-w-[220px] truncate font-mono fs-10.5 text-[oklch(85%_.12_205)] hover:brightness-110"
         >
           ↖ {sessionTitle}
         </button>
@@ -74,7 +74,7 @@ export function FullWindow({
             {chip && <ScopeChip text={chip} />}
             {harness.removedAt !== null && <ScopeChip text="removed" />}
           </div>
-          <div className="truncate text-[17px] font-bold text-text-bright">
+          <div className="truncate fs-17 font-bold text-text-bright">
             {harness.name}
             {firstInput ? ` · ${firstInput}` : ''}
           </div>
@@ -82,7 +82,7 @@ export function FullWindow({
         <span aria-hidden className="flex-1" />
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <Segments kinds={kinds} className="w-[220px]" />
-          <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+          <div className="font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
             <span className="text-[#e8eef8]">{readout[0]}</span>
             {readout.slice(1).map((r) => ` · ${r}`)}
           </div>
@@ -92,7 +92,7 @@ export function FullWindow({
           aria-label="Back to the panel"
           title="Back to the panel"
           onClick={onExit}
-          className="grid size-[22px] shrink-0 place-items-center rounded-[6px] font-mono text-[12px] text-[rgba(200,220,245,.7)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8]"
+          className="grid size-[22px] shrink-0 place-items-center rounded-[6px] font-mono fs-12 text-[rgba(200,220,245,.7)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8]"
         >
           ⎋
         </button>
@@ -116,10 +116,10 @@ export function FullWindow({
                   <Marker kind={s.kind} gate={isGateShape(s.kind, step)} />
                 </span>
                 <span className="flex min-w-0 flex-col gap-1">
-                  <span className="text-pretty text-[12.5px] font-semibold leading-[1.4]" style={{ color: MARKER[s.kind].titleInk }}>
+                  <span className="text-pretty fs-12.5 font-semibold leading-[1.4]" style={{ color: MARKER[s.kind].titleInk }}>
                     {step.title}
                   </span>
-                  <span className="font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+                  <span className="font-mono fs-10 text-[rgba(160,190,225,.6)]">
                     {stepMeta(i, step, stepWho(s.kind, step, s.state, harness, s.own))}
                   </span>
                 </span>
@@ -142,7 +142,7 @@ export function FullWindow({
         {harness.steps.length > 0 ? <WideStepDiff key={`d${index}`} sessionId={sessionId} harness={harness} index={index} /> : <div />}
       </div>
       {harness.removedAt !== null && (
-        <div className="border-t border-[rgba(150,205,255,.1)] px-6 py-2 font-mono text-[10px] text-[rgba(160,190,225,.5)]">
+        <div className="border-t border-[rgba(150,205,255,.1)] px-6 py-2 font-mono fs-10 text-[rgba(160,190,225,.5)]">
           removed {clock(harness.removedAt)} · the record is kept
         </div>
       )}

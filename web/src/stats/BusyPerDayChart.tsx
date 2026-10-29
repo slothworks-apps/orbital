@@ -52,10 +52,10 @@ function DayTooltip({ day, flip, showWaits }: { day: StatsDayBusy; flip: boolean
       style={flip ? { right: 56, bottom: 14 } : { left: 56, bottom: 14 }}
       className="absolute z-10 w-[196px] rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] px-3 py-2.5 shadow-[0_18px_44px_rgba(0,0,0,.6)]"
     >
-      <div className="font-mono text-[10px] tracking-[0.14em] text-[rgba(160,190,225,.6)]">
+      <div className="font-mono fs-10 tracking-[0.14em] text-[rgba(160,190,225,.6)]">
         {tooltipHeading(day.day)}
       </div>
-      <div className="mt-2 flex flex-col gap-[5px] font-mono text-[11px] text-text-bright">
+      <div className="mt-2 flex flex-col gap-[5px] font-mono fs-11 text-text-bright">
         {TIME_CATEGORIES.map((category) => (
           <div key={category.field} className="flex items-center gap-2">
             <span className="block h-2 w-2 rounded-[2px]" style={{ background: category.color }} />
@@ -97,7 +97,7 @@ export function BusyPerDayChart({ days, showWaits }: { days: StatsDayBusy[]; sho
       <div className="flex items-baseline gap-[14px]">
         <div className={PANEL_LABEL_CLASS}>BUSY TIME PER DAY</div>
         <span className="flex-1" />
-        <div className="font-mono text-[10px] text-[rgba(160,190,225,.45)]">
+        <div className="font-mono fs-10 text-[rgba(160,190,225,.45)]">
           stacked · API wait at the base
         </div>
       </div>
@@ -111,7 +111,7 @@ export function BusyPerDayChart({ days, showWaits }: { days: StatsDayBusy[]; sho
               style={{ bottom: DAY_PLOT_HEIGHT / 2 }}
             />
             <div
-              className="absolute left-0 font-mono text-[9.5px] text-[rgba(160,190,225,.4)]"
+              className="absolute left-0 font-mono fs-9.5 text-[rgba(160,190,225,.4)]"
               style={{ bottom: DAY_PLOT_HEIGHT / 2 + 3 }}
             >
               {formatStatsDuration(peak / 2)}
@@ -168,7 +168,7 @@ export function BusyPerDayChart({ days, showWaits }: { days: StatsDayBusy[]; sho
         </div>
       </div>
 
-      <div className="mt-2 flex justify-between font-mono text-[10px] text-[rgba(160,190,225,.5)]">
+      <div className="mt-2 flex justify-between font-mono fs-10 text-[rgba(160,190,225,.5)]">
         {days.map((day, index) => (
           <span
             key={day.day}

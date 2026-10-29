@@ -100,7 +100,7 @@ export const PANEL_CLASS =
 
 /** The 10px/.18em mono heading every panel and tile is titled with (10e stat tile). */
 export const PANEL_LABEL_CLASS =
-  'font-mono text-[10px] tracking-[0.18em] text-[rgba(160,190,225,.6)]'
+  'font-mono fs-10 tracking-[0.18em] text-[rgba(160,190,225,.6)]'
 
 /** Widest a day column is drawn (10e "day bar"); narrower windows shrink to fit. */
 export const DAY_BAR_MAX_WIDTH = 46

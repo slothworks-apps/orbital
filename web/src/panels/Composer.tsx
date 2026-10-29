@@ -76,7 +76,7 @@ import { completionKeyId } from '../lib/completionKey'
  * Body text metrics — canvas 9a/9e: prose 13.5px at 1.62. Formatting that
  * changes size (a heading, a code block) sets its own on top.
  */
-export const FIELD_METRICS = 'font-sans text-[13.5px] leading-[1.62] whitespace-pre-wrap break-words'
+export const FIELD_METRICS = 'font-sans fs-13.5 leading-[1.62] whitespace-pre-wrap break-words'
 
 /**
  * The field stops growing here and starts scrolling — eight lines at 13.5/1.62.
@@ -718,7 +718,7 @@ export function Composer({
   }
 
   return (
-    <div className={className}>
+    <div className={className} data-text-scope="transcript">
       <div
         ref={wellRef}
         onMouseOver={handleWellMouseOver}
@@ -773,7 +773,7 @@ export function Composer({
         {strip && (
           <div
             data-composer-strip
-            className="-mt-0.5 flex items-center gap-2 border-b border-[rgba(150,205,255,.1)] pb-2.5 font-mono text-[10.5px] text-[rgba(200,220,245,.85)]"
+            className="-mt-0.5 flex items-center gap-2 border-b border-[rgba(150,205,255,.1)] pb-2.5 font-mono fs-10.5 text-[rgba(200,220,245,.85)]"
           >
             {strip}
           </div>
@@ -800,7 +800,7 @@ export function Composer({
         {anyFailed && (
           <div
             data-testid="attachment-note"
-            className="flex items-center gap-2 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]"
+            className="flex items-center gap-2 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.5)]"
           >
             <span
               aria-hidden
@@ -839,7 +839,7 @@ export function Composer({
           className="@container flex items-center gap-2"
         >
           {popupShown ? (
-            <span className="font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+            <span className="font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.5)]">
               {POPUP_HINT}
             </span>
           ) : refusal ? (
@@ -848,7 +848,7 @@ export function Composer({
               // In .16s, out .2s (9e). 9d-C's voice: an 11px glyph, the label
               // tracked out, the measured fact in brighter ink, one sentence.
               className={[
-                'flex items-center gap-2 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.55)]',
+                'flex items-center gap-2 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.55)]',
                 refusal.exiting ? 'orbital-refusal-out' : 'orbital-refusal-in',
               ].join(' ')}
             >
@@ -864,7 +864,7 @@ export function Composer({
               {refusal.tail}
             </span>
           ) : note ? (
-            <span className="flex items-center gap-2 font-mono text-[11px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+            <span className="flex items-center gap-2 font-mono fs-11 tracking-[0.06em] text-[rgba(160,190,225,.5)]">
               <span
                 aria-hidden
                 className="block h-[11px] w-[11px] shrink-0 rounded-[3px] border border-[rgba(160,190,225,.35)]"
@@ -876,7 +876,7 @@ export function Composer({
             // it — the one line that says ⏎ no longer starts a new turn.
             <span
               className={[
-                'flex items-center gap-1.5 font-mono text-[10px] tracking-[0.06em] text-accent/90',
+                'flex items-center gap-1.5 font-mono fs-10 tracking-[0.06em] text-accent/90',
                 hintAside ? 'min-w-0' : '',
               ].join(' ')}
             >
@@ -889,7 +889,7 @@ export function Composer({
           ) : (
             <span
               className={[
-                'font-mono text-[10px] tracking-[0.06em]',
+                'font-mono fs-10 tracking-[0.06em]',
                 hintAside ? 'min-w-0 truncate' : '',
                 locked
                   ? 'text-[rgba(160,190,225,.25)]'
@@ -910,12 +910,12 @@ export function Composer({
             // Canvas 9c / 9f D: the aside in the quieter .45 ink; it is the
             // first thing to go when the row runs short (a narrow panel), so
             // the sentence keeps its room.
-            <span className="hidden shrink-0 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.45)] @min-[440px]:inline">
+            <span className="hidden shrink-0 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.45)] @min-[440px]:inline">
               {hintAside}
             </span>
           )}
           {locked && (
-            <span data-composer-locked className="font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.25)]">
+            <span data-composer-locked className="font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.25)]">
               LOCKED
             </span>
           )}
@@ -933,10 +933,10 @@ export function Composer({
             className="orbital-droppulse pointer-events-none absolute inset-0 flex min-h-24 flex-col items-center justify-center gap-2 rounded-[10px] border-2 border-dashed border-accent/50 bg-accent/7"
           >
             <span className="block h-4 w-4 rounded-[4px] border border-[oklch(88%_.1_205_/_.7)]" />
-            <span className="font-mono text-[10px] tracking-[0.14em] text-[oklch(90%_.06_205)]">
+            <span className="font-mono fs-10 tracking-[0.14em] text-[oklch(90%_.06_205)]">
               DROP TO ATTACH
             </span>
-            <span className="font-mono text-[9.5px] tracking-[0.06em] text-[rgba(190,215,240,.6)]">
+            <span className="font-mono fs-9.5 tracking-[0.06em] text-[rgba(190,215,240,.6)]">
               {ATTACHMENT_TYPES_LINE}
             </span>
           </div>

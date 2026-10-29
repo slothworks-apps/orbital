@@ -128,7 +128,7 @@ export function NoticeRow({ message }: NoticeRowProps) {
       CLI
       {/* 20c A's chip: the command's own name, set at reading size and
           untracked so it stays a name rather than an eyebrow. */}
-      <span className="inline-block rounded-[4px] border border-[rgba(150,205,255,.14)] px-1.5 py-px text-[10.5px] tracking-normal text-[#e8eef8]">
+      <span className="inline-block rounded-[4px] border border-[rgba(150,205,255,.14)] px-1.5 py-px fs-10.5 tracking-normal text-[#e8eef8]">
         {command}
       </span>
     </>
@@ -159,11 +159,11 @@ export function NoticeRow({ message }: NoticeRowProps) {
     >
       {inline ? (
         <>
-          <span className="flex shrink-0 items-baseline gap-2 text-[9.5px] tracking-[0.14em]">
+          <span className="flex shrink-0 items-baseline gap-2 fs-9.5 tracking-[0.14em]">
             {identity}
           </span>
           <span
-            className={`min-w-0 flex-1 text-[11px] leading-[1.5] ${tone.bodyInk}`}
+            className={`min-w-0 flex-1 fs-11 leading-[1.5] ${tone.bodyInk}`}
             // Decoded the same way the stacked form's body is — a one-line
             // banner can still arrive coloured from an older CLI, and
             // `ansiToHtml` escapes its input before colorizing.
@@ -173,7 +173,7 @@ export function NoticeRow({ message }: NoticeRowProps) {
       ) : (
         <>
           <div
-            className={`flex items-center gap-2 text-[9.5px] tracking-[0.14em] ${
+            className={`flex items-center gap-2 fs-9.5 tracking-[0.14em] ${
               command ? 'text-[rgba(160,190,225,.55)]' : ''
             }`}
           >
@@ -190,7 +190,7 @@ export function NoticeRow({ message }: NoticeRowProps) {
           <div className="relative">
             <pre
               className={[
-                'm-0 text-[11px]',
+                'm-0 fs-11',
                 boxed
                   ? 'overflow-x-auto whitespace-pre leading-[1.3]'
                   : 'whitespace-pre-wrap leading-[1.55]',
@@ -214,7 +214,7 @@ export function NoticeRow({ message }: NoticeRowProps) {
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="cursor-pointer self-start font-mono text-[10px] text-[rgba(143,216,255,.85)] focus:outline-none"
+          className="cursor-pointer self-start font-mono fs-10 text-[rgba(143,216,255,.85)] focus:outline-none"
         >
           {open ? '▴ show less' : `▾ show all ${lines} lines`}
         </button>

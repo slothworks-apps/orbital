@@ -8,7 +8,7 @@ import type { ReactNode } from 'react'
  * the reverse. They are separate canvas measurements, not steps of one scale,
  * so a t-shirt name would be a lie the next person has to discover.
  */
-export type SegmentedSize = 'tab' | 'filter' | 'row' | 'field'
+export type SegmentedSize = 'tab' | 'filter' | 'row' | 'field' | 'steps'
 
 /** Selection is a tint, an ink and a weight (see the ADR); hover is neutral underneath it. */
 const ACCENT_ON = 'bg-accent/10 font-semibold text-accent'
@@ -18,21 +18,21 @@ const SIZES = {
   /** canvas 10a — tabs inside a panel heading (the tool leaderboard's). */
   tab: {
     shell: 'inline-flex rounded-[7px] border-[rgba(150,205,255,.18)]',
-    item: 'px-[11px] py-[5px] text-[10.5px]',
+    item: 'px-[11px] py-[5px] fs-10.5',
     on: ACCENT_ON,
     off: NEUTRAL_OFF,
   },
   /** canvas 10a — the stats filter bar. */
   filter: {
     shell: 'inline-flex rounded-lg border-[rgba(150,205,255,.18)]',
-    item: 'px-3.5 py-[7px] text-[11.5px]',
+    item: 'px-3.5 py-[7px] fs-11.5',
     on: ACCENT_ON,
     off: NEUTRAL_OFF,
   },
   /** canvas 1h — a control in the settings dialog's 320px column. */
   row: {
     shell: 'inline-flex rounded-lg border-[rgba(150,205,255,.18)]',
-    item: 'px-3 py-[7px] text-xs',
+    item: 'px-3 py-[7px] fs-12 leading-(--text-xs--line-height)',
     on: ACCENT_ON,
     off: NEUTRAL_OFF,
   },
@@ -45,9 +45,21 @@ const SIZES = {
    */
   field: {
     shell: 'flex rounded-[9px] border-[rgba(150,205,255,.16)]',
-    item: 'flex h-9 min-w-0 flex-1 items-center justify-center px-3 text-[11.5px] [&>span]:truncate',
+    item: 'flex h-fit min-h-9 min-w-0 flex-1 items-center justify-center px-3 fs-11.5 [&>span]:truncate',
     on: 'bg-accent/10 font-semibold text-text-bright',
     off: 'bg-transparent text-[rgba(200,220,245,.78)] hover:bg-[rgba(150,205,255,.07)]',
+  },
+  /**
+   * canvas `Feature - Text size` 6a — steps that each show a value under
+   * their name: equal segments, each its own rounded chip with a 3px gap and
+   * no divider, the selected one the chip active fill. The label is the
+   * caller's two lines; `group-aria-pressed:` reaches the second.
+   */
+  steps: {
+    shell: 'flex gap-[3px] rounded-[10px] border-[rgba(150,205,255,.14)] p-[3px]',
+    item: 'group flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-[7px] border px-1 py-1.5',
+    on: 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright',
+    off: 'border-transparent bg-transparent text-[rgba(160,190,225,.75)] hover:border-[rgba(150,205,255,.26)]',
   },
 } as const satisfies Record<SegmentedSize, { shell: string; item: string; on: string; off: string }>
 
@@ -126,7 +138,7 @@ export function Segmented<T extends string>({
               s.item,
               // The divider belongs to the segment on its right, so the
               // shell's own border is never doubled at either end.
-              index > 0 ? 'border-l border-[rgba(150,205,255,.12)]' : '',
+              index > 0 && size !== 'steps' ? 'border-l border-[rgba(150,205,255,.12)]' : '',
               // Selection is a tint, an ink and a weight — three channels, so
               // it survives both colour blindness and the neutral hover
               // underneath it. NOT the accent as a fill: 1h and 10a draw this

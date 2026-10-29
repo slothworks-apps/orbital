@@ -37,8 +37,8 @@ function TemplateRow({ template, selected, onPick }: { template: HarnessTemplate
           background: selected ? 'oklch(85% .12 205)' : 'transparent',
         }}
       />
-      <span className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-text-bright">{template.name}</span>
-      <span className="shrink-0 font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+      <span className="min-w-0 flex-1 truncate fs-12.5 font-semibold text-text-bright">{template.name}</span>
+      <span className="shrink-0 font-mono fs-10 text-[rgba(160,190,225,.6)]">
         {plural(template.steps.length, 'step')} · {plural(gates(template), 'gate')}
       </span>
     </button>
@@ -63,20 +63,20 @@ function TemplateDetail({
   return (
     <div className="mb-1.5 mt-1 flex flex-col gap-[9px] rounded-[9px] border border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.5)] px-3 py-[11px]">
       {template.description && (
-        <div className="text-pretty text-[12px] leading-[1.55] text-[rgba(220,232,248,.88)]">{template.description}</div>
+        <div className="text-pretty fs-12 leading-[1.55] text-[rgba(220,232,248,.88)]">{template.description}</div>
       )}
       {template.inputs.map((input) => (
         <label key={input.key} className="flex flex-col gap-1">
-          <span className="text-[11.5px] font-semibold text-[rgba(220,235,255,.9)]">{input.label}</span>
+          <span className="fs-11.5 font-semibold text-[rgba(220,235,255,.9)]">{input.label}</span>
           <input
             value={inputs[input.key] ?? ''}
             onChange={(e) => setInputs({ ...inputs, [input.key]: e.target.value })}
-            className="rounded-[7px] border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.7)] px-[9px] py-[5px] font-mono text-[11px] text-[#e8eef8] outline-none focus:border-[rgba(150,205,255,.35)]"
+            className="rounded-[7px] border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.7)] px-[9px] py-[5px] font-mono fs-11 text-[#e8eef8] outline-none focus:border-[rgba(150,205,255,.35)]"
           />
-          {input.hint && <span className="font-mono text-[9.5px] text-[rgba(160,190,225,.55)]">{input.hint}</span>}
+          {input.hint && <span className="font-mono fs-9.5 text-[rgba(160,190,225,.55)]">{input.hint}</span>}
         </label>
       ))}
-      <div className="flex items-center gap-2 border-t border-[rgba(150,205,255,.08)] pt-2.5 font-mono text-[10.5px] text-[#e8eef8]">
+      <div className="flex items-center gap-2 border-t border-[rgba(150,205,255,.08)] pt-2.5 font-mono fs-10.5 text-[#e8eef8]">
         {plural(template.steps.length, 'step')}
         <span className="text-[rgba(150,205,255,.3)]">·</span>
         <span className="flex items-center gap-[5px] text-[rgba(220,235,255,.85)]">
@@ -96,11 +96,11 @@ function TemplateDetail({
       {stepsOpen && (
         <ol className="flex flex-col gap-1.5">
           {template.steps.map((step, i) => (
-            <li key={step.id} className="flex gap-2 text-[11.5px] leading-[1.4] text-[rgba(200,214,235,.8)]">
+            <li key={step.id} className="flex gap-2 fs-11.5 leading-[1.4] text-[rgba(200,214,235,.8)]">
               <span className="mt-[4px]">
                 <Marker kind={step.mode === 'gate' ? 'pendingGate' : 'pending'} gate={step.mode === 'gate'} size={7} />
               </span>
-              <span className="w-4 shrink-0 font-mono text-[10px] text-[rgba(160,190,225,.5)]">{String(i + 1).padStart(2, '0')}</span>
+              <span className="w-4 shrink-0 font-mono fs-10 text-[rgba(160,190,225,.5)]">{String(i + 1).padStart(2, '0')}</span>
               <span className="min-w-0 flex-1 text-pretty">{step.title}</span>
             </li>
           ))}
@@ -109,7 +109,7 @@ function TemplateDetail({
       <div className="flex items-center gap-2">
         <Switch on={lucky} label="Feeling lucky" onChange={setLucky} />
         <span aria-hidden className="flex-1" />
-        <span className="font-mono text-[9.5px] text-[rgba(160,190,225,.5)]">
+        <span className="font-mono fs-9.5 text-[rgba(160,190,225,.5)]">
           template default: {template.options.lucky ? 'on' : 'off'}
         </span>
       </div>
@@ -119,7 +119,7 @@ function TemplateDetail({
 
 function GroupHead({ kind, children }: { kind: 'project' | 'global'; children: string }) {
   return (
-    <div className="flex items-center gap-2 pb-1 pt-0.5 font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">
+    <div className="flex items-center gap-2 pb-1 pt-0.5 font-mono fs-9.5 tracking-[0.18em] text-[rgba(160,190,225,.6)]">
       <ScopeMark kind={kind} />
       {children}
     </div>
@@ -213,8 +213,8 @@ export function StartView({ sessionId, chrome }: { sessionId: string; chrome: Ch
             {chrome.close}
           </>,
         )}
-        <div className="mt-2 text-[15px] font-semibold text-text-bright">Start a harness</div>
-        <div className="mt-1 font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+        <div className="mt-2 fs-15 font-semibold text-text-bright">Start a harness</div>
+        <div className="mt-1 font-mono fs-10 text-[rgba(160,190,225,.6)]">
           for this session{projectName ? ` · project ${projectName}` : ''}
         </div>
       </HeaderBlock>
@@ -228,7 +228,7 @@ export function StartView({ sessionId, chrome }: { sessionId: string; chrome: Ch
                   rows(projectTemplates)
                 ) : (
                   <div className="flex flex-col gap-2 rounded-[9px] border border-dashed border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.3)] p-3.5">
-                    <div className="text-pretty text-[12.5px] leading-[1.55] text-[rgba(228,238,250,.9)]">
+                    <div className="text-pretty fs-12.5 leading-[1.55] text-[rgba(228,238,250,.9)]">
                       No templates for {projectName} yet. A project template appears only in this project&apos;s
                       sessions. A global one appears everywhere.
                     </div>
@@ -238,19 +238,19 @@ export function StartView({ sessionId, chrome }: { sessionId: string; chrome: Ch
                           <button
                             type="button"
                             onClick={() => openTemplates({ project: focusProject, draft: true })}
-                            className="rounded-[7px] border border-[rgba(150,205,255,.2)] px-[11px] py-1.5 text-[12px] font-semibold text-[rgba(220,235,255,.9)] hover:border-[rgba(150,205,255,.35)]"
+                            className="rounded-[7px] border border-[rgba(150,205,255,.2)] px-[11px] py-1.5 fs-12 font-semibold text-[rgba(220,235,255,.9)] hover:border-[rgba(150,205,255,.35)]"
                           >
                             Draft one with the assistant
                           </button>
                           <button
                             type="button"
                             onClick={() => openTemplates({ project: focusProject })}
-                            className="rounded-[7px] border border-[rgba(150,205,255,.14)] px-[11px] py-1.5 text-[12px] font-semibold text-[rgba(200,220,245,.75)] hover:border-[rgba(150,205,255,.3)]"
+                            className="rounded-[7px] border border-[rgba(150,205,255,.14)] px-[11px] py-1.5 fs-12 font-semibold text-[rgba(200,220,245,.75)] hover:border-[rgba(150,205,255,.3)]"
                           >
                             Open Settings
                           </button>
                         </div>
-                        <div className="font-mono text-[9.5px] text-[rgba(160,190,225,.5)]">
+                        <div className="font-mono fs-9.5 text-[rgba(160,190,225,.5)]">
                           both open Settings → Harness templates · scope pre-set to {projectName}
                         </div>
                       </>
@@ -268,7 +268,7 @@ export function StartView({ sessionId, chrome }: { sessionId: string; chrome: Ch
               </>
             )}
             {!projectName && globalTemplates.length === 0 && (
-              <div className="text-pretty text-[12.5px] leading-[1.55] text-[rgba(200,214,235,.85)]">
+              <div className="text-pretty fs-12.5 leading-[1.55] text-[rgba(200,214,235,.85)]">
                 No harness templates yet. Create one in Settings → Harness templates.
               </div>
             )}
@@ -280,11 +280,11 @@ export function StartView({ sessionId, chrome }: { sessionId: string; chrome: Ch
           type="button"
           disabled={!selected || !!missing || busy}
           onClick={() => void start()}
-          className="flex items-center justify-center rounded-lg bg-[oklch(85%_.12_205)] px-3.5 py-[9px] text-[13px] font-bold text-[#03111a] hover:brightness-[1.06] disabled:cursor-not-allowed disabled:bg-[oklch(85%_.12_205_/_.25)] disabled:text-[rgba(232,238,248,.6)] disabled:hover:brightness-100"
+          className="flex items-center justify-center rounded-lg bg-[oklch(85%_.12_205)] px-3.5 py-[9px] fs-13 font-bold text-[#03111a] hover:brightness-[1.06] disabled:cursor-not-allowed disabled:bg-[oklch(85%_.12_205_/_.25)] disabled:text-[rgba(232,238,248,.6)] disabled:hover:brightness-100"
         >
           Start harness
         </button>
-        <div className="text-center font-mono text-[9.5px] leading-[1.6] text-[rgba(160,190,225,.55)]">
+        <div className="text-center font-mono fs-9.5 leading-[1.6] text-[rgba(160,190,225,.55)]">
           {!selected
             ? 'pick a template first'
             : missing

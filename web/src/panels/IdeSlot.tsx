@@ -177,7 +177,7 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
             'absolute inset-x-0 bottom-0 box-border mx-[10px]',
             'rounded-t-[8px] border border-b-0 border-[rgba(150,205,255,.14)]',
             'bg-[#070b16] bg-[image:linear-gradient(rgba(150,205,255,.05),rgba(150,205,255,.05))]',
-            'font-mono text-[10.5px]',
+            'font-mono fs-10.5',
           ].join(' ')}
         >
           <div
@@ -248,7 +248,7 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
                 onClick={() => onDismiss(selectionId(lip))}
                 // 20b-3 / 20f: 18px, no border at rest — the lip already has
                 // one — gaining the .3 hairline on hover, the only hover here.
-                className="grid h-[18px] w-[18px] flex-none place-items-center rounded-[5px] border border-transparent text-[11px] leading-none text-[rgba(200,220,245,.7)] hover:border-[rgba(150,205,255,.3)] focus-visible:border-[rgba(150,205,255,.3)] focus-visible:outline-none"
+                className="grid h-[18px] w-[18px] flex-none place-items-center rounded-[5px] border border-transparent fs-11 leading-none text-[rgba(200,220,245,.7)] hover:border-[rgba(150,205,255,.3)] focus-visible:border-[rgba(150,205,255,.3)] focus-visible:outline-none"
               >
                 ×
               </button>

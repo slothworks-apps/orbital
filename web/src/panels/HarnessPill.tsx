@@ -211,17 +211,17 @@ function Pill({
           transition: 'opacity 120ms ease, visibility 0s linear ' + (flyout ? '0s' : '120ms'),
         }}
       >
-        <span className="flex items-center gap-2 font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.6)]">
+        <span className="flex items-center gap-2 font-mono fs-9.5 tracking-[0.16em] text-[rgba(160,190,225,.6)]">
           HARNESS
           <span className="min-w-0 flex-1 truncate tracking-[0.02em]">{harness.name}</span>
           <span className="tracking-[0.04em] text-[#e8eef8]">{reading.count}</span>
         </span>
-        <span className="line-clamp-2 text-[12.5px] leading-[1.4] font-semibold text-[#e8eef8]">{reading.title}</span>
-        <span className="flex items-center gap-2 font-mono text-[10px]" style={{ color: reading.statusInk }}>
+        <span className="line-clamp-2 fs-12.5 leading-[1.4] font-semibold text-[#e8eef8]">{reading.title}</span>
+        <span className="flex items-center gap-2 font-mono fs-10" style={{ color: reading.statusInk }}>
           {reading.status}
           {reading.detail && <span className="text-[rgba(160,190,225,.6)]">· {reading.detail}</span>}
         </span>
-        <span className="border-t border-solid border-[rgba(150,205,255,.08)] pt-[7px] font-mono text-[9.5px] text-[rgba(160,190,225,.55)]">
+        <span className="border-t border-solid border-[rgba(150,205,255,.08)] pt-[7px] font-mono fs-9.5 text-[rgba(160,190,225,.55)]">
           click · open the harness panel · {shortcutLabel('session.harness')}
         </span>
       </span>

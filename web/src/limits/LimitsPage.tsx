@@ -129,13 +129,13 @@ export function LimitsPage({ account = null }: { account?: string | null }) {
         {/* 31a / 60c: the windows' panel. */}
         <section className="flex min-w-0 flex-1 flex-col overflow-y-auto rounded-[13px] border border-[rgba(150,205,255,.12)] bg-[rgba(6,10,20,.55)] px-7 pb-2 pt-6">
           <div className={`flex items-baseline gap-3 ${grouped ? 'pb-2.5' : 'pb-[18px]'}`}>
-            <span className="text-[19px] font-bold text-text-bright">Plan limits</span>
-            <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
+            <span className="fs-19 font-bold text-text-bright">Plan limits</span>
+            <span className="font-mono fs-10.5 text-[rgba(160,190,225,.55)]">
               {single?.group.account ? `as reported by Claude · ${single.group.account}` : 'as reported by Claude'}
             </span>
             <span className="flex-1" />
             <span
-              className="font-mono text-[10.5px]"
+              className="font-mono fs-10.5"
               style={{ color: single?.stale ? 'rgba(220,235,255,.85)' : 'rgba(160,190,225,.55)' }}
             >
               {headerLine}
@@ -172,7 +172,7 @@ export function LimitsPage({ account = null }: { account?: string | null }) {
         <div className="flex w-[360px] flex-none flex-col gap-[18px]">
           {nothingTracked ? (
             <Card label="WAITING FOR A RESET">
-              <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">— not tracked</div>
+              <div className="font-mono fs-10.5 text-[rgba(160,190,225,.5)]">— not tracked</div>
             </Card>
           ) : (
             waits.length > 0 && (
@@ -189,7 +189,7 @@ export function LimitsPage({ account = null }: { account?: string | null }) {
                   )
                 })}
                 {localMarks && (
-                  <div className="font-mono text-[10px] leading-[1.7] text-[rgba(160,190,225,.5)]">
+                  <div className="font-mono fs-10 leading-[1.7] text-[rgba(160,190,225,.5)]">
                     a session waits on its own directory's window only
                   </div>
                 )}
@@ -198,20 +198,20 @@ export function LimitsPage({ account = null }: { account?: string | null }) {
           )}
           {!nothingTracked && (
             <Card label="AT THIS PACE" gap={10}>
-              <div className="text-[12.5px] leading-[1.6] text-[rgba(190,212,238,.8)] [text-wrap:pretty]">
+              <div className="fs-12.5 leading-[1.6] text-[rgba(190,212,238,.8)] [text-wrap:pretty]">
                 {paceExplanation()}
               </div>
             </Card>
           )}
           <Card label="AFTER A RESET" gap={10}>
-            <div className="text-[12.5px] leading-[1.6] text-[rgba(190,212,238,.8)] [text-wrap:pretty]">
+            <div className="fs-12.5 leading-[1.6] text-[rgba(190,212,238,.8)] [text-wrap:pretty]">
               {autoContinue
                 ? `Waiting sessions send “${text}” when their window resets. Cancel it per session in the transcript.`
                 : 'Automatic continue is off. Waiting sessions show the reset time and stay idle until you write.'}
             </div>
             <a
               href={settingsHref('sessions')}
-              className="font-mono text-[10.5px] text-[#8fd8ff] no-underline hover:text-[#c6ecff]"
+              className="font-mono fs-10.5 text-[#8fd8ff] no-underline hover:text-[#c6ecff]"
             >
               Settings → Sessions ›
             </a>
@@ -281,15 +281,15 @@ function AccountGroup({
           />
           {showTiles && tiles.map((mono, i) => <ClaudeDirMark key={i} mono={mono} size="phone" />)}
           {showTiles && more > 0 && <ClaudeDirMark mono={`+${more}`} size="phone" />}
-          <span className="min-w-0 truncate text-[14.5px] font-bold text-text-bright">{view.title}</span>
+          <span className="min-w-0 truncate fs-14.5 font-bold text-text-bright">{view.title}</span>
           {view.plan && (
-            <span className="flex-none font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">{view.plan}</span>
+            <span className="flex-none font-mono fs-10.5 text-[rgba(160,190,225,.55)]">{view.plan}</span>
           )}
           <span className="flex-1" />
-          {lit && <span className="font-mono text-[10px] text-[rgba(160,190,225,.5)]">opened from the map ·</span>}
+          {lit && <span className="font-mono fs-10 text-[rgba(160,190,225,.5)]">opened from the map ·</span>}
           {!missing && (
             <span
-              className="font-mono text-[10.5px]"
+              className="font-mono fs-10.5"
               style={{ color: view.stale ? 'rgba(220,235,255,.85)' : 'rgba(160,190,225,.55)' }}
             >
               {readLineOf(view, now)}
@@ -299,7 +299,7 @@ function AccountGroup({
         </div>
         {view.devices.length > 0 ? (
           // 60c: a row per device — its glyph and name, then its directories.
-          <div className="grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-4 gap-y-[5px] font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+          <div className="grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-4 gap-y-[5px] font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
             {view.devices.map((device) => (
               <Fragment key={device.id}>
                 <span className="flex items-center gap-[5px] whitespace-nowrap text-[rgba(160,190,225,.55)]">
@@ -316,7 +316,7 @@ function AccountGroup({
             ))}
           </div>
         ) : (
-          <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+          <div className="font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
             <DirRun dirs={view.dirs} />
           </div>
         )}
@@ -359,7 +359,7 @@ function ReadAgain({ onClick, disabled }: { onClick: () => void; disabled: boole
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="ml-1 cursor-pointer rounded-[7px] border border-[rgba(150,205,255,.14)] bg-[rgba(150,205,255,.05)] px-2.5 py-1 font-mono text-[10px] tracking-[0.12em] text-[rgba(200,220,245,.85)] transition-colors duration-150 hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.12)] hover:text-text-bright disabled:cursor-default"
+      className="ml-1 cursor-pointer rounded-[7px] border border-[rgba(150,205,255,.14)] bg-[rgba(150,205,255,.05)] px-2.5 py-1 font-mono fs-10 tracking-[0.12em] text-[rgba(200,220,245,.85)] transition-colors duration-150 hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.12)] hover:text-text-bright disabled:cursor-default"
     >
       READ AGAIN
     </button>
@@ -468,9 +468,9 @@ function WindowRow({
       ].join(' ')}
     >
       <div className="min-w-0">
-        <div className={`${compact ? 'text-[13.5px]' : 'text-[14px]'} font-semibold text-text-bright`}>{name}</div>
+        <div className={`${compact ? 'fs-13.5' : 'fs-14'} font-semibold text-text-bright`}>{name}</div>
         {sub && (
-          <div className={`${compact ? 'mt-[3px]' : 'mt-1'} font-mono text-[10.5px] text-[rgba(160,190,225,.6)]`}>{sub}</div>
+          <div className={`${compact ? 'mt-[3px]' : 'mt-1'} font-mono fs-10.5 text-[rgba(160,190,225,.6)]`}>{sub}</div>
         )}
       </div>
       <div className="flex min-w-0 flex-col gap-2">
@@ -479,7 +479,7 @@ function WindowRow({
         </div>
         {estimate && (
           <span
-            className="font-mono text-[10.5px]"
+            className="font-mono fs-10.5"
             style={{ color: estimate.lit ? 'rgba(160,190,225,.75)' : 'rgba(160,190,225,.55)' }}
           >
             {estimate.before}
@@ -490,13 +490,13 @@ function WindowRow({
       </div>
       <div className="flex flex-col items-end gap-[5px]">
         <span
-          className={`font-mono leading-none text-text-bright ${money ? 'text-[14px]' : compact ? 'text-[18px]' : 'text-[20px]'}`}
+          className={`font-mono leading-none text-text-bright ${money ? 'fs-14' : compact ? 'fs-18' : 'fs-20'}`}
         >
           {value}
         </span>
-        {word && <span className="font-mono text-[9.5px] tracking-[0.14em] text-[rgba(214,230,248,.8)]">{word}</span>}
+        {word && <span className="font-mono fs-9.5 tracking-[0.14em] text-[rgba(214,230,248,.8)]">{word}</span>}
       </div>
-      <div className="flex flex-col gap-1 font-mono text-[11px]">
+      <div className="flex flex-col gap-1 font-mono fs-11">
         <span className="text-[rgba(160,190,225,.55)]">{resetsAt ? 'resets' : 'reset'}</span>
         <span className="text-text-bright">{formatResetCell(resetsAt, now)}</span>
       </div>
@@ -510,7 +510,7 @@ function Card({ label, gap = 12, children }: { label: string; gap?: number; chil
       className="flex flex-col rounded-[13px] border border-[rgba(150,205,255,.12)] bg-[rgba(6,10,20,.55)] px-6 py-[22px]"
       style={{ gap }}
     >
-      <span className="font-mono text-[9.5px] tracking-[0.2em] text-[rgba(160,190,225,.6)]">{label}</span>
+      <span className="font-mono fs-9.5 tracking-[0.2em] text-[rgba(160,190,225,.6)]">{label}</span>
       {children}
     </div>
   )
@@ -528,8 +528,8 @@ function WaitRow({ wait, now, mono }: { wait: LimitsWaitRow; now: number; mono?:
         className="block h-[7px] w-[7px] flex-none rounded-full border-[1.5px] border-solid border-[rgba(214,230,248,.8)]"
       />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[13px] font-semibold">{wait.title}</div>
-        <div className="mt-0.5 flex items-center gap-1.5 font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+        <div className="truncate fs-13 font-semibold">{wait.title}</div>
+        <div className="mt-0.5 flex items-center gap-1.5 font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
           {/* 44e: the waiting session's directory, with two or more. */}
           {mono !== undefined && <ClaudeDirMark mono={mono} />}
           <span className="min-w-0">
@@ -537,7 +537,7 @@ function WaitRow({ wait, now, mono }: { wait: LimitsWaitRow; now: number; mono?:
           </span>
         </div>
       </div>
-      <span className="font-mono text-[11px] text-text-bright">{formatResetAt(wait.resetsAt, now)}</span>
+      <span className="font-mono fs-11 text-text-bright">{formatResetAt(wait.resetsAt, now)}</span>
     </a>
   )
 }
@@ -552,14 +552,14 @@ function NotTracked({ apiKey, several = false }: { apiKey: boolean; several?: bo
   return (
     <div className="flex flex-1 flex-col items-start justify-center gap-3 border-t border-[rgba(150,205,255,.08)] pb-[60px] pl-1">
       <span aria-hidden className="block h-10 w-10 rounded-full border border-dashed border-[rgba(200,215,235,.35)]" />
-      <div className="text-[17px] font-bold text-text-bright">Limits aren't tracked</div>
-      <div className="max-w-[520px] text-[13px] leading-[1.6] text-[rgba(190,212,238,.75)] [text-wrap:pretty]">
+      <div className="fs-17 font-bold text-text-bright">Limits aren't tracked</div>
+      <div className="max-w-[520px] fs-13 leading-[1.6] text-[rgba(190,212,238,.75)] [text-wrap:pretty]">
         {apiKey
           ? `Orbital is signed in with an API key. API usage is billed per token and has no plan windows, so there is nothing to show here. ${several ? 'The key overrides the login of every directory, so no directory has limits either.' : 'Sessions never wait for a reset.'}`
           : 'This account has no plan windows — its usage is billed as it goes, so there is nothing to show here. Its sessions never wait for a reset.'}
       </div>
       {apiKey && (
-        <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+        <div className="font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
           sign in with a Claude account in Settings → General to track limits
         </div>
       )}
@@ -592,14 +592,14 @@ function QuietRow({
         className="box-border block h-4 w-4 flex-none rounded-full border border-dashed"
         style={{ borderColor: ring }}
       />
-      <span className="flex-none text-[13px] font-semibold" style={{ color: titleInk }}>
+      <span className="flex-none fs-13 font-semibold" style={{ color: titleInk }}>
         {title}
       </span>
       <span
         className={
           mono
-            ? 'min-w-0 font-mono text-[11px] text-[rgba(160,190,225,.55)]'
-            : 'min-w-0 text-[12.5px] text-[rgba(160,190,225,.7)]'
+            ? 'min-w-0 font-mono fs-11 text-[rgba(160,190,225,.55)]'
+            : 'min-w-0 fs-12.5 text-[rgba(160,190,225,.7)]'
         }
       >
         {text}

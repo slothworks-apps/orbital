@@ -181,14 +181,14 @@ export function SandboxPage() {
 
       <Panel side="float" className="absolute left-4 top-4 z-10 w-[240px]">
         <div className="flex flex-col gap-4 p-4">
-          <h1 className="font-mono text-[11px] tracking-[0.14em] text-text-bright">
+          <h1 className="font-mono fs-11 tracking-[0.14em] text-text-bright">
             PLANET SANDBOX
           </h1>
 
           <div className="flex flex-col gap-1.5">
             <label
               id="sandbox-state-label"
-              className="font-mono text-[10px] tracking-[0.1em] text-text-soft"
+              className="font-mono fs-10 tracking-[0.1em] text-text-soft"
             >
               STATE
             </label>
@@ -204,7 +204,7 @@ export function SandboxPage() {
           <div className="flex flex-col gap-1.5">
             <label
               id="sandbox-hue-label"
-              className="font-mono text-[10px] tracking-[0.1em] text-text-soft"
+              className="font-mono fs-10 tracking-[0.1em] text-text-soft"
             >
               TAG HUE
             </label>
@@ -220,7 +220,7 @@ export function SandboxPage() {
           <div className="flex flex-col gap-1.5">
             <label
               id="sandbox-context-label"
-              className="font-mono text-[10px] tracking-[0.1em] text-text-soft"
+              className="font-mono fs-10 tracking-[0.1em] text-text-soft"
             >
               CONTEXT FILL
             </label>
@@ -236,7 +236,7 @@ export function SandboxPage() {
           <div className="flex flex-col gap-1.5">
             <label
               id="sandbox-moons-label"
-              className="font-mono text-[10px] tracking-[0.1em] text-text-soft"
+              className="font-mono fs-10 tracking-[0.1em] text-text-soft"
             >
               MOONS
             </label>

@@ -3,6 +3,7 @@ import type { ReactElement, Ref } from 'react'
 import { lineGroups, linesReadout, prAriaLabel } from '../lib/branchStatus'
 import type { LinesMode } from '../lib/branchStatus'
 import { Tooltip } from '../ui/Tooltip'
+import { useAppTextScale } from '../lib/textScale'
 import type { BranchLines, BranchPr, GitLocation, OtherTree } from '../lib/types'
 import {
   markOf,
@@ -166,15 +167,15 @@ function TreesTooltipContent({ form, trees }: { form: WhereForm; trees: readonly
   return (
     <span className="flex flex-col gap-[10px]">
       <span className="flex items-baseline gap-2 font-mono">
-        <span className="text-[11px] text-text-bright">{treesHeadText(form)}</span>
+        <span className="fs-11 text-text-bright">{treesHeadText(form)}</span>
         <span className="flex-1" />
-        <span className="text-[10px] text-[rgba(160,190,225,.6)]">running subagents</span>
+        <span className="fs-10 text-[rgba(160,190,225,.6)]">running subagents</span>
       </span>
       <span className="flex flex-col gap-2">
         {list.rows.map((row) => (
           <span
             key={row.root}
-            className="grid grid-cols-[13px_minmax(0,1fr)_auto] items-center gap-x-[7px] gap-y-0.5 whitespace-nowrap font-mono text-[11px]"
+            className="grid grid-cols-[13px_minmax(0,1fr)_auto] items-center gap-x-[7px] gap-y-0.5 whitespace-nowrap font-mono fs-11"
           >
             <ListMark mark={row.mark} />
             <span className="min-w-0 overflow-hidden text-ellipsis text-text-bright">{row.branch}</span>
@@ -183,7 +184,7 @@ function TreesTooltipContent({ form, trees }: { form: WhereForm; trees: readonly
               {row.agents.map((agent, i) => (
                 <span
                   key={i}
-                  className="grid grid-cols-[9px_minmax(0,1fr)] font-sans text-[12px] leading-[1.4] text-[rgba(190,212,238,.82)]"
+                  className="grid grid-cols-[9px_minmax(0,1fr)] font-sans fs-12 leading-[1.4] text-[rgba(190,212,238,.82)]"
                 >
                   <span className="text-[rgba(160,190,225,.5)]">·</span>
                   <span className="line-clamp-2">{agent}</span>
@@ -194,7 +195,7 @@ function TreesTooltipContent({ form, trees }: { form: WhereForm; trees: readonly
         ))}
       </span>
       {list.more > 0 && (
-        <span className="border-t border-[rgba(150,205,255,.1)] pt-2 font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+        <span className="border-t border-[rgba(150,205,255,.1)] pt-2 font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
           {treesMoreText(list.more)}
         </span>
       )}
@@ -231,12 +232,12 @@ function BranchMovedTooltipContent({
   const rule = <span className="block h-px bg-[rgba(150,205,255,.1)]" />
   return (
     <>
-      <span className="font-mono text-[11px] leading-[1.45] text-text-bright [overflow-wrap:anywhere]">{branch}</span>
+      <span className="font-mono fs-11 leading-[1.45] text-text-bright [overflow-wrap:anywhere]">{branch}</span>
       {lines && rule}
       {lines && <LinesTooltipContent lines={lines} branch={branch} detached={detached} />}
       {count && rule}
       {count && (
-        <span className="flex items-center font-mono text-[11px]" style={{ gap: COUNT_MARK_GAP_PX, color: PATH_INK }}>
+        <span className="flex items-center font-mono fs-11" style={{ gap: COUNT_MARK_GAP_PX, color: PATH_INK }}>
           <CountReadout text={count} compact />
         </span>
       )}
@@ -392,7 +393,13 @@ export function WhereLine({
   const count: WhereCount | null =
     shownForm.kind === 'plain' ? null : { full: treesCountText(shownForm), compact: treesCompactText(shownForm) }
   const markPx = shownMark && shown ? MARK_PX[shownMark] + PATH_GAP_PX + MARK_GAP_PX : 0
-  const available = cellWidthPx !== undefined && cellWidthPx > 0 ? cellWidthPx : panelWidthPx - ROW_CHROME_PX
+  // The fit counts characters at the design's width (`CHAR_PX`); a larger
+  // text step widens every character, so the row is fitted into the cell as
+  // if it were that much narrower (spec 2026-10-27-text-size-design). The
+  // gaps and marks do not grow, so this errs towards cutting a little early.
+  const textScale = useAppTextScale()
+  const available =
+    (cellWidthPx !== undefined && cellWidthPx > 0 ? cellWidthPx : panelWidthPx - ROW_CHROME_PX) / textScale
   const branch = shown?.ref ?? ''
   const prText = shownPr ? `#${shownPr.number}` : ''
   // Line changes belong to a working tree, so they need its reading to hang off.
@@ -402,7 +409,8 @@ export function WhereLine({
   const treesFit =
     shownReading.hidden && count ? fitTreesRow({ path: shownPath, cellPx: available, folded, count }) : null
   const fit = fitWhereRow({ ...rowInput, cellPx: available, folded })
-  const reservePx = count && treesFit ? treesFoldReservePx({ path: shownPath, count }) : whereFoldReservePx(rowInput)
+  const reservePx =
+    (count && treesFit ? treesFoldReservePx({ path: shownPath, count }) : whereFoldReservePx(rowInput)) * textScale
   useLayoutEffect(() => onFoldReserve?.(reservePx), [reservePx, onFoldReserve])
 
   const pathText = treesFit ? treesFit.path : fit.path
@@ -477,7 +485,7 @@ export function WhereLine({
       <span
         ref={setCell}
         aria-label={label}
-        className="flex min-w-0 flex-1 cursor-default items-center whitespace-nowrap font-mono text-[11px]"
+        className="flex min-w-0 flex-1 cursor-default items-center whitespace-nowrap font-mono fs-11"
         style={{ gap: PATH_GAP_PX }}
       >
         <span className="min-w-0 overflow-hidden" style={{ color: PATH_INK, ...fade(pathOpacity) }}>
@@ -497,7 +505,7 @@ export function WhereLine({
       // away the whole bubble while the row goes on looking fine. The clip
       // lives on the path instead — the only part that can outgrow its share,
       // the reading being `flex-none` and sized to its own capped text.
-      className="flex min-w-0 flex-1 cursor-default items-center whitespace-nowrap font-mono text-[11px]"
+      className="flex min-w-0 flex-1 cursor-default items-center whitespace-nowrap font-mono fs-11"
       style={{ gap: PATH_GAP_PX }}
     >
       <span className="min-w-0 overflow-hidden" style={{ color: PATH_INK, ...fade(pathOpacity) }}>
@@ -549,7 +557,7 @@ export function WhereLine({
               type="button"
               aria-label={prAriaLabel(shownPr)}
               onClick={() => window.open(shownPr.url, '_blank', 'noopener')}
-              className="-mx-1 flex-none cursor-pointer rounded-[5px] px-1 py-0.5 font-mono text-[11px] leading-[14px] text-[rgba(200,220,245,.85)] transition-colors duration-[120ms] ease-in-out hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8] focus-visible:text-[#e8eef8] focus-visible:shadow-[0_0_0_1px_oklch(85%_.12_205/.7)] focus-visible:outline-none"
+              className="-mx-1 flex-none cursor-pointer rounded-[5px] px-1 py-0.5 font-mono fs-11 leading-[calc(14px*var(--text-scale,1))] text-[rgba(200,220,245,.85)] transition-colors duration-[120ms] ease-in-out hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8] focus-visible:text-[#e8eef8] focus-visible:shadow-[0_0_0_1px_oklch(85%_.12_205/.7)] focus-visible:outline-none"
             >
               {fit.pr}
             </button>

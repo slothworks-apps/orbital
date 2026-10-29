@@ -52,10 +52,10 @@ const DIALOG_LABEL = 'Review the issue before it is published'
 /** How the app runs, as RUNS AS and the error report's environment say it. */
 const RUNS_AS = import.meta.env.DEV ? 'From source (npm run dev)' : 'Desktop app'
 
-const MONO_LABEL = 'font-mono text-[10px] tracking-[0.18em] text-[rgba(160,190,225,.6)]'
+const MONO_LABEL = 'font-mono fs-10 tracking-[0.18em] text-[rgba(160,190,225,.6)]'
 const FIELD_BOX =
   'm-0 box-border w-full appearance-none rounded-lg border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.6)] outline-none focus:border-[oklch(85%_.12_205/.55)]'
-const PROSE_AREA = `${FIELD_BOX} resize-none px-3 py-[9px] text-[13px] leading-normal text-text-bright`
+const PROSE_AREA = `${FIELD_BOX} resize-none px-3 py-[9px] fs-13 leading-normal text-text-bright`
 const OPEN_INK = 'rgba(214,230,248,.85)'
 const CLOSED_INK = 'rgba(160,190,225,.5)'
 
@@ -71,7 +71,7 @@ function IssueLink({ issue, children, className }: { issue: SimilarIssue; childr
 function StateTag({ state }: { state: SimilarIssue['state'] }) {
   return (
     <span
-      className="flex-none font-mono text-[9px] tracking-[0.12em]"
+      className="flex-none font-mono fs-9 tracking-[0.12em]"
       style={{ color: state === 'open' ? OPEN_INK : CLOSED_INK }}
     >
       {state === 'open' ? 'OPEN' : 'CLOSED'}
@@ -249,31 +249,31 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
     <>
       <div className="flex shrink-0 items-start gap-3 border-b border-[rgba(150,205,255,.1)] pb-4 pl-[26px] pr-[18px] pt-[22px]">
         <div className="min-w-0 flex-1">
-          <div key={eyebrow} className="orbital-arrive font-mono text-[10px] tracking-[0.2em] text-[rgba(160,190,225,.65)]">
+          <div key={eyebrow} className="orbital-arrive font-mono fs-10 tracking-[0.2em] text-[rgba(160,190,225,.65)]">
             {eyebrow}
           </div>
-          <h2 className="mt-1.5 text-xl font-bold tracking-[-0.01em]">{phase === 'done' ? 'Issue created' : 'Review the issue'}</h2>
+          <h2 className="mt-1.5 fs-20 leading-(--text-xl--line-height) font-bold tracking-[-0.01em]">{phase === 'done' ? 'Issue created' : 'Review the issue'}</h2>
         </div>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="grid h-[30px] w-[30px] shrink-0 cursor-pointer place-items-center rounded-[7px] text-base text-[rgba(160,190,225,.7)] transition-colors hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright"
+          className="grid h-[30px] w-[30px] shrink-0 cursor-pointer place-items-center rounded-[7px] fs-16 leading-(--text-base--line-height) text-[rgba(160,190,225,.7)] transition-colors hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright"
         >
           ×
         </button>
       </div>
 
       <div className="mx-[26px] mt-4 flex shrink-0 items-start gap-3 rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.45)] px-3.5 py-[11px]">
-        <span className="mt-px flex-none rounded border border-[rgba(200,220,245,.5)] px-[7px] py-0.5 font-mono text-[9.5px] tracking-[0.16em] text-text-bright">
+        <span className="mt-px flex-none rounded border border-[rgba(200,220,245,.5)] px-[7px] py-0.5 font-mono fs-9.5 tracking-[0.16em] text-text-bright">
           PUBLIC
         </span>
-        <div className="min-w-0 flex-1 text-[12.5px] leading-normal text-pretty text-[rgba(214,226,242,.92)]">
+        <div className="min-w-0 flex-1 fs-12.5 leading-normal text-pretty text-[rgba(214,226,242,.92)]">
           Published as a public issue on{' '}
-          <span className="font-mono text-[11.5px] text-text-bright">github.com/{ISSUE_REPO_PATH}</span>. Anyone can read
+          <span className="font-mono fs-11.5 text-text-bright">github.com/{ISSUE_REPO_PATH}</span>. Anyone can read
           it, so take out paths, repo names or anything private first.
         </div>
-        <span className="mt-0.5 flex-none whitespace-nowrap font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{via}</span>
+        <span className="mt-0.5 flex-none whitespace-nowrap font-mono fs-10.5 text-[rgba(160,190,225,.6)]">{via}</span>
       </div>
 
       <AutoHeight scroll className="mt-4">
@@ -288,7 +288,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
                 readOnly={locked}
                 placeholder={kind === 'idea' ? 'The idea, in one line' : 'What broke, in one line'}
                 style={{ opacity: fieldOpacity }}
-                className={`${FIELD_BOX} px-3 py-[9px] text-[13.5px] font-semibold text-text-bright`}
+                className={`${FIELD_BOX} px-3 py-[9px] fs-13.5 font-semibold text-text-bright`}
               />
             </label>
 
@@ -307,7 +307,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
                   }}
                   readOnly={locked}
                   style={{ opacity: fieldOpacity }}
-                  className={`${FIELD_BOX} h-[268px] resize-none whitespace-pre-wrap px-3 py-2.5 font-mono text-[11px] leading-[1.6] text-[rgba(200,218,240,.9)] [scrollbar-color:rgba(150,205,255,.25)_transparent] [scrollbar-width:thin]`}
+                  className={`${FIELD_BOX} h-[268px] resize-none whitespace-pre-wrap px-3 py-2.5 font-mono fs-11 leading-[1.6] text-[rgba(200,218,240,.9)] [scrollbar-color:rgba(150,205,255,.25)_transparent] [scrollbar-width:thin]`}
                 />
               </label>
             )}
@@ -358,7 +358,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
                         style={{ opacity: fieldOpacity }}
                         className="flex items-center gap-2 rounded-lg border border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.6)] pl-[11px] focus-within:border-[oklch(85%_.12_205/.55)]"
                       >
-                        <span className="w-[78px] flex-none font-mono text-[9.5px] tracking-[0.12em] text-[rgba(160,190,225,.55)]">
+                        <span className="w-[78px] flex-none font-mono fs-9.5 tracking-[0.12em] text-[rgba(160,190,225,.55)]">
                           {label}
                         </span>
                         <input
@@ -370,7 +370,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
                             setEnv((prev) => ({ ...prev, [field]: value }))
                           }}
                           readOnly={locked}
-                          className="m-0 min-w-0 flex-1 appearance-none border-0 bg-transparent py-2 pr-2.5 font-mono text-[11.5px] text-text-bright outline-none"
+                          className="m-0 min-w-0 flex-1 appearance-none border-0 bg-transparent py-2 pr-2.5 font-mono fs-11.5 text-text-bright outline-none"
                         />
                       </label>
                     ))}
@@ -414,7 +414,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
                   role="status"
                   className="flex flex-col gap-[9px] rounded-[10px] border border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.5)] px-3.5 py-3"
                 >
-                  <div className="text-[13px] leading-[1.45] text-text-bright">
+                  <div className="fs-13 leading-[1.45] text-text-bright">
                     gh did not answer in time. The issue may have been created all the same — look before you send
                     it again; your text is kept.
                   </div>
@@ -432,12 +432,12 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
                   role="alert"
                   className="flex flex-col gap-[9px] rounded-[10px] border border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.5)] px-3.5 py-3"
                 >
-                  <div className="flex items-center gap-[9px] text-[13px] leading-[1.45] text-text-bright">
+                  <div className="flex items-center gap-[9px] fs-13 leading-[1.45] text-text-bright">
                     {/* 61d D4: the error log's one red dot, oklch(66% .2 25). */}
                     <span aria-hidden className="block h-[7px] w-[7px] flex-none rounded-full bg-[oklch(66%_.2_25)]" />
                     gh refused the issue. Nothing was published; your text is kept.
                   </div>
-                  <pre data-selectable className="m-0 whitespace-pre-wrap break-words rounded-[7px] bg-[rgba(2,4,9,.6)] px-2.5 py-2 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)]">
+                  <pre data-selectable className="m-0 whitespace-pre-wrap break-words rounded-[7px] bg-[rgba(2,4,9,.6)] px-2.5 py-2 font-mono fs-10.5 leading-[1.6] text-[rgba(190,212,238,.8)]">
                     {refusal}
                   </pre>
                   <div className="flex gap-1.5">
@@ -465,7 +465,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
         <span
           key={foot.text}
           style={{ color: foot.bright ? 'rgba(220,232,248,.92)' : 'rgba(160,190,225,.55)' }}
-          className="orbital-arrive min-w-0 flex-1 font-mono text-[10.5px] leading-normal tracking-[0.03em] text-pretty"
+          className="orbital-arrive min-w-0 flex-1 font-mono fs-10.5 leading-normal tracking-[0.03em] text-pretty"
         >
           {foot.text}
         </span>
@@ -478,7 +478,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
             target="_blank"
             rel="noreferrer"
             title={`Open issue #${number ?? ''} on GitHub`}
-            className="orbital-arrive flex items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-[oklch(85%_.12_205/.55)] bg-[oklch(85%_.12_205/.08)] px-4 py-2 font-mono text-[13px] text-accent no-underline transition-colors hover:bg-[oklch(85%_.12_205/.14)]"
+            className="orbital-arrive flex items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-[oklch(85%_.12_205/.55)] bg-[oklch(85%_.12_205/.08)] px-4 py-2 font-mono fs-13 text-accent no-underline transition-colors hover:bg-[oklch(85%_.12_205/.14)]"
           >
             #{number ?? ''} ↗
           </a>
@@ -595,13 +595,13 @@ function Rail({
         <span className={MONO_LABEL}>SIMILAR ISSUES</span>
         <span className="flex-1" />
         {autoOn && searchable && (
-          <span className="font-mono text-[10px] text-[rgba(160,190,225,.45)]">
+          <span className="font-mono fs-10 text-[rgba(160,190,225,.45)]">
             by title · {ghReady ? 'gh' : 'api.github.com'}
           </span>
         )}
       </div>
       {!autoOn && (
-        <div className="orbital-arrive text-xs leading-normal text-pretty text-[rgba(160,190,225,.6)]">
+        <div className="orbital-arrive fs-12 leading-normal text-pretty text-[rgba(160,190,225,.6)]">
           Type a title and issues with similar titles show up here.
         </div>
       )}
@@ -613,8 +613,8 @@ function Rail({
                 issue={issue}
                 className="-mx-2 flex items-baseline gap-2 rounded-[7px] p-2 text-inherit no-underline transition-colors hover:bg-[rgba(150,205,255,.06)]"
               >
-                <span className="flex-none font-mono text-[11px] text-[rgba(214,230,248,.85)]">#{issue.number}</span>
-                <span className="min-w-0 flex-1 text-[12.5px] leading-[1.4] text-pretty text-[rgba(220,232,248,.9)]">
+                <span className="flex-none font-mono fs-11 text-[rgba(214,230,248,.85)]">#{issue.number}</span>
+                <span className="min-w-0 flex-1 fs-12.5 leading-[1.4] text-pretty text-[rgba(220,232,248,.9)]">
                   {issue.title}
                 </span>
                 <StateTag state={issue.state} />
@@ -647,24 +647,24 @@ function Rail({
 
         <div key={check.state} className="orbital-arrive">
           {check.state === 'idle' && (
-            <div className="text-xs leading-normal text-pretty text-[rgba(160,190,225,.6)]">
+            <div className="fs-12 leading-normal text-pretty text-[rgba(160,190,225,.6)]">
               Reads your draft next to the repo's open and closed issues and says which look like the same thing. Runs{' '}
-              <span className="font-mono text-[11px]">claude -p</span> on the model you pick.
+              <span className="font-mono fs-11">claude -p</span> on the model you pick.
             </div>
           )}
           {check.state === 'checking' && (
             <div className="flex flex-col gap-[5px]">
-              <div className="text-[12.5px] leading-normal text-[rgba(214,226,242,.9)]">
+              <div className="fs-12.5 leading-normal text-[rgba(214,226,242,.9)]">
                 {modelName} is reading your draft and {CHECKED_ISSUES} recent issues.
               </div>
-              <div className="font-mono text-[10px] leading-normal text-[rgba(160,190,225,.5)]">
+              <div className="font-mono fs-10 leading-normal text-[rgba(160,190,225,.5)]">
                 usually under a minute · keep editing or send
               </div>
             </div>
           )}
           {check.state === 'matches' && (
             <div className="flex flex-col gap-0.5">
-              <span className="pb-1 font-mono text-[10px] text-[rgba(160,190,225,.55)]">
+              <span className="pb-1 font-mono fs-10 text-[rgba(160,190,225,.55)]">
                 {check.matches.length === 1 ? '1 looks like the same issue' : `${check.matches.length} look like the same issue`}
               </span>
               <ul aria-label="Issues Claude matched" className="flex flex-col gap-0.5">
@@ -675,13 +675,13 @@ function Rail({
                       className="-mx-2 flex flex-col gap-1 rounded-[7px] p-2 text-inherit no-underline transition-colors hover:bg-[rgba(150,205,255,.06)]"
                     >
                       <span className="flex items-baseline gap-2">
-                        <span className="flex-none font-mono text-[11px] text-text-bright">#{issue.number}</span>
-                        <span className="min-w-0 flex-1 text-[12.5px] font-semibold leading-[1.4] text-pretty text-text-bright">
+                        <span className="flex-none font-mono fs-11 text-text-bright">#{issue.number}</span>
+                        <span className="min-w-0 flex-1 fs-12.5 font-semibold leading-[1.4] text-pretty text-text-bright">
                           {issue.title}
                         </span>
                         <StateTag state={issue.state} />
                       </span>
-                      <span className="text-xs leading-[1.45] text-pretty text-[rgba(170,195,225,.75)]">{issue.why}</span>
+                      <span className="fs-12 leading-[1.45] text-pretty text-[rgba(170,195,225,.75)]">{issue.why}</span>
                     </IssueLink>
                   </li>
                 ))}
@@ -689,15 +689,15 @@ function Rail({
             </div>
           )}
           {check.state === 'none' && (
-            <div className="text-[12.5px] leading-normal text-pretty text-[rgba(214,226,242,.9)]">
+            <div className="fs-12.5 leading-normal text-pretty text-[rgba(214,226,242,.9)]">
               Nothing looks like the same issue.
             </div>
           )}
           {check.state === 'failed' && (
             <div className="flex flex-col gap-1.5">
-              <div className="text-[12.5px] leading-normal text-pretty text-[rgba(214,226,242,.9)]">{check.text}</div>
+              <div className="fs-12.5 leading-normal text-pretty text-[rgba(214,226,242,.9)]">{check.text}</div>
               {check.detail && (
-                <div className="whitespace-pre-wrap font-mono text-[10px] leading-[1.55] text-[rgba(160,190,225,.55)]">
+                <div className="whitespace-pre-wrap font-mono fs-10 leading-[1.55] text-[rgba(160,190,225,.55)]">
                   {check.detail}
                 </div>
               )}
@@ -709,7 +709,7 @@ function Rail({
 
       <span className="flex-1" />
       {checkEnabled && (
-        <div className="font-mono text-[10px] leading-[1.55] text-[rgba(160,190,225,.45)]">matches never block sending</div>
+        <div className="font-mono fs-10 leading-[1.55] text-[rgba(160,190,225,.45)]">matches never block sending</div>
       )}
     </div>
   )

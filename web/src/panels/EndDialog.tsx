@@ -92,7 +92,7 @@ export function EndDialog({ open, sessionId, onClose, onEnd }: EndDialogProps) {
       }
     >
       {/* Copy from canvas 23a. */}
-      <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+      <p className="fs-13 leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
         {session?.title && <span className="font-mono text-text-bright">{session.title}</span>}
         {session?.title ? ' stops' : 'This session stops'} and moves to history — the transcript
         stays readable there.

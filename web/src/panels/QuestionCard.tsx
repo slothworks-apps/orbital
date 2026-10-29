@@ -195,7 +195,7 @@ export function QuestionCard({ sessionId, toolUse, toolResult, readOnly = false 
         <div className="flex items-center gap-2 px-[13px] pt-[11px]">
           <span className={`${CHIP_BASE} ${CHIP_QUIET}`}>QUESTION</span>
         </div>
-        <pre className="m-0 overflow-x-auto whitespace-pre-wrap px-[13px] pb-[13px] pt-[9px] font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+        <pre className="m-0 overflow-x-auto whitespace-pre-wrap px-[13px] pb-[13px] pt-[9px] font-mono fs-10.5 leading-[1.6] text-[rgba(160,190,225,.75)]">
           {toolResult?.text ?? ''}
         </pre>
       </div>
@@ -247,7 +247,7 @@ export function QuestionCard({ sessionId, toolUse, toolResult, readOnly = false 
           chrome a stacked card adds. */}
       {multi && (
         <div className="flex items-center gap-2 border-b border-[rgba(150,205,255,.08)] px-[13px] pb-[9px] pt-[11px]">
-          <span className="font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.6)]">
+          <span className="font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.6)]">
             {questions.length} QUESTIONS
           </span>
           <span aria-hidden className="flex-1" />
@@ -263,7 +263,7 @@ export function QuestionCard({ sessionId, toolUse, toolResult, readOnly = false 
               />
             ))}
           </span>
-          <span className="font-mono text-[9.5px] tracking-[0.12em] text-accent/85">
+          <span className="font-mono fs-9.5 tracking-[0.12em] text-accent/85">
             {answered} / {questions.length}
           </span>
         </div>
@@ -306,10 +306,10 @@ export function QuestionCard({ sessionId, toolUse, toolResult, readOnly = false 
 
       {unreadableResult !== null && unsentDrafts === null && (
         <div className="px-[13px] pb-[13px]">
-          <div className="mb-1 font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.55)]">
+          <div className="mb-1 font-mono fs-9.5 tracking-[0.16em] text-[rgba(160,190,225,.55)]">
             RESULT
           </div>
-          <pre className="m-0 overflow-x-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+          <pre className="m-0 overflow-x-auto whitespace-pre-wrap font-mono fs-10.5 leading-[1.6] text-[rgba(160,190,225,.75)]">
             {unreadableResult}
           </pre>
         </div>
@@ -318,7 +318,7 @@ export function QuestionCard({ sessionId, toolUse, toolResult, readOnly = false 
       {mode === 'terminal' && (
         // Canvas 9b C: 1px dashed .18, the only affordance a watched session
         // offers — it says where the answer has to be typed, not here.
-        <div className="mx-[13px] mb-[13px] flex items-center gap-2 rounded-[8px] border border-dashed border-[rgba(150,205,255,.18)] bg-[rgba(3,6,12,.5)] px-2.5 py-2 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.6)]">
+        <div className="mx-[13px] mb-[13px] flex items-center gap-2 rounded-[8px] border border-dashed border-[rgba(150,205,255,.18)] bg-[rgba(3,6,12,.5)] px-2.5 py-2 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.6)]">
           <span aria-hidden className="text-[rgba(190,215,240,.75)]">
             ▸
           </span>
@@ -490,7 +490,7 @@ function LiveCard({
           that question (desktop only — 9i: display only on the phone). */}
       {multi && (
         <div className="flex items-center gap-2 border-b border-[rgba(150,205,255,.08)] px-[13px] pb-[9px] pt-[11px]">
-          <span className="font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.6)]">
+          <span className="font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.6)]">
             {questions.length} QUESTIONS
           </span>
           <span aria-hidden className="flex-1" />
@@ -531,7 +531,7 @@ function LiveCard({
               )
             })}
           </span>
-          <span className="font-mono text-[9.5px] tracking-[0.12em] text-accent/85">
+          <span className="font-mono fs-9.5 tracking-[0.12em] text-accent/85">
             {inReview ? 'REVIEW' : `${cursor + 1} / ${questions.length}`}
           </span>
         </div>
@@ -602,11 +602,11 @@ function LiveCard({
               type="button"
               data-question-send
               onClick={send}
-              className="h-[50px] cursor-pointer rounded-[14px] border border-accent/50 bg-accent/16 text-[15px] font-semibold text-[#e8eef8]"
+              className="h-fit min-h-[50px] cursor-pointer rounded-[14px] border border-accent/50 bg-accent/16 fs-15 font-semibold text-[#e8eef8]"
             >
               {multi ? 'Send answers' : 'Send answer'}
             </button>
-            <span className="text-center font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">
+            <span className="text-center font-mono fs-10.5 text-[rgba(160,190,225,.5)]">
               nothing is sent until you tap Send
             </span>
           </div>
@@ -614,7 +614,7 @@ function LiveCard({
           // Canvas 9e: the review footer, 11px 13px 13px, and its "nothing
           // sent yet" line; Send is the confirm button (9d).
           <div className="flex items-center gap-2.5 px-[13px] pb-[13px] pt-[11px]">
-            <span className="font-mono text-[10px] text-[rgba(160,190,225,.5)]">nothing sent yet</span>
+            <span className="font-mono fs-10 text-[rgba(160,190,225,.5)]">nothing sent yet</span>
             <span aria-hidden className="flex-1" />
             <button
               ref={sendRef}
@@ -639,7 +639,7 @@ function LiveCard({
 function ChosenRow({ children }: { children: ReactNode }) {
   return (
     <div className={`${ROW_BASE} ${ROW_CHOSEN}`}>
-      <span aria-hidden className="shrink-0 text-[11px] leading-[1.5] text-accent">
+      <span aria-hidden className="shrink-0 fs-11 leading-[1.5] text-accent">
         ✓
       </span>
       {children}
@@ -648,7 +648,7 @@ function ChosenRow({ children }: { children: ReactNode }) {
 }
 
 /** The mono eyebrow over a chosen row's text (9b E: `YOUR ANSWER`; 9e: `N PICKED`). */
-const CHOSEN_EYEBROW = 'font-mono text-[9.5px] tracking-[0.12em] text-[rgba(160,190,225,.6)]'
+const CHOSEN_EYEBROW = 'font-mono fs-9.5 tracking-[0.12em] text-[rgba(160,190,225,.6)]'
 
 function ChosenOption({ option }: { option: QuestionSpec['options'][number] }) {
   return (
@@ -667,7 +667,7 @@ function ChosenText({ text }: { text: string }) {
     <ChosenRow>
       <span className="flex min-w-0 flex-col gap-1">
         <span className={CHOSEN_EYEBROW}>YOUR ANSWER</span>
-        <span className="text-[13px] leading-[1.45] text-pretty text-[#e8eef8]">{text}</span>
+        <span className="fs-13 leading-[1.45] text-pretty text-[#e8eef8]">{text}</span>
       </span>
     </ChosenRow>
   )
@@ -987,7 +987,7 @@ function QuestionBlock({
       {/* Canvas 9d METRICS: "question type — 13.5px / 600 / 1.45". */}
       <div
         className={[
-          'text-[13.5px] font-semibold leading-[1.45] text-pretty',
+          'fs-13.5 font-semibold leading-[1.45] text-pretty',
           compact && state === 'answered' ? 'pb-[9px] pt-[9px]' : 'pb-[11px] pt-[9px]',
           live
             ? 'text-[#e8eef8]'
@@ -1035,7 +1035,7 @@ function AnsweredBody({
       ))}
       {text && <ChosenText text={text} />}
       {line && (
-        <div className="font-mono text-[10px] tracking-[0.04em] text-[rgba(160,190,225,.45)]">
+        <div className="font-mono fs-10 tracking-[0.04em] text-[rgba(160,190,225,.45)]">
           {line}
         </div>
       )}
@@ -1232,7 +1232,7 @@ function LiveBody({
                 <span
                   aria-hidden
                   className={[
-                    'mt-px grid h-[14px] w-[14px] shrink-0 place-items-center rounded-[4px] border text-[9px]',
+                    'mt-px grid h-[14px] w-[14px] shrink-0 place-items-center rounded-[4px] border fs-9',
                     ticked
                       ? 'border-accent/70 bg-accent/22 text-[oklch(92%_.09_205)]'
                       : 'border-[rgba(150,205,255,.28)]',
@@ -1245,7 +1245,7 @@ function LiveBody({
                   aria-hidden
                   className={[
                     GUTTER,
-                    chosen ? 'text-[11px] text-accent' : focused ? 'text-accent' : 'text-[rgba(160,190,225,.45)]',
+                    chosen ? 'fs-11 text-accent' : focused ? 'text-accent' : 'text-[rgba(160,190,225,.45)]',
                   ].join(' ')}
                 >
                   {chosen ? '✓' : index + 1}
@@ -1295,9 +1295,9 @@ function LiveBody({
               }}
               // Grows with what is written, then scrolls: a long answer
               // wraps instead of running off a single line.
-              className="block max-h-40 w-full resize-none overflow-y-auto border-0 bg-transparent p-0 text-[13px] leading-[1.45] text-[#e8eef8] caret-accent [field-sizing:content] focus:outline-none"
+              className="block max-h-40 w-full resize-none overflow-y-auto border-0 bg-transparent p-0 fs-13 leading-[1.45] text-[#e8eef8] caret-accent [field-sizing:content] focus:outline-none"
             />
-            <div className="flex items-center gap-2 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+            <div className="flex items-center gap-2 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.5)]">
               {/* Canvas 9e: ⏎ answers; on text that came back with a
                   reopened answer it updates it. */}
               {answer !== undefined && initialOther !== '' ? '⏎ update' : '⏎ answer'} · esc back to options
@@ -1337,7 +1337,7 @@ function LiveBody({
             </span>
             <span className="flex min-w-0 flex-col gap-[3px]">
               <span className={`${LABEL} text-[rgba(200,220,245,.8)]`}>Other…</span>
-              <span className="text-[11.5px] leading-[1.4] text-[rgba(160,190,225,.55)]">
+              <span className="fs-11.5 leading-[1.4] text-[rgba(160,190,225,.55)]">
                 Answer in your own words — or just type in the composer.
               </span>
             </span>
@@ -1352,12 +1352,12 @@ function LiveBody({
         // 9b A: 11px under the row block, 13px to the card's bottom edge
         // (which the block's own padding pays).
         <div className="mt-[11px] overflow-hidden rounded-[8px] border border-[rgba(150,205,255,.12)] bg-[rgba(3,6,12,.7)]">
-          <div className="border-b border-[rgba(150,205,255,.08)] px-2.5 py-[7px] font-mono text-[9.5px] tracking-[0.12em] text-[rgba(160,190,225,.55)]">
+          <div className="border-b border-[rgba(150,205,255,.08)] px-2.5 py-[7px] font-mono fs-9.5 tracking-[0.12em] text-[rgba(160,190,225,.55)]">
             PREVIEW · {question.options[focus].label.toUpperCase()}
           </div>
           {/* 9d METRICS: "preview max height — 6 lines, then scroll" — six
               lines at this block's own leading, plus its padding. */}
-          <pre className="m-0 max-h-[120.8px] overflow-auto whitespace-pre-wrap p-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(200,220,245,.88)]">
+          <pre className="m-0 max-h-[120.8px] overflow-auto whitespace-pre-wrap p-2.5 font-mono fs-10.5 leading-[1.6] text-[rgba(200,220,245,.88)]">
             {question.options[focus].preview}
           </pre>
         </div>
@@ -1368,13 +1368,13 @@ function LiveBody({
         // real answer — the button never disables. It reads Confirm unless
         // it sends the card (9j).
         <div className="mt-[11px] flex items-center gap-2.5">
-          <span className="font-mono text-[10px] text-[rgba(160,190,225,.5)]">{count} selected</span>
+          <span className="font-mono fs-10 text-[rgba(160,190,225,.5)]">{count} selected</span>
           <span aria-hidden className="flex-1" />
           <button
             type="button"
             onClick={() => onAnswer(joinSelection(selected, otherText))}
             // 9d METRICS: "confirm button — 6px 14px · r8 · 12px 600".
-            className="shrink-0 cursor-pointer rounded-[8px] border border-accent/50 bg-accent/16 px-3.5 py-1.5 text-[12px] font-semibold text-[#e8eef8] transition-[border-color,background-color] duration-[160ms] ease-[ease] hover:border-accent/80 hover:bg-accent/26"
+            className="shrink-0 cursor-pointer rounded-[8px] border border-accent/50 bg-accent/16 px-3.5 py-1.5 fs-12 font-semibold text-[#e8eef8] transition-[border-color,background-color] duration-[160ms] ease-[ease] hover:border-accent/80 hover:bg-accent/26"
           >
             {/* No keys on the phone (9i: "Confirm 2"). */}
             {phone ? confirm.replace(/ ⏎$/, '') : confirm}
@@ -1386,14 +1386,14 @@ function LiveBody({
         (phone ? (
           // Canvas 9i B: Keep replaces esc, with a 44px hit area; the line
           // and Keep's ink are 9i's.
-          <div className="flex items-center pt-1.5 font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">
+          <div className="flex items-center pt-1.5 font-mono fs-10.5 text-[rgba(160,190,225,.5)]">
             tap another option to change it
             <span aria-hidden className="flex-1" />
             <button
               type="button"
               data-question-keep
               onClick={onKeep}
-              className="grid h-11 cursor-pointer place-items-center border-0 bg-transparent px-1 font-mono text-[10.5px] text-[rgba(143,216,255,.85)]"
+              className="grid h-fit min-h-11 cursor-pointer place-items-center border-0 bg-transparent px-1 font-mono fs-10.5 text-[rgba(143,216,255,.85)]"
             >
               Keep
             </button>
@@ -1401,14 +1401,14 @@ function LiveBody({
         ) : (
           // Canvas 9e / 9j: "keep link — mono 10 · rgba(143,216,255,.8)";
           // the row's ink, its gap above and the link's hover ink are 9e's.
-          <div className="flex items-center gap-2 pt-2.5 font-mono text-[10px] text-[rgba(160,190,225,.45)]">
+          <div className="flex items-center gap-2 pt-2.5 font-mono fs-10 text-[rgba(160,190,225,.45)]">
             pick another option to change it
             <span aria-hidden className="flex-1" />
             <button
               type="button"
               data-question-keep
               onClick={onKeep}
-              className="cursor-pointer border-0 bg-transparent p-0 font-mono text-[10px] tracking-[0.06em] text-[rgba(143,216,255,.8)] hover:text-[#c6ecff]"
+              className="cursor-pointer border-0 bg-transparent p-0 font-mono fs-10 tracking-[0.06em] text-[rgba(143,216,255,.8)] hover:text-[#c6ecff]"
             >
               keep “{keepName}” · esc
             </button>

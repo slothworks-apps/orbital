@@ -93,9 +93,9 @@ function TranscriptChip({
 /** canvas 10g: the chip's shell, inset under its row; › only when it opens something. */
 function Chip({ label, onOpen, children }: { label: string; onOpen?: () => void; children: ReactNode }) {
   const className =
-    'mx-2 mb-2 box-border flex h-11 w-[calc(100%-16px)] items-center gap-[9px] rounded-[8px] border border-[rgba(150,205,255,.18)] bg-[rgba(3,6,12,.6)] px-2.5 text-left font-mono text-[11.5px]'
+    'mx-2 mb-2 box-border flex h-11 w-[calc(100%-16px)] items-center gap-[9px] rounded-[8px] border border-[rgba(150,205,255,.18)] bg-[rgba(3,6,12,.6)] px-2.5 text-left font-mono fs-11.5'
   const chevron = (
-    <span aria-hidden className="w-2 shrink-0 text-[15px] text-[rgba(160,190,225,.6)]">
+    <span aria-hidden className="w-2 shrink-0 fs-15 text-[rgba(160,190,225,.6)]">
       {onOpen ? '›' : ''}
     </span>
   )

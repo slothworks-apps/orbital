@@ -67,13 +67,13 @@ function Gallery({ sessionId }: { sessionId: string }) {
           type="button"
           aria-label="Back"
           onClick={() => goBack()}
-          className="grid h-11 w-11 shrink-0 place-items-center text-[28px] leading-none text-[rgba(220,235,255,.85)]"
+          className="grid h-11 w-11 shrink-0 place-items-center fs-28 leading-none text-[rgba(220,235,255,.85)]"
         >
           ‹
         </button>
         <div className="min-w-0 flex-1">
-          <h1 className="text-[16px] font-bold">Media</h1>
-          <div className="mt-0.5 truncate font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+          <h1 className="fs-16 font-bold">Media</h1>
+          <div className="mt-0.5 truncate font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
             {title} · {mediaCount(summary)}
           </div>
         </div>
@@ -85,12 +85,12 @@ function Gallery({ sessionId }: { sessionId: string }) {
             aria-haspopup="dialog"
             onClick={() => setSheet(true)}
             className={[
-              'inline-flex min-h-9 items-center gap-2 rounded-full border px-3.5 font-mono text-[11.5px]',
+              'inline-flex h-fit min-h-9 items-center gap-2 rounded-full border px-3.5 font-mono fs-11.5',
               summary.filtered ? CHIP_ACTIVE : CHIP_REST,
             ].join(' ')}
           >
             {summary.label}
-            <span aria-hidden className="text-[9px] opacity-80">
+            <span aria-hidden className="fs-9 opacity-80">
               ▾
             </span>
           </button>
@@ -138,7 +138,7 @@ function SourcesSheet({
   return (
     <BottomSheet label="Show images from" onDismiss={onClose}>
       <div className="pb-[26px]">
-        <div className="flex items-center px-2.5 pb-2 pt-0.5 font-mono text-[10px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">
+        <div className="flex items-center px-2.5 pb-2 pt-0.5 font-mono fs-10 tracking-[0.18em] text-[rgba(160,190,225,.6)]">
           <span className="flex-1">SHOW IMAGES FROM</span>
           <span className="tracking-[0.04em]">{mediaCount(summary)}</span>
         </div>
@@ -155,7 +155,7 @@ function SourcesSheet({
               disabled={empty}
               onClick={() => toggle(key)}
               className={[
-                'flex min-h-13 w-full items-center gap-3 rounded-[10px] px-2.5 text-left text-[15px]',
+                'flex h-fit min-h-13 w-full items-center gap-3 rounded-[10px] px-2.5 text-left fs-15',
                 on ? 'text-[#e8eef8]' : 'text-[rgba(160,190,225,.6)]',
               ].join(' ')}
             >
@@ -164,13 +164,13 @@ function SourcesSheet({
               )}
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span>{SOURCE_LABELS[key]}</span>
-                {detail && <span className="truncate font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">{detail}</span>}
+                {detail && <span className="truncate font-mono fs-10.5 text-[rgba(160,190,225,.55)]">{detail}</span>}
               </span>
-              <span className="font-mono text-[11px] text-[rgba(160,190,225,.6)]">{counts[key]}</span>
+              <span className="font-mono fs-11 text-[rgba(160,190,225,.6)]">{counts[key]}</span>
               <span
                 aria-hidden
                 className={[
-                  'grid h-[22px] w-[22px] flex-none place-items-center rounded-[6px] border text-[13px] text-[oklch(85%_.12_205)]',
+                  'grid h-[22px] w-[22px] flex-none place-items-center rounded-[6px] border fs-13 text-[oklch(85%_.12_205)]',
                   on
                     ? 'border-[oklch(85%_.12_205_/_.6)] bg-[oklch(85%_.12_205_/_.12)]'
                     : 'border-[rgba(150,205,255,.2)] bg-transparent',
@@ -187,7 +187,7 @@ function SourcesSheet({
           disabled={!summary.filtered}
           onClick={() => onChange([])}
           className={[
-            'flex min-h-13 w-full items-center rounded-[10px] px-2.5 text-left text-[15px]',
+            'flex h-fit min-h-13 w-full items-center rounded-[10px] px-2.5 text-left fs-15',
             summary.filtered ? 'text-[#e8eef8]' : 'text-[rgba(160,190,225,.4)]',
           ].join(' ')}
         >
@@ -229,17 +229,17 @@ function PhoneTile({ sessionId, tile, onOpen }: { sessionId: string; tile: Media
           <MediaPicture sessionId={sessionId} item={cover} fit="contain" onPages={setPages} onGone={() => setGoneId(cover.id)} />
         )}
         {tag && (
-          <span className="absolute bottom-[5px] left-[5px] rounded-[3px] bg-[rgba(5,7,13,.85)] px-[5px] py-px font-mono text-[10px] leading-[1.4] text-[rgba(200,220,245,.85)]">
+          <span className="absolute bottom-[5px] left-[5px] rounded-[3px] bg-[rgba(5,7,13,.85)] px-[5px] py-px font-mono fs-10 leading-[1.4] text-[rgba(200,220,245,.85)]">
             {tag}
           </span>
         )}
         {!gone && (
-          <span className="absolute right-[5px] top-1 font-mono text-[9.5px] text-[rgba(200,220,245,.6)]">
+          <span className="absolute right-[5px] top-1 font-mono fs-9.5 text-[rgba(200,220,245,.6)]">
             {mediaClock(cover.ts)}
           </span>
         )}
       </span>
-      <TileCaption caption={mediaTileCaption(tile)} className="text-[10.5px]" dot="h-[7px] w-[7px] border-[1.3px]" />
+      <TileCaption caption={mediaTileCaption(tile)} className="fs-10.5" dot="h-[7px] w-[7px] border-[1.3px]" />
     </button>
   )
 }

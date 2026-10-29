@@ -69,7 +69,7 @@ export function WaitSwitch({ on, onChange }: { on: boolean; onChange: (next: boo
       aria-checked={on}
       onClick={() => onChange(!on)}
       className={[
-        'flex cursor-pointer items-center gap-2.5 rounded-lg border py-1.5 pl-3 pr-2.5 font-mono text-[11.5px]',
+        'flex cursor-pointer items-center gap-2.5 rounded-lg border py-1.5 pl-3 pr-2.5 font-mono fs-11.5',
         on
           ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
           : 'border-[rgba(150,205,255,.14)] text-[rgba(220,235,255,.8)]',
@@ -133,8 +133,8 @@ export function WaitTile({
         className={[
           'flex items-center font-mono text-[rgba(160,190,225,.6)]',
           dashboard
-            ? 'gap-[7px] text-[10px] tracking-[0.18em]'
-            : 'gap-1.5 whitespace-nowrap text-[9.5px] tracking-[0.04em]',
+            ? 'gap-[7px] fs-10 tracking-[0.18em]'
+            : 'gap-1.5 whitespace-nowrap fs-9.5 tracking-[0.04em]',
         ].join(' ')}
       >
         <WaitSwatch hatched={timeShown} />
@@ -144,26 +144,26 @@ export function WaitTile({
         <>
           <div
             className={`mt-2 font-mono leading-none tracking-[-0.02em] text-[rgba(200,220,245,.8)] ${
-              dashboard ? 'text-[24px]' : 'text-[22px]'
+              dashboard ? 'fs-24' : 'fs-22'
             }`}
           >
             {formatStatsDuration(ms)}
           </div>
-          <div className="mt-1.5 font-mono text-[10px] leading-[1.35] text-[rgba(160,190,225,.7)]">
+          <div className="mt-1.5 font-mono fs-10 leading-[1.35] text-[rgba(160,190,225,.7)]">
             <CountLine line={countLine} starred={footnote !== undefined} />
           </div>
         </>
       ) : (
         <div
           className={`font-mono leading-[1.5] text-[rgba(200,220,245,.85)] ${
-            dashboard ? 'mt-3 text-[13px]' : 'mt-2.5 text-[12px]'
+            dashboard ? 'mt-3 fs-13' : 'mt-2.5 fs-12'
           }`}
         >
           <CountLine line={countLine} starred={footnote !== undefined} />
         </div>
       )}
       {footnote !== undefined && (
-        <div className="mt-[3px] font-mono text-[9px] text-[rgba(160,190,225,.45)]">* {footnote}</div>
+        <div className="mt-[3px] font-mono fs-9 text-[rgba(160,190,225,.45)]">* {footnote}</div>
       )}
     </section>
   )
@@ -193,7 +193,7 @@ function CountLine({ line, starred }: { line: string; starred: boolean }) {
 /** The YOU chip of the leaderboard's wait group: dashed and neutral, never a category hue (10e). */
 export function YouChip() {
   return (
-    <span className="rounded-[4px] border border-dashed border-[rgba(160,190,225,.45)] px-[5px] py-px text-[8.5px] tracking-[0.1em] text-[rgba(200,220,245,.8)]">
+    <span className="rounded-[4px] border border-dashed border-[rgba(160,190,225,.45)] px-[5px] py-px fs-8.5 tracking-[0.1em] text-[rgba(200,220,245,.8)]">
       YOU
     </span>
   )

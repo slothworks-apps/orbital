@@ -74,14 +74,14 @@ export function StepsSheet({
         {/* Canvas 10b: the sheet stands 150 px from the top; the handle and the home row are the shell's. */}
         <div className="-mx-2.5 flex h-[calc(100dvh-194px)] flex-col">
           <div className="border-b border-[rgba(150,205,255,.08)] px-5 pb-3.5 pt-1">
-            <div className="font-mono text-[10px] tracking-[0.2em] text-[rgba(160,190,225,.6)]">{sheet.eyebrow}</div>
-            <div className="mt-1.5 text-[18px] font-bold">{sheet.name}</div>
+            <div className="font-mono fs-10 tracking-[0.2em] text-[rgba(160,190,225,.6)]">{sheet.eyebrow}</div>
+            <div className="mt-1.5 fs-18 font-bold">{sheet.name}</div>
             <div className="mt-3 flex gap-[3px]">
               {tones.map((kind, i) => (
                 <span key={i} className="block h-1 flex-1 rounded-[2px]" style={{ background: SEGMENT_INK[segmentTone(kind)] }} />
               ))}
             </div>
-            <div className="mt-2 font-mono text-[10.5px] text-text-bright">
+            <div className="mt-2 font-mono fs-10.5 text-text-bright">
               {sheet.status.step} <span className="text-[rgba(150,205,255,.3)]">·</span>{' '}
               <span style={{ color: sheet.status.ink }}>{sheet.status.status}</span>{' '}
               <span className="text-[rgba(150,205,255,.3)]">·</span>{' '}
@@ -93,7 +93,7 @@ export function StepsSheet({
               if (item.type === 'event') {
                 // The harness's own events between the steps, as the desktop's rail draws them.
                 return (
-                  <div key={`e${item.id}`} className="-mt-1 mb-3.5 flex items-center gap-2 font-mono text-[9.5px] tracking-[0.06em] text-[rgba(160,190,225,.6)]">
+                  <div key={`e${item.id}`} className="-mt-1 mb-3.5 flex items-center gap-2 font-mono fs-9.5 tracking-[0.06em] text-[rgba(160,190,225,.6)]">
                     <span className="flex w-[14px] shrink-0 justify-center">
                       <span aria-hidden className="block h-[1.4px] w-[7px] bg-[rgba(160,190,225,.6)]" />
                     </span>
@@ -104,10 +104,10 @@ export function StepsSheet({
               const ink = inks(item.kind)
               const body = (
                 <>
-                  <span className="text-pretty text-[13.5px] font-semibold leading-[1.38]" style={{ color: ink.title }}>
+                  <span className="text-pretty fs-13.5 font-semibold leading-[1.38]" style={{ color: ink.title }}>
                     {item.title}
                   </span>
-                  <span className="flex gap-2 font-mono text-[10px]" style={{ color: ink.meta }}>
+                  <span className="flex gap-2 font-mono fs-10" style={{ color: ink.meta }}>
                     {item.meta}
                     {item.record && <span className="text-[oklch(85%_.12_205)]">record ›</span>}
                   </span>
@@ -135,7 +135,7 @@ export function StepsSheet({
             })}
           </div>
           {/* canvas 10b: the footer wraps rather than cutting its sentence. */}
-          <div className="flex items-start gap-2 border-t border-[rgba(150,205,255,.08)] px-5 py-3 font-mono text-[10px] leading-[1.5] text-[rgba(160,190,225,.55)]">
+          <div className="flex items-start gap-2 border-t border-[rgba(150,205,255,.08)] px-5 py-3 font-mono fs-10 leading-[1.5] text-[rgba(160,190,225,.55)]">
             <span className="min-w-0">{sheet.footer}</span>
             <span aria-hidden className="flex-1" />
             <span className="shrink-0">● auto ◆ gate</span>

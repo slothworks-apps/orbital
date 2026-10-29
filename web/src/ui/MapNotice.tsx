@@ -41,14 +41,14 @@ export function MapNotice({
     >
       {/* `Feature - App update`: the head row is 28 tall, × or not. */}
       <div className="flex min-h-7 items-center gap-2">
-        <span className="flex-1 font-mono text-[10px] tracking-[0.18em] text-[rgba(160,190,225,.65)]">{label}</span>
+        <span className="flex-1 font-mono fs-10 tracking-[0.18em] text-[rgba(160,190,225,.65)]">{label}</span>
         {onClose && (
           <button
             type="button"
             onClick={onClose}
             aria-label={closeLabel}
             title={closeTitle}
-            className="grid h-7 w-7 place-items-center rounded-[7px] text-[16px] text-[rgba(160,190,225,.65)] transition-colors hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright"
+            className="grid h-7 w-7 place-items-center rounded-[7px] fs-16 text-[rgba(160,190,225,.65)] transition-colors hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright"
           >
             ×
           </button>
@@ -62,7 +62,7 @@ export function MapNotice({
 
 /** A message's sentence (1a): 14 px at 1.5, 10 px clear of the right edge. */
 export function MapNoticeText({ children }: { children: ReactNode }) {
-  return <p className="pr-2.5 text-[14px] leading-[1.5] text-[rgba(214,226,242,.94)] [text-wrap:pretty]">{children}</p>
+  return <p className="pr-2.5 fs-14 leading-[1.5] text-[rgba(214,226,242,.94)] [text-wrap:pretty]">{children}</p>
 }
 
 /**
@@ -82,7 +82,7 @@ export function MapNoticeProgress({ percent, readout }: { percent: number; reado
       >
         <div className="h-full bg-[rgba(214,226,242,.8)]" style={{ width: `${percent}%` }} />
       </div>
-      <span className="min-w-[92px] flex-none text-right font-mono text-[10.5px] tracking-[0.04em] text-[rgba(160,190,225,.65)]">
+      <span className="min-w-[92px] flex-none text-right font-mono fs-10.5 tracking-[0.04em] text-[rgba(160,190,225,.65)]">
         {readout}
       </span>
     </div>
@@ -97,7 +97,7 @@ export function MapNoticeList({ items }: { items: readonly string[] }) {
   return (
     <ul className="flex flex-col gap-[5px] pr-2.5">
       {items.map((item, i) => (
-        <li key={i} className="flex gap-2.5 text-[14px] leading-[1.45] text-[rgba(214,226,242,.94)]">
+        <li key={i} className="flex gap-2.5 fs-14 leading-[1.45] text-[rgba(214,226,242,.94)]">
           <span aria-hidden className="flex-none text-[rgba(160,190,225,.55)]">
             –
           </span>

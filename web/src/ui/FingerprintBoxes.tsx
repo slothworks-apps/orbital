@@ -7,12 +7,12 @@ type Size = 'md' | 'sm'
  */
 const SIZES: Record<Size, { box: string; rule: string; row: string }> = {
   md: {
-    box: 'h-14 w-10 rounded-[10px] text-[28px]',
+    box: 'h-fit min-h-14 w-10 rounded-[10px] fs-28',
     rule: 'mx-1 h-[2px] w-2.5 rounded-full bg-[rgba(150,205,255,.35)]',
     row: 'gap-2',
   },
   sm: {
-    box: 'h-12 w-[34px] rounded-[9px] text-[24px]',
+    box: 'h-fit min-h-12 w-[34px] rounded-[9px] fs-24',
     rule: 'h-[2px] w-2 bg-[rgba(160,190,225,.4)]',
     row: 'gap-1.5',
   },

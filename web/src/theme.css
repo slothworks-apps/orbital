@@ -18,6 +18,20 @@
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
 
+/* Text size (spec 2026-10-27-text-size-design). Every text size is the
+   design's px value times `--text-scale`, which the root carries from
+   Settings → Appearance (`lib/textScale.ts`); unset, it is 1 and nothing
+   moves. Only letters scale: spacing stays in px and rem. `fs-13` is the
+   former `text-[13px]`. */
+@utility fs-* {
+  font-size: calc(--value(number) * 1px * var(--text-scale, 1));
+}
+
+/* The transcript carries its own step, which is the app's unless set. */
+[data-text-scope='transcript'] {
+  --text-scale: var(--transcript-text-scale, 1);
+}
+
 /* Session state colours (canvas `Feature - State colours` 24d). Colour
    follows urgency: four hues cover the seven state words. They go on state
    LABELS only — the map pill, the summary line, the sidebar row's word and
@@ -494,7 +508,7 @@ body {
   @apply rounded bg-white/10 px-1 py-0.5 font-mono text-[0.85em];
 }
 .orbital-composer-field pre {
-  @apply rounded-md bg-black/30 p-3 font-mono text-xs text-text-soft whitespace-pre-wrap wrap-anywhere;
+  @apply rounded-md bg-black/30 p-3 font-mono fs-12 leading-(--text-xs--line-height) text-text-soft whitespace-pre-wrap wrap-anywhere;
 }
 .orbital-composer-field pre code {
   @apply bg-transparent p-0 text-[1em];
@@ -511,10 +525,10 @@ body {
   @apply font-semibold;
 }
 .orbital-composer-field h1 {
-  @apply text-[15.5px];
+  @apply fs-15.5;
 }
 .orbital-composer-field h2 {
-  @apply text-[14.5px];
+  @apply fs-14.5;
 }
 /* The placeholder (`@tiptap/extensions` Placeholder) — the textarea's own
    placeholder ink. */

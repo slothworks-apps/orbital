@@ -18,7 +18,7 @@ export function RestartFrame({ version }: { version: string }) {
       >
         <span className="absolute -right-px -top-px block h-1.5 w-1.5 rounded-full bg-[oklch(85%_.12_205)]" />
       </span>
-      <span className="font-mono text-[10.5px] tracking-[0.14em] text-[rgba(160,190,225,.65)]">
+      <span className="font-mono fs-10.5 tracking-[0.14em] text-[rgba(160,190,225,.65)]">
         ORBITAL MOBILE {version}
       </span>
     </div>

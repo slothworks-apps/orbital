@@ -64,10 +64,10 @@ function GateRow({ sessionId, view, offline }: { sessionId: string; view: Exclud
       // Canvas 10b third phone: the note in the fold line's place.
       return (
         <div className="flex flex-col gap-[5px] border-l border-[rgba(220,235,255,.3)] py-0.5 pl-3">
-          <div className="font-mono text-[9.5px] tracking-[0.18em] text-[rgba(200,220,245,.75)]">
+          <div className="font-mono fs-9.5 tracking-[0.18em] text-[rgba(200,220,245,.75)]">
             ◆ STEP {view.step} · REOPENED BY YOU{view.at !== null ? ` · ${clock(view.at)}` : ''}
           </div>
-          <div className="text-pretty text-[13px] leading-[1.5] text-[rgba(220,232,248,.88)]">
+          <div className="text-pretty fs-13 leading-[1.5] text-[rgba(220,232,248,.88)]">
             Nothing was sent. Write what to change; the step stays open until the agent ticks it again.
           </div>
         </div>
@@ -83,7 +83,7 @@ function GateRow({ sessionId, view, offline }: { sessionId: string; view: Exclud
 function ErrorLine({ text }: { text: string | null }) {
   if (!text) return null
   return (
-    <div role="alert" className="mt-2 px-1 font-mono text-[11px] text-[rgba(200,215,235,.8)]">
+    <div role="alert" className="mt-2 px-1 font-mono fs-11 text-[rgba(200,215,235,.8)]">
       {text}
     </div>
   )
@@ -95,17 +95,17 @@ function CardHead({ chip, step, total }: { chip: ReactNode; step: number; total:
     <div className="flex items-center gap-2">
       {chip}
       <span aria-hidden className="flex-1" />
-      <span className="font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+      <span className="font-mono fs-10 text-[rgba(160,190,225,.6)]">
         step {step} of {total}
       </span>
     </div>
   )
 }
 
-const CHIP = 'flex items-center gap-1.5 rounded-[4px] border px-2 py-[3px] font-mono text-[10px] tracking-[0.14em]'
-const LABEL = 'font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.55)]'
+const CHIP = 'flex items-center gap-1.5 rounded-[4px] border px-2 py-[3px] font-mono fs-10 tracking-[0.14em]'
+const LABEL = 'font-mono fs-9.5 tracking-[0.16em] text-[rgba(160,190,225,.55)]'
 const OUTLINED =
-  'h-13 rounded-[14px] border border-[rgba(150,205,255,.22)] bg-[rgba(4,8,16,.5)] text-[14px] font-semibold text-text-bright disabled:opacity-40'
+  'h-13 rounded-[14px] border border-[rgba(150,205,255,.22)] bg-[rgba(4,8,16,.5)] fs-14 font-semibold text-text-bright disabled:opacity-40'
 
 /** 10b first phone: the waiting gate and its three answers. */
 function WaitingCard({ sessionId, card }: { sessionId: string; card: GateCardData }) {
@@ -158,17 +158,17 @@ function WaitingCard({ sessionId, card }: { sessionId: string; card: GateCardDat
             }
           />
         </div>
-        <div className="text-pretty px-3.5 pt-[9px] text-[15px] font-semibold leading-[1.35]">{card.title}</div>
+        <div className="text-pretty px-3.5 pt-[9px] fs-15 font-semibold leading-[1.35]">{card.title}</div>
         {card.summary && (
           <>
             <div className={`${LABEL} px-3.5 pt-2.5`}>WHAT IT DID</div>
-            <div className="text-pretty px-3.5 pt-1 text-[13px] leading-[1.5] text-[rgba(220,232,248,.9)]">{card.summary}</div>
+            <div className="text-pretty px-3.5 pt-1 fs-13 leading-[1.5] text-[rgba(220,232,248,.9)]">{card.summary}</div>
           </>
         )}
         {card.openQuestions.length > 0 && (
           <>
             <div className={`${LABEL} px-3.5 pt-2.5`}>OPEN QUESTIONS · {card.openQuestions.length}</div>
-            <ul className="mt-1 flex list-disc flex-col gap-[3px] pl-[30px] pr-3.5 text-[13px] leading-[1.45] text-[rgba(220,232,248,.9)]">
+            <ul className="mt-1 flex list-disc flex-col gap-[3px] pl-[30px] pr-3.5 fs-13 leading-[1.45] text-[rgba(220,232,248,.9)]">
               {card.openQuestions.map((q, i) => (
                 <li key={i}>{q}</li>
               ))}
@@ -177,7 +177,7 @@ function WaitingCard({ sessionId, card }: { sessionId: string; card: GateCardDat
         )}
         <GateThumbs sessionId={sessionId} paths={card.images} offline={false} />
         {(card.range || card.verifyPassed) && (
-          <div className="flex items-center gap-1.5 px-3.5 pt-2 font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+          <div className="flex items-center gap-1.5 px-3.5 pt-2 font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
             {card.range}
             {card.range && card.verifyPassed && ' · '}
             {card.verifyPassed && (
@@ -188,7 +188,7 @@ function WaitingCard({ sessionId, card }: { sessionId: string; card: GateCardDat
           </div>
         )}
         {card.next && (
-          <div className="mx-3.5 mt-2.5 flex items-center gap-2 border-t border-[rgba(150,205,255,.08)] pt-[9px] text-[12.5px] text-[rgba(200,215,235,.8)]">
+          <div className="mx-3.5 mt-2.5 flex items-center gap-2 border-t border-[rgba(150,205,255,.08)] pt-[9px] fs-12.5 text-[rgba(200,215,235,.8)]">
             <span className={LABEL}>NEXT</span>
             <span
               aria-hidden
@@ -207,10 +207,10 @@ function WaitingCard({ sessionId, card }: { sessionId: string; card: GateCardDat
             type="button"
             disabled={busy}
             onClick={() => void approve()}
-            className="flex h-13 items-center justify-center gap-[9px] rounded-[14px] bg-[oklch(85%_.12_205)] text-[15px] font-bold text-[#03111a] shadow-[0_0_18px_oklch(85%_.12_205/.3)] disabled:opacity-40 disabled:shadow-none"
+            className="flex h-13 items-center justify-center gap-[9px] rounded-[14px] bg-[oklch(85%_.12_205)] fs-15 font-bold text-[#03111a] shadow-[0_0_18px_oklch(85%_.12_205/.3)] disabled:opacity-40 disabled:shadow-none"
           >
             Approve
-            {card.next && <span className="font-mono text-[10.5px] font-medium opacity-75">→ step {card.next.step}</span>}
+            {card.next && <span className="font-mono fs-10.5 font-medium opacity-75">→ step {card.next.step}</span>}
           </button>
           <div className="flex gap-2">
             <button type="button" disabled={busy} onClick={() => void reopen()} className={`${OUTLINED} flex-1`}>
@@ -225,7 +225,7 @@ function WaitingCard({ sessionId, card }: { sessionId: string; card: GateCardDat
               Go back
             </button>
           </div>
-          <div className="text-center font-mono text-[10px] text-[rgba(160,190,225,.55)]">
+          <div className="text-center font-mono fs-10 text-[rgba(160,190,225,.55)]">
             Reopen sends nothing. You write what to change.
           </div>
         </div>
@@ -251,7 +251,7 @@ function LockedLine({ sessionId }: { sessionId: string }) {
   const macName = useSessionDeviceName(sessionId) ?? UNNAMED_MAC
   const refused = useSessionRefusedLine(sessionId)
   return (
-    <div className="box-border flex min-h-13 items-center gap-2.5 rounded-[14px] border border-dashed border-[rgba(150,205,255,.18)] px-3.5 text-[13.5px] text-[rgba(160,190,225,.7)]">
+    <div className="box-border flex h-fit min-h-13 items-center gap-2.5 rounded-[14px] border border-dashed border-[rgba(150,205,255,.18)] px-3.5 fs-13.5 text-[rgba(160,190,225,.7)]">
       <span aria-hidden className="relative block h-[13px] w-[11px] shrink-0">
         <span className="absolute left-[1.5px] top-0 box-border block h-2 w-2 rounded-t-[4px] border-[1.5px] border-b-0 border-current" />
         <span className="absolute bottom-0 left-0 block h-[7px] w-[11px] rounded-[2px] bg-current" />
@@ -277,8 +277,8 @@ function AsleepCard({ sessionId, card }: { sessionId: string; card: GateCardData
           }
         />
       </div>
-      <div className="px-3.5 pt-[9px] text-[15px] font-semibold leading-[1.35] text-[rgba(232,238,248,.85)]">{card.title}</div>
-      <div className="px-3.5 pt-2 text-[13px] leading-[1.5] text-[rgba(220,232,248,.75)]">
+      <div className="px-3.5 pt-[9px] fs-15 font-semibold leading-[1.35] text-[rgba(232,238,248,.85)]">{card.title}</div>
+      <div className="px-3.5 pt-2 fs-13 leading-[1.5] text-[rgba(220,232,248,.75)]">
         {shortSummary(card.summary ?? undefined, card.openQuestions.length)}
       </div>
       {/* Nothing can be fetched while the Mac sleeps: a cached copy shows, one not held is the dashed box. */}
@@ -316,11 +316,11 @@ function ReviewerCard({ sessionId, card, offline }: { sessionId: string; card: G
             </span>
           }
         />
-        <div className="mt-2.5 text-pretty text-[13.5px] leading-[1.5] text-[rgba(220,232,248,.9)]">
+        <div className="mt-2.5 text-pretty fs-13.5 leading-[1.5] text-[rgba(220,232,248,.9)]">
           Feeling lucky is on: a reviewer is reading the step. It decides on its own and leaves its reasoning in the record.
         </div>
         {card.reading && (
-          <div className="mt-2 break-words font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.6)]">{card.reading}</div>
+          <div className="mt-2 break-words font-mono fs-10.5 leading-[1.6] text-[rgba(160,190,225,.6)]">{card.reading}</div>
         )}
         {offline ? (
           <div className="mt-3.5">
@@ -331,7 +331,7 @@ function ReviewerCard({ sessionId, card, offline }: { sessionId: string; card: G
             <button type="button" disabled={busy} onClick={() => void decide()} className={`${OUTLINED} mt-3.5 w-full`}>
               Decide myself
             </button>
-            <div className="mt-2 text-center font-mono text-[10px] text-[rgba(160,190,225,.55)]">
+            <div className="mt-2 text-center font-mono fs-10 text-[rgba(160,190,225,.55)]">
               the reviewer stops · the gate waits for you
             </div>
           </>

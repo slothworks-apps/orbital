@@ -99,7 +99,7 @@
   padding: 12px 14px;
 }
 :root[data-platform='mobile'] .message-markdown {
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale, 1));
   line-height: 1.55;
 }
 

@@ -89,7 +89,7 @@ export function Chip({
       style={style}
       className={[
         'inline-flex items-center gap-1.5 rounded-full border font-semibold transition-colors',
-        field ? 'box-border h-[26px] px-[11px] text-[11.5px]' : 'px-2.5 py-1 text-[11px]',
+        field ? 'box-border h-fit min-h-[26px] px-[11px] fs-11.5' : 'px-2.5 py-1 fs-11',
         interactive ? 'cursor-pointer select-none' : '',
         lifted
           ? 'whitespace-nowrap border-[rgba(150,205,255,.3)] bg-[rgba(10,16,28,.96)] text-text-bright shadow-[0_10px_24px_rgba(0,0,0,.5)]'
@@ -117,7 +117,7 @@ export function Chip({
       {glyph}
       {input ?? <span>{label}</span>}
       {note && (
-        <span className="font-mono text-[9.5px] font-normal tracking-[0.06em] text-[rgba(160,190,225,.75)]">
+        <span className="font-mono fs-9.5 font-normal tracking-[0.06em] text-[rgba(160,190,225,.75)]">
           {note}
         </span>
       )}

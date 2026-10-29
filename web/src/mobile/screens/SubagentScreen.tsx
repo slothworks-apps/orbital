@@ -97,7 +97,7 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
           type="button"
           aria-label={`Back to ${parentTitle}`}
           onClick={() => goBack()}
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] text-[28px] leading-none text-[rgba(220,235,255,.85)]"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] fs-28 leading-none text-[rgba(220,235,255,.85)]"
         >
           ‹
         </button>
@@ -107,8 +107,8 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
           style={{ borderColor: tagHue }}
         />
         <div className="min-w-0 flex-1 pr-2">
-          <h1 className="truncate text-[16.5px] font-bold">{agent?.name ?? 'Subagent'}</h1>
-          <div className="mt-0.5 truncate font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+          <h1 className="truncate fs-16.5 font-bold">{agent?.name ?? 'Subagent'}</h1>
+          <div className="mt-0.5 truncate font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
             subagent of {parentTitle}
             {model && ` · ${model}`}
           </div>
@@ -116,13 +116,13 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
       </div>
       {/* canvas 10f: the state, "ended hh:mm" once done, READ-ONLY at the end. */}
       <div className="flex h-11 items-center gap-2.5 pl-2.5 pr-3.5">
-        <span className="flex items-center gap-[7px] font-mono text-[10.5px] tracking-[0.1em]" style={{ color: header.ink }}>
+        <span className="flex items-center gap-[7px] font-mono fs-10.5 tracking-[0.1em]" style={{ color: header.ink }}>
           {header.pulse && <span aria-hidden className="orbital-pulse block h-[7px] w-[7px] rounded-full" style={{ background: header.ink }} />}
           {header.word}
         </span>
-        {header.ended && <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">{header.ended}</span>}
+        {header.ended && <span className="font-mono fs-10.5 text-[rgba(160,190,225,.55)]">{header.ended}</span>}
         <span aria-hidden className="flex-1" />
-        <span className="rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono text-[9px] tracking-[0.12em] text-[rgba(160,190,225,.75)]">
+        <span className="rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono fs-9 tracking-[0.12em] text-[rgba(160,190,225,.75)]">
           READ-ONLY
         </span>
       </div>
@@ -138,11 +138,11 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
           className="rounded-[10px] border bg-[rgba(4,8,16,.45)] p-3"
           style={{ borderColor: completed ? 'rgba(127,227,176,.3)' : 'rgba(150,205,255,.12)' }}
         >
-          <div className="font-mono text-[9.5px] tracking-[0.16em]" style={{ color: completed ? INK.done : header.ink }}>
+          <div className="font-mono fs-9.5 tracking-[0.16em]" style={{ color: completed ? INK.done : header.ink }}>
             RESULT · RETURNED TO {nameInSentence(parentTitle)}
           </div>
           {/* Markdown like any assistant turn (the agent writes it so); long paths wrap rather than run off the card. */}
-          <div className="message-markdown mt-1.5 text-pretty text-[13.5px] leading-[1.5] text-[rgba(232,238,248,.92)] [overflow-wrap:anywhere] [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1 [&_ul]:list-disc [&_ul]:pl-5">
+          <div className="message-markdown mt-1.5 text-pretty fs-13.5 leading-[1.5] text-[rgba(232,238,248,.92)] [overflow-wrap:anywhere] [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-1 [&_ul]:list-disc [&_ul]:pl-5">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ code: Code, pre: Pre }}>
               {body.result}
             </ReactMarkdown>
@@ -152,13 +152,13 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
       {header.end &&
         (header.end.divider ? (
           // canvas 10f END OF SUBAGENT; 10h's asleep line drawn as 9b's divider.
-          <div className="flex items-center gap-2.5 font-mono text-[10px] tracking-[0.12em] text-[rgba(160,190,225,.5)]">
+          <div className="flex items-center gap-2.5 font-mono fs-10 tracking-[0.12em] text-[rgba(160,190,225,.5)]">
             <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
             {header.end.text.toUpperCase()}
             <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
           </div>
         ) : (
-          <div className="font-mono text-[11px]" style={{ color: header.end.ink }}>
+          <div className="font-mono fs-11" style={{ color: header.end.ink }}>
             {header.end.text}
           </div>
         ))}
@@ -169,7 +169,7 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
     // canvas 10f: no composer — where the result goes, and the way to the parent.
     <div className="flex flex-col gap-2 border-t border-[rgba(150,205,255,.1)] bg-[rgba(6,10,20,.94)] px-4 pb-1.5 pt-2.5">
       {running && (
-        <div className="font-mono text-[11px] leading-[1.5] text-[rgba(160,190,225,.7)]">
+        <div className="font-mono fs-11 leading-[1.5] text-[rgba(160,190,225,.7)]">
           Subagents take no replies — its result goes back to {nameInSentence(parentTitle)}.
         </div>
       )}
@@ -226,10 +226,10 @@ function TaskFrom({ parentTitle, text, dropped }: { parentTitle: string; text: s
         onClick={() => setFull((v) => !v)}
         className="block w-full rounded-[10px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.45)] px-3 py-2.5 text-left"
       >
-        <div className="font-mono text-[9.5px] tracking-[0.16em] text-[rgba(160,190,225,.55)]">TASK FROM {nameInSentence(parentTitle)}</div>
+        <div className="font-mono fs-9.5 tracking-[0.16em] text-[rgba(160,190,225,.55)]">TASK FROM {nameInSentence(parentTitle)}</div>
         <div
           className={[
-            'mt-1.5 whitespace-pre-wrap text-pretty text-[13px] leading-[1.5] text-[rgba(220,232,248,.9)]',
+            'mt-1.5 whitespace-pre-wrap text-pretty fs-13 leading-[1.5] text-[rgba(220,232,248,.9)]',
             full ? 'max-h-[40vh] overflow-y-auto' : 'line-clamp-3',
           ].join(' ')}
         >
@@ -237,7 +237,7 @@ function TaskFrom({ parentTitle, text, dropped }: { parentTitle: string; text: s
         </div>
       </button>
       {dropped > 0 && (
-        <div className="pt-2 font-mono text-[10px] tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+        <div className="pt-2 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.5)]">
           {dropped.toLocaleString()} earlier {dropped === 1 ? 'step' : 'steps'} not shown
         </div>
       )}

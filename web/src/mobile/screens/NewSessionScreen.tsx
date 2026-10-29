@@ -269,14 +269,14 @@ export function NewSessionScreen() {
         type="button"
         aria-label="Close"
         onClick={() => goBack()}
-        className="grid h-11 w-11 place-items-center text-[22px] text-[rgba(220,235,255,.85)]"
+        className="grid h-11 w-11 place-items-center fs-22 text-[rgba(220,235,255,.85)]"
       >
         ×
       </button>
-      <h1 className="flex-1 text-[17px] font-bold">New session</h1>
+      <h1 className="flex-1 fs-17 font-bold">New session</h1>
       {/* Canvas 50j: with a DEVICE field the header names no device. */}
       {!several && (
-        <span className="flex min-w-0 items-center gap-1.5 pr-3.5 font-mono text-[11px] text-[rgba(160,190,225,.7)]">
+        <span className="flex min-w-0 items-center gap-1.5 pr-3.5 font-mono fs-11 text-[rgba(160,190,225,.7)]">
           <span
             aria-hidden
             className={[
@@ -298,7 +298,7 @@ export function NewSessionScreen() {
         {startLabel}
       </PrimaryButton>
       {failure && (
-        <p role="alert" className="mt-2 text-center text-[13px] text-[var(--state-input)]">
+        <p role="alert" className="mt-2 text-center fs-13 text-[var(--state-input)]">
           {failure}
         </p>
       )}
@@ -308,7 +308,7 @@ export function NewSessionScreen() {
   /** The row the field already names wears the ✓ (9d). */
   const chosenCwd = cwd.trim()
   const check = (path: string) => (
-    <span aria-hidden className={['w-3 shrink-0 font-mono text-[12px] text-[oklch(85%_.12_205)]', path === chosenCwd ? '' : 'opacity-0'].join(' ')}>
+    <span aria-hidden className={['w-3 shrink-0 font-mono fs-12 text-[oklch(85%_.12_205)]', path === chosenCwd ? '' : 'opacity-0'].join(' ')}>
       ✓
     </span>
   )
@@ -350,22 +350,22 @@ export function NewSessionScreen() {
               autoCapitalize="off"
               autoCorrect="off"
               spellCheck={false}
-              className="h-full min-w-0 flex-1 bg-transparent font-mono text-[13px] text-text-bright outline-none placeholder:text-text-muted"
+              className="h-full min-w-0 flex-1 bg-transparent font-mono fs-13 text-text-bright outline-none placeholder:text-text-muted"
             />
             {cwd && (
               <button
                 type="button"
                 aria-label="Clear"
                 onClick={() => editCwd('')}
-                className="grid h-11 w-11 shrink-0 place-items-center text-[18px] text-[rgba(160,190,225,.7)]"
+                className="grid h-11 w-11 shrink-0 place-items-center fs-18 text-[rgba(160,190,225,.7)]"
               >
                 ×
               </button>
             )}
           </div>
           {notFound && (
-            <p className="flex items-center gap-2 px-1 text-[12.5px] text-[oklch(80%_.1_25)]">
-              <span aria-hidden className="font-mono text-[11px]">
+            <p className="flex items-center gap-2 px-1 fs-12.5 text-[oklch(80%_.1_25)]">
+              <span aria-hidden className="font-mono fs-11">
                 !
               </span>
               Directory not found on {mac}
@@ -373,8 +373,8 @@ export function NewSessionScreen() {
           )}
           {dirLine && (
             // Copy and colour provisional until the canvas draws the line.
-            <p className="flex items-center gap-2 px-1 text-[12.5px] text-[oklch(82%_.1_70)]">
-              <span aria-hidden className="font-mono text-[11px]">
+            <p className="flex items-center gap-2 px-1 fs-12.5 text-[oklch(82%_.1_70)]">
+              <span aria-hidden className="font-mono fs-11">
                 !
               </span>
               {dirLine}
@@ -406,11 +406,11 @@ export function NewSessionScreen() {
                       style={{ background: hue !== undefined ? tagColor(hue) : 'var(--state-neutral)' }}
                     />
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="truncate text-[14px] font-bold text-text-bright">{basename(row.cwd)}</span>
-                      <span className="truncate font-mono text-[11px] text-[rgba(160,190,225,.65)]">{homePath(row.cwd)}</span>
+                      <span className="truncate fs-14 font-bold text-text-bright">{basename(row.cwd)}</span>
+                      <span className="truncate font-mono fs-11 text-[rgba(160,190,225,.65)]">{homePath(row.cwd)}</span>
                     </span>
                     {row.lastAt !== null && (
-                      <span className="shrink-0 font-mono text-[10.5px] text-[rgba(160,190,225,.5)]">{timeAgo(row.lastAt, now)}</span>
+                      <span className="shrink-0 font-mono fs-10.5 text-[rgba(160,190,225,.5)]">{timeAgo(row.lastAt, now)}</span>
                     )}
                     {check(row.cwd)}
                   </button>
@@ -424,18 +424,18 @@ export function NewSessionScreen() {
                 >
                   <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full border-[1.3px] border-[rgba(200,215,235,.55)]" />
                   <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                    <span className="truncate text-[14px] font-semibold text-text-bright">
-                      Use <span className="font-mono text-[12.5px] font-normal">{list.path}</span> as is
+                    <span className="truncate fs-14 font-semibold text-text-bright">
+                      Use <span className="font-mono fs-12.5 font-normal">{list.path}</span> as is
                     </span>
-                    <span className="text-[11.5px] leading-[1.4] text-[rgba(160,190,225,.6)]">{mac} checks it exists when the session starts</span>
+                    <span className="fs-11.5 leading-[1.4] text-[rgba(160,190,225,.6)]">{mac} checks it exists when the session starts</span>
                   </span>
                   {check(list.path)}
                 </button>
               )}
               {list.kind === 'no-match' && (
                 <div className="flex flex-col gap-[3px] p-3.5">
-                  <span className="text-[14px] font-semibold text-[rgba(232,238,248,.85)]">No directory matches “{list.query}”</span>
-                  <span className="text-[11.5px] text-[rgba(160,190,225,.6)]">Type a full path (~/… or /…) to use any directory.</span>
+                  <span className="fs-14 font-semibold text-[rgba(232,238,248,.85)]">No directory matches “{list.query}”</span>
+                  <span className="fs-11.5 text-[rgba(160,190,225,.6)]">Type a full path (~/… or /…) to use any directory.</span>
                 </div>
               )}
             </div>
@@ -444,9 +444,9 @@ export function NewSessionScreen() {
                 type="button"
                 aria-expanded={listOpen}
                 onClick={() => setListOpen(!listOpen)}
-                className="flex h-11 w-full items-center justify-center gap-2 border-t border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.5)] font-mono text-[11px] text-[rgba(200,220,245,.8)]"
+                className="flex h-11 w-full items-center justify-center gap-2 border-t border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.5)] font-mono fs-11 text-[rgba(200,220,245,.8)]"
               >
-                <span aria-hidden className="text-[9px] text-[rgba(160,190,225,.6)]">
+                <span aria-hidden className="fs-9 text-[rgba(160,190,225,.6)]">
                   {listOpen ? '▴' : '▾'}
                 </span>
                 {listOpen ? 'Show less' : `Show all ${rows.length}`}
@@ -513,7 +513,7 @@ export function NewSessionScreen() {
           <SlashButton disabled={pending || asleep || !cwd.trim()} onSlash={() => composer.current?.startCommand()} />
         </div>
         {photoError && (
-          <div role="alert" className="px-1 font-mono text-[11px] text-[var(--state-input)]">
+          <div role="alert" className="px-1 font-mono fs-11 text-[var(--state-input)]">
             {photoError}
           </div>
         )}
@@ -575,10 +575,10 @@ function DeviceField({ option, onOpen }: { option: DeviceOption | null; onOpen: 
         <KindGlyph kind={option?.kind ?? 'desktop'} untitled />
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-[15px] font-semibold text-text-bright">{option?.name ?? 'Choose a device'}</span>
-        {option && <span className="truncate font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{option.sub}</span>}
+        <span className="truncate fs-15 font-semibold text-text-bright">{option?.name ?? 'Choose a device'}</span>
+        {option && <span className="truncate font-mono fs-10.5 text-[rgba(160,190,225,.6)]">{option.sub}</span>}
       </span>
-      <span aria-hidden className="grid h-11 w-8 shrink-0 place-items-center text-[10px] text-[rgba(160,190,225,.6)]">
+      <span aria-hidden className="grid h-11 w-8 shrink-0 place-items-center fs-10 text-[rgba(160,190,225,.6)]">
         ▾
       </span>
     </button>
@@ -600,7 +600,7 @@ function DeviceSheet({
   return (
     <BottomSheet label="Run it on" onDismiss={onClose} variant="device">
       <div className="flex flex-col gap-3 pb-2">
-        <h2 className="text-[18px] font-bold">Run it on</h2>
+        <h2 className="fs-18 font-bold">Run it on</h2>
         <div role="radiogroup" aria-label="Device" className="overflow-hidden rounded-[14px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.5)]">
           {options.map((o, i) => (
             <button
@@ -622,10 +622,10 @@ function DeviceSheet({
                 <KindGlyph kind={o.kind} untitled />
               </span>
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className="truncate text-[14.5px] font-semibold">{o.name}</span>
-                <span className="truncate font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{o.sub}</span>
+                <span className="truncate fs-14.5 font-semibold">{o.name}</span>
+                <span className="truncate font-mono fs-10.5 text-[rgba(160,190,225,.6)]">{o.sub}</span>
               </span>
-              <span aria-hidden className={['font-mono text-[13px] text-[oklch(85%_.12_205)]', o.id === value ? '' : 'opacity-0'].join(' ')}>
+              <span aria-hidden className={['font-mono fs-13 text-[oklch(85%_.12_205)]', o.id === value ? '' : 'opacity-0'].join(' ')}>
                 ✓
               </span>
             </button>
@@ -645,7 +645,7 @@ function DeviceSheet({
 function ModelSegments({ models, value, onChange }: { models: OrbitalModel[]; value: string | null; onChange: (value: string) => void }) {
   if (models.length === 0) {
     return (
-      <p className="rounded-[12px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.5)] px-3.5 py-3 text-[11.5px] leading-[1.4] text-[rgba(160,190,225,.7)]">
+      <p className="rounded-[12px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.5)] px-3.5 py-3 fs-11.5 leading-[1.4] text-[rgba(160,190,225,.7)]">
         The model list could not be read. The session uses whatever model Claude Code is set to.
       </p>
     )
@@ -667,7 +667,7 @@ function ModelSegments({ models, value, onChange }: { models: OrbitalModel[]; va
             onClick={() => onChange(m.value)}
             className={[
               // The 1px gap over the container's fill draws 9d's separators, between rows too.
-              'h-11 min-w-0 truncate px-1 font-mono text-[12.5px]',
+              'h-11 min-w-0 truncate px-1 font-mono fs-12.5',
               active
                 ? 'bg-[color-mix(in_oklab,oklch(85%_.12_205)_10%,#070b13)] font-semibold text-[oklch(85%_.12_205)]'
                 : 'bg-[#070b13] text-[rgba(220,235,255,.85)]',

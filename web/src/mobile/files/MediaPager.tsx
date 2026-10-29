@@ -124,13 +124,13 @@ function GonePage({
           type="button"
           aria-label="Back"
           onClick={onBack}
-          className="grid h-11 w-11 shrink-0 place-items-center text-[28px] leading-none text-[#e8eef8]"
+          className="grid h-11 w-11 shrink-0 place-items-center fs-28 leading-none text-[#e8eef8]"
         >
           ‹
         </button>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[15px] font-semibold">{item.path ? basename(item.path) : 'Image'}</div>
-          <div className="mt-0.5 truncate font-mono text-[10.5px] text-[rgba(200,215,235,.7)]">{sub}</div>
+          <div className="truncate fs-15 font-semibold">{item.path ? basename(item.path) : 'Image'}</div>
+          <div className="mt-0.5 truncate font-mono fs-10.5 text-[rgba(200,215,235,.7)]">{sub}</div>
         </div>
       </div>
       <div className="flex-1" />

@@ -50,18 +50,18 @@ export function CacheRatioChart({
     <section aria-label="Cache hit ratio" className={`${PANEL_CLASS} flex flex-col px-5 pb-3 pt-4`}>
       <div className="flex items-baseline gap-[14px]">
         <div className={PANEL_LABEL_CLASS}>CACHE HIT RATIO</div>
-        <div className="font-mono text-[15px] text-text-bright">
+        <div className="font-mono fs-15 text-text-bright">
           {ratio === null ? '—' : formatPercent(ratio)}
         </div>
         {trend !== null && (
           // Amber for a ratio that fell over the window (10a); a rise is left
           // in the panel's own ink.
-          <div className={`font-mono text-[10.5px] ${trend < 0 ? 'text-[#ffbb7b]' : 'text-[rgba(160,190,225,.7)]'}`}>
+          <div className={`font-mono fs-10.5 ${trend < 0 ? 'text-[#ffbb7b]' : 'text-[rgba(160,190,225,.7)]'}`}>
             {formatPoints(trend)} this window
           </div>
         )}
         <span className="flex-1" />
-        <div className="font-mono text-[10px] text-[rgba(160,190,225,.45)]">
+        <div className="font-mono fs-10 text-[rgba(160,190,225,.45)]">
           cached input ÷ total input · target ≥ {formatPercent(CACHE_TARGET_RATIO)}
         </div>
       </div>
@@ -72,7 +72,7 @@ export function CacheRatioChart({
           style={{ top: y(CACHE_TARGET_RATIO) }}
         />
         <div
-          className="absolute right-0 font-mono text-[9.5px] text-[rgba(160,190,225,.4)]"
+          className="absolute right-0 font-mono fs-9.5 text-[rgba(160,190,225,.4)]"
           style={{ top: Math.max(0, y(CACHE_TARGET_RATIO) - 8) }}
         >
           {formatPercent(CACHE_TARGET_RATIO)}
@@ -113,7 +113,7 @@ export function CacheRatioChart({
           </svg>
         )}
 
-        <div className="absolute inset-x-0 -bottom-0.5 flex justify-between font-mono text-[10px] text-[rgba(160,190,225,.45)]">
+        <div className="absolute inset-x-0 -bottom-0.5 flex justify-between font-mono fs-10 text-[rgba(160,190,225,.45)]">
           <span>{first ? `${shortDay(first.day)} · ${formatPercent(first.ratio)}` : ''}</span>
           <span>
             {last && last !== first ? `${shortDay(last.day)} · ${formatPercent(last.ratio)}` : ''}

@@ -98,7 +98,7 @@ function GhTip({ close }: { close: () => void }) {
       />
       {/* 61e: what Install does, beside it — 2/6/0/0 inset, 10 apart. */}
       <div className="flex items-center gap-2.5 pr-1.5 pt-0.5">
-        <span className="min-w-0 flex-1 font-mono text-[10.5px] leading-[1.5] text-[rgba(160,190,225,.6)]">
+        <span className="min-w-0 flex-1 font-mono fs-10.5 leading-[1.5] text-[rgba(160,190,225,.6)]">
           Install runs <span className="text-[rgba(220,232,248,.9)]">{INSTALL.command}</span> in a new Orbital session
         </span>
         <Button variant="lit" size="notice" onClick={install}>

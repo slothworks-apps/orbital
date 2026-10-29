@@ -107,11 +107,11 @@ export function OwnCodeScreen() {
         type="button"
         aria-label="Back"
         onClick={() => goBack()}
-        className="grid h-11 w-11 place-items-center text-[28px] leading-none text-[rgba(220,235,255,.85)]"
+        className="grid h-11 w-11 place-items-center fs-28 leading-none text-[rgba(220,235,255,.85)]"
       >
         ‹
       </button>
-      <h1 className="flex-1 text-[17px] font-bold">Add a device</h1>
+      <h1 className="flex-1 fs-17 font-bold">Add a device</h1>
     </div>
   )
   const footer = (
@@ -123,14 +123,14 @@ export function OwnCodeScreen() {
   return (
     <MobileScreen header={header} footer={footer}>
       <div className="flex flex-col gap-4 px-5 pt-6">
-        <div className="font-mono text-[10px] tracking-[0.2em] text-[oklch(85%_.12_205/.85)]">THIS PHONE&apos;S CODE</div>
-        <h2 className="text-[22px] font-bold leading-[1.25] tracking-[-0.01em] [text-wrap:balance]">
+        <div className="font-mono fs-10 tracking-[0.2em] text-[oklch(85%_.12_205/.85)]">THIS PHONE&apos;S CODE</div>
+        <h2 className="fs-22 font-bold leading-[1.25] tracking-[-0.01em] [text-wrap:balance]">
           Paste it on the device you&apos;re adding
         </h2>
         {/* Canvas 50i: the QR payload as one long word, wrapping in a box at least 85 px tall. */}
-        <div className="box-border min-h-[85px] select-all break-all rounded-[14px] border border-[rgba(150,205,255,.2)] bg-[rgba(4,8,16,.6)] px-4 py-3.5 font-mono text-[13px] leading-[1.55] text-text-bright">
+        <div className="box-border h-fit min-h-[85px] select-all break-all rounded-[14px] border border-[rgba(150,205,255,.2)] bg-[rgba(4,8,16,.6)] px-4 py-3.5 font-mono fs-13 leading-[1.55] text-text-bright">
           {refused ? (
-            <span className="font-sans text-[14px] break-normal text-[rgba(200,214,235,.85)]">
+            <span className="font-sans fs-14 break-normal text-[rgba(200,214,235,.85)]">
               {refusedPair?.error === 'joining' ? REFUSED_JOINING : REFUSED_PHONE}
             </span>
           ) : code && !left?.expired ? (
@@ -154,14 +154,14 @@ export function OwnCodeScreen() {
           </div>
         )}
         {error && (
-          <p role="alert" className="text-[13px] text-[rgba(200,214,235,.85)]">
+          <p role="alert" className="fs-13 text-[rgba(200,214,235,.85)]">
             {error}
           </p>
         )}
-        <p className="text-[13.5px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+        <p className="fs-13.5 leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
           On a desktop: Settings → Devices → <span className="font-semibold text-text-bright">Have another device&apos;s code?</span>{' '}
           {/* Canvas 50i (Device group) own-code sheet. */}
-          On a server: <span className="font-mono text-[12px]">orbital join</span> and the code.
+          On a server: <span className="font-mono fs-12">orbital join</span> and the code.
         </p>
         {left && !refused && (
           <div className="flex flex-col gap-[7px]">
@@ -171,10 +171,10 @@ export function OwnCodeScreen() {
                 style={{ width: `${left.fraction * 100}%` }}
               />
             </div>
-            <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{left.line}</span>
+            <span className="font-mono fs-10.5 text-[rgba(160,190,225,.6)]">{left.line}</span>
           </div>
         )}
-        <p className="font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.5)]">
+        <p className="font-mono fs-10.5 leading-[1.6] text-[rgba(160,190,225,.5)]">
           no QR here — nothing in the group scans one but a phone
         </p>
       </div>

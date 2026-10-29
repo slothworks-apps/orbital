@@ -43,12 +43,12 @@ export function RemoveDialog({
         </>
       }
     >
-      <p className="text-pretty text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)]">
+      <p className="text-pretty fs-13 leading-[1.55] text-[rgba(200,214,235,.85)]">
         The agent stops following the steps and Orbital stops sending it on. The conversation, the files and the
         commits stay as they are.
       </p>
       {done > 0 && (
-        <p className="mt-3 text-pretty text-[12px] leading-[1.55] text-[rgba(160,190,225,.7)]">
+        <p className="mt-3 text-pretty fs-12 leading-[1.55] text-[rgba(160,190,225,.7)]">
           The {done === 1 ? 'finished step keeps its record' : `${done} finished steps keep their records`}. You can
           still read them from session stats → Harness.
         </p>
@@ -115,7 +115,7 @@ export function GoBackDialog({
       }
     >
       <div className="flex flex-col">
-        <p className="text-pretty text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)]">
+        <p className="text-pretty fs-13 leading-[1.55] text-[rgba(200,214,235,.85)]">
           {running && 'The turn and anything running in the session stop. '}
           The conversation goes back to the message that sent the agent on to step {n}.{' '}
           {going.length > 1
@@ -125,7 +125,7 @@ export function GoBackDialog({
         {going.length > 0 && (
           <ul className="mt-3.5 flex flex-col rounded-lg border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] py-1">
             {going.map((k) => (
-              <li key={k} className="flex items-center gap-2 px-3 py-1.5 font-mono text-[11px] text-[rgba(160,190,225,.75)]">
+              <li key={k} className="flex items-center gap-2 px-3 py-1.5 font-mono fs-11 text-[rgba(160,190,225,.75)]">
                 <span aria-hidden className="w-3 shrink-0 text-[rgba(160,190,225,.55)]">
                   {harness.steps[k].mode === 'gate' ? '◆' : '●'}
                 </span>
@@ -139,26 +139,26 @@ export function GoBackDialog({
         )}
         {git && state?.startHead && (
           <>
-            <p className="mt-3 text-pretty text-[12px] leading-[1.55] text-[rgba(160,190,225,.7)]">
+            <p className="mt-3 text-pretty fs-12 leading-[1.55] text-[rgba(160,190,225,.7)]">
               Files on disk stay as they are. To put the code back too, run this in the project after the rewind:
             </p>
             <div className="mt-2 flex items-center gap-2 rounded-lg border border-[rgba(150,205,255,.12)] bg-[rgba(2,4,9,.7)] py-2 pl-3 pr-2">
-              <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-[rgba(214,230,248,.92)]">{git}</span>
+              <span className="min-w-0 flex-1 truncate font-mono fs-11.5 text-[rgba(214,230,248,.92)]">{git}</span>
               <button
                 type="button"
                 onClick={() => void copyToClipboard(git).then((ok) => ok && setCopied(true))}
-                className="shrink-0 rounded-[6px] border border-[rgba(150,205,255,.2)] px-2.5 py-1 font-mono text-[10px] tracking-[0.06em] text-[rgba(220,235,255,.85)] hover:border-[rgba(150,205,255,.35)] hover:text-[#e8eef8]"
+                className="shrink-0 rounded-[6px] border border-[rgba(150,205,255,.2)] px-2.5 py-1 font-mono fs-10 tracking-[0.06em] text-[rgba(220,235,255,.85)] hover:border-[rgba(150,205,255,.35)] hover:text-[#e8eef8]"
               >
                 {copied ? 'Copied' : 'Copy'}
               </button>
             </div>
-            <div className="mt-1.5 font-mono text-[9.5px] text-[rgba(160,190,225,.5)]">
+            <div className="mt-1.5 font-mono fs-9.5 text-[rgba(160,190,225,.5)]">
               {shortSha(state.startHead)} = the commit step {n} started from · Orbital never runs it for you
             </div>
           </>
         )}
         {!git && (
-          <p className="mt-3 text-pretty text-[12px] leading-[1.55] text-[rgba(160,190,225,.7)]">Files on disk stay as they are.</p>
+          <p className="mt-3 text-pretty fs-12 leading-[1.55] text-[rgba(160,190,225,.7)]">Files on disk stay as they are.</p>
         )}
       </div>
     </Dialog>

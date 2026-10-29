@@ -70,7 +70,7 @@ const COPIED_FEEDBACK_MS = 1500
  * `CodeFrame`.
  */
 const PLAIN_BLOCK =
-  'rounded-md bg-black/30 p-3 font-mono text-xs text-text-soft whitespace-pre-wrap wrap-anywhere'
+  'rounded-md bg-black/30 p-3 font-mono fs-12 leading-(--text-xs--line-height) text-text-soft whitespace-pre-wrap wrap-anywhere'
 
 /**
  * A fenced block with a copy button in its top-right corner. The button stays
@@ -136,7 +136,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
       <div
         // The fill and colour only show when shiki fell back to plain markup
         // (`plainCodeHtml`); a highlighted `pre` overrides both inline.
-        className="text-xs [&_pre]:rounded-md [&_pre]:bg-black/30 [&_pre]:p-3 [&_pre]:text-text-soft [&_pre]:whitespace-pre-wrap [&_pre]:wrap-anywhere"
+        className="fs-12 leading-(--text-xs--line-height) [&_pre]:rounded-md [&_pre]:bg-black/30 [&_pre]:p-3 [&_pre]:text-text-soft [&_pre]:whitespace-pre-wrap [&_pre]:wrap-anywhere"
         // Shiki output is trusted-safe HTML.
         dangerouslySetInnerHTML={{ __html: html }}
       />
@@ -392,7 +392,7 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
           // the closing paragraph goes inline while it is showing (1b).
           streaming ? '[&>p:last-child]:inline' : '',
           '[&_p]:my-1 [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5',
-          '[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_table]:text-xs',
+          '[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_table]:fs-12 [&_table]:leading-(--text-xs--line-height)',
           '[&_th]:border [&_th]:border-panel-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left',
           '[&_td]:border [&_td]:border-panel-border [&_td]:px-2 [&_td]:py-1',
           // In a cell only a link or code breaks mid-word: were every cell
@@ -405,8 +405,8 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
           // padding, capped at 86% of the column; the assistant's turn has
           // no bubble at all — plain 13px/1.55 text, up to 92% wide.
           isUser
-            ? 'max-w-[86%] rounded-[12px_12px_4px_12px] border bg-accent/12 px-3.5 py-2.5 text-[13px] leading-[1.5] text-text-bright'
-            : 'max-w-[92%] text-[13px] leading-[1.55] text-[rgba(232,238,248,.92)]',
+            ? 'max-w-[86%] rounded-[12px_12px_4px_12px] border bg-accent/12 px-3.5 py-2.5 fs-13 leading-[1.5] text-text-bright'
+            : 'max-w-[92%] fs-13 leading-[1.55] text-[rgba(232,238,248,.92)]',
           // Canvas 27a: the previewed turn's ring — the border to accent .8
           // plus a 3px accent .14 glow, over .15s.
           isUser && rewindMark === 'active' ? 'border-accent/80 ring-[3px] ring-accent/14' : isUser ? 'border-accent/30' : '',
@@ -448,7 +448,7 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
           type="button"
           data-sent-selection
           onClick={() => openFile(sentSelection.path, sentSelection.lineStart)}
-          className="mt-[2px] flex items-center gap-1.5 font-mono text-[9.5px] tracking-[0.04em] text-[rgba(160,190,225,.55)]"
+          className="mt-[2px] flex items-center gap-1.5 font-mono fs-9.5 tracking-[0.04em] text-[rgba(160,190,225,.55)]"
         >
           {/* The lip's three bars, at the caption's smaller scale (20a). */}
           <span aria-hidden className="relative block h-[7px] w-2 flex-none">
@@ -477,7 +477,7 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
                 className="flex min-w-0 items-center gap-1.5 rounded-[6px] border border-[rgba(150,205,255,.16)] bg-[rgba(150,205,255,.05)] py-1 pl-1 pr-2"
               >
                 <FileGlyph name={name} small />
-                <span className="truncate font-mono text-[10.5px] text-text-bright">{name}</span>
+                <span className="truncate font-mono fs-10.5 text-text-bright">{name}</span>
               </span>
             )
           })}
@@ -515,7 +515,7 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
                 {thumb}
                 <span
                   data-image-caption
-                  className="font-mono text-[9px] tracking-[0.06em] text-[rgba(160,190,225,.5)]"
+                  className="font-mono fs-9 tracking-[0.06em] text-[rgba(160,190,225,.5)]"
                 >
                   {provenance.name} · {formatBytes(image.bytes)}
                 </span>
@@ -536,7 +536,7 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
             aria-expanded={commandOpen}
             onClick={() => setCommandOpen((v) => !v)}
             className={[
-              'mt-[2px] flex items-center gap-[7px] rounded-[7px] border px-2.5 py-[5px] font-mono text-[11.5px]',
+              'mt-[2px] flex items-center gap-[7px] rounded-[7px] border px-2.5 py-[5px] font-mono fs-11.5',
               commandOpen
                 ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
                 : 'border-[rgba(150,205,255,.14)] text-[rgba(200,220,245,.8)] hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.07)]',
@@ -545,7 +545,7 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
             <span
               aria-hidden
               className={[
-                'w-2 text-[9px] text-[rgba(160,190,225,.6)] transition-transform duration-[160ms] ease-out',
+                'w-2 fs-9 text-[rgba(160,190,225,.6)] transition-transform duration-[160ms] ease-out',
                 commandOpen ? 'rotate-90' : '',
               ].join(' ')}
             >
@@ -562,14 +562,14 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
           {commandOpen && (
             // Verbatim, never markdown; left-aligned even in a right-aligned
             // turn — it's a file, not speech (6c C).
-            <pre className="mt-[2px] max-h-[168px] w-full self-stretch overflow-auto whitespace-pre-wrap rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 text-left font-mono text-[10.5px] leading-[1.6] text-[rgba(160,190,225,.75)]">
+            <pre className="mt-[2px] max-h-[168px] w-full self-stretch overflow-auto whitespace-pre-wrap rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 text-left font-mono fs-10.5 leading-[1.6] text-[rgba(160,190,225,.75)]">
               {command.body}
             </pre>
           )}
         </>
       )}
       {message.timestamp && clockTime(message.timestamp) && (
-        <span className="font-mono text-[10px] text-text-muted">
+        <span className="font-mono fs-10 text-text-muted">
           {clockTime(message.timestamp)}
         </span>
       )}

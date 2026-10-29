@@ -143,5 +143,5 @@ function Shell({ bar, children }: { bar?: ReactNode; children?: ReactNode }) {
 }
 
 function Notice({ children }: { children: ReactNode }) {
-  return <p className="px-8 py-10 font-mono text-[12px] text-text-muted">{children}</p>
+  return <p className="px-8 py-10 font-mono fs-12 text-text-muted">{children}</p>
 }

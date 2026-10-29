@@ -265,7 +265,7 @@ export function SessionMenuSheet({
       <>
         {shape.inert ? (
           // canvas 10j MAC ASLEEP: one sentence above the inert items.
-          <div className="mx-2.5 mb-2.5 mt-0.5 flex min-h-11 items-center gap-2.5 rounded-[12px] border border-dashed border-[rgba(150,205,255,.18)] px-3 text-[13px] text-[rgba(160,190,225,.75)]">
+          <div className="mx-2.5 mb-2.5 mt-0.5 flex h-fit min-h-11 items-center gap-2.5 rounded-[12px] border border-dashed border-[rgba(150,205,255,.18)] px-3 fs-13 text-[rgba(160,190,225,.75)]">
             <span aria-hidden className="box-border block h-2.5 w-2.5 shrink-0 rounded-full border-[1.5px] border-[rgba(200,215,235,.6)]" />
             {refused ?? `${macName ?? 'Your Mac'} is asleep — these wait for it`}
           </div>
@@ -282,8 +282,8 @@ export function SessionMenuSheet({
         )}
         {shape.terminalNote && (
           // canvas 10j Terminal menu: where End and Clear live instead.
-          <div className="flex gap-2.5 px-2.5 pb-1 pt-2.5 text-[12.5px] leading-[1.5] text-pretty text-[rgba(160,190,225,.7)]">
-            <span className="mt-0.5 h-fit flex-none rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono text-[9px] tracking-[0.12em]">
+          <div className="flex gap-2.5 px-2.5 pb-1 pt-2.5 fs-12.5 leading-[1.5] text-pretty text-[rgba(160,190,225,.7)]">
+            <span className="mt-0.5 h-fit flex-none rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono fs-9 tracking-[0.12em]">
               READ-ONLY
             </span>
             {canTakeOver
@@ -310,11 +310,11 @@ function Row({ glyph, label, hint, onPress }: { glyph: ReactNode; label: string;
     <button
       type="button"
       onClick={onPress}
-      className="flex h-13 w-full items-center gap-3 rounded-[10px] px-2.5 text-left text-[15px] text-text-bright"
+      className="flex h-13 w-full items-center gap-3 rounded-[10px] px-2.5 text-left fs-15 text-text-bright"
     >
       <span aria-hidden className="grid w-5 place-items-center text-center">{glyph}</span>
       <span className="flex-1">{label}</span>
-      {hint && <span className="font-mono text-[11px]">{hint}</span>}
+      {hint && <span className="font-mono fs-11">{hint}</span>}
     </button>
   )
 }

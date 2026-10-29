@@ -57,7 +57,7 @@ export function MismatchScreen() {
       actions={
         <>
           {result !== null && (
-            <p className="text-center font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">{result}</p>
+            <p className="text-center font-mono fs-10.5 text-[rgba(160,190,225,.6)]">{result}</p>
           )}
           {store ? (
             <>
@@ -156,23 +156,23 @@ function AppTooOld({ mac, needed, store }: { mac: string; needed: string | null;
 }
 
 function Title({ children }: { children: ReactNode }) {
-  return <h1 className="mt-3.5 text-[24px] font-bold tracking-[-0.01em] [text-wrap:balance]">{children}</h1>
+  return <h1 className="mt-3.5 fs-24 font-bold tracking-[-0.01em] [text-wrap:balance]">{children}</h1>
 }
 
 function Lead({ children }: { children: ReactNode }) {
   return (
-    <p className="max-w-[300px] text-[14px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">{children}</p>
+    <p className="max-w-[300px] fs-14 leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">{children}</p>
   )
 }
 
 function Hint({ children }: { children: ReactNode }) {
-  return <p className="text-[12.5px] leading-[1.5] text-[rgba(160,190,225,.65)]">{children}</p>
+  return <p className="fs-12.5 leading-[1.5] text-[rgba(160,190,225,.65)]">{children}</p>
 }
 
 /** Who runs what, and what is needed (canvas 11a, 11d D): one row each, the value on the right. */
 function Versions({ rows }: { rows: ReadonlyArray<readonly [string, string]> }) {
   return (
-    <dl className="mt-2 flex w-full flex-col rounded-[14px] border border-[rgba(150,205,255,.12)] bg-[rgba(10,16,28,.6)] text-left font-mono text-[12px] text-[rgba(160,190,225,.65)]">
+    <dl className="mt-2 flex w-full flex-col rounded-[14px] border border-[rgba(150,205,255,.12)] bg-[rgba(10,16,28,.6)] text-left font-mono fs-12 text-[rgba(160,190,225,.65)]">
       {rows.map(([term, value], i) => (
         <div key={term} className={['flex gap-3 px-3.5 py-[13px]', i > 0 ? 'border-t border-[rgba(150,205,255,.08)]' : ''].join(' ')}>
           <dt className="min-w-0 truncate">{term}</dt>

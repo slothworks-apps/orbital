@@ -14,12 +14,12 @@ import { usePopupPosition } from '../../ui/usePopupPosition'
 import { keyedParts } from './logic'
 
 /** Mono section label: 30k's ABOUT / INPUTS / HOW IT RUNS / STEPS. */
-export const SECTION_LABEL = 'font-mono text-[10px] tracking-[0.18em] text-[rgba(160,190,225,.6)]'
+export const SECTION_LABEL = 'font-mono fs-10 tracking-[0.18em] text-[rgba(160,190,225,.6)]'
 /** Mono field label inside a step (30k: INSTRUCTIONS, DONE WHEN). */
-export const FIELD_LABEL = 'font-mono text-[9px] tracking-[0.16em] text-[rgba(160,190,225,.5)]'
+export const FIELD_LABEL = 'font-mono fs-9 tracking-[0.16em] text-[rgba(160,190,225,.5)]'
 /** 30j / 30k: the secondary header button (Draft…, Draft with the assistant…). */
 export const SECONDARY_BUTTON =
-  'whitespace-nowrap rounded-lg border border-[rgba(150,205,255,.18)] px-3 py-[7px] text-[12.5px] font-semibold text-[rgba(220,235,255,.9)] transition-colors hover:bg-white/5'
+  'whitespace-nowrap rounded-lg border border-[rgba(150,205,255,.18)] px-3 py-[7px] fs-12.5 font-semibold text-[rgba(220,235,255,.9)] transition-colors hover:bg-white/5'
 /** 30k's Save, 30l's Draft into editor: the filled accent button, no bloom. */
 export const PRIMARY_BUTTON =
   'whitespace-nowrap rounded-lg bg-accent px-3.5 py-[7px] font-bold text-space-deep transition-colors hover:bg-text-soft disabled:cursor-not-allowed disabled:opacity-40'
@@ -129,8 +129,8 @@ export function TagPill({
       className={[
         'inline-flex items-center rounded-full border font-semibold',
         size === 'row'
-          ? 'gap-[5px] border-[rgba(150,205,255,.14)] px-2 py-0.5 text-[10.5px] text-[rgba(220,235,255,.8)]'
-          : 'gap-1.5 border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] px-[9px] py-[3px] text-[11px] text-text-bright',
+          ? 'gap-[5px] border-[rgba(150,205,255,.14)] px-2 py-0.5 fs-10.5 text-[rgba(220,235,255,.8)]'
+          : 'gap-1.5 border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] px-[9px] py-[3px] fs-11 text-text-bright',
       ].join(' ')}
     >
       <span
@@ -201,7 +201,7 @@ export function Seg({
       {...aria}
       className={[
         'py-1.5 transition-colors',
-        pad === 'wide' ? 'px-[11px] text-[11.5px]' : 'px-2.5 text-[11px]',
+        pad === 'wide' ? 'px-[11px] fs-11.5' : 'px-2.5 fs-11',
         first ? '' : 'border-l border-[rgba(150,205,255,.12)]',
         active ? 'bg-accent/10 font-semibold text-accent' : 'text-[rgba(220,235,255,.85)] hover:bg-white/5',
       ].join(' ')}

@@ -161,16 +161,16 @@ export function QuickStatsDialog({
               }}
             />
             <div className="min-w-0 flex-1">
-              <div className="font-mono text-[10px] tracking-[0.2em] text-[oklch(85%_.12_205_/_.8)]">
+              <div className="font-mono fs-10 tracking-[0.2em] text-[oklch(85%_.12_205_/_.8)]">
                 SESSION STATS
               </div>
-              <div className="mt-1 truncate text-[17px] font-bold tracking-[-0.01em]">{title}</div>
+              <div className="mt-1 truncate fs-17 font-bold tracking-[-0.01em]">{title}</div>
             </div>
             <button
               type="button"
               onClick={onClose}
               aria-label="Close session stats"
-              className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[7px] border border-[rgba(150,205,255,.14)] text-[13px] text-[rgba(200,220,245,.7)] transition-colors hover:bg-white/5 hover:text-text-bright"
+              className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[7px] border border-[rgba(150,205,255,.14)] fs-13 text-[rgba(200,220,245,.7)] transition-colors hover:bg-white/5 hover:text-text-bright"
             >
               ✕
             </button>
@@ -210,7 +210,7 @@ export function QuickStatsDialog({
                   so the browser owns the navigation and ⌘-click opens a tab. */}
               <a
                 href={sessionStatsPath(session.id)}
-                className="shrink-0 rounded-[9px] bg-[oklch(85%_.12_205)] px-3.5 py-2 font-mono text-[11px] font-bold text-[#03111a] no-underline"
+                className="shrink-0 rounded-[9px] bg-[oklch(85%_.12_205)] px-3.5 py-2 font-mono fs-11 font-bold text-[#03111a] no-underline"
               >
                 full stats →
               </a>
@@ -236,17 +236,17 @@ function Tile({
   children: ReactNode
 }) {
   const unitSpan = unit ? (
-    <span className="text-[15px] text-[rgba(200,225,255,.75)]">{unit}</span>
+    <span className="fs-15 text-[rgba(200,225,255,.75)]">{unit}</span>
   ) : null
   return (
     <section
       aria-label={label}
       className="min-w-0 flex-1 rounded-xl border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3.5 py-3"
     >
-      <div className="font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">
+      <div className="font-mono fs-9.5 tracking-[0.18em] text-[rgba(160,190,225,.6)]">
         {label}
       </div>
-      <div className="mt-[7px] truncate font-mono text-[24px] leading-none tracking-[-0.02em]">
+      <div className="mt-[7px] truncate font-mono fs-24 leading-none tracking-[-0.02em]">
         {unitLeading && unitSpan}
         {children}
         {!unitLeading && unitSpan}
@@ -284,16 +284,16 @@ function TimeSplit({
   return (
     <section aria-label="Time split">
       <div className="flex items-baseline gap-2.5">
-        <div className="font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">
+        <div className="font-mono fs-9.5 tracking-[0.18em] text-[rgba(160,190,225,.6)]">
           TIME SPLIT
         </div>
         {terminal && (
-          <span className="rounded-[4px] border border-[rgba(150,205,255,.18)] px-1.5 py-px font-mono text-[9px] tracking-[0.12em] text-[rgba(160,190,225,.7)]">
+          <span className="rounded-[4px] border border-[rgba(150,205,255,.18)] px-1.5 py-px font-mono fs-9 tracking-[0.12em] text-[rgba(160,190,225,.7)]">
             TERMINAL
           </span>
         )}
         <span className="flex-1" />
-        <div className="font-mono text-[10px] text-[rgba(160,190,225,.45)]">
+        <div className="font-mono fs-10 text-[rgba(160,190,225,.45)]">
           {elapsedMs === null
             ? 'no measured span'
             : `${formatStatsDuration(elapsedMs)} elapsed${
@@ -314,7 +314,7 @@ function TimeSplit({
         ))}
       </div>
 
-      <div className="mt-3 flex flex-col gap-2 font-mono text-[11.5px]">
+      <div className="mt-3 flex flex-col gap-2 font-mono fs-11.5">
         {TIME_CATEGORIES.map((category) => (
           <div key={category.field} className="flex items-center gap-2.5">
             <span
@@ -342,7 +342,7 @@ function TimeSplit({
         ))}
       </div>
 
-      <div className="mt-3 flex items-center gap-2.5 border-t border-dashed border-[rgba(160,190,225,.2)] pt-2.5 font-mono text-[11px] text-[rgba(200,220,245,.8)]">
+      <div className="mt-3 flex items-center gap-2.5 border-t border-dashed border-[rgba(160,190,225,.2)] pt-2.5 font-mono fs-11 text-[rgba(200,220,245,.8)]">
         <WaitSwatch hatched={showWaits} size={9} />
         {showWaits ? 'waiting on you' : countLine}
         <span className="flex-1" />
@@ -354,16 +354,16 @@ function TimeSplit({
       </div>
       {showWaits && (
         <>
-          <div className="mt-1 pl-[19px] font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+          <div className="mt-1 pl-[19px] font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
             {countLine}
           </div>
-          <div className="mt-2 font-mono text-[9.5px] text-[rgba(160,190,225,.45)]">
+          <div className="mt-2 font-mono fs-9.5 text-[rgba(160,190,225,.45)]">
             shown because “Show time spent waiting on you” is on in /stats
           </div>
         </>
       )}
       {terminal && (
-        <div className="mt-2.5 font-mono text-[10px] leading-[1.5] text-[rgba(160,190,225,.55)]">
+        <div className="mt-2.5 font-mono fs-10 leading-[1.5] text-[rgba(160,190,225,.55)]">
           <span style={{ color: CAVEAT_INK }}>†</span> terminal session — permission-prompt waits
           can&apos;t be measured, local-tool time is an upper bound
         </div>
@@ -391,10 +391,10 @@ function SlowestTurns({ detail, live }: { detail: SessionStatsDetail; live: bool
 
   return (
     <section aria-label="Slowest turns" className="border-t border-[rgba(150,205,255,.1)] pt-4">
-      <div className="font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">
+      <div className="font-mono fs-9.5 tracking-[0.18em] text-[rgba(160,190,225,.6)]">
         SLOWEST TURNS
       </div>
-      <div className="mt-2.5 flex flex-col gap-[7px] font-mono text-[11px]">
+      <div className="mt-2.5 flex flex-col gap-[7px] font-mono fs-11">
         {turns.map((turn) => {
           // The phases share the track LESS the hairline gaps between them, so a
           // busy turn's segments plus its gaps still land inside the track and
@@ -480,16 +480,16 @@ function FindingRow({
       }}
     >
       <span
-        className="shrink-0 rounded-[5px] border px-[7px] py-0.5 font-mono text-[9px] tracking-[0.14em]"
+        className="shrink-0 rounded-[5px] border px-[7px] py-0.5 font-mono fs-9 tracking-[0.14em]"
         style={{ color: style.ink, background: style.chipFill, borderColor: style.chipBorder }}
       >
         {finding.severity.toUpperCase()}
       </span>
-      <div className="flex-1 text-[12.5px] font-semibold leading-[1.35] text-pretty">{headline}</div>
+      <div className="flex-1 fs-12.5 font-semibold leading-[1.35] text-pretty">{headline}</div>
       {turnIndex >= 0 && (
         <a
           href={sessionStatsPath(detail.session.id, uuid)}
-          className="shrink-0 font-mono text-[10.5px] text-[#8fd8ff] no-underline"
+          className="shrink-0 font-mono fs-10.5 text-[#8fd8ff] no-underline"
         >
           turn {turnIndex + 1} ›
         </a>

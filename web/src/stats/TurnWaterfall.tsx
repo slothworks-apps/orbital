@@ -105,7 +105,7 @@ export function TurnWaterfall({
       <div className="flex items-baseline gap-[14px]">
         <div className={PANEL_LABEL_CLASS}>TURN WATERFALL</div>
         <span className="flex-1" />
-        <div className="flex gap-[14px] font-mono text-[10px] text-[rgba(160,190,225,.7)]">
+        <div className="flex gap-[14px] font-mono fs-10 text-[rgba(160,190,225,.7)]">
           {TIME_CATEGORIES.map((category) => (
             <span key={category.field} className="flex items-center gap-[5px]">
               <span
@@ -131,7 +131,7 @@ export function TurnWaterfall({
         <Ruler />
 
         {ordered.length === 0 ? (
-          <div className="pt-3 font-mono text-[11.5px] text-[rgba(160,190,225,.6)]">
+          <div className="pt-3 font-mono fs-11.5 text-[rgba(160,190,225,.6)]">
             no turns measured in this transcript
           </div>
         ) : (
@@ -158,7 +158,7 @@ export function TurnWaterfall({
       </div>
 
       {ordered.length > 0 && (
-        <div className="mt-[14px] flex items-center gap-[14px] border-t border-[rgba(150,205,255,.08)] pt-3 font-mono text-[10.5px] text-[rgba(160,190,225,.55)]">
+        <div className="mt-[14px] flex items-center gap-[14px] border-t border-[rgba(150,205,255,.08)] pt-3 font-mono fs-10.5 text-[rgba(160,190,225,.55)]">
           showing turns {bounds.start + 1}–{bounds.end} of {ordered.length}
           {bounds.pageCount > 1 && (
             <span className="flex items-center gap-[14px]">
@@ -194,7 +194,7 @@ export function TurnWaterfall({
 function Ruler() {
   return (
     <>
-      <div className="flex items-center gap-[14px] font-mono text-[9.5px] text-[rgba(160,190,225,.4)]">
+      <div className="flex items-center gap-[14px] font-mono fs-9.5 text-[rgba(160,190,225,.4)]">
         <span className="block" style={{ width: LANE_LABEL_WIDTH }} />
         <span className="relative block h-[11px]" style={{ width: TRACK_WIDTH }}>
           {MINUTES.map((minute) => (
@@ -241,7 +241,7 @@ function LaneRow({
       style={{ background: active ? 'rgba(150,205,255,.05)' : undefined }}
     >
       <span
-        className={`block font-mono text-[10.5px] ${
+        className={`block font-mono fs-10.5 ${
           active ? 'text-text-soft' : 'text-[rgba(160,190,225,.6)]'
         }`}
         style={{ width: LANE_LABEL_WIDTH }}
@@ -270,7 +270,7 @@ function LaneRow({
       </span>
 
       <span
-        className="block text-right font-mono text-[11px] text-text-bright"
+        className="block text-right font-mono fs-11 text-text-bright"
         style={{ width: LANE_DURATION_WIDTH }}
       >
         {formatStatsDuration(lane.busyMs)}
@@ -312,7 +312,7 @@ function Segment({
         // is what ties the label to the segment when a lane holds several.
         <span
           role="tooltip"
-          className="pointer-events-none absolute z-10 whitespace-nowrap rounded-md border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] px-[7px] py-[3px] font-mono text-[10px] text-text-bright"
+          className="pointer-events-none absolute z-10 whitespace-nowrap rounded-md border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] px-[7px] py-[3px] font-mono fs-10 text-text-bright"
           style={{ left: segment.left, top: -26 }}
         >
           {segment.label} · {formatStatsDuration(segment.ms)}
@@ -341,7 +341,7 @@ function WaitBreak({ cut }: { cut: LaneBreak }) {
         aria-label={`waiting on you ${formatStatsDuration(cut.totalMs)}`}
         onMouseEnter={(event) => setAnchor(event.currentTarget.getBoundingClientRect())}
         onMouseLeave={() => setAnchor(null)}
-        className="absolute -top-[3px] flex h-5 items-center gap-[3px] whitespace-nowrap bg-[#0a0e19] font-mono text-[9.5px] text-[rgba(200,220,245,.75)]"
+        className="absolute -top-[3px] flex h-fit min-h-5 items-center gap-[3px] whitespace-nowrap bg-[#0a0e19] font-mono fs-9.5 text-[rgba(200,220,245,.75)]"
         style={{ left: cut.left, width: cut.width }}
       >
         <span className="block h-3.5 w-px shrink-0 rotate-[20deg] bg-[rgba(160,190,225,.6)]" />
@@ -356,9 +356,9 @@ function WaitBreak({ cut }: { cut: LaneBreak }) {
             role="tooltip"
             // 10k: 25px under the break's top edge — 22 below the track it cuts.
             style={{ left: anchor.left, top: anchor.top + 25 }}
-            className="pointer-events-none fixed z-50 box-border flex w-[210px] flex-col gap-1 rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] px-[11px] py-[9px] font-mono text-[10.5px] text-text-bright shadow-[0_18px_44px_rgba(0,0,0,.6)]"
+            className="pointer-events-none fixed z-50 box-border flex w-[210px] flex-col gap-1 rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] px-[11px] py-[9px] font-mono fs-10.5 text-text-bright shadow-[0_18px_44px_rgba(0,0,0,.6)]"
           >
-            <span className="text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.6)]">
+            <span className="fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.6)]">
               WAITING ON YOU · {cut.waits.length}
             </span>
             {cut.waits.map((wait) => (
@@ -394,7 +394,7 @@ function OrderButton({
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={`cursor-pointer font-mono text-[10.5px] ${
+      className={`cursor-pointer font-mono fs-10.5 ${
         active ? 'text-[#8fd8ff]' : 'text-[rgba(160,190,225,.6)]'
       }`}
     >
@@ -417,7 +417,7 @@ function PagerButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`font-mono text-[10.5px] ${
+      className={`font-mono fs-10.5 ${
         disabled ? 'text-[rgba(160,190,225,.28)]' : 'cursor-pointer text-[#8fd8ff]'
       }`}
     >
@@ -435,8 +435,8 @@ function PagerButton({
 function PermissionCaveat() {
   return (
     <div className="flex gap-[9px] rounded-[10px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-[13px] py-[11px]">
-      <span className="font-mono text-[11px] text-[#ffbb7b]">†</span>
-      <div className="text-[11.5px] leading-[1.55] text-pretty text-[rgba(160,190,225,.75)]">
+      <span className="font-mono fs-11 text-[#ffbb7b]">†</span>
+      <div className="fs-11.5 leading-[1.55] text-pretty text-[rgba(160,190,225,.75)]">
         Permission prompts: Orbital-run sessions only — the runner times prompt shown → answered,
         and the wait is cut out of the tool or subagent call exactly like a question. Terminal
         sessions cannot measure it: their local-tool time still includes the wait, they are marked{' '}

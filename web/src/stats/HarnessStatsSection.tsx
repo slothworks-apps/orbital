@@ -22,7 +22,7 @@ export function HarnessStatsSection({ sessionId }: { sessionId: string }) {
   if (!enabled || !(live ?? removed)) return null
   return (
     <section aria-label="Harness" className="border-t border-[rgba(150,205,255,.1)] pt-4">
-      <div className="font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.6)]">HARNESS</div>
+      <div className="font-mono fs-9.5 tracking-[0.18em] text-[rgba(160,190,225,.6)]">HARNESS</div>
       {/* The record scrolls inside its own column, as it does in the side slot. */}
       <div className="mt-2.5 h-[480px] overflow-hidden rounded-xl border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)]">
         <HarnessRecordView key={sessionId} sessionId={sessionId} />

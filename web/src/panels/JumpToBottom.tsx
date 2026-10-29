@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { chordLabel, command } from '../lib/keymap'
 import type { BottomIndicator } from './transcriptMotion'
+import { scaledPx } from '../lib/textScale'
 
 /** The three places a transcript is drawn (canvas `Feature - Jump to bottom` 43a, 43b, 43c). */
 export type JumpSurface = 'panel' | 'subagent' | 'phone'
@@ -129,7 +130,11 @@ export function JumpToBottom({ state, surface, onJump }: JumpToBottomProps) {
   }, [state])
 
   const label = fresh ? 'Jump to the latest message — new messages below' : 'Jump to the latest message'
-  const width = fresh ? s.newWidth : s.height
+  // NEW's label grows with the text step (spec 2026-10-27-text-size-design);
+  // its padding and the arrow's cell do not, so only the label's share of
+  // `newWidth` is scaled and the default step stays 43e's width exactly.
+  const labelShare = s.newWidth - s.labelPad - s.arrowCell
+  const width = fresh ? `calc(${s.labelPad + s.arrowCell}px + ${labelShare}px * var(--text-scale, 1))` : s.height
 
   const scrimStyle: CSSProperties = {
     height: s.scrim,
@@ -195,7 +200,7 @@ export function JumpToBottom({ state, surface, onJump }: JumpToBottomProps) {
             className="shrink-0 whitespace-nowrap font-mono tracking-[0.14em]"
             style={{
               paddingLeft: s.labelPad,
-              fontSize: s.labelPx,
+              fontSize: scaledPx(s.labelPx),
               opacity: fresh ? 1 : 0,
               transition: reduced ? undefined : LABEL_TRANSITION,
             }}
@@ -205,7 +210,7 @@ export function JumpToBottom({ state, surface, onJump }: JumpToBottomProps) {
           <span
             aria-hidden
             className="grid shrink-0 place-items-center font-mono leading-none"
-            style={{ width: s.arrowCell, fontSize: s.arrowPx }}
+            style={{ width: s.arrowCell, fontSize: scaledPx(s.arrowPx) }}
           >
             ↓
           </span>

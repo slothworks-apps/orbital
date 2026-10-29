@@ -115,7 +115,7 @@ function Heading({ children, divided = false }: { children: string; divided?: bo
   return (
     <div
       className={[
-        'px-5 font-mono text-[10px] tracking-[0.18em] text-[rgba(160,190,225,.6)]',
+        'px-5 font-mono fs-10 tracking-[0.18em] text-[rgba(160,190,225,.6)]',
         divided ? 'border-t border-[rgba(150,205,255,.1)] pb-1.5 pt-3.5' : 'pb-1.5 pt-1',
       ].join(' ')}
     >
@@ -143,7 +143,7 @@ function Row({
     first ? '' : 'border-t border-[rgba(150,205,255,.06)]',
     dim ? 'opacity-80' : '',
   ].join(' ')
-  const chevron = <span aria-hidden className="w-8 text-center text-[18px] text-[rgba(160,190,225,.6)]">{onOpen ? '›' : ''}</span>
+  const chevron = <span aria-hidden className="w-8 text-center fs-18 text-[rgba(160,190,225,.6)]">{onOpen ? '›' : ''}</span>
   if (!onOpen) {
     return (
       <div className={className}>
@@ -162,7 +162,7 @@ function Row({
 
 function StatusLine({ prefix, status }: { prefix?: string; status: RowStatus }) {
   return (
-    <span className="font-mono text-[10.5px] text-[rgba(160,190,225,.6)]">
+    <span className="font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
       {prefix && `${prefix} · `}
       <span style={status.ink ? { color: status.ink } : undefined}>{status.word}</span>
       {status.time && ` · ${status.time}`}
@@ -188,7 +188,7 @@ function SubagentRow({
         style={{ borderColor: tagHue }}
       />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate text-[14.5px] font-semibold text-text-bright">{agent.name}</span>
+        <span className="truncate fs-14.5 font-semibold text-text-bright">{agent.name}</span>
         <StatusLine status={status} />
       </span>
     </Row>
@@ -209,14 +209,14 @@ function TaskRow({
       <span
         aria-hidden
         className={[
-          'w-[9px] shrink-0 text-center font-mono text-[12px]',
+          'w-[9px] shrink-0 text-center font-mono fs-12',
           ended ? 'text-[rgba(200,220,245,.6)]' : 'text-[rgba(200,220,245,.8)]',
         ].join(' ')}
       >
         ▣
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className={['truncate font-mono text-[13px]', ended ? 'text-[rgba(232,238,248,.85)]' : 'text-text-bright'].join(' ')}>
+        <span className={['truncate font-mono fs-13', ended ? 'text-[rgba(232,238,248,.85)]' : 'text-text-bright'].join(' ')}>
           {task.label}
         </span>
         <StatusLine prefix={status.kind} status={status} />

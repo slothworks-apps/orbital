@@ -19,6 +19,7 @@ import {
 } from './model'
 import { HeaderBlock, Kicker, Label, Marker, OutlineButton, type Chrome } from './parts'
 import { useStepDiff } from './useStepDiff'
+import { scaledPx } from '../../lib/textScale'
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
@@ -34,7 +35,7 @@ export function useStepRecord(harness: SessionHarness, events: readonly HarnessE
 
 /** A decision (30e): a three-row card — what, why, instead of. */
 function DecisionCard({ d, wide }: { d: NonNullable<StepState['decisions']>[number]; wide: boolean }) {
-  const key = 'font-mono text-[9.5px] text-[rgba(160,190,225,.55)]'
+  const key = 'font-mono fs-9.5 text-[rgba(160,190,225,.55)]'
   return (
     <div
       className="grid gap-x-2 rounded-lg border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] leading-[1.45] text-[rgba(220,232,248,.88)]"
@@ -42,7 +43,7 @@ function DecisionCard({ d, wide }: { d: NonNullable<StepState['decisions']>[numb
         gridTemplateColumns: `${wide ? 60 : 52}px minmax(0,1fr)`,
         rowGap: wide ? 4 : 3,
         padding: wide ? '10px 12px' : '9px 10px',
-        fontSize: wide ? 12 : 11.5,
+        fontSize: scaledPx(wide ? 12 : 11.5),
       }}
     >
       <span className={key}>what</span>
@@ -69,7 +70,7 @@ function ReviewCard({ review, earlier, model, wide }: { review: StepReview; earl
       className="flex flex-col gap-1.5 rounded-lg border bg-[rgba(4,8,16,.45)]"
       style={{ borderColor: approve ? 'rgba(127,227,176,.3)' : 'rgba(220,235,255,.22)', padding: wide ? 12 : 10 }}
     >
-      <div className="flex items-center gap-2 font-mono text-[9.5px] tracking-[0.12em]" style={{ color: ink }}>
+      <div className="flex items-center gap-2 font-mono fs-9.5 tracking-[0.12em]" style={{ color: ink }}>
         {approve ? (
           <span
             aria-hidden
@@ -87,11 +88,11 @@ function ReviewCard({ review, earlier, model, wide }: { review: StepReview; earl
             .join(' · ')}
         </span>
       </div>
-      <div className="text-pretty leading-[1.5] text-[rgba(220,232,248,.88)]" style={{ fontSize: wide ? 12.5 : 11.5 }}>
+      <div className="text-pretty leading-[1.5] text-[rgba(220,232,248,.88)]" style={{ fontSize: scaledPx(wide ? 12.5 : 11.5) }}>
         {review.reasoning}
       </div>
       {(review.findings.length > 0 || review.checked.length > 0 || (!wide && earlier.length > 0)) && (
-        <div className="font-mono text-[10px] leading-[1.65] text-[rgba(160,190,225,.65)]">
+        <div className="font-mono fs-10 leading-[1.65] text-[rgba(160,190,225,.65)]">
           {review.findings.length > 0 && <div>findings · {review.findings.join(' · ')}</div>}
           {review.checked.length > 0 && <div>checked · {review.checked.join(' · ')}</div>}
           {!wide &&
@@ -133,7 +134,7 @@ function Sections({
       {summary && (
         <div>
           <Label>SUMMARY</Label>
-          <div className="mt-1.5 text-pretty text-[rgba(220,232,248,.9)]" style={{ fontSize: wide ? 13 : 12, lineHeight: wide ? 1.6 : 1.58 }}>
+          <div className="mt-1.5 text-pretty text-[rgba(220,232,248,.9)]" style={{ fontSize: scaledPx(wide ? 13 : 12), lineHeight: wide ? 1.6 : 1.58 }}>
             {summary}
           </div>
         </div>
@@ -154,7 +155,7 @@ function Sections({
           <Label>OPEN QUESTIONS · TO LOOK AT</Label>
           <div
             className="mt-[7px] flex flex-col gap-1.5 leading-[1.5] text-[rgba(220,232,248,.88)]"
-            style={{ fontSize: wide ? 12.5 : 11.5 }}
+            style={{ fontSize: scaledPx(wide ? 12.5 : 11.5) }}
           >
             {questions.map((q, i) => (
               <div key={i} className="flex gap-2">
@@ -183,7 +184,7 @@ function Sections({
       {happened.length > 0 && (
         <div>
           <Label>WHAT HAPPENED</Label>
-          <div className="mt-[7px] grid grid-cols-[38px_minmax(0,1fr)] gap-x-2 gap-y-1 font-mono text-[10px] leading-[1.5] text-[rgba(200,214,235,.78)]">
+          <div className="mt-[7px] grid grid-cols-[38px_minmax(0,1fr)] gap-x-2 gap-y-1 font-mono fs-10 leading-[1.5] text-[rgba(200,214,235,.78)]">
             {happened.map((h, i) => (
               <Row key={i} time={clock(h.at)}>
                 {h.text}
@@ -233,7 +234,7 @@ export function RecordBody({
         .reverse()
         .map(({ run, happened }, i) => (
           <div key={i} className="flex flex-col gap-3 rounded-[9px] border border-dashed border-[rgba(150,205,255,.16)] px-3 py-[11px]">
-            <div className="font-mono text-[9px] tracking-[0.18em] text-[rgba(200,220,245,.75)]">
+            <div className="font-mono fs-9 tracking-[0.18em] text-[rgba(200,220,245,.75)]">
               {run.reason === 'went_back' ? 'BEFORE GOING BACK' : 'BEFORE YOU REOPENED IT'} · {clock(run.endedAt)}
             </div>
             <Sections record={run} own={own} happened={happened} wide={wide} />
@@ -290,7 +291,7 @@ export function RecordView({
       <HeaderBlock chrome={chrome}>
         {chrome.row(
           <>
-            <button type="button" onClick={onBack} className="font-mono text-[10.5px] text-[oklch(85%_.12_205)] hover:brightness-110">
+            <button type="button" onClick={onBack} className="font-mono fs-10.5 text-[oklch(85%_.12_205)] hover:brightness-110">
               ‹ checklist
             </button>
             <span aria-hidden className="flex-1" />
@@ -303,9 +304,9 @@ export function RecordView({
           <span className="mt-[5px]">
             <Marker kind={kind} gate={isGateShape(kind, step)} />
           </span>
-          <div className="text-pretty text-[14px] font-semibold leading-[1.38] text-text-bright">{step.title}</div>
+          <div className="text-pretty fs-14 font-semibold leading-[1.38] text-text-bright">{step.title}</div>
         </div>
-        <div className="ml-[19px] mt-1.5 font-mono text-[10px] text-[rgba(160,190,225,.6)]">{meta}</div>
+        <div className="ml-[19px] mt-1.5 font-mono fs-10 text-[rgba(160,190,225,.6)]">{meta}</div>
       </HeaderBlock>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-[18px] py-3">
         <RecordBody harness={harness} events={events} index={index} wide={false} />
@@ -313,13 +314,13 @@ export function RecordView({
       {(hasRange || onGoBack) && (
         <div className="flex flex-col gap-2.5 border-t border-[rgba(150,205,255,.1)] px-[18px] pb-3.5 pt-3">
           {hasRange && (
-            <div className="flex items-center gap-2 font-mono text-[10.5px] text-[#e8eef8]">
+            <div className="flex items-center gap-2 font-mono fs-10.5 text-[#e8eef8]">
               <CommitLine sessionId={sessionId} index={index} state={state} />
               <span aria-hidden className="flex-1" />
               <button
                 type="button"
                 onClick={onDiff}
-                className="shrink-0 font-mono text-[10.5px] tracking-[0.06em] text-[oklch(85%_.12_205)] hover:brightness-110"
+                className="shrink-0 font-mono fs-10.5 tracking-[0.06em] text-[oklch(85%_.12_205)] hover:brightness-110"
               >
                 Show diff →
               </button>
@@ -328,7 +329,7 @@ export function RecordView({
           {onGoBack && (
             <div className="flex items-center gap-2">
               <OutlineButton onClick={onGoBack}>↶ Go back here</OutlineButton>
-              <span className="font-mono text-[9.5px] text-[rgba(160,190,225,.5)]">rewinds to the start of step {index + 1}</span>
+              <span className="font-mono fs-9.5 text-[rgba(160,190,225,.5)]">rewinds to the start of step {index + 1}</span>
             </div>
           )}
         </div>
@@ -355,14 +356,14 @@ export function WideRecord({
   const time = kind === 'doneUnsure' ? clock(state.reviews?.[state.reviews.length - 1]?.at) : ''
   return (
     <div className="flex min-h-0 flex-col gap-[18px] overflow-y-auto px-[26px] py-5">
-      <div className="font-mono text-[9.5px] tracking-[0.18em] text-[rgba(160,190,225,.55)]">
+      <div className="font-mono fs-9.5 tracking-[0.18em] text-[rgba(160,190,225,.55)]">
         {['RECORD', `STEP ${pad2(index + 1)}`, who, time].filter(Boolean).join(' · ')}
       </div>
-      <div className="text-pretty text-[18px] font-bold leading-[1.35] tracking-[-0.01em] text-text-bright">{step.title}</div>
+      <div className="text-pretty fs-18 font-bold leading-[1.35] tracking-[-0.01em] text-text-bright">{step.title}</div>
       <RecordBody harness={harness} events={events} index={index} wide />
       <span aria-hidden className="flex-1" />
       {(state.startHead || onGoBack) && (
-        <div className="flex items-center gap-3 border-t border-[rgba(150,205,255,.1)] pt-3 font-mono text-[10.5px] text-[#e8eef8]">
+        <div className="flex items-center gap-3 border-t border-[rgba(150,205,255,.1)] pt-3 font-mono fs-10.5 text-[#e8eef8]">
           <CommitLine sessionId={sessionId} index={index} state={state} />
           <span aria-hidden className="flex-1" />
           {onGoBack && (

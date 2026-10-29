@@ -84,7 +84,7 @@ export function FolderChooser({ machine, name, kind, start, recents, onChoose, o
   return (
     // canvas 50g: hung 70px below the field group's top, 8px wider on each side.
     <div ref={box} className="absolute -left-2 -right-2 top-[70px] z-[8] flex flex-col overflow-hidden rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.97)] shadow-[0_18px_44px_rgba(0,0,0,.6)] backdrop-blur-[12px]">
-      <div className="flex items-center gap-1.5 border-b border-[rgba(150,205,255,.1)] px-3 py-2.5 font-mono text-[11px] text-[rgba(160,190,225,.7)]">
+      <div className="flex items-center gap-1.5 border-b border-[rgba(150,205,255,.1)] px-3 py-2.5 font-mono fs-11 text-[rgba(160,190,225,.7)]">
         <span className="flex shrink-0 text-text-bright">
           <KindGlyph kind={kind} />
         </span>
@@ -113,14 +113,14 @@ export function FolderChooser({ machine, name, kind, start, recents, onChoose, o
           ))}
         </span>
         <span aria-hidden className="flex-1" />
-        <span className="shrink-0 whitespace-nowrap text-[9.5px] tracking-[0.12em] text-[rgba(160,190,225,.45)]">
+        <span className="shrink-0 whitespace-nowrap fs-9.5 tracking-[0.12em] text-[rgba(160,190,225,.45)]">
           NO SYSTEM DIALOG ON THIS DEVICE
         </span>
       </div>
 
       <div className="grid h-[238px] grid-cols-[230px_minmax(0,1fr)]">
         <div className="flex flex-col gap-0.5 overflow-y-auto border-r border-[rgba(150,205,255,.1)] px-1.5 py-2 [scrollbar-color:rgba(150,205,255,.25)_transparent] [scrollbar-width:thin]">
-          <div className="shrink-0 px-2 pb-1.5 pt-0.5 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.55)]">
+          <div className="shrink-0 px-2 pb-1.5 pt-0.5 font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.55)]">
             RECENT PROJECTS ON {name.toUpperCase()}
           </div>
           {recents.map(({ cwd, lastAt }) => (
@@ -135,22 +135,22 @@ export function FolderChooser({ machine, name, kind, start, recents, onChoose, o
               ].join(' ')}
             >
               <span className="flex w-full items-baseline gap-2">
-                <span className="min-w-0 flex-1 truncate font-sans text-[12.5px] font-bold text-text-bright">
+                <span className="min-w-0 flex-1 truncate font-sans fs-12.5 font-bold text-text-bright">
                   {cwd.replace(/\/+$/, '').split('/').pop() || cwd}
                 </span>
-                <span className="shrink-0 font-mono text-[10px] text-[rgba(160,190,225,.5)]">{recentAge(lastAt, now)}</span>
+                <span className="shrink-0 font-mono fs-10 text-[rgba(160,190,225,.5)]">{recentAge(lastAt, now)}</span>
               </span>
-              <span className="w-full truncate font-mono text-[10px] text-[rgba(160,190,225,.6)]">{cwd}</span>
+              <span className="w-full truncate font-mono fs-10 text-[rgba(160,190,225,.6)]">{cwd}</span>
             </button>
           ))}
         </div>
 
         <div className="flex flex-col gap-px overflow-auto px-1.5 py-2 [scrollbar-color:rgba(150,205,255,.25)_transparent] [scrollbar-width:thin]">
-          <div className="shrink-0 truncate px-2 pb-1.5 pt-0.5 font-mono text-[9.5px] tracking-[0.14em] text-[rgba(160,190,225,.55)]">
+          <div className="shrink-0 truncate px-2 pb-1.5 pt-0.5 font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.55)]">
             FOLDERS IN {listing?.path ?? ''}
           </div>
           {error ? (
-            <div className="shrink-0 px-2 py-2.5 text-[12px] text-[rgba(160,190,225,.6)]">{error}</div>
+            <div className="shrink-0 px-2 py-2.5 fs-12 text-[rgba(160,190,225,.6)]">{error}</div>
           ) : (
             listing && (
               <>
@@ -159,7 +159,7 @@ export function FolderChooser({ machine, name, kind, start, recents, onChoose, o
                     key={dir.name}
                     type="button"
                     onClick={() => walk(childPath(listing.path, dir.name))}
-                    className="flex w-full shrink-0 cursor-pointer items-center gap-[9px] rounded-[7px] px-2 py-[7px] text-left font-mono text-[11.5px] text-text-bright hover:bg-[rgba(150,205,255,.07)]"
+                    className="flex w-full shrink-0 cursor-pointer items-center gap-[9px] rounded-[7px] px-2 py-[7px] text-left font-mono fs-11.5 text-text-bright hover:bg-[rgba(150,205,255,.07)]"
                   >
                     {/* 50g's folder mark: 12 × 10, a 3px top edge. */}
                     <span
@@ -173,7 +173,7 @@ export function FolderChooser({ machine, name, kind, start, recents, onChoose, o
                   </button>
                 ))}
                 {listing.dirs.length === 0 && (
-                  <div className="shrink-0 px-2 py-2.5 text-[12px] text-[rgba(160,190,225,.6)]">
+                  <div className="shrink-0 px-2 py-2.5 fs-12 text-[rgba(160,190,225,.6)]">
                     No folders in here. Choose it, or go back up.
                   </div>
                 )}
@@ -184,7 +184,7 @@ export function FolderChooser({ machine, name, kind, start, recents, onChoose, o
       </div>
 
       <div className="flex items-center gap-2.5 border-t border-[rgba(150,205,255,.1)] px-3 py-2.5">
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-bright">{listing?.path ?? ''}</span>
+        <span className="min-w-0 flex-1 truncate font-mono fs-11 text-text-bright">{listing?.path ?? ''}</span>
         <Button variant="ghost" size="chooser" onClick={onCancel}>
           Cancel
         </Button>

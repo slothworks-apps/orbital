@@ -161,14 +161,14 @@ export function PageBar({ route, surface, session = null, notice = null, onCrumb
       ))}
       <span className="flex-1" />
       {notice && (
-        <span className={`${RIGHT_ITEM} min-w-0 truncate text-[11px] tracking-[.02em] text-[rgba(160,190,225,.5)]`} style={{ flex: '0 10 auto' }}>
+        <span className={`${RIGHT_ITEM} min-w-0 truncate fs-11 tracking-[.02em] text-[rgba(160,190,225,.5)]`} style={{ flex: '0 10 auto' }}>
           {notice}
         </span>
       )}
       {path && (
         <span
           title={session?.cwd}
-          className={`${RIGHT_ITEM} block max-w-[380px] truncate px-[2px] text-[11px] leading-[26px] tracking-[.02em] text-[rgba(160,190,225,.6)]`}
+          className={`${RIGHT_ITEM} block max-w-[380px] truncate px-[2px] fs-11 leading-[calc(26px*var(--text-scale,1))] tracking-[.02em] text-[rgba(160,190,225,.6)]`}
           // Shrinks second, after the session crumb (25g truncation).
           style={{ flex: '0 1 auto', minWidth: 60 }}
         >
@@ -183,14 +183,14 @@ export function PageBar({ route, surface, session = null, notice = null, onCrumb
         onClick={() => window.location.assign(MAP_PATH)}
         className={[
           RIGHT_ITEM,
-          'flex shrink-0 cursor-default items-center gap-1.5 border border-[rgba(150,205,255,.14)] pl-2 pr-1 text-[13px] text-[rgba(200,220,245,.75)]',
+          'flex shrink-0 cursor-default items-center gap-1.5 border border-[rgba(150,205,255,.14)] pl-2 pr-1 fs-13 text-[rgba(200,220,245,.75)]',
           'transition-[background-color,border-color,color] duration-150',
           'hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.14)] hover:text-text-bright',
           FOCUS_RING,
         ].join(' ')}
       >
         <span className="leading-none">×</span>
-        <span className="rounded-[4px] border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.06)] px-[5px] py-[2px] text-[9.5px] leading-[1.3] tracking-[.1em]">
+        <span className="rounded-[4px] border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.06)] px-[5px] py-[2px] fs-9.5 leading-[1.3] tracking-[.1em]">
           ESC
         </span>
       </button>
@@ -199,7 +199,7 @@ export function PageBar({ route, surface, session = null, notice = null, onCrumb
 }
 
 /** Every item on the right (25b): 26 tall, rounded, mono, a little way off its neighbour. */
-const RIGHT_ITEM = 'ml-2 box-border h-[26px] rounded-[7px] font-mono whitespace-nowrap'
+const RIGHT_ITEM = 'ml-2 box-border h-fit min-h-[26px] rounded-[7px] font-mono whitespace-nowrap'
 
 /** The esc button's keyboard focus (25g FOCUS); the crumbs share it. */
 const FOCUS_RING =
@@ -209,10 +209,10 @@ const FOCUS_RING =
 const CRUMB_HOVER = 'hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright'
 
 const CRUMB_TYPE = {
-  root: 'font-sans text-[13px] font-bold tracking-[.22em]',
-  section: 'font-mono text-[11px] tracking-[.1em]',
-  session: 'font-mono text-[11px] tracking-[.02em]',
-  item: 'font-mono text-[11px] tracking-[.02em]',
+  root: 'font-sans fs-13 font-bold tracking-[.22em]',
+  section: 'font-mono fs-11 tracking-[.1em]',
+  session: 'font-mono fs-11 tracking-[.02em]',
+  item: 'font-mono fs-11 tracking-[.02em]',
 }
 
 function Crumb({
@@ -230,7 +230,7 @@ function Crumb({
 }) {
   const isSession = crumb.kind === 'session'
   const className = [
-    'flex h-[26px] items-center gap-2 overflow-hidden whitespace-nowrap rounded-[7px] px-2 no-underline',
+    'flex h-fit min-h-[26px] items-center gap-2 overflow-hidden whitespace-nowrap rounded-[7px] px-2 no-underline',
     'transition-[background-color,color] duration-150',
     CRUMB_TYPE[crumb.kind],
     // The wordmark and the page's own crumb are bright; the way up is not.
@@ -267,7 +267,7 @@ function Crumb({
 
   return (
     <>
-      {!first && <span className="shrink-0 px-1 font-mono text-[11px] text-[rgba(150,205,255,.25)]">/</span>}
+      {!first && <span className="shrink-0 px-1 font-mono fs-11 text-[rgba(150,205,255,.25)]">/</span>}
       {crumb.href === null ? (
         <span data-no-drag aria-current="page" className={className} style={style}>
           {body}
@@ -286,7 +286,7 @@ function StatusChip({ session }: { session: ApiSession }) {
   return (
     <span
       data-no-drag
-      className={`${RIGHT_ITEM} flex shrink-0 items-center gap-1.5 border border-[rgba(150,205,255,.14)] px-[9px] text-[10.5px] tracking-[.08em] text-[rgba(200,220,245,.75)]`}
+      className={`${RIGHT_ITEM} flex shrink-0 items-center gap-1.5 border border-[rgba(150,205,255,.14)] px-[9px] fs-10.5 tracking-[.08em] text-[rgba(200,220,245,.75)]`}
     >
       <span
         aria-hidden

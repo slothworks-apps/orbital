@@ -472,8 +472,8 @@ export function LimitSunCard({
         {sun.tiles.map((t) => (
           <ClaudeDirMark key={t} mono={t} />
         ))}
-        <span className="min-w-0 flex-1 truncate text-[12.5px] font-bold">{sun.title}</span>
-        <span className="font-mono text-[10px] text-[rgba(160,190,225,.55)]">
+        <span className="min-w-0 flex-1 truncate fs-12.5 font-bold">{sun.title}</span>
+        <span className="font-mono fs-10 text-[rgba(160,190,225,.55)]">
           {sun.stale ? `last read ${sun.readClock}` : `read ${sun.readClock}`}
         </span>
       </div>
@@ -503,7 +503,7 @@ export function LimitSunCard({
           dim={sun.stale}
         />
       )}
-      <div className="border-t border-[rgba(150,205,255,.08)] pt-2 font-mono text-[9.5px] tracking-[0.06em] text-[rgba(160,190,225,.45)]">
+      <div className="border-t border-[rgba(150,205,255,.08)] pt-2 font-mono fs-9.5 tracking-[0.06em] text-[rgba(160,190,225,.45)]">
         click: open Limits · drag: move
       </div>
     </div>
@@ -534,8 +534,8 @@ function CardRow({
       style={{ opacity: dim ? 0.6 : 1 }}
     >
       <div className="flex items-baseline gap-2">
-        <span className="flex-1 text-xs font-semibold">{name}</span>
-        <span className="font-mono text-xs">{value}</span>
+        <span className="flex-1 fs-12 leading-(--text-xs--line-height) font-semibold">{name}</span>
+        <span className="font-mono fs-12 leading-(--text-xs--line-height)">{value}</span>
       </div>
       <div className="h-[3px] overflow-hidden rounded-[2px] bg-[rgba(150,205,255,.1)]">
         <span
@@ -543,7 +543,7 @@ function CardRow({
           style={{ width: `${Math.min(Math.max(percent, 0), 100)}%`, background: fill }}
         />
       </div>
-      <div className="flex gap-2 font-mono text-[10px] text-[rgba(160,190,225,.6)]">
+      <div className="flex gap-2 font-mono fs-10 text-[rgba(160,190,225,.6)]">
         <span>{reset ?? ''}</span>
         <span className="flex-1" />
         {estimate && (

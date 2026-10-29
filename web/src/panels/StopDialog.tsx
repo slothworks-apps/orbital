@@ -98,7 +98,7 @@ export function StopDialog({ open, sessionId, onClose }: StopDialogProps) {
     >
       {/* Body copy + geometry verbatim from the export's stop confirm. */}
       <div className="flex flex-col">
-        <p className="text-[13px] leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+        <p className="fs-13 leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
           {session?.title && <span className="font-mono text-text-bright">{session.title}</span>}
           {session?.title ? ' is mid-turn' : 'This session is mid-turn'}
           {toolTarget ? (
@@ -110,7 +110,7 @@ export function StopDialog({ open, sessionId, onClose }: StopDialogProps) {
           . The partial response is discarded; edits already written to disk stay.
         </p>
         {openTool && (
-          <div className="mt-3.5 flex items-center gap-2.5 rounded-lg border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3 py-2.5 font-mono text-[11px] text-[rgba(160,190,225,.75)]">
+          <div className="mt-3.5 flex items-center gap-2.5 rounded-lg border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3 py-2.5 font-mono fs-11 text-[rgba(160,190,225,.75)]">
             <span aria-hidden className="text-[rgba(160,190,225,.5)]">
               ⚙
             </span>

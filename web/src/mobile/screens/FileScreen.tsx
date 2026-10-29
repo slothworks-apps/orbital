@@ -22,7 +22,7 @@ function PdfFoot({ path, caption, page, cached }: { path: string; caption: strin
   return (
     <div className="relative z-[2] flex shrink-0 flex-col gap-2.5 bg-[linear-gradient(0deg,rgba(0,0,0,.85),transparent)] px-4 pb-1.5 pt-[18px]">
       {cached}
-      <div className="flex items-center gap-2 font-mono text-[11px] text-[rgba(200,215,235,.75)]">
+      <div className="flex items-center gap-2 font-mono fs-11 text-[rgba(200,215,235,.75)]">
         {page && (
           <span className="rounded-full border border-[rgba(150,205,255,.2)] bg-[rgba(5,7,13,.75)] px-2 py-[3px] text-[#e8eef8]">
             {page}
@@ -31,7 +31,7 @@ function PdfFoot({ path, caption, page, cached }: { path: string; caption: strin
         <span className="flex-1" />
         <span>scroll</span>
       </div>
-      <div className="truncate font-mono text-[11px] text-[rgba(200,215,235,.75)]">
+      <div className="truncate font-mono fs-11 text-[rgba(200,215,235,.75)]">
         {path} · {caption}
       </div>
     </div>
@@ -127,7 +127,7 @@ export function FileScreen() {
           type="button"
           aria-label="Back"
           onClick={back}
-          className="grid h-11 w-11 place-items-center text-[28px] leading-none text-[rgba(220,235,255,.85)]"
+          className="grid h-11 w-11 place-items-center fs-28 leading-none text-[rgba(220,235,255,.85)]"
         >
           ‹
         </button>

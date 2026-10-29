@@ -1309,6 +1309,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   async loadInitial() {
     // In parallel with the rest; its keys are its own.
     const dirs = get().loadClaudeDirs()
+    // A setting another window saved while this snapshot was in flight
+    // (`lib/settingsBroadcast`) is newer than what the server answered.
+    const settingsBefore = get().settings
     const [sessions, tags, rules, settings, modelsPayload, errorPage, sessionsTotal] =
       await Promise.all([
         api.listSessions(),
@@ -1349,7 +1352,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       decisionDrafts: draftsStillPending(state.decisionDrafts, pendingDecisions, sessionsMap, state.pendingDecisions),
       tags,
       rules,
-      settings,
+      settings: { ...settings, ...changedSince(settingsBefore, state.settings) },
       settingsLoaded: true,
       models: modelsPayload.models,
       contextWindows: modelsPayload.contextWindows,
@@ -3500,6 +3503,11 @@ export type TrashDrop = 'end' | 'confirm' | 'refuse'
 export function trashDropFor(source: SessionSource, status: SessionStatus): TrashDrop {
   if (source !== 'web') return 'refuse'
   return status === 'working' || status === 'needs_input' ? 'confirm' : 'end'
+}
+
+/** The keys whose value differs in `after` from `before`, with `after`'s value. */
+export function changedSince(before: Record<string, string>, after: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(after).filter(([key, value]) => before[key] !== value))
 }
 
 /** The Appearance slider's range (canvas 5a: 0.70×–1.60×, step 0.05). */
