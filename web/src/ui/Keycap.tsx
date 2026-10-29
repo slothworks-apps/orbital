@@ -41,9 +41,9 @@ export function Keycap({ chord, display, muted, gesture }: KeycapProps) {
         'inline-flex h-fit min-h-6 items-center gap-1.5 rounded-[6px] border font-mono fs-11.5 tracking-[0.06em]',
         multiGlyph ? 'px-[9px]' : 'px-[7px]',
         gesture
-          ? 'border-dashed border-[rgba(150,205,255,.2)] bg-transparent'
-          : 'border-[rgba(150,205,255,.16)] bg-[rgba(150,205,255,.05)]',
-        gesture || muted ? 'text-[rgba(160,190,225,.45)]' : 'text-[rgba(220,235,255,.9)]',
+          ? 'border-dashed border-line/20 bg-transparent'
+          : 'border-line/16 bg-line/5',
+        gesture || muted ? 'text-ink-900/45' : 'text-ink-200/90',
       ].join(' ')}
     >
       {glyphs.map((glyph, i) => (

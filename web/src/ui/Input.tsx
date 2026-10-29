@@ -10,15 +10,15 @@ export type FieldSize = 'sm' | 'md' | 'lg'
  * the export uses inside glass panels.
  */
 const sizeClasses: Record<FieldSize, string> = {
-  sm: 'rounded-lg bg-[rgba(4,8,16,.6)] px-2.5 py-2 fs-12 leading-(--text-xs--line-height)',
-  md: 'rounded-md bg-panel px-3 py-1.5 fs-14 leading-(--text-sm--line-height)',
-  lg: 'rounded-[9px] bg-[rgba(4,8,16,.6)] px-3 py-2.5 fs-12.5',
+  sm: 'rounded-lg bg-shade/60 px-2.5 py-2 fs-12 leading-(--text-xs--line-height)',
+  md: 'rounded-md bg-panel/88 px-3 py-1.5 fs-14 leading-(--text-sm--line-height)',
+  lg: 'rounded-[9px] bg-shade/60 px-3 py-2.5 fs-12.5',
 }
 
 /** Canvas 1d's textarea: 12px/14px padding, radius 10, 13.5px / 1.55. */
 const textAreaSizeClasses: Record<FieldSize, string> = {
   ...sizeClasses,
-  lg: 'rounded-[10px] bg-[rgba(4,8,16,.6)] px-3.5 py-3 fs-13.5 leading-[1.55]',
+  lg: 'rounded-[10px] bg-shade/60 px-3.5 py-3 fs-13.5 leading-[1.55]',
 }
 
 // The border colour is picked here, in one place, rather than concatenated
@@ -34,8 +34,8 @@ const fieldClass = (
   className?: string,
 ) =>
   [
-    'w-full text-text-bright placeholder:text-text-muted focus:outline-none',
-    variant === 'bare' || variant === 'chip' ? '' : `focus:ring-1 ${invalid ? 'focus:ring-red-400/70' : 'focus:ring-text-soft'}`,
+    'w-full text-ink-100 placeholder:text-ink-900/70 focus:outline-none',
+    variant === 'bare' || variant === 'chip' ? '' : `focus:ring-1 ${invalid ? 'focus:ring-red-400/70' : 'focus:ring-ink-300'}`,
     variant === 'bare'
       ? // Bare variant: no box at all — the caller's frame draws the edge
         // (canvas 50a's device name over a dashed underline), 14px semibold.
@@ -45,11 +45,11 @@ const fieldClass = (
         // field (canvas `Feature - Tag chips` 80c), 11.5px semibold on a 16px line.
         'border-0 bg-transparent p-0 fs-11.5 font-semibold leading-[calc(1rem*var(--text-scale,1))]'
       : variant === 'field'
-      ? `border ${invalid ? 'border-red-400/60' : 'border-panel-border'} ${sizes[size]}`
+      ? `border ${invalid ? 'border-red-400/60' : 'border-line/14'} ${sizes[size]}`
       : // Inline variant: borderless until focused — for editing a value in
         // place (e.g. DetailPanel's title) rather than a standalone field.
         `rounded-md border bg-transparent px-1 py-0.5 fs-14 leading-(--text-sm--line-height) font-semibold ${
-          invalid ? 'border-red-400/60' : 'border-transparent focus:border-panel-border'
+          invalid ? 'border-red-400/60' : 'border-transparent focus:border-line/14'
         }`,
     font === 'mono' ? 'font-mono' : 'font-sans',
     className ?? '',

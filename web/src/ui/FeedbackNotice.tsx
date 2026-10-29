@@ -78,7 +78,7 @@ function FeedbackNotice() {
       data-kind={shown.kind}
       onPointerEnter={() => setHovered(true)}
       onPointerLeave={() => setHovered(false)}
-      className="flex h-fit min-h-10 max-w-full items-center gap-2.5 whitespace-nowrap rounded-[10px] border border-[rgba(150,205,255,.12)] bg-[rgba(10,16,28,.9)] pl-3.5 pr-1.5 fs-13 text-[rgba(214,226,242,.94)] shadow-[0_10px_28px_rgba(0,0,0,.45)] backdrop-blur-[12px]"
+      className="flex h-fit min-h-10 max-w-full items-center gap-2.5 whitespace-nowrap rounded-[10px] border border-line/12 bg-panel/90 pl-3.5 pr-1.5 fs-13 text-ink-400/94 shadow-[0_10px_28px_rgba(0,0,0,.45)] backdrop-blur-[12px]"
     >
       {/* 3c: the only mark of a failure. oklch(66% .2 25), the errors log's red. */}
       {failed && <span aria-hidden className="block h-[7px] w-[7px] flex-none rounded-full bg-[oklch(66%_.2_25)]" />}
@@ -91,7 +91,7 @@ function FeedbackNotice() {
             action.run()
             clearToast()
           }}
-          className="flex-none rounded-[7px] px-[9px] py-[5px] fs-12.5 font-semibold text-text-bright transition-colors hover:bg-[rgba(150,205,255,.08)]"
+          className="flex-none rounded-[7px] px-[9px] py-[5px] fs-12.5 font-semibold text-ink-100 transition-colors hover:bg-line/8"
         >
           {action.label}
         </button>
@@ -100,7 +100,7 @@ function FeedbackNotice() {
         type="button"
         onClick={clearToast}
         aria-label="Dismiss"
-        className="grid h-[26px] w-[26px] flex-none place-items-center rounded-[6px] fs-15 text-[rgba(160,190,225,.6)] transition-colors hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright"
+        className="grid h-[26px] w-[26px] flex-none place-items-center rounded-[6px] fs-15 text-ink-900/60 transition-colors hover:bg-line/8 hover:text-ink-100"
       >
         ×
       </button>

@@ -45,7 +45,7 @@ export function ClaudeDirMark({
       title={title}
       aria-hidden={title === undefined ? true : undefined}
       className={[
-        'inline-grid flex-none place-items-center box-border bg-[rgba(200,215,235,.2)] font-mono font-semibold leading-none tracking-normal text-[#eef4fc]',
+        'inline-grid flex-none place-items-center box-border bg-ink-600/20 font-mono font-semibold leading-none tracking-normal text-ink-50',
         SIZES[size],
         missing ? 'opacity-55' : '',
       ].join(' ')}
@@ -83,7 +83,7 @@ export function ClaudeDirChip({ mark }: { mark: ClaudeDirMarkInfo }) {
     <span
       data-claude-dir-chip
       title={mark.title}
-      className="box-border flex min-w-0 max-w-40 items-center gap-1.5 rounded-[5px] border border-[rgba(150,205,255,.16)] py-[3px] pl-[5px] pr-[9px] font-mono fs-10.5 text-[rgba(214,230,248,.88)]"
+      className="box-border flex min-w-0 max-w-40 items-center gap-1.5 rounded-[5px] border border-line/16 py-[3px] pl-[5px] pr-[9px] font-mono fs-10.5 text-ink-400/88"
     >
       <ClaudeDirMark mono={mark.mono} />
       <span className="min-w-0 truncate">{mark.name}</span>

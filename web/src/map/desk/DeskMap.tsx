@@ -277,7 +277,7 @@ export function DeskMap() {
     <div
       data-testid="map-surface"
       data-paused={paused ? '' : undefined}
-      className="relative h-full w-full overflow-hidden bg-[#05070d]"
+      className="relative h-full w-full overflow-hidden bg-space"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -319,7 +319,7 @@ export function DeskMap() {
               <div
                 key="placeholder"
                 aria-hidden
-                className="shrink-0 rounded-[14px] border border-dashed border-[rgba(150,205,255,.32)] bg-[rgba(150,205,255,.03)]"
+                className="shrink-0 rounded-[14px] border border-dashed border-line/32 bg-line/3"
                 style={{ width: MAT_WIDTH_PX }}
               />
             ) : (
@@ -507,7 +507,7 @@ function MatHeader({
     <header
       data-mat-handle={tagId}
       title="Drag to reorder"
-      className="flex h-fit min-h-[42px] flex-none cursor-grab items-center gap-[9px] rounded-t-[14px] border-b border-[rgba(150,205,255,.08)] pl-2.5 pr-3.5 hover:bg-[rgba(150,205,255,.035)] active:cursor-grabbing"
+      className="flex h-fit min-h-[42px] flex-none cursor-grab items-center gap-[9px] rounded-t-[14px] border-b border-line/8 pl-2.5 pr-3.5 hover:bg-line/3.5 active:cursor-grabbing"
     >
       <GripDots />
       <span
@@ -518,7 +518,7 @@ function MatHeader({
         {name}
       </span>
       {count && (
-        <span className="font-mono fs-10.5 tracking-[0.1em] text-[rgba(160,190,225,.55)]">
+        <span className="font-mono fs-10.5 tracking-[0.1em] text-ink-900/55">
           · {count}
         </span>
       )}
@@ -527,7 +527,7 @@ function MatHeader({
           <span
             key={k}
             title={`${n} ${k.replace('_', ' ')}`}
-            className="flex items-center gap-[5px] font-mono fs-10.5 text-[rgba(214,230,248,.8)]"
+            className="flex items-center gap-[5px] font-mono fs-10.5 text-ink-400/80"
           >
             <StateDot dot={countDot(k)} color={stateColor(k)} solidPx={6} hollowPx={6} />
             {n}
@@ -631,7 +631,7 @@ const DeskCard = memo(function DeskCard({
       ref={cardRef}
       data-card={s.id}
       className={[
-        'relative shrink-0 cursor-pointer rounded-xl text-text-bright',
+        'relative shrink-0 cursor-pointer rounded-xl text-ink-100',
         lift
           ? 'z-30'
           : 'transition-[opacity,transform,box-shadow,border-color,max-height] duration-[240ms] ease-out',
@@ -655,7 +655,7 @@ const DeskCard = memo(function DeskCard({
           no hover look of its own to hold, so it borrows the Desk's one hover
           fill, the mat header's (41a); the canvas has yet to draw this cue. */}
       {menuSubject && !planet.selected && !lift && (
-        <span aria-hidden className="pointer-events-none absolute inset-0 block rounded-xl bg-[rgba(150,205,255,.035)]" />
+        <span aria-hidden className="pointer-events-none absolute inset-0 block rounded-xl bg-line/3.5" />
       )}
       {/* 41b: a hairline glint in the tag hue along the top edge marks a live
           session — working, waiting or asking. NEEDS INPUT adds its amber
@@ -672,14 +672,14 @@ const DeskCard = memo(function DeskCard({
 
       {ended ? (
         <div className="flex items-center gap-[9px] px-3.5 py-[9px]">
-          <span className="block h-[7px] w-[7px] flex-none rounded-full border-[1.5px] border-[rgba(160,190,225,.55)]" />
+          <span className="block h-[7px] w-[7px] flex-none rounded-full border-[1.5px] border-ink-900/55" />
           <span
-            className="min-w-0 flex-1 truncate fs-12.5 font-semibold text-[rgba(214,226,242,.85)]"
+            className="min-w-0 flex-1 truncate fs-12.5 font-semibold text-ink-400/85"
             title={s.title}
           >
             {s.title}
           </span>
-          <span className="flex-none font-mono fs-9.5 tracking-[0.12em] text-[rgba(160,190,225,.6)]">
+          <span className="flex-none font-mono fs-9.5 tracking-[0.12em] text-ink-900/60">
             {planet.leaving ? 'ENDED' : 'PINNED · ENDED'}
           </span>
         </div>
@@ -712,7 +712,7 @@ const DeskCard = memo(function DeskCard({
           </div>
 
           {(meta || planet.dated) && (
-            <div className="-mt-1 truncate pl-4 font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
+            <div className="-mt-1 truncate pl-4 font-mono fs-10.5 text-ink-900/60">
               {planet.dated ? <WithAge text={meta} machine={s.machine} /> : meta}
             </div>
           )}
@@ -723,15 +723,15 @@ const DeskCard = memo(function DeskCard({
                 key={last.at}
                 className="desk-activity absolute inset-0 flex gap-[7px] overflow-hidden whitespace-nowrap"
               >
-                <span className="font-medium text-text-bright">{last.name}</span>
-                <span className="min-w-0 truncate text-[rgba(160,190,225,.7)]">{last.summary}</span>
+                <span className="font-medium text-ink-100">{last.name}</span>
+                <span className="min-w-0 truncate text-ink-900/70">{last.summary}</span>
               </span>
             ) : (
-              <span className="text-[rgba(160,190,225,.45)]">—</span>
+              <span className="text-ink-900/45">—</span>
             )}
           </div>
 
-          <div className="relative h-3.5 overflow-hidden border-b border-[rgba(150,205,255,.1)]">
+          <div className="relative h-3.5 overflow-hidden border-b border-line/10">
             {recent.map((t) => {
               const x = 1 - (now - t.at) / STRIP_WINDOW_MS
               return (
@@ -774,7 +774,7 @@ const DeskCard = memo(function DeskCard({
           {(fill || planet.compactingSince || failed) && (
             <div className="flex flex-col gap-[7px] pt-0.5">
               {fill && (
-                <div className="relative h-[3px] rounded-sm bg-[rgba(150,205,255,.1)]">
+                <div className="relative h-[3px] rounded-sm bg-line/10">
                   <span
                     className="absolute inset-y-0 left-0 block rounded-sm transition-[width] duration-700"
                     style={{
@@ -786,12 +786,12 @@ const DeskCard = memo(function DeskCard({
                   />
                   <span
                     title="Warn threshold"
-                    className="absolute top-[-2px] block h-[7px] w-px bg-[rgba(214,230,248,.3)]"
+                    className="absolute top-[-2px] block h-[7px] w-px bg-ink-400/30"
                     style={{ left: `${thresholds.warn}%` }}
                   />
                   <span
                     title="Critical threshold"
-                    className="absolute top-[-2px] block h-[7px] w-px bg-[rgba(214,230,248,.45)]"
+                    className="absolute top-[-2px] block h-[7px] w-px bg-ink-400/45"
                     style={{ left: `${thresholds.critical}%` }}
                   />
                 </div>
@@ -915,7 +915,7 @@ function Pill({
     <span className="relative block h-[18px] w-[19px] flex-none">
       <span
         title={label}
-        className={`${chip} absolute right-0 top-0 max-w-[19px] overflow-hidden border-transparent px-[5px] transition-[max-width,padding,border-color,background-color] duration-200 hover:max-w-[180px] hover:border-[var(--pill-bd)] hover:bg-[rgb(12,18,32)] hover:pl-[5px] hover:pr-2`}
+        className={`${chip} absolute right-0 top-0 max-w-[19px] overflow-hidden border-transparent px-[5px] transition-[max-width,padding,border-color,background-color] duration-200 hover:max-w-[180px] hover:border-[var(--pill-bd)] hover:bg-panel-solid hover:pl-[5px] hover:pr-2`}
         style={{ color: colour, '--pill-bd': borderColour } as CSSProperties}
       >
         <StateDot dot={dotFor('dot')} color={colour} solidPx={7} hollowPx={7} />
@@ -929,10 +929,10 @@ function DetachedBadge() {
   return (
     <span
       title="Open in its own window"
-      className="relative block h-[18px] w-[18px] rounded-[5px] border border-[rgba(150,205,255,.2)] text-[rgba(200,220,245,.75)]"
+      className="relative block h-[18px] w-[18px] rounded-[5px] border border-line/20 text-ink-500/75"
     >
       <span className="absolute left-[3px] top-[5px] box-border block h-1.5 w-[7px] rounded-[1.5px] border border-current opacity-55" />
-      <span className="absolute left-1.5 top-[3px] box-border block h-1.5 w-[7px] rounded-[1.5px] border border-current bg-[rgb(12,18,32)]" />
+      <span className="absolute left-1.5 top-[3px] box-border block h-1.5 w-[7px] rounded-[1.5px] border border-current bg-panel-solid" />
     </span>
   )
 }
@@ -952,7 +952,7 @@ function SubagentRow({ sub, onOpen }: { sub: Subagent; onOpen: () => void }) {
       disabled={!openable}
       onClick={onOpen}
       aria-label={`Open subagent transcript: ${sub.name}`}
-      className="flex items-center gap-[9px] rounded-md px-1.5 py-1 text-left font-mono fs-11 enabled:hover:bg-[rgba(150,205,255,.06)] disabled:cursor-default"
+      className="flex items-center gap-[9px] rounded-md px-1.5 py-1 text-left font-mono fs-11 enabled:hover:bg-line/6 disabled:cursor-default"
     >
       <span className="box-border block h-1.5 w-1.5 flex-none rounded-full" style={dot} />
       <span
@@ -967,7 +967,7 @@ function SubagentRow({ sub, onOpen }: { sub: Subagent; onOpen: () => void }) {
       >
         {sub.name}
       </span>
-      <span className="fs-9.5 tracking-[0.1em] text-[rgba(160,190,225,.55)]">
+      <span className="fs-9.5 tracking-[0.1em] text-ink-900/55">
         {!openable ? 'INERT' : live ? 'RUNNING ›' : 'DONE ›'}
       </span>
     </button>
@@ -1027,10 +1027,10 @@ function DecisionBlock({
   const text = decision.kind === 'question' ? questions[0]?.question : decisionHeadline(decision)
   const detail = decisionDetail(decision)
   return (
-    <div className="flex flex-col gap-[9px] rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[linear-gradient(180deg,rgba(10,16,28,.72),rgba(5,9,18,.82))] px-3 pb-3 pt-[11px]">
+    <div className="flex flex-col gap-[9px] rounded-[10px] border border-line/16 bg-[linear-gradient(180deg,rgba(10,16,28,.72),rgba(5,9,18,.82))] px-3 pb-3 pt-[11px]">
       <div className="flex items-center gap-2">
         <span
-          className="rounded px-[7px] py-0.5 font-mono fs-9.5 tracking-[0.14em] text-[#ffd2a8]"
+          className="rounded px-[7px] py-0.5 font-mono fs-9.5 tracking-[0.14em] text-warning-soft"
           style={{
             border: `1px solid color-mix(in oklch, ${stateColor('needs_input')} 35%, transparent)`,
             background: `color-mix(in oklch, ${stateColor('needs_input')} 10%, transparent)`,
@@ -1039,23 +1039,23 @@ function DecisionBlock({
           {kind}
         </span>
         {readOnly && (
-          <span className="font-mono fs-9.5 tracking-[0.12em] text-[rgba(160,190,225,.6)]">
+          <span className="font-mono fs-9.5 tracking-[0.12em] text-ink-900/60">
             TERMINAL SESSION
           </span>
         )}
       </div>
       {text && (
-        <div className="fs-12.5 leading-[1.5] text-[rgba(232,238,248,.94)] [text-wrap:pretty]">
+        <div className="fs-12.5 leading-[1.5] text-ink-100/94 [text-wrap:pretty]">
           {text}
         </div>
       )}
       {detail && (
-        <div className="truncate rounded-md border border-[rgba(150,205,255,.08)] bg-[rgba(4,8,16,.6)] px-[9px] py-1.5 font-mono fs-10.5 text-[rgba(214,230,248,.85)]">
+        <div className="truncate rounded-md border border-line/8 bg-shade/60 px-[9px] py-1.5 font-mono fs-10.5 text-ink-400/85">
           {detail}
         </div>
       )}
       {readOnly ? (
-        <div className="font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
+        <div className="font-mono fs-10.5 text-ink-900/65">
           Answer it in the terminal.
         </div>
       ) : decision.kind !== 'question' ? (
@@ -1081,14 +1081,14 @@ function DecisionBlock({
                   'flex items-center gap-[9px] rounded-[7px] border px-[9px] py-1.5 text-left fs-12 transition-colors',
                   // 9g: the chosen chip takes the row's chosen state — ✓ and the accent fill.
                   chosen
-                    ? 'border-accent/35 bg-accent/12 font-semibold text-[#e8eef8]'
-                    : 'border-[rgba(150,205,255,.14)] font-medium text-[rgba(214,230,248,.9)] hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.14)] hover:text-text-bright',
+                    ? 'border-accent/35 bg-accent/12 font-semibold text-ink-100'
+                    : 'border-line/14 font-medium text-ink-400/90 hover:border-line/30 hover:bg-line/14 hover:text-ink-100',
                 ].join(' ')}
               >
                 <span
                   className={[
                     'font-mono fs-10',
-                    chosen ? 'text-accent' : 'text-[rgba(160,190,225,.55)]',
+                    chosen ? 'text-accent' : 'text-ink-900/55',
                   ].join(' ')}
                 >
                   {chosen ? '✓' : i + 1}
@@ -1099,7 +1099,7 @@ function DecisionBlock({
           })}
           {draft !== undefined && (
             // 9g: one mono line says the answer is a draft; the pill stays NEEDS INPUT.
-            <div className="font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
+            <div className="font-mono fs-10.5 text-ink-900/65">
               {panelOpen ? 'draft · not sent · review in the panel →' : 'draft · not sent · open to send'}
             </div>
           )}
@@ -1130,10 +1130,10 @@ function ChipButton({
       type="button"
       onClick={onClick}
       className={[
-        'rounded-[7px] border px-3.5 py-1.5 fs-12 font-semibold transition-colors hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.14)] hover:text-text-bright',
+        'rounded-[7px] border px-3.5 py-1.5 fs-12 font-semibold transition-colors hover:border-line/30 hover:bg-line/14 hover:text-ink-100',
         primary
-          ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
-          : 'border-[rgba(150,205,255,.14)] text-[rgba(214,230,248,.85)]',
+          ? 'border-line/30 bg-line/14 text-ink-100'
+          : 'border-line/14 text-ink-400/85',
       ].join(' ')}
     >
       {children}
@@ -1257,7 +1257,7 @@ function HistoryDrawer({
         )}
       </span>
       <span className="flex min-w-0 flex-col gap-[3px] font-mono fs-10.5">
-        <span className="tracking-[0.14em] text-text-bright">
+        <span className="tracking-[0.14em] text-ink-100">
           HISTORY · {count} session{count === 1 ? '' : 's'}
         </span>
         <span style={{ color: d.subInk }}>{d.sub}</span>

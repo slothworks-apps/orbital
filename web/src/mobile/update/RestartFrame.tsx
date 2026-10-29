@@ -10,15 +10,15 @@ export function RestartFrame({ version }: { version: string }) {
     <div
       role="status"
       aria-label={`Restarting into Orbital ${version}`}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-2.5 bg-[#05070d]"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-2.5 bg-space"
     >
       <span
         aria-hidden
-        className="relative block h-[22px] w-[22px] rounded-full border-[1.5px] border-[oklch(85%_.12_205)]"
+        className="relative block h-[22px] w-[22px] rounded-full border-[1.5px] border-accent"
       >
-        <span className="absolute -right-px -top-px block h-1.5 w-1.5 rounded-full bg-[oklch(85%_.12_205)]" />
+        <span className="absolute -right-px -top-px block h-1.5 w-1.5 rounded-full bg-accent" />
       </span>
-      <span className="font-mono fs-10.5 tracking-[0.14em] text-[rgba(160,190,225,.65)]">
+      <span className="font-mono fs-10.5 tracking-[0.14em] text-ink-900/65">
         ORBITAL MOBILE {version}
       </span>
     </div>

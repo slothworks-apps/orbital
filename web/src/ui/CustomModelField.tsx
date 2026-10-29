@@ -43,7 +43,7 @@ export function CustomModelField({ size = 'lg', ...options }: CustomModelFieldPr
           className={[
             'font-mono fs-11 leading-[1.4] [overflow-wrap:anywhere]',
             // Error tone: the red the Transcript's error banner uses.
-            field.status === 'invalid' ? 'text-red-300' : 'text-[rgba(160,190,225,.7)]',
+            field.status === 'invalid' ? 'text-red-300' : 'text-ink-900/70',
           ].join(' ')}
         >
           {field.status === 'checking' && 'checking…'}

@@ -17,10 +17,10 @@ export function TranscriptTail(props: SlotProps) {
       <MenuOutcome {...props} />
       {props.offline && (
         // Where the data ends while the Mac sleeps (9b offline).
-        <div className="my-4 flex items-center gap-3 font-mono fs-10 tracking-[0.14em] text-text-muted">
-          <span className="h-px flex-1 bg-panel-border" />
+        <div className="my-4 flex items-center gap-3 font-mono fs-10 tracking-[0.14em] text-ink-900/70">
+          <span className="h-px flex-1 bg-line/14" />
           <span>NOTHING NEWER · MAC ASLEEP</span>
-          <span className="h-px flex-1 bg-panel-border" />
+          <span className="h-px flex-1 bg-line/14" />
         </div>
       )}
     </>

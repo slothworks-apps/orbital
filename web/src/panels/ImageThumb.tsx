@@ -43,10 +43,10 @@ export type ThumbVariant = 'user-solo' | 'user' | 'tool' | 'tool-wide'
 const FRAME_CLASSES: Record<ThumbVariant, string> = {
   'user-solo':
     'rounded-[12px_12px_4px_12px] border-[oklch(80%_.13_210_/_.3)] hover:border-[oklch(80%_.13_210_/_.6)]',
-  user: 'rounded-lg border-[rgba(150,205,255,.18)] hover:border-[rgba(150,205,255,.42)]',
-  tool: 'rounded-[6px] border-[rgba(150,205,255,.12)] hover:border-[rgba(150,205,255,.42)]',
+  user: 'rounded-lg border-line/18 hover:border-line/42',
+  tool: 'rounded-[6px] border-line/12 hover:border-line/42',
   // canvas 10d
-  'tool-wide': 'relative rounded-[8px] border-[rgba(150,205,255,.16)]',
+  'tool-wide': 'relative rounded-[8px] border-line/16',
 }
 
 /** The reserved box: stored dims scaled into the caps, never upscaled. */
@@ -92,10 +92,10 @@ export function ImageThumb({ image, variant, source, widthCapPx, messageId }: Im
     return (
       <div
         style={box}
-        className="flex flex-col items-center justify-center gap-1.5 rounded-[6px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.6)]"
+        className="flex flex-col items-center justify-center gap-1.5 rounded-[6px] border border-line/10 bg-shade/60"
       >
-        <span aria-hidden className="h-3.5 w-3.5 rounded-[3px] border border-[rgba(160,190,225,.35)]" />
-        <span className="font-mono fs-9 tracking-[0.1em] text-[rgba(160,190,225,.5)]">
+        <span aria-hidden className="h-3.5 w-3.5 rounded-[3px] border border-ink-900/35" />
+        <span className="font-mono fs-9 tracking-[0.1em] text-ink-900/50">
           NOT IN CACHE
         </span>
       </div>
@@ -109,10 +109,10 @@ export function ImageThumb({ image, variant, source, widthCapPx, messageId }: Im
         type="button"
         onClick={retry}
         style={box}
-        className="flex flex-col items-center justify-center gap-1.5 rounded-[6px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.6)]"
+        className="flex flex-col items-center justify-center gap-1.5 rounded-[6px] border border-line/10 bg-shade/60"
       >
-        <span aria-hidden className="h-3.5 w-3.5 rounded-[3px] border border-[rgba(160,190,225,.35)]" />
-        <span className="font-mono fs-9 tracking-[0.1em] text-[rgba(160,190,225,.5)]">
+        <span aria-hidden className="h-3.5 w-3.5 rounded-[3px] border border-ink-900/35" />
+        <span className="font-mono fs-9 tracking-[0.1em] text-ink-900/50">
           COULDN&apos;T LOAD · RETRY
         </span>
       </button>
@@ -140,8 +140,8 @@ export function ImageThumb({ image, variant, source, widthCapPx, messageId }: Im
         style={{ ...box, cursor: 'zoom-in' }}
         className={[
           'block overflow-hidden border p-0 transition-[border-color,box-shadow] duration-[160ms] ease-out',
-          'hover:shadow-[0_0_0_3px_rgba(89,228,243,.12)]',
-          'focus-visible:outline focus-visible:outline-2 focus-visible:outline-[oklch(85%_.12_205_/_.7)]',
+          'hover:shadow-[0_0_0_3px_color-mix(in_oklab,_var(--color-accent)_12%,_transparent)]',
+          'focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent/70',
           FRAME_CLASSES[variant],
           fadeIn ? 'relative' : '',
         ].join(' ')}
@@ -174,7 +174,7 @@ export function ImageThumb({ image, variant, source, widthCapPx, messageId }: Im
           // canvas 10d: the mark that says a press opens it full screen.
           <span
             aria-hidden
-            className="absolute bottom-2 right-2 grid h-7 w-7 place-items-center rounded-[8px] bg-[rgba(5,7,13,.75)] fs-13 text-[#e8eef8]"
+            className="absolute bottom-2 right-2 grid h-7 w-7 place-items-center rounded-[8px] bg-space/75 fs-13 text-ink-100"
           >
             ⤢
           </span>

@@ -62,8 +62,8 @@ export function StepBody({ id, session, walkthrough, step, onJump }: StepBodyPro
     ),
   ]
   const fateRows = (row: FateRow) => (
-    <div key={row.key} className="flex items-center gap-1.5 border-t border-[rgba(150,205,255,.08)] px-2.5 py-[7px] font-mono fs-10.5 text-[rgba(200,220,245,.8)]">
-      <span className="text-text-bright">{FATE_GLYPH[row.kind]}</span>
+    <div key={row.key} className="flex items-center gap-1.5 border-t border-line/8 px-2.5 py-[7px] font-mono fs-10.5 text-ink-500/80">
+      <span className="text-ink-100">{FATE_GLYPH[row.kind]}</span>
       <span>{row.verb}</span>
       <JumpLink onJump={jumpTo(row.stepId)}>step {stepById.get(row.stepId)?.ordinal ?? '?'}</JumpLink>
     </div>
@@ -83,36 +83,36 @@ export function StepBody({ id, session, walkthrough, step, onJump }: StepBodyPro
   return (
     <article className="flex flex-1 flex-col gap-5">
       <header className="flex flex-col gap-2.5">
-        <span className="font-mono fs-10 tracking-[.18em] text-[rgba(160,190,225,.6)]">
+        <span className="font-mono fs-10 tracking-[.18em] text-ink-900/60">
           STEP {step.ordinal} OF {total}
           {eyebrowTail && ` · ${eyebrowTail}`}
         </span>
-        <h2 className="fs-26 font-bold leading-[1.2] tracking-[-.015em] text-text-bright">{title}</h2>
-        {intent?.summary && <p className="fs-13.5 leading-[1.6] text-[rgba(200,214,235,.9)]">{intent.summary}</p>}
+        <h2 className="fs-26 font-bold leading-[1.2] tracking-[-.015em] text-ink-100">{title}</h2>
+        {intent?.summary && <p className="fs-13.5 leading-[1.6] text-ink-600/90">{intent.summary}</p>}
         {intent?.title && step.narration && <Words>{step.narration}</Words>}
       </header>
 
       {folded && (
-        <div className="flex items-center gap-2 rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-2.5 py-[7px] font-mono fs-11.5 text-[rgba(200,220,245,.8)]">
-          <span className="fs-9 text-text-muted">▸</span>
-          <span className="text-text-muted">⚙</span>
-          <span className="text-text-bright">{folded}</span>
-          <span className="text-[rgba(150,205,255,.28)]">·</span>
-          <span className="text-text-muted">inside this step</span>
+        <div className="flex items-center gap-2 rounded-[7px] border border-line/10 bg-shade/45 px-2.5 py-[7px] font-mono fs-11.5 text-ink-500/80">
+          <span className="fs-9 text-ink-900/70">▸</span>
+          <span className="text-ink-900/70">⚙</span>
+          <span className="text-ink-100">{folded}</span>
+          <span className="text-line/28">·</span>
+          <span className="text-ink-900/70">inside this step</span>
           <span className="flex-1" />
-          {step.durationMs !== null && <span className="text-[rgba(160,190,225,.5)]">{formatDuration(step.durationMs)}</span>}
+          {step.durationMs !== null && <span className="text-ink-900/50">{formatDuration(step.durationMs)}</span>}
         </div>
       )}
 
       {step.subagent ? (
         <section className="flex flex-col gap-3">
-          <span className="font-mono fs-10 tracking-[.18em] text-[rgba(160,190,225,.6)]">SUBAGENT · {step.subagent.name}</span>
+          <span className="font-mono fs-10 tracking-[.18em] text-ink-900/60">SUBAGENT · {step.subagent.name}</span>
           {step.subagent.prompt && <Words small>{step.subagent.prompt}</Words>}
           {step.subagent.steps.map((sub, i) => (
             <SubStep key={sub.id} id={id} session={session} parent={step.ordinal} index={i + 1} sub={sub} />
           ))}
           {rows.length > 0 && (
-            <div className="rounded-[7px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.55)] [&>*:first-child]:border-t-0">
+            <div className="rounded-[7px] border border-line/18 bg-shade/55 [&>*:first-child]:border-t-0">
               {rows.map(fateRows)}
             </div>
           )}
@@ -139,25 +139,25 @@ function SubStep({ id, session, parent, index, sub }: { id: string; session: Api
   const paths = [...new Set(calls.map(pathOf).filter((p): p is string => !!p))]
   const title = sub.narration.split('\n')[0]?.trim() || paths.join(', ')
   return (
-    <details className="group rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] open:border-[rgba(150,205,255,.18)] open:bg-[rgba(150,205,255,.05)]">
-      <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-2 font-mono fs-11.5 text-[rgba(200,220,245,.8)] [&::-webkit-details-marker]:hidden">
-        <span className="fs-9 text-text-muted">
+    <details className="group rounded-[7px] border border-line/10 bg-shade/45 open:border-line/18 open:bg-line/5">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-2 font-mono fs-11.5 text-ink-500/80 [&::-webkit-details-marker]:hidden">
+        <span className="fs-9 text-ink-900/70">
           <span className="group-open:hidden">▸</span>
           <span className="hidden group-open:inline">▾</span>
         </span>
-        <span className="text-text-muted">
+        <span className="text-ink-900/70">
           {parent}.{index}
         </span>
-        <span className="min-w-0 truncate font-sans fs-12.5 text-text-bright">{title}</span>
+        <span className="min-w-0 truncate font-sans fs-12.5 text-ink-100">{title}</span>
         {paths.length > 0 && title !== paths.join(', ') && (
           <>
-            <span className="text-[rgba(150,205,255,.28)]">·</span>
+            <span className="text-line/28">·</span>
             <span className="min-w-0 truncate">{paths.join(', ')}</span>
           </>
         )}
         <span className="flex-1" />
         <Counts counts={callCounts(calls)} />
-        <span className="text-[rgba(160,190,225,.5)]">
+        <span className="text-ink-900/50">
           <span className="group-open:hidden">expand</span>
           <span className="hidden group-open:inline">collapse</span>
         </span>
@@ -166,7 +166,7 @@ function SubStep({ id, session, parent, index, sub }: { id: string; session: Api
         <FileBlock key={c.call.id} id={id} session={session} call={c} inset />
       ))}
       {sub.narration && (
-        <div className="border-t border-[rgba(150,205,255,.08)] px-2.5 py-2">
+        <div className="border-t border-line/8 px-2.5 py-2">
           <Words small>{sub.narration}</Words>
         </div>
       )}
@@ -199,21 +199,21 @@ function FileBlock({ id, session, call, inset = false, children }: { id: string;
         inset
           ? 'flex flex-col'
           : [
-              'flex flex-col overflow-hidden rounded-[7px] border bg-[rgba(4,8,16,.55)]',
-              failed ? 'border-dashed border-[rgba(150,205,255,.18)]' : 'border-[rgba(150,205,255,.18)]',
+              'flex flex-col overflow-hidden rounded-[7px] border bg-shade/55',
+              failed ? 'border-dashed border-line/18' : 'border-line/18',
             ].join(' ')
       }
     >
       <div
         className={[
-          'flex items-center gap-2 px-2.5 py-[7px] font-mono fs-11.5 text-[rgba(200,220,245,.8)]',
-          inset ? 'border-t border-[rgba(150,205,255,.08)]' : '',
+          'flex items-center gap-2 px-2.5 py-[7px] font-mono fs-11.5 text-ink-500/80',
+          inset ? 'border-t border-line/8' : '',
         ].join(' ')}
       >
-        {!inset && <span className="fs-9 text-text-muted">▾</span>}
-        <span className="text-text-muted">⚙</span>
+        {!inset && <span className="fs-9 text-ink-900/70">▾</span>}
+        <span className="text-ink-900/70">⚙</span>
         <span className="min-w-0 truncate">
-          {call.call.toolName}: <span className="text-text-bright">{path}</span>
+          {call.call.toolName}: <span className="text-ink-100">{path}</span>
         </span>
         {created && <Tag>NEW</Tag>}
         {failed && <Tag dashed>NOT APPLIED</Tag>}
@@ -227,23 +227,23 @@ function FileBlock({ id, session, call, inset = false, children }: { id: string;
             // `orbital-speaks-to-the-ide-itself`): a failure means the editor
             // went away, which is not news.
             onClick={() => void api.ideOpenFile(id, path, null).catch(() => false)}
-            className="shrink-0 border-b border-dashed border-[rgba(150,205,255,.25)] fs-10 text-[rgba(160,190,225,.55)]"
+            className="shrink-0 border-b border-dashed border-line/25 fs-10 text-ink-900/55"
           >
             open in {ide.ideName} ↗
           </button>
         )}
       </div>
       {failed && call.result?.text && (
-        <div className="border-t border-dashed border-[rgba(150,205,255,.16)] px-2.5 py-1.5 font-mono fs-10.5 whitespace-pre-wrap text-text-bright">
-          <span className="text-text-muted">error · </span>
+        <div className="border-t border-dashed border-line/16 px-2.5 py-1.5 font-mono fs-10.5 whitespace-pre-wrap text-ink-100">
+          <span className="text-ink-900/70">error · </span>
           {call.result.text}
         </div>
       )}
-      <div className={['border-t border-[rgba(150,205,255,.08)] bg-[rgba(10,15,26,.9)] py-1', failed ? 'opacity-72' : ''].join(' ')}>
+      <div className={['border-t border-line/8 bg-panel/90 py-1', failed ? 'opacity-72' : ''].join(' ')}>
         {change ? (
           <ChangeView change={change} isError={failed} />
         ) : (
-          <pre className="overflow-x-auto whitespace-pre-wrap px-2.5 font-mono fs-10.5 text-text-muted">
+          <pre className="overflow-x-auto whitespace-pre-wrap px-2.5 font-mono fs-10.5 text-ink-900/70">
             {JSON.stringify(call.call.toolInput, null, 2)}
           </pre>
         )}
@@ -257,7 +257,7 @@ function Tag({ dashed = false, children }: { dashed?: boolean; children: string 
   return (
     <span
       className={[
-        'shrink-0 rounded-[4px] border border-[rgba(150,205,255,.3)] px-1.5 py-px fs-9.5 tracking-[.12em] text-[rgba(200,220,245,.75)]',
+        'shrink-0 rounded-[4px] border border-line/30 px-1.5 py-px fs-9.5 tracking-[.12em] text-ink-500/75',
         dashed ? 'border-dashed' : '',
       ].join(' ')}
     >

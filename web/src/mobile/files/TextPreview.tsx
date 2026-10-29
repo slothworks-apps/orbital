@@ -1,3 +1,4 @@
+import { swatch } from '../../lib/palette'
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { copyToClipboard } from '../../lib/clipboard'
 import { formatBytes } from '../../lib/format'
@@ -31,7 +32,7 @@ type Mode = 'rendered' | 'source'
 type Place = { to: 'row'; line: number; third: boolean } | { to: 'block'; line: number }
 
 // Canvas 8e, the target line: wash, inset rail and number, as the desktop draws them.
-const TARGET_RAIL = 'oklch(85% .12 205)'
+const TARGET_RAIL = swatch('accent')
 const TARGET_NUMBER = 'oklch(88% .1 205)'
 
 /** The first source line on screen in Rendered: the last block whose top has reached the top edge. */
@@ -173,7 +174,7 @@ export function TextPreview({
               key={i}
               data-line={n}
               className="flex font-mono fs-12 leading-[1.75]"
-              style={hit ? { background: 'rgba(150,205,255,.07)' } : undefined}
+              style={hit ? { background: swatch('line', 0.07) } : undefined}
             >
               {/* The number is drawn by ::before, so a selection copies the text without it.
                   With Wrap off it is pinned, and the code slides under it behind a hairline (10d·e). */}
@@ -184,17 +185,17 @@ export function TextPreview({
                   wrap ? '' : 'sticky left-0 z-[1]',
                 ].join(' ')}
                 style={{
-                  color: hit ? TARGET_NUMBER : 'rgba(160,190,225,.35)',
-                  background: hit ? '#0d131c' : '#03050b',
+                  color: hit ? TARGET_NUMBER : swatch('ink-900', 0.35),
+                  background: hit ? swatch('panel') : swatch('space'),
                   boxShadow:
-                    [hit ? `inset 2px 0 0 ${TARGET_RAIL}` : '', wrap ? '' : 'inset -1px 0 0 rgba(150,205,255,.08)']
+                    [hit ? `inset 2px 0 0 ${TARGET_RAIL}` : '', wrap ? '' : 'inset -1px 0 0 color-mix(in oklab, var(--color-line) 8%, transparent)']
                       .filter(Boolean)
                       .join(', ') || undefined,
                 }}
               />
               <span
                 className={[
-                  'min-w-0 pr-4 text-[rgba(214,230,248,.9)] [font-variant-ligatures:none]',
+                  'min-w-0 pr-4 text-ink-400/90 [font-variant-ligatures:none]',
                   wrap ? 'flex-1 whitespace-pre-wrap [overflow-wrap:anywhere]' : 'flex-none whitespace-pre',
                 ].join(' ')}
               >
@@ -247,26 +248,26 @@ export function TextPreview({
   }
 
   return (
-    <main className="relative flex h-full min-h-0 flex-col text-[#e8eef8]">
+    <main className="relative flex h-full min-h-0 flex-col text-ink-100">
       {/* Canvas 10d, third phone: the header, then the read-only chip under it. */}
-      <header className="shrink-0 border-b border-[rgba(150,205,255,.1)] bg-[rgba(8,12,22,.9)] px-1.5 pb-2">
+      <header className="shrink-0 border-b border-line/10 bg-space-deep/90 px-1.5 pb-2">
         <div className="flex h-13 items-center gap-1">
           <button
             type="button"
             aria-label="Back"
             onClick={onBack}
-            className="grid h-11 w-11 shrink-0 place-items-center fs-28 leading-none text-[rgba(220,235,255,.85)]"
+            className="grid h-11 w-11 shrink-0 place-items-center fs-28 leading-none text-ink-200/85"
           >
             ‹
           </button>
           <div className="min-w-0 flex-1">
             <div className="truncate fs-16 font-bold">{basename(path)}</div>
-            {sub && <div className="mt-0.5 truncate font-mono fs-10.5 text-[rgba(160,190,225,.65)]">{sub}</div>}
+            {sub && <div className="mt-0.5 truncate font-mono fs-10.5 text-ink-900/65">{sub}</div>}
           </div>
           {isMarkdown && lines && (
             // 10d·e, the switch: a 76×28 pill whose two segments are each 38×44 to the finger.
             <div role="tablist" className="relative mr-1 flex flex-none">
-              <span aria-hidden className="pointer-events-none absolute inset-x-0 top-2 h-7 rounded-lg border border-[rgba(150,205,255,.14)]" />
+              <span aria-hidden className="pointer-events-none absolute inset-x-0 top-2 h-7 rounded-lg border border-line/14" />
               {(
                 [
                   ['rendered', 'Rendered', 'Aa', 'font-sans fs-12 font-bold tracking-[-.02em]'],
@@ -288,8 +289,8 @@ export function TextPreview({
                       'grid h-7 w-[38px] place-items-center rounded-lg',
                       type,
                       mode === value
-                        ? 'bg-[rgba(150,205,255,.14)] text-[#e8eef8] shadow-[inset_0_0_0_1px_rgba(150,205,255,.3)]'
-                        : 'text-[rgba(160,190,225,.7)]',
+                        ? 'bg-line/14 text-ink-100 shadow-[inset_0_0_0_1px_color-mix(in_oklab,_var(--color-line)_30%,_transparent)]'
+                        : 'text-ink-900/70',
                     ].join(' ')}
                   >
                     {glyph}
@@ -301,7 +302,7 @@ export function TextPreview({
         </div>
         {shown && (
           <div className="pl-2.5">
-            <span className="rounded-[4px] border border-[rgba(150,205,255,.2)] px-[7px] py-[3px] font-mono fs-9 tracking-[0.14em] text-[rgba(160,190,225,.75)]">
+            <span className="rounded-[4px] border border-line/20 px-[7px] py-[3px] font-mono fs-9 tracking-[0.14em] text-ink-900/75">
               READ-ONLY PREVIEW · {asOfLabel(shown.readAt, Date.now()).toUpperCase()}
             </span>
           </div>
@@ -310,19 +311,19 @@ export function TextPreview({
       <div
         ref={scroller}
         data-selectable
-        className="relative min-h-0 flex-1 overflow-auto overscroll-contain bg-[rgba(2,4,9,.6)] [scrollbar-color:rgba(150,205,255,.22)_transparent] [scrollbar-width:thin]"
+        className="relative min-h-0 flex-1 overflow-auto overscroll-contain bg-space/60 [scrollbar-color:color-mix(in oklab, var(--color-line) 22%, transparent)_transparent] [scrollbar-width:thin]"
       >
         {body}
       </div>
-      <footer className="flex shrink-0 flex-col gap-2 border-t border-[rgba(150,205,255,.1)] bg-[rgba(6,10,20,.94)] px-4 pb-1.5 pt-2.5">
-        <div className="fs-12 leading-[1.45] text-[rgba(160,190,225,.65)] [text-wrap:pretty]">
+      <footer className="flex shrink-0 flex-col gap-2 border-t border-line/10 bg-shade/94 px-4 pb-1.5 pt-2.5">
+        <div className="fs-12 leading-[1.45] text-ink-900/65 [text-wrap:pretty]">
           Text files up to {formatBytes(PHONE_TEXT_PREVIEW_MAX_BYTES)} preview here. Editing happens on the Mac.
         </div>
         <div className="flex gap-2">
           <button
             type="button"
             onClick={() => void copyToClipboard(path)}
-            className="h-13 flex-1 rounded-[14px] border border-[rgba(150,205,255,.22)] bg-transparent fs-14 font-semibold text-[#e8eef8]"
+            className="h-13 flex-1 rounded-[14px] border border-line/22 bg-transparent fs-14 font-semibold text-ink-100"
           >
             Copy path
           </button>
@@ -332,7 +333,7 @@ export function TextPreview({
               type="button"
               aria-pressed={wrap}
               onClick={() => setWrap((w) => !w)}
-              className="h-13 flex-1 rounded-[14px] border border-[rgba(150,205,255,.22)] bg-transparent fs-14 font-semibold text-[#e8eef8]"
+              className="h-13 flex-1 rounded-[14px] border border-line/22 bg-transparent fs-14 font-semibold text-ink-100"
             >
               Wrap · {wrap ? 'on' : 'off'}
             </button>

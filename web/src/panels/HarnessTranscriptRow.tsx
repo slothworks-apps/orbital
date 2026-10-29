@@ -13,7 +13,7 @@ export function HarnessTranscriptRow({ message }: { message: ChatMessage }) {
     <div
       data-harness-row
       title={line}
-      className="flex items-center gap-2 rounded-[7px] border border-dashed border-[rgba(150,205,255,.18)] px-2.5 py-1.5 font-mono fs-10.5 text-[rgba(160,190,225,.75)]"
+      className="flex items-center gap-2 rounded-[7px] border border-dashed border-line/18 px-2.5 py-1.5 font-mono fs-10.5 text-ink-900/75"
     >
       <span
         aria-hidden

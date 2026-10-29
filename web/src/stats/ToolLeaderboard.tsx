@@ -78,7 +78,7 @@ export function ToolLeaderboard({
       </div>
 
       <div
-        className={`mt-2.5 grid ${COLUMNS} items-center gap-x-[14px] border-b border-[rgba(150,205,255,.08)] pb-[7px] font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.45)]`}
+        className={`mt-2.5 grid ${COLUMNS} items-center gap-x-[14px] border-b border-line/8 pb-[7px] font-mono fs-9.5 tracking-[0.14em] text-ink-900/45`}
       >
         <span>TOOL</span>
         <span>{tab === 'slowest' ? 'SHARE OF TOOL TIME' : 'SHARE OF RESULT TOKENS'}</span>
@@ -88,7 +88,7 @@ export function ToolLeaderboard({
       </div>
 
       {bars.length === 0 ? (
-        <div className="pt-[9px] font-mono fs-11.5 text-[rgba(160,190,225,.6)]">
+        <div className="pt-[9px] font-mono fs-11.5 text-ink-900/60">
           no tool calls in this window
         </div>
       ) : (
@@ -97,7 +97,7 @@ export function ToolLeaderboard({
           // stays reachable by scrolling, and the row peeking under the fade
           // is what says so.
           style={{ maxHeight: LEADERBOARD_VISIBLE_ROWS * LEADERBOARD_ROW_PITCH }}
-          className={`grid ${COLUMNS} items-center gap-x-[14px] gap-y-[9px] pt-[9px] font-mono fs-11.5 text-text-bright`}
+          className={`grid ${COLUMNS} items-center gap-x-[14px] gap-y-[9px] pt-[9px] font-mono fs-11.5 text-ink-100`}
         >
           {bars.map((bar) => (
             <Row key={`${tab}-${bar.row.tool}`} bar={bar} tab={tab} />
@@ -107,7 +107,7 @@ export function ToolLeaderboard({
 
       {showWaits && tab === 'slowest' && leaderboard.human.length > 0 && (
         <div
-          className={`mt-[9px] grid ${COLUMNS} items-center gap-x-[14px] gap-y-[5px] border-t border-dashed border-[rgba(160,190,225,.2)] pt-2 font-mono fs-11.5 text-[rgba(200,220,245,.7)]`}
+          className={`mt-[9px] grid ${COLUMNS} items-center gap-x-[14px] gap-y-[5px] border-t border-dashed border-ink-900/20 pt-2 font-mono fs-11.5 text-ink-500/70`}
         >
           {leaderboard.human.map((row) => (
             <HumanRow
@@ -150,7 +150,7 @@ function HumanRow({ row, partial }: { row: StatsHumanRow; partial: boolean }) {
         <YouChip />
         <span className="truncate">{label.name}</span>
       </span>
-      <span className="truncate fs-10 text-[rgba(160,190,225,.5)]">{note}</span>
+      <span className="truncate fs-10 text-ink-900/50">{note}</span>
       <span className="text-right">{formatTokens(row.calls)}</span>
       <span className="text-right">{row.p50Ms === null ? '—' : formatStatsDuration(row.p50Ms)}</span>
       <span className="text-right">{formatStatsDuration(row.ms)}</span>
@@ -164,7 +164,7 @@ function Row({ bar, tab }: { bar: LeaderboardBar; tab: Tab }) {
     <>
       <span className="flex min-w-0 items-center gap-[7px]">
         {row.isMcp ? (
-          <span className="rounded-[4px] border border-[rgba(255,187,123,.45)] px-[5px] py-px fs-8.5 tracking-[0.1em] text-[#ffbb7b]">
+          <span className="rounded-[4px] border border-warning/45 px-[5px] py-px fs-8.5 tracking-[0.1em] text-warning">
             MCP
           </span>
         ) : (
@@ -183,11 +183,11 @@ function Row({ bar, tab }: { bar: LeaderboardBar; tab: Tab }) {
           />
         </span>
         {/* The bar ranks, this says how much — the heading names this number. */}
-        <span className="w-[34px] shrink-0 text-right fs-10 text-[rgba(160,190,225,.6)]">
+        <span className="w-[34px] shrink-0 text-right fs-10 text-ink-900/60">
           {formatPercent(share)}
         </span>
       </span>
-      <span className="text-right text-[rgba(200,225,255,.75)]">{formatTokens(row.calls)}</span>
+      <span className="text-right text-ink-300/75">{formatTokens(row.calls)}</span>
       <span className="text-right">{row.p50Ms === null ? '—' : formatStatsDuration(row.p50Ms)}</span>
       <span className="text-right">
         {tab === 'slowest'

@@ -197,11 +197,11 @@ function useJoin(remote: RemoteStatus) {
 type Join = ReturnType<typeof useJoin>
 
 /** The cards of canvas 50d B–D and the rejected request. */
-const CARD = 'flex flex-col gap-2.5 rounded-[12px] border border-[rgba(150,205,255,.16)] bg-[rgba(6,10,20,.6)] p-4'
-const CARD_TITLE = 'fs-14 font-semibold text-text-bright'
-const CARD_BODY = 'fs-12.5 leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]'
+const CARD = 'flex flex-col gap-2.5 rounded-[12px] border border-line/16 bg-shade/60 p-4'
+const CARD_TITLE = 'fs-14 font-semibold text-ink-100'
+const CARD_BODY = 'fs-12.5 leading-[1.5] text-ink-900/72 [text-wrap:pretty]'
 /** A relay's host inside a card's sentence (canvas 50d B). */
-const HOST = 'font-mono fs-11.5 text-text-bright'
+const HOST = 'font-mono fs-11.5 text-ink-100'
 
 /**
  * The join box of ADD A DEVICE: the field and Join while nothing is under
@@ -298,7 +298,7 @@ export function JoinArea({
       <>
         <span className={`flex items-center gap-2 ${CARD_TITLE}`}>
           {/* The offline member's hollow ring (canvas 50d C). */}
-          <span aria-hidden className="block h-[7px] w-[7px] box-border rounded-full border-[1.3px] border-solid border-[rgba(200,215,235,.6)]" />
+          <span aria-hidden className="block h-[7px] w-[7px] box-border rounded-full border-[1.3px] border-solid border-ink-600/60" />
           {outcome.name} is offline
         </span>
         <span className={CARD_BODY}>
@@ -336,7 +336,7 @@ function JoinField({ join }: { join: Join }) {
   const hint = pasteCodeHint(join.paste)
   return (
     <div className="flex flex-col gap-[7px]">
-      <span className="fs-13 font-semibold text-text-bright">Have another device's code?</span>
+      <span className="fs-13 font-semibold text-ink-100">Have another device's code?</span>
       <div className="flex gap-1.5">
         <Input
           aria-label="Another device's code"
@@ -356,9 +356,9 @@ function JoinField({ join }: { join: Join }) {
         </Button>
       </div>
       {/* The quiet line of canvas 50d A. */}
-      {line && <span className="font-mono fs-11 text-[rgba(160,190,225,.78)]">{line}</span>}
+      {line && <span className="font-mono fs-11 text-ink-900/78">{line}</span>}
       {/* Canvas 50a: whose code this is, once the field reads as one. */}
-      {hint && <span className="font-mono fs-10 leading-[1.6] text-[rgba(160,190,225,.55)]">{hint}</span>}
+      {hint && <span className="font-mono fs-10 leading-[1.6] text-ink-900/55">{hint}</span>}
     </div>
   )
 }
@@ -384,19 +384,19 @@ function JoiningCard({
   const kind = known?.kind ?? joining.kind ?? 'desktop'
   const { line } = managerWords(joining.manager, joining.name)
   return (
-    <div className="flex flex-col items-center gap-3.5 rounded-[12px] border border-[rgba(150,205,255,.2)] bg-[rgba(6,10,20,.6)] px-4 pb-4 pt-5 text-center">
-      <span className="font-mono fs-9.5 tracking-[0.2em] text-[rgba(160,190,225,.55)]">JOINING</span>
-      <span className="fs-16 font-bold text-text-bright">
+    <div className="flex flex-col items-center gap-3.5 rounded-[12px] border border-line/20 bg-shade/60 px-4 pb-4 pt-5 text-center">
+      <span className="font-mono fs-9.5 tracking-[0.2em] text-ink-900/55">JOINING</span>
+      <span className="fs-16 font-bold text-ink-100">
         Type {joining.code} on {joining.name}
       </span>
       <FingerprintBoxes size="sm" value={joining.code.replace('-', '')} />
-      <span className="flex items-center gap-2 rounded-lg border border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.6)] px-2.5 py-1.5 font-mono fs-11 text-text-bright">
+      <span className="flex items-center gap-2 rounded-lg border border-line/14 bg-shade/60 px-2.5 py-1.5 font-mono fs-11 text-ink-100">
         <KindGlyph kind={kind} />
         {joining.name}
-        <span className="text-[rgba(160,190,225,.55)]">· {kindOs(kind, known?.os ?? '')}</span>
+        <span className="text-ink-900/55">· {kindOs(kind, known?.os ?? '')}</span>
       </span>
       {line && <span className={`max-w-[300px] ${CARD_BODY}`}>{line}</span>}
-      <span className="font-mono fs-10.5 text-[rgba(160,190,225,.6)]">waiting for {joining.name}</span>
+      <span className="font-mono fs-10.5 text-ink-900/60">waiting for {joining.name}</span>
       <Button variant="outline" size="member" onClick={() => void onCancel()}>
         Cancel
       </Button>
@@ -437,11 +437,11 @@ function WaitingCard({ pending, remote }: { pending: NonNullable<RemoteStatus['g
   }
 
   return (
-    <div className="flex flex-col items-center gap-3 rounded-[12px] border border-[rgba(150,205,255,.2)] bg-[rgba(6,10,20,.6)] px-4 pb-4 pt-5 text-center">
-      <span className="font-mono fs-9.5 tracking-[0.2em] text-[rgba(160,190,225,.55)]">JOINING</span>
-      <span className="fs-16 font-bold text-text-bright">Waiting for {name}…</span>
+    <div className="flex flex-col items-center gap-3 rounded-[12px] border border-line/20 bg-shade/60 px-4 pb-4 pt-5 text-center">
+      <span className="font-mono fs-9.5 tracking-[0.2em] text-ink-900/55">JOINING</span>
+      <span className="fs-16 font-bold text-ink-100">Waiting for {name}…</span>
       <span className={CARD_BODY}>Paired. This device is in once {name} sends it the group.</span>
-      <span className="font-mono fs-10.5 leading-[1.6] text-[rgba(160,190,225,.6)]">waiting for {name}</span>
+      <span className="font-mono fs-10.5 leading-[1.6] text-ink-900/60">waiting for {name}</span>
       <Button variant="outline" size="member" disabled={busy} onClick={() => void cancel()}>
         Cancel
       </Button>

@@ -22,19 +22,19 @@
 
 /** Canvas 9d COLOUR: the pending card's border, and the accent every row state is built from. */
 export const CARD_PENDING =
-  'border-accent/28 bg-[linear-gradient(180deg,rgba(10,16,28,.72),rgba(5,9,18,.82))]'
+  'border-accent/28 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_72%,_transparent),color-mix(in_oklab,_var(--color-shade)_82%,_transparent))]'
 /** Canvas 9d COLOUR: "answered card border — rgba(150,205,255,.12)"; 9b D's quieter fill. */
 export const CARD_ANSWERED =
-  'border-[rgba(150,205,255,.12)] bg-[linear-gradient(180deg,rgba(10,16,28,.55),rgba(5,9,18,.66))]'
+  'border-line/12 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_55%,_transparent),color-mix(in_oklab,_var(--color-shade)_66%,_transparent))]'
 /** Canvas 9b C: the watched-terminal card, quieter again. */
 export const CARD_READONLY =
-  'border-[rgba(150,205,255,.12)] bg-[linear-gradient(180deg,rgba(10,16,28,.5),rgba(5,9,18,.62))]'
+  'border-line/12 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_50%,_transparent),color-mix(in_oklab,_var(--color-shade)_62%,_transparent))]'
 
 /** Canvas 9b: chip is mono 10 at .14em tracking in a 3px/8px, r4 box. */
 export const CHIP_BASE =
   'shrink-0 rounded-[4px] border px-2 py-[3px] font-mono fs-10 tracking-[0.14em]'
 export const CHIP_PENDING = 'border-accent/35 bg-accent/12 text-[oklch(90%_.08_205)]'
-export const CHIP_QUIET = 'border-[rgba(150,205,255,.18)] text-[rgba(190,215,240,.7)]'
+export const CHIP_QUIET = 'border-line/18 text-ink-700/70'
 
 /** Canvas 9b: the status slot opposite the chip — mono 9.5 at .12em. */
 export const STATUS_BASE = 'shrink-0 font-mono fs-9.5 tracking-[0.12em]'
@@ -44,13 +44,13 @@ export const ROW_BASE =
   'flex w-full items-start gap-[9px] rounded-[9px] border px-[11px] py-[9px] text-left transition-[border-color,background-color,box-shadow] duration-[160ms] ease-[ease]'
 /** Canvas 9d COLOUR: "row rest — rgba(150,205,255,.14), no fill"; hover adds .34 + .06. */
 export const ROW_REST =
-  'border-[rgba(150,205,255,.14)] hover:border-[rgba(150,205,255,.34)] hover:bg-[rgba(150,205,255,.06)]'
+  'border-line/14 hover:border-line/34 hover:bg-line/6'
 /** Canvas 9d COLOUR: "row focus — accent/.55 + ring accent/.18". */
 export const ROW_FOCUS = 'border-accent/55 bg-accent/8 shadow-[0_0_0_2px_oklch(85%_.12_205_/_.18)]'
 /** Canvas 9d COLOUR: "row chosen — accent/.35 + accent/.12". */
 export const ROW_CHOSEN = 'border-accent/35 bg-accent/12'
 /** Canvas 9d COLOUR: "row locked — .1 border · opacity .55". Applied to the list, per 9b C. */
-export const ROW_LOCKED = 'border-[rgba(150,205,255,.1)]'
+export const ROW_LOCKED = 'border-line/10'
 /** Canvas 9b B: a ticked multiSelect row, quieter than a single-select's chosen row. */
 export const ROW_TICKED = 'border-accent/30 bg-accent/10'
 /**
@@ -78,7 +78,7 @@ export const GUTTER = 'w-3 shrink-0 text-center font-mono fs-10 leading-[1.5]'
 export const LABEL = 'fs-13 font-semibold leading-[1.3] [overflow-wrap:anywhere]'
 export const DESCRIPTION = 'fs-11.5 leading-[1.4] [overflow-wrap:anywhere]'
 /** Canvas 9d COLOUR: "label / description ink — #e8eef8 / rgba(160,190,225,.62)". */
-export const DESCRIPTION_INK = 'text-[rgba(160,190,225,.62)]'
+export const DESCRIPTION_INK = 'text-ink-900/62'
 
 /**
  * The card shell every decision card wears. `shrink-0` is load-bearing:
@@ -114,46 +114,46 @@ export const HEADLINE = 'fs-13.5 font-semibold leading-[1.45] text-pretty'
  * `CARD_SHADOW`, because two `box-shadow` utilities on one element resolve by
  * stylesheet order rather than by intent (web/CLAUDE.md).
  */
-export const CARD_GUARDED = 'border-[rgba(232,238,248,.42)]'
+export const CARD_GUARDED = 'border-ink-100/42'
 export const CARD_GUARDED_SHADOW =
-  'shadow-[0_0_0_3px_rgba(232,238,248,.05),0_0_0_1px_rgba(0,0,0,.2),0_10px_30px_rgba(0,0,0,.35)]'
+  'shadow-[0_0_0_3px_color-mix(in_oklab,_var(--color-ink-100)_5%,_transparent),0_0_0_1px_rgba(0,0,0,.2),0_10px_30px_rgba(0,0,0,.35)]'
 
 /** Canvas 20b A / 20a: the bridge's subtitle under the headline — 12 / 1.45. */
-export const SUBTITLE = 'fs-12 leading-[1.45] text-pretty text-[rgba(160,190,225,.7)]'
+export const SUBTITLE = 'fs-12 leading-[1.45] text-pretty text-ink-900/70'
 
 /** Canvas 20a: the detail `<pre>` inside a card's input box — mono 10.5 / 1.6. */
 export const MONO_BLOCK =
-  'm-0 overflow-auto whitespace-pre-wrap font-mono fs-10.5 leading-[1.6] text-[rgba(200,220,245,.85)]'
+  'm-0 overflow-auto whitespace-pre-wrap font-mono fs-10.5 leading-[1.6] text-ink-500/85'
 
 /** Canvas 20b A/B/C: the summary box — r7, hairline, near-black fill. */
 export const MONO_FRAME =
-  'overflow-hidden rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(3,6,12,.7)]'
+  'overflow-hidden rounded-[7px] border border-line/12 bg-space/70'
 /** Canvas 20b H: the same box on a card nobody can answer here — quieter both ways. */
 export const MONO_FRAME_QUIET =
-  'overflow-hidden rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(3,6,12,.5)]'
+  'overflow-hidden rounded-[7px] border border-line/10 bg-space/50'
 /** Canvas 20b D: the plan reads as prose, so its box is the larger radius. */
 export const PLAN_FRAME =
-  'overflow-hidden rounded-[8px] border border-[rgba(150,205,255,.12)] bg-[rgba(3,6,12,.7)]'
+  'overflow-hidden rounded-[8px] border border-line/12 bg-space/70'
 /** Canvas 20a: the hairline above an opened detail, reused as the block's label strip. */
 export const MONO_EYEBROW =
-  'border-b border-[rgba(150,205,255,.08)] px-2.5 py-[7px] font-mono fs-9.5 tracking-[0.12em] text-[rgba(160,190,225,.55)]'
+  'border-b border-line/8 px-2.5 py-[7px] font-mono fs-9.5 tracking-[0.12em] text-ink-900/55'
 
 /** Canvas 20b D: the line under a block that counts what it holds. */
-export const META_LINE = 'font-mono fs-10 text-[rgba(160,190,225,.5)]'
+export const META_LINE = 'font-mono fs-10 text-ink-900/50'
 
 /**
  * Canvas 20b / 20a: the dashed note a card ends on when the answer has to
  * happen somewhere else — a watched terminal (20b H), another window (20b G).
  */
 export const NOTE_DASHED =
-  'flex items-center gap-2 rounded-[8px] border border-dashed border-[rgba(150,205,255,.18)] bg-[rgba(3,6,12,.5)] px-2.5 py-2 font-mono fs-10'
+  'flex items-center gap-2 rounded-[8px] border border-dashed border-line/18 bg-space/50 px-2.5 py-2 font-mono fs-10'
 
 /**
  * Canvas 20b F: the settled card's verdict row. An approval keeps the accent
  * (the control did something) and so reuses `ROW_CHOSEN`; a refusal stays
  * neutral — 20c's rule holds across the whole feature, no hue anywhere.
  */
-export const ROW_VERDICT_DENIED = 'border-[rgba(150,205,255,.22)]'
+export const ROW_VERDICT_DENIED = 'border-line/22'
 
 /**
  * Canvas 20b: "6px 14px · r8 · 12px 600" — the same button metrics 9d gives
@@ -163,14 +163,14 @@ export const ROW_VERDICT_DENIED = 'border-[rgba(150,205,255,.22)]'
 export const BUTTON_BASE =
   'shrink-0 cursor-pointer rounded-[8px] border px-3.5 py-1.5 fs-12 font-semibold transition-[border-color,background-color] duration-[160ms] ease-[ease] focus:outline-none'
 export const BUTTON_ACCENT =
-  'border-accent/55 bg-accent/16 text-[#e8eef8] shadow-[0_0_0_2px_oklch(85%_.12_205_/_.18)] hover:border-accent/80 hover:bg-accent/26'
+  'border-accent/55 bg-accent/16 text-ink-100 shadow-[0_0_0_2px_oklch(85%_.12_205_/_.18)] hover:border-accent/80 hover:bg-accent/26'
 /**
  * Canvas 9d / 9e: the question card's accent button (its review Send) —
  * border .5 and no resting ring, where 20b's `BUTTON_ACCENT` has .55 and one.
  */
-export const BUTTON_CONFIRM = 'border-accent/50 bg-accent/16 text-[#e8eef8] hover:border-accent/80 hover:bg-accent/26'
+export const BUTTON_CONFIRM = 'border-accent/50 bg-accent/16 text-ink-100 hover:border-accent/80 hover:bg-accent/26'
 export const BUTTON_QUIET =
-  'border-[rgba(150,205,255,.22)] text-[rgba(220,232,248,.9)] hover:border-[rgba(150,205,255,.4)] hover:bg-[rgba(150,205,255,.06)]'
+  'border-line/22 text-ink-400/90 hover:border-line/40 hover:bg-line/6'
 /**
  * A guarded approve that has been armed and is waiting for the second act
  * (canvas `Feature - Transcript blocks` 20b C, its `guardedApprove` tweak:
@@ -178,4 +178,4 @@ export const BUTTON_QUIET =
  * changed label is not the only thing saying the button changed state).
  */
 export const BUTTON_ACCENT_ARMED =
-  'border-accent/80 bg-accent/30 text-[#e8eef8] shadow-[0_0_0_2px_oklch(85%_.12_205_/_.18)]'
+  'border-accent/80 bg-accent/30 text-ink-100 shadow-[0_0_0_2px_oklch(85%_.12_205_/_.18)]'

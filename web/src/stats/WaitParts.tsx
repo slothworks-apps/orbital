@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { WAIT_HATCH, WAIT_OUTLINE } from './constants'
@@ -71,8 +72,8 @@ export function WaitSwitch({ on, onChange }: { on: boolean; onChange: (next: boo
       className={[
         'flex cursor-pointer items-center gap-2.5 rounded-lg border py-1.5 pl-3 pr-2.5 font-mono fs-11.5',
         on
-          ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
-          : 'border-[rgba(150,205,255,.14)] text-[rgba(220,235,255,.8)]',
+          ? 'border-line/30 bg-line/14 text-ink-100'
+          : 'border-line/14 text-ink-200/80',
       ].join(' ')}
     >
       Show time spent waiting on you
@@ -81,16 +82,16 @@ export function WaitSwitch({ on, onChange }: { on: boolean; onChange: (next: boo
         className="relative box-border block h-4 w-7 rounded-full border"
         style={
           on
-            ? { borderColor: 'oklch(85% .12 205 / .6)', background: 'oklch(85% .12 205 / .3)' }
-            : { borderColor: 'rgba(150,205,255,.25)' }
+            ? { borderColor: swatch('accent', 0.6), background: swatch('accent', 0.3) }
+            : { borderColor: swatch('line', 0.25) }
         }
       >
         <span
           className="absolute top-0.5 block h-2.5 w-2.5 rounded-full"
           style={
             on
-              ? { right: 2, background: 'oklch(85% .12 205)' }
-              : { left: 2, background: 'rgba(160,190,225,.6)' }
+              ? { right: 2, background: swatch('accent') }
+              : { left: 2, background: swatch('ink-900', 0.6) }
           }
         />
       </span>
@@ -125,13 +126,13 @@ export function WaitTile({
       aria-label="Waiting on you"
       style={{ flex: `${dashboard ? 162 : 138} 1 0` }}
       className={[
-        'box-border min-w-0 rounded-[14px] border border-dashed border-[rgba(160,190,225,.28)] bg-[rgba(4,8,16,.35)] py-3.5',
+        'box-border min-w-0 rounded-[14px] border border-dashed border-ink-900/28 bg-shade/35 py-3.5',
         dashboard ? 'px-4' : 'px-3.5',
       ].join(' ')}
     >
       <div
         className={[
-          'flex items-center font-mono text-[rgba(160,190,225,.6)]',
+          'flex items-center font-mono text-ink-900/60',
           dashboard
             ? 'gap-[7px] fs-10 tracking-[0.18em]'
             : 'gap-1.5 whitespace-nowrap fs-9.5 tracking-[0.04em]',
@@ -143,19 +144,19 @@ export function WaitTile({
       {timeShown ? (
         <>
           <div
-            className={`mt-2 font-mono leading-none tracking-[-0.02em] text-[rgba(200,220,245,.8)] ${
+            className={`mt-2 font-mono leading-none tracking-[-0.02em] text-ink-500/80 ${
               dashboard ? 'fs-24' : 'fs-22'
             }`}
           >
             {formatStatsDuration(ms)}
           </div>
-          <div className="mt-1.5 font-mono fs-10 leading-[1.35] text-[rgba(160,190,225,.7)]">
+          <div className="mt-1.5 font-mono fs-10 leading-[1.35] text-ink-900/70">
             <CountLine line={countLine} starred={footnote !== undefined} />
           </div>
         </>
       ) : (
         <div
-          className={`font-mono leading-[1.5] text-[rgba(200,220,245,.85)] ${
+          className={`font-mono leading-[1.5] text-ink-500/85 ${
             dashboard ? 'mt-3 fs-13' : 'mt-2.5 fs-12'
           }`}
         >
@@ -163,7 +164,7 @@ export function WaitTile({
         </div>
       )}
       {footnote !== undefined && (
-        <div className="mt-[3px] font-mono fs-9 text-[rgba(160,190,225,.45)]">* {footnote}</div>
+        <div className="mt-[3px] font-mono fs-9 text-ink-900/45">* {footnote}</div>
       )}
     </section>
   )
@@ -193,7 +194,7 @@ function CountLine({ line, starred }: { line: string; starred: boolean }) {
 /** The YOU chip of the leaderboard's wait group: dashed and neutral, never a category hue (10e). */
 export function YouChip() {
   return (
-    <span className="rounded-[4px] border border-dashed border-[rgba(160,190,225,.45)] px-[5px] py-px fs-8.5 tracking-[0.1em] text-[rgba(200,220,245,.8)]">
+    <span className="rounded-[4px] border border-dashed border-ink-900/45 px-[5px] py-px fs-8.5 tracking-[0.1em] text-ink-500/80">
       YOU
     </span>
   )
@@ -203,9 +204,9 @@ export function YouChip() {
 export function BreakGlyph() {
   return (
     <span aria-hidden className="flex items-center gap-[3px]">
-      <span className="block h-[9px] w-px rotate-[20deg] bg-[rgba(160,190,225,.6)]" />
-      <span className="block w-2 border-t border-dashed border-[rgba(160,190,225,.6)]" />
-      <span className="block h-[9px] w-px rotate-[20deg] bg-[rgba(160,190,225,.6)]" />
+      <span className="block h-[9px] w-px rotate-[20deg] bg-ink-900/60" />
+      <span className="block w-2 border-t border-dashed border-ink-900/60" />
+      <span className="block h-[9px] w-px rotate-[20deg] bg-ink-900/60" />
     </span>
   )
 }

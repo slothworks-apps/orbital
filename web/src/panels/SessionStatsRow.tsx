@@ -297,21 +297,21 @@ export function SessionStatsRow({
 
   const content = (
     <>
-      <div className="flex items-center gap-2.5 font-mono fs-10.5 text-[#e8eef8]">
+      <div className="flex items-center gap-2.5 font-mono fs-10.5 text-ink-100">
         session stats
         <span className="flex-1" />
         {summary !== null ? (
-          <span className="text-[rgba(200,225,255,.8)] group-hover:text-[rgba(200,225,255,.9)] group-focus-visible:text-[rgba(200,225,255,.9)]">
+          <span className="text-ink-300/80 group-hover:text-ink-300/90 group-focus-visible:text-ink-300/90">
             {summary}
           </span>
         ) : (
-          <span className="text-[rgba(200,225,255,.8)]">{NO_VALUE}</span>
+          <span className="text-ink-300/80">{NO_VALUE}</span>
         )}
         {/* No chevron on a row that does not open anything. */}
         {stats !== null && (
           <span
             aria-hidden
-            className="text-[rgba(160,190,225,.6)] group-hover:text-[#8fd8ff] group-focus-visible:text-[#8fd8ff]"
+            className="text-ink-900/60 group-hover:text-sky group-focus-visible:text-sky"
           >
             ›
           </span>
@@ -342,7 +342,7 @@ export function SessionStatsRow({
   // the box goes and a hairline takes over the job of separating the strip
   // from the gauge — both bars now run to the header's own padding.
   const shell = `block w-full border-t pt-[13px] text-left ${className ?? ''}`
-  const resting = 'border-[rgba(150,205,255,.1)]'
+  const resting = 'border-line/10'
 
   if (stats === null) {
     return (
@@ -370,8 +370,8 @@ export function SessionStatsRow({
           'group cursor-pointer transition-[border-color] duration-[120ms]',
           shell,
           resting,
-          'hover:border-[rgba(150,205,255,.22)]',
-          'focus-visible:border-[rgba(150,205,255,.22)] focus-visible:outline-none',
+          'hover:border-line/22',
+          'focus-visible:border-line/22 focus-visible:outline-none',
         ].join(' ')}
       >
         {content}

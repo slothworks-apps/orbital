@@ -223,7 +223,7 @@ function ViewerBody({
         if (!pressedWithMenu.current) onClose()
       }}
       style={{ transition: `opacity ${VIEWER_EXIT_MS}ms ease`, opacity: entered ? 1 : 0 }}
-      className="orbital-no-drag fixed inset-0 z-50 bg-[rgba(2,4,9,.82)] backdrop-blur-[6px]"
+      className="orbital-no-drag fixed inset-0 z-50 bg-space/82 backdrop-blur-[6px]"
     >
       <div
         className="absolute inset-x-0 flex items-center justify-center gap-4"
@@ -255,33 +255,33 @@ function ViewerBody({
           className="absolute inset-x-0 flex flex-col items-center gap-2 font-mono tracking-[0.06em]"
           style={{ top: STAGE_TOP_PX + stageHeight + 18 }}
         >
-          <div className="flex items-center gap-2.5 fs-11.5 text-[#e8eef8]">
+          <div className="flex items-center gap-2.5 fs-11.5 text-ink-100">
             {isToolFrame(shown) && current && (
-              <span className="rounded-[3px] border border-[rgba(150,205,255,.2)] px-1.5 py-px fs-10 text-[rgba(200,220,245,.85)]">
+              <span className="rounded-[3px] border border-line/20 px-1.5 py-px fs-10 text-ink-500/85">
                 ⚙ TOOL
               </span>
             )}
             {current ? mediaSourceLabel(current) : (fallbackCaption ?? null)}
-            {current && shown.path && <span className="text-[rgba(150,205,255,.28)]">·</span>}
-            {shown.path && <span className="text-[#dfeeff]">{shown.path}</span>}
+            {current && shown.path && <span className="text-line/28">·</span>}
+            {shown.path && <span className="text-ink-200">{shown.path}</span>}
           </div>
-          <div className="flex items-center gap-3 fs-10.5 text-[rgba(160,190,225,.6)]">
+          <div className="flex items-center gap-3 fs-10.5 text-ink-900/60">
             {current && <Meta item={shown} pages={pages} where={where} />}
             {current && (
               <>
-                <span className="text-[rgba(150,205,255,.28)]">·</span>
+                <span className="text-line/28">·</span>
                 <button
                   type="button"
                   onClick={showInTranscript}
-                  className="rounded-[5px] border border-[rgba(150,205,255,.2)] bg-transparent px-[9px] py-[3px] font-mono fs-10.5 text-[#e8eef8] transition-[border-color] duration-[160ms] ease-[ease] hover:border-[rgba(150,205,255,.45)]"
+                  className="rounded-[5px] border border-line/20 bg-transparent px-[9px] py-[3px] font-mono fs-10.5 text-ink-100 transition-[border-color] duration-[160ms] ease-[ease] hover:border-line/45"
                 >
                   ↩ Show in transcript
                 </button>
-                <span className="text-[rgba(150,205,255,.28)]">·</span>
+                <span className="text-line/28">·</span>
               </>
             )}
             <span>
-              <span className="mr-1.5 rounded border border-[rgba(150,205,255,.2)] px-[7px] py-[3px] text-[rgba(200,220,245,.7)]">
+              <span className="mr-1.5 rounded border border-line/20 px-[7px] py-[3px] text-ink-500/70">
                 esc
               </span>
               to close
@@ -295,7 +295,7 @@ function ViewerBody({
           onClick={(event) => event.stopPropagation()}
           className="absolute inset-x-0 bottom-[30px] flex items-center justify-center gap-4"
         >
-          <span className="w-[150px] text-right font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
+          <span className="w-[150px] text-right font-mono fs-10.5 text-ink-900/60">
             {index + 1} of {order.length}
           </span>
           <Filmstrip sessionId={sessionId!} order={order} current={current} onPick={go} />
@@ -319,12 +319,12 @@ function ViewerBody({
         type="button"
         aria-label="Close"
         onClick={onClose}
-        className="absolute right-7 top-7 grid h-[34px] w-[34px] place-items-center rounded-[9px] border border-[rgba(150,205,255,.2)] bg-[rgba(10,14,24,.7)] fs-16 leading-(--text-base--line-height) text-text-bright transition-colors hover:border-[rgba(150,205,255,.45)]"
+        className="absolute right-7 top-7 grid h-[34px] w-[34px] place-items-center rounded-[9px] border border-line/20 bg-panel/70 fs-16 leading-(--text-base--line-height) text-ink-100 transition-colors hover:border-line/45"
       >
         ×
       </button>
       {shown?.kind === 'pdf' && pages && (
-        <div className="absolute right-7 top-[76px] text-right font-mono fs-10.5 leading-[1.7] text-[rgba(160,190,225,.6)]">
+        <div className="absolute right-7 top-[76px] text-right font-mono fs-10.5 leading-[1.7] text-ink-900/60">
           page {page} of {pages}
           <br />↑ ↓ or scroll for pages
         </div>
@@ -373,8 +373,8 @@ function ArrowButton({
       }}
       style={{ top }}
       className={[
-        'absolute grid h-11 w-11 place-items-center rounded-[10px] border border-[rgba(150,205,255,.2)] bg-[rgba(10,14,24,.7)] fs-20 text-[#e8eef8]',
-        'transition-[border-color] duration-[160ms] ease-[ease] hover:border-[rgba(150,205,255,.45)]',
+        'absolute grid h-11 w-11 place-items-center rounded-[10px] border border-line/20 bg-panel/70 fs-20 text-ink-100',
+        'transition-[border-color] duration-[160ms] ease-[ease] hover:border-line/45',
         side === 'left' ? 'left-7' : 'right-7',
       ].join(' ')}
     >
@@ -431,12 +431,12 @@ function Stage({
     return (
       <div
         onClick={(event) => event.stopPropagation()}
-        className="flex flex-col items-center justify-center gap-2.5 rounded-xl border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.6)] font-mono tracking-[0.1em] shadow-[0_40px_120px_rgba(0,0,0,.7)]"
+        className="flex flex-col items-center justify-center gap-2.5 rounded-xl border border-line/10 bg-shade/60 font-mono tracking-[0.1em] shadow-[0_40px_120px_rgba(0,0,0,.7)]"
         style={{ width: Math.round(w * k), height: Math.round(h * k) }}
       >
         <GoneMark size="dialog" />
         {item.path && (
-          <span className="fs-10.5 tracking-[0.04em] text-[rgba(160,190,225,.55)]">
+          <span className="fs-10.5 tracking-[0.04em] text-ink-900/55">
             {[item.path, named && `named ${named}`, 'not on disk now'].filter(Boolean).join(' · ')}
           </span>
         )}
@@ -475,7 +475,7 @@ function Stage({
         maxWidth: item.w ? Math.min(maxWidth, item.w) : maxWidth,
         maxHeight: item.h ? Math.min(stageHeight, item.h) : stageHeight,
       }}
-      className="block rounded-xl border border-[rgba(150,205,255,.22)] shadow-[0_40px_120px_rgba(0,0,0,.7)]"
+      className="block rounded-xl border border-line/22 shadow-[0_40px_120px_rgba(0,0,0,.7)]"
     />
     {menuAt && (
       // The menu is portalled, but React still bubbles its clicks up this
@@ -578,7 +578,7 @@ function Filmstrip({
     currentRef.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
   }, [current.id])
   return (
-    <div className="flex max-w-[calc(100vw-400px)] gap-1 overflow-x-auto rounded-[9px] border border-[rgba(150,205,255,.12)] bg-[rgba(10,14,24,.7)] p-[5px] [scrollbar-width:none]">
+    <div className="flex max-w-[calc(100vw-400px)] gap-1 overflow-x-auto rounded-[9px] border border-line/12 bg-panel/70 p-[5px] [scrollbar-width:none]">
       {order.map((item) => (
         <FilmFrame
           key={item.id}
@@ -615,15 +615,15 @@ function FilmFrame({
       aria-current={current || undefined}
       onClick={onPick}
       className={[
-        'relative block h-10 w-10 flex-none overflow-hidden rounded-[5px] border bg-[#070b14] p-0',
+        'relative block h-10 w-10 flex-none overflow-hidden rounded-[5px] border bg-shade p-0',
         current
-          ? 'border-[oklch(85%_.12_205_/_.9)] shadow-[0_0_0_2px_oklch(85%_.12_205_/_.2)]'
-          : 'border-[rgba(150,205,255,.14)]',
+          ? 'border-accent/90 shadow-[0_0_0_2px_oklch(85%_.12_205_/_.2)]'
+          : 'border-line/14',
       ].join(' ')}
     >
       {!isGone(item) && !gone && <MediaPicture sessionId={sessionId} item={item} fit="contain" onGone={() => setGone(true)} />}
       {isToolFrame(item) && (
-        <span className="absolute bottom-px left-0.5 font-mono fs-8 text-[rgba(200,220,245,.8)]">⚙</span>
+        <span className="absolute bottom-px left-0.5 font-mono fs-8 text-ink-500/80">⚙</span>
       )}
     </button>
   )

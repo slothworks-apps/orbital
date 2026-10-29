@@ -157,8 +157,8 @@ export function PermissionCard({ sessionId, toolUse, toolResult, offline = false
     mode === 'interactive'
       ? 'text-accent/85'
       : mode === 'settled'
-        ? 'text-[rgba(160,190,225,.45)]'
-        : 'text-[rgba(160,190,225,.5)]'
+        ? 'text-ink-900/45'
+        : 'text-ink-900/50'
 
   const plan = planText(decision.input)
   // An edit you are being asked to approve is shown as the diff it will make,
@@ -210,7 +210,7 @@ export function PermissionCard({ sessionId, toolUse, toolResult, offline = false
               decision instead, which leaves the tool unsaid — so the name
               stays, at the header's quiet mono weight. */}
           {decision.toolName && (
-            <span className="min-w-0 truncate font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+            <span className="min-w-0 truncate font-mono fs-10 tracking-[0.06em] text-ink-900/55">
               {decision.toolName}
             </span>
           )}
@@ -224,7 +224,7 @@ export function PermissionCard({ sessionId, toolUse, toolResult, offline = false
           className={[
             HEADLINE,
             'pt-[9px]',
-            live ? 'text-[#e8eef8]' : 'text-[rgba(232,238,248,.82)]',
+            live ? 'text-ink-100' : 'text-ink-100/82',
           ].join(' ')}
         >
           {decisionHeadline(decision)}
@@ -300,17 +300,17 @@ export function PermissionCard({ sessionId, toolUse, toolResult, offline = false
             <span
               aria-hidden
               className={`shrink-0 fs-11 leading-[1.5] ${
-                approved ? 'text-accent' : 'text-[rgba(200,220,245,.8)]'
+                approved ? 'text-accent' : 'text-ink-500/80'
               }`}
             >
               {approved ? '✓' : '✕'}
             </span>
             <span className="flex min-w-0 flex-col gap-[3px]">
-              <span className={`${LABEL} text-[#e8eef8]`}>
+              <span className={`${LABEL} text-ink-100`}>
                 {verdictLabel(decision.kind, approved)}
               </span>
               {!approved && sentVerdict?.message && (
-                <span className="fs-12 leading-[1.45] text-pretty text-[rgba(200,220,245,.85)]">
+                <span className="fs-12 leading-[1.45] text-pretty text-ink-500/85">
                   {`“${sentVerdict.message}”`}
                 </span>
               )}
@@ -322,9 +322,9 @@ export function PermissionCard({ sessionId, toolUse, toolResult, offline = false
           // The same affordance the question card offers a watched session: it
           // says where the answer has to be typed, not here (canvas 20b H).
           <div
-            className={`mt-[10px] ${NOTE_DASHED} tracking-[0.06em] text-[rgba(160,190,225,.65)]`}
+            className={`mt-[10px] ${NOTE_DASHED} tracking-[0.06em] text-ink-900/65`}
           >
-            <span aria-hidden className="text-[rgba(190,215,240,.75)]">
+            <span aria-hidden className="text-ink-700/75">
               ▸
             </span>
             answer in the terminal
@@ -335,7 +335,7 @@ export function PermissionCard({ sessionId, toolUse, toolResult, offline = false
           // Canvas 20b G: the session ended while parked on this, so the ask
           // is over without an answer this transcript can show. Only the lock
           // is known, which is the wording 20b G gives that case.
-          <div className={`mt-[10px] ${NOTE_DASHED} tracking-[0.04em] text-[rgba(200,220,245,.8)]`}>
+          <div className={`mt-[10px] ${NOTE_DASHED} tracking-[0.04em] text-ink-500/80`}>
             <span aria-hidden>⊘</span>
             Answered in another window
           </div>
@@ -418,9 +418,9 @@ function Verdict({
                 onResolve({ approved: false, ...(reason.trim() ? { message: reason } : {}) })
               }
             }}
-            className="block w-full resize-none border-0 bg-transparent p-0 fs-13 leading-[1.45] text-[#e8eef8] caret-accent focus:outline-none"
+            className="block w-full resize-none border-0 bg-transparent p-0 fs-13 leading-[1.45] text-ink-100 caret-accent focus:outline-none"
           />
-          <div className="flex items-center gap-2 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+          <div className="flex items-center gap-2 font-mono fs-10 tracking-[0.06em] text-ink-900/50">
             ⏎ send · esc back
             <span aria-hidden className="flex-1" />
             <span>
@@ -442,7 +442,7 @@ function Verdict({
           {declineLabel}
         </button>
         {reasonOpen && (
-          <span className="font-mono fs-10 text-[rgba(160,190,225,.5)]">
+          <span className="font-mono fs-10 text-ink-900/50">
             or send it with no reason
           </span>
         )}
@@ -572,7 +572,7 @@ function ApproveButton({
       style={
         progress > 0
           ? {
-              backgroundImage: `linear-gradient(90deg, oklch(85% .12 205 / .34) ${progress * 100}%, transparent ${progress * 100}%)`,
+              backgroundImage: `linear-gradient(90deg, color-mix(in oklab, var(--color-accent) 34%, transparent) ${progress * 100}%, transparent ${progress * 100}%)`,
             }
           : undefined
       }

@@ -115,7 +115,7 @@ function NotificationsTip({ close }: { close: () => void }) {
     // 2c: exactly what was switched on, ticked in the accent.
     return (
       <PinnedNotice label="NOTIFICATIONS · ON" closeLabel="Close" onClose={close}>
-        <div className="flex flex-col gap-1.5 fs-14 font-semibold text-text-bright">
+        <div className="flex flex-col gap-1.5 fs-14 font-semibold text-ink-100">
           {['Needs input', 'Errors'].map((row) => (
             <span key={row} className="flex items-center gap-[9px]">
               <span aria-hidden className="w-3.5 text-accent">
@@ -125,9 +125,9 @@ function NotificationsTip({ close }: { close: () => void }) {
             </span>
           ))}
         </div>
-        <p className="mt-1.5 pr-3.5 pt-1 fs-13 leading-[1.45] text-[rgba(160,190,225,.75)] [text-wrap:pretty]">
+        <p className="mt-1.5 pr-3.5 pt-1 fs-13 leading-[1.45] text-ink-900/75 [text-wrap:pretty]">
           Everything else stays off.{' '}
-          <button type="button" onClick={toSettings} className="text-[rgba(214,226,242,.92)] underline">
+          <button type="button" onClick={toSettings} className="text-ink-400/92 underline">
             Settings
           </button>
         </p>

@@ -36,8 +36,8 @@ import { useTextScaleVersion } from '../../lib/textScale'
 const CARET_PX = 13
 
 const VARIANTS = {
-  list: { fontPx: 11, text: 'fs-11', ink: 'text-[rgba(160,190,225,.7)]', dimInk: 'text-[rgba(160,190,225,.65)]' },
-  header: { fontPx: 10.5, text: 'fs-10.5', ink: 'text-[rgba(160,190,225,.65)]', dimInk: 'text-[rgba(160,190,225,.65)]' },
+  list: { fontPx: 11, text: 'fs-11', ink: 'text-ink-900/70', dimInk: 'text-ink-900/65' },
+  header: { fontPx: 10.5, text: 'fs-10.5', ink: 'text-ink-900/65', dimInk: 'text-ink-900/65' },
 } as const
 
 /**
@@ -108,7 +108,7 @@ export function WhereLine({
     caretPx: header ? CARET_PX : 0,
   })
   const sep = (
-    <span aria-hidden className="shrink-0 text-[rgba(150,205,255,.3)]">
+    <span aria-hidden className="shrink-0 text-line/30">
       ·
     </span>
   )
@@ -118,7 +118,7 @@ export function WhereLine({
         {fit.count === 'compact' && <TreeMark />}
         <span>{fit.count === 'compact' ? treesCompactText(form) : treesCountText(form)}</span>
         {header && (
-          <span aria-hidden className="fs-8 text-[rgba(160,190,225,.6)]">
+          <span aria-hidden className="fs-8 text-ink-900/60">
             ▾
           </span>
         )}
@@ -130,7 +130,7 @@ export function WhereLine({
       <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dotColor }} />
       {device && (
         <>
-          <span className="min-w-0 shrink truncate text-[rgba(200,220,245,.85)]">{device}</span>
+          <span className="min-w-0 shrink truncate text-ink-500/85">{device}</span>
           {sep}
         </>
       )}

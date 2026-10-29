@@ -45,23 +45,23 @@ function StreamLostBody() {
         <div className="font-mono fs-9.5 tracking-[0.16em] text-[oklch(85%_0.12_60)]">
           TRANSCRIPT UNAVAILABLE
         </div>
-        <div className="fs-12.5 leading-[1.6] text-[rgba(228,238,250,.9)] text-pretty">
+        <div className="fs-12.5 leading-[1.6] text-ink-100/90 text-pretty">
           The Orbital server lost this agent&rsquo;s buffer — most likely a restart. It was only
           ever held in memory, so there is nothing left to show here.
         </div>
-        <div className="font-mono fs-10 leading-[1.7] text-[rgba(160,190,225,.65)]">
+        <div className="font-mono fs-10 leading-[1.7] text-ink-900/65">
           this is not an empty run — the agent kept working
           <br />
           its report still lands in the parent transcript
         </div>
       </div>
-      <div className="flex items-center gap-2.5 font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.4)]">
+      <div className="flex items-center gap-2.5 font-mono fs-9.5 tracking-[0.14em] text-ink-900/40">
         <span
           aria-hidden
           className="h-px flex-1"
           style={{
             background:
-              'repeating-linear-gradient(90deg, rgba(150,205,255,.22) 0 3px, transparent 3px 8px)',
+              'repeating-linear-gradient(90deg, color-mix(in oklab, var(--color-line) 22%, transparent) 0 3px, transparent 3px 8px)',
           }}
         />
         NO STEPS RECOVERABLE
@@ -70,7 +70,7 @@ function StreamLostBody() {
           className="h-px flex-1"
           style={{
             background:
-              'repeating-linear-gradient(90deg, rgba(150,205,255,.22) 0 3px, transparent 3px 8px)',
+              'repeating-linear-gradient(90deg, color-mix(in oklab, var(--color-line) 22%, transparent) 0 3px, transparent 3px 8px)',
           }}
         />
       </div>
@@ -116,7 +116,7 @@ export function BackToSession({ parent, onBack }: { parent: ApiSession | undefin
       type="button"
       aria-label="Back to the session"
       onClick={onBack}
-      className="flex h-fit min-h-6 min-w-0 items-center gap-[7px] rounded-md border border-[rgba(150,205,255,.14)] px-[9px] font-mono fs-10.5 text-text-bright transition-colors hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.08)]"
+      className="flex h-fit min-h-6 min-w-0 items-center gap-[7px] rounded-md border border-line/14 px-[9px] font-mono fs-10.5 text-ink-100 transition-colors hover:border-line/30 hover:bg-line/8"
     >
       <span aria-hidden>←</span>
       {key && (
@@ -305,7 +305,7 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
           className="absolute inset-x-0 top-0 h-px"
           style={{
             background:
-              'repeating-linear-gradient(90deg, rgba(150,205,255,.4) 0 4px, transparent 4px 10px)',
+              'repeating-linear-gradient(90deg, color-mix(in oklab, var(--color-line) 40%, transparent) 0 4px, transparent 4px 10px)',
           }}
         />
       )}
@@ -316,9 +316,9 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
           window chrome` 24a), so its controls opt out of it. */}
       <div
         className={[
-          'orbital-band-controls border-b border-[rgba(150,205,255,.1)] px-[18px] pb-4 pt-4',
+          'orbital-band-controls border-b border-line/10 px-[18px] pb-4 pt-4',
           // 25b's header step over the window fill.
-          swap ? 'bg-[image:linear-gradient(180deg,rgba(10,15,27,.6),rgba(5,8,16,.3))]' : '',
+          swap ? 'bg-[image:linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_60%,_transparent),color-mix(in_oklab,_var(--color-shade)_30%,_transparent))]' : '',
         ].join(' ')}
       >
         {/* In swap (25b) the window's title bar is this panel's own row 1,
@@ -355,7 +355,7 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
                 : 'h-[22px]',
           ].join(' ')}
         >
-          <span className="font-mono fs-9.5 tracking-[0.18em] text-[rgba(160,190,225,.55)]">
+          <span className="font-mono fs-9.5 tracking-[0.18em] text-ink-900/55">
             SUBAGENT · READ-ONLY
           </span>
           <span aria-hidden className="flex-1" />
@@ -380,12 +380,12 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
             brief still asks for the name itself, so it gets a plain
             breadcrumb line rather than the deferred `↖` control. */}
         {parentSession && (
-          <div className="mt-1 truncate font-mono fs-10 text-text-muted">
+          <div className="mt-1 truncate font-mono fs-10 text-ink-900/70">
             {parentSession.title || 'Untitled session'}
           </div>
         )}
 
-        <div className="mt-2.5 line-clamp-2 text-pretty fs-15 font-semibold leading-[1.34] tracking-[-0.005em] text-text-bright">
+        <div className="mt-2.5 line-clamp-2 text-pretty fs-15 font-semibold leading-[1.34] tracking-[-0.005em] text-ink-100">
           {subagent.name}
         </div>
 
@@ -404,10 +404,10 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
           />
         </div>
 
-        <div className="mt-[11px] flex items-center gap-2 font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
+        <div className="mt-[11px] flex items-center gap-2 font-mono fs-10.5 text-ink-900/60">
           {modelLabel && <span>{modelLabel}</span>}
           <span aria-hidden className="flex-1" />
-          <span data-elapsed className="text-[rgba(200,225,255,.85)]">
+          <span data-elapsed className="text-ink-300/85">
             {elapsedLabel}
           </span>
         </div>
@@ -423,18 +423,18 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
       {droppedCount > 0 && (
         <div
           data-truncated-marker
-          className="border-b border-[rgba(150,205,255,.1)] px-[18px] py-3"
+          className="border-b border-line/10 px-[18px] py-3"
         >
-          <div className="flex flex-col gap-[7px] rounded-[9px] border border-[rgba(150,205,255,.26)] bg-[rgba(150,205,255,.07)] px-3 py-[11px]">
-            <div className="flex items-center gap-2 font-mono fs-9.5 tracking-[0.16em] text-[rgba(210,230,250,.9)]">
-              <span aria-hidden className="h-px w-3 bg-[rgba(210,230,250,.6)]" />
+          <div className="flex flex-col gap-[7px] rounded-[9px] border border-line/26 bg-line/7 px-3 py-[11px]">
+            <div className="flex items-center gap-2 font-mono fs-9.5 tracking-[0.16em] text-ink-300/90">
+              <span aria-hidden className="h-px w-3 bg-ink-300/60" />
               TRUNCATED
               <span aria-hidden className="flex-1" />
-              <span className="text-[rgba(160,190,225,.6)]">
+              <span className="text-ink-900/60">
                 buffer {messages.length.toLocaleString()} steps
               </span>
             </div>
-            <div className="text-pretty fs-12 leading-[1.55] text-[rgba(228,238,250,.88)]">
+            <div className="text-pretty fs-12 leading-[1.55] text-ink-100/88">
               The first {droppedCount.toLocaleString()} steps of this run were dropped. What
               follows is the tail of the record, not the whole of it.
             </div>
@@ -474,7 +474,7 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
           (spec § "Read-only means read-only"). */}
       <div
         data-subagent-footer
-        className="flex items-center gap-2 border-t border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.4)] px-[18px] py-3 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.5)]"
+        className="flex items-center gap-2 border-t border-line/10 bg-shade/40 px-[18px] py-3 font-mono fs-10 tracking-[0.06em] text-ink-900/50"
       >
         {/* Swap (25b): the composer is the session's, one ⎋ away. */}
         <span>{swap ? 'read-only · the composer is one step back' : 'read-only · a subagent takes no input'}</span>

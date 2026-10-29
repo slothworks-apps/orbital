@@ -82,13 +82,13 @@ const sideRounding: Record<NonNullable<PanelProps['side']>, string> = {
  */
 const sideChrome: Record<NonNullable<PanelProps['side']>, string> = {
   left: [
-    'bg-gradient-to-b from-[rgba(14,20,34,.92)] to-[rgba(8,12,22,.95)]',
-    'border border-[rgba(150,205,255,.16)]',
+    'bg-gradient-to-b from-panel-solid/92 to-space-deep/95',
+    'border border-line/16',
     'shadow-[0_30px_80px_rgba(0,0,0,.5),inset_0_1px_0_rgba(255,255,255,.06)]',
   ].join(' '),
   right: [
-    'bg-gradient-to-b from-[rgba(14,20,34,.95)] to-[rgba(8,12,22,.97)]',
-    'border border-[rgba(150,205,255,.18)]',
+    'bg-gradient-to-b from-panel-solid/95 to-space-deep/97',
+    'border border-line/18',
     'shadow-[0_30px_80px_rgba(0,0,0,.55),inset_0_1px_0_rgba(255,255,255,.06)]',
   ].join(' '),
   // Canvas 11b, verbatim: no blur at all (it is meant to read as flatter and
@@ -96,16 +96,16 @@ const sideChrome: Record<NonNullable<PanelProps['side']>, string> = {
   // dark gradient, and an INSET shadow — 24px positive x-offset — instead of
   // a drop shadow, so the panel's own left inner edge reads as recessed.
   subagent: [
-    'bg-gradient-to-b from-[rgba(10,15,27,.9)] to-[rgba(5,8,16,.94)]',
-    'border border-[rgba(150,205,255,.1)]',
+    'bg-gradient-to-b from-panel/90 to-shade/94',
+    'border border-line/10',
     'shadow-[inset_24px_0_40px_-28px_rgba(0,0,0,.9),inset_0_1px_0_rgba(255,255,255,.03)]',
   ].join(' '),
   // `float` is the centred 1120×740 modal panel of 1e/1h — it sits over a
   // scrim rather than over the map, so it is the densest and most opaque of
   // the three, with a much deeper shadow.
   float: [
-    'bg-gradient-to-b from-[rgba(16,22,38,.88)] to-[rgba(8,12,22,.94)]',
-    'border border-[rgba(150,205,255,.2)] backdrop-blur-[28px]',
+    'bg-gradient-to-b from-raised/88 to-space-deep/94',
+    'border border-line/20 backdrop-blur-[28px]',
     'shadow-[0_40px_120px_rgba(0,0,0,.7),inset_0_1px_0_rgba(255,255,255,.07)]',
   ].join(' '),
 }
@@ -117,7 +117,7 @@ const sideChrome: Record<NonNullable<PanelProps['side']>, string> = {
  * detail panel's own two stops taken to full opacity. No radius, no border,
  * no blur, no bloom.
  */
-const windowChrome = 'bg-gradient-to-b from-[#0f1524] to-[#080c16]'
+const windowChrome = 'bg-gradient-to-b from-raised to-space-deep'
 
 /**
  * Row 1's left inset in a detached window, where the row doubles as the
@@ -137,8 +137,8 @@ export const WINDOW_STRIP_INSET_PX = 80
  * 22f; this is the one place the separation lives.
  */
 const subagentWindowChrome = [
-  'bg-gradient-to-b from-[rgba(10,15,27,.9)] to-[rgba(5,8,16,.94)]',
-  'border-l border-[rgba(150,205,255,.1)]',
+  'bg-gradient-to-b from-panel/90 to-shade/94',
+  'border-l border-line/10',
   'shadow-[inset_24px_0_40px_-28px_rgba(0,0,0,.9)]',
 ].join(' ')
 

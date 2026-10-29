@@ -159,7 +159,7 @@ function rememberLaunch(patch: Record<string, string>) {
 /** Group kicker from canvas 1d: mono 10px, .16em tracking, 8px to the control. */
 function FieldLabel({ children, htmlFor }: { children: ReactNode; htmlFor?: string }) {
   const className =
-    'flex items-center gap-2 font-mono fs-10 tracking-[0.16em] text-[rgba(160,190,225,.6)]'
+    'flex items-center gap-2 font-mono fs-10 tracking-[0.16em] text-ink-900/60'
   return htmlFor ? (
     <label htmlFor={htmlFor} className={className}>
       {children}
@@ -701,7 +701,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             <span
               className={[
                 'rounded-[5px] font-mono fs-13 font-medium tracking-[0.04em]',
-                ready ? 'bg-[rgba(3,17,26,.14)] px-1.5 py-0.5' : 'border border-[rgba(150,205,255,.12)] px-[5px] py-px',
+                ready ? 'bg-space-deep/14 px-1.5 py-0.5' : 'border border-line/12 px-[5px] py-px',
               ].join(' ')}
             >
               {shortcutLabel('composer.start')}
@@ -771,7 +771,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
             {/* 50g `gFoot`: the device, once there is a choice of one. */}
             {showDevice ? ` · on ${remote ? deviceName : 'this device'}` : null}
             {choosesDir && claudeDirName ? ` · under ${claudeDirName}` : null}
-            {footerTagName ? <> · <span className="text-text-soft">{footerTagName.toUpperCase()}</span></> : null}
+            {footerTagName ? <> · <span className="text-ink-300">{footerTagName.toUpperCase()}</span></> : null}
           </>
         }
         footer={
@@ -813,7 +813,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                   <FieldLabel>
                     <span id="new-session-device">DEVICE</span>
                     <span aria-hidden className="flex-1" />
-                    <span className="tracking-[0.06em] text-[rgba(160,190,225,.5)]">where the session runs</span>
+                    <span className="tracking-[0.06em] text-ink-900/50">where the session runs</span>
                   </FieldLabel>
                   <Select
                     variant="device"
@@ -837,7 +837,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               <div className="relative z-[2] flex flex-col gap-2">
                 <FieldLabel htmlFor="new-session-cwd">
                   PROJECT DIRECTORY
-                  {remote && <span className="tracking-[0.04em] text-[rgba(160,190,225,.45)]">on {deviceName}</span>}
+                  {remote && <span className="tracking-[0.04em] text-ink-900/45">on {deviceName}</span>}
                 </FieldLabel>
                 <div className="flex gap-2">
                   <Input
@@ -881,7 +881,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                     role="group"
                     aria-label="Recent directories"
                   >
-                    <span className="mr-0.5 shrink-0 font-mono fs-10 tracking-[0.08em] text-[rgba(160,190,225,.5)]">
+                    <span className="mr-0.5 shrink-0 font-mono fs-10 tracking-[0.08em] text-ink-900/50">
                       RECENT
                     </span>
                     {/* Recent paths are mono pills in 1d (3px/9px, 10.5px), not the
@@ -893,7 +893,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                         title={dir}
                         data-active={dir === cwd}
                         onClick={() => setCwd(dir)}
-                        className="rounded-full border border-panel-border px-[9px] py-[3px] font-mono fs-10.5 text-[rgba(200,220,245,.75)] transition-colors hover:border-accent/40 data-[active=true]:border-accent/50 data-[active=true]:text-text-bright"
+                        className="rounded-full border border-line/14 px-[9px] py-[3px] font-mono fs-10.5 text-ink-500/75 transition-colors hover:border-accent/40 data-[active=true]:border-accent/50 data-[active=true]:text-ink-100"
                       >
                         {shortenPath(dir)}
                       </button>
@@ -925,14 +925,14 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                 <div className="flex flex-col gap-2">
                   <FieldLabel>
                     <span className="shrink-0 whitespace-nowrap">PROFILE</span>
-                    <span className="min-w-0 truncate tracking-[0.04em] text-[rgba(160,190,225,.45)]">
+                    <span className="min-w-0 truncate tracking-[0.04em] text-ink-900/45">
                       · {claudeDirOriginHint(claudeDirOrigin)}
                     </span>
                     <span aria-hidden className="flex-1" />
                     {/* Plain text, never a keycap box: a box would read as a second mark (44f). */}
                     <span
                       title="Next profile — skips missing ones"
-                      className="shrink-0 whitespace-nowrap tracking-[0.04em] text-[rgba(160,190,225,.5)]"
+                      className="shrink-0 whitespace-nowrap tracking-[0.04em] text-ink-900/50"
                     >
                       {shortcutLabel('composer.next-claude-dir')} next
                     </span>
@@ -945,14 +945,14 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                 <FieldLabel>
                   MODEL
                   {choosesDir && claudeDirName && (
-                    <span className="tracking-[0.04em] text-[rgba(160,190,225,.45)]">· offered by {claudeDirName}’s account</span>
+                    <span className="tracking-[0.04em] text-ink-900/45">· offered by {claudeDirName}’s account</span>
                   )}
                   <span aria-hidden className="flex-1" />
                   {rememberPerProject && lastModelRow && (
                     // canvas 4b: right-hand note, .06em tracking. Renders the
                     // matched row's shortVersion (never a raw id) and only when
                     // something actually matched — F1.
-                    <span className="tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+                    <span className="tracking-[0.06em] text-ink-900/50">
                       last used here: {lastModelRow.shortVersion}
                     </span>
                   )}
@@ -999,7 +999,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
               <div className="flex flex-col gap-2">
                 <FieldLabel>
                   TAG
-                  {tagHint && <span className="tracking-[0.04em] text-[rgba(160,190,225,.45)]">{tagHint}</span>}
+                  {tagHint && <span className="tracking-[0.04em] text-ink-900/45">{tagHint}</span>}
                 </FieldLabel>
                 <div className="flex flex-wrap gap-1.5" role="group" aria-label="Tag">
                   {tags.map((tag) => (
@@ -1070,10 +1070,10 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         </div>
         {missingDir && (
           <div className="flex flex-col gap-3">
-            <p className="break-all rounded-[10px] border border-panel-border bg-[rgba(4,8,16,.5)] px-3.5 py-3 font-mono fs-13 text-text-bright">
+            <p className="break-all rounded-[10px] border border-line/14 bg-shade/50 px-3.5 py-3 font-mono fs-13 text-ink-100">
               {missingDir}
             </p>
-            <p className="fs-13 leading-[1.5] text-[rgba(200,214,235,.88)]">
+            <p className="fs-13 leading-[1.5] text-ink-600/88">
               This folder doesn't exist yet. Orbital can create it, with any missing folders above it, and launch the
               session there — or go back and change the path.
             </p>

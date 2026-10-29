@@ -30,14 +30,14 @@ export function MediaGallery({ sessionId, columns }: { sessionId: string; column
   return (
     <div data-media-gallery className="flex h-full flex-col">
       {/* 26a: the switch row — ← Transcript · the count · Sources. */}
-      <div className="flex items-center gap-2.5 border-b border-[rgba(150,205,255,.08)] px-[22px] py-2.5 font-mono fs-10.5">
-        <button type="button" onClick={close} className="flex-none whitespace-nowrap text-[#e8eef8]">
+      <div className="flex items-center gap-2.5 border-b border-line/8 px-[22px] py-2.5 font-mono fs-10.5">
+        <button type="button" onClick={close} className="flex-none whitespace-nowrap text-ink-100">
           ← Transcript
         </button>
-        <span aria-hidden className="text-[rgba(150,205,255,.25)]">
+        <span aria-hidden className="text-line/25">
           ·
         </span>
-        <span className="min-w-0 flex-1 truncate fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.6)]">
+        <span className="min-w-0 flex-1 truncate fs-9.5 tracking-[0.14em] text-ink-900/60">
           {mediaCountLine(all, hidden)}
         </span>
         {all.length > 0 && <SourcesButton items={all} hidden={hidden} onChange={setHidden} />}

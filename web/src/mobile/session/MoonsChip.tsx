@@ -38,8 +38,8 @@ export function MoonsChip({ session, offline }: SlotProps) {
           className={[
             'flex items-center gap-[5px] font-mono fs-10.5',
             open
-              ? 'h-8 rounded-[8px] border border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] px-[9px] text-text-bright'
-              : 'px-2 text-[rgba(200,220,245,.75)]',
+              ? 'h-8 rounded-[8px] border border-line/30 bg-line/14 px-[9px] text-ink-100'
+              : 'px-2 text-ink-500/75',
           ].join(' ')}
         >
           {session.subagents.slice(0, MOONS_SHOWN).map((agent) => (

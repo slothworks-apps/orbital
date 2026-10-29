@@ -20,7 +20,7 @@ function at(node: ExtraProps['node']): { 'data-src-line'?: number } {
 // 10d·e "Rendered — sized for 390": the link is 10d's path style, its 12px
 // pad and negative margin making a 44px hit area without moving the line.
 const LINK = 'my-[-12px] py-3 text-[oklch(85%_0.12_205)] underline decoration-dotted underline-offset-[3px]'
-const INLINE_CODE = 'rounded-[4px] bg-[rgba(150,205,255,.08)] px-[5px] py-px font-mono fs-12.5 text-[#dfeeff]'
+const INLINE_CODE = 'rounded-[4px] bg-line/8 px-[5px] py-px font-mono fs-12.5 text-ink-200'
 const BOX = 'grid h-4 w-4 flex-none place-items-center rounded-[4px] border mt-1 fs-10 leading-none'
 
 /** A fenced block: mono 12/1.7 in its own box that scrolls sideways, no line numbers (as 8b). */
@@ -28,8 +28,8 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const lines = code.split('\n')
   const tokens = useTokens(code, lang, lines.length)
   return (
-    <div className="overflow-x-auto rounded-[9px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)]">
-      <div className="w-max px-3.5 py-[11px] font-mono fs-12 leading-[1.7] whitespace-pre text-[rgba(214,230,248,.9)] [font-variant-ligatures:none] [overflow-wrap:normal]">
+    <div className="overflow-x-auto rounded-[9px] border border-line/12 bg-shade/55">
+      <div className="w-max px-3.5 py-[11px] font-mono fs-12 leading-[1.7] whitespace-pre text-ink-400/90 [font-variant-ligatures:none] [overflow-wrap:normal]">
         {lines.map((line, i) => (
           // A static list of lines: the index is a stable key.
           <div key={i}>
@@ -54,12 +54,12 @@ function components(onLink: (link: MarkdownLink) => void, path: string): Compone
   }
   return {
     h1: ({ node, children }) => (
-      <h1 {...at(node)} className="m-0 fs-22 font-bold leading-[1.25] tracking-[-.015em] text-[#e8eef8] [text-wrap:balance]">
+      <h1 {...at(node)} className="m-0 fs-22 font-bold leading-[1.25] tracking-[-.015em] text-ink-100 [text-wrap:balance]">
         {children}
       </h1>
     ),
     h2: ({ node, children }) => (
-      <h2 {...at(node)} className="m-0 mt-1.5 fs-17 font-bold leading-[1.3] tracking-[-.01em] text-[#e8eef8]">
+      <h2 {...at(node)} className="m-0 mt-1.5 fs-17 font-bold leading-[1.3] tracking-[-.01em] text-ink-100">
         {children}
       </h2>
     ),
@@ -67,7 +67,7 @@ function components(onLink: (link: MarkdownLink) => void, path: string): Compone
       (['h3', 'h4', 'h5', 'h6'] as const).map((Tag) => [
         Tag,
         ({ node, children }: ComponentPropsWithoutRef<'h3'> & ExtraProps) => (
-          <Tag {...at(node)} className="m-0 mt-1 fs-15 font-bold leading-[1.35] text-[#e8eef8]">
+          <Tag {...at(node)} className="m-0 mt-1 fs-15 font-bold leading-[1.35] text-ink-100">
             {children}
           </Tag>
         ),
@@ -133,23 +133,23 @@ function components(onLink: (link: MarkdownLink) => void, path: string): Compone
     // Task boxes are read-only and never toggle (10d·e); ✓ wears the active chip.
     input: ({ checked }) =>
       checked ? (
-        <span aria-label="done" className={`${BOX} border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-[#e8eef8]`}>
+        <span aria-label="done" className={`${BOX} border-line/30 bg-line/14 text-ink-100`}>
           ✓
         </span>
       ) : (
-        <span aria-label="open" className={`${BOX} border-[rgba(160,190,225,.45)]`} />
+        <span aria-label="open" className={`${BOX} border-ink-900/45`} />
       ),
     blockquote: ({ node, children }) => (
       <blockquote
         {...at(node)}
-        className="m-0 flex flex-col gap-2 rounded-r-lg border-l-2 border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.04)] px-3.5 py-2.5 fs-14.5 leading-[1.6] text-[rgba(200,214,235,.85)]"
+        className="m-0 flex flex-col gap-2 rounded-r-lg border-l-2 border-line/30 bg-line/4 px-3.5 py-2.5 fs-14.5 leading-[1.6] text-ink-600/85"
       >
         {children}
       </blockquote>
     ),
     // A table wider than the page scrolls inside its frame; the page itself never moves sideways.
     table: ({ node, children }) => (
-      <div {...at(node)} className="overflow-x-auto rounded-[9px] border border-[rgba(150,205,255,.12)]">
+      <div {...at(node)} className="overflow-x-auto rounded-[9px] border border-line/12">
         <table className="w-full min-w-[300px] border-collapse fs-13.5 leading-[1.4] [overflow-wrap:normal] [&_tr:last-child>td]:border-b-0">
           {children}
         </table>
@@ -158,17 +158,17 @@ function components(onLink: (link: MarkdownLink) => void, path: string): Compone
     th: ({ children, style }) => (
       <th
         style={style}
-        className="border-b border-[rgba(150,205,255,.12)] bg-[rgba(150,205,255,.04)] px-3 py-2 text-left font-mono fs-10 font-normal uppercase tracking-[.14em] text-[rgba(160,190,225,.6)]"
+        className="border-b border-line/12 bg-line/4 px-3 py-2 text-left font-mono fs-10 font-normal uppercase tracking-[.14em] text-ink-900/60"
       >
         {children}
       </th>
     ),
     td: ({ children, style }) => (
-      <td style={style} className="border-b border-[rgba(150,205,255,.08)] px-3 py-2">
+      <td style={style} className="border-b border-line/8 px-3 py-2">
         {children}
       </td>
     ),
-    hr: ({ node }) => <hr {...at(node)} className="my-1 h-px border-0 bg-[rgba(150,205,255,.12)]" />,
+    hr: ({ node }) => <hr {...at(node)} className="my-1 h-px border-0 bg-line/12" />,
   }
 }
 
@@ -190,7 +190,7 @@ export const PhoneMarkdown = memo(function PhoneMarkdown({
   // Stable component types: a fresh set would remount the whole document on every render.
   const parts = useMemo(() => components(onLink, path), [onLink, path])
   return (
-    <div className="flex flex-col gap-3.5 px-5 pb-8 pt-[18px] fs-15 leading-[1.6] text-[rgba(228,238,250,.9)] [overflow-wrap:anywhere]">
+    <div className="flex flex-col gap-3.5 px-5 pb-8 pt-[18px] fs-15 leading-[1.6] text-ink-100/90 [overflow-wrap:anywhere]">
       <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={urlTransform} components={parts}>
         {content}
       </ReactMarkdown>

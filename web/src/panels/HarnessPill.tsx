@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent, RefObject } from 'react'
 import { useOrbital } from '../store/store'
@@ -188,8 +189,8 @@ function Pill({
       style={{
         top,
         right: edge === 'over' ? -11 : 6,
-        background: lit ? 'rgba(150,205,255,.14)' : 'rgba(10,15,27,.9)',
-        borderColor: lit ? 'rgba(150,205,255,.3)' : 'rgba(150,205,255,.18)',
+        background: lit ? swatch('line', 0.14) : swatch('panel', 0.9),
+        borderColor: lit ? swatch('line', 0.3) : swatch('line', 0.18),
         opacity: panelOpen ? 0 : 1,
         pointerEvents: panelOpen ? 'none' : 'auto',
       }}
@@ -203,7 +204,7 @@ function Pill({
       {/* The flyout (30a-d): on the panel's side of the pill, its top on the pill's. */}
       <span
         aria-hidden
-        className="pointer-events-none absolute top-[-1px] right-[calc(100%+8px)] box-border flex w-[290px] cursor-default flex-col gap-1.5 rounded-[10px] border border-solid border-[rgba(150,205,255,.18)] bg-[rgba(10,16,28,.96)] px-[13px] pt-[11px] pb-3 text-left shadow-[0_18px_50px_rgba(0,0,0,.6)]"
+        className="pointer-events-none absolute top-[-1px] right-[calc(100%+8px)] box-border flex w-[290px] cursor-default flex-col gap-1.5 rounded-[10px] border border-solid border-line/18 bg-panel/96 px-[13px] pt-[11px] pb-3 text-left shadow-[0_18px_50px_rgba(0,0,0,.6)]"
         style={{
           opacity: flyout ? 1 : 0,
           visibility: flyout ? 'visible' : 'hidden',
@@ -211,17 +212,17 @@ function Pill({
           transition: 'opacity 120ms ease, visibility 0s linear ' + (flyout ? '0s' : '120ms'),
         }}
       >
-        <span className="flex items-center gap-2 font-mono fs-9.5 tracking-[0.16em] text-[rgba(160,190,225,.6)]">
+        <span className="flex items-center gap-2 font-mono fs-9.5 tracking-[0.16em] text-ink-900/60">
           HARNESS
           <span className="min-w-0 flex-1 truncate tracking-[0.02em]">{harness.name}</span>
-          <span className="tracking-[0.04em] text-[#e8eef8]">{reading.count}</span>
+          <span className="tracking-[0.04em] text-ink-100">{reading.count}</span>
         </span>
-        <span className="line-clamp-2 fs-12.5 leading-[1.4] font-semibold text-[#e8eef8]">{reading.title}</span>
+        <span className="line-clamp-2 fs-12.5 leading-[1.4] font-semibold text-ink-100">{reading.title}</span>
         <span className="flex items-center gap-2 font-mono fs-10" style={{ color: reading.statusInk }}>
           {reading.status}
-          {reading.detail && <span className="text-[rgba(160,190,225,.6)]">· {reading.detail}</span>}
+          {reading.detail && <span className="text-ink-900/60">· {reading.detail}</span>}
         </span>
-        <span className="border-t border-solid border-[rgba(150,205,255,.08)] pt-[7px] font-mono fs-9.5 text-[rgba(160,190,225,.55)]">
+        <span className="border-t border-solid border-line/8 pt-[7px] font-mono fs-9.5 text-ink-900/55">
           click · open the harness panel · {shortcutLabel('session.harness')}
         </span>
       </span>

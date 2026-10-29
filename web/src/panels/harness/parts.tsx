@@ -1,3 +1,4 @@
+import { swatch } from '../../lib/palette'
 import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react'
 import { MARKER, type StepKind } from './model'
 
@@ -16,7 +17,7 @@ export interface Chrome {
 /** The header block every view opens with: 16/18/14 padding over a hairline (30b). */
 export function HeaderBlock({ chrome, children, pb = 14 }: { chrome: Chrome; children: ReactNode; pb?: number }) {
   return (
-    <div className="orbital-band-controls relative border-b border-[rgba(150,205,255,.1)] px-[18px] pt-4" style={{ paddingBottom: pb }}>
+    <div className="orbital-band-controls relative border-b border-line/10 px-[18px] pt-4" style={{ paddingBottom: pb }}>
       {chrome.swapStrip}
       {children}
     </div>
@@ -46,7 +47,7 @@ export function Marker({ kind, gate, size = 9 }: { kind: StepKind; gate: boolean
 /** Canvas 30b's switch: 26 × 14, a 10 px knob; acts at once, never confirmed (30f). */
 export function Switch({ on, label, onChange }: { on: boolean; label: string; onChange: (on: boolean) => void }) {
   return (
-    <label className="flex cursor-pointer items-center gap-2 fs-12 text-[rgba(220,235,255,.88)]">
+    <label className="flex cursor-pointer items-center gap-2 fs-12 text-ink-200/88">
       <button
         type="button"
         role="switch"
@@ -54,12 +55,12 @@ export function Switch({ on, label, onChange }: { on: boolean; label: string; on
         aria-label={label}
         onClick={() => onChange(!on)}
         className="relative block h-[14px] w-[26px] shrink-0 rounded-[7px]"
-        style={{ background: on ? 'oklch(85% .12 205)' : 'rgba(150,205,255,.16)' }}
+        style={{ background: on ? swatch('accent') : swatch('line', 0.16) }}
       >
         <span
           aria-hidden
           className="absolute top-[2px] block size-[10px] rounded-full transition-[left] duration-150 ease-out"
-          style={{ left: on ? 14 : 2, background: on ? '#03111a' : 'rgba(200,220,245,.7)' }}
+          style={{ left: on ? 14 : 2, background: on ? swatch('space-deep') : swatch('ink-500', 0.7) }}
         />
       </button>
       {label}
@@ -69,18 +70,18 @@ export function Switch({ on, label, onChange }: { on: boolean; label: string; on
 
 /** Section label: mono 9, tracking .18em (30d INSTRUCTIONS, 30e SUMMARY). */
 export function Label({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={`font-mono fs-9 tracking-[0.18em] text-[rgba(160,190,225,.5)] ${className}`}>{children}</div>
+  return <div className={`font-mono fs-9 tracking-[0.18em] text-ink-900/50 ${className}`}>{children}</div>
 }
 
 /** The panel's small uppercase kicker: HARNESS (30b). */
 export function Kicker({ children }: { children: ReactNode }) {
-  return <span className="font-mono fs-9.5 tracking-[0.18em] text-[rgba(160,190,225,.55)]">{children}</span>
+  return <span className="font-mono fs-9.5 tracking-[0.18em] text-ink-900/55">{children}</span>
 }
 
 /** The scope chip beside HARNESS (30b): "project · orbital". */
 export function ScopeChip({ text }: { text: string }) {
   return (
-    <span className="rounded-[4px] border border-[rgba(150,205,255,.14)] px-[7px] py-[2px] font-mono fs-9.5 tracking-[0.04em] text-[rgba(200,220,245,.75)]">
+    <span className="rounded-[4px] border border-line/14 px-[7px] py-[2px] font-mono fs-9.5 tracking-[0.04em] text-ink-500/75">
       {text}
     </span>
   )
@@ -91,7 +92,7 @@ export function ScopeMark({ kind }: { kind: 'project' | 'global' }) {
   return (
     <span
       aria-hidden
-      className="block size-[7px] shrink-0 box-border border-[1.3px] border-[rgba(200,220,245,.7)]"
+      className="block size-[7px] shrink-0 box-border border-[1.3px] border-ink-500/70"
       style={{ borderRadius: kind === 'project' ? 2 : '50%' }}
     />
   )
@@ -107,7 +108,7 @@ export function HeadButton({
     <button
       type="button"
       aria-label={label}
-      className="grid size-[22px] shrink-0 place-items-center rounded-[6px] fs-13 tracking-[0.05em] text-[rgba(200,220,245,.7)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8]"
+      className="grid size-[22px] shrink-0 place-items-center rounded-[6px] fs-13 tracking-[0.05em] text-ink-500/70 hover:bg-line/9 hover:text-ink-100"
       {...rest}
     >
       {children}
@@ -131,7 +132,7 @@ export function DashedSeam() {
     <div
       aria-hidden
       className="absolute inset-x-0 top-0 h-px"
-      style={{ background: 'repeating-linear-gradient(90deg, rgba(150,205,255,.4) 0 4px, transparent 4px 10px)' }}
+      style={{ background: 'repeating-linear-gradient(90deg, color-mix(in oklab, var(--color-line) 40%, transparent) 0 4px, transparent 4px 10px)' }}
     />
   )
 }
@@ -142,7 +143,7 @@ export function AccentLink({ children, onClick, className = '' }: { children: Re
     <button
       type="button"
       onClick={onClick}
-      className={`font-mono fs-10 tracking-[0.08em] text-[oklch(85%_.12_205)] hover:brightness-110 ${className}`}
+      className={`font-mono fs-10 tracking-[0.08em] text-accent hover:brightness-110 ${className}`}
     >
       {children}
     </button>
@@ -156,7 +157,7 @@ export function OutlineButton({ children, onClick, disabled }: { children: React
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex items-center gap-[7px] rounded-[7px] border border-[rgba(150,205,255,.2)] px-[14px] py-[7px] fs-12 font-semibold text-[rgba(220,235,255,.9)] hover:border-[rgba(150,205,255,.35)] hover:text-[#e8eef8] disabled:cursor-not-allowed disabled:opacity-40"
+      className="inline-flex items-center gap-[7px] rounded-[7px] border border-line/20 px-[14px] py-[7px] fs-12 font-semibold text-ink-200/90 hover:border-line/35 hover:text-ink-100 disabled:cursor-not-allowed disabled:opacity-40"
     >
       {children}
     </button>
@@ -170,7 +171,7 @@ export function FilledButton({ children, onClick, disabled }: { children: ReactN
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="rounded-[7px] bg-[oklch(85%_.12_205)] px-[14px] py-[7px] fs-12 font-bold text-[#03111a] hover:brightness-[1.08] disabled:cursor-not-allowed disabled:opacity-40"
+      className="rounded-[7px] bg-accent px-[14px] py-[7px] fs-12 font-bold text-space-deep hover:brightness-[1.08] disabled:cursor-not-allowed disabled:opacity-40"
     >
       {children}
     </button>

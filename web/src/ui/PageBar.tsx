@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { useEffect, useState, type CSSProperties, type MouseEvent } from 'react'
 import { api } from '../lib/api'
 import { hasDesktopBridge } from '../lib/desktop'
@@ -50,11 +51,11 @@ export function pageBarGeometry(windowed: boolean) {
 export type PageBarSurface = 'sky' | 'columns'
 
 /** The map's band hint (canvas `Feature - Main window chrome` 24g), which the stats bar wears at rest. */
-const BAND_GRADIENT = 'linear-gradient(180deg,rgba(2,3,8,.55),rgba(2,3,8,0) 48px)'
-const HAIRLINE = 'rgba(150,205,255,.1)'
-const SCROLLED_FILL = 'rgba(5,7,13,.86)'
+const BAND_GRADIENT = 'linear-gradient(180deg,color-mix(in oklab, var(--color-space) 55%, transparent),color-mix(in oklab, var(--color-space) 0%, transparent) 48px)'
+const HAIRLINE = swatch('line', 0.1)
+const SCROLLED_FILL = swatch('space', 0.86)
 const SCROLLED_BLUR = 'blur(18px)'
-const COLUMNS_FILL = 'rgba(5,7,13,.6)'
+const COLUMNS_FILL = swatch('space', 0.6)
 
 interface PageBarProps {
   route: PageBarRoute
@@ -161,14 +162,14 @@ export function PageBar({ route, surface, session = null, notice = null, onCrumb
       ))}
       <span className="flex-1" />
       {notice && (
-        <span className={`${RIGHT_ITEM} min-w-0 truncate fs-11 tracking-[.02em] text-[rgba(160,190,225,.5)]`} style={{ flex: '0 10 auto' }}>
+        <span className={`${RIGHT_ITEM} min-w-0 truncate fs-11 tracking-[.02em] text-ink-900/50`} style={{ flex: '0 10 auto' }}>
           {notice}
         </span>
       )}
       {path && (
         <span
           title={session?.cwd}
-          className={`${RIGHT_ITEM} block max-w-[380px] truncate px-[2px] fs-11 leading-[calc(26px*var(--text-scale,1))] tracking-[.02em] text-[rgba(160,190,225,.6)]`}
+          className={`${RIGHT_ITEM} block max-w-[380px] truncate px-[2px] fs-11 leading-[calc(26px*var(--text-scale,1))] tracking-[.02em] text-ink-900/60`}
           // Shrinks second, after the session crumb (25g truncation).
           style={{ flex: '0 1 auto', minWidth: 60 }}
         >
@@ -183,14 +184,14 @@ export function PageBar({ route, surface, session = null, notice = null, onCrumb
         onClick={() => window.location.assign(MAP_PATH)}
         className={[
           RIGHT_ITEM,
-          'flex shrink-0 cursor-default items-center gap-1.5 border border-[rgba(150,205,255,.14)] pl-2 pr-1 fs-13 text-[rgba(200,220,245,.75)]',
+          'flex shrink-0 cursor-default items-center gap-1.5 border border-line/14 pl-2 pr-1 fs-13 text-ink-500/75',
           'transition-[background-color,border-color,color] duration-150',
-          'hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.14)] hover:text-text-bright',
+          'hover:border-line/30 hover:bg-line/14 hover:text-ink-100',
           FOCUS_RING,
         ].join(' ')}
       >
         <span className="leading-none">×</span>
-        <span className="rounded-[4px] border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.06)] px-[5px] py-[2px] fs-9.5 leading-[1.3] tracking-[.1em]">
+        <span className="rounded-[4px] border border-line/18 bg-line/6 px-[5px] py-[2px] fs-9.5 leading-[1.3] tracking-[.1em]">
           ESC
         </span>
       </button>
@@ -206,7 +207,7 @@ const FOCUS_RING =
   'outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-[oklch(85%_.12_205/.8)]'
 
 /** A crumb's hover, for links only; the page's own crumb is not one (25g). */
-const CRUMB_HOVER = 'hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright'
+const CRUMB_HOVER = 'hover:bg-line/8 hover:text-ink-100'
 
 const CRUMB_TYPE = {
   root: 'font-sans fs-13 font-bold tracking-[.22em]',
@@ -234,7 +235,7 @@ function Crumb({
     'transition-[background-color,color] duration-150',
     CRUMB_TYPE[crumb.kind],
     // The wordmark and the page's own crumb are bright; the way up is not.
-    crumb.kind === 'root' || crumb.href === null ? 'text-text-bright' : 'text-[rgba(160,190,225,.7)]',
+    crumb.kind === 'root' || crumb.href === null ? 'text-ink-100' : 'text-ink-900/70',
     crumb.href === null ? 'cursor-default' : CRUMB_HOVER,
     // The root's padding hangs outside the bar's, so the mark itself sits on
     // the bar's left edge (25g).
@@ -252,7 +253,7 @@ function Crumb({
         <span
           aria-hidden
           className="block h-1.5 w-1.5 shrink-0 rounded-full"
-          style={{ background: hue == null ? 'rgba(160,190,225,.5)' : tagColor(hue) }}
+          style={{ background: hue == null ? swatch('ink-900', 0.5) : tagColor(hue) }}
         />
       )}
       <span className="min-w-0 overflow-hidden text-ellipsis">{crumb.label}</span>
@@ -267,7 +268,7 @@ function Crumb({
 
   return (
     <>
-      {!first && <span className="shrink-0 px-1 font-mono fs-11 text-[rgba(150,205,255,.25)]">/</span>}
+      {!first && <span className="shrink-0 px-1 font-mono fs-11 text-line/25">/</span>}
       {crumb.href === null ? (
         <span data-no-drag aria-current="page" className={className} style={style}>
           {body}
@@ -286,12 +287,12 @@ function StatusChip({ session }: { session: ApiSession }) {
   return (
     <span
       data-no-drag
-      className={`${RIGHT_ITEM} flex shrink-0 items-center gap-1.5 border border-[rgba(150,205,255,.14)] px-[9px] fs-10.5 tracking-[.08em] text-[rgba(200,220,245,.75)]`}
+      className={`${RIGHT_ITEM} flex shrink-0 items-center gap-1.5 border border-line/14 px-[9px] fs-10.5 tracking-[.08em] text-ink-500/75`}
     >
       <span
         aria-hidden
         className={[
-          'block h-1.5 w-1.5 shrink-0 rounded-full bg-[rgba(160,190,225,.5)]',
+          'block h-1.5 w-1.5 shrink-0 rounded-full bg-ink-900/50',
           session.status === 'working' ? 'animate-pulse' : '',
         ].join(' ')}
       />

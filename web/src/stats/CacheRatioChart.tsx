@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { useId } from 'react'
 import type { StatsCacheRatioDay } from '../lib/types'
 import { CACHE_PLOT_HEIGHT, CACHE_TARGET_RATIO, PANEL_CLASS, PANEL_LABEL_CLASS } from './constants'
@@ -50,34 +51,34 @@ export function CacheRatioChart({
     <section aria-label="Cache hit ratio" className={`${PANEL_CLASS} flex flex-col px-5 pb-3 pt-4`}>
       <div className="flex items-baseline gap-[14px]">
         <div className={PANEL_LABEL_CLASS}>CACHE HIT RATIO</div>
-        <div className="font-mono fs-15 text-text-bright">
+        <div className="font-mono fs-15 text-ink-100">
           {ratio === null ? '—' : formatPercent(ratio)}
         </div>
         {trend !== null && (
           // Amber for a ratio that fell over the window (10a); a rise is left
           // in the panel's own ink.
-          <div className={`font-mono fs-10.5 ${trend < 0 ? 'text-[#ffbb7b]' : 'text-[rgba(160,190,225,.7)]'}`}>
+          <div className={`font-mono fs-10.5 ${trend < 0 ? 'text-warning' : 'text-ink-900/70'}`}>
             {formatPoints(trend)} this window
           </div>
         )}
         <span className="flex-1" />
-        <div className="font-mono fs-10 text-[rgba(160,190,225,.45)]">
+        <div className="font-mono fs-10 text-ink-900/45">
           cached input ÷ total input · target ≥ {formatPercent(CACHE_TARGET_RATIO)}
         </div>
       </div>
 
       <div className="relative mt-2.5" style={{ height: CACHE_PLOT_HEIGHT }}>
         <div
-          className="absolute inset-x-0 h-px bg-[rgba(150,205,255,.07)]"
+          className="absolute inset-x-0 h-px bg-line/7"
           style={{ top: y(CACHE_TARGET_RATIO) }}
         />
         <div
-          className="absolute right-0 font-mono fs-9.5 text-[rgba(160,190,225,.4)]"
+          className="absolute right-0 font-mono fs-9.5 text-ink-900/40"
           style={{ top: Math.max(0, y(CACHE_TARGET_RATIO) - 8) }}
         >
           {formatPercent(CACHE_TARGET_RATIO)}
         </div>
-        <div className="absolute inset-x-0 bottom-0 h-px bg-[rgba(150,205,255,.18)]" />
+        <div className="absolute inset-x-0 bottom-0 h-px bg-line/18" />
 
         {points.length > 0 && (
           <svg
@@ -88,8 +89,8 @@ export function CacheRatioChart({
           >
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#59e4f3" stopOpacity=".22" />
-                <stop offset="100%" stopColor="#59e4f3" stopOpacity="0" />
+                <stop offset="0%" stopColor={swatch('accent')} stopOpacity=".22" />
+                <stop offset="100%" stopColor={swatch('accent')} stopOpacity="0" />
               </linearGradient>
             </defs>
             {points.length > 1 && (
@@ -101,19 +102,19 @@ export function CacheRatioChart({
                 <polyline
                   points={coordinates}
                   fill="none"
-                  stroke="#59e4f3"
+                  stroke={swatch('accent')}
                   strokeWidth="1.5"
                   vectorEffect="non-scaling-stroke"
                 />
               </>
             )}
             {points.length === 1 && (
-              <circle cx={x(0)} cy={y(points[0].ratio)} r="2" fill="#59e4f3" />
+              <circle cx={x(0)} cy={y(points[0].ratio)} r="2" fill={swatch('accent')} />
             )}
           </svg>
         )}
 
-        <div className="absolute inset-x-0 -bottom-0.5 flex justify-between font-mono fs-10 text-[rgba(160,190,225,.45)]">
+        <div className="absolute inset-x-0 -bottom-0.5 flex justify-between font-mono fs-10 text-ink-900/45">
           <span>{first ? `${shortDay(first.day)} · ${formatPercent(first.ratio)}` : ''}</span>
           <span>
             {last && last !== first ? `${shortDay(last.day)} · ${formatPercent(last.ratio)}` : ''}

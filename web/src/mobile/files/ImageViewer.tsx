@@ -315,7 +315,7 @@ export function ImagePage({
     )
   } else if (outcome?.kind === 'cant-show' || outcome?.kind === 'outside') {
     area = (
-      <div className="absolute inset-0 flex flex-col justify-center bg-[#05070d]">
+      <div className="absolute inset-0 flex flex-col justify-center bg-space">
         <CantShow path={path} size={outcome.kind === 'cant-show' ? outcome.size : null} outside={outcome.kind === 'outside'} />
       </div>
     )
@@ -335,7 +335,7 @@ export function ImagePage({
   ) : null
 
   return (
-    <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-black text-[#e8eef8]">
+    <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-black text-ink-100">
       <div
         ref={stageRef}
         onDoubleClick={(e) => toggleAt(e.clientX, e.clientY)}
@@ -349,13 +349,13 @@ export function ImagePage({
           type="button"
           aria-label="Back"
           onClick={onBack}
-          className="grid h-11 w-11 shrink-0 place-items-center fs-28 leading-none text-[#e8eef8]"
+          className="grid h-11 w-11 shrink-0 place-items-center fs-28 leading-none text-ink-100"
         >
           ‹
         </button>
         <div className="min-w-0 flex-1">
           <div className="truncate fs-15 font-semibold">{name}</div>
-          {sub && <div className="mt-0.5 truncate font-mono fs-10.5 text-[rgba(200,215,235,.7)]">{sub}</div>}
+          {sub && <div className="mt-0.5 truncate font-mono fs-10.5 text-ink-600/70">{sub}</div>}
         </div>
         {(url || view.phase === 'loading') && (
           <button
@@ -364,7 +364,7 @@ export function ImagePage({
             onClick={() => toggleAt(null, null)}
             // 10e2: dimmed until the image is in.
             className={[
-              'h-11 min-w-14 rounded-[12px] border border-[rgba(150,205,255,.2)] bg-[rgba(5,7,13,.6)] px-2.5 font-mono fs-11 text-[#e8eef8] transition-opacity duration-[600ms]',
+              'h-11 min-w-14 rounded-[12px] border border-line/20 bg-space/60 px-2.5 font-mono fs-11 text-ink-100 transition-opacity duration-[600ms]',
               url ? '' : 'opacity-40',
             ].join(' ')}
           >
@@ -393,12 +393,12 @@ export function ImagePage({
             {Array.from({ length: count }, (_, i) => (
               <span
                 key={i}
-                className={['block h-1.5 w-1.5 rounded-full', i === index ? 'bg-[#e8eef8]' : 'bg-[rgba(232,238,248,.35)]'].join(' ')}
+                className={['block h-1.5 w-1.5 rounded-full', i === index ? 'bg-ink-100' : 'bg-ink-100/35'].join(' ')}
               />
             ))}
           </div>
         )}
-        <div className="flex items-center gap-2 font-mono fs-11 text-[rgba(200,215,235,.75)]">
+        <div className="flex items-center gap-2 font-mono fs-11 text-ink-600/75">
           <span className="min-w-0 flex-1 truncate">
             {path ?? 'image'} · {caption}
           </span>

@@ -48,7 +48,7 @@ export function attachPhoto(
     })
 }
 
-const iconButton = 'flex h-11 w-11 items-center justify-center rounded-[12px] text-[rgba(200,220,245,.8)] disabled:opacity-40'
+const iconButton = 'flex h-11 w-11 items-center justify-center rounded-[12px] text-ink-500/80 disabled:opacity-40'
 
 /** 9b's camera and gallery: plain line icons, side by side. */
 export function PhotoButtons({ disabled, onPhoto }: { disabled: boolean; onPhoto(source: PhotoSource): void }) {

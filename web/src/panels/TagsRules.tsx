@@ -129,7 +129,7 @@ function TagPill({ hue, name }: { hue: number; name: string }) {
   return (
     <span
       data-rule-tag-pill
-      className="inline-flex w-fit min-w-0 items-center gap-1.5 rounded-full border px-[9px] py-[3px] fs-11 font-semibold text-text-bright"
+      className="inline-flex w-fit min-w-0 items-center gap-1.5 rounded-full border px-[9px] py-[3px] fs-11 font-semibold text-ink-100"
       style={{ borderColor: `oklch(80% .13 ${hue} / .4)` }}
     >
       <span
@@ -725,8 +725,8 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
           {/* Left: tags. The column's 330px width is Settings' grid to set —
               what lives here is the column's own chrome (1e: 18/20/10 header,
               12px list gutter). */}
-          <div className="flex min-h-0 flex-col border-r border-panel-border/60">
-            <div className="flex items-center px-5 pb-2.5 pt-[18px] font-mono fs-10 tracking-[0.18em] text-text-muted">
+          <div className="flex min-h-0 flex-col border-r border-line/[8.4%]">
+            <div className="flex items-center px-5 pb-2.5 pt-[18px] font-mono fs-10 tracking-[0.18em] text-ink-900/70">
               TAGS · {tags.length}
               <span className="flex-1" />
               <button
@@ -781,7 +781,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                       // 80d: 6px on the left, where the grip's 16px column sits.
                       isSelected
                         ? 'flex flex-col gap-3 py-3.5 pl-1.5 pr-3.5'
-                        : 'flex items-center gap-3 border-[rgba(150,205,255,.1)] py-3 pl-1.5 pr-3.5 hover:bg-white/5',
+                        : 'flex items-center gap-3 border-line/10 py-3 pl-1.5 pr-3.5 hover:bg-white/5',
                     ].join(' ')}
                   >
                     <div className="flex items-center gap-2">
@@ -826,16 +826,16 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                         <div
                           onClick={(e) => e.stopPropagation()}
                           className={
-                            isSelected ? 'border-b border-dashed border-[rgba(150,205,255,.3)]' : undefined
+                            isSelected ? 'border-b border-dashed border-line/30' : undefined
                           }
                         >
                           <TagNameField tag={tag} onCommit={(name) => void handleRenameTag(tag.id, name)} />
                         </div>
-                        <div className="mt-0.5 font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
+                        <div className="mt-0.5 font-mono fs-10.5 text-ink-900/60">
                           {tagMeta(tag)}
                         </div>
                       </div>
-                      <span className="shrink-0 font-mono fs-10.5 text-[rgba(160,190,225,.55)]">
+                      <span className="shrink-0 font-mono fs-10.5 text-ink-900/55">
                         hue {tag.hue}
                       </span>
                     </div>
@@ -872,7 +872,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                           disabled={Boolean(tag.is_default)}
                           onClick={() => void handleDeleteTag(tag)}
                           aria-label={`Delete ${tag.name}`}
-                          className="shrink-0 font-mono fs-11 text-[rgba(160,190,225,.6)] transition-colors hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-[rgba(160,190,225,.6)]"
+                          className="shrink-0 font-mono fs-11 text-ink-900/60 transition-colors hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-ink-900/60"
                         >
                           delete
                         </button>
@@ -885,7 +885,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
               {/* Ours, not 1e's: 1e creates from the header and renames in
                   place, but a name has to come from somewhere — a dashed row
                   mirroring the rules table's "+ Add rule". */}
-              <li className="rounded-xl border border-dashed border-[rgba(150,205,255,.2)] px-3 py-1.5">
+              <li className="rounded-xl border border-dashed border-line/20 px-3 py-1.5">
                 <Input
                   id={NEW_TAG_FIELD_ID}
                   variant="inline"
@@ -902,29 +902,29 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
               {draggedTag && tagDrag && (
                 // 80d: the card lifts onto the dropdown panel colour and follows the pointer.
                 <DragGhost ghost={tagDrag.ghost} fullWidth>
-                  <div className="box-border flex w-full items-center gap-2 rounded-xl border border-[rgba(150,205,255,.3)] bg-[rgba(10,16,28,.96)] py-3.5 pl-1.5 pr-3.5 shadow-[0_14px_34px_rgba(0,0,0,.55)]">
+                  <div className="box-border flex w-full items-center gap-2 rounded-xl border border-line/30 bg-panel/96 py-3.5 pl-1.5 pr-3.5 shadow-[0_14px_34px_rgba(0,0,0,.55)]">
                     <span className="grid h-7 w-4 flex-none place-items-center">
                       <GripDots />
                     </span>
                     <TagPlanet hue={draggedTag.hue} selected={false} />
-                    <span className="pl-1 fs-14 leading-(--text-sm--line-height) font-semibold text-text-bright">{draggedTag.name}</span>
+                    <span className="pl-1 fs-14 leading-(--text-sm--line-height) font-semibold text-ink-100">{draggedTag.name}</span>
                   </div>
                 </DragGhost>
               )}
             </ul>
 
-            <p className="px-5 pb-5 pt-3.5 fs-11.5 leading-[1.5] text-[rgba(160,190,225,.6)]">
+            <p className="px-5 pb-5 pt-3.5 fs-11.5 leading-[1.5] text-ink-900/60">
               Tag hue drives the planet&apos;s atmosphere and ring. Untagged sessions fall back to{' '}
-              <span className="font-mono text-[rgba(200,220,245,.8)]">{defaultTag?.name ?? 'the default tag'}</span>.
+              <span className="font-mono text-ink-500/80">{defaultTag?.name ?? 'the default tag'}</span>.
             </p>
           </div>
 
           {/* Right: the selected tag's rules */}
           <div className="flex min-h-0 flex-col">
-            <div className="flex items-center gap-3 px-[22px] pb-2.5 pt-[18px] font-mono fs-10 tracking-[0.18em] text-text-muted">
+            <div className="flex items-center gap-3 px-[22px] pb-2.5 pt-[18px] font-mono fs-10 tracking-[0.18em] text-ink-900/70">
               AUTO-TAG RULES · {sortedRules.length}
               <span className="flex-1" />
-              <span className="tracking-[0.04em] text-[rgba(160,190,225,.5)]">
+              <span className="tracking-[0.04em] text-ink-900/50">
                 evaluated top → bottom, first match wins
               </span>
             </div>
@@ -938,7 +938,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                 below insets by 20px and each row by another 8px, so the two
                 grids line up on the same 28px gutter. */}
             <div
-              className={`grid ${RULE_GRID} items-center gap-3 px-[22px] py-1.5 font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.45)]`}
+              className={`grid ${RULE_GRID} items-center gap-3 px-[22px] py-1.5 font-mono fs-9.5 tracking-[0.14em] text-ink-900/45`}
             >
               <span />
               <span>CONDITION</span>
@@ -1038,7 +1038,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                           'border-accent/50 bg-accent/6'
                         : targetsSelected
                           ? ''
-                          : 'border-[rgba(150,205,255,.08)] bg-[rgba(4,8,16,.35)]',
+                          : 'border-line/8 bg-shade/35',
                       // 1e dims a disabled rule rather than restyling it.
                       enabled ? '' : 'opacity-60',
                       // Drag feedback (no 1e equivalent — its mock is static):
@@ -1182,8 +1182,8 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                       >
                         {/* 1e resting row: 13px sans condition, 12px mono pattern. */}
                         <span className="truncate fs-13">{conditionLabel(rule.condition)}</span>
-                        <span className="truncate font-mono fs-12 text-text-bright">
-                          {pattern || <span className="text-text-muted">—</span>}
+                        <span className="truncate font-mono fs-12 text-ink-100">
+                          {pattern || <span className="text-ink-900/70">—</span>}
                         </span>
                         <TagPill hue={hue} name={tagName} />
                       </button>
@@ -1206,7 +1206,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                         type="button"
                         aria-label={`Delete rule ${idx + 1}`}
                         onClick={() => void handleDeleteRule(rule)}
-                        className="h-5 w-5 rounded text-text-muted transition-colors hover:bg-red-400/10 hover:text-red-400"
+                        className="h-5 w-5 rounded text-ink-900/70 transition-colors hover:bg-red-400/10 hover:text-red-400"
                       >
                         ✕
                       </button>
@@ -1220,7 +1220,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                 type="button"
                 data-testid="add-rule-row"
                 onClick={() => void handleAddRule()}
-                className="flex w-full items-center justify-center gap-2 rounded-[9px] border border-dashed border-[rgba(150,205,255,.2)] p-3 fs-12.5 font-semibold text-accent transition-colors hover:border-accent/50 hover:bg-accent/5"
+                className="flex w-full items-center justify-center gap-2 rounded-[9px] border border-dashed border-line/20 p-3 fs-12.5 font-semibold text-accent transition-colors hover:border-accent/50 hover:bg-accent/5"
               >
                 + Add rule
               </button>
@@ -1236,9 +1236,9 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
             {/* Preview footer (1e: PREVIEW · path · → · chip · matched rule N). */}
             <div
               data-testid="preview-result"
-              className="mx-[22px] mb-5 mt-3 flex flex-wrap items-center gap-3 rounded-[9px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.35)] px-3.5 py-3"
+              className="mx-[22px] mb-5 mt-3 flex flex-wrap items-center gap-3 rounded-[9px] border border-line/10 bg-shade/35 px-3.5 py-3"
             >
-              <span className="shrink-0 font-mono fs-10 tracking-[0.16em] text-[rgba(160,190,225,.55)]">
+              <span className="shrink-0 font-mono fs-10 tracking-[0.16em] text-ink-900/55">
                 PREVIEW
               </span>
               <Input
@@ -1252,18 +1252,18 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
               />
               {previewTag ? (
                 <>
-                  <span aria-hidden data-testid="preview-arrow" className="shrink-0 text-[rgba(160,190,225,.5)]">
+                  <span aria-hidden data-testid="preview-arrow" className="shrink-0 text-ink-900/50">
                     →
                   </span>
                   <Chip label={previewTag.name} hue={previewTag.hue} active />
                   {previewRuleIndex != null && previewRuleIndex > 0 && (
-                    <span className="shrink-0 font-mono fs-10.5 text-[rgba(160,190,225,.5)]">
+                    <span className="shrink-0 font-mono fs-10.5 text-ink-900/50">
                       matched rule {previewRuleIndex}
                     </span>
                   )}
                 </>
               ) : previewPath.trim() ? (
-                <span className="shrink-0 font-mono fs-10.5 text-[rgba(160,190,225,.5)]">no match</span>
+                <span className="shrink-0 font-mono fs-10.5 text-ink-900/50">no match</span>
               ) : null}
             </div>
           </div>

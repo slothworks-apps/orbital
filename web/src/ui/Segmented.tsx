@@ -12,26 +12,26 @@ export type SegmentedSize = 'tab' | 'filter' | 'row' | 'field' | 'steps'
 
 /** Selection is a tint, an ink and a weight (see the ADR); hover is neutral underneath it. */
 const ACCENT_ON = 'bg-accent/10 font-semibold text-accent'
-const NEUTRAL_OFF = 'bg-transparent text-[rgba(220,235,255,.85)] hover:bg-white/5'
+const NEUTRAL_OFF = 'bg-transparent text-ink-200/85 hover:bg-white/5'
 
 const SIZES = {
   /** canvas 10a — tabs inside a panel heading (the tool leaderboard's). */
   tab: {
-    shell: 'inline-flex rounded-[7px] border-[rgba(150,205,255,.18)]',
+    shell: 'inline-flex rounded-[7px] border-line/18',
     item: 'px-[11px] py-[5px] fs-10.5',
     on: ACCENT_ON,
     off: NEUTRAL_OFF,
   },
   /** canvas 10a — the stats filter bar. */
   filter: {
-    shell: 'inline-flex rounded-lg border-[rgba(150,205,255,.18)]',
+    shell: 'inline-flex rounded-lg border-line/18',
     item: 'px-3.5 py-[7px] fs-11.5',
     on: ACCENT_ON,
     off: NEUTRAL_OFF,
   },
   /** canvas 1h — a control in the settings dialog's 320px column. */
   row: {
-    shell: 'inline-flex rounded-lg border-[rgba(150,205,255,.18)]',
+    shell: 'inline-flex rounded-lg border-line/18',
     item: 'px-3 py-[7px] fs-12 leading-(--text-xs--line-height)',
     on: ACCENT_ON,
     off: NEUTRAL_OFF,
@@ -44,10 +44,10 @@ const SIZES = {
    * there would outshout both.
    */
   field: {
-    shell: 'flex rounded-[9px] border-[rgba(150,205,255,.16)]',
+    shell: 'flex rounded-[9px] border-line/16',
     item: 'flex h-fit min-h-9 min-w-0 flex-1 items-center justify-center px-3 fs-11.5 [&>span]:truncate',
-    on: 'bg-accent/10 font-semibold text-text-bright',
-    off: 'bg-transparent text-[rgba(200,220,245,.78)] hover:bg-[rgba(150,205,255,.07)]',
+    on: 'bg-accent/10 font-semibold text-ink-100',
+    off: 'bg-transparent text-ink-500/78 hover:bg-line/7',
   },
   /**
    * canvas `Feature - Text size` 6a — steps that each show a value under
@@ -56,10 +56,10 @@ const SIZES = {
    * caller's two lines; `group-aria-pressed:` reaches the second.
    */
   steps: {
-    shell: 'flex gap-[3px] rounded-[10px] border-[rgba(150,205,255,.14)] p-[3px]',
+    shell: 'flex gap-[3px] rounded-[10px] border-line/14 p-[3px]',
     item: 'group flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-[7px] border px-1 py-1.5',
-    on: 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright',
-    off: 'border-transparent bg-transparent text-[rgba(160,190,225,.75)] hover:border-[rgba(150,205,255,.26)]',
+    on: 'border-line/30 bg-line/14 text-ink-100',
+    off: 'border-transparent bg-transparent text-ink-900/75 hover:border-line/26',
   },
 } as const satisfies Record<SegmentedSize, { shell: string; item: string; on: string; off: string }>
 
@@ -120,7 +120,7 @@ export function Segmented<T extends string>({
     <div
       role="group"
       aria-label={label}
-      className={['overflow-hidden border bg-[rgba(4,8,16,.5)]', s.shell, className ?? ''].filter(Boolean).join(' ')}
+      className={['overflow-hidden border bg-shade/50', s.shell, className ?? ''].filter(Boolean).join(' ')}
     >
       {options.map((option, index) => {
         const active = option.value === value
@@ -138,7 +138,7 @@ export function Segmented<T extends string>({
               s.item,
               // The divider belongs to the segment on its right, so the
               // shell's own border is never doubled at either end.
-              index > 0 && size !== 'steps' ? 'border-l border-[rgba(150,205,255,.12)]' : '',
+              index > 0 && size !== 'steps' ? 'border-l border-line/12' : '',
               // Selection is a tint, an ink and a weight — three channels, so
               // it survives both colour blindness and the neutral hover
               // underneath it. NOT the accent as a fill: 1h and 10a draw this

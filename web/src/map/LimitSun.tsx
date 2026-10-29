@@ -464,7 +464,7 @@ export function LimitSunCard({
   return (
     <div
       data-limit-sun-card
-      className={['orbital-popover-in pointer-events-none absolute flex flex-col gap-0.5 text-[#e8eef8]', POPUP_SHELL].join(' ')}
+      className={['orbital-popover-in pointer-events-none absolute flex flex-col gap-0.5 text-ink-100', POPUP_SHELL].join(' ')}
       style={{ left, top, width: SUN_CARD_WIDTH_PX, boxSizing: 'border-box', padding: '12px 14px 10px' }}
     >
       <div className="flex items-center gap-1.5 pb-2">
@@ -473,7 +473,7 @@ export function LimitSunCard({
           <ClaudeDirMark key={t} mono={t} />
         ))}
         <span className="min-w-0 flex-1 truncate fs-12.5 font-bold">{sun.title}</span>
-        <span className="font-mono fs-10 text-[rgba(160,190,225,.55)]">
+        <span className="font-mono fs-10 text-ink-900/55">
           {sun.stale ? `last read ${sun.readClock}` : `read ${sun.readClock}`}
         </span>
       </div>
@@ -503,7 +503,7 @@ export function LimitSunCard({
           dim={sun.stale}
         />
       )}
-      <div className="border-t border-[rgba(150,205,255,.08)] pt-2 font-mono fs-9.5 tracking-[0.06em] text-[rgba(160,190,225,.45)]">
+      <div className="border-t border-line/8 pt-2 font-mono fs-9.5 tracking-[0.06em] text-ink-900/45">
         click: open Limits · drag: move
       </div>
     </div>
@@ -529,7 +529,7 @@ function CardRow({
 }) {
   return (
     <div
-      className="flex flex-col gap-[5px] border-t border-[rgba(150,205,255,.08)] py-2"
+      className="flex flex-col gap-[5px] border-t border-line/8 py-2"
       // 60b: a stale account's rows at .6.
       style={{ opacity: dim ? 0.6 : 1 }}
     >
@@ -537,19 +537,19 @@ function CardRow({
         <span className="flex-1 fs-12 leading-(--text-xs--line-height) font-semibold">{name}</span>
         <span className="font-mono fs-12 leading-(--text-xs--line-height)">{value}</span>
       </div>
-      <div className="h-[3px] overflow-hidden rounded-[2px] bg-[rgba(150,205,255,.1)]">
+      <div className="h-[3px] overflow-hidden rounded-[2px] bg-line/10">
         <span
           className="block h-full rounded-[2px]"
           style={{ width: `${Math.min(Math.max(percent, 0), 100)}%`, background: fill }}
         />
       </div>
-      <div className="flex gap-2 font-mono fs-10 text-[rgba(160,190,225,.6)]">
+      <div className="flex gap-2 font-mono fs-10 text-ink-900/60">
         <span>{reset ?? ''}</span>
         <span className="flex-1" />
         {estimate && (
           <span style={{ color: estimate.lit ? 'rgba(160,190,225,.75)' : 'rgba(160,190,225,.55)' }}>
             {estimate.before}
-            <span className="text-[#e8eef8]">{estimate.at}</span>
+            <span className="text-ink-100">{estimate.at}</span>
             {estimate.after}
           </span>
         )}

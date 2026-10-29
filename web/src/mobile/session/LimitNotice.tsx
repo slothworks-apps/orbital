@@ -1,3 +1,4 @@
+import { swatch } from '../../lib/palette'
 import { useState } from 'react'
 import { api } from '../../lib/api'
 import { useNow } from '../../lib/useNow'
@@ -46,25 +47,25 @@ export function LimitNotice({ session, offline }: SlotProps) {
     <div data-limit-wait className="flex flex-col gap-3">
       {notice.kind === 'live' ? (
         // canvas 10k, first phone
-        <div className="flex flex-col gap-2.5 rounded-[12px] border border-[rgba(150,205,255,.16)] bg-[rgba(8,12,22,.9)] px-3.5 py-3">
+        <div className="flex flex-col gap-2.5 rounded-[12px] border border-line/16 bg-space-deep/90 px-3.5 py-3">
           <div className="flex items-start gap-2.5">
             <span
               aria-hidden
-              className="mt-1 box-border block h-[9px] w-[9px] flex-none rounded-full border-[1.5px] border-[rgba(200,215,235,.7)]"
+              className="mt-1 box-border block h-[9px] w-[9px] flex-none rounded-full border-[1.5px] border-ink-600/70"
             />
             <span className="flex min-w-0 flex-1 flex-col gap-1">
               <span className="fs-14 font-semibold">{notice.title}</span>
-              <span className="font-mono fs-10.5 leading-[1.5] text-[rgba(160,190,225,.7)]">{notice.sub}</span>
+              <span className="font-mono fs-10.5 leading-[1.5] text-ink-900/70">{notice.sub}</span>
             </span>
           </div>
           <div className="flex items-center gap-2.5 pl-[19px]">
-            <span className="min-w-0 flex-1 font-mono fs-10 text-[rgba(160,190,225,.5)]">{notice.meta}</span>
+            <span className="min-w-0 flex-1 font-mono fs-10 text-ink-900/50">{notice.meta}</span>
             {notice.action && (
               <button
                 type="button"
                 onClick={act}
                 disabled={busy}
-                className="h-11 min-w-[88px] rounded-[12px] border border-[rgba(150,205,255,.22)] bg-transparent px-4 fs-13.5 font-semibold text-text-bright"
+                className="h-11 min-w-[88px] rounded-[12px] border border-line/22 bg-transparent px-4 fs-13.5 font-semibold text-ink-100"
               >
                 {notice.action === 'cancel' ? 'Cancel' : 'Undo'}
               </button>
@@ -73,12 +74,12 @@ export function LimitNotice({ session, offline }: SlotProps) {
         </div>
       ) : (
         // canvas 10k, second phone: the Mac asleep — no button
-        <div className="flex flex-col gap-1.5 rounded-[12px] border border-[rgba(150,205,255,.12)] bg-[rgba(8,12,22,.85)] px-3.5 py-3">
-          <span className="fs-14 font-semibold text-[rgba(232,238,248,.85)]">{notice.title}</span>
+        <div className="flex flex-col gap-1.5 rounded-[12px] border border-line/12 bg-space-deep/85 px-3.5 py-3">
+          <span className="fs-14 font-semibold text-ink-100/85">{notice.title}</span>
           {notice.body && (
-            <span className="fs-12.5 leading-[1.5] text-pretty text-[rgba(160,190,225,.7)]">{notice.body}</span>
+            <span className="fs-12.5 leading-[1.5] text-pretty text-ink-900/70">{notice.body}</span>
           )}
-          <span className="font-mono fs-10 text-[rgba(160,190,225,.5)]">{notice.meta}</span>
+          <span className="font-mono fs-10 text-ink-900/50">{notice.meta}</span>
         </div>
       )}
       {wait.queued.map((text, i) => (
@@ -90,12 +91,12 @@ export function LimitNotice({ session, offline }: SlotProps) {
             className="whitespace-pre-wrap rounded-[16px_16px_5px_16px] border border-dashed px-3.5 py-2.5 fs-14 leading-[1.5]"
             style={{
               borderColor: `oklch(80% .13 ${hue} / ${offline ? '.3' : '.4'})`,
-              color: offline ? 'rgba(232,238,248,.7)' : 'rgba(232,238,248,.85)',
+              color: offline ? swatch('ink-100', 0.7) : swatch('ink-100', 0.85),
             }}
           >
             {text}
           </div>
-          {!offline && <span className="font-mono fs-10 text-[rgba(160,190,225,.6)]">{QUEUED_NOTE}</span>}
+          {!offline && <span className="font-mono fs-10 text-ink-900/60">{QUEUED_NOTE}</span>}
         </div>
       ))}
     </div>

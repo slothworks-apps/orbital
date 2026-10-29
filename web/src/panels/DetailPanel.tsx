@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -129,14 +130,14 @@ const NO_VALUE = '—'
 
 /** The unmeasured read-out and its note (canvas 1b-alt): deliberately NOT the
  * session's hue, so an em dash cannot be mistaken for a reading. */
-const UNMEASURED_INK = 'rgba(150,205,255,.3)'
+const UNMEASURED_INK = swatch('line', 0.3)
 /**
  * The gauge while the session compacts (26c/26e): the old number held at .55,
  * the bar greyed like the map's arc, and a note that says why.
  */
-const COMPACTING_READOUT_INK = 'rgba(200,215,235,.55)'
-const COMPACTING_BAR_INK = 'rgba(200,215,235,.3)'
-const COMPACTING_NOTE_INK = 'rgba(160,190,225,.6)'
+const COMPACTING_READOUT_INK = swatch('ink-600', 0.55)
+const COMPACTING_BAR_INK = swatch('ink-600', 0.3)
+const COMPACTING_NOTE_INK = swatch('ink-900', 0.6)
 
 /**
  * Right-hand detail panel (artboard 1b, header re-cut by `Feature - Detail
@@ -821,7 +822,7 @@ export function DetailPanel({
         onDoubleClick={handleWidthReset}
         // `orbital-no-drag`: its top runs under the main window's drag band
         // (canvas `Feature - Main window chrome` 24a), which would take it.
-        className="orbital-no-drag absolute inset-y-0 left-0 z-20 w-2 cursor-col-resize touch-none hover:bg-[rgba(150,205,255,.08)]"
+        className="orbital-no-drag absolute inset-y-0 left-0 z-20 w-2 cursor-col-resize touch-none hover:bg-line/8"
       />
       )}
       {/* Top hairline glint in the session's tag hue (canvas 1b). A detached
@@ -839,7 +840,7 @@ export function DetailPanel({
           clickable there. */}
       <div
         className={[
-          'orbital-band-controls border-b border-panel-border px-[22px] pt-3 pb-4',
+          'orbital-band-controls border-b border-line/14 px-[22px] pt-3 pb-4',
           dropArmed ? 'opacity-40' : '',
         ].join(' ')}
       >
@@ -890,7 +891,7 @@ export function DetailPanel({
             // session's own accent, the same signal the caret carries.
             style={{
               borderBottomStyle: isEditingTitle ? 'solid' : 'dashed',
-              borderBottomColor: isEditingTitle ? accentSoft70 : 'rgba(150,205,255,.35)',
+              borderBottomColor: isEditingTitle ? accentSoft70 : swatch('line', 0.35),
             }}
           >
             {isEditingTitle ? (
@@ -910,7 +911,7 @@ export function DetailPanel({
                 // Scrolls rather than clips past the second line: the clamp
                 // is how a title is READ, and a caret you cannot see is not a
                 // way to write one.
-                className="min-w-0 flex-1 resize-none overflow-y-auto bg-transparent text-text-bright focus:outline-none"
+                className="min-w-0 flex-1 resize-none overflow-y-auto bg-transparent text-ink-100 focus:outline-none"
                 style={TITLE_TYPE}
               />
             ) : (
@@ -918,7 +919,7 @@ export function DetailPanel({
                 type="button"
                 title="Rename this session"
                 onClick={beginTitleEdit}
-                className="min-w-0 flex-1 cursor-text text-left text-text-bright transition-opacity duration-200"
+                className="min-w-0 flex-1 cursor-text text-left text-ink-100 transition-opacity duration-200"
                 // 9d: the old name stays on screen at 45% while the model
                 // writes the new one, so the row neither empties nor jumps.
                 style={{ ...TITLE_TYPE, opacity: retitling ? 0.45 : 1 }}
@@ -933,7 +934,7 @@ export function DetailPanel({
             <span
               aria-hidden
               className="mt-1 shrink-0 fs-12 leading-(--text-xs--line-height)"
-              style={{ color: isEditingTitle ? 'rgba(160,190,225,.35)' : 'rgba(160,190,225,.6)' }}
+              style={{ color: isEditingTitle ? swatch('ink-900', 0.35) : swatch('ink-900', 0.6) }}
             >
               ✎
             </span>
@@ -1070,7 +1071,7 @@ export function DetailPanel({
                 <span
                   data-terminal-chip
                   title="Attached from an external terminal · Orbital measures no context for it"
-                  className="rounded-[4px] border border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.04)] px-[7px] py-[3px] font-mono fs-9.5 tracking-[0.16em] text-[rgba(160,190,225,.75)]"
+                  className="rounded-[4px] border border-line/18 bg-line/4 px-[7px] py-[3px] font-mono fs-9.5 tracking-[0.16em] text-ink-900/75"
                 >
                   TERMINAL
                 </span>
@@ -1084,7 +1085,7 @@ export function DetailPanel({
                 `Feature - Terminal` 48e: bar flex, gap 12, read-out right). */}
             {showContext && (
               <div className="mt-[9px] flex items-center gap-3">
-                <div className="relative h-[3px] min-w-0 flex-1 overflow-hidden rounded-[2px] bg-[rgba(150,205,255,.12)]">
+                <div className="relative h-[3px] min-w-0 flex-1 overflow-hidden rounded-[2px] bg-line/12">
                   {contextPercent !== undefined && (
                     <span
                       role="progressbar"
@@ -1110,7 +1111,7 @@ export function DetailPanel({
                       key={percent}
                       aria-hidden
                       data-context-notch={percent}
-                      className="absolute top-0 bottom-0 w-[1.5px] bg-[rgba(4,8,16,.8)]"
+                      className="absolute top-0 bottom-0 w-[1.5px] bg-shade/80"
                       style={{ left: `${percent}%` }}
                     />
                   ))}
@@ -1139,7 +1140,7 @@ export function DetailPanel({
                         a session past a mis-learned window says so. */}
                     {contextUsed != null ? formatTokens(contextUsed) : NO_VALUE}
                   </span>
-                  <span className="fs-10 text-[rgba(160,190,225,.55)]">
+                  <span className="fs-10 text-ink-900/55">
                     / {formatContextWindow(contextWindow)}
                   </span>
                 </span>
@@ -1210,7 +1211,7 @@ export function DetailPanel({
       {session?.interruptedAt != null && (
         <div
           data-interrupted-banner
-          className="mx-[22px] mb-3.5 rounded-[10px] border border-white/25 bg-white/[0.06] px-3.5 py-3 font-mono fs-10.5 leading-[1.7] text-[rgba(220,235,255,.85)] [text-wrap:pretty]"
+          className="mx-[22px] mb-3.5 rounded-[10px] border border-white/25 bg-white/[0.06] px-3.5 py-3 font-mono fs-10.5 leading-[1.7] text-ink-200/85 [text-wrap:pretty]"
         >
           Turn interrupted by a server restart. The conversation is intact — ask again for
           whatever did not come back.
@@ -1221,14 +1222,14 @@ export function DetailPanel({
           left on the map. Only an ended session has either to say — a live
           one is not going anywhere. */}
       {footNote && (
-        <div className="mx-[22px] mb-3.5 rounded-[10px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3.5 py-3 font-mono fs-10.5 leading-[1.7] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+        <div className="mx-[22px] mb-3.5 rounded-[10px] border border-line/10 bg-shade/45 px-3.5 py-3 font-mono fs-10.5 leading-[1.7] text-ink-900/70 [text-wrap:pretty]">
           {footNote}
         </div>
       )}
 
       {/* Composer — canvas 1b: padding 14px 16px 16px over a hairline rule. */}
       <div
-        className="border-t border-panel-border px-4 pb-4 pt-3.5"
+        className="border-t border-line/14 px-4 pb-4 pt-3.5"
         // Canvas 9f D: during the review ⇧⇥ from the composer jumps to the
         // card's Send.
         onKeyDownCapture={(e) => {
@@ -1249,7 +1250,7 @@ export function DetailPanel({
           // Take over (spec 2026-10-21-take-over-terminal-session-design): a
           // CLI that is not plainly idle asks first, since what runs there
           // stops. The bar keeps its old height; placement awaits Claude Design.
-          <div className="flex items-center justify-between gap-3 rounded-[10px] border border-[rgba(150,205,255,.18)] bg-[rgba(4,8,16,.6)] py-[5px] pl-3 pr-[5px] font-mono fs-11.5 text-text-muted">
+          <div className="flex items-center justify-between gap-3 rounded-[10px] border border-line/18 bg-shade/60 py-[5px] pl-3 pr-[5px] font-mono fs-11.5 text-ink-900/70">
             runs in terminal — read-only
             {canTakeOver(session) && (
               <Button
@@ -1267,15 +1268,15 @@ export function DetailPanel({
           <div
             data-device-lock
             aria-disabled="true"
-            className="flex items-start gap-3 rounded-[10px] border border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.4)] px-3.5 py-[13px]"
+            className="flex items-start gap-3 rounded-[10px] border border-line/14 bg-shade/40 px-3.5 py-[13px]"
           >
             <span
               aria-hidden
-              className="mt-[5px] box-border block size-2 flex-none rounded-full border-[1.3px] border-solid border-[rgba(200,215,235,.6)]"
+              className="mt-[5px] box-border block size-2 flex-none rounded-full border-[1.3px] border-solid border-ink-600/60"
             />
             <span className="flex flex-1 flex-col gap-1">
-              <span className="fs-13.5 font-semibold text-text-bright">{lock.title}</span>
-              <span className="fs-12.5 leading-normal text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+              <span className="fs-13.5 font-semibold text-ink-100">{lock.title}</span>
+              <span className="fs-12.5 leading-normal text-ink-900/72 [text-wrap:pretty]">
                 {lock.body}
               </span>
             </span>
@@ -1337,7 +1338,7 @@ export function DetailPanel({
                   <span className="flex text-accent">
                     <RewindGlyph size="strip" />
                   </span>
-                  <span className="text-text-bright">Pick one of your messages to rewind to</span>
+                  <span className="text-ink-100">Pick one of your messages to rewind to</span>
                   <span aria-hidden className="flex-1" />
                   <Button variant="strip" size="strip" onClick={leavePick}>
                     Cancel
@@ -1349,8 +1350,8 @@ export function DetailPanel({
                   <span className="flex text-accent">
                     <RewindGlyph size="strip" />
                   </span>
-                  <span className="text-text-bright">Rewound</span>
-                  <span aria-hidden className="text-[rgba(150,205,255,.3)]">
+                  <span className="text-ink-100">Rewound</span>
+                  <span aria-hidden className="text-line/30">
                     ·
                   </span>
                   <span data-rewind-hidden>
@@ -1482,7 +1483,7 @@ export function DetailPanel({
           // Square in a detached window, where the panel has no radius (22b).
           standalone ? '' : 'rounded-[14px]',
           dropArmed
-            ? 'border-[oklch(85%_.12_205_/_.45)] shadow-[inset_0_0_0_1px_oklch(85%_.12_205_/_.12)]'
+            ? 'border-accent/45 shadow-[inset_0_0_0_1px_oklch(85%_.12_205_/_.12)]'
             : 'border-transparent',
         ].join(' ')}
       />

@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { api, ApiError } from '../lib/api'
 import { modelNameForId } from '../lib/models'
@@ -111,13 +112,13 @@ export function SessionDrilldown({ id }: { id: string }) {
   return (
     <StatsShell sky="session" bar={bar}>
       {error !== null && (
-        <div className="rounded-[14px] border border-[rgba(255,138,122,.35)] bg-[rgba(4,8,16,.45)] px-[14px] py-3 font-mono fs-11.5 text-[#ff8a7a]">
+        <div className="rounded-[14px] border border-danger-soft/35 bg-shade/45 px-[14px] py-3 font-mono fs-11.5 text-danger-soft">
           session stats unavailable — {error}
         </div>
       )}
 
       {detail === null && error === null && (
-        <div className="flex flex-1 items-center justify-center font-mono fs-11.5 text-[rgba(160,190,225,.5)]">
+        <div className="flex flex-1 items-center justify-center font-mono fs-11.5 text-ink-900/50">
           reading the transcript…
         </div>
       )}
@@ -208,7 +209,7 @@ function SessionMeta({
       />
       <div className="min-w-0">
         <h1 className="truncate fs-21 font-bold tracking-[-0.01em]">{session.title}</h1>
-        <div className="mt-[5px] truncate font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
+        <div className="mt-[5px] truncate font-mono fs-10.5 text-ink-900/60">
           {meta.join(' · ')}
         </div>
       </div>
@@ -217,7 +218,7 @@ function SessionMeta({
           `selected-session-lives-in-the-url-query`). */}
       <a
         href={`/?${SESSION_PARAM}=${encodeURIComponent(session.id)}`}
-        className="rounded-lg border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.5)] px-[13px] py-[7px] font-mono fs-11 text-text-soft no-underline"
+        className="rounded-lg border border-line/16 bg-shade/50 px-[13px] py-[7px] font-mono fs-11 text-ink-300 no-underline"
       >
         open transcript
       </a>
@@ -256,9 +257,9 @@ function SessionTiles({ detail, showWaits }: { detail: SessionStatsDetail; showW
 
       {/* The cost tile is the one 10b borders in the critical hue: uncached
           input is what a drilldown is usually opened to explain. */}
-      <Tile label="COST" weight={180} border="rgba(255,138,122,.3)">
+      <Tile label="COST" weight={180} border={swatch('danger-soft', 0.3)}>
         <Hero value={formatCostAmount(cost.total)} unit="$" unitLeading />
-        <SubLine tone="#ff8a7a">${formatCostAmount(cost.uncachedInput)} uncached input</SubLine>
+        <SubLine tone={swatch('danger-soft')}>${formatCostAmount(cost.uncachedInput)} uncached input</SubLine>
       </Tile>
 
       <Tile label="SPLIT" weight={634}>
@@ -273,7 +274,7 @@ function SessionTiles({ detail, showWaits }: { detail: SessionStatsDetail; showW
             />
           ))}
         </div>
-        <div className="mt-[9px] flex flex-wrap gap-4 font-mono fs-10.5 text-[rgba(160,190,225,.8)]">
+        <div className="mt-[9px] flex flex-wrap gap-4 font-mono fs-10.5 text-ink-900/80">
           {TIME_CATEGORIES.map((category) => (
             <span key={category.field} className="flex items-center gap-1.5">
               <span
@@ -333,10 +334,10 @@ function Hero({
   unitLeading?: boolean
 }) {
   const unitSpan = unit ? (
-    <span className="fs-19 text-[rgba(200,225,255,.75)]">{unit}</span>
+    <span className="fs-19 text-ink-300/75">{unit}</span>
   ) : null
   return (
-    <div className="mt-2 font-mono fs-30 leading-none tracking-[-0.02em] text-text-bright">
+    <div className="mt-2 font-mono fs-30 leading-none tracking-[-0.02em] text-ink-100">
       {unitLeading && unitSpan}
       {value}
       {!unitLeading && unitSpan}
@@ -348,7 +349,7 @@ function SubLine({ children, tone }: { children: ReactNode; tone?: string }) {
   return (
     <div
       className="mt-[7px] font-mono fs-10.5"
-      style={{ color: tone ?? 'rgba(160,190,225,.6)' }}
+      style={{ color: tone ?? swatch('ink-900', 0.6) }}
     >
       {children}
     </div>
@@ -381,14 +382,14 @@ function SessionFindings({
       <div className="flex items-baseline">
         <div className={PANEL_LABEL_CLASS}>FINDINGS IN THIS SESSION</div>
         <span className="flex-1" />
-        <div className="font-mono fs-10 text-[rgba(160,190,225,.45)]">
+        <div className="font-mono fs-10 text-ink-900/45">
           {detail.findings.length}
         </div>
       </div>
 
       {detail.findings.length === 0 ? (
         <>
-          <div className="font-mono fs-11 leading-[1.55] text-[rgba(160,190,225,.6)]">
+          <div className="font-mono fs-11 leading-[1.55] text-ink-900/60">
             nothing to report in this session
           </div>
           <span className="flex-1" />
@@ -420,7 +421,7 @@ function SessionFindings({
         </Scroller>
       )}
 
-      <div className="font-mono fs-10.5 leading-[1.55] text-[rgba(160,190,225,.5)]">
+      <div className="font-mono fs-10.5 leading-[1.55] text-ink-900/50">
         Rules run over the stored transcript when the session ends, and every 10 turns while it is
         live.
       </div>
@@ -430,9 +431,9 @@ function SessionFindings({
 
 /** The four priced lines of 10b's WHERE THE MONEY WENT, plus what subagents added. */
 const COST_ROWS: Array<{ label: string; field: keyof SessionStatsDetail['cost']; color: string }> = [
-  { label: 'uncached input', field: 'uncachedInput', color: '#ff8a7a' },
-  { label: 'cache read', field: 'cacheRead', color: '#59e4f3' },
-  { label: 'cache write', field: 'cacheWrite', color: '#59e4f3' },
+  { label: 'uncached input', field: 'uncachedInput', color: swatch('danger-soft') },
+  { label: 'cache read', field: 'cacheRead', color: swatch('accent') },
+  { label: 'cache write', field: 'cacheWrite', color: swatch('accent') },
   { label: 'output', field: 'output', color: '#b18cff' },
   // Priced from the subagents' own usage, so it is not part of the four above
   // and would otherwise be a gap between the rows and the total.
@@ -445,10 +446,10 @@ function MoneyPanel({ cost }: { cost: SessionStatsDetail['cost'] }) {
   return (
     <section aria-label="Where the money went" className={`${PANEL_CLASS} px-[18px] py-4`}>
       <div className={PANEL_LABEL_CLASS}>WHERE THE MONEY WENT</div>
-      <div className="mt-3 flex flex-col gap-[11px] font-mono fs-11.5 text-text-bright">
+      <div className="mt-3 flex flex-col gap-[11px] font-mono fs-11.5 text-ink-100">
         {rows.map((row) => (
           <div key={row.label} className="flex items-center gap-3">
-            <span className="w-[132px] shrink-0 text-[rgba(160,190,225,.75)]">{row.label}</span>
+            <span className="w-[132px] shrink-0 text-ink-900/75">{row.label}</span>
             <span
               className="block h-[5px] flex-1 rounded-[3px]"
               style={{ background: TRACK_COLOR }}
@@ -464,8 +465,8 @@ function MoneyPanel({ cost }: { cost: SessionStatsDetail['cost'] }) {
             <span className="w-[58px] shrink-0 text-right">${formatCostAmount(cost[row.field])}</span>
           </div>
         ))}
-        <div className="mt-[3px] flex items-baseline border-t border-[rgba(150,205,255,.1)] pt-2.5">
-          <span className="text-[rgba(160,190,225,.75)]">total</span>
+        <div className="mt-[3px] flex items-baseline border-t border-line/10 pt-2.5">
+          <span className="text-ink-900/75">total</span>
           <span className="flex-1" />
           <span className="fs-17">${formatCostAmount(cost.total)}</span>
         </div>

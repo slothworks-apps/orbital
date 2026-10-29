@@ -13,8 +13,8 @@ export type UtilityVariant = 'strip' | 'title'
 
 /** Box size and resting ink per variant, verbatim from 9d's geometry table. */
 const VARIANTS = {
-  strip: { size: 24, ink: 'text-[rgba(200,220,245,.7)]' },
-  title: { size: 22, ink: 'text-[rgba(160,190,225,.75)]' },
+  strip: { size: 24, ink: 'text-ink-500/70' },
+  title: { size: 22, ink: 'text-ink-900/75' },
 } as const satisfies Record<UtilityVariant, unknown>
 
 export interface UtilityButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -65,11 +65,11 @@ export function UtilityButton({
           ? // No `disabled:opacity-50` here: a control is disabled BECAUSE it
             // is active (the ring while it spins), and dimming the accent
             // would read as the opposite of running.
-            'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-accent'
+            'border-line/30 bg-line/14 text-accent'
           : open
             ? // Focus still draws its ring: closing a menu hands focus back
               // here, and the ring is how a keyboard user sees it land.
-              'bg-[rgba(150,205,255,.14)] text-[#e8eef8] focus-visible:border-[oklch(85%_.12_205_/_.7)]'
+              'bg-line/14 text-ink-100 focus-visible:border-accent/70'
             : [
               v.ink,
               // The dim of a button that has nothing to open — canvas
@@ -77,14 +77,14 @@ export function UtilityButton({
               // rgba(200,220,245,.28), which is the strip's own resting ink
               // taken to four tenths.
               'disabled:opacity-40',
-              'hover:bg-[rgba(150,205,255,.09)] hover:text-[#dce8f7]',
+              'hover:bg-line/9 hover:text-ink-400',
               // Focus is the hover look plus a hairline ring in the accent,
               // drawn on the box's own transparent border so nothing shifts;
               // a press deepens the fill (canvas `Feature - Detached window`
               // 22a, STATES).
-              'focus-visible:bg-[rgba(150,205,255,.09)] focus-visible:text-[#dce8f7]',
-              'focus-visible:border-[oklch(85%_.12_205_/_.7)]',
-              'active:bg-[rgba(150,205,255,.14)]',
+              'focus-visible:bg-line/9 focus-visible:text-ink-400',
+              'focus-visible:border-accent/70',
+              'active:bg-line/14',
             ].join(' '),
         className ?? '',
       ]

@@ -113,9 +113,9 @@ function GonePage({
   useSwipe(stage, onPage, onBack)
   const sub = ['not on disk', count > 1 ? `${index + 1} of ${count}` : null].filter(Boolean).join(' · ')
   return (
-    <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-black text-[#e8eef8]">
+    <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-black text-ink-100">
       <div ref={stage} className="absolute inset-0 flex items-center justify-center px-6">
-        <div className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-[12px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.6)]">
+        <div className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-[12px] border border-line/10 bg-shade/60">
           <GoneMark size="dialog" />
         </div>
       </div>
@@ -124,13 +124,13 @@ function GonePage({
           type="button"
           aria-label="Back"
           onClick={onBack}
-          className="grid h-11 w-11 shrink-0 place-items-center fs-28 leading-none text-[#e8eef8]"
+          className="grid h-11 w-11 shrink-0 place-items-center fs-28 leading-none text-ink-100"
         >
           ‹
         </button>
         <div className="min-w-0 flex-1">
           <div className="truncate fs-15 font-semibold">{item.path ? basename(item.path) : 'Image'}</div>
-          <div className="mt-0.5 truncate font-mono fs-10.5 text-[rgba(200,215,235,.7)]">{sub}</div>
+          <div className="mt-0.5 truncate font-mono fs-10.5 text-ink-600/70">{sub}</div>
         </div>
       </div>
       <div className="flex-1" />

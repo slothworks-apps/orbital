@@ -32,14 +32,14 @@ import { POPUP_SHELL, usePopupPosition } from '../ui/usePopupPosition'
 
 /** 24f B: the tag plate's ink, fill and hairline — 7b's readout grammar, shrunk. */
 const TAG_CLASS =
-  'absolute rounded-[3px] border border-[rgba(150,205,255,.14)] bg-[rgba(5,7,13,.85)] px-[5px] py-px font-mono leading-[1.4] text-[rgba(200,220,245,.85)]'
+  'absolute rounded-[3px] border border-line/14 bg-space/85 px-[5px] py-px font-mono leading-[1.4] text-ink-500/85'
 
 /** 24f B's TOOL RUN: one offset hairline behind the tile — a stack, not a shadow. */
-const STACK_SHADOW = 'shadow-[3px_-3px_0_-1px_#0b1120,3px_-3px_0_0_rgba(150,205,255,.16)]'
+const STACK_SHADOW = 'shadow-[3px_-3px_0_-1px_var(--color-panel-solid),3px_-3px_0_0_color-mix(in_oklab,_var(--color-line)_16%,_transparent)]'
 /** 24f B: hover is 7d's — border to .42 and a 3px accent halo, no scale; on the tile's group, so its line counts too. */
-const HOVER_HALO = 'group-hover:shadow-[0_0_0_3px_rgba(89,228,243,.12)]'
+const HOVER_HALO = 'group-hover:shadow-[0_0_0_3px_color-mix(in_oklab,_var(--color-accent)_12%,_transparent)]'
 const STACK_HOVER_HALO =
-  'group-hover:shadow-[3px_-3px_0_-1px_#0b1120,3px_-3px_0_0_rgba(150,205,255,.16),0_0_0_3px_rgba(89,228,243,.12)]'
+  'group-hover:shadow-[3px_-3px_0_-1px_var(--color-panel-solid),3px_-3px_0_0_color-mix(in_oklab,_var(--color-line)_16%,_transparent),0_0_0_3px_color-mix(in_oklab,_var(--color-accent)_12%,_transparent)]'
 
 /** Whether the list says the file an item names is gone. */
 export function isGone(item: MediaItem): boolean {
@@ -62,14 +62,14 @@ export function GoneMark({ size }: { size: GoneSize }) {
   const glyph = size === 'tile' ? 'h-3 w-3' : size === 'reply' ? 'h-3.5 w-3.5' : 'h-5 w-5 rounded-[4px]'
   return (
     <>
-      <span aria-hidden className={['block rounded-[3px] border border-[rgba(160,190,225,.35)]', glyph].join(' ')} />
+      <span aria-hidden className={['block rounded-[3px] border border-ink-900/35', glyph].join(' ')} />
       <span
         className={
           size === 'tile'
-            ? 'text-center font-mono fs-7.5 tracking-[0.06em] text-[rgba(160,190,225,.5)]'
+            ? 'text-center font-mono fs-7.5 tracking-[0.06em] text-ink-900/50'
             : size === 'reply'
-              ? 'font-mono fs-9 tracking-[0.1em] text-[rgba(160,190,225,.5)]'
-              : 'font-mono fs-11 tracking-[0.1em] text-[rgba(200,220,245,.75)]'
+              ? 'font-mono fs-9 tracking-[0.1em] text-ink-900/50'
+              : 'font-mono fs-11 tracking-[0.1em] text-ink-500/75'
         }
       >
         {size === 'tile' ? 'NOT ON DISK' : 'NO LONGER ON DISK'}
@@ -120,7 +120,7 @@ export function MediaPicture({
 export type TileVariant = 'glance' | 'gallery'
 
 /** 26d B: the letterbox is the tile's own near-black, not a new colour. */
-const TILE_FILL = 'bg-[#070b14]'
+const TILE_FILL = 'bg-shade'
 
 /**
  * One grid tile (24b's glance, 24d's gallery; 26a, 26d): the whole image
@@ -164,8 +164,8 @@ export function MediaTileButton({
           TILE_FILL,
           'transition-[border-color,box-shadow] duration-[160ms] ease-[ease]',
           gone
-            ? 'flex flex-col items-center justify-center gap-[5px] border-[rgba(150,205,255,.1)]'
-            : 'block border-[rgba(150,205,255,.14)] group-hover:border-[rgba(150,205,255,.42)]',
+            ? 'flex flex-col items-center justify-center gap-[5px] border-line/10'
+            : 'block border-line/14 group-hover:border-line/42',
           stacked ? `${STACK_SHADOW} ${STACK_HOVER_HALO}` : gone ? '' : HOVER_HALO,
         ].join(' ')}
       >
@@ -188,7 +188,7 @@ export function MediaTileButton({
           </span>
         )}
         {gallery && !gone && (
-          <span className="absolute right-[5px] top-1 font-mono fs-9 text-[rgba(200,220,245,.6)]">
+          <span className="absolute right-[5px] top-1 font-mono fs-9 text-ink-500/60">
             {mediaClock(cover.ts)}
           </span>
         )}
@@ -231,11 +231,11 @@ export function TileCaption({
     <span
       className={[
         'flex min-w-0 items-center gap-[5px] font-mono leading-[1.3]',
-        caption.named ? 'text-[rgba(220,235,255,.88)]' : 'text-[rgba(160,190,225,.6)]',
+        caption.named ? 'text-ink-200/88' : 'text-ink-900/60',
         className,
       ].join(' ')}
     >
-      {caption.moon && <span aria-hidden className={['block flex-none rounded-full border-[rgba(200,220,245,.7)]', dot].join(' ')} />}
+      {caption.moon && <span aria-hidden className={['block flex-none rounded-full border-ink-500/70', dot].join(' ')} />}
       {caption.named ? (
         // rtl puts the ellipsis at the front; the marks keep the name itself reading left to right.
         <span dir="rtl" className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-left">
@@ -254,10 +254,10 @@ export function PdfTag({ pages }: { pages: number | null }) {
 }
 
 /** 26a: the chip convention — resting hairline for everything, the filled chip once narrowed. */
-const CHIP_REST = 'border-[rgba(150,205,255,.14)] bg-transparent text-[rgba(200,220,245,.75)] hover:border-[rgba(150,205,255,.3)]'
-const CHIP_ACTIVE = 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-[#e8eef8]'
+const CHIP_REST = 'border-line/14 bg-transparent text-ink-500/75 hover:border-line/30'
+const CHIP_ACTIVE = 'border-line/30 bg-line/14 text-ink-100'
 /** 26a: the ✓ and the row's accent. */
-const ACCENT_INK = 'text-[oklch(85%_.12_205)]'
+const ACCENT_INK = 'text-accent'
 
 /** Marks the list, so a popover it opens over does not take a press inside it for a press outside. */
 export const SOURCES_LIST_ATTR = 'data-media-sources'
@@ -363,7 +363,7 @@ function SourcesList({
       onClick={(event) => event.stopPropagation()}
       className={['orbital-no-drag orbital-popover-in fixed z-[70] w-[264px] overflow-hidden font-mono', POPUP_SHELL].join(' ')}
     >
-      <div className="px-3 pb-1.5 pt-[9px] fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.55)]">SHOW IMAGES FROM</div>
+      <div className="px-3 pb-1.5 pt-[9px] fs-9.5 tracking-[0.14em] text-ink-900/55">SHOW IMAGES FROM</div>
       {MEDIA_SOURCES.map((key) => {
         const count = counts[key]
         const on = sourceShown(key, hidden, counts)
@@ -375,7 +375,7 @@ function SourcesList({
             key={key}
             onMouseEnter={() => setHover(key)}
             onMouseLeave={() => setHover(null)}
-            className={['flex items-center px-1.5', hovered ? 'bg-[rgba(150,205,255,.06)]' : ''].join(' ')}
+            className={['flex items-center px-1.5', hovered ? 'bg-line/6' : ''].join(' ')}
           >
             <button
               type="button"
@@ -385,7 +385,7 @@ function SourcesList({
               onClick={(event) => (event.altKey ? only(key) : toggle(key))}
               className={[
                 'flex h-fit min-h-8 min-w-0 flex-1 items-center gap-2 px-1.5 py-1 text-left fs-11 disabled:cursor-default',
-                on && !empty ? 'text-[#e8eef8]' : 'text-[rgba(160,190,225,.55)]',
+                on && !empty ? 'text-ink-100' : 'text-ink-900/55',
               ].join(' ')}
             >
               <span aria-hidden className={['w-3 flex-none fs-11', ACCENT_INK].join(' ')}>
@@ -396,7 +396,7 @@ function SourcesList({
               )}
               <span className="flex min-w-0 flex-1 flex-col gap-px">
                 <span className="truncate">{SOURCE_LABELS[key]}</span>
-                {detail && <span className="truncate fs-9.5 text-[rgba(160,190,225,.5)]">{detail}</span>}
+                {detail && <span className="truncate fs-9.5 text-ink-900/50">{detail}</span>}
               </span>
             </button>
             <span className="flex w-11 flex-none justify-end pr-1.5">
@@ -404,31 +404,31 @@ function SourcesList({
                 <button
                   type="button"
                   onClick={() => only(key)}
-                  className="rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 fs-9.5 text-[#e8eef8]"
+                  className="rounded-[4px] border border-line/20 px-1.5 py-0.5 fs-9.5 text-ink-100"
                 >
                   only
                 </button>
               ) : (
-                <span className="fs-10.5 text-[rgba(160,190,225,.55)]">{count}</span>
+                <span className="fs-10.5 text-ink-900/55">{count}</span>
               )}
             </span>
           </div>
         )
       })}
-      <div className="mt-1 flex items-center gap-2 border-t border-[rgba(150,205,255,.08)] px-3 py-2">
+      <div className="mt-1 flex items-center gap-2 border-t border-line/8 px-3 py-2">
         <button
           type="button"
           disabled={!filtered}
           onClick={() => onChange([])}
           className={[
-            'rounded-[5px] border border-[rgba(150,205,255,.2)] px-[9px] py-[3px] fs-10.5 disabled:cursor-default',
-            filtered ? 'text-[#e8eef8]' : 'text-[rgba(160,190,225,.4)]',
+            'rounded-[5px] border border-line/20 px-[9px] py-[3px] fs-10.5 disabled:cursor-default',
+            filtered ? 'text-ink-100' : 'text-ink-900/40',
           ].join(' ')}
         >
           Show all
         </button>
         <span className="flex-1" />
-        <span className="fs-9.5 text-[rgba(160,190,225,.45)]">this session</span>
+        <span className="fs-9.5 text-ink-900/45">this session</span>
       </div>
     </div>,
     document.body,
@@ -444,7 +444,7 @@ export function NothingShown({ hidden, onShowAll, className }: { hidden: number;
   return (
     <div
       className={[
-        'flex flex-col items-center justify-center gap-2 font-mono fs-10.5 text-[rgba(160,190,225,.6)]',
+        'flex flex-col items-center justify-center gap-2 font-mono fs-10.5 text-ink-900/60',
         className ?? '',
       ].join(' ')}
     >
@@ -452,7 +452,7 @@ export function NothingShown({ hidden, onShowAll, className }: { hidden: number;
       <button
         type="button"
         onClick={onShowAll}
-        className="rounded-[5px] border border-[rgba(150,205,255,.2)] px-2.5 py-1 text-[#e8eef8] transition-colors duration-[160ms] hover:border-[rgba(150,205,255,.45)]"
+        className="rounded-[5px] border border-line/20 px-2.5 py-1 text-ink-100 transition-colors duration-[160ms] hover:border-line/45"
       >
         Show all
       </button>

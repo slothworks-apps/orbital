@@ -52,7 +52,7 @@ export function McpjsonSheet({
       <div
         className={[
           'shrink-0 border-b px-5 pb-3 pt-0.5',
-          servers.length > 1 ? 'border-[rgba(150,205,255,.1)]' : 'border-transparent',
+          servers.length > 1 ? 'border-line/10' : 'border-transparent',
         ].join(' ')}
       >
         <div className="font-mono fs-10 tracking-[0.18em] text-[oklch(85%_.12_205/.8)]">
@@ -64,7 +64,7 @@ export function McpjsonSheet({
         data-sheet-scroll
         className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto overscroll-contain px-5 pb-3.5 pt-3 [scrollbar-width:none]"
       >
-        <p className="fs-13.5 leading-[1.5] text-pretty text-[rgba(200,214,235,.88)]">
+        <p className="fs-13.5 leading-[1.5] text-pretty text-ink-600/88">
           Its .mcp.json{questionIntro(servers.length, macName)}
         </p>
         {servers.map((server) => (
@@ -76,8 +76,8 @@ export function McpjsonSheet({
           />
         ))}
       </div>
-      <div className="flex shrink-0 flex-col gap-0.5 border-t border-[rgba(150,205,255,.1)] px-4 pt-2.5">
-        <div className="pb-2 text-center font-mono fs-10.5 text-[rgba(160,190,225,.55)]">
+      <div className="flex shrink-0 flex-col gap-0.5 border-t border-line/10 px-4 pt-2.5">
+        <div className="pb-2 text-center font-mono fs-10.5 text-ink-900/55">
           {answerSummary(servers, answers)}
         </div>
         <PrimaryButton ready={decisions !== null} disabled={pending} onClick={() => decisions && onStart(decisions)}>
@@ -86,7 +86,7 @@ export function McpjsonSheet({
         <button
           type="button"
           onClick={onBack}
-          className="h-11 w-full fs-14 font-semibold text-[rgba(200,220,245,.8)]"
+          className="h-11 w-full fs-14 font-semibold text-ink-500/80"
         >
           Back to the form
         </button>
@@ -107,9 +107,9 @@ function ServerCard({
 }) {
   const file = server.source === 'file'
   return (
-    <div className="flex flex-col gap-2.5 rounded-[14px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.45)] p-3.5">
+    <div className="flex flex-col gap-2.5 rounded-[14px] border border-line/12 bg-shade/45 p-3.5">
       <div className="flex items-baseline gap-2">
-        <span className="font-mono fs-14 font-semibold text-text-bright">{server.name}</span>
+        <span className="font-mono fs-14 font-semibold text-ink-100">{server.name}</span>
         {file ? (
           // 2d / 47c: the auto permission mode's amber, a dot and the label only.
           <span className="inline-flex items-center gap-1.5 font-mono fs-9.5 tracking-[0.12em] text-[oklch(84%_.12_85)]">
@@ -117,21 +117,21 @@ function ServerCard({
             {sourceLabel('file')}
           </span>
         ) : (
-          <span className="font-mono fs-9.5 tracking-[0.12em] text-[rgba(160,190,225,.5)]">{sourceLabel(server.source)}</span>
+          <span className="font-mono fs-9.5 tracking-[0.12em] text-ink-900/50">{sourceLabel(server.source)}</span>
         )}
       </div>
       {/* Wrapped, never cut off: 47d's docker command runs over seven lines. */}
       <div
         data-selectable
         className={[
-          'rounded-[10px] border bg-[rgba(4,8,16,.7)] px-[11px] py-[9px] font-mono fs-12 leading-[1.6] whitespace-pre-wrap text-[#dfeeff] [overflow-wrap:anywhere]',
-          file ? 'border-[oklch(76%_.16_85/.3)]' : 'border-[rgba(150,205,255,.12)]',
+          'rounded-[10px] border bg-shade/70 px-[11px] py-[9px] font-mono fs-12 leading-[1.6] whitespace-pre-wrap text-ink-200 [overflow-wrap:anywhere]',
+          file ? 'border-[oklch(76%_.16_85/.3)]' : 'border-line/12',
         ].join(' ')}
       >
         {commandLine(server)}
       </div>
       {file && (
-        <span className="fs-12.5 leading-[1.45] text-pretty text-[rgba(160,190,225,.7)]">
+        <span className="fs-12.5 leading-[1.45] text-pretty text-ink-900/70">
           Runs a file from this project — the command alone doesn&apos;t say what it does.
         </span>
       )}

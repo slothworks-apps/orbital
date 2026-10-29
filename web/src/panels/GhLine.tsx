@@ -77,13 +77,13 @@ export function GhLine({
         // closed fold leaves none behind; every change of state folds
         // (`ui/Collapse`), so nothing in the row jumps.
         <div className="flex w-full flex-col pt-2">
-          <span className="font-mono fs-10.5 leading-[1.5] text-[rgba(200,220,245,.8)]">{line.reason}</span>
+          <span className="font-mono fs-10.5 leading-[1.5] text-ink-500/80">{line.reason}</span>
           {line.kind === 'link' ? (
             <a
               href={line.href}
               target="_blank"
               rel="noreferrer"
-              className="mt-2 self-start font-mono fs-11 text-[rgba(200,220,245,.85)] no-underline transition-colors hover:text-text-bright"
+              className="mt-2 self-start font-mono fs-11 text-ink-500/85 no-underline transition-colors hover:text-ink-100"
             >
               {line.label}
             </a>
@@ -91,7 +91,7 @@ export function GhLine({
             <>
               <Collapse open={ran === null}>
                 <div className="flex items-center gap-1.5 pt-2">
-                  <code className="whitespace-nowrap rounded-[7px] border border-[rgba(150,205,255,.14)] bg-[rgba(4,8,16,.6)] px-2.5 py-1.5 font-mono fs-11.5 text-text-bright">
+                  <code className="whitespace-nowrap rounded-[7px] border border-line/14 bg-shade/60 px-2.5 py-1.5 font-mono fs-11.5 text-ink-100">
                     {ORBITAL_COMMANDS[line.run].command}
                   </code>
                   <Button
@@ -109,16 +109,16 @@ export function GhLine({
               <Collapse open={ran !== null}>
                 {/* The last run, kept while it folds away under a new reason. */}
                 {started && (
-                  <div className="flex flex-col gap-1 pt-2 fs-12 leading-[1.5] text-[rgba(200,214,235,.85)]">
+                  <div className="flex flex-col gap-1 pt-2 fs-12 leading-[1.5] text-ink-600/85">
                     <span>
                       Running in the session{' '}
-                      <span className="font-mono fs-11.5 text-text-bright">&ldquo;{started.title}&rdquo;</span>. This
+                      <span className="font-mono fs-11.5 text-ink-100">&ldquo;{started.title}&rdquo;</span>. This
                       row checks again when Settings is back in focus.
                     </span>
                     <button
                       type="button"
                       onClick={() => onOpenSession(started.id)}
-                      className="cursor-pointer self-start border-0 bg-transparent p-0 font-mono fs-11 text-[rgba(160,190,225,.8)] transition-colors hover:text-text-bright"
+                      className="cursor-pointer self-start border-0 bg-transparent p-0 font-mono fs-11 text-ink-900/80 transition-colors hover:text-ink-100"
                     >
                       Open the session ›
                     </button>

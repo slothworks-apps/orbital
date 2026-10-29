@@ -1,19 +1,52 @@
 @import 'tailwindcss';
 
+/* The palette. Every colour of the UI chrome is one of these, opaque, with
+   its strength given as a Tailwind alpha modifier where it is used
+   (`text-ink-900/60`, `border-line/14`). Tokens stay opaque so that a theme
+   can replace a colour without touching a single component: a colour theme
+   is a block that overrides these variables (spec
+   2026-10-29-colour-tokens-design). */
 @theme {
+  /* Surfaces, darkest first. `shade` darkens what lies under an overlay. */
   --color-space: #05070d;
   --color-space-deep: #03111a;
-  --color-panel: rgb(10 16 28 / 0.88);
-  --color-panel-border: rgb(150 205 255 / 0.14);
-  --color-text-bright: #e8eef8;
-  --color-text-soft: #cfe6ff;
-  --color-text-muted: rgb(160 190 225 / 0.7);
+  --color-shade: #040810;
+  --color-panel: #0a101c;
+  --color-panel-solid: #0a1220;
+  --color-raised: #101626;
+
+  /* Hairlines, dividers and the faint fills of rows and chips. */
+  --color-line: #96cdff;
+
+  /* Text, strongest first. `ink-100` is body text, `ink-900` muted. */
+  --color-ink-50: #f2f9ff;
+  --color-ink-100: #e8eef8;
+  --color-ink-200: #dcebff;
+  --color-ink-300: #cfe6ff;
+  --color-ink-400: #d6e2f2;
+  --color-ink-500: #c8dcf5;
+  --color-ink-600: #c8d6eb;
+  --color-ink-700: #bed4ee;
+  --color-ink-800: #b2cbe6;
+  --color-ink-900: #a0bee1;
+
   /* Design accent: oklch(85% .12 205) — precomputed sRGB (three.js materials and Tailwind alpha modifiers need a literal). */
   --color-accent: #59e4f3;
+  --color-sky: #8fd8ff;
+  --color-sky-soft: #c6ecff;
   /* The export's amber caution hue, oklch(85% .12 60), same precomputation.
      Used by the stop/interrupt treatments (1b's composer, 1b's stop confirm). */
   --color-warning: #ffbb7b;
-  --color-panel-solid: #0a1220;
+  --color-warning-soft: #ffd6ad;
+  --color-warning-deep: #fba962;
+  /* oklch(84% .12 160) */
+  --color-success: #7fe3b0;
+  --color-danger: #de3b3d;
+  /* oklch(75% .14 25) — hue 25, not red at 0–10, so it never reads as the
+     context gauge's critical red. */
+  --color-danger-soft: #fa8880;
+  --color-danger-pale: #ffb4ad;
+
   --font-sans: 'Manrope', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 }
@@ -40,16 +73,13 @@
    token is decided in one place, `lib/stateStyle.ts`. */
 :root {
   --state-input: var(--color-warning);
-  /* oklch(75% .14 25) — hue 25, not red at 0–10, so it never reads as the
-     context gauge's critical red. */
-  --state-interrupted: #fa8880;
-  /* oklch(84% .12 160) */
-  --state-done: #7fe3b0;
+  --state-interrupted: var(--color-danger-soft);
+  --state-done: var(--color-success);
   --state-active: var(--color-accent);
-  --state-neutral: rgba(160, 190, 225, 0.6);
+  --state-neutral: color-mix(in oklab, var(--color-ink-900) 60%, transparent);
 
   /* The map pill's own dark fill, so a glow never shows through its text. */
-  --state-pill-bg: rgba(6, 10, 20, 0.88);
+  --state-pill-bg: color-mix(in oklab, var(--color-shade) 88%, transparent);
   /* Border strength, as the state colour's share in
      `color-mix(in oklch, var(--state-x) <share>, transparent)`: the chips
      inside panels, the pill over open space, and the dot-mode disc at rest
@@ -61,7 +91,7 @@
 
 body {
   background: var(--color-space);
-  color: var(--color-text-bright);
+  color: var(--color-ink-100);
   font-family: var(--font-sans);
 }
 
@@ -110,7 +140,7 @@ body {
    scrollable for a thin, translucent-blue thumb on an invisible track. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgb(150 205 255 / 0.18) transparent;
+  scrollbar-color: color-mix(in oklab, var(--color-line) 18%, transparent) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -124,12 +154,12 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: rgb(150 205 255 / 0.18);
+  background: color-mix(in oklab, var(--color-line) 18%, transparent);
   border-radius: 4px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: rgb(150 205 255 / 0.32);
+  background: color-mix(in oklab, var(--color-line) 32%, transparent);
 }
 
 /* Space backdrop layers, verbatim from the design export (artboard 1a):
@@ -508,13 +538,13 @@ body {
   @apply rounded bg-white/10 px-1 py-0.5 font-mono text-[0.85em];
 }
 .orbital-composer-field pre {
-  @apply rounded-md bg-black/30 p-3 font-mono fs-12 leading-(--text-xs--line-height) text-text-soft whitespace-pre-wrap wrap-anywhere;
+  @apply rounded-md bg-black/30 p-3 font-mono fs-12 leading-(--text-xs--line-height) text-ink-300 whitespace-pre-wrap wrap-anywhere;
 }
 .orbital-composer-field pre code {
   @apply bg-transparent p-0 text-[1em];
 }
 .orbital-composer-field blockquote {
-  @apply border-l-2 border-[rgba(150,205,255,.3)] pl-3 text-[rgba(200,220,245,.8)];
+  @apply border-l-2 border-line/30 pl-3 text-ink-500/80;
 }
 .orbital-composer-field h1,
 .orbital-composer-field h2,
@@ -537,7 +567,7 @@ body {
   float: left;
   height: 0;
   pointer-events: none;
-  color: rgba(160, 190, 225, 0.5);
+  color: color-mix(in oklab, var(--color-ink-900) 50%, transparent);
 }
 
 /* An anchored popover opening — a menu, a select's list, the media glance,
@@ -726,20 +756,20 @@ body {
 /* 9e SENT. Quieter than the composer's live tint: .08 fill against its .13. */
 .orbital-sent-command {
   padding: 1px 5px;
-  background: rgb(150 205 255 / 0.08);
-  color: rgb(220 235 255 / 0.85);
+  background: color-mix(in oklab, var(--color-line) 8%, transparent);
+  color: color-mix(in oklab, var(--color-ink-200) 85%, transparent);
 }
 
 /* 9c-3's sent bubble: the mention keeps its ring and its tighter 4px pad. */
 .orbital-sent-mention {
   padding: 1px 4px;
-  background: rgb(150 205 255 / 0.06);
-  box-shadow: inset 0 0 0 1px rgb(150 205 255 / 0.18);
-  color: #dfeeff;
+  background: color-mix(in oklab, var(--color-line) 6%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-line) 18%, transparent);
+  color: var(--color-ink-200);
 }
 
 .orbital-sent-suffix {
-  color: rgb(160 190 225 / 0.6);
+  color: color-mix(in oklab, var(--color-ink-900) 60%, transparent);
 }
 
 /* A band of a detached window that drags the window (canvas `Feature -

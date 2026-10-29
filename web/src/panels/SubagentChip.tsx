@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { useEffect, useState } from 'react'
 import type { RefObject } from 'react'
 import { useOrbital } from '../store/store'
@@ -19,7 +20,7 @@ const LIST_MAX_ROWS = 8
 /** Canvas 25a: the list's top sits this far under the state row. */
 const LIST_GAP_PX = 8
 /** Canvas 25c: the meta line's ink, which a row without a transcript also dims its dot and word to. */
-const MUTED_INK = 'rgba(160,190,225,.6)'
+const MUTED_INK = swatch('ink-900', 0.6)
 
 const NO_MESSAGES: readonly ChatMessage[] = []
 
@@ -112,7 +113,7 @@ export function SubagentChip({ sessionId, subagents, compact = false, waiting = 
       onOpenChange={setOpen}
       footer={
         // 25a's hint strip, under the scroll.
-        <div className="mt-1 flex shrink-0 items-center gap-2 border-t border-[rgba(150,205,255,.08)] px-2.5 pt-2 pb-1 font-mono fs-9.5 tracking-[.06em] text-[rgba(160,190,225,.45)]">
+        <div className="mt-1 flex shrink-0 items-center gap-2 border-t border-line/8 px-2.5 pt-2 pb-1 font-mono fs-9.5 tracking-[.06em] text-ink-900/45">
           ↑↓ move · ↵ open · ⎋ close
           <span aria-hidden className="flex-1" />
           this session only
@@ -129,11 +130,11 @@ export function SubagentChip({ sessionId, subagents, compact = false, waiting = 
             'orbital-no-drag flex h-fit min-h-[22px] shrink-0 items-center gap-[7px] rounded-md border px-2 font-mono fs-10.5',
             'transition-[background-color,border-color,color] duration-[180ms] ease-[ease] focus-visible:outline-none',
             isOpen
-              ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
+              ? 'border-line/30 bg-line/14 text-ink-100'
               : [
-                  'border-[rgba(150,205,255,.14)] text-[rgba(160,190,225,.75)]',
-                  'hover:border-[rgba(150,205,255,.3)] hover:text-text-bright',
-                  'focus-visible:border-[oklch(85%_.12_205_/_.7)] focus-visible:text-text-bright',
+                  'border-line/14 text-ink-900/75',
+                  'hover:border-line/30 hover:text-ink-100',
+                  'focus-visible:border-accent/70 focus-visible:text-ink-100',
                 ].join(' '),
           ].join(' ')}
         >
@@ -141,7 +142,7 @@ export function SubagentChip({ sessionId, subagents, compact = false, waiting = 
           {segments.map((segment, i) => (
             <span key={segment.kind} className="contents">
               {i > 0 && (
-                <span aria-hidden className="text-[rgba(150,205,255,.3)]">
+                <span aria-hidden className="text-line/30">
                   ·
                 </span>
               )}
@@ -220,7 +221,7 @@ function SubagentRow({
         style={{ border: `${STATE_DOT_RING_PX}px solid ${ink}`, background: solid ? ink : 'transparent' }}
       />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="truncate font-sans fs-12.5 font-semibold text-text-bright">{subagent.name}</span>
+        <span className="truncate font-sans fs-12.5 font-semibold text-ink-100">{subagent.name}</span>
         <span className="flex gap-1.5 overflow-hidden font-mono fs-10 whitespace-nowrap" style={{ color: MUTED_INK }}>
           {type}
           {word && <span style={{ color: openable ? tone.ink : MUTED_INK }}>{word}</span>}
@@ -230,7 +231,7 @@ function SubagentRow({
         <span
           className="shrink-0 font-mono fs-10.5"
           // 25a: a running row's clock reads brighter than a frozen one.
-          style={{ color: state === 'running' ? 'rgba(200,225,255,.85)' : 'rgba(160,190,225,.55)' }}
+          style={{ color: state === 'running' ? swatch('ink-300', 0.85) : swatch('ink-900', 0.55) }}
         >
           {elapsed}
         </span>

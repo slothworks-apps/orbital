@@ -545,13 +545,13 @@ function ToolRunGroup({
         onClick={() => onToggle(!open)}
         aria-expanded={open}
         className={[
-          'group flex w-full items-center gap-2 rounded-[7px] border px-2.5 py-[7px] text-left font-mono fs-11.5 text-[rgba(200,220,245,.8)]',
+          'group flex w-full items-center gap-2 rounded-[7px] border px-2.5 py-[7px] text-left font-mono fs-11.5 text-ink-500/80',
           // Canvas 6b: open header keeps a brighter border + faint fill so
           // the group reads as one block; hover brightens further (6b D).
           open
-            ? 'border-[rgba(150,205,255,.18)] bg-[rgba(150,205,255,.05)]'
-            : 'border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)]',
-          'hover:border-[rgba(150,205,255,.22)] hover:bg-[rgba(150,205,255,.07)]',
+            ? 'border-line/18 bg-line/5'
+            : 'border-line/10 bg-shade/45',
+          'hover:border-line/22 hover:bg-line/7',
           'focus-visible:border-[oklch(85%_0.12_205_/_0.7)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[oklch(85%_0.12_205_/_0.18)]',
         ].join(' ')}
       >
@@ -559,26 +559,26 @@ function ToolRunGroup({
         <span
           aria-hidden
           className={[
-            'w-2 fs-9 text-[rgba(160,190,225,.6)] transition-transform duration-[160ms] ease-out',
+            'w-2 fs-9 text-ink-900/60 transition-transform duration-[160ms] ease-out',
             open ? 'rotate-90' : '',
           ].join(' ')}
         >
           ▸
         </span>
-        <span aria-hidden className="text-[rgba(160,190,225,.6)]">⚙</span>
-        <span className="shrink-0 text-text-bright">{summary.count} tool calls</span>
-        <span aria-hidden className="text-[rgba(150,205,255,.28)]">·</span>
-        <span data-run-breakdown className="min-w-0 flex-1 truncate text-[rgba(160,190,225,.6)]">{summary.breakdown}</span>
+        <span aria-hidden className="text-ink-900/60">⚙</span>
+        <span className="shrink-0 text-ink-100">{summary.count} tool calls</span>
+        <span aria-hidden className="text-line/28">·</span>
+        <span data-run-breakdown className="min-w-0 flex-1 truncate text-ink-900/60">{summary.breakdown}</span>
         {formatToolDuration(summary.durationMs) && (
           // Canvas 11b: the run's summed duration, appended to the
           // breakdown ("4 tool calls · Read ×3, Grep ×1 · 6.2s") rather than
           // sharing the right slot below — that slot already holds one of
           // three mutually exclusive values (running / n failed / the hover
           // verb) and a duration is none of those.
-          <span className="shrink-0 text-[rgba(160,190,225,.5)]">· {formatToolDuration(summary.durationMs)}</span>
+          <span className="shrink-0 text-ink-900/50">· {formatToolDuration(summary.durationMs)}</span>
         )}
         {/* One slot, never two values at once (6d): hover swaps in the verb. */}
-        <span className="shrink-0 text-[rgba(160,190,225,.5)]">
+        <span className="shrink-0 text-ink-900/50">
           <span className="group-hover:hidden">{rightSlot}</span>
           <span className="hidden group-hover:inline">{open ? 'collapse' : 'expand'}</span>
         </span>
@@ -631,24 +631,24 @@ function ToolRunGroup({
         // copy of itself in the stack that is still closing.
         <div
           data-live-tool
-          className="mt-1 flex items-center gap-2 rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-2.5 py-[7px] font-mono fs-11.5 text-[rgba(200,220,245,.8)]"
+          className="mt-1 flex items-center gap-2 rounded-[7px] border border-line/10 bg-shade/45 px-2.5 py-[7px] font-mono fs-11.5 text-ink-500/80"
         >
           <span aria-hidden className="w-2" />
           <span
             aria-hidden
-            className={[liveRunning ? 'orbital-pulse' : '', 'text-[rgba(160,190,225,.6)]'].join(' ')}
+            className={[liveRunning ? 'orbital-pulse' : '', 'text-ink-900/60'].join(' ')}
           >
             ⚙
           </span>
           <span className="min-w-0 flex-1 truncate">
             {leadingEdge.toolUse.toolName}
             {liveLabel ? ': ' : ''}
-            <span className="text-text-bright">{liveLabel}</span>
-            {liveRunning && <span className="text-[rgba(160,190,225,.5)]">…</span>}
+            <span className="text-ink-100">{liveLabel}</span>
+            {liveRunning && <span className="text-ink-900/50">…</span>}
           </span>
           {!liveRunning && liveDuration && (
             // The same "· 0.3s" a `ToolRow` carries (canvas 11b).
-            <span className="shrink-0 text-[rgba(160,190,225,.5)]">· {liveDuration}</span>
+            <span className="shrink-0 text-ink-900/50">· {liveDuration}</span>
           )}
         </div>
       ) : null}
@@ -999,8 +999,8 @@ export function TranscriptView({
       setStick(false)
       el.animate?.(
         [
-          { outline: '1px solid oklch(85% .12 205 / .7)', outlineOffset: '4px', borderRadius: '8px' },
-          { outline: '1px solid oklch(85% .12 205 / 0)', outlineOffset: '4px', borderRadius: '8px' },
+          { outline: '1px solid color-mix(in oklab, var(--color-accent) 70%, transparent)', outlineOffset: '4px', borderRadius: '8px' },
+          { outline: '1px solid color-mix(in oklab, var(--color-accent) 0%, transparent)', outlineOffset: '4px', borderRadius: '8px' },
         ],
         { duration: JUMP_HAIRLINE_MS, easing: 'ease-out' },
       )
@@ -1108,9 +1108,9 @@ export function TranscriptView({
           // row rhythm like any other group.
           <div
             data-model-divider
-            className="flex items-center gap-2.5 font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.55)]"
+            className="flex items-center gap-2.5 font-mono fs-9.5 tracking-[0.14em] text-ink-900/55"
           >
-            <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
+            <span aria-hidden className="h-px flex-1 bg-line/12" />
             <span>
               {/* shortVersion, not modelChipLabel's chip form — a divider has
                   no room for the variant, and the canvas writes the plain
@@ -1121,7 +1121,7 @@ export function TranscriptView({
                 ? ` · ${new Date(group.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
                 : ''}
             </span>
-            <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
+            <span aria-hidden className="h-px flex-1 bg-line/12" />
           </div>
         ) : group.kind === 'question' ? (
           <QuestionCard
@@ -1167,11 +1167,11 @@ export function TranscriptView({
           // Canvas 27c: a sent rewind is the model divider's solid system row.
           <div
             data-rewind-divider
-            className="flex items-center gap-2.5 whitespace-nowrap font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.55)]"
+            className="flex items-center gap-2.5 whitespace-nowrap font-mono fs-9.5 tracking-[0.14em] text-ink-900/55"
           >
-            <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
+            <span aria-hidden className="h-px flex-1 bg-line/12" />
             <span>{rewindDividerLabel(group.item.message.rewind?.hiddenCount)}</span>
-            <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
+            <span aria-hidden className="h-px flex-1 bg-line/12" />
           </div>
         ) : group.item.message.role === 'compaction' ? (
           <CompactionMark
@@ -1192,16 +1192,16 @@ export function TranscriptView({
           // an ordinary user turn.
           <div
             data-limit-reset
-            className="flex items-center gap-2.5 whitespace-nowrap py-3 font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.55)]"
+            className="flex items-center gap-2.5 whitespace-nowrap py-3 font-mono fs-9.5 tracking-[0.14em] text-ink-900/55"
           >
-            <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
+            <span aria-hidden className="h-px flex-1 bg-line/12" />
             <span>
               {limitResetLabel(
                 group.item.message.notice.limitReset?.resetsAt,
                 group.item.message.notice.limitReset?.continued ?? false,
               )}
             </span>
-            <span aria-hidden className="h-px flex-1 bg-[rgba(150,205,255,.12)]" />
+            <span aria-hidden className="h-px flex-1 bg-line/12" />
           </div>
         ) : group.item.message.role === 'notice' && group.item.message.notice?.kind === 'login_lost' && group.item.message.notice.login ? (
           // `Feature - Log in` 62a/62d: a lost login is a notice with Log in,

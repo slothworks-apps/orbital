@@ -22,16 +22,16 @@ function PdfFoot({ path, caption, page, cached }: { path: string; caption: strin
   return (
     <div className="relative z-[2] flex shrink-0 flex-col gap-2.5 bg-[linear-gradient(0deg,rgba(0,0,0,.85),transparent)] px-4 pb-1.5 pt-[18px]">
       {cached}
-      <div className="flex items-center gap-2 font-mono fs-11 text-[rgba(200,215,235,.75)]">
+      <div className="flex items-center gap-2 font-mono fs-11 text-ink-600/75">
         {page && (
-          <span className="rounded-full border border-[rgba(150,205,255,.2)] bg-[rgba(5,7,13,.75)] px-2 py-[3px] text-[#e8eef8]">
+          <span className="rounded-full border border-line/20 bg-space/75 px-2 py-[3px] text-ink-100">
             {page}
           </span>
         )}
         <span className="flex-1" />
         <span>scroll</span>
       </div>
-      <div className="truncate font-mono fs-11 text-[rgba(200,215,235,.75)]">
+      <div className="truncate font-mono fs-11 text-ink-600/75">
         {path} · {caption}
       </div>
     </div>
@@ -121,13 +121,13 @@ export function FileScreen() {
   }
   // Reached only by a path that did not come from a link (Decision 8).
   return (
-    <main className="flex h-full flex-col bg-[#05070d] text-[#e8eef8]">
+    <main className="flex h-full flex-col bg-space text-ink-100">
       <div className="flex h-14 shrink-0 items-center pl-1.5">
         <button
           type="button"
           aria-label="Back"
           onClick={back}
-          className="grid h-11 w-11 place-items-center fs-28 leading-none text-[rgba(220,235,255,.85)]"
+          className="grid h-11 w-11 place-items-center fs-28 leading-none text-ink-200/85"
         >
           ‹
         </button>

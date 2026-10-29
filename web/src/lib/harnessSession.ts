@@ -1,3 +1,4 @@
+import { swatch } from './palette'
 /**
  * The harness as the session around it shows it (canvas `Feature - Harness`
  * 30a-d, 30b, 30i; spec 2026-10-02-harness-redesign-design): the pill on the
@@ -10,21 +11,21 @@ import type { ApiSession, ChatMessage, HarnessEvent, HarnessMessageKind, PauseKi
 
 /** The state tokens the harness draws in (30a-d's `AMB`, `CY`, `MINT`, `NEU`, `MUT`). */
 export const HARNESS_INK = {
-  amber: '#ffbb7b',
-  cyan: '#59e4f3',
-  mint: '#7fe3b0',
-  neutral: 'rgba(200,220,245,.8)',
-  muted: 'rgba(160,190,225,.6)',
+  amber: swatch('warning'),
+  cyan: swatch('accent'),
+  mint: swatch('success'),
+  neutral: swatch('ink-500', 0.8),
+  muted: swatch('ink-900', 0.6),
 } as const
 
 /** 30a-d's segment colours, one per step state (`heads.seg`). */
 const SEGMENT = {
-  done: 'rgba(127,227,176,.75)',
+  done: swatch('success', 0.75),
   active: HARNESS_INK.cyan,
   waiting: HARNESS_INK.amber,
-  reviewing: 'rgba(220,235,255,.5)',
-  pending: 'rgba(150,205,255,.14)',
-  pausedHere: 'rgba(89,228,243,.45)',
+  reviewing: swatch('ink-200', 0.5),
+  pending: swatch('line', 0.14),
+  pausedHere: swatch('accent', 0.45),
 } as const
 
 /**

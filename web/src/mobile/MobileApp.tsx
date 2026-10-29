@@ -36,13 +36,13 @@ export function MobileApp() {
   const restarting = usePhoneUpdate((s) => (s.shown?.phase === 'restarting' ? s.shown.bundle.version : null))
   if (screenLock) {
     return (
-      <div className="h-full bg-space font-sans text-text-bright">
+      <div className="h-full bg-space font-sans text-ink-100">
         <ScreenLockScreen />
       </div>
     )
   }
   return (
-    <div className="h-full bg-space font-sans text-text-bright">
+    <div className="h-full bg-space font-sans text-ink-100">
       {!locked && <Banner />}
       {screen === 'pairing' && <PairingScreen />}
       {screen === 'list' && <SessionListScreen />}

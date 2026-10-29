@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -191,7 +192,7 @@ const TEXT_SCALE_OPTIONS = TEXT_SCALE_STEPS.map((step) => ({
   label: (
     <>
       <span className="text-center font-sans fs-12 font-semibold leading-[1.2]">{step.name}</span>
-      <span className="font-mono fs-9.5 tracking-[0.04em] text-[rgba(160,190,225,.5)] group-aria-pressed:text-[rgba(200,225,250,.85)]">
+      <span className="font-mono fs-9.5 tracking-[0.04em] text-ink-900/50 group-aria-pressed:text-ink-500/85">
         {textScalePercent(step.value)}
       </span>
     </>
@@ -204,22 +205,22 @@ const TEXT_SCALE_OPTIONS = TEXT_SCALE_STEPS.map((step) => ({
  */
 function TextSample({ app, transcript }: { app: string; transcript: string }) {
   return (
-    <div className="mb-3.5 flex flex-col gap-2.5 rounded-[10px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.5)] px-4 py-3.5">
-      <div className="flex items-center gap-2.5 font-mono fs-10 tracking-[0.14em] text-[rgba(160,190,225,.55)]">
+    <div className="mb-3.5 flex flex-col gap-2.5 rounded-[10px] border border-line/10 bg-shade/50 px-4 py-3.5">
+      <div className="flex items-center gap-2.5 font-mono fs-10 tracking-[0.14em] text-ink-900/55">
         SAMPLE
         <span aria-hidden className="flex-1" />
         <span className="tracking-[0.08em]">
           APP {app} · TRANSCRIPT {transcript}
         </span>
       </div>
-      <div className="flex items-center gap-2 border-b border-[rgba(150,205,255,.08)] pb-[9px]">
+      <div className="flex items-center gap-2 border-b border-line/8 pb-[9px]">
         <span aria-hidden className="block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: 'oklch(80% .13 210)' }} />
         <span className="fs-13 font-bold">auth-refactor</span>
-        <span className="min-w-0 truncate font-mono fs-11 text-[rgba(160,190,225,.7)]">~/work/platform/auth</span>
+        <span className="min-w-0 truncate font-mono fs-11 text-ink-900/70">~/work/platform/auth</span>
         <span aria-hidden className="flex-1" />
         <span className="font-mono fs-10.5 tracking-[0.08em] text-accent">WORKING</span>
       </div>
-      <div data-text-scope="transcript" className="text-pretty fs-13 leading-[1.55] text-[rgba(232,238,248,.92)]">
+      <div data-text-scope="transcript" className="text-pretty fs-13 leading-[1.55] text-ink-100/92">
         Adding a 30 s skew to the expiry check and persisting the rotated token before it's returned.
       </div>
     </div>
@@ -458,10 +459,10 @@ const PREVIEW_TIERS = [
     capK: 0.24,
     inset: '-22%',
     dim: true,
-    ring: 'repeating-conic-gradient(rgba(200,215,235,.4) 0 2deg, transparent 2deg 12deg)',
+    ring: 'repeating-conic-gradient(color-mix(in oklab, var(--color-ink-600) 40%, transparent) 0 2deg, transparent 2deg 12deg)',
     mask: [3, 2],
     body: 'oklch(16% .01 230)',
-    border: '1px solid rgba(200,215,235,.35)',
+    border: '1px solid color-mix(in oklab, var(--color-ink-600) 35%, transparent)',
     core: null as string | null,
     shadow: undefined as string | undefined,
   },
@@ -525,7 +526,7 @@ function PreviewTier({ tier, scale }: { tier: (typeof PREVIEW_TIERS)[number]; sc
         )}
       </div>
       <div
-        className="font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.6)]"
+        className="font-mono fs-10 tracking-[0.06em] text-ink-900/60"
         style={{ marginTop: Math.round(tier.base * scale * tier.capK + 8) }}
       >
         {size}px
@@ -563,13 +564,13 @@ function ValueSlider({
   return (
     <div className="flex w-full flex-col gap-[9px]">
       <div className="flex items-baseline gap-2">
-        <span className="font-mono fs-15 text-text-bright">{format(value)}</span>
+        <span className="font-mono fs-15 text-ink-100">{format(value)}</span>
         <span className="flex-1" />
         <button
           type="button"
           aria-label={`Reset ${label.toLowerCase()}`}
           onClick={() => onChange(fallback)}
-          className="rounded-full border border-[rgba(150,205,255,.14)] px-[9px] py-[3px] font-mono fs-10 tracking-[0.1em] text-[rgba(178,203,230,.85)] transition-colors hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.07)] hover:text-[#dce8f7]"
+          className="rounded-full border border-line/14 px-[9px] py-[3px] font-mono fs-10 tracking-[0.1em] text-ink-800/85 transition-colors hover:border-line/26 hover:bg-line/7 hover:text-ink-400"
         >
           RESET
         </button>
@@ -584,7 +585,7 @@ function ValueSlider({
         onChange={(e) => onChange(Number(e.target.value))}
         className="h-[18px] w-full cursor-grab accent-accent"
       />
-      <div className="flex justify-between font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+      <div className="flex justify-between font-mono fs-10 tracking-[0.06em] text-ink-900/55">
         <span>{format(min)}</span>
         <span>{format(fallback)}</span>
         <span>{format(max)}</span>
@@ -1134,7 +1135,7 @@ export function Settings({ open, onClose }: SettingsProps) {
         // Still painted on the way out, but no longer a live surface.
         inert={presence === 'exiting' || undefined}
         className={[
-          'orbital-no-drag fixed inset-0 z-50 flex items-center justify-center bg-[rgba(2,4,9,.5)] p-6 backdrop-blur-[3px]',
+          'orbital-no-drag fixed inset-0 z-50 flex items-center justify-center bg-space/50 p-6 backdrop-blur-[3px]',
           MODAL_TRANSITION,
           duration,
           entered ? SCRIM_OPEN : SCRIM_CLOSED,
@@ -1156,13 +1157,13 @@ export function Settings({ open, onClose }: SettingsProps) {
             <SharingProvider value={marks}>
             {/* Header: 22/28/18 padding per canvas 1h. */}
             <div
-              className={`${editorTakesPanel ? 'hidden' : 'flex'} items-center gap-3.5 border-b border-[rgba(150,205,255,.1)] px-7 pb-[18px] pt-[22px]`}
+              className={`${editorTakesPanel ? 'hidden' : 'flex'} items-center gap-3.5 border-b border-line/10 px-7 pb-[18px] pt-[22px]`}
             >
               <button
                 type="button"
                 aria-label="Close"
                 onClick={onClose}
-                className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-panel-border fs-14 leading-(--text-sm--line-height) text-[rgba(200,220,245,.7)] transition-colors hover:bg-white/5 hover:text-text-bright"
+                className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-line/14 fs-14 leading-(--text-sm--line-height) text-ink-500/70 transition-colors hover:bg-white/5 hover:text-ink-100"
               >
                 ‹
               </button>
@@ -1172,14 +1173,14 @@ export function Settings({ open, onClose }: SettingsProps) {
                 </div>
                 {/* The title is the section's, not the dialog's: 1e and 1h are the
                 same screen under two nav rows. */}
-                <h2 className="mt-1 fs-20 leading-(--text-xl--line-height) font-bold tracking-[-0.01em] text-text-bright">
+                <h2 className="mt-1 fs-20 leading-(--text-xl--line-height) font-bold tracking-[-0.01em] text-ink-100">
                   {sectionTitle}
                 </h2>
               </div>
               {saved && (
                 <span
                   data-testid="save-status"
-                  className="shrink-0 font-mono fs-10.5 tracking-[0.06em] text-[rgba(160,190,225,.55)]"
+                  className="shrink-0 font-mono fs-10.5 tracking-[0.06em] text-ink-900/55"
                 >
                   saved · just now
                 </span>
@@ -1187,7 +1188,7 @@ export function Settings({ open, onClose }: SettingsProps) {
               {/* Shortcuts saves nothing, so its slot on the right is the
               keymap's size instead (canvas Feature - Shortcuts, artboard A). */}
               {section === 'shortcuts' && (
-                <span className="shrink-0 font-mono fs-10.5 tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+                <span className="shrink-0 font-mono fs-10.5 tracking-[0.06em] text-ink-900/55">
                   {bindingCount()} bindings · {scopeCount()} scopes
                 </span>
               )}
@@ -1216,7 +1217,7 @@ export function Settings({ open, onClose }: SettingsProps) {
               Only the section list scrolls when it does not fit; feedback and
               the versions stay pinned to the bottom. */}
               <nav
-                className={`${editorTakesPanel ? 'hidden' : 'flex'} min-h-0 flex-col border-r border-[rgba(150,205,255,.1)] px-3 py-4 ${section === 'tags' && sharing.shown ? 'row-span-2' : ''}`}
+                className={`${editorTakesPanel ? 'hidden' : 'flex'} min-h-0 flex-col border-r border-line/10 px-3 py-4 ${section === 'tags' && sharing.shown ? 'row-span-2' : ''}`}
                 aria-label="Settings sections"
               >
                 <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
@@ -1231,8 +1232,8 @@ export function Settings({ open, onClose }: SettingsProps) {
                       className={[
                         NAV_ROW,
                         item.key === section
-                          ? 'border-panel-border bg-[rgba(150,205,255,.08)] font-semibold text-text-bright'
-                          : 'border-transparent font-medium text-[rgba(220,235,255,.8)]',
+                          ? 'border-line/14 bg-line/8 font-semibold text-ink-100'
+                          : 'border-transparent font-medium text-ink-200/80',
                         item.disabled ? 'cursor-default' : 'hover:bg-white/5',
                       ].join(' ')}
                     >
@@ -1242,7 +1243,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                 </div>
                 {/* Not in the website's demo, where it would file a real issue. */}
                 {!isDemo() && <SendFeedback onPick={(kind) => setFeedback({ kind, open: true })} />}
-                <div className="px-3 py-2.5 font-mono fs-10 leading-[1.6] text-[rgba(160,190,225,.45)]">
+                <div className="px-3 py-2.5 font-mono fs-10 leading-[1.6] text-ink-900/45">
                   <div>orbital {orbitalVersion}</div>
                   {claudeCodeVersion && <div>claude-code {claudeCodeVersion}</div>}
                 </div>
@@ -1327,7 +1328,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                         >
                           <span
                             data-testid="billing-mode"
-                            className="font-mono fs-11.5 text-text-bright"
+                            className="font-mono fs-11.5 text-ink-100"
                           >
                             {health.billing === 'api-key'
                               ? 'API key'
@@ -1337,11 +1338,11 @@ export function Settings({ open, onClose }: SettingsProps) {
                                 : 'Claude subscription'}
                           </span>
                           {health.billing !== 'api-key' && claudeDirCount >= 2 ? (
-                            <span className="font-mono fs-10.5 text-[rgba(160,190,225,.55)]">
+                            <span className="font-mono fs-10.5 text-ink-900/55">
                               each profile bills to the account it is signed in to
                             </span>
                           ) : (
-                            <span className="fs-12 leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+                            <span className="fs-12 leading-[1.5] text-ink-900/70 [text-wrap:pretty]">
                               {health.billing === 'api-key'
                                 ? 'ORBITAL_USE_API_KEY=1 is set, so ANTHROPIC_API_KEY is left in the server’s environment and usage is billed to that key.'
                                 : 'ANTHROPIC_API_KEY is removed from the server’s environment at startup, so sessions bill your subscription the way the CLI does.'}
@@ -1353,7 +1354,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                           {health.billing === 'api-key' && claudeDirCount >= 2 && (
                             <span
                               data-testid="billing-overrides-dirs"
-                              className="fs-12 leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]"
+                              className="fs-12 leading-[1.5] text-ink-600/85 [text-wrap:pretty]"
                             >
                               The API key overrides each profile’s own login. All profiles bill to this key.
                             </span>
@@ -1373,7 +1374,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                             title="Database"
                             desc="Orbital's own index of your sessions. Your transcripts are not in here — they stay in the Claude directory, which Orbital only ever reads."
                           >
-                            <span className="break-all font-mono fs-11 leading-[1.6] text-[rgba(200,220,245,.8)]">
+                            <span className="break-all font-mono fs-11 leading-[1.6] text-ink-500/80">
                               {health.paths.dbPath}
                             </span>
                             <button
@@ -1389,7 +1390,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                                   .then(() => setCopiedPath(true))
                                   .catch(() => {})
                               }}
-                              className="rounded-full border border-[rgba(150,205,255,.14)] px-[9px] py-[3px] font-mono fs-10 tracking-[0.1em] text-[rgba(178,203,230,.85)] transition-colors hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.07)] hover:text-[#dce8f7]"
+                              className="rounded-full border border-line/14 px-[9px] py-[3px] font-mono fs-10 tracking-[0.1em] text-ink-800/85 transition-colors hover:border-line/26 hover:bg-line/7 hover:text-ink-400"
                             >
                               {copiedPath ? 'COPIED' : 'COPY PATH'}
                             </button>
@@ -1419,7 +1420,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                             data-testid="retention-confirm"
                             className="flex w-full flex-col gap-2.5 rounded-[10px] border border-[oklch(72%_.17_25_/_.35)] bg-[oklch(72%_.17_25_/_.07)] p-3"
                           >
-                            <span className="fs-12 leading-[1.5] text-[rgba(220,235,255,.9)] [text-wrap:pretty]">
+                            <span className="fs-12 leading-[1.5] text-ink-200/90 [text-wrap:pretty]">
                               {retentionPrompt.count < 0
                                 ? 'Orbital could not count how many sessions this would delete. Saving it runs the sweep anyway.'
                                 : `This deletes ${retentionPrompt.count} session${retentionPrompt.count === 1 ? '' : 's'} from the index now, and keeps deleting as others age past ${RETENTION_OPTIONS.find((o) => o.value === retentionPrompt.value)?.label.toLowerCase()}.`}
@@ -1439,7 +1440,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                               <button
                                 type="button"
                                 onClick={() => setRetentionPrompt(null)}
-                                className="rounded-full border border-[rgba(150,205,255,.14)] px-3 py-[4px] font-mono fs-10 tracking-[0.1em] text-[rgba(178,203,230,.85)] transition-colors hover:bg-[rgba(150,205,255,.07)]"
+                                className="rounded-full border border-line/14 px-3 py-[4px] font-mono fs-10 tracking-[0.1em] text-ink-800/85 transition-colors hover:bg-line/7"
                               >
                                 CANCEL
                               </button>
@@ -1468,7 +1469,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                       {notifyAllOff && (
                         // Canvas `Feature - Notifications off` 1c: a page of
                         // switches all off looks broken without it.
-                        <p className="pb-2.5 pt-3.5 fs-13 leading-[1.5] text-[rgba(160,190,225,.8)]">
+                        <p className="pb-2.5 pt-3.5 fs-13 leading-[1.5] text-ink-900/80">
                           Everything here starts off. Orbital stays silent until you turn something on.
                         </p>
                       )}
@@ -1536,7 +1537,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                     visit can set them and the desktop app honours them the
                     next time it reads them. Saying so beats rows that look
                     broken. */}
-                      <p className="pt-3.5 fs-12 leading-[1.5] text-[rgba(160,190,225,.55)] [text-wrap:pretty]">
+                      <p className="pt-3.5 fs-12 leading-[1.5] text-ink-900/55 [text-wrap:pretty]">
                         Notifications are delivered by the desktop app. These settings are saved
                         from the browser too — Orbital picks them up when it next runs.
                       </p>
@@ -1572,7 +1573,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                             void patchAndSet({ permission_guard_gesture: value })
                           }
                         />
-                        <span className="font-mono fs-10 leading-[1.6] text-[rgba(160,190,225,.5)]">
+                        <span className="font-mono fs-10 leading-[1.6] text-ink-900/50">
                           {guard === 'hold'
                             ? 'press and hold Approve · from the keyboard, confirms twice instead'
                             : guard === 'confirm'
@@ -1605,7 +1606,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                   {section === 'labs' && (
                     <>
                       {/* The lead note of Notifications (canvas `Feature - Notifications off` 1c). */}
-                      <p className="pb-2.5 pt-3.5 fs-13 leading-[1.5] text-[rgba(160,190,225,.8)]">
+                      <p className="pb-2.5 pt-3.5 fs-13 leading-[1.5] text-ink-900/80">
                         Finished features you can try. Each stays off until you turn it on, and any of
                         them may still change, move into the regular settings, or be removed.
                       </p>
@@ -1825,7 +1826,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                             className="w-full"
                           />
                           {transcriptBelowApp(settings) && (
-                            <span className="font-mono fs-10 leading-[1.5] tracking-[0.04em] text-[rgba(160,190,225,.6)]">
+                            <span className="font-mono fs-10 leading-[1.5] tracking-[0.04em] text-ink-900/60">
                               {textScaleName(transcriptTextScale)} is below the app text, so it follows the app at{' '}
                               {textScalePercent(appTextScale)}
                             </span>
@@ -1860,7 +1861,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                           value={headerStats}
                           onChange={(next) => void patchAndSet({ header_session_stats: next })}
                         />
-                        <span className="font-mono fs-10 leading-[1.6] text-[rgba(160,190,225,.5)]">
+                        <span className="font-mono fs-10 leading-[1.6] text-ink-900/50">
                           applies to every panel · no reload
                         </span>
                       </Row>
@@ -1899,7 +1900,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                         />
                         {/* 1g: what the choice draws, on a sample branch. */}
                         <span className="flex h-fit min-h-4 items-center gap-2 font-mono fs-11">
-                          <span className="fs-10 text-[rgba(160,190,225,.5)]">
+                          <span className="fs-10 text-ink-900/50">
                             {lineChangesPreview.length > 0 ? 'e.g.' : 'nothing drawn'}
                           </span>
                           {lineChangesPreview.length > 0 && (
@@ -1946,17 +1947,17 @@ export function Settings({ open, onClose }: SettingsProps) {
                           >
                             <div className="flex w-full flex-col gap-[9px]">
                               <div className="flex items-baseline gap-2">
-                                <span className="font-mono fs-15 text-text-bright">
+                                <span className="font-mono fs-15 text-ink-100">
                                   {planetScale.toFixed(2)}×
                                 </span>
-                                <span className="font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
+                                <span className="font-mono fs-10.5 text-ink-900/60">
                                   {scaleNote}
                                 </span>
                                 <span className="flex-1" />
                                 <button
                                   type="button"
                                   onClick={() => setPlanetScale(1)}
-                                  className="rounded-full border border-[rgba(150,205,255,.14)] px-[9px] py-[3px] font-mono fs-10 tracking-[0.1em] text-[rgba(178,203,230,.85)] transition-colors hover:border-[rgba(150,205,255,.26)] hover:bg-[rgba(150,205,255,.07)] hover:text-[#dce8f7]"
+                                  className="rounded-full border border-line/14 px-[9px] py-[3px] font-mono fs-10 tracking-[0.1em] text-ink-800/85 transition-colors hover:border-line/26 hover:bg-line/7 hover:text-ink-400"
                                 >
                                   RESET
                                 </button>
@@ -1972,7 +1973,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                                 onKeyDown={(e) => handleScaleKeys(e, planetScale)}
                                 className="h-[18px] w-full cursor-grab accent-accent"
                               />
-                              <div className="flex justify-between font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+                              <div className="flex justify-between font-mono fs-10 tracking-[0.06em] text-ink-900/55">
                                 <span>0.70×</span>
                                 <span>1.00×</span>
                                 <span>1.60×</span>
@@ -1982,7 +1983,7 @@ export function Settings({ open, onClose }: SettingsProps) {
 
                           {/* Collapsible preview row (canvas 5a): full-width header
                   button, the tier strip animates shut instead of unmounting. */}
-                          <div className="flex flex-col gap-3 border-t border-[rgba(150,205,255,.08)] py-[13px]">
+                          <div className="flex flex-col gap-3 border-t border-line/8 py-[13px]">
                             <button
                               type="button"
                               aria-expanded={previewOpen}
@@ -1991,30 +1992,30 @@ export function Settings({ open, onClose }: SettingsProps) {
                             >
                               <span
                                 aria-hidden
-                                className="mt-[1px] grid h-4 w-4 flex-none place-items-center fs-9 text-[rgba(160,190,225,.7)] transition-transform duration-[180ms]"
+                                className="mt-[1px] grid h-4 w-4 flex-none place-items-center fs-9 text-ink-900/70 transition-transform duration-[180ms]"
                                 style={{ transform: previewOpen ? undefined : 'rotate(-90deg)' }}
                               >
                                 ▾
                               </span>
                               <span className="flex-1">
                                 <span className="flex items-center gap-2">
-                                  <span className="fs-13.5 font-semibold text-text-bright">
+                                  <span className="fs-13.5 font-semibold text-ink-100">
                                     Preview
                                   </span>
                                   {!previewOpen && (
-                                    <span className="font-mono fs-10 tracking-[0.1em] text-[rgba(160,190,225,.55)]">
+                                    <span className="font-mono fs-10 tracking-[0.1em] text-ink-900/55">
                                       collapsed
                                     </span>
                                   )}
                                 </span>
-                                <span className="mt-1 block fs-12 leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+                                <span className="mt-1 block fs-12 leading-[1.5] text-ink-900/70 [text-wrap:pretty]">
                                   The three size tiers at the current scale: ended, live, live with
                                   subagents. Labels keep their 10 px mono floor at every scale.
                                 </span>
                               </span>
                             </button>
                             <div
-                              className="box-border flex items-center justify-around gap-7 overflow-hidden rounded-[10px] border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.5)]"
+                              className="box-border flex items-center justify-around gap-7 overflow-hidden rounded-[10px] border-line/10 bg-shade/50"
                               style={{
                                 height: previewOpen ? 300 : 0,
                                 opacity: previewOpen ? 1 : 0,
@@ -2066,9 +2067,9 @@ export function Settings({ open, onClose }: SettingsProps) {
                           {mapModelSample && (
                             <span
                               data-testid="map-model-sample"
-                              className="font-mono fs-9.5 text-[rgba(160,190,225,.7)]"
+                              className="font-mono fs-9.5 text-ink-900/70"
                             >
-                              <span className="text-[rgba(160,190,225,.45)]">e.g. </span>
+                              <span className="text-ink-900/45">e.g. </span>
                               <span className="tracking-[0.1em]">{mapModelSample}</span>
                             </span>
                           )}
@@ -2090,7 +2091,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                           value={statePills}
                           onChange={(next) => void patchAndSet({ map_state_pills: next })}
                         />
-                        <span className="font-mono fs-10 leading-[1.6] text-[rgba(160,190,225,.5)]">
+                        <span className="font-mono fs-10 leading-[1.6] text-ink-900/50">
                           {statePills === 'dot'
                             ? 'the word slides out on hover'
                             : 'every state pill spells its word'}
@@ -2191,7 +2192,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                             className="h-[2px] w-[26px]"
                             style={{ background: 'oklch(80% .13 210 / .6)' }}
                           />
-                          <label className="flex items-center gap-1.5 font-mono fs-12 leading-(--text-xs--line-height) text-[rgba(160,190,225,.7)]">
+                          <label className="flex items-center gap-1.5 font-mono fs-12 leading-(--text-xs--line-height) text-ink-900/70">
                             <Input
                               id="settings-context-threshold-warn"
                               aria-label="Warn threshold"
@@ -2211,7 +2212,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                             className="h-[2px] w-[26px]"
                             style={{ background: 'oklch(80% .13 60)' }}
                           />
-                          <label className="flex items-center gap-1.5 font-mono fs-12 leading-(--text-xs--line-height) text-[rgba(160,190,225,.7)]">
+                          <label className="flex items-center gap-1.5 font-mono fs-12 leading-(--text-xs--line-height) text-ink-900/70">
                             <Input
                               id="settings-context-threshold-critical"
                               aria-label="Critical threshold"
@@ -2399,7 +2400,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                         />
                       </Row>
                       {tips && (
-                        <div className="flex flex-col gap-3 border-t border-[rgba(150,205,255,.08)] py-[13px]">
+                        <div className="flex flex-col gap-3 border-t border-line/8 py-[13px]">
                           <button
                             type="button"
                             aria-expanded={tipsOpen}
@@ -2408,23 +2409,23 @@ export function Settings({ open, onClose }: SettingsProps) {
                           >
                             <span
                               aria-hidden
-                              className="mt-[1px] grid h-4 w-4 flex-none place-items-center fs-9 text-[rgba(160,190,225,.7)] transition-transform duration-[180ms]"
+                              className="mt-[1px] grid h-4 w-4 flex-none place-items-center fs-9 text-ink-900/70 transition-transform duration-[180ms]"
                               style={{ transform: tipsOpen ? undefined : 'rotate(-90deg)' }}
                             >
                               ▾
                             </span>
                             <span className="flex-1">
                               <span className="flex items-center gap-2">
-                                <span className="fs-13.5 font-semibold text-text-bright">
+                                <span className="fs-13.5 font-semibold text-ink-100">
                                   Show the tips
                                 </span>
                                 {!tipsOpen && (
-                                  <span className="font-mono fs-10 tracking-[0.1em] text-[rgba(160,190,225,.55)]">
+                                  <span className="font-mono fs-10 tracking-[0.1em] text-ink-900/55">
                                     collapsed
                                   </span>
                                 )}
                               </span>
-                              <span className="mt-1 block fs-12 leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+                              <span className="mt-1 block fs-12 leading-[1.5] text-ink-900/70 [text-wrap:pretty]">
                                 The exact text the server appends. Read-only: to change a tip, turn
                                 the layer off and write your own version below.
                               </span>
@@ -2432,15 +2433,15 @@ export function Settings({ open, onClose }: SettingsProps) {
                           </button>
                           {tipsOpen && (
                             <ul
-                              className="flex flex-col gap-3 rounded-[10px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.5)] px-5 py-4"
+                              className="flex flex-col gap-3 rounded-[10px] border border-line/10 bg-shade/50 px-5 py-4"
                               style={{ opacity: instructionTips ? 1 : 0.5 }}
                             >
                               {tips.map((tip) => (
                                 <li key={tip.id}>
-                                  <div className="fs-12.5 font-semibold text-text-bright">
+                                  <div className="fs-12.5 font-semibold text-ink-100">
                                     {tip.title}
                                   </div>
-                                  <div className="mt-1 fs-12 leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+                                  <div className="mt-1 fs-12 leading-[1.5] text-ink-900/70 [text-wrap:pretty]">
                                     {tip.text}
                                   </div>
                                 </li>
@@ -2464,7 +2465,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                           }
                         />
                       </Row>
-                      <div className="border-t border-[rgba(150,205,255,.08)] py-[13px]">
+                      <div className="border-t border-line/8 py-[13px]">
                         <TextArea
                           aria-label="Your instructions text"
                           size="sm"
@@ -2511,7 +2512,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                             onChange={(e) => setContinueDraft(e.target.value)}
                             className="resize-y"
                           />
-                          <div className="flex w-full items-center gap-2.5 font-mono fs-10 text-[rgba(160,190,225,.5)]">
+                          <div className="flex w-full items-center gap-2.5 font-mono fs-10 text-ink-900/50">
                             <span>{continueIsDefault ? 'default text' : 'edited'}</span>
                             <span className="flex-1" />
                             <button
@@ -2520,7 +2521,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                               onClick={() => setContinueDraft(DEFAULT_CONTINUE_TEXT)}
                               className="cursor-pointer border-0 bg-transparent p-0 font-mono fs-10 tracking-[0.12em] disabled:cursor-default"
                               style={{
-                                color: continueIsDefault ? 'rgba(160,190,225,.3)' : '#8fd8ff',
+                                color: continueIsDefault ? swatch('ink-900', 0.3) : swatch('sky'),
                               }}
                             >
                               RESET TO DEFAULT

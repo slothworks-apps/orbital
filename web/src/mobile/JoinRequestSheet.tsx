@@ -133,30 +133,30 @@ function RequestSheet({
       variant="device"
     >
       <div className="flex flex-col items-center gap-[13px] pb-2 text-center">
-        <div className="font-mono fs-9.5 tracking-[0.2em] text-[rgba(160,190,225,.55)]">{manager.eyebrow}</div>
+        <div className="font-mono fs-9.5 tracking-[0.2em] text-ink-900/55">{manager.eyebrow}</div>
         {/* Canvas 50c "KIND, THREE TIMES": the glyph, the kind word and its meaning, then the sentence. */}
-        <div className="flex w-full items-center gap-3.5 rounded-[14px] border border-[rgba(150,205,255,.26)] bg-[rgba(4,8,16,.6)] px-3.5 py-3 text-left">
-          <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[12px] border border-[rgba(150,205,255,.2)] text-text-bright">
+        <div className="flex w-full items-center gap-3.5 rounded-[14px] border border-line/26 bg-shade/60 px-3.5 py-3 text-left">
+          <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[12px] border border-line/20 text-ink-100">
             <KindGlyph kind={request.kind} scale={2.6} untitled />
           </span>
           <span className="flex min-w-0 flex-col gap-1">
             <span className="font-mono fs-15 tracking-[0.2em]">{tile.word}</span>
-            <span className="fs-12.5 leading-[1.4] text-[rgba(160,190,225,.78)]">{tile.note}</span>
+            <span className="fs-12.5 leading-[1.4] text-ink-900/78">{tile.note}</span>
           </span>
         </div>
         <h2 className="fs-19 font-bold leading-[1.3] [text-wrap:balance]">{joinSentence(request)}</h2>
-        <p className="fs-13 leading-[1.5] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
+        <p className="fs-13 leading-[1.5] text-ink-600/82 [text-wrap:pretty]">
           {JOIN_REACH}
         </p>
         {/* Canvas 50i: a boxed line says who will manage the group, a role the pairing makes permanent. */}
         {manager.line && (
-          <p className="box-border w-full rounded-[12px] border border-[rgba(150,205,255,.16)] px-3.5 py-2.5 text-left fs-13 leading-[1.5] text-text-bright [text-wrap:pretty]">
+          <p className="box-border w-full rounded-[12px] border border-line/16 px-3.5 py-2.5 text-left fs-13 leading-[1.5] text-ink-100 [text-wrap:pretty]">
             {manager.line}
           </p>
         )}
         {/* Never disabled while an answer is in flight: after a wrong code the user types straight on. */}
         <PairingCodeInput size="sm" value={code} onChange={setCode} onSubmit={() => void answer(true)} />
-        <div className="h-fit min-h-[18px] font-mono fs-11 text-[rgba(160,190,225,.75)]">{line}</div>
+        <div className="h-fit min-h-[18px] font-mono fs-11 text-ink-900/75">{line}</div>
         <div className="grid w-full grid-cols-2 gap-2.5">
           <SecondaryButton disabled={busy} onClick={() => void answer(false)}>
             Reject
@@ -177,12 +177,12 @@ function JoinedSheet({ name, done, onDone }: { name: string; done: string | null
       <div className="flex flex-col items-center gap-3 pb-2 pt-3 text-center">
         <span
           aria-hidden
-          className="grid h-[52px] w-[52px] place-items-center rounded-full border-2 border-[oklch(85%_.12_205)] fs-20 text-[oklch(85%_.12_205)]"
+          className="grid h-[52px] w-[52px] place-items-center rounded-full border-2 border-accent fs-20 text-accent"
         >
           ✓
         </span>
         <h2 className="fs-18 font-bold">{name} joined</h2>
-        <p className="fs-13 leading-[1.5] text-[rgba(160,190,225,.72)]">
+        <p className="fs-13 leading-[1.5] text-ink-900/72">
           {done ?? 'The other devices link to it on their own.'}
         </p>
         <SecondaryButton onClick={onDone}>Done</SecondaryButton>
@@ -201,7 +201,7 @@ function FullSheet({ name, onDone }: { name: string; onDone: () => void }) {
     <BottomSheet label={GROUP_FULL} onDismiss={onDone} variant="device">
       <div className="flex flex-col items-center gap-3 pb-2 pt-3 text-center">
         <h2 className="fs-18 font-bold [text-wrap:balance]">{GROUP_FULL}</h2>
-        <p className="fs-13 leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+        <p className="fs-13 leading-[1.5] text-ink-900/72 [text-wrap:pretty]">
           {name} wasn’t added and keeps running on its own.
         </p>
         <SecondaryButton onClick={onDone}>OK</SecondaryButton>

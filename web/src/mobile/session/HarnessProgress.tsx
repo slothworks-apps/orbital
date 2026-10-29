@@ -27,7 +27,7 @@ export function HarnessProgress({ session }: SlotProps) {
         aria-label={`Harness steps, ${reading.count}`}
         disabled={!harness}
         onClick={() => setOpen(true)}
-        className="flex h-11 shrink-0 items-center gap-[7px] px-2 font-mono fs-10.5 text-[rgba(200,220,245,.8)]"
+        className="flex h-11 shrink-0 items-center gap-[7px] px-2 font-mono fs-10.5 text-ink-500/80"
       >
         {/* Canvas 10b: 5 × 10 px segments, 2 px apart. */}
         <span aria-hidden className="flex gap-0.5">
@@ -36,7 +36,7 @@ export function HarnessProgress({ session }: SlotProps) {
           ))}
         </span>
         {reading.count}
-        <span aria-hidden className="fs-9 text-[rgba(160,190,225,.6)]">
+        <span aria-hidden className="fs-9 text-ink-900/60">
           ▸
         </span>
       </button>

@@ -217,7 +217,7 @@ export class ArchipelagoScene {
     el('circle', { cx: 0, cy: 1.12, r: 0.1, fill: '#f0d39a' }, hg)
     const beam = el('path', { d: '', fill: '#f0d39a', opacity: 0.08 }, hg)
     const label = document.createElement('div')
-    label.className = 'pointer-events-auto absolute left-0 top-0 cursor-pointer whitespace-nowrap rounded-lg border border-[rgba(150,205,255,.12)] bg-[rgba(8,13,22,.82)] px-2.5 py-1.5 font-mono fs-10 tracking-[0.12em] text-text-muted'
+    label.className = 'pointer-events-auto absolute left-0 top-0 cursor-pointer whitespace-nowrap rounded-lg border border-line/12 bg-space-deep/82 px-2.5 py-1.5 font-mono fs-10 tracking-[0.12em] text-ink-900/70'
     label.dataset.hole = ''
     this.labelLayer.appendChild(label)
     this.hole = { g: hg, beam, glow, label, at: { x: 0, y: 0 }, visible: true }
@@ -391,9 +391,9 @@ export class ArchipelagoScene {
     el('circle', { cx: fmt(lamp.x), cy: fmt(lamp.y), r: 0.045, fill: '#f0d39a' }, g)
 
     const plaque = document.createElement('div')
-    plaque.className = 'pointer-events-auto absolute left-0 top-0 flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-lg border border-[rgba(255,255,255,.08)] bg-[rgba(10,16,26,.8)] px-2.5 py-1.5'
+    plaque.className = 'pointer-events-auto absolute left-0 top-0 flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-lg border border-white/8 bg-panel/80 px-2.5 py-1.5'
     plaque.dataset.island = String(island.tagId)
-    plaque.innerHTML = `<i style="width:3px;height:18px;border-radius:2px;background:${hsl(hue, 60, 65)}"></i><span data-name class="font-mono fs-11 font-semibold tracking-[0.16em] text-text-bright"></span>`
+    plaque.innerHTML = `<i style="width:3px;height:18px;border-radius:2px;background:${hsl(hue, 60, 65)}"></i><span data-name class="font-mono fs-11 font-semibold tracking-[0.16em] text-ink-100"></span>`
     this.labelLayer.appendChild(plaque)
     return { island, anchor: { x: 0, y: 0 }, g, plaque, lights, flag, flagAt, key, working: 0 }
   }
@@ -565,22 +565,22 @@ export class ArchipelagoScene {
     const title = truncateLabel(s.title)
     v.label.title = s.title
     v.label.className = [
-      'group pointer-events-auto absolute left-0 top-0 max-w-[260px] cursor-pointer rounded-lg border bg-[rgba(9,14,24,.84)] px-2.5 py-1.5 transition-[opacity,border-color] duration-700',
-      p.selected ? 'border-[rgba(220,235,255,.35)]' : 'border-[rgba(255,255,255,.07)] hover:border-[rgba(255,255,255,.22)]',
+      'group pointer-events-auto absolute left-0 top-0 max-w-[260px] cursor-pointer rounded-lg border bg-panel/84 px-2.5 py-1.5 transition-[opacity,border-color] duration-700',
+      p.selected ? 'border-ink-200/35' : 'border-white/7 hover:border-white/22',
     ].join(' ')
     v.label.style.opacity = String((p.muted ? 0.28 : 1) * (key === 'ended' ? 0.6 : 1))
     v.label.innerHTML = `
       <div class="flex items-center gap-1.5 whitespace-nowrap">
         <i class="inline-block h-[7px] w-[7px] shrink-0 rounded-full" style="background:${key === 'idle' || key === 'ended' ? 'transparent' : colour};box-shadow:inset 0 0 0 1.5px ${colour}"></i>
-        <span class="font-mono fs-11.5 font-medium text-text-bright">${escape(title)}</span>
+        <span class="font-mono fs-11.5 font-medium text-ink-100">${escape(title)}</span>
         ${word}
-        ${detached ? '<span class="ml-1 fs-10 text-text-muted" title="Open in its own window">⧉</span>' : ''}
+        ${detached ? '<span class="ml-1 fs-10 text-ink-900/70" title="Open in its own window">⧉</span>' : ''}
       </div>
       <div data-detail class="mt-0.5 max-w-[240px] truncate font-mono fs-10.5" style="color:${pill && key !== 'waiting' ? colour : 'rgb(160 190 225 / .7)'}">${escape(sub)}</div>
-      ${p.modelFamily ? `<div data-detail class="font-mono fs-9.5 uppercase tracking-[0.12em] text-text-muted/70">${escape(p.modelFamily)}</div>` : ''}
+      ${p.modelFamily ? `<div data-detail class="font-mono fs-9.5 uppercase tracking-[0.12em] text-ink-900/49">${escape(p.modelFamily)}</div>` : ''}
       ${p.compactingSince ? `<div class="mt-1 font-mono fs-9.5 tracking-[0.1em] text-[#bee1ff]" data-compacting="${p.compactingSince}">COMPACTING</div>` : ''}
-      ${compactBadge ? `<button type="button" data-action="compact" class="mt-1 rounded border border-[#fa8880]/50 px-1.5 py-0.5 font-mono fs-9.5 text-[#fa8880]">${Math.round((fill?.fraction ?? 0) * 100)}% · /compact</button>` : ''}
-      ${failed ? `<button type="button" data-action="compact-failed" class="mt-1 rounded border border-[#fa8880]/50 px-1.5 py-0.5 font-mono fs-9.5 text-[#fa8880]">COMPACT FAILED · ${Math.round((fill?.fraction ?? 0) * 100)}%</button>` : ''}`
+      ${compactBadge ? `<button type="button" data-action="compact" class="mt-1 rounded border border-danger-soft/50 px-1.5 py-0.5 font-mono fs-9.5 text-danger-soft">${Math.round((fill?.fraction ?? 0) * 100)}% · /compact</button>` : ''}
+      ${failed ? `<button type="button" data-action="compact-failed" class="mt-1 rounded border border-danger-soft/50 px-1.5 py-0.5 font-mono fs-9.5 text-danger-soft">COMPACT FAILED · ${Math.round((fill?.fraction ?? 0) * 100)}%</button>` : ''}`
   }
 
   private makeBoat(sessionId: string, subagent: Subagent): BoatView {
@@ -895,7 +895,7 @@ export class ArchipelagoScene {
         : armed
           ? 'release to end'
           : `${count} session${count === 1 ? '' : 's'} · click to browse`
-      const html = `<div class="font-semibold text-text-bright/80">HISTORY</div><div class="mt-0.5 tracking-[0.04em]" style="color:${refused ? '#ffbb7b' : ''}">${text}</div>`
+      const html = `<div class="font-semibold text-ink-100/80">HISTORY</div><div class="mt-0.5 tracking-[0.04em]" style="color:${refused ? '#ffbb7b' : ''}">${text}</div>`
       if (this.hole.label.innerHTML !== html) this.hole.label.innerHTML = html
     }
   }

@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useOrbital } from '../store/store'
 import type { BackgroundTask } from '../lib/types'
@@ -24,14 +25,14 @@ const TONE_INK: Record<TaskTone, string> = {
   done: TASK_TONE.completed.dotColor,
   failed: TASK_TONE.failed.dotColor,
   stopped: TASK_TONE.stopped.ink,
-  unknown: 'rgba(160,190,225,.6)',
+  unknown: swatch('ink-900', 0.6),
 }
 const TONE_BORDER: Record<TaskTone, string> = {
   running: TASK_TONE.running.border,
   done: TASK_TONE.completed.border,
   failed: TASK_TONE.failed.border,
   stopped: TASK_TONE.stopped.border,
-  unknown: 'rgba(150,205,255,.2)',
+  unknown: swatch('line', 0.2),
 }
 
 /** The dashed line Orbital adds under the output once the task ended (26b). */
@@ -122,14 +123,14 @@ export function TaskOutputPanel({ widthPx, inWindow: inWindowProp = false, swap 
         <div
           aria-hidden
           className="absolute inset-x-0 top-0 h-px"
-          style={{ background: 'repeating-linear-gradient(90deg, rgba(150,205,255,.4) 0 4px, transparent 4px 10px)' }}
+          style={{ background: 'repeating-linear-gradient(90deg, color-mix(in oklab, var(--color-line) 40%, transparent) 0 4px, transparent 4px 10px)' }}
         />
       )}
 
       <div
         className={[
-          'orbital-band-controls border-b border-[rgba(150,205,255,.1)] px-[18px] pb-[14px] pt-4',
-          swap ? 'bg-[image:linear-gradient(180deg,rgba(10,15,27,.6),rgba(5,8,16,.3))]' : '',
+          'orbital-band-controls border-b border-line/10 px-[18px] pb-[14px] pt-4',
+          swap ? 'bg-[image:linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_60%,_transparent),color-mix(in_oklab,_var(--color-shade)_30%,_transparent))]' : '',
         ].join(' ')}
       >
         {/* 26c under 760px: 25b's swap unchanged — row 1 is the title bar,
@@ -156,7 +157,7 @@ export function TaskOutputPanel({ widthPx, inWindow: inWindowProp = false, swap 
             swap ? 'mt-3' : inWindow ? 'orbital-drag-region -mx-[18px] -mt-4 h-[38px] px-[18px] pt-4' : 'h-[22px]',
           ].join(' ')}
         >
-          <span className="font-mono fs-9.5 tracking-[0.18em] text-[rgba(160,190,225,.55)]">
+          <span className="font-mono fs-9.5 tracking-[0.18em] text-ink-900/55">
             {kind.toUpperCase()} · OUTPUT · READ-ONLY
           </span>
           <span aria-hidden className="flex-1" />
@@ -169,14 +170,14 @@ export function TaskOutputPanel({ widthPx, inWindow: inWindowProp = false, swap 
           )}
         </div>
 
-        <div className="mt-2 text-pretty fs-15 font-semibold leading-[1.34] text-text-bright">
+        <div className="mt-2 text-pretty fs-15 font-semibold leading-[1.34] text-ink-100">
           {task?.label ?? 'Background task'}
         </div>
 
         {/* 26b: the whole command, wrapped and never cut — the flags are the point. */}
         {task?.command && (
-          <div data-selectable className="mt-2.5 whitespace-pre-wrap break-words rounded-[7px] border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.5)] px-2.5 py-2 font-mono fs-11 leading-[1.5] text-text-bright">
-            <span className="text-[rgba(160,190,225,.5)]">$ </span>
+          <div data-selectable className="mt-2.5 whitespace-pre-wrap break-words rounded-[7px] border border-line/10 bg-shade/50 px-2.5 py-2 font-mono fs-11 leading-[1.5] text-ink-100">
+            <span className="text-ink-900/50">$ </span>
             {task.command}
           </div>
         )}
@@ -196,7 +197,7 @@ export function TaskOutputPanel({ widthPx, inWindow: inWindowProp = false, swap 
           {elapsed && (
             <span
               className="font-mono fs-10.5"
-              style={{ color: running ? 'rgba(200,225,255,.9)' : 'rgba(160,190,225,.6)' }}
+              style={{ color: running ? swatch('ink-300', 0.9) : swatch('ink-900', 0.6) }}
             >
               {elapsed}
             </span>
@@ -209,8 +210,8 @@ export function TaskOutputPanel({ widthPx, inWindow: inWindowProp = false, swap 
               className={[
                 'flex items-center gap-1.5 rounded-md border px-2.5 py-1 font-sans fs-11.5 font-bold transition-colors',
                 stopping
-                  ? 'orbital-pulse cursor-default border-[rgba(255,187,123,.3)] text-[rgba(255,187,123,.6)]'
-                  : 'border-[rgba(255,187,123,.55)] text-[#ffbb7b] hover:bg-[rgba(255,187,123,.1)]',
+                  ? 'orbital-pulse cursor-default border-warning/30 text-warning/60'
+                  : 'border-warning/55 text-warning hover:bg-warning/10',
               ].join(' ')}
             >
               ■ {stopping ? 'Stopping…' : 'Stop'}
@@ -220,11 +221,11 @@ export function TaskOutputPanel({ widthPx, inWindow: inWindowProp = false, swap 
       </div>
 
       {view.phase === 'gone' ? (
-        <div className="flex flex-1 flex-col items-start justify-center gap-2.5 bg-[rgba(3,5,11,.45)] px-7">
-          <span className="font-mono fs-10 tracking-[0.18em] text-[rgba(160,190,225,.6)]">
+        <div className="flex flex-1 flex-col items-start justify-center gap-2.5 bg-space/45 px-7">
+          <span className="font-mono fs-10 tracking-[0.18em] text-ink-900/60">
             OUTPUT NO LONGER AVAILABLE
           </span>
-          <span className="text-pretty fs-13 leading-[1.55] text-[rgba(200,214,235,.9)]">
+          <span className="text-pretty fs-13 leading-[1.55] text-ink-600/90">
             Its output file no longer exists. The task is still listed so the count matches, but there is nothing
             left to show.
           </span>
@@ -235,9 +236,9 @@ export function TaskOutputPanel({ widthPx, inWindow: inWindowProp = false, swap 
           onScroll={onScroll}
           data-task-output
           data-selectable
-          className="min-h-0 flex-1 overflow-auto bg-[rgba(3,5,11,.45)] shadow-[inset_0_14px_24px_-18px_rgba(0,0,0,.9)]"
+          className="min-h-0 flex-1 overflow-auto bg-space/45 shadow-[inset_0_14px_24px_-18px_rgba(0,0,0,.9)]"
         >
-          <div className="px-[18px] py-3 font-mono fs-11 leading-[1.62] text-[rgba(214,226,244,.86)]">
+          <div className="px-[18px] py-3 font-mono fs-11 leading-[1.62] text-ink-400/86">
             {lines.map((line, i) => (
               <div key={i} className="min-h-[1.62em] whitespace-pre-wrap break-words">
                 {line}
@@ -245,7 +246,7 @@ export function TaskOutputPanel({ widthPx, inWindow: inWindowProp = false, swap 
             ))}
             {task && !running && view.phase === 'ready' && (
               <div
-                className="mt-2 border-t border-dashed border-[rgba(150,205,255,.16)] pt-2 tracking-[0.04em]"
+                className="mt-2 border-t border-dashed border-line/16 pt-2 tracking-[0.04em]"
                 style={{ color: TONE_INK[tone] }}
               >
                 — {endText(task, elapsed)}
@@ -255,14 +256,14 @@ export function TaskOutputPanel({ widthPx, inWindow: inWindowProp = false, swap 
         </div>
       )}
 
-      <div className="flex items-center gap-2 border-t border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.4)] px-[18px] py-3 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+      <div className="flex items-center gap-2 border-t border-line/10 bg-shade/40 px-[18px] py-3 font-mono fs-10 tracking-[0.06em] text-ink-900/50">
         {view.phase === 'gone' ? (
           <span>{task?.endedAt ? `ended ${clockOf(task.endedAt)}` : 'ended'}</span>
         ) : !following ? (
           <button
             type="button"
             onClick={jumpToLatest}
-            className="flex items-center gap-1.5 rounded-[5px] border border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] px-2 py-[3px] text-text-bright"
+            className="flex items-center gap-1.5 rounded-[5px] border border-line/30 bg-line/14 px-2 py-[3px] text-ink-100"
           >
             ↓ {newLines > 0 ? `${newLines} new · ` : ''}jump to latest
           </button>

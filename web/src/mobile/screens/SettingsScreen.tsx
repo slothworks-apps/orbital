@@ -115,7 +115,7 @@ export function SettingsScreen() {
         type="button"
         aria-label="Back"
         onClick={() => goBack()}
-        className="grid h-11 w-11 place-items-center fs-28 leading-none text-[rgba(220,235,255,.85)]"
+        className="grid h-11 w-11 place-items-center fs-28 leading-none text-ink-200/85"
       >
         ‹
       </button>
@@ -134,11 +134,11 @@ export function SettingsScreen() {
           {NOTIFICATION_ROWS.map((row, i) => (
             <div
               key={row.key}
-              className={['flex min-h-15 items-center gap-2.5 py-2 pl-3.5 pr-1.5', i > 0 ? 'border-t border-[rgba(150,205,255,.08)]' : ''].join(' ')}
+              className={['flex min-h-15 items-center gap-2.5 py-2 pl-3.5 pr-1.5', i > 0 ? 'border-t border-line/8' : ''].join(' ')}
             >
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="fs-14 font-semibold">{row.label}</span>
-                <span className="fs-11.5 leading-[1.4] text-[rgba(160,190,225,.6)]">{row.desc}</span>
+                <span className="fs-11.5 leading-[1.4] text-ink-900/60">{row.desc}</span>
               </span>
               <Toggle
                 label={row.label}
@@ -150,7 +150,7 @@ export function SettingsScreen() {
           ))}
         </div>
         {/* 2e: replaces "Copied from your Mac when you paired." */}
-        <p className="px-1 pt-2 fs-12 leading-[1.5] text-[rgba(160,190,225,.65)]">
+        <p className="px-1 pt-2 fs-12 leading-[1.5] text-ink-900/65">
           {rules && !notificationsAllOff(rules)
             ? 'Just for this phone.'
             : 'Just for this phone. All off until you turn one on. The first one asks the phone for permission.'}
@@ -165,7 +165,7 @@ export function SettingsScreen() {
         {/* Not in the website's demo, where it would open a real issue form. */}
         {!isDemo() && <AboutSection />}
         {/* Canvas `Feature - Phone update`: the app's version and the shell's on one line; 50i's note on names. */}
-        <footer className="px-1 pt-[18px] font-mono fs-10 leading-[1.7] text-[rgba(160,190,225,.6)]">
+        <footer className="px-1 pt-[18px] font-mono fs-10 leading-[1.7] text-ink-900/60">
           <p>{shell ? `${__MOBILE_VERSION__} · shell ${shell}` : __MOBILE_VERSION__} · each device names itself</p>
         </footer>
       </div>
@@ -205,7 +205,7 @@ function SecuritySection() {
           <Toggle label={title} checked={on} disabled={saving} onChange={(next) => void change(next)} />
         </div>
       </div>
-      <p className="px-1 pt-2 fs-12 leading-[1.5] text-[rgba(160,190,225,.65)]">Asks again after a minute in the background.</p>
+      <p className="px-1 pt-2 fs-12 leading-[1.5] text-ink-900/65">Asks again after a minute in the background.</p>
     </>
   )
 }
@@ -219,7 +219,7 @@ function AboutSection() {
       <div className={CARD}>
         <button type="button" onClick={() => setOpen(true)} className="flex min-h-13 w-full items-center gap-2.5 px-3.5 text-left">
           <span className="flex-1 fs-14 font-semibold">Send feedback</span>
-          <span className="font-mono fs-11 text-[rgba(160,190,225,.6)]">opens GitHub ↗</span>
+          <span className="font-mono fs-11 text-ink-900/60">opens GitHub ↗</span>
         </button>
       </div>
       <SheetPresence>{open && <FeedbackSheet onClose={() => setOpen(false)} />}</SheetPresence>

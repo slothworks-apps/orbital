@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import { tagColor } from '../lib/types'
 
@@ -59,7 +60,7 @@ export function Chip({
       ? {
           borderColor: `oklch(80% .13 ${hue} / ${field ? '.5' : '.4'})`,
           background: `oklch(80% .13 ${hue} / ${field ? '.12' : '.1'})`,
-          color: '#e8eef8',
+          color: swatch('ink-100'),
         }
       : undefined
   const style = dimmed ? { ...hueStyle, opacity: 0.5 } : hueStyle
@@ -92,13 +93,13 @@ export function Chip({
         field ? 'box-border h-fit min-h-[26px] px-[11px] fs-11.5' : 'px-2.5 py-1 fs-11',
         interactive ? 'cursor-pointer select-none' : '',
         lifted
-          ? 'whitespace-nowrap border-[rgba(150,205,255,.3)] bg-[rgba(10,16,28,.96)] text-text-bright shadow-[0_10px_24px_rgba(0,0,0,.5)]'
+          ? 'whitespace-nowrap border-line/30 bg-panel/96 text-ink-100 shadow-[0_10px_24px_rgba(0,0,0,.5)]'
           : active
-            ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
+            ? 'border-line/30 bg-line/14 text-ink-100'
             : glyph !== undefined || muted
-              ? 'border-panel-border text-[rgba(160,190,225,.6)]'
-              : 'border-panel-border text-[rgba(220,235,255,.8)]',
-        muted && interactive ? 'hover:border-[rgba(150,205,255,.3)] hover:text-text-bright' : '',
+              ? 'border-line/14 text-ink-900/60'
+              : 'border-line/14 text-ink-200/80',
+        muted && interactive ? 'hover:border-line/30 hover:text-ink-100' : '',
       ]
         .filter(Boolean)
         .join(' ')}
@@ -106,7 +107,7 @@ export function Chip({
       {showDot &&
         (input !== undefined && hue === undefined ? (
           // 80c: the dot is empty until the tag it names exists.
-          <span aria-hidden className="box-border block h-1.5 w-1.5 rounded-full border border-[rgba(160,190,225,.6)]" />
+          <span aria-hidden className="box-border block h-1.5 w-1.5 rounded-full border border-ink-900/60" />
         ) : (
           <span
             aria-hidden
@@ -117,7 +118,7 @@ export function Chip({
       {glyph}
       {input ?? <span>{label}</span>}
       {note && (
-        <span className="font-mono fs-9.5 font-normal tracking-[0.06em] text-[rgba(160,190,225,.75)]">
+        <span className="font-mono fs-9.5 font-normal tracking-[0.06em] text-ink-900/75">
           {note}
         </span>
       )}
@@ -126,7 +127,7 @@ export function Chip({
           type="button"
           aria-label={`Remove ${label}`}
           onClick={handleRemove}
-          className="ml-0.5 leading-none text-text-muted hover:text-text-bright"
+          className="ml-0.5 leading-none text-ink-900/70 hover:text-ink-100"
         >
           ×
         </button>

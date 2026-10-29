@@ -1,3 +1,4 @@
+import { swatch } from '../../lib/palette'
 /**
  * The harness panel's pure model (canvas `Feature - Harness` 30b–30h; spec
  * 2026-10-02-harness-redesign-design): which marker a step wears, what its
@@ -100,11 +101,11 @@ export function opensByDefault(kind: StepKind): boolean {
     || kind === 'doneUnsure'
 }
 
-const AMB = '#ffbb7b'
-const CY = '#59e4f3'
-const MINT = '#7fe3b0'
-const NEU = 'rgba(200,220,245,.8)'
-const MUT = 'rgba(160,190,225,.6)'
+const AMB = swatch('warning')
+const CY = swatch('accent')
+const MINT = swatch('success')
+const NEU = swatch('ink-500', 0.8)
+const MUT = swatch('ink-900', 0.6)
 
 export interface MarkerStyle {
   /** The 1.4 px border's colour and stroke. */
@@ -121,18 +122,18 @@ export interface MarkerStyle {
 
 /** Canvas 30d's `V` table, verbatim. */
 export const MARKER: Record<StepKind, MarkerStyle> = {
-  pending: { border: 'rgba(160,190,225,.4)', stroke: 'solid', fill: 'transparent', shadow: 'none', titleInk: 'rgba(200,214,235,.62)', metaInk: 'rgba(160,190,225,.5)', segment: 'rgba(150,205,255,.14)' },
-  pendingGate: { border: 'rgba(160,190,225,.4)', stroke: 'solid', fill: 'transparent', shadow: 'none', titleInk: 'rgba(200,214,235,.62)', metaInk: 'rgba(160,190,225,.5)', segment: 'rgba(150,205,255,.14)' },
-  active: { border: CY, stroke: 'solid', fill: CY, shadow: '0 0 0 3px rgba(89,228,243,.14)', titleInk: '#e8eef8', metaInk: CY, segment: CY },
-  reopened: { border: CY, stroke: 'solid', fill: CY, shadow: '0 0 0 3px rgba(89,228,243,.14)', titleInk: '#e8eef8', metaInk: NEU, segment: CY },
-  pausedHere: { border: CY, stroke: 'solid', fill: 'transparent', shadow: 'none', titleInk: '#e8eef8', metaInk: NEU, segment: 'rgba(89,228,243,.45)' },
-  sentBack: { border: CY, stroke: 'solid', fill: CY, shadow: '0 0 0 3px rgba(89,228,243,.14)', titleInk: '#e8eef8', metaInk: NEU, segment: CY },
-  waiting: { border: AMB, stroke: 'solid', fill: AMB, shadow: '0 0 0 3px rgba(255,187,123,.12)', titleInk: '#e8eef8', metaInk: AMB, segment: AMB },
-  reviewing: { border: 'rgba(220,235,255,.75)', stroke: 'solid', fill: 'rgba(220,235,255,.12)', shadow: 'none', titleInk: '#e8eef8', metaInk: NEU, segment: 'rgba(220,235,255,.5)' },
-  doneAgent: { border: MINT, stroke: 'solid', fill: MINT, shadow: 'none', titleInk: 'rgba(220,235,255,.8)', metaInk: MUT, segment: 'rgba(127,227,176,.75)' },
-  doneYou: { border: MINT, stroke: 'solid', fill: MINT, shadow: 'none', titleInk: 'rgba(220,235,255,.8)', metaInk: MUT, segment: 'rgba(127,227,176,.75)' },
-  doneRev: { border: MINT, stroke: 'solid', fill: 'transparent', shadow: 'none', titleInk: 'rgba(220,235,255,.8)', metaInk: MUT, segment: 'rgba(127,227,176,.75)' },
-  doneUnsure: { border: MINT, stroke: 'dashed', fill: 'transparent', shadow: 'none', titleInk: 'rgba(220,235,255,.8)', metaInk: MUT, segment: 'rgba(127,227,176,.75)' },
+  pending: { border: swatch('ink-900', 0.4), stroke: 'solid', fill: 'transparent', shadow: 'none', titleInk: swatch('ink-600', 0.62), metaInk: swatch('ink-900', 0.5), segment: swatch('line', 0.14) },
+  pendingGate: { border: swatch('ink-900', 0.4), stroke: 'solid', fill: 'transparent', shadow: 'none', titleInk: swatch('ink-600', 0.62), metaInk: swatch('ink-900', 0.5), segment: swatch('line', 0.14) },
+  active: { border: CY, stroke: 'solid', fill: CY, shadow: '0 0 0 3px color-mix(in oklab, var(--color-accent) 14%, transparent)', titleInk: swatch('ink-100'), metaInk: CY, segment: CY },
+  reopened: { border: CY, stroke: 'solid', fill: CY, shadow: '0 0 0 3px color-mix(in oklab, var(--color-accent) 14%, transparent)', titleInk: swatch('ink-100'), metaInk: NEU, segment: CY },
+  pausedHere: { border: CY, stroke: 'solid', fill: 'transparent', shadow: 'none', titleInk: swatch('ink-100'), metaInk: NEU, segment: swatch('accent', 0.45) },
+  sentBack: { border: CY, stroke: 'solid', fill: CY, shadow: '0 0 0 3px color-mix(in oklab, var(--color-accent) 14%, transparent)', titleInk: swatch('ink-100'), metaInk: NEU, segment: CY },
+  waiting: { border: AMB, stroke: 'solid', fill: AMB, shadow: '0 0 0 3px color-mix(in oklab, var(--color-warning) 12%, transparent)', titleInk: swatch('ink-100'), metaInk: AMB, segment: AMB },
+  reviewing: { border: swatch('ink-200', 0.75), stroke: 'solid', fill: swatch('ink-200', 0.12), shadow: 'none', titleInk: swatch('ink-100'), metaInk: NEU, segment: swatch('ink-200', 0.5) },
+  doneAgent: { border: MINT, stroke: 'solid', fill: MINT, shadow: 'none', titleInk: swatch('ink-200', 0.8), metaInk: MUT, segment: swatch('success', 0.75) },
+  doneYou: { border: MINT, stroke: 'solid', fill: MINT, shadow: 'none', titleInk: swatch('ink-200', 0.8), metaInk: MUT, segment: swatch('success', 0.75) },
+  doneRev: { border: MINT, stroke: 'solid', fill: 'transparent', shadow: 'none', titleInk: swatch('ink-200', 0.8), metaInk: MUT, segment: swatch('success', 0.75) },
+  doneUnsure: { border: MINT, stroke: 'dashed', fill: 'transparent', shadow: 'none', titleInk: swatch('ink-200', 0.8), metaInk: MUT, segment: swatch('success', 0.75) },
 }
 
 export const INK = { AMB, CY, MINT, NEU, MUT }

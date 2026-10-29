@@ -94,7 +94,7 @@ export function SkillViewer({
         inert={state === 'exiting' || undefined}
         onClick={onClose}
         style={{ transition: 'opacity 140ms ease', opacity: entered ? 1 : 0 }}
-        className="orbital-no-drag fixed inset-0 z-50 grid place-items-center bg-[rgba(2,4,9,.82)] p-6 backdrop-blur-[6px]"
+        className="orbital-no-drag fixed inset-0 z-50 grid place-items-center bg-space/82 p-6 backdrop-blur-[6px]"
       >
         <div
           data-text-scope="transcript"
@@ -108,17 +108,17 @@ export function SkillViewer({
             transition: 'transform 180ms cubic-bezier(.2,.9,.25,1)',
             transform: entered ? 'scale(1)' : 'scale(.98)',
           }}
-          className="flex flex-col overflow-hidden rounded-[14px] border border-[rgba(150,205,255,.22)] bg-[linear-gradient(180deg,rgba(14,20,34,.96),rgba(8,12,22,.98))] shadow-[0_40px_120px_rgba(0,0,0,.7)]"
+          className="flex flex-col overflow-hidden rounded-[14px] border border-line/22 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel-solid)_96%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_98%,_transparent))] shadow-[0_40px_120px_rgba(0,0,0,.7)]"
         >
-          <div className="flex items-start gap-3 border-b border-[rgba(150,205,255,.1)] px-[18px] pb-3.5 pt-4">
+          <div className="flex items-start gap-3 border-b border-line/10 px-[18px] pb-3.5 pt-4">
             <div className="flex min-w-0 flex-1 flex-col gap-[7px]">
-              <div className="min-w-0 truncate font-mono fs-14 text-[#f2f9ff]">/{shown}</div>
+              <div className="min-w-0 truncate font-mono fs-14 text-ink-50">/{shown}</div>
               {content?.description && (
-                <div className="fs-12.5 leading-[1.5] text-[rgba(160,190,225,.8)] [text-wrap:pretty]">
+                <div className="fs-12.5 leading-[1.5] text-ink-900/80 [text-wrap:pretty]">
                   {content.description}
                 </div>
               )}
-              <div className="truncate font-mono fs-10.5 tracking-[0.06em] text-[rgba(160,190,225,.55)]">
+              <div className="truncate font-mono fs-10.5 tracking-[0.06em] text-ink-900/55">
                 {meta}
               </div>
             </div>
@@ -126,7 +126,7 @@ export function SkillViewer({
               type="button"
               aria-label="Close"
               onClick={onClose}
-              className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[8px] border border-[rgba(150,205,255,.2)] bg-[rgba(10,14,24,.7)] fs-15 text-text-bright transition-colors hover:border-[rgba(150,205,255,.45)]"
+              className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[8px] border border-line/20 bg-panel/70 fs-15 text-ink-100 transition-colors hover:border-line/45"
             >
               ×
             </button>
@@ -140,8 +140,8 @@ export function SkillViewer({
             <MarkdownBody content={content.body} />
           )}
 
-          <div className="flex items-center gap-2.5 border-t border-[rgba(150,205,255,.1)] px-[18px] py-2.5 font-mono fs-10 tracking-[0.08em] text-[rgba(160,190,225,.55)]">
-            <span className="rounded-[4px] border border-[rgba(150,205,255,.2)] px-1.5 py-[2px] text-[rgba(200,220,245,.7)]">
+          <div className="flex items-center gap-2.5 border-t border-line/10 px-[18px] py-2.5 font-mono fs-10 tracking-[0.08em] text-ink-900/55">
+            <span className="rounded-[4px] border border-line/20 px-1.5 py-[2px] text-ink-500/70">
               esc
             </span>
             closes · read-only

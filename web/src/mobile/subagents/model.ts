@@ -1,3 +1,4 @@
+import { swatch } from '../../lib/palette'
 import { kindWord, opensOutput, taskElapsedMs, taskGroups, taskTone } from '../../lib/backgroundTasks'
 import { elapsedMsFor, taskStateFor, withoutLeadingUserFrame } from '../../lib/subagentPanel'
 import type { BackgroundTask, ChatMessage, Subagent } from '../../lib/types'
@@ -18,21 +19,21 @@ const HOUR_MS = 60 * MINUTE_MS
 /** Canvas 10f, 10g, 10h inks. */
 export const INK = {
   /** RUNNING and its pulsing dot. */
-  running: '#59e4f3',
+  running: swatch('accent'),
   /** WAS RUNNING while the Mac sleeps (10h). */
-  runningAsleep: 'rgba(89,228,243,.7)',
+  runningAsleep: swatch('accent', 0.7),
   /** DONE, EXITED · CODE 0. */
-  done: '#7fe3b0',
+  done: swatch('success'),
   /** A real failure: exit code ≠ 0 (spec § 0). */
-  failed: '#fa8880',
+  failed: swatch('danger-soft'),
   /** A stop, an unknown end, a lost stream — never a failure (10h `N`). */
-  neutral: 'rgba(200,215,235,.8)',
+  neutral: swatch('ink-600', 0.8),
   /** The end line of what is no longer there (10h `M`). */
-  muted: 'rgba(160,190,225,.6)',
+  muted: swatch('ink-900', 0.6),
   /** "stopped by you after …" (10g). */
-  stoppedByYou: 'rgba(200,220,245,.8)',
+  stoppedByYou: swatch('ink-500', 0.8),
   /** The paused pill and a pressable path (10g, 10h). */
-  accent: 'oklch(85% .12 205)',
+  accent: swatch('accent'),
 } as const
 
 /**

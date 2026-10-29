@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactElement, Ref } from 'react'
 import { lineGroups, linesReadout, prAriaLabel } from '../lib/branchStatus'
@@ -68,10 +69,10 @@ const PR_TOOLTIP_DELAY_MS = 300
 /** 2e: the worktree list's bubble — the Branch status shell, wider. */
 const TREES_TOOLTIP_PX = 300
 
-const MARK_INK = 'rgba(160,190,225,.75)'
+const MARK_INK = swatch('ink-900', 0.75)
 /** A step above the path, so the branch does not read as another path segment. */
-const BRANCH_INK = 'rgba(200,220,245,.85)'
-const PATH_INK = 'rgba(160,190,225,.7)'
+const BRANCH_INK = swatch('ink-500', 0.85)
+const PATH_INK = swatch('ink-900', 0.7)
 
 const STROKE = 1.4
 
@@ -167,9 +168,9 @@ function TreesTooltipContent({ form, trees }: { form: WhereForm; trees: readonly
   return (
     <span className="flex flex-col gap-[10px]">
       <span className="flex items-baseline gap-2 font-mono">
-        <span className="fs-11 text-text-bright">{treesHeadText(form)}</span>
+        <span className="fs-11 text-ink-100">{treesHeadText(form)}</span>
         <span className="flex-1" />
-        <span className="fs-10 text-[rgba(160,190,225,.6)]">running subagents</span>
+        <span className="fs-10 text-ink-900/60">running subagents</span>
       </span>
       <span className="flex flex-col gap-2">
         {list.rows.map((row) => (
@@ -178,15 +179,15 @@ function TreesTooltipContent({ form, trees }: { form: WhereForm; trees: readonly
             className="grid grid-cols-[13px_minmax(0,1fr)_auto] items-center gap-x-[7px] gap-y-0.5 whitespace-nowrap font-mono fs-11"
           >
             <ListMark mark={row.mark} />
-            <span className="min-w-0 overflow-hidden text-ellipsis text-text-bright">{row.branch}</span>
-            <span className="text-[rgba(160,190,225,.6)]">{row.dir}</span>
+            <span className="min-w-0 overflow-hidden text-ellipsis text-ink-100">{row.branch}</span>
+            <span className="text-ink-900/60">{row.dir}</span>
             <span className="col-[2/4] flex flex-col gap-0.5 whitespace-normal">
               {row.agents.map((agent, i) => (
                 <span
                   key={i}
-                  className="grid grid-cols-[9px_minmax(0,1fr)] font-sans fs-12 leading-[1.4] text-[rgba(190,212,238,.82)]"
+                  className="grid grid-cols-[9px_minmax(0,1fr)] font-sans fs-12 leading-[1.4] text-ink-700/82"
                 >
-                  <span className="text-[rgba(160,190,225,.5)]">·</span>
+                  <span className="text-ink-900/50">·</span>
                   <span className="line-clamp-2">{agent}</span>
                 </span>
               ))}
@@ -195,7 +196,7 @@ function TreesTooltipContent({ form, trees }: { form: WhereForm; trees: readonly
         ))}
       </span>
       {list.more > 0 && (
-        <span className="border-t border-[rgba(150,205,255,.1)] pt-2 font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
+        <span className="border-t border-line/10 pt-2 font-mono fs-10.5 text-ink-900/60">
           {treesMoreText(list.more)}
         </span>
       )}
@@ -229,10 +230,10 @@ function BranchMovedTooltipContent({
   lines?: BranchLines
   count?: string
 }) {
-  const rule = <span className="block h-px bg-[rgba(150,205,255,.1)]" />
+  const rule = <span className="block h-px bg-line/10" />
   return (
     <>
-      <span className="font-mono fs-11 leading-[1.45] text-text-bright [overflow-wrap:anywhere]">{branch}</span>
+      <span className="font-mono fs-11 leading-[1.45] text-ink-100 [overflow-wrap:anywhere]">{branch}</span>
       {lines && rule}
       {lines && <LinesTooltipContent lines={lines} branch={branch} detached={detached} />}
       {count && rule}
@@ -557,7 +558,7 @@ export function WhereLine({
               type="button"
               aria-label={prAriaLabel(shownPr)}
               onClick={() => window.open(shownPr.url, '_blank', 'noopener')}
-              className="-mx-1 flex-none cursor-pointer rounded-[5px] px-1 py-0.5 font-mono fs-11 leading-[calc(14px*var(--text-scale,1))] text-[rgba(200,220,245,.85)] transition-colors duration-[120ms] ease-in-out hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8] focus-visible:text-[#e8eef8] focus-visible:shadow-[0_0_0_1px_oklch(85%_.12_205/.7)] focus-visible:outline-none"
+              className="-mx-1 flex-none cursor-pointer rounded-[5px] px-1 py-0.5 font-mono fs-11 leading-[calc(14px*var(--text-scale,1))] text-ink-500/85 transition-colors duration-[120ms] ease-in-out hover:bg-line/9 hover:text-ink-100 focus-visible:text-ink-100 focus-visible:shadow-[0_0_0_1px_oklch(85%_.12_205/.7)] focus-visible:outline-none"
             >
               {fit.pr}
             </button>

@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import { useEffect, useState, type CSSProperties } from 'react'
 
 /** 10e2 LATE: how long a load shows only the faint surface before the moon fades in. */
@@ -16,7 +17,7 @@ const SIZES = {
 } as const
 
 /** The faint surface of a reserved box while its bytes are on their way (10e2). */
-export const LOADING_SURFACE = 'rgba(150,205,255,.035)'
+export const LOADING_SURFACE = swatch('line', 0.035)
 
 const RING_MASK = 'radial-gradient(farthest-side,transparent calc(100% - 1.5px),#000 calc(100% - 1px))'
 
@@ -76,17 +77,17 @@ export function MoonLoader({
           ...ring,
           ...paused,
           animationDelay: delays.orbit,
-          background: 'repeating-conic-gradient(rgba(150,205,255,.42) 0 2deg,transparent 2deg 10deg)',
+          background: 'repeating-conic-gradient(color-mix(in oklab, var(--color-line) 42%, transparent) 0 2deg,transparent 2deg 10deg)',
         }}
       />
       {pct !== null && (
         <span
           className="absolute inset-0 rounded-full"
-          style={{ ...ring, background: `conic-gradient(rgba(220,235,255,.8) 0 ${pct}%,transparent 0)` }}
+          style={{ ...ring, background: `conic-gradient(color-mix(in oklab, var(--color-ink-200) 80%, transparent) 0 ${pct}%,transparent 0)` }}
         />
       )}
       <span
-        className="absolute left-1/2 top-1/2 box-border block rounded-full border border-[rgba(150,205,255,.3)]"
+        className="absolute left-1/2 top-1/2 box-border block rounded-full border border-line/30"
         style={{
           width: s.planet,
           height: s.planet,
@@ -99,7 +100,7 @@ export function MoonLoader({
         style={pct === null ? { ...paused, animationDelay: delays.moon } : { transform: `rotate(${pct * 3.6}deg)` }}
       >
         <span
-          className="absolute left-1/2 block rounded-full bg-[#e8eef8] shadow-[0_0_6px_rgba(200,225,255,.5)]"
+          className="absolute left-1/2 block rounded-full bg-ink-100 shadow-[0_0_6px_color-mix(in_oklab,_var(--color-ink-300)_50%,_transparent)]"
           style={{ top: -s.moon / 2 + 0.75, width: s.moon, height: s.moon, marginLeft: -s.moon / 2 }}
         />
       </span>

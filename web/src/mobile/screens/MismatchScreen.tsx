@@ -57,7 +57,7 @@ export function MismatchScreen() {
       actions={
         <>
           {result !== null && (
-            <p className="text-center font-mono fs-10.5 text-[rgba(160,190,225,.6)]">{result}</p>
+            <p className="text-center font-mono fs-10.5 text-ink-900/60">{result}</p>
           )}
           {store ? (
             <>
@@ -124,7 +124,7 @@ function RelayTooOld({ mac, host, mismatch }: { mac: string; host: string; misma
     <>
       <Title>The relay needs an update</Title>
       <Lead>
-        {mac} connects through <span className="font-mono text-text-bright">{host}</span>, which is older than this app
+        {mac} connects through <span className="font-mono text-ink-100">{host}</span>, which is older than this app
         supports.
       </Lead>
       <Versions
@@ -161,22 +161,22 @@ function Title({ children }: { children: ReactNode }) {
 
 function Lead({ children }: { children: ReactNode }) {
   return (
-    <p className="max-w-[300px] fs-14 leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">{children}</p>
+    <p className="max-w-[300px] fs-14 leading-[1.55] text-ink-600/85 [text-wrap:pretty]">{children}</p>
   )
 }
 
 function Hint({ children }: { children: ReactNode }) {
-  return <p className="fs-12.5 leading-[1.5] text-[rgba(160,190,225,.65)]">{children}</p>
+  return <p className="fs-12.5 leading-[1.5] text-ink-900/65">{children}</p>
 }
 
 /** Who runs what, and what is needed (canvas 11a, 11d D): one row each, the value on the right. */
 function Versions({ rows }: { rows: ReadonlyArray<readonly [string, string]> }) {
   return (
-    <dl className="mt-2 flex w-full flex-col rounded-[14px] border border-[rgba(150,205,255,.12)] bg-[rgba(10,16,28,.6)] text-left font-mono fs-12 text-[rgba(160,190,225,.65)]">
+    <dl className="mt-2 flex w-full flex-col rounded-[14px] border border-line/12 bg-panel/60 text-left font-mono fs-12 text-ink-900/65">
       {rows.map(([term, value], i) => (
-        <div key={term} className={['flex gap-3 px-3.5 py-[13px]', i > 0 ? 'border-t border-[rgba(150,205,255,.08)]' : ''].join(' ')}>
+        <div key={term} className={['flex gap-3 px-3.5 py-[13px]', i > 0 ? 'border-t border-line/8' : ''].join(' ')}>
           <dt className="min-w-0 truncate">{term}</dt>
-          <dd className="ml-auto shrink-0 text-text-bright">{value}</dd>
+          <dd className="ml-auto shrink-0 text-ink-100">{value}</dd>
         </div>
       ))}
     </dl>

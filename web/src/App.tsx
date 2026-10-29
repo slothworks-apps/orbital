@@ -335,7 +335,7 @@ export default function App() {
         className="pointer-events-none absolute inset-x-0 top-0 z-[5] transition-opacity duration-200 ease-[ease]"
         style={{
           height: WINDOW_DRAG_BAND_PX,
-          background: 'linear-gradient(180deg, rgba(2,3,8,.55), rgba(2,3,8,0))',
+          background: 'linear-gradient(180deg, color-mix(in oklab, var(--color-space) 55%, transparent), color-mix(in oklab, var(--color-space) 0%, transparent))',
           opacity: windowBand ? 1 : 0,
         }}
       />
@@ -414,7 +414,7 @@ export default function App() {
         <div className="pointer-events-none absolute inset-x-0 top-0 z-40 flex justify-center pt-3">
           <span
             role="status"
-            className="pointer-events-auto rounded-full border border-panel-border bg-panel px-3 py-1 font-mono fs-11 tracking-[0.1em] text-text-bright backdrop-blur-md"
+            className="pointer-events-auto rounded-full border border-line/14 bg-panel/88 px-3 py-1 font-mono fs-11 tracking-[0.1em] text-ink-100 backdrop-blur-md"
           >
             reconnecting…
           </span>

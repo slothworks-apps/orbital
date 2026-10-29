@@ -1,3 +1,4 @@
+import { swatch } from '../../lib/palette'
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { EMPTY_OUTPUT, displayLines, kindWord, taskElapsedMs } from '../../lib/backgroundTasks'
 import { findPathMatches } from '../../lib/pathLinks'
@@ -79,13 +80,13 @@ function TaskView({ sessionId, taskId }: { sessionId: string; taskId: string }) 
           type="button"
           aria-label={`Back to ${parentTitle}`}
           onClick={() => goBack()}
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] fs-28 leading-none text-[rgba(220,235,255,.85)]"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] fs-28 leading-none text-ink-200/85"
         >
           ‹
         </button>
         <div className="min-w-0 flex-1 pr-2">
           <h1 className="truncate font-mono fs-15 font-medium">▣ {task?.label ?? 'Background task'}</h1>
-          <div className="mt-0.5 truncate font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
+          <div className="mt-0.5 truncate font-mono fs-10.5 text-ink-900/65">
             background task of {parentTitle}
             {task && ` · ${kindWord(task)}`}
           </div>
@@ -105,7 +106,7 @@ function TaskView({ sessionId, taskId }: { sessionId: string; taskId: string }) 
             {shape.word}
           </span>
         )}
-        {shape?.after && <span className="font-mono fs-10.5 text-[rgba(160,190,225,.55)]">{shape.after}</span>}
+        {shape?.after && <span className="font-mono fs-10.5 text-ink-900/55">{shape.after}</span>}
         <span aria-hidden className="flex-1" />
         {shape?.canStop && (
           <button
@@ -124,13 +125,13 @@ function TaskView({ sessionId, taskId }: { sessionId: string; taskId: string }) 
 
   const footer = (
     // canvas 10g: the follow pill and what the output is; ended, that nothing is left to stop.
-    <div className="flex items-center gap-2.5 border-t border-[rgba(150,205,255,.1)] bg-[rgba(6,10,20,.94)] px-4 pb-1.5 pt-2.5 font-mono fs-10.5 text-[rgba(160,190,225,.6)]">
+    <div className="flex items-center gap-2.5 border-t border-line/10 bg-shade/94 px-4 pb-1.5 pt-2.5 font-mono fs-10.5 text-ink-900/60">
       {shape?.live ? (
         <>
           <button type="button" onClick={follow.resume} className="flex h-11 items-center" aria-label={follow.paused ? 'Follow the output again' : 'Following the output'}>
             <span
-              className="flex h-[30px] items-center rounded-full border border-[rgba(150,205,255,.18)] px-2.5"
-              style={{ color: follow.paused ? INK.accent : 'rgba(200,215,235,.8)' }}
+              className="flex h-[30px] items-center rounded-full border border-line/18 px-2.5"
+              style={{ color: follow.paused ? INK.accent : swatch('ink-600', 0.8) }}
             >
               {followPill(follow.paused ? follow.paused.count : null)}
             </span>
@@ -152,7 +153,7 @@ function TaskView({ sessionId, taskId }: { sessionId: string; taskId: string }) 
         ref={follow.scroller}
         onScroll={follow.onScroll}
         data-selectable
-        className="min-h-0 flex-1 overflow-y-auto bg-[rgba(2,4,9,.7)] py-2.5"
+        className="min-h-0 flex-1 overflow-y-auto bg-space/70 py-2.5"
       >
         {/* canvas 10g: the newest line sits on the bottom edge, the older ones above it. */}
         <div className="flex min-h-full flex-col justify-end">
@@ -161,12 +162,12 @@ function TaskView({ sessionId, taskId }: { sessionId: string; taskId: string }) 
           ))}
           {shape?.cursor && !follow.paused && (
             <div className="px-3.5 font-mono fs-11.5 leading-[1.8]">
-              <span aria-hidden className="orbital-caret inline-block h-[13px] w-[7px] translate-y-[2px] bg-[oklch(85%_.12_205)]" />
+              <span aria-hidden className="orbital-caret inline-block h-[13px] w-[7px] translate-y-[2px] bg-accent" />
             </div>
           )}
           {shape?.end && (
             <div
-              className="mx-3.5 mt-2 border-t border-[rgba(150,205,255,.12)] pt-2 font-mono fs-11"
+              className="mx-3.5 mt-2 border-t border-line/12 pt-2 font-mono fs-11"
               style={{ color: shape.end.ink }}
             >
               {shape.end.text}
@@ -209,7 +210,7 @@ const OutputLine = memo(function OutputLine({ text, onOpen }: { text: string; on
         key={match.index}
         type="button"
         onClick={() => onOpen(match.path, match.line)}
-        className="inline break-all text-left text-[oklch(85%_.12_205)]"
+        className="inline break-all text-left text-accent"
       >
         {match.text}
       </button>,
@@ -218,7 +219,7 @@ const OutputLine = memo(function OutputLine({ text, onOpen }: { text: string; on
   }
   if (at < text.length) parts.push(text.slice(at))
   return (
-    <div className="whitespace-pre-wrap break-all px-3.5 font-mono fs-11.5 leading-[1.8] text-[rgba(214,230,248,.88)]">
+    <div className="whitespace-pre-wrap break-all px-3.5 font-mono fs-11.5 leading-[1.8] text-ink-400/88">
       {parts.length > 0 ? parts : ' '}
     </div>
   )

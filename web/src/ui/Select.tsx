@@ -388,18 +388,18 @@ export function Select<T extends string | number>({
           'relative inline-flex min-w-0 cursor-pointer items-center text-left disabled:cursor-not-allowed disabled:opacity-50',
           isGhost || isChip ? 'gap-[5px]' : isDevice ? 'gap-2.5' : 'gap-1.5',
           // The ghost branch owns its own ink in both states, so it must not
-          // also inherit `text-text-bright` — two colour utilities on one
+          // also inherit `text-ink-100` — two colour utilities on one
           // element are settled by stylesheet order, not by this array's.
-          isGhost || isChip ? '' : 'text-text-bright',
+          isGhost || isChip ? '' : 'text-ink-100',
           isChip
             ? // 61h's model chip: 4px/8px/4px/10px in a 999px hairline, mono
               // 10.5px; open lights the border to .3 over a .14 fill.
               [
-                'whitespace-nowrap rounded-full border py-1 pl-2.5 pr-2 font-mono fs-10.5 text-[rgba(214,230,248,.85)]',
+                'whitespace-nowrap rounded-full border py-1 pl-2.5 pr-2 font-mono fs-10.5 text-ink-400/85',
                 'transition-[background-color,border-color] duration-[180ms] ease-out',
                 open
-                  ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)]'
-                  : 'border-[rgba(150,205,255,.14)] bg-transparent hover:bg-[rgba(150,205,255,.06)]',
+                  ? 'border-line/30 bg-line/14'
+                  : 'border-line/14 bg-transparent hover:bg-line/6',
               ].join(' ')
             : isGhost
             ? // 3a's origin trigger: 3px/7px inside a 6px radius, the heading's
@@ -408,17 +408,17 @@ export function Select<T extends string | number>({
                 'rounded-md border px-[7px] py-[3px] font-mono fs-10 tracking-[0.04em]',
                 'transition-[background-color,border-color,color] duration-[180ms] ease-out',
                 lit
-                  ? 'border-[rgba(150,205,255,.22)] bg-[rgba(150,205,255,.12)] text-[oklch(90%_.06_205)]'
-                  : 'border-transparent bg-transparent text-inherit hover:bg-[rgba(150,205,255,.1)]',
+                  ? 'border-line/22 bg-line/12 text-[oklch(90%_.06_205)]'
+                  : 'border-transparent bg-transparent text-inherit hover:bg-line/10',
               ].join(' ')
             : isDevice
               ? // 50g's DEVICE field: 9px/12px inside a 9px radius over the
                 // field fill; the border lights to the accent at .5 while open,
                 // `border-color .18s ease`.
                 [
-                  'rounded-[9px] border bg-[rgba(4,8,16,.6)] px-3 py-[9px] font-sans',
+                  'rounded-[9px] border bg-shade/60 px-3 py-[9px] font-sans',
                   'transition-[border-color] duration-[180ms] ease-[ease]',
-                  open ? 'border-[oklch(85%_.12_205/.5)]' : 'border-[rgba(150,205,255,.18)]',
+                  open ? 'border-[oklch(85%_.12_205/.5)]' : 'border-line/18',
                 ].join(' ')
             : isTag
               ? // 1b's session-tag pill: 4px/9px/4px/10px inside a 999px
@@ -433,13 +433,13 @@ export function Select<T extends string | number>({
                 ? // 1e's target-tag pill: 3px/9px inside a 999px hue-tinted
                   // border, 11px/600 label, chevron in the right gutter.
                   [
-                    'rounded-full border border-panel-border py-[3px] pl-[9px] pr-6 fs-11 font-semibold',
+                    'rounded-full border border-line/14 py-[3px] pl-[9px] pr-6 fs-11 font-semibold',
                     font === 'mono' ? 'font-mono' : 'font-sans',
                   ].join(' ')
                 : // 1h's field: 8px/10px padding, a 26px right gutter for the
                   // chevron, 8px radius over the rgba(4,8,16,.6) fill.
                   [
-                    'rounded-lg border border-panel-border bg-[rgba(4,8,16,.6)] py-2 pl-2.5 pr-[26px] transition-colors',
+                    'rounded-lg border border-line/14 bg-shade/60 py-2 pl-2.5 pr-[26px] transition-colors',
                     'hover:border-accent/40 focus:border-accent/60 focus:outline-none',
                     triggerFont[font],
                   ].join(' '),
@@ -459,10 +459,10 @@ export function Select<T extends string | number>({
           // 50g: glyph, the name at 13px/600, the sub-line in mono 11px, then
           // the caret pushed right.
           <>
-            {selected?.glyph && <span aria-hidden className="flex shrink-0 text-text-bright">{selected.glyph}</span>}
-            <span className="shrink-0 fs-13 font-semibold text-text-bright">{label}</span>
+            {selected?.glyph && <span aria-hidden className="flex shrink-0 text-ink-100">{selected.glyph}</span>}
+            <span className="shrink-0 fs-13 font-semibold text-ink-100">{label}</span>
             {selected?.sub && (
-              <span className="min-w-0 truncate font-mono fs-11 text-[rgba(160,190,225,.6)]">{selected.sub}</span>
+              <span className="min-w-0 truncate font-mono fs-11 text-ink-900/60">{selected.sub}</span>
             )}
             <span aria-hidden className="flex-1" />
           </>
@@ -470,7 +470,7 @@ export function Select<T extends string | number>({
           // 6a: the choice at 600, the value it gives in mono after it.
           <>
             <span className="min-w-0 truncate font-semibold">{label}</span>
-            <span className="shrink-0 font-mono fs-10.5 text-[rgba(160,190,225,.6)]">{selected.triggerTrail ?? selected.trail}</span>
+            <span className="shrink-0 font-mono fs-10.5 text-ink-900/60">{selected.triggerTrail ?? selected.trail}</span>
             <span aria-hidden className="flex-1" />
           </>
         ) : (
@@ -481,18 +481,18 @@ export function Select<T extends string | number>({
           data-caret
           className={
             isChip
-              ? 'block shrink-0 fs-8 text-[rgba(160,190,225,.6)]'
+              ? 'block shrink-0 fs-8 text-ink-900/60'
               : isDevice
               ? // 50g: 8px, inline, flips while open (`transform .2s ease`).
-                `block shrink-0 fs-8 text-[rgba(160,190,225,.6)] transition-transform duration-200 ease-[ease] ${open ? 'rotate-180' : ''}`
+                `block shrink-0 fs-8 text-ink-900/60 transition-transform duration-200 ease-[ease] ${open ? 'rotate-180' : ''}`
               : isTag || isGhost
               ? // Inline, and it flips while the popup is open (1b, 3a).
                 `block shrink-0 fs-8 opacity-70 transition-transform duration-200 ease-out ${open ? 'rotate-180' : ''}`
               : [
                   'pointer-events-none absolute top-1/2 -translate-y-1/2',
                   isPill
-                    ? 'right-2 fs-9 text-text-muted'
-                    : 'right-2.5 fs-11 text-[rgba(160,190,225,.6)]',
+                    ? 'right-2 fs-9 text-ink-900/70'
+                    : 'right-2.5 fs-11 text-ink-900/60',
                 ].join(' ')
           }
         >
@@ -573,9 +573,9 @@ export function Select<T extends string | number>({
                       isActive && !option.inert
                         ? 'bg-accent/10'
                         : isSelected
-                          ? 'bg-[rgba(150,205,255,.09)]'
+                          ? 'bg-line/9'
                           : '',
-                      isSelected ? 'text-accent' : 'text-text-bright',
+                      isSelected ? 'text-accent' : 'text-ink-100',
                     ]
                       .filter(Boolean)
                       .join(' ')}
@@ -589,12 +589,12 @@ export function Select<T extends string | number>({
                     )}
                     <span className="min-w-0 flex-1 truncate">{option.label}</span>
                     {option.count !== undefined && (
-                      <span aria-hidden className="shrink-0 text-[rgba(160,190,225,.45)]">
+                      <span aria-hidden className="shrink-0 text-ink-900/45">
                         {option.count}
                       </span>
                     )}
                     {option.trail && (
-                      <span className="shrink-0 font-mono fs-10 tracking-[0.04em] text-[rgba(160,190,225,.6)]">
+                      <span className="shrink-0 font-mono fs-10 tracking-[0.04em] text-ink-900/60">
                         {option.trail}
                       </span>
                     )}
@@ -614,14 +614,14 @@ export function Select<T extends string | number>({
               // 61h: 6px/9px/4px under a .08 rule, mono 10px at .5.
               <div
                 id={footerId}
-                className="mt-0.5 shrink-0 border-t border-[rgba(150,205,255,.08)] px-[9px] pb-1 pt-1.5 font-mono fs-10 leading-normal text-[rgba(160,190,225,.5)]"
+                className="mt-0.5 shrink-0 border-t border-line/8 px-[9px] pb-1 pt-1.5 font-mono fs-10 leading-normal text-ink-900/50"
               >
                 {footer}
               </div>
             ) : footer && (
               <div
                 id={footerId}
-                className="mx-[5px] mt-[3px] mb-0.5 shrink-0 border-t border-[rgba(150,205,255,.1)] pt-1.5 font-mono fs-9.5 leading-[1.4] tracking-[.1em] text-[rgba(160,190,225,.5)]"
+                className="mx-[5px] mt-[3px] mb-0.5 shrink-0 border-t border-line/10 pt-1.5 font-mono fs-9.5 leading-[1.4] tracking-[.1em] text-ink-900/50"
               >
                 {footer}
               </div>
@@ -667,8 +667,8 @@ function DeviceRow<T>({
       onClick={onPick}
       className={[
         'flex shrink-0 items-center gap-2.5 rounded-[7px] px-2.5 py-2',
-        option.inert ? 'cursor-default text-[rgba(160,190,225,.5)]' : 'cursor-pointer text-text-bright',
-        active ? 'bg-[rgba(150,205,255,.09)]' : selected ? 'bg-[rgba(150,205,255,.07)]' : '',
+        option.inert ? 'cursor-default text-ink-900/50' : 'cursor-pointer text-ink-100',
+        active ? 'bg-line/9' : selected ? 'bg-line/7' : '',
       ]
         .filter(Boolean)
         .join(' ')}
@@ -678,7 +678,7 @@ function DeviceRow<T>({
       <span
         className={[
           'min-w-0 flex-1 truncate font-mono fs-10.5',
-          option.inert ? 'text-[rgba(160,190,225,.5)]' : 'text-[rgba(160,190,225,.6)]',
+          option.inert ? 'text-ink-900/50' : 'text-ink-900/60',
         ].join(' ')}
       >
         {option.sub}
@@ -725,8 +725,8 @@ function ChipRow<T>({
       onMouseMove={onHover}
       onClick={onPick}
       className={[
-        'flex shrink-0 cursor-pointer items-baseline gap-2 rounded-[7px] px-[9px] py-[7px] text-text-bright',
-        active ? 'bg-[rgba(150,205,255,.08)]' : '',
+        'flex shrink-0 cursor-pointer items-baseline gap-2 rounded-[7px] px-[9px] py-[7px] text-ink-100',
+        active ? 'bg-line/8' : '',
       ]
         .filter(Boolean)
         .join(' ')}
@@ -736,7 +736,7 @@ function ChipRow<T>({
       </span>
       <span className="font-mono fs-11.5">{option.label}</span>
       <span aria-hidden className="flex-1" />
-      {option.sub && <span className="whitespace-nowrap font-sans fs-11 text-[rgba(160,190,225,.6)]">{option.sub}</span>}
+      {option.sub && <span className="whitespace-nowrap font-sans fs-11 text-ink-900/60">{option.sub}</span>}
     </div>
   )
 }

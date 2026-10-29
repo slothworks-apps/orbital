@@ -175,8 +175,8 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
           }}
           className={[
             'absolute inset-x-0 bottom-0 box-border mx-[10px]',
-            'rounded-t-[8px] border border-b-0 border-[rgba(150,205,255,.14)]',
-            'bg-[#070b16] bg-[image:linear-gradient(rgba(150,205,255,.05),rgba(150,205,255,.05))]',
+            'rounded-t-[8px] border border-b-0 border-line/14',
+            'bg-space-deep bg-[image:linear-gradient(color-mix(in_oklab,_var(--color-line)_5%,_transparent),color-mix(in_oklab,_var(--color-line)_5%,_transparent))]',
             'font-mono fs-10.5',
           ].join(' ')}
         >
@@ -188,23 +188,23 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
             }}
             // 20b-2 / 20f: ink rgba(160,190,225,.55), nothing to refuse. The
             // right padding matches the left, there being no × to make room for.
-            className="motion-reduce:!transition-none absolute inset-0 flex items-center gap-2 whitespace-nowrap px-[10px] text-[rgba(160,190,225,.55)]"
+            className="motion-reduce:!transition-none absolute inset-0 flex items-center gap-2 whitespace-nowrap px-[10px] text-ink-900/55"
           >
             {/* 20f: the caret glyph, 1.4×11px at .55 — the same bar the active
                 tab wears in the completion list, so one glyph means "the cursor
                 is here" in both places. */}
             <span
               aria-hidden
-              className="block h-[11px] w-[1.4px] flex-none rounded-[1px] bg-[rgba(160,190,225,.55)]"
+              className="block h-[11px] w-[1.4px] flex-none rounded-[1px] bg-ink-900/55"
             />
             {/* `shownCursor`, not `cursor`: the row has to keep saying what it
                 said while it sinks back out of view. */}
-            <span className="text-[rgba(200,220,245,.75)]">
+            <span className="text-ink-500/75">
               {elideFileName(fileNameOf(shownCursor.filePath))}
             </span>
             <span>:{shownCursor.lineStart}</span>
             <span aria-hidden className="flex-1" />
-            <span className="text-[rgba(160,190,225,.45)]">{shownName}</span>
+            <span className="text-ink-900/45">{shownName}</span>
           </div>
 
           {lip && (
@@ -216,15 +216,15 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
               }}
               className={[
                 'motion-reduce:!transition-none absolute inset-0 flex items-center gap-2 whitespace-nowrap',
-                'pl-[10px] pr-[5px] text-[rgba(200,220,245,.75)]',
+                'pl-[10px] pr-[5px] text-ink-500/75',
                 standing ? 'pointer-events-auto' : 'pointer-events-none',
               ].join(' ')}
             >
               {/* 20f: the lines glyph — three bars 10/7/9 long, 1.6px thick. */}
               <span aria-hidden className="relative block h-[9px] w-[10px] flex-none">
-                <span className="absolute left-0 top-0 h-[1.6px] w-[10px] rounded-[1px] bg-[rgba(160,190,225,.6)]" />
-                <span className="absolute left-0 top-[3.7px] h-[1.6px] w-[7px] rounded-[1px] bg-[rgba(160,190,225,.6)]" />
-                <span className="absolute left-0 top-[7.4px] h-[1.6px] w-[9px] rounded-[1px] bg-[rgba(160,190,225,.6)]" />
+                <span className="absolute left-0 top-0 h-[1.6px] w-[10px] rounded-[1px] bg-ink-900/60" />
+                <span className="absolute left-0 top-[3.7px] h-[1.6px] w-[7px] rounded-[1px] bg-ink-900/60" />
+                <span className="absolute left-0 top-[7.4px] h-[1.6px] w-[9px] rounded-[1px] bg-ink-900/60" />
               </span>
               <span
                 className="min-w-0 truncate"
@@ -235,11 +235,11 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
                 onMouseEnter={armTooltip}
                 onMouseLeave={dropTooltip}
               >
-                Selected <span className="text-[#e8eef8]">{lipParts(lip).amount}</span> from{' '}
-                <span className="text-[#dfeeff]">{elideFileName(lipParts(lip).file)}</span>
+                Selected <span className="text-ink-100">{lipParts(lip).amount}</span> from{' '}
+                <span className="text-ink-200">{elideFileName(lipParts(lip).file)}</span>
               </span>
               <span aria-hidden className="flex-1" />
-              <span className="text-[rgba(160,190,225,.45)]">{shownName}</span>
+              <span className="text-ink-900/45">{shownName}</span>
               <button
                 type="button"
                 // The lip's × is a statement about THIS conversation, not about
@@ -248,7 +248,7 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
                 onClick={() => onDismiss(selectionId(lip))}
                 // 20b-3 / 20f: 18px, no border at rest — the lip already has
                 // one — gaining the .3 hairline on hover, the only hover here.
-                className="grid h-[18px] w-[18px] flex-none place-items-center rounded-[5px] border border-transparent fs-11 leading-none text-[rgba(200,220,245,.7)] hover:border-[rgba(150,205,255,.3)] focus-visible:border-[rgba(150,205,255,.3)] focus-visible:outline-none"
+                className="grid h-[18px] w-[18px] flex-none place-items-center rounded-[5px] border border-transparent fs-11 leading-none text-ink-500/70 hover:border-line/30 focus-visible:border-line/30 focus-visible:outline-none"
               >
                 ×
               </button>

@@ -135,7 +135,7 @@ function WalkthroughScreens({ id }: { id: string }) {
 /** The page's ground. Each screen places the bar in its own layout; the notices get it from here. */
 function Shell({ bar, children }: { bar?: ReactNode; children?: ReactNode }) {
   return (
-    <div className="min-h-screen w-screen bg-space text-text-bright">
+    <div className="min-h-screen w-screen bg-space text-ink-100">
       {bar}
       {children}
     </div>
@@ -143,5 +143,5 @@ function Shell({ bar, children }: { bar?: ReactNode; children?: ReactNode }) {
 }
 
 function Notice({ children }: { children: ReactNode }) {
-  return <p className="px-8 py-10 font-mono fs-12 text-text-muted">{children}</p>
+  return <p className="px-8 py-10 font-mono fs-12 text-ink-900/70">{children}</p>
 }

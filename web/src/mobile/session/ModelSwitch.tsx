@@ -25,9 +25,9 @@ export function ModelSwitch({ session, offline }: SlotProps) {
   const switchable = !offline && !isReadOnly(session) && models.length > 0
 
   const chip = (
-    <span className="flex h-7 min-w-0 items-center gap-1.5 rounded-[6px] border border-[rgba(150,205,255,.2)] px-[9px] font-mono fs-11 text-text-bright">
+    <span className="flex h-7 min-w-0 items-center gap-1.5 rounded-[6px] border border-line/20 px-[9px] font-mono fs-11 text-ink-100">
       <span className="truncate">{label}</span>
-      {switchable && <span aria-hidden className="fs-8 text-[rgba(160,190,225,.6)]">▾</span>}
+      {switchable && <span aria-hidden className="fs-8 text-ink-900/60">▾</span>}
     </span>
   )
   if (!switchable) return <span className="mx-1.5 flex min-w-0">{chip}</span>
@@ -101,21 +101,21 @@ function ModelSheet({ session, models, onClose }: { session: ApiSession; models:
                   onClick={() => choose(model)}
                   className={[
                     'flex min-h-13 w-full items-center gap-3 rounded-[10px] px-2.5 py-2 text-left',
-                    selected ? 'bg-[rgba(150,205,255,.09)]' : '',
+                    selected ? 'bg-line/9' : '',
                   ].join(' ')}
                 >
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-mono fs-13 text-text-bright">{modelChipLabel(model)}</span>
-                    <span className="mt-0.5 block fs-12 leading-[1.35] text-[rgba(160,190,225,.7)]">{model.blurb}</span>
+                    <span className="block truncate font-mono fs-13 text-ink-100">{modelChipLabel(model)}</span>
+                    <span className="mt-0.5 block fs-12 leading-[1.35] text-ink-900/70">{model.blurb}</span>
                   </span>
-                  <span aria-hidden className={['text-[oklch(85%_.12_205)]', selected ? 'opacity-100' : 'opacity-0'].join(' ')}>
+                  <span aria-hidden className={['text-accent', selected ? 'opacity-100' : 'opacity-0'].join(' ')}>
                     ✓
                   </span>
                 </button>
               )
             })}
           </div>
-          <div className="mx-2.5 mt-1.5 border-t border-[rgba(150,205,255,.1)] pt-2.5 font-mono fs-10.5 leading-[1.6] text-[rgba(160,190,225,.6)]">
+          <div className="mx-2.5 mt-1.5 border-t border-line/10 pt-2.5 font-mono fs-10.5 leading-[1.6] text-ink-900/60">
             Context is kept. A divider marks the switch in the transcript.
           </div>
           <div className="h-4" />

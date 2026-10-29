@@ -33,15 +33,15 @@ export function Cover({ id, session, walkthrough, onStart, onRefetch, bar }: Cov
 
       <main className="mx-auto flex w-full max-w-[720px] flex-1 flex-col justify-center gap-9 py-12">
         <div className="flex flex-col gap-3">
-          <span className="font-mono fs-10 tracking-[.2em] text-[rgba(160,190,225,.6)]">
+          <span className="font-mono fs-10 tracking-[.2em] text-ink-900/60">
             WALKTHROUGH{span && ` · ${span}`}
           </span>
-          <h1 className="fs-44 font-bold leading-[1.1] tracking-[-.02em] text-text-bright">{session.title}</h1>
-          <span className="font-mono fs-12 text-text-muted">
+          <h1 className="fs-44 font-bold leading-[1.1] tracking-[-.02em] text-ink-100">{session.title}</h1>
+          <span className="font-mono fs-12 text-ink-900/70">
             {session.cwd}
             {branch && (
               <>
-                <span className="text-[rgba(150,205,255,.3)]"> · </span>
+                <span className="text-line/30"> · </span>
                 {branch}
               </>
             )}
@@ -49,20 +49,20 @@ export function Cover({ id, session, walkthrough, onStart, onRefetch, bar }: Cov
         </div>
 
         {/* canvas 21a: the four counts share one hairline grid. */}
-        <div className="grid grid-cols-4 gap-px overflow-hidden rounded-[12px] border border-[rgba(150,205,255,.1)] bg-[rgba(150,205,255,.1)]">
+        <div className="grid grid-cols-4 gap-px overflow-hidden rounded-[12px] border border-line/10 bg-line/10">
           {counts.map(([label, value]) => (
-            <div key={label} role="group" aria-label={label} className="flex flex-col gap-1.5 bg-[rgba(8,12,22,.8)] px-[22px] py-5">
-              <span className="font-mono fs-34 leading-none tabular-nums text-text-bright">
+            <div key={label} role="group" aria-label={label} className="flex flex-col gap-1.5 bg-space-deep/80 px-[22px] py-5">
+              <span className="font-mono fs-34 leading-none tabular-nums text-ink-100">
                 {value}
-                {label === 'blind alleys' && <span className="fs-18 text-[rgba(160,190,225,.6)]"> ↶</span>}
+                {label === 'blind alleys' && <span className="fs-18 text-ink-900/60"> ↶</span>}
               </span>
-              <span className="font-mono fs-10 uppercase tracking-[.16em] text-[rgba(160,190,225,.6)]">{label}</span>
+              <span className="font-mono fs-10 uppercase tracking-[.16em] text-ink-900/60">{label}</span>
             </div>
           ))}
         </div>
 
         {empty ? (
-          <p className="font-mono fs-12 text-text-muted">no file changes in this session</p>
+          <p className="font-mono fs-12 text-ink-900/70">no file changes in this session</p>
         ) : (
           <>
             <NarrationBlock id={id} walkthrough={walkthrough} onRefetch={onRefetch} />
@@ -70,7 +70,7 @@ export function Cover({ id, session, walkthrough, onStart, onRefetch, bar }: Cov
               <WalkButton tone="accent" size="lg" onClick={onStart}>
                 Start →
               </WalkButton>
-              <span className="font-mono fs-10.5 tracking-[.06em] text-[rgba(160,190,225,.5)]">
+              <span className="font-mono fs-10.5 tracking-[.06em] text-ink-900/50">
                 ⏎ start · → / ← step · esc back to the map
               </span>
             </div>
@@ -145,32 +145,32 @@ function NarrationBlock({ id, walkthrough, onRefetch }: Pick<CoverProps, 'id' | 
   return (
     <section
       className={[
-        'flex flex-col rounded-[12px] border bg-[linear-gradient(180deg,rgba(14,20,34,.72),rgba(8,12,22,.78))]',
-        failed ? 'border-[rgba(150,205,255,.3)]' : 'border-[rgba(150,205,255,.16)]',
+        'flex flex-col rounded-[12px] border bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel-solid)_72%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_78%,_transparent))]',
+        failed ? 'border-line/30' : 'border-line/16',
       ].join(' ')}
     >
       <div className="flex items-center gap-4 px-5 py-4">
         <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="flex items-center gap-2.5 fs-14 font-semibold text-text-bright">
+          <span className="flex items-center gap-2.5 fs-14 font-semibold text-ink-100">
             {heading}
             {!walkthrough.narrationPending && !failed && stale > 0 && (
-              <span className="rounded-[4px] border border-dashed border-[rgba(150,205,255,.3)] px-[7px] py-0.5 font-mono fs-9.5 font-normal tracking-[.12em] text-[rgba(200,220,245,.8)]">
+              <span className="rounded-[4px] border border-dashed border-line/30 px-[7px] py-0.5 font-mono fs-9.5 font-normal tracking-[.12em] text-ink-500/80">
                 {plural(stale, 'STEP', 'STEPS')} SINCE
               </span>
             )}
           </span>
-          <span className="font-mono fs-10.5 leading-[1.5] text-[rgba(160,190,225,.6)]">{sub}</span>
+          <span className="font-mono fs-10.5 leading-[1.5] text-ink-900/60">{sub}</span>
         </div>
         <WalkButton tone="lit" size="sm" disabled={sending || walkthrough.narrationPending} onClick={narrate}>
           {action}
         </WalkButton>
       </div>
       {failed && (
-        <div className="flex items-center gap-2 border-t border-dashed border-[rgba(150,205,255,.16)] px-5 py-[9px] font-mono fs-10.5 text-text-bright">
-          <span className="text-text-muted">notice ·</span>
+        <div className="flex items-center gap-2 border-t border-dashed border-line/16 px-5 py-[9px] font-mono fs-10.5 text-ink-100">
+          <span className="text-ink-900/70">notice ·</span>
           <span>{FAILURE[walkthrough.narrationFailure ?? 'error']}</span>
           <span className="flex-1" />
-          <span className="text-text-muted">the steps below are intact, in the agent&apos;s own words</span>
+          <span className="text-ink-900/70">the steps below are intact, in the agent&apos;s own words</span>
         </div>
       )}
     </section>

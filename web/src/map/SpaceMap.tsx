@@ -1407,13 +1407,13 @@ export function SpaceMap() {
             .join(' ')}
           style={{ right: overlayRightPx }}
         >
-          <div className="flex items-center gap-2 font-mono fs-10.5 tracking-[0.1em] text-text-muted">
+          <div className="flex items-center gap-2 font-mono fs-10.5 tracking-[0.1em] text-ink-900/70">
             {aggregateSegments.map(({ key, text }, i) => {
               const color = stateColor(key)
               return (
                 <Fragment key={key}>
                   {/* 24b: the separators stay muted, at .28. */}
-                  {i > 0 && <span className="text-[rgba(160,190,225,.28)]">·</span>}
+                  {i > 0 && <span className="text-ink-900/28">·</span>}
                   <span data-state={key} className="flex items-center gap-[5px]" style={{ color }}>
                     <StateDot dot={stateDot(key, 'label')} color={color} solidPx={5} hollowPx={6} />
                     {text}
@@ -1433,7 +1433,7 @@ export function SpaceMap() {
           data-overlay="camera-readout"
           style={{ bottom: overlayBottomPx, left: mapInsets.left }}
           className={[
-            'pointer-events-none absolute font-mono fs-10.5 tracking-[0.08em] text-text-muted/70',
+            'pointer-events-none absolute font-mono fs-10.5 tracking-[0.08em] text-ink-900/49',
             overlayLeftTransition,
           ]
             .filter(Boolean)
@@ -1468,12 +1468,12 @@ export function SpaceMap() {
             title={`Error log · ${shortcutLabel('global.errors')}`}
             onClick={() => setDialog('errors')}
             className={[
-              'relative grid h-[34px] w-[34px] place-items-center rounded-[9px] border bg-[rgba(10,14,24,.92)] fs-16 font-bold leading-none transition-colors',
+              'relative grid h-[34px] w-[34px] place-items-center rounded-[9px] border bg-panel/92 fs-16 font-bold leading-none transition-colors',
               errorLogOpen
-                ? 'border-accent/50 text-text-bright shadow-[0_0_0_3px_rgba(89,228,243,.1)]'
+                ? 'border-accent/50 text-ink-100 shadow-[0_0_0_3px_rgba(89,228,243,.1)]'
                 : [
-                    'border-[rgba(150,205,255,.16)] hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.1)] hover:text-white',
-                    errorsUnseen > 0 ? 'text-text-bright' : 'text-[rgba(200,220,245,.6)]',
+                    'border-line/16 hover:border-line/30 hover:bg-line/10 hover:text-white',
+                    errorsUnseen > 0 ? 'text-ink-100' : 'text-ink-500/60',
                   ].join(' '),
             ].join(' ')}
           >
@@ -1482,7 +1482,7 @@ export function SpaceMap() {
               <span
                 aria-hidden
                 className={[
-                  'absolute -top-1.5 grid h-4 min-w-[16px] place-items-center rounded-full border border-[rgba(2,4,9,.8)] bg-[#de3b3d] font-mono fs-9.5 font-medium tracking-[0.02em] text-white',
+                  'absolute -top-1.5 grid h-4 min-w-[16px] place-items-center rounded-full border border-space/80 bg-danger font-mono fs-9.5 font-medium tracking-[0.02em] text-white',
                   // The wider 99+ badge hangs 4px further out (5c).
                   errorsUnseen > 99 ? '-right-2.5 px-[5px]' : '-right-1.5 px-1',
                 ].join(' ')}
@@ -1492,12 +1492,12 @@ export function SpaceMap() {
             )}
           </button>
 
-          <div className="flex flex-col overflow-hidden rounded-[9px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,14,24,.92)]">
+          <div className="flex flex-col overflow-hidden rounded-[9px] border border-line/16 bg-panel/92">
             <button
               type="button"
               aria-label="Zoom in"
               onClick={zoomIn}
-              className="grid h-[34px] w-[34px] place-items-center border-b border-[rgba(150,205,255,.1)] fs-16 leading-(--text-base--line-height) text-text-bright hover:bg-white/5"
+              className="grid h-[34px] w-[34px] place-items-center border-b border-line/10 fs-16 leading-(--text-base--line-height) text-ink-100 hover:bg-white/5"
             >
               +
             </button>
@@ -1505,7 +1505,7 @@ export function SpaceMap() {
               type="button"
               aria-label="Zoom out"
               onClick={zoomOut}
-              className="grid h-[34px] w-[34px] place-items-center border-b border-[rgba(150,205,255,.1)] fs-16 leading-(--text-base--line-height) text-text-bright hover:bg-white/5"
+              className="grid h-[34px] w-[34px] place-items-center border-b border-line/10 fs-16 leading-(--text-base--line-height) text-ink-100 hover:bg-white/5"
             >
               −
             </button>
@@ -1514,7 +1514,7 @@ export function SpaceMap() {
               aria-label="Fit view"
               title={`Fit view · ${shortcutLabel('map.fit')}`}
               onClick={handleFit}
-              className="grid h-[34px] w-[34px] place-items-center fs-14 leading-(--text-sm--line-height) text-text-bright hover:bg-white/5"
+              className="grid h-[34px] w-[34px] place-items-center fs-14 leading-(--text-sm--line-height) text-ink-100 hover:bg-white/5"
             >
               ⌖
             </button>
@@ -1546,7 +1546,7 @@ export function SpaceMap() {
           >
             <span aria-hidden className="fs-16 leading-none text-accent">+</span>
             New session
-            <span className="rounded border border-[rgba(150,205,255,.2)] px-1.5 py-0.5 font-mono fs-10 text-[rgba(200,220,245,.7)]">
+            <span className="rounded border border-line/20 px-1.5 py-0.5 font-mono fs-10 text-ink-500/70">
               {shortcutLabel('global.new-session')}
             </span>
           </Button>

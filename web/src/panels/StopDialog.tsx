@@ -98,26 +98,26 @@ export function StopDialog({ open, sessionId, onClose }: StopDialogProps) {
     >
       {/* Body copy + geometry verbatim from the export's stop confirm. */}
       <div className="flex flex-col">
-        <p className="fs-13 leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
-          {session?.title && <span className="font-mono text-text-bright">{session.title}</span>}
+        <p className="fs-13 leading-[1.55] text-ink-600/85 [text-wrap:pretty]">
+          {session?.title && <span className="font-mono text-ink-100">{session.title}</span>}
           {session?.title ? ' is mid-turn' : 'This session is mid-turn'}
           {toolTarget ? (
             <>
               {' — currently editing '}
-              <span className="font-mono text-text-bright">{toolTarget}</span>
+              <span className="font-mono text-ink-100">{toolTarget}</span>
             </>
           ) : null}
           . The partial response is discarded; edits already written to disk stay.
         </p>
         {openTool && (
-          <div className="mt-3.5 flex items-center gap-2.5 rounded-lg border border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.45)] px-3 py-2.5 font-mono fs-11 text-[rgba(160,190,225,.75)]">
-            <span aria-hidden className="text-[rgba(160,190,225,.5)]">
+          <div className="mt-3.5 flex items-center gap-2.5 rounded-lg border border-line/10 bg-shade/45 px-3 py-2.5 font-mono fs-11 text-ink-900/75">
+            <span aria-hidden className="text-ink-900/50">
               ⚙
             </span>
             <span className="min-w-0 truncate">
               {openTool.toolName}
               {toolTarget ? ': ' : ''}
-              {toolTarget && <span className="text-text-bright">{toolTarget}</span>}
+              {toolTarget && <span className="text-ink-100">{toolTarget}</span>}
             </span>
             <span className="flex-1" />
             <span className="shrink-0 text-amber-400">running</span>

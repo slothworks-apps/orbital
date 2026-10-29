@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import type { FindingSeverity } from '../lib/types'
 
 /**
@@ -26,17 +27,17 @@ export interface TimeCategory {
  * stack, which is what makes two days comparable at a glance.
  */
 export const TIME_CATEGORIES: readonly TimeCategory[] = [
-  { field: 'apiMs', label: 'API wait', color: '#59e4f3' },
+  { field: 'apiMs', label: 'API wait', color: swatch('accent') },
   { field: 'localToolMs', label: 'local tools', color: '#b18cff' },
-  { field: 'mcpMs', label: 'MCP', color: '#ffbb7b' },
+  { field: 'mcpMs', label: 'MCP', color: swatch('warning') },
   { field: 'subagentMs', label: 'subagents', color: '#67e0a3' },
 ]
 
 /** The unfilled part of any bar — never labelled, never in a legend (10e). */
-export const TRACK_COLOR = 'rgba(150,205,255,.07)'
+export const TRACK_COLOR = swatch('line', 0.07)
 
 /** A leaderboard row's bar takes its category colour from the tool's kind (10a). */
-export const MCP_COLOR = '#ffbb7b'
+export const MCP_COLOR = swatch('warning')
 export const LOCAL_TOOL_COLOR = '#b18cff'
 
 export interface SeverityStyle {
@@ -53,54 +54,54 @@ export interface SeverityStyle {
 }
 
 /** The fill the three live treatments share (10d). */
-const CARD_FILL = 'rgba(4,8,16,.45)'
+const CARD_FILL = swatch('shade', 0.45)
 
 /** 10e's severity table, value for value. */
 export const SEVERITY_STYLES: Record<FindingSeverity, SeverityStyle> = {
   critical: {
-    ink: '#ff8a7a',
-    stripe: '#ff8a7a',
-    cardBorder: 'rgba(255,138,122,.35)',
+    ink: swatch('danger-soft'),
+    stripe: swatch('danger-soft'),
+    cardBorder: swatch('danger-soft', 0.35),
     cardFill: CARD_FILL,
-    chipFill: 'rgba(255,138,122,.16)',
-    chipBorder: 'rgba(255,138,122,.5)',
+    chipFill: swatch('danger-soft', 0.16),
+    chipBorder: swatch('danger-soft', 0.5),
   },
   warning: {
-    ink: '#ffbb7b',
-    stripe: '#ffbb7b',
-    cardBorder: 'rgba(255,187,123,.3)',
+    ink: swatch('warning'),
+    stripe: swatch('warning'),
+    cardBorder: swatch('warning', 0.3),
     cardFill: CARD_FILL,
-    chipFill: 'rgba(255,187,123,.14)',
-    chipBorder: 'rgba(255,187,123,.45)',
+    chipFill: swatch('warning', 0.14),
+    chipBorder: swatch('warning', 0.45),
   },
   info: {
-    ink: '#9fc4e8',
-    stripe: 'rgba(150,205,255,.35)',
-    cardBorder: 'rgba(150,205,255,.14)',
+    ink: swatch('ink-900'),
+    stripe: swatch('line', 0.35),
+    cardBorder: swatch('line', 0.14),
     cardFill: CARD_FILL,
-    chipFill: 'rgba(150,205,255,.08)',
-    chipBorder: 'rgba(150,205,255,.28)',
+    chipFill: swatch('line', 0.08),
+    chipBorder: swatch('line', 0.28),
   },
   resolved: {
-    ink: 'rgba(160,190,225,.6)',
-    stripe: 'rgba(150,205,255,.18)',
-    cardBorder: 'rgba(150,205,255,.1)',
+    ink: swatch('ink-900', 0.6),
+    stripe: swatch('line', 0.18),
+    cardBorder: swatch('line', 0.1),
     // Thinner than the other three, on top of the .55 opacity: a resolved
     // finding is a record, not a thing to act on (10d).
-    cardFill: 'rgba(4,8,16,.3)',
+    cardFill: swatch('shade', 0.3),
     chipFill: 'transparent',
-    chipBorder: 'rgba(150,205,255,.18)',
+    chipBorder: swatch('line', 0.18),
     opacity: 0.55,
   },
 }
 
 /** Panel chrome shared by every card on the dashboard (10a). */
 export const PANEL_CLASS =
-  'rounded-[14px] border border-[rgba(150,205,255,.14)] bg-[linear-gradient(180deg,rgba(14,20,34,.72),rgba(8,12,22,.8))]'
+  'rounded-[14px] border border-line/14 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel-solid)_72%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_80%,_transparent))]'
 
 /** The 10px/.18em mono heading every panel and tile is titled with (10e stat tile). */
 export const PANEL_LABEL_CLASS =
-  'font-mono fs-10 tracking-[0.18em] text-[rgba(160,190,225,.6)]'
+  'font-mono fs-10 tracking-[0.18em] text-ink-900/60'
 
 /** Widest a day column is drawn (10e "day bar"); narrower windows shrink to fit. */
 export const DAY_BAR_MAX_WIDTH = 46
@@ -139,5 +140,5 @@ export const CHARS_PER_TOKEN = 4
  * count is shown.
  */
 export const WAIT_HATCH =
-  'repeating-linear-gradient(135deg,rgba(160,190,225,.6) 0 1px,transparent 1px 3px)'
-export const WAIT_OUTLINE = 'rgba(160,190,225,.45)'
+  'repeating-linear-gradient(135deg,color-mix(in oklab, var(--color-ink-900) 60%, transparent) 0 1px,transparent 1px 3px)'
+export const WAIT_OUTLINE = swatch('ink-900', 0.45)

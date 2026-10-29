@@ -69,10 +69,10 @@ export function TerminalChip({ sessionId }: { sessionId: string }) {
       onClick={() => toggleTerminalShown(sessionId)}
       className={[
         'flex h-fit min-h-[22px] flex-none cursor-pointer items-center gap-1.5 rounded-md border px-2 font-mono fs-10.5 whitespace-nowrap',
-        'hover:border-[rgba(150,205,255,.3)] hover:text-[#e8eef8]',
+        'hover:border-line/30 hover:text-ink-100',
         onScreen
-          ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-[#e8eef8]'
-          : 'border-[rgba(150,205,255,.14)] bg-transparent text-[rgba(160,190,225,.75)]',
+          ? 'border-line/30 bg-line/14 text-ink-100'
+          : 'border-line/14 bg-transparent text-ink-900/75',
       ].join(' ')}
     >
       <PromptGlyph />

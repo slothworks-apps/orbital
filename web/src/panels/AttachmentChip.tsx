@@ -13,7 +13,7 @@ import { extensionLabel } from '../lib/attachedFiles'
 
 /** 9e: chip 48px tall, 8px radius, padding `6 8 6 6`, 8px gap. */
 const CHIP_FRAME =
-  'relative flex h-fit min-h-12 items-center gap-2 overflow-hidden rounded-[8px] border border-[rgba(150,205,255,.16)] py-1.5 pl-1.5 pr-2'
+  'relative flex h-fit min-h-12 items-center gap-2 overflow-hidden rounded-[8px] border border-line/16 py-1.5 pl-1.5 pr-2'
 
 export interface AttachmentChipProps {
   chip: Attachment
@@ -35,7 +35,7 @@ export function AttachmentChip({ chip, onRemove, onRetry }: AttachmentChipProps)
       className={[
         CHIP_FRAME,
         // 9d-B: the failed chip's fill drops from .05 to .03.
-        failed ? 'bg-[rgba(150,205,255,.03)]' : 'bg-[rgba(150,205,255,.05)]',
+        failed ? 'bg-line/3' : 'bg-line/5',
         // Enter is opacity + a 98%→100% scale, .14s, no slide (9e); the ×'s
         // exit is opacity only, .1s, and then the row reflows.
         chip.exiting ? 'orbital-chip-out' : 'orbital-chip-in',
@@ -49,7 +49,7 @@ export function AttachmentChip({ chip, onRemove, onRetry }: AttachmentChipProps)
           src={chip.previewUrl}
           alt=""
           className={[
-            'block h-9 w-9 flex-none rounded-[5px] border border-[rgba(150,205,255,.12)] object-cover',
+            'block h-9 w-9 flex-none rounded-[5px] border border-line/12 object-cover',
             failed ? 'opacity-45' : uploading ? 'opacity-50' : '',
           ].join(' ')}
         />
@@ -77,14 +77,14 @@ export function AttachmentChip({ chip, onRemove, onRetry }: AttachmentChipProps)
           className={[
             'whitespace-nowrap font-mono fs-11',
             // 9d-B: a failed chip's name steps back to the muted row ink.
-            failed ? 'text-[rgba(200,220,245,.8)]' : 'text-text-bright',
+            failed ? 'text-ink-500/80' : 'text-ink-100',
           ].join(' ')}
         >
           {chip.name}
         </span>
         <span
           data-chip-meta
-          className="whitespace-nowrap font-mono fs-9.5 text-[rgba(160,190,225,.55)]"
+          className="whitespace-nowrap font-mono fs-9.5 text-ink-900/55"
         >
           {attachmentMeta(chip)}
         </span>
@@ -96,7 +96,7 @@ export function AttachmentChip({ chip, onRemove, onRetry }: AttachmentChipProps)
         <button
           type="button"
           onClick={() => onRetry(chip.id)}
-          className="flex-none rounded-[5px] border border-[rgba(150,205,255,.2)] px-2 py-[3px] font-mono fs-9.5 tracking-[0.08em] text-[rgba(220,235,255,.9)] transition-colors duration-[120ms] ease-[ease] hover:border-[rgba(150,205,255,.42)]"
+          className="flex-none rounded-[5px] border border-line/20 px-2 py-[3px] font-mono fs-9.5 tracking-[0.08em] text-ink-200/90 transition-colors duration-[120ms] ease-[ease] hover:border-line/42"
         >
           retry
         </button>
@@ -107,7 +107,7 @@ export function AttachmentChip({ chip, onRemove, onRetry }: AttachmentChipProps)
         type="button"
         aria-label="Remove attachment"
         onClick={() => onRemove(chip.id)}
-        className="grid h-[18px] w-[18px] flex-none place-items-center rounded-[5px] border border-[rgba(150,205,255,.14)] fs-11 text-[rgba(200,220,245,.7)] transition-[border-color,color] duration-[120ms] ease-[ease] hover:border-[rgba(150,205,255,.42)] hover:text-[#f2f9ff]"
+        className="grid h-[18px] w-[18px] flex-none place-items-center rounded-[5px] border border-line/14 fs-11 text-ink-500/70 transition-[border-color,color] duration-[120ms] ease-[ease] hover:border-line/42 hover:text-ink-50"
       >
         ×
       </button>
@@ -117,7 +117,7 @@ export function AttachmentChip({ chip, onRemove, onRetry }: AttachmentChipProps)
         <span
           aria-hidden
           data-chip-rail
-          className="absolute inset-x-0 bottom-0 block h-0.5 bg-[rgba(150,205,255,.1)]"
+          className="absolute inset-x-0 bottom-0 block h-0.5 bg-line/10"
         >
           <span
             className="block h-full bg-accent/70 transition-[width] duration-200 ease-linear"
@@ -143,7 +143,7 @@ export function FileGlyph({ name, className = '', small = false }: { name: strin
       aria-hidden
       data-chip-thumb
       className={[
-        'grid flex-none place-items-center rounded-[5px] border border-[rgba(150,205,255,.12)] bg-[rgba(150,205,255,.06)] font-mono tracking-[0.04em] text-[rgba(200,220,245,.8)]',
+        'grid flex-none place-items-center rounded-[5px] border border-line/12 bg-line/6 font-mono tracking-[0.04em] text-ink-500/80',
         small ? 'h-5 min-w-7 px-1 fs-7.5' : 'h-9 min-w-9 px-[5px] fs-9',
         className,
       ].join(' ')}

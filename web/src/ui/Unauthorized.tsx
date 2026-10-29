@@ -24,7 +24,7 @@ export function Unauthorized() {
   }, [])
 
   return (
-    <div role="status" className="relative h-screen w-screen overflow-hidden bg-space font-sans text-text-bright">
+    <div role="status" className="relative h-screen w-screen overflow-hidden bg-space font-sans text-ink-100">
       <div
         aria-hidden
         className="absolute inset-0 bg-[image:radial-gradient(ellipse_620px_420px_at_30%_36%,rgba(110,80,220,.08),transparent),radial-gradient(ellipse_760px_520px_at_72%_70%,rgba(40,170,220,.05),transparent)]"
@@ -37,29 +37,29 @@ export function Unauthorized() {
       <div className="absolute inset-0 grid place-items-center p-6">
         <div className="flex w-[560px] max-w-full flex-col gap-7">
           <div className="flex flex-col gap-2.5">
-            <div className="font-mono fs-10.5 tracking-[0.2em] text-[rgba(160,190,225,.6)]">NOT SIGNED IN</div>
+            <div className="font-mono fs-10.5 tracking-[0.2em] text-ink-900/60">NOT SIGNED IN</div>
             <h1 className="m-0 fs-24 leading-[1.3] font-semibold tracking-[-0.01em] text-pretty">
               This tab isn't signed in to the Orbital server.
             </h1>
-            <p className="m-0 fs-15 leading-[1.6] text-pretty text-[rgba(190,212,238,.85)]">
+            <p className="m-0 fs-15 leading-[1.6] text-pretty text-ink-700/85">
               To sign in, open the link the server printed in its terminal when it started.
             </p>
           </div>
 
           <div className="flex flex-col gap-2">
-            <div className="overflow-hidden rounded-[10px] border border-[rgba(150,205,255,.14)] bg-[image:linear-gradient(180deg,rgba(14,20,34,.72),rgba(8,12,22,.78))] px-4 py-3.5 font-mono fs-13 leading-[1.5] text-ellipsis whitespace-nowrap">
-              <span className="text-[rgba(160,190,225,.6)]">orbital: open </span>
+            <div className="overflow-hidden rounded-[10px] border border-line/14 bg-[image:linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel-solid)_72%,_transparent),color-mix(in_oklab,_var(--color-space-deep)_78%,_transparent))] px-4 py-3.5 font-mono fs-13 leading-[1.5] text-ellipsis whitespace-nowrap">
+              <span className="text-ink-900/60">orbital: open </span>
               {window.location.origin}/api/auth?token=
-              <span className="text-[rgba(160,190,225,.6)]">…</span>
+              <span className="text-ink-900/60">…</span>
             </div>
-            <div className="font-mono fs-11 text-[rgba(160,190,225,.6)]">
+            <div className="font-mono fs-11 text-ink-900/60">
               the line to look for · the token is only in your terminal
             </div>
           </div>
 
-          <div className="h-px bg-[rgba(150,205,255,.08)]" />
+          <div className="h-px bg-line/8" />
 
-          <p className="m-0 fs-13.5 leading-[1.6] text-pretty text-[rgba(160,190,225,.75)]">
+          <p className="m-0 fs-13.5 leading-[1.6] text-pretty text-ink-900/75">
             Link stopped working? The server's token was reset. Restart the server and open the new link it prints.
           </p>
 
@@ -67,11 +67,11 @@ export function Unauthorized() {
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="cursor-pointer rounded-full border border-[rgba(150,205,255,.14)] bg-transparent px-3.5 py-1.5 font-mono fs-11 tracking-[0.12em] text-[rgba(214,230,248,.85)] transition-colors hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright"
+              className="cursor-pointer rounded-full border border-line/14 bg-transparent px-3.5 py-1.5 font-mono fs-11 tracking-[0.12em] text-ink-400/85 transition-colors hover:border-line/30 hover:bg-line/8 hover:text-ink-100"
             >
               RELOAD
             </button>
-            <span className="font-mono fs-11 text-[rgba(160,190,225,.6)]">after opening the link in another tab</span>
+            <span className="font-mono fs-11 text-ink-900/60">after opening the link in another tab</span>
           </div>
         </div>
       </div>

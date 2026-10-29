@@ -140,13 +140,13 @@ export function PairConfirmDialog() {
   // again. `cDone`'s checkmark takes the same slot above "<name> joined".
   const kindTileNode =
     request && tile ? (
-      <div className="flex w-full items-center gap-4 rounded-xl border border-[rgba(150,205,255,.26)] bg-[rgba(4,8,16,.6)] px-[18px] py-3.5 text-left">
-        <span className="grid h-[60px] w-[60px] shrink-0 place-items-center rounded-xl border border-[rgba(150,205,255,.2)] text-text-bright">
+      <div className="flex w-full items-center gap-4 rounded-xl border border-line/26 bg-shade/60 px-[18px] py-3.5 text-left">
+        <span className="grid h-[60px] w-[60px] shrink-0 place-items-center rounded-xl border border-line/20 text-ink-100">
           <KindGlyph kind={request.kind} scale={3} />
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-[5px]">
-          <span className="font-mono fs-16 leading-(--text-base--line-height) tracking-[0.2em] text-text-bright">{tile.word}</span>
-          <span className="fs-12.5 leading-[1.45] text-[rgba(160,190,225,.78)]">{tile.note}</span>
+          <span className="font-mono fs-16 leading-(--text-base--line-height) tracking-[0.2em] text-ink-100">{tile.word}</span>
+          <span className="fs-12.5 leading-[1.45] text-ink-900/78">{tile.note}</span>
         </span>
       </div>
     ) : null
@@ -179,7 +179,7 @@ export function PairConfirmDialog() {
         <FullBody name={full.name} onClose={() => setFull(null)} />
       ) : joined ? (
         <>
-          <p className="fs-13 leading-[1.55] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+          <p className="fs-13 leading-[1.55] text-ink-900/72 [text-wrap:pretty]">
             {joined.done ?? 'The other devices link to it on their own. It appears under Devices → In this group.'}
           </p>
           {/* Not on the canvas: 50c draws no Done (its only control is the
@@ -197,20 +197,20 @@ export function PairConfirmDialog() {
         request &&
         tile && (
           <>
-            <p className="fs-13 leading-[1.55] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
+            <p className="fs-13 leading-[1.55] text-ink-600/82 [text-wrap:pretty]">
               {JOIN_REACH}
             </p>
             {/* Canvas 50c `cFirst`: the role is permanent, so the pairing that sets it says so. */}
             {manager?.line && (
-              <p className="box-border w-full rounded-[10px] border border-[rgba(150,205,255,.16)] px-3.5 py-2.5 fs-13 leading-[1.5] text-text-bright [text-wrap:pretty]">
+              <p className="box-border w-full rounded-[10px] border border-line/16 px-3.5 py-2.5 fs-13 leading-[1.5] text-ink-100 [text-wrap:pretty]">
                 {manager.line}
               </p>
             )}
-            <p className="fs-13.5 leading-[1.55] text-text-bright">{whereLine(request.kind, request.name)}</p>
+            <p className="fs-13.5 leading-[1.55] text-ink-100">{whereLine(request.kind, request.name)}</p>
             {/* Never disabled while an answer is in flight: that would drop the
                 focus, and after a wrong code the user types straight on. */}
             <PairingCodeInput value={code} onChange={setCode} onSubmit={() => void answer(true)} autoFocus />
-            <div className="h-fit min-h-[18px] font-mono fs-11 text-[rgba(160,190,225,.7)]">
+            <div className="h-fit min-h-[18px] font-mono fs-11 text-ink-900/70">
               {relayFailed
                 ? "The relay didn't answer. Try again."
                 : attemptsLeft !== null && attemptsLine(attemptsLeft)}
@@ -239,13 +239,13 @@ export function PairConfirmDialog() {
 function FullTile({ request }: { request: PendingPair }) {
   const os = osLabel(osName(request.platform))
   return (
-    <div className="flex w-full items-center gap-4 rounded-xl border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.6)] px-[18px] py-3.5 text-left opacity-60">
-      <span className="grid h-[60px] w-[60px] shrink-0 place-items-center rounded-xl border border-[rgba(150,205,255,.2)] text-text-bright">
+    <div className="flex w-full items-center gap-4 rounded-xl border border-line/16 bg-shade/60 px-[18px] py-3.5 text-left opacity-60">
+      <span className="grid h-[60px] w-[60px] shrink-0 place-items-center rounded-xl border border-line/20 text-ink-100">
         <KindGlyph kind={request.kind} scale={3} />
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-[5px]">
-        <span className="font-mono fs-16 leading-(--text-base--line-height) tracking-[0.2em] text-text-bright">{kindTile(request.kind).word}</span>
-        <span className="fs-12.5 leading-[1.45] text-[rgba(160,190,225,.78)]">
+        <span className="font-mono fs-16 leading-(--text-base--line-height) tracking-[0.2em] text-ink-100">{kindTile(request.kind).word}</span>
+        <span className="fs-12.5 leading-[1.45] text-ink-900/78">
           {os === '' ? request.name : `${request.name} · ${os}`}
         </span>
       </span>
@@ -257,7 +257,7 @@ function FullTile({ request }: { request: PendingPair }) {
 function FullBody({ name, onClose }: { name: string; onClose: () => void }) {
   return (
     <>
-      <p className="fs-13 leading-[1.55] text-[rgba(200,214,235,.82)] [text-wrap:pretty]">
+      <p className="fs-13 leading-[1.55] text-ink-600/82 [text-wrap:pretty]">
         {groupFullBody(name)}
       </p>
       <div className="flex w-full gap-2.5">

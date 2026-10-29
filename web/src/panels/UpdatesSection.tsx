@@ -60,14 +60,14 @@ export function UpdatesSection({ patchAndSet }: { patchAndSet: (patch: Record<st
       >
         <div className="flex flex-col items-start gap-2">
           <div className="flex items-center gap-3">
-            <span className="font-mono fs-12 text-text-bright">Orbital {orbitalVersion}</span>
+            <span className="font-mono fs-12 text-ink-100">Orbital {orbitalVersion}</span>
             {/* Canvas 50v 01–02: nothing to check while another member's update runs here. */}
             <Button variant="hairline" size="check" disabled={checking || !!state?.remote} onClick={() => void checkNow()}>
               Check now
             </Button>
           </div>
           <div className="flex items-center gap-3">
-            <div aria-live="polite" className="font-mono fs-11 leading-[1.5] text-[rgba(160,190,225,.65)]">
+            <div aria-live="polite" className="font-mono fs-11 leading-[1.5] text-ink-900/65">
               {line}
             </div>
             {/* A wait here, this Mac's own or another member's (canvas 50v 02), its download included. */}
@@ -81,7 +81,7 @@ export function UpdatesSection({ patchAndSet }: { patchAndSet: (patch: Record<st
             href={releaseNotesUrl(orbitalVersion)}
             target="_blank"
             rel="noreferrer"
-            className="font-mono fs-11 tracking-[0.04em] text-[rgba(160,190,225,.75)] no-underline transition-colors hover:text-text-bright"
+            className="font-mono fs-11 tracking-[0.04em] text-ink-900/75 no-underline transition-colors hover:text-ink-100"
           >
             Release notes on GitHub ↗
           </a>

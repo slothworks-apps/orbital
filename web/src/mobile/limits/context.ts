@@ -1,3 +1,4 @@
+import { swatch } from '../../lib/palette'
 import { formatContextWindow } from '../../lib/format'
 import { contextWindowFor } from '../../lib/models'
 import type { ApiSession, OrbitalModel } from '../../lib/types'
@@ -22,11 +23,11 @@ export type PhoneContextLevel = 'normal' | 'brighter' | 'full'
 
 /** Canvas 10k/10l `ctxRing`: the three inks of the fill, and its track. */
 export const CONTEXT_INK: Record<PhoneContextLevel, string> = {
-  normal: 'rgba(150,205,255,.42)',
-  brighter: 'rgba(214,230,248,.72)',
-  full: '#e8eef8',
+  normal: swatch('line', 0.42),
+  brighter: swatch('ink-400', 0.72),
+  full: swatch('ink-100'),
 }
-export const CONTEXT_TRACK = 'rgba(150,205,255,.1)'
+export const CONTEXT_TRACK = swatch('line', 0.1)
 
 export function phoneContextLevel(fraction: number): PhoneContextLevel {
   if (fraction >= CONTEXT_FULL_INK_AT) return 'full'

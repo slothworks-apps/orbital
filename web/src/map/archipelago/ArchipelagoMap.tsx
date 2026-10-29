@@ -316,7 +316,7 @@ export function ArchipelagoMap() {
   return (
     <div
       data-testid="map-surface"
-      className="relative h-full w-full overflow-hidden bg-[#0a1524]"
+      className="relative h-full w-full overflow-hidden bg-panel-solid"
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

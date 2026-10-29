@@ -163,7 +163,7 @@ export function ClaudeDirsRows({
   if (refused) {
     // 62g: what this device may not do on that Mac, and where it can be done.
     return (
-      <div className="py-[13px] fs-12 leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+      <div className="py-[13px] fs-12 leading-[1.5] text-ink-900/70 [text-wrap:pretty]">
         {refused === 'no_grant'
           ? `${macName} does not let this device look after its profiles. Turn on Upkeep of this Mac for this device in ${macName}’s Settings → Devices, or log in on ${macName}.`
           : `${macName} runs an Orbital too old to show its profiles here. Update it, or log in on ${macName}.`}
@@ -176,13 +176,13 @@ export function ClaudeDirsRows({
 
   return (
     <div className="flex flex-col gap-3 py-[13px]">
-      <div className="max-w-[600px] fs-12 leading-[1.5] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">
+      <div className="max-w-[600px] fs-12 leading-[1.5] text-ink-900/70 [text-wrap:pretty]">
         {remote
           ? `The profiles of ${macName}. Logging in from here opens the sign-in page on this Mac and you paste the code it shows; nothing opens on ${macName}.`
           : 'A profile is one Claude configuration directory with its own login, settings, MCP servers and history, like a browser profile. Orbital watches all of them. Logging in here runs the same browser sign-in as the CLI; Orbital keeps no copy of the account.'}
       </div>
 
-      <div className="flex flex-col rounded-[11px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.45)]">
+      <div className="flex flex-col rounded-[11px] border border-line/12 bg-shade/45">
         <ul className="flex flex-col">
           {dirs.map((dir, index) => {
             const missing = !dir.exists
@@ -194,7 +194,7 @@ export function ClaudeDirsRows({
                 data-claude-dir={dir.id}
                 className={[
                   'flex flex-col border-t',
-                  index === 0 ? 'border-transparent' : 'border-[rgba(150,205,255,.08)]',
+                  index === 0 ? 'border-transparent' : 'border-line/8',
                 ].join(' ')}
               >
                 <div className="box-border flex min-h-[62px] items-start gap-3 py-3 pl-4 pr-2.5">
@@ -216,13 +216,13 @@ export function ClaudeDirsRows({
                         <span
                           className={[
                             'fs-13.5 font-semibold [overflow-wrap:anywhere]',
-                            missing ? 'text-[rgba(232,238,248,.7)]' : 'text-text-bright',
+                            missing ? 'text-ink-100/70' : 'text-ink-100',
                           ].join(' ')}
                         >
                           {dir.name}
                         </span>
                         {dir.isDefault && (
-                          <span className="flex-none rounded-[4px] border border-[rgba(150,205,255,.22)] px-1.5 py-px font-mono fs-9 tracking-[0.12em] text-[rgba(200,220,245,.8)]">
+                          <span className="flex-none rounded-[4px] border border-line/22 px-1.5 py-px font-mono fs-9 tracking-[0.12em] text-ink-500/80">
                             DEFAULT
                           </span>
                         )}
@@ -239,19 +239,19 @@ export function ClaudeDirsRows({
                         }
                       />
                     ) : (
-                      <div className="flex flex-wrap items-baseline gap-1.5 font-mono fs-11 text-[rgba(160,190,225,.65)]">
+                      <div className="flex flex-wrap items-baseline gap-1.5 font-mono fs-11 text-ink-900/65">
                         <span
                           className={[
                             '[overflow-wrap:anywhere]',
-                            missing ? 'text-[rgba(160,190,225,.5)]' : 'text-[rgba(160,190,225,.7)]',
+                            missing ? 'text-ink-900/50' : 'text-ink-900/70',
                           ].join(' ')}
                         >
                           {claudeDirDisplayPath(dir.path)}
                         </span>
                         {dir.overriddenByEnv && (
-                          <span className="text-[rgba(160,190,225,.5)]">· set by ORBITAL_CLAUDE_DIR · read-only</span>
+                          <span className="text-ink-900/50">· set by ORBITAL_CLAUDE_DIR · read-only</span>
                         )}
-                        {missing && <span className="text-[rgba(160,190,225,.5)]">· not found on disk</span>}
+                        {missing && <span className="text-ink-900/50">· not found on disk</span>}
                       </div>
                     )}
                   </div>
@@ -289,8 +289,8 @@ export function ClaudeDirsRows({
                 {/* Its account, Claude Design and the logins (62c). */}
                 <ProfileLoginRow dir={dir} machine={machine} active={active} macName={macName} />
                 {confirming === dir.id && (
-                  <div className="mb-3 ml-4 mr-2.5 flex items-center gap-3 rounded-[9px] border border-[rgba(150,205,255,.16)] bg-[rgba(4,8,16,.6)] px-3 py-[11px]">
-                    <span className="min-w-0 flex-1 fs-12.5 leading-[1.5] text-[rgba(214,230,248,.88)] [text-wrap:pretty]">
+                  <div className="mb-3 ml-4 mr-2.5 flex items-center gap-3 rounded-[9px] border border-line/16 bg-shade/60 px-3 py-[11px]">
+                    <span className="min-w-0 flex-1 fs-12.5 leading-[1.5] text-ink-400/88 [text-wrap:pretty]">
                       Stop watching {claudeDirDisplayPath(dir.path)}? Nothing on disk is deleted. Its sessions leave the
                       map and the lists.
                       {dir.isDefault && rest[0] ? ` ${rest[0].name} becomes the default.` : ''}
@@ -360,7 +360,7 @@ function RowMenu({
       <span className="flex items-center gap-2">
         <span className="flex-1 font-sans fs-12.5 font-medium">{entry.label}</span>
         {entry.note && (
-          <span className="font-mono fs-9.5 tracking-[0.06em] text-[rgba(160,190,225,.6)]">{entry.note}</span>
+          <span className="font-mono fs-9.5 tracking-[0.06em] text-ink-900/60">{entry.note}</span>
         )}
       </span>
     ),
@@ -377,8 +377,8 @@ function RowMenu({
           type="button"
           aria-label="Profile actions"
           className={[
-            'grid h-6 w-7 flex-none place-items-center rounded-[6px] border fs-14 leading-none text-[rgba(200,220,245,.8)] transition-colors hover:bg-[rgba(150,205,255,.1)]',
-            open ? 'border-[rgba(150,205,255,.26)] bg-[rgba(150,205,255,.1)]' : 'border-transparent bg-transparent',
+            'grid h-6 w-7 flex-none place-items-center rounded-[6px] border fs-14 leading-none text-ink-500/80 transition-colors hover:bg-line/10',
+            open ? 'border-line/26 bg-line/10' : 'border-transparent bg-transparent',
           ].join(' ')}
         >
           ⋯
@@ -392,7 +392,7 @@ function RowMenu({
 function Refusal({ refusal }: { refusal: ClaudeDirRefusal | null }) {
   if (!refusal) return null
   return (
-    <span role="status" className="fs-12 leading-[1.5] text-[rgba(220,235,255,.85)]">
+    <span role="status" className="fs-12 leading-[1.5] text-ink-200/85">
       {claudeDirRefusalSentence(refusal)}
     </span>
   )
@@ -544,7 +544,7 @@ function AddForm({
     >
       <div className="min-h-0 overflow-hidden rounded-b-[11px]">
         <form
-          className="flex flex-col gap-2.5 border-t border-[rgba(150,205,255,.08)] bg-[rgba(150,205,255,.03)] px-4 py-3.5 transition-transform duration-[360ms] ease-[cubic-bezier(.2,.8,.25,1)] motion-reduce:transition-none"
+          className="flex flex-col gap-2.5 border-t border-line/8 bg-line/3 px-4 py-3.5 transition-transform duration-[360ms] ease-[cubic-bezier(.2,.8,.25,1)] motion-reduce:transition-none"
           style={{ transform: open ? 'translateY(0)' : 'translateY(-8px)' }}
           onSubmit={(e) => {
             e.preventDefault()
@@ -588,7 +588,7 @@ function AddForm({
           </div>
           <Refusal refusal={refusal} />
           <div className="flex items-center gap-2">
-            <span className="min-w-0 flex-1 font-mono fs-10 leading-[1.5] text-[rgba(160,190,225,.5)] [text-wrap:pretty]">
+            <span className="min-w-0 flex-1 font-mono fs-10 leading-[1.5] text-ink-900/50 [text-wrap:pretty]">
               the account is read from the directory once it’s added · nothing is copied or changed
             </span>
             <Button variant="ghost" size="row" onClick={onCancel}>
@@ -607,7 +607,7 @@ function AddForm({
 /** 44a's mono kicker over a field of the add form. */
 function FieldLabel({ text, children }: { text: string; children: ReactNode }) {
   return (
-    <label className="flex flex-col gap-1.5 font-mono fs-9.5 tracking-[0.16em] text-[rgba(160,190,225,.6)]">
+    <label className="flex flex-col gap-1.5 font-mono fs-9.5 tracking-[0.16em] text-ink-900/60">
       {text}
       {children}
     </label>

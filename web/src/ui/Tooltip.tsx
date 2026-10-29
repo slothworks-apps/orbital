@@ -250,7 +250,7 @@ export function Tooltip(props: TooltipProps) {
                   // bubble hangs off a row that sets `nowrap`, and inheriting
                   // it caps the box at 300px while the text runs straight out
                   // the side.
-                  'block whitespace-normal font-mono fs-11 text-text-bright [overflow-wrap:anywhere]'
+                  'block whitespace-normal font-mono fs-11 text-ink-100 [overflow-wrap:anywhere]'
                 : CARD_TITLE_CLASS
             }
           >
@@ -268,22 +268,22 @@ export function Tooltip(props: TooltipProps) {
   )
 }
 
-const BUBBLE_SHELL_CLASS = 'w-max border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)]'
+const BUBBLE_SHELL_CLASS = 'w-max border border-line/16 bg-panel/96'
 /** `Feature - Branch status` 1h: the End-session tooltip's shell at a fixed width, rows laid out by the caller. */
 const PANEL_WIDTH_PX = 264
 /** 1a: the bubble's left edge sits this far left of its trigger's, so its padding lines up with the text. */
 const PANEL_INSET_PX = 6
 const PANEL_CLASS =
-  'box-border flex w-[264px] flex-col gap-[9px] whitespace-normal rounded-lg border border-[rgba(150,205,255,.2)] bg-[rgba(10,16,28,.96)] px-3 py-2.5 text-left shadow-[0_10px_26px_rgba(0,0,0,.5)]'
+  'box-border flex w-[264px] flex-col gap-[9px] whitespace-normal rounded-lg border border-line/20 bg-panel/96 px-3 py-2.5 text-left shadow-[0_10px_26px_rgba(0,0,0,.5)]'
 /** Canvas 50f RUNS ON: `left:-1px`, so its border sits on the trigger's. */
 const FLYOUT_INSET_PX = 1
 const FLYOUT_CLASS =
-  'box-border flex flex-col gap-[5px] whitespace-normal rounded-[10px] border border-[rgba(150,205,255,.18)] bg-[rgb(10,16,28)] px-[13px] pt-[11px] pb-3 text-left shadow-[0_18px_50px_rgba(0,0,0,.6)]'
+  'box-border flex flex-col gap-[5px] whitespace-normal rounded-[10px] border border-line/18 bg-panel px-[13px] pt-[11px] pb-3 text-left shadow-[0_18px_50px_rgba(0,0,0,.6)]'
 const CARD_CLASS = 'max-w-[340px] rounded-[9px] px-3 py-[9px] shadow-[0_16px_40px_rgba(0,0,0,.55)]'
-const CARD_TITLE_CLASS = 'block font-mono fs-11.5 text-text-bright'
-const SHORTCUT_CLASS = 'ml-2 whitespace-nowrap text-[rgba(160,190,225,.55)]'
+const CARD_TITLE_CLASS = 'block font-mono fs-11.5 text-ink-100'
+const SHORTCUT_CLASS = 'ml-2 whitespace-nowrap text-ink-900/55'
 const CARD_DESCRIPTION_CLASS =
-  'mt-1 block fs-11.5 leading-[1.45] text-[rgba(160,190,225,.8)] [text-wrap:pretty]'
+  'mt-1 block fs-11.5 leading-[1.45] text-ink-900/80 [text-wrap:pretty]'
 
 /** The gap between a floating card and the run it explains — 2d's 8px. */
 const FLOATING_GAP_PX = 8
@@ -349,7 +349,7 @@ export function FloatingTooltip({
         // because the card's translucent one would let that border show through.
         <span
           aria-hidden
-          className="absolute -bottom-[5px] left-[6px] block h-[9px] w-[9px] rotate-45 border-r border-b border-[rgba(150,205,255,.16)] bg-[rgb(10,16,28)]"
+          className="absolute -bottom-[5px] left-[6px] block h-[9px] w-[9px] rotate-45 border-r border-b border-line/16 bg-panel"
         />
       )}
     </span>,

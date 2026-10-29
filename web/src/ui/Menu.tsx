@@ -429,7 +429,7 @@ export function MenuPopup({
               <div
                 key={`separator-${i}`}
                 role="separator"
-                className="mx-0.5 my-1 h-px shrink-0 bg-[rgba(150,205,255,.1)]"
+                className="mx-0.5 my-1 h-px shrink-0 bg-line/10"
               />
             )
           }
@@ -442,7 +442,7 @@ export function MenuPopup({
                 // from the rows' edge; the first one gets more room
                 // above it than the ones between groups.
                 className={[
-                  'shrink-0 px-2.5 font-mono fs-9.5 uppercase tracking-[.18em] text-[rgba(160,190,225,.6)]',
+                  'shrink-0 px-2.5 font-mono fs-9.5 uppercase tracking-[.18em] text-ink-900/60',
                   i === 0 ? 'pt-2 pb-1.5' : 'py-1.5',
                 ].join(' ')}
               >
@@ -482,8 +482,8 @@ export function MenuPopup({
               // the row is not focused.
               className={[
                 'group flex shrink-0 cursor-pointer items-center gap-2.5 rounded-[7px] px-2 py-[7px] outline-none',
-                'text-[rgba(220,235,255,.9)] focus:bg-[rgba(150,205,255,.09)] focus:text-[#e8eef8]',
-                'aria-[current=true]:not-focus:bg-[rgba(150,205,255,.1)]',
+                'text-ink-200/90 focus:bg-line/9 focus:text-ink-100',
+                'aria-[current=true]:not-focus:bg-line/10',
                 'aria-disabled:cursor-default aria-disabled:opacity-50',
               ].join(' ')}
             >
@@ -493,13 +493,13 @@ export function MenuPopup({
                 <>
                   <span
                     aria-hidden
-                    className="grid w-5 shrink-0 place-items-center text-[rgba(200,220,245,.7)] group-focus:text-[rgba(200,220,245,.85)]"
+                    className="grid w-5 shrink-0 place-items-center text-ink-500/70 group-focus:text-ink-500/85"
                   >
                     {entry.icon}
                   </span>
                   <span className="min-w-0 flex-1 truncate font-sans fs-12.5 font-semibold">{entry.label}</span>
                   {entry.detail !== undefined && (
-                    <span className="shrink-0 font-mono fs-10 text-[rgba(160,190,225,.5)]">{entry.detail}</span>
+                    <span className="shrink-0 font-mono fs-10 text-ink-900/50">{entry.detail}</span>
                   )}
                 </>
               )}

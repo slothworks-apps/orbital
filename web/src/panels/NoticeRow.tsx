@@ -15,35 +15,35 @@ const LEVEL: Record<
   info: {
     label: 'INFO',
     glyph: '·',
-    glyphInk: 'text-[rgba(160,190,225,.5)]',
-    labelInk: 'text-[rgba(160,190,225,.5)]',
-    bodyInk: 'text-[rgba(200,220,245,.62)]',
+    glyphInk: 'text-ink-900/50',
+    labelInk: 'text-ink-900/50',
+    bodyInk: 'text-ink-500/62',
   },
   notice: {
     label: 'NOTICE',
     glyph: '○',
-    glyphInk: 'text-[rgba(220,232,248,.85)]',
-    labelInk: 'text-[rgba(200,220,245,.7)]',
-    bodyInk: 'text-[rgba(225,235,250,.9)]',
+    glyphInk: 'text-ink-400/85',
+    labelInk: 'text-ink-500/70',
+    bodyInk: 'text-ink-200/90',
   },
   suggestion: {
     label: 'SUGGESTION',
     glyph: '◇',
     glyphInk: 'text-accent',
     labelInk: 'text-accent/85',
-    bodyInk: 'text-[rgba(225,235,250,.9)]',
+    bodyInk: 'text-ink-200/90',
   },
   warning: {
     label: 'WARNING',
     glyph: '▲',
     glyphInk: 'text-white',
     labelInk: 'text-white',
-    bodyInk: 'text-[#e8eef8]',
+    bodyInk: 'text-ink-100',
   },
 }
 
 /** Canvas 20c A/B: the CLI's own output ink, whatever level it arrived at. */
-const OUTPUT_INK = 'text-[rgba(215,228,245,.85)]'
+const OUTPUT_INK = 'text-ink-400/85'
 
 /**
  * Canvas 20c B: "up to 8 lines render in full", longer output clips at 8 with
@@ -128,7 +128,7 @@ export function NoticeRow({ message }: NoticeRowProps) {
       CLI
       {/* 20c A's chip: the command's own name, set at reading size and
           untracked so it stays a name rather than an eyebrow. */}
-      <span className="inline-block rounded-[4px] border border-[rgba(150,205,255,.14)] px-1.5 py-px fs-10.5 tracking-normal text-[#e8eef8]">
+      <span className="inline-block rounded-[4px] border border-line/14 px-1.5 py-px fs-10.5 tracking-normal text-ink-100">
         {command}
       </span>
     </>
@@ -149,11 +149,11 @@ export function NoticeRow({ message }: NoticeRowProps) {
         inline ? 'flex items-baseline gap-2' : 'flex flex-col gap-[5px]',
         'font-mono',
         loud
-          ? 'rounded-[8px] border border-[rgba(232,238,248,.32)] bg-[rgba(232,238,248,.05)] px-2.5 py-[7px]'
+          ? 'rounded-[8px] border border-ink-100/32 bg-ink-100/5 px-2.5 py-[7px]'
           : `border-y border-dashed px-[2px] ${inline ? 'py-[6px]' : 'pb-[9px] pt-2'} ${
               level === 'info'
-                ? 'border-[rgba(150,205,255,.12)]'
-                : 'border-[rgba(150,205,255,.16)]'
+                ? 'border-line/12'
+                : 'border-line/16'
             }`,
       ].join(' ')}
     >
@@ -174,7 +174,7 @@ export function NoticeRow({ message }: NoticeRowProps) {
         <>
           <div
             className={`flex items-center gap-2 fs-9.5 tracking-[0.14em] ${
-              command ? 'text-[rgba(160,190,225,.55)]' : ''
+              command ? 'text-ink-900/55' : ''
             }`}
           >
             {identity}
@@ -182,7 +182,7 @@ export function NoticeRow({ message }: NoticeRowProps) {
             {/* 20c D marks ANSI output in the header's right slot, beside the
                 time that already sits there. */}
             {command && (boxed || time) && (
-              <span className="text-[rgba(160,190,225,.55)]">
+              <span className="text-ink-900/55">
                 {[boxed ? 'ANSI' : null, time].filter(Boolean).join(' · ')}
               </span>
             )}
@@ -204,7 +204,7 @@ export function NoticeRow({ message }: NoticeRowProps) {
             {folded && (
               <span
                 aria-hidden
-                className="pointer-events-none absolute inset-x-0 bottom-0 block h-[34px] bg-[linear-gradient(180deg,transparent,rgba(12,17,30,.98))]"
+                className="pointer-events-none absolute inset-x-0 bottom-0 block h-[34px] bg-[linear-gradient(180deg,transparent,color-mix(in_oklab,_var(--color-panel-solid)_98%,_transparent))]"
               />
             )}
           </div>
@@ -214,7 +214,7 @@ export function NoticeRow({ message }: NoticeRowProps) {
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
-          className="cursor-pointer self-start font-mono fs-10 text-[rgba(143,216,255,.85)] focus:outline-none"
+          className="cursor-pointer self-start font-mono fs-10 text-sky/85 focus:outline-none"
         >
           {open ? '▴ show less' : `▾ show all ${lines} lines`}
         </button>

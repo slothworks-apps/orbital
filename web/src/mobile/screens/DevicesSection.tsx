@@ -70,7 +70,7 @@ function rowUpdate(row: PhoneRow, u: MemberUpdate | undefined, selfId: string | 
 const LINK_WORDS = { online: 'online', connecting: 'connecting…', off: 'offline' } as const
 
 /** Text-link rows of ADD A DEVICE (canvas 50i): 56 px, a chevron at the end. */
-const LINK_ROW = 'flex h-fit min-h-14 w-full items-center gap-3 px-3.5 text-left fs-14 font-semibold text-text-bright'
+const LINK_ROW = 'flex h-fit min-h-14 w-full items-center gap-3 px-3.5 text-left fs-14 font-semibold text-ink-100'
 
 /** A member's join date as the sheet's `joined` says it (canvas 50i: `12 Oct`). */
 function joinedDate(ts: number | null): string {
@@ -132,13 +132,13 @@ export function DevicesSection() {
       <div className={CARD}>
         {/* No ✎: each device names itself, and the group has no rename for a phone. */}
         <div className="flex min-h-16 items-center gap-3.5 px-3.5">
-          <span className="flex text-text-bright">
+          <span className="flex text-ink-100">
             <KindGlyph kind="phone" untitled />
           </span>
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="truncate fs-14.5 font-semibold">{name}</span>
             {/* Canvas 50s: this phone's own version, and no Update — its store updates it. */}
-            <span className="font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
+            <span className="font-mono fs-10.5 text-ink-900/65">
               {kindOs('phone', os, device?.osVersion)} · {__MOBILE_VERSION__}
             </span>
           </span>
@@ -154,7 +154,7 @@ export function DevicesSection() {
           {rows.map((row, i) => {
             const update = rowUpdate(row, updates.byId[row.id], selfId)
             const away = update.dim ?? row.state === 'offline'
-            const nameInk = away ? 'text-[rgba(232,238,248,.62)]' : 'text-text-bright'
+            const nameInk = away ? 'text-ink-100/62' : 'text-ink-100'
             return (
               <button
                 key={row.id}
@@ -162,7 +162,7 @@ export function DevicesSection() {
                 onClick={() => setOpen(row.id)}
                 className={[
                   'flex min-h-[68px] w-full items-center gap-3.5 py-[9px] pl-3.5 pr-1.5 text-left',
-                  i > 0 ? 'border-t border-[rgba(150,205,255,.08)]' : '',
+                  i > 0 ? 'border-t border-line/8' : '',
                 ].join(' ')}
               >
                 <span className={['flex', nameInk].join(' ')}>
@@ -177,20 +177,20 @@ export function DevicesSection() {
                     className={[
                       'flex items-center gap-[7px] font-mono fs-10.5',
                       !away && (row.state === 'online' || update.dim === false)
-                        ? 'text-[rgba(200,220,245,.85)]'
-                        : 'text-[rgba(160,190,225,.72)]',
+                        ? 'text-ink-500/85'
+                        : 'text-ink-900/72',
                     ].join(' ')}
                   >
                     <Dot state={update.dot ?? row.state} />
                     <span className="truncate">{update.words}</span>
                   </span>
                   {/* Canvas 50s: the version at the end of the kind · OS line. */}
-                  <span className="truncate font-mono fs-10 text-[rgba(160,190,225,.42)]">
+                  <span className="truncate font-mono fs-10 text-ink-900/42">
                     {row.kindOs}
                     {update.version ? ` · ${update.version}` : ''}
                   </span>
                 </span>
-                <span aria-hidden className="grid h-11 w-8 place-items-center fs-18 text-[rgba(160,190,225,.5)]">
+                <span aria-hidden className="grid h-11 w-8 place-items-center fs-18 text-ink-900/50">
                   ›
                 </span>
               </button>
@@ -200,8 +200,8 @@ export function DevicesSection() {
       )}
 
       {inGroup && primary && (
-        <p className="px-1 pt-2.5 fs-12.5 leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
-          <span className="font-semibold text-text-bright">{primary.name}</span> manages this group — add and remove devices
+        <p className="px-1 pt-2.5 fs-12.5 leading-[1.5] text-ink-900/72 [text-wrap:pretty]">
+          <span className="font-semibold text-ink-100">{primary.name}</span> manages this group — add and remove devices
           there.
         </p>
       )}
@@ -217,26 +217,26 @@ export function DevicesSection() {
               <button
                 type="button"
                 onClick={() => useJoinSheet.setState({ setAside: null })}
-                className={`${LINK_ROW} border-b border-[rgba(150,205,255,.08)]`}
+                className={`${LINK_ROW} border-b border-line/8`}
               >
                 <span className="min-w-0 flex-1 truncate">{review.name} wants to join</span>
                 <span className="text-accent">Review</span>
-                <span aria-hidden className="fs-18 text-[rgba(160,190,225,.5)]">›</span>
+                <span aria-hidden className="fs-18 text-ink-900/50">›</span>
               </button>
             )}
             <button type="button" onClick={() => go('pairing')} className={LINK_ROW}>
               <span className="flex-1">Scan another device&apos;s code</span>
-              <span aria-hidden className="fs-18 text-[rgba(160,190,225,.5)]">›</span>
+              <span aria-hidden className="fs-18 text-ink-900/50">›</span>
             </button>
             {/* Only with a client on a relay to show it from: a phone standalone after the group's ending keeps one. */}
             {(pairing || link !== 'off') && (
-              <button type="button" onClick={() => go('code')} className={`${LINK_ROW} border-t border-[rgba(150,205,255,.08)]`}>
+              <button type="button" onClick={() => go('code')} className={`${LINK_ROW} border-t border-line/8`}>
                 <span className="flex-1">Show this phone&apos;s code</span>
-                <span aria-hidden className="fs-18 text-[rgba(160,190,225,.5)]">›</span>
+                <span aria-hidden className="fs-18 text-ink-900/50">›</span>
               </button>
             )}
           </div>
-          <p className="px-1 pt-2 fs-12 leading-[1.5] text-[rgba(160,190,225,.65)] [text-wrap:pretty]">
+          <p className="px-1 pt-2 fs-12 leading-[1.5] text-ink-900/65 [text-wrap:pretty]">
             Scan the QR on a desktop&apos;s Devices page, or show a code for a desktop or server to paste.
           </p>
         </>
@@ -248,7 +248,7 @@ export function DevicesSection() {
         <div className="flex min-h-16 items-center gap-2.5 px-3.5">
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
             <span className="fs-14 font-semibold">Relay</span>
-            <span className="flex min-w-0 items-center gap-[7px] font-mono fs-10.5 text-[rgba(160,190,225,.65)]">
+            <span className="flex min-w-0 items-center gap-[7px] font-mono fs-10.5 text-ink-900/65">
               <MemberDot state={link === 'online' ? 'online' : 'offline'} sizePx={6} />
               <span className="truncate">
                 {LINK_WORDS[link]}
@@ -259,7 +259,7 @@ export function DevicesSection() {
         </div>
       </div>
       {inGroup && (
-        <p className="px-1 pt-2 fs-12 leading-[1.5] text-[rgba(160,190,225,.65)] [text-wrap:pretty]">
+        <p className="px-1 pt-2 fs-12 leading-[1.5] text-ink-900/65 [text-wrap:pretty]">
           {relayLockedLine('member')}
         </p>
       )}
@@ -269,7 +269,7 @@ export function DevicesSection() {
           <button
             type="button"
             onClick={() => setLeaving(true)}
-            className="flex h-fit min-h-13 w-full items-center px-3.5 text-left fs-14 font-semibold text-text-bright"
+            className="flex h-fit min-h-13 w-full items-center px-3.5 text-left fs-14 font-semibold text-ink-100"
           >
             Leave this group
           </button>
@@ -316,20 +316,20 @@ function EndedNotice({ ended }: { ended: GroupEnded }) {
     void clearEnded().catch((err: unknown) => console.warn('[mobile] could not forget the notice', err))
   }
   return (
-    <div className="mt-3 flex flex-col gap-3 rounded-[14px] border border-[rgba(150,205,255,.2)] bg-[rgba(150,205,255,.05)] p-3.5">
+    <div className="mt-3 flex flex-col gap-3 rounded-[14px] border border-line/20 bg-line/5 p-3.5">
       <div className="flex items-start gap-3">
-        <span className="flex pt-[5px] text-[rgba(232,238,248,.7)]">
+        <span className="flex pt-[5px] text-ink-100/70">
           <KindGlyph kind="desktop" untitled />
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-1">
           <span className="fs-14.5 font-semibold">{head}</span>
-          <span className="fs-13 leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">{body}</span>
+          <span className="fs-13 leading-[1.5] text-ink-900/72 [text-wrap:pretty]">{body}</span>
         </span>
       </div>
       <button
         type="button"
         onClick={ok}
-        className="h-11 self-end rounded-[12px] border border-[rgba(150,205,255,.2)] px-5 fs-14 font-semibold text-text-bright"
+        className="h-11 self-end rounded-[12px] border border-line/20 px-5 fs-14 font-semibold text-ink-100"
       >
         OK
       </button>
@@ -433,7 +433,7 @@ function DeviceSheet({
     <BottomSheet label={row.name} onDismiss={onClose} variant="device">
       <div className="flex flex-col gap-3 pb-2">
         <div className="flex items-center gap-3.5 pt-1.5">
-          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[12px] border border-[rgba(150,205,255,.2)] text-text-bright">
+          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-[12px] border border-line/20 text-ink-100">
             <KindGlyph kind={row.kind} scale={2} untitled />
           </span>
           <span className="flex min-w-0 flex-col gap-[3px]">
@@ -441,32 +441,32 @@ function DeviceSheet({
               <span className="truncate fs-18 font-bold">{row.name}</span>
               {row.primary && <PrimaryLabel />}
             </span>
-            <span className="font-mono fs-11 text-[rgba(160,190,225,.65)]">{row.kindOs}</span>
+            <span className="font-mono fs-11 text-ink-900/65">{row.kindOs}</span>
           </span>
         </div>
-        <dl className="flex flex-col rounded-[14px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.5)] font-mono fs-11.5 text-[rgba(160,190,225,.65)]">
+        <dl className="flex flex-col rounded-[14px] border border-line/12 bg-shade/50 font-mono fs-11.5 text-ink-900/65">
           <div className="flex items-center gap-2 px-3.5 py-3">
             <dt className="flex-1">state</dt>
             <Dot state={shown.dot ?? row.state} />
             {/* Canvas 50s: the sheet's state is the desktop's word (`updating`), the row's longer line is the list's. */}
-            <dd className="min-w-0 truncate text-text-bright">{sheetState(shown, row)}</dd>
+            <dd className="min-w-0 truncate text-ink-100">{sheetState(shown, row)}</dd>
           </div>
           {shown.version && (
-            <div className="flex gap-2 border-t border-[rgba(150,205,255,.08)] px-3.5 py-3">
+            <div className="flex gap-2 border-t border-line/8 px-3.5 py-3">
               <dt className="flex-1">version</dt>
-              <dd className="min-w-0 truncate text-text-bright">{shown.version}</dd>
+              <dd className="min-w-0 truncate text-ink-100">{shown.version}</dd>
             </div>
           )}
-          <div className="flex gap-2 border-t border-[rgba(150,205,255,.08)] px-3.5 py-3">
+          <div className="flex gap-2 border-t border-line/8 px-3.5 py-3">
             <dt className="flex-1">joined</dt>
-            <dd className="min-w-0 truncate text-text-bright">{joinedDate(row.joinedAt)}</dd>
+            <dd className="min-w-0 truncate text-ink-100">{joinedDate(row.joinedAt)}</dd>
           </div>
         </dl>
         {confirming ? (
           <>
             <div className="flex flex-col gap-1 px-1 pt-0.5">
-              <span className="fs-15 font-bold text-text-bright">{sessions.question}</span>
-              <span className="fs-13 leading-[1.5] text-[rgba(160,190,225,.72)]">{sessions.body}</span>
+              <span className="fs-15 font-bold text-ink-100">{sessions.question}</span>
+              <span className="fs-13 leading-[1.5] text-ink-900/72">{sessions.body}</span>
             </div>
             {/* Canvas 50s: the safe choice is the light, filled one; an update is no accent action. */}
             <PrimaryButton tone="light" disabled={starting} onClick={() => void confirmUpdate('idle')}>
@@ -482,13 +482,13 @@ function DeviceSheet({
             {line && (
               <>
                 <div className="flex flex-col gap-1 px-1 pt-0.5">
-                  <span className="fs-14 font-semibold text-text-bright">{line.head}</span>
+                  <span className="fs-14 font-semibold text-ink-100">{line.head}</span>
                   {line.sub && (
-                    <span className="font-mono fs-11 leading-[1.5] text-[rgba(160,190,225,.65)]">{line.sub}</span>
+                    <span className="font-mono fs-11 leading-[1.5] text-ink-900/65">{line.sub}</span>
                   )}
                 </div>
                 {updateError && (
-                  <p role="alert" className="fs-13 text-[rgba(200,214,235,.85)]">
+                  <p role="alert" className="fs-13 text-ink-600/85">
                     {updateError}
                   </p>
                 )}
@@ -506,7 +506,7 @@ function DeviceSheet({
               <>
                 {/* Canvas 50s: with an update to say, the sheet says that instead of who removes devices. */}
                 {!line && (
-                  <p className="fs-13 leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+                  <p className="fs-13 leading-[1.5] text-ink-900/72 [text-wrap:pretty]">
                     {row.primary
                       ? `${primary} is this group’s primary. Only it adds and removes devices.`
                       : `Only ${primary} can remove ${row.name} from the group.`}
@@ -517,13 +517,13 @@ function DeviceSheet({
               </>
             ) : (
               <>
-                <p className="fs-13 leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+                <p className="fs-13 leading-[1.5] text-ink-900/72 [text-wrap:pretty]">
                   {alone
                     ? `${row.name} is the last device this phone reaches. Removing it forgets it here and opens the scanner.`
                     : `Removing ${row.name} ends this phone's pair with it.`}
                 </p>
                 {error && (
-                  <p role="alert" className="fs-13 text-[rgba(200,214,235,.85)]">
+                  <p role="alert" className="fs-13 text-ink-600/85">
                     {error}
                   </p>
                 )}
@@ -576,11 +576,11 @@ function LeaveSheet({ primary, onClose }: { primary: string; onClose: () => void
     <BottomSheet label="Leave the group?" onDismiss={onClose} variant="device">
       <div className="flex flex-col gap-3 pb-2">
         <h2 className="pt-1.5 fs-18 font-bold">Leave the group?</h2>
-        <p className="fs-13 leading-[1.5] text-[rgba(160,190,225,.72)] [text-wrap:pretty]">
+        <p className="fs-13 leading-[1.5] text-ink-900/72 [text-wrap:pretty]">
           This phone becomes standalone and stops seeing the group’s sessions. To join again, pair it with {primary}.
         </p>
         {refused && (
-          <p role="alert" className="fs-13 text-[rgba(200,214,235,.85)]">
+          <p role="alert" className="fs-13 text-ink-600/85">
             {refused === 'offline' ? LEAVE_OFFLINE : LEAVE_FAILED}
           </p>
         )}
@@ -600,7 +600,7 @@ function LeaveSheet({ primary, onClose }: { primary: string; onClose: () => void
               >
                 Forget this group on this phone
               </SecondaryButton>
-              <p className="px-1 fs-12 leading-[1.5] text-[rgba(160,190,225,.65)]">
+              <p className="px-1 fs-12 leading-[1.5] text-ink-900/65">
                 The group keeps listing this phone, and may still notify it, until its primary device removes it.
               </p>
             </>

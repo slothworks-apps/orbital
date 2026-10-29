@@ -111,15 +111,15 @@ function RailPage({
       aria-current={current || undefined}
       onClick={onPick}
       className={[
-        'relative block flex-none overflow-hidden rounded-[3px] border bg-[rgba(220,232,250,.1)] p-0',
-        current ? 'border-[oklch(85%_.12_205_/_.8)]' : 'border-[rgba(150,205,255,.16)]',
+        'relative block flex-none overflow-hidden rounded-[3px] border bg-ink-200/10 p-0',
+        current ? 'border-accent/80' : 'border-line/16',
       ].join(' ')}
       style={{ width: RAIL_PAGE_W_PX, height: RAIL_PAGE_H_PX }}
     >
       {seen && (
         <PdfPageCanvas doc={doc} page={page} heightPx={RAIL_PAGE_H_PX} widthPx={RAIL_PAGE_W_PX} className="block object-contain" />
       )}
-      <span className="absolute bottom-0.5 right-[3px] font-mono fs-8 text-[rgba(200,220,245,.6)]">{page}</span>
+      <span className="absolute bottom-0.5 right-[3px] font-mono fs-8 text-ink-500/60">{page}</span>
     </button>
   )
 }
@@ -167,7 +167,7 @@ export function PdfPager({
           wheel.current = 0
           onPage(Math.max(1, Math.min(pages, page + step)))
         }}
-        className="relative overflow-hidden rounded-xl border border-[rgba(150,205,255,.22)] bg-[rgba(220,232,250,.1)] shadow-[0_40px_120px_rgba(0,0,0,.7)]"
+        className="relative overflow-hidden rounded-xl border border-line/22 bg-ink-200/10 shadow-[0_40px_120px_rgba(0,0,0,.7)]"
         style={{ width: widthPx, height: heightPx }}
       >
         <PdfPageCanvas doc={doc} page={page} heightPx={heightPx} widthPx={widthPx} className="block" />

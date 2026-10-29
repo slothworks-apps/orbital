@@ -41,73 +41,73 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
  * Orbital's own destructive treatment.
  */
 const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
-  primary: 'bg-accent text-space-deep font-bold shadow-[0_0_24px_rgba(89,228,243,.4)] hover:bg-text-soft',
+  primary: 'bg-accent text-space-deep font-bold shadow-[0_0_24px_color-mix(in_oklab,_var(--color-accent)_40%,_transparent)] hover:bg-ink-300',
   // Canvas 50a's Show code / New code over the QR: the primary's fill and ink, flat — no bloom, 600 weight.
-  'primary-flat': 'bg-accent text-space-deep font-semibold hover:bg-text-soft',
+  'primary-flat': 'bg-accent text-space-deep font-semibold hover:bg-ink-300',
   // Canvas 50g's Choose this folder: the primary's fill, ink and 700 weight, with no bloom.
-  'primary-plain': 'bg-accent text-space-deep font-bold hover:bg-text-soft',
-  warning: 'bg-warning text-[#1a1000] font-bold shadow-[0_0_24px_rgba(255,187,123,.4)] hover:brightness-110',
-  ghost: 'bg-transparent text-text-soft font-semibold border border-[rgba(150,205,255,.18)] hover:bg-white/5',
+  'primary-plain': 'bg-accent text-space-deep font-bold hover:bg-ink-300',
+  warning: 'bg-warning text-[#1a1000] font-bold shadow-[0_0_24px_color-mix(in_oklab,_var(--color-warning)_40%,_transparent)] hover:brightness-110',
+  ghost: 'bg-transparent text-ink-300 font-semibold border border-line/18 hover:bg-white/5',
   'accent-outline': 'bg-transparent text-accent font-semibold border border-accent/45 hover:bg-accent/10',
   // 1b's composer Stop: amber outline, never a filled block — it sits inside
   // the reply well and must not outweigh Send.
-  'warning-outline': 'bg-transparent text-warning font-semibold border border-[rgba(251,169,98,.5)] hover:bg-warning/10',
+  'warning-outline': 'bg-transparent text-warning font-semibold border border-warning-deep/50 hover:bg-warning/10',
   danger: 'bg-transparent text-red-400 font-semibold border border-red-400/40 hover:bg-red-400/10',
   // The map's floating "New session" (1a). Deliberate deviation from the
   // export: it specifies the same two greys at .85/.9 alpha over a 16px
   // backdrop blur, which reads as see-through wherever the button sits over a
   // planet rather than over empty space. Same colours, opaque — and with the
   // fill solid the blur has nothing left to blur, so it goes too.
-  cta: 'bg-gradient-to-b from-[#141c2e] to-[#0a0e1a] border border-accent/45 text-text-bright font-semibold shadow-[0_0_24px_rgba(89,228,243,.2),0_12px_30px_rgba(0,0,0,.5)] hover:border-accent/70',
+  cta: 'bg-gradient-to-b from-raised to-panel border border-accent/45 text-ink-100 font-semibold shadow-[0_0_24px_color-mix(in_oklab,_var(--color-accent)_20%,_transparent),0_12px_30px_rgba(0,0,0,.5)] hover:border-accent/70',
   // The error log's row actions (canvas 5b/5c): hairline pills whose active
   // state ("Hide detail") lights the fill, and a muted rank for dev records.
-  pill: 'bg-transparent text-[rgba(220,235,255,.8)] font-semibold border border-[rgba(150,205,255,.14)] hover:border-[rgba(150,205,255,.3)] hover:bg-white/5',
+  pill: 'bg-transparent text-ink-200/80 font-semibold border border-line/14 hover:border-line/30 hover:bg-white/5',
   'pill-active':
-    'bg-[rgba(150,205,255,.14)] text-text-bright font-semibold border border-[rgba(150,205,255,.3)]',
+    'bg-line/14 text-ink-100 font-semibold border border-line/30',
   'pill-muted':
-    'bg-transparent text-[rgba(190,212,238,.6)] font-semibold border border-[rgba(150,205,255,.1)] hover:bg-white/5',
+    'bg-transparent text-ink-700/60 font-semibold border border-line/10 hover:bg-white/5',
   // The MCP dialog's confirming Remove (canvas `Feature - MCP dialog` 12a/12b): the error-log
   // red, oklch(60% .2 25) → #de3b3d, as a hairline and a wash, with oklch(86% .08 25) → #ffbdb7 ink.
   'pill-danger':
-    'bg-[#de3b3d]/14 text-[#ffbdb7] font-semibold border border-[#de3b3d]/55 hover:bg-[#de3b3d]/25',
+    'bg-danger/14 text-[#ffbdb7] font-semibold border border-danger/55 hover:bg-danger/25',
   // Canvas 27a: the composer strip's Cancel / Cancel rewind — a hairline
   // chip in regular weight that lights its fill on hover.
   strip:
-    'bg-transparent text-[rgba(220,235,255,.9)] border border-[rgba(150,205,255,.18)] hover:border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.14)] hover:text-text-bright',
+    'bg-transparent text-ink-200/90 border border-line/18 hover:border-line/30 hover:bg-line/14 hover:text-ink-100',
   // Canvas 27a/27c: the ↶ next to Send, a neutral chip at rest and the
   // lit chip while its mode is on (`aria-pressed` says which).
   toggle:
-    'bg-transparent text-[rgba(200,220,245,.75)] border border-[rgba(150,205,255,.18)] hover:border-[rgba(150,205,255,.3)] hover:text-text-bright',
-  'toggle-on': 'bg-[rgba(150,205,255,.14)] text-text-bright border border-[rgba(150,205,255,.3)]',
+    'bg-transparent text-ink-500/75 border border-line/18 hover:border-line/30 hover:text-ink-100',
+  'toggle-on': 'bg-line/14 text-ink-100 border border-line/30',
   // Canvas 44a: the Settings row's confirming Remove and Add directory — the
   // lit neutral chip, in the row's weight, never a hue.
-  lit: 'bg-[rgba(150,205,255,.14)] text-text-bright font-semibold border border-[rgba(150,205,255,.3)] hover:bg-[rgba(150,205,255,.2)]',
+  lit: 'bg-line/14 text-ink-100 font-semibold border border-line/30 hover:bg-line/20',
   // `Feature - MCP approval` 47e "START SESSION · DISABLED → READY": the
   // primary before it can be pressed, an outline in the muted ink rather than
   // a dimmed fill. Pair it with `aria-disabled`, not `disabled`, which
   // would fade it a second time.
   'primary-unready':
-    'bg-transparent text-[rgba(160,190,225,.5)] font-bold border border-[rgba(150,205,255,.14)] cursor-default',
+    'bg-transparent text-ink-900/50 font-bold border border-line/14 cursor-default',
   // 47e CHOICE: one of two equal answers, resting and active. No hue for yes
   // or no — the active state is the lit neutral chip.
   choice:
-    'bg-transparent text-[rgba(200,220,245,.75)] font-semibold border border-[rgba(150,205,255,.14)] hover:border-[rgba(150,205,255,.3)]',
-  'choice-on': 'bg-[rgba(150,205,255,.14)] text-text-bright font-semibold border border-[rgba(150,205,255,.3)]',
+    'bg-transparent text-ink-500/75 font-semibold border border-line/14 hover:border-line/30',
+  'choice-on': 'bg-line/14 text-ink-100 font-semibold border border-line/30',
   // 47a/47b View file: a hairline chip in regular weight, quieter than `pill`.
   'pill-quiet':
-    'bg-transparent text-[rgba(200,220,245,.85)] border border-[rgba(150,205,255,.14)] hover:border-[rgba(150,205,255,.3)]',
+    'bg-transparent text-ink-500/85 border border-line/14 hover:border-line/30',
   // Canvas `Feature - Notifications off` 1a: the tip's Settings →, text only
   // until hovered, then the faint wash.
-  quiet: 'bg-transparent text-[rgba(200,220,245,.8)] font-medium hover:bg-[rgba(150,205,255,.08)] hover:text-text-bright',
+  quiet: 'bg-transparent text-ink-500/80 font-medium hover:bg-line/8 hover:text-ink-100',
   // 1d's Open System Settings: the quiet hairline, bright ink, no fill.
-  hairline: 'bg-transparent text-text-bright font-semibold border border-[rgba(150,205,255,.14)] hover:bg-[rgba(150,205,255,.08)]',
+  hairline: 'bg-transparent text-ink-100 font-semibold border border-line/14 hover:bg-line/8',
   // Canvas 50a's Remove, Leave…, Copy and Join: a brighter hairline than `hairline`, bright ink.
-  outline: 'bg-transparent text-text-bright font-semibold border border-[rgba(150,205,255,.2)] hover:bg-[rgba(150,205,255,.08)]',
+  outline: 'bg-transparent text-ink-100 font-semibold border border-line/20 hover:bg-line/8',
   // Canvas 50a's confirming Remove and Leave: filled with the bright ink, dark text, no hue.
-  ink: 'bg-text-bright text-space font-semibold hover:bg-text-soft',
+  ink: 'bg-ink-100 text-space font-semibold hover:bg-ink-300',
   // Canvas 50a's Pair by hand and 50u's Settings → Updates ›: a quiet text link
   // underlined by a dashed hairline, no box — ink and type from its size or its line.
-  'dashed-link': 'cursor-pointer bg-transparent border-b border-dashed border-[rgba(160,190,225,.5)] text-left',
+  'dashed-link': 'cursor-pointer bg-transparent border-b border-dashed border-ink-900/50 text-left',
 }
 
 // `lg` is the dialog footer button (1d: 9px/18px at 13px); `sm` is 1b's
@@ -156,10 +156,10 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   // A link inside a line of text (50a's Pair by hand): no padding, the line's own type and ink.
   inline: '',
   // 50u's Settings → Updates › under this device: mono 10.5 with its tracking, in the row's brighter ink.
-  'link-mono': 'font-mono fs-10.5 tracking-[0.04em] text-[rgba(200,220,245,.85)]',
+  'link-mono': 'font-mono fs-10.5 tracking-[0.04em] text-ink-500/85',
   // `Feature - Device group 2` 50a's Permissions on this Mac · … line under a member: mono 10.5 in the
   // quiet ink, its summary and › in a row.
-  'grant-summary': 'inline-flex items-center gap-[7px] pb-px pt-0.5 font-mono fs-10.5 text-[rgba(160,190,225,.65)]',
+  'grant-summary': 'inline-flex items-center gap-[7px] pb-px pt-0.5 font-mono fs-10.5 text-ink-900/65',
   // `Feature - Feedback` 61c's Run in Orbital beside the command it runs: 6px/11px at 12px.
   command: 'px-[11px] py-1.5 fs-12 leading-(--text-xs--line-height)',
   // `Feature - Log in` 62a: the lost-login notice's Log in / Cancel on its title row, 5px/11px at 12px,

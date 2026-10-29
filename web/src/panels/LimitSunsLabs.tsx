@@ -38,7 +38,7 @@ const STYLE_DESC: Record<SunStyle, string> = {
 }
 
 /** 60e: the picked colour's ring, and the hairline of the others. */
-const PICKED_RING = '0 0 0 2px #0c1220,0 0 0 3.5px oklch(85% .12 205)'
+const PICKED_RING = '0 0 0 2px var(--color-panel-solid),0 0 0 3.5px var(--color-accent)'
 const UNPICKED_RING = 'inset 0 0 0 1px rgba(255,255,255,.12)'
 
 /**
@@ -96,7 +96,7 @@ export function LimitSunsLabs({
             One sun for each Claude account, in its own star colour, placed in space with your sessions. The middle
             shows how much room is left right now and the ring shows the week. Click a sun to open Limits, or drag it
             wherever you like.
-            <span className="mt-2 block font-mono fs-10.5 text-[rgba(160,190,225,.55)]">
+            <span className="mt-2 block font-mono fs-10.5 text-ink-900/55">
               {apiKey
                 ? 'needs a Claude account · limits aren’t tracked with an API key'
                 : 'Planets theme only · the Desk theme shows no suns'}
@@ -112,7 +112,7 @@ export function LimitSunsLabs({
         />
       </Row>
       {on && (
-        <div className="mb-[13px] ml-4 flex flex-col border-l border-[rgba(150,205,255,.12)] pl-4">
+        <div className="mb-[13px] ml-4 flex flex-col border-l border-line/12 pl-4">
           <SubRow title="Sun style" setting={LIMIT_SUN_STYLE_KEY} desc={STYLE_DESC[style]}>
             <Segmented<SunStyle>
               label="Sun style"
@@ -129,7 +129,7 @@ export function LimitSunsLabs({
               desc="Each account gets a star colour in the order it was signed in: yellow, white, blue, red. The colour only says whose sun it is. It never changes with usage. Picking a colour that is taken swaps the two."
             >
               {accounts.length === 0 ? (
-                <span className="font-mono fs-10.5 text-[rgba(160,190,225,.55)]">
+                <span className="font-mono fs-10.5 text-ink-900/55">
                   {views !== null ? 'no account read yet' : failed ? 'limits unavailable' : 'reading…'}
                 </span>
               ) : (
@@ -141,7 +141,7 @@ export function LimitSunsLabs({
                       <div key={view.group.key} className="flex min-h-[30px] items-center gap-2">
                         {showTiles && tiles.map((mono, i) => <ClaudeDirMark key={i} mono={mono} />)}
                         {showTiles && more > 0 && <ClaudeDirMark mono={`+${more}`} />}
-                        <span className="min-w-0 flex-1 truncate font-mono fs-11 text-[rgba(214,230,248,.88)]">
+                        <span className="min-w-0 flex-1 truncate font-mono fs-11 text-ink-400/88">
                           {view.title}
                         </span>
                         <span className="flex flex-none gap-[9px]">
@@ -210,7 +210,7 @@ function SubRow({
     <div className="grid grid-cols-[1fr_320px] items-start gap-6 pt-3">
       <div>
         <RowTitle title={title} mark={mark} />
-        <div className="mt-1 fs-12 leading-[1.55] text-[rgba(160,190,225,.7)] [text-wrap:pretty]">{desc}</div>
+        <div className="mt-1 fs-12 leading-[1.55] text-ink-900/70 [text-wrap:pretty]">{desc}</div>
       </div>
       <div className="flex min-w-0 flex-col items-start gap-2.5">{children}</div>
     </div>

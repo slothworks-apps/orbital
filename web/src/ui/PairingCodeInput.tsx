@@ -17,9 +17,9 @@ type BoxState = 'filled' | 'next' | 'empty'
 // Canvas 9o, the code boxes: 44×60, radius 10, mono 30px; the border is
 // .24 on a typed box, the accent at .6 on the next one, .14 on the rest.
 const BOX_BORDER: Record<BoxState, string> = {
-  filled: 'border-[rgba(150,205,255,.24)]',
+  filled: 'border-line/24',
   next: 'border-accent/60',
-  empty: 'border-[rgba(150,205,255,.14)]',
+  empty: 'border-line/14',
 }
 
 /**
@@ -38,7 +38,7 @@ function CodeBox({ char, state, size }: { char: string; state: BoxState; size: S
   return (
     <span
       data-state={state}
-      className={`grid place-items-center rounded-[10px] border bg-[rgba(4,8,16,.6)] font-mono text-text-bright ${SIZES[size].box} ${BOX_BORDER[state]}`}
+      className={`grid place-items-center rounded-[10px] border bg-shade/60 font-mono text-ink-100 ${SIZES[size].box} ${BOX_BORDER[state]}`}
     >
       {char}
     </span>
@@ -74,7 +74,7 @@ export function PairingCodeInput({ value, onChange, onSubmit, disabled, autoFocu
   return (
     <label className={`relative flex cursor-text items-center ${SIZES[size].row}`}>
       {[0, 1, 2].map(box)}
-      <span aria-hidden className={`block h-[2px] bg-[rgba(160,190,225,.4)] ${SIZES[size].dash}`} />
+      <span aria-hidden className={`block h-[2px] bg-ink-900/40 ${SIZES[size].dash}`} />
       {[3, 4, 5].map(box)}
       <input
         type="text"

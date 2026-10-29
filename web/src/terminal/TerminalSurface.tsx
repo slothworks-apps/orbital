@@ -77,10 +77,10 @@ function CloseQuestion({ tab, label }: { tab: TerminalInfo; label: string }) {
       ref={boxRef}
       role="alertdialog"
       aria-label={`${label} is still running`}
-      className="absolute top-8 -left-0.5 z-[6] flex w-[318px] flex-col gap-2.5 rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] p-3.5 font-sans whitespace-normal shadow-[0_24px_60px_rgba(0,0,0,.6)]"
+      className="absolute top-8 -left-0.5 z-[6] flex w-[318px] flex-col gap-2.5 rounded-[10px] border border-line/16 bg-panel/96 p-3.5 font-sans whitespace-normal shadow-[0_24px_60px_rgba(0,0,0,.6)]"
     >
-      <div className="fs-13 font-semibold text-[#e8eef8]">{label} is still running</div>
-      <div className="fs-12 leading-[1.5] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+      <div className="fs-13 font-semibold text-ink-100">{label} is still running</div>
+      <div className="fs-12 leading-[1.5] text-ink-600/85 [text-wrap:pretty]">
         Closing the tab ends its shell and stops what runs in it. Hiding the terminal or switching session
         keeps it running.
       </div>
@@ -89,19 +89,19 @@ function CloseQuestion({ tab, label }: { tab: TerminalInfo; label: string }) {
           ref={keepRef}
           type="button"
           onClick={keep}
-          className="cursor-pointer rounded-[7px] border border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] px-3 py-1.5 fs-12 font-bold text-[#e8eef8] shadow-[0_0_0_2px_oklch(85%_.12_205_/_.45)] focus-visible:outline-none"
+          className="cursor-pointer rounded-[7px] border border-line/30 bg-line/14 px-3 py-1.5 fs-12 font-bold text-ink-100 shadow-[0_0_0_2px_oklch(85%_.12_205_/_.45)] focus-visible:outline-none"
         >
           Keep running
         </button>
         <button
           type="button"
           onClick={() => void useTerminals.getState().close(tab.id)}
-          className="cursor-pointer rounded-[7px] border border-[rgba(150,205,255,.14)] bg-transparent px-3 py-1.5 fs-12 font-semibold text-[rgba(200,220,245,.85)] hover:border-[rgba(150,205,255,.3)] hover:text-[#e8eef8]"
+          className="cursor-pointer rounded-[7px] border border-line/14 bg-transparent px-3 py-1.5 fs-12 font-semibold text-ink-500/85 hover:border-line/30 hover:text-ink-100"
         >
           Stop and close
         </button>
         <span className="flex-1" />
-        <span className="font-mono fs-10 text-[rgba(160,190,225,.5)]">⏎ keep</span>
+        <span className="font-mono fs-10 text-ink-900/50">⏎ keep</span>
       </div>
     </div>
   )
@@ -123,14 +123,14 @@ function Tab({
 }) {
   const exited = tab.exitCode !== null
   // Exit codes share one ink whatever the number (48e: "killed · same ink as 0").
-  const ink = active ? 'text-[#e8eef8]' : exited ? 'text-[rgba(160,190,225,.5)]' : 'text-[rgba(160,190,225,.75)]'
+  const ink = active ? 'text-ink-100' : exited ? 'text-ink-900/50' : 'text-ink-900/75'
   return (
     <div
       className={[
         'relative flex h-fit min-h-[26px] min-w-0 shrink items-center gap-0.5 rounded-md border py-0 pr-[3px] pl-2.5 font-mono fs-11 whitespace-nowrap',
         active
-          ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)]'
-          : 'border-transparent bg-transparent hover:bg-[rgba(150,205,255,.07)]',
+          ? 'border-line/30 bg-line/14'
+          : 'border-transparent bg-transparent hover:bg-line/7',
         ink,
       ].join(' ')}
       style={{ maxWidth: TAB_MAX_PX }}
@@ -143,17 +143,17 @@ function Tab({
       >
         {/* Static: something runs, not that something is new (48c). */}
         {tabRunning(tab) && (
-          <span aria-hidden className="block h-[5px] w-[5px] shrink-0 rounded-full bg-[rgba(200,220,245,.7)]" />
+          <span aria-hidden className="block h-[5px] w-[5px] shrink-0 rounded-full bg-ink-500/70" />
         )}
         <span className="min-w-0 truncate">{label}</span>
-        {exited && <span className="shrink-0 text-[rgba(160,190,225,.5)]">· exit {tab.exitCode}</span>}
+        {exited && <span className="shrink-0 text-ink-900/50">· exit {tab.exitCode}</span>}
       </button>
       <button
         type="button"
         aria-label="Close tab"
         title={`Close tab · ${shortcutLabel('terminal.close-tab')}`}
         onClick={() => useTerminals.getState().requestClose(tab.id)}
-        className="grid h-[18px] w-[18px] shrink-0 cursor-pointer place-items-center rounded border-0 bg-transparent p-0 text-[rgba(200,220,245,.55)] hover:bg-[rgba(150,205,255,.12)] hover:text-[#e8eef8]"
+        className="grid h-[18px] w-[18px] shrink-0 cursor-pointer place-items-center rounded border-0 bg-transparent p-0 text-ink-500/55 hover:bg-line/12 hover:text-ink-100"
       >
         <CloseGlyph />
       </button>
@@ -195,7 +195,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
     <div className="flex h-full min-h-0 flex-col">
       <div
         className={[
-          'relative z-[2] flex flex-none items-center gap-1 border-b border-[rgba(150,205,255,.1)] pr-2.5 pl-3.5',
+          'relative z-[2] flex flex-none items-center gap-1 border-b border-line/10 pr-2.5 pl-3.5',
           // The side panel runs to the window's top edge, through the drag
           // band, which swallows every click that does not opt out.
           variant === 'side' ? 'orbital-band-controls h-11' : 'h-10 pt-0.5',
@@ -225,7 +225,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
           aria-label="New tab"
           title={`New tab · ${shortcutLabel('terminal.new-tab')}`}
           onClick={() => void useTerminals.getState().open(sessionId)}
-          className="ml-0.5 grid h-[26px] w-[26px] flex-none cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 font-mono fs-15 leading-none text-[rgba(200,220,245,.7)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8]"
+          className="ml-0.5 grid h-[26px] w-[26px] flex-none cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 font-mono fs-15 leading-none text-ink-500/70 hover:bg-line/9 hover:text-ink-100"
         >
           +
         </button>
@@ -234,7 +234,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
             never make a tab shrink, where a high flex-shrink still takes a
             fraction of a pixel from every tab, enough to ellipsize it. */}
         {variant !== 'side' ? (
-          <span className="ml-3 min-w-0 flex-1 basis-0 truncate text-right font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+          <span className="ml-3 min-w-0 flex-1 basis-0 truncate text-right font-mono fs-10 tracking-[0.06em] text-ink-900/50">
             yours · not sent to the agent
           </span>
         ) : (
@@ -243,7 +243,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
         {size && (
           <span
             className={[
-              'flex-none font-mono fs-10 whitespace-nowrap text-[rgba(160,190,225,.45)]',
+              'flex-none font-mono fs-10 whitespace-nowrap text-ink-900/45',
               variant !== 'side' ? 'ml-3' : '',
             ].join(' ')}
           >
@@ -254,7 +254,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
           type="button"
           onClick={() => toggleTerminalShown(sessionId)}
           title={`Hide the terminal · ${toggle} shows it again`}
-          className="ml-2 h-fit min-h-6 flex-none cursor-pointer rounded-md border-0 bg-transparent px-2 font-mono fs-10 tracking-[0.06em] whitespace-nowrap text-[rgba(200,220,245,.7)] hover:bg-[rgba(150,205,255,.09)] hover:text-[#e8eef8]"
+          className="ml-2 h-fit min-h-6 flex-none cursor-pointer rounded-md border-0 bg-transparent px-2 font-mono fs-10 tracking-[0.06em] whitespace-nowrap text-ink-500/70 hover:bg-line/9 hover:text-ink-100"
         >
           hide {toggle}
         </button>
@@ -262,7 +262,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
 
       <div
         className={[
-          'flex h-fit min-h-0 flex-1 flex-col pt-2 pr-3.5 pb-2.5 pl-3.5 font-mono fs-12.5 leading-5 text-[#d3deef]',
+          'flex h-fit min-h-0 flex-1 flex-col pt-2 pr-3.5 pb-2.5 pl-3.5 font-mono fs-12.5 leading-5 text-ink-400',
           variant === 'dock' ? 'rounded-b-[13px]' : '',
         ].join(' ')}
         style={{ background: TERMINAL_BG }}
@@ -276,7 +276,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
         </div>
         {ended && (
           // 48d: one neutral line, whatever the code.
-          <div className="mt-1.5 flex flex-none items-center gap-3 border-t border-[rgba(150,205,255,.12)] pt-2 fs-11 leading-[calc(18px*var(--text-scale,1))] text-[rgba(160,190,225,.7)]">
+          <div className="mt-1.5 flex flex-none items-center gap-3 border-t border-line/12 pt-2 fs-11 leading-[calc(18px*var(--text-scale,1))] text-ink-900/70">
             <span>
               shell ended · exit {ended.exitCode}
               {endedAt !== undefined && endedAt !== null ? ` · ${clock(endedAt)}` : ''}
@@ -285,17 +285,17 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
             <button
               type="button"
               onClick={() => void useTerminals.getState().restart(ended.id)}
-              className="cursor-pointer rounded-[5px] border border-[rgba(150,205,255,.14)] bg-transparent px-2 py-0.5 font-mono fs-10.5 text-[rgba(200,220,245,.85)] hover:border-[rgba(150,205,255,.3)] hover:text-[#e8eef8]"
+              className="cursor-pointer rounded-[5px] border border-line/14 bg-transparent px-2 py-0.5 font-mono fs-10.5 text-ink-500/85 hover:border-line/30 hover:text-ink-100"
             >
               ⏎ new shell here
             </button>
-            <span className="text-[rgba(160,190,225,.45)]">{shortcutLabel('terminal.close-tab')} close tab</span>
+            <span className="text-ink-900/45">{shortcutLabel('terminal.close-tab')} close tab</span>
           </div>
         )}
       </div>
 
       {variant === 'side' && (
-        <div className="flex h-fit min-h-[30px] flex-none items-center gap-2 rounded-b-[13px] border-t border-[rgba(150,205,255,.1)] bg-[rgba(4,8,16,.6)] px-3.5 font-mono fs-10 tracking-[0.06em] text-[rgba(160,190,225,.5)]">
+        <div className="flex h-fit min-h-[30px] flex-none items-center gap-2 rounded-b-[13px] border-t border-line/10 bg-shade/60 px-3.5 font-mono fs-10 tracking-[0.06em] text-ink-900/50">
           your shell · not sent to the agent
           <span className="flex-1" />
           {session ? shortenPath(workingDirOf(session)) : ''}

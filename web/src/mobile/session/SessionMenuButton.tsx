@@ -25,7 +25,7 @@ export function SessionMenuButton({ session, offline }: SlotProps) {
         aria-expanded={open}
         className={[
           'grid h-11 w-11 shrink-0 place-items-center rounded-[12px] fs-18',
-          open ? 'bg-[rgba(150,205,255,.1)] text-text-bright' : 'text-[rgba(200,220,245,.8)]',
+          open ? 'bg-line/10 text-ink-100' : 'text-ink-500/80',
         ].join(' ')}
       >
         ⋯

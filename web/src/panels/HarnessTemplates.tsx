@@ -275,7 +275,7 @@ export function HarnessTemplatesSection({
           </>
         }
       >
-        <p className="fs-13 leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+        <p className="fs-13 leading-[1.55] text-ink-600/85 [text-wrap:pretty]">
           It is no longer offered when a harness starts. Sessions already following it keep their harness and its records.
         </p>
       </Dialog>
@@ -297,7 +297,7 @@ export function HarnessTemplatesSection({
           </>
         }
       >
-        <p className="fs-13 leading-[1.55] text-[rgba(200,214,235,.85)] [text-wrap:pretty]">
+        <p className="fs-13 leading-[1.55] text-ink-600/85 [text-wrap:pretty]">
           {editing?.isDraft
             ? 'This draft stays in the list, unsaved, and the changes made here are lost.'
             : 'The changes made here are lost. The saved template stays as it was.'}

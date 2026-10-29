@@ -20,7 +20,7 @@ export function LimitsGlyph({ size }: { size: keyof typeof SIZES }) {
       style={{
         width: px,
         height: px,
-        background: 'conic-gradient(from -90deg, currentColor 0 250deg, rgba(200,220,245,.25) 250deg 360deg)',
+        background: 'conic-gradient(from -90deg, currentColor 0 250deg, color-mix(in oklab, var(--color-ink-500) 25%, transparent) 250deg 360deg)',
         mask,
         WebkitMask: mask,
       }}

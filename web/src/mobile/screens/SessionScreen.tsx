@@ -162,7 +162,7 @@ function SessionView({ id }: { id: string }) {
           type="button"
           aria-label="Back to sessions"
           onClick={() => goBack()}
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] fs-28 leading-none text-[rgba(220,235,255,.85)]"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-[12px] fs-28 leading-none text-ink-200/85"
         >
           ‹
         </button>

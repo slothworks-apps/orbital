@@ -333,7 +333,7 @@ export function CompletionPopup({
       // panel clips its own overflow.
       className={[
         'orbital-no-drag fixed z-[60] flex flex-col overflow-hidden',
-        'rounded-[10px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)]',
+        'rounded-[10px] border border-line/16 bg-panel/96',
         'shadow-[0_26px_70px_rgba(0,0,0,.6)]',
         // 9e: open .12s cubic-bezier(.2,.9,.25,1), opacity with a 4px rise;
         // close .09s ease, opacity only. One duration and one easing at a
@@ -350,7 +350,7 @@ export function CompletionPopup({
         .join(' ')}
     >
       {/* Header rail — 8px/12px over a .08 hairline, mono 9.5 tracked .14em (9b). */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-[rgba(150,205,255,.08)] px-3 py-2 font-mono fs-9.5 tracking-[0.14em] text-[rgba(160,190,225,.5)]">
+      <div className="flex shrink-0 items-center gap-2 border-b border-line/8 px-3 py-2 font-mono fs-9.5 tracking-[0.14em] text-ink-900/50">
         {kind === 'command' ? 'COMMANDS' : `FILES${dirLabel ? ` · ${dirLabel}` : ''}`}
         <span aria-hidden className="flex-1" />
         {/* "The head counts them" (canvas `Feature - IDE bridge` 20c); with no
@@ -382,7 +382,7 @@ export function CompletionPopup({
               className={[
                 'flex min-h-10 shrink-0 cursor-pointer items-center gap-2.5 px-3 py-1.5',
                 isSelected
-                  ? 'bg-[rgba(150,205,255,.14)] shadow-[inset_2px_0_0_var(--color-accent)]'
+                  ? 'bg-line/14 shadow-[inset_2px_0_0_var(--color-accent)]'
                   : '',
               ]
                 .filter(Boolean)
@@ -398,14 +398,14 @@ export function CompletionPopup({
                 <>
                   <div className="min-w-0 flex-1">
                     <div
-                      className={`font-mono fs-12 ${isSelected ? 'text-[#f2f9ff]' : 'text-text-bright'}`}
+                      className={`font-mono fs-12 ${isSelected ? 'text-ink-50' : 'text-ink-100'}`}
                     >
                       /{row.name}
                     </div>
                     {row.description && (
                       <div
                         className={`fs-10.5 leading-[1.35] ${
-                          isSelected ? 'text-[rgba(200,220,245,.7)]' : 'text-[rgba(160,190,225,.6)]'
+                          isSelected ? 'text-ink-500/70' : 'text-ink-900/60'
                         }`}
                       >
                         {row.description}
@@ -414,7 +414,7 @@ export function CompletionPopup({
                   </div>
                   <span
                     className={`shrink-0 whitespace-nowrap font-mono fs-9 tracking-[0.1em] ${
-                      isSelected ? 'text-[rgba(190,215,240,.6)]' : 'text-[rgba(160,190,225,.45)]'
+                      isSelected ? 'text-ink-700/60' : 'text-ink-900/45'
                     }`}
                   >
                     {sourceLabel(row.source, row.name)}
@@ -435,27 +435,27 @@ export function CompletionPopup({
                   {row.entry.dir ? (
                     <span
                       aria-hidden
-                      className="block h-[10px] w-3 shrink-0 rounded-[2px] border border-t-[3px] border-[rgba(190,215,240,.55)]"
+                      className="block h-[10px] w-3 shrink-0 rounded-[2px] border border-t-[3px] border-ink-700/55"
                     />
                   ) : row.entry.open ? (
                     <span
                       aria-hidden
-                      className="relative block h-3 w-3 shrink-0 rounded-[2px] border border-[rgba(190,215,240,.55)]"
+                      className="relative block h-3 w-3 shrink-0 rounded-[2px] border border-ink-700/55"
                     >
-                      <span className="absolute left-[2px] top-[2px] block h-[6px] w-[6px] rounded-[1px] bg-[rgba(190,215,240,.7)]" />
+                      <span className="absolute left-[2px] top-[2px] block h-[6px] w-[6px] rounded-[1px] bg-ink-700/70" />
                       {row.entry.active && (
-                        <span className="absolute right-[-3px] top-1/2 -mt-1 block h-2 w-[1.4px] rounded-[1px] bg-[rgba(190,215,240,.7)]" />
+                        <span className="absolute right-[-3px] top-1/2 -mt-1 block h-2 w-[1.4px] rounded-[1px] bg-ink-700/70" />
                       )}
                     </span>
                   ) : (
                     <span
                       aria-hidden
-                      className="block h-3 w-3 shrink-0 rounded-[2px] border border-[rgba(160,190,225,.28)]"
+                      className="block h-3 w-3 shrink-0 rounded-[2px] border border-ink-900/28"
                     />
                   )}
                   <span
                     className={`min-w-0 truncate font-mono fs-12 ${
-                      isSelected ? 'text-[#f2f9ff]' : 'text-text-bright'
+                      isSelected ? 'text-ink-50' : 'text-ink-100'
                     }`}
                   >
                     {row.entry.name}
@@ -466,14 +466,14 @@ export function CompletionPopup({
                     )}
                   </span>
                   {row.dir && (
-                    <span className="shrink-0 font-mono fs-10.5 text-[rgba(160,190,225,.5)]">
+                    <span className="shrink-0 font-mono fs-10.5 text-ink-900/50">
                       {row.dir}
                     </span>
                   )}
                   <span aria-hidden className="flex-1" />
                   <span
                     className={`shrink-0 whitespace-nowrap font-mono fs-9.5 tracking-[0.1em] ${
-                      isSelected ? 'text-[rgba(190,215,240,.6)]' : 'text-[rgba(160,190,225,.45)]'
+                      isSelected ? 'text-ink-700/60' : 'text-ink-900/45'
                     }`}
                   >
                     {row.entry.dir
@@ -505,7 +505,7 @@ export function CompletionPopup({
       </div>
 
       {/* Footer rail — 7px/12px, mono 9.5 tracked .1em (9b/9e). */}
-      <div className="flex shrink-0 items-center gap-2 border-t border-[rgba(150,205,255,.08)] px-3 py-[7px] font-mono fs-9.5 tracking-[0.1em] text-[rgba(160,190,225,.45)]">
+      <div className="flex shrink-0 items-center gap-2 border-t border-line/8 px-3 py-[7px] font-mono fs-9.5 tracking-[0.1em] text-ink-900/45">
         ↑↓ MOVE · ⏎ OR TAB ACCEPT · ESC CLOSE
       </div>
     </div>,

@@ -56,16 +56,16 @@ export function PinnedNotice({
     <section
       role="status"
       aria-label={label}
-      className="flex w-full flex-col gap-2.5 rounded-[16px] border border-[rgba(150,205,255,.16)] bg-[rgba(10,16,28,.96)] pb-3.5 pl-4 pr-1 pt-1 text-left shadow-[0_14px_36px_rgba(0,0,0,.5),inset_0_1px_0_rgba(255,255,255,.05)] backdrop-blur-[12px]"
+      className="flex w-full flex-col gap-2.5 rounded-[16px] border border-line/16 bg-panel/96 pb-3.5 pl-4 pr-1 pt-1 text-left shadow-[0_14px_36px_rgba(0,0,0,.5),inset_0_1px_0_rgba(255,255,255,.05)] backdrop-blur-[12px]"
     >
       <div className="flex min-h-11 items-center">
-        <span className="flex-1 font-mono fs-10.5 tracking-[0.16em] text-[rgba(160,190,225,.65)]">{label}</span>
+        <span className="flex-1 font-mono fs-10.5 tracking-[0.16em] text-ink-900/65">{label}</span>
         {onClose && (
           <button
             type="button"
             onClick={onClose}
             aria-label={closeLabel}
-            className="grid h-11 w-11 place-items-center fs-18 text-[rgba(160,190,225,.7)]"
+            className="grid h-11 w-11 place-items-center fs-18 text-ink-900/70"
           >
             ×
           </button>
@@ -80,7 +80,7 @@ export function PinnedNotice({
 
 /** A message's sentence (2a): 14 px at 1.45, 14 px clear of the right edge. */
 export function PinnedNoticeText({ children }: { children: ReactNode }) {
-  return <p className="pr-3.5 fs-14 leading-[1.45] text-[rgba(214,226,242,.94)] [text-wrap:pretty]">{children}</p>
+  return <p className="pr-3.5 fs-14 leading-[1.45] text-ink-400/94 [text-wrap:pretty]">{children}</p>
 }
 
 /**
@@ -91,8 +91,8 @@ export function PinnedNoticeList({ items }: { items: readonly string[] }) {
   return (
     <ul className="flex flex-col gap-[5px] pr-3.5">
       {items.map((item, i) => (
-        <li key={i} className="flex gap-[9px] fs-14 leading-[1.4] text-[rgba(214,226,242,.94)]">
-          <span aria-hidden className="flex-none text-[rgba(160,190,225,.55)]">
+        <li key={i} className="flex gap-[9px] fs-14 leading-[1.4] text-ink-400/94">
+          <span aria-hidden className="flex-none text-ink-900/55">
             –
           </span>
           <span className="[text-wrap:pretty]">{item}</span>
@@ -130,8 +130,8 @@ export function NoticeButton({
         'flex-1 border font-semibold disabled:opacity-40',
         size === 'sheet' ? 'h-13 rounded-[14px] fs-15' : 'h-11 rounded-[12px] fs-14',
         lit
-          ? 'border-[rgba(150,205,255,.3)] bg-[rgba(150,205,255,.14)] text-text-bright'
-          : 'border-[rgba(150,205,255,.14)] bg-transparent text-[rgba(220,235,255,.85)]',
+          ? 'border-line/30 bg-line/14 text-ink-100'
+          : 'border-line/14 bg-transparent text-ink-200/85',
       ].join(' ')}
     >
       {children}

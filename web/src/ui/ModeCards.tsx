@@ -56,8 +56,8 @@ export function ModeCards({ value, onChange, disabled = false, compact: compactP
               active
                 ? compact
                   ? 'border-accent/70 bg-accent/8'
-                  : 'border-accent/70 bg-accent/8 shadow-[0_0_20px_rgba(89,228,243,.15)]'
-                : 'border-panel-border bg-[rgba(4,8,16,.4)] hover:bg-white/5',
+                  : 'border-accent/70 bg-accent/8 shadow-[0_0_20px_color-mix(in_oklab,_var(--color-accent)_15%,_transparent)]'
+                : 'border-line/14 bg-shade/40 hover:bg-white/5',
             ].join(' ')}
           >
             {active && !compact && (
@@ -66,12 +66,12 @@ export function ModeCards({ value, onChange, disabled = false, compact: compactP
               // the mode dot, so the choice survives colour blindness.
               <span
                 aria-hidden
-                className="absolute right-2.5 top-2.5 h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_8px_rgba(89,228,243,1)]"
+                className="absolute right-2.5 top-2.5 h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)]"
               />
             )}
             <span
               className={[
-                'flex items-center font-mono text-text-bright',
+                'flex items-center font-mono text-ink-100',
                 touch ? 'gap-[7px] fs-12' : compact ? 'gap-[7px] fs-11.5' : 'gap-2 fs-12 leading-(--text-xs--line-height)',
               ].join(' ')}
             >
@@ -82,7 +82,7 @@ export function ModeCards({ value, onChange, disabled = false, compact: compactP
               className={[
                 'block leading-[1.4] [text-wrap:pretty]',
                 touch ? 'mt-1 fs-11.5 leading-[1.35]' : compact ? 'mt-1 fs-11' : 'mt-[5px] fs-11.5',
-                active && !compact ? 'text-[rgba(200,220,245,.85)]' : touch ? 'text-[rgba(160,190,225,.65)]' : 'text-[rgba(160,190,225,.7)]',
+                active && !compact ? 'text-ink-500/85' : touch ? 'text-ink-900/65' : 'text-ink-900/70',
               ].join(' ')}
             >
               {compact ? mode.shortDescription : mode.description}

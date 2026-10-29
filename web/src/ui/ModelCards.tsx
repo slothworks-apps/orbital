@@ -31,8 +31,8 @@ function cardClassName(active: boolean, compact: boolean): string {
         ? // canvas 4c selected: border .7 / bg .08, no glow, no dot.
           'border-accent/70 bg-accent/8'
         : // canvas 4b selected: border .7 / bg .08, plus a 20px .15-alpha glow.
-          'border-accent/70 bg-accent/8 shadow-[0_0_20px_rgba(89,228,243,.15)]'
-      : 'border-panel-border bg-[rgba(4,8,16,.4)] hover:bg-white/5',
+          'border-accent/70 bg-accent/8 shadow-[0_0_20px_color-mix(in_oklab,_var(--color-accent)_15%,_transparent)]'
+      : 'border-line/14 bg-shade/40 hover:bg-white/5',
   ].join(' ')
 }
 
@@ -41,20 +41,20 @@ function ActiveDot() {
   return (
     <span
       aria-hidden
-      className="absolute right-2.5 top-2.5 h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_8px_rgba(89,228,243,1)]"
+      className="absolute right-2.5 top-2.5 h-[7px] w-[7px] rounded-full bg-accent shadow-[0_0_8px_var(--color-accent)]"
     />
   )
 }
 
 function cardTitleClassName(compact: boolean): string {
-  return ['block truncate font-mono text-text-bright', compact ? 'fs-11.5' : 'fs-12 leading-(--text-xs--line-height)'].join(' ')
+  return ['block truncate font-mono text-ink-100', compact ? 'fs-11.5' : 'fs-12 leading-(--text-xs--line-height)'].join(' ')
 }
 
 function blurbClassName(active: boolean): string {
   // canvas 4b body: 5px top margin.
   return [
     'mt-[5px] block fs-11.5 leading-[1.4] [text-wrap:pretty]',
-    active ? 'text-[rgba(200,220,245,.85)]' : 'text-[rgba(160,190,225,.7)]',
+    active ? 'text-ink-500/85' : 'text-ink-900/70',
   ].join(' ')
 }
 
@@ -88,7 +88,7 @@ export function ModelCards({
 }: ModelCardsProps) {
   if (models.length === 0) {
     return (
-      <p className="rounded-[10px] border border-panel-border bg-[rgba(4,8,16,.4)] px-3.5 py-3 fs-11.5 leading-[1.4] text-[rgba(160,190,225,.7)]">
+      <p className="rounded-[10px] border border-line/14 bg-shade/40 px-3.5 py-3 fs-11.5 leading-[1.4] text-ink-900/70">
         The model list could not be read from Claude Code. Sessions still launch — they use whatever
         model Claude Code is configured with.
       </p>
@@ -122,7 +122,7 @@ export function ModelCards({
             <span className={cardTitleClassName(compact)}>{model.shortVersion}</span>
             {compact
               ? model.contextWindow !== null && (
-                  <span className="mt-1 block fs-11 leading-[1.4] text-[rgba(160,190,225,.7)]">
+                  <span className="mt-1 block fs-11 leading-[1.4] text-ink-900/70">
                     {formatContextWindow(model.contextWindow)} ctx
                   </span>
                 )
@@ -132,7 +132,7 @@ export function ModelCards({
               <span
                 className={[
                   'mt-2 flex items-center gap-2 font-mono fs-9.5 tracking-[0.1em]',
-                  active ? 'text-accent' : 'text-[rgba(160,190,225,.5)]',
+                  active ? 'text-accent' : 'text-ink-900/50',
                 ].join(' ')}
               >
                 {isDefault && <span>DEFAULT</span>}
@@ -142,7 +142,7 @@ export function ModelCards({
               </span>
             )}
             {compact && isDefault && (
-              <span className="mt-1 block font-mono fs-9.5 tracking-[0.1em] text-[rgba(160,190,225,.5)]">
+              <span className="mt-1 block font-mono fs-9.5 tracking-[0.1em] text-ink-900/50">
                 DEFAULT
               </span>
             )}

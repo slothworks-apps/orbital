@@ -39,11 +39,11 @@ export function ClaudeDirPicker({
           aria-haspopup="dialog"
           aria-label={chosen ? `Profile: ${chosen.name}` : 'Profile'}
           onClick={() => setOpen(true)}
-          className="box-border flex min-h-[52px] w-full items-center gap-2.5 rounded-[14px] border border-[rgba(150,205,255,.14)] bg-transparent py-1 pl-3.5 pr-2.5 text-left"
+          className="box-border flex min-h-[52px] w-full items-center gap-2.5 rounded-[14px] border border-line/14 bg-transparent py-1 pl-3.5 pr-2.5 text-left"
         >
           {chosen && <ClaudeDirMark mono={monograms.get(chosen.id) ?? '?'} size="phone" />}
-          <span className="line-clamp-2 min-w-0 flex-1 fs-14.5 font-semibold text-text-bright">{chosen?.name ?? ''}</span>
-          <span aria-hidden className="grid h-11 w-11 flex-none place-items-center fs-20 text-[rgba(160,190,225,.6)]">
+          <span className="line-clamp-2 min-w-0 flex-1 fs-14.5 font-semibold text-ink-100">{chosen?.name ?? ''}</span>
+          <span aria-hidden className="grid h-11 w-11 flex-none place-items-center fs-20 text-ink-900/60">
             ›
           </span>
         </button>
@@ -56,14 +56,14 @@ export function ClaudeDirPicker({
             aria-modal="true"
             aria-label="Run this session under"
             onClick={() => setOpen(false)}
-            className="orbital-sheet-backdrop fixed inset-0 z-20 flex items-end bg-[rgba(2,4,9,.6)]"
+            className="orbital-sheet-backdrop fixed inset-0 z-20 flex items-end bg-space/60"
           >
             <div
               onClick={(event) => event.stopPropagation()}
-              className="orbital-sheet-panel flex w-full flex-col rounded-t-[24px] border-t border-[rgba(150,205,255,.18)] bg-[oklch(15%_.02_258)] px-3 pb-[calc(28px+env(safe-area-inset-bottom))] pt-2"
+              className="orbital-sheet-panel flex w-full flex-col rounded-t-[24px] border-t border-line/18 bg-[oklch(15%_.02_258)] px-3 pb-[calc(28px+env(safe-area-inset-bottom))] pt-2"
             >
-              <span aria-hidden className="mb-3 mt-0.5 block h-1 w-9 self-center rounded-[2px] bg-[rgba(200,220,245,.3)]" />
-              <div className="px-2 pb-2 font-mono fs-10 tracking-[0.16em] text-[rgba(160,190,225,.6)]">
+              <span aria-hidden className="mb-3 mt-0.5 block h-1 w-9 self-center rounded-[2px] bg-ink-500/30" />
+              <div className="px-2 pb-2 font-mono fs-10 tracking-[0.16em] text-ink-900/60">
                 RUN THIS SESSION UNDER
               </div>
               {dirs.map((dir) => {
@@ -81,13 +81,13 @@ export function ClaudeDirPicker({
                     }}
                     className={[
                       'box-border flex min-h-[60px] w-full items-center gap-3 rounded-[12px] p-2.5 text-left disabled:opacity-50',
-                      on ? 'bg-[rgba(150,205,255,.09)]' : 'bg-transparent',
+                      on ? 'bg-line/9' : 'bg-transparent',
                     ].join(' ')}
                   >
                     <ClaudeDirMark mono={monograms.get(dir.id) ?? '?'} size="sheet" />
                     <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
-                      <span className="line-clamp-2 fs-15 font-semibold text-text-bright">{dir.name}</span>
-                      <span className="truncate font-mono fs-11 text-[rgba(160,190,225,.6)]">{claudeDirSubline(dir)}</span>
+                      <span className="line-clamp-2 fs-15 font-semibold text-ink-100">{dir.name}</span>
+                      <span className="truncate font-mono fs-11 text-ink-900/60">{claudeDirSubline(dir)}</span>
                     </span>
                     <span
                       aria-hidden
@@ -98,7 +98,7 @@ export function ClaudeDirPicker({
                   </button>
                 )
               })}
-              <div className="px-2 pt-2.5 font-mono fs-10 leading-[1.6] text-[rgba(160,190,225,.5)]">
+              <div className="px-2 pt-2.5 font-mono fs-10 leading-[1.6] text-ink-900/50">
                 {profilesSection ? 'add or rename profiles on the Mac · Settings → Profiles' : 'add or rename profiles on the Mac'}
               </div>
             </div>

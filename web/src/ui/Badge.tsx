@@ -1,3 +1,4 @@
+import { swatch } from '../lib/palette'
 import type { SessionStateKey } from '../lib/types'
 import { OFFLINE_STATE_INK, stateBorder, stateColor, stateDot, stateWord, stillDot } from '../lib/stateStyle'
 import { StateDot } from './StateDot'
@@ -158,11 +159,11 @@ export const TASK_TONE: Record<
   // Square-dotted, per canvas 11c: "a choice, not a fault" — the one state
   // that trades the circular dot for a 1px-radius square.
   stopped: {
-    border: 'rgba(150,205,255,.2)',
-    bg: 'rgba(150,205,255,.05)',
-    ink: 'rgba(200,220,245,.8)',
+    border: swatch('line', 0.2),
+    bg: swatch('line', 0.05),
+    ink: swatch('ink-500', 0.8),
     dot: 'square',
-    dotColor: 'rgba(200,220,245,.8)',
+    dotColor: swatch('ink-500', 0.8),
     label: 'STOPPED',
   },
   stream_lost: {
@@ -189,12 +190,12 @@ export function Badge(props: BadgeProps) {
       ? {
           ink: OFFLINE_STATE_INK,
           dot: `color-mix(in oklch, ${color} 50%, transparent)`,
-          border: 'rgba(150,205,255,.14)',
+          border: swatch('line', 0.14),
         }
       : state === 'idle'
-        ? { ink: 'rgba(200,220,245,.7)', dot: 'rgba(160,190,225,.5)', border: 'rgba(150,205,255,.2)' }
+        ? { ink: swatch('ink-500', 0.7), dot: swatch('ink-900', 0.5), border: swatch('line', 0.2) }
         : state === 'ended'
-          ? { ink: color, dot: color, border: 'rgba(150,205,255,.14)' }
+          ? { ink: color, dot: color, border: swatch('line', 0.14) }
           : { ink: color, dot: color, border: stateBorder(color, 'chip') }
     return (
       // Canvas `Feature - State colours` 24c: an outlined chip in the state's
@@ -229,11 +230,11 @@ export function Badge(props: BadgeProps) {
   if (props.variant === 'rewind') {
     // 27b: ink rgba(200,220,245,.85) for the word and the 1.5px ring alike.
     // The chip's border is the idle chip's — the canvas draws the line bare.
-    const ink = 'rgba(200,220,245,.85)'
+    const ink = swatch('ink-500', 0.85)
     return (
       <span
         data-variant="rewind"
-        className="inline-flex items-center gap-1.5 rounded-[5px] border border-[rgba(150,205,255,.2)] px-[9px] py-1 font-mono fs-10.5 tracking-[0.08em]"
+        className="inline-flex items-center gap-1.5 rounded-[5px] border border-line/20 px-[9px] py-1 font-mono fs-10.5 tracking-[0.08em]"
         style={{ color: ink }}
       >
         <StateDot dot={{ shape: 'hollow', motion: 'steady' }} color={ink} solidPx={6} hollowPx={7} />
@@ -248,9 +249,9 @@ export function Badge(props: BadgeProps) {
     return (
       <span
         data-variant="limit"
-        className="inline-flex items-center gap-1.5 rounded-[5px] border border-[rgba(150,205,255,.2)] px-[9px] py-1 font-mono fs-10.5 tracking-[0.08em] text-[rgba(214,230,248,.9)]"
+        className="inline-flex items-center gap-1.5 rounded-[5px] border border-line/20 px-[9px] py-1 font-mono fs-10.5 tracking-[0.08em] text-ink-400/90"
       >
-        <StateDot dot={{ shape: 'hollow', motion: 'steady' }} color="rgba(214,230,248,.8)" solidPx={6} hollowPx={7} />
+        <StateDot dot={{ shape: 'hollow', motion: 'steady' }} color={swatch('ink-400', 0.8)} solidPx={6} hollowPx={7} />
         {props.label}
       </span>
     )
@@ -262,10 +263,10 @@ export function Badge(props: BadgeProps) {
     return (
       <span
         data-variant="compacting"
-        className="inline-flex items-center gap-1.5 rounded-[5px] border border-[rgba(150,205,255,.22)] px-[9px] py-1 font-mono fs-10.5 tracking-[0.08em] text-[rgba(214,228,246,.82)]"
+        className="inline-flex items-center gap-1.5 rounded-[5px] border border-line/22 px-[9px] py-1 font-mono fs-10.5 tracking-[0.08em] text-ink-400/82"
       >
         COMPACTING
-        <span className="text-[rgba(160,190,225,.6)]">{props.elapsed}</span>
+        <span className="text-ink-900/60">{props.elapsed}</span>
       </span>
     )
   }
@@ -280,16 +281,16 @@ export function Badge(props: BadgeProps) {
         data-variant="model"
         className={`${baseClass} ${
           props.interactive
-            ? 'border-accent/60 bg-accent/8 text-text-bright shadow-[0_0_0_3px_rgba(89,228,243,.1)]'
-            : // The canvas's quiet-chip literal — `border-panel-border` is
+            ? 'border-accent/60 bg-accent/8 text-ink-100 shadow-[0_0_0_3px_color-mix(in_oklab,_var(--color-accent)_10%,_transparent)]'
+            : // The canvas's quiet-chip literal — `border-line/14` is
               // `.14`, not `.2`, so the token can't stand in for it without
               // the chip reading a shade fainter than the artboard.
-              'border-[rgba(150,205,255,.2)] bg-[rgba(4,8,16,.5)] text-[rgba(220,235,255,.85)]'
+              'border-line/20 bg-shade/50 text-ink-200/85'
         }`}
       >
         {props.value}
         {props.interactive && (
-          <span aria-hidden className="ml-[7px] fs-9 text-[rgba(160,190,225,.6)]">
+          <span aria-hidden className="ml-[7px] fs-9 text-ink-900/60">
             ▾
           </span>
         )}
@@ -345,7 +346,7 @@ export function Badge(props: BadgeProps) {
         {props.truncated && (
           <span
             data-truncated
-            className="shrink-0 rounded-[4px] border border-[rgba(150,205,255,.26)] bg-[rgba(150,205,255,.07)] px-[7px] py-[3px] font-mono fs-9 tracking-[0.14em] text-[rgba(210,230,250,.85)]"
+            className="shrink-0 rounded-[4px] border border-line/26 bg-line/7 px-[7px] py-[3px] font-mono fs-9 tracking-[0.14em] text-ink-300/85"
           >
             TRUNCATED
           </span>
@@ -355,7 +356,7 @@ export function Badge(props: BadgeProps) {
   }
 
   return (
-    <span data-variant="count" className={`${baseClass} border-panel-border text-text-soft`}>
+    <span data-variant="count" className={`${baseClass} border-line/14 text-ink-300`}>
       {props.value}
       {props.label ? ` ${props.label}` : ''}
     </span>
