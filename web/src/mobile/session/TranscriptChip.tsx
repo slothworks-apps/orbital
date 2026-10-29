@@ -52,7 +52,7 @@ function TranscriptChip({
       >
         <span
           aria-hidden
-          className={['box-border block h-2 w-2 shrink-0 rounded-full border bg-[oklch(30%_.05_220)]', live ? 'orbital-pulse' : ''].join(' ')}
+          className={['box-border block h-2 w-2 shrink-0 rounded-full border bg-[var(--color-body-hi)]', live ? 'orbital-pulse' : ''].join(' ')}
           style={{ borderColor: tagHue }}
         />
         <span className="min-w-0 truncate text-ink-100">{agent.name}</span>

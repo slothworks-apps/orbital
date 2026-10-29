@@ -104,7 +104,7 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
         </button>
         <span
           aria-hidden
-          className="mr-1 box-border block h-2.5 w-2.5 shrink-0 rounded-full border bg-[oklch(30%_.05_220)]"
+          className="mr-1 box-border block h-2.5 w-2.5 shrink-0 rounded-full border bg-[var(--color-body-hi)]"
           style={{ borderColor: tagHue }}
         />
         <div className="min-w-0 flex-1 pr-2">

@@ -159,7 +159,7 @@ function TagPlanet({ hue, selected }: { hue: number; selected: boolean }) {
       // a 2px sliver. Sizing itself keeps it correct in any container.
       className="block h-[22px] w-[22px] shrink-0 rounded-full"
       style={{
-        background: 'radial-gradient(circle at 50% 45%, oklch(30% .05 220), oklch(20% .04 225) 70%)',
+        background: 'radial-gradient(circle at 50% 45%, var(--color-body-hi), var(--color-body-mid) 70%)',
         border: `1px solid oklch(var(--tb-l) var(--tb-c) ${hue} / .55)`,
         boxShadow: selected ? `0 0 14px oklch(var(--tb-l) var(--tb-c) ${hue} / .7)` : `0 0 12px oklch(var(--tb-l) var(--tb-c) ${hue} / .6)`,
       }}

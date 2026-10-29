@@ -60,7 +60,7 @@ export function ClaudeDirPicker({
           >
             <div
               onClick={(event) => event.stopPropagation()}
-              className="orbital-sheet-panel flex w-full flex-col rounded-t-[24px] border-t border-line/18 bg-[oklch(15%_.02_258)] px-3 pb-[calc(28px+env(safe-area-inset-bottom))] pt-2"
+              className="orbital-sheet-panel flex w-full flex-col rounded-t-[24px] border-t border-line/18 bg-[var(--color-panel-solid)] px-3 pb-[calc(28px+env(safe-area-inset-bottom))] pt-2"
             >
               <span aria-hidden className="mb-3 mt-0.5 block h-1 w-9 self-center rounded-[2px] bg-ink-500/30" />
               <div className="px-2 pb-2 font-mono fs-10 tracking-[0.16em] text-ink-900/60">

@@ -46,7 +46,7 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   'primary-flat': 'bg-accent text-space-deep font-semibold hover:bg-ink-300',
   // Canvas 50g's Choose this folder: the primary's fill, ink and 700 weight, with no bloom.
   'primary-plain': 'bg-accent text-space-deep font-bold hover:bg-ink-300',
-  warning: 'bg-warning text-[#1a1000] font-bold shadow-[0_0_24px_color-mix(in_oklab,_var(--color-warning)_40%,_transparent)] hover:brightness-110',
+  warning: 'bg-warning text-space-deep font-bold shadow-[0_0_24px_color-mix(in_oklab,_var(--color-warning)_40%,_transparent)] hover:brightness-110',
   ghost: 'bg-transparent text-ink-300 font-semibold border border-line/18 hover:bg-ink-50/5',
   'accent-outline': 'bg-transparent text-accent font-semibold border border-accent/45 hover:bg-accent/10',
   // 1b's composer Stop: amber outline, never a filled block — it sits inside

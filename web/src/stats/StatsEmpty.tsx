@@ -12,7 +12,7 @@ export function StatsEmpty({ onStartSession }: { onStartSession: () => void }) {
     <div className="flex flex-1 flex-col items-center justify-center rounded-[14px] border border-dashed border-line/12 px-10 py-16">
       {/* The unmeasured planet: a dim body inside a dashed orbit. */}
       <div aria-hidden className="relative h-[92px] w-[92px]">
-        <div className="absolute inset-0 rounded-full border border-line/18 bg-[radial-gradient(circle_at_50%_45%,oklch(24%_.03_225),oklch(15%_.02_230)_72%)]" />
+        <div className="absolute inset-0 rounded-full border border-line/18 bg-[radial-gradient(circle_at_50%_45%,var(--color-body-idle-hi),var(--color-body-lo)_72%)]" />
         <div
           className="absolute -inset-[22px] rounded-full bg-[repeating-conic-gradient(color-mix(in_oklab,_var(--color-line)_22%,_transparent)_0_1.6deg,transparent_1.6deg_9deg)]"
           style={{

@@ -90,7 +90,7 @@ export function PlanetGlyph({ session, hue, offline }: { session: PlanetFields; 
     return (
       <span aria-hidden className="grid h-11 w-11 shrink-0 place-items-center">
         <span
-          className="block rounded-full border border-ink-600/35 bg-[oklch(17%_.01_230)] opacity-60"
+          className="block rounded-full border border-ink-600/35 bg-[var(--color-body-ended)] opacity-60"
           style={{ width: PLANET_ENDED_PX, height: PLANET_ENDED_PX }}
         />
       </span>
@@ -115,7 +115,7 @@ export function PlanetGlyph({ session, hue, offline }: { session: PlanetFields; 
     animation: offline || gate || compacting ? undefined : RING_SPIN[key],
   }
   const body: CSSProperties = {
-    background: `radial-gradient(circle at 50% 42%, ${mix(quiet ? 12 : 22, 'oklch(22% .02 230)')}, ${mix(quiet ? 4 : 10, 'oklch(14% .015 230)')} 72%)`,
+    background: `radial-gradient(circle at 50% 42%, ${mix(quiet ? 12 : 22, 'var(--color-body-idle-lo)')}, ${mix(quiet ? 4 : 10, 'var(--color-body-ended)')} 72%)`,
     border: `1px solid ${mix(quiet ? 50 : offline ? 45 : 62, 'transparent')}`,
     boxShadow: quiet || offline ? undefined : `0 0 13px ${mix(32, 'transparent')}`,
   }

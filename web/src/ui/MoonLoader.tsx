@@ -92,7 +92,7 @@ export function MoonLoader({
           width: s.planet,
           height: s.planet,
           margin: `${-s.planet / 2}px 0 0 ${-s.planet / 2}px`,
-          background: 'radial-gradient(circle at 50% 38%,oklch(36% .02 240),oklch(17% .015 245) 74%)',
+          background: 'radial-gradient(circle at 50% 38%,var(--color-disc-off),var(--color-body-ended) 74%)',
         }}
       />
       <span

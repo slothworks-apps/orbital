@@ -47,7 +47,7 @@ export function MoonsChip({ session, offline }: SlotProps) {
               key={agent.id}
               aria-hidden
               className={[
-                'box-border block h-2 w-2 rounded-full border bg-[oklch(30%_.05_220)]',
+                'box-border block h-2 w-2 rounded-full border bg-[var(--color-body-hi)]',
                 !offline && agent.state !== 'ended' ? 'orbital-pulse' : '',
               ].join(' ')}
               style={{ borderColor: tagHue }}

@@ -15,7 +15,7 @@ import { useViewportHeight } from './useTerminalHost'
 const FRAME = [
   'rounded-[14px] border border-line/18',
   'bg-gradient-to-b from-panel-solid/90 to-space-deep/94',
-  'shadow-[0_30px_80px_rgba(0,0,0,.55),inset_0_1px_0_rgba(255,255,255,.06)]',
+  'shadow-[0_30px_80px_color-mix(in_oklab,var(--color-shadow)_55%,transparent),inset_0_1px_0_color-mix(in_oklab,var(--color-highlight)_6%,transparent)]',
 ].join(' ')
 
 /**

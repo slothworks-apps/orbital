@@ -738,7 +738,7 @@ function Moon({ color, running, small = false }: { color: string; running: boole
     <span
       aria-hidden
       className={[
-        'box-border block shrink-0 rounded-full border bg-[oklch(30%_.05_220)]',
+        'box-border block shrink-0 rounded-full border bg-[var(--color-body-hi)]',
         small ? 'h-2 w-2' : 'h-[9px] w-[9px]',
         running ? 'orbital-pulse' : '',
       ].join(' ')}

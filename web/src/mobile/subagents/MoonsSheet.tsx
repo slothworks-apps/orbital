@@ -184,7 +184,7 @@ function SubagentRow({
     <Row first={first} onOpen={onOpen} label={`Open subagent ${agent.name}`}>
       <span
         aria-hidden
-        className={['box-border block h-[9px] w-[9px] shrink-0 rounded-full border bg-[oklch(30%_.05_220)]', pulse ? 'orbital-pulse' : ''].join(' ')}
+        className={['box-border block h-[9px] w-[9px] shrink-0 rounded-full border bg-[var(--color-body-hi)]', pulse ? 'orbital-pulse' : ''].join(' ')}
         style={{ borderColor: tagHue }}
       />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
