@@ -52,7 +52,7 @@ function Instructions({ step }: { step: SessionHarness['steps'][number] }) {
       {step.verify && (
         <div>
           <Label>VERIFY · RUNS AFTER EACH TICK</Label>
-          <div className="mt-[5px] whitespace-pre-wrap break-all rounded-[6px] bg-[rgba(2,4,9,.7)] px-[9px] py-[7px] font-mono text-[10.5px] leading-[1.5] text-[rgba(214,230,248,.9)]">
+          <div data-selectable className="mt-[5px] whitespace-pre-wrap break-all rounded-[6px] bg-[rgba(2,4,9,.7)] px-[9px] py-[7px] font-mono text-[10.5px] leading-[1.5] text-[rgba(214,230,248,.9)]">
             $ {step.verify}
           </div>
         </div>

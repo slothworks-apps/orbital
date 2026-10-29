@@ -463,6 +463,7 @@ function Stage({
     <img
       src={url}
       alt=""
+      data-selectable
       onClick={(event) => event.stopPropagation()}
       onContextMenu={(event) => {
         event.preventDefault()

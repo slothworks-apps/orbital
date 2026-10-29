@@ -539,7 +539,7 @@ function McpPanel({
             />
             Couldn't read this session's servers.
           </div>
-          <pre className="self-stretch whitespace-pre-wrap rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)] [overflow-wrap:anywhere]">
+          <pre data-selectable className="self-stretch whitespace-pre-wrap rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)] [overflow-wrap:anywhere]">
             {list.detail}
           </pre>
           <Button
@@ -871,12 +871,12 @@ function ServerRow({
         )}
       </div>
       {kind === 'failed' && row.error && (
-        <pre className="col-start-2 col-end-4 max-h-[120px] overflow-auto whitespace-pre-wrap rounded-[7px] border border-[#de3b3d]/28 bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(214,222,238,.85)] [overflow-wrap:anywhere]">
+        <pre data-selectable className="col-start-2 col-end-4 max-h-[120px] overflow-auto whitespace-pre-wrap rounded-[7px] border border-[#de3b3d]/28 bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(214,222,238,.85)] [overflow-wrap:anywhere]">
           {row.error}
         </pre>
       )}
       {loginable && loginError && (
-        <pre className="col-start-2 col-end-4 max-h-[120px] overflow-auto whitespace-pre-wrap rounded-[7px] border border-[#de3b3d]/28 bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(214,222,238,.85)] [overflow-wrap:anywhere]">
+        <pre data-selectable className="col-start-2 col-end-4 max-h-[120px] overflow-auto whitespace-pre-wrap rounded-[7px] border border-[#de3b3d]/28 bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(214,222,238,.85)] [overflow-wrap:anywhere]">
           {loginError}
         </pre>
       )}
@@ -981,7 +981,7 @@ function formViewParts({
           <span aria-hidden className="block h-1.5 w-1.5 rounded-full bg-[#de3b3d]" />
           {state.refusal.cli ? 'CLI REFUSED · NOTHING WAS SAVED' : 'NOTHING WAS SAVED'}
         </div>
-        <pre className="max-h-[140px] overflow-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(222,230,244,.9)] [overflow-wrap:anywhere]">
+        <pre data-selectable className="max-h-[140px] overflow-auto whitespace-pre-wrap font-mono text-[10.5px] leading-[1.6] text-[rgba(222,230,244,.9)] [overflow-wrap:anywhere]">
           {[state.refusal.command, state.refusal.message].filter(Boolean).join('\n')}
         </pre>
       </div>
@@ -1024,7 +1024,7 @@ function formViewParts({
     body: state.loadError ? (
       <div className="flex flex-col items-start gap-3 pb-1">
         <div className="text-sm font-semibold">This server can't be edited here.</div>
-        <pre className="self-stretch whitespace-pre-wrap rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)] [overflow-wrap:anywhere]">
+        <pre data-selectable className="self-stretch whitespace-pre-wrap rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)] [overflow-wrap:anywhere]">
           {state.loadError}
         </pre>
       </div>

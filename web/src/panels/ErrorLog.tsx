@@ -157,6 +157,7 @@ function ErrorRow({ error, onReport }: { error: ErrorRecord; onReport: (error: E
           )}
         </div>
         <div
+          data-selectable
           className={[
             'break-words leading-normal text-pretty',
             isDev ? 'text-[12.5px] text-[rgba(190,212,238,.7)]' : 'text-[13px] text-text-bright',
@@ -170,12 +171,12 @@ function ErrorRow({ error, onReport }: { error: ErrorRecord; onReport: (error: E
           <Collapse open={expanded} id={bodyId} className="-mt-1.5">
           <div className="flex flex-col gap-1.5 pt-1.5">
             {error.context && (
-              <pre className="max-h-[150px] overflow-auto whitespace-pre-wrap break-words rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)]">
+              <pre data-selectable className="max-h-[150px] overflow-auto whitespace-pre-wrap break-words rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)]">
                 {JSON.stringify(error.context, null, 2)}
               </pre>
             )}
             {error.detail && (
-              <pre className="max-h-[150px] overflow-auto whitespace-pre-wrap break-words rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)]">
+              <pre data-selectable className="max-h-[150px] overflow-auto whitespace-pre-wrap break-words rounded-[7px] border border-[rgba(150,205,255,.12)] bg-[rgba(4,8,16,.55)] px-3 py-2.5 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)]">
                 {error.detail}
               </pre>
             )}

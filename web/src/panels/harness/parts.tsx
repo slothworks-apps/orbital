@@ -46,7 +46,7 @@ export function Marker({ kind, gate, size = 9 }: { kind: StepKind; gate: boolean
 /** Canvas 30b's switch: 26 × 14, a 10 px knob; acts at once, never confirmed (30f). */
 export function Switch({ on, label, onChange }: { on: boolean; label: string; onChange: (on: boolean) => void }) {
   return (
-    <label className="flex cursor-pointer select-none items-center gap-2 text-[12px] text-[rgba(220,235,255,.88)]">
+    <label className="flex cursor-pointer items-center gap-2 text-[12px] text-[rgba(220,235,255,.88)]">
       <button
         type="button"
         role="switch"

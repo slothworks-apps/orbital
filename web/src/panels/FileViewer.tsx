@@ -160,7 +160,7 @@ export function RefusalBody({ label, sentence }: { label: string; sentence: Reac
  * centred, 15/1.75 body, 26px/700 h1, 18px block gap, 34px top inset. */
 export function MarkdownBody({ content }: { content: string }) {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto pb-10 pt-[34px]">
+    <div data-selectable className="min-h-0 flex-1 overflow-y-auto pb-10 pt-[34px]">
       <div
         className={[
           'mx-auto flex max-w-[660px] flex-col gap-[18px] px-6',
@@ -218,6 +218,7 @@ function SourceBody({
   return (
     <div
       ref={containerRef}
+      data-selectable
       className="relative min-h-0 flex-1 overflow-auto font-mono text-[12.5px] leading-[22px]"
     >
       <div className="relative min-h-full w-fit min-w-full py-3.5">
@@ -667,6 +668,7 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
             // ReactMarkdown, no per-line rows. The file still opens.
             <pre
               data-degraded
+              data-selectable
               className="min-h-0 flex-1 overflow-auto whitespace-pre px-[18px] py-3.5 font-mono text-[12.5px] leading-[22px] text-[rgba(214,230,248,.9)]"
             >
               {preview.content}

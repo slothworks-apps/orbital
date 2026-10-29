@@ -437,7 +437,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
                     <span aria-hidden className="block h-[7px] w-[7px] flex-none rounded-full bg-[oklch(66%_.2_25)]" />
                     gh refused the issue. Nothing was published; your text is kept.
                   </div>
-                  <pre className="m-0 whitespace-pre-wrap break-words rounded-[7px] bg-[rgba(2,4,9,.6)] px-2.5 py-2 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)]">
+                  <pre data-selectable className="m-0 whitespace-pre-wrap break-words rounded-[7px] bg-[rgba(2,4,9,.6)] px-2.5 py-2 font-mono text-[10.5px] leading-[1.6] text-[rgba(190,212,238,.8)]">
                     {refusal}
                   </pre>
                   <div className="flex gap-1.5">

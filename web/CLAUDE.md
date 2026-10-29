@@ -60,6 +60,19 @@ Note for anyone adding wheel handling: React attaches `wheel` (and
 an `onWheel` prop silently does nothing. Attach manually with
 `{ passive: false }`.
 
+## Text is not selectable unless it is there to be read
+
+`theme.css` turns text selection, the native drag of images and links and
+the iOS long-press menu off for the whole document. Orbital is an app: a drag
+across a button, a label or the sidebar painting a selection makes it look
+like a web page.
+
+They come back only in form fields and in elements marked `data-selectable`:
+the transcript, the file and skill viewers, a task's output and command, the
+media viewer's image, error detail, commands shown to be run. A new surface
+that shows something worth copying — output, a path, a message, a command —
+gets `data-selectable` on its content, not on its chrome.
+
 ## Design values come from the canvas, never from the eye
 
 `Orbital.dc.html` carries literal inline CSS for every artboard. Read the
