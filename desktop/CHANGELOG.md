@@ -14,6 +14,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 - Plan limits lists an account's directories under the device each one is on, and a directory with the same mark on two devices shows its tile once.
 - Updated dependencies, including Electron.
 - Muted text and small captions are a little brighter, so they are easier to read, and a context gauge past its critical line shows its number in white beside the red bar.
+- On the map, a session waiting for your answer has a steady amber core instead of a blinking white one, a finished session a green ring, and an interrupted one a dashed red ring; cluster names are easier to read.
 
 ## [0.44.0] — 2026-10-27
 ### Added
