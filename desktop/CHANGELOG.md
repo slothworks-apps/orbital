@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Changed
+- In Settings → Devices, what each other device may do on this Mac is folded under one line saying how much is allowed; click it to see and change the toggles.
 
 ## [0.44.0] — 2026-10-27
 ### Added

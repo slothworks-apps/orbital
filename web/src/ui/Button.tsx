@@ -28,7 +28,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
     | 'outline'
     | 'ink'
     | 'dashed-link'
-  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'notice-dialog' | 'check' | 'member' | 'member-quiet' | 'member-line' | 'beside-field' | 'over-code' | 'chooser' | 'inline' | 'link-mono' | 'command' | 'login-row' | 'login-card' | 'touch'
+  size?: 'sm' | 'md' | 'lg' | 'field' | 'pill' | 'strip' | 'icon' | 'row' | 'choice' | 'choice-touch' | 'wide' | 'notice' | 'notice-link' | 'notice-dialog' | 'check' | 'member' | 'member-quiet' | 'member-line' | 'beside-field' | 'over-code' | 'chooser' | 'inline' | 'link-mono' | 'grant-summary' | 'command' | 'login-row' | 'login-card' | 'touch'
   /** Layout-only passthrough (margin, grid-area). Never use to override variant/size styling. */
   className?: string
 }
@@ -157,6 +157,9 @@ const sizeClasses: Record<NonNullable<ButtonProps['size']>, string> = {
   inline: '',
   // 50u's Settings → Updates › under this device: mono 10.5 with its tracking, in the row's brighter ink.
   'link-mono': 'font-mono text-[10.5px] tracking-[0.04em] text-[rgba(200,220,245,.85)]',
+  // `Feature - Device group 2` 50a's Permissions on this Mac · … line under a member: mono 10.5 in the
+  // quiet ink, its summary and › in a row.
+  'grant-summary': 'inline-flex items-center gap-[7px] pb-px pt-0.5 font-mono text-[10.5px] text-[rgba(160,190,225,.65)]',
   // `Feature - Feedback` 61c's Run in Orbital beside the command it runs: 6px/11px at 12px.
   command: 'px-[11px] py-1.5 text-xs',
   // `Feature - Log in` 62a: the lost-login notice's Log in / Cancel on its title row, 5px/11px at 12px,
