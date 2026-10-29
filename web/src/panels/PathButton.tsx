@@ -281,7 +281,7 @@ export function PathButton({ path, line = null, variant = 'row', suffix }: PathB
                   'cursor-pointer decoration-dotted decoration-line/30',
                   'hover:bg-line/12 hover:text-ink-50 hover:decoration-solid hover:decoration-accent/80',
                   'active:bg-line/18',
-                  'focus-visible:bg-line/8 focus-visible:shadow-[0_0_0_2px_oklch(85%_.12_205_/_.55)] focus-visible:outline-none',
+                  'focus-visible:bg-line/8 focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--color-accent)_55%,transparent)] focus-visible:outline-none',
                 ].join(' '),
       ].join(' ')}
     >

@@ -617,7 +617,7 @@ function FilmFrame({
       className={[
         'relative block h-10 w-10 flex-none overflow-hidden rounded-[5px] border bg-shade p-0',
         current
-          ? 'border-accent/90 shadow-[0_0_0_2px_oklch(85%_.12_205_/_.2)]'
+          ? 'border-accent/90 shadow-[0_0_0_2px_color-mix(in_oklab,var(--color-accent)_20%,transparent)]'
           : 'border-line/14',
       ].join(' ')}
     >

@@ -55,7 +55,7 @@ const RUNS_AS = import.meta.env.DEV ? 'From source (npm run dev)' : 'Desktop app
 
 const MONO_LABEL = 'font-mono fs-10 tracking-[0.18em] text-ink-900/60'
 const FIELD_BOX =
-  'm-0 box-border w-full appearance-none rounded-lg border border-line/16 bg-shade/60 outline-none focus:border-[oklch(85%_.12_205/.55)]'
+  'm-0 box-border w-full appearance-none rounded-lg border border-line/16 bg-shade/60 outline-none focus:border-accent/55'
 const PROSE_AREA = `${FIELD_BOX} resize-none px-3 py-[9px] fs-13 leading-normal text-ink-100`
 const OPEN_INK = swatch('ink-400', 0.85)
 const CLOSED_INK = swatch('ink-900', 0.5)
@@ -357,7 +357,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
                       <label
                         key={field}
                         style={{ opacity: fieldOpacity }}
-                        className="flex items-center gap-2 rounded-lg border border-line/14 bg-shade/60 pl-[11px] focus-within:border-[oklch(85%_.12_205/.55)]"
+                        className="flex items-center gap-2 rounded-lg border border-line/14 bg-shade/60 pl-[11px] focus-within:border-accent/55"
                       >
                         <span className="w-[78px] flex-none font-mono fs-9.5 tracking-[0.12em] text-ink-900/55">
                           {label}
@@ -479,7 +479,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
             target="_blank"
             rel="noreferrer"
             title={`Open issue #${number ?? ''} on GitHub`}
-            className="orbital-arrive flex items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-[oklch(85%_.12_205/.55)] bg-[oklch(85%_.12_205/.08)] px-4 py-2 font-mono fs-13 text-accent no-underline transition-colors hover:bg-[oklch(85%_.12_205/.14)]"
+            className="orbital-arrive flex items-center gap-1.5 whitespace-nowrap rounded-[9px] border border-accent/55 bg-accent/8 px-4 py-2 font-mono fs-13 text-accent no-underline transition-colors hover:bg-accent/14"
           >
             #{number ?? ''} ↗
           </a>

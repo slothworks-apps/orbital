@@ -1,5 +1,6 @@
 import { Banner } from './Banner'
 import { JoinRequestSheet } from './JoinRequestSheet'
+import { ColoursScreen } from './screens/ColoursScreen'
 import { FileScreen } from './screens/FileScreen'
 import { LimitsScreen } from './screens/LimitsScreen'
 import { LockScreen } from './screens/LockScreen'
@@ -53,6 +54,7 @@ export function MobileApp() {
       {screen === 'file' && <FileScreen />}
       {screen === 'settings' && <SettingsScreen />}
       {screen === 'code' && <OwnCodeScreen />}
+      {screen === 'colours' && <ColoursScreen />}
       {screen === 'new' && <NewSessionScreen />}
       {screen === 'limits' && <LimitsScreen />}
       {screen === 'unpaired' && <UnpairedScreen />}

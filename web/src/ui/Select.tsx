@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, ReactNode, Ref } from 'react'
 import { useEscapeLayer } from './escapeLayer'
@@ -33,6 +33,18 @@ export interface SelectOption<T> {
   trail?: string
   /** The trigger's `trail`, where the chosen row's own would mislead (6a: the size that results, not the one saved). */
   triggerTrail?: string
+  /**
+   * The heading of the group the option belongs to (artboard 1f's DARK /
+   * LIGHT). Consecutive options with the same `group` sit under one heading,
+   * wrapped in a `role="group"` it labels; type-ahead and the arrows skip it.
+   */
+  group?: string
+  /**
+   * A strip of colour blocks leading the row and the `swatch` trigger
+   * (artboard 1f: a colour theme's space · panel · accent). The one place a
+   * colour literal belongs in the chrome: it shows another palette, not this one.
+   */
+  swatch?: readonly string[]
 }
 
 export interface SelectProps<T> {
@@ -58,9 +70,13 @@ export interface SelectProps<T> {
    * field — the glyph, the name and its sub-line on one roomier row;
    * `chip` is 61h's model chip in the report dialog (`Feature - Feedback`) — a
    * small mono pill whose menu hangs off its right edge, the ✓ leading each
-   * row and the option's `sub` trailing it as a short description.
+   * row and the option's `sub` trailing it as a short description;
+   * `swatch` is artboard 1f's colour theme picker (`Feature - Colour themes`) —
+   * a roomier field carrying the option's swatch, its name and its
+   * `triggerTrail`, over a menu with the ✓ leading each row and capped at
+   * `SWATCH_LIST_MAX_HEIGHT`.
    */
-  variant?: 'field' | 'pill' | 'tag' | 'ghost' | 'device' | 'chip'
+  variant?: 'field' | 'pill' | 'tag' | 'ghost' | 'device' | 'chip' | 'swatch'
   /**
    * `ghost` only: keep the lit chrome while the control is closed, because
    * its value is doing something visible (a filter that is narrowing a list).
@@ -95,6 +111,8 @@ const TAG_POPUP_MIN_WIDTH = 168
 const GHOST_POPUP_MIN_WIDTH = 186
 /** The `chip` popup's width (canvas 61h's model menu). */
 const CHIP_POPUP_MIN_WIDTH = 220
+/** The `swatch` menu scrolls past this height (artboard 1f). */
+const SWATCH_LIST_MAX_HEIGHT = 330
 /** Type-ahead buffer lifetime, the same window the platform controls use. */
 const TYPEAHEAD_MS = 500
 
@@ -343,6 +361,7 @@ export function Select<T extends string | number>({
   const isGhost = variant === 'ghost'
   const isDevice = variant === 'device'
   const isChip = variant === 'chip'
+  const isSwatch = variant === 'swatch'
   // 3a paints the ghost trigger in two states only: bare, or lit. Open and
   // "narrowing something" are the same state — both mean it has the floor.
   const lit = isGhost && (open || active)
@@ -386,7 +405,7 @@ export function Select<T extends string | number>({
           // so a caller's `w-[200px]` never has to out-order a built-in
           // `w-full` in the stylesheet (see the v4 footguns in web/CLAUDE.md).
           'relative inline-flex min-w-0 cursor-pointer items-center text-left disabled:cursor-not-allowed disabled:opacity-50',
-          isGhost || isChip ? 'gap-[5px]' : isDevice ? 'gap-2.5' : 'gap-1.5',
+          isGhost || isChip ? 'gap-[5px]' : isDevice || isSwatch ? 'gap-2.5' : 'gap-1.5',
           // The ghost branch owns its own ink in both states, so it must not
           // also inherit `text-ink-100` — two colour utilities on one
           // element are settled by stylesheet order, not by this array's.
@@ -411,6 +430,13 @@ export function Select<T extends string | number>({
                   ? 'border-line/22 bg-line/12 text-[oklch(90%_.06_205)]'
                   : 'border-transparent bg-transparent text-inherit hover:bg-line/10',
               ].join(' ')
+            : isSwatch
+            ? // 1f's colour field: 9px/12px inside a 10px radius, a .3 border
+              // over the input well (space at .6), the dialog's 13px sans.
+              [
+                'rounded-[10px] border border-line/30 bg-space/60 px-3 py-[9px] font-sans fs-13',
+                'transition-colors hover:border-accent/40 focus:border-accent/60 focus:outline-none',
+              ].join(' ')
             : isDevice
               ? // 50g's DEVICE field: 9px/12px inside a 9px radius over the
                 // field fill; the border lights to the accent at .5 while open,
@@ -418,7 +444,7 @@ export function Select<T extends string | number>({
                 [
                   'rounded-[9px] border bg-shade/60 px-3 py-[9px] font-sans',
                   'transition-[border-color] duration-[180ms] ease-[ease]',
-                  open ? 'border-[oklch(85%_.12_205/.5)]' : 'border-line/18',
+                  open ? 'border-accent/50' : 'border-line/18',
                 ].join(' ')
             : isTag
               ? // 1b's session-tag pill: 4px/9px/4px/10px inside a 999px
@@ -455,7 +481,19 @@ export function Select<T extends string | number>({
             style={{ background: selected.dotColor }}
           />
         )}
-        {isDevice ? (
+        {isSwatch ? (
+          // 1f: the swatch at 12×14 a block, the name at 600, the kind in mono 10.5.
+          <>
+            {selected?.swatch && <SwatchStrip colours={selected.swatch} size="trigger" />}
+            <span className="min-w-0 truncate font-semibold">{label}</span>
+            {(selected?.triggerTrail ?? selected?.trail) && (
+              <span className="shrink-0 font-mono fs-10.5 text-ink-900/60">
+                {selected?.triggerTrail ?? selected?.trail}
+              </span>
+            )}
+            <span aria-hidden className="flex-1" />
+          </>
+        ) : isDevice ? (
           // 50g: glyph, the name at 13px/600, the sub-line in mono 11px, then
           // the caret pushed right.
           <>
@@ -482,6 +520,9 @@ export function Select<T extends string | number>({
           className={
             isChip
               ? 'block shrink-0 fs-8 text-ink-900/60'
+              : isSwatch
+              ? // 1f: 9px, inline at the right end.
+                'block shrink-0 fs-9 text-ink-900/60'
               : isDevice
               ? // 50g: 8px, inline, flips while open (`transform .2s ease`).
                 `block shrink-0 fs-8 text-ink-900/60 transition-transform duration-200 ease-[ease] ${open ? 'rotate-180' : ''}`
@@ -521,91 +562,123 @@ export function Select<T extends string | number>({
               aria-labelledby={aria['aria-labelledby']}
               aria-activedescendant={options.length > 0 ? optionId(activeIndex) : undefined}
               className="flex min-h-0 flex-col gap-0.5 overflow-y-auto overscroll-contain"
+              style={isSwatch ? { maxHeight: SWATCH_LIST_MAX_HEIGHT } : undefined}
             >
-              {options.map((option, index) => {
-                const isSelected = option.value === value
-                const isActive = index === activeIndex
-                if (isChip) {
-                  return (
-                    <ChipRow
-                      key={String(option.value)}
-                      id={optionId(index)}
-                      option={option}
-                      selected={isSelected}
-                      active={isActive}
-                      onHover={() => setActiveIndex(index)}
-                      onPick={() => commit(index)}
-                    />
-                  )
-                }
-                if (isDevice) {
-                  return (
-                    <DeviceRow
-                      key={String(option.value)}
-                      id={optionId(index)}
-                      option={option}
-                      selected={isSelected}
-                      active={isActive}
-                      onHover={() => setActiveIndex(index)}
-                      onPick={() => commit(index)}
-                    />
-                  )
-                }
-                return (
-                  <div
-                    key={String(option.value)}
-                    id={optionId(index)}
-                    role="option"
-                    aria-selected={isSelected}
-                    data-label={option.label}
-                    data-active={isActive || undefined}
-                    onMouseMove={() => setActiveIndex(index)}
-                    onClick={() => commit(index)}
-                    // 1b rows: 7px/9px inside a 7px radius, 8px gap. The
-                    // canvas paints hover and selection the SAME tint, which
-                    // would leave an arrowing keyboard user unable to tell
-                    // the two apart — so the active row keeps the accent
-                    // tint and only selection uses the canvas's.
-                    aria-disabled={option.inert || undefined}
-                    className={[
-                      'flex shrink-0 items-center gap-2 rounded-[7px] px-[9px] py-[7px]',
-                      option.inert ? 'cursor-default opacity-[.38]' : 'cursor-pointer',
-                      isActive && !option.inert
-                        ? 'bg-accent/10'
-                        : isSelected
-                          ? 'bg-line/9'
-                          : '',
-                      isSelected ? 'text-accent' : 'text-ink-100',
-                    ]
-                      .filter(Boolean)
-                      .join(' ')}
-                  >
-                    {option.dotColor && (
-                      <span
-                        aria-hidden
-                        className="block h-1.5 w-1.5 shrink-0 rounded-full"
-                        style={{ background: option.dotColor }}
+              {groupRuns(options).map((run) => {
+                const rows = run.indices.map((index) => {
+                  const option = options[index]
+                  const isSelected = option.value === value
+                  const isActive = index === activeIndex
+                  if (isChip) {
+                    return (
+                      <ChipRow
+                        key={String(option.value)}
+                        id={optionId(index)}
+                        option={option}
+                        selected={isSelected}
+                        active={isActive}
+                        onHover={() => setActiveIndex(index)}
+                        onPick={() => commit(index)}
                       />
-                    )}
-                    <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                    {option.count !== undefined && (
-                      <span aria-hidden className="shrink-0 text-ink-900/60">
-                        {option.count}
-                      </span>
-                    )}
-                    {option.trail && (
-                      <span className="shrink-0 font-mono fs-10 tracking-[0.04em] text-ink-900/60">
-                        {option.trail}
-                      </span>
-                    )}
-                    {(isSelected || reserveCheck) && (
-                      <span
-                        aria-hidden
-                        className={`shrink-0 fs-10 text-accent ${isSelected ? '' : 'opacity-0'}`}
-                      >
-                        ✓
-                      </span>
-                    )}
+                    )
+                  }
+                  if (isSwatch) {
+                    return (
+                      <SwatchRow
+                        key={String(option.value)}
+                        id={optionId(index)}
+                        option={option}
+                        selected={isSelected}
+                        active={isActive}
+                        onHover={() => setActiveIndex(index)}
+                        onPick={() => commit(index)}
+                      />
+                    )
+                  }
+                  if (isDevice) {
+                    return (
+                      <DeviceRow
+                        key={String(option.value)}
+                        id={optionId(index)}
+                        option={option}
+                        selected={isSelected}
+                        active={isActive}
+                        onHover={() => setActiveIndex(index)}
+                        onPick={() => commit(index)}
+                      />
+                    )
+                  }
+                  return (
+                    <div
+                      key={String(option.value)}
+                      id={optionId(index)}
+                      role="option"
+                      aria-selected={isSelected}
+                      data-label={option.label}
+                      data-active={isActive || undefined}
+                      onMouseMove={() => setActiveIndex(index)}
+                      onClick={() => commit(index)}
+                      // 1b rows: 7px/9px inside a 7px radius, 8px gap. The
+                      // canvas paints hover and selection the SAME tint, which
+                      // would leave an arrowing keyboard user unable to tell
+                      // the two apart — so the active row keeps the accent
+                      // tint and only selection uses the canvas's.
+                      aria-disabled={option.inert || undefined}
+                      className={[
+                        'flex shrink-0 items-center gap-2 rounded-[7px] px-[9px] py-[7px]',
+                        option.inert ? 'cursor-default opacity-[.38]' : 'cursor-pointer',
+                        isActive && !option.inert
+                          ? 'bg-accent/10'
+                          : isSelected
+                            ? 'bg-line/9'
+                            : '',
+                        isSelected ? 'text-accent' : 'text-ink-100',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                    >
+                      {option.dotColor && (
+                        <span
+                          aria-hidden
+                          className="block h-1.5 w-1.5 shrink-0 rounded-full"
+                          style={{ background: option.dotColor }}
+                        />
+                      )}
+                      <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                      {option.count !== undefined && (
+                        <span aria-hidden className="shrink-0 text-ink-900/60">
+                          {option.count}
+                        </span>
+                      )}
+                      {option.trail && (
+                        <span className="shrink-0 font-mono fs-10 tracking-[0.04em] text-ink-900/60">
+                          {option.trail}
+                        </span>
+                      )}
+                      {(isSelected || reserveCheck) && (
+                        <span
+                          aria-hidden
+                          className={`shrink-0 fs-10 text-accent ${isSelected ? '' : 'opacity-0'}`}
+                        >
+                          ✓
+                        </span>
+                      )}
+                    </div>
+                  )
+                })
+                if (run.group === undefined) return <Fragment key={`run-${run.indices[0]}`}>{rows}</Fragment>
+                const headingId = `${listboxId}-group-${run.indices[0]}`
+                return (
+                  <div key={headingId} role="group" aria-labelledby={headingId} className="flex shrink-0 flex-col gap-0.5">
+                    {/* 1f: 8px/10px/4px, mono 9.5 at .18em in muted ink. */}
+                    <div
+                      id={headingId}
+                      role="presentation"
+                      className="px-2.5 pb-1 pt-2 font-mono fs-9.5 tracking-[0.18em] text-ink-900/60"
+                    >
+                      {run.group}
+                    </div>
+                    {rows}
                   </div>
                 )
               })}
@@ -686,6 +759,87 @@ function DeviceRow<T>({
       <span aria-hidden className={`shrink-0 font-mono fs-10 text-accent ${selected ? '' : 'opacity-0'}`}>
         ✓
       </span>
+    </div>
+  )
+}
+
+/**
+ * The options in runs that share a `group`, in their order: one run per
+ * heading, and a run with no group for options that carry none.
+ */
+function groupRuns<T>(options: ReadonlyArray<SelectOption<T>>): Array<{ group?: string; indices: number[] }> {
+  const runs: Array<{ group?: string; indices: number[] }> = []
+  options.forEach((option, index) => {
+    const last = runs[runs.length - 1]
+    if (last && last.group === option.group) last.indices.push(index)
+    else runs.push({ group: option.group, indices: [index] })
+  })
+  return runs
+}
+
+/**
+ * Artboard 1f's swatch: the colours side by side, 12×14 a block on the
+ * trigger and 10×12 in the menu, inside a 4px radius ringed by the control
+ * hairline.
+ */
+function SwatchStrip({ colours, size }: { colours: readonly string[]; size: 'trigger' | 'row' }) {
+  const block = size === 'trigger' ? 'h-3.5 w-3' : 'h-3 w-2.5'
+  return (
+    <span aria-hidden className="flex shrink-0 overflow-hidden rounded-[4px] ring-1 ring-line/16">
+      {colours.map((colour, i) => (
+        <span key={i} className={`block ${block}`} style={{ background: colour }} />
+      ))}
+    </span>
+  )
+}
+
+/**
+ * One row of the `swatch` menu (artboard 1f): 7px/10px inside a 7px radius,
+ * 9px gaps; a 14px ✓ column first, the swatch, the name (600 on the chosen
+ * row, 500 on the rest), and the `trail` pushed right in mono 10px. The
+ * chosen row rests on the row fill; the active one (hover or arrows) a step
+ * brighter.
+ */
+function SwatchRow<T>({
+  id,
+  option,
+  selected,
+  active,
+  onHover,
+  onPick,
+}: {
+  id: string
+  option: SelectOption<T>
+  selected: boolean
+  active: boolean
+  onHover: () => void
+  onPick: () => void
+}) {
+  return (
+    <div
+      id={id}
+      role="option"
+      aria-selected={selected}
+      aria-disabled={option.inert || undefined}
+      data-label={option.label}
+      data-active={active || undefined}
+      onMouseMove={onHover}
+      onClick={onPick}
+      className={[
+        'flex shrink-0 items-center gap-[9px] rounded-[7px] px-2.5 py-[7px] font-sans fs-13 text-ink-100',
+        option.inert ? 'cursor-default opacity-[.38]' : 'cursor-pointer',
+        active && !option.inert ? 'bg-line/10' : selected ? 'bg-line/7' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      <span aria-hidden className={`w-3.5 shrink-0 text-accent ${selected ? '' : 'invisible'}`}>
+        ✓
+      </span>
+      {option.swatch && <SwatchStrip colours={option.swatch} size="row" />}
+      <span className={`min-w-0 truncate ${selected ? 'font-semibold' : 'font-medium'}`}>{option.label}</span>
+      <span aria-hidden className="flex-1" />
+      {option.trail && <span className="shrink-0 font-mono fs-10 text-ink-900/60">{option.trail}</span>}
     </div>
   )
 }

@@ -19,7 +19,7 @@ function at(node: ExtraProps['node']): { 'data-src-line'?: number } {
 
 // 10d·e "Rendered — sized for 390": the link is 10d's path style, its 12px
 // pad and negative margin making a 44px hit area without moving the line.
-const LINK = 'my-[-12px] py-3 text-[oklch(85%_0.12_205)] underline decoration-dotted underline-offset-[3px]'
+const LINK = 'my-[-12px] py-3 text-accent underline decoration-dotted underline-offset-[3px]'
 const INLINE_CODE = 'rounded-[4px] bg-line/8 px-[5px] py-px font-mono fs-12.5 text-ink-200'
 const BOX = 'grid h-4 w-4 flex-none place-items-center rounded-[4px] border mt-1 fs-10 leading-none'
 

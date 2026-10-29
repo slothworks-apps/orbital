@@ -89,7 +89,7 @@ function CloseQuestion({ tab, label }: { tab: TerminalInfo; label: string }) {
           ref={keepRef}
           type="button"
           onClick={keep}
-          className="cursor-pointer rounded-[7px] border border-line/30 bg-line/14 px-3 py-1.5 fs-12 font-bold text-ink-100 shadow-[0_0_0_2px_oklch(85%_.12_205_/_.45)] focus-visible:outline-none"
+          className="cursor-pointer rounded-[7px] border border-line/30 bg-line/14 px-3 py-1.5 fs-12 font-bold text-ink-100 shadow-[0_0_0_2px_color-mix(in_oklab,var(--color-accent)_45%,transparent)] focus-visible:outline-none"
         >
           Keep running
         </button>

@@ -204,7 +204,7 @@ const RIGHT_ITEM = 'ml-2 box-border h-fit min-h-[26px] rounded-[7px] font-mono w
 
 /** The esc button's keyboard focus (25g FOCUS); the crumbs share it. */
 const FOCUS_RING =
-  'outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-[oklch(85%_.12_205/.8)]'
+  'outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-accent/80'
 
 /** A crumb's hover, for links only; the page's own crumb is not one (25g). */
 const CRUMB_HOVER = 'hover:bg-line/8 hover:text-ink-100'

@@ -295,14 +295,14 @@ function Step({
           className={[
             'pointer-events-none absolute inset-0',
             glow === 'paired'
-              ? 'bg-[radial-gradient(ellipse_320px_280px_at_50%_30%,oklch(85%_.12_205/.09),transparent)]'
-              : 'bg-[radial-gradient(ellipse_300px_260px_at_50%_38%,oklch(85%_.12_205/.07),transparent)]',
+              ? 'bg-[radial-gradient(ellipse_320px_280px_at_50%_30%,color-mix(in_oklab,var(--color-accent)_9%,transparent),transparent)]'
+              : 'bg-[radial-gradient(ellipse_300px_260px_at_50%_38%,color-mix(in_oklab,var(--color-accent)_7%,transparent),transparent)]',
           ].join(' ')}
         />
       )}
       <div className={['relative flex flex-col items-center gap-[18px] px-7', mark ? 'pt-24' : 'pt-7'].join(' ')}>
         {mark}
-        {label && <div className="font-mono fs-10 tracking-[0.2em] text-[oklch(85%_.12_205/.85)]">{label}</div>}
+        {label && <div className="font-mono fs-10 tracking-[0.2em] text-accent/85">{label}</div>}
         <h1 className={['text-center fs-24 font-bold tracking-[-0.01em]', mark ? 'mt-2' : ''].join(' ')}>{title}</h1>
         {body && <p className="text-center fs-14 leading-[1.55] text-ink-600/85">{body}</p>}
         {children}

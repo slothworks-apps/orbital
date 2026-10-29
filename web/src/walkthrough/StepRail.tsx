@@ -65,7 +65,7 @@ export function StepRail({ walkthrough, currentId, onJump }: StepRailProps) {
                   className={[
                     'flex items-start gap-2.5 rounded-[7px] px-2.5 py-[7px] text-left',
                     // canvas 21b: the current row's inset bar is the accent, oklch(85% .12 205).
-                    current ? 'bg-line/10 shadow-[inset_2px_0_0_oklch(85%_.12_205)]' : 'hover:bg-line/7',
+                    current ? 'bg-line/10 shadow-[inset_2px_0_0_var(--color-accent)]' : 'hover:bg-line/7',
                   ].join(' ')}
                 >
                   <span

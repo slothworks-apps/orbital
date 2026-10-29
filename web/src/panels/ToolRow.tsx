@@ -430,7 +430,7 @@ export function ToolRow({
                   e.stopPropagation()
                   onOpenSubagent(openableSubagent)
                 }}
-                className="font-mono fs-10.5 tracking-[0.12em] text-[oklch(85%_0.12_205)] hover:underline"
+                className="font-mono fs-10.5 tracking-[0.12em] text-accent hover:underline"
               >
                 OPEN →
               </button>
@@ -446,7 +446,7 @@ export function ToolRow({
                   e.stopPropagation()
                   onOpenTaskOutput(openableTask)
                 }}
-                className="font-mono fs-10.5 tracking-[0.12em] text-[oklch(85%_0.12_205)] hover:underline"
+                className="font-mono fs-10.5 tracking-[0.12em] text-accent hover:underline"
               >
                 OUTPUT →
               </button>

@@ -703,7 +703,7 @@ export function LoginCodeEntry({
         <input
           {...inputProps}
           placeholder="Paste the code that page shows"
-          className="m-0 min-w-0 flex-1 rounded-[7px] border border-line/16 bg-shade/60 px-[9px] py-1.5 font-mono fs-11 text-ink-100 outline-none placeholder:text-ink-900/60 focus:border-accent/50 focus:shadow-[0_0_0_3px_oklch(85%_.12_205_/_.1)]"
+          className="m-0 min-w-0 flex-1 rounded-[7px] border border-line/16 bg-shade/60 px-[9px] py-1.5 font-mono fs-11 text-ink-100 outline-none placeholder:text-ink-900/60 focus:border-accent/50 focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-accent)_10%,transparent)]"
         />
         <Button variant="lit" size="command" disabled={disabled || !ready} onClick={submit}>
           Submit

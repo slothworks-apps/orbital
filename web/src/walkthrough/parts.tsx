@@ -14,7 +14,7 @@ const TONES = {
   quiet: 'border-line/14 bg-transparent text-ink-100 font-semibold',
   // Start (canvas 21a).
   accent:
-    'border-[oklch(85%_.12_205/.6)] bg-[oklch(85%_.12_205/.12)] text-ink-50 font-bold shadow-[0_0_0_3px_oklch(85%_.12_205/.08)]',
+    'border-accent/60 bg-accent/12 text-ink-50 font-bold shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-accent)_8%,transparent)]',
 } as const
 
 const SIZES = {

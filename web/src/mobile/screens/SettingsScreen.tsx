@@ -11,6 +11,7 @@ import { DiagnosticsSetting } from '../update/DiagnosticsSetting'
 import { usePhoneUpdate } from '../update/state'
 import { clientRef } from '../transport/clientRef'
 import { CARD, MobileScreen, SectionLabel, SheetPresence, Toggle } from '../ui'
+import { AppearanceSection } from './AppearanceSection'
 import { DevicesSection } from './DevicesSection'
 import { FeedbackSheet } from './FeedbackSheet'
 import { isDemo } from '../../lib/demo'
@@ -50,7 +51,7 @@ export const NOTIFICATION_ROWS: readonly { key: keyof NotificationSettings; labe
   },
 ]
 
-/** 9f (spec § 5): the group's devices (canvas 50i), this phone's notification rules, the app lock. */
+/** 9f (spec § 5): the group's devices (canvas 50i), this phone's colours (1k), its notification rules, the app lock. */
 export function SettingsScreen() {
   const shell = usePhoneUpdate((s) => s.shell)
   const ready = useMobile((s) => s.ready)
@@ -127,6 +128,9 @@ export function SettingsScreen() {
     <MobileScreen header={header}>
       <div className="flex flex-col px-4 pb-4 pt-1.5">
         <DevicesSection />
+
+        {/* Canvas `Feature - Colour themes` 1k A: between the Mac and the notifications. */}
+        <AppearanceSection />
 
         <div ref={notificationsGroup} />
         <SectionLabel>NOTIFICATIONS</SectionLabel>

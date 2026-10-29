@@ -42,7 +42,7 @@ function StreamLostBody() {
         data-stream-lost-reason
         className="flex flex-col gap-[9px] rounded-[10px] border border-dashed border-[oklch(80%_0.13_60_/_0.45)] bg-[oklch(80%_0.13_60_/_0.05)] p-[14px]"
       >
-        <div className="font-mono fs-9.5 tracking-[0.16em] text-[oklch(85%_0.12_60)]">
+        <div className="font-mono fs-9.5 tracking-[0.16em] text-warning">
           TRANSCRIPT UNAVAILABLE
         </div>
         <div className="fs-12.5 leading-[1.6] text-ink-100/90 text-pretty">

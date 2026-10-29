@@ -24,7 +24,7 @@ export function LockScreen() {
       {/* canvas 9t: the faint accent light behind the mark. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_300px_260px_at_50%_42%,oklch(85%_.12_205/.06),transparent)]"
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_300px_260px_at_50%_42%,color-mix(in_oklab,var(--color-accent)_6%,transparent),transparent)]"
       />
       <MobileScreen
         footer={

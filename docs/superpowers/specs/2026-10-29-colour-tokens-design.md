@@ -82,23 +82,80 @@ pass decides whether they become tokens or go.
 - **Left literal on purpose:** the logo (a brand mark, not chrome), tag hues
   (`oklch(80% .13 <hue>)`, the user's own colours), and the planet's
   `STATE_INPUT_HEX`, which three.js reads.
-- **The theme itself:** a `[data-theme="…"]` block overriding the tokens, a
-  setting to choose it, and the palette values, which come from Claude Design.
+- **Tag hues on light themes.** Mat names and tag counts in the tag hue (L 80%)
+  fail contrast on Infrared and Solar Light (canvas flag 6). Tags need a
+  lightness per theme before a light theme leaves Labs.
+- **Fills that are plain black or white** (`bg-black/30` behind code, a few
+  `bg-white/10` chips) and the three tinted stars of the backdrop.
+
+## 4. The themes
+
+Source: Claude Design, `Feature - Colour themes.dc.html`, artboards 1a–1k.
+The token values are the canvas's own oklch and live in `theme.css`, one
+`:root[data-colours='<id>']` block per theme; `lib/colourTheme.ts` lists them.
+
+| id | name | kind | after |
+|---|---|---|---|
+| `deep-field` | Deep Field | dark, the default | today's palette |
+| `event-horizon` | Event Horizon | dark, near-black, brighter ink | — |
+| `infrared` | Infrared | light, for a bright room | — |
+| `solar-dark`, `solar-light` | Solar Dark, Solar Light | dark, light | Solarized |
+| `molten` | Molten | dark | Monokai |
+| `velvet` | Velvet | dark | Dracula |
+| `arctic` | Arctic | dark | Nord |
+| `ember` | Ember | dark | Gruvbox |
+| `slate` | Slate | dark | One Dark |
+
+The canvas called them Night, Daylight and Contrast; the shipped names are
+Deep Field, Infrared (a light sky that reads like an infrared photograph)
+and Event Horizon. All ten ship in the first round.
+
+Decisions taken from the canvas's flags (1b), each a visible change to Deep
+Field:
+
+- `ink-900` rises from `#a0bee1` to `#a8c6e9` (oklch 81.6% .06 252), so muted
+  text at 60 % passes AA on a panel.
+- Captions move from `ink-900` at 45 % to the muted 60 %; no theme could make
+  45 % pass.
+- Past the critical line the context number is `ink-100` beside the red fill:
+  a red light enough to read stops looking critical.
+
+Added with the themes: `shadow` and `highlight` (a light theme cannot shade
+with `shade` or light with `ink-50`), and `nebula-a`, `nebula-b`, `star` for
+the map backdrop, which on Infrared reads as a star chart. Drop shadows and
+inset highlights were moved onto them.
+
+### Mac
+
+Labs → Colour themes turns the feature on. While it is on, Settings →
+Appearance gets COLOURS at the top: one dropdown grouped DARK / LIGHT with
+each theme's space, panel and accent as dots, and Follow the system, which
+takes Infrared while macOS is in light mode and the chosen theme otherwise.
+Settings keys `colour_themes_enabled`, `colour_theme`,
+`colour_theme_follow_system`. A change repaints in the next frame; the last
+painted theme is remembered in `localStorage` so a reload paints it before
+settings arrive, and other windows follow through the `storage` event.
 
 ## Scope
 
 - **Who it is for:** anyone who wants Orbital in another palette (a light
   room, a contrast need). This change alone is for developers: it is what makes
   a theme possible.
-- **Where it lives:** the token refactor changes nothing anyone sees. The first
-  colour theme goes to Labs, beside today's palette, which stays the default.
-- **What someone updating notices:** nothing.
-- **What can be set:** nothing yet; later, the colour theme in Settings →
-  Appearance.
+- **Where it lives:** Labs on the Mac; Deep Field stays the default.
+- **What someone updating notices:** muted text and captions a little
+  brighter, the critical context number in white. Nothing else until Labs →
+  Colour themes is on.
+- **What can be set:** the theme, and whether it follows the OS's light and
+  dark mode.
 
 ## Phone
 
-`web/src/mobile` uses the same `theme.css` and the same components, so the
-tokens reach the phone with the same no-visible-change result. A colour theme
-will reach the phone the same way; its setting is per device and needs no
-route.
+Built for the phone too (canvas 1k). `web/src/mobile` uses the same
+`theme.css`, so every theme paints there unchanged. The phone keeps its own
+choice on the device (`mobile/platform/colourTheme.ts`), like its
+notification rows: Settings → Appearance → Colours opens a pushed list
+grouped DARK / LIGHT, and Follow the system splits the row into "In light
+mode" and "In dark mode". Pairing does not copy it and nothing syncs in
+either direction, so there is no route and no `MAC_FEATURES` gate. The phone
+has no Labs; the picker is there for everyone, and Deep Field stays the
+default.

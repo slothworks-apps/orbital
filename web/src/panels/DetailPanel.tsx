@@ -1492,7 +1492,7 @@ export function DetailPanel({
           // Square in a detached window, where the panel has no radius (22b).
           standalone ? '' : 'rounded-[14px]',
           dropArmed
-            ? 'border-accent/45 shadow-[inset_0_0_0_1px_oklch(85%_.12_205_/_.12)]'
+            ? 'border-accent/45 shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--color-accent)_12%,transparent)]'
             : 'border-transparent',
         ].join(' ')}
       />

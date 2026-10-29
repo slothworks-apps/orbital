@@ -30,7 +30,7 @@ export function MobileScreen({
       {glow && (
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_320px_260px_at_20%_10%,rgba(110,80,220,.13),transparent),radial-gradient(ellipse_360px_300px_at_90%_85%,rgba(40,170,220,.08),transparent)]"
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_320px_260px_at_20%_10%,color-mix(in_oklab,var(--color-nebula-a)_13%,transparent),transparent),radial-gradient(ellipse_360px_300px_at_90%_85%,color-mix(in_oklab,var(--color-nebula-b)_8%,transparent),transparent)]"
         />
       )}
       {header && (
@@ -85,7 +85,7 @@ export function PrimaryButton({
       className={[
         'flex h-13 w-full items-center justify-center gap-2.5 rounded-[14px] px-4 fs-15 font-bold',
         ready ? fill : 'cursor-default border border-line/14 bg-transparent text-ink-900/50',
-        !ready || tone === 'light' ? '' : variant === 'sheet' ? 'shadow-[0_0_18px_oklch(85%_.12_205/.3)]' : 'shadow-[0_0_22px_oklch(85%_.12_205/.3)]',
+        !ready || tone === 'light' ? '' : variant === 'sheet' ? 'shadow-[0_0_18px_color-mix(in_oklab,var(--color-accent)_30%,transparent)]' : 'shadow-[0_0_22px_color-mix(in_oklab,var(--color-accent)_30%,transparent)]',
       ].join(' ')}
     >
       {children}
@@ -148,7 +148,7 @@ export function Toggle({
         aria-hidden
         className={[
           'relative block h-6 w-10 rounded-full transition-[background-color] duration-[180ms] ease-out',
-          checked ? 'bg-accent shadow-[0_0_10px_oklch(85%_.12_205/.45)]' : 'bg-line/16',
+          checked ? 'bg-accent shadow-[0_0_10px_color-mix(in_oklab,var(--color-accent)_45%,transparent)]' : 'bg-line/16',
         ].join(' ')}
       >
         <span
@@ -231,11 +231,11 @@ export function LitMark({ variant }: { variant: 'paired' | 'lock' }) {
       aria-hidden
       className={[
         'relative grid h-[72px] w-[72px] place-items-center rounded-full border-2 border-accent fs-26 text-accent',
-        variant === 'paired' ? 'shadow-[0_0_30px_oklch(85%_.12_205/.4)]' : 'shadow-[0_0_30px_oklch(85%_.12_205/.35)]',
+        variant === 'paired' ? 'shadow-[0_0_30px_color-mix(in_oklab,var(--color-accent)_40%,transparent)]' : 'shadow-[0_0_30px_color-mix(in_oklab,var(--color-accent)_35%,transparent)]',
       ].join(' ')}
     >
       {variant === 'paired' && '✓'}
-      <span className="absolute right-0.5 top-0.5 block h-3.5 w-3.5 rounded-full bg-accent shadow-[0_0_12px_oklch(85%_.12_205)]" />
+      <span className="absolute right-0.5 top-0.5 block h-3.5 w-3.5 rounded-full bg-accent shadow-[0_0_12px_var(--color-accent)]" />
     </span>
   )
 }
@@ -462,7 +462,7 @@ export function AckLine({ mark, children, className = '' }: { mark: string; chil
   return (
     <div
       role="status"
-      className={`flex h-fit min-h-12 items-center gap-2.5 rounded-[12px] border border-[oklch(85%_.12_205/.35)] bg-[oklch(85%_.12_205/.1)] px-3 fs-13.5 ${className}`}
+      className={`flex h-fit min-h-12 items-center gap-2.5 rounded-[12px] border border-accent/35 bg-accent/10 px-3 fs-13.5 ${className}`}
     >
       <span aria-hidden className="text-accent">{mark}</span>
       <span className="min-w-0 flex-1">{children}</span>

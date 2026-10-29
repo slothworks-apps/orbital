@@ -27,7 +27,7 @@ export function MissingDirectorySheet({
   return (
     <BottomSheet label="Create this folder?" onDismiss={onBack} variant="question" swipeToDismiss>
       <div className="shrink-0 px-5 pb-3 pt-0.5">
-        <div className="font-mono fs-10 tracking-[0.18em] text-[oklch(85%_.12_205/.8)]">
+        <div className="font-mono fs-10 tracking-[0.18em] text-accent/80">
           NEW SESSION · {project.toUpperCase()}
         </div>
         <h2 className="mt-1 fs-19 font-bold leading-[1.25] tracking-[-0.01em]">Create this folder?</h2>

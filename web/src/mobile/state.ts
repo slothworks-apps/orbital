@@ -5,6 +5,7 @@ import type { GroupEnded, MemberRow, PrimaryRef } from '@orbital/shared/remote/g
 import type { GroupClientEvent } from '@orbital/shared/remote/groupClient'
 import { MIN_SERVER_VERSION, isSupportedServer } from '@orbital/shared/remote/version'
 import type { EndedSummary } from '../lib/api'
+import type { ColourSlot } from './platform/colourTheme'
 import type { LockLabel } from './platform/deviceLock'
 import type { Pairing } from './platform/parse'
 import { lockOnBackground, lockOnReturn, type AppLock } from './lock'
@@ -14,7 +15,8 @@ import type { FederatedSource } from './transport/groupFederation'
 export type Screen = BaseScreen | PushedScreen
 
 /** The screens that stand on their own. */
-export type BaseScreen = 'pairing' | 'list' | 'session' | 'settings' | 'code' | 'new' | 'limits' | 'unpaired' | 'mismatch'
+export type BaseScreen =
+  | 'pairing' | 'list' | 'session' | 'settings' | 'code' | 'colours' | 'new' | 'limits' | 'unpaired' | 'mismatch'
 
 /**
  * What can be pushed over a session (spec 2026-10-05-mobile-next § 3, § 2):
@@ -92,6 +94,8 @@ export interface MobileState {
    * screen. While a pushed screen shows, `screen` is its top's `kind`.
    */
   pushed: Pushed[]
+  /** Which slot of the colour choice the Colours screen writes, and so which themes it lists (canvas 1k B, C). */
+  colourSlot: ColourSlot
   /** The relay link (9a header: `connecting` is the dim dot). */
   link: LinkStatus
   macOnline: boolean
@@ -190,7 +194,7 @@ export interface MobileState {
 }
 
 export const initialMobileState: MobileState = {
-  screen: 'pairing', previous: null, sessionId: null, pushed: [], link: 'off', macOnline: false, ready: false,
+  screen: 'pairing', previous: null, sessionId: null, pushed: [], colourSlot: 'theme', link: 'off', macOnline: false, ready: false,
   asOf: null, checkedAt: null, rechecking: null, listedAt: null, endedSummary: null, endedLoaded: false,
   mismatch: null, unpaired: false, groupEnded: null, standaloneRelay: null, unreachable: false, pairing: null, macName: null, macVersion: null, devices: [], refusals: {},
   members: [], group: { primary: null }, pendingPair: null, ownCode: null, refusedPair: null, composerIntent: null,
@@ -386,6 +390,7 @@ export function back(state: MobileState): Partial<MobileState> | 'exit' {
     case 'limits':
       return { screen: 'list' }
     case 'code':
+    case 'colours':
       return { screen: 'settings' }
     case 'pairing':
       // Paired already (back on "Paired with", or while it waits for hello): the list, not where pairing began.
@@ -437,6 +442,8 @@ interface MobileActions {
   /** The federation's sources changed (`applyDevices`). */
   setDevices(sources: FederatedSource[]): void
   go(screen: BaseScreen): void
+  /** Settings → Appearance: the Colours list, for the one theme or for one OS appearance (canvas 1k). */
+  openColours(slot: ColourSlot): void
   openSession(id: string): void
   openSubagent(ref: { sessionId: string; toolUseId: string }): void
   openTask(ref: { sessionId: string; taskId: string }): void
@@ -457,6 +464,7 @@ export const useMobile = create<MobileState & MobileActions>()((set, get) => ({
   applyGroup: (event) => set(reduceGroup(get(), event)),
   setDevices: (sources) => set(applyDevices(get(), sources)),
   go: (screen) => set((s) => ({ screen, previous: s.screen, pushed: [] })),
+  openColours: (slot) => set((s) => ({ screen: 'colours', previous: s.screen, pushed: [], colourSlot: slot })),
   openSession: (id) =>
     set((s) => ({
       screen: 'session', sessionId: id, pushed: [],

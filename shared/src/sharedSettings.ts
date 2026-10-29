@@ -29,7 +29,7 @@ export const SHARED_SETTING_KEYS: readonly string[] = [
   // The look.
   'map_theme', 'map_limit_sun_style', 'map_limit_sun_colors',
   // The Labs switches.
-  'harness_enabled', 'walkthrough_enabled', 'archipelago_enabled', 'limit_suns_enabled',
+  'harness_enabled', 'walkthrough_enabled', 'archipelago_enabled', 'limit_suns_enabled', 'colour_themes_enabled',
   // Found after the first list (spec § Which settings are shared).
   'map_moon_orbits', 'stats_show_human_wait', 'narrate_model', 'narrate_commentary',
   'issue_check_enabled', 'issue_check_model', 'terminal_enabled', 'terminal_cursor', 'terminal_cursor_blink',
@@ -58,6 +58,8 @@ export const PER_DEVICE_SETTING_KEYS: readonly string[] = [
   'whats_new_seen', 'models_catalog', 'model_context_windows', 'cli_built_in_commands',
   // Found after the first list: the terminal's place on this screen, and what this device has shown or unlocked.
   'terminal_placement', 'terminal_dock_height', 'gh_tip', 'experimental_unlocked',
+  // The colour theme: a bright room and macOS's appearance belong to this Mac, as text size does.
+  'colour_theme', 'colour_theme_follow_system',
 ];
 
 const PER_DEVICE_PREFIXES = ['remote_', 'new_session_last_'];

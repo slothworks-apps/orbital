@@ -8,6 +8,7 @@ import { createRoot } from 'react-dom/client'
 import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { MobileApp } from './MobileApp'
 import { boot } from './boot'
+import { loadPhoneColours, paintLastColourTheme } from './platform/colourTheme'
 import { hideSplashAfterPaint } from './platform/splash'
 import {
   notifyStarted,
@@ -34,6 +35,11 @@ function Started(): null {
   useEffect(() => notifyStarted(__MOBILE_VERSION__), [])
   return null
 }
+
+// The theme painted last time, before anything renders (canvas `Feature -
+// Colour themes` 1k); the stored choice is read with boot and confirms it.
+paintLastColourTheme()
+const colours = loadPhoneColours()
 
 const root = createRoot(document.getElementById('root')!)
 
@@ -74,6 +80,7 @@ void (async () => {
   } catch (err) {
     console.warn('orbital: boot failed', err)
   }
+  await colours
   root.render(
     <StrictMode>
       <ErrorBoundary label="Orbital">

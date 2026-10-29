@@ -558,7 +558,7 @@ export function WhereLine({
               type="button"
               aria-label={prAriaLabel(shownPr)}
               onClick={() => window.open(shownPr.url, '_blank', 'noopener')}
-              className="-mx-1 flex-none cursor-pointer rounded-[5px] px-1 py-0.5 font-mono fs-11 leading-[calc(14px*var(--text-scale,1))] text-ink-500/85 transition-colors duration-[120ms] ease-in-out hover:bg-line/9 hover:text-ink-100 focus-visible:text-ink-100 focus-visible:shadow-[0_0_0_1px_oklch(85%_.12_205/.7)] focus-visible:outline-none"
+              className="-mx-1 flex-none cursor-pointer rounded-[5px] px-1 py-0.5 font-mono fs-11 leading-[calc(14px*var(--text-scale,1))] text-ink-500/85 transition-colors duration-[120ms] ease-in-out hover:bg-line/9 hover:text-ink-100 focus-visible:text-ink-100 focus-visible:shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-accent)_70%,transparent)] focus-visible:outline-none"
             >
               {fit.pr}
             </button>

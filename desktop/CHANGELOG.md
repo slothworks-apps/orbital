@@ -3,6 +3,10 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+### Added
+- Labs → Colour themes: pick a palette for the whole app in Settings → Appearance — Infrared for a bright room, Event Horizon for more contrast, and palettes after Solarized, Monokai, Dracula, Nord, Gruvbox and One Dark — or follow macOS's light and dark mode.
+### Changed
+- Muted text and small captions are a little brighter, so they are easier to read, and a context gauge past its critical line shows its number in white beside the red bar.
 
 ## [0.45.0] — 2026-10-29
 ### Added

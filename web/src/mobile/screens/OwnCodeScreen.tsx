@@ -123,7 +123,7 @@ export function OwnCodeScreen() {
   return (
     <MobileScreen header={header} footer={footer}>
       <div className="flex flex-col gap-4 px-5 pt-6">
-        <div className="font-mono fs-10 tracking-[0.2em] text-[oklch(85%_.12_205/.85)]">THIS PHONE&apos;S CODE</div>
+        <div className="font-mono fs-10 tracking-[0.2em] text-accent/85">THIS PHONE&apos;S CODE</div>
         <h2 className="fs-22 font-bold leading-[1.25] tracking-[-0.01em] [text-wrap:balance]">
           Paste it on the device you&apos;re adding
         </h2>
@@ -167,7 +167,7 @@ export function OwnCodeScreen() {
           <div className="flex flex-col gap-[7px]">
             <div aria-hidden className="h-[3px] overflow-hidden rounded-full bg-line/12">
               <div
-                className="h-full bg-[oklch(85%_.12_205/.7)] transition-[width] duration-1000 ease-linear"
+                className="h-full bg-accent/70 transition-[width] duration-1000 ease-linear"
                 style={{ width: `${left.fraction * 100}%` }}
               />
             </div>

@@ -118,6 +118,13 @@ import { ProfilesSection } from './ProfilesSection'
 import { GhLine } from './GhLine'
 import { SendFeedback, type FeedbackKind } from './SendFeedback'
 import { isDemo } from '../lib/demo'
+import {
+  COLOUR_THEMES_ENABLED_KEY,
+  COLOUR_THEME_FOLLOW_SYSTEM_KEY,
+  COLOUR_THEME_KEY,
+  colourThemesEnabled,
+} from '../lib/colourTheme'
+import { ColourThemeRows } from './ColourThemePicker'
 import { ISSUE_CHECK_ENABLED_KEY } from './report/logic'
 import { ReportDialog } from './report/ReportDialog'
 import {
@@ -359,6 +366,7 @@ const SECTION_KEYS = {
   labs: [
     HARNESS_ENABLED_KEY,
     TERMINAL_ENABLED_KEY,
+    COLOUR_THEMES_ENABLED_KEY,
     ISSUE_CHECK_ENABLED_KEY,
     LIMIT_SUNS_ENABLED_KEY,
     LIMIT_SUN_STYLE_KEY,
@@ -373,6 +381,7 @@ const SECTION_KEYS = {
     MOON_ORBITS_KEY,
   ],
   terminal: [TERMINAL_PLACEMENT_KEY, TERMINAL_CURSOR_KEY, TERMINAL_CURSOR_BLINK_KEY],
+  colours: [COLOUR_THEME_KEY, COLOUR_THEME_FOLLOW_SYSTEM_KEY],
   text: [TEXT_SCALE_KEY, TRANSCRIPT_TEXT_SCALE_KEY],
   detailPanel: ['header_session_stats', 'header_pull_request', 'header_line_changes', 'end_closes_panel'],
   map: [
@@ -1101,6 +1110,8 @@ export function Settings({ open, onClose }: SettingsProps) {
   const lineChangesPreview = lineGroups(LINE_CHANGES_SAMPLE, lineChanges)
   const statePills = mapStatePills(settings)
   const theme = mapTheme(settings)
+  // Appearance → COLOURS (1f): only while its Labs switch is on, and never in the website's demo.
+  const coloursShown = colourThemesEnabled(settings) && !isDemo()
   const editDiffs = settings.transcript_edit_diffs === 'expanded' ? 'expanded' : 'collapsed'
   const expandDiffOnPermissionRow = expandDiffOnPermission(settings)
   const guard = guardGesture(settings)
@@ -1641,6 +1652,21 @@ export function Settings({ open, onClose }: SettingsProps) {
                           }
                         />
                       </Row>
+                      {/* Canvas `Feature - Colour themes`: the switch only; while
+                          it is on, the picker is Appearance's COLOURS group (1f). */}
+                      <Row
+                        title="Colour themes"
+                        setting={COLOUR_THEMES_ENABLED_KEY}
+                        desc="Offers colour themes in Appearance: Infrared for a bright room, Event Horizon for more contrast, and palettes after Solarized, Monokai, Dracula, Nord, Gruvbox and One Dark."
+                      >
+                        <Toggle
+                          aria-label="Colour themes"
+                          checked={colourThemesEnabled(settings)}
+                          onChange={(checked) =>
+                            void patchAndSet({ [COLOUR_THEMES_ENABLED_KEY]: checked ? 'true' : 'false' })
+                          }
+                        />
+                      </Row>
                       <Row
                         title="Check reports with Claude"
                         setting={ISSUE_CHECK_ENABLED_KEY}
@@ -1792,10 +1818,19 @@ export function Settings({ open, onClose }: SettingsProps) {
 
                   {section === 'appearance' && (
                     <>
+                      {/* Canvas `Feature - Colour themes` 1f, above TEXT, while
+                          Labs → Colour themes is on. Not in the website's demo,
+                          which does not repaint the root either. */}
+                      {coloursShown && (
+                        <ScopeSection keys={SECTION_KEYS.colours}>
+                          <SectionLabel first>COLOURS</SectionLabel>
+                          <ColourThemeRows settings={settings} patchAndSet={patchAndSet} />
+                        </ScopeSection>
+                      )}
                       {/* Not in the website's demo: it does not run the root's scales. */}
                       {!isDemo() && (
                       <ScopeSection keys={SECTION_KEYS.text}>
-                      <SectionLabel first>TEXT</SectionLabel>
+                      <SectionLabel first={!coloursShown}>TEXT</SectionLabel>
                       {/* canvas `Feature - Text size` 6a */}
                       <Row
                         title="Text size"

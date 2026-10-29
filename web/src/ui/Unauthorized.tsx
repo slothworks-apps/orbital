@@ -27,7 +27,7 @@ export function Unauthorized() {
     <div role="status" className="relative h-screen w-screen overflow-hidden bg-space font-sans text-ink-100">
       <div
         aria-hidden
-        className="absolute inset-0 bg-[image:radial-gradient(ellipse_620px_420px_at_30%_36%,rgba(110,80,220,.08),transparent),radial-gradient(ellipse_760px_520px_at_72%_70%,rgba(40,170,220,.05),transparent)]"
+        className="absolute inset-0 bg-[image:radial-gradient(ellipse_620px_420px_at_30%_36%,color-mix(in_oklab,var(--color-nebula-a)_8%,transparent),transparent),radial-gradient(ellipse_760px_520px_at_72%_70%,color-mix(in_oklab,var(--color-nebula-b)_5%,transparent),transparent)]"
       />
       <div className="absolute top-6 left-6 flex items-center gap-2.5 opacity-70">
         <Logo />

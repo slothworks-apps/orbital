@@ -3,6 +3,10 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Added
+- Settings → Appearance can switch the app to another colour theme — Infrared for a bright room, Event Horizon for more contrast, and six palettes after popular editor themes — or follow the phone's light and dark mode. The phone keeps its own choice, separate from the Mac.
+### Changed
+- Muted text and small captions are a little brighter, so they are easier to read.
 
 ## [0.22.0] — 2026-10-29
 ### Added

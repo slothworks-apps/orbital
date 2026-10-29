@@ -552,7 +552,7 @@ function ToolRunGroup({
             ? 'border-line/18 bg-line/5'
             : 'border-line/10 bg-shade/45',
           'hover:border-line/22 hover:bg-line/7',
-          'focus-visible:border-[oklch(85%_0.12_205_/_0.7)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[oklch(85%_0.12_205_/_0.18)]',
+          'focus-visible:border-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/18',
         ].join(' ')}
       >
         {/* One glyph, rotated when open — never swapped, so it animates (6d). */}

@@ -207,7 +207,7 @@ function WaitingCard({ sessionId, card }: { sessionId: string; card: GateCardDat
             type="button"
             disabled={busy}
             onClick={() => void approve()}
-            className="flex h-13 items-center justify-center gap-[9px] rounded-[14px] bg-accent fs-15 font-bold text-space-deep shadow-[0_0_18px_oklch(85%_.12_205/.3)] disabled:opacity-40 disabled:shadow-none"
+            className="flex h-13 items-center justify-center gap-[9px] rounded-[14px] bg-accent fs-15 font-bold text-space-deep shadow-[0_0_18px_color-mix(in_oklab,var(--color-accent)_30%,transparent)] disabled:opacity-40 disabled:shadow-none"
           >
             Approve
             {card.next && <span className="font-mono fs-10.5 font-medium opacity-75">→ step {card.next.step}</span>}

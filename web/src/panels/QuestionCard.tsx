@@ -622,7 +622,7 @@ function LiveCard({
               data-question-send
               onClick={send}
               // 9e: the focus ring shows on keyboard focus only.
-              className={`${BUTTON_BASE} ${BUTTON_CONFIRM} focus-visible:shadow-[0_0_0_2px_oklch(85%_.12_205_/_.55)]`}
+              className={`${BUTTON_BASE} ${BUTTON_CONFIRM} focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--color-accent)_55%,transparent)]`}
             >
               {multi ? 'Send answers ⌘⏎' : 'Send ⌘⏎'}
             </button>

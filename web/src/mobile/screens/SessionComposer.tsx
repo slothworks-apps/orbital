@@ -242,7 +242,7 @@ function Controls(
           type="button"
           aria-label="Stop"
           onClick={live.onStop}
-          className="flex h-11 items-center gap-2 rounded-[12px] border border-[oklch(80%_.13_60/.5)] px-4 fs-14 font-semibold text-[oklch(85%_.12_60)]"
+          className="flex h-11 items-center gap-2 rounded-[12px] border border-[oklch(80%_.13_60/.5)] px-4 fs-14 font-semibold text-warning"
         >
           <span aria-hidden className="block h-[9px] w-[9px] rounded-[1.5px] bg-current" />
           Stop
@@ -254,7 +254,7 @@ function Controls(
         onClick={() => live?.onSend()}
         disabled={!live || live.sendDisabled}
         // A round cyan disc that glows, faded while there is nothing to send (9b).
-        className="ml-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent fs-18 font-bold text-space-deep shadow-[0_0_18px_oklch(85%_.12_205/.4)] disabled:opacity-35 disabled:shadow-none"
+        className="ml-1.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent fs-18 font-bold text-space-deep shadow-[0_0_18px_color-mix(in_oklab,var(--color-accent)_40%,transparent)] disabled:opacity-35 disabled:shadow-none"
       >
         ↑
       </button>

@@ -46,7 +46,7 @@ export const ROW_BASE =
 export const ROW_REST =
   'border-line/14 hover:border-line/34 hover:bg-line/6'
 /** Canvas 9d COLOUR: "row focus — accent/.55 + ring accent/.18". */
-export const ROW_FOCUS = 'border-accent/55 bg-accent/8 shadow-[0_0_0_2px_oklch(85%_.12_205_/_.18)]'
+export const ROW_FOCUS = 'border-accent/55 bg-accent/8 shadow-[0_0_0_2px_color-mix(in_oklab,var(--color-accent)_18%,transparent)]'
 /** Canvas 9d COLOUR: "row chosen — accent/.35 + accent/.12". */
 export const ROW_CHOSEN = 'border-accent/35 bg-accent/12'
 /** Canvas 9d COLOUR: "row locked — .1 border · opacity .55". Applied to the list, per 9b C. */
@@ -60,7 +60,7 @@ export const ROW_TICKED = 'border-accent/30 bg-accent/10'
  * than by intent (web/CLAUDE.md).
  */
 export const ROW_OTHER_OPEN =
-  'flex w-full flex-col gap-[7px] rounded-[9px] border border-accent/55 bg-accent/6 px-[11px] py-[9px] shadow-[0_0_0_2px_oklch(85%_.12_205_/_.18)]'
+  'flex w-full flex-col gap-[7px] rounded-[9px] border border-accent/55 bg-accent/6 px-[11px] py-[9px] shadow-[0_0_0_2px_color-mix(in_oklab,var(--color-accent)_18%,transparent)]'
 
 /** Canvas 9d METRICS: "marker gutter — 12px · mono 10 / ✓ 11". */
 export const GUTTER = 'w-3 shrink-0 text-center font-mono fs-10 leading-[1.5]'
@@ -163,7 +163,7 @@ export const ROW_VERDICT_DENIED = 'border-line/22'
 export const BUTTON_BASE =
   'shrink-0 cursor-pointer rounded-[8px] border px-3.5 py-1.5 fs-12 font-semibold transition-[border-color,background-color] duration-[160ms] ease-[ease] focus:outline-none'
 export const BUTTON_ACCENT =
-  'border-accent/55 bg-accent/16 text-ink-100 shadow-[0_0_0_2px_oklch(85%_.12_205_/_.18)] hover:border-accent/80 hover:bg-accent/26'
+  'border-accent/55 bg-accent/16 text-ink-100 shadow-[0_0_0_2px_color-mix(in_oklab,var(--color-accent)_18%,transparent)] hover:border-accent/80 hover:bg-accent/26'
 /**
  * Canvas 9d / 9e: the question card's accent button (its review Send) —
  * border .5 and no resting ring, where 20b's `BUTTON_ACCENT` has .55 and one.
@@ -178,4 +178,4 @@ export const BUTTON_QUIET =
  * changed label is not the only thing saying the button changed state).
  */
 export const BUTTON_ACCENT_ARMED =
-  'border-accent/80 bg-accent/30 text-ink-100 shadow-[0_0_0_2px_oklch(85%_.12_205_/_.18)]'
+  'border-accent/80 bg-accent/30 text-ink-100 shadow-[0_0_0_2px_color-mix(in_oklab,var(--color-accent)_18%,transparent)]'

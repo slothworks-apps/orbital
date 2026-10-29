@@ -42,7 +42,7 @@ export function RenameSheet({
         onChange={(event) => setDraft(event.target.value)}
         aria-label="Session title"
         enterKeyHint="done"
-        className="mt-2.5 box-border h-13 w-full rounded-[14px] border border-[oklch(85%_.12_205/.5)] bg-shade/60 px-3.5 fs-15 text-ink-100 shadow-[0_0_0_3px_oklch(85%_.12_205/.1)] outline-none"
+        className="mt-2.5 box-border h-13 w-full rounded-[14px] border border-accent/50 bg-shade/60 px-3.5 fs-15 text-ink-100 shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-accent)_10%,transparent)] outline-none"
       />
       <div className="mt-2 font-mono fs-10 text-ink-900/55">
         only Orbital&apos;s label · the folder and branch don&apos;t change

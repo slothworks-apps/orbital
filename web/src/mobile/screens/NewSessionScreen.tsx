@@ -312,7 +312,7 @@ export function NewSessionScreen() {
       ✓
     </span>
   )
-  const picked = (path: string) => (path === chosenCwd ? 'bg-[oklch(85%_.12_205/.08)]' : '')
+  const picked = (path: string) => (path === chosenCwd ? 'bg-accent/8' : '')
 
   const typed = cwd.trim() !== ''
   const rows = list.kind === 'rows' ? list.rows : []
@@ -326,7 +326,7 @@ export function NewSessionScreen() {
     : dirLine
       ? 'border-[oklch(80%_.12_70/.6)]'
     : typed
-      ? 'border-[oklch(85%_.12_205/.55)]'
+      ? 'border-accent/55'
       : 'border-line/18'
 
   return (
@@ -669,7 +669,7 @@ function ModelSegments({ models, value, onChange }: { models: OrbitalModel[]; va
               // The 1px gap over the container's fill draws 9d's separators, between rows too.
               'h-11 min-w-0 truncate px-1 font-mono fs-12.5',
               active
-                ? 'bg-[color-mix(in_oklab,oklch(85%_.12_205)_10%,var(--color-shade))] font-semibold text-accent'
+                ? 'bg-[color-mix(in_oklab,var(--color-accent)_10%,var(--color-shade))] font-semibold text-accent'
                 : 'bg-shade text-ink-200/85',
             ].join(' ')}
           >

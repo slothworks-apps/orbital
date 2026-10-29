@@ -324,7 +324,7 @@ function OrbitalMark() {
   return (
     <span
       aria-hidden
-      className="relative block h-4 w-4 shrink-0 rounded-full border-[1.5px] border-accent shadow-[0_0_10px_oklch(85%_.12_205/.5)]"
+      className="relative block h-4 w-4 shrink-0 rounded-full border-[1.5px] border-accent shadow-[0_0_10px_color-mix(in_oklab,var(--color-accent)_50%,transparent)]"
     >
       <span className="absolute -right-px -top-px block h-[5px] w-[5px] rounded-full bg-accent" />
     </span>
@@ -342,7 +342,7 @@ function MacDot({ state }: { state: 'online' | 'asleep' | 'connecting' }) {
       aria-label={state === 'online' ? 'online' : 'connecting to the relay'}
       className={[
         'block h-[7px] w-[7px] shrink-0 rounded-full bg-accent',
-        state === 'online' ? 'shadow-[0_0_8px_oklch(85%_.12_205)]' : 'opacity-40',
+        state === 'online' ? 'shadow-[0_0_8px_var(--color-accent)]' : 'opacity-40',
       ].join(' ')}
     />
   )

@@ -169,10 +169,10 @@ export const TASK_TONE: Record<
   stream_lost: {
     border: 'oklch(80% .13 60 / .6)',
     bg: 'oklch(80% .13 60 / .1)',
-    ink: 'oklch(85% .12 60)',
+    ink: swatch('warning'),
     dashed: true,
     dot: 'hollow',
-    dotColor: 'oklch(85% .12 60)',
+    dotColor: swatch('warning'),
     label: 'STREAM LOST',
   },
 }
