@@ -135,11 +135,13 @@ export function IdeSlot({ ideName, readout, standing, onDismiss }: IdeSlotProps)
       // ancestor (web/CLAUDE.md). It is portalled to <body>, so this box is not
       // one of its ancestors — but a clip on the well, or on the composer's
       // root, would have been.
+      // z-[3]: the slot rises above the composer into the transcript's bottom
+      // edge, where the jump-to-bottom scrim (z-[2]) would otherwise cover it.
       style={{
         height: `${SLOT_HEIGHT_PX + SLOT_OVERLAP_PX}px`,
         bottom: '100%',
       }}
-      className="pointer-events-none absolute left-0 right-0 overflow-hidden"
+      className="pointer-events-none absolute left-0 right-0 z-[3] overflow-hidden"
     >
       <div
         // 20f: translateY 100% → 0, .26s cubic-bezier(.2,.8,.2,1) — the
