@@ -5,6 +5,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 ## [Unreleased]
 ### Changed
 - A long press on buttons, labels or the session list no longer selects their text or opens the system menu on a link; the transcript, the message box, file previews, task output, error detail and commands stay selectable.
+- Limits lists an account's directories under the device each one is on.
 
 ## [0.21.2] — 2026-10-27
 ### Fixed

@@ -19,6 +19,7 @@ import type { ClaudeDirInfo, ClaudeDirLimits, LimitSeverity, LimitsWaitRow } fro
 import { claudeDirMonograms } from '../lib/claudeDirs'
 import { ClaudeDirMark } from '../ui/ClaudeDirMark'
 import { KindGlyph } from '../ui/KindGlyph'
+import { LOCAL_DEVICE } from '../lib/devices'
 import { mapHref } from '../walkthrough/route'
 import { PageBar } from '../ui/PageBar'
 import { StatsShell } from '../stats/StatsShell'
@@ -28,7 +29,9 @@ import {
   paceExplanation,
   sunAccountKeys,
   thisDevice,
+  UNNAMED_THIS_DEVICE,
   type AccountDevice,
+  type AccountDir,
   type AccountView,
   type EstimateWords,
 } from './accounts'
@@ -219,6 +222,21 @@ export function LimitsPage({ account = null }: { account?: string | null }) {
   )
 }
 
+/** An account's directories on one device (60c): each name, its path where known, `·` between them. */
+function DirRun({ dirs }: { dirs: readonly AccountDir[] }) {
+  return (
+    <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+      {dirs.map((d, i) => (
+        <Fragment key={d.key}>
+          <span className="text-[rgba(214,230,248,.88)]">{d.name}</span>
+          {d.path && <span>{d.path}</span>}
+          {i < dirs.length - 1 && <span className="text-[rgba(150,205,255,.25)]">·</span>}
+        </Fragment>
+      ))}
+    </span>
+  )
+}
+
 /** How long the head of the account a sun opened stays lit before it fades (60f, CLICK / DRAG). */
 const OPENED_FROM_MAP_LIT_MS = 3000
 
@@ -279,29 +297,29 @@ function AccountGroup({
           )}
           {!missing && dir.tracked && view.stale && <ReadAgain onClick={onReadAgain} disabled={reading} />}
         </div>
-        <div className="flex flex-wrap items-center gap-[18px] font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
-          <span className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[rgba(160,190,225,.45)]">directories</span>
-            {view.dirs.map((d, i) => (
-              <Fragment key={d.key}>
-                <span className="text-[rgba(214,230,248,.88)]">{d.name}</span>
-                {d.path && <span>{d.path}</span>}
-                {i < view.dirs.length - 1 && <span className="text-[rgba(150,205,255,.25)]">·</span>}
-              </Fragment>
-            ))}
-          </span>
-          {view.devices.length > 0 && (
-            <span className="flex flex-wrap items-center gap-1.5">
-              <span className="text-[rgba(160,190,225,.45)]">devices</span>
-              {view.devices.map((device) => (
-                <span key={device.id} className="flex items-center gap-[5px] text-[rgba(214,230,248,.8)]">
+        {view.devices.length > 0 ? (
+          // 60c: a row per device — its glyph and name, then its directories.
+          <div className="grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-x-4 gap-y-[5px] font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+            {view.devices.map((device) => (
+              <Fragment key={device.id}>
+                <span className="flex items-center gap-[5px] whitespace-nowrap text-[rgba(160,190,225,.55)]">
                   <KindGlyph kind={device.kind} />
                   {device.name}
+                  {device.id === LOCAL_DEVICE && device.name !== UNNAMED_THIS_DEVICE && (
+                    <span className="text-[rgba(160,190,225,.4)]">
+                      {device.kind === 'desktop' ? '(this Mac)' : '(this device)'}
+                    </span>
+                  )}
                 </span>
-              ))}
-            </span>
-          )}
-        </div>
+                <DirRun dirs={device.dirs} />
+              </Fragment>
+            ))}
+          </div>
+        ) : (
+          <div className="font-mono text-[10.5px] text-[rgba(160,190,225,.65)]">
+            <DirRun dirs={view.dirs} />
+          </div>
+        )}
       </div>
       {missing ? (
         <QuietRow

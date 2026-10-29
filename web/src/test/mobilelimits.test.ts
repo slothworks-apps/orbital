@@ -210,13 +210,13 @@ describe('phoneLimitsView', () => {
     extraUsage: null, waits: [], ...patch,
   })
 
-  it('one account on two devices is one section, its directory and its devices named once', () => {
+  it('one account on two devices is one section, its directories listed by device', () => {
     const view = phoneLimitsView([
       dir({ machine: machine('a', 'studio-mbp') }),
       dir({ machine: machine('b', 'air-m3'), readAt: at(13, 0) }),
     ], NOW)
     expect(view.groups).toHaveLength(1)
-    expect(view.groups[0]).toMatchObject({ title: 'jan@acme.com', plan: 'Pro', tiles: [], meta: 'Personal · on studio-mbp, air-m3' })
+    expect(view.groups[0]).toMatchObject({ title: 'jan@acme.com', plan: 'Pro', tiles: [], meta: 'studio-mbp: Personal · air-m3: Personal' })
     expect(view.groups[0].rows[0]).toMatchObject({ value: '85%', word: 'WARNING', reset: 'today 15:00' })
     expect(view.groups[0].rows[0].estimate).toMatchObject({ before: 'runs out ', at: '~14:20', after: ' at this pace' })
     expect(view).toMatchObject({ read: 'read 13:30', stale: null })

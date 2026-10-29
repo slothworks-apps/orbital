@@ -119,7 +119,7 @@ export function mapSuns(
   return shown.map((view, index) => {
     const { group } = view
     const at = stored.get(group.key)
-    const tiles = sunTiles([...new Set(view.dirs.map((d) => d.mono))])
+    const tiles = sunTiles(view.dirs.map((d) => d.mono))
     return {
       key: group.key,
       group,

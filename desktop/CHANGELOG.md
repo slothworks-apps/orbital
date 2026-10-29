@@ -6,6 +6,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ### Changed
 - In Settings → Devices, what each other device may do on this Mac is folded under one line saying how much is allowed; click it to see and change the toggles.
 - Dragging the pointer across buttons, labels or the sidebar no longer selects their text, and icons no longer lift off as a drag image; the transcript, the message box, the file and skill viewers, task output, error detail and commands stay selectable, and an image still drags out of the full-size viewer.
+- Plan limits lists an account's directories under the device each one is on, and a directory with the same mark on two devices shows its tile once.
 
 ## [0.44.0] — 2026-10-27
 ### Added
