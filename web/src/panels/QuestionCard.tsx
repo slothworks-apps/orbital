@@ -1252,7 +1252,7 @@ function LiveBody({
                 </span>
               )}
               <span className="flex min-w-0 flex-col gap-[3px]">
-                <span className={[LABEL, focused && !chosen ? 'text-white' : 'text-ink-100'].join(' ')}>
+                <span className={[LABEL, focused && !chosen ? 'text-ink-50' : 'text-ink-100'].join(' ')}>
                   {option.label}
                 </span>
                 <span

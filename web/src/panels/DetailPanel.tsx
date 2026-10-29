@@ -1220,7 +1220,7 @@ export function DetailPanel({
       {session?.interruptedAt != null && (
         <div
           data-interrupted-banner
-          className="mx-[22px] mb-3.5 rounded-[10px] border border-white/25 bg-white/[0.06] px-3.5 py-3 font-mono fs-10.5 leading-[1.7] text-ink-200/85 [text-wrap:pretty]"
+          className="mx-[22px] mb-3.5 rounded-[10px] border border-ink-50/25 bg-ink-50/[0.06] px-3.5 py-3 font-mono fs-10.5 leading-[1.7] text-ink-200/85 [text-wrap:pretty]"
         >
           Turn interrupted by a server restart. The conversation is intact — ask again for
           whatever did not come back.

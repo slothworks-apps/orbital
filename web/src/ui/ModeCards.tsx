@@ -57,7 +57,7 @@ export function ModeCards({ value, onChange, disabled = false, compact: compactP
                 ? compact
                   ? 'border-accent/70 bg-accent/8'
                   : 'border-accent/70 bg-accent/8 shadow-[0_0_20px_color-mix(in_oklab,_var(--color-accent)_15%,_transparent)]'
-                : 'border-line/14 bg-space/40 hover:bg-white/5',
+                : 'border-line/14 bg-space/40 hover:bg-ink-50/5',
             ].join(' ')}
           >
             {active && !compact && (

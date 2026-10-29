@@ -391,7 +391,7 @@ export class ArchipelagoScene {
     el('circle', { cx: fmt(lamp.x), cy: fmt(lamp.y), r: 0.045, fill: '#f0d39a' }, g)
 
     const plaque = document.createElement('div')
-    plaque.className = 'pointer-events-auto absolute left-0 top-0 flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-lg border border-white/8 bg-panel/80 px-2.5 py-1.5'
+    plaque.className = 'pointer-events-auto absolute left-0 top-0 flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-lg border border-ink-50/8 bg-panel/80 px-2.5 py-1.5'
     plaque.dataset.island = String(island.tagId)
     plaque.innerHTML = `<i style="width:3px;height:18px;border-radius:2px;background:${hsl(hue, 60, 65)}"></i><span data-name class="font-mono fs-11 font-semibold tracking-[0.16em] text-ink-100"></span>`
     this.labelLayer.appendChild(plaque)
@@ -566,7 +566,7 @@ export class ArchipelagoScene {
     v.label.title = s.title
     v.label.className = [
       'group pointer-events-auto absolute left-0 top-0 max-w-[260px] cursor-pointer rounded-lg border bg-panel/84 px-2.5 py-1.5 transition-[opacity,border-color] duration-700',
-      p.selected ? 'border-ink-200/35' : 'border-white/7 hover:border-white/22',
+      p.selected ? 'border-ink-200/35' : 'border-ink-50/7 hover:border-ink-50/22',
     ].join(' ')
     v.label.style.opacity = String((p.muted ? 0.28 : 1) * (key === 'ended' ? 0.6 : 1))
     v.label.innerHTML = `

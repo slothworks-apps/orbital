@@ -360,7 +360,7 @@ export function ToolRow({
           or holds keyboard focus. */}
       <div
         data-tool-header
-        className="relative [&:hover:not(:has([data-path-button]:hover)):not(:has([data-path-button]:focus-visible))]:bg-white/5"
+        className="relative [&:hover:not(:has([data-path-button]:hover)):not(:has([data-path-button]:focus-visible))]:bg-ink-50/5"
       >
         <button
           type="button"

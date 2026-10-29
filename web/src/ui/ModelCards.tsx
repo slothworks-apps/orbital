@@ -32,7 +32,7 @@ function cardClassName(active: boolean, compact: boolean): string {
           'border-accent/70 bg-accent/8'
         : // canvas 4b selected: border .7 / bg .08, plus a 20px .15-alpha glow.
           'border-accent/70 bg-accent/8 shadow-[0_0_20px_color-mix(in_oklab,_var(--color-accent)_15%,_transparent)]'
-      : 'border-line/14 bg-space/40 hover:bg-white/5',
+      : 'border-line/14 bg-space/40 hover:bg-ink-50/5',
   ].join(' ')
 }
 

@@ -446,7 +446,7 @@ export function Dialog({
               type="button"
               onClick={onClose}
               aria-label="Close dialog"
-              className={`shrink-0 ${headerAction != null ? 'self-center' : 'self-start'} rounded border border-line/20 px-[7px] py-[3px] font-mono fs-10 text-ink-500/70 transition-colors hover:bg-white/5`}
+              className={`shrink-0 ${headerAction != null ? 'self-center' : 'self-start'} rounded border border-line/20 px-[7px] py-[3px] font-mono fs-10 text-ink-500/70 transition-colors hover:bg-ink-50/5`}
             >
               esc
             </button>

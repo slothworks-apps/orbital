@@ -781,7 +781,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                       // 80d: 6px on the left, where the grip's 16px column sits.
                       isSelected
                         ? 'flex flex-col gap-3 py-3.5 pl-1.5 pr-3.5'
-                        : 'flex items-center gap-3 border-line/10 py-3 pl-1.5 pr-3.5 hover:bg-white/5',
+                        : 'flex items-center gap-3 border-line/10 py-3 pl-1.5 pr-3.5 hover:bg-ink-50/5',
                     ].join(' ')}
                   >
                     <div className="flex items-center gap-2">
@@ -861,7 +861,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                               onClick={() => void handleHue(tag.id, hue)}
                               // 1e: 22px swatch, current one ringed with a 2px
                               // white outline at 2px offset.
-                              className="h-[22px] w-[22px] shrink-0 rounded-full outline-white aria-pressed:outline-2 aria-pressed:outline-offset-2"
+                              className="h-[22px] w-[22px] shrink-0 rounded-full outline-ink-50 aria-pressed:outline-2 aria-pressed:outline-offset-2"
                               style={{ background: tagColor(hue) }}
                             />
                           ))}

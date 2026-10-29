@@ -29,7 +29,7 @@ export function StatusDot({ status, hue }: StatusDotProps) {
       }}
     >
       {status === 'needs_input' && (
-        <span aria-hidden className="orbital-pulse absolute -inset-[3px] rounded-full border border-white" />
+        <span aria-hidden className="orbital-pulse absolute -inset-[3px] rounded-full border border-ink-50" />
       )}
     </span>
   )

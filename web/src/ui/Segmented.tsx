@@ -12,7 +12,7 @@ export type SegmentedSize = 'tab' | 'filter' | 'row' | 'field' | 'steps'
 
 /** Selection is a tint, an ink and a weight (see the ADR); hover is neutral underneath it. */
 const ACCENT_ON = 'bg-accent/10 font-semibold text-accent'
-const NEUTRAL_OFF = 'bg-transparent text-ink-200/85 hover:bg-white/5'
+const NEUTRAL_OFF = 'bg-transparent text-ink-200/85 hover:bg-ink-50/5'
 
 const SIZES = {
   /** canvas 10a — tabs inside a panel heading (the tool leaderboard's). */

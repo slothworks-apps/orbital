@@ -1174,7 +1174,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                 type="button"
                 aria-label="Close"
                 onClick={onClose}
-                className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-line/14 fs-14 leading-(--text-sm--line-height) text-ink-500/70 transition-colors hover:bg-white/5 hover:text-ink-100"
+                className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-line/14 fs-14 leading-(--text-sm--line-height) text-ink-500/70 transition-colors hover:bg-ink-50/5 hover:text-ink-100"
               >
                 ‹
               </button>
@@ -1245,7 +1245,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                         item.key === section
                           ? 'border-line/14 bg-line/8 font-semibold text-ink-100'
                           : 'border-transparent font-medium text-ink-200/80',
-                        item.disabled ? 'cursor-default' : 'hover:bg-white/5',
+                        item.disabled ? 'cursor-default' : 'hover:bg-ink-50/5',
                       ].join(' ')}
                     >
                       {item.label}

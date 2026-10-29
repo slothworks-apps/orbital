@@ -26,7 +26,7 @@ function TabChip({ active, onClick, children }: { active: boolean; onClick: () =
         'whitespace-nowrap rounded-full border px-[11px] py-[5px] fs-11.5 font-semibold transition-colors',
         active
           ? 'border-line/30 bg-line/14 text-ink-100'
-          : 'border-line/14 text-ink-900/70 hover:bg-white/5',
+          : 'border-line/14 text-ink-900/70 hover:bg-ink-50/5',
       ].join(' ')}
     >
       {children}
@@ -372,7 +372,7 @@ export function DraftPopover({
             aria-haspopup="listbox"
             aria-expanded={picking === 'scope'}
             onClick={() => setPicking(picking === 'scope' ? null : 'scope')}
-            className="flex items-center gap-[7px] rounded-[7px] border border-line/18 px-2.5 py-[5px] font-mono fs-11 text-ink-100 hover:bg-white/5"
+            className="flex items-center gap-[7px] rounded-[7px] border border-line/18 px-2.5 py-[5px] font-mono fs-11 text-ink-100 hover:bg-ink-50/5"
           >
             <ScopeMark scope={scope} />
             {scope.kind === 'global' ? 'Global' : scope.name}
@@ -400,7 +400,7 @@ export function DraftPopover({
         <button
           type="button"
           onClick={onClose}
-          className="whitespace-nowrap rounded-lg border border-line/18 px-3 py-[7px] fs-12 font-semibold text-ink-200/90 hover:bg-white/5"
+          className="whitespace-nowrap rounded-lg border border-line/18 px-3 py-[7px] fs-12 font-semibold text-ink-200/90 hover:bg-ink-50/5"
         >
           Cancel
         </button>

@@ -80,7 +80,7 @@ export function StepRail({ walkthrough, currentId, onJump }: StepRailProps) {
                     <span
                       className={[
                         'truncate fs-12.5 leading-[1.5]',
-                        current ? 'text-white' : isBlind ? 'text-ink-900/50' : 'text-ink-100',
+                        current ? 'text-ink-50' : isBlind ? 'text-ink-900/50' : 'text-ink-100',
                       ].join(' ')}
                     >
                       {stepLabel(walkthrough, step)}

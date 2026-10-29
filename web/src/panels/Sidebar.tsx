@@ -255,7 +255,7 @@ function IconButton({
       aria-label={label}
       title={title}
       onClick={onClick}
-      className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-line/14 fs-14 leading-(--text-sm--line-height) text-ink-500/70 transition-colors hover:bg-white/5 hover:text-ink-100"
+      className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-line/14 fs-14 leading-(--text-sm--line-height) text-ink-500/70 transition-colors hover:bg-ink-50/5 hover:text-ink-100"
     >
       <span aria-hidden>{glyph}</span>
     </button>
@@ -383,8 +383,8 @@ function SessionRow({
       style={{ viewTransitionName: sessionViewTransitionName(session.id) }}
       onContextMenu={onContextMenu ? (e) => onContextMenu(session.id, e) : undefined}
       className={[
-        'group/row relative rounded-lg transition-colors hover:bg-white/5',
-        menuSubject && !selected ? 'bg-white/5' : '',
+        'group/row relative rounded-lg transition-colors hover:bg-ink-50/5',
+        menuSubject && !selected ? 'bg-ink-50/5' : '',
         // 1a dims ended rows; per-row rather than on the list, because 4c
         // puts ended and live rows side by side inside PINNED. 50e halves a
         // row whose device is offline, ended or not.

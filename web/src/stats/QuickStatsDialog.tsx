@@ -171,7 +171,7 @@ export function QuickStatsDialog({
               type="button"
               onClick={onClose}
               aria-label="Close session stats"
-              className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[7px] border border-line/14 fs-13 text-ink-500/70 transition-colors hover:bg-white/5 hover:text-ink-100"
+              className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[7px] border border-line/14 fs-13 text-ink-500/70 transition-colors hover:bg-ink-50/5 hover:text-ink-100"
             >
               ✕
             </button>

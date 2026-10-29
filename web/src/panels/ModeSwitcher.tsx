@@ -109,7 +109,7 @@ export function ModeSwitcher({ session, disabled }: { session: ApiSession; disab
                     onClick={() => choose(mode.value)}
                     className={[
                       'grid grid-cols-[1fr_auto] items-center gap-2 rounded-[7px] border px-2 py-[9px] text-left',
-                      selected ? 'border-accent/35 bg-accent/10' : 'border-transparent hover:bg-white/5',
+                      selected ? 'border-accent/35 bg-accent/10' : 'border-transparent hover:bg-ink-50/5',
                     ].join(' ')}
                   >
                     <span className="min-w-0">

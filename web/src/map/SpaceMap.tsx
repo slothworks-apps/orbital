@@ -1472,7 +1472,7 @@ export function SpaceMap() {
               errorLogOpen
                 ? 'border-accent/50 text-ink-100 shadow-[0_0_0_3px_color-mix(in_oklab,_var(--color-accent)_10%,_transparent)]'
                 : [
-                    'border-line/16 hover:border-line/30 hover:bg-line/10 hover:text-white',
+                    'border-line/16 hover:border-line/30 hover:bg-line/10 hover:text-ink-50',
                     errorsUnseen > 0 ? 'text-ink-100' : 'text-ink-500/60',
                   ].join(' '),
             ].join(' ')}
@@ -1497,7 +1497,7 @@ export function SpaceMap() {
               type="button"
               aria-label="Zoom in"
               onClick={zoomIn}
-              className="grid h-[34px] w-[34px] place-items-center border-b border-line/10 fs-16 leading-(--text-base--line-height) text-ink-100 hover:bg-white/5"
+              className="grid h-[34px] w-[34px] place-items-center border-b border-line/10 fs-16 leading-(--text-base--line-height) text-ink-100 hover:bg-ink-50/5"
             >
               +
             </button>
@@ -1505,7 +1505,7 @@ export function SpaceMap() {
               type="button"
               aria-label="Zoom out"
               onClick={zoomOut}
-              className="grid h-[34px] w-[34px] place-items-center border-b border-line/10 fs-16 leading-(--text-base--line-height) text-ink-100 hover:bg-white/5"
+              className="grid h-[34px] w-[34px] place-items-center border-b border-line/10 fs-16 leading-(--text-base--line-height) text-ink-100 hover:bg-ink-50/5"
             >
               −
             </button>
@@ -1514,7 +1514,7 @@ export function SpaceMap() {
               aria-label="Fit view"
               title={`Fit view · ${shortcutLabel('map.fit')}`}
               onClick={handleFit}
-              className="grid h-[34px] w-[34px] place-items-center fs-14 leading-(--text-sm--line-height) text-ink-100 hover:bg-white/5"
+              className="grid h-[34px] w-[34px] place-items-center fs-14 leading-(--text-sm--line-height) text-ink-100 hover:bg-ink-50/5"
             >
               ⌖
             </button>

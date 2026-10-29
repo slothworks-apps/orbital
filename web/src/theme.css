@@ -861,10 +861,10 @@ body {
   @apply list-decimal pl-5;
 }
 .orbital-composer-field code {
-  @apply rounded bg-white/10 px-1 py-0.5 font-mono text-[0.85em];
+  @apply rounded bg-ink-50/10 px-1 py-0.5 font-mono text-[0.85em];
 }
 .orbital-composer-field pre {
-  @apply rounded-md bg-black/30 p-3 font-mono fs-12 leading-(--text-xs--line-height) text-ink-300 whitespace-pre-wrap wrap-anywhere;
+  @apply rounded-md bg-space/30 p-3 font-mono fs-12 leading-(--text-xs--line-height) text-ink-300 whitespace-pre-wrap wrap-anywhere;
 }
 .orbital-composer-field pre code {
   @apply bg-transparent p-0 text-[1em];

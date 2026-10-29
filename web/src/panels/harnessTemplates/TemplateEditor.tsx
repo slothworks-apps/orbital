@@ -56,7 +56,7 @@ export function EditorHeader({
         type="button"
         aria-label="Back to the templates"
         onClick={onBack}
-        className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-line/14 fs-14 leading-(--text-sm--line-height) text-ink-500/70 transition-colors hover:bg-white/5 hover:text-ink-100"
+        className="grid h-7 w-7 shrink-0 place-items-center rounded-[7px] border border-line/14 fs-14 leading-(--text-sm--line-height) text-ink-500/70 transition-colors hover:bg-ink-50/5 hover:text-ink-100"
       >
         ‹
       </button>
@@ -321,7 +321,7 @@ export function TemplateEditor({
                   <button
                     {...props}
                     type="button"
-                    className="rounded-full border border-dashed border-line/20 px-[9px] py-[3px] fs-11 text-ink-900/70 hover:bg-white/5"
+                    className="rounded-full border border-dashed border-line/20 px-[9px] py-[3px] fs-11 text-ink-900/70 hover:bg-ink-50/5"
                   >
                     + tag
                   </button>
@@ -476,7 +476,7 @@ export function TemplateEditor({
         <button
           type="button"
           onClick={addStep}
-          className="flex-none rounded-[9px] border border-dashed border-line/18 px-2.5 py-2 text-left fs-12 font-semibold text-ink-900/75 hover:bg-white/5"
+          className="flex-none rounded-[9px] border border-dashed border-line/18 px-2.5 py-2 text-left fs-12 font-semibold text-ink-900/75 hover:bg-ink-50/5"
         >
           + Add step
         </button>

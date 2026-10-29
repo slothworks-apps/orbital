@@ -20,7 +20,7 @@ export const SECTION_LABEL = 'font-mono fs-10 tracking-[0.18em] text-ink-900/60'
 export const FIELD_LABEL = 'font-mono fs-9 tracking-[0.16em] text-ink-900/50'
 /** 30j / 30k: the secondary header button (Draft…, Draft with the assistant…). */
 export const SECONDARY_BUTTON =
-  'whitespace-nowrap rounded-lg border border-line/18 px-3 py-[7px] fs-12.5 font-semibold text-ink-200/90 transition-colors hover:bg-white/5'
+  'whitespace-nowrap rounded-lg border border-line/18 px-3 py-[7px] fs-12.5 font-semibold text-ink-200/90 transition-colors hover:bg-ink-50/5'
 /** 30k's Save, 30l's Draft into editor: the filled accent button, no bloom. */
 export const PRIMARY_BUTTON =
   'whitespace-nowrap rounded-lg bg-accent px-3.5 py-[7px] font-bold text-space-deep transition-colors hover:bg-ink-300 disabled:cursor-not-allowed disabled:opacity-40'
@@ -204,7 +204,7 @@ export function Seg({
         'py-1.5 transition-colors',
         pad === 'wide' ? 'px-[11px] fs-11.5' : 'px-2.5 fs-11',
         first ? '' : 'border-l border-line/12',
-        active ? 'bg-accent/10 font-semibold text-accent' : 'text-ink-200/85 hover:bg-white/5',
+        active ? 'bg-accent/10 font-semibold text-accent' : 'text-ink-200/85 hover:bg-ink-50/5',
       ].join(' ')}
     >
       {children}

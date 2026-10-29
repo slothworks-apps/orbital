@@ -47,7 +47,7 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   // Canvas 50g's Choose this folder: the primary's fill, ink and 700 weight, with no bloom.
   'primary-plain': 'bg-accent text-space-deep font-bold hover:bg-ink-300',
   warning: 'bg-warning text-[#1a1000] font-bold shadow-[0_0_24px_color-mix(in_oklab,_var(--color-warning)_40%,_transparent)] hover:brightness-110',
-  ghost: 'bg-transparent text-ink-300 font-semibold border border-line/18 hover:bg-white/5',
+  ghost: 'bg-transparent text-ink-300 font-semibold border border-line/18 hover:bg-ink-50/5',
   'accent-outline': 'bg-transparent text-accent font-semibold border border-accent/45 hover:bg-accent/10',
   // 1b's composer Stop: amber outline, never a filled block — it sits inside
   // the reply well and must not outweigh Send.
@@ -61,11 +61,11 @@ const variantClasses: Record<NonNullable<ButtonProps['variant']>, string> = {
   cta: 'bg-gradient-to-b from-raised to-panel border border-accent/45 text-ink-100 font-semibold shadow-[0_0_24px_color-mix(in_oklab,_var(--color-accent)_20%,_transparent),0_12px_30px_color-mix(in_oklab,_var(--color-shadow)_50%,_transparent)] hover:border-accent/70',
   // The error log's row actions (canvas 5b/5c): hairline pills whose active
   // state ("Hide detail") lights the fill, and a muted rank for dev records.
-  pill: 'bg-transparent text-ink-200/80 font-semibold border border-line/14 hover:border-line/30 hover:bg-white/5',
+  pill: 'bg-transparent text-ink-200/80 font-semibold border border-line/14 hover:border-line/30 hover:bg-ink-50/5',
   'pill-active':
     'bg-line/14 text-ink-100 font-semibold border border-line/30',
   'pill-muted':
-    'bg-transparent text-ink-700/60 font-semibold border border-line/10 hover:bg-white/5',
+    'bg-transparent text-ink-700/60 font-semibold border border-line/10 hover:bg-ink-50/5',
   // The MCP dialog's confirming Remove (canvas `Feature - MCP dialog` 12a/12b): the error-log
   // red, oklch(60% .2 25) → #de3b3d, as a hairline and a wash, with oklch(86% .08 25) → #ffbdb7 ink.
   'pill-danger':

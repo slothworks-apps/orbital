@@ -70,7 +70,7 @@ const COPIED_FEEDBACK_MS = 1500
  * `CodeFrame`.
  */
 const PLAIN_BLOCK =
-  'rounded-md bg-black/30 p-3 font-mono fs-12 leading-(--text-xs--line-height) text-ink-300 whitespace-pre-wrap wrap-anywhere'
+  'rounded-md bg-space/30 p-3 font-mono fs-12 leading-(--text-xs--line-height) text-ink-300 whitespace-pre-wrap wrap-anywhere'
 
 /**
  * A fenced block with a copy button in its top-right corner. The button stays
@@ -136,7 +136,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
       <div
         // The fill and colour only show when shiki fell back to plain markup
         // (`plainCodeHtml`); a highlighted `pre` overrides both inline.
-        className="fs-12 leading-(--text-xs--line-height) [&_pre]:rounded-md [&_pre]:bg-black/30 [&_pre]:p-3 [&_pre]:text-ink-300 [&_pre]:whitespace-pre-wrap [&_pre]:wrap-anywhere"
+        className="fs-12 leading-(--text-xs--line-height) [&_pre]:rounded-md [&_pre]:bg-space/30 [&_pre]:p-3 [&_pre]:text-ink-300 [&_pre]:whitespace-pre-wrap [&_pre]:wrap-anywhere"
         // Shiki output is trusted-safe HTML.
         dangerouslySetInnerHTML={{ __html: html }}
       />
@@ -162,7 +162,7 @@ type CodeProps = ComponentPropsWithoutRef<'code'> & { className?: string }
  */
 export function Code({ children, ...rest }: CodeProps) {
   return (
-    <code className="rounded bg-white/10 px-1 py-0.5 font-mono text-[0.85em]" {...rest}>
+    <code className="rounded bg-ink-50/10 px-1 py-0.5 font-mono text-[0.85em]" {...rest}>
       {children}
     </code>
   )

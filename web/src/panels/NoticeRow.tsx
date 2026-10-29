@@ -36,8 +36,8 @@ const LEVEL: Record<
   warning: {
     label: 'WARNING',
     glyph: '▲',
-    glyphInk: 'text-white',
-    labelInk: 'text-white',
+    glyphInk: 'text-ink-50',
+    labelInk: 'text-ink-50',
     bodyInk: 'text-ink-100',
   },
 }

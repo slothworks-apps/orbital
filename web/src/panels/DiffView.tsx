@@ -47,12 +47,12 @@ import type { FileChange } from '../lib/fileEdit'
  */
 const ROW_CLASSES: Record<DiffLine['kind'], string> = {
   add: 'bg-ink-300/7.5 text-ink-50',
-  del: 'bg-black/42 text-ink-900/56',
+  del: 'bg-space/42 text-ink-900/56',
   context: 'text-ink-500/62',
 }
 
 const GLYPH_CLASSES: Record<DiffLine['kind'], string> = {
-  add: 'text-white',
+  add: 'text-ink-50',
   del: 'text-ink-900/70',
   // 20d draws the context sign transparent: the column is held open so every
   // line's text starts at one x, but an unchanged line is not signed.

@@ -18,7 +18,7 @@ function FilterChip({ active, onClick, children }: { active: boolean; onClick: (
         'rounded-full border px-2.5 py-1 font-mono fs-10.5 transition-colors',
         active
           ? 'border-line/30 bg-line/14 text-ink-100'
-          : 'border-line/14 text-ink-900/70 hover:bg-white/5',
+          : 'border-line/14 text-ink-900/70 hover:bg-ink-50/5',
       ].join(' ')}
     >
       {children}
@@ -135,7 +135,7 @@ function TemplateRow({
             <button
               {...props}
               type="button"
-              className="grid h-6 w-6 place-items-center rounded-md text-ink-900/60 hover:bg-white/5 hover:text-ink-100"
+              className="grid h-6 w-6 place-items-center rounded-md text-ink-900/60 hover:bg-ink-50/5 hover:text-ink-100"
             >
               ⋯
             </button>
