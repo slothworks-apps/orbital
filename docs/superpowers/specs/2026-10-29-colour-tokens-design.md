@@ -79,7 +79,13 @@ pass decides whether they become tokens or go.
   hole is the darker of `shade` and `ink-50` pressed toward black, so it stays
   the darkest thing on the map; the brightest marks are pure white on a dark
   theme and `ink-50` on a light one). How planets, the hole's halo and the
-  tag hues should look on a light sky waits for canvas artboards 1l and 1m.
+  tag hues should look on a light sky follows canvas artboards 1l and 1m:
+  bodies, `void`, the sun discs and the tag lightness per theme kind are
+  tokens; glows are multiplied by `--glow-k` and a light theme draws a 1 px
+  tag edge and a soft shadow instead. 1l's hover drawings (the planet's pill,
+  reticle and brackets, the moon's hairline ring, the hole's ring glow and
+  the working core's glow) were not taken: hover stays as artboard 11e and
+  today's map have it, and a theme only recolours it.
 - **Shadows and gradients** written as arbitrary Tailwind values
   (`shadow-[0_0_8px_rgba(…)]`), and the black and white of drop shadows and
   inset highlights, which may not need a theme at all.
