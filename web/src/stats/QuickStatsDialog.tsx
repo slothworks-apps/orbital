@@ -125,7 +125,7 @@ export function QuickStatsDialog({
         onClick={onClose}
         // 10e: backdrop rgba(2,4,9,.58) + 4px blur.
         className={[
-          'orbital-no-drag fixed inset-0 z-50 grid place-items-center bg-space/58 p-6 backdrop-blur-[4px]',
+          'orbital-no-drag fixed inset-0 z-50 grid place-items-center bg-shade/58 p-6 backdrop-blur-[4px]',
           MODAL_TRANSITION,
           duration,
           entered ? SCRIM_OPEN : SCRIM_CLOSED,
@@ -242,7 +242,7 @@ function Tile({
   return (
     <section
       aria-label={label}
-      className="min-w-0 flex-1 rounded-xl border border-line/10 bg-shade/45 px-3.5 py-3"
+      className="min-w-0 flex-1 rounded-xl border border-line/10 bg-space/45 px-3.5 py-3"
     >
       <div className="font-mono fs-9.5 tracking-[0.18em] text-ink-900/60">
         {label}

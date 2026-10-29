@@ -91,7 +91,7 @@ export function GhLine({
             <>
               <Collapse open={ran === null}>
                 <div className="flex items-center gap-1.5 pt-2">
-                  <code className="whitespace-nowrap rounded-[7px] border border-line/14 bg-shade/60 px-2.5 py-1.5 font-mono fs-11.5 text-ink-100">
+                  <code className="whitespace-nowrap rounded-[7px] border border-line/14 bg-space/60 px-2.5 py-1.5 font-mono fs-11.5 text-ink-100">
                     {ORBITAL_COMMANDS[line.run].command}
                   </code>
                   <Button

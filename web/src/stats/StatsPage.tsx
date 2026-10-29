@@ -120,7 +120,7 @@ function StatsDashboard() {
       />
 
       {error !== null && (
-        <div className="rounded-[14px] border border-danger-soft/35 bg-shade/45 px-[14px] py-3 font-mono fs-11.5 text-danger-soft">
+        <div className="rounded-[14px] border border-danger-soft/35 bg-space/45 px-[14px] py-3 font-mono fs-11.5 text-danger-soft">
           stats unavailable — {error}
         </div>
       )}

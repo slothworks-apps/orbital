@@ -115,7 +115,7 @@ function GonePage({
   return (
     <main className="relative flex h-full min-h-0 flex-col overflow-hidden bg-black text-ink-100">
       <div ref={stage} className="absolute inset-0 flex items-center justify-center px-6">
-        <div className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-[12px] border border-line/10 bg-shade/60">
+        <div className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-[12px] border border-line/10 bg-space/60">
           <GoneMark size="dialog" />
         </div>
       </div>

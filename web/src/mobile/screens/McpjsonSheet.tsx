@@ -107,7 +107,7 @@ function ServerCard({
 }) {
   const file = server.source === 'file'
   return (
-    <div className="flex flex-col gap-2.5 rounded-[14px] border border-line/12 bg-shade/45 p-3.5">
+    <div className="flex flex-col gap-2.5 rounded-[14px] border border-line/12 bg-space/45 p-3.5">
       <div className="flex items-baseline gap-2">
         <span className="font-mono fs-14 font-semibold text-ink-100">{server.name}</span>
         {file ? (
@@ -124,7 +124,7 @@ function ServerCard({
       <div
         data-selectable
         className={[
-          'rounded-[10px] border bg-shade/70 px-[11px] py-[9px] font-mono fs-12 leading-[1.6] whitespace-pre-wrap text-ink-200 [overflow-wrap:anywhere]',
+          'rounded-[10px] border bg-space/70 px-[11px] py-[9px] font-mono fs-12 leading-[1.6] whitespace-pre-wrap text-ink-200 [overflow-wrap:anywhere]',
           file ? 'border-[oklch(76%_.16_85/.3)]' : 'border-line/12',
         ].join(' ')}
       >

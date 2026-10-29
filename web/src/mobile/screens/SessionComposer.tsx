@@ -37,7 +37,7 @@ export function SessionComposer({ id }: { id: string }) {
     // 9p "MAC OFFLINE · LOCKED": the well's place, dashed and inert, and the
     // controls under it dimmed with nothing to act on.
     return (
-      <div className="border-t border-line/10 bg-shade/94 px-3 pb-1 pt-2.5">
+      <div className="border-t border-line/10 bg-space/94 px-3 pb-1 pt-2.5">
         <div className="flex items-center gap-2.5 rounded-[10px] border border-dashed border-line/22 px-3 py-3 fs-13 text-ink-900/70">
           <LockIcon />
           <span className="min-w-0 truncate">{refused ?? `${mode.macName} is asleep — read only`}</span>
@@ -163,7 +163,7 @@ function LiveComposer({ id }: { id: string }) {
   const stillHere = () => mounted.current && useMobile.getState().sessionId === id
 
   return (
-    <div className="border-t border-line/10 bg-shade/94 px-3 pb-1 pt-2.5">
+    <div className="border-t border-line/10 bg-space/94 px-3 pb-1 pt-2.5">
       <Composer
         sessionKey={{ session: id }}
         value={draft}

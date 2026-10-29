@@ -105,7 +105,7 @@ function CardHead({ chip, step, total }: { chip: ReactNode; step: number; total:
 const CHIP = 'flex items-center gap-1.5 rounded-[4px] border px-2 py-[3px] font-mono fs-10 tracking-[0.14em]'
 const LABEL = 'font-mono fs-9.5 tracking-[0.16em] text-ink-900/55'
 const OUTLINED =
-  'h-13 rounded-[14px] border border-line/22 bg-shade/50 fs-14 font-semibold text-ink-100 disabled:opacity-40'
+  'h-13 rounded-[14px] border border-line/22 bg-space/50 fs-14 font-semibold text-ink-100 disabled:opacity-40'
 
 /** 10b first phone: the waiting gate and its three answers. */
 function WaitingCard({ sessionId, card }: { sessionId: string; card: GateCardData }) {

@@ -20,10 +20,10 @@ import {
 import { ScopePicker } from './ScopePicker'
 
 /** 30k's fields: a dark well, a .16 hairline. */
-const WELL = 'rounded-lg border border-line/16 bg-shade/60'
-const STEP_WELL = 'rounded-[7px] border border-line/16 bg-shade/70'
+const WELL = 'rounded-lg border border-line/16 bg-space/60'
+const STEP_WELL = 'rounded-[7px] border border-line/16 bg-space/70'
 const INPUT_CELL =
-  'min-w-0 rounded-md border border-line/16 bg-shade/60 px-[7px] py-[5px] focus:border-line/32 focus:outline-none'
+  'min-w-0 rounded-md border border-line/16 bg-space/60 px-[7px] py-[5px] focus:border-line/32 focus:outline-none'
 
 /**
  * 30k's header, in place of Settings' own: ‹ back to the list, the
@@ -118,7 +118,7 @@ function StepCard({
   return (
     <div
       className={[
-        'flex flex-none flex-col rounded-[9px] border bg-shade/45',
+        'flex flex-none flex-col rounded-[9px] border bg-space/45',
         open ? 'border-line/26' : 'border-line/10',
       ].join(' ')}
     >
@@ -441,7 +441,7 @@ export function TemplateEditor({
                   const n = Number(e.target.value)
                   if (e.target.value !== '' && Number.isInteger(n) && n >= 0) onChange({ ...draft, options: { ...draft.options, [key]: n } })
                 }}
-                className="w-full rounded-md border border-line/16 bg-shade/60 px-2 py-[5px] text-center font-mono fs-11.5 text-ink-100 focus:border-line/32 focus:outline-none"
+                className="w-full rounded-md border border-line/16 bg-space/60 px-2 py-[5px] text-center font-mono fs-11.5 text-ink-100 focus:border-line/32 focus:outline-none"
               />
             </label>
           ))}

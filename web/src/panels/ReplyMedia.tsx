@@ -110,7 +110,7 @@ function ReplyThumb({
         aria-label={`${path} — no longer on disk`}
         onClick={onOpen}
         style={box}
-        className={[FRAME, 'flex flex-col items-center justify-center gap-1.5 border-line/10 bg-shade/60'].join(' ')}
+        className={[FRAME, 'flex flex-col items-center justify-center gap-1.5 border-line/10 bg-space/60'].join(' ')}
       >
         <GoneMark size="reply" />
       </button>
@@ -126,7 +126,7 @@ function ReplyThumb({
       style={{ ...box, cursor: 'zoom-in' }}
       className={[
         FRAME,
-        'block border-line/12 bg-shade/60 hover:border-line/42 hover:shadow-[0_0_0_3px_color-mix(in_oklab,_var(--color-accent)_12%,_transparent)]',
+        'block border-line/12 bg-space/60 hover:border-line/42 hover:shadow-[0_0_0_3px_color-mix(in_oklab,_var(--color-accent)_12%,_transparent)]',
       ].join(' ')}
     >
       {pdf ? (

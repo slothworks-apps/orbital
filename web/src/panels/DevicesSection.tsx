@@ -47,7 +47,7 @@ const KICKER = 'font-mono fs-10 tracking-[0.18em] text-ink-900/60'
 /** The quiet caption beside a kicker (canvas 50a: EVERY DEVICE SEES THIS NAME). */
 const ASIDE = 'font-mono fs-9.5 tracking-[0.14em] text-ink-900/60'
 /** The cards the group's columns sit in (canvas 50a). */
-const CARD = 'rounded-[12px] border border-line/12 bg-shade/55'
+const CARD = 'rounded-[12px] border border-line/12 bg-space/55'
 /** "offline · seen …" moves in minutes at the finest (`timeAgo`), so it is re-read that often. */
 const SEEN_TICK_MS = 60_000
 /** How much of the code `orbital join …` shows under the field (canvas 50a, 50q: `orb1q7kf…`). */
@@ -586,7 +586,7 @@ function CodeArea({ pairing }: { pairing: PairingCode }) {
         <div className="flex gap-1.5">
           {/* Double-click selects it all (50a ADD A DEVICE). */}
           <span
-            className={`min-w-0 flex-1 select-all overflow-hidden text-ellipsis whitespace-nowrap rounded-lg border border-line/16 bg-shade/60 px-2.5 py-[7px] font-mono fs-11.5 text-ink-100 ${faded}`}
+            className={`min-w-0 flex-1 select-all overflow-hidden text-ellipsis whitespace-nowrap rounded-lg border border-line/16 bg-space/60 px-2.5 py-[7px] font-mono fs-11.5 text-ink-100 ${faded}`}
           >
             {code?.word ?? ''}
           </span>
@@ -1301,7 +1301,7 @@ function RelayTooOldCard({
     <div className={`${BLOCK} flex items-center gap-7`}>
       <div
         aria-hidden
-        className="h-[150px] w-[150px] shrink-0 rounded-[12px] border border-dashed border-line/16 bg-shade/50"
+        className="h-[150px] w-[150px] shrink-0 rounded-[12px] border border-dashed border-line/16 bg-space/50"
       />
       <div className="flex min-w-0 flex-1 flex-col items-start gap-3">
         <div className="fs-13.5 font-semibold text-ink-100">The relay needs an update</div>

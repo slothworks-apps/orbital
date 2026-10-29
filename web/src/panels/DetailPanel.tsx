@@ -1111,7 +1111,7 @@ export function DetailPanel({
                       key={percent}
                       aria-hidden
                       data-context-notch={percent}
-                      className="absolute top-0 bottom-0 w-[1.5px] bg-shade/80"
+                      className="absolute top-0 bottom-0 w-[1.5px] bg-space/80"
                       style={{ left: `${percent}%` }}
                     />
                   ))}
@@ -1231,7 +1231,7 @@ export function DetailPanel({
           left on the map. Only an ended session has either to say — a live
           one is not going anywhere. */}
       {footNote && (
-        <div className="mx-[22px] mb-3.5 rounded-[10px] border border-line/10 bg-shade/45 px-3.5 py-3 font-mono fs-10.5 leading-[1.7] text-ink-900/70 [text-wrap:pretty]">
+        <div className="mx-[22px] mb-3.5 rounded-[10px] border border-line/10 bg-space/45 px-3.5 py-3 font-mono fs-10.5 leading-[1.7] text-ink-900/70 [text-wrap:pretty]">
           {footNote}
         </div>
       )}
@@ -1259,7 +1259,7 @@ export function DetailPanel({
           // Take over (spec 2026-10-21-take-over-terminal-session-design): a
           // CLI that is not plainly idle asks first, since what runs there
           // stops. The bar keeps its old height; placement awaits Claude Design.
-          <div className="flex items-center justify-between gap-3 rounded-[10px] border border-line/18 bg-shade/60 py-[5px] pl-3 pr-[5px] font-mono fs-11.5 text-ink-900/70">
+          <div className="flex items-center justify-between gap-3 rounded-[10px] border border-line/18 bg-space/60 py-[5px] pl-3 pr-[5px] font-mono fs-11.5 text-ink-900/70">
             runs in terminal — read-only
             {canTakeOver(session) && (
               <Button
@@ -1277,7 +1277,7 @@ export function DetailPanel({
           <div
             data-device-lock
             aria-disabled="true"
-            className="flex items-start gap-3 rounded-[10px] border border-line/14 bg-shade/40 px-3.5 py-[13px]"
+            className="flex items-start gap-3 rounded-[10px] border border-line/14 bg-space/40 px-3.5 py-[13px]"
           >
             <span
               aria-hidden

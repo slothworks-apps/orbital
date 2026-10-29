@@ -56,7 +56,7 @@ export function ClaudeDirPicker({
             aria-modal="true"
             aria-label="Run this session under"
             onClick={() => setOpen(false)}
-            className="orbital-sheet-backdrop fixed inset-0 z-20 flex items-end bg-space/60"
+            className="orbital-sheet-backdrop fixed inset-0 z-20 flex items-end bg-shade/60"
           >
             <div
               onClick={(event) => event.stopPropagation()}

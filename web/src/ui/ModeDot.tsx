@@ -63,7 +63,7 @@ export function ModeReadout({ mode }: { mode: PermissionMode }) {
         aria-label={`permission mode: ${descriptor.label}`}
         className={[
           'flex h-[22px] w-6 items-center justify-center rounded-[5px] border',
-          'border-line/20 bg-shade/50 transition-colors',
+          'border-line/20 bg-space/50 transition-colors',
           // 2e: the border goes accent on hover and on focus, so the box reads
           // as something you can point at rather than as a printed swatch.
           'outline-none hover:border-accent/55 focus-visible:border-accent/55',

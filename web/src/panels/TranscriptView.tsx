@@ -550,7 +550,7 @@ function ToolRunGroup({
           // the group reads as one block; hover brightens further (6b D).
           open
             ? 'border-line/18 bg-line/5'
-            : 'border-line/10 bg-shade/45',
+            : 'border-line/10 bg-space/45',
           'hover:border-line/22 hover:bg-line/7',
           'focus-visible:border-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/18',
         ].join(' ')}
@@ -631,7 +631,7 @@ function ToolRunGroup({
         // copy of itself in the stack that is still closing.
         <div
           data-live-tool
-          className="mt-1 flex items-center gap-2 rounded-[7px] border border-line/10 bg-shade/45 px-2.5 py-[7px] font-mono fs-11.5 text-ink-500/80"
+          className="mt-1 flex items-center gap-2 rounded-[7px] border border-line/10 bg-space/45 px-2.5 py-[7px] font-mono fs-11.5 text-ink-500/80"
         >
           <span aria-hidden className="w-2" />
           <span

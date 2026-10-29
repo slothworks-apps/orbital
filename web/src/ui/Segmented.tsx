@@ -120,7 +120,7 @@ export function Segmented<T extends string>({
     <div
       role="group"
       aria-label={label}
-      className={['overflow-hidden border bg-shade/50', s.shell, className ?? ''].filter(Boolean).join(' ')}
+      className={['overflow-hidden border bg-space/50', s.shell, className ?? ''].filter(Boolean).join(' ')}
     >
       {options.map((option, index) => {
         const active = option.value === value

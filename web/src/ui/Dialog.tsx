@@ -312,8 +312,8 @@ export function Dialog({
         // The review dialog stacks over the dialog it came from (canvas
         // 61a/61c): a plain .5 scrim, no second blur, and above the first.
         variant === 'review'
-          ? 'orbital-no-drag fixed inset-0 z-[55] flex items-center justify-center bg-space/50 p-6'
-          : 'orbital-no-drag fixed inset-0 z-50 flex items-center justify-center bg-space/55 p-6 backdrop-blur-[3px]',
+          ? 'orbital-no-drag fixed inset-0 z-[55] flex items-center justify-center bg-shade/50 p-6'
+          : 'orbital-no-drag fixed inset-0 z-50 flex items-center justify-center bg-shade/55 p-6 backdrop-blur-[3px]',
         anchored ? '!items-start' : '',
         MODAL_TRANSITION,
         duration,

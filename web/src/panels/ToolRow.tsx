@@ -345,8 +345,8 @@ export function ToolRow({
       className={[
         'overflow-hidden rounded-[7px] border',
         expanded
-          ? 'border-line/18 bg-shade/55'
-          : 'border-line/10 bg-shade/45',
+          ? 'border-line/18 bg-space/55'
+          : 'border-line/10 bg-space/45',
       ].join(' ')}
     >
       {/* Two sibling interactive elements — a nested <button> inside the

@@ -71,7 +71,7 @@ export function CloseScreen({ id, session, walkthrough, onJump, bar }: CloseScre
                 <div
                   key={file.path}
                   className={[
-                    'flex items-center gap-2 rounded-[7px] border border-line/10 bg-shade/45 px-2.5 py-2 font-mono fs-11.5',
+                    'flex items-center gap-2 rounded-[7px] border border-line/10 bg-space/45 px-2.5 py-2 font-mono fs-11.5',
                     reverted ? 'text-ink-900/50' : 'text-ink-100',
                   ].join(' ')}
                 >
@@ -103,7 +103,7 @@ export function CloseScreen({ id, session, walkthrough, onJump, bar }: CloseScre
               const revert = group.steps.flatMap((s) => s.fate).find((f) => f.kind === 'reverted')
               const paths = [...new Set(group.steps.flatMap(callsOf).map(pathOf).filter((p): p is string => !!p))]
               return (
-                <div key={key} className="flex flex-col gap-2 rounded-[9px] border border-line/12 bg-shade/40 px-3.5 py-3">
+                <div key={key} className="flex flex-col gap-2 rounded-[9px] border border-line/12 bg-space/40 px-3.5 py-3">
                   <span className="fs-13.5 font-semibold text-ink-100">{group.title || stepLabel(walkthrough, first)}</span>
                   <span className="font-mono fs-10.5 text-ink-900/70">
                     {first === last ? (
@@ -141,7 +141,7 @@ export function CloseScreen({ id, session, walkthrough, onJump, bar }: CloseScre
 
           <Column title="STILL OPEN" empty={open.length === 0 && !busy && !after ? 'nothing open' : null}>
             {open.map(({ step, call }) => (
-              <div key={call.call.id} className="flex flex-col gap-1.5 rounded-[9px] border border-dashed border-line/30 bg-shade/40 px-3.5 py-3">
+              <div key={call.call.id} className="flex flex-col gap-1.5 rounded-[9px] border border-dashed border-line/30 bg-space/40 px-3.5 py-3">
                 <span className="flex items-center gap-2 font-mono fs-11.5 text-ink-900/70">
                   <span className="min-w-0 truncate">
                     ⚙ {call.call.toolName}: <span className="text-ink-100">{pathOf(call)}</span>
@@ -161,7 +161,7 @@ export function CloseScreen({ id, session, walkthrough, onJump, bar }: CloseScre
               </div>
             ))}
             {busy && (
-              <div className="flex flex-col gap-1.5 rounded-[9px] border border-line/12 bg-shade/40 px-3.5 py-3">
+              <div className="flex flex-col gap-1.5 rounded-[9px] border border-line/12 bg-space/40 px-3.5 py-3">
                 <span className="flex items-center gap-2 font-mono fs-11.5 text-ink-100">
                   <BlinkDot bright />
                   {session.status === 'working' ? 'the session is still working' : 'the session is waiting on a decision'}

@@ -1028,7 +1028,7 @@ function DecisionBlock({
   const text = decision.kind === 'question' ? questions[0]?.question : decisionHeadline(decision)
   const detail = decisionDetail(decision)
   return (
-    <div className="flex flex-col gap-[9px] rounded-[10px] border border-line/16 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_72%,_transparent),color-mix(in_oklab,_var(--color-shade)_82%,_transparent))] px-3 pb-3 pt-[11px]">
+    <div className="flex flex-col gap-[9px] rounded-[10px] border border-line/16 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_72%,_transparent),color-mix(in_oklab,_var(--color-space)_82%,_transparent))] px-3 pb-3 pt-[11px]">
       <div className="flex items-center gap-2">
         <span
           className="rounded px-[7px] py-0.5 font-mono fs-9.5 tracking-[0.14em] text-warning-soft"
@@ -1051,7 +1051,7 @@ function DecisionBlock({
         </div>
       )}
       {detail && (
-        <div className="truncate rounded-md border border-line/8 bg-shade/60 px-[9px] py-1.5 font-mono fs-10.5 text-ink-400/85">
+        <div className="truncate rounded-md border border-line/8 bg-space/60 px-[9px] py-1.5 font-mono fs-10.5 text-ink-400/85">
           {detail}
         </div>
       )}

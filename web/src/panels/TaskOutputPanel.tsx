@@ -130,7 +130,7 @@ export function TaskOutputPanel({ widthPx, inWindow: inWindowProp = false, swap 
       <div
         className={[
           'orbital-band-controls border-b border-line/10 px-[18px] pb-[14px] pt-4',
-          swap ? 'bg-[image:linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_60%,_transparent),color-mix(in_oklab,_var(--color-shade)_30%,_transparent))]' : '',
+          swap ? 'bg-[image:linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_60%,_transparent),color-mix(in_oklab,_var(--color-space)_30%,_transparent))]' : '',
         ].join(' ')}
       >
         {/* 26c under 760px: 25b's swap unchanged — row 1 is the title bar,
@@ -176,7 +176,7 @@ export function TaskOutputPanel({ widthPx, inWindow: inWindowProp = false, swap 
 
         {/* 26b: the whole command, wrapped and never cut — the flags are the point. */}
         {task?.command && (
-          <div data-selectable className="mt-2.5 whitespace-pre-wrap break-words rounded-[7px] border border-line/10 bg-shade/50 px-2.5 py-2 font-mono fs-11 leading-[1.5] text-ink-100">
+          <div data-selectable className="mt-2.5 whitespace-pre-wrap break-words rounded-[7px] border border-line/10 bg-space/50 px-2.5 py-2 font-mono fs-11 leading-[1.5] text-ink-100">
             <span className="text-ink-900/50">$ </span>
             {task.command}
           </div>
@@ -256,7 +256,7 @@ export function TaskOutputPanel({ widthPx, inWindow: inWindowProp = false, swap 
         </div>
       )}
 
-      <div className="flex items-center gap-2 border-t border-line/10 bg-shade/40 px-[18px] py-3 font-mono fs-10 tracking-[0.06em] text-ink-900/50">
+      <div className="flex items-center gap-2 border-t border-line/10 bg-space/40 px-[18px] py-3 font-mono fs-10 tracking-[0.06em] text-ink-900/50">
         {view.phase === 'gone' ? (
           <span>{task?.endedAt ? `ended ${clockOf(task.endedAt)}` : 'ended'}</span>
         ) : !following ? (

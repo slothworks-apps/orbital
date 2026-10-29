@@ -376,7 +376,7 @@ function LoginBlock({
     return (
       <div
         data-login-notice={dot}
-        className="flex flex-col gap-2.5 rounded-[12px] border border-line/16 bg-shade/50 px-4 py-3.5"
+        className="flex flex-col gap-2.5 rounded-[12px] border border-line/16 bg-space/50 px-4 py-3.5"
       >
         <div className="flex items-start gap-2.5">
           {mark}
@@ -400,7 +400,7 @@ function LoginBlock({
   return (
     <div
       data-login-notice={dot}
-      className="flex flex-col gap-2 rounded-[9px] border border-line/16 bg-shade/50 px-3.5 py-3"
+      className="flex flex-col gap-2 rounded-[9px] border border-line/16 bg-space/50 px-3.5 py-3"
     >
       <div className="flex items-center gap-2.5">
         {mark}
@@ -630,7 +630,7 @@ export function LoginCodeEntry({
           {step(2, t ? 'fs-11.5' : 'fs-10.5')}
           <div
             className={[
-              'flex min-w-0 flex-1 items-center gap-1.5 border bg-shade/60 pr-1',
+              'flex min-w-0 flex-1 items-center gap-1.5 border bg-space/60 pr-1',
               t ? 'h-11 rounded-[9px] pl-3' : 'h-8 rounded-[8px] pl-2.5',
               code ? 'border-accent/50' : 'border-line/16',
             ].join(' ')}
@@ -677,7 +677,7 @@ export function LoginCodeEntry({
       data-login-code
       className={[
         indent ? 'ml-[18px]' : '',
-        'flex flex-col gap-[9px] rounded-[8px] border border-line/10 bg-shade/45 px-3 py-2.5',
+        'flex flex-col gap-[9px] rounded-[8px] border border-line/10 bg-space/45 px-3 py-2.5',
       ].join(' ')}
     >
       <div className="flex items-baseline gap-[9px] font-mono fs-10.5">
@@ -703,7 +703,7 @@ export function LoginCodeEntry({
         <input
           {...inputProps}
           placeholder="Paste the code that page shows"
-          className="m-0 min-w-0 flex-1 rounded-[7px] border border-line/16 bg-shade/60 px-[9px] py-1.5 font-mono fs-11 text-ink-100 outline-none placeholder:text-ink-900/60 focus:border-accent/50 focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-accent)_10%,transparent)]"
+          className="m-0 min-w-0 flex-1 rounded-[7px] border border-line/16 bg-space/60 px-[9px] py-1.5 font-mono fs-11 text-ink-100 outline-none placeholder:text-ink-900/60 focus:border-accent/50 focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-accent)_10%,transparent)]"
         />
         <Button variant="lit" size="command" disabled={disabled || !ready} onClick={submit}>
           Submit
@@ -759,7 +759,7 @@ export function LoginCardBlock({ session, offline }: { session: ApiSession; offl
   return (
     <div
       data-login-card
-      className="flex flex-col gap-[9px] rounded-[10px] border border-line/16 bg-shade/82 bg-[image:linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_72%,_transparent),color-mix(in_oklab,_var(--color-shade)_82%,_transparent))] px-3 pb-3 pt-[11px]"
+      className="flex flex-col gap-[9px] rounded-[10px] border border-line/16 bg-space/82 bg-[image:linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_72%,_transparent),color-mix(in_oklab,_var(--color-space)_82%,_transparent))] px-3 pb-3 pt-[11px]"
     >
       <div className="flex items-center gap-2">
         <span

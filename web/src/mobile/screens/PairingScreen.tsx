@@ -177,7 +177,7 @@ export function PairingScreen() {
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
-            className="rounded-[10px] border border-line/14 bg-shade/60 p-3 font-mono fs-12 text-ink-300"
+            className="rounded-[10px] border border-line/14 bg-space/60 p-3 font-mono fs-12 text-ink-300"
           />
           <SecondaryButton type="submit" disabled={!pasted.trim()}>
             Pair

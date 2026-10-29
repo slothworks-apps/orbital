@@ -112,7 +112,7 @@ export function SessionDrilldown({ id }: { id: string }) {
   return (
     <StatsShell sky="session" bar={bar}>
       {error !== null && (
-        <div className="rounded-[14px] border border-danger-soft/35 bg-shade/45 px-[14px] py-3 font-mono fs-11.5 text-danger-soft">
+        <div className="rounded-[14px] border border-danger-soft/35 bg-space/45 px-[14px] py-3 font-mono fs-11.5 text-danger-soft">
           session stats unavailable — {error}
         </div>
       )}
@@ -218,7 +218,7 @@ function SessionMeta({
           `selected-session-lives-in-the-url-query`). */}
       <a
         href={`/?${SESSION_PARAM}=${encodeURIComponent(session.id)}`}
-        className="rounded-lg border border-line/16 bg-shade/50 px-[13px] py-[7px] font-mono fs-11 text-ink-300 no-underline"
+        className="rounded-lg border border-line/16 bg-space/50 px-[13px] py-[7px] font-mono fs-11 text-ink-300 no-underline"
       >
         open transcript
       </a>

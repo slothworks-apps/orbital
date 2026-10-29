@@ -315,7 +315,7 @@ export function TextPreview({
       >
         {body}
       </div>
-      <footer className="flex shrink-0 flex-col gap-2 border-t border-line/10 bg-shade/94 px-4 pb-1.5 pt-2.5">
+      <footer className="flex shrink-0 flex-col gap-2 border-t border-line/10 bg-space/94 px-4 pb-1.5 pt-2.5">
         <div className="fs-12 leading-[1.45] text-ink-900/65 [text-wrap:pretty]">
           Text files up to {formatBytes(PHONE_TEXT_PREVIEW_MAX_BYTES)} preview here. Editing happens on the Mac.
         </div>

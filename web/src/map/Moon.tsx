@@ -409,7 +409,7 @@ export function MoonControl({
             alignItems: 'center',
             padding: '3px 8px',
             borderRadius: 999,
-            background: swatch('shade', 0.92),
+            background: swatch('space', 0.92),
             border: `1px solid ${swatch('line', 0.3)}`,
             fontFamily: "'JetBrains Mono', ui-monospace, monospace",
             fontSize: 9.5,

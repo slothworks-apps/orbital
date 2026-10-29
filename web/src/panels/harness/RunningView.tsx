@@ -39,7 +39,7 @@ const BODY = 'text-pretty fs-12 leading-[1.55] text-ink-400/88'
 /** INSTRUCTIONS / DONE WHEN / VERIFY · RUNS AFTER EACH TICK (30d, the active step). */
 function Instructions({ step }: { step: SessionHarness['steps'][number] }) {
   return (
-    <div className={`${BOX} gap-2.5 border border-line/14 bg-shade/50`}>
+    <div className={`${BOX} gap-2.5 border border-line/14 bg-space/50`}>
       <div>
         <Label>INSTRUCTIONS</Label>
         <div className={`mt-[5px] whitespace-pre-wrap ${BODY}`}>{step.instructions}</div>
@@ -136,7 +136,7 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
         {open && showInstructions && <Instructions step={step} />}
 
         {open && kind === 'waiting' && (
-          <div className={`${BOX} gap-2.5 border border-[oklch(84%_.113_63_/_.35)] bg-shade/50`}>
+          <div className={`${BOX} gap-2.5 border border-[oklch(84%_.113_63_/_.35)] bg-space/50`}>
             {(state.summary ?? state.evidence) && <div className={`${BODY} text-ink-400/90`}>{state.summary ?? state.evidence}</div>}
             {waitMeta && <div className="font-mono fs-10 text-ink-900/65">{waitMeta}</div>}
             <div className="flex items-center gap-2">
@@ -158,7 +158,7 @@ function StepRow({ sessionId, harness, index, kind, state, own, open, last, read
         )}
 
         {open && kind === 'reviewing' && (
-          <div className={`${BOX} gap-2 border border-dashed border-ink-200/22 bg-shade/40`}>
+          <div className={`${BOX} gap-2 border border-dashed border-ink-200/22 bg-space/40`}>
             <div className={BODY}>
               The reviewer is reading the step&apos;s record and its changes. It approves, approves unsure, or sends the step
               back with a reason.
@@ -404,7 +404,7 @@ export function RunningView({
         })}
       </div>
 
-      <div className="flex items-center gap-2 border-t border-line/10 bg-shade/40 px-[18px] py-[11px] font-mono fs-10 tracking-[0.06em] text-ink-900/50">
+      <div className="flex items-center gap-2 border-t border-line/10 bg-space/40 px-[18px] py-[11px] font-mono fs-10 tracking-[0.06em] text-ink-900/50">
         <span className="min-w-0">{readOnly ? `removed ${clock(harness.removedAt)} · the record is kept` : footerLine(auto, harness.options.lucky)}</span>
         <span aria-hidden className="flex-1" />
         {!readOnly && <span className="shrink-0">⎋ close</span>}

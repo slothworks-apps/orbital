@@ -128,7 +128,7 @@ export function OwnCodeScreen() {
           Paste it on the device you&apos;re adding
         </h2>
         {/* Canvas 50i: the QR payload as one long word, wrapping in a box at least 85 px tall. */}
-        <div className="box-border h-fit min-h-[85px] select-all break-all rounded-[14px] border border-line/20 bg-shade/60 px-4 py-3.5 font-mono fs-13 leading-[1.55] text-ink-100">
+        <div className="box-border h-fit min-h-[85px] select-all break-all rounded-[14px] border border-line/20 bg-space/60 px-4 py-3.5 font-mono fs-13 leading-[1.55] text-ink-100">
           {refused ? (
             <span className="font-sans fs-14 break-normal text-ink-600/85">
               {refusedPair?.error === 'joining' ? REFUSED_JOINING : REFUSED_PHONE}

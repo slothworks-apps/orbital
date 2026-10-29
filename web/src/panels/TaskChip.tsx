@@ -293,9 +293,9 @@ export function StopButton({ label, stopping, onStop }: { label: string; stoppin
         'grid h-6 w-6 shrink-0 place-items-center rounded-md border',
         'transition-[background-color,border-color,color] duration-[180ms] ease-[ease]',
         stopping
-          ? 'orbital-pulse cursor-default border-line/18 bg-shade/50 text-ink-500/45'
+          ? 'orbital-pulse cursor-default border-line/18 bg-space/50 text-ink-500/45'
           : [
-              'border-line/18 bg-shade/50 text-ink-500/75',
+              'border-line/18 bg-space/50 text-ink-500/75',
               'hover:border-warning/60 hover:bg-warning/8 hover:text-warning',
             ].join(' '),
       ].join(' ')}

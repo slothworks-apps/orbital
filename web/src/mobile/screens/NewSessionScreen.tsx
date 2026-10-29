@@ -340,7 +340,7 @@ export function NewSessionScreen() {
         )}
         <div className="flex flex-col gap-2">
           <FieldLabel hint={hint}>DIRECTORY</FieldLabel>
-          <div className={['flex h-13 items-center gap-2 rounded-[14px] border bg-shade/60 pl-3.5 pr-1.5', fieldBorder].join(' ')}>
+          <div className={['flex h-13 items-center gap-2 rounded-[14px] border bg-space/60 pl-3.5 pr-1.5', fieldBorder].join(' ')}>
             <input
               aria-label="Directory"
               value={cwd}
@@ -444,7 +444,7 @@ export function NewSessionScreen() {
                 type="button"
                 aria-expanded={listOpen}
                 onClick={() => setListOpen(!listOpen)}
-                className="flex h-11 w-full items-center justify-center gap-2 border-t border-line/12 bg-shade/50 font-mono fs-11 text-ink-500/80"
+                className="flex h-11 w-full items-center justify-center gap-2 border-t border-line/12 bg-space/50 font-mono fs-11 text-ink-500/80"
               >
                 <span aria-hidden className="fs-9 text-ink-900/60">
                   {listOpen ? '▴' : '▾'}
@@ -569,7 +569,7 @@ function DeviceField({ option, onOpen }: { option: DeviceOption | null; onOpen: 
       type="button"
       aria-haspopup="dialog"
       onClick={onOpen}
-      className="flex min-h-14 items-center gap-3 rounded-[14px] border border-line/18 bg-shade/60 pl-3.5 pr-2.5 text-left"
+      className="flex min-h-14 items-center gap-3 rounded-[14px] border border-line/18 bg-space/60 pl-3.5 pr-2.5 text-left"
     >
       <span className="flex text-ink-100">
         <KindGlyph kind={option?.kind ?? 'desktop'} untitled />
@@ -601,7 +601,7 @@ function DeviceSheet({
     <BottomSheet label="Run it on" onDismiss={onClose} variant="device">
       <div className="flex flex-col gap-3 pb-2">
         <h2 className="fs-18 font-bold">Run it on</h2>
-        <div role="radiogroup" aria-label="Device" className="overflow-hidden rounded-[14px] border border-line/12 bg-shade/50">
+        <div role="radiogroup" aria-label="Device" className="overflow-hidden rounded-[14px] border border-line/12 bg-space/50">
           {options.map((o, i) => (
             <button
               key={o.id}
@@ -645,7 +645,7 @@ function DeviceSheet({
 function ModelSegments({ models, value, onChange }: { models: OrbitalModel[]; value: string | null; onChange: (value: string) => void }) {
   if (models.length === 0) {
     return (
-      <p className="rounded-[12px] border border-line/18 bg-shade/50 px-3.5 py-3 fs-11.5 leading-[1.4] text-ink-900/70">
+      <p className="rounded-[12px] border border-line/18 bg-space/50 px-3.5 py-3 fs-11.5 leading-[1.4] text-ink-900/70">
         The model list could not be read. The session uses whatever model Claude Code is set to.
       </p>
     )
@@ -669,7 +669,7 @@ function ModelSegments({ models, value, onChange }: { models: OrbitalModel[]; va
               // The 1px gap over the container's fill draws 9d's separators, between rows too.
               'h-11 min-w-0 truncate px-1 font-mono fs-12.5',
               active
-                ? 'bg-[color-mix(in_oklab,var(--color-accent)_10%,var(--color-shade))] font-semibold text-accent'
+                ? 'bg-[color-mix(in_oklab,var(--color-accent)_10%,var(--color-space))] font-semibold text-accent'
                 : 'bg-shade text-ink-200/85',
             ].join(' ')}
           >

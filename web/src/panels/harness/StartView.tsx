@@ -34,7 +34,7 @@ function TemplateRow({ template, selected, onPick }: { template: HarnessTemplate
         className="block size-[10px] shrink-0 box-border rounded-full"
         style={{
           border: `1.4px solid ${selected ? 'var(--color-accent)' : 'color-mix(in oklab, var(--color-ink-900) 60%, transparent)'}`,
-          boxShadow: selected ? 'inset 0 0 0 2px var(--color-shade)' : undefined,
+          boxShadow: selected ? 'inset 0 0 0 2px var(--color-space)' : undefined,
           background: selected ? swatch('accent') : 'transparent',
         }}
       />
@@ -62,7 +62,7 @@ function TemplateDetail({
 }) {
   const [stepsOpen, setStepsOpen] = useState(false)
   return (
-    <div className="mb-1.5 mt-1 flex flex-col gap-[9px] rounded-[9px] border border-line/14 bg-shade/50 px-3 py-[11px]">
+    <div className="mb-1.5 mt-1 flex flex-col gap-[9px] rounded-[9px] border border-line/14 bg-space/50 px-3 py-[11px]">
       {template.description && (
         <div className="text-pretty fs-12 leading-[1.55] text-ink-400/88">{template.description}</div>
       )}
@@ -72,7 +72,7 @@ function TemplateDetail({
           <input
             value={inputs[input.key] ?? ''}
             onChange={(e) => setInputs({ ...inputs, [input.key]: e.target.value })}
-            className="rounded-[7px] border border-line/16 bg-shade/70 px-[9px] py-[5px] font-mono fs-11 text-ink-100 outline-none focus:border-line/35"
+            className="rounded-[7px] border border-line/16 bg-space/70 px-[9px] py-[5px] font-mono fs-11 text-ink-100 outline-none focus:border-line/35"
           />
           {input.hint && <span className="font-mono fs-9.5 text-ink-900/55">{input.hint}</span>}
         </label>
@@ -228,7 +228,7 @@ export function StartView({ sessionId, chrome }: { sessionId: string; chrome: Ch
                 {projectTemplates.length > 0 ? (
                   rows(projectTemplates)
                 ) : (
-                  <div className="flex flex-col gap-2 rounded-[9px] border border-dashed border-line/18 bg-shade/30 p-3.5">
+                  <div className="flex flex-col gap-2 rounded-[9px] border border-dashed border-line/18 bg-space/30 p-3.5">
                     <div className="text-pretty fs-12.5 leading-[1.55] text-ink-100/90">
                       No templates for {projectName} yet. A project template appears only in this project&apos;s
                       sessions. A global one appears everywhere.

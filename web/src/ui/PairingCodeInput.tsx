@@ -38,7 +38,7 @@ function CodeBox({ char, state, size }: { char: string; state: BoxState; size: S
   return (
     <span
       data-state={state}
-      className={`grid place-items-center rounded-[10px] border bg-shade/60 font-mono text-ink-100 ${SIZES[size].box} ${BOX_BORDER[state]}`}
+      className={`grid place-items-center rounded-[10px] border bg-space/60 font-mono text-ink-100 ${SIZES[size].box} ${BOX_BORDER[state]}`}
     >
       {char}
     </span>

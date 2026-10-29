@@ -140,7 +140,7 @@ export function PairConfirmDialog() {
   // again. `cDone`'s checkmark takes the same slot above "<name> joined".
   const kindTileNode =
     request && tile ? (
-      <div className="flex w-full items-center gap-4 rounded-xl border border-line/26 bg-shade/60 px-[18px] py-3.5 text-left">
+      <div className="flex w-full items-center gap-4 rounded-xl border border-line/26 bg-space/60 px-[18px] py-3.5 text-left">
         <span className="grid h-[60px] w-[60px] shrink-0 place-items-center rounded-xl border border-line/20 text-ink-100">
           <KindGlyph kind={request.kind} scale={3} />
         </span>
@@ -239,7 +239,7 @@ export function PairConfirmDialog() {
 function FullTile({ request }: { request: PendingPair }) {
   const os = osLabel(osName(request.platform))
   return (
-    <div className="flex w-full items-center gap-4 rounded-xl border border-line/16 bg-shade/60 px-[18px] py-3.5 text-left opacity-60">
+    <div className="flex w-full items-center gap-4 rounded-xl border border-line/16 bg-space/60 px-[18px] py-3.5 text-left opacity-60">
       <span className="grid h-[60px] w-[60px] shrink-0 place-items-center rounded-xl border border-line/20 text-ink-100">
         <KindGlyph kind={request.kind} scale={3} />
       </span>

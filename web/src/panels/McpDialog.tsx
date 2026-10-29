@@ -539,7 +539,7 @@ function McpPanel({
             />
             Couldn't read this session's servers.
           </div>
-          <pre data-selectable className="self-stretch whitespace-pre-wrap rounded-[7px] border border-line/12 bg-shade/55 px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-ink-700/80 [overflow-wrap:anywhere]">
+          <pre data-selectable className="self-stretch whitespace-pre-wrap rounded-[7px] border border-line/12 bg-space/55 px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-ink-700/80 [overflow-wrap:anywhere]">
             {list.detail}
           </pre>
           <Button
@@ -871,12 +871,12 @@ function ServerRow({
         )}
       </div>
       {kind === 'failed' && row.error && (
-        <pre data-selectable className="col-start-2 col-end-4 max-h-[120px] overflow-auto whitespace-pre-wrap rounded-[7px] border border-danger/28 bg-shade/55 px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-ink-400/85 [overflow-wrap:anywhere]">
+        <pre data-selectable className="col-start-2 col-end-4 max-h-[120px] overflow-auto whitespace-pre-wrap rounded-[7px] border border-danger/28 bg-space/55 px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-ink-400/85 [overflow-wrap:anywhere]">
           {row.error}
         </pre>
       )}
       {loginable && loginError && (
-        <pre data-selectable className="col-start-2 col-end-4 max-h-[120px] overflow-auto whitespace-pre-wrap rounded-[7px] border border-danger/28 bg-shade/55 px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-ink-400/85 [overflow-wrap:anywhere]">
+        <pre data-selectable className="col-start-2 col-end-4 max-h-[120px] overflow-auto whitespace-pre-wrap rounded-[7px] border border-danger/28 bg-space/55 px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-ink-400/85 [overflow-wrap:anywhere]">
           {loginError}
         </pre>
       )}
@@ -1024,7 +1024,7 @@ function formViewParts({
     body: state.loadError ? (
       <div className="flex flex-col items-start gap-3 pb-1">
         <div className="fs-14 leading-(--text-sm--line-height) font-semibold">This server can't be edited here.</div>
-        <pre data-selectable className="self-stretch whitespace-pre-wrap rounded-[7px] border border-line/12 bg-shade/55 px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-ink-700/80 [overflow-wrap:anywhere]">
+        <pre data-selectable className="self-stretch whitespace-pre-wrap rounded-[7px] border border-line/12 bg-space/55 px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-ink-700/80 [overflow-wrap:anywhere]">
           {state.loadError}
         </pre>
       </div>

@@ -158,7 +158,7 @@ function WhatsNewDialog({ open, installedAt, onClose }: { open: boolean; install
         inert={state === 'exiting' || undefined}
         className={[
           // 1b: the map dimmed at .55 under a 3 px blur.
-          'orbital-no-drag fixed inset-0 z-50 flex items-center justify-center bg-space/55 p-6 backdrop-blur-[3px]',
+          'orbital-no-drag fixed inset-0 z-50 flex items-center justify-center bg-shade/55 p-6 backdrop-blur-[3px]',
           MODAL_TRANSITION,
           duration,
           entered ? SCRIM_OPEN : SCRIM_CLOSED,

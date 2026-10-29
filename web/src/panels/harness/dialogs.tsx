@@ -123,7 +123,7 @@ export function GoBackDialog({
             : `Step ${n} becomes pending again. Its record stays readable, marked “before going back”.`}
         </p>
         {going.length > 0 && (
-          <ul className="mt-3.5 flex flex-col rounded-lg border border-line/10 bg-shade/45 py-1">
+          <ul className="mt-3.5 flex flex-col rounded-lg border border-line/10 bg-space/45 py-1">
             {going.map((k) => (
               <li key={k} className="flex items-center gap-2 px-3 py-1.5 font-mono fs-11 text-ink-900/75">
                 <span aria-hidden className="w-3 shrink-0 text-ink-900/55">

@@ -212,7 +212,7 @@ const TEXT_SCALE_OPTIONS = TEXT_SCALE_STEPS.map((step) => ({
  */
 function TextSample({ app, transcript }: { app: string; transcript: string }) {
   return (
-    <div className="mb-3.5 flex flex-col gap-2.5 rounded-[10px] border border-line/10 bg-shade/50 px-4 py-3.5">
+    <div className="mb-3.5 flex flex-col gap-2.5 rounded-[10px] border border-line/10 bg-space/50 px-4 py-3.5">
       <div className="flex items-center gap-2.5 font-mono fs-10 tracking-[0.14em] text-ink-900/55">
         SAMPLE
         <span aria-hidden className="flex-1" />
@@ -1146,7 +1146,7 @@ export function Settings({ open, onClose }: SettingsProps) {
         // Still painted on the way out, but no longer a live surface.
         inert={presence === 'exiting' || undefined}
         className={[
-          'orbital-no-drag fixed inset-0 z-50 flex items-center justify-center bg-space/50 p-6 backdrop-blur-[3px]',
+          'orbital-no-drag fixed inset-0 z-50 flex items-center justify-center bg-shade/50 p-6 backdrop-blur-[3px]',
           MODAL_TRANSITION,
           duration,
           entered ? SCRIM_OPEN : SCRIM_CLOSED,
@@ -2050,7 +2050,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                               </span>
                             </button>
                             <div
-                              className="box-border flex items-center justify-around gap-7 overflow-hidden rounded-[10px] border-line/10 bg-shade/50"
+                              className="box-border flex items-center justify-around gap-7 overflow-hidden rounded-[10px] border-line/10 bg-space/50"
                               style={{
                                 height: previewOpen ? 300 : 0,
                                 opacity: previewOpen ? 1 : 0,
@@ -2468,7 +2468,7 @@ export function Settings({ open, onClose }: SettingsProps) {
                           </button>
                           {tipsOpen && (
                             <ul
-                              className="flex flex-col gap-3 rounded-[10px] border border-line/10 bg-shade/50 px-5 py-4"
+                              className="flex flex-col gap-3 rounded-[10px] border border-line/10 bg-space/50 px-5 py-4"
                               style={{ opacity: instructionTips ? 1 : 0.5 }}
                             >
                               {tips.map((tip) => (

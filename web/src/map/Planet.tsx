@@ -296,7 +296,7 @@ const LABEL_MODEL_COLOR = swatch('ink-900', 0.7)
 const HOVER_LABEL_ENTER_MS = 160
 const HOVER_LABEL_EXIT_MS = 120
 const HOVER_LABEL_MAX_WIDTH_PX = 240
-const HOVER_LABEL_SCRIM = swatch('shade', 0.85)
+const HOVER_LABEL_SCRIM = swatch('space', 0.85)
 
 /** The map mark's side, 44f "Sizes". */
 const MAP_MARK_PX = 12
@@ -318,7 +318,7 @@ const MAP_MARK_STYLE = {
   padding: '0 2px',
   borderRadius: 3,
   background: 'oklch(34% .012 250)',
-  boxShadow: `0 0 0 1.5px ${swatch('shade', 0.85)}`,
+  boxShadow: `0 0 0 1.5px ${swatch('space', 0.85)}`,
   fontFamily: "'JetBrains Mono', ui-monospace, monospace",
   fontSize: 7.5,
   fontWeight: 600,
@@ -1229,7 +1229,7 @@ function CompactBadge({
           gap: 6,
           padding: '3px 8px',
           borderRadius: 999,
-          background: swatch('shade', 0.9),
+          background: swatch('space', 0.9),
           border: `1px solid ${oklchCss(CONTEXT_CRITICAL_OKLCH, 0.7)}`,
           fontFamily: "'JetBrains Mono', ui-monospace, monospace",
           fontSize: 9.5,
@@ -1281,7 +1281,7 @@ function CompactingPill({
           gap: 6,
           padding: '3px 8px',
           borderRadius: 999,
-          background: swatch('shade', 0.88),
+          background: swatch('space', 0.88),
           border: `1px solid ${COMPACTING_PILL_BORDER}`,
           fontFamily: "'JetBrains Mono', ui-monospace, monospace",
           fontSize: 9.5,
@@ -1334,7 +1334,7 @@ function CompactFailedBadge({
           gap: 6,
           padding: '3px 8px',
           borderRadius: 999,
-          background: swatch('shade', 0.88),
+          background: swatch('space', 0.88),
           border: `1px solid ${oklchCss(CONTEXT_CRITICAL_OKLCH, 0.7)}`,
           fontFamily: "'JetBrains Mono', ui-monospace, monospace",
           fontSize: 9.5,
@@ -2457,7 +2457,7 @@ function PlanetBody({
                     margin: `${LIMIT_PILL_GAP_PX}px auto 0`,
                     padding: `${LIMIT_PILL_PAD_Y_PX}px ${LIMIT_PILL_PAD_X_PX}px`,
                     borderRadius: 999,
-                    background: swatch('shade', 0.9),
+                    background: swatch('space', 0.9),
                     border: `${LIMIT_PILL_BORDER_PX}px solid ${swatch('line', 0.26)}`,
                     fontFamily: "'JetBrains Mono', ui-monospace, monospace",
                     fontSize: LIMIT_PILL_FONT_PX,

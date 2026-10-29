@@ -197,7 +197,7 @@ function useJoin(remote: RemoteStatus) {
 type Join = ReturnType<typeof useJoin>
 
 /** The cards of canvas 50d B–D and the rejected request. */
-const CARD = 'flex flex-col gap-2.5 rounded-[12px] border border-line/16 bg-shade/60 p-4'
+const CARD = 'flex flex-col gap-2.5 rounded-[12px] border border-line/16 bg-space/60 p-4'
 const CARD_TITLE = 'fs-14 font-semibold text-ink-100'
 const CARD_BODY = 'fs-12.5 leading-[1.5] text-ink-900/72 [text-wrap:pretty]'
 /** A relay's host inside a card's sentence (canvas 50d B). */
@@ -384,13 +384,13 @@ function JoiningCard({
   const kind = known?.kind ?? joining.kind ?? 'desktop'
   const { line } = managerWords(joining.manager, joining.name)
   return (
-    <div className="flex flex-col items-center gap-3.5 rounded-[12px] border border-line/20 bg-shade/60 px-4 pb-4 pt-5 text-center">
+    <div className="flex flex-col items-center gap-3.5 rounded-[12px] border border-line/20 bg-space/60 px-4 pb-4 pt-5 text-center">
       <span className="font-mono fs-9.5 tracking-[0.2em] text-ink-900/55">JOINING</span>
       <span className="fs-16 font-bold text-ink-100">
         Type {joining.code} on {joining.name}
       </span>
       <FingerprintBoxes size="sm" value={joining.code.replace('-', '')} />
-      <span className="flex items-center gap-2 rounded-lg border border-line/14 bg-shade/60 px-2.5 py-1.5 font-mono fs-11 text-ink-100">
+      <span className="flex items-center gap-2 rounded-lg border border-line/14 bg-space/60 px-2.5 py-1.5 font-mono fs-11 text-ink-100">
         <KindGlyph kind={kind} />
         {joining.name}
         <span className="text-ink-900/55">· {kindOs(kind, known?.os ?? '')}</span>
@@ -437,7 +437,7 @@ function WaitingCard({ pending, remote }: { pending: NonNullable<RemoteStatus['g
   }
 
   return (
-    <div className="flex flex-col items-center gap-3 rounded-[12px] border border-line/20 bg-shade/60 px-4 pb-4 pt-5 text-center">
+    <div className="flex flex-col items-center gap-3 rounded-[12px] border border-line/20 bg-space/60 px-4 pb-4 pt-5 text-center">
       <span className="font-mono fs-9.5 tracking-[0.2em] text-ink-900/55">JOINING</span>
       <span className="fs-16 font-bold text-ink-100">Waiting for {name}…</span>
       <span className={CARD_BODY}>Paired. This device is in once {name} sends it the group.</span>

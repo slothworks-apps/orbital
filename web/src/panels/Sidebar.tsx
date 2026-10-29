@@ -833,7 +833,7 @@ export function Sidebar({ observerFactory = defaultObserverFactory }: SidebarPro
       </div>
 
       {/* Search field verbatim from canvas 1a: dark inset container with a ⌕ glyph and a ⌘K keycap. */}
-      <label className="mx-3.5 flex items-center gap-2 rounded-[9px] border border-line/14 bg-shade/60 px-3 py-[9px] fs-13 text-ink-900/60">
+      <label className="mx-3.5 flex items-center gap-2 rounded-[9px] border border-line/14 bg-space/60 px-3 py-[9px] fs-13 text-ink-900/60">
         <span aria-hidden className="fs-14 leading-(--text-sm--line-height)">⌕</span>
         <input
           id={SEARCH_INPUT_ID}

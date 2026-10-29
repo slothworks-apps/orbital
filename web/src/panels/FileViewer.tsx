@@ -226,7 +226,7 @@ function SourceBody({
         {/* The gutter well (8c): 56px, rgba(4,8,16,.4), hairline right edge. */}
         <div
           aria-hidden
-          className="absolute inset-y-0 left-0 w-14 border-r border-line/8 bg-shade/40"
+          className="absolute inset-y-0 left-0 w-14 border-r border-line/8 bg-space/40"
         />
         <div className="relative">
           {lines.map((text, index) => {
@@ -550,7 +550,7 @@ function FileViewerSurface({ target, onClose, read, ideSessionId, ideName: ideNa
         onClick={closeFile}
         // 8e transitions: backdrop .14s; rgba(2,4,9,.82) + blur 6.
         style={{ transition: 'opacity 140ms ease', opacity: entered ? 1 : 0 }}
-        className="orbital-no-drag fixed inset-0 z-50 grid place-items-center bg-space/82 p-6 backdrop-blur-[6px]"
+        className="orbital-no-drag fixed inset-0 z-50 grid place-items-center bg-shade/82 p-6 backdrop-blur-[6px]"
       >
         <div
           onClick={(event) => event.stopPropagation()}

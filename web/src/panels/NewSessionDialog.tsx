@@ -1070,7 +1070,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
         </div>
         {missingDir && (
           <div className="flex flex-col gap-3">
-            <p className="break-all rounded-[10px] border border-line/14 bg-shade/50 px-3.5 py-3 font-mono fs-13 text-ink-100">
+            <p className="break-all rounded-[10px] border border-line/14 bg-space/50 px-3.5 py-3 font-mono fs-13 text-ink-100">
               {missingDir}
             </p>
             <p className="fs-13 leading-[1.5] text-ink-600/88">

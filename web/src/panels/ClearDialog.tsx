@@ -154,7 +154,7 @@ export function ClearDialog({ open, sessionId, onClose }: ClearDialogProps) {
           the same project and inherits its settings.
         </p>
 
-        <div className="mt-3.5 rounded-[9px] border border-line/10 bg-shade/45 px-3.5 py-3 font-mono fs-10.5 leading-[1.6] text-ink-900/75">
+        <div className="mt-3.5 rounded-[9px] border border-line/10 bg-space/45 px-3.5 py-3 font-mono fs-10.5 leading-[1.6] text-ink-900/75">
           <div className="truncate">
             {session?.permissionMode ?? 'mode'} ·{' '}
             {tagNames.length > 0 ? tagNames.join(', ') : 'tags'} · same directory

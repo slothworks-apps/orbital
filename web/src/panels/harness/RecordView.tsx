@@ -39,7 +39,7 @@ function DecisionCard({ d, wide }: { d: NonNullable<StepState['decisions']>[numb
   const key = 'font-mono fs-9.5 text-ink-900/55'
   return (
     <div
-      className="grid gap-x-2 rounded-lg border border-line/10 bg-shade/45 leading-[1.45] text-ink-400/88"
+      className="grid gap-x-2 rounded-lg border border-line/10 bg-space/45 leading-[1.45] text-ink-400/88"
       style={{
         gridTemplateColumns: `${wide ? 60 : 52}px minmax(0,1fr)`,
         rowGap: wide ? 4 : 3,
@@ -68,7 +68,7 @@ function ReviewCard({ review, earlier, model, wide }: { review: StepReview; earl
   const sendBacks = earlier.filter((r) => r.verdict === 'reopen').length
   return (
     <div
-      className="flex flex-col gap-1.5 rounded-lg border bg-shade/45"
+      className="flex flex-col gap-1.5 rounded-lg border bg-space/45"
       style={{ borderColor: approve ? swatch('success', 0.3) : swatch('ink-200', 0.22), padding: wide ? 12 : 10 }}
     >
       <div className="flex items-center gap-2 font-mono fs-9.5 tracking-[0.12em]" style={{ color: ink }}>

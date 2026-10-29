@@ -33,7 +33,7 @@ export function MissingDirectorySheet({
         <h2 className="mt-1 fs-19 font-bold leading-[1.25] tracking-[-0.01em]">Create this folder?</h2>
       </div>
       <div className="flex flex-col gap-3.5 px-5 pb-3.5">
-        <p className="break-all rounded-[14px] border border-line/12 bg-shade/45 px-3.5 py-3 font-mono fs-13 text-ink-100">
+        <p className="break-all rounded-[14px] border border-line/12 bg-space/45 px-3.5 py-3 font-mono fs-13 text-ink-100">
           {path}
         </p>
         <p className="fs-13.5 leading-[1.5] text-pretty text-ink-600/88">

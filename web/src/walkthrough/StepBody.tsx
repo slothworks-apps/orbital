@@ -93,7 +93,7 @@ export function StepBody({ id, session, walkthrough, step, onJump }: StepBodyPro
       </header>
 
       {folded && (
-        <div className="flex items-center gap-2 rounded-[7px] border border-line/10 bg-shade/45 px-2.5 py-[7px] font-mono fs-11.5 text-ink-500/80">
+        <div className="flex items-center gap-2 rounded-[7px] border border-line/10 bg-space/45 px-2.5 py-[7px] font-mono fs-11.5 text-ink-500/80">
           <span className="fs-9 text-ink-900/70">▸</span>
           <span className="text-ink-900/70">⚙</span>
           <span className="text-ink-100">{folded}</span>
@@ -112,7 +112,7 @@ export function StepBody({ id, session, walkthrough, step, onJump }: StepBodyPro
             <SubStep key={sub.id} id={id} session={session} parent={step.ordinal} index={i + 1} sub={sub} />
           ))}
           {rows.length > 0 && (
-            <div className="rounded-[7px] border border-line/18 bg-shade/55 [&>*:first-child]:border-t-0">
+            <div className="rounded-[7px] border border-line/18 bg-space/55 [&>*:first-child]:border-t-0">
               {rows.map(fateRows)}
             </div>
           )}
@@ -139,7 +139,7 @@ function SubStep({ id, session, parent, index, sub }: { id: string; session: Api
   const paths = [...new Set(calls.map(pathOf).filter((p): p is string => !!p))]
   const title = sub.narration.split('\n')[0]?.trim() || paths.join(', ')
   return (
-    <details className="group rounded-[7px] border border-line/10 bg-shade/45 open:border-line/18 open:bg-line/5">
+    <details className="group rounded-[7px] border border-line/10 bg-space/45 open:border-line/18 open:bg-line/5">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-2 font-mono fs-11.5 text-ink-500/80 [&::-webkit-details-marker]:hidden">
         <span className="fs-9 text-ink-900/70">
           <span className="group-open:hidden">▸</span>
@@ -199,7 +199,7 @@ function FileBlock({ id, session, call, inset = false, children }: { id: string;
         inset
           ? 'flex flex-col'
           : [
-              'flex flex-col overflow-hidden rounded-[7px] border bg-shade/55',
+              'flex flex-col overflow-hidden rounded-[7px] border bg-space/55',
               failed ? 'border-dashed border-line/18' : 'border-line/18',
             ].join(' ')
       }

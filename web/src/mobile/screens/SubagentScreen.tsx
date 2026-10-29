@@ -136,7 +136,7 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
       {body.result !== null && (
         // canvas 10f done: the agent's last words, as its parent received them.
         <div
-          className="rounded-[10px] border bg-shade/45 p-3"
+          className="rounded-[10px] border bg-space/45 p-3"
           style={{ borderColor: completed ? swatch('success', 0.3) : swatch('line', 0.12) }}
         >
           <div className="font-mono fs-9.5 tracking-[0.16em]" style={{ color: completed ? INK.done : header.ink }}>
@@ -168,7 +168,7 @@ function SubagentView({ sessionId, toolUseId }: { sessionId: string; toolUseId: 
 
   const footer = (
     // canvas 10f: no composer — where the result goes, and the way to the parent.
-    <div className="flex flex-col gap-2 border-t border-line/10 bg-shade/94 px-4 pb-1.5 pt-2.5">
+    <div className="flex flex-col gap-2 border-t border-line/10 bg-space/94 px-4 pb-1.5 pt-2.5">
       {running && (
         <div className="font-mono fs-11 leading-[1.5] text-ink-900/70">
           Subagents take no replies — its result goes back to {nameInSentence(parentTitle)}.
@@ -225,7 +225,7 @@ function TaskFrom({ parentTitle, text, dropped }: { parentTitle: string; text: s
         type="button"
         aria-expanded={full}
         onClick={() => setFull((v) => !v)}
-        className="block w-full rounded-[10px] border border-line/12 bg-shade/45 px-3 py-2.5 text-left"
+        className="block w-full rounded-[10px] border border-line/12 bg-space/45 px-3 py-2.5 text-left"
       >
         <div className="font-mono fs-9.5 tracking-[0.16em] text-ink-900/55">TASK FROM {nameInSentence(parentTitle)}</div>
         <div

@@ -28,7 +28,7 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const lines = code.split('\n')
   const tokens = useTokens(code, lang, lines.length)
   return (
-    <div className="overflow-x-auto rounded-[9px] border border-line/12 bg-shade/55">
+    <div className="overflow-x-auto rounded-[9px] border border-line/12 bg-space/55">
       <div className="w-max px-3.5 py-[11px] font-mono fs-12 leading-[1.7] whitespace-pre text-ink-400/90 [font-variant-ligatures:none] [overflow-wrap:normal]">
         {lines.map((line, i) => (
           // A static list of lines: the index is a stable key.

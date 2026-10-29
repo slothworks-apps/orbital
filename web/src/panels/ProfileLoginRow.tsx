@@ -106,7 +106,7 @@ export function ProfileLoginRow({
       )}
       {codeRun && remote && (
         // 62g: the code flow in place of the browser login, never folded.
-        <div className="ml-[162px] flex max-w-[520px] flex-col gap-2.5 rounded-[9px] border border-line/12 bg-shade/50 px-3.5 py-3">
+        <div className="ml-[162px] flex max-w-[520px] flex-col gap-2.5 rounded-[9px] border border-line/12 bg-space/50 px-3.5 py-3">
           <span className="font-mono fs-9.5 tracking-[0.16em] text-ink-900/55">
             {codeRun.kind === 'design'
               ? 'CLAUDE DESIGN SIGN-IN FROM THIS MAC'

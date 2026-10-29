@@ -166,7 +166,7 @@ export function SegShell({ label, radius, children }: { label: string; radius: 7
       aria-label={label}
       className={[
         'inline-flex flex-none overflow-hidden whitespace-nowrap border border-line/18 font-mono',
-        radius === 7 ? 'rounded-[7px]' : 'rounded-lg bg-shade/50',
+        radius === 7 ? 'rounded-[7px]' : 'rounded-lg bg-space/50',
       ].join(' ')}
     >
       {children}

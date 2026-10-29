@@ -126,7 +126,7 @@ export function WaitTile({
       aria-label="Waiting on you"
       style={{ flex: `${dashboard ? 162 : 138} 1 0` }}
       className={[
-        'box-border min-w-0 rounded-[14px] border border-dashed border-ink-900/28 bg-shade/35 py-3.5',
+        'box-border min-w-0 rounded-[14px] border border-dashed border-ink-900/28 bg-space/35 py-3.5',
         dashboard ? 'px-4' : 'px-3.5',
       ].join(' ')}
     >

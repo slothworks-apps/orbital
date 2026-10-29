@@ -135,7 +135,7 @@ function RequestSheet({
       <div className="flex flex-col items-center gap-[13px] pb-2 text-center">
         <div className="font-mono fs-9.5 tracking-[0.2em] text-ink-900/55">{manager.eyebrow}</div>
         {/* Canvas 50c "KIND, THREE TIMES": the glyph, the kind word and its meaning, then the sentence. */}
-        <div className="flex w-full items-center gap-3.5 rounded-[14px] border border-line/26 bg-shade/60 px-3.5 py-3 text-left">
+        <div className="flex w-full items-center gap-3.5 rounded-[14px] border border-line/26 bg-space/60 px-3.5 py-3 text-left">
           <span className="grid h-[52px] w-[52px] shrink-0 place-items-center rounded-[12px] border border-line/20 text-ink-100">
             <KindGlyph kind={request.kind} scale={2.6} untitled />
           </span>

@@ -285,7 +285,7 @@ function RewindMark({ active }: { active: boolean }) {
         'absolute top-[3px] grid h-6 w-6 place-items-center rounded-[6px] border transition-colors duration-150',
         active
           ? 'border-line/30 bg-line/14 text-ink-100'
-          : 'border-line/18 bg-shade/50 text-ink-500/75',
+          : 'border-line/18 bg-space/50 text-ink-500/75',
       ].join(' ')}
       // The bubble's 1px border sits outside its padding box, which is what
       // `right: 100%` measures from: 8px of gap is 9px from there.
@@ -562,7 +562,7 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
           {commandOpen && (
             // Verbatim, never markdown; left-aligned even in a right-aligned
             // turn — it's a file, not speech (6c C).
-            <pre className="mt-[2px] max-h-[168px] w-full self-stretch overflow-auto whitespace-pre-wrap rounded-[7px] border border-line/12 bg-shade/55 px-3 py-2.5 text-left font-mono fs-10.5 leading-[1.6] text-ink-900/75">
+            <pre className="mt-[2px] max-h-[168px] w-full self-stretch overflow-auto whitespace-pre-wrap rounded-[7px] border border-line/12 bg-space/55 px-3 py-2.5 text-left font-mono fs-10.5 leading-[1.6] text-ink-900/75">
               {command.body}
             </pre>
           )}

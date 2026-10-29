@@ -22,7 +22,7 @@ const SIZES: Record<Size, { box: string; rule: string; row: string }> = {
 function CodeBox({ char, size }: { char: string; size: Size }) {
   return (
     <span
-      className={`flex items-center justify-center border border-line/24 bg-shade/60 font-mono text-ink-100 ${SIZES[size].box}`}
+      className={`flex items-center justify-center border border-line/24 bg-space/60 font-mono text-ink-100 ${SIZES[size].box}`}
     >
       {char}
     </span>

@@ -92,7 +92,7 @@ export function ImageThumb({ image, variant, source, widthCapPx, messageId }: Im
     return (
       <div
         style={box}
-        className="flex flex-col items-center justify-center gap-1.5 rounded-[6px] border border-line/10 bg-shade/60"
+        className="flex flex-col items-center justify-center gap-1.5 rounded-[6px] border border-line/10 bg-space/60"
       >
         <span aria-hidden className="h-3.5 w-3.5 rounded-[3px] border border-ink-900/35" />
         <span className="font-mono fs-9 tracking-[0.1em] text-ink-900/50">
@@ -109,7 +109,7 @@ export function ImageThumb({ image, variant, source, widthCapPx, messageId }: Im
         type="button"
         onClick={retry}
         style={box}
-        className="flex flex-col items-center justify-center gap-1.5 rounded-[6px] border border-line/10 bg-shade/60"
+        className="flex flex-col items-center justify-center gap-1.5 rounded-[6px] border border-line/10 bg-space/60"
       >
         <span aria-hidden className="h-3.5 w-3.5 rounded-[3px] border border-ink-900/35" />
         <span className="font-mono fs-9 tracking-[0.1em] text-ink-900/50">

@@ -55,7 +55,7 @@ const RUNS_AS = import.meta.env.DEV ? 'From source (npm run dev)' : 'Desktop app
 
 const MONO_LABEL = 'font-mono fs-10 tracking-[0.18em] text-ink-900/60'
 const FIELD_BOX =
-  'm-0 box-border w-full appearance-none rounded-lg border border-line/16 bg-shade/60 outline-none focus:border-accent/55'
+  'm-0 box-border w-full appearance-none rounded-lg border border-line/16 bg-space/60 outline-none focus:border-accent/55'
 const PROSE_AREA = `${FIELD_BOX} resize-none px-3 py-[9px] fs-13 leading-normal text-ink-100`
 const OPEN_INK = swatch('ink-400', 0.85)
 const CLOSED_INK = swatch('ink-900', 0.5)
@@ -265,7 +265,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
         </button>
       </div>
 
-      <div className="mx-[26px] mt-4 flex shrink-0 items-start gap-3 rounded-[10px] border border-line/16 bg-shade/45 px-3.5 py-[11px]">
+      <div className="mx-[26px] mt-4 flex shrink-0 items-start gap-3 rounded-[10px] border border-line/16 bg-space/45 px-3.5 py-[11px]">
         <span className="mt-px flex-none rounded border border-ink-500/50 px-[7px] py-0.5 font-mono fs-9.5 tracking-[0.16em] text-ink-100">
           PUBLIC
         </span>
@@ -357,7 +357,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
                       <label
                         key={field}
                         style={{ opacity: fieldOpacity }}
-                        className="flex items-center gap-2 rounded-lg border border-line/14 bg-shade/60 pl-[11px] focus-within:border-accent/55"
+                        className="flex items-center gap-2 rounded-lg border border-line/14 bg-space/60 pl-[11px] focus-within:border-accent/55"
                       >
                         <span className="w-[78px] flex-none font-mono fs-9.5 tracking-[0.12em] text-ink-900/55">
                           {label}
@@ -413,7 +413,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
               <div className="pt-3.5">
                 <div
                   role="status"
-                  className="flex flex-col gap-[9px] rounded-[10px] border border-line/14 bg-shade/50 px-3.5 py-3"
+                  className="flex flex-col gap-[9px] rounded-[10px] border border-line/14 bg-space/50 px-3.5 py-3"
                 >
                   <div className="fs-13 leading-[1.45] text-ink-100">
                     gh did not answer in time. The issue may have been created all the same — look before you send
@@ -431,7 +431,7 @@ function Review({ kind, error, onClose }: { kind: ReportKind; error?: ErrorRecor
               <div className="pt-3.5">
                 <div
                   role="alert"
-                  className="flex flex-col gap-[9px] rounded-[10px] border border-line/14 bg-shade/50 px-3.5 py-3"
+                  className="flex flex-col gap-[9px] rounded-[10px] border border-line/14 bg-space/50 px-3.5 py-3"
                 >
                   <div className="flex items-center gap-[9px] fs-13 leading-[1.45] text-ink-100">
                     {/* 61d D4: the error log's one red dot, oklch(66% .2 25). */}
@@ -591,7 +591,7 @@ function Rail({
   const checkLabel = checking ? 'Checking…' : check.state === 'idle' ? 'Check with Claude' : 'Check again'
 
   return (
-    <div className="box-border flex w-[300px] flex-none flex-col gap-3 border-l border-line/8 bg-shade/22 pb-[18px] pl-5 pr-[22px] pt-4">
+    <div className="box-border flex w-[300px] flex-none flex-col gap-3 border-l border-line/8 bg-space/22 pb-[18px] pl-5 pr-[22px] pt-4">
       <div className="flex items-baseline gap-2">
         <span className={MONO_LABEL}>SIMILAR ISSUES</span>
         <span className="flex-1" />

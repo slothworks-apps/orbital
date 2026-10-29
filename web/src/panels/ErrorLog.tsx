@@ -171,12 +171,12 @@ function ErrorRow({ error, onReport }: { error: ErrorRecord; onReport: (error: E
           <Collapse open={expanded} id={bodyId} className="-mt-1.5">
           <div className="flex flex-col gap-1.5 pt-1.5">
             {error.context && (
-              <pre data-selectable className="max-h-[150px] overflow-auto whitespace-pre-wrap break-words rounded-[7px] border border-line/12 bg-shade/55 px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-ink-700/80">
+              <pre data-selectable className="max-h-[150px] overflow-auto whitespace-pre-wrap break-words rounded-[7px] border border-line/12 bg-space/55 px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-ink-700/80">
                 {JSON.stringify(error.context, null, 2)}
               </pre>
             )}
             {error.detail && (
-              <pre data-selectable className="max-h-[150px] overflow-auto whitespace-pre-wrap break-words rounded-[7px] border border-line/12 bg-shade/55 px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-ink-700/80">
+              <pre data-selectable className="max-h-[150px] overflow-auto whitespace-pre-wrap break-words rounded-[7px] border border-line/12 bg-space/55 px-3 py-2.5 font-mono fs-10.5 leading-[1.6] text-ink-700/80">
                 {error.detail}
               </pre>
             )}

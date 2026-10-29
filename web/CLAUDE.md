@@ -105,7 +105,11 @@ work by overriding those tokens, so a literal is a spot no theme can reach
 
 A canvas colour with no token yet: take the nearest token if it is within a
 few units per channel, otherwise add a token with its oklch source noted.
-Tokens stay opaque; never bake alpha into one.
+Tokens stay opaque; never bake alpha into one. `shade` is only for what
+darkens the page behind a dialog or a sheet (a `fixed inset-0` backdrop)
+and, through `shadow`, for drop shadows; a field, a well, a pill or a card
+is `space`, `panel` or `raised`. In Deep Field they look alike, in a light
+theme they are opposites.
 
 ## `className` on a UI primitive is layout-only
 

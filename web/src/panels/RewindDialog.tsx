@@ -84,7 +84,7 @@ export function RewindDialog({ sessionId }: { sessionId: string }) {
         {confirmation && confirmation.items.length > 0 && (
           <ul
             data-rewind-confirm-items
-            className="mt-3.5 flex flex-col rounded-lg border border-line/10 bg-shade/45 py-1"
+            className="mt-3.5 flex flex-col rounded-lg border border-line/10 bg-space/45 py-1"
           >
             {confirmation.items.map((item, i) => (
               <li

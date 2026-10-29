@@ -285,7 +285,7 @@ export function Badge(props: BadgeProps) {
             : // The canvas's quiet-chip literal — `border-line/14` is
               // `.14`, not `.2`, so the token can't stand in for it without
               // the chip reading a shade fainter than the artboard.
-              'border-line/20 bg-shade/50 text-ink-200/85'
+              'border-line/20 bg-space/50 text-ink-200/85'
         }`}
       >
         {props.value}

@@ -295,7 +295,7 @@ export function TerminalSurface({ sessionId, variant }: { sessionId: string; var
       </div>
 
       {variant === 'side' && (
-        <div className="flex h-fit min-h-[30px] flex-none items-center gap-2 rounded-b-[13px] border-t border-line/10 bg-shade/60 px-3.5 font-mono fs-10 tracking-[0.06em] text-ink-900/50">
+        <div className="flex h-fit min-h-[30px] flex-none items-center gap-2 rounded-b-[13px] border-t border-line/10 bg-space/60 px-3.5 font-mono fs-10 tracking-[0.06em] text-ink-900/50">
           your shell · not sent to the agent
           <span className="flex-1" />
           {session ? shortenPath(workingDirOf(session)) : ''}

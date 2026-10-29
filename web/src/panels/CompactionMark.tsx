@@ -98,7 +98,7 @@ export function CompactionMark({
       <div data-compaction-mark="failed" data-compaction-id={message.id} className="flex flex-col gap-2">
         <Heading text="COMPACTION FAILED" failed />
         <div
-          className="flex flex-col gap-[9px] rounded-lg border bg-shade/50 px-3 py-2.5"
+          className="flex flex-col gap-[9px] rounded-lg border bg-space/50 px-3 py-2.5"
           style={{ borderColor: FAILED_BORDER }}
         >
           <div className="flex items-baseline gap-2 font-mono fs-10.5 text-ink-900/65">
@@ -152,7 +152,7 @@ export function CompactionMark({
   return (
     <div data-compaction-mark="success" data-compaction-id={message.id} className="flex flex-col gap-2">
       <Heading text={heading} failed={false} />
-      <div className="flex flex-col gap-[9px] rounded-lg border border-line/14 bg-shade/50 px-3 py-2.5">
+      <div className="flex flex-col gap-[9px] rounded-lg border border-line/14 bg-space/50 px-3 py-2.5">
         <div className="flex items-baseline gap-2 font-mono fs-10.5 text-ink-900/65">
           {mark.preTokens !== null && (
             <span className="fs-12.5 text-ink-100">
@@ -238,7 +238,7 @@ export function CompactingBlock({
     <div
       data-compacting-block
       role="status"
-      className="flex shrink-0 flex-col gap-2.5 rounded-[9px] border border-line/16 bg-shade/55 px-3.5 py-3"
+      className="flex shrink-0 flex-col gap-2.5 rounded-[9px] border border-line/16 bg-space/55 px-3.5 py-3"
     >
       <div className="flex items-baseline gap-2 font-mono fs-10 tracking-[0.16em] text-ink-400/85">
         COMPACTING CONTEXT

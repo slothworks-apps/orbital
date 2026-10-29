@@ -26,7 +26,7 @@ function FileDiff({ file, wide, unfolded, onUnfold }: { file: PatchFile; wide: b
   const { hunks, more } = unfolded ? { hunks: file.hunks, more: 0 } : foldFile(file, FILE_FOLD_LINES)
   return (
     <div data-file={file.path}>
-      <div className="mb-0.5 mt-2.5 flex items-center gap-2 border-y border-b-line/6 border-t-line/10 bg-shade/60 px-[18px] py-1.5 text-ink-100">
+      <div className="mb-0.5 mt-2.5 flex items-center gap-2 border-y border-b-line/6 border-t-line/10 bg-space/60 px-[18px] py-1.5 text-ink-100">
         <span className="min-w-0 flex-1 truncate">{file.oldPath && file.oldPath !== file.path ? `${file.oldPath} → ${file.path}` : file.path}</span>
         <span className="shrink-0 text-ink-900/60">
           +{file.added} −{file.removed}
@@ -183,7 +183,7 @@ export function StepDiffView({
         {diff && files.length === 0 && <div className="px-[18px] text-ink-900/60">No changes in this range.</div>}
         {diff && <DiffBody files={files} wide={false} unfolded={unfolded} unfold={(p) => setUnfolded((s) => new Set(s).add(p))} />}
       </div>
-      <div className="flex items-center gap-2 border-t border-line/10 bg-shade/40 px-[18px] py-[11px] font-mono fs-10 tracking-[0.06em] text-ink-900/50">
+      <div className="flex items-center gap-2 border-t border-line/10 bg-space/40 px-[18px] py-[11px] font-mono fs-10 tracking-[0.06em] text-ink-900/50">
         unified{chrome.inWindow ? '' : ' · wide view in the full window'}
         <span aria-hidden className="flex-1" />
         <span>⎋ back</span>

@@ -94,7 +94,7 @@ export function SkillViewer({
         inert={state === 'exiting' || undefined}
         onClick={onClose}
         style={{ transition: 'opacity 140ms ease', opacity: entered ? 1 : 0 }}
-        className="orbital-no-drag fixed inset-0 z-50 grid place-items-center bg-space/82 p-6 backdrop-blur-[6px]"
+        className="orbital-no-drag fixed inset-0 z-50 grid place-items-center bg-shade/82 p-6 backdrop-blur-[6px]"
       >
         <div
           data-text-scope="transcript"

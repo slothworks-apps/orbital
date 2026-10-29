@@ -32,7 +32,7 @@ function cardClassName(active: boolean, compact: boolean): string {
           'border-accent/70 bg-accent/8'
         : // canvas 4b selected: border .7 / bg .08, plus a 20px .15-alpha glow.
           'border-accent/70 bg-accent/8 shadow-[0_0_20px_color-mix(in_oklab,_var(--color-accent)_15%,_transparent)]'
-      : 'border-line/14 bg-shade/40 hover:bg-white/5',
+      : 'border-line/14 bg-space/40 hover:bg-white/5',
   ].join(' ')
 }
 
@@ -88,7 +88,7 @@ export function ModelCards({
 }: ModelCardsProps) {
   if (models.length === 0) {
     return (
-      <p className="rounded-[10px] border border-line/14 bg-shade/40 px-3.5 py-3 fs-11.5 leading-[1.4] text-ink-900/70">
+      <p className="rounded-[10px] border border-line/14 bg-space/40 px-3.5 py-3 fs-11.5 leading-[1.4] text-ink-900/70">
         The model list could not be read from Claude Code. Sessions still launch — they use whatever
         model Claude Code is configured with.
       </p>

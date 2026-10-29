@@ -182,7 +182,7 @@ export function ClaudeDirsRows({
           : 'A profile is one Claude configuration directory with its own login, settings, MCP servers and history, like a browser profile. Orbital watches all of them. Logging in here runs the same browser sign-in as the CLI; Orbital keeps no copy of the account.'}
       </div>
 
-      <div className="flex flex-col rounded-[11px] border border-line/12 bg-shade/45">
+      <div className="flex flex-col rounded-[11px] border border-line/12 bg-space/45">
         <ul className="flex flex-col">
           {dirs.map((dir, index) => {
             const missing = !dir.exists
@@ -289,7 +289,7 @@ export function ClaudeDirsRows({
                 {/* Its account, Claude Design and the logins (62c). */}
                 <ProfileLoginRow dir={dir} machine={machine} active={active} macName={macName} />
                 {confirming === dir.id && (
-                  <div className="mb-3 ml-4 mr-2.5 flex items-center gap-3 rounded-[9px] border border-line/16 bg-shade/60 px-3 py-[11px]">
+                  <div className="mb-3 ml-4 mr-2.5 flex items-center gap-3 rounded-[9px] border border-line/16 bg-space/60 px-3 py-[11px]">
                     <span className="min-w-0 flex-1 fs-12.5 leading-[1.5] text-ink-400/88 [text-wrap:pretty]">
                       Stop watching {claudeDirDisplayPath(dir.path)}? Nothing on disk is deleted. Its sessions leave the
                       map and the lists.

@@ -53,7 +53,7 @@ export function GapLine({ gap, label, prev }: GapLineProps) {
           <span className="truncate">{prev.title}</span>
         </span>
       )}
-      <div className="flex flex-col gap-1.5 rounded-[9px] border border-dotted border-line/25 bg-shade/35 px-4 py-3">
+      <div className="flex flex-col gap-1.5 rounded-[9px] border border-dotted border-line/25 bg-space/35 px-4 py-3">
         <span className="flex font-mono fs-9.5 tracking-[.14em] text-ink-900/55">
           {label}
           <span className="flex-1" />

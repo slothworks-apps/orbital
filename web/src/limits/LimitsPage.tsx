@@ -128,7 +128,7 @@ export function LimitsPage({ account = null }: { account?: string | null }) {
     <StatsShell sky="limits" bar={<PageBar route={{ page: 'limits' }} surface="sky" />}>
       <div className="flex min-h-0 flex-1 gap-[18px]">
         {/* 31a / 60c: the windows' panel. */}
-        <section className="flex min-w-0 flex-1 flex-col overflow-y-auto rounded-[13px] border border-line/12 bg-shade/55 px-7 pb-2 pt-6">
+        <section className="flex min-w-0 flex-1 flex-col overflow-y-auto rounded-[13px] border border-line/12 bg-space/55 px-7 pb-2 pt-6">
           <div className={`flex items-baseline gap-3 ${grouped ? 'pb-2.5' : 'pb-[18px]'}`}>
             <span className="fs-19 font-bold text-ink-100">Plan limits</span>
             <span className="font-mono fs-10.5 text-ink-900/55">
@@ -508,7 +508,7 @@ function WindowRow({
 function Card({ label, gap = 12, children }: { label: string; gap?: number; children: ReactNode }) {
   return (
     <div
-      className="flex flex-col rounded-[13px] border border-line/12 bg-shade/55 px-6 py-[22px]"
+      className="flex flex-col rounded-[13px] border border-line/12 bg-space/55 px-6 py-[22px]"
       style={{ gap }}
     >
       <span className="font-mono fs-9.5 tracking-[0.2em] text-ink-900/60">{label}</span>
@@ -522,7 +522,7 @@ function WaitRow({ wait, now, mono }: { wait: LimitsWaitRow; now: number; mono?:
   return (
     <a
       href={mapHref(wait.sessionId)}
-      className="flex items-center gap-2.5 rounded-[9px] border border-line/10 bg-shade/45 px-3 py-2.5 text-ink-100 no-underline transition-colors duration-150 hover:border-line/20"
+      className="flex items-center gap-2.5 rounded-[9px] border border-line/10 bg-space/45 px-3 py-2.5 text-ink-100 no-underline transition-colors duration-150 hover:border-line/20"
     >
       <span
         aria-hidden

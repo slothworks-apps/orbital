@@ -1038,7 +1038,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
                           'border-accent/50 bg-accent/6'
                         : targetsSelected
                           ? ''
-                          : 'border-line/8 bg-shade/35',
+                          : 'border-line/8 bg-space/35',
                       // 1e dims a disabled rule rather than restyling it.
                       enabled ? '' : 'opacity-60',
                       // Drag feedback (no 1e equivalent — its mock is static):
@@ -1236,7 +1236,7 @@ export function TagsRulesSection({ active, onSaved }: TagsRulesSectionProps) {
             {/* Preview footer (1e: PREVIEW · path · → · chip · matched rule N). */}
             <div
               data-testid="preview-result"
-              className="mx-[22px] mb-5 mt-3 flex flex-wrap items-center gap-3 rounded-[9px] border border-line/10 bg-shade/35 px-3.5 py-3"
+              className="mx-[22px] mb-5 mt-3 flex flex-wrap items-center gap-3 rounded-[9px] border border-line/10 bg-space/35 px-3.5 py-3"
             >
               <span className="shrink-0 font-mono fs-10 tracking-[0.16em] text-ink-900/55">
                 PREVIEW

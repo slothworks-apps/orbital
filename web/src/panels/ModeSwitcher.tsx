@@ -79,7 +79,7 @@ export function ModeSwitcher({ session, disabled }: { session: ApiSession; disab
           onClick={() => setOpen((v) => !v)}
           className={[
             'flex h-[22px] w-6 items-center justify-center rounded-[5px] border',
-            'bg-shade/50 transition-colors outline-none',
+            'bg-space/50 transition-colors outline-none',
             open ? 'border-accent/55' : 'border-line/20',
             'hover:border-accent/55 focus-visible:border-accent/55',
           ].join(' ')}

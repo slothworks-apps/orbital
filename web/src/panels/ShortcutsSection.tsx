@@ -34,7 +34,7 @@ export function ShortcutsSection() {
       <GroupLine className="shrink-0 px-8" />
       {/* Filter bar: 16/32/14 padding, hairline under it (artboard A). */}
       <div className="shrink-0 border-b border-line/8 px-8 pb-3.5 pt-4">
-        <div className="flex items-center gap-2.5 rounded-[9px] border border-line/14 bg-shade/45 px-3 py-2">
+        <div className="flex items-center gap-2.5 rounded-[9px] border border-line/14 bg-space/45 px-3 py-2">
           <input
             ref={inputRef}
             type="text"

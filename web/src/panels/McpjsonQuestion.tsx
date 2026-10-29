@@ -96,7 +96,7 @@ function McpjsonRow({
         {/* What runs is the point: wrapped, never truncated (47e "Server row"). */}
         <div
           className={[
-            'rounded-lg border bg-shade/60 px-3 py-[9px] font-mono fs-12 leading-[1.6] whitespace-pre-wrap text-ink-200 [overflow-wrap:anywhere]',
+            'rounded-lg border bg-space/60 px-3 py-[9px] font-mono fs-12 leading-[1.6] whitespace-pre-wrap text-ink-200 [overflow-wrap:anywhere]',
             file ? 'border-[oklch(76%_.16_85/.3)]' : 'border-line/12',
           ].join(' ')}
         >

@@ -54,7 +54,7 @@ export interface SeverityStyle {
 }
 
 /** The fill the three live treatments share (10d). */
-const CARD_FILL = swatch('shade', 0.45)
+const CARD_FILL = swatch('space', 0.45)
 
 /** 10e's severity table, value for value. */
 export const SEVERITY_STYLES: Record<FindingSeverity, SeverityStyle> = {
@@ -88,7 +88,7 @@ export const SEVERITY_STYLES: Record<FindingSeverity, SeverityStyle> = {
     cardBorder: swatch('line', 0.1),
     // Thinner than the other three, on top of the .55 opacity: a resolved
     // finding is a record, not a thing to act on (10d).
-    cardFill: swatch('shade', 0.3),
+    cardFill: swatch('space', 0.3),
     chipFill: 'transparent',
     chipBorder: swatch('line', 0.18),
     opacity: 0.55,

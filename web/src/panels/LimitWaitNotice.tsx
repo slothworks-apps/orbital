@@ -39,7 +39,7 @@ export function LimitWaitNotice({ sessionId, wait, hue }: { sessionId: string; w
 
   return (
     <div data-limit-wait className="flex flex-col gap-2.5">
-      <div className="flex flex-col gap-2 rounded-[9px] border border-line/16 bg-shade/50 px-3.5 py-3">
+      <div className="flex flex-col gap-2 rounded-[9px] border border-line/16 bg-space/50 px-3.5 py-3">
         <div className="flex items-center gap-2.5">
           <span
             aria-hidden

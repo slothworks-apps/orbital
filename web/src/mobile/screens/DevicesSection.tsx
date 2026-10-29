@@ -444,7 +444,7 @@ function DeviceSheet({
             <span className="font-mono fs-11 text-ink-900/65">{row.kindOs}</span>
           </span>
         </div>
-        <dl className="flex flex-col rounded-[14px] border border-line/12 bg-shade/50 font-mono fs-11.5 text-ink-900/65">
+        <dl className="flex flex-col rounded-[14px] border border-line/12 bg-space/50 font-mono fs-11.5 text-ink-900/65">
           <div className="flex items-center gap-2 px-3.5 py-3">
             <dt className="flex-1">state</dt>
             <Dot state={shown.dot ?? row.state} />

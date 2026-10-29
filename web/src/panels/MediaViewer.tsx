@@ -223,7 +223,7 @@ function ViewerBody({
         if (!pressedWithMenu.current) onClose()
       }}
       style={{ transition: `opacity ${VIEWER_EXIT_MS}ms ease`, opacity: entered ? 1 : 0 }}
-      className="orbital-no-drag fixed inset-0 z-50 bg-space/82 backdrop-blur-[6px]"
+      className="orbital-no-drag fixed inset-0 z-50 bg-shade/82 backdrop-blur-[6px]"
     >
       <div
         className="absolute inset-x-0 flex items-center justify-center gap-4"
@@ -431,7 +431,7 @@ function Stage({
     return (
       <div
         onClick={(event) => event.stopPropagation()}
-        className="flex flex-col items-center justify-center gap-2.5 rounded-xl border border-line/10 bg-shade/60 font-mono tracking-[0.1em] shadow-[0_40px_120px_color-mix(in_oklab,_var(--color-shadow)_70%,_transparent)]"
+        className="flex flex-col items-center justify-center gap-2.5 rounded-xl border border-line/10 bg-space/60 font-mono tracking-[0.1em] shadow-[0_40px_120px_color-mix(in_oklab,_var(--color-shadow)_70%,_transparent)]"
         style={{ width: Math.round(w * k), height: Math.round(h * k) }}
       >
         <GoneMark size="dialog" />

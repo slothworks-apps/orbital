@@ -110,7 +110,7 @@ export function StopDialog({ open, sessionId, onClose }: StopDialogProps) {
           . The partial response is discarded; edits already written to disk stay.
         </p>
         {openTool && (
-          <div className="mt-3.5 flex items-center gap-2.5 rounded-lg border border-line/10 bg-shade/45 px-3 py-2.5 font-mono fs-11 text-ink-900/75">
+          <div className="mt-3.5 flex items-center gap-2.5 rounded-lg border border-line/10 bg-space/45 px-3 py-2.5 font-mono fs-11 text-ink-900/75">
             <span aria-hidden className="text-ink-900/50">
               ⚙
             </span>

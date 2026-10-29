@@ -737,7 +737,7 @@ export function Composer({
         className={[
           'relative flex flex-col gap-2.5 rounded-[10px] border transition-[border-color,background-color] duration-300',
           // 26c: a locked well drops to a .08 hairline over a .3 fill.
-          locked ? 'bg-shade/30' : 'bg-shade/60',
+          locked ? 'bg-space/30' : 'bg-space/60',
           variant === 'dialog' ? 'min-h-24 px-3.5 pb-2.5 pt-3' : 'px-3 pb-2.5 pt-3',
           // 9c-1: the marker is 96px tall, so the panel's well grows to it for
           // the duration of the drag — the dialog's already is.

@@ -125,7 +125,7 @@ function TaskView({ sessionId, taskId }: { sessionId: string; taskId: string }) 
 
   const footer = (
     // canvas 10g: the follow pill and what the output is; ended, that nothing is left to stop.
-    <div className="flex items-center gap-2.5 border-t border-line/10 bg-shade/94 px-4 pb-1.5 pt-2.5 font-mono fs-10.5 text-ink-900/60">
+    <div className="flex items-center gap-2.5 border-t border-line/10 bg-space/94 px-4 pb-1.5 pt-2.5 font-mono fs-10.5 text-ink-900/60">
       {shape?.live ? (
         <>
           <button type="button" onClick={follow.resume} className="flex h-11 items-center" aria-label={follow.paused ? 'Follow the output again' : 'Following the output'}>

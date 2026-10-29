@@ -22,13 +22,13 @@
 
 /** Canvas 9d COLOUR: the pending card's border, and the accent every row state is built from. */
 export const CARD_PENDING =
-  'border-accent/28 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_72%,_transparent),color-mix(in_oklab,_var(--color-shade)_82%,_transparent))]'
+  'border-accent/28 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_72%,_transparent),color-mix(in_oklab,_var(--color-space)_82%,_transparent))]'
 /** Canvas 9d COLOUR: "answered card border — rgba(150,205,255,.12)"; 9b D's quieter fill. */
 export const CARD_ANSWERED =
-  'border-line/12 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_55%,_transparent),color-mix(in_oklab,_var(--color-shade)_66%,_transparent))]'
+  'border-line/12 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_55%,_transparent),color-mix(in_oklab,_var(--color-space)_66%,_transparent))]'
 /** Canvas 9b C: the watched-terminal card, quieter again. */
 export const CARD_READONLY =
-  'border-line/12 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_50%,_transparent),color-mix(in_oklab,_var(--color-shade)_62%,_transparent))]'
+  'border-line/12 bg-[linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_50%,_transparent),color-mix(in_oklab,_var(--color-space)_62%,_transparent))]'
 
 /** Canvas 9b: chip is mono 10 at .14em tracking in a 3px/8px, r4 box. */
 export const CHIP_BASE =

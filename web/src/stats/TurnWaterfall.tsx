@@ -435,7 +435,7 @@ function PagerButton({
  */
 function PermissionCaveat() {
   return (
-    <div className="flex gap-[9px] rounded-[10px] border border-line/10 bg-shade/45 px-[13px] py-[11px]">
+    <div className="flex gap-[9px] rounded-[10px] border border-line/10 bg-space/45 px-[13px] py-[11px]">
       <span className="font-mono fs-11 text-warning">†</span>
       <div className="fs-11.5 leading-[1.55] text-pretty text-ink-900/75">
         Permission prompts: Orbital-run sessions only — the runner times prompt shown → answered,

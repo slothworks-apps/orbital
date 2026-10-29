@@ -27,9 +27,9 @@ function FullFrame({ inWindow, children }: { inWindow: boolean; children: ReactN
   const viewportWidth = useViewportWidth()
   const sidebarPx = useOrbital((s) => (s.ui.sidebarCollapsed ? RAIL_PX : parseSidebarWidth(s.settings, viewportWidth)))
   const frame = inWindow
-    ? 'fixed inset-0 bg-space bg-[image:linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_92%,_transparent),color-mix(in_oklab,_var(--color-shade)_95%,_transparent))]'
+    ? 'fixed inset-0 bg-space bg-[image:linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_92%,_transparent),color-mix(in_oklab,_var(--color-space)_95%,_transparent))]'
     : // Opaque under the gradient: the frame covers the docked panels, which must not show through.
-      'fixed rounded-[14px] border border-line/12 bg-space bg-[image:linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_92%,_transparent),color-mix(in_oklab,_var(--color-shade)_95%,_transparent))]'
+      'fixed rounded-[14px] border border-line/12 bg-space bg-[image:linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_92%,_transparent),color-mix(in_oklab,_var(--color-space)_95%,_transparent))]'
   return createPortal(
     <div
       role="region"

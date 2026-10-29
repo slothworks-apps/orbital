@@ -442,7 +442,7 @@ export function Select<T extends string | number>({
                 // field fill; the border lights to the accent at .5 while open,
                 // `border-color .18s ease`.
                 [
-                  'rounded-[9px] border bg-shade/60 px-3 py-[9px] font-sans',
+                  'rounded-[9px] border bg-space/60 px-3 py-[9px] font-sans',
                   'transition-[border-color] duration-[180ms] ease-[ease]',
                   open ? 'border-accent/50' : 'border-line/18',
                 ].join(' ')
@@ -465,7 +465,7 @@ export function Select<T extends string | number>({
                 : // 1h's field: 8px/10px padding, a 26px right gutter for the
                   // chevron, 8px radius over the rgba(4,8,16,.6) fill.
                   [
-                    'rounded-lg border border-line/14 bg-shade/60 py-2 pl-2.5 pr-[26px] transition-colors',
+                    'rounded-lg border border-line/14 bg-space/60 py-2 pl-2.5 pr-[26px] transition-colors',
                     'hover:border-accent/40 focus:border-accent/60 focus:outline-none',
                     triggerFont[font],
                   ].join(' '),

@@ -10,15 +10,15 @@ export type FieldSize = 'sm' | 'md' | 'lg'
  * the export uses inside glass panels.
  */
 const sizeClasses: Record<FieldSize, string> = {
-  sm: 'rounded-lg bg-shade/60 px-2.5 py-2 fs-12 leading-(--text-xs--line-height)',
+  sm: 'rounded-lg bg-space/60 px-2.5 py-2 fs-12 leading-(--text-xs--line-height)',
   md: 'rounded-md bg-panel/88 px-3 py-1.5 fs-14 leading-(--text-sm--line-height)',
-  lg: 'rounded-[9px] bg-shade/60 px-3 py-2.5 fs-12.5',
+  lg: 'rounded-[9px] bg-space/60 px-3 py-2.5 fs-12.5',
 }
 
 /** Canvas 1d's textarea: 12px/14px padding, radius 10, 13.5px / 1.55. */
 const textAreaSizeClasses: Record<FieldSize, string> = {
   ...sizeClasses,
-  lg: 'rounded-[10px] bg-shade/60 px-3.5 py-3 fs-13.5 leading-[1.55]',
+  lg: 'rounded-[10px] bg-space/60 px-3.5 py-3 fs-13.5 leading-[1.55]',
 }
 
 // The border colour is picked here, in one place, rather than concatenated

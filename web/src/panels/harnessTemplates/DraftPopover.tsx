@@ -124,7 +124,7 @@ function SessionPicker({
           setHighlight(0)
         }}
         onKeyDown={onKeyDown}
-        className="mx-0.5 mb-1.5 mt-0.5 rounded-[7px] border border-line/16 bg-shade/60 px-2.5 py-[7px] fs-12 text-ink-100 placeholder:text-ink-900/55 focus:border-line/32 focus:outline-none"
+        className="mx-0.5 mb-1.5 mt-0.5 rounded-[7px] border border-line/16 bg-space/60 px-2.5 py-[7px] fs-12 text-ink-100 placeholder:text-ink-900/55 focus:border-line/32 focus:outline-none"
       />
       <div className="px-2.5 pb-1 pt-1.5 font-mono fs-9.5 tracking-[0.18em] text-ink-900/60">
         RECENT · ALL PROJECTS
@@ -317,7 +317,7 @@ export function DraftPopover({
             autoFocus
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="h-fit min-h-[76px] resize-none rounded-lg border border-line/16 bg-shade/60 px-2.5 py-[9px] fs-12.5 leading-[1.55] text-ink-100 [field-sizing:content] [text-wrap:pretty] focus:border-accent/50 focus:outline-none"
+            className="h-fit min-h-[76px] resize-none rounded-lg border border-line/16 bg-space/60 px-2.5 py-[9px] fs-12.5 leading-[1.55] text-ink-100 [field-sizing:content] [text-wrap:pretty] focus:border-accent/50 focus:outline-none"
           />
         </label>
 
@@ -334,7 +334,7 @@ export function DraftPopover({
               aria-expanded={picking === 'session'}
               onClick={() => setPicking(picking === 'session' ? null : 'session')}
               className={[
-                'flex items-center gap-2.5 rounded-lg border bg-shade/60 px-2.5 py-2 text-left',
+                'flex items-center gap-2.5 rounded-lg border bg-space/60 px-2.5 py-2 text-left',
                 picking === 'session' ? 'border-line/30' : 'border-line/16 hover:border-line/30',
               ].join(' ')}
             >

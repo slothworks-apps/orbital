@@ -318,7 +318,7 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
         className={[
           'orbital-band-controls border-b border-line/10 px-[18px] pb-4 pt-4',
           // 25b's header step over the window fill.
-          swap ? 'bg-[image:linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_60%,_transparent),color-mix(in_oklab,_var(--color-shade)_30%,_transparent))]' : '',
+          swap ? 'bg-[image:linear-gradient(180deg,color-mix(in_oklab,_var(--color-panel)_60%,_transparent),color-mix(in_oklab,_var(--color-space)_30%,_transparent))]' : '',
         ].join(' ')}
       >
         {/* In swap (25b) the window's title bar is this panel's own row 1,
@@ -474,7 +474,7 @@ export function SubagentPanel({ widthPx, inWindow: inWindowProp = false, swap = 
           (spec § "Read-only means read-only"). */}
       <div
         data-subagent-footer
-        className="flex items-center gap-2 border-t border-line/10 bg-shade/40 px-[18px] py-3 font-mono fs-10 tracking-[0.06em] text-ink-900/50"
+        className="flex items-center gap-2 border-t border-line/10 bg-space/40 px-[18px] py-3 font-mono fs-10 tracking-[0.06em] text-ink-900/50"
       >
         {/* Swap (25b): the composer is the session's, one ⎋ away. */}
         <span>{swap ? 'read-only · the composer is one step back' : 'read-only · a subagent takes no input'}</span>
