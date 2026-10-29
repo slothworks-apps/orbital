@@ -88,8 +88,9 @@ pass decides whether they become tokens or go.
   today's map have it, and a theme only recolours it. Nor were 1l's state
   marks on the body (a steady amber core while waiting, a green ring for
   DONE, a dashed coral ring for INTERRUPTED): a planet keeps its tag hue
-  whatever its state, as [[2026-09-24-state-colours-design]] says, so the
-  bodies look as they did before themes, recoloured by the theme.
+  whatever its state, as [[2026-09-24-state-colours-design]] says, core and
+  core glow included (before themes a waiting core turned white, which broke
+  that rule; it no longer does). Only the waiting ripple is amber.
 - **Shadows and gradients** written as arbitrary Tailwind values
   (`shadow-[0_0_8px_rgba(…)]`), and the black and white of drop shadows and
   inset highlights, which may not need a theme at all.

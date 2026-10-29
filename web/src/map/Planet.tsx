@@ -1496,7 +1496,6 @@ function usePlanetMaterials(palette: SceneColours): PlanetMaterials {
     PLANET_TICK_LAYERS.forEach((layer, i) => {
       if (layer.grey) materials.ticks[i].color.copy(palette['ink-600'])
     })
-    materials.coreGlowWhite.color.copy(palette.glint)
     materials.ripple.color.copy(palette.warning)
     materials.shadow.color.copy(palette.shadow)
     for (const ring of [...materials.condense, ...materials.condenseGlow]) ring.color.copy(palette['ink-400'])
@@ -1934,10 +1933,13 @@ function PlanetBody({
     materials.coreGlowHue.color.copy(hueC)
     materials.coreGlowHue.opacity = w.needs_input * CORE_GLOW_HUE_OPACITY * fade * glowK
     materials.coreGlowHue.visible = hasGlowTexture && materials.coreGlowHue.opacity > 0.001
+    // A waiting planet keeps its tag hue, core and glow alike; only the
+    // ripple is amber (spec 2026-09-24-state-colours-design).
+    materials.coreGlowWhite.color.copy(hueC)
     materials.coreGlowWhite.opacity = w.needs_input * CORE_GLOW_WHITE_OPACITY * fade * glowK
     materials.coreGlowWhite.visible = hasGlowTexture && materials.coreGlowWhite.opacity > 0.001
 
-    materials.core.color.copy(hueC).lerp(palette.glint, w.needs_input)
+    materials.core.color.copy(hueC)
     if (coreRef.current) coreRef.current.scale.setScalar(b.coreRadius)
 
     // The label is plain DOM: `group.visible = false` hides the meshes under

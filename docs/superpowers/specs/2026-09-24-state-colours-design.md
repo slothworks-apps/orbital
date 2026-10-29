@@ -26,7 +26,7 @@ planet element: the ripple ring that expands around a planet waiting on the
 human. That ring is a state signal, not a tag ring, so it is amber (the user's
 call, beyond the canvas). An INTERRUPTED planet no longer gets the ripple at
 all; its coral pill says enough, and it is the rare case of a server restart
-cutting a turn short, not someone waiting on you. Planet bodies, the other rings, moons, glow and the sidebar's leading
+cutting a turn short, not someone waiting on you. Planet bodies, their core (a waiting one's included), the other rings, moons, glow and the sidebar's leading
 tag dot keep the tag hue, which the user can set to anything, so a state label can sit next to
 a planet in its own colour.
 
