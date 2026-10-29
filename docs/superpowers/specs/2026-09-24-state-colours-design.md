@@ -26,17 +26,9 @@ planet element: the ripple ring that expands around a planet waiting on the
 human. That ring is a state signal, not a tag ring, so it is amber (the user's
 call, beyond the canvas). An INTERRUPTED planet no longer gets the ripple at
 all; its coral pill says enough, and it is the rare case of a server restart
-cutting a turn short, not someone waiting on you. Planet bodies, the other rings, moons, glow and the sidebar's leading
+cutting a turn short, not someone waiting on you. Planet bodies, their core (a waiting one's included), the other rings, moons, glow and the sidebar's leading
 tag dot keep the tag hue, which the user can set to anything, so a state label can sit next to
 a planet in its own colour.
-
-Amended by [[2026-10-29-colour-tokens-design]] (canvas `Feature - Colour
-themes` 1l): the planet now carries three more state marks. A waiting
-planet's core is a steady amber (it used to blink white), a DONE planet has a
-solid `--state-done` ring and core, and an INTERRUPTED planet a dashed
-`--state-interrupted` ring with a hollow core, a shape of its own so it never
-reads as the context gauge's critical red. Bodies, moons, glow and the tag
-ring still keep the tag hue.
 
 The phone's session list follows the same rule: its planets take the hue of
 the session's tag, picked as the map picks it (the first tag that still

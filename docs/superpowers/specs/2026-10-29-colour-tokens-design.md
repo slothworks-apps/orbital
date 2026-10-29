@@ -85,7 +85,12 @@ pass decides whether they become tokens or go.
   tag edge and a soft shadow instead. 1l's hover drawings (the planet's pill,
   reticle and brackets, the moon's hairline ring, the hole's ring glow and
   the working core's glow) were not taken: hover stays as artboard 11e and
-  today's map have it, and a theme only recolours it.
+  today's map have it, and a theme only recolours it. Nor were 1l's state
+  marks on the body (a steady amber core while waiting, a green ring for
+  DONE, a dashed coral ring for INTERRUPTED): a planet keeps its tag hue
+  whatever its state, as [[2026-09-24-state-colours-design]] says, core and
+  core glow included (before themes a waiting core turned white, which broke
+  that rule; it no longer does). Only the waiting ripple is amber.
 - **Shadows and gradients** written as arbitrary Tailwind values
   (`shadow-[0_0_8px_rgba(…)]`), and the black and white of drop shadows and
   inset highlights, which may not need a theme at all.
@@ -162,10 +167,8 @@ settings arrive, and other windows follow through the `storage` event.
   a theme possible.
 - **Where it lives:** Settings → Appearance → COLOURS on the Mac and the phone; Deep Field stays the default.
 - **What someone updating notices:** muted text and captions a little
-  brighter, the critical context number in white, and on the map a steady
-  amber core for a waiting session (it used to blink), a green ring for a
-  finished one, a dashed ring for an interrupted one and brighter cluster
-  names, and a new COLOURS group in Appearance. Nothing else until a theme
+  brighter, the critical context number in white, and brighter cluster
+  names on the map, and a new COLOURS group in Appearance. Nothing else until a theme
   is picked.
 - **What can be set:** the theme, and whether it follows the OS's light and
   dark mode.

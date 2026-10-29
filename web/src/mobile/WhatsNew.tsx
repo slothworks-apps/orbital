@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { create } from 'zustand'
-import { firstReleaseNotes, releaseNotes, type ReleaseNotes } from '@orbital/shared/changelog'
+import { firstReleaseNotes, releaseNotes, releaseNotesSince, type ReleaseNotes } from '@orbital/shared/changelog'
 import changelog from '../../../mobile/CHANGELOG.md?raw'
 import {
   endedSeenVersion, parseSeenVersion, serializeSeenVersion, whatsNewHead, whatsNewOnLaunch, type SeenVersion,
 } from '../lib/whatsNew'
-import { ReleaseNoteSections } from '../ui/ReleaseNotes'
+import { ReleaseNoteVersions } from '../ui/ReleaseNotes'
 import { usePhoneNotices } from './notices'
 import { NoticeButton, PinnedNotice, PinnedNoticeList } from './PinnedNotice'
 import { readWhatsNew, writeWhatsNew } from './platform/whatsNew'
@@ -15,8 +15,9 @@ import { BottomSheet, SHEET_EXIT_MS, SheetPresence } from './ui'
  * WHAT'S NEW on the phone (spec 2026-10-19-whats-new-design § The phone;
  * canvas `Feature - Notice toast` 2a, 2b): the `changelog` message of the
  * phone's own queue, once after its app version changed, with the first
- * lines of that version's section of `mobile/CHANGELOG.md` and See all
- * changes for the rest in a sheet. It needs nothing from the Mac. What the
+ * lines of `mobile/CHANGELOG.md` since the version the phone ran before —
+ * this version's first, then any it skipped — and See all changes for the
+ * rest in a sheet. It needs nothing from the Mac. What the
  * phone has seen is its own, in its preferences.
  */
 
@@ -29,16 +30,13 @@ const WHATS_NEW_NOTICE_ID = 'whats-new'
 const appVersion = (): string => __MOBILE_VERSION__
 
 interface PhoneWhatsNewState {
-  /** This launch's decision: undefined until read, then whether it is due and since when. */
-  launch: { version: string; due: boolean; installedAt: number } | undefined
+  /**
+   * This launch's decision: undefined until read, then whether it is due,
+   * since when, and what it tells, newest first.
+   */
+  launch: { version: string; due: boolean; installedAt: number; notes: ReleaseNotes[] } | undefined
 }
 
-/** The running version's notes, parsed once: `notesFor` keeps the last answer. */
-let parsed: { version: string; notes: ReleaseNotes | null } | undefined
-function notesFor(version: string): ReleaseNotes | null {
-  if (parsed?.version !== version) parsed = { version, notes: releaseNotes(changelog, version) }
-  return parsed.notes
-}
 
 const usePhoneWhatsNewState = create<PhoneWhatsNewState>()(() => ({ launch: undefined }))
 
@@ -70,13 +68,22 @@ export async function decideWhatsNew(usedBefore: boolean): Promise<void> {
     // Unreadable: nothing is decided, and nothing is overwritten.
     return
   }
+  // What the phone ran before is read here, before `remember` writes the
+  // running version over it; `launch.since` carries it.
   const launch = whatsNewOnLaunch({
     stored: parseSeenVersion(stored, usedBefore),
     version,
-    hasNotes: notesFor(version) !== null,
+    hasNotes: releaseNotes(changelog, version) !== null,
     now: Date.now(),
   })
-  usePhoneWhatsNewState.setState({ launch: { version, due: launch.show, installedAt: launch.installedAt } })
+  usePhoneWhatsNewState.setState({
+    launch: {
+      version,
+      due: launch.show,
+      installedAt: launch.installedAt,
+      notes: launch.show ? releaseNotesSince(changelog, version, launch.since) : [],
+    },
+  })
   if (launch.write) remember(launch.write)
 }
 
@@ -93,14 +100,17 @@ export function usePhoneWhatsNew(): void {
 /** For the update demo: the message as after an update, whatever the phone remembers. */
 export function showPhoneWhatsNewDemo(): void {
   deciding = true
-  usePhoneWhatsNewState.setState({ launch: { version: appVersion(), due: true, installedAt: Date.now() } })
+  const version = appVersion()
+  usePhoneWhatsNewState.setState({
+    launch: { version, due: true, installedAt: Date.now(), notes: releaseNotesSince(changelog, version) },
+  })
 }
 
 function WhatsNewNotice({ close }: { close: () => void }) {
   const launch = usePhoneWhatsNewState((s) => s.launch)
   const [open, setOpen] = useState(false)
-  const notes = launch ? notesFor(launch.version) : null
-  if (!launch || !notes) return null
+  if (!launch || launch.notes.length === 0) return null
+  const { notes } = launch
 
   // × on the toast, or the sheet closed by Done, ×, the backdrop or back:
   // gone for good. A closing sheet sinks first; the toast leaves after it.
@@ -148,7 +158,7 @@ function WhatsNewNotice({ close }: { close: () => void }) {
             </div>
             {/* 2b: 20 between sections, 18/22. */}
             <div data-sheet-scroll className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-[22px] py-[18px]">
-              <ReleaseNoteSections sections={notes.sections} />
+              <ReleaseNoteVersions notes={notes} gap="gap-5" ruled="pt-5" />
             </div>
             {/* 2b: 10/16 over Done; the sheet's own bottom inset stands for the home indicator. */}
             <div className="flex shrink-0 border-t border-line/8 px-4 pb-1.5 pt-2.5">

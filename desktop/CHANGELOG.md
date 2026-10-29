@@ -4,6 +4,11 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.45.1] — 2026-10-29
+### Fixed
+- A planet keeps its tag colour whatever its state: a finished or interrupted session no longer gets a green or red ring, and a session waiting for your answer has a core in its tag colour instead of amber (before 0.45.0 it was white). The amber ripple around a waiting planet stays.
+- What's new lists every version since the one you last ran, so updating past a release no longer hides its changes.
+
 ## [0.45.0] — 2026-10-29
 ### Added
 - Settings → Appearance can make the text larger, across the app and on its own for the session transcript. Spacing and the map's labels stay as they are. Thanks to @N0x1k for the idea.

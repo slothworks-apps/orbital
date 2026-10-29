@@ -14,21 +14,23 @@ describe('whatsNewOnLaunch', () => {
     })
   })
 
-  it('shows once after the version changed, and remembers it as not ended', () => {
+  it('shows once after the version changed, since the version run before, and remembers it as not ended', () => {
     const stored = { version: '0.35.0', at: 1, ended: true }
     expect(whatsNewOnLaunch({ stored, version: '0.36.0', hasNotes: true, now: NOW })).toEqual({
       show: true,
       installedAt: NOW,
-      write: { version: '0.36.0', at: NOW, ended: false },
+      write: { version: '0.36.0', at: NOW, ended: false, from: '0.35.0' },
+      since: '0.35.0',
     })
   })
 
-  it('shows again at the next launch until it ends, dated from the first', () => {
-    const pending = { version: '0.36.0', at: 5, ended: false }
+  it('shows again at the next launch until it ends, dated from the first, still since the version before', () => {
+    const pending = { version: '0.36.0', at: 5, ended: false, from: '0.34.0' }
     expect(whatsNewOnLaunch({ stored: pending, version: '0.36.0', hasNotes: true, now: NOW })).toEqual({
       show: true,
       installedAt: 5,
       write: null,
+      since: '0.34.0',
     })
     const ended = endedSeenVersion('0.36.0', 5)
     expect(whatsNewOnLaunch({ stored: ended, version: '0.36.0', hasNotes: true, now: NOW })).toMatchObject({
@@ -43,14 +45,20 @@ describe('whatsNewOnLaunch', () => {
     expect(launch).toEqual({ show: false, installedAt: NOW, write: { version: '0.36.0', at: NOW, ended: true } })
   })
 
-  it('drops a message left behind by a newer version: only the running one shows', () => {
+  it('tells a message left behind with the next version: since the one seen before it', () => {
     // 0.36.0's message never ended; 0.37.0 now runs.
-    const stored = { version: '0.36.0', at: 5, ended: false }
-    expect(whatsNewOnLaunch({ stored, version: '0.37.0', hasNotes: true, now: NOW }).write).toEqual({
-      version: '0.37.0',
-      at: NOW,
-      ended: false,
-    })
+    const stored = { version: '0.36.0', at: 5, ended: false, from: '0.35.0' }
+    const launch = whatsNewOnLaunch({ stored, version: '0.37.0', hasNotes: true, now: NOW })
+    expect(launch.since).toBe('0.35.0')
+    expect(launch.write).toEqual({ version: '0.37.0', at: NOW, ended: false, from: '0.35.0' })
+    // Not knowing what came before it: since the version left behind.
+    expect(whatsNewOnLaunch({ stored: { version: '0.36.0', at: 5, ended: false }, version: '0.37.0', hasNotes: true, now: NOW }).since).toBe('0.36.0')
+  })
+
+  it('forgets the version before once the message ends', () => {
+    const ended = endedSeenVersion('0.37.0', 5)
+    expect(ended.from).toBeUndefined()
+    expect(whatsNewOnLaunch({ stored: ended, version: '0.38.0', hasNotes: true, now: NOW }).since).toBe('0.37.0')
   })
 })
 
@@ -58,6 +66,10 @@ describe('parseSeenVersion', () => {
   it('reads what it wrote', () => {
     const seen = { version: '0.16.0', at: 42, ended: false }
     expect(parseSeenVersion(serializeSeenVersion(seen))).toEqual(seen)
+    const since = { version: '0.16.0', at: 42, ended: false, from: '0.15.3' }
+    expect(parseSeenVersion(serializeSeenVersion(since))).toEqual(since)
+    // A from that does not read is left out, the rest kept.
+    expect(parseSeenVersion('{"version":"1","at":1,"ended":false,"from":3}')).toEqual({ version: '1', at: 1, ended: false })
   })
 
   it('takes anything else as nothing remembered', () => {

@@ -18,6 +18,13 @@ export interface SeenVersion {
   version: string
   at: number
   ended: boolean
+  /**
+   * While the message has not ended: the version whose message the person
+   * last saw end, so the notes since it still show at the next launch,
+   * after `version` already names the running one. Absent when not known
+   * (an install from before WHAT'S NEW): then only `version`'s show.
+   */
+  from?: string
 }
 
 /**
@@ -42,7 +49,9 @@ export function parseSeenVersion(raw: string | null | undefined, usedBefore = fa
         Number.isFinite(value.at) &&
         typeof value.ended === 'boolean'
       ) {
-        return { version: value.version, at: value.at, ended: value.ended }
+        const seen: SeenVersion = { version: value.version, at: value.at, ended: value.ended }
+        if (typeof value.from === 'string' && value.from !== '') seen.from = value.from
+        return seen
       }
     } catch {
       // Not ours: as if nothing were remembered.
@@ -62,6 +71,12 @@ export interface WhatsNewLaunch {
   installedAt: number
   /** What to remember, or null when nothing changes. */
   write: SeenVersion | null
+  /**
+   * The version the person ran before and saw the message of: the notes
+   * after it are due (shared `releaseNotesSince`). Absent when not known —
+   * only the running version's are.
+   */
+  since?: string
 }
 
 /**
@@ -72,7 +87,10 @@ export interface WhatsNewLaunch {
  *   stays remembered, so going forward again does not tell it twice;
  * - a newer version, or an install from before WHAT'S NEW — the message is
  *   due, unless the changelog has nothing for this one, which is remembered
- *   as ended;
+ *   as ended. It tells what changed since the version remembered; when that
+ *   one's message never ended, since the one before it (`from`, or that
+ *   version itself when not known), so a version left untold is told with
+ *   the next;
  * - the same version — due again only while its message has not ended.
  */
 export function whatsNewOnLaunch({
@@ -90,10 +108,16 @@ export function whatsNewOnLaunch({
   if (stored !== 'before' && compareVersions(version, stored.version) < 0) {
     return { show: false, installedAt: now, write: null }
   }
-  if (stored === 'before' || stored.version !== version) {
+  if (stored === 'before') {
     return { show: hasNotes, installedAt: now, write: { version, at: now, ended: !hasNotes } }
   }
-  return { show: hasNotes && !stored.ended, installedAt: stored.at, write: null }
+  if (stored.version !== version) {
+    if (!hasNotes) return { show: false, installedAt: now, write: { version, at: now, ended: true } }
+    const since = stored.ended ? stored.version : (stored.from ?? stored.version)
+    return { show: true, installedAt: now, write: { version, at: now, ended: false, from: since }, since }
+  }
+  const shown = hasNotes && !stored.ended
+  return { show: shown, installedAt: stored.at, write: null, ...(shown && stored.from ? { since: stored.from } : {}) }
 }
 
 /** What the device remembers once the message ends: × on it, or the dialog or sheet closed. */

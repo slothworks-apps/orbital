@@ -182,20 +182,6 @@ const SHADOW_OPACITY = 0.28
 const SHADOW_SIZE = (2 * (BODY_RADIUS - SHADOW_BLUR)) / SHADOW_SOLID
 
 /**
- * DONE and INTERRUPTED on the body (1l): a 1.5px ring at `inset:-8px` round
- * the 70px body — solid `success` for done, dashed `danger-soft` for
- * interrupted — and the core in `success`, or a hollow `danger-soft` core of
- * 11px, both normalised to the 100px body. Never the critical red.
- */
-const STATE_RING_OUTER = px(((35 + 8) / 35) * 50)
-const STATE_RING_INNER = STATE_RING_OUTER - px(1.5)
-/** A CSS dashed 1.5px border on that ring: about 30 dashes, as long as their gaps. */
-const STATE_DASH_COUNT = 30
-const STATE_DASH_DEG = 6
-const STATE_HOLLOW_OUTER = px((5.5 / 35) * 50)
-const STATE_HOLLOW_INNER = STATE_HOLLOW_OUTER - px(1.5)
-
-/**
  * Breathing halo: `radial-gradient(circle, transparent 58%, hue/.18 72%,
  * transparent 80%)` on the inset -28 box (78px radius) → a band from 45px
  * to 62px, peaking at 56px.
@@ -1432,10 +1418,6 @@ interface PlanetMaterials {
   /** A light theme's edge and shadow (1l). */
   edge: THREE.MeshBasicMaterial
   shadow: THREE.MeshBasicMaterial
-  /** DONE's solid ring, INTERRUPTED's dashed one and its hollow core (1l). */
-  doneRing: THREE.MeshBasicMaterial
-  interruptedRing: THREE.MeshBasicMaterial
-  interruptedCore: THREE.MeshBasicMaterial
 }
 
 /** Swaps a material's texture; a material that gains or loses one recompiles. */
@@ -1498,9 +1480,6 @@ function usePlanetMaterials(palette: SceneColours): PlanetMaterials {
         material.visible = false
         return material
       })(),
-      doneRing: gauge(),
-      interruptedRing: gauge(),
-      interruptedCore: gauge(),
     }
   }, [])
 
@@ -1517,13 +1496,8 @@ function usePlanetMaterials(palette: SceneColours): PlanetMaterials {
     PLANET_TICK_LAYERS.forEach((layer, i) => {
       if (layer.grey) materials.ticks[i].color.copy(palette['ink-600'])
     })
-    // The waiting core's glow, in the core's own amber (1l).
-    materials.coreGlowWhite.color.copy(palette.warning)
     materials.ripple.color.copy(palette.warning)
     materials.shadow.color.copy(palette.shadow)
-    materials.doneRing.color.copy(palette.success)
-    materials.interruptedRing.color.copy(palette['danger-soft'])
-    materials.interruptedCore.color.copy(palette['danger-soft'])
     for (const ring of [...materials.condense, ...materials.condenseGlow]) ring.color.copy(palette['ink-400'])
   }, [materials, palette])
 
@@ -1688,19 +1662,6 @@ function PlanetBody({
     STATE_TRANSITION_MS,
     STATE_TRANSITION_MS,
   )
-  /**
-   * What the body itself says of the state (1l): an amber core while the
-   * session waits on the human, a green ring and core once its turn is DONE,
-   * a dashed coral ring round a hollow core once INTERRUPTED. Faded on the
-   * state change's own pace, since DONE and NEEDS INPUT share a status and the
-   * mix never moves between them.
-   */
-  const stateKeyNow = sessionStateKey(session)
-  const inputFade = useFadeTween(stateKeyNow === 'needs_input', STATE_TRANSITION_MS, STATE_TRANSITION_MS)
-  const doneFade = useFadeTween(stateKeyNow === 'done', STATE_TRANSITION_MS, STATE_TRANSITION_MS)
-  const interruptedFade = useFadeTween(stateKeyNow === 'interrupted', STATE_TRANSITION_MS, STATE_TRANSITION_MS)
-  /** INTERRUPTED's share as `applyState` last wrote it: the solid core gives way to the hollow one. */
-  const interruptedShare = useRef(0)
   /** The last pill it had, so a pill on its way out fades with its own word and colour. */
   const lastPill = useRef(pill)
   if (pill) lastPill.current = pill
@@ -1900,12 +1861,6 @@ function PlanetBody({
     // Glows paint on a dark theme only (1l `--glow-k`); a light one draws an
     // edge and a shadow instead.
     const glowK = palette.glowK
-    // The state marks belong to a live body that is not compacting.
-    const marks = (1 - w.ended) * (1 - compactFade.value)
-    const waiting = inputFade.value * marks
-    const done = doneFade.value * marks
-    const interrupted = interruptedFade.value * marks
-    interruptedShare.current = interrupted
 
     materials.glow.color.copy(hueC)
     materials.glow.opacity = w.working * GLOW_OPACITY * fade * glowK
@@ -1956,13 +1911,6 @@ function PlanetBody({
     materials.shadow.opacity = SHADOW_OPACITY * (1 - glowK) * lit
     materials.shadow.visible = hasShadowTexture && materials.shadow.opacity > 0.001
 
-    materials.doneRing.opacity = done * fade
-    materials.doneRing.visible = materials.doneRing.opacity > 0.001
-    materials.interruptedRing.opacity = interrupted * fade
-    materials.interruptedRing.visible = materials.interruptedRing.opacity > 0.001
-    materials.interruptedCore.opacity = interrupted * fade
-    materials.interruptedCore.visible = materials.interruptedCore.opacity > 0.001
-
     materials.border.color.copy(hueC).lerp(grey, w.ended)
     materials.border.opacity =
       (w.working * BORDER_OPACITY_ACTIVE +
@@ -1983,13 +1931,15 @@ function PlanetBody({
     })
 
     materials.coreGlowHue.color.copy(hueC)
-    materials.coreGlowHue.opacity = waiting * CORE_GLOW_HUE_OPACITY * fade * glowK
+    materials.coreGlowHue.opacity = w.needs_input * CORE_GLOW_HUE_OPACITY * fade * glowK
     materials.coreGlowHue.visible = hasGlowTexture && materials.coreGlowHue.opacity > 0.001
-    materials.coreGlowWhite.opacity = waiting * CORE_GLOW_WHITE_OPACITY * fade * glowK
+    // A waiting planet keeps its tag hue, core and glow alike; only the
+    // ripple is amber (spec 2026-09-24-state-colours-design).
+    materials.coreGlowWhite.color.copy(hueC)
+    materials.coreGlowWhite.opacity = w.needs_input * CORE_GLOW_WHITE_OPACITY * fade * glowK
     materials.coreGlowWhite.visible = hasGlowTexture && materials.coreGlowWhite.opacity > 0.001
 
-    // The core: the tag hue, amber while it waits, green once done (1l).
-    materials.core.color.copy(hueC).lerp(palette.warning, waiting).lerp(palette.success, done)
+    materials.core.color.copy(hueC)
     if (coreRef.current) coreRef.current.scale.setScalar(b.coreRadius)
 
     // The label is plain DOM: `group.visible = false` hides the meshes under
@@ -2014,9 +1964,7 @@ function PlanetBody({
     const deviceMoved = advanceTween(deviceFade, delta)
     const offlineMoved = advanceTween(offlineFade, delta)
     const compactMoved = advanceTween(compactFade, delta)
-    // The state marks only need `applyState` while they move, like the fades.
-    const marksMoved = [inputFade, doneFade, interruptedFade].map((tween) => advanceTween(tween, delta)).some(Boolean)
-    const fadeMoved = muteMoved || deviceMoved || offlineMoved || marksMoved
+    const fadeMoved = muteMoved || deviceMoved || offlineMoved
     const b = blendRef.current
     if (mixMoved) blendPlanet(mix.weights, b)
     // The hide fade and the search mute multiply into every opacity (and the
@@ -2158,7 +2106,7 @@ function PlanetBody({
     const blink = ambient && b.corePulse > 0 ? 1 - BLINK_DEPTH * b.corePulse * oscillate(corePhase.current, 1) : 1
     // The solid core gives way to the hollow ring while compacting (26b).
     const held = compactFade.value
-    materials.core.opacity = b.coreOpacity * blink * b.dim * whole * (1 - held) * (1 - interruptedShare.current)
+    materials.core.opacity = b.coreOpacity * blink * b.dim * whole * (1 - held)
     materials.core.visible = materials.core.opacity > 0.001
     materials.coreHollow.opacity = COMPACT_CORE_OPACITY * held * whole
     materials.coreHollow.visible = materials.coreHollow.opacity > 0.001
@@ -2350,19 +2298,6 @@ function PlanetBody({
         <ringGeometry args={[EDGE_INNER, EDGE_INNER + px(1), 64]} />
       </mesh>
 
-      <mesh position={[0, 0, BODY_Z]} material={materials.doneRing}>
-        <ringGeometry args={[STATE_RING_INNER, STATE_RING_OUTER, 64]} />
-      </mesh>
-      <group position={[0, 0, BODY_Z]}>
-        <TickRing
-          count={STATE_DASH_COUNT}
-          radius={(STATE_RING_INNER + STATE_RING_OUTER) / 2}
-          widthDeg={STATE_DASH_DEG}
-          length={STATE_RING_OUTER - STATE_RING_INNER}
-          material={materials.interruptedRing}
-        />
-      </group>
-
       <group ref={tickGroupRef} position={[0, 0, BODY_Z]}>
         {PLANET_TICK_LAYERS.map((layer, i) => (
           <TickRing
@@ -2395,9 +2330,6 @@ function PlanetBody({
 
       <mesh ref={coreHollowRef} position={[0, 0, CORE_Z]} material={materials.coreHollow}>
         <ringGeometry args={[COMPACT_CORE_INNER, COMPACT_CORE_OUTER, 32]} />
-      </mesh>
-      <mesh position={[0, 0, CORE_Z]} material={materials.interruptedCore}>
-        <ringGeometry args={[STATE_HOLLOW_INNER, STATE_HOLLOW_OUTER, 32]} />
       </mesh>
 
       {/* The condensing rings (26b). Scaled from the frame loop, which owns
