@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Added
+- New session: the directory field opens on your last directory; tap into it for the ten most recent, and type any part of a path to find every directory a session has run in.
 
 ## [0.22.1] — 2026-10-29
 ### Fixed

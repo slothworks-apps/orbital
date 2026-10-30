@@ -45,6 +45,7 @@ import {
 } from '../lib/mcpjson'
 import { McpjsonIntro, McpjsonRows } from './McpjsonQuestion'
 import { ProjectFileViewer } from './FileViewer'
+import { DirectoryField } from './DirectoryField'
 import { FolderChooser } from './FolderChooser'
 import {
   LOCAL_DEVICE, deviceChips, deviceOf, deviceOptions, localTagOf, openingDevice, showDeviceRow,
@@ -840,14 +841,12 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
                   {remote && <span className="tracking-[0.04em] text-ink-900/60">on {deviceName}</span>}
                 </FieldLabel>
                 <div className="flex gap-2">
-                  <Input
+                  <DirectoryField
                     id="new-session-cwd"
-                    font="mono"
-                    size="lg"
                     value={cwd}
-                    onChange={(e) => setCwd(e.target.value)}
-                    placeholder="/path/to/project"
-                    className="min-w-0 flex-1"
+                    onChange={setCwd}
+                    projects={projects}
+                    onFocus={() => setChooserOpen(false)}
                   />
                   {remote ? (
                     // Only this desktop has a system dialog; another device gets the chooser (50g).

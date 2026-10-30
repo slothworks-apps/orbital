@@ -4,56 +4,10 @@ import type { McpjsonDecisions } from '../lib/mcpjson'
 import { modelByAnyId } from '../lib/models'
 import { claudeDirPrefill, type ClaudeDirPrefillSource } from '../lib/claudeDirs'
 import type { OrbitalModel, PermissionMode, SessionDefaults } from '../lib/types'
+import type { DirectoryRow } from '../lib/directorySearch'
 import { humanizeError } from './composer'
-import { homePath } from './format'
 
-/** One row of `GET /api/projects`: a directory a session ran in. */
-export interface DirectoryRow {
-  cwd: string
-  lastModel: string | null
-  lastAt: number | null
-}
-
-/** How many directories 9d lists before anything is typed. */
-export const RECENT_DIRECTORIES = 10
-
-/** What the list under 9d's directory field shows. */
-export type DirectoryList =
-  /** Matches, most recent first (the input's order). */
-  | { kind: 'rows'; rows: DirectoryRow[] }
-  /** A typed `~/` or `/` path that matches nothing: offered as is. */
-  | { kind: 'use-as-is'; path: string }
-  /** Other text that matches nothing. */
-  | { kind: 'no-match'; query: string }
-
-/** The field holds a path of its own, not a search: it starts at `~/` or `/`. */
-export function isTypedPath(query: string): boolean {
-  const q = query.trim()
-  return q.startsWith('~/') || q.startsWith('/')
-}
-
-/**
- * 9d's directory list (spec § 6.4). Nothing typed: the first
- * `RECENT_DIRECTORIES` rows. Otherwise every row with a path segment that
- * contains the query, or whose full path starts with it — written out or
- * from `~`, as the rows print it — case-insensitive,
- * in the order the route gave (most recent first).
- */
-export function filterDirectories(projects: readonly DirectoryRow[], query: string): DirectoryList {
-  const q = query.trim()
-  if (!q) return { kind: 'rows', rows: projects.slice(0, RECENT_DIRECTORIES) }
-  const needle = q.toLowerCase()
-  const rows = projects.filter((p) => {
-    const cwd = p.cwd.toLowerCase()
-    return (
-      cwd.startsWith(needle) ||
-      homePath(p.cwd).toLowerCase().startsWith(needle) ||
-      cwd.split('/').some((segment) => segment.includes(needle))
-    )
-  })
-  if (rows.length > 0) return { kind: 'rows', rows }
-  return isTypedPath(q) ? { kind: 'use-as-is', path: q } : { kind: 'no-match', query: q }
-}
+export type { DirectoryRow }
 
 /**
  * The model 9d opens on: the directory's last model when the Mac remembers

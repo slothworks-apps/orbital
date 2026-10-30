@@ -3,9 +3,6 @@ import { TunnelError } from '@orbital/shared/remote/client'
 import { ApiError } from '../lib/api'
 import type { OrbitalModel, SessionDefaults } from '../lib/types'
 import {
-  RECENT_DIRECTORIES,
-  filterDirectories,
-  isTypedPath,
   noSuchDirectory,
   preselectClaudeDir,
   preselectMode,
@@ -34,60 +31,6 @@ const defaults = (patch: Partial<SessionDefaults> = {}): SessionDefaults => ({
   model: null,
   rememberModelPerProject: true,
   ...patch,
-})
-
-describe('filterDirectories', () => {
-  const twelve = Array.from({ length: 12 }, (_, i) => row(`/w/p${i}`, 100 - i))
-
-  it('lists the most recent directories for an empty or blank query', () => {
-    expect(filterDirectories(twelve, '')).toEqual({ kind: 'rows', rows: twelve.slice(0, RECENT_DIRECTORIES) })
-    expect(filterDirectories(twelve, '   ')).toEqual({ kind: 'rows', rows: twelve.slice(0, RECENT_DIRECTORIES) })
-  })
-
-  it('finds every directory with a path segment containing the query, case-insensitive, in the input order', () => {
-    const projects = [row('/w/auth-service'), row('/w/web'), row('/w/x/AUTH'), row('/w/author'), row('/w/oauth/web')]
-    expect(filterDirectories(projects, ' auth ')).toEqual({
-      kind: 'rows',
-      rows: [row('/w/auth-service'), row('/w/x/AUTH'), row('/w/author'), row('/w/oauth/web')],
-    })
-  })
-
-  it('does not match across a segment boundary unless the query is a prefix of the full path', () => {
-    expect(filterDirectories([row('/w/x')], 'w/x')).toEqual({ kind: 'no-match', query: 'w/x' })
-  })
-
-  it('matches a full-path prefix', () => {
-    const projects = [row('~/lab/voice-notes'), row('~/other/lab')]
-    expect(filterDirectories(projects, '~/lab')).toEqual({ kind: 'rows', rows: [row('~/lab/voice-notes')] })
-  })
-
-  it('matches a ~ prefix against the home folder it stands for, as the rows print it', () => {
-    const projects = [row('/Users/tomin/lab/voice-notes'), row('/srv/lab/x')]
-    expect(filterDirectories(projects, '~/lab')).toEqual({ kind: 'rows', rows: [row('/Users/tomin/lab/voice-notes')] })
-  })
-
-  it('offers a typed path that matches nothing as is', () => {
-    expect(filterDirectories([row('/w/web')], ' /nowhere ')).toEqual({ kind: 'use-as-is', path: '/nowhere' })
-    expect(filterDirectories([], '~/new')).toEqual({ kind: 'use-as-is', path: '~/new' })
-  })
-
-  it('says nothing matches for other text', () => {
-    expect(filterDirectories([row('/w/web')], 'zzz')).toEqual({ kind: 'no-match', query: 'zzz' })
-  })
-
-  it('lists a typed path that names a known directory as a row', () => {
-    expect(filterDirectories([row('/w/web'), row('/w/api')], '/w/web')).toEqual({ kind: 'rows', rows: [row('/w/web')] })
-  })
-})
-
-describe('isTypedPath', () => {
-  it('is a path from ~/ or /, after trimming', () => {
-    expect(isTypedPath(' ~/lab')).toBe(true)
-    expect(isTypedPath('/Users')).toBe(true)
-    expect(isTypedPath('~')).toBe(false)
-    expect(isTypedPath('lab/x')).toBe(false)
-    expect(isTypedPath('')).toBe(false)
-  })
 })
 
 describe('preselectModel', () => {
