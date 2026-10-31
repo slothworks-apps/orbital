@@ -6,6 +6,7 @@ type: spec
 domain: remote
 related:
   - 2026-09-30-mobile-remote-design
+  - 2026-10-30-new-session-directory-search-design
   - switch-model-and-mode-from-the-phone
   - 2026-10-01-settings-mobile-design
   - 2026-10-01-mobile-remote-backend
@@ -413,7 +414,12 @@ read-only.
   (live in 2b; "needs <Mac> awake" and inert while the Mac is asleep).
   × and the hardware back button return to the list; a typed draft is
   dropped.
-- One field for the directory. Empty: the ten most recent directories.
+- One field for the directory. *Superseded 2026-10-30 by
+  `2026-10-30-new-session-directory-search-design`: the field opens on the
+  device's last directory, the list hangs over the form only while the
+  field has focus, a typed word matches anywhere in the full path, and
+  the "Use <path> as is" row is gone. The text below is how it was.*
+  Empty: the ten most recent directories.
   Typing filters every directory `GET /api/projects` returns, matching any
   path segment, most recent first; a typed `~/` or `/` path that matches
   nothing gets one row "Use <path> as is" with "<Mac> checks it exists
@@ -538,6 +544,7 @@ Added for 2b (§ 6):
   `no_such_directory`.
 - `filterDirectories` (empty → ten most recent; a segment match; the
   "use as is" row for a typed `~/` or `/` path; nothing for other text).
+  Replaced 2026-10-30 by `searchDirectories` in `web/src/lib`.
 - `decideNotification` (foreground/background × viewing × the background
   rule).
 - The image URL cache's bound (the oldest URL revoked past

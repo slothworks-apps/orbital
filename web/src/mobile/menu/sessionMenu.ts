@@ -2,7 +2,7 @@ import { harnessUnfinished } from '../../lib/harnessSession'
 import { sessionModelLabel } from '../../lib/models'
 import { formatTokens } from '../../lib/format'
 import type { ApiSession, OrbitalModel, SessionHarness, Tag } from '../../lib/types'
-import { homePath } from '../format'
+import { homePath } from '../../lib/format'
 
 /**
  * The ⋯ sheet's logic (spec 2026-10-05-mobile-next § 4; canvas 10i, 10j):

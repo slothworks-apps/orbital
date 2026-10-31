@@ -40,15 +40,6 @@ export function nameInSentence(title: string | null | undefined, fallback = 'the
   return t && t.length <= NAME_IN_SENTENCE_MAX ? t : fallback
 }
 
-/**
- * A directory as 9d prints it: the home folder as `~`. The phone never
- * learns the Mac's home, so it is read off the path's shape — macOS's
- * `/Users/<name>` or Linux's `/home/<name>`. Display only; the full path is
- * what gets sent.
- */
-export function homePath(path: string): string {
-  return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~')
-}
 
 /** The relay as 9e and 9f name it: its host, or the URL as written when it does not parse. */
 export function relayHost(url: string): string {
