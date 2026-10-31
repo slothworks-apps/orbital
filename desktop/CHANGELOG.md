@@ -4,6 +4,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 
+## [0.45.2] — 2026-10-31
+### Changed
+- Sessions Orbital runs now use a newer Claude Code, with its fixes for subagents reaching their tools, shell commands left running after a session ends and transcripts saved out of order.
+
 ## [0.45.1] — 2026-10-29
 ### Fixed
 - A planet keeps its tag colour whatever its state: a finished or interrupted session no longer gets a green or red ring, and a session waiting for your answer has a core in its tag colour instead of amber (before 0.45.0 it was white). The amber ripple around a waiting planet stays.
