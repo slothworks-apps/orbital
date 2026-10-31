@@ -3,6 +3,8 @@
 All notable changes to the phone app, on Android and on iOS. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow the app version, `version` in `mobile/package.json`, which ships over the air; a line for a change that needs the update from TestFlight or Google Play says so.
 
 ## [Unreleased]
+### Added
+- While a project's Stop hook runs after an answer (a check such as tests or a typecheck), a line under the answer says so, and that a message sent now goes ahead of it.
 
 ## [0.22.1] — 2026-10-29
 ### Fixed
