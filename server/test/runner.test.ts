@@ -2995,9 +2995,15 @@ describe('Runner Stop hooks', () => {
       g.interrupt = interrupt;
       return g;
     };
-    const runner = new Runner({ hub, queryFn: fn as any, newSessionId: () => 'web-1', sleepAfterMs });
+    // Every turn edge the harness and the titler hear, in order.
+    const edges: string[] = [];
+    const runner = new Runner({
+      hub, queryFn: fn as any, newSessionId: () => 'web-1', sleepAfterMs,
+      onTurnEnd: () => edges.push('end'),
+      onTurnBoundary: (_id, ended) => edges.push(ended ? 'boundary:ended' : 'boundary:began'),
+    });
     const events = subscribed(hub, 'session:web-1');
-    return { hub, script, runner, events, interrupt, order };
+    return { hub, script, runner, events, interrupt, order, edges };
   }
 
   const ANSWER = {
@@ -3043,6 +3049,44 @@ describe('Runner Stop hooks', () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(s.runner.status('web-1')).toBe('working');
     expect(s.events.filter((e) => e.event === 'status').map((e) => e.status)).not.toContain('needs_input');
+  });
+
+  const MARKER = {
+    type: 'user', parent_tool_use_id: null,
+    message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] },
+  };
+  const SECOND = {
+    type: 'assistant', parent_tool_use_id: null,
+    message: { role: 'assistant', content: [{ type: 'text', text: 'Second.' }] },
+  };
+
+  it('the cancelled turn and the message\'s turn are one turn to whoever listens for turn edges', async () => {
+    const s = stopHookSession();
+    await answeredAndHooked(s);
+    const before = s.edges.length;
+    s.runner.send('web-1', 'next');
+    s.script.push(hookResponse('h1', 'cancelled'));
+    s.script.push(MARKER);
+    s.script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(s.events.filter((e) => e.event === 'turn_result')).toHaveLength(1));
+    // A harness would spend its step on an end the user's message carries on.
+    expect(s.edges.slice(before)).toEqual([]);
+    s.script.push(SECOND);
+    s.script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(s.runner.status('web-1')).toBe('needs_input'));
+    expect(s.edges.slice(before)).toEqual(['end', 'boundary:ended']);
+  });
+
+  it('a cancelled turn that sends no result hands over at the message\'s first answer', async () => {
+    const s = stopHookSession();
+    await answeredAndHooked(s);
+    const before = s.edges.length;
+    s.runner.send('web-1', 'next');
+    s.script.push(SECOND);
+    s.script.push({ type: 'result', subtype: 'success', usage: {} });
+    // The message's own result ends its turn rather than being taken for the hand-over.
+    await vi.waitFor(() => expect(s.runner.status('web-1')).toBe('needs_input'));
+    expect(s.edges.slice(before)).toEqual(['end', 'boundary:ended']);
   });
 
   it('two messages in a row interrupt once', async () => {

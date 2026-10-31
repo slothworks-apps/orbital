@@ -14,7 +14,7 @@ import { useOrbital } from '../../store/store'
  * Each piece draws nothing when it has nothing to say.
  */
 export function TranscriptTail(props: SlotProps) {
-  const liveNotice = useOrbital((s) => s.liveNotices[props.session.id])
+  const liveNotice = useOrbital((s) => (props.session.status === 'working' ? s.liveNotices[props.session.id] : undefined))
   return (
     <>
       {/* Not from the last sync: while the Mac sleeps, nothing is known to run. */}
@@ -43,6 +43,8 @@ export function useTranscriptTailKey(props: SlotKeyProps): string {
   const gate = useGateCardKey(props)
   const limit = useLimitNoticeKey(props)
   const outcome = useMenuOutcomeKey(props)
-  const notice = useOrbital((s) => (props.session && !props.offline ? s.liveNotices[props.session.id]?.id : undefined))
+  const notice = useOrbital((s) =>
+    props.session?.status === 'working' && !props.offline ? s.liveNotices[props.session.id]?.id : undefined,
+  )
   return [props.offline ? 'offline' : 'live', notice ?? '-', gate ?? '-', limit ?? '-', outcome ?? '-'].join('|')
 }

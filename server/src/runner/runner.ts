@@ -714,8 +714,11 @@ interface ManagedSession {
   stopHooks: Set<string>;
   /** Arms the live notice once a Stop hook outlasts `STOP_HOOK_NOTICE_AFTER_MS`. */
   stopHookTimer: ReturnType<typeof setTimeout> | null;
-  /** The live notice is on the clients' screens, so its end must be published. */
-  stopHookShown: boolean;
+  /**
+   * The id of the live notice on the clients' screens, or null: its count and
+   * its end must be published.
+   */
+  stopHookNotice: string | null;
   /**
    * A Stop hook of this turn was cancelled: the CLI's interrupt marker that
    * follows reads "Stop hook cancelled". Consumed by the next main-loop frame.
@@ -1491,7 +1494,7 @@ export class Runner {
       mcpSnapshot: null,
       limitRejected: null, turnError: null,
       designCalls: new Set(), designLoginLost: false,
-      stopHooks: new Set(), stopHookTimer: null, stopHookShown: false, stopHookCancelled: false,
+      stopHooks: new Set(), stopHookTimer: null, stopHookNotice: null, stopHookCancelled: false,
       promptBehindStopHook: null,
     };
     // Registered before anything is awaited, so two concurrent start() calls
@@ -1852,6 +1855,10 @@ export class Runner {
       if (msg.parent_tool_use_id == null) this.noteOpenToolUses(state, msg);
       if (msg.type === 'assistant' && msg.parent_tool_use_id == null) {
         state.turnError = typeof msg.error === 'string' ? msg.error : null;
+        // The model answering means the message's turn runs; a cancelled
+        // turn that never sent its `result` must not leave the hand-over
+        // for the message's own result to take as its end.
+        this.handOverPastStopHook(state);
       }
       if (msg.parent_tool_use_id == null) {
         const s = this.sessions.get(sessionId);
@@ -2034,11 +2041,8 @@ export class Runner {
       // The message that cancelled this turn's Stop hook runs now: its turn
       // starts here, the way a `send()` after the end would start it, so the
       // session stays `working` rather than asking for what it already has.
-      if (state.promptBehindStopHook !== null) {
-        if (s) s.turnEnded = false;
-        state.turnPrompt = state.promptBehindStopHook;
-        state.promptBehindStopHook = null;
-      }
+      // To whoever listens for turn edges the two are one turn, below.
+      const handedOver = this.handOverPastStopHook(state);
       // The turn after an interrupt has put its prompt in the file, which
       // takes the interrupted call off the live branch; the client still
       // holds it from the stream, so it reads the transcript again.
@@ -2047,9 +2051,25 @@ export class Runner {
         this.hub.publish(topic, { event: 'transcript_reset' });
       }
       this.settleStatus(sessionId);
+      // Not a turn end: the user's message carries the turn on, so a harness
+      // does not spend its step on it, and the edge the message's own result
+      // fires stays paired with the start that came before both.
+      if (handedOver) return;
       this.onTurnEnd?.(sessionId, { loginLost: turnError === AUTHENTICATION_FAILED, designLoginLost });
       this.onTurnBoundary?.(sessionId, true);
     }
+  }
+
+  /**
+   * Applies `promptBehindStopHook`, if one is waiting: the turn in flight is
+   * the message's from here. True when there was one.
+   */
+  private handOverPastStopHook(state: ManagedSession): boolean {
+    if (state.promptBehindStopHook === null) return false;
+    state.turnEnded = false;
+    state.turnPrompt = state.promptBehindStopHook;
+    state.promptBehindStopHook = null;
+    return true;
   }
 
   /**
@@ -2084,15 +2104,14 @@ export class Runner {
     if (msg.hook_event !== STOP_HOOK_EVENT || typeof msg.hook_id !== 'string') return;
     if (msg.subtype === 'hook_started') {
       state.stopHooks.add(msg.hook_id);
-      if (!state.stopHookTimer && !state.stopHookShown) {
+      if (state.stopHookNotice !== null) {
+        this.publishStopHookNotice(sessionId, state);
+      } else if (!state.stopHookTimer) {
         const timer = setTimeout(() => {
           state.stopHookTimer = null;
           if (this.sessions.get(sessionId) !== state || state.stopHooks.size === 0) return;
-          state.stopHookShown = true;
-          this.hub.publish(`session:${sessionId}`, {
-            event: 'live_notice',
-            message: stopHookRunningNotice(`${sessionId}:${++this.seq}:0`, state.stopHooks.size),
-          });
+          state.stopHookNotice = `${sessionId}:${++this.seq}:0`;
+          this.publishStopHookNotice(sessionId, state);
         }, STOP_HOOK_NOTICE_AFTER_MS);
         (timer as unknown as { unref?: () => void }).unref?.();
         state.stopHookTimer = timer;
@@ -2102,8 +2121,19 @@ export class Runner {
     if (msg.subtype !== 'hook_response') return;
     // Also for a hook already let go of: `send()` drops them as it cancels.
     if (msg.outcome === 'cancelled') state.stopHookCancelled = true;
-    state.stopHooks.delete(msg.hook_id);
+    if (!state.stopHooks.delete(msg.hook_id)) return;
     if (state.stopHooks.size === 0) this.endStopHooks(sessionId, state);
+    // The count it shows, singular or plural, follows the hooks still running.
+    else if (state.stopHookNotice !== null) this.publishStopHookNotice(sessionId, state);
+  }
+
+  /** Publishes the live notice for the Stop hooks running now, under its one id. */
+  private publishStopHookNotice(sessionId: string, state: ManagedSession): void {
+    if (state.stopHookNotice === null) return;
+    this.hub.publish(`session:${sessionId}`, {
+      event: 'live_notice',
+      message: stopHookRunningNotice(state.stopHookNotice, state.stopHooks.size),
+    });
   }
 
   /** Forgets the running Stop hooks and takes their notice down, if it went up. */
@@ -2111,8 +2141,8 @@ export class Runner {
     state.stopHooks.clear();
     if (state.stopHookTimer) clearTimeout(state.stopHookTimer);
     state.stopHookTimer = null;
-    if (!state.stopHookShown) return;
-    state.stopHookShown = false;
+    if (state.stopHookNotice === null) return;
+    state.stopHookNotice = null;
     this.hub.publish(`session:${sessionId}`, { event: 'live_notice', message: null });
   }
 
@@ -2941,7 +2971,9 @@ export class Runner {
    *
    * Not `interrupt()`: that hands the session to the user, arms its sleep and
    * announces the turn's end at once, and a turn is starting here. The
-   * cancelled turn's own `result` ends it (`promptBehindStopHook`).
+   * cancelled turn's `result` hands it over to the message, or the message's
+   * first answer does if no result comes (`promptBehindStopHook`); neither is
+   * a turn end to the callbacks.
    *
    * Called after the enqueue, and in the same tick, so every message stays
    * in the order it was sent. Which reaches the CLI first is not fixed — the

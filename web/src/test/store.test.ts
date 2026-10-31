@@ -302,6 +302,19 @@ describe('queueSessionsEvent', () => {
 })
 
 describe('applySessionEvent', () => {
+  // Spec 2026-10-31-message-beats-stop-hook-design: the row's end can reach
+  // a tab that no longer listens on `session:<id>` only through the
+  // `sessions` topic.
+  it('a live notice goes when the sessions topic says the session stopped working, not before', () => {
+    useOrbital.getState().applySessionsEvent({ event: 'upsert', session: makeSession({ id: 's1', status: 'working' }) })
+    const notice: ChatMessage = { id: 'n1', role: 'notice', text: 'Stop hook running', notice: { level: 'info' } }
+    useOrbital.getState().applySessionEvent('s1', { event: 'live_notice', message: notice })
+    useOrbital.getState().applySessionsEvent({ event: 'upsert', session: makeSession({ id: 's1', status: 'working' }) })
+    expect(useOrbital.getState().liveNotices.s1).toEqual(notice)
+    useOrbital.getState().applySessionsEvent({ event: 'status', sessionId: 's1', status: 'needs_input' })
+    expect(useOrbital.getState().liveNotices.s1).toBeUndefined()
+  })
+
   it('message appends new messages and dedupes by id (WS replay safe)', () => {
     useOrbital.setState((s) => ({ ui: { ...s.ui, selectedId: 's1' } }))
     const m1: ChatMessage = { id: 'm1', role: 'user', text: 'hi' }

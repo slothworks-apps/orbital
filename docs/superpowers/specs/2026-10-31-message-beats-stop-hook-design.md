@@ -53,7 +53,12 @@ the interrupt with a `cancelled` `hook_response`, the interrupt marker and the
 turn's `result`, then runs the queued message as the next turn. The CLI's own
 `session_state_changed` stays `running` across that `result`; the runner does
 not rely on it and keeps the session `working` itself, the way a message sent
-after a turn's end would. Which of the two reaches the CLI first is not fixed
+after a turn's end would. To the turn-end callbacks (the harness, the titler)
+the cancelled turn and the message's are one turn: the cancelled `result`
+fires no turn end, so a harness does not spend its step there and the next
+real end stays paired with the start before both. A CLI that sent no `result`
+for the cancelled turn hands over at the message's first answer instead.
+Which of the two reaches the CLI first is not fixed
 (the SDK writes the prompt stream a tick behind a control request), so the
 runner calls the interrupt right after the enqueue, which keeps messages in
 the order they were sent. A second message in the same instant does not
@@ -86,7 +91,11 @@ history: the runner publishes it on `session:<id>` as a `live_notice` event
 carrying a notice row (`null` takes it down), drawn with the transcript's
 notice row; it is not written anywhere and a reload does not rebuild it. A
 client that selects the session while the hook runs sees no notice until the
-next one.
+next one. A client draws the notice only while the session reads `working`,
+and drops it on `turn_result`, on a `sessions`-topic status other than
+`working`, when it lets go of the session's topic, and on reconnect, so an
+end it did not hear cannot leave the row under a finished answer. While it is
+up, it is republished as hooks start and end, so its count stays right.
 
 Hooks of other events stay invisible, as they are today. They are short by
 nature (a `PreToolUse` hook that runs for minutes is a broken hook), and a row

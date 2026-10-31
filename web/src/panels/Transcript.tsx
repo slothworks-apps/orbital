@@ -127,8 +127,11 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
   const compacting = session ? compactingOf(session) : null
   const limitWait = session?.limitWait ?? null
   // What runs that no message shows — a Stop hook (spec
-  // 2026-10-31-message-beats-stop-hook-design).
-  const liveNotice = useOrbital((s) => s.liveNotices[sessionId])
+  // 2026-10-31-message-beats-stop-hook-design). Only while the session
+  // works: nothing runs otherwise, whatever end this tab missed.
+  const liveNotice = useOrbital((s) =>
+    s.sessions[sessionId]?.status === 'working' ? s.liveNotices[sessionId] : undefined,
+  )
   const contextWindow = session ? contextWindowFor(session, models, contextWindows) : null
   // The session's one tag, as the map and the header pick it.
   const hue =
