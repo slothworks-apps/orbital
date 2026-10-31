@@ -2,16 +2,23 @@ import { MenuOutcome, useMenuOutcomeKey } from '../menu/MenuOutcome'
 import { GateCard, useGateCardKey } from './GateCard'
 import { LimitNotice, useLimitNoticeKey } from './LimitNotice'
 import type { SlotKeyProps, SlotProps } from './slot'
+import { NoticeRow } from '../../panels/NoticeRow'
+import { useOrbital } from '../../store/store'
 
 /**
- * What ends the session's transcript, in this order: the harness gate's card
+ * What ends the session's transcript, in this order: the live notice of
+ * something no message shows, a Stop hook running (spec
+ * 2026-10-31-message-beats-stop-hook-design), the harness gate's card
  * (T1.1), the limit wait's notice (T5.1), the ⋯ sheet's ✓ line after End or
  * Clear (T4.1), and while the Mac sleeps the 9b divider where the data ends.
  * Each piece draws nothing when it has nothing to say.
  */
 export function TranscriptTail(props: SlotProps) {
+  const liveNotice = useOrbital((s) => s.liveNotices[props.session.id])
   return (
     <>
+      {/* Not from the last sync: while the Mac sleeps, nothing is known to run. */}
+      {liveNotice && !props.offline && <NoticeRow message={liveNotice} />}
       <GateCard {...props} />
       <LimitNotice {...props} />
       <MenuOutcome {...props} />
@@ -36,5 +43,6 @@ export function useTranscriptTailKey(props: SlotKeyProps): string {
   const gate = useGateCardKey(props)
   const limit = useLimitNoticeKey(props)
   const outcome = useMenuOutcomeKey(props)
-  return [props.offline ? 'offline' : 'live', gate ?? '-', limit ?? '-', outcome ?? '-'].join('|')
+  const notice = useOrbital((s) => (props.session && !props.offline ? s.liveNotices[props.session.id]?.id : undefined))
+  return [props.offline ? 'offline' : 'live', notice ?? '-', gate ?? '-', limit ?? '-', outcome ?? '-'].join('|')
 }

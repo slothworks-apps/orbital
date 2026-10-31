@@ -110,6 +110,14 @@ export type SessionEvent =
    */
   | { event: 'transcript_reset' }
   /**
+   * The row under the transcript while something runs that no message
+   * shows — today the main loop's `Stop` hooks (spec
+   * 2026-10-31-message-beats-stop-hook-design). `null` takes it down. Live
+   * state only: nothing in the file carries it, so a reload has none. An
+   * older client ignores the event and shows nothing.
+   */
+  | { event: 'live_notice'; message: ChatMessage | null }
+  /**
    * The walkthrough's stored narration changed — a narrate query started or
    * landed (spec 2026-09-30-narrate-out-of-band-design § Storage and state).
    * Carries nothing; an open walkthrough page asks again.
@@ -412,6 +420,8 @@ export interface OrbitalState {
    * queue behind it.
    */
   pendingDecisions: Record<string, PendingDecision>
+  /** Each session's live notice row (`live_notice`), drawn under its transcript. */
+  liveNotices: Record<string, ChatMessage>
   /**
    * The answers this tab SENT, keyed by DECISION id (which is the
    * `AskUserQuestion` tool_use's `toolUseId`): the complete record of the
@@ -1216,6 +1226,19 @@ const initialUiState: OrbitalUiState = {
   sidebarCollapsed: false,
 }
 
+/** `liveNotices` with one session's row set, or removed by `null`. */
+function withLiveNotice(
+  notices: Record<string, ChatMessage>,
+  sessionId: string,
+  message: ChatMessage | null,
+): Record<string, ChatMessage> {
+  if (message) return { ...notices, [sessionId]: message }
+  if (!(sessionId in notices)) return notices
+  const rest = { ...notices }
+  delete rest[sessionId]
+  return rest
+}
+
 /**
  * The trailing half of `leavingSince`: stamps the session the moment it
  * stops holding a place on the map, and never otherwise. Covers every way
@@ -1284,6 +1307,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   errorsUnseen: 0,
   remote: null,
   pendingDecisions: {},
+  liveNotices: {},
   decisionAnswers: {},
   decisionDrafts: readQuestionDrafts(),
   questionCursors: {},
@@ -1744,9 +1768,19 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       const next = { ...session, status: msg.status }
       set({
         sessions: { ...state.sessions, [sessionId]: next },
+        // Whatever it said ran, nothing runs once the session is not working;
+        // a `null` this tab missed must not leave the row standing.
+        ...(msg.status !== 'working' && state.liveNotices[sessionId]
+          ? { liveNotices: withLiveNotice(state.liveNotices, sessionId, null) }
+          : {}),
         ...leavingStamp(state, session, next),
         ...(crashed ? { transcriptErrors: { ...state.transcriptErrors, [sessionId]: true } } : {}),
       })
+      return
+    }
+
+    if (msg.event === 'live_notice') {
+      set({ liveNotices: withLiveNotice(state.liveNotices, sessionId, msg.message) })
       return
     }
 

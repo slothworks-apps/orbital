@@ -9,6 +9,7 @@ import { Button } from '../ui/Button'
 import { TranscriptView, pairMessages, type ScrollObserverFactory } from './TranscriptView'
 import { CompactingBlock } from './CompactionMark'
 import { LimitWaitNotice } from './LimitWaitNotice'
+import { NoticeRow } from './NoticeRow'
 import { compactingOf } from '../lib/compaction'
 import { contextWindowFor } from '../lib/models'
 import { useCompactionUi } from '../store/compaction'
@@ -125,6 +126,9 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
   const setReveal = useCompactionUi((s) => s.setReveal)
   const compacting = session ? compactingOf(session) : null
   const limitWait = session?.limitWait ?? null
+  // What runs that no message shows — a Stop hook (spec
+  // 2026-10-31-message-beats-stop-hook-design).
+  const liveNotice = useOrbital((s) => s.liveNotices[sessionId])
   const contextWindow = session ? contextWindowFor(session, models, contextWindows) : null
   // The session's one tag, as the map and the header pick it.
   const hue =
@@ -274,7 +278,9 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
             ? 'rewind-pending'
             : limitWait
               ? `limit-wait:${limitWait.queued.length}`
-              : undefined
+              : liveNotice
+                ? `live-notice:${liveNotice.id}`
+                : undefined
       }
       footer={
         <>
@@ -319,6 +325,7 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
               )}
             </div>
           )}
+          {liveNotice && <NoticeRow message={liveNotice} />}
           {/* Always last, under the agent's final message (31d). */}
           {limitWait && <LimitWaitNotice sessionId={sessionId} wait={limitWait} hue={hue ?? 205} />}
         </>

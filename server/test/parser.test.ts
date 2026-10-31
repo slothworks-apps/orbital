@@ -623,3 +623,33 @@ describe('extractMeta skip', () => {
     expect(meta.messageCount).toBe(2);
   });
 });
+
+// Spec 2026-10-31-message-beats-stop-hook-design § The cancelled hook. The
+// entries are CLI 2.1.280's, trimmed.
+describe('entriesToMessages: a cancelled Stop hook', () => {
+  const cancelled = (uuid: string, hookEvent: string) => ({
+    type: 'attachment', uuid, parentUuid: 'a1', isSidechain: false, timestamp: '2026-10-31T19:37:21.758Z',
+    attachment: { type: 'hook_cancelled', hookName: hookEvent, hookEvent, command: 'Verifying…', durationMs: 286411, timedOut: false },
+  });
+  const marker = (parentUuid: string) => ({
+    type: 'user', uuid: 'u1', parentUuid, isSidechain: false, timestamp: '2026-10-31T19:37:21.758Z',
+    message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] },
+  });
+  const answer = { type: 'assistant', uuid: 'a1', parentUuid: null, message: { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] } };
+
+  it('the interrupt marker right after it reads Stop hook cancelled, as a notice', () => {
+    const msgs = entriesToMessages([answer, cancelled('h1', 'Stop'), marker('h1')]);
+    expect(msgs.map((m) => [m.role, m.text])).toEqual([
+      ['assistant', 'Done.'],
+      ['notice', 'Stop hook cancelled'],
+    ]);
+    expect(msgs[1].uuid).toBe('u1');
+  });
+
+  it('an interrupt marker anywhere else stays the CLI\'s line', () => {
+    expect(entriesToMessages([answer, marker('a1')] as any).map((m) => m.role)).toEqual(['assistant', 'user']);
+    // A subagent's hook is not the main loop's.
+    expect(entriesToMessages([answer, cancelled('h1', 'SubagentStop'), marker('h1')] as any).map((m) => m.role))
+      .toEqual(['assistant', 'user']);
+  });
+});

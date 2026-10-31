@@ -93,6 +93,7 @@ const initialSnapshot: OrbitalState = {
   errorsUnseen: 0,
   remote: null,
   pendingDecisions: {},
+  liveNotices: {},
   decisionAnswers: {},
   decisionDrafts: {},
   questionCursors: {},
