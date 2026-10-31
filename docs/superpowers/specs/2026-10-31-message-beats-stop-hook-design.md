@@ -2,7 +2,7 @@
 id: 2026-10-31-message-beats-stop-hook-design
 title: A message goes ahead of a running Stop hook
 type: spec
-status: active
+status: done
 domain: server
 related:
   - 2026-09-24-streaming-output-design
