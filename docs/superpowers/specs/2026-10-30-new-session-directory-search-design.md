@@ -43,7 +43,9 @@ over that list (`filterDirectories` in `web/src/mobile/newSession.ts`).
   found only in the rest of the path is filled in the path. Most recent
   first.
 - Each row: the directory's name, its path, how long ago a session ran
-  there.
+  there; on the phone also 9d's tag dot.
+- Focusing the field selects its text, so typing replaces the prefilled
+  path instead of appending to it.
 - No match: the list closes and says nothing; the typed path stays and is
   checked at launch, as before.
 - Desktop (1a–1c): ↑/↓ move the highlight, hover moves it too; nothing is
@@ -51,16 +53,21 @@ over that list (`filterDirectories` in `web/src/mobile/newSession.ts`).
   click fills the field with the full path and closes the list. Esc closes
   the list; with the list closed, Esc closes the dialog as before. The
   RECENT chips stay. Focusing the field closes 50g's folder chooser. On
-  another device the list is that device's directories.
+  another device the list is that device's directories. The list is
+  portalled out of the dialog body, so a short window does not cut it
+  off; with no room below it opens above.
 - Phone (1d): the field opens on the device's last directory with no list
-  under it. Tapping in (or clearing it) opens the list over the form; a tap
+  under it. That prefilled path follows the device: a change of device
+  replaces it with the new device's last directory; a path typed or picked
+  stays. Tapping in (or clearing it) opens the list over the form; a tap
   on a row fills the full path and closes the list and the keyboard. The
   inline list, *Show all*, the *Use … as is* row and the no-match row of 9d
   are gone.
 
 ## How
 
-- `web/src/lib/directorySearch.ts` holds the search for both; the phone's
+- `web/src/lib/directorySearch.ts` holds the search for both and
+  `web/src/lib/useDirectorySuggestions.ts` the field's state; the phone's
   `filterDirectories` is gone. `homePath` moved to `web/src/lib/format.ts`.
 - Desktop: `web/src/panels/DirectoryField.tsx`. Phone: the DIRECTORY block
   of `web/src/mobile/screens/NewSessionScreen.tsx`.
@@ -69,7 +76,14 @@ over that list (`filterDirectories` in `web/src/mobile/newSession.ts`).
 ## Scope
 
 - **Who:** anyone who starts sessions in more than a handful of projects.
-- **Where:** on by default — it adds to the field, removes nothing.
+- **Where:** on by default. On the desktop it adds to the field and
+  removes nothing. On the phone it replaces 9d's always-visible list: the
+  list shows only while the field has focus, with ten rows until
+  something is typed, and *Show all*, the ✓ on the chosen row, the *Use …
+  as is* row and the no-match row are gone. The tag-colour dot on each
+  row stays, though 1d leaves it out, so projects still read by colour.
+  This follows 1d on purpose: the list no longer pushes the form below it
+  down, and the phone and the desktop find a directory the same way.
 - **What someone updating notices:** a list opens under the directory
   field when they click into it; typing filters it. On the phone the field
   opens on the last directory, and the list under it shows only while

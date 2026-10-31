@@ -40,8 +40,6 @@ export function nameInSentence(title: string | null | undefined, fallback = 'the
   return t && t.length <= NAME_IN_SENTENCE_MAX ? t : fallback
 }
 
-/** A directory as 9d prints it: the home folder as `~`. */
-export { homePath } from '../lib/format'
 
 /** The relay as 9e and 9f name it: its host, or the URL as written when it does not parse. */
 export function relayHost(url: string): string {

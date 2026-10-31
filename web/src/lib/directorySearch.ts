@@ -1,4 +1,5 @@
 import { homePath } from './format'
+import { leafOf } from './whereForm'
 
 /** One row of `GET /api/projects`: a directory a session ran in. */
 export interface DirectoryRow {
@@ -48,8 +49,7 @@ export function searchDirectories(projects: readonly DirectoryRow[], query: stri
 
 function describe(row: DirectoryRow, words: readonly string[]): DirectoryMatch {
   const path = homePath(row.cwd)
-  const trimmed = path.replace(/\/+$/, '')
-  const name = trimmed.slice(trimmed.lastIndexOf('/') + 1) || path
+  const name = leafOf(path) || path
   const nameLower = name.toLowerCase()
   const pathLower = path.toLowerCase()
   const nameMarks: Mark[] = []

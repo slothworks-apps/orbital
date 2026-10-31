@@ -3,7 +3,7 @@ import type { DeviceOption } from '../../lib/devices'
 import { KindGlyph } from '../../ui/KindGlyph'
 import { useShallow } from 'zustand/react/shallow'
 import { api } from '../../lib/api'
-import { type OrbitalModel, type PermissionMode, type SessionDefaults } from '../../lib/types'
+import { tagColor, type OrbitalModel, type PermissionMode, type SessionDefaults } from '../../lib/types'
 import { timeAgo } from '../../lib/format'
 import { useClaudeDirModels } from '../../lib/useClaudeDirModels'
 import { useNow } from '../../lib/useNow'
@@ -14,11 +14,11 @@ import { useOrbital } from '../../store/store'
 import { ModeCards } from '../../ui/ModeCards'
 import { CLOCK_TICK_MS } from '../constants'
 import { basename } from '../format'
-import { searchDirectories } from '../../lib/directorySearch'
+import type { DirectoryRow } from '../../lib/directorySearch'
+import { useDirectorySuggestions } from '../../lib/useDirectorySuggestions'
 import { Marked } from '../../ui/Marked'
 import {
   launchRequest, noSuchDirectory, prefillClaudeDir, preselectMode, preselectModel, startFailureLine,
-  type DirectoryRow,
 } from '../newSession'
 import { deviceAsleep, openingSettles, phoneDeviceOptions, phoneOpeningDevice, rememberDevice, rememberedDevice } from '../deviceList'
 import { isMacAsleep, useMobile } from '../state'
@@ -39,6 +39,8 @@ const MINUTE_MS = 60_000
  * and a first prompt; nothing typed here outlives the screen.
  */
 export function NewSessionScreen() {
+  const tags = useOrbital((s) => s.tags)
+  const sessions = useOrbital((s) => s.sessions)
   const launchSession = useOrbital((s) => s.launchSession)
   const { allAsleep, macName, macVersion, link, rechecking, devices, members } = useMobile(
     useShallow((s) => ({
@@ -107,11 +109,12 @@ export function NewSessionScreen() {
       mounted.current = false
     }
   }, [])
-  /** 1d: the directory field has focus; the suggestion list hangs from it then. */
-  const [dirFocused, setDirFocused] = useState(false)
-  /** What was typed in the field, while it is still what the field holds; null until then. */
-  const [dirTyped, setDirTyped] = useState<string | null>(null)
   const dirInput = useRef<HTMLInputElement>(null)
+  /**
+   * The field holds the device's last directory, filled in here, not a path
+   * typed or picked: a change of device replaces it with that device's own.
+   */
+  const cwdPrefilled = useRef(true)
   /**
    * The `.mcp.json` question (spec 2026-10-08-mcpjson-approval-design; canvas
    * 47c/47d): the servers Start found undecided and the answers so far. Set,
@@ -142,12 +145,14 @@ export function NewSessionScreen() {
     setProjects([])
     setPickedDir(null)
     setPickedModel(null)
+    // Another device's last directory means nothing here; one typed or picked stays.
+    if (cwdPrefilled.current) setCwd('')
     void Promise.allSettled([api.sessionDefaults(machine ?? undefined), api.listProjects(machine ?? undefined)]).then(([d, p]) => {
       if (!current) return
       if (p.status === 'fulfilled') {
         setProjects(p.value)
-        // 1d AT REST: an empty field opens on the device's last directory, as the desktop's does.
-        setCwd((typed) => (typed.trim() ? typed : (p.value[0]?.cwd ?? '')))
+        // 1d AT REST: the field opens on the device's last directory, as the desktop's does.
+        if (cwdPrefilled.current) setCwd(p.value[0]?.cwd ?? '')
       }
       setDefaults(d.status === 'fulfilled' ? d.value : null)
     })
@@ -167,17 +172,27 @@ export function NewSessionScreen() {
   /** The chosen directory's catalog: each account has its own models. */
   const models = useClaudeDirModels(claudeDirId, true, machine ?? undefined)
 
-  // A directory picked or prefilled is not a query: until something is typed the list is the recent ones.
-  const dirQuery = dirTyped !== null && dirTyped === cwd ? dirTyped : ''
-  const rows = useMemo(() => searchDirectories(projects, dirQuery), [projects, dirQuery])
+  const suggestions = useDirectorySuggestions(cwd, projects)
+  const { rows, focused: dirFocused } = suggestions
   const listShown = dirFocused && rows.length > 0
   const project = projects.find((p) => p.cwd === cwd.trim())
   const autoModel = defaults ? preselectModel({ defaults, project, models }) : (models[0]?.value ?? null)
   const model = pickedModel ?? autoModel
 
+  /** The tag dot of a session the phone holds in each directory (9d). */
+  const hueByCwd = useMemo(() => {
+    const hues = new Map<string, number>()
+    for (const s of Object.values(sessions)) {
+      if (machine !== null && s.machine && s.machine.id !== machine) continue
+      const tag = tags.find((t) => t.id === s.tagIds[0])
+      if (tag && !hues.has(s.cwd)) hues.set(s.cwd, tag.hue)
+    }
+    return hues
+  }, [sessions, tags, machine])
+
   const editCwd = (next: string) => {
     setCwd(next)
-    setDirTyped(null)
+    cwdPrefilled.current = false
     setNotFound(false)
     setFailure(null)
   }
@@ -302,7 +317,7 @@ export function NewSessionScreen() {
     </div>
   )
 
-  const typed = dirQuery.trim() !== ''
+  const typed = suggestions.searching && cwd.trim() !== ''
   // 1d's hint beside DIRECTORY: only while the list is in play.
   const hint = !dirFocused
     ? ''
@@ -351,14 +366,10 @@ export function NewSessionScreen() {
                 aria-expanded={listShown}
                 aria-autocomplete="list"
                 value={cwd}
+                {...suggestions.inputProps}
                 onChange={(e) => {
                   editCwd(e.target.value)
-                  setDirTyped(e.target.value)
-                }}
-                onFocus={() => setDirFocused(true)}
-                onBlur={() => {
-                  setDirFocused(false)
-                  setDirTyped(null)
+                  suggestions.type(e.target.value)
                 }}
                 placeholder="Search or type a path"
                 inputMode="url"
@@ -371,8 +382,10 @@ export function NewSessionScreen() {
                 <button
                   type="button"
                   aria-label="Clear"
-                  // pointerdown, not click: the field keeps its focus and its list.
+                  // The field keeps its focus and its list: pointerdown for the
+                  // engines that move focus there, mousedown for the rest.
                   onPointerDown={(e) => e.preventDefault()}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
                     editCwd('')
                     dirInput.current?.focus()
@@ -390,7 +403,9 @@ export function NewSessionScreen() {
                 className="absolute left-0 right-0 top-13 z-[5] overflow-hidden rounded-b-[14px] border border-t-0 border-accent/55 bg-panel-solid shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-accent)_10%,transparent),0_16px_32px_color-mix(in_oklab,var(--color-shadow)_45%,transparent)] [clip-path:inset(0_-4px_-48px_-4px)]"
               >
                 <div className="max-h-[364px] overflow-y-auto overscroll-contain">
-                  {rows.map((m, i) => (
+                  {rows.map((m, i) => {
+                    const hue = hueByCwd.get(m.row.cwd)
+                    return (
                     <button
                       key={m.row.cwd}
                       type="button"
@@ -398,6 +413,7 @@ export function NewSessionScreen() {
                       aria-selected={m.row.cwd === cwd.trim()}
                       // The field must not blur before the tap lands: the list would be gone.
                       onPointerDown={(e) => e.preventDefault()}
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => {
                         editCwd(m.row.cwd)
                         // 1d PICKED: the list and the keyboard go.
@@ -408,6 +424,12 @@ export function NewSessionScreen() {
                         i > 0 ? 'border-t border-line/7' : '',
                       ].join(' ')}
                     >
+                      {/* 9d's tag dot: which tag the phone's sessions in this directory wear. Not in 1d; kept so projects still read by colour. */}
+                      <span
+                        aria-hidden
+                        className="block h-1.5 w-1.5 shrink-0 rounded-full"
+                        style={{ background: hue !== undefined ? tagColor(hue) : 'var(--state-neutral)' }}
+                      />
                       <span className="flex min-w-0 flex-1 flex-col gap-[3px]">
                         <span className="truncate fs-14 font-bold text-ink-100">
                           <Marked text={m.name} marks={m.nameMarks} />
@@ -420,7 +442,8 @@ export function NewSessionScreen() {
                         <span className="shrink-0 font-mono fs-10.5 text-ink-900/50">{timeAgo(m.row.lastAt, now)}</span>
                       )}
                     </button>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )}

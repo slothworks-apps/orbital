@@ -45,6 +45,7 @@ import {
 } from '../lib/mcpjson'
 import { McpjsonIntro, McpjsonRows } from './McpjsonQuestion'
 import { ProjectFileViewer } from './FileViewer'
+import type { DirectoryRow } from '../lib/directorySearch'
 import { DirectoryField } from './DirectoryField'
 import { FolderChooser } from './FolderChooser'
 import {
@@ -218,7 +219,7 @@ export function NewSessionDialog({ open, onClose }: NewSessionDialogProps) {
   const [otherActive, setOtherActive] = useState(false)
   /** A remembered custom id the field starts from, already trusted. */
   const [customInitial, setCustomInitial] = useState<string | null>(null)
-  const [projects, setProjects] = useState<Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>>([])
+  const [projects, setProjects] = useState<DirectoryRow[]>([])
   /** Where the session runs (canvas 50g): `LOCAL_DEVICE` or a member's id. */
   const [device, setDevice] = useState<string>(LOCAL_DEVICE)
   /** The folder chooser of another device is open over the fields (50g). */

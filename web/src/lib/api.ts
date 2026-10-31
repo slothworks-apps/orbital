@@ -64,6 +64,7 @@ import {
   type UpdateWhen,
 } from '@orbital/shared/remote/serverUpdate'
 import type { TerminalInfo } from '../terminal/types'
+import type { DirectoryRow } from './directorySearch'
 
 /**
  * What a send answers. `uuid` is the transcript entry the turn is written
@@ -979,10 +980,8 @@ export const api = {
    * `lastAt` is the newest session's `lastAt` in that directory — the phone's
    * 9d rows read it as its last use. `machine` asks that member for its own.
    */
-  async listProjects(machine?: string): Promise<Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>> {
-    const data = await request<{
-      projects: Array<{ cwd: string; lastModel: string | null; lastAt: number | null }>
-    }>('GET', machine === undefined ? '/api/projects' : `/api/projects?${new URLSearchParams({ machine })}`)
+  async listProjects(machine?: string): Promise<DirectoryRow[]> {
+    const data = await request<{ projects: DirectoryRow[] }>('GET', machine === undefined ? '/api/projects' : `/api/projects?${new URLSearchParams({ machine })}`)
     return data.projects
   },
 

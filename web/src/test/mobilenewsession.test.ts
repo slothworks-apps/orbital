@@ -8,8 +8,8 @@ import {
   preselectMode,
   preselectModel,
   startFailureLine,
-  type DirectoryRow,
 } from '../mobile/newSession'
+import type { DirectoryRow } from '../lib/directorySearch'
 
 const row = (cwd: string, lastAt = 0, lastModel: string | null = null): DirectoryRow => ({ cwd, lastModel, lastAt })
 

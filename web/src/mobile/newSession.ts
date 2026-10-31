@@ -7,8 +7,6 @@ import type { OrbitalModel, PermissionMode, SessionDefaults } from '../lib/types
 import type { DirectoryRow } from '../lib/directorySearch'
 import { humanizeError } from './composer'
 
-export type { DirectoryRow }
-
 /**
  * The model 9d opens on: the directory's last model when the Mac remembers
  * one per project, else the Mac's default, else the catalog's first row.

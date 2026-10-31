@@ -4,7 +4,7 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 
 ## [Unreleased]
 ### Added
-- New session: click into the project directory field to see the ten most recent directories, and type any part of a path to find every directory a session has run in, instead of only four RECENT ones.
+- New session: click into the project directory field to see the ten most recent directories, and type any part of a path to find every directory a session has run in. The RECENT chips stay.
 
 ## [0.45.1] — 2026-10-29
 ### Fixed
