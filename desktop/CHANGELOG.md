@@ -3,6 +3,8 @@
 All notable changes to the desktop app. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow `version` in `desktop/package.json`.
 
 ## [Unreleased]
+
+## [0.45.2] — 2026-10-31
 ### Changed
 - Sessions Orbital runs now use a newer Claude Code, with its fixes for subagents reaching their tools, shell commands left running after a session ends and transcripts saved out of order.
 
