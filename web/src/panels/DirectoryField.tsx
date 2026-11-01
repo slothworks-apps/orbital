@@ -5,6 +5,7 @@ import type { DirectoryRow } from '../lib/directorySearch'
 import { useDirectorySuggestions } from '../lib/useDirectorySuggestions'
 import { useNow } from '../lib/useNow'
 import { useEscapeLayer } from '../ui/escapeLayer'
+import { Input } from '../ui/Input'
 import { Marked } from '../ui/Marked'
 import { usePopupPosition } from '../ui/usePopupPosition'
 
@@ -77,10 +78,13 @@ export function DirectoryField({ id, value, onChange, projects, onFocus }: Direc
 
   return (
     <div className="min-w-0 flex-1">
-      <input
+      <Input
         ref={inputRef}
         id={id}
         type="text"
+        variant="combobox"
+        font="mono"
+        seam={!open ? undefined : above ? 'top' : 'bottom'}
         role="combobox"
         aria-expanded={open}
         aria-controls={listId}
@@ -121,14 +125,6 @@ export function DirectoryField({ id, value, onChange, projects, onFocus }: Direc
             pick(rows[hi].row.cwd)
           }
         }}
-        // Canvas 1a/1c ONE SHAPE: open, the corners on the list's side go
-        // square and that border drops to the hairline the list continues from.
-        className={[
-          'block h-[38px] w-full border bg-space/60 px-3 font-mono fs-12.5 text-ink-100 outline-none transition-[border-color,box-shadow] duration-[120ms] ease-out placeholder:text-ink-900/45',
-          !open ? 'rounded-[9px]' : above ? 'rounded-b-[9px] rounded-t-none' : 'rounded-t-[9px] rounded-b-none',
-          focused ? 'border-accent/50 shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-accent)_10%,transparent)]' : 'border-line/18',
-          !open ? '' : above ? 'border-t-line/10' : 'border-b-line/10',
-        ].join(' ')}
       />
       {rows.length > 0 &&
         createPortal(
