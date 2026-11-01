@@ -259,13 +259,16 @@ export const STOP_HOOK_EVENT = 'Stop';
 /**
  * The live row while the main loop's `Stop` hooks run. The SDK's hook events
  * name the event and not the command (`hook_name` is the event itself for
- * `Stop`, which takes no matcher), so the row says how many there are.
+ * `Stop`, which takes no matcher), so the row says how many there are, and
+ * whether a message the user sent waits for them. The clients draw it with
+ * a Cancel that interrupts the session, which cancels the hooks.
  */
-export function stopHookRunningNotice(id: string, count: number): ChatMessage {
+export function stopHookRunningNotice(id: string, count: number, messageWaits: boolean): ChatMessage {
+  const running = count > 1 ? 'Stop hooks running' : 'Stop hook running';
   return {
     id,
     role: 'notice',
-    text: `${count > 1 ? 'Stop hooks' : 'Stop hook'} running — a message goes ahead of it`,
+    text: messageWaits ? `${running} — your message waits for ${count > 1 ? 'them' : 'it'}` : running,
     notice: { level: 'info' },
   };
 }

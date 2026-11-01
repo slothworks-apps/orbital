@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { ChatMessage, NoticeLevel } from '../lib/types'
 import { ansiToHtml } from '../lib/highlight'
 
@@ -98,9 +98,11 @@ function isTerminalArt(text: string): boolean {
  */
 export interface NoticeRowProps {
   message: ChatMessage
+  /** What can be done about it, at the end of a one-line row: the live Stop hook notice's Cancel. */
+  action?: ReactNode
 }
 
-export function NoticeRow({ message }: NoticeRowProps) {
+export function NoticeRow({ message, action }: NoticeRowProps) {
   const [open, setOpen] = useState(false)
   const level = message.notice?.level ?? 'notice'
   const tone = LEVEL[level]
@@ -169,6 +171,7 @@ export function NoticeRow({ message }: NoticeRowProps) {
             // `ansiToHtml` escapes its input before colorizing.
             dangerouslySetInnerHTML={{ __html: ansiToHtml(text) }}
           />
+          {action && <span className="shrink-0 self-center">{action}</span>}
         </>
       ) : (
         <>

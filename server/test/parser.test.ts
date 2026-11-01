@@ -646,6 +646,13 @@ describe('entriesToMessages: a cancelled Stop hook', () => {
     expect(msgs[1].uuid).toBe('u1');
   });
 
+  it('reads the same when the attachment and the marker arrive in two calls that share a set, as a tail reads them', () => {
+    const carried = new Set<string>();
+    expect(entriesToMessages([answer, cancelled('h1', 'Stop')], undefined, carried).map((m) => m.role)).toEqual(['assistant']);
+    expect(entriesToMessages([marker('h1')] as any, undefined, carried).map((m) => [m.role, m.text]))
+      .toEqual([['notice', 'Stop hook cancelled']]);
+  });
+
   it('an interrupt marker anywhere else stays the CLI\'s line', () => {
     expect(entriesToMessages([answer, marker('a1')] as any).map((m) => m.role)).toEqual(['assistant', 'user']);
     // A subagent's hook is not the main loop's.

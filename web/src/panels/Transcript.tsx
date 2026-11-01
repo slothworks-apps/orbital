@@ -9,8 +9,9 @@ import { Button } from '../ui/Button'
 import { TranscriptView, pairMessages, type ScrollObserverFactory } from './TranscriptView'
 import { CompactingBlock } from './CompactionMark'
 import { LimitWaitNotice } from './LimitWaitNotice'
-import { NoticeRow } from './NoticeRow'
+import { StopHookNotice } from './StopHookNotice'
 import { compactingOf } from '../lib/compaction'
+import { machineOffline } from '../lib/devices'
 import { contextWindowFor } from '../lib/models'
 import { useCompactionUi } from '../store/compaction'
 import { useMedia } from '../store/media'
@@ -128,10 +129,12 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
   const limitWait = session?.limitWait ?? null
   // What runs that no message shows — a Stop hook (spec
   // 2026-10-31-message-beats-stop-hook-design). Only while the session
-  // works: nothing runs otherwise, whatever end this tab missed.
-  const liveNotice = useOrbital((s) =>
-    s.sessions[sessionId]?.status === 'working' ? s.liveNotices[sessionId] : undefined,
-  )
+  // works: nothing runs otherwise, whatever end this tab missed. Not while
+  // its device is offline either, as on the phone: the end would go unheard.
+  const liveNotice = useOrbital((s) => {
+    const x = s.sessions[sessionId]
+    return x?.status === 'working' && !machineOffline(x, s.remote?.group?.members) ? s.liveNotices[sessionId] : undefined
+  })
   const contextWindow = session ? contextWindowFor(session, models, contextWindows) : null
   // The session's one tag, as the map and the header pick it.
   const hue =
@@ -282,7 +285,7 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
             : limitWait
               ? `limit-wait:${limitWait.queued.length}`
               : liveNotice
-                ? `live-notice:${liveNotice.id}`
+                ? `live-notice:${liveNotice.id}:${liveNotice.text}`
                 : undefined
       }
       footer={
@@ -328,7 +331,7 @@ export function Transcript({ sessionId, observerFactory }: TranscriptProps) {
               )}
             </div>
           )}
-          {liveNotice && <NoticeRow message={liveNotice} />}
+          {liveNotice && <StopHookNotice sessionId={sessionId} message={liveNotice} />}
           {/* Always last, under the agent's final message (31d). */}
           {limitWait && <LimitWaitNotice sessionId={sessionId} wait={limitWait} hue={hue ?? 205} />}
         </>

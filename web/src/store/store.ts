@@ -1227,8 +1227,8 @@ const initialUiState: OrbitalUiState = {
 }
 
 /**
- * Takes a session's live notice down once the `sessions` topic says it is
- * not working: that topic reaches every session, `session:<id>` only the
+ * Takes a session's live notice down once a status says it is not working,
+ * on either topic: `sessions` reaches every session, `session:<id>` only the
  * one shown, so a notice whose end went by unheard does not outlive it.
  */
 function liveNoticeSettled(
@@ -1787,9 +1787,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         sessions: { ...state.sessions, [sessionId]: next },
         // Whatever it said ran, nothing runs once the session is not working;
         // a `null` this tab missed must not leave the row standing.
-        ...(msg.status !== 'working' && state.liveNotices[sessionId]
-          ? { liveNotices: withLiveNotice(state.liveNotices, sessionId, null) }
-          : {}),
+        ...liveNoticeSettled(state, sessionId, msg.status),
         ...leavingStamp(state, session, next),
         ...(crashed ? { transcriptErrors: { ...state.transcriptErrors, [sessionId]: true } } : {}),
       })

@@ -367,16 +367,24 @@ export function toolResultParts(
   return { text: texts.join('\n'), images: refs };
 }
 
-export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWriter): ChatMessage[] {
+/**
+ * `cancelledStopHooks` carries the uuids of cancelled `Stop` hooks'
+ * attachments between calls: a tail that reads the attachment and the
+ * interrupt marker chained to it in two reads passes the same set to both,
+ * so the marker reads as it does on a reload. Unpassed, it lives for this
+ * call.
+ */
+export function entriesToMessages(
+  entries: TranscriptEntry[],
+  images?: ImageWriter,
+  cancelledStopHooks: Set<string> = new Set(),
+): ChatMessage[] {
   const out: ChatMessage[] = [];
   // The newest compaction mark still waiting for its summary entry.
   let unsummarised: ChatMessage | null = null;
   // The main conversation's DesignSync calls, whose failures may name
   // `/design-login` (spec 2026-10-21-log-in-from-orbital-design § 3).
   const designCalls = new Set<string>();
-  // The uuids of cancelled `Stop` hooks' attachments: the interrupt marker
-  // chained directly to one is the hook's end, not a turn the user stopped.
-  const cancelledStopHooks = new Set<string>();
   for (const e of entries) {
     // The entry's uuid rides on every message it becomes: a rewind names its
     // target by it, and the messages API cuts and places dividers by it
@@ -416,6 +424,8 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
       if (row) out.push({ ...row, ...origin });
       continue;
     }
+    // The interrupt marker chained directly to one is the hook's end, not a
+    // turn the user stopped.
     if (isStopHookCancelled(e) && typeof e.uuid === 'string') {
       cancelledStopHooks.add(e.uuid);
       continue;
@@ -427,6 +437,7 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
       e.type === 'user' && typeof e.parentUuid === 'string' && cancelledStopHooks.has(e.parentUuid) &&
       isInterruptMarker(textOfContent(e.message.content).trim())
     ) {
+      cancelledStopHooks.delete(e.parentUuid);
       out.push({ ...stopHookCancelledNotice(`${e.uuid}:0`, e.timestamp), ...origin });
       continue;
     }

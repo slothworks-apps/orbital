@@ -1133,6 +1133,8 @@ export async function buildServer(overrides: {
     const transcriptPath = transcriptPathOf(id);
     if (!transcriptPath) return;
     const tail = new TranscriptTail(transcriptPath);
+    // A cancelled Stop hook and the interrupt marker after it can land in two reads.
+    const cancelledStopHooks = new Set<string>();
     tail.on('entries', (entries) => {
       liveStats.feed(id, entries);
       // Extract and record tool_use blocks from terminal sessions
@@ -1151,7 +1153,7 @@ export async function buildServer(overrides: {
           }
         }
       }
-      for (const msg of entriesToMessages(entries, images)) {
+      for (const msg of entriesToMessages(entries, images, cancelledStopHooks)) {
         hub.publish(topic, { event: 'message', message: msg });
       }
     });

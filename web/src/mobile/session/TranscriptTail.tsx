@@ -1,8 +1,12 @@
+import { useState } from 'react'
 import { MenuOutcome, useMenuOutcomeKey } from '../menu/MenuOutcome'
+import { SecondaryButton } from '../ui'
 import { GateCard, useGateCardKey } from './GateCard'
 import { LimitNotice, useLimitNoticeKey } from './LimitNotice'
 import type { SlotKeyProps, SlotProps } from './slot'
 import { NoticeRow } from '../../panels/NoticeRow'
+import { api } from '../../lib/api'
+import type { ChatMessage } from '../../lib/types'
 import { useOrbital } from '../../store/store'
 
 /**
@@ -18,7 +22,7 @@ export function TranscriptTail(props: SlotProps) {
   return (
     <>
       {/* Not from the last sync: while the Mac sleeps, nothing is known to run. */}
-      {liveNotice && !props.offline && <NoticeRow message={liveNotice} />}
+      {liveNotice && !props.offline && <StopHookNotice sessionId={props.session.id} message={liveNotice} />}
       <GateCard {...props} />
       <LimitNotice {...props} />
       <MenuOutcome {...props} />
@@ -35,6 +39,37 @@ export function TranscriptTail(props: SlotProps) {
 }
 
 /**
+ * The live notice with its Cancel, which interrupts the session: the Mac
+ * takes that for the hooks' cancel, as the desktop's Cancel does (spec
+ * 2026-10-31-message-beats-stop-hook-design). The row goes when the Mac
+ * takes the notice down.
+ */
+function StopHookNotice({ sessionId, message }: { sessionId: string; message: ChatMessage }) {
+  const [busy, setBusy] = useState(false)
+  const cancel = () => {
+    if (busy) return
+    setBusy(true)
+    api
+      .interrupt(sessionId)
+      // Said on the composer's line, like every request of this phone.
+      .catch((err: unknown) =>
+        useOrbital.setState({ toast: { kind: 'error', message: err instanceof Error ? err.message : String(err) } }),
+      )
+      .finally(() => setBusy(false))
+  }
+  return (
+    <NoticeRow
+      message={message}
+      action={
+        <SecondaryButton variant="compact" onClick={cancel} disabled={busy}>
+          Cancel
+        </SecondaryButton>
+      }
+    />
+  )
+}
+
+/**
  * The tail's `footerKey`: changes whenever any piece's content does, so a
  * reader sitting at the bottom is kept there as the card, the notice or the
  * ✓ line appears or changes.
@@ -43,8 +78,10 @@ export function useTranscriptTailKey(props: SlotKeyProps): string {
   const gate = useGateCardKey(props)
   const limit = useLimitNoticeKey(props)
   const outcome = useMenuOutcomeKey(props)
-  const notice = useOrbital((s) =>
-    props.session?.status === 'working' && !props.offline ? s.liveNotices[props.session.id]?.id : undefined,
-  )
+  // Its text too: it grows a clause once a message waits behind the hooks.
+  const notice = useOrbital((s) => {
+    const row = props.session?.status === 'working' && !props.offline ? s.liveNotices[props.session.id] : undefined
+    return row ? `${row.id}:${row.text}` : undefined
+  })
   return [props.offline ? 'offline' : 'live', notice ?? '-', gate ?? '-', limit ?? '-', outcome ?? '-'].join('|')
 }
