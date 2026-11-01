@@ -122,6 +122,11 @@ describe('withHarnessRows', () => {
     const events = [event(2, 'attached'), event(3, 'advanced', { index: 1 }), event(4, 'nudged', { index: 1 }), event(5, 'options')]
     expect(shape(withHarnessRows([msg('a', 1)], events, [h], null))).toEqual(['a'])
   })
+
+  it('skips a kind a newer server logs instead of crashing', () => {
+    const events = [event(2, 'proposed' as HarnessEvent['kind']), event(3, 'resumed')]
+    expect(shape(withHarnessRows([msg('a', 1)], events, [h], null))).toEqual(['a', '◆ resumed'])
+  })
 })
 
 describe('pillReading', () => {
