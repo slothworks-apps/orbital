@@ -50,7 +50,7 @@ function StopHookNotice({ sessionId, message }: { sessionId: string; message: Ch
     if (busy) return
     setBusy(true)
     api
-      .interrupt(sessionId)
+      .interrupt(sessionId, { stopHookNotice: message.id })
       // Said on the composer's line, like every request of this phone.
       .catch((err: unknown) =>
         useOrbital.setState({ toast: { kind: 'error', message: err instanceof Error ? err.message : String(err) } }),

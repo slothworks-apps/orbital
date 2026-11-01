@@ -581,8 +581,17 @@ export const api = {
     )
   },
 
-  async interrupt(id: string): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>('POST', apiPath`/api/sessions/${id}/interrupt`)
+  /**
+   * `stopHookNotice`: the live Stop hook notice whose Cancel was pressed; the
+   * server does nothing once that notice is down. A Mac that predates it
+   * ignores the body, and never shows the notice.
+   */
+  async interrupt(id: string, opts: { stopHookNotice?: string } = {}): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(
+      'POST',
+      apiPath`/api/sessions/${id}/interrupt`,
+      opts.stopHookNotice === undefined ? undefined : { stopHookNotice: opts.stopHookNotice },
+    )
   },
 
   /**

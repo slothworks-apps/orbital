@@ -116,6 +116,14 @@ const SLEEP_AFTER_IDLE_MINUTES = 30;
  */
 export const STOP_HOOK_NOTICE_AFTER_MS = 1_500;
 
+/**
+ * How long a turn whose Stop hooks the user cancelled, with no message
+ * waiting, waits for its `result` once the interrupt went through. The CLI
+ * sends one at once (verified against CLI 2.1.280); an interrupt may never
+ * produce one, and the turn then ends here, as an ordinary interrupt's does.
+ */
+const STOP_HOOK_CANCEL_RESULT_MS = 5_000;
+
 /** The SDK's hook lifecycle messages, sent because the runner asks for them (`includeHookEvents`). */
 const HOOK_EVENT_SUBTYPES: ReadonlySet<string> = new Set(['hook_started', 'hook_progress', 'hook_response']);
 
@@ -738,6 +746,12 @@ interface ManagedSession {
    * result opens its turn instead of handing the session to the user.
    */
   promptBehindStopHook: string | null;
+  /** A cancel of the Stop hooks is on its way to the CLI: a second press in the meantime does nothing. */
+  stopHookCancelling: boolean;
+  /** Ends the turn of a cancelled Stop hook whose `result` does not come (`STOP_HOOK_CANCEL_RESULT_MS`). */
+  stopHookCancelTimer: ReturnType<typeof setTimeout> | null;
+  /** How many `result`s the main loop has sent: tells a cancel whether its turn's came while it waited. */
+  results: number;
   /**
    * A DesignSync call of this turn failed naming `/design-login`. Read and
    * cleared when the turn ends (`onTurnEnd`; spec
@@ -855,6 +869,7 @@ export class Runner {
   private newSessionId: () => string;
   private sleepAfterMs: number;
   private stopHookNoticeAfterMs: number;
+  private stopHookCancelResultMs: number;
   private onStatus?: (sessionId: string, status: SessionStatus) => void;
   private onOwnership?: (sessionId: string, status: SessionStatus | null) => void;
   private onTurnUsage?: (modelUsage: unknown) => void;
@@ -937,6 +952,8 @@ export class Runner {
     sleepAfterMs?: number;
     /** The Stop hook notice's delay, for tests; `STOP_HOOK_NOTICE_AFTER_MS` otherwise. */
     stopHookNoticeAfterMs?: number;
+    /** How long a cancelled Stop hook's turn waits for its result, for tests; `STOP_HOOK_CANCEL_RESULT_MS` otherwise. */
+    stopHookCancelResultMs?: number;
     /** Content-addressed store live image blocks are decoded into; absent
      * (some tests) they drop, which was always the live path's behaviour. */
     images?: ImageStore;
@@ -1207,6 +1224,7 @@ export class Runner {
     this.newSessionId = deps.newSessionId ?? randomUUID;
     this.sleepAfterMs = deps.sleepAfterMs ?? SLEEP_AFTER_IDLE_MINUTES * 60_000;
     this.stopHookNoticeAfterMs = deps.stopHookNoticeAfterMs ?? STOP_HOOK_NOTICE_AFTER_MS;
+    this.stopHookCancelResultMs = deps.stopHookCancelResultMs ?? STOP_HOOK_CANCEL_RESULT_MS;
     this.onStatus = deps.onStatus;
     this.onOwnership = deps.onOwnership;
     this.onTurnUsage = deps.onTurnUsage;
@@ -1419,6 +1437,7 @@ export class Runner {
     // again finds no turn and so no hook.
     if (state.stopHookTimer) clearTimeout(state.stopHookTimer);
     state.stopHookTimer = null;
+    this.clearStopHookCancelTimer(state);
     state.stopHooks.clear();
     // A flush after the release would publish for a session nobody holds.
     if (state.stream?.flushTimer) clearTimeout(state.stream.flushTimer);
@@ -1507,7 +1526,8 @@ export class Runner {
       limitRejected: null, turnError: null,
       designCalls: new Set(), designLoginLost: false,
       stopHooks: new Set(), stopHookTimer: null, stopHookNotice: null, stopHookCancelled: false,
-      messageBehindStopHooks: null, promptBehindStopHook: null,
+      messageBehindStopHooks: null, promptBehindStopHook: null, stopHookCancelling: false, stopHookCancelTimer: null,
+      results: 0,
     };
     // Registered before anything is awaited, so two concurrent start() calls
     // for the same id can't both get past the check above.
@@ -2016,8 +2036,10 @@ export class Runner {
         }
       }
     } else if (msg.type === 'result') {
-      // No hook of a turn outlives its result.
-      this.endStopHooks(sessionId, state);
+      // No hook of a turn outlives its result; a message waiting behind them runs next.
+      this.letStopHooksGo(sessionId, state);
+      this.clearStopHookCancelTimer(state);
+      state.results += 1;
       state.stopHookCancelled = false;
       this.hub.publish(topic, { event: 'turn_result', usage: msg.usage ?? {} });
       this.onTurnUsage?.(msg.modelUsage);
@@ -2140,10 +2162,11 @@ export class Runner {
       return;
     }
     if (msg.subtype !== 'hook_response') return;
-    // Also for a hook already let go of: `send()` drops them as it cancels.
+    // Also for a hook already let go of: a cancel forgets them once its
+    // interrupt went through, and the CLI's answer can come either side of it.
     if (msg.outcome === 'cancelled') state.stopHookCancelled = true;
     if (!state.stopHooks.delete(msg.hook_id)) return;
-    if (state.stopHooks.size === 0) this.endStopHooks(sessionId, state);
+    if (state.stopHooks.size === 0) this.letStopHooksGo(sessionId, state);
     // The count it shows, singular or plural, follows the hooks still running.
     else if (state.stopHookNotice !== null) this.publishStopHookNotice(sessionId, state);
   }
@@ -2166,6 +2189,24 @@ export class Runner {
     if (state.stopHookNotice === null) return;
     state.stopHookNotice = null;
     this.hub.publish(`session:${sessionId}`, { event: 'live_notice', message: null });
+  }
+
+  /**
+   * The hooks ended, on their own or cancelled: `endStopHooks`, with the
+   * message waiting behind them handed to the turn's end
+   * (`promptBehindStopHook`), so the `result` that follows starts its turn
+   * rather than ending one.
+   */
+  private letStopHooksGo(sessionId: string, state: ManagedSession): void {
+    if (state.messageBehindStopHooks !== null && state.promptBehindStopHook === null) {
+      state.promptBehindStopHook = state.messageBehindStopHooks;
+    }
+    this.endStopHooks(sessionId, state);
+  }
+
+  private clearStopHookCancelTimer(state: ManagedSession): void {
+    if (state.stopHookCancelTimer) clearTimeout(state.stopHookCancelTimer);
+    state.stopHookCancelTimer = null;
   }
 
   /**
@@ -2976,6 +3017,8 @@ export class Runner {
     // the CLI's first frame would run `settleStatus` against a session that
     // still looked finished and snap it back to `needs_input`.
     const behindStopHooks = this.onlyStopHooksRun(s);
+    // A turn is starting; the cancelled one's end is its `result`'s to make.
+    this.clearStopHookCancelTimer(s);
     s.turnEnded = false;
     s.turnPrompt = text;
     this.setStatus(sessionId, 'working');
@@ -3004,13 +3047,33 @@ export class Runner {
    * (`promptBehindStopHook`), which is no turn end to the callbacks.
    */
   private async cancelStopHooks(sessionId: string, s: ManagedSession): Promise<void> {
-    const waiting = s.messageBehindStopHooks;
-    // Let go of now, so a second press in the same instant does not
-    // interrupt again — by then it could be the new turn it stops.
-    this.endStopHooks(sessionId, s);
-    s.stopHookCancelled = true;
-    s.promptBehindStopHook = waiting;
-    await s.generator?.interrupt?.();
+    // A second press while the first is on its way could stop the turn
+    // that follows.
+    if (s.stopHookCancelling) return;
+    s.stopHookCancelling = true;
+    const notice = s.stopHookNotice;
+    const results = s.results;
+    try {
+      // Nothing changes before it went through: refused, the hooks run on
+      // under their notice, and Cancel can be pressed again.
+      await s.generator?.interrupt?.();
+    } finally {
+      s.stopHookCancelling = false;
+    }
+    if (this.sessions.get(sessionId) !== s) return;
+    // The CLI's answer to it may already have let the hooks go.
+    if (notice !== null && s.stopHookNotice === notice) {
+      s.stopHookCancelled = true;
+      this.letStopHooksGo(sessionId, s);
+    }
+    if (s.results !== results || s.promptBehindStopHook !== null || s.turnEnded) return;
+    const timer = setTimeout(() => {
+      s.stopHookCancelTimer = null;
+      if (this.sessions.get(sessionId) !== s || s.results !== results || s.turnEnded) return;
+      this.endCutTurn(sessionId, s);
+    }, this.stopHookCancelResultMs);
+    (timer as unknown as { unref?: () => void }).unref?.();
+    s.stopHookCancelTimer = timer;
   }
 
   /**
@@ -3046,9 +3109,17 @@ export class Runner {
     return still?.commands ?? shaped;
   }
 
-  async interrupt(sessionId: string): Promise<void> {
+  /**
+   * `stopHookNotice` names the live notice whose Cancel was pressed: the
+   * interrupt then cancels those hooks or, once that notice is down, does
+   * nothing — by then it would stop whatever runs next, the message that
+   * waited behind them, say.
+   */
+  async interrupt(sessionId: string, opts: { stopHookNotice?: string } = {}): Promise<void> {
     const running = this.sessions.get(sessionId);
-    if (running && running.stopHookNotice !== null && this.onlyStopHooksRun(running)) {
+    const hooksOnly = running !== undefined && running.stopHookNotice !== null && this.onlyStopHooksRun(running);
+    if (opts.stopHookNotice !== undefined && (!hooksOnly || running?.stopHookNotice !== opts.stopHookNotice)) return;
+    if (running && hooksOnly) {
       await this.cancelStopHooks(sessionId, running);
       return;
     }
@@ -3063,13 +3134,23 @@ export class Runner {
       s.promptBehindStopHook = null;
     }
     await s?.generator?.interrupt?.();
+    if (s) {
+      this.endCutTurn(sessionId, s);
+    } else {
+      this.setStatus(sessionId, 'needs_input');
+      this.armSleepTimer(sessionId);
+    }
+  }
+
+  /** Ends a turn an interrupt cut short, without waiting for a `result`. */
+  private endCutTurn(sessionId: string, s: ManagedSession): void {
     // The turn the user cut short is over whatever the stream says next, so
     // the mark goes down here rather than waiting for a `result` that an
     // interrupt may never produce.
-    if (s) s.turnEnded = true;
+    s.turnEnded = true;
     // A call the interrupt cut off before its result stays on the client's
     // screen until the transcript is read again — see `danglingCall`.
-    if (s && s.openToolUses.size > 0) {
+    if (s.openToolUses.size > 0) {
       s.openToolUses.clear();
       s.danglingCall = 'left';
     }
@@ -3077,19 +3158,17 @@ export class Runner {
     // running (adr the-composers-stop-spares-background-work), and keeps the
     // session `working` as it would after any other turn — and unslept, since
     // sleeping stops the process and the tasks with it.
-    if (s && this.hasLiveBackgroundWork?.(sessionId) === true) {
+    if (this.hasLiveBackgroundWork?.(sessionId) === true) {
       this.settleStatus(sessionId);
     } else {
       this.setStatus(sessionId, 'needs_input');
       this.armSleepTimer(sessionId);
     }
-    if (s) {
-      // A turn the user cut short did not end on a lost login, whatever it ran into.
-      s.designLoginLost = false;
-      s.designCalls.clear();
-      this.onTurnEnd?.(sessionId, { loginLost: false, designLoginLost: false });
-      this.onTurnBoundary?.(sessionId, true);
-    }
+    // A turn the user cut short did not end on a lost login, whatever it ran into.
+    s.designLoginLost = false;
+    s.designCalls.clear();
+    this.onTurnEnd?.(sessionId, { loginLost: false, designLoginLost: false });
+    this.onTurnBoundary?.(sessionId, true);
   }
 
   /**

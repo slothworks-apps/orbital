@@ -2984,7 +2984,7 @@ describe('Runner Stop hooks', () => {
    * and interrupts reach the CLI in. The notice goes up at once unless said
    * otherwise.
    */
-  function stopHookSession({ sleepAfterMs = 10_000, noticeAfterMs = 0 } = {}) {
+  function stopHookSession({ sleepAfterMs = 10_000, noticeAfterMs = 0, cancelResultMs = 10_000 } = {}) {
     const hub = new Hub();
     const script = scriptedQueryFn();
     const order: string[] = [];
@@ -3003,7 +3003,7 @@ describe('Runner Stop hooks', () => {
     const edges: string[] = [];
     const runner = new Runner({
       hub, queryFn: fn as any, newSessionId: () => 'web-1', sleepAfterMs,
-      stopHookNoticeAfterMs: noticeAfterMs,
+      stopHookNoticeAfterMs: noticeAfterMs, stopHookCancelResultMs: cancelResultMs,
       onTurnEnd: () => edges.push('end'),
       onTurnBoundary: (_id, ended) => edges.push(ended ? 'boundary:ended' : 'boundary:began'),
     });
@@ -3142,6 +3142,75 @@ describe('Runner Stop hooks', () => {
     // The message's own result ends its turn rather than being taken for the hand-over.
     await vi.waitFor(() => expect(s.runner.status('web-1')).toBe('needs_input'));
     expect(s.edges.slice(before)).toEqual(['end', 'boundary:ended']);
+  });
+
+  it('a Stop hook that ends on its own hands a waiting message over: one turn end, at the very end', async () => {
+    const s = stopHookSession();
+    await answeredAndHooked(s);
+    const before = s.edges.length;
+    s.runner.send('web-1', '/compact');
+    s.script.push(hookResponse('h1', 'success'));
+    s.script.push(RESULT);
+    await vi.waitFor(() => expect(s.events.some((e) => e.event === 'turn_result')).toBe(true));
+    await drained();
+    expect(s.runner.status('web-1')).toBe('working');
+    expect(s.edges.slice(before)).toEqual([]);
+    const after = s.events.slice(s.events.findIndex((e) => e.event === 'turn_result'));
+    expect(after.filter((e) => e.event === 'status').map((e) => e.status)).toEqual(['working']);
+    // The message's turn is the one that runs: a compaction in it is the user's.
+    expect((s.runner as any).sessions.get('web-1').turnPrompt).toBe('/compact');
+    s.script.push(SECOND);
+    s.script.push(RESULT);
+    await vi.waitFor(() => expect(s.edges.slice(before)).toEqual(['end', 'boundary:ended']));
+    expect(s.events.filter((e) => e.event === 'status' && e.status === 'needs_input')).toHaveLength(1);
+  });
+
+  it('a cancel whose turn sends no result ends it after a while, as an ordinary interrupt does', async () => {
+    const s = stopHookSession({ cancelResultMs: 20 });
+    await answeredAndHooked(s);
+    const before = s.edges.length;
+    await s.runner.interrupt('web-1');
+    expect(s.runner.status('web-1')).toBe('working');
+    await vi.waitFor(() => expect(s.runner.status('web-1')).toBe('needs_input'));
+    expect(s.edges.slice(before)).toEqual(['end', 'boundary:ended']);
+  });
+
+  it('a cancel the CLI refuses changes nothing: the notice stays, and Cancel can be pressed again', async () => {
+    const s = stopHookSession();
+    await answeredAndHooked(s);
+    s.interrupt.mockRejectedValueOnce(new Error('no'));
+    await expect(s.runner.interrupt('web-1')).rejects.toThrow('no');
+    expect(notices(s)).toEqual(['Stop hook running']);
+    expect(s.runner.status('web-1')).toBe('working');
+    await s.runner.interrupt('web-1');
+    expect(s.interrupt).toHaveBeenCalledTimes(2);
+    expect(notices(s).at(-1)).toBeNull();
+    expect(s.runner.status('web-1')).toBe('working');
+  });
+
+  it('a Cancel naming a notice that is down does nothing', async () => {
+    const s = stopHookSession();
+    await answeredAndHooked(s);
+    const id = s.events.find((e) => e.event === 'live_notice').message.id;
+    s.runner.send('web-1', 'next');
+    // The hook ends and the message's turn starts before the press arrives.
+    s.script.push(hookResponse('h1', 'success'));
+    s.script.push(RESULT);
+    await vi.waitFor(() => expect(s.events.some((e) => e.event === 'turn_result')).toBe(true));
+    await s.runner.interrupt('web-1', { stopHookNotice: id });
+    expect(s.interrupt).not.toHaveBeenCalled();
+    expect(s.runner.status('web-1')).toBe('working');
+  });
+
+  it('a Cancel naming the notice that is up cancels its hooks', async () => {
+    const s = stopHookSession();
+    await answeredAndHooked(s);
+    const id = s.events.find((e) => e.event === 'live_notice').message.id;
+    await s.runner.interrupt('web-1', { stopHookNotice: 'web-1:0:0' });
+    expect(s.interrupt).not.toHaveBeenCalled();
+    await s.runner.interrupt('web-1', { stopHookNotice: id });
+    expect(s.interrupt).toHaveBeenCalledTimes(1);
+    expect(notices(s).at(-1)).toBeNull();
   });
 
   it('an interrupt before the notice is up stops the turn as ever: the hook may have ended unannounced', async () => {

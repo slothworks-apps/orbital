@@ -2115,7 +2115,14 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   });
 
   app.post('/api/sessions/:id/interrupt', async (req) => {
-    await ctx.runner.interrupt((req.params as { id: string }).id);
+    // The live Stop hook notice's Cancel names its notice: a request that
+    // arrives once it is down does nothing (`Runner.interrupt`). The Stop
+    // button sends no body.
+    const { stopHookNotice } = (req.body ?? {}) as { stopHookNotice?: unknown };
+    await ctx.runner.interrupt(
+      (req.params as { id: string }).id,
+      typeof stopHookNotice === 'string' ? { stopHookNotice } : {},
+    );
     return { ok: true };
   });
 

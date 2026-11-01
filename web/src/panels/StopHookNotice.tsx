@@ -18,7 +18,7 @@ export function StopHookNotice({ sessionId, message }: { sessionId: string; mess
     if (busy) return
     setBusy(true)
     api
-      .interrupt(sessionId)
+      .interrupt(sessionId, { stopHookNotice: message.id })
       .catch((err: unknown) => reportError(err, 'Could not cancel the Stop hook'))
       .finally(() => setBusy(false))
   }
