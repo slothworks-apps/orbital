@@ -6,8 +6,15 @@
  * where it cannot load, the phone gets the full image as before. Made once
  * per ref and edge, beside the store rather than in it (the store prunes
  * every file of its own directory), and never stale: a ref is its content's
- * hash. Thumbnails of images the store has pruned go every `SWEEP_EVERY`
- * thumbnails made.
+ * hash. Thumbnails of images the store has pruned go with the first
+ * thumbnail a process makes and every `SWEEP_EVERY` after it: the desktop
+ * restarts on every update, so a count alone would seldom be reached.
+ *
+ * Only the raster formats in `THUMB_FORMATS` are decoded, under
+ * `THUMB_MAX_INPUT_PIXELS` and `THUMB_TIMEOUT_S`, in this process: an SVG or
+ * a small file that declares a huge image is sent whole rather than handed
+ * to libvips. A failure to load `sharp`, to encode or to write is recorded
+ * (ADR errors-are-recorded-not-announced) and the image is sent whole.
  *
  * A file a session names by path is brought down the same way
  * (`thumbnailOfBytes`), kept by its content's hash in a directory of its
@@ -26,11 +33,53 @@ const THUMB_EXT = '.webp';
 
 export type Thumb = { bytes: Uint8Array; mediaType: string };
 
+/**
+ * The formats decoded, each by its magic bytes and again by what `sharp`
+ * reads it as (it names AVIF `heif`): the raster ones a session's
+ * screenshots come in. Anything else, SVG above all, is sent as it is.
+ */
+const THUMB_FORMATS = { png: 'png', jpeg: 'jpeg', gif: 'gif', webp: 'webp', avif: 'heif' } as const;
+type ThumbFormat = keyof typeof THUMB_FORMATS;
+/**
+ * The most pixels an image may declare to be decoded: well above a
+ * full-page screenshot, far below what a decompression bomb asks libvips to
+ * hold. Read from the header before anything is decoded.
+ */
+export const THUMB_MAX_INPUT_PIXELS = 40_000_000;
+/** How long one thumbnail may take to encode before it is given up. */
+const THUMB_TIMEOUT_S = 10;
+
 /** In flight per file, so two asks for one thumbnail encode once. */
 const making = new Map<string, Promise<boolean>>();
+/**
+ * Thumbnails that failed this process, so a broken image is decoded and
+ * recorded once rather than on every ask; emptied by `sweep`.
+ */
+const failed = new Set<string>();
 /** Thumbnails made between two sweeps for ones whose image is gone. */
 const SWEEP_EVERY = 50;
-let madeSinceSweep = 0;
+/** Starts full, so the first thumbnail a process makes sweeps. */
+let madeSinceSweep = SWEEP_EVERY - 1;
+
+export type ThumbFailure = 'load' | 'encode' | 'write';
+type ThumbRecorder = (during: ThumbFailure, err: unknown) => void;
+let record: ThumbRecorder = (during, err) => {
+  console.warn(`[thumbs] ${during} failed: ${err instanceof Error ? err.message : String(err)}`);
+};
+
+/** Where thumbnail failures go; the server hands its error log, before then they are only logged. */
+export function recordThumbFailuresWith(recorder: ThumbRecorder): void {
+  record = recorder;
+}
+
+function recordFailure(during: ThumbFailure, err: unknown): void {
+  try {
+    record(during, err);
+  } catch {
+    /* a recorder that throws must not take the image down with it */
+  }
+}
+
 /** How long a thumbnail of a file named by path is kept after it was made. */
 export const FILE_THUMB_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -75,17 +124,28 @@ async function thumbAt(
   imagesDir: string, out: string, size: number, job: () => Promise<Uint8Array | null>,
 ): Promise<Thumb | null> {
   if (!existsSync(out)) {
+    if (failed.has(out)) return null;
     let running = making.get(out);
     if (!running) {
       running = job().then((made) => {
         if (!made) return false;
-        writeFileSync(out, made);
+        try {
+          writeFileSync(out, made);
+        } catch (err) {
+          failed.add(out);
+          recordFailure('write', err);
+          return false;
+        }
         if (++madeSinceSweep >= SWEEP_EVERY) {
           madeSinceSweep = 0;
           sweep(imagesDir);
         }
         return true;
-      }).catch(() => false);
+      }, (err: unknown) => {
+        failed.add(out);
+        recordFailure('encode', err);
+        return false;
+      });
       making.set(out, running);
       void running.finally(() => making.delete(out));
     }
@@ -102,21 +162,54 @@ async function thumbAt(
 /** Loaded on first use, so a server whose `sharp` cannot load still starts and sends images whole. */
 let sharpModule: Promise<typeof import('sharp').default | null> | null = null;
 
+function loadSharp(): Promise<typeof import('sharp').default | null> {
+  sharpModule ??= import('sharp').then(
+    (m) => {
+      // Every thumbnail is encoded once and read from disk after: libvips's op cache would only hold memory.
+      m.default.cache(false);
+      return m.default;
+    },
+    (err: unknown) => {
+      recordFailure('load', err);
+      return null;
+    },
+  );
+  return sharpModule;
+}
+
+/** Which of `THUMB_FORMATS` the bytes are, by their magic bytes; null for any other. */
+function formatOf(bytes: Uint8Array): ThumbFormat | null {
+  const b = Buffer.from(bytes.buffer, bytes.byteOffset, Math.min(bytes.byteLength, 12));
+  if (b.length >= 8 && b.readUInt32BE(0) === 0x89504e47) return 'png';
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'jpeg';
+  if (b.length >= 6 && /^GIF8[79]a$/.test(b.toString('latin1', 0, 6))) return 'gif';
+  if (b.length >= 12 && b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP') return 'webp';
+  if (b.length >= 12 && b.toString('latin1', 4, 8) === 'ftyp' && /^avi[fs]$/.test(b.toString('latin1', 8, 12))) return 'avif';
+  return null;
+}
+
+/**
+ * The WebP of `bytes` at `edge`, or null when it is not to be made (a format
+ * not in `THUMB_FORMATS`, more than `THUMB_MAX_INPUT_PIXELS`, no `sharp`).
+ * Throws when an image that should be made could not be.
+ */
 async function make(bytes: Uint8Array, dir: string, edge: number): Promise<Uint8Array | null> {
-  sharpModule ??= import('sharp').then((m) => m.default, () => null);
-  const sharp = await sharpModule;
+  const format = formatOf(bytes);
+  if (!format) return null;
+  const sharp = await loadSharp();
   if (!sharp) return null;
-  try {
-    mkdirSync(dir, { recursive: true });
-    // `rotate()` applies the EXIF orientation; `inside` fits the longest edge and never enlarges.
-    return await sharp(bytes)
-      .rotate()
-      .resize(edge, edge, { fit: 'inside', withoutEnlargement: true })
-      .webp({ quality: THUMB_QUALITY })
-      .toBuffer();
-  } catch {
-    return null;
-  }
+  // The header alone, so a declared size over the limit is refused before a pixel is decoded.
+  const meta = await sharp(bytes, { limitInputPixels: false }).metadata();
+  if (meta.format !== THUMB_FORMATS[format]) return null;
+  if (!meta.width || !meta.height || meta.width * meta.height > THUMB_MAX_INPUT_PIXELS) return null;
+  mkdirSync(dir, { recursive: true });
+  // `rotate()` applies the EXIF orientation; `inside` fits the longest edge and never enlarges.
+  return await sharp(bytes, { limitInputPixels: THUMB_MAX_INPUT_PIXELS })
+    .timeout({ seconds: THUMB_TIMEOUT_S })
+    .rotate()
+    .resize(edge, edge, { fit: 'inside', withoutEnlargement: true })
+    .webp({ quality: THUMB_QUALITY })
+    .toBuffer();
 }
 
 /**
@@ -124,6 +217,7 @@ async function make(bytes: Uint8Array, dir: string, edge: number): Promise<Uint8
  * thumbnail past its age, and every one left in a format no longer made.
  */
 export function sweep(imagesDir: string, now = Date.now()): void {
+  failed.clear();
   try {
     for (const edge of readdirSync(fileThumbsDir(imagesDir))) {
       const dir = join(fileThumbsDir(imagesDir), edge);

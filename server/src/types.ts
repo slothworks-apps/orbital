@@ -320,7 +320,9 @@ export type ErrorKind =
   | 'rewind_refused'
   | 'rewind_failed'
   /** A transcript whose session id another Claude directory already owns. */
-  | 'session_id_collision';
+  | 'session_id_collision'
+  /** A phone thumbnail `sharp` could not load for, encode or write; the image went whole. */
+  | 'thumbnail_failed';
 
 export interface ErrorRecord {
   id: number;

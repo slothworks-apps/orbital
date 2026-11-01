@@ -69,6 +69,7 @@ import { AUTO_CONTINUE_KEY, CONTINUE_TEXT_KEY, autoContinueOf, continueTextOf } 
 import { LoginService } from './login/service.js';
 import { ErrorLog } from './errors/log.js';
 import { createImageStore } from './images/store.js';
+import { recordThumbFailuresWith } from './images/thumbs.js';
 import { Presence } from './remote/presence.js';
 import { hostOsVersion } from './remote/osVersion.js';
 import { RemoteService } from './remote/service.js';
@@ -353,6 +354,16 @@ export async function buildServer(overrides: {
   // One log for both sides of the wire; it publishes its own changes on the
   // `errors` topic, so it needs the hub and nothing else.
   const errors = new ErrorLog({ db, hub });
+  // A phone thumbnail that could not be made goes whole; why is kept here.
+  recordThumbFailuresWith((during, err) => {
+    errors.record({
+      source: 'server',
+      kind: 'thumbnail_failed',
+      message: `A phone thumbnail could not be made (${during}): ${err instanceof Error ? err.message : String(err)}`,
+      detail: err instanceof Error ? (err.stack ?? null) : null,
+      context: { during },
+    });
+  });
   // Every directory's live CLI registry, read as one; each context adds its own.
   const registry = new LiveRegistries();
 

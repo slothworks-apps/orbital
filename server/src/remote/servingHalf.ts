@@ -119,6 +119,14 @@ type Upload = { mediaType: string; expected: number; parts: Uint8Array[]; receiv
 
 export class ServingHalf implements ChannelServer {
   private reply: ChannelReply | null = null;
+  /**
+   * Counts connections: one more on every `reset`, which every `open` does
+   * too (the channel hands the same `reply` each time, so it cannot tell
+   * them apart). An answer awaited across a reconnect is dropped: the phone
+   * numbers its requests from 1 again, and the old answer would land on a
+   * new request under a reused id.
+   */
+  private connection = 0;
   /** The hub's view of this device; a new one for every accepted hello, gone on `reset`. */
   private socket: VirtualSocket | null = null;
   private readonly uploads = new Map<number, Upload>();
@@ -142,6 +150,7 @@ export class ServingHalf implements ChannelServer {
     this.socket?.emit('close');
     this.socket = null;
     this.reply = null;
+    this.connection++;
     this.uploads.clear();
   }
 
@@ -305,8 +314,10 @@ export class ServingHalf implements ChannelServer {
       return this.answer({ t: 'http_res', id: msg.id, status: 403, body: { error: 'not_granted', grant: allowed.group } });
     }
 
+    const asked = this.connection;
     try {
       const res = await this.opts.inject({ method: msg.method, url: allowed.path, payload: msg.body, device: this.opts.deviceId });
+      if (this.connection !== asked) return;
       let body: unknown = res.body;
       try {
         body = JSON.parse(res.body);
@@ -315,13 +326,16 @@ export class ServingHalf implements ChannelServer {
       }
       this.answer({ t: 'http_res', id: msg.id, status: res.statusCode, body });
     } catch (err) {
+      if (this.connection !== asked) return;
       this.answer({ t: 'http_res', id: msg.id, status: 500, body: { error: err instanceof Error ? err.message : String(err) } });
     }
   }
 
   /** A thumbnail when one is made, else the image itself (`thumbnailOf`). */
   private async onThumbGet(id: number, ref: string, edge: number): Promise<void> {
+    const asked = this.connection;
     const thumb = await thumbnailOf(this.opts.imagesDir, ref, edge).catch(() => null);
+    if (this.connection !== asked) return;
     if (!thumb) return this.onBlobGet(id, ref);
     this.answer({ t: 'blob_meta', id, status: 200, bytes: thumb.bytes.length, mediaType: thumb.mediaType });
     for (const chunk of chunkBlob(id, thumb.bytes)) if (chunk.kind === 'blob') this.reply?.inner(chunk);
@@ -349,9 +363,12 @@ export class ServingHalf implements ChannelServer {
   private onFileGet(msg: Extract<AskMessage, { t: 'file_get' }>): void {
     const answer = this.opts.files(msg.session, msg.path, msg.as, msg.cwd);
     if (answer.status !== 200 || !answer.bytes || msg.as !== 'image' || msg.edge === undefined) return this.sendFile(msg.id, answer);
+    const asked = this.connection;
     void thumbnailOfBytes(this.opts.imagesDir, answer.bytes, msg.edge)
       .catch(() => null)
-      .then((thumb) => this.sendFile(msg.id, thumb ? { ...answer, ...thumb } : answer));
+      .then((thumb) => {
+        if (this.connection === asked) this.sendFile(msg.id, thumb ? { ...answer, ...thumb } : answer);
+      });
   }
 
   private sendFile(id: number, answer: PhoneFileAnswer): void {
