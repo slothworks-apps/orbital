@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ApiSession, BackgroundTask, LimitWait, PendingDecision, Tag } from '../lib/types'
-import { agoLabel, asOfLabel, basename, checkedLabel, homePath, relayHost } from '../mobile/format'
+import { homePath } from '../lib/format'
+import { agoLabel, asOfLabel, basename, checkedLabel, relayHost } from '../mobile/format'
 import {
   decisionReason, endedHeading, gateReason, glyphFor, groupOf, groupSessions, inputReason, isGateRow, latestActivity, limitLine, moonsSummary,
   moonsSummaryAsleep, stateLine, tagChips, tasksForRow,
