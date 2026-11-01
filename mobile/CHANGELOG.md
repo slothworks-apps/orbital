@@ -10,7 +10,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 - While a project's Stop hook runs after an answer (a check such as tests or a typecheck), a line under the answer says so, with a Cancel that stops the hook and answers a message waiting for it at once.
 ### Fixed
 - A session no longer fails to open with an error when its harness log holds an entry this version of the app does not know.
-- A session's Media and the thumbnails in replies load much faster: images an agent saved come as small previews, and open at full size only in the viewer. Needs Orbital for Mac 0.46.0 or later; an older Mac sends them whole, as before.
+- A session's Media and the thumbnails in replies load much faster: images an agent saved come as small previews, and open at full size only in the viewer. Needs Orbital for Mac 0.46.0 or later; an older Mac sends them whole, as before. With the Mac out of reach, a thumbnail shows from the full image the phone already saved.
 
 ## [0.22.1] — 2026-10-29
 ### Fixed
