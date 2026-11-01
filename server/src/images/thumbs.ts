@@ -52,10 +52,13 @@ const THUMB_TIMEOUT_S = 10;
 /** In flight per file, so two asks for one thumbnail encode once. */
 const making = new Map<string, Promise<boolean>>();
 /**
- * Thumbnails that failed this process, so a broken image is decoded and
- * recorded once rather than on every ask; emptied by `sweep`.
+ * When each thumbnail that failed this process failed, so a broken image is
+ * decoded and recorded once per `THUMB_RETRY_AFTER_MS` rather than on every
+ * ask; emptied by `sweep`.
  */
-const failed = new Set<string>();
+const failed = new Map<string, number>();
+/** How long a failed thumbnail is not tried again: a passing failure (a timeout under load) must not keep an image whole for long. */
+export const THUMB_RETRY_AFTER_MS = 10 * 60 * 1000;
 /** Thumbnails made between two sweeps for ones whose image is gone. */
 const SWEEP_EVERY = 50;
 /** Starts full, so the first thumbnail a process makes sweeps. */
@@ -124,7 +127,8 @@ async function thumbAt(
   imagesDir: string, out: string, size: number, job: () => Promise<Uint8Array | null>,
 ): Promise<Thumb | null> {
   if (!existsSync(out)) {
-    if (failed.has(out)) return null;
+    const failedAt = failed.get(out);
+    if (failedAt !== undefined && Date.now() - failedAt < THUMB_RETRY_AFTER_MS) return null;
     let running = making.get(out);
     if (!running) {
       running = job().then((made) => {
@@ -132,7 +136,7 @@ async function thumbAt(
         try {
           writeFileSync(out, made);
         } catch (err) {
-          failed.add(out);
+          failed.set(out, Date.now());
           recordFailure('write', err);
           return false;
         }
@@ -142,7 +146,7 @@ async function thumbAt(
         }
         return true;
       }, (err: unknown) => {
-        failed.add(out);
+        failed.set(out, Date.now());
         recordFailure('encode', err);
         return false;
       });

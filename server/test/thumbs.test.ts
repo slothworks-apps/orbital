@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, utimesSync, writeFileSync }
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
 import {
-  FILE_THUMB_MAX_AGE_MS, THUMB_EDGES, THUMB_MAX_INPUT_PIXELS, fileThumbsDir, recordThumbFailuresWith, sweep,
+  FILE_THUMB_MAX_AGE_MS, THUMB_EDGES, THUMB_MAX_INPUT_PIXELS, THUMB_RETRY_AFTER_MS, fileThumbsDir, recordThumbFailuresWith, sweep,
   thumbnailOf, thumbnailOfBytes, thumbsDir,
 } from '../src/images/thumbs.js';
 import { makeTmpDir } from './tmp.js';
@@ -170,6 +170,30 @@ describe('what is not thumbnailed', () => {
     expect(await thumbnailOfBytes(dir, broken, 512)).toBeNull();
     expect(recorded).toHaveBeenCalledTimes(1);
     expect(recorded).toHaveBeenCalledWith('encode', expect.any(Error));
+  });
+});
+
+describe('a failed thumbnail', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    recordThumbFailuresWith(() => {});
+  });
+
+  it('is tried again once THUMB_RETRY_AFTER_MS has passed, and recorded once per try', async () => {
+    // Only the clock: sharp's own timers and promises run as they do.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const recorded = vi.fn();
+    recordThumbFailuresWith(recorded);
+    const dir = makeTmpDir('file-thumbs');
+    const broken = pngClaiming(2400, 1600);
+    await thumbnailOfBytes(dir, broken, 512);
+    vi.setSystemTime(Date.now() + THUMB_RETRY_AFTER_MS - 1000);
+    await thumbnailOfBytes(dir, broken, 512);
+    expect(recorded).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(Date.now() + 2000);
+    await thumbnailOfBytes(dir, broken, 512);
+    await thumbnailOfBytes(dir, broken, 512);
+    expect(recorded).toHaveBeenCalledTimes(2);
   });
 });
 
