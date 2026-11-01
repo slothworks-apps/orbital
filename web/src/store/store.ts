@@ -110,6 +110,14 @@ export type SessionEvent =
    */
   | { event: 'transcript_reset' }
   /**
+   * The row under the transcript while something runs that no message
+   * shows — today the main loop's `Stop` hooks (spec
+   * 2026-10-31-message-beats-stop-hook-design). `null` takes it down. Live
+   * state only: nothing in the file carries it, so a reload has none. An
+   * older client ignores the event and shows nothing.
+   */
+  | { event: 'live_notice'; message: ChatMessage | null }
+  /**
    * The walkthrough's stored narration changed — a narrate query started or
    * landed (spec 2026-09-30-narrate-out-of-band-design § Storage and state).
    * Carries nothing; an open walkthrough page asks again.
@@ -412,6 +420,8 @@ export interface OrbitalState {
    * queue behind it.
    */
   pendingDecisions: Record<string, PendingDecision>
+  /** Each session's live notice row (`live_notice`), drawn under its transcript. */
+  liveNotices: Record<string, ChatMessage>
   /**
    * The answers this tab SENT, keyed by DECISION id (which is the
    * `AskUserQuestion` tool_use's `toolUseId`): the complete record of the
@@ -1217,6 +1227,33 @@ const initialUiState: OrbitalUiState = {
 }
 
 /**
+ * Takes a session's live notice down once the `sessions` topic says it is
+ * not working: that topic reaches every session, `session:<id>` only the
+ * one shown, so a notice whose end went by unheard does not outlive it.
+ */
+function liveNoticeSettled(
+  state: Pick<OrbitalState, 'liveNotices'>,
+  sessionId: string,
+  status: SessionStatus,
+): Partial<Pick<OrbitalState, 'liveNotices'>> {
+  if (status === 'working' || !(sessionId in state.liveNotices)) return {}
+  return { liveNotices: withLiveNotice(state.liveNotices, sessionId, null) }
+}
+
+/** `liveNotices` with one session's row set, or removed by `null`. */
+function withLiveNotice(
+  notices: Record<string, ChatMessage>,
+  sessionId: string,
+  message: ChatMessage | null,
+): Record<string, ChatMessage> {
+  if (message) return { ...notices, [sessionId]: message }
+  if (!(sessionId in notices)) return notices
+  const rest = { ...notices }
+  delete rest[sessionId]
+  return rest
+}
+
+/**
  * The trailing half of `leavingSince`: stamps the session the moment it
  * stops holding a place on the map, and never otherwise. Covers every way
  * that can happen — a status event, an upsert (another window unpinning),
@@ -1284,6 +1321,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   errorsUnseen: 0,
   remote: null,
   pendingDecisions: {},
+  liveNotices: {},
   decisionAnswers: {},
   decisionDrafts: readQuestionDrafts(),
   questionCursors: {},
@@ -1461,6 +1499,9 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
   },
 
   async resyncAfterReconnect() {
+    // A live notice's end may have gone by while the socket was down; the
+    // server puts one up again only with the next hook.
+    if (Object.keys(get().liveNotices).length > 0) set({ liveNotices: {} })
     try {
       // The full snapshot already covers everything the `sessions` and
       // `errors` topics carried while the socket was down.
@@ -1744,9 +1785,19 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       const next = { ...session, status: msg.status }
       set({
         sessions: { ...state.sessions, [sessionId]: next },
+        // Whatever it said ran, nothing runs once the session is not working;
+        // a `null` this tab missed must not leave the row standing.
+        ...(msg.status !== 'working' && state.liveNotices[sessionId]
+          ? { liveNotices: withLiveNotice(state.liveNotices, sessionId, null) }
+          : {}),
         ...leavingStamp(state, session, next),
         ...(crashed ? { transcriptErrors: { ...state.transcriptErrors, [sessionId]: true } } : {}),
       })
+      return
+    }
+
+    if (msg.event === 'live_notice') {
+      set({ liveNotices: withLiveNotice(state.liveNotices, sessionId, msg.message) })
       return
     }
 
@@ -1856,6 +1907,8 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       set({
         transcripts,
         transcriptErrors,
+        // Nothing of a turn runs past its end, whatever this tab missed.
+        liveNotices: withLiveNotice(state.liveNotices, sessionId, null),
         // Same clearing, for the recorded error. The flag above cannot cover
         // it: the record is a database row that outlives this transition, so
         // what it needs is a moment to be compared against, not a reset.
@@ -3151,6 +3204,7 @@ function sessionsEventPatch(
     if (rewindSettled) delete rewindSentText[msg.session.id]
     return {
       ...(rewindSettled ? { rewindSending: withoutKey(state.rewindSending, msg.session.id) } : {}),
+      ...liveNoticeSettled(state, msg.session.id, msg.session.status),
       sessions,
       order: sortIdsByLastAtDesc(sessions),
       ...leavingStamp(state, state.sessions[msg.session.id], msg.session),
@@ -3188,6 +3242,7 @@ function sessionsEventPatch(
     return {
       sessions: { ...state.sessions, [msg.sessionId]: next },
       ...leavingStamp(state, existing, next),
+      ...liveNoticeSettled(state, msg.sessionId, msg.status),
     }
   }
 
@@ -3299,6 +3354,8 @@ function flushSessionsEvents() {
 function dropTranscript(id: string) {
   const state = useOrbital.getState()
   if (state.ui.selectedId === id || state.subagentPanel?.sessionId === id) return
+  // Its `null` would not reach this tab any more either.
+  if (id in state.liveNotices) useOrbital.setState({ liveNotices: withLiveNotice(state.liveNotices, id, null) })
   if (!(id in state.transcripts) && !(id in state.historyLoaded)) return
   forgetStreamEnds(state.transcripts[id] ?? [])
   const { [id]: _transcript, ...transcripts } = state.transcripts

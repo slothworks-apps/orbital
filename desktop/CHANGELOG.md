@@ -6,6 +6,9 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ### Added
 - New session: click into the project directory field to see the ten most recent directories, and type any part of a path to find every directory a session has run in. The RECENT chips stay.
 
+### Fixed
+- A message sent while a project's Stop hook runs after an answer (a check such as tests or a typecheck) is answered at once instead of waiting for the hook: the hook is cancelled and runs again when the new answer ends. A line under the answer says when a Stop hook is running, and the cancelled one reads "Stop hook cancelled" instead of "Request interrupted by user".
+
 ## [0.45.1] — 2026-10-29
 ### Fixed
 - A planet keeps its tag colour whatever its state: a finished or interrupted session no longer gets a green or red ring, and a session waiting for your answer has a core in its tag colour instead of amber (before 0.45.0 it was white). The amber ripple around a waiting planet stays.

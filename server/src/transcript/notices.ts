@@ -246,3 +246,41 @@ export function loginLostNotice(
     },
   };
 }
+
+// ---- A Stop hook (spec 2026-10-31-message-beats-stop-hook-design) ---------
+
+/**
+ * The hook event the CLI runs once the main loop has finished its answer,
+ * before the turn's `result`. A subagent's end runs `SubagentStop`, which is
+ * not this.
+ */
+export const STOP_HOOK_EVENT = 'Stop';
+
+/**
+ * The live row while the main loop's `Stop` hooks run. The SDK's hook events
+ * name the event and not the command (`hook_name` is the event itself for
+ * `Stop`, which takes no matcher), so the row says how many there are.
+ */
+export function stopHookRunningNotice(id: string, count: number): ChatMessage {
+  return {
+    id,
+    role: 'notice',
+    text: `${count > 1 ? 'Stop hooks' : 'Stop hook'} running — a message goes ahead of it`,
+    notice: { level: 'info' },
+  };
+}
+
+/**
+ * The row the CLI's `[Request interrupted by user]` becomes where it directly
+ * follows a cancelled `Stop` hook: the user stopped a check, not a turn of
+ * theirs — whether by sending a message or by pressing Stop.
+ */
+export function stopHookCancelledNotice(id: string, timestamp?: string): ChatMessage {
+  return {
+    id,
+    role: 'notice',
+    text: 'Stop hook cancelled',
+    ...(timestamp ? { timestamp } : {}),
+    notice: { level: 'info' },
+  };
+}

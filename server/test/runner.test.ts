@@ -2974,6 +2974,181 @@ function secondAsk(runner: Runner, sessionId: string): Promise<any> {
 // notice-rows-are-their-own-kind-of-turn)
 // ---------------------------------------------------------------------------
 
+// Spec 2026-10-31-message-beats-stop-hook-design. The frames are the ones CLI
+// 2.1.280 sent with `includeHookEvents`: `hook_name` is the event itself for
+// `Stop`, and an interrupt during the hook answers with a `cancelled`
+// response, the interrupt marker and the turn's `result`, in that order.
+describe('Runner Stop hooks', () => {
+  /** `scriptedQueryFn` with the live query's `interrupt`, and the order sends and interrupts reach the CLI in. */
+  function stopHookSession(sleepAfterMs = 10_000) {
+    const hub = new Hub();
+    const script = scriptedQueryFn();
+    const order: string[] = [];
+    const interrupt = vi.fn(async () => {
+      order.push('interrupt');
+    });
+    const fn = (args: { prompt: AsyncIterable<any>; options: any }) => {
+      void (async () => {
+        for await (const m of args.prompt) order.push(`send:${m.message.content[0].text}`);
+      })();
+      const g = script.fn(args);
+      g.interrupt = interrupt;
+      return g;
+    };
+    // Every turn edge the harness and the titler hear, in order.
+    const edges: string[] = [];
+    const runner = new Runner({
+      hub, queryFn: fn as any, newSessionId: () => 'web-1', sleepAfterMs,
+      onTurnEnd: () => edges.push('end'),
+      onTurnBoundary: (_id, ended) => edges.push(ended ? 'boundary:ended' : 'boundary:began'),
+    });
+    const events = subscribed(hub, 'session:web-1');
+    return { hub, script, runner, events, interrupt, order, edges };
+  }
+
+  const ANSWER = {
+    type: 'assistant', parent_tool_use_id: null,
+    message: { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] },
+  };
+  const stopStarted = (id: string, event = 'Stop') => ({
+    type: 'system', subtype: 'hook_started', hook_id: id, hook_name: event, hook_event: event,
+  });
+  const hookResponse = (id: string, outcome: string, event = 'Stop') => ({
+    type: 'system', subtype: 'hook_response', hook_id: id, hook_name: event, hook_event: event,
+    outcome, output: '', stdout: '', stderr: '',
+  });
+
+  async function answeredAndHooked(s: ReturnType<typeof stopHookSession>, hook = stopStarted('h1')) {
+    await s.runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+    s.script.push(ANSWER);
+    s.script.push(hook);
+    await vi.waitFor(() => expect(s.events.some((e) => e.message?.text === 'Done.')).toBe(true));
+    await drained();
+  }
+
+  /** Lets the pump drain what was pushed — nothing in these frames publishes. */
+  const drained = () => new Promise((r) => setTimeout(r, 5));
+
+  it('a message sent while only a Stop hook runs is queued, then cancels the hook, and its turn keeps the session working', async () => {
+    const s = stopHookSession(10);
+    await answeredAndHooked(s);
+    s.runner.send('web-1', 'next');
+    // The SDK writes the prompt stream a tick later than the interrupt; the
+    // CLI runs the message in either order.
+    await vi.waitFor(() => expect([...s.order].sort()).toEqual(['interrupt', 'send:go', 'send:next']));
+
+    s.script.push(hookResponse('h1', 'cancelled'));
+    s.script.push({ type: 'user', parent_tool_use_id: null, message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] } });
+    s.script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(s.events.some((e) => e.event === 'turn_result')).toBe(true));
+    // The marker reads as what it was.
+    const rows = s.events.filter((e) => e.event === 'message').map((e) => e.message);
+    expect(rows.some((m) => m.role === 'user' && m.text?.includes('interrupted'))).toBe(false);
+    expect(rows.find((m) => m.role === 'notice')?.text).toBe('Stop hook cancelled');
+    // The queued message's turn is starting: no NEEDS INPUT in between, and no sleep.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(s.runner.status('web-1')).toBe('working');
+    expect(s.events.filter((e) => e.event === 'status').map((e) => e.status)).not.toContain('needs_input');
+  });
+
+  const MARKER = {
+    type: 'user', parent_tool_use_id: null,
+    message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] },
+  };
+  const SECOND = {
+    type: 'assistant', parent_tool_use_id: null,
+    message: { role: 'assistant', content: [{ type: 'text', text: 'Second.' }] },
+  };
+
+  it('the cancelled turn and the message\'s turn are one turn to whoever listens for turn edges', async () => {
+    const s = stopHookSession();
+    await answeredAndHooked(s);
+    const before = s.edges.length;
+    s.runner.send('web-1', 'next');
+    s.script.push(hookResponse('h1', 'cancelled'));
+    s.script.push(MARKER);
+    s.script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(s.events.filter((e) => e.event === 'turn_result')).toHaveLength(1));
+    // A harness would spend its step on an end the user's message carries on.
+    expect(s.edges.slice(before)).toEqual([]);
+    s.script.push(SECOND);
+    s.script.push({ type: 'result', subtype: 'success', usage: {} });
+    await vi.waitFor(() => expect(s.runner.status('web-1')).toBe('needs_input'));
+    expect(s.edges.slice(before)).toEqual(['end', 'boundary:ended']);
+  });
+
+  it('a cancelled turn that sends no result hands over at the message\'s first answer', async () => {
+    const s = stopHookSession();
+    await answeredAndHooked(s);
+    const before = s.edges.length;
+    s.runner.send('web-1', 'next');
+    s.script.push(SECOND);
+    s.script.push({ type: 'result', subtype: 'success', usage: {} });
+    // The message's own result ends its turn rather than being taken for the hand-over.
+    await vi.waitFor(() => expect(s.runner.status('web-1')).toBe('needs_input'));
+    expect(s.edges.slice(before)).toEqual(['end', 'boundary:ended']);
+  });
+
+  it('two messages in a row interrupt once', async () => {
+    const s = stopHookSession();
+    await answeredAndHooked(s);
+    s.runner.send('web-1', 'one');
+    s.runner.send('web-1', 'two');
+    await vi.waitFor(() => expect(s.order.filter((o) => o.startsWith('send:'))).toEqual(['send:go', 'send:one', 'send:two']));
+    expect(s.interrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it('a message is only queued when no hook runs', async () => {
+    const s = stopHookSession();
+    await s.runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+    s.script.push(ANSWER);
+    await vi.waitFor(() => expect(s.events.some((e) => e.message?.text === 'Done.')).toBe(true));
+    s.runner.send('web-1', 'next');
+    await vi.waitFor(() => expect(s.order).toEqual(['send:go', 'send:next']));
+    expect(s.interrupt).not.toHaveBeenCalled();
+  });
+
+  it('a message is only queued once the Stop hook has ended', async () => {
+    const s = stopHookSession();
+    await answeredAndHooked(s);
+    s.script.push(hookResponse('h1', 'success'));
+    await drained();
+    s.runner.send('web-1', 'next');
+    await vi.waitFor(() => expect(s.order).toEqual(['send:go', 'send:next']));
+    expect(s.interrupt).not.toHaveBeenCalled();
+  });
+
+  it('a message is only queued while a tool runs, whatever hook runs beside it', async () => {
+    const s = stopHookSession();
+    await s.runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+    s.script.push({
+      type: 'assistant', parent_tool_use_id: null,
+      message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: {} }] },
+    });
+    s.script.push(stopStarted('h1', 'PreToolUse'));
+    await vi.waitFor(() => expect(s.events.some((e) => e.message?.role === 'tool_use')).toBe(true));
+    s.runner.send('web-1', 'next');
+    await vi.waitFor(() => expect(s.order).toEqual(['send:go', 'send:next']));
+    expect(s.interrupt).not.toHaveBeenCalled();
+  });
+
+  it("a subagent's SubagentStop hook is left alone", async () => {
+    const s = stopHookSession();
+    await answeredAndHooked(s, stopStarted('h1', 'SubagentStop'));
+    s.runner.send('web-1', 'next');
+    await vi.waitFor(() => expect(s.order).toEqual(['send:go', 'send:next']));
+    expect(s.interrupt).not.toHaveBeenCalled();
+  });
+
+  it('an interrupt marker with no cancelled Stop hook before it stays as the CLI wrote it', async () => {
+    const s = stopHookSession();
+    await s.runner.start({ cwd: '/p', prompt: 'go', permissionMode: 'acceptEdits' });
+    s.script.push(ANSWER);
+    s.script.push({ type: 'user', parent_tool_use_id: null, message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] } });
+    await vi.waitFor(() => expect(s.events.some((e) => e.message?.text === '[Request interrupted by user]')).toBe(true));
+  });
+});
+
 describe('Runner local command output', () => {
   /**
    * Recorded from CLI 2.1.278: a synthetic assistant frame, `<synthetic>` in

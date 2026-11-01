@@ -5,6 +5,7 @@ All notable changes to the phone app, on Android and on iOS. Format: [Keep a Cha
 ## [Unreleased]
 ### Added
 - New session: the directory field opens on your last directory; tap into it for the ten most recent, and type any part of a path to find every directory a session has run in.
+- While a project's Stop hook runs after an answer (a check such as tests or a typecheck), a line under the answer says so, and that a message sent now goes ahead of it.
 
 ## [0.22.1] — 2026-10-29
 ### Fixed

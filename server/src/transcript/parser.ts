@@ -1,7 +1,8 @@
 import type { ChatMessage, ImageRefEntry } from '../types.js';
 import type { ImageWriter } from '../images/store.js';
 import {
-  AUTHENTICATION_FAILED, designLoginLine, isDesignSyncTool, loginLostNotice, messageFromLocalCommandEntry, textOfContent,
+  AUTHENTICATION_FAILED, STOP_HOOK_EVENT, designLoginLine, isDesignSyncTool, loginLostNotice, messageFromLocalCommandEntry,
+  stopHookCancelledNotice, textOfContent,
 } from './notices.js';
 import { compactSummaryText, markFromTranscriptBoundary } from './compaction.js';
 import { parseWalkthroughTag, walkthroughChipName, WALKTHROUGH_TAG } from '../walkthrough/tag.js';
@@ -58,6 +59,12 @@ export interface TranscriptEntry {
   requestId?: string;
   /** Set on the user entry carrying a tool_result — the payload stats measure. */
   toolUseResult?: unknown;
+  /**
+   * `attachment` entries only: what the CLI attached to the chain — a hook's
+   * outcome among them (`hook_cancelled`, with `hookEvent`). Read only for
+   * the one shape `isStopHookCancelled` names.
+   */
+  attachment?: unknown;
   /**
    * Set on the synthetic assistant entry of a failed API call
    * (`isApiErrorMessage`): `authentication_failed` for a lost login. Read
@@ -246,6 +253,13 @@ export function isInterruptMarker(text: string): boolean {
   return /^\[Request interrupted by user(?: for tool use)?\]$/.test(text);
 }
 
+/** The `hook_cancelled` attachment the CLI writes when a main-loop `Stop` hook is cut short. */
+function isStopHookCancelled(e: TranscriptEntry): boolean {
+  if (e.type !== 'attachment' || !e.attachment || typeof e.attachment !== 'object') return false;
+  const a = e.attachment as { type?: unknown; hookEvent?: unknown };
+  return a.type === 'hook_cancelled' && a.hookEvent === STOP_HOOK_EVENT;
+}
+
 /**
  * `skip` holds the uuids of user entries that are not the user's words — the
  * messages Orbital sent on a harness's account (`harness_messages`). They
@@ -360,6 +374,9 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
   // The main conversation's DesignSync calls, whose failures may name
   // `/design-login` (spec 2026-10-21-log-in-from-orbital-design § 3).
   const designCalls = new Set<string>();
+  // The uuids of cancelled `Stop` hooks' attachments: the interrupt marker
+  // chained directly to one is the hook's end, not a turn the user stopped.
+  const cancelledStopHooks = new Set<string>();
   for (const e of entries) {
     // The entry's uuid rides on every message it becomes: a rewind names its
     // target by it, and the messages API cuts and places dividers by it
@@ -399,7 +416,20 @@ export function entriesToMessages(entries: TranscriptEntry[], images?: ImageWrit
       if (row) out.push({ ...row, ...origin });
       continue;
     }
+    if (isStopHookCancelled(e) && typeof e.uuid === 'string') {
+      cancelledStopHooks.add(e.uuid);
+      continue;
+    }
     if ((e.type !== 'user' && e.type !== 'assistant') || !e.message || outsideConversation(e)) continue;
+    // The runner makes the same row live (spec
+    // 2026-10-31-message-beats-stop-hook-design § The cancelled hook).
+    if (
+      e.type === 'user' && typeof e.parentUuid === 'string' && cancelledStopHooks.has(e.parentUuid) &&
+      isInterruptMarker(textOfContent(e.message.content).trim())
+    ) {
+      out.push({ ...stopHookCancelledNotice(`${e.uuid}:0`, e.timestamp), ...origin });
+      continue;
+    }
     // A turn that failed on the login: the same `login_lost` notice the
     // runner publishes live, so a reload and the live view agree. The parser
     // knows no profile; the web uses the session's.
