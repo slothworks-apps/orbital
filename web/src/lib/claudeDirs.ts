@@ -1,4 +1,5 @@
 import type { ClaudeDirRefusal } from './api'
+import { homePath } from './format'
 import type { ClaudeDirName } from './types'
 
 /** Where the New session choice was prefilled from — the hint beside its label (canvas 44c, 44d). */
@@ -101,15 +102,9 @@ export function claudeDirMonograms(dirs: readonly ClaudeDirName[]): Map<number, 
   return out
 }
 
-/**
- * A directory's path as it is shown: `~` for the home directory, the way the
- * canvas and a shell write it. The server sends absolute paths and the web
- * does not know the home directory, so it is recognised by the macOS and
- * Linux convention (`/Users/<name>`, `/home/<name>`); any other path is shown
- * as it is.
- */
+/** A Claude directory's path as it is shown: `~` for the home directory (`homePath`). */
 export function claudeDirDisplayPath(path: string): string {
-  return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, '~')
+  return homePath(path)
 }
 
 /**
