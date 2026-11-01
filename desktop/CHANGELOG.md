@@ -13,6 +13,8 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ### Fixed
 - A message sent while a project's Stop hook runs after an answer (a check such as tests or a typecheck) is answered at once instead of waiting for the hook: the hook is cancelled and runs again when the new answer ends. A line under the answer says when a Stop hook is running, and the cancelled one reads "Stop hook cancelled" instead of "Request interrupted by user".
 - A session's panel no longer fails to open with an error when its harness log holds an entry this version does not know.
+- Images an agent saved to disk reach the phone's gallery and transcript thumbnails as small previews instead of at full size, so they load much faster there.
+- The previews the phone gets of images are about a third of their old size.
 
 ## [0.45.1] — 2026-10-29
 ### Fixed

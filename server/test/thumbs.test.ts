@@ -1,20 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deflateSync } from 'node:zlib';
-import { THUMB_EDGES, sweep, thumbnailOf, thumbsDir } from '../src/images/thumbs.js';
+import {
+  FILE_THUMB_MAX_AGE_MS, THUMB_EDGES, fileThumbsDir, sweep, thumbnailOf, thumbnailOfBytes, thumbsDir,
+} from '../src/images/thumbs.js';
 import { makeTmpDir } from './tmp.js';
-
-const hasSips = (() => {
-  try {
-    execFileSync('which', ['sips']);
-    return true;
-  } catch {
-    return false;
-  }
-})();
 
 /** A noisy RGB PNG, so it weighs what a real screenshot does. */
 function png(w: number, h: number): Buffer {
@@ -57,10 +49,10 @@ function store(bytes: Buffer): { dir: string; ref: string } {
 }
 
 describe('thumbnails for the phone', () => {
-  it.skipIf(!hasSips)('brings a large image down to a smaller JPEG, made once', async () => {
+  it('brings a large image down to a smaller WebP, made once', async () => {
     const { dir, ref } = store(png(2400, 1600));
     const thumb = await thumbnailOf(dir, ref, 1024);
-    expect(thumb?.mediaType).toBe('image/jpeg');
+    expect(thumb?.mediaType).toBe('image/webp');
     expect(thumb!.bytes.length).toBeGreaterThan(0);
     const again = await thumbnailOf(dir, ref, 1024);
     expect(again?.bytes.length).toBe(thumb!.bytes.length);
@@ -73,18 +65,63 @@ describe('thumbnails for the phone', () => {
     expect(await thumbnailOf(dir, '../x.png', 1024)).toBeNull();
   });
 
-  it.skipIf(!hasSips)('drops the thumbnail of an image the store has pruned', async () => {
+  it('drops a thumbnail left in a format no longer made', async () => {
     const { dir, ref } = store(png(2400, 1600));
     await thumbnailOf(dir, ref, 512);
-    const made = join(thumbsDir(dir), '512', `${ref.slice(0, 64)}.jpg`);
+    const old = join(thumbsDir(dir), '512', `${ref.slice(0, 64)}.jpg`);
+    writeFileSync(old, 'jpeg');
+    sweep(dir);
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(join(thumbsDir(dir), '512', `${ref.slice(0, 64)}.webp`))).toBe(true);
+  });
+
+  it('drops the thumbnail of an image the store has pruned', async () => {
+    const { dir, ref } = store(png(2400, 1600));
+    await thumbnailOf(dir, ref, 512);
+    const made = join(thumbsDir(dir), '512', `${ref.slice(0, 64)}.webp`);
     expect(existsSync(made)).toBe(true);
     rmSync(join(dir, ref));
     sweep(dir);
     expect(existsSync(made)).toBe(false);
   });
 
-  it.skipIf(!hasSips)('sends the image itself when the thumbnail would be no smaller', async () => {
-    const { dir, ref } = store(png(16, 16));
+  it('sends the image itself when the thumbnail would be no smaller', async () => {
+    // A 1×1 GIF is 43 bytes; no WebP of it is smaller.
+    const gif = Buffer.from('R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', 'base64');
+    const dir = makeTmpDir('thumbs');
+    const ref = `${createHash('sha256').update(gif).digest('hex')}.gif`;
+    writeFileSync(join(dir, ref), gif);
     expect(await thumbnailOf(dir, ref, 512)).toBeNull();
+  });
+});
+
+describe('thumbnails of files named by path', () => {
+  it('brings a file down from its bytes, made once', async () => {
+    const dir = makeTmpDir('file-thumbs');
+    const bytes = png(2400, 1600);
+    const thumb = await thumbnailOfBytes(dir, bytes, 512);
+    expect(thumb?.mediaType).toBe('image/webp');
+    expect(thumb!.bytes.length).toBeLessThan(bytes.length);
+    expect(readdirSync(join(fileThumbsDir(dir), '512'))).toEqual([expect.stringMatching(/^[a-f0-9]{64}\.webp$/)]);
+    expect((await thumbnailOfBytes(dir, bytes, 512))?.bytes.length).toBe(thumb!.bytes.length);
+  });
+
+  it('makes none at an edge it does not offer, or of bytes that are no image', async () => {
+    const dir = makeTmpDir('file-thumbs');
+    expect(await thumbnailOfBytes(dir, png(64, 64), 333)).toBeNull();
+    expect(await thumbnailOfBytes(dir, Buffer.from('not an image'), 512)).toBeNull();
+  });
+
+  it('drops a file thumbnail once it is past its age', async () => {
+    const dir = makeTmpDir('file-thumbs');
+    await thumbnailOfBytes(dir, png(2400, 1600), 512);
+    const [name] = readdirSync(join(fileThumbsDir(dir), '512'));
+    const made = join(fileThumbsDir(dir), '512', name);
+    sweep(dir);
+    expect(existsSync(made)).toBe(true);
+    const old = (Date.now() - FILE_THUMB_MAX_AGE_MS - 1000) / 1000;
+    utimesSync(made, old, old);
+    sweep(dir);
+    expect(existsSync(made)).toBe(false);
   });
 });
