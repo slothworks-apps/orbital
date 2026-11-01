@@ -438,6 +438,18 @@ const CONTEXT_FADE_MS = STATE_TRANSITION_MS
 // BADGE_OFFSET_X.
 
 /**
+ * The pill under a session's name: a limit wait's (31b), or a login wait's in
+ * the same place and the same quiet ink (canvas 62a), or null. `needsLogin`
+ * when the login is lost — the pill then wears NEEDS INPUT's steady dot.
+ * Exported for the Archipelago's ship label, which draws the same pill.
+ */
+export function waitPill(session: ApiSession, loginPill: string | null): { text: string; needsLogin: boolean } | null {
+  if (session.limitWait) return { text: limitPillText(session.limitWait), needsLogin: false }
+  if (loginPill === null) return null
+  return { text: loginPill, needsLogin: loginLost(session) }
+}
+
+/**
  * The command the badge sends, and the text it shows for it — exported so
  * the caller that actually sends it cannot drift from the word on the pill.
  */
@@ -1618,12 +1630,9 @@ function PlanetBody({
    */
   const failureStanding = session.lastCompactionFailed != null && contextFill !== null
   const statePillNow = compacting ? null : statePill(session)
-  /**
-   * A limit wait's pill under the name (31b), or a login wait's in the same
-   * place and the same quiet ink (canvas 62a), or null.
-   */
-  const limitPill = session.limitWait ? limitPillText(session.limitWait) : loginPill
-  const needsLogin = !session.limitWait && loginPill !== null && loginLost(session)
+  const wait = waitPill(session, loginPill)
+  const limitPill = wait?.text ?? null
+  const needsLogin = wait?.needsLogin ?? false
   // A planet whose device chip is off takes its pill out with it, so nothing
   // on it is left to press.
   const pill = deviceOff || (failureStanding && statePillNow?.key === 'done') ? null : statePillNow

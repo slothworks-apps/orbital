@@ -6,8 +6,9 @@ import { OFFLINE_STATE_INK, stateColor } from '../../lib/stateStyle'
 import { swatch } from '../../lib/palette'
 import { OFFLINE_OPACITY, truncateLabel } from '../visuals'
 import { decisionHeadline } from '../../lib/decisionCard'
-import { limitPillText } from '../../lib/limits'
-import { asOfLabel } from '../../lib/devices'
+import { withAgeText } from '../../lib/devices'
+import { claudeDirMarkClass } from '../../ui/ClaudeDirMark'
+import { waitPill } from '../Planet'
 import {
   SHIP_LENGTH,
   angleDiff,
@@ -116,6 +117,8 @@ interface ShipView {
   lastTrail: number
   prevKey: SessionStateKey | null
   leaveAt: number | null
+  /** An offline ship's place, held relative to its island so it moves with it; null while online or dragged. */
+  offlineAt: { tagId: number; dx: number; dy: number } | null
 }
 
 interface BoatView {
@@ -523,6 +526,7 @@ export class ArchipelagoScene {
       trail: [],
       lastTrail: 0,
       prevKey: null,
+      offlineAt: null,
       leaveAt: null,
     }
   }
@@ -559,9 +563,10 @@ export class ArchipelagoScene {
     const s = p.session
     const key = sessionStateKey(s)
     const pill = statePill(s)
-    const limit = s.limitWait ? limitPillText(s.limitWait) : null
+    // The limit's or the login's pill, as the planet's (`waitPill`).
+    const wait = waitPill(s, p.loginPill)
     // The planet's second line: family and device name, closed by the offline device's age.
-    const second = [p.secondLine, p.dated ? asOfLabel(s.machine, Date.now()) : null].filter(Boolean).join(' · ')
+    const second = p.dated ? withAgeText(p.secondLine, s.machine, Date.now()) : (p.secondLine ?? '')
     const mark = input.dirMark(s)
     const tool = s.recentTools?.length ? s.recentTools[s.recentTools.length - 1] : null
     const detached = input.detachedIds.includes(s.id)
@@ -581,7 +586,7 @@ export class ArchipelagoScene {
           : tool
             ? `${tool.name}${tool.summary ? ` · ${tool.summary}` : ''}`
             : pill?.label ?? ''
-    const parts = [s.title, key, sub, second, limit, mark, p.offline, detached, compactBadge, failed, input.statePills, p.muted, p.selected, p.compactingSince ? 'c' : '']
+    const parts = [s.title, key, sub, second, wait?.text, wait?.needsLogin, mark, p.offline, detached, compactBadge, failed, input.statePills, p.muted, p.selected, p.compactingSince ? 'c' : '']
     const labelKey = JSON.stringify(parts)
     if (labelKey === v.labelKey) return
     v.labelKey = labelKey
@@ -589,6 +594,10 @@ export class ArchipelagoScene {
     const colour = p.offline ? OFFLINE_STATE_INK : stateColor(key)
     const word = input.statePills === 'label' && pill ? `<span class="ml-1 font-mono fs-9.5 tracking-[0.1em]" style="color:${colour}">${escape(pill.label)}</span>` : ''
     const title = truncateLabel(s.title)
+    // `Feature - Log in` 62a: a lost login wears NEEDS INPUT's solid dot, steady; a limit, the pill's hollow ring.
+    const waitDot = wait?.needsLogin
+      ? `<i class="block h-[6px] w-[6px] rounded-full" style="background:${stateColor('needs_input')}"></i>`
+      : '<i class="block h-[6px] w-[6px] rounded-full border border-current"></i>'
     v.label.title = s.title
     v.label.className = [
       'group pointer-events-auto absolute left-0 top-0 max-w-[260px] cursor-pointer rounded-lg border bg-panel/84 px-2.5 py-1.5 transition-[opacity,border-color] duration-700',
@@ -598,14 +607,14 @@ export class ArchipelagoScene {
     v.label.innerHTML = `
       <div class="flex items-center gap-1.5 whitespace-nowrap">
         <i class="inline-block h-[7px] w-[7px] shrink-0 rounded-full" style="background:${key === 'idle' || key === 'ended' ? 'transparent' : colour};box-shadow:inset 0 0 0 1.5px ${colour}"></i>
-        ${mark ? `<span data-dir-mark class="inline-grid h-[14px] min-w-[14px] flex-none place-items-center rounded-[4px] bg-ink-600/20 px-[2.5px] font-mono fs-8.5 font-semibold leading-none text-ink-50">${escape(mark)}</span>` : ''}
+        ${mark ? `<span data-dir-mark class="${claudeDirMarkClass()}">${escape(mark)}</span>` : ''}
         <span class="font-mono fs-11.5 font-medium text-ink-100">${escape(title)}</span>
         ${word}
         ${detached ? '<span class="ml-1 fs-10 text-ink-900/70" title="Open in its own window">⧉</span>' : ''}
       </div>
       <div data-detail class="mt-0.5 max-w-[240px] truncate font-mono fs-10.5" style="color:${pill && key !== 'waiting' ? colour : swatch('ink-900', 0.7)}">${escape(sub)}</div>
-      ${limit
-        ? `<div data-limit-pill class="mt-1 flex w-max items-center gap-1.5 rounded-full border border-line/26 bg-space/90 px-2 py-0.5 font-mono fs-9.5 tracking-[0.06em] text-ink-400/90"><i class="block h-[6px] w-[6px] rounded-full border border-current"></i>${escape(limit)}</div>`
+      ${wait
+        ? `<div data-limit-pill class="mt-1 flex w-max items-center gap-1.5 rounded-full border border-line/26 bg-space/90 px-2 py-0.5 font-mono fs-9.5 tracking-[0.06em] text-ink-400/90">${waitDot}${escape(wait.text)}</div>`
         : second ? `<div data-detail class="font-mono fs-9.5 tracking-[0.12em] text-ink-900/49">${escape(second)}</div>` : ''}
       ${p.compactingSince ? `<div class="mt-1 font-mono fs-9.5 tracking-[0.1em] text-sky-soft" data-compacting="${p.compactingSince}">COMPACTING</div>` : ''}
       ${compactBadge ? `<button type="button" data-action="compact" class="mt-1 rounded border border-danger-soft/50 px-1.5 py-0.5 font-mono fs-9.5 text-danger-soft">${Math.round((fill?.fraction ?? 0) * 100)}% · /compact</button>` : ''}
@@ -737,12 +746,18 @@ export class ArchipelagoScene {
       v.prevKey = key
 
       const drag = this.dragged?.kind === 'ship' && this.dragged.id === v.id ? this.dragged.at : null
+      if (drag || !p.offline) v.offlineAt = null
       let want: Point
       let heading: number | null = null
       if (drag) {
         want = drag
       } else if (p.offline) {
-        want = { x: v.x, y: v.y }
+        // Held where it was against its island, so a moved island takes it along; a retag berths it at the new one.
+        if (v.offlineAt?.tagId !== p.tagId) {
+          const from = !v.offlineAt ? v : berth.kind === 'orbit' ? polar(isl, v.phase, berth.radius) : berth.at
+          v.offlineAt = { tagId: p.tagId, dx: from.x - isl.x, dy: from.y - isl.y }
+        }
+        want = { x: isl.x + v.offlineAt.dx, y: isl.y + v.offlineAt.dy }
       } else if (berth.kind === 'orbit') {
         if (!reduced) v.phase += (berth.direction * SHIP_SPEED * 0.8 * dt) / berth.radius
         const ahead = polar(isl, v.phase + berth.direction * 0.22, berth.radius)

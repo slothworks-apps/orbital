@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useShallow } from 'zustand/react/shallow'
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from 'react'
 import { mapStatePills, showCompactBadge, showTrash, trashDropFor, useOrbital } from '../../store/store'
 import { sendCompactAware, useCompactionUi } from '../../store/compaction'
 import { isReadOnly, type ApiSession } from '../../lib/types'
 import { reportError } from '../../lib/errors'
 import { isMemberOffline, localClaudeDirId } from '../../lib/devices'
-import { claudeDirMark, claudeDirMonograms } from '../../lib/claudeDirs'
+import { useClaudeDirMonogramOf } from '../../ui/ClaudeDirMark'
 import { useDocumentHidden, useWindowFocused } from '../../lib/useWindowFocused'
 import { useSceneModel } from '../useSceneModel'
 import { withoutDeviceOff } from '../sceneModel'
-import { applyPan, bodyZoomFactor, centerOn, clampZoom, fitViewTo, screenToWorld, zoomAt, zoomFromWheel, type CameraState } from '../camera'
+import { FOLLOW_MIN_DISTANCE, applyPan, bodyZoomFactor, centerOn, clampZoom, fitViewTo, screenToWorld, zoomAt, zoomFromWheel, type CameraState } from '../camera'
 import { frameCap, parseMapFps } from '../frameSchedule'
 import { HOLE_DROP_RADIUS } from '../simulation'
 import { prefersReducedMotion } from '../transition'
@@ -20,8 +19,6 @@ import { ArchipelagoScene, type DropState } from './scene'
 
 const DRAG_THRESHOLD_PX = 3
 const ZOOM_STEP = 1.3
-/** How far the selected ship's island must move before the camera follows it — `SpaceMap`'s value. */
-const FOLLOW_MIN_DISTANCE = 1.5
 
 type Gesture =
   | { kind: 'pan'; pointerId: number; lastX: number; lastY: number; startX: number; startY: number; moved: boolean }
@@ -51,11 +48,8 @@ export function ArchipelagoMap() {
   const { insets } = useMapInsets()
   const insetsRef = useRef(insets)
   insetsRef.current = insets
-  const claudeDirs = useOrbital(useShallow((s) => s.claudeDirs))
-  const dirMark = useMemo(() => {
-    const monograms = claudeDirMonograms(claudeDirs)
-    return (session: ApiSession) => claudeDirMark(claudeDirs, localClaudeDirId(session), monograms)?.mono ?? null
-  }, [claudeDirs])
+  const monogramOf = useClaudeDirMonogramOf()
+  const dirMark = useCallback((session: ApiSession) => monogramOf(localClaudeDirId(session)), [monogramOf])
   const followedRef = useRef<{ id: string; x: number; y: number } | null>(null)
 
   const hostRef = useRef<HTMLDivElement>(null)

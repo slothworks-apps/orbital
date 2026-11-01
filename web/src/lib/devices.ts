@@ -376,6 +376,11 @@ export function asOfLabel(machine: MachineRef | undefined, now: number): string 
   return `as of ${spacedAgo(machine.asOf, now)}`
 }
 
+/** A label line closed by its offline device's age (`asOfLabel`): `text · as of 2 h`, either part alone when the other is missing. */
+export function withAgeText(text: string | null, machine: MachineRef | undefined, now: number): string {
+  return [text, asOfLabel(machine, now)].filter(Boolean).join(' · ')
+}
+
 /**
  * A request about another device's session refused because that device is
  * offline (409 `member_offline`, spec § 8). A drop on History that meets it

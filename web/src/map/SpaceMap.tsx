@@ -77,6 +77,7 @@ import {
   retargetTween,
 } from './transition'
 import {
+  FOLLOW_MIN_DISTANCE,
   applyPan,
   bodyZoomFactor,
   centerOn,
@@ -139,15 +140,6 @@ const FIT_FLIGHT_MS = BODY_MOVE_MS
  */
 const SIDEBAR_GUTTER_PX = 40
 const SIDEBAR_COLLAPSED_PX = 96
-
-/**
- * How far the selected planet has to move before the camera goes after it, in
- * world units (a planet's radius is 1). Adding or ending a session renumbers
- * its cluster's spiral and nudges everything in it by a fraction of a planet;
- * chasing those would leave the map twitching. A retag is a whole cluster
- * away, so it clears this by an order of magnitude.
- */
-const FOLLOW_MIN_DISTANCE = 1.5
 
 /** Imperatively syncs a plain `CameraState` onto the live three.js orthographic camera every frame. */
 function CameraRig({ camera: camState }: { camera: CameraState }) {
