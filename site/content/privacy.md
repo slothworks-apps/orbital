@@ -23,6 +23,9 @@ Support/orbital`).
 - It keeps its own index of your sessions, your settings, and the images and
   files you attach to a session in that data folder. Images and attachments
   are kept under a size cap.
+- When your phone shows an image a session names, the Mac makes a small
+  preview of it for the phone and keeps it in that data folder for up to 30
+  days.
 - Settings → General → "Delete sessions older than" is off unless you turn it
   on. When on, it removes sessions from Orbital's index only; your Claude
   Code transcripts stay where they are.

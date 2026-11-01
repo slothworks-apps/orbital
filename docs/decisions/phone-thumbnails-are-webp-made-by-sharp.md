@@ -37,6 +37,9 @@ process. `sharp` is a dependency of `server/`, kept out of its esbuild bundle
 and shipped beside it in the DMG with its native binding and libvips for
 darwin-arm64 (`desktop/electron-builder.yml`). It loads on first use; a
 server where it does not load sends images whole, as before.
+It runs in the server process, so it takes only raster formats, under a
+pixel limit and a timeout (spec 2026-10-16-image-sizes-design § 2), and
+records what fails.
 
 ## Alternatives
 
@@ -51,4 +54,5 @@ server where it does not load sends images whole, as before.
 
 - The DMG grows by about 19 MB unpacked (libvips is most of it).
 - Thumbnails made as JPEG are swept and made again as WebP.
-- A server on Linux now makes thumbnails too.
+- The Linux package (`scripts/build-deb.mjs`) does not carry `sharp`: a
+  server installed from it loads without it and sends images whole.

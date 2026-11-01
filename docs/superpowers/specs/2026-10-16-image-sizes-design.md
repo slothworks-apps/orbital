@@ -47,9 +47,14 @@ full of screenshots loaded slowly or not at all on a poor connection.
 - `blob_get` takes an optional `edge`. The Mac answers with a WebP whose
   longest side is at most `edge` (`server/src/images/thumbs.ts`, made with
   `sharp`, quality 80; ADR phone-thumbnails-are-webp-made-by-sharp — it was
-  a JPEG from `sips` until 0.35.1). It answers with the image itself when it
+  a JPEG from `sips` through desktop 0.45.1). It answers with the image itself when it
   offers no thumbnail at that edge (512 and 1024 only), when `sharp` cannot
   load, or when the thumbnail would be no smaller.
+- `sharp` decodes only the raster formats in `THUMB_FORMATS`, checked from
+  the file's first bytes and again by `sharp`, up to `THUMB_MAX_INPUT_PIXELS`
+  declared in the header, and gives up after `THUMB_TIMEOUT_S`; anything else
+  (an SVG, say) goes whole. A failure to load, encode or write is recorded in
+  the error log, once per image. The first thumbnail of every run sweeps.
 - `file_get` takes the same `edge` for an image a session names by path.
   Its thumbnails are kept by content hash in `<imagesDir>-file-thumbs/<edge>/`
   and dropped 30 days after they were made, since no store says when such a
@@ -66,6 +71,16 @@ full of screenshots loaded slowly or not at all on a poor connection.
   image already held whole serves its thumbnail too.
 - The web and the desktop ignore `thumb`: their images come from the same
   machine.
+
+## Scope
+
+- For: everyone who opens a session's images on the phone, and everyone who
+  attaches a large image.
+- Lives: on by default; it is a fix.
+- An existing user notices: images over the API's ceiling go up instead of
+  failing, and the phone's gallery and reply thumbnails load faster once
+  both the Mac and the phone are updated.
+- Can be set: nothing.
 
 ## Phone
 

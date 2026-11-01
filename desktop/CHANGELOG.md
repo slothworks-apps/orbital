@@ -7,14 +7,13 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ## [0.46.0] — 2026-11-01
 ### Added
 - New session: click into the project directory field to see the ten most recent directories, and type any part of a path to find every directory a session has run in. The RECENT chips stay.
+- While a project's Stop hook runs after an answer (a check such as tests or a typecheck), a line under the answer says so, with a Cancel that stops the hook; a message sent meanwhile waits for it, as in the terminal, and Cancel answers it at once. A cancelled hook reads "Stop hook cancelled" instead of "Request interrupted by user".
 ### Changed
 - Sessions Orbital runs now use a newer Claude Code, with its fixes for subagents reaching their tools, shell commands left running after a session ends and transcripts saved out of order.
-- The Archipelago map (Experimental) catches up with Planets: ships show the Claude directory mark, the device name and an offline device's age, a waiting limit's pill and a steady NEEDS YOUR OK; an offline device's ship rests at half strength, and the camera follows the selected ship when its island moves.
+- The Archipelago map (Experimental) catches up with Planets: ships show the Claude directory mark, the device name and an offline device's age, a waiting limit's pill and a steady NEEDS YOUR OK; an offline device's ship rests at half strength, and the camera follows the selected ship when its island moves; a ship also shows a login wait, and an offline device's ship stays by its island when the island moves.
 ### Fixed
-- A message sent while a project's Stop hook runs after an answer (a check such as tests or a typecheck) is answered at once instead of waiting for the hook: the hook is cancelled and runs again when the new answer ends. A line under the answer says when a Stop hook is running, and the cancelled one reads "Stop hook cancelled" instead of "Request interrupted by user".
 - A session's panel no longer fails to open with an error when its harness log holds an entry this version does not know.
-- Images an agent saved to disk reach the phone's gallery and transcript thumbnails as small previews instead of at full size, so they load much faster there.
-- The previews the phone gets of images are about a third of their old size.
+- Images reach the phone as small previews, about a third of their old size, and images an agent saved to disk do too instead of at full size, so the phone's gallery and transcript thumbnails load much faster.
 
 ## [0.45.1] — 2026-10-29
 ### Fixed
