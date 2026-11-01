@@ -124,6 +124,16 @@ export const STOP_HOOK_NOTICE_AFTER_MS = 1_500;
  */
 const STOP_HOOK_CANCEL_RESULT_MS = 5_000;
 
+/**
+ * How many messages a session holds as sent but not yet in its transcript
+ * (`sentTurns`). The CLI writes one as it takes it up; a backlog this deep
+ * is not a queue anyone typed, and the oldest goes first.
+ */
+const SENT_TURNS_KEPT = 50;
+
+/** The id prefix of a row `sentTurns` returns: a turn the CLI holds and the file does not have yet. */
+export const QUEUED_TURN_PREFIX = 'queued:';
+
 /** The SDK's hook lifecycle messages, sent because the runner asks for them (`includeHookEvents`). */
 const HOOK_EVENT_SUBTYPES: ReadonlySet<string> = new Set(['hook_started', 'hook_progress', 'hook_response']);
 
@@ -752,6 +762,16 @@ interface ManagedSession {
   stopHookCancelTimer: ReturnType<typeof setTimeout> | null;
   /** How many `result`s the main loop has sent: tells a cancel whether its turn's came while it waited. */
   results: number;
+  /**
+   * The messages `send()` handed to the CLI, by uuid, as the rows they will
+   * be once the transcript has them. A message queued behind a turn in
+   * flight — behind its Stop hooks, say — is written to the file only when
+   * the CLI takes it up, so until then a client reading the file would not
+   * see it (`sentTurns`). Forgotten once the file has it, once the `result`
+   * of its own turn has come (`due`, a count of `results`) — by then the CLI
+   * took it up, whatever it wrote — and with the session.
+   */
+  sentTurns: Map<string, { row: ChatMessage; due: number }>;
   /**
    * A DesignSync call of this turn failed naming `/design-login`. Read and
    * cleared when the turn ends (`onTurnEnd`; spec
@@ -1527,7 +1547,7 @@ export class Runner {
       designCalls: new Set(), designLoginLost: false,
       stopHooks: new Set(), stopHookTimer: null, stopHookNotice: null, stopHookCancelled: false,
       messageBehindStopHooks: null, promptBehindStopHook: null, stopHookCancelling: false, stopHookCancelTimer: null,
-      results: 0,
+      results: 0, sentTurns: new Map(),
     };
     // Registered before anything is awaited, so two concurrent start() calls
     // for the same id can't both get past the check above.
@@ -2040,6 +2060,7 @@ export class Runner {
       this.letStopHooksGo(sessionId, state);
       this.clearStopHookCancelTimer(state);
       state.results += 1;
+      for (const [uuid, t] of state.sentTurns) if (t.due <= state.results) state.sentTurns.delete(uuid);
       state.stopHookCancelled = false;
       this.hub.publish(topic, { event: 'turn_result', usage: msg.usage ?? {} });
       this.onTurnUsage?.(msg.modelUsage);
@@ -3017,12 +3038,15 @@ export class Runner {
     // the CLI's first frame would run `settleStatus` against a session that
     // still looked finished and snap it back to `needs_input`.
     const behindStopHooks = this.onlyStopHooksRun(s);
+    // Its own turn's result is then the one after the turn in flight.
+    const inFlight = !s.turnEnded;
     // A turn is starting; the cancelled one's end is its `result`'s to make.
     this.clearStopHookCancelTimer(s);
     s.turnEnded = false;
     s.turnPrompt = text;
     this.setStatus(sessionId, 'working');
     this.enqueue(sessionId, msg);
+    this.noteSentTurn(s, uuid, text, attachments, inFlight);
     // The CLI holds it until the hooks end; the notice says it waits.
     if (behindStopHooks && s.messageBehindStopHooks === null) {
       s.messageBehindStopHooks = text;
@@ -3348,6 +3372,43 @@ export class Runner {
     (generator as { close?: () => void } | null)?.close?.();
     if (await within(exit, timeoutMs / 2)) return;
     throw new Error(`the session's claude process did not exit within ${timeoutMs / 1000} s`);
+  }
+
+  private noteSentTurn(s: ManagedSession, uuid: string, text: string, attachments: string[] | undefined, inFlight: boolean): void {
+    const images = (attachments ?? []).flatMap((ref) => this.images?.entry(ref) ?? []);
+    const row: ChatMessage = {
+      id: `${QUEUED_TURN_PREFIX}${uuid}`,
+      role: 'user',
+      text,
+      timestamp: new Date().toISOString(),
+      uuid,
+      ...(images.length > 0 ? { images } : {}),
+    };
+    s.sentTurns.set(uuid, { row, due: s.results + (inFlight ? 2 : 1) });
+    while (s.sentTurns.size > SENT_TURNS_KEPT) s.sentTurns.delete(s.sentTurns.keys().next().value as string);
+  }
+
+  /**
+   * The messages sent to a running session that its transcript has not
+   * written yet, oldest first, as `user` rows under `QUEUED_TURN_PREFIX`
+   * ids; empty for a session this Runner does not hold. `inFile` names the
+   * uuids the file already holds: those are forgotten, and the rest returned.
+   */
+  sentTurns(sessionId: string, inFile: (uuid: string) => boolean): ChatMessage[] {
+    const s = this.sessions.get(sessionId);
+    if (!s) return [];
+    for (const uuid of [...s.sentTurns.keys()]) if (inFile(uuid)) s.sentTurns.delete(uuid);
+    return [...s.sentTurns.values()].map((t) => t.row);
+  }
+
+  /**
+   * The live notice a client opening the session should draw — the Stop
+   * hooks' while it is up — or null. The topic carries only its changes.
+   */
+  liveNotice(sessionId: string): ChatMessage | null {
+    const s = this.sessions.get(sessionId);
+    if (!s || s.stopHookNotice === null) return null;
+    return stopHookRunningNotice(s.stopHookNotice, s.stopHooks.size, s.messageBehindStopHooks !== null);
   }
 
   /**

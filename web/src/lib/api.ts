@@ -72,6 +72,10 @@ import type { DirectoryRow } from './directorySearch'
  * just-sent turn pickable for a rewind; `rewind` says the send was a pending
  * rewind's (spec 2026-09-29-rewind-design § As built).
  */
+
+/** `GET /api/sessions/:id/messages`. */
+export type MessagesPage = { messages: ChatMessage[]; queued?: ChatMessage[]; liveNotice?: ChatMessage | null }
+
 export interface SendResult {
   ok: boolean
   revived?: boolean
@@ -331,12 +335,19 @@ export const api = {
     id: string,
     opts?: { before?: string; limit?: number }
   ): Promise<ChatMessage[]> {
+    return (await this.getMessagesPage(id, opts)).messages
+  },
+
+  /**
+   * A page of the transcript and, on the newest page, what the file does not
+   * hold yet: the messages the CLI keeps queued (`queued`) and the live
+   * notice up now (`liveNotice`). A Mac that predates them sends neither.
+   */
+  async getMessagesPage(id: string, opts?: { before?: string; limit?: number }): Promise<MessagesPage> {
     const url = new URL(apiPath`/api/sessions/${id}/messages`, window.location.origin)
     if (opts?.before !== undefined) url.searchParams.set('before', opts.before)
     if (opts?.limit !== undefined) url.searchParams.set('limit', String(opts.limit))
-
-    const data = await request<{ messages: ChatMessage[] }>('GET', url.pathname + url.search)
-    return data.messages
+    return request<MessagesPage>('GET', url.pathname + url.search)
   },
 
   /**

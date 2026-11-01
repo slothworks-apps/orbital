@@ -708,7 +708,18 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // session a second time above itself.
     const end = q.before ? messages.findIndex((m) => m.id === q.before) : messages.length;
     if (end === -1) return { messages: [] };
-    return { messages: messages.slice(Math.max(0, end - limit), end) };
+    const page = messages.slice(Math.max(0, end - limit), end);
+    if (q.before) return { messages: page };
+    // The newest page also carries what the file cannot: the messages sent
+    // that the CLI holds and has not written yet, and the live notice the
+    // topic published before this client listened. Fields of their own, so a
+    // client that does not know them draws exactly what it did.
+    const inFile = new Set(messages.flatMap((m) => (m.uuid ? [m.uuid] : [])));
+    return {
+      messages: page,
+      queued: withHarnessMessages(id, ctx.runner.sentTurns(id, (uuid) => inFile.has(uuid))),
+      liveNotice: ctx.runner.liveNotice(id),
+    };
   });
 
   /** Subagents' media candidates, per subagent file (spec 2026-10-13-session-media-more-design § Performance). */

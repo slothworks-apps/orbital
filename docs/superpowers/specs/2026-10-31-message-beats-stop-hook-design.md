@@ -105,9 +105,14 @@ ends, or the user cancels or interrupts. It carries no
 ticking counter (why-orbital → Waiting is fine). It is live state, not
 history: the runner publishes it on `session:<id>` as a `live_notice` event
 carrying a notice row (`null` takes it down), drawn with the transcript's
-notice row; it is not written anywhere and a reload does not rebuild it. A
-client that selects the session while the hook runs sees no notice until the
-next one. A client draws the notice only while the session reads `working`,
+notice row; it is not written anywhere and a reload does not rebuild it. The
+newest page of the transcript (`GET /api/sessions/:id/messages`) carries the
+notice that is up as `liveNotice`, and the messages queued behind the turn that
+the file does not hold yet as `queued` (ids prefixed `QUEUED_TURN_PREFIX`), so
+a client that opens the session, reloads or reconnects while the hook runs
+sees both. The runner forgets a queued message once the file holds its uuid,
+once its own turn's `result` arrives, or when the session is released. An
+older client reads only `messages` and never shows a queued message twice. A client draws the notice only while the session reads `working`,
 and drops it on `turn_result`, on a `sessions`-topic status other than
 `working`, when it lets go of the session's topic, and on reconnect, so an
 end it did not hear cannot leave the row under a finished answer. While it is

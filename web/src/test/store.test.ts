@@ -481,6 +481,58 @@ describe('select', () => {
   })
 })
 
+// A message the CLI holds queued behind a turn in flight (its Stop hooks,
+// say) is not in the file yet: the page carries it and the live notice apart.
+describe('select with turns the CLI holds queued', () => {
+  const history: ChatMessage = { id: 'u1:0', role: 'user', text: 'first', uuid: 'u1' }
+  const queued: ChatMessage = { id: 'queued:u9', role: 'user', text: 'waits', uuid: 'u9' }
+  const notice: ChatMessage = { id: 'n1', role: 'notice', text: 'Stop hook running — your message waits for it', notice: { level: 'info' } }
+
+  it('brings them and the live notice back when the session is opened again after leaving it', async () => {
+    const page = { messages: [history], queued: [queued], liveNotice: notice }
+    vi.mocked(api.getMessagesPage)
+      .mockResolvedValueOnce(page)
+      .mockResolvedValueOnce({ messages: [] })
+      .mockResolvedValueOnce(page)
+    await useOrbital.getState().select('s1')
+    await useOrbital.getState().select('s2')
+    expect(useOrbital.getState().transcripts.s1).toBeUndefined()
+    expect(useOrbital.getState().liveNotices.s1).toBeUndefined()
+
+    await useOrbital.getState().select('s1')
+    expect(useOrbital.getState().transcripts.s1).toEqual([history, queued])
+    expect(useOrbital.getState().liveNotices.s1).toEqual(notice)
+  })
+
+  it('takes the turn\'s echo in place of the queued row, without a second bubble', async () => {
+    vi.mocked(api.getMessagesPage).mockResolvedValueOnce({ messages: [history], queued: [queued], liveNotice: null })
+    await useOrbital.getState().select('s1')
+    const echo: ChatMessage = { id: 'sent:u9', role: 'user', text: 'waits', uuid: 'u9' }
+    useOrbital.getState().applySessionEvent('s1', { event: 'message', message: echo })
+    expect(useOrbital.getState().transcripts.s1).toEqual([history, echo])
+  })
+
+  it('a reload follows the server: the file\'s copy replaces a turn it no longer holds queued', async () => {
+    vi.mocked(api.getMessagesPage).mockResolvedValueOnce({ messages: [history], queued: [queued], liveNotice: notice })
+    await useOrbital.getState().select('s1')
+    const written: ChatMessage = { id: 'u9:0', role: 'user', text: 'waits', uuid: 'u9' }
+    vi.mocked(api.getMessagesPage).mockResolvedValueOnce({ messages: [history, written], queued: [], liveNotice: null })
+    await useOrbital.getState().reloadTranscript('s1')
+    expect(useOrbital.getState().transcripts.s1).toEqual([history, written])
+    expect(useOrbital.getState().liveNotices.s1).toBeUndefined()
+  })
+
+  it('does not add a queued turn this tab already shows as its own copy', async () => {
+    vi.mocked(api.getMessagesPage).mockResolvedValueOnce({ messages: [history], queued: [], liveNotice: null })
+    await useOrbital.getState().select('s1')
+    const own: ChatMessage = { id: 'local:1:1', role: 'user', text: 'waits' }
+    useOrbital.setState((st) => ({ transcripts: { ...st.transcripts, s1: [...st.transcripts.s1, own] } }))
+    vi.mocked(api.getMessagesPage).mockResolvedValueOnce({ messages: [history], queued: [queued], liveNotice: null })
+    await useOrbital.getState().reloadTranscript('s1')
+    expect(useOrbital.getState().transcripts.s1).toEqual([history, own])
+  })
+})
+
 // spec: 2026-09-23-detached-session-windows-design
 describe('detached sessions', () => {
   const focusSession = vi.fn()

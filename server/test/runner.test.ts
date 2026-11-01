@@ -2012,6 +2012,7 @@ function fakeImages(seed: Record<string, { mediaType: string; base64: string }>)
     put: () => null,
     putBytes: () => null,
     read: (ref: string) => seed[ref] ?? null,
+    entry: (ref: string) => (seed[ref] ? { ref, w: null, h: null, bytes: 0 } : null),
   } as any;
 }
 
@@ -3211,6 +3212,47 @@ describe('Runner Stop hooks', () => {
     await s.runner.interrupt('web-1', { stopHookNotice: id });
     expect(s.interrupt).toHaveBeenCalledTimes(1);
     expect(notices(s).at(-1)).toBeNull();
+  });
+
+  it('a message waiting behind a Stop hook is listed as sent and unwritten until the file has it', async () => {
+    const s = stopHookSession();
+    await answeredAndHooked(s);
+    const uuid = s.runner.send('web-1', 'next')!;
+    const none = () => false;
+    expect(s.runner.sentTurns('web-1', none)).toEqual([
+      expect.objectContaining({ id: `queued:${uuid}`, role: 'user', text: 'next', uuid }),
+    ]);
+    // The file has written it.
+    expect(s.runner.sentTurns('web-1', (u) => u === uuid)).toEqual([]);
+    expect(s.runner.sentTurns('web-1', none)).toEqual([]);
+  });
+
+  it('a sent turn is forgotten once its own turn has a result, whatever the file wrote', async () => {
+    const s = stopHookSession();
+    await answeredAndHooked(s);
+    s.runner.send('web-1', 'next');
+    const none = () => false;
+    s.script.push(hookResponse('h1', 'success'));
+    s.script.push(RESULT);
+    await vi.waitFor(() => expect(s.events.filter((e) => e.event === 'turn_result')).toHaveLength(1));
+    // The result of the turn it waited behind: still queued.
+    expect(s.runner.sentTurns('web-1', none)).toHaveLength(1);
+    s.script.push(SECOND);
+    s.script.push(RESULT);
+    await vi.waitFor(() => expect(s.events.filter((e) => e.event === 'turn_result')).toHaveLength(2));
+    expect(s.runner.sentTurns('web-1', none)).toEqual([]);
+  });
+
+  it('the live notice is there to read while it is up, and gone after', async () => {
+    const s = stopHookSession({ noticeAfterMs: 300 });
+    await answeredAndHooked(s);
+    // Not before the hook has run long enough to show it.
+    expect(s.runner.liveNotice('web-1')).toBeNull();
+    await vi.waitFor(() => expect(s.runner.liveNotice('web-1')?.text).toBe('Stop hook running'));
+    s.runner.send('web-1', 'next');
+    expect(s.runner.liveNotice('web-1')?.text).toBe('Stop hook running — your message waits for it');
+    s.script.push(hookResponse('h1', 'success'));
+    await vi.waitFor(() => expect(s.runner.liveNotice('web-1')).toBeNull());
   });
 
   it('an interrupt before the notice is up stops the turn as ever: the hook may have ended unannounced', async () => {

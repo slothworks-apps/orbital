@@ -217,6 +217,9 @@ function makeApp(opts: {
     answerDecision: (_id: string, _decisionId: string, _answers: Record<string, string>) => false,
     interrupt: async () => {}, stop: async () => {}, hasRun: (_id: string) => false,
     stopAndWait: async (_id: string): Promise<void> => {},
+    // Nothing sent and unwritten, no live notice: a session this Runner does not hold.
+    sentTurns: (_id: string, _inFile: (uuid: string) => boolean): any[] => [],
+    liveNotice: (_id: string): any => null,
   };
   const hub = new Hub();
   const modelCatalog = {
@@ -594,7 +597,7 @@ describe('REST routes', () => {
   it('GET /api/sessions/:id/messages returns an empty transcript for a session with no file yet', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/messages' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ messages: [] });
+    expect(res.json()).toEqual({ messages: [], queued: [], liveNotice: null });
   });
 
   it('GET /api/images/:ref serves stored bytes with the right type and an immutable cache header', async () => {
@@ -656,6 +659,28 @@ describe('REST routes', () => {
       const messages = (await made.app.inject({ method: 'GET', url: '/api/sessions/s1/messages' })).json().messages;
       expect(messages[0].harnessMessage).toBeUndefined();
       expect(messages[1].harnessMessage).toEqual({ kind: 'advance', step: 3 });
+    });
+
+    it('carries the turns the CLI holds unwritten and the live notice on the newest page only', async () => {
+      const projectsDir = makeTmpDir('msg-routes');
+      mkdirSync(join(projectsDir, 'p'), { recursive: true });
+      writeFileSync(join(projectsDir, 'p', 's1.jsonl'),
+        JSON.stringify({ type: 'user', uuid: 'u0', message: { role: 'user', content: 'turn 0' } }) + '\n');
+      const made = makeApp({ projectsDir });
+      const held = [
+        { id: 'queued:u0', role: 'user', text: 'turn 0', uuid: 'u0' },
+        { id: 'queued:u9', role: 'user', text: 'waits', uuid: 'u9' },
+      ];
+      made.runner.sentTurns = (_id: string, inFile: (uuid: string) => boolean) => held.filter((t) => !inFile(t.uuid));
+      const notice = { id: 'n1', role: 'notice', text: 'Stop hook running', notice: { level: 'info' } };
+      made.runner.liveNotice = () => notice;
+      const body = (await made.app.inject({ method: 'GET', url: '/api/sessions/s1/messages' })).json();
+      // The one the file already has is not queued any more.
+      expect(body.queued.map((m: any) => m.id)).toEqual(['queued:u9']);
+      expect(body.messages.map((m: any) => m.text)).toEqual(['turn 0']);
+      expect(body.liveNotice).toEqual(notice);
+      const older = (await made.app.inject({ method: 'GET', url: '/api/sessions/s1/messages?before=u0:0' })).json();
+      expect(older).toEqual({ messages: [] });
     });
 
     it('pages backwards from a cursor, oldest first within the page', async () => {
