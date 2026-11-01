@@ -52,6 +52,16 @@ main loop run, the runner takes that interrupt for cancelling them:
 An interrupt before the notice is up is an ordinary Stop: a hook that young
 may already have ended without saying so.
 
+Cancel names the notice it was pressed on (`stopHookNotice` in the interrupt's
+body); once that notice is down — the hook ended and the message's turn began
+while the press crossed the relay — the request does nothing, so it cannot stop
+the user's new turn. Nothing changes until the interrupt goes through: a
+refused one leaves the row and its Cancel. A cancel the CLI answers with no
+`result` ends the turn after `STOP_HOOK_CANCEL_RESULT_MS`, as an interrupt does.
+
+When the hooks end on their own with a message waiting, the message carries the
+turn on exactly as after Cancel: the `result` between them is no turn end.
+
 Verified against CLI 2.1.280 through the SDK, the way the runner drives it:
 the CLI answers the interrupt with a `cancelled` `hook_response`, the interrupt
 marker and the turn's `result`, then runs a queued message as the next turn.
