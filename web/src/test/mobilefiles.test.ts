@@ -158,6 +158,31 @@ describe('the file resolver', () => {
     expect((await d.cache.get(pathKey('s1', req.path)))?.bytes.length).toBe(9)
   })
 
+  it('keeps a whole file the Mac sent for a thumbnail once, as the file', async () => {
+    const getFile = vi.fn(async () => file(200, { bytes: bytes(9), size: 9, w: 4, h: 2, mediaType: 'image/png' }))
+    const d = deps({ getFile })
+    expect(await readPath(d, { ...req, edge: 512 })).toMatchObject({ kind: 'ready', cached: false })
+    expect((await d.cache.peek(pathKey('s1', req.path)))?.bytes).toBe(9)
+    expect(await d.cache.peek(`thumb512:${pathKey('s1', req.path)}`)).toBeNull()
+  })
+
+  it('keeps a thumbnail smaller than its file apart from it', async () => {
+    const getFile = vi.fn(async () => file(200, { bytes: bytes(2), size: 9, w: 4, h: 2, mediaType: 'image/webp' }))
+    const d = deps({ getFile })
+    await readPath(d, { ...req, edge: 512 })
+    expect((await d.cache.peek(`thumb512:${pathKey('s1', req.path)}`))?.bytes).toBe(2)
+    expect(await d.cache.peek(pathKey('s1', req.path))).toBeNull()
+  })
+
+  it('shows the file’s copy for a thumbnail while the Mac is away, the thumbnail’s first', async () => {
+    const d = deps({ getFile: vi.fn().mockRejectedValue(new TunnelError('offline')) })
+    await d.cache.put(pathKey('s1', req.path), bytes(9), { w: 4, h: 2, mediaType: 'image/png' })
+    const onlyFile = await readPath(d, { ...req, edge: 512 })
+    expect(onlyFile).toMatchObject({ kind: 'ready', cached: true, mediaType: 'image/png' })
+    await d.cache.put(`thumb512:${pathKey('s1', req.path)}`, bytes(2), { w: 4, h: 2, mediaType: 'image/webp' })
+    expect(await readPath(d, { ...req, edge: 512 })).toMatchObject({ kind: 'ready', cached: true, mediaType: 'image/webp' })
+  })
+
   it('shows the copy with its age while the Mac is away', async () => {
     const d = deps({ getFile: vi.fn().mockRejectedValue(new TunnelError('offline')) })
     await d.cache.put(pathKey('s1', req.path), bytes(3), { w: 4, h: 2, mediaType: 'image/png' })
