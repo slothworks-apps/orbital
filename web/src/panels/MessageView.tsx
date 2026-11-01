@@ -310,6 +310,13 @@ export interface MessageViewProps {
    * mark's active chip. Absent outside pick mode.
    */
   rewindMark?: 'target' | 'active'
+  /**
+   * A user turn sent while a hook holds the session, not delivered yet
+   * (canvas `Feature - Stop hook` 1a, 1g): its bubble is dashed and unfilled,
+   * an image in it sits inside the same dashed box, and it has no clock until
+   * it goes out.
+   */
+  waiting?: boolean
 }
 
 /**
@@ -317,7 +324,7 @@ export interface MessageViewProps {
  * fenced code blocks, etc). `tool_use`/`tool_result` messages are not
  * handled here — `Transcript` pairs those and renders them via `ToolRow`.
  */
-export function MessageView({ message, streaming = false, rewindMark }: MessageViewProps) {
+export function MessageView({ message, streaming = false, rewindMark, waiting = false }: MessageViewProps) {
   const isUser = message.role === 'user'
   // The command-expansion fold (canvas 6c, spec:
   // 2026-09-18-transcript-folding-design). Only user turns carry `command`.
@@ -372,6 +379,113 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
   )
   const plainPaths = Boolean(routed?.longPress)
 
+  // 1g: a waiting turn with an image is one dashed box, the image over the text.
+  const boxed = waiting && isUser && hasImages
+  const textBubble = (hasText || (!command && !hasImages && files.length === 0)) && (
+    <div
+      className={[
+        // A URL, a path or a word with no spaces breaks wherever it has to
+        // instead of widening the whole transcript; inherited by links,
+        // inline code and table cells, whose min-content shrinks with it.
+        'message-markdown [text-wrap:pretty] [overflow-wrap:anywhere]',
+        // The caret has to sit on the same line as the text it trails, so
+        // the closing paragraph goes inline while it is showing (1b).
+        streaming ? '[&>p:last-child]:inline' : '',
+        '[&_p]:my-1 [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5',
+        '[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_table]:fs-12 [&_table]:leading-(--text-xs--line-height)',
+        '[&_th]:border [&_th]:border-line/14 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left',
+        '[&_td]:border [&_td]:border-line/14 [&_td]:px-2 [&_td]:py-1',
+        // In a cell only a link or code breaks mid-word: were every cell
+        // `anywhere`, the column holding a URL would squeeze its neighbours
+        // down to a letter a line.
+        '[&_th]:[overflow-wrap:break-word] [&_td]:[overflow-wrap:break-word] [&_td_a]:[overflow-wrap:anywhere] [&_td_code]:[overflow-wrap:anywhere]',
+        '[&_a]:underline [&_a]:decoration-dotted',
+        // Canvas 1b: the user's turn is an accent-tinted bubble with a
+        // notched bottom-right corner (radius 12/12/4/12), 10px×14px
+        // padding, capped at 86% of the column; the assistant's turn has
+        // no bubble at all — plain 13px/1.55 text, up to 92% wide.
+        !isUser
+          ? 'max-w-[92%] fs-13 leading-[1.55] text-ink-100/92'
+          : boxed
+            // 1g: the text under the image, inside the waiting box.
+            ? 'px-[5px] pb-[2px] fs-13 leading-[1.5] text-ink-100'
+            : waiting
+              // 1a: dashed and unfilled until it goes out.
+              ? 'max-w-[86%] rounded-[12px_12px_4px_12px] border border-dashed px-3.5 py-2.5 fs-13 leading-[1.5] text-ink-100'
+              : 'max-w-[86%] rounded-[12px_12px_4px_12px] border bg-accent/12 px-3.5 py-2.5 fs-13 leading-[1.5] text-ink-100',
+        // Canvas 27a: the previewed turn's ring — the border to accent .8
+        // plus a 3px accent .14 glow, over .15s.
+        isUser && rewindMark === 'active' ? 'border-accent/80 ring-[3px] ring-accent/14' : isUser && !boxed ? 'border-accent/30' : '',
+        isUser && rewindMark ? 'relative transition-[border-color,box-shadow] duration-150' : '',
+      ].join(' ')}
+    >
+      {isUser && rewindMark && <RewindMark active={rewindMark === 'active'} />}
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        // Path detection runs over ASSISTANT prose only — a user turn is
+        // quoted speech, not the agent narrating file work (spec § prose).
+        // The user turn gets the composer's tints instead, holding after the
+        // turn went out (canvas 9e SENT). The two never share a turn: one
+        // makes paths pressable, the other says "this was parsed".
+        rehypePlugins={
+          isUser ? [rehypeSentTokens] : plainPaths ? [[rehypePathLinks, { plain: true }]] : [rehypePathLinks]
+        }
+        components={isUser ? { code: Code, pre: Pre } : { code: Code, pre: Pre, a: MarkdownLink }}
+      >
+        {bodyText}
+      </ReactMarkdown>
+      {streaming && (
+        // 1b: 7×14px accent block, 3px after the last glyph.
+        <span
+          aria-hidden
+          data-streaming-caret
+          className="orbital-pulse ml-[3px] inline-block h-3.5 w-[7px] translate-y-[2px] bg-accent"
+        />
+      )}
+    </div>
+  )
+  const imageRow = hasImages && (
+    // 7a: one wrapping row, 6px gap; under a bubble the image sits at
+    // the column's own gap, aligned to the bubble's right edge.
+    <div className={['flex flex-wrap gap-1.5', isUser ? 'justify-end' : 'justify-start'].join(' ')}>
+      {images.map((image) => {
+        // Local-only, so it exists on the optimistic turn and on the WS
+        // replacement that supersedes it — and on nothing that came back
+        // from a reload (spec § The transcript side). ImageThumb's geometry
+        // is untouched; only the caption line below is new.
+        const provenance = message.imageProvenance?.[image.ref]
+        const thumb = (
+          <ImageThumb
+            image={image}
+            messageId={message.id}
+            variant={isUser && !hasText && !command ? 'user-solo' : 'user'}
+            source={provenance?.name ?? 'pasted image'}
+            widthCapPx={images.length > 1 ? TWO_UP_WIDTH_PX : undefined}
+          />
+        )
+        if (!provenance) return <div key={image.ref}>{thumb}</div>
+        return (
+          // 9c-3: caption 4px under the thumb, aligned with its own edge.
+          <div
+            key={image.ref}
+            className={[
+              'flex flex-col gap-1',
+              isUser ? 'items-end' : 'items-start',
+            ].join(' ')}
+          >
+            {thumb}
+            <span
+              data-image-caption
+              className="font-mono fs-9 tracking-[0.06em] text-ink-900/50"
+            >
+              {provenance.name} · {formatBytes(image.bytes)}
+            </span>
+          </div>
+        )
+      })}
+    </div>
+  )
+
   return (
     <FileMessageContext.Provider value={fileMessage}>
     {/* A path in this message opens from the tree it was written in. */}
@@ -381,63 +495,13 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
       data-role={message.role}
       className={['flex flex-col gap-1', isUser && authored ? 'items-end' : 'items-start'].join(' ')}
     >
-      {(hasText || (!command && !hasImages && files.length === 0)) && (
-      <div
-        className={[
-          // A URL, a path or a word with no spaces breaks wherever it has to
-          // instead of widening the whole transcript; inherited by links,
-          // inline code and table cells, whose min-content shrinks with it.
-          'message-markdown [text-wrap:pretty] [overflow-wrap:anywhere]',
-          // The caret has to sit on the same line as the text it trails, so
-          // the closing paragraph goes inline while it is showing (1b).
-          streaming ? '[&>p:last-child]:inline' : '',
-          '[&_p]:my-1 [&_ul]:my-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:pl-5',
-          '[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse [&_table]:fs-12 [&_table]:leading-(--text-xs--line-height)',
-          '[&_th]:border [&_th]:border-line/14 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left',
-          '[&_td]:border [&_td]:border-line/14 [&_td]:px-2 [&_td]:py-1',
-          // In a cell only a link or code breaks mid-word: were every cell
-          // `anywhere`, the column holding a URL would squeeze its neighbours
-          // down to a letter a line.
-          '[&_th]:[overflow-wrap:break-word] [&_td]:[overflow-wrap:break-word] [&_td_a]:[overflow-wrap:anywhere] [&_td_code]:[overflow-wrap:anywhere]',
-          '[&_a]:underline [&_a]:decoration-dotted',
-          // Canvas 1b: the user's turn is an accent-tinted bubble with a
-          // notched bottom-right corner (radius 12/12/4/12), 10px×14px
-          // padding, capped at 86% of the column; the assistant's turn has
-          // no bubble at all — plain 13px/1.55 text, up to 92% wide.
-          isUser
-            ? 'max-w-[86%] rounded-[12px_12px_4px_12px] border bg-accent/12 px-3.5 py-2.5 fs-13 leading-[1.5] text-ink-100'
-            : 'max-w-[92%] fs-13 leading-[1.55] text-ink-100/92',
-          // Canvas 27a: the previewed turn's ring — the border to accent .8
-          // plus a 3px accent .14 glow, over .15s.
-          isUser && rewindMark === 'active' ? 'border-accent/80 ring-[3px] ring-accent/14' : isUser ? 'border-accent/30' : '',
-          isUser && rewindMark ? 'relative transition-[border-color,box-shadow] duration-150' : '',
-        ].join(' ')}
-      >
-        {isUser && rewindMark && <RewindMark active={rewindMark === 'active'} />}
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          // Path detection runs over ASSISTANT prose only — a user turn is
-          // quoted speech, not the agent narrating file work (spec § prose).
-          // The user turn gets the composer's tints instead, holding after the
-          // turn went out (canvas 9e SENT). The two never share a turn: one
-          // makes paths pressable, the other says "this was parsed".
-          rehypePlugins={
-            isUser ? [rehypeSentTokens] : plainPaths ? [[rehypePathLinks, { plain: true }]] : [rehypePathLinks]
-          }
-          components={isUser ? { code: Code, pre: Pre } : { code: Code, pre: Pre, a: MarkdownLink }}
-        >
-          {bodyText}
-        </ReactMarkdown>
-        {streaming && (
-          // 1b: 7×14px accent block, 3px after the last glyph.
-          <span
-            aria-hidden
-            data-streaming-caret
-            className="orbital-pulse ml-[3px] inline-block h-3.5 w-[7px] translate-y-[2px] bg-accent"
-          />
-        )}
-      </div>
+      {boxed && (
+        <div className="flex max-w-[86%] flex-col items-end gap-2 rounded-[12px_12px_4px_12px] border border-dashed border-accent/30 p-2">
+          {imageRow}
+          {textBubble}
+        </div>
       )}
+      {!boxed && textBubble}
       {/* 24f A: the images and PDFs the reply names, under its text. */}
       {!isUser && <ReplyMedia message={message} />}
       {sentSelection && (
@@ -483,47 +547,7 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
           })}
         </div>
       )}
-      {hasImages && (
-        // 7a: one wrapping row, 6px gap; under a bubble the image sits at
-        // the column's own gap, aligned to the bubble's right edge.
-        <div className={['flex flex-wrap gap-1.5', isUser ? 'justify-end' : 'justify-start'].join(' ')}>
-          {images.map((image) => {
-            // Local-only, so it exists on the optimistic turn and on the WS
-            // replacement that supersedes it — and on nothing that came back
-            // from a reload (spec § The transcript side). ImageThumb's geometry
-            // is untouched; only the caption line below is new.
-            const provenance = message.imageProvenance?.[image.ref]
-            const thumb = (
-              <ImageThumb
-                image={image}
-                messageId={message.id}
-                variant={isUser && !hasText && !command ? 'user-solo' : 'user'}
-                source={provenance?.name ?? 'pasted image'}
-                widthCapPx={images.length > 1 ? TWO_UP_WIDTH_PX : undefined}
-              />
-            )
-            if (!provenance) return <div key={image.ref}>{thumb}</div>
-            return (
-              // 9c-3: caption 4px under the thumb, aligned with its own edge.
-              <div
-                key={image.ref}
-                className={[
-                  'flex flex-col gap-1',
-                  isUser ? 'items-end' : 'items-start',
-                ].join(' ')}
-              >
-                {thumb}
-                <span
-                  data-image-caption
-                  className="font-mono fs-9 tracking-[0.06em] text-ink-900/50"
-                >
-                  {provenance.name} · {formatBytes(image.bytes)}
-                </span>
-              </div>
-            )
-          })}
-        </div>
-      )}
+      {!boxed && imageRow}
       {command && (
         <>
           {/* The expansion chip (canvas 6c): resting chip convention —
@@ -568,7 +592,7 @@ export function MessageView({ message, streaming = false, rewindMark }: MessageV
           )}
         </>
       )}
-      {message.timestamp && clockTime(message.timestamp) && (
+      {!waiting && message.timestamp && clockTime(message.timestamp) && (
         <span className="font-mono fs-10 text-ink-900/70">
           {clockTime(message.timestamp)}
         </span>

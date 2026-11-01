@@ -45,7 +45,7 @@ import { MoonsChip } from '../session/MoonsChip'
 import { SessionMenuButton } from '../session/SessionMenuButton'
 import { StateLine } from '../session/StateLine'
 import { usePhoneToolRow } from '../session/TranscriptChip'
-import { TranscriptTail, useTranscriptTailKey } from '../session/TranscriptTail'
+import { TranscriptTail, useLiveHookRow, useTranscriptTailKey } from '../session/TranscriptTail'
 import { keepsSelection, useMobile } from '../state'
 import { sessionReady } from '../deviceList'
 import { useSessionAsleep, useSessionReady } from '../useDevice'
@@ -145,6 +145,7 @@ function SessionView({ id }: { id: string }) {
   const handleOpenTask = useCallback((task: BackgroundTask) => openTask({ sessionId: id, taskId: task.id }), [openTask, id])
 
   const tailKey = useTranscriptTailKey({ session, offline })
+  const { liveRow, isWaiting, waitCaption } = useLiveHookRow({ session, offline })
 
   // ↩ Show in chat from the media viewer (canvas 24g): page back to the message and scroll to it.
   const jump = useMedia((s) => (s.jump?.sessionId === id ? s.jump : null))
@@ -230,6 +231,9 @@ function SessionView({ id }: { id: string }) {
         onOpenTaskOutput={handleOpenTask}
         footer={session ? <TranscriptTail session={session} offline={offline} /> : undefined}
         footerKey={tailKey}
+        liveRow={liveRow}
+        isWaiting={isWaiting}
+        waitCaption={waitCaption}
       />
       </ReplyMediaSession.Provider>
       </QuestionCardPhoneContext.Provider>

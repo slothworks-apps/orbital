@@ -1,6 +1,6 @@
 ---
 id: 2026-10-31-message-beats-stop-hook-design
-title: A running Stop hook shows, and can be cancelled
+title: A running hook shows; a Stop hook can be cancelled
 type: spec
 status: done
 domain: server
@@ -11,7 +11,7 @@ tags:
   - hooks
 ---
 
-# A running Stop hook shows, and can be cancelled
+# A running hook shows; a Stop hook can be cancelled
 
 A project can configure a `Stop` hook: a command the CLI runs when the agent
 has finished its answer, before the turn ends. A verification gate (typecheck,
@@ -84,43 +84,43 @@ runs: an interrupt while a tool or a model call runs stops the turn as today.
 
 ### The running hook is visible
 
-Orbital asks the SDK for hook events (`includeHookEvents`). While a main-loop
-`Stop` hook runs, a quiet notice sits under the transcript, where the
-compaction block and the limit wait sit:
+Design: Claude Design `Feature - Stop hook.dc.html` (1a–1g), except the
+session header naming the hook, which is left out.
 
-> Stop hook running · **Cancel**
+Orbital asks the SDK for hook events (`includeHookEvents`). While any hook of
+the main loop has run for `HOOK_NOTICE_AFTER_MS`, one live row sits under the
+last block of the transcript, where the compaction block and the limit wait
+sit: the event's name verbatim and "hook running" ("hooks" for several), then
+in muted ink the tool, for events that have one, and the command. The SDK's
+`hook_name` carries the event and its match query (`PreToolUse:Bash`) but not
+the command, so the runner looks it up in the hook settings the CLI reads
+(`<claudeDir>/settings.json`, the project's `.claude/settings.json` and
+`.claude/settings.local.json`) and names it only when exactly one command is
+configured for that event and matcher. Plugin and managed hooks are not read.
 
-Once the user sends a message behind it, it reads "Stop hook running — your
-message waits for it" ("…them" for several).
+Only a `Stop` hook's row carries Cancel. A hook of any other event runs inside
+the turn: stopping it stops the turn, which is the session's Stop button, so
+its row has no action and its tooltip says so. `SubagentStop` is not a `Stop`
+hook here.
 
-The SDK's hook events do not name the command: `hook_name` is the event itself
-(`Stop`, which takes no matcher). So the notice names no hook; with several
-running it reads "Stop hooks running". It shows only once a hook has run for
-`STOP_HOOK_NOTICE_AFTER_MS`: most `Stop` hooks (a plugin's, say) end in
-milliseconds, and a row for each would flash under every answer
-(why-orbital → Nothing blinks).
+Faster hooks draw nothing (why-orbital → Nothing blinks). The row fades in and
+out and carries no counter (why-orbital → Waiting is fine). It is live state,
+not history: the runner publishes it on `session:<id>` as a `live_notice`
+event carrying a notice row with a structured `notice.hook` (`null` takes it
+down); its `text` stays complete for an older client. The newest page of the
+transcript (`GET /api/sessions/:id/messages`) carries it as `liveNotice`, and
+the messages the file does not hold yet as `queued`, so a client that opens
+the session, reloads or reconnects while a hook runs sees both. A client draws
+the row only while the session reads `working`, and drops it on `turn_result`,
+on a `sessions`-topic status other than `working`, and on reconnect.
 
-It disappears when the last hook ends (`hook_response`, any outcome), the turn
-ends, or the user cancels or interrupts. It carries no
-ticking counter (why-orbital → Waiting is fine). It is live state, not
-history: the runner publishes it on `session:<id>` as a `live_notice` event
-carrying a notice row (`null` takes it down), drawn with the transcript's
-notice row; it is not written anywhere and a reload does not rebuild it. The
-newest page of the transcript (`GET /api/sessions/:id/messages`) carries the
-notice that is up as `liveNotice`, and the messages queued behind the turn that
-the file does not hold yet as `queued` (ids prefixed `QUEUED_TURN_PREFIX`), so
-a client that opens the session, reloads or reconnects while the hook runs
-sees both. The runner forgets a queued message once the file holds its uuid,
-once its own turn's `result` arrives, or when the session is released. An
-older client reads only `messages` and never shows a queued message twice. A client draws the notice only while the session reads `working`,
-and drops it on `turn_result`, on a `sessions`-topic status other than
-`working`, when it lets go of the session's topic, and on reconnect, so an
-end it did not hear cannot leave the row under a finished answer. While it is
-up, it is republished as hooks start and end, so its count stays right.
-
-Hooks of other events stay invisible, as they are today. They are short by
-nature (a `PreToolUse` hook that runs for minutes is a broken hook), and a row
-per tool call would be noise.
+A message sent while the row is up waits behind it: the row adds "— your
+message waits for it", the notice names the waiting messages' uuids in
+`notice.hook.waiting`, and every client draws those rows under the live row,
+dashed, with a caption ("‖ waits for the Stop hook", "3 messages wait for the
+Stop hook"), whichever device sent them. The runner forgets a queued message
+once the file holds its uuid, once its own turn's `result` arrives, or when the
+session is released. An older client reads only `messages` and `text`.
 
 ### The cancelled hook reads as such
 
@@ -136,14 +136,15 @@ Stop during the hook as well, where the same words are just as true.
 
 ## Scope
 
-- **Who it is for:** everyone whose project has a `Stop` hook — common in
+- **Who it is for:** everyone whose project has hooks — common in
   repositories set up for agents, and in plugins.
 - **Where it lives:** on by default, no setting. Sending keeps the CLI's
   behaviour; going ahead of the hook is the user's choice each time, on the
   row that says the hook runs.
-- **What someone notices after updating:** a notice under the answer while a
-  `Stop` hook runs, with a Cancel that ends the hook and answers a waiting
-  message at once.
+- **What someone notices after updating:** a row under the transcript while
+  a hook holds the session; on a `Stop` hook it has a Cancel that ends the
+  hook and answers a waiting message at once; messages waiting behind it are
+  marked as waiting.
 - **What can be set:** nothing.
 
 Terminal sessions are shown, not driven: their hooks are the terminal's

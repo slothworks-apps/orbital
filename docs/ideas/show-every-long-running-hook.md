@@ -1,7 +1,7 @@
 ---
 id: show-every-long-running-hook
 title: Show any hook that holds a session, not only Stop
-status: backlog
+status: done
 type: idea
 domain: server
 related:

@@ -13,8 +13,9 @@ import type { PermissionMode, SessionRow, SessionStatus } from '../src/types.js'
 import type { PermissionWait } from '../src/stats/compute.js';
 import { statusOf, type ShapeContext } from '../src/api/shape.js';
 import { entriesToMessages } from '../src/transcript/parser.js';
+import { configuredHookCommand, hookMatchQuery } from '../src/runner/hookCommand.js';
 import { MAX_SUBAGENT_MESSAGES, SubagentTranscripts } from '../src/transcript/subagents.js';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeTmpDir } from './tmp.js';
 
@@ -2980,6 +2981,17 @@ function secondAsk(runner: Runner, sessionId: string): Promise<any> {
 // `Stop`, and an interrupt during the hook answers with a `cancelled`
 // response, the interrupt marker and the turn's `result`, in that order.
 describe('Runner Stop hooks', () => {
+  // The hook commands come from the settings: none of the machine's own.
+  let claudeConfigDir: string | undefined;
+  beforeEach(() => {
+    claudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = makeTmpDir('orbital-hooks-claude-');
+  });
+  afterEach(() => {
+    if (claudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = claudeConfigDir;
+  });
+
   /**
    * `scriptedQueryFn` with the live query's `interrupt`, and the order sends
    * and interrupts reach the CLI in. The notice goes up at once unless said
@@ -3004,7 +3016,7 @@ describe('Runner Stop hooks', () => {
     const edges: string[] = [];
     const runner = new Runner({
       hub, queryFn: fn as any, newSessionId: () => 'web-1', sleepAfterMs,
-      stopHookNoticeAfterMs: noticeAfterMs, stopHookCancelResultMs: cancelResultMs,
+      hookNoticeAfterMs: noticeAfterMs, stopHookCancelResultMs: cancelResultMs,
       onTurnEnd: () => edges.push('end'),
       onTurnBoundary: (_id, ended) => edges.push(ended ? 'boundary:ended' : 'boundary:began'),
     });
@@ -3083,7 +3095,7 @@ describe('Runner Stop hooks', () => {
     await vi.waitFor(() => expect(s.events.some((e) => e.event === 'turn_result')).toBe(true));
     const rows = s.events.filter((e) => e.event === 'message').map((e) => e.message);
     expect(rows.some((m) => m.role === 'user' && m.text?.includes('interrupted'))).toBe(false);
-    expect(rows.find((m) => m.role === 'notice')?.text).toBe('Stop hook cancelled');
+    expect(rows.find((m) => m.role === 'notice')?.text).toBe('Stop hook cancelled.');
     await new Promise((r) => setTimeout(r, 30));
     expect(s.runner.status('web-1')).toBe('working');
     expect(s.events.filter((e) => e.event === 'status').map((e) => e.status)).not.toContain('needs_input');
@@ -3114,7 +3126,7 @@ describe('Runner Stop hooks', () => {
     s.script.push(RESULT);
     await vi.waitFor(() => expect(s.runner.status('web-1')).toBe('needs_input'));
     const rows = s.events.filter((e) => e.event === 'message').map((e) => e.message);
-    expect(rows.find((m) => m.role === 'notice')?.text).toBe('Stop hook cancelled');
+    expect(rows.find((m) => m.role === 'notice')?.text).toBe('Stop hook cancelled.');
     expect(s.edges.slice(before)).toEqual(['end', 'boundary:ended']);
   });
 
@@ -3249,8 +3261,9 @@ describe('Runner Stop hooks', () => {
     // Not before the hook has run long enough to show it.
     expect(s.runner.liveNotice('web-1')).toBeNull();
     await vi.waitFor(() => expect(s.runner.liveNotice('web-1')?.text).toBe('Stop hook running'));
-    s.runner.send('web-1', 'next');
+    const uuid = s.runner.send('web-1', 'next');
     expect(s.runner.liveNotice('web-1')?.text).toBe('Stop hook running — your message waits for it');
+    expect(s.runner.liveNotice('web-1')?.notice?.hook?.waiting).toEqual([uuid]);
     s.script.push(hookResponse('h1', 'success'));
     await vi.waitFor(() => expect(s.runner.liveNotice('web-1')).toBeNull());
   });
@@ -3298,12 +3311,14 @@ describe('Runner Stop hooks', () => {
     expect(s.runner.status('web-1')).toBe('needs_input');
   });
 
-  it("a subagent's SubagentStop hook is left alone", async () => {
+  it("a subagent's SubagentStop hook shows with no Cancel, and an interrupt stops the turn", async () => {
     const s = stopHookSession();
     await answeredAndHooked(s, stopStarted('h1', 'SubagentStop'));
-    expect(notices(s)).toEqual([]);
+    expect(notices(s)).toEqual(['SubagentStop hook running']);
+    expect(s.runner.liveNotice('web-1')?.notice?.hook?.cancellable).toBe(false);
     await s.runner.interrupt('web-1');
     expect(s.runner.status('web-1')).toBe('needs_input');
+    expect(notices(s).at(-1)).toBeNull();
   });
 
   it('an interrupt marker with no cancelled Stop hook before it stays as the CLI wrote it', async () => {
@@ -3312,6 +3327,160 @@ describe('Runner Stop hooks', () => {
     s.script.push(ANSWER);
     s.script.push({ type: 'user', parent_tool_use_id: null, message: { role: 'user', content: [{ type: 'text', text: '[Request interrupted by user]' }] } });
     await vi.waitFor(() => expect(s.events.some((e) => e.message?.text === '[Request interrupted by user]')).toBe(true));
+  });
+
+  const TOOL_CALL = {
+    type: 'assistant', parent_tool_use_id: null,
+    message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: {} }] },
+  };
+  const hookStarted = (id: string, event: string, query?: string) => ({
+    type: 'system', subtype: 'hook_started', hook_id: id, hook_name: query ? `${event}:${query}` : event, hook_event: event,
+  });
+
+  /** A project whose `.claude/settings.json` holds `hooks`. */
+  function projectWithHooks(hooks: Record<string, unknown>): string {
+    const cwd = makeTmpDir('orbital-hooks-project-');
+    mkdirSync(join(cwd, '.claude'));
+    writeFileSync(join(cwd, '.claude', 'settings.json'), JSON.stringify({ hooks }));
+    return cwd;
+  }
+
+  async function toolHooked(s: ReturnType<typeof stopHookSession>, cwd = '/p', ...hooks: Record<string, unknown>[]) {
+    await s.runner.start({ cwd, prompt: 'go', permissionMode: 'acceptEdits' });
+    s.script.push(TOOL_CALL);
+    for (const hook of hooks.length > 0 ? hooks : [hookStarted('h1', 'PreToolUse', 'Bash')]) s.script.push(hook);
+    await vi.waitFor(() => expect(s.events.some((e) => e.message?.role === 'tool_use')).toBe(true));
+    await drained();
+  }
+
+  it('a hook of any event that runs long enough gets the row, naming its tool, with no Cancel', async () => {
+    const s = stopHookSession({ noticeAfterMs: 300 });
+    await toolHooked(s);
+    expect(s.runner.liveNotice('web-1')).toBeNull();
+    await vi.waitFor(() => expect(s.runner.liveNotice('web-1')?.text).toBe('PreToolUse hook running · Bash'));
+    expect(s.runner.liveNotice('web-1')?.notice?.hook).toEqual({
+      event: 'PreToolUse', tool: 'Bash', count: 1, cancellable: false, messagesWaiting: 0, waiting: [],
+    });
+    s.script.push(hookResponse('h1', 'success', 'PreToolUse'));
+    await vi.waitFor(() => expect(notices(s).at(-1)).toBeNull());
+  });
+
+  it('a hook that ends before the delay leaves nothing', async () => {
+    const s = stopHookSession({ noticeAfterMs: 40 });
+    await toolHooked(s, '/p', hookStarted('h1', 'PostToolUse', 'Bash'), hookResponse('h1', 'success', 'PostToolUse'));
+    await new Promise((r) => setTimeout(r, 80));
+    expect(notices(s)).toEqual([]);
+    expect(s.runner.liveNotice('web-1')).toBeNull();
+  });
+
+  it('the delay is timed from the hook still running, not from one that already ended', async () => {
+    const s = stopHookSession({ noticeAfterMs: 600 });
+    await toolHooked(s, '/p', hookStarted('h1', 'PreToolUse', 'Bash'));
+    await new Promise((r) => setTimeout(r, 400));
+    s.script.push(hookStarted('h2', 'PreToolUse', 'Read'));
+    s.script.push(hookResponse('h1', 'success', 'PreToolUse'));
+    await new Promise((r) => setTimeout(r, 300));
+    // Past the delay since the first, not since the one that runs.
+    expect(notices(s)).toEqual([]);
+    await vi.waitFor(() => expect(notices(s)).toEqual(['PreToolUse hook running · Read']));
+  });
+
+  it('a message sent behind a running hook is said to wait for it', async () => {
+    const s = stopHookSession();
+    await toolHooked(s);
+    const first = s.runner.send('web-1', 'next');
+    const second = s.runner.send('web-1', 'and this');
+    // Named, so every window and the phone draw those rows under it, whoever sent them.
+    expect(s.runner.liveNotice('web-1')?.notice?.hook?.waiting).toEqual([first, second]);
+    expect(notices(s)).toEqual([
+      'PreToolUse hook running · Bash',
+      'PreToolUse hook running — your message waits for it · Bash',
+      'PreToolUse hook running — your messages wait for it · Bash',
+    ]);
+    // Not the Stop hooks' hand-over: the turn carries on, and nothing is cancelled.
+    expect(s.interrupt).not.toHaveBeenCalled();
+  });
+
+  it('a Cancel naming the row of a hook that is not Stop does nothing', async () => {
+    const s = stopHookSession();
+    await toolHooked(s);
+    const id = s.events.find((e) => e.event === 'live_notice').message.id;
+    await s.runner.interrupt('web-1', { stopHookNotice: id });
+    expect(s.interrupt).not.toHaveBeenCalled();
+    expect(s.runner.status('web-1')).toBe('working');
+    expect(s.runner.liveNotice('web-1')?.id).toBe(id);
+    // The Stop button still stops the turn.
+    await s.runner.interrupt('web-1');
+    expect(s.interrupt).toHaveBeenCalledTimes(1);
+    expect(s.runner.status('web-1')).toBe('needs_input');
+    expect(notices(s).at(-1)).toBeNull();
+  });
+
+  it('names the command the settings configure for the event and tool, and only that one', async () => {
+    const cwd = projectWithHooks({
+      PreToolUse: [
+        { matcher: 'Bash', hooks: [{ type: 'command', command: './scripts/guard.sh' }] },
+        { matcher: 'Edit|Write', hooks: [{ type: 'command', command: 'prettier --write' }] },
+      ],
+      Stop: [{ hooks: [{ type: 'command', command: 'pnpm test' }, { type: 'command', command: 'tsc --noEmit' }] }],
+    });
+    const s = stopHookSession();
+    await toolHooked(s, cwd);
+    expect(notices(s)).toEqual(['PreToolUse hook running · Bash · ./scripts/guard.sh']);
+    // Two of the kind running: which command is which, the SDK does not say.
+    s.script.push(hookStarted('h2', 'PreToolUse', 'Bash'));
+    await vi.waitFor(() => expect(notices(s).at(-1)).toBe('PreToolUse hooks running · Bash'));
+    s.script.push(hookResponse('h1', 'success', 'PreToolUse'));
+    s.script.push(hookResponse('h2', 'success', 'PreToolUse'));
+    s.script.push(ANSWER);
+    // Two Stop commands configured: none is named, even with one running.
+    s.script.push(stopStarted('h3'));
+    await vi.waitFor(() => expect(notices(s).at(-1)).toBe('Stop hook running'));
+    expect(s.runner.liveNotice('web-1')?.notice?.hook?.cancellable).toBe(true);
+  });
+});
+
+describe('configuredHookCommand', () => {
+  const hooks = (h: Record<string, unknown>) => ({ hooks: h });
+
+  it('reads one command across the files, counting a repeat once', () => {
+    const one = hooks({ Stop: [{ hooks: [{ type: 'command', command: 'pnpm test' }] }] });
+    expect(configuredHookCommand([one, null, one], 'Stop', null)).toBe('pnpm test');
+    expect(configuredHookCommand([one, hooks({ Stop: [{ hooks: [{ type: 'command', command: 'tsc' }] }] })], 'Stop', null)).toBeNull();
+    expect(configuredHookCommand([one], 'PreCompact', null)).toBeNull();
+  });
+
+  it('matches the tool as the CLI does: all, a name list, or a pattern', () => {
+    const src = hooks({
+      PreToolUse: [
+        { matcher: 'Edit|Write', hooks: [{ type: 'command', command: 'prettier --write' }] },
+        { matcher: 'mcp__.*', hooks: [{ type: 'command', command: 'audit' }] },
+      ],
+    });
+    expect(configuredHookCommand([src], 'PreToolUse', 'Write')).toBe('prettier --write');
+    expect(configuredHookCommand([src], 'PreToolUse', 'mcp__github__get')).toBe('audit');
+    expect(configuredHookCommand([src], 'PreToolUse', 'Bash')).toBeNull();
+    const all = hooks({ PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: 'log' }] }, { matcher: 'Bash', hooks: [{ type: 'command', command: 'guard' }] }] });
+    expect(configuredHookCommand([all], 'PreToolUse', 'Read')).toBe('log');
+    expect(configuredHookCommand([all], 'PreToolUse', 'Bash')).toBeNull();
+  });
+
+  it('names nothing it cannot be sure of', () => {
+    const prompt = hooks({ Stop: [{ hooks: [{ type: 'prompt', prompt: 'Is it done?' }] }] });
+    expect(configuredHookCommand([prompt], 'Stop', null)).toBeNull();
+    const broken = hooks({ PreToolUse: [{ matcher: '(', hooks: [{ type: 'command', command: 'x' }] }] });
+    expect(configuredHookCommand([broken], 'PreToolUse', 'Bash')).toBeNull();
+    const off = { ...hooks({ Stop: [{ hooks: [{ type: 'command', command: 'pnpm test' }] }] }), disableAllHooks: true };
+    expect(configuredHookCommand([off], 'Stop', null)).toBeNull();
+  });
+});
+
+describe('hookMatchQuery', () => {
+  it('reads the tool or source out of the hook name, and nothing for an event that matches none', () => {
+    expect(hookMatchQuery('PreToolUse:Bash', 'PreToolUse')).toBe('Bash');
+    expect(hookMatchQuery('SessionStart:compact', 'SessionStart')).toBe('compact');
+    expect(hookMatchQuery('Stop', 'Stop')).toBeNull();
+    expect(hookMatchQuery(undefined, 'Stop')).toBeNull();
   });
 });
 

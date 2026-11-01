@@ -641,7 +641,7 @@ describe('entriesToMessages: a cancelled Stop hook', () => {
     const msgs = entriesToMessages([answer, cancelled('h1', 'Stop'), marker('h1')]);
     expect(msgs.map((m) => [m.role, m.text])).toEqual([
       ['assistant', 'Done.'],
-      ['notice', 'Stop hook cancelled'],
+      ['notice', 'Stop hook cancelled.'],
     ]);
     expect(msgs[1].uuid).toBe('u1');
   });
@@ -650,7 +650,7 @@ describe('entriesToMessages: a cancelled Stop hook', () => {
     const carried = new Set<string>();
     expect(entriesToMessages([answer, cancelled('h1', 'Stop')], undefined, carried).map((m) => m.role)).toEqual(['assistant']);
     expect(entriesToMessages([marker('h1')] as any, undefined, carried).map((m) => [m.role, m.text]))
-      .toEqual([['notice', 'Stop hook cancelled']]);
+      .toEqual([['notice', 'Stop hook cancelled.']]);
   });
 
   it('an interrupt marker anywhere else stays the CLI\'s line', () => {

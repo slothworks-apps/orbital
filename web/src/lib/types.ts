@@ -2,6 +2,7 @@ import type { GroupEnded, GroupStatus, MemberState as SharedMemberState, NotPrim
 import type { JoinResult, Joining, PendingPair } from '@orbital/shared/remote/ceremony'
 import type { MachineRef } from '@orbital/shared/remote/device'
 import { asksForHuman, gateWaits, loginLost } from '@orbital/shared/parked'
+import type { LiveHookNotice } from '@orbital/shared/hookNotice'
 
 export type SessionStatus = 'working' | 'needs_input' | 'idle' | 'ended'
 export type SessionSource = 'terminal' | 'web'
@@ -819,6 +820,12 @@ export interface ChatMessage {
      * restored one folds into. The row's `text` is the CLI's sentence.
      */
     login?: LoginLostNotice | LoginRestoredNotice
+    /**
+     * The live row while hooks hold the session (`live_notice`; canvas
+     * `Feature - Stop hook`), drawn from this. A Mac that predates it sends
+     * only `text`.
+     */
+    hook?: LiveHookNotice
   }
   /** `compaction` rows only. Mirrors `server/src/types.ts`. */
   compaction?: CompactionMark

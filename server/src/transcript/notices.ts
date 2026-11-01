@@ -1,3 +1,4 @@
+import { STOP_HOOK_EVENT, hookNoticeText, type LiveHookNotice } from '@orbital/shared/hookNotice';
 import type { ChatMessage, LoginKind, NoticeLevel } from '../types.js';
 
 /**
@@ -247,30 +248,19 @@ export function loginLostNotice(
   };
 }
 
-// ---- A Stop hook (spec 2026-10-31-message-beats-stop-hook-design) ---------
+// ---- A running hook (spec 2026-10-31-message-beats-stop-hook-design) -----
+
+export { STOP_HOOK_EVENT };
 
 /**
- * The hook event the CLI runs once the main loop has finished its answer,
- * before the turn's `result`. A subagent's end runs `SubagentStop`, which is
- * not this.
+ * The live row while hooks hold the session: their event, the tool and the
+ * command where they are known (canvas `Feature - Stop hook` 1e), and
+ * whether a message the user sent waits for them. The clients draw it from
+ * `notice.hook`, with a Cancel only where it is `cancellable`; `text` says
+ * the same in one line for a client that predates `hook`.
  */
-export const STOP_HOOK_EVENT = 'Stop';
-
-/**
- * The live row while the main loop's `Stop` hooks run. The SDK's hook events
- * name the event and not the command (`hook_name` is the event itself for
- * `Stop`, which takes no matcher), so the row says how many there are, and
- * whether a message the user sent waits for them. The clients draw it with
- * a Cancel that interrupts the session, which cancels the hooks.
- */
-export function stopHookRunningNotice(id: string, count: number, messageWaits: boolean): ChatMessage {
-  const running = count > 1 ? 'Stop hooks running' : 'Stop hook running';
-  return {
-    id,
-    role: 'notice',
-    text: messageWaits ? `${running} — your message waits for ${count > 1 ? 'them' : 'it'}` : running,
-    notice: { level: 'info' },
-  };
+export function hookRunningNotice(id: string, hook: LiveHookNotice): ChatMessage {
+  return { id, role: 'notice', text: hookNoticeText(hook), notice: { level: 'info', hook } };
 }
 
 /**
@@ -282,8 +272,9 @@ export function stopHookCancelledNotice(id: string, timestamp?: string): ChatMes
   return {
     id,
     role: 'notice',
-    text: 'Stop hook cancelled',
+    text: 'Stop hook cancelled.',
     ...(timestamp ? { timestamp } : {}),
-    notice: { level: 'info' },
+    // Canvas 1c HISTORY: an ordinary NOTICE row, ○.
+    notice: { level: 'notice' },
   };
 }

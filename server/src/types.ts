@@ -1,6 +1,7 @@
 import type { WalkthroughTag } from './walkthrough/tag.js';
 import type { RecentTool } from './transcript/recentTools.js';
 import type { HarnessMessageKind } from './harness/types.js';
+import type { LiveHookNotice } from '@orbital/shared/hookNotice';
 
 export type SessionSource = 'terminal' | 'web';
 /** Why Orbital started a session: `harness_draft` is a harness template's drafting conversation. */
@@ -179,6 +180,11 @@ export interface ChatMessage {
     limitReset?: LimitResetNotice;
     /** `login_lost` and `login_restored` rows only. */
     login?: LoginLostNotice | LoginRestoredNotice;
+    /**
+     * The live row while hooks hold the session (`live_notice`), drawn from
+     * this; `text` says the same for a client that predates it.
+     */
+    hook?: LiveHookNotice;
   };
   /** Images this message carries — refs into the image store, never data.
    * A pasted user image is its own message (no text); a tool_result keeps

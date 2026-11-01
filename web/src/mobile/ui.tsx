@@ -96,10 +96,28 @@ export function PrimaryButton({
 /**
  * `variant="compact"` is the one inside a row (60d's Read again): as tall as
  * a touch target, as wide as its word.
+ *
+ * `variant="row-pill"` is the action of a one-line row (`Feature - Stop hook`
+ * 1d PHONE): a 28px pill drawn inside a 44 × 64 target, which the caller
+ * lays out at the pill's height with a negative margin.
  */
 export function SecondaryButton({
   children, onClick, disabled, type = 'button', variant = 'screen',
-}: Omit<ButtonProps, 'variant'> & { variant?: ButtonProps['variant'] | 'compact' }) {
+}: Omit<ButtonProps, 'variant'> & { variant?: ButtonProps['variant'] | 'compact' | 'row-pill' }) {
+  if (variant === 'row-pill') {
+    return (
+      <button
+        type={type}
+        onClick={onClick}
+        disabled={disabled}
+        className="grid h-11 min-w-16 shrink-0 place-items-center px-0.5 disabled:opacity-55"
+      >
+        <span className="flex h-7 items-center rounded-[8px] border border-line/18 px-[11px] fs-13 font-semibold text-ink-200/90">
+          {children}
+        </span>
+      </button>
+    )
+  }
   return (
     <button
       type={type}

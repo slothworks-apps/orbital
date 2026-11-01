@@ -512,6 +512,17 @@ describe('select with turns the CLI holds queued', () => {
     expect(useOrbital.getState().transcripts.s1).toEqual([history, echo])
   })
 
+  it('shows a turn the socket delivered from another window once when a reload lists it queued', async () => {
+    vi.mocked(api.getMessagesPage).mockResolvedValueOnce({ messages: [history], queued: [], liveNotice: null })
+    await useOrbital.getState().select('s1')
+    const fromElsewhere: ChatMessage = { id: 'sent:u9', role: 'user', text: 'waits', uuid: 'u9' }
+    useOrbital.getState().applySessionEvent('s1', { event: 'message', message: fromElsewhere })
+    vi.mocked(api.getMessagesPage).mockResolvedValueOnce({ messages: [history], queued: [queued], liveNotice: notice })
+    await useOrbital.getState().reloadTranscript('s1')
+    // One bubble, under the server's current name for it.
+    expect(useOrbital.getState().transcripts.s1).toEqual([history, queued])
+  })
+
   it('a reload follows the server: the file\'s copy replaces a turn it no longer holds queued', async () => {
     vi.mocked(api.getMessagesPage).mockResolvedValueOnce({ messages: [history], queued: [queued], liveNotice: notice })
     await useOrbital.getState().select('s1')
