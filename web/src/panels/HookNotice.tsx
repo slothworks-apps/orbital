@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import {
-  STOP_HOOK_EVENT, hookNoticeDetail, hookNoticeLead, hookNoticeText, hookWaitCaption, type LiveHookNotice,
+  STOP_HOOK_EVENT, hookNoticeDetail, hookNoticeLead, hookWaitCaption, type LiveHookNotice,
 } from '@orbital/shared/hookNotice'
 import { api } from '../lib/api'
 import { reportError } from '../lib/errors'
@@ -44,10 +44,14 @@ export function hookRowOf(message: ChatMessage): { hook: LiveHookNotice | null; 
   return { hook, lead: hookNoticeLead(hook), detail: hookNoticeDetail(hook), cancellable: hook.cancellable }
 }
 
-/** 1e: a row without Cancel says on hover what stops it instead. */
-export function hookRowTip(message: ChatMessage): string {
+/**
+ * The row's tooltip (1d, 1e): a Stop row shows its commands in full, which
+ * the line truncates first, and none where it names none; a row without
+ * Cancel says what stops it instead.
+ */
+export function hookRowTip(message: ChatMessage): string | undefined {
   const { hook, detail, cancellable } = hookRowOf(message)
-  if (cancellable) return hook ? hookNoticeText(hook) : (message.text ?? '')
+  if (cancellable) return hook?.commands?.length ? hook.commands.join(' · ') : undefined
   return ['Stopping this hook stops the turn: use Stop.', detail.join(' · ')].filter(Boolean).join(' ')
 }
 

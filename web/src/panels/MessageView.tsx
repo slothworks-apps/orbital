@@ -383,6 +383,7 @@ export function MessageView({ message, streaming = false, rewindMark, waiting = 
   const boxed = waiting && isUser && hasImages
   const textBubble = (hasText || (!command && !hasImages && files.length === 0)) && (
     <div
+      data-waiting-text={boxed || undefined}
       className={[
         // A URL, a path or a word with no spaces breaks wherever it has to
         // instead of widening the whole transcript; inherited by links,
@@ -458,7 +459,7 @@ export function MessageView({ message, streaming = false, rewindMark, waiting = 
           <ImageThumb
             image={image}
             messageId={message.id}
-            variant={isUser && !hasText && !command ? 'user-solo' : 'user'}
+            variant={boxed ? 'waiting' : isUser && !hasText && !command ? 'user-solo' : 'user'}
             source={provenance?.name ?? 'pasted image'}
             widthCapPx={images.length > 1 ? TWO_UP_WIDTH_PX : undefined}
           />
@@ -496,7 +497,8 @@ export function MessageView({ message, streaming = false, rewindMark, waiting = 
       className={['flex flex-col gap-1', isUser && authored ? 'items-end' : 'items-start'].join(' ')}
     >
       {boxed && (
-        <div className="flex max-w-[86%] flex-col items-end gap-2 rounded-[12px_12px_4px_12px] border border-dashed border-accent/30 p-2">
+        // The phone's corners and text inset are `mobile.css`'s (1g PHONE).
+        <div data-waiting-box className="flex max-w-[86%] flex-col items-end gap-2 rounded-[12px_12px_4px_12px] border border-dashed border-accent/30 p-2">
           {imageRow}
           {textBubble}
         </div>

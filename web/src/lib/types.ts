@@ -755,6 +755,8 @@ export interface ChatMessage {
    * `server/src/types.ts`.
    */
   uuid?: string
+  /** A message the CLI folded into a running turn: the uuid it was sent under. Mirrors `server/src/types.ts`. */
+  sentUuid?: string
   /** `user` rows only: can be picked as a rewind target. Absent means not. */
   rewindable?: true
   /**

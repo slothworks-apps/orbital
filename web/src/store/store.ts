@@ -927,6 +927,11 @@ export function isPendingTurn(message: ChatMessage): boolean {
   return (message.id.startsWith('local:') || message.id.startsWith(QUEUED_TURN_PREFIX)) && message.role === 'user'
 }
 
+/** Whether `message` is a turn this tab sent and appended optimistically itself. */
+export function isOwnPendingTurn(message: ChatMessage): boolean {
+  return message.id.startsWith('local:') && message.role === 'user'
+}
+
 /**
  * `rows` with the server's queued turns after them (`MessagesPage.queued`),
  * in place of any it returned before: the server's list is the current one.
@@ -936,17 +941,59 @@ export function isPendingTurn(message: ChatMessage): boolean {
 function withQueuedTurns(rows: readonly ChatMessage[], queued: readonly ChatMessage[] | undefined): ChatMessage[] {
   const kept = rows.filter((m) => !m.id.startsWith(QUEUED_TURN_PREFIX))
   const shown = (q: ChatMessage) =>
-    kept.some((m) => (q.uuid !== undefined && m.uuid === q.uuid) || (isPendingTurn(m) && echoes(q, m)))
+    kept.some((m) => (q.uuid !== undefined && carriesUuid(m, q.uuid)) || (isPendingTurn(m) && echoes(q, m)))
   return [...kept, ...(queued ?? []).filter((q) => !shown(q))]
 }
 
-/** The page's live notice seated for `id`; nothing from a Mac that sends none. */
+/** Whether `m` is the turn sent under `uuid`: written under it, or folded into a running turn from it (`sentUuid`). */
+function carriesUuid(m: ChatMessage, uuid: string): boolean {
+  return m.uuid === uuid || m.sentUuid === uuid
+}
+
+/**
+ * The id prefix the server publishes a sent turn under on the session's
+ * topic. Mirrors the server's `SENT_TURN_PREFIX`.
+ */
+const SENT_TURN_PREFIX = 'sent:'
+
+/**
+ * What a transcript held keeps across a read of the file: the turns sent that
+ * the file has not written yet — this tab's own, and the ones the socket
+ * delivered from elsewhere — and nothing the read has. A page built before
+ * the CLI wrote a turn then neither drops it nor shows it twice.
+ */
+function unwrittenTurns(current: readonly ChatMessage[], fetched: readonly ChatMessage[]): ChatMessage[] {
+  return current.filter(
+    (m) =>
+      (isPendingTurn(m) || m.id.startsWith(SENT_TURN_PREFIX)) &&
+      !fetched.some((f) => (m.uuid !== undefined && carriesUuid(f, m.uuid)) || echoes(f, m)),
+  )
+}
+
+/**
+ * How many times each session's live notice changed since this page loaded,
+ * by whatever path. A page asked for before the newest change carries an
+ * older notice than the store holds, and does not seat it.
+ */
+const liveNoticeChanges: Record<string, number> = {}
+
+/** The stamp a page request takes before it goes out, for `seatedLiveNotice`. */
+function liveNoticeStamp(id: string): number {
+  return liveNoticeChanges[id] ?? 0
+}
+
+/**
+ * The page's live notice seated for `id`; nothing from a Mac that sends none,
+ * nor where the notice changed while the page was in flight (`asked`, its
+ * `liveNoticeStamp`): the socket's word is the newer one.
+ */
 function seatedLiveNotice(
   state: Pick<OrbitalState, 'liveNotices'>,
   id: string,
   page: MessagesPage,
+  asked: number,
 ): Partial<Pick<OrbitalState, 'liveNotices'>> {
-  if (page.liveNotice === undefined) return {}
+  if (page.liveNotice === undefined || liveNoticeStamp(id) !== asked) return {}
   return { liveNotices: withLiveNotice(state.liveNotices, id, page.liveNotice) }
 }
 
@@ -1276,6 +1323,7 @@ function withLiveNotice(
   sessionId: string,
   message: ChatMessage | null,
 ): Record<string, ChatMessage> {
+  liveNoticeChanges[sessionId] = liveNoticeStamp(sessionId) + 1
   if (message) return { ...notices, [sessionId]: message }
   if (!(sessionId in notices)) return notices
   const rest = { ...notices }
@@ -1550,14 +1598,21 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // snapshot's page does not reach it).
       if (selectedId) await get().loadSessionHistory(selectedId)
       // Fetched before the swap, so the open transcript never flashes empty.
+      const asked = selectedId ? liveNoticeStamp(selectedId) : 0
       const fetched = selectedId ? await messagesPage(selectedId) : null
 
       set((state) =>
         selectedId && fetched
           ? {
-              transcripts: { [selectedId]: withQueuedTurns(fetched.messages, fetched.queued) },
+              transcripts: {
+                [selectedId]: withQueuedTurns(
+                  // What the socket delivered while the page was out stays.
+                  [...fetched.messages, ...unwrittenTurns(state.transcripts[selectedId] ?? [], fetched.messages)],
+                  fetched.queued,
+                ),
+              },
               historyLoaded: { [selectedId]: true },
-              ...seatedLiveNotice(state, selectedId, fetched),
+              ...seatedLiveNotice(state, selectedId, fetched, asked),
             }
           : { transcripts: {}, historyLoaded: {} },
       )
@@ -1600,6 +1655,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
 
   async reloadTranscript(id) {
     if (!get().historyLoaded[id]) return
+    const asked = liveNoticeStamp(id)
     const page = await messagesPage(id)
     const fetched = page.messages
     set((state) => {
@@ -1608,12 +1664,10 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
       // The file is the whole truth except for a turn typed a moment ago
       // that it has not echoed yet, and the turns the server holds queued.
       const current = state.transcripts[id] ?? []
-      const pending = current.filter(
-        (m) => isPendingTurn(m) && !fetched.some((f) => echoes(f, m)),
-      )
+      const pending = unwrittenTurns(current, fetched)
       return {
         transcripts: { ...state.transcripts, [id]: withQueuedTurns([...fetched, ...pending], page.queued) },
-        ...seatedLiveNotice(state, id, page),
+        ...seatedLiveNotice(state, id, page, asked),
       }
     })
   },
@@ -1727,10 +1781,14 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
           // The echo wins on everything the server owns, but the captions are
           // local-only: an SDK image block carries no name, so dropping them
           // here would blank every caption the moment the echo landed.
-          const provenance = existing[pendingIdx].imageProvenance
-          updated[pendingIdx] = provenance
-            ? { ...msg.message, imageProvenance: provenance }
-            : msg.message
+          // The harness's mark too: a queued turn a harness sent carries it
+          // from the page, and the echo does not.
+          const { imageProvenance: provenance, harnessMessage } = existing[pendingIdx]
+          updated[pendingIdx] = {
+            ...msg.message,
+            ...(provenance ? { imageProvenance: provenance } : {}),
+            ...(harnessMessage && !msg.message.harnessMessage ? { harnessMessage } : {}),
+          }
           set({ transcripts: { ...state.transcripts, [sessionId]: updated } })
           return
         }
@@ -2151,6 +2209,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
     // Its subagents and tasks too: the list carries only the running ones.
     void get().loadSessionHistory(id)
     try {
+      const asked = liveNoticeStamp(id)
       const page = await messagesPage(id)
       set((state) => {
         // Left again while the fetch was in flight: seating the history now
@@ -2166,7 +2225,7 @@ export const useOrbital = create<OrbitalStore>()((set, get) => ({
         return {
           transcripts: { ...state.transcripts, [id]: withQueuedTurns([...toPrepend, ...existing], page.queued) },
           historyLoaded: { ...state.historyLoaded, [id]: true },
-          ...seatedLiveNotice(state, id, page),
+          ...seatedLiveNotice(state, id, page, asked),
         }
       })
       set((state) => {

@@ -59,8 +59,8 @@ describe('TranscriptView — what a hook holds back', () => {
     { id: '1', role: 'user', text: 'go' },
     { id: '2', role: 'assistant', text: 'Done.' },
   ]
-  /** A turn this tab sent, not echoed yet. */
-  const local = (n: number): ChatMessage => ({ id: `local:${n}`, role: 'user', text: `next ${n}` })
+  /** A turn this tab sent, not echoed yet; its send answered with the uuid. */
+  const local = (n: number): ChatMessage => ({ id: `local:${n}`, role: 'user', text: `next ${n}`, uuid: `l${n}` })
   /** A turn another window, the phone or the API sent, as the socket delivers it. */
   const fromElsewhere = (n: number): ChatMessage => ({ id: `sent:u${n}`, role: 'user', text: `next ${n}`, uuid: `u${n}` })
   const notice = (waiting?: string[]): ChatMessage => ({
@@ -92,10 +92,10 @@ describe('TranscriptView — what a hook holds back', () => {
   )
 
   it('puts the live row after what went out and before the messages waiting behind it, captioned once', () => {
-    const { container, rerender } = render(view([...answered, local(1)], notice([])))
+    const { container, rerender } = render(view([...answered, local(1)], notice(['l1'])))
     expect(order(container)).toEqual(['1', '2', 'live', 'local:1', 'caption:1'])
     const row = container.querySelector('[data-testid="live"]')
-    rerender(view([...answered, local(1), local(2)], notice([])))
+    rerender(view([...answered, local(1), local(2)], notice(['l1', 'l2'])))
     expect(order(container)).toEqual(['1', '2', 'live', 'local:1', 'local:2', 'caption:2'])
     // A message sent behind it does not remount the row.
     expect(container.querySelector('[data-testid="live"]')).toBe(row)
@@ -114,6 +114,12 @@ describe('TranscriptView — what a hook holds back', () => {
     rerender(view(rows, undefined))
     expect(dashed(container)).toEqual([false, false, false])
     expect(order(container)).not.toContain('caption:1')
+  })
+
+  it('leaves a pending turn the Mac does not name an ordinary one, above the row', () => {
+    const { container } = render(view([...answered, local(1), { ...local(2), uuid: undefined }], notice([])))
+    expect(order(container)).toEqual(['1', '2', 'local:1', 'local:2', 'live'])
+    expect(dashed(container)).toEqual([false, false, false])
   })
 
   it('puts it last when nothing waits', () => {

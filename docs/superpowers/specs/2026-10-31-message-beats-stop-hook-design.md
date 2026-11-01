@@ -87,16 +87,26 @@ runs: an interrupt while a tool or a model call runs stops the turn as today.
 Design: Claude Design `Feature - Stop hook.dc.html` (1a–1g), except the
 session header naming the hook, which is left out.
 
-Orbital asks the SDK for hook events (`includeHookEvents`). While any hook of
-the main loop has run for `HOOK_NOTICE_AFTER_MS`, one live row sits under the
-last block of the transcript, where the compaction block and the limit wait
+Orbital asks the SDK for hook events (`includeHookEvents`). While a hook has run for `HOOK_NOTICE_AFTER_MS` (each kind of hook timed from
+its own oldest running one), one live row sits under the last block of the
+transcript, where the compaction block and the limit wait
 sit: the event's name verbatim and "hook running" ("hooks" for several), then
 in muted ink the tool, for events that have one, and the command. The SDK's
 `hook_name` carries the event and its match query (`PreToolUse:Bash`) but not
 the command, so the runner looks it up in the hook settings the CLI reads
 (`<claudeDir>/settings.json`, the project's `.claude/settings.json` and
-`.claude/settings.local.json`) and names it only when exactly one command is
-configured for that event and matcher. Plugin and managed hooks are not read.
+`.claude/settings.local.json`, cached by modification time) and names the
+commands only when it cannot be wrong: as many hooks of that kind started in
+this run as the settings configure, all of them still running, every entry a
+plain `command` without an `if`, and neither `disableAllHooks` nor
+`allowManagedHooksOnly` set. Several Stop hooks that pass read "Stop hooks
+running · pnpm test · tsc --noEmit". Plugin and managed hooks are not read,
+which is why a hook of theirs leaves the row unnamed.
+
+The SDK's hook events carry no agent id, so a subagent's hooks (any event but
+`Stop`) feed the row the same way the main loop's do. They never make it
+cancellable, and a message sent while one runs is not said to wait for a Stop
+hook. `SubagentStop` is its own event and always has a row without an action.
 
 Only a `Stop` hook's row carries Cancel. A hook of any other event runs inside
 the turn: stopping it stops the turn, which is the session's Stop button, so
@@ -109,7 +119,9 @@ not history: the runner publishes it on `session:<id>` as a `live_notice`
 event carrying a notice row with a structured `notice.hook` (`null` takes it
 down); its `text` stays complete for an older client. The newest page of the
 transcript (`GET /api/sessions/:id/messages`) carries it as `liveNotice`, and
-the messages the file does not hold yet as `queued`, so a client that opens
+the messages the file does not hold yet as `queued` (a message the CLI folds
+into the running turn counts as held once its `queued_command` attachment
+names it in `source_uuid`), so a client that opens
 the session, reloads or reconnects while a hook runs sees both. A client draws
 the row only while the session reads `working`, and drops it on `turn_result`,
 on a `sessions`-topic status other than `working`, and on reconnect.
@@ -118,7 +130,9 @@ A message sent while the row is up waits behind it: the row adds "— your
 message waits for it", the notice names the waiting messages' uuids in
 `notice.hook.waiting`, and every client draws those rows under the live row,
 dashed, with a caption ("‖ waits for the Stop hook", "3 messages wait for the
-Stop hook"), whichever device sent them. The runner forgets a queued message
+Stop hook"), whichever device sent them: the runner publishes a message it holds behind a
+turn in flight on `session:<id>` as an ordinary `message` with its `sent:` id,
+which every client already dedupes by id. The runner forgets a queued message
 once the file holds its uuid, once its own turn's `result` arrives, or when the
 session is released. An older client reads only `messages` and `text`.
 

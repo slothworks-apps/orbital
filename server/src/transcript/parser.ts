@@ -90,6 +90,34 @@ export function outsideConversation(e: TranscriptEntry): boolean {
   return e.isSidechain === true || e.isMeta === true;
 }
 
+/**
+ * A message the user sent mid-turn that the CLI folded into the running turn
+ * (CLI 2.1.280): it writes no `user` entry for it, only an `attachment` of
+ * type `queued_command` under a uuid of its own, with the prompt as sent and
+ * the uuid it was sent under in `source_uuid`. Read as the user entry it
+ * stands for, so the message is in the transcript on a reload as it was
+ * live; null for any other entry, a task notification (`commandMode`
+ * `task-notification`) and a message from another session (`origin.kind`
+ * `peer`) among them.
+ */
+export function foldedUserEntry(e: TranscriptEntry): { entry: TranscriptEntry; sentUuid: string | null } | null {
+  if (e.type !== 'attachment' || !e.attachment || typeof e.attachment !== 'object') return null;
+  const a = e.attachment as { type?: unknown; commandMode?: unknown; origin?: unknown; prompt?: unknown; source_uuid?: unknown; isMeta?: unknown };
+  if (a.type !== 'queued_command' || a.commandMode !== 'prompt') return null;
+  const origin = a.origin as { kind?: unknown } | null | undefined;
+  if (origin != null && origin.kind !== 'human') return null;
+  if (typeof a.prompt !== 'string' && !Array.isArray(a.prompt)) return null;
+  return {
+    entry: {
+      ...e,
+      type: 'user',
+      ...(a.isMeta === true ? { isMeta: true } : {}),
+      message: { role: 'user', content: a.prompt as string | Array<Record<string, unknown>> },
+    },
+    sentUuid: typeof a.source_uuid === 'string' ? a.source_uuid : null,
+  };
+}
+
 export function parseTranscriptLine(line: string): TranscriptEntry | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
@@ -385,7 +413,9 @@ export function entriesToMessages(
   // The main conversation's DesignSync calls, whose failures may name
   // `/design-login` (spec 2026-10-21-log-in-from-orbital-design § 3).
   const designCalls = new Set<string>();
-  for (const e of entries) {
+  for (const raw of entries) {
+    const folded = foldedUserEntry(raw);
+    const e = folded?.entry ?? raw;
     // The entry's uuid rides on every message it becomes: a rewind names its
     // target by it, and the messages API cuts and places dividers by it
     // (spec 2026-09-29-rewind-design § Ids). So does its `cwd`: a file link
@@ -394,6 +424,7 @@ export function entriesToMessages(
     const origin = {
       ...(typeof e.uuid === 'string' ? { uuid: e.uuid } : {}),
       ...(typeof e.cwd === 'string' && e.cwd ? { cwd: e.cwd } : {}),
+      ...(folded?.sentUuid ? { sentUuid: folded.sentUuid } : {}),
     };
     // A compaction becomes its own mark, carrying the summary from the entry
     // that follows it — the same item the runner builds live (spec

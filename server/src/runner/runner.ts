@@ -23,7 +23,8 @@ import {
   AUTHENTICATION_FAILED, STOP_HOOK_EVENT, designLoginLine, isDesignSyncTool, loginLostNotice, noticeFromSdkMessage,
   hookRunningNotice, stopHookCancelledNotice, textOfContent,
 } from '../transcript/notices.js';
-import { TOOL_HOOK_EVENTS, configuredHookCommand, hookMatchQuery, hookSettingsSources } from './hookCommand.js';
+import { TOOL_HOOK_EVENTS, configuredHookCommands, hookMatchQuery, hookSettingsSources } from './hookCommand.js';
+import type { LiveHookNotice } from '@orbital/shared/hookNotice';
 import { readRateLimitInfo, type RejectedLimit } from '../limits/logic.js';
 import {
   compactSummaryText,
@@ -135,6 +136,14 @@ const SENT_TURNS_KEPT = 50;
 
 /** The id prefix of a row `sentTurns` returns: a turn the CLI holds and the file does not have yet. */
 export const QUEUED_TURN_PREFIX = 'queued:';
+
+/**
+ * The id prefix of a sent turn as the session's topic carries it to every
+ * client: the composer's route publishes every send under it, and `send()`
+ * every send the CLI holds behind a turn in flight, whatever path it came
+ * by. A client drops the second copy by its id.
+ */
+export const SENT_TURN_PREFIX = 'sent:';
 
 /** The SDK's hook lifecycle messages, sent because the runner asks for them (`includeHookEvents`). */
 const HOOK_EVENT_SUBTYPES: ReadonlySet<string> = new Set(['hook_started', 'hook_progress', 'hook_response']);
@@ -579,7 +588,14 @@ interface RunningHook {
   event: string;
   /** What it was matched against: the tool, for the events that run per tool call (`hookMatchQuery`). */
   query: string | null;
+  /** The event and what it matched, together: the hooks one row names. */
+  kind: string;
   startedAt: number;
+}
+
+/** `RunningHook.kind`. */
+function hookKind(event: string, query: string | null): string {
+  return `${event}:${query ?? ''}`;
 }
 
 interface ManagedSession {
@@ -748,8 +764,14 @@ interface ManagedSession {
    * `hook_response`, the turn's end and an interrupt.
    */
   hooks: Map<string, RunningHook>;
-  /** Arms the live notice once a hook outlasts `HOOK_NOTICE_AFTER_MS`, for the hook it names. */
-  hookTimer: { timer: ReturnType<typeof setTimeout>; hookId: string } | null;
+  /** Fires when the next running hook will have run for `HOOK_NOTICE_AFTER_MS`, at `due`. */
+  hookTimer: { timer: ReturnType<typeof setTimeout>; due: number } | null;
+  /**
+   * How many hooks of each kind (`RunningHook.kind`) started since none of
+   * that kind ran: what the settings must configure for the row to name
+   * their commands.
+   */
+  hookRuns: Map<string, number>;
   /**
    * The id of the live notice on the clients' screens, or null: what it names
    * and its end must be published.
@@ -757,12 +779,16 @@ interface ManagedSession {
   hookNotice: string | null;
   /** The notice last published under `hookNotice`, so an unchanged one is not sent again. */
   hookNoticeShown: string | null;
+  /** The notice up names the main loop's `Stop` hooks: its Cancel may cancel them. */
+  hookNoticeCancellable: boolean;
   /**
    * The uuids of the messages sent while hooks ran, oldest first: the notice
    * says they wait, and the clients draw those rows under it. Forgotten when
    * the last hook ends.
    */
   messagesBehindHooks: string[];
+  /** Those of them sent while only the main loop's `Stop` hooks ran: the ones a Stop row says wait. */
+  messagesBehindStop: string[];
   /** The Claude directory whose `settings.json` the CLI reads hooks from, beside the project's (`hookCommand`). */
   claudeDir: string | null;
   /**
@@ -1572,8 +1598,9 @@ export class Runner {
       mcpSnapshot: null,
       limitRejected: null, turnError: null,
       designCalls: new Set(), designLoginLost: false,
-      stopHooks: new Set(), hooks: new Map(), hookTimer: null, hookNotice: null, hookNoticeShown: null,
-      messagesBehindHooks: [], claudeDir: null, stopHookCancelled: false,
+      stopHooks: new Set(), hooks: new Map(), hookTimer: null, hookRuns: new Map(), hookNotice: null,
+      hookNoticeShown: null, hookNoticeCancellable: false, messagesBehindHooks: [], messagesBehindStop: [],
+      claudeDir: null, stopHookCancelled: false,
       messageBehindStopHooks: null, promptBehindStopHook: null, stopHookCancelling: false, stopHookCancelTimer: null,
       results: 0, sentTurns: new Map(),
     };
@@ -2194,15 +2221,19 @@ export class Runner {
    * One hook lifecycle message. Every hook is kept for the live row
    * (`hooks`); the main loop's `Stop` hooks are kept apart as well, for the
    * message that waits behind them and for Cancel (`stopHooks`). A
-   * subagent's end runs `SubagentStop`, which is not one of them.
+   * subagent's end runs `SubagentStop`, which is not one of them, and the
+   * events carry no agent: a subagent's other hooks feed the row as the main
+   * loop's do, but never a `Stop` row.
    */
   private onHookEvent(sessionId: string, state: ManagedSession, msg: any): void {
     if (typeof msg.hook_id !== 'string' || typeof msg.hook_event !== 'string') return;
     const stop = msg.hook_event === STOP_HOOK_EVENT;
     if (msg.subtype === 'hook_started') {
-      state.hooks.set(msg.hook_id, {
-        event: msg.hook_event, query: hookMatchQuery(msg.hook_name, msg.hook_event), startedAt: Date.now(),
-      });
+      const query = stop ? null : hookMatchQuery(msg.hook_name, msg.hook_event);
+      const kind = hookKind(msg.hook_event, query);
+      const running = [...state.hooks.values()].some((h) => h.kind === kind);
+      state.hookRuns.set(kind, (running ? (state.hookRuns.get(kind) ?? 0) : 0) + 1);
+      state.hooks.set(msg.hook_id, { event: msg.hook_event, query, kind, startedAt: Date.now() });
       if (stop) state.stopHooks.add(msg.hook_id);
       this.refreshHookNotice(sessionId, state);
       return;
@@ -2223,86 +2254,108 @@ export class Runner {
   }
 
   /**
-   * Keeps the live notice in step with the hooks running now: down when none
-   * runs, republished while it is up, and armed for the oldest hook while it
-   * is not — so only a hook that has run for `HOOK_NOTICE_AFTER_MS` raises it.
+   * Keeps the live notice in step with the hooks running now: up for the
+   * hooks of one kind once they have run for `HOOK_NOTICE_AFTER_MS`,
+   * republished as they change, down when none such runs — and a timer for
+   * the next hook to come of age.
    */
   private refreshHookNotice(sessionId: string, state: ManagedSession): void {
     if (state.hooks.size === 0) {
       state.messagesBehindHooks = [];
-      if (state.hookTimer) clearTimeout(state.hookTimer.timer);
-      state.hookTimer = null;
-      if (state.hookNotice === null) return;
-      state.hookNotice = null;
-      state.hookNoticeShown = null;
-      this.hub.publish(`session:${sessionId}`, { event: 'live_notice', message: null });
-      return;
+      state.messagesBehindStop = [];
+      state.hookRuns.clear();
     }
-    if (state.hookNotice !== null) {
-      this.publishHookNotice(sessionId, state);
-      return;
+    const now = Date.now();
+    const hook = this.describeHooks(state, now);
+    if (hook) this.publishHookNotice(sessionId, state, hook);
+    else this.takeHookNoticeDown(sessionId, state);
+    this.armHookTimer(sessionId, state, now);
+  }
+
+  /** Times the next hook to have run for `HOOK_NOTICE_AFTER_MS`, if any is still younger. */
+  private armHookTimer(sessionId: string, state: ManagedSession, now: number): void {
+    let due = Infinity;
+    for (const h of state.hooks.values()) {
+      const at = h.startedAt + this.hookNoticeAfterMs;
+      if (at > now && at < due) due = at;
     }
-    const [oldestId, oldest] = [...state.hooks].reduce((a, b) => (b[1].startedAt < a[1].startedAt ? b : a));
-    // Armed for the oldest already: a younger one cannot raise it sooner.
-    if (state.hookTimer?.hookId === oldestId) return;
+    if (state.hookTimer?.due === due) return;
     if (state.hookTimer) clearTimeout(state.hookTimer.timer);
+    state.hookTimer = null;
+    if (due === Infinity) return;
     const timer = setTimeout(() => {
       state.hookTimer = null;
-      if (this.sessions.get(sessionId) !== state) return;
-      // The hook it waited for ended: the next oldest is timed from its own start.
-      if (!state.hooks.has(oldestId)) {
-        this.refreshHookNotice(sessionId, state);
-        return;
-      }
-      state.hookNotice = `${sessionId}:${++this.seq}:0`;
-      this.publishHookNotice(sessionId, state);
-    }, Math.max(0, oldest.startedAt + this.hookNoticeAfterMs - Date.now()));
+      if (this.sessions.get(sessionId) === state) this.refreshHookNotice(sessionId, state);
+    }, due - now);
     (timer as unknown as { unref?: () => void }).unref?.();
-    state.hookTimer = { timer, hookId: oldestId };
+    state.hookTimer = { timer, due };
   }
 
   /**
-   * The live notice for the hooks running now, under its one id, or null
-   * while it is not up. The main loop's `Stop` hooks, while they run, are
-   * the only ones then (the CLI runs them once everything else is done);
-   * otherwise it names the oldest hook and the ones of its kind beside it.
+   * What the row says about the hooks running now, or null while none has
+   * run long enough to show. The main loop's `Stop` hooks, once the oldest
+   * of them has, come first: they are what the turn waits on, and the only
+   * ones a Cancel may stop — a `Stop` hook younger than the delay never
+   * borrows a row another kind raised. Otherwise the oldest kind of age, with
+   * the ones of its kind beside it.
    */
-  private hookNoticeRow(state: ManagedSession): ChatMessage | null {
-    if (state.hookNotice === null || state.hooks.size === 0) return null;
-    let kind: RunningHook;
-    let count: number;
-    if (state.stopHooks.size > 0) {
-      kind = { event: STOP_HOOK_EVENT, query: null, startedAt: 0 };
-      count = state.stopHooks.size;
-    } else {
-      kind = [...state.hooks.values()].reduce((a, b) => (b.startedAt < a.startedAt ? b : a));
-      count = [...state.hooks.values()].filter((h) => h.event === kind.event && h.query === kind.query).length;
+  private describeHooks(state: ManagedSession, now: number): LiveHookNotice | null {
+    const ofAge = (startedAt: number) => now - startedAt >= this.hookNoticeAfterMs;
+    const oldestBy = new Map<string, RunningHook>();
+    const counts = new Map<string, number>();
+    for (const h of state.hooks.values()) {
+      counts.set(h.kind, (counts.get(h.kind) ?? 0) + 1);
+      const held = oldestBy.get(h.kind);
+      if (!held || h.startedAt < held.startedAt) oldestBy.set(h.kind, h);
     }
-    // With two of a kind the row cannot say which command it is; with one, a
-    // plugin's could still be the one running, so only the settings' sole
-    // command for it is named.
-    const command = count === 1 && state.claudeDir !== null
-      ? configuredHookCommand(hookSettingsSources(state.attempt.cwd, state.claudeDir), kind.event, kind.query)
+    const stopKind = hookKind(STOP_HOOK_EVENT, null);
+    const stop = oldestBy.get(stopKind);
+    let shown: RunningHook | undefined = stop && ofAge(stop.startedAt) ? stop : undefined;
+    if (!shown) {
+      for (const h of oldestBy.values()) {
+        if (h.kind === stopKind || !ofAge(h.startedAt)) continue;
+        if (!shown || h.startedAt < shown.startedAt) shown = h;
+      }
+    }
+    if (!shown) return null;
+    const count = counts.get(shown.kind) ?? 0;
+    const started = state.hookRuns.get(shown.kind) ?? count;
+    // Named only while every hook of the run still runs and the settings
+    // configure exactly that many: one a plugin or a policy added, or one an
+    // `if` skipped, would make the counts differ.
+    const configured = count === started && state.claudeDir !== null
+      ? configuredHookCommands(hookSettingsSources(state.attempt.cwd, state.claudeDir), shown.event, shown.query)
       : null;
-    return hookRunningNotice(state.hookNotice, {
-      event: kind.event,
-      ...(kind.query !== null && TOOL_HOOK_EVENTS.has(kind.event) ? { tool: kind.query } : {}),
-      ...(command !== null ? { command } : {}),
+    const cancellable = shown.kind === stopKind;
+    const waiting = cancellable ? state.messagesBehindStop : state.messagesBehindHooks;
+    return {
+      event: shown.event,
+      ...(shown.query !== null && TOOL_HOOK_EVENTS.has(shown.event) ? { tool: shown.query } : {}),
+      ...(configured !== null && configured.length > 0 && configured.length === started ? { commands: configured } : {}),
       count,
-      cancellable: kind.event === STOP_HOOK_EVENT,
-      messagesWaiting: state.messagesBehindHooks.length,
-      waiting: [...state.messagesBehindHooks],
-    });
+      cancellable,
+      messagesWaiting: waiting.length,
+      waiting: [...waiting],
+    };
   }
 
-  /** Publishes the live notice for the hooks running now, unless it says what it said last. */
-  private publishHookNotice(sessionId: string, state: ManagedSession): void {
-    const row = this.hookNoticeRow(state);
-    if (row === null) return;
+  /** Publishes the live notice under its one id, unless it says what it said last. */
+  private publishHookNotice(sessionId: string, state: ManagedSession, hook: LiveHookNotice): void {
+    state.hookNotice ??= `${sessionId}:${++this.seq}:0`;
+    state.hookNoticeCancellable = hook.cancellable;
+    const row = hookRunningNotice(state.hookNotice, hook);
     const shown = JSON.stringify(row);
     if (shown === state.hookNoticeShown) return;
     state.hookNoticeShown = shown;
     this.hub.publish(`session:${sessionId}`, { event: 'live_notice', message: row });
+  }
+
+  private takeHookNoticeDown(sessionId: string, state: ManagedSession): void {
+    if (state.hookNotice === null) return;
+    state.hookNotice = null;
+    state.hookNoticeShown = null;
+    state.hookNoticeCancellable = false;
+    this.hub.publish(`session:${sessionId}`, { event: 'live_notice', message: null });
   }
 
   /** Forgets the running Stop hooks, and the row moves on to whatever else runs, or goes. */
@@ -2310,6 +2363,7 @@ export class Runner {
     for (const id of state.stopHooks) state.hooks.delete(id);
     state.stopHooks.clear();
     state.messageBehindStopHooks = null;
+    state.messagesBehindStop = [];
     this.refreshHookNotice(sessionId, state);
   }
 
@@ -3153,12 +3207,19 @@ export class Runner {
     s.turnPrompt = text;
     this.setStatus(sessionId, 'working');
     this.enqueue(sessionId, msg);
-    this.noteSentTurn(s, uuid, text, attachments, inFlight);
+    const sent = this.noteSentTurn(s, uuid, text, attachments, inFlight);
+    // Held behind the turn in flight, it reaches every open client now, from
+    // whichever path sent it — the control API's, a harness's, a limit
+    // wait's — and not only once one reads the transcript again.
+    if (inFlight) {
+      this.hub.publish(`session:${sessionId}`, { event: 'message', message: { ...sent, id: `${SENT_TURN_PREFIX}${uuid}` } });
+    }
     // The CLI holds it until the hooks end; the notice says it waits.
     if (behindStopHooks && s.messageBehindStopHooks === null) s.messageBehindStopHooks = text;
     if (inFlight && s.hooks.size > 0) {
       s.messagesBehindHooks.push(uuid);
-      this.publishHookNotice(sessionId, s);
+      if (behindStopHooks) s.messagesBehindStop.push(uuid);
+      this.refreshHookNotice(sessionId, s);
     }
     return uuid;
   }
@@ -3251,7 +3312,8 @@ export class Runner {
    */
   async interrupt(sessionId: string, opts: { stopHookNotice?: string } = {}): Promise<void> {
     const running = this.sessions.get(sessionId);
-    const hooksOnly = running !== undefined && running.hookNotice !== null && this.onlyStopHooksRun(running);
+    const hooksOnly = running !== undefined && running.hookNotice !== null && running.hookNoticeCancellable &&
+      this.onlyStopHooksRun(running);
     if (opts.stopHookNotice !== undefined && (!hooksOnly || running?.hookNotice !== opts.stopHookNotice)) return;
     if (running && hooksOnly) {
       await this.cancelStopHooks(sessionId, running);
@@ -3484,7 +3546,7 @@ export class Runner {
     throw new Error(`the session's claude process did not exit within ${timeoutMs / 1000} s`);
   }
 
-  private noteSentTurn(s: ManagedSession, uuid: string, text: string, attachments: string[] | undefined, inFlight: boolean): void {
+  private noteSentTurn(s: ManagedSession, uuid: string, text: string, attachments: string[] | undefined, inFlight: boolean): ChatMessage {
     const images = (attachments ?? []).flatMap((ref) => this.images?.entry(ref) ?? []);
     const row: ChatMessage = {
       id: `${QUEUED_TURN_PREFIX}${uuid}`,
@@ -3496,6 +3558,7 @@ export class Runner {
     };
     s.sentTurns.set(uuid, { row, due: s.results + (inFlight ? 2 : 1) });
     while (s.sentTurns.size > SENT_TURNS_KEPT) s.sentTurns.delete(s.sentTurns.keys().next().value as string);
+    return row;
   }
 
   /**
@@ -3508,6 +3571,9 @@ export class Runner {
     const s = this.sessions.get(sessionId);
     if (!s) return [];
     for (const uuid of [...s.sentTurns.keys()]) if (inFile(uuid)) s.sentTurns.delete(uuid);
+    // One the file holds was delivered: it no longer waits behind a hook.
+    s.messagesBehindHooks = s.messagesBehindHooks.filter((uuid) => s.sentTurns.has(uuid));
+    s.messagesBehindStop = s.messagesBehindStop.filter((uuid) => s.sentTurns.has(uuid));
     return [...s.sentTurns.values()].map((t) => t.row);
   }
 
@@ -3517,7 +3583,9 @@ export class Runner {
    */
   liveNotice(sessionId: string): ChatMessage | null {
     const s = this.sessions.get(sessionId);
-    return s ? this.hookNoticeRow(s) : null;
+    if (!s || s.hookNotice === null) return null;
+    const hook = this.describeHooks(s, Date.now());
+    return hook ? hookRunningNotice(s.hookNotice, hook) : null;
   }
 
   /**

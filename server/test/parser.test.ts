@@ -624,6 +624,30 @@ describe('extractMeta skip', () => {
   });
 });
 
+// A message sent mid-turn that the CLI folded into the turn (CLI 2.1.280,
+// trimmed): an attachment, not a user entry.
+describe('entriesToMessages: a message folded into the running turn', () => {
+  const folded = (attachment: Record<string, unknown>) => ({
+    type: 'attachment', uuid: 'a7', parentUuid: 'a1', isSidechain: false, timestamp: '2026-09-24T08:58:21.088Z',
+    attachment: { type: 'queued_command', source_uuid: 'u9', commandMode: 'prompt', ...attachment },
+  });
+
+  it('is the user\'s message, carrying the uuid it was sent under', () => {
+    const msgs = entriesToMessages([folded({ prompt: 'ask if unsure', origin: { kind: 'human' } })]);
+    expect(msgs).toEqual([expect.objectContaining({ id: 'a7:0', role: 'user', text: 'ask if unsure', uuid: 'a7', sentUuid: 'u9' })]);
+  });
+
+  it('reads a prompt sent as blocks, as an SDK send writes it', () => {
+    const msgs = entriesToMessages([folded({ prompt: [{ type: 'text', text: 'but do not commit' }], origin: null })]);
+    expect(msgs.map((m) => [m.role, m.text])).toEqual([['user', 'but do not commit']]);
+  });
+
+  it('leaves out a task notification and another session\'s message', () => {
+    expect(entriesToMessages([folded({ prompt: '<task-notification/>', commandMode: 'task-notification' })] as any)).toEqual([]);
+    expect(entriesToMessages([folded({ prompt: 'hi', origin: { kind: 'peer' }, isMeta: true })] as any)).toEqual([]);
+  });
+});
+
 // Spec 2026-10-31-message-beats-stop-hook-design § The cancelled hook. The
 // entries are CLI 2.1.280's, trimmed.
 describe('entriesToMessages: a cancelled Stop hook', () => {

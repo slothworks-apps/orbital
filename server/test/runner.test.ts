@@ -13,7 +13,7 @@ import type { PermissionMode, SessionRow, SessionStatus } from '../src/types.js'
 import type { PermissionWait } from '../src/stats/compute.js';
 import { statusOf, type ShapeContext } from '../src/api/shape.js';
 import { entriesToMessages } from '../src/transcript/parser.js';
-import { configuredHookCommand, hookMatchQuery } from '../src/runner/hookCommand.js';
+import { configuredHookCommands, hookMatchQuery } from '../src/runner/hookCommand.js';
 import { MAX_SUBAGENT_MESSAGES, SubagentTranscripts } from '../src/transcript/subagents.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -3433,45 +3433,93 @@ describe('Runner Stop hooks', () => {
     s.script.push(hookResponse('h1', 'success', 'PreToolUse'));
     s.script.push(hookResponse('h2', 'success', 'PreToolUse'));
     s.script.push(ANSWER);
-    // Two Stop commands configured: none is named, even with one running.
+    // Two Stop commands configured and one started: a plugin's, say. None is named.
     s.script.push(stopStarted('h3'));
     await vi.waitFor(() => expect(notices(s).at(-1)).toBe('Stop hook running'));
     expect(s.runner.liveNotice('web-1')?.notice?.hook?.cancellable).toBe(true);
+    // Both started: both named, in the settings' order.
+    s.script.push(stopStarted('h4'));
+    await vi.waitFor(() => expect(notices(s).at(-1)).toBe('Stop hooks running · pnpm test · tsc --noEmit'));
+    // One ended: which one, the SDK does not say.
+    s.script.push(hookResponse('h3', 'success'));
+    await vi.waitFor(() => expect(notices(s).at(-1)).toBe('Stop hook running'));
+  });
+
+  it('a Stop hook too young for the row does not take over a row another hook raised', async () => {
+    const s = stopHookSession({ noticeAfterMs: 300 });
+    await toolHooked(s, '/p', hookStarted('h1', 'SubagentStop'));
+    await vi.waitFor(() => expect(notices(s)).toEqual(['SubagentStop hook running']));
+    s.script.push(ANSWER);
+    s.script.push(stopStarted('h2'));
+    await drained();
+    expect(s.runner.liveNotice('web-1')?.notice?.hook?.event).toBe('SubagentStop');
+    // Its Cancel cannot reach the Stop hook yet: the row names another.
+    const id = s.events.find((e) => e.event === 'live_notice').message.id;
+    await s.runner.interrupt('web-1', { stopHookNotice: id });
+    expect(s.interrupt).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(s.runner.liveNotice('web-1')?.notice?.hook?.event).toBe('Stop'));
+    expect(s.runner.liveNotice('web-1')?.notice?.hook?.cancellable).toBe(true);
+  });
+
+  it("a message sent while a subagent's hook runs is not one the Stop row says waits", async () => {
+    const s = stopHookSession();
+    await toolHooked(s, '/p', hookStarted('h1', 'SubagentStop'));
+    const uuid = s.runner.send('web-1', 'next');
+    expect(s.runner.liveNotice('web-1')?.notice?.hook).toMatchObject({ event: 'SubagentStop', cancellable: false, waiting: [uuid] });
+    s.script.push(hookResponse('h1', 'success', 'SubagentStop'));
+    s.script.push(ANSWER);
+    s.script.push(stopStarted('h2'));
+    await vi.waitFor(() => expect(s.runner.liveNotice('web-1')?.notice?.hook?.event).toBe('Stop'));
+    expect(s.runner.liveNotice('web-1')?.notice?.hook).toMatchObject({ messagesWaiting: 0, waiting: [] });
+  });
+
+  it('a message held behind the turn reaches every client on the topic, as the route publishes it', async () => {
+    const s = stopHookSession();
+    await answeredAndHooked(s);
+    const uuid = s.runner.send('web-1', 'next');
+    expect(s.events.filter((e) => e.event === 'message' && e.message.role === 'user').map((e) => e.message))
+      .toEqual([expect.objectContaining({ id: `sent:${uuid}`, uuid, text: 'next' })]);
   });
 });
 
-describe('configuredHookCommand', () => {
+describe('configuredHookCommands', () => {
   const hooks = (h: Record<string, unknown>) => ({ hooks: h });
+  const cmd = (command: string) => ({ type: 'command', command });
 
-  it('reads one command across the files, counting a repeat once', () => {
-    const one = hooks({ Stop: [{ hooks: [{ type: 'command', command: 'pnpm test' }] }] });
-    expect(configuredHookCommand([one, null, one], 'Stop', null)).toBe('pnpm test');
-    expect(configuredHookCommand([one, hooks({ Stop: [{ hooks: [{ type: 'command', command: 'tsc' }] }] })], 'Stop', null)).toBeNull();
-    expect(configuredHookCommand([one], 'PreCompact', null)).toBeNull();
+  it('reads the commands across the files in order, counting a repeat once', () => {
+    const one = hooks({ Stop: [{ hooks: [cmd('pnpm test')] }] });
+    expect(configuredHookCommands([one, null, one], 'Stop', null)).toEqual(['pnpm test']);
+    expect(configuredHookCommands([one, hooks({ Stop: [{ hooks: [cmd('tsc --noEmit')] }] })], 'Stop', null))
+      .toEqual(['pnpm test', 'tsc --noEmit']);
+    expect(configuredHookCommands([one], 'PreCompact', null)).toEqual([]);
   });
 
   it('matches the tool as the CLI does: all, a name list, or a pattern', () => {
     const src = hooks({
       PreToolUse: [
-        { matcher: 'Edit|Write', hooks: [{ type: 'command', command: 'prettier --write' }] },
-        { matcher: 'mcp__.*', hooks: [{ type: 'command', command: 'audit' }] },
+        { matcher: 'Edit|Write', hooks: [cmd('prettier --write')] },
+        { matcher: 'Read, Grep', hooks: [cmd('log-read')] },
+        { matcher: 'mcp__.*', hooks: [cmd('audit')] },
       ],
+      SessionStart: [{ matcher: 'startup, resume', hooks: [cmd('direnv export json')] }],
     });
-    expect(configuredHookCommand([src], 'PreToolUse', 'Write')).toBe('prettier --write');
-    expect(configuredHookCommand([src], 'PreToolUse', 'mcp__github__get')).toBe('audit');
-    expect(configuredHookCommand([src], 'PreToolUse', 'Bash')).toBeNull();
-    const all = hooks({ PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: 'log' }] }, { matcher: 'Bash', hooks: [{ type: 'command', command: 'guard' }] }] });
-    expect(configuredHookCommand([all], 'PreToolUse', 'Read')).toBe('log');
-    expect(configuredHookCommand([all], 'PreToolUse', 'Bash')).toBeNull();
+    expect(configuredHookCommands([src], 'PreToolUse', 'Write')).toEqual(['prettier --write']);
+    expect(configuredHookCommands([src], 'PreToolUse', 'Grep')).toEqual(['log-read']);
+    expect(configuredHookCommands([src], 'PreToolUse', 'mcp__github__get')).toEqual(['audit']);
+    expect(configuredHookCommands([src], 'PreToolUse', 'Bash')).toEqual([]);
+    // The list syntax is every event's, not only the tool events'.
+    expect(configuredHookCommands([src], 'SessionStart', 'resume')).toEqual(['direnv export json']);
+    expect(configuredHookCommands([src], 'SessionStart', 'compact')).toEqual([]);
   });
 
-  it('names nothing it cannot be sure of', () => {
-    const prompt = hooks({ Stop: [{ hooks: [{ type: 'prompt', prompt: 'Is it done?' }] }] });
-    expect(configuredHookCommand([prompt], 'Stop', null)).toBeNull();
-    const broken = hooks({ PreToolUse: [{ matcher: '(', hooks: [{ type: 'command', command: 'x' }] }] });
-    expect(configuredHookCommand([broken], 'PreToolUse', 'Bash')).toBeNull();
-    const off = { ...hooks({ Stop: [{ hooks: [{ type: 'command', command: 'pnpm test' }] }] }), disableAllHooks: true };
-    expect(configuredHookCommand([off], 'Stop', null)).toBeNull();
+  it('says nothing where it cannot be sure what runs', () => {
+    expect(configuredHookCommands([hooks({ Stop: [{ hooks: [{ type: 'prompt', prompt: 'Is it done?' }] }] })], 'Stop', null)).toBeNull();
+    expect(configuredHookCommands([hooks({ Stop: [{ hooks: [{ ...cmd('pnpm test'), if: 'Bash(git *)' }] }] })], 'Stop', null)).toBeNull();
+    expect(configuredHookCommands([hooks({ PreToolUse: [{ matcher: '(', hooks: [cmd('x')] }] })], 'PreToolUse', 'Bash')).toBeNull();
+    expect(configuredHookCommands([hooks({ PreToolUse: [{ matcher: `(${'a|'.repeat(200)}b)`, hooks: [cmd('x')] }] })], 'PreToolUse', 'Bash')).toBeNull();
+    const stop = hooks({ Stop: [{ hooks: [cmd('pnpm test')] }] });
+    expect(configuredHookCommands([{ ...stop, disableAllHooks: true }], 'Stop', null)).toBeNull();
+    expect(configuredHookCommands([stop, { allowManagedHooksOnly: true }], 'Stop', null)).toBeNull();
   });
 });
 

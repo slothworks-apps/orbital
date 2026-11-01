@@ -31,6 +31,7 @@ import {
   tags,
 } from '../db/schema.js';
 import {
+  SENT_TURN_PREFIX,
   decisionQuestions,
   type DecisionAnswer,
   type Runner,
@@ -714,10 +715,17 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
     // that the CLI holds and has not written yet, and the live notice the
     // topic published before this client listened. Fields of their own, so a
     // client that does not know them draws exactly what it did.
-    const inFile = new Set(messages.flatMap((m) => (m.uuid ? [m.uuid] : [])));
+    // A message the CLI folded into a running turn is in the file under
+    // another uuid, the one it was sent under riding as `sentUuid`. Built
+    // only when the runner holds a sent turn to ask about.
+    let inFile: Set<string> | null = null;
+    const holds = (uuid: string) => {
+      inFile ??= new Set(messages.flatMap((m) => [m.uuid, m.sentUuid].filter((u): u is string => typeof u === 'string')));
+      return inFile.has(uuid);
+    };
     return {
       messages: page,
-      queued: withHarnessMessages(id, ctx.runner.sentTurns(id, (uuid) => inFile.has(uuid))),
+      queued: withHarnessMessages(id, ctx.runner.sentTurns(id, holds)),
       liveNotice: ctx.runner.liveNotice(id),
     };
   });
@@ -1887,7 +1895,7 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   function publishSentTurn(id: string, uuid: string, text: string, attachments?: string[]) {
     const images = (attachments ?? []).flatMap((ref) => ctx.images.entry(ref) ?? []);
     const turn: ChatMessage = {
-      id: `sent:${uuid}`,
+      id: `${SENT_TURN_PREFIX}${uuid}`,
       role: 'user',
       text,
       timestamp: new Date().toISOString(),

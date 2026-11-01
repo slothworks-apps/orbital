@@ -13,7 +13,7 @@ import {
   type Scroller,
 } from './transcriptMotion'
 import { JumpToBottom, type JumpSurface } from './JumpToBottom'
-import { isPendingTurn } from '../store/store'
+import { isOwnPendingTurn } from '../store/store'
 import { useCommand } from '../lib/commands'
 import { MessageView } from './MessageView'
 import { NoticeRow } from './NoticeRow'
@@ -931,7 +931,9 @@ export function TranscriptView({
   useLayoutEffect(() => {
     if (entering.size === 0) return
     const arrived = groups.filter((g) => entering.has(g.key))
-    if (arrived.some((g) => g.kind === 'message' && isPendingTurn(g.item.message))) {
+    // This tab's own turn only: one another window or the phone sent is
+    // news, as anything else arriving is.
+    if (arrived.some((g) => g.kind === 'message' && isOwnPendingTurn(g.item.message))) {
       if (!stickToBottomRef.current) {
         setStick(true)
         scrollerRef.current?.jump()

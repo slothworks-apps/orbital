@@ -119,6 +119,12 @@ export interface ChatMessage {
    */
   uuid?: string;
   /**
+   * `user` rows of a message the CLI folded into a running turn
+   * (`foldedUserEntry`): the uuid it was sent under, which the file wrote
+   * under `uuid` instead. What tells a sent turn is in the file.
+   */
+  sentUuid?: string;
+  /**
    * The directory the agent was in when it wrote this: the `cwd` of the
    * transcript entry the message came from, the main transcript's or a
    * subagent's. A file link in the message is resolved against it — sent back

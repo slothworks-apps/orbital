@@ -112,8 +112,19 @@ tokens were billed. Turns, tools, time and findings are the live branch's.
 
 - **`type: "system"`, `subtype: "local_command"`**: becomes a notice row
   (see `locally-answered-slash-commands`).
-- **Every other type** (`attachment`, `summary`, `file-history-snapshot`,
-  other `system` subtypes): ignored.
+- **`type: "attachment"`, `attachment.type: "queued_command"`** from a human
+  (`origin.kind: "human"`, or no origin, which is how the SDK writes
+  Orbital's own sends): a message the CLI folded into the running turn. The
+  CLI writes no `user` entry for it, only this attachment under its own
+  uuid, with the sent message's uuid in `attachment.source_uuid`.
+  `foldedUserEntry` reads it as the user's message, with `sentUuid` set to
+  `source_uuid`; it is not a rewind target. Task notifications and peer
+  messages in the same shape stay skipped.
+- **The `hook_cancelled` attachment** of a `Stop` hook turns the interrupt
+  marker after it into "Stop hook cancelled." (spec
+  `2026-10-31-message-beats-stop-hook-design`).
+- **Every other type** (other `attachment`s, `summary`,
+  `file-history-snapshot`, other `system` subtypes): ignored.
 
 ## Text stripped inside a real user turn
 

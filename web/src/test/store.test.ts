@@ -15,7 +15,7 @@ import type {
 vi.mock('../lib/api', async () => (await import('./apiMock')).mockApiModule())
 
 import { readQuestionDrafts } from '../store/questionDrafts'
-import { api, ApiError } from '../lib/api'
+import { api, ApiError, type MessagesPage } from '../lib/api'
 import {
   useOrbital,
   visibleSessions,
@@ -519,8 +519,46 @@ describe('select with turns the CLI holds queued', () => {
     useOrbital.getState().applySessionEvent('s1', { event: 'message', message: fromElsewhere })
     vi.mocked(api.getMessagesPage).mockResolvedValueOnce({ messages: [history], queued: [queued], liveNotice: notice })
     await useOrbital.getState().reloadTranscript('s1')
-    // One bubble, under the server's current name for it.
-    expect(useOrbital.getState().transcripts.s1).toEqual([history, queued])
+    // One bubble: the row the socket delivered stays, and the page's copy is not added.
+    expect(useOrbital.getState().transcripts.s1).toEqual([history, fromElsewhere])
+  })
+
+  it('drops a turn the socket delivered once the file has written it, folded into a turn or not', async () => {
+    vi.mocked(api.getMessagesPage).mockResolvedValueOnce({ messages: [history], queued: [], liveNotice: null })
+    await useOrbital.getState().select('s1')
+    const fromElsewhere: ChatMessage = { id: 'sent:u9', role: 'user', text: 'waits', uuid: 'u9' }
+    useOrbital.getState().applySessionEvent('s1', { event: 'message', message: fromElsewhere })
+    const folded: ChatMessage = { id: 'a7:0', role: 'user', text: 'waits', uuid: 'a7', sentUuid: 'u9' }
+    vi.mocked(api.getMessagesPage).mockResolvedValueOnce({ messages: [history, folded], queued: [queued], liveNotice: null })
+    await useOrbital.getState().reloadTranscript('s1')
+    expect(useOrbital.getState().transcripts.s1).toEqual([history, folded])
+  })
+
+  it('does not seat a page\'s live notice over one the socket published while the page was out', async () => {
+    vi.mocked(api.getMessagesPage).mockResolvedValueOnce({ messages: [history], queued: [], liveNotice: null })
+    await useOrbital.getState().select('s1')
+    let answer: (page: MessagesPage) => void = () => {}
+    vi.mocked(api.getMessagesPage).mockReturnValueOnce(new Promise((r) => (answer = r)))
+    const reload = useOrbital.getState().reloadTranscript('s1')
+    const newer: ChatMessage = { ...notice, id: 'n2', text: 'Stop hooks running' }
+    useOrbital.getState().applySessionEvent('s1', { event: 'live_notice', message: newer })
+    answer({ messages: [history], queued: [], liveNotice: notice })
+    await reload
+    expect(useOrbital.getState().liveNotices.s1).toEqual(newer)
+    // With nothing in between, the page's word stands.
+    vi.mocked(api.getMessagesPage).mockResolvedValueOnce({ messages: [history], queued: [], liveNotice: null })
+    await useOrbital.getState().reloadTranscript('s1')
+    expect(useOrbital.getState().liveNotices.s1).toBeUndefined()
+  })
+
+  it('keeps a harness\'s mark on a queued turn when its echo takes the row\'s place', async () => {
+    const harnessQueued: ChatMessage = { ...queued, harnessMessage: { kind: 'advance', step: 2 } }
+    vi.mocked(api.getMessagesPage).mockResolvedValueOnce({ messages: [history], queued: [harnessQueued], liveNotice: null })
+    await useOrbital.getState().select('s1')
+    useOrbital.getState().applySessionEvent('s1', { event: 'message', message: { id: 'sent:u9', role: 'user', text: 'waits', uuid: 'u9' } })
+    expect(useOrbital.getState().transcripts.s1.at(-1)).toEqual(
+      expect.objectContaining({ id: 'sent:u9', harnessMessage: { kind: 'advance', step: 2 } }),
+    )
   })
 
   it('a reload follows the server: the file\'s copy replaces a turn it no longer holds queued', async () => {

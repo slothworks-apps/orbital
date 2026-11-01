@@ -683,6 +683,22 @@ describe('REST routes', () => {
       expect(older).toEqual({ messages: [] });
     });
 
+    it('takes a message the CLI folded into the running turn as in the file, under the uuid it was sent with', async () => {
+      const projectsDir = makeTmpDir('msg-routes');
+      mkdirSync(join(projectsDir, 'p'), { recursive: true });
+      // CLI 2.1.280: no user entry, an attachment under its own uuid.
+      writeFileSync(join(projectsDir, 'p', 's1.jsonl'), JSON.stringify({
+        type: 'attachment', uuid: 'a7', parentUuid: null, isSidechain: false, timestamp: '2026-09-24T08:58:21.088Z',
+        attachment: { type: 'queued_command', prompt: 'and ask if unsure', source_uuid: 'u9', commandMode: 'prompt', origin: { kind: 'human' } },
+      }) + '\n');
+      const made = makeApp({ projectsDir });
+      const held = [{ id: 'queued:u9', role: 'user', text: 'and ask if unsure', uuid: 'u9' }];
+      made.runner.sentTurns = (_id: string, inFile: (uuid: string) => boolean) => held.filter((t) => !inFile(t.uuid));
+      const body = (await made.app.inject({ method: 'GET', url: '/api/sessions/s1/messages' })).json();
+      expect(body.queued).toEqual([]);
+      expect(body.messages.map((m: any) => [m.role, m.text, m.uuid, m.sentUuid])).toEqual([['user', 'and ask if unsure', 'a7', 'u9']]);
+    });
+
     it('pages backwards from a cursor, oldest first within the page', async () => {
       const app = appWithTurns(5);
       const res = await app.inject({ method: 'GET', url: '/api/sessions/s1/messages?before=u3:0&limit=2' });

@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { localSettingsPath, readObject } from '../mcp/mcpjson.js';
 
@@ -8,10 +9,11 @@ import { localSettingsPath, readObject } from '../mcp/mcpjson.js';
  * hooks from: `settings.json` in the session's Claude directory, and the
  * project's `.claude/settings.json` and `.claude/settings.local.json`.
  *
- * Named only when it cannot be wrong: exactly one command for the event and
- * the tool across those files. Hooks the files do not show — a plugin's, a
- * managed policy's — can run beside it, which is why the runner asks only
- * while one hook of the kind runs.
+ * Named only when it cannot be wrong: every hook those files configure for
+ * the event and the tool is a plain command, and the CLI started exactly as
+ * many as they configure. Hooks the files do not show — a plugin's, a
+ * managed policy's — would make the count differ, and the runner then names
+ * none.
  */
 
 /** The events whose hooks run per tool call, and whose `hook_name` carries the tool (`PreToolUse:Bash`). */
@@ -31,20 +33,28 @@ export function hookMatchQuery(hookName: unknown, event: string): string | null 
 }
 
 /**
- * Whether a matcher group applies to `query`, as the CLI reads matchers: none
- * or `*` matches everything, a plain name or `A|B` list matches by name, and
- * anything else is a regular expression. `undefined` for a pattern that does
- * not compile — the CLI skips such a group, but it is not this one's to guess.
+ * The longest matcher compiled as a pattern. A hook's matcher is the user's
+ * own setting, but the row reads it on every publish; a longer one is not
+ * guessed at, and the command goes unnamed.
  */
-function matcherApplies(matcher: unknown, query: string | null, toolEvent: boolean): boolean | undefined {
+export const MAX_MATCHER_PATTERN_LENGTH = 256;
+
+/**
+ * Whether a matcher group applies to `query`, as the CLI reads matchers: none
+ * or `*` matches everything, a plain name or a list (`A|B`, `A, B`) matches
+ * by name, and anything else is a regular expression. `undefined` for a
+ * pattern that does not compile or is too long to try — the CLI skips such
+ * a group, but it is not this one's to guess.
+ */
+function matcherApplies(matcher: unknown, query: string | null): boolean | undefined {
   if (matcher === undefined || matcher === null || matcher === '' || matcher === '*') return true;
   if (typeof matcher !== 'string') return undefined;
   // An event that matches nothing runs every group, whatever it says.
   if (query === null) return true;
-  const plain = toolEvent ? /^[a-zA-Z0-9_|, -]+$/ : /^[a-zA-Z0-9_|]+$/;
-  if (plain.test(matcher)) {
-    return matcher.split(toolEvent ? /[|,]/ : '|').map((name) => name.trim()).includes(query);
+  if (/^[a-zA-Z0-9_|, -]+$/.test(matcher)) {
+    return matcher.split(/[|,]/).map((name) => name.trim()).includes(query);
   }
+  if (matcher.length > MAX_MATCHER_PATTERN_LENGTH) return undefined;
   try {
     return new RegExp(matcher).test(query);
   } catch {
@@ -53,21 +63,22 @@ function matcherApplies(matcher: unknown, query: string | null, toolEvent: boole
 }
 
 /**
- * The one command configured for `event` (and `query`, the tool or source it
- * ran for) across `sources`, or null when there is none, several, a hook that
- * is no command, or a matcher this cannot read. The CLI runs one copy of a
- * command configured in two files, so a repeat counts once.
+ * The commands configured for `event` (and `query`, the tool or source it
+ * ran for) across `sources`, in the order the CLI reads them, or null where
+ * the settings cannot say for sure what runs: hooks turned off or limited to
+ * managed ones, a hook that is no command or runs only under an `if`, or a
+ * matcher this cannot read. The CLI runs one copy of a command configured in
+ * two files, so a repeat counts once.
  */
-export function configuredHookCommand(
+export function configuredHookCommands(
   sources: readonly (Record<string, unknown> | null)[],
   event: string,
   query: string | null,
-): string | null {
-  const commands = new Set<string>();
-  const toolEvent = TOOL_HOOK_EVENTS.has(event);
+): string[] | null {
+  const commands: string[] = [];
   for (const source of sources) {
     if (!source) continue;
-    if (source.disableAllHooks === true) return null;
+    if (source.disableAllHooks === true || source.allowManagedHooksOnly === true) return null;
     const hooks = source.hooks;
     if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) continue;
     const groups = (hooks as Record<string, unknown>)[event];
@@ -75,24 +86,44 @@ export function configuredHookCommand(
     for (const group of groups) {
       if (!group || typeof group !== 'object') return null;
       const { matcher, hooks: entries } = group as { matcher?: unknown; hooks?: unknown };
-      const applies = matcherApplies(matcher, query, toolEvent);
+      const applies = matcherApplies(matcher, query);
       if (applies === undefined) return null;
       if (!applies || !Array.isArray(entries)) continue;
       for (const entry of entries) {
-        const { type, command } = (entry ?? {}) as { type?: unknown; command?: unknown };
+        if (!entry || typeof entry !== 'object' || 'if' in entry) return null;
+        const { type, command } = entry as { type?: unknown; command?: unknown };
         if (type !== 'command' || typeof command !== 'string' || command.trim() === '') return null;
-        commands.add(command.trim());
+        if (!commands.includes(command.trim())) commands.push(command.trim());
       }
     }
   }
-  return commands.size === 1 ? [...commands][0] : null;
+  return commands;
+}
+
+/** The settings files read last, by path: read again only once the file changed. */
+const settingsCache = new Map<string, { stamp: string; value: Record<string, unknown> | null }>();
+
+function readSettings(path: string): Record<string, unknown> | null {
+  let stamp: string;
+  try {
+    const st = statSync(path);
+    stamp = `${st.mtimeMs}:${st.size}`;
+  } catch {
+    settingsCache.delete(path);
+    return null;
+  }
+  const held = settingsCache.get(path);
+  if (held?.stamp === stamp) return held.value;
+  const value = readObject(path);
+  settingsCache.set(path, { stamp, value });
+  return value;
 }
 
 /** The settings a session's CLI reads its hooks from, user's first. */
 export function hookSettingsSources(cwd: string, claudeDir: string): (Record<string, unknown> | null)[] {
   return [
-    readObject(join(claudeDir, 'settings.json')),
-    readObject(join(cwd, '.claude', 'settings.json')),
-    readObject(localSettingsPath(cwd)),
+    readSettings(join(claudeDir, 'settings.json')),
+    readSettings(join(cwd, '.claude', 'settings.json')),
+    readSettings(localSettingsPath(cwd)),
   ];
 }

@@ -16,11 +16,13 @@ describe('the hook row', () => {
   });
 
   it('puts the tool before the command, and leaves out what it does not know', () => {
-    const pre: LiveHookNotice = { event: 'PreToolUse', tool: 'Bash', command: './scripts/guard.sh', count: 1, cancellable: false, messagesWaiting: 0 };
+    const pre: LiveHookNotice = { event: 'PreToolUse', tool: 'Bash', commands: ['./scripts/guard.sh'], count: 1, cancellable: false, messagesWaiting: 0 };
     expect(hookNoticeText(pre)).toBe('PreToolUse hook running · Bash · ./scripts/guard.sh');
-    expect(hookNoticeText({ ...pre, command: undefined })).toBe('PreToolUse hook running · Bash');
-    expect(hookNoticeText({ event: 'SessionStart', command: 'direnv export json', count: 1, cancellable: false, messagesWaiting: 0 }))
+    expect(hookNoticeText({ ...pre, commands: undefined })).toBe('PreToolUse hook running · Bash');
+    expect(hookNoticeText({ event: 'SessionStart', commands: ['direnv export json'], count: 1, cancellable: false, messagesWaiting: 0 }))
       .toBe('SessionStart hook running · direnv export json');
+    expect(hookNoticeText({ event: 'Stop', commands: ['pnpm test', 'tsc --noEmit'], count: 2, cancellable: true, messagesWaiting: 0 }))
+      .toBe('Stop hooks running · pnpm test · tsc --noEmit');
   });
 
   it('captions the waiting messages once, counting them', () => {

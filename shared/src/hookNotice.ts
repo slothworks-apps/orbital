@@ -19,8 +19,12 @@ export interface LiveHookNotice {
   event: string;
   /** The tool the hooks run for, for the events that run per tool call (`Bash`). */
   tool?: string;
-  /** The command, only where the settings configure exactly one for this event and tool. */
-  command?: string;
+  /**
+   * The commands, in the order the settings configure them, only where they
+   * are surely what runs: every configured hook of the event and tool is a
+   * plain command, and as many started as are configured.
+   */
+  commands?: string[];
   /** How many of them run. */
   count: number;
   /** Only the main loop's `Stop` hooks: the row offers Cancel, which interrupts the session. */
@@ -43,9 +47,9 @@ export function hookNoticeLead(hook: LiveHookNotice): string {
   return `${running} — ${waits} for ${hook.count > 1 ? 'them' : 'it'}`;
 }
 
-/** What follows the lead in muted ink: the tool, then the command, each where there is one. */
+/** What follows the lead in muted ink: the tool, then the commands, each where there is one. */
 export function hookNoticeDetail(hook: LiveHookNotice): string[] {
-  return [hook.tool, hook.command].filter((part): part is string => typeof part === 'string' && part !== '');
+  return [hook.tool, ...(hook.commands ?? [])].filter((part): part is string => typeof part === 'string' && part !== '');
 }
 
 /** The whole row as one line: the notice's `text`, and the desktop row's tooltip. */

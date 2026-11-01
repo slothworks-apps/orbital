@@ -104,6 +104,18 @@
 }
 
 /*
+ * `Feature - Stop hook` 1g PHONE: a message waiting behind a hook with an
+ * image in it is one dashed box, at the phone bubble's corners, its text set
+ * in by 6px.
+ */
+:root[data-platform='mobile'] [data-waiting-box] {
+  border-radius: 16px 16px 5px 16px;
+}
+:root[data-platform='mobile'] [data-waiting-box] [data-waiting-text] {
+  padding: 0 6px 2px;
+}
+
+/*
  * Every bottom sheet rises from the bottom edge over a fading backdrop, and
  * leaves the same way (`BottomSheet`, `SheetPresence` in `ui.tsx`). The way
  * out is quicker than the way in, and its length comes from `SHEET_EXIT_MS`
