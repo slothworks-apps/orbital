@@ -9,6 +9,10 @@ All notable changes to the desktop app. Format: [Keep a Changelog](https://keepa
 ### Fixed
 - A message sent while a project's Stop hook runs after an answer (a check such as tests or a typecheck) is answered at once instead of waiting for the hook: the hook is cancelled and runs again when the new answer ends. A line under the answer says when a Stop hook is running, and the cancelled one reads "Stop hook cancelled" instead of "Request interrupted by user".
 
+## [0.45.2] — 2026-10-31
+### Changed
+- Sessions Orbital runs now use a newer Claude Code, with its fixes for subagents reaching their tools, shell commands left running after a session ends and transcripts saved out of order.
+
 ## [0.45.1] — 2026-10-29
 ### Fixed
 - A planet keeps its tag colour whatever its state: a finished or interrupted session no longer gets a green or red ring, and a session waiting for your answer has a core in its tag colour instead of amber (before 0.45.0 it was white). The amber ripple around a waiting planet stays.
