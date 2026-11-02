@@ -189,9 +189,9 @@ const CLUSTER_LABEL_GAP_PX = 14
  * `Html` reprojects from its parent's world matrix every frame, so writing
  * the wrapping group's position is all it takes.
  *
- * Hovered, the label shows a target after its name that frames the tag's
- * planets the way fit frames the whole map. A map pan cannot start on the
- * label, which costs nothing at its size.
+ * A click on the name frames the tag's planets the way fit frames the
+ * whole map; hovered, the name brightens to say it can be clicked. A map pan
+ * cannot start on the name, which costs nothing at its size.
  */
 function ClusterLabel({
   label,
@@ -202,7 +202,7 @@ function ClusterLabel({
   label: SceneLabel
   simRef: RefObject<SimState>
   leaving: ReadonlySet<string>
-  /** Frames this tag's planets — the target the label shows while hovered. */
+  /** Frames this tag's planets — what a click on the name does. */
   onFit: (tagId: number) => void
 }) {
   const groupRef = useRef<Group>(null)
@@ -234,9 +234,25 @@ function ClusterLabel({
     <group ref={groupRef} position={[label.x, label.y, 0]}>
       {/* zIndexRange keeps map text under the z-10 side panels and z-50 dialogs (drei's default range is in the millions). */}
       <Html center zIndexRange={[5, 0]} style={{ pointerEvents: 'none' }}>
-        <span
-          className="group"
+        <button
+          type="button"
+          title={`Fit ${label.name}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            onFit(label.tagId)
+          }}
+          onPointerDown={stop}
+          onPointerMove={stop}
+          onPointerUp={stop}
+          // Brightens while hovered: the one hint that the name is a control.
+          className="[--label-alpha:.8] hover:[--label-alpha:1]"
           style={{
+            appearance: 'none',
+            margin: 0,
+            border: 0,
+            padding: 0,
+            background: 'none',
+            cursor: 'pointer',
             // Bottom edge on the anchor rather than centred on it, so the gap
             // is measured from the text, whatever its line height.
             display: 'inline-block',
@@ -245,54 +261,17 @@ function ClusterLabel({
             fontSize: 10,
             letterSpacing: '0.2em',
             textTransform: 'uppercase',
-            color: `oklch(var(--tt-l) var(--tt-c) ${label.hue} / .8)`,
+            color: `oklch(var(--tt-l) var(--tt-c) ${label.hue} / var(--label-alpha))`,
             whiteSpace: 'nowrap',
             // A cluster left with only bodies whose device chip is off fades
             // with them (canvas 50e `transition:opacity .5s ease`).
             opacity: label.empty ? 0 : 1,
-            transition: `opacity ${DEVICE_FADE_MS}ms ease`,
+            transition: `opacity ${DEVICE_FADE_MS}ms ease, color .18s ease`,
             pointerEvents: label.empty ? 'none' : 'auto',
-            position: 'relative',
           }}
-          onPointerDown={stop}
-          onPointerMove={stop}
-          onPointerUp={stop}
         >
           {label.text}
-          {/* The map's own fit glyph, after the name and out of its flow so
-              the name stays centred over the clump when it appears. */}
-          <button
-            type="button"
-            aria-label={`Fit ${label.name}`}
-            title={`Fit ${label.name}`}
-            onClick={(event) => {
-              event.stopPropagation()
-              onFit(label.tagId)
-            }}
-            style={{
-              appearance: 'none',
-              position: 'absolute',
-              left: '100%',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              margin: 0,
-              border: 0,
-              padding: '0 4px 0 6px',
-              background: 'none',
-              font: 'inherit',
-              fontSize: 14,
-              letterSpacing: 0,
-              lineHeight: 1,
-              color: `oklch(var(--tt-l) var(--tt-c) ${label.hue})`,
-              cursor: 'pointer',
-            }}
-            // Shown while the name is hovered, by CSS: a label that fades
-            // out under the pointer takes the target with it.
-            className="pointer-events-none opacity-0 transition-opacity duration-[180ms] group-hover:pointer-events-auto group-hover:opacity-100"
-          >
-            ⌖
-          </button>
-        </span>
+        </button>
       </Html>
     </group>
   )
