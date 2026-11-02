@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Ref } from 'react'
 import { createPortal } from 'react-dom'
 import type { MediaItem } from '../lib/types'
@@ -10,6 +10,7 @@ import { canShowInFolder, showInFolder } from '../lib/desktop'
 import { copyPathOrReport, reportFailure } from '../lib/errors'
 import { useMediaSourceUrl } from '../lib/images'
 import { isPdfPath } from '../lib/pathLinks'
+import { useViewportWidth } from '../lib/useViewportWidth'
 import { useHiddenSources, useMedia } from '../store/media'
 import { useOrbital } from '../store/store'
 import { EscapeBoundary, useEscapeLayer } from '../ui/escapeLayer'
@@ -51,7 +52,7 @@ const STAGE_TOP_PX = 40
 const BOTTOM_MARGIN_PX = 30
 /** The filmstrip's 40px frames with its padding and border. */
 const FILMSTRIP_H_PX = 52
-/** The caption's two rows and the gap between them. */
+/** The caption's two rows until it is measured; it grows with a wrapped line or a larger text size. */
 const CAPTION_H_PX = 48
 const CAPTION_GAP_PX = 18
 /** What the arrows and their margins take from either side of the stage. */
@@ -132,6 +133,13 @@ function ViewerBody({
   const [hidden, setHidden] = useHiddenSources(sessionId ?? '')
   const title = useOrbital((s) => (sessionId ? s.sessions[sessionId]?.title : undefined))
   const viewportHeight = useViewportHeight()
+  const [captionHeight, setCaptionHeight] = useState(CAPTION_H_PX)
+  const measureCaption = useCallback((el: HTMLDivElement | null) => {
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => setCaptionHeight(el.offsetHeight))
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   // Ask once on opening: the list may be older than the press.
   useEffect(() => {
@@ -161,7 +169,7 @@ function ViewerBody({
   const captionBottom = current ? BOTTOM_MARGIN_PX + FILMSTRIP_H_PX + CAPTION_GAP_PX : BOTTOM_MARGIN_PX
   const stageHeight = Math.max(
     160,
-    viewportHeight - STAGE_TOP_PX - CAPTION_GAP_PX - CAPTION_H_PX - captionBottom,
+    viewportHeight - STAGE_TOP_PX - CAPTION_GAP_PX - captionHeight - captionBottom,
   )
 
   const go = (item: MediaItem) => {
@@ -261,6 +269,7 @@ function ViewerBody({
 
       {shown && (
         <div
+          ref={measureCaption}
           onClick={(event) => event.stopPropagation()}
           className="absolute inset-x-0 flex flex-col items-center gap-2 font-mono tracking-[0.06em]"
           style={{ bottom: captionBottom }}
@@ -427,7 +436,7 @@ function Stage({
   }, [hasMenu, menuOpen])
   const { url } = useMediaSourceUrl(sessionId, item)
   const pdf = usePdfDocument(item.kind === 'pdf' && !isGone(item) ? url : null, url ? pdfKey(url, item) : '')
-  const maxWidth = window.innerWidth - 2 * STAGE_SIDE_PX
+  const maxWidth = useViewportWidth() - 2 * STAGE_SIDE_PX
   const pageCount = pdf.doc?.numPages ?? null
 
   useEffect(() => {
