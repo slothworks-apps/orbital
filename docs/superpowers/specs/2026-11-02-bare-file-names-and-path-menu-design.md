@@ -2,7 +2,7 @@
 id: 2026-11-02-bare-file-names-and-path-menu-design
 title: A bare file name in a code span is pressable, and every path has a context menu
 type: spec
-status: active
+status: done
 domain: web
 related:
   - a-code-span-that-is-a-path-is-pressable
