@@ -1,17 +1,120 @@
 #!/bin/sh
-# /usr/lib/orbital/update — run as root by orbital-update.service, never by
-# hand. Upgrades the `orbital` package and nothing else; the request file's
-# content is never read.
+# /usr/lib/orbital/update — run as root, never by hand: by
+# orbital-update.service for an update request, and by
+# orbital-channel.service as `update channel` when the group's update channel
+# changed. Upgrades the `orbital` package and nothing else; the request
+# file's content is never read, and the channel file names a suite only by
+# being exactly `experimental`.
 set -eu
 
-REQUEST=/var/lib/orbital/update/request
-# The source the runbook writes. When it is there, only it is refreshed; any
-# other name falls back to refreshing every source.
+DIR=/var/lib/orbital/update
+REQUEST=$DIR/request
+CHANNEL=$DIR/channel
+# The source the runbook writes. When it is there, only it is refreshed, and
+# only it follows the channel; any other name falls back to refreshing every
+# source, and the channel cannot be switched.
 SOURCE=/etc/apt/sources.list.d/orbital.sources
 
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export LC_ALL=C
 export DEBIAN_FRONTEND=noninteractive
+
+MODE=update
+if [ "$#" -gt 0 ]; then
+  case "$1" in
+    channel) MODE=channel ;;
+    *) echo "usage: $0 [channel]" >&2; exit 2 ;;
+  esac
+fi
+
+# One run at a time: an update request and a channel change can fire
+# together, and both rewrite the source and refresh its lists. The second
+# waits for the first.
+exec 9>/run/lock/orbital-update.lock
+flock 9
+
+# DPkg::Lock::Timeout waits for apt-daily or a person's apt run rather than
+# failing on the lock: 120 s for each of the two apt runs, so the waits and
+# the download stay well inside the 10 minutes after which the server gives
+# up on an update (UPDATE_TIMEOUT_MS) and reports it failed.
+refresh() {
+  if [ -f "$SOURCE" ]; then
+    apt-get update -o DPkg::Lock::Timeout=120 \
+      -o Dir::Etc::sourcelist="$SOURCE" \
+      -o Dir::Etc::sourceparts=- \
+      -o APT::Get::List-Cleanup=0
+  else
+    echo "$SOURCE not found: refreshing every source."
+    apt-get update -o DPkg::Lock::Timeout=120
+  fi
+}
+
+# The suite the group's channel names (spec
+# 2026-11-02-experimental-release-channel-design → On the Linux server). The
+# directory is the service user's, so the file is read only when it is a
+# regular file and not a symlink, and only the exact word `experimental`
+# (one trailing newline allowed) means experimental; anything else, a
+# missing file included, means stable.
+wanted_suite() {
+  if [ -f "$CHANNEL" ] && [ ! -L "$CHANNEL" ]; then
+    # No more than one byte past the word and its newline is read, and the
+    # dot keeps $(...) from stripping trailing newlines, so a second one, or
+    # anything after the word, is not the word.
+    raw="$(head -c 14 "$CHANNEL" && echo .)"
+    raw="${raw%.}"
+    case "$raw" in
+      experimental | "experimental
+")
+        echo experimental
+        return
+        ;;
+    esac
+  fi
+  echo stable
+}
+
+# Points the source's `Suites:` line at the wanted suite, only when it says
+# something else, through a file beside it and a rename. Answers 0 when it
+# changed the source.
+apply_channel() {
+  suite="$(wanted_suite)"
+  if [ ! -f "$SOURCE" ] || [ -L "$SOURCE" ]; then
+    echo "$SOURCE not found: the update channel ($suite) cannot be switched; the source stays as it is."
+    return 1
+  fi
+  if grep -qx "Suites: $suite" "$SOURCE"; then
+    return 1
+  fi
+  if ! grep -q '^Suites:' "$SOURCE"; then
+    echo "$SOURCE has no Suites: line: the update channel ($suite) cannot be switched."
+    return 1
+  fi
+  tmp="$SOURCE.orbital-channel.tmp"
+  rm -f "$tmp"
+  sed "s/^Suites:.*/Suites: $suite/" "$SOURCE" > "$tmp"
+  chmod 0644 "$tmp"
+  mv -f "$tmp" "$SOURCE"
+  echo "The update channel is $suite: $SOURCE now names that suite."
+  return 0
+}
+
+# Until orbital setup has run, the updater does nothing.
+set_up() {
+  [ -s /etc/orbital/user ]
+}
+
+if [ "$MODE" = channel ]; then
+  if ! set_up; then
+    echo "orbital setup has not run; nothing to do."
+    exit 0
+  fi
+  # A channel change alone installs nothing: the lists are refreshed so apt's
+  # candidate, and Settings → Devices, show the suite before anyone updates.
+  if apply_channel; then
+    refresh
+  fi
+  exit 0
+fi
 
 # Consumed before apt runs: a failed upgrade must not leave the request for
 # the path unit to start this again, and a request made during the run is a
@@ -24,25 +127,14 @@ if [ ! -e "$REQUEST" ] && [ ! -L "$REQUEST" ]; then
 fi
 rm -f "$REQUEST"
 
-# Until orbital setup has run, the updater does nothing.
-if [ ! -s /etc/orbital/user ]; then
+if ! set_up; then
   echo "orbital setup has not run; nothing to do."
   exit 0
 fi
 
-# DPkg::Lock::Timeout waits for apt-daily or a person's apt run rather than
-# failing on the lock: 120 s for each of the two apt runs, so the waits and
-# the download stay well inside the 10 minutes after which the server gives
-# up on an update (UPDATE_TIMEOUT_MS) and reports it failed.
-if [ -f "$SOURCE" ]; then
-  apt-get update -o DPkg::Lock::Timeout=120 \
-    -o Dir::Etc::sourcelist="$SOURCE" \
-    -o Dir::Etc::sourceparts=- \
-    -o APT::Get::List-Cleanup=0
-else
-  echo "$SOURCE not found: refreshing every source."
-  apt-get update -o DPkg::Lock::Timeout=120
-fi
+# The channel first, so an update never runs against a stale suite.
+apply_channel || true
+refresh
 
 # The package's own conffile (the apt pin) keeps a local change without asking.
 apt-get install --only-upgrade -y -o DPkg::Lock::Timeout=120 \

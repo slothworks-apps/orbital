@@ -12,6 +12,7 @@
 import {
   UPDATE_KEEPALIVE_MS, type MainUpdateStateMessage, type UpdateEndReason, type UpdateWhen,
 } from '@orbital/shared/remote/serverUpdate';
+import { UPDATE_CHANNEL_KEY, parseUpdateChannel, type UpdateChannel } from '@orbital/shared/updateChannel';
 
 /**
  * How often a running app looks for a newer release, after the check at
@@ -51,6 +52,29 @@ export const AUTO_DOWNLOAD_KEY = 'update_auto_download';
 export function parseAutoDownload(settings: unknown): boolean {
   if (typeof settings !== 'object' || settings === null) return false;
   return (settings as Record<string, unknown>)[AUTO_DOWNLOAD_KEY] === 'true';
+}
+
+/**
+ * The group's `update_channel` off a `GET /api/settings` body (spec
+ * 2026-11-02-experimental-release-channel-design § On the Mac): stable
+ * unless it is exactly `experimental`.
+ */
+export function parseChannelSetting(settings: unknown): UpdateChannel {
+  if (typeof settings !== 'object' || settings === null) return 'stable';
+  return parseUpdateChannel((settings as Record<string, unknown>)[UPDATE_CHANNEL_KEY]);
+}
+
+/**
+ * What a read of the channel does. `allowPrerelease`: on experimental,
+ * electron-updater takes the newest release of the feed, prerelease or not;
+ * on stable it asks for GitHub's Latest, which is never a prerelease.
+ * `check`: the channel changed from the one applied before, so look now
+ * rather than at the next interval — turning experimental on finds the
+ * newest release at once. The first read (`applied` null) only applies:
+ * the launch check follows it anyway.
+ */
+export function channelStep(applied: UpdateChannel | null, read: UpdateChannel): { allowPrerelease: boolean; check: boolean } {
+  return { allowPrerelease: read === 'experimental', check: applied !== null && applied !== read };
 }
 
 /**
@@ -213,6 +237,12 @@ export function parseUpdateAction(raw: unknown): UpdateAction | null {
  * - `restarting` — `quitAndInstall` has been called.
  *
  * `checkedAt` is when a check last completed (epoch ms), or null.
+ * `latestRegular` is the newest regular release the last check on the
+ * stable channel saw — electron-updater names it even when it offers
+ * nothing — or null when no such check ran in this launch (one on
+ * experimental sees prereleases too). Settings › Updates reads from it
+ * whether this Mac still runs ahead of the regular release after the group
+ * turned experimental off (canvas `Feature - Experimental updates` 1h).
  *
  * An update another member of the group started (canvas 50v) adds:
  *
@@ -239,6 +269,7 @@ export type UpdateRemote = { by: string; working: number; wait: boolean };
 
 export type UpdateView = UpdatePrompt & {
   checkedAt: number | null;
+  latestRegular: string | null;
   remote: UpdateRemote | null;
   sessionStarted: boolean;
   receipt: UpdateReceipt | null;
@@ -278,7 +309,9 @@ function parseRemote(raw: unknown): UpdateRemote | null {
 /** The phases a member's update shows in (canvas 50v 01–03). */
 const REMOTE_PHASES: ReadonlySet<UpdatePrompt['phase']> = new Set(['downloading', 'waiting', 'restarting']);
 
-const NO_UPDATE: UpdateView = { phase: 'none', checkedAt: null, remote: null, sessionStarted: false, receipt: null };
+const NO_UPDATE: UpdateView = {
+  phase: 'none', checkedAt: null, latestRegular: null, remote: null, sessionStarted: false, receipt: null,
+};
 
 /**
  * A view off IPC; anything malformed reads as no prompt, never as one. A
@@ -289,14 +322,16 @@ export function parseUpdateView(raw: unknown): UpdateView {
   if (typeof raw !== 'object' || raw === null) return NO_UPDATE;
   const record = raw as Record<string, unknown>;
   const checkedAt = isCount(record.checkedAt) ? record.checkedAt : null;
+  const latestRegular = typeof record.latestRegular === 'string' && record.latestRegular !== '' ? record.latestRegular : null;
   const prompt = parsePrompt(record);
-  if (prompt === null) return { ...NO_UPDATE, checkedAt };
+  if (prompt === null) return { ...NO_UPDATE, checkedAt, latestRegular };
   const receipt = isReceipt(record.receipt)
     ? { by: record.receipt.by, at: record.receipt.at, stopped: record.receipt.stopped, version: record.receipt.version }
     : null;
   return {
     ...prompt,
     checkedAt,
+    latestRegular,
     remote: REMOTE_PHASES.has(prompt.phase) ? parseRemote(record.remote) : null,
     sessionStarted: prompt.phase === 'ready' && record.sessionStarted === true,
     receipt,
@@ -478,6 +513,8 @@ export class UpdateFlow {
   private countKnown = false;
   private autoDownload = false;
   private checkedAt: number | null = null;
+  /** The newest regular release the last check on stable saw (`UpdateView.latestRegular`). */
+  private latestRegular: string | null = null;
   /** × on Available. Persisted by `main.ts`; only Check now offers it again. */
   private skipped: string | null;
   /** The version whose receipt was OK'd; it installs on quit and is not offered again. */
@@ -542,6 +579,7 @@ export class UpdateFlow {
     return {
       ...prompt,
       checkedAt: this.checkedAt,
+      latestRegular: this.latestRegular,
       remote,
       sessionStarted: this.sessionStarted && prompt.phase === 'ready',
       receipt: this.receipt,
@@ -562,10 +600,16 @@ export class UpdateFlow {
     return this.step();
   }
 
-  /** A check completed at `at` (epoch ms). */
-  checked(at: number): UpdateStep {
-    const changed = this.checkedAt !== at;
+  /**
+   * A check completed at `at` (epoch ms). `latestRegular`: the version the
+   * feed named, when the check ran on stable; null on experimental, whose
+   * feed is not the regular release's. Each check replaces it, so the
+   * version read after turning experimental off is never one from before.
+   */
+  checked(at: number, latestRegular: string | null = null): UpdateStep {
+    const changed = this.checkedAt !== at || this.latestRegular !== latestRegular;
     this.checkedAt = at;
+    this.latestRegular = latestRegular;
     return this.step({ changed });
   }
 
@@ -604,6 +648,21 @@ export class UpdateFlow {
     this.version = version;
     this.totalMB = toMB(totalBytes);
     return found('offered', { changed: before !== this.snapshot(), skipChanged });
+  }
+
+  /**
+   * A check found nothing newer. Available, still waiting for Download, is
+   * withdrawn: what it offered is no longer on this Mac's channel (the group
+   * went back to stable, spec 2026-11-02-experimental-release-channel-design
+   * § On the Mac), and Download would fetch nothing. A download under way or
+   * done is left alone; it installs as before.
+   */
+  upToDate(): UpdateStep {
+    if (this.phase !== 'available') return this.step();
+    this.phase = 'none';
+    this.version = '';
+    this.found = null;
+    return this.step({ changed: true });
   }
 
   /** `download-progress`: only a download the user asked for is shown. */

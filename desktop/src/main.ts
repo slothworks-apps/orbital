@@ -21,6 +21,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { autoUpdater } from 'electron-updater';
 import { parseServerMessage, type MainMessage } from '@orbital/shared/remote/serverUpdate';
+import type { UpdateChannel } from '@orbital/shared/updateChannel';
 import { apiTokenPath, authCookies, bearerHeaders, parseApiToken } from './lib/apiToken';
 import { appMenuTemplate, parseMenuCommands, type MenuCommand } from './lib/appMenu';
 import { parseTerminalFocused, terminalKeyDecision } from './lib/terminalKeys';
@@ -68,9 +69,11 @@ import {
 } from './lib/startup';
 import {
   checkAnswerMessage,
+  channelStep,
   checkIsDue,
   IDLE_SETTLE_MS,
   parseAutoDownload,
+  parseChannelSetting,
   parseSkippedVersion,
   parseUpdateAction,
   parseUpdateReceipt,
@@ -979,9 +982,28 @@ async function loadSettings(): Promise<void> {
     const body: unknown = await res.json();
     notifier.setSettings(parseNotificationSettings(body));
     applyUpdateStep(updates.setAutoDownload(parseAutoDownload(body)));
+    applyChannel(parseChannelSetting(body));
   } catch {
     /* server still coming up, or gone: keep the settings we have */
   }
+}
+
+/**
+ * The group's update channel into electron-updater (spec
+ * 2026-11-02-experimental-release-channel-design § On the Mac). Every check
+ * reads the settings first, so a change applies at the next check at the
+ * latest; a change seen here checks now. A shared value another member
+ * changed arrives here too: the renderer reports it as it does a save.
+ */
+function applyChannel(channel: UpdateChannel): void {
+  // A build that does not update itself never touches electron-updater; the
+  // first check after `startUpdates` reads the settings and applies it.
+  if (!updatesEnabled) return;
+  const step = channelStep(appliedChannel, channel);
+  appliedChannel = channel;
+  autoUpdater.allowPrerelease = step.allowPrerelease;
+  // checkForUpdates reads the settings again, finds the channel applied and checks once.
+  if (step.check) void checkForUpdates(false);
 }
 
 /**
@@ -1093,6 +1115,8 @@ function showNotification(d: SessionNotification): void {
 
 /** True once `startUpdates` found a build that updates itself. */
 let updatesEnabled = false;
+/** The update channel last given to electron-updater; null before the first settings read. */
+let appliedChannel: UpdateChannel | null = null;
 
 function skippedVersionPath(): string {
   return join(app.getPath('userData'), SKIPPED_VERSION_FILE);
@@ -1172,6 +1196,10 @@ function startUpdates(): void {
   updatesEnabled = true;
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
+  // Never lower than what runs: turning experimental off must leave this Mac
+  // on its version until stable passes it. `autoUpdater.channel` is never set
+  // for the same reason — setting it turns this on.
+  autoUpdater.allowDowngrade = false;
   // A failed check changes nothing; a failed `quitAndInstall` gives the
   // version back to the prompt rather than leaving it restarting forever.
   autoUpdater.on('error', (err) => {
@@ -1219,11 +1247,19 @@ async function checkForUpdates(manual: boolean): Promise<UpdateCheckAnswer> {
   const restartingInto = updates.restartingInto;
   if (restartingInto !== null) return { kind: 'found', version: restartingInto, outcome: 'none' };
   await loadSettings();
+  // Read before the check: the channel a check asks on is the one set when it starts.
+  const onStable = !autoUpdater.allowPrerelease;
   try {
     const result = await autoUpdater.checkForUpdates();
     if (!result) return { kind: 'unsupported' };
-    applyUpdateStep(updates.checked(Date.now()));
-    if (!result.isUpdateAvailable) return { kind: 'up-to-date' };
+    // On stable the feed names GitHub's Latest, the newest regular release,
+    // whether or not it is newer than this Mac (Settings › Updates' "still
+    // ahead" line, canvas `Feature - Experimental updates` 1h).
+    applyUpdateStep(updates.checked(Date.now(), onStable ? result.updateInfo.version : null));
+    if (!result.isUpdateAvailable) {
+      applyUpdateStep(updates.upToDate());
+      return { kind: 'up-to-date' };
+    }
     const { version, files } = result.updateInfo;
     const step = updates.available(version, updateSize(files), { manual });
     applyUpdateStep(step);

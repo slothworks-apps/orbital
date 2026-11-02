@@ -15,6 +15,7 @@ import {
   SERVER_UPDATE_REFUSALS, memberServesUpdate, parseServerUpdateState, updateIsNewer, type ServerUpdateRefusal,
   type ServerUpdateState, type UpdateWhen,
 } from '@orbital/shared/remote/serverUpdate';
+import { UPDATE_CHANNEL_KEY, experimentalUpdatesWords, parseUpdateChannel } from '@orbital/shared/updateChannel';
 import type { RemoteStatus } from '../remote/service.js';
 import { HELP, parseArgs, type Command, type SecretSource } from './args.js';
 import { CliError, errorOf, type Call, type Reply } from './client.js';
@@ -81,7 +82,50 @@ async function run(cmd: Command, deps: CliDeps): Promise<number> {
       return update(deps, cmd.target, cmd.yes, cmd.when);
     case 'updateCancel':
       return updateCancel(deps, cmd.target);
+    case 'experimental':
+      return experimentalShow(deps);
+    case 'experimentalSet':
+      return experimentalSet(deps, cmd.on, cmd.yes);
   }
+}
+
+/** Whether the group takes experimental updates, and whether another device is in it to take them too. */
+async function readChannel(call: Call): Promise<{ on: boolean; inGroup: boolean }> {
+  const reply = await call('GET', '/api/settings');
+  if (reply.status !== 200) throw new CliError(`Orbital answered ${reply.status} to /api/settings.`);
+  const on = parseUpdateChannel((reply.body as Record<string, unknown>)[UPDATE_CHANNEL_KEY]) === 'experimental';
+  const remote = await readStatus(call);
+  return { on, inGroup: remote.group.members.some((m) => !m.self) };
+}
+
+/** `experimental`: Settings › Updates' switch, read (canvas `Feature - Experimental updates` 1h). */
+async function experimentalShow({ call, io }: CliDeps): Promise<number> {
+  const { on, inGroup } = await readChannel(call);
+  if (!on) io.out('Experimental updates are off. Turn them on: orbital experimental on');
+  else io.out(`Experimental updates are on${inGroup ? ' for every device in this group' : ''}. ${experimentalUpdatesWords(inGroup, 'server').lines[1]}`);
+  return 0;
+}
+
+/**
+ * `experimental on|off`: the switch in Settings › Updates, a setting the
+ * whole group shares. On asks first, in the switch's words; off asks
+ * nothing and downgrades nothing.
+ */
+async function experimentalSet({ call, io }: CliDeps, on: boolean, yes: boolean): Promise<number> {
+  const current = await readChannel(call);
+  const words = experimentalUpdatesWords(current.inGroup, 'server');
+  if (current.on === on) {
+    io.out(`Experimental updates are ${on ? 'on' : 'off'} already.`);
+    return 0;
+  }
+  if (on && !yes && !(await confirm(io, `${words.question} ${words.body}`))) {
+    io.out('Nothing changed.');
+    return 1;
+  }
+  const reply = await call('PATCH', '/api/settings', { [UPDATE_CHANNEL_KEY]: on ? 'experimental' : 'stable' });
+  if (reply.status !== 200) throw new CliError(`Orbital answered ${reply.status} to the setting.`);
+  io.out(on ? `Experimental updates are on. ${words.lines[0]}` : `Experimental updates are off. ${words.lines[1]}`);
+  return 0;
 }
 
 /** A relay URL as the CLI takes one: an http(s) or ws(s) URL. */

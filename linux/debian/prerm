@@ -14,13 +14,13 @@ service_user() {
 
 if [ "$1" = remove ]; then
   if [ -d /run/systemd/system ]; then
-    systemctl stop orbital-update.path orbital-update.service || true
+    systemctl stop orbital-update.path orbital-update.service orbital-channel.path orbital-channel.service || true
     user="$(service_user)"
     if [ -n "$user" ]; then
       systemctl --user -M "$user@" disable --now orbital.service || true
     fi
   fi
-  systemctl disable orbital-update.path >/dev/null 2>&1 || true
+  systemctl disable orbital-update.path orbital-channel.path >/dev/null 2>&1 || true
 fi
 
 exit 0

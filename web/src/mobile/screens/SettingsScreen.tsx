@@ -15,6 +15,8 @@ import { AppearanceSection } from './AppearanceSection'
 import { DevicesSection } from './DevicesSection'
 import { FeedbackSheet } from './FeedbackSheet'
 import { isDemo } from '../../lib/demo'
+import { experimentalUpdatesOn } from '../../lib/updateChannel'
+import { useOrbital } from '../../store/store'
 
 /**
  * The desktop's five rows, in its order (Settings → Notifications). Three
@@ -54,6 +56,9 @@ export const NOTIFICATION_ROWS: readonly { key: keyof NotificationSettings; labe
 /** 9f (spec § 5): the group's devices (canvas 50i), this phone's colours (1k), its notification rules, the app lock. */
 export function SettingsScreen() {
   const shell = usePhoneUpdate((s) => s.shell)
+  // The group takes experimental updates (canvas `Feature - Experimental updates` 1g): said, not switched, here.
+  const experimental = useOrbital((s) => experimentalUpdatesOn(s.settings))
+  const version = experimental ? `${__MOBILE_VERSION__} · experimental` : __MOBILE_VERSION__
   const ready = useMobile((s) => s.ready)
   const goBack = useMobile((s) => s.goBack)
   const [rules, setRules] = useState<NotificationSettings | null>(null)
@@ -168,9 +173,16 @@ export function SettingsScreen() {
 
         {/* Not in the website's demo, where it would open a real issue form. */}
         {!isDemo() && <AboutSection />}
+        {experimental && (
+          // 1g: one line on what it means and where it is changed; no link, the switch lives on a Mac.
+          <p className="px-1 pt-2 fs-12 leading-[1.5] text-ink-900/65">
+            Experimental updates are on for your group, so this phone gets each release early. They’re turned on and
+            off on a Mac, in Settings → Updates.
+          </p>
+        )}
         {/* Canvas `Feature - Phone update`: the app's version and the shell's on one line; 50i's note on names. */}
         <footer className="px-1 pt-[18px] font-mono fs-10 leading-[1.7] text-ink-900/60">
-          <p>{shell ? `${__MOBILE_VERSION__} · shell ${shell}` : __MOBILE_VERSION__} · each device names itself</p>
+          <p>{shell ? `${version} · shell ${shell}` : version} · each device names itself</p>
         </footer>
       </div>
     </MobileScreen>

@@ -1,0 +1,19 @@
+# Watches the update channel file the server writes when the group's
+# `update_channel` changes, and at its start when it differs (spec
+# 2026-11-02-experimental-release-channel-design → On the Linux server).
+# `orbital setup` enables it beside orbital-update.path.
+#
+# PathChanged=, not PathExists= as for the request: the channel file is a
+# state that stays, and PathExists= would start the service again forever.
+# A change made while this unit was stopped is still applied: the update
+# service reads the channel first on every run.
+[Unit]
+Description=Orbital update channel
+ConditionPathExists=/etc/orbital/user
+
+[Path]
+PathChanged=/var/lib/orbital/update/channel
+Unit=orbital-channel.service
+
+[Install]
+WantedBy=multi-user.target

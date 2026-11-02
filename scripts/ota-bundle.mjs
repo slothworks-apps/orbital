@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Zips the phone's built web bundle, encrypts and signs it the way
 // `@capgo/capacitor-updater` 8.51.x verifies an encrypted bundle, and uploads
-// it to Beam (spec 2026-10-09-phone-ota-updates-design → Signing, ADR
-// an-ota-bundle-runs-only-if-signed-by-ci). Run by the `ota` job of
+// it to Beam's `experimental` channel (spec 2026-10-09-phone-ota-updates-design
+// → Signing, ADR an-ota-bundle-runs-only-if-signed-by-ci; spec
+// 2026-11-02-experimental-release-channel-design). Run by the `ota` job of
 // .github/workflows/release.yml after `npm run build:mobile -w @orbital/web`.
 //
 //   OTA_PRIVATE_KEY=<pem text> BEAM_UPLOAD_KEY=<key> node scripts/ota-bundle.mjs
@@ -47,7 +48,7 @@ import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { zipSync } from 'fflate'
-import { BEAM_CONFIG, readBeam, uploadBundle } from './beam.mjs'
+import { BEAM_CONFIG, RELEASE_CHANNEL, readBeam, uploadBundle } from './beam.mjs'
 import { GRADLE, changelogSection, packageVersion, phoneVersion } from './release-plan.mjs'
 
 export const BUNDLE_DIR = 'web/dist-mobile'
@@ -206,8 +207,13 @@ async function main(argv) {
     releaseNotes,
     sessionKey: sealed.sessionKey,
     checksum: sealed.checksum,
+    // Every release reaches the experimental channel first; Promote moves it
+    // to production (spec 2026-11-02-experimental-release-channel-design).
+    channel: RELEASE_CHANNEL,
   })
-  console.log(`uploaded to ${beam.url} as ${beam.appId} ${version}: ${answer.slice(0, 200)}`)
+  console.log(
+    `uploaded to ${beam.url} as ${beam.appId} ${version}, channel ${RELEASE_CHANNEL}: ${answer.slice(0, 200)}`,
+  )
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

@@ -1,6 +1,9 @@
 /* global Buffer, Response */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import {
   APT_VALID_DAYS,
@@ -8,9 +11,13 @@ import {
   debVersion,
   listsVersion,
   mergePackages,
+  packagesPath,
   parsePackages,
   parseRelease,
+  promoteEntry,
+  publishedPackages,
   releaseFile,
+  writeIndex,
 } from './apt-repo.mjs'
 
 const entry = (version, pkg = 'orbital') =>
@@ -90,17 +97,20 @@ test('a prerelease is written with ~ in the Debian version', () => {
   assert.equal(debVersion('1.0.0-rc.1-2'), '1.0.0~rc.1~2')
 })
 
-// A repository at `base` answering Packages and an InRelease over `vouched`.
-function repo({ packages, vouched = packages, validUntil, now = new Date(Date.UTC(2026, 9, 19)) }) {
+// A repository at `base` answering, for `suite` only, Packages and an
+// InRelease over `vouched`.
+function repo({ packages, vouched = packages, validUntil, suite = 'stable', now = new Date(Date.UTC(2026, 9, 19)) }) {
   const data = Buffer.from(vouched ?? '')
-  let release = releaseFile([{ name: 'main/binary-amd64/Packages', data }], now)
+  let release = releaseFile([{ name: 'main/binary-amd64/Packages', data }], now, { suite })
   if (validUntil) release = release.replace(/^Valid-Until: .*$/m, `Valid-Until: ${validUntil}`)
   const signed = `-----BEGIN PGP SIGNED MESSAGE-----\nHash: SHA512\n\n${release}-----BEGIN PGP SIGNATURE-----\n\nabc\n-----END PGP SIGNATURE-----\n`
   return async (url) => {
-    if (url.endsWith('/binary-amd64/Packages')) {
+    if (url.endsWith(`/dists/${suite}/main/binary-amd64/Packages`)) {
       return packages === null ? new Response('', { status: 404 }) : new Response(packages)
     }
-    if (url.endsWith('/InRelease')) return vouched === null ? new Response('', { status: 404 }) : new Response(signed)
+    if (url.endsWith(`/dists/${suite}/InRelease`)) {
+      return vouched === null ? new Response('', { status: 404 }) : new Response(signed)
+    }
     return new Response('', { status: 404 })
   }
 }
@@ -118,4 +128,66 @@ test('--check: listed only in a Packages file the valid InRelease vouches for', 
   // No repository yet.
   assert.equal(await check('0.34.0', { fetchFn: repo({ packages: null, vouched: null }), now }), false)
   await assert.rejects(check('0.34.0', { fetchFn: async () => new Response('', { status: 503 }), now }), /503/)
+})
+
+test('each suite has its own index; an unknown suite is refused', async () => {
+  assert.equal(packagesPath('stable'), 'dists/stable/main/binary-amd64/Packages')
+  assert.equal(packagesPath('experimental'), 'dists/experimental/main/binary-amd64/Packages')
+  assert.throws(() => packagesPath('beta'), /unknown suite "beta"/)
+  assert.throws(() => releaseFile([], new Date(), { suite: '../stable' }), /unknown suite/)
+  assert.match(releaseFile([], new Date(), { suite: 'experimental' }), /^Suite: experimental\nCodename: experimental$/m)
+
+  const now = new Date(Date.UTC(2026, 9, 20))
+  const fetchFn = repo({ packages: `${entry('0.46.0')}\n`, suite: 'experimental' })
+  assert.equal(await check('0.46.0', { suite: 'experimental', fetchFn, now }), true)
+  // The default suite is stable, which this repository does not have yet.
+  assert.equal(await check('0.46.0', { fetchFn, now }), false)
+  await assert.rejects(check('0.46.0', { suite: 'beta', fetchFn, now }), /unknown suite/)
+})
+
+test('an empty index vouched for is valid, and lists nothing', async () => {
+  const now = new Date(Date.UTC(2026, 9, 20))
+  const fetchFn = repo({ packages: '', suite: 'experimental' })
+  assert.equal(await publishedPackages({ suite: 'experimental', fetchFn, now }), '')
+  assert.equal(await check('0.46.0', { suite: 'experimental', fetchFn, now }), false)
+  assert.equal(await publishedPackages({ suite: 'stable', fetchFn, now }), null)
+})
+
+test('the index is written under its suite', () => {
+  const out = mkdtempSync(join(tmpdir(), 'apt-repo-test-'))
+  try {
+    writeIndex({ suite: 'experimental', text: `${entry('0.46.0')}\n`, out, signed: false })
+    assert.deepEqual(readdirSync(join(out, 'dists')), ['experimental'])
+    const release = readFileSync(join(out, 'dists/experimental/Release'), 'utf8')
+    assert.match(release, /^Suite: experimental$/m)
+    const packages = readFileSync(join(out, packagesPath('experimental')))
+    assert.equal(parseRelease(release).sha256.get('main/binary-amd64/Packages'), createHash('sha256').update(packages).digest('hex'))
+    assert.throws(() => writeIndex({ suite: 'beta', text: '', out, signed: false }), /unknown suite/)
+  } finally {
+    rmSync(out, { recursive: true, force: true })
+  }
+})
+
+test("promote copies experimental's entry into stable as it is", () => {
+  const experimental = `${entry('0.45.0')}\n\n${entry('0.46.0').replace('Architecture', 'SHA256: abc\nArchitecture')}\n`
+  const stable = `${entry('0.44.0')}\n\n${entry('0.45.0')}\n`
+  const promoted = promoteEntry({ from: experimental, into: stable, version: '0.46.0' })
+  assert.equal(promoted.added, true)
+  const entries = parsePackages(promoted.text)
+  assert.deepEqual(entries.map((e) => e.fields.version), ['0.44.0', '0.45.0', '0.46.0'])
+  // Byte for byte: the same pool file, the same hashes.
+  assert.equal(entries[2].raw, parsePackages(experimental)[1].raw)
+  assert.equal(entries[2].fields.sha256, 'abc')
+
+  // Into an empty stable, and again once it is there.
+  assert.equal(promoteEntry({ from: experimental, into: '', version: '0.46.0' }).text, `${parsePackages(experimental)[1].raw}\n`)
+  const again = promoteEntry({ from: experimental, into: promoted.text, version: '0.46.0' })
+  assert.equal(again.added, false)
+  assert.equal(again.text, promoted.text)
+})
+
+test('promote refuses a version experimental does not list', () => {
+  const experimental = `${entry('0.45.0')}\n\n${entry('0.46.0', 'other')}\n`
+  assert.throws(() => promoteEntry({ from: experimental, into: '', version: '0.46.0' }), /does not list orbital 0.46.0/)
+  assert.throws(() => promoteEntry({ from: '', into: '', version: '0.46.0' }), /nothing to promote/)
 })

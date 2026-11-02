@@ -1,7 +1,9 @@
 import { api } from '../lib/api'
+import { UPDATE_CHANNEL_KEY } from '../lib/updateChannel'
 import { useOrbital } from '../store/store'
+import { channelSettingRead } from './update/channel'
 
-/** The one Mac setting the phone obeys (spec 2026-10-21-question-card-go-back-design § Setting). */
+/** The Mac setting the question cards obey (spec 2026-10-21-question-card-go-back-design § Setting). */
 const KEY = 'questions_review_before_send'
 
 /**
@@ -12,17 +14,26 @@ const KEY = 'questions_review_before_send'
  * needs nothing from the Mac (the answer POST is unchanged). In a group the
  * read goes to a Mac that shares the group's settings, so every Mac's
  * question cards follow one value (`GroupFederation.settingsSource`).
+ *
+ * The same read carries the group's `update_channel`, which the phone's
+ * updater follows (`update/channel.ts`); only an answered read counts, so
+ * an offline start changes no channel. It is kept in the phone's settings
+ * too, for Settings → About to say experimental (canvas `Feature -
+ * Experimental updates` 1g).
  */
 export function refreshQuestionSetting(): void {
   api
     .getSettings()
     .then((settings) => {
-      const value = settings[KEY]
+      channelSettingRead(settings)
       useOrbital.setState((state) => {
-        if (state.settings[KEY] === value) return {}
+        const changed = [KEY, UPDATE_CHANNEL_KEY].filter((k) => state.settings[k] !== settings[k])
+        if (changed.length === 0) return {}
         const next = { ...state.settings }
-        if (value === undefined) delete next[KEY]
-        else next[KEY] = value
+        for (const k of changed) {
+          if (settings[k] === undefined) delete next[k]
+          else next[k] = settings[k]
+        }
         return { settings: next }
       })
     })

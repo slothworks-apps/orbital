@@ -15,12 +15,13 @@
  * names no version.
  */
 import { execFile } from 'node:child_process';
-import { closeSync, constants, lstatSync, openSync, readFileSync, statSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, constants, lstatSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import {
   STARTED_BY_ID_MAX_CHARS, STARTED_BY_NAME_MAX_CHARS, isUpdateVersion, parseMainMessage, type MainUpdateStateMessage,
   type ServerUpdateMessage, type UpdateAsker, type UpdateEndReason, type UpdateWhen,
 } from '@orbital/shared/remote/serverUpdate';
+import type { UpdateChannel } from '@orbital/shared/updateChannel';
 import { parseAptPolicy } from './aptPolicy.js';
 
 /** Where the package installs the server; its entry lives under it (`server/index.mjs`). */
@@ -41,9 +42,25 @@ export const PACKAGE_VERSION_FILE = 'VERSION';
  */
 export const UPDATE_REQUEST_DIR = '/var/lib/orbital/update';
 export const UPDATE_REQUEST_FILE = 'request';
+/**
+ * The file beside the request that names the group's update channel,
+ * `experimental` or `stable` (spec 2026-11-02-experimental-release-channel-design
+ * § On the Linux server). A state, not a request: the root
+ * `orbital-channel.path` unit fires on every change, and the root updater
+ * reads it on every run and points the apt source at that suite.
+ */
+export const UPDATE_CHANNEL_FILE = 'channel';
 
 /** How often a headless server reads apt's view of the package again, after the read at start. */
 export const UPDATE_CHECK_MS = 60 * 60_000;
+
+/**
+ * When apt's view is read again after this server wrote a new channel: the
+ * root updater's `apt-get update` takes seconds, or up to its lock timeout
+ * when apt is busy, so once soon and once after that, rather than at the
+ * next hourly read.
+ */
+export const CHANNEL_REFRESH_AFTER_MS: readonly number[] = [30_000, 150_000];
 
 /** How long `apt-cache policy` may take before it is given up on. */
 export const APT_CACHE_TIMEOUT_MS = 15_000;
@@ -178,6 +195,35 @@ export function writeRequest(path: string, content: string): void {
   }
 }
 
+/**
+ * Writes `content` to `path` when it holds anything else, replacing it in
+ * one rename so the root updater never reads half a file: the temporary
+ * file beside it is unlinked first and created exclusively without
+ * following a link, and the rename replaces whatever is at `path`, a
+ * symlink included, never what one points to. Answers whether it wrote.
+ */
+export function writeStateIfChanged(path: string, content: string): boolean {
+  try {
+    if (lstatSync(path).isFile() && readFileSync(path, 'utf8') === content) return false;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  const temp = `${path}.tmp`;
+  try {
+    unlinkSync(temp);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  const fd = openSync(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+  try {
+    writeSync(fd, content);
+  } finally {
+    closeSync(fd);
+  }
+  renameSync(temp, path);
+  return true;
+}
+
 export class NoUpdateBackend implements UpdateBackend {
   readonly kind = 'none';
   readonly waitsItself = false;
@@ -223,6 +269,7 @@ export class AptUpdateBackend implements UpdateBackend {
   private candidate: string | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private reading: Promise<void> | null = null;
+  private readonly channelTimers = new Set<ReturnType<typeof setTimeout>>();
 
   constructor(private readonly opts: {
     run?: AptCacheRun;
@@ -266,6 +313,34 @@ export class AptUpdateBackend implements UpdateBackend {
     return this.inDir((dir) => writeRequest(join(dir, UPDATE_REQUEST_FILE), `${Date.now()}\n`));
   }
 
+  /**
+   * The group's update channel, at start and whenever `update_channel`
+   * changed (a PATCH here, or a value a member synced): the channel file for
+   * the root updater, written only when it says something else. Before
+   * `orbital setup` there is nowhere to write it, and nothing to say. The
+   * `.path` unit refreshes apt's lists, and apt's view is read again after
+   * `CHANNEL_REFRESH_AFTER_MS`.
+   */
+  setChannel(channel: UpdateChannel): void {
+    try {
+      this.inDir((dir) => {
+        if (writeStateIfChanged(join(dir, UPDATE_CHANNEL_FILE), `${channel}\n`)) {
+          console.log(`[update] update channel: ${channel}`);
+          for (const ms of CHANNEL_REFRESH_AFTER_MS) {
+            const timer = setTimeout(() => {
+              this.channelTimers.delete(timer);
+              void this.refresh();
+            }, ms);
+            timer.unref?.();
+            this.channelTimers.add(timer);
+          }
+        }
+      });
+    } catch (err) {
+      console.warn(`[update] could not write the update channel: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   /** The service waits for the sessions (`waitsItself` false): nothing waits here. */
   waiting(): null {
     return null;
@@ -294,6 +369,8 @@ export class AptUpdateBackend implements UpdateBackend {
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    for (const timer of this.channelTimers) clearTimeout(timer);
+    this.channelTimers.clear();
   }
 }
 

@@ -9,12 +9,16 @@
 //                                              changelog (desktop/CHANGELOG.md
 //                                              unless named), or nothing
 //
-// The desktop app has shipped when its GitHub Release `v<version>` is
-// published (a draft is a release whose upload did not finish), the Linux
+// "Shipped" means in the experimental channel, where every release lands
+// first (spec 2026-11-02-experimental-release-channel-design → Releasing;
+// .github/workflows/promote.yml moves it to stable). The desktop app has
+// shipped when its GitHub Release `v<version>` is published, as a prerelease
+// or not (a draft is a release whose upload did not finish), the Linux
 // package (the desktop's version, spec 2026-10-19-headless-server-design →
-// The package) when the apt repository lists it, the relay
-// when its image is in GHCR, the phone's app version when Beam has its bundle
-// (spec 2026-10-09-phone-ota-updates-design → Releasing), the phone's native
+// The package) when the apt repository's `experimental` suite lists it, the
+// relay when its image is in GHCR, the phone's app version when Beam has its
+// bundle, in any channel (spec 2026-10-09-phone-ota-updates-design →
+// Releasing), the phone's native
 // version on iOS and on Android each when the tag its store job writes once
 // that store has the build exists. A lookup that fails for any other reason than "not there" stops the
 // run: read as "not shipped", an outage of GitHub or Beam would ship a version
@@ -28,7 +32,7 @@
 import { execFile } from 'node:child_process'
 import { appendFileSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { check as aptLists, debVersion } from './apt-repo.mjs'
+import { EXPERIMENTAL, check as aptLists, debVersion } from './apt-repo.mjs'
 import { BEAM_CONFIG, bundleExists, readBeam } from './beam.mjs'
 
 export const DESKTOP_PACKAGE = 'desktop/package.json'
@@ -200,8 +204,9 @@ function run(command, args, notThere) {
 }
 
 export const realLookups = {
-  // The repository's Packages file and its InRelease, over HTTPS (scripts/apt-repo.mjs).
-  apt: (version) => aptLists(version),
+  // The experimental suite's Packages file and its InRelease, over HTTPS
+  // (scripts/apt-repo.mjs): every release lands there first.
+  apt: (version) => aptLists(version, { suite: EXPERIMENTAL }),
   // Beam's version lookup, behind the app's upload key (scripts/beam.mjs).
   async bundle(version) {
     const beam = readBeam(readFileSync(new URL(`../${BEAM_CONFIG}`, import.meta.url), 'utf8'))

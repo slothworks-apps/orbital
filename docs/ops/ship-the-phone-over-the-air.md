@@ -6,6 +6,8 @@ status: in-force
 domain: mobile
 related:
   - 2026-10-09-phone-ota-updates-design
+  - 2026-11-02-experimental-release-channel-design
+  - a-release-reaches-experimental-before-stable
   - an-ota-bundle-runs-only-if-signed-by-ci
   - the-phone-has-an-app-version-and-a-native-version
   - build-the-android-app
@@ -68,6 +70,10 @@ the old shell to take no bundles until they update from the store.
 1. Beam's admin → Apps → new app with the id `io.slothworks.orbital.mobile`
    (`mobile/beam.json`).
 2. Copy its upload key: `gh secret set BEAM_UPLOAD_KEY`.
+3. Channels: `production` (the app's default) and `experimental`, with
+   self-assignment allowed (`allowSelfAssign: true`) and
+   `promotesTo: production`. A phone that joins a channel without
+   self-assignment is refused, and stays on production.
 
 The `plan` job reads the same key to ask Beam whether a version is there.
 Without it, or with Beam down, the phone app is planned as `error` and the
@@ -99,10 +105,64 @@ and ship the next version.
    `minNativeVersion` = `versionName` and the version's changelog section
    as its notes.
 
-Beam serves an uploaded bundle to every phone at once. A phone checks when
-it opens, downloads in the background, and offers the version above the
-session list; Restart takes it at once, × at the next start. A shell older
-than the bundle's `minNativeVersion` is told to wait for the store.
+The bundle lands in Beam's `experimental` channel only; the phones on
+`production` get it when the Promote workflow moves the same version there
+(below, Channels). A phone checks when it opens, downloads in the
+background, and offers the version above the session list; Restart takes
+it at once, × at the next start. A shell older than the bundle's
+`minNativeVersion` is told to wait for the store.
+
+## Channels
+
+Beam has two channels for the app, and every phone is on one of them
+([[2026-11-02-experimental-release-channel-design]] → On the phone):
+
+| channel | who is on it | gets a bundle |
+|---|---|---|
+| `experimental` | phones of a group with Settings → Updates → Experimental updates on | when the release uploads it |
+| `production` | every other phone, and every shell from before channels | when Promote moves that version from `experimental` |
+
+**How the phone picks its channel.** It follows the group's
+`update_channel` setting: `experimental` joins Beam's `experimental`
+channel, absent or anything else is `production`. The phone has no switch
+of its own; it reads the setting with the rest of the Mac's settings, on
+every new tunnel, from the member that shares the group's settings
+(`web/src/mobile/update/channel.ts`).
+
+- Joining is the plugin's `setChannel('experimental')`: a request to
+  `<beam>/api/channel_self`, which checks the channel exists and allows
+  self-assignment. The plugin then keeps the channel on the device and
+  sends it as `defaultChannel` with every update check, and asks for an
+  update at once. Leaving is `unsetChannel()`: local, no request.
+- The phone keeps the channel it last applied in `localStorage`
+  (`orbital.update.channel`) and calls the plugin only when the setting
+  differs from it. A failure (Beam down, the channel refused) records
+  nothing and is tried again when the setting changes or the app starts
+  again. Before any member has answered the settings read, nothing
+  changes, so a phone that starts offline keeps its channel.
+- Only a release build with the updater on follows it; a dev build has no
+  updater.
+- **A shell from before channels stays on production.** Its config has
+  `allowSetDefaultChannel: false` and an empty `channelUrl`, and the plugin
+  refuses `setChannel` with `disabled_by_config` before any request; the
+  phone ignores that. The channel needs the native build whose
+  `capacitor.config.ts` sets `channelUrl` to `<beam>/api/channel_self` and
+  `allowSetDefaultChannel: true`; every start pins the channel URL there
+  again (`pinUrls`).
+- **Turning experimental off downgrades nothing.** Production's bundle is
+  lower than what the phone runs until a Promote passes it. The phone does
+  not offer a bundle that is not newer than the one running, and the
+  replay guard would refuse it anyway. The plugin downloads such a bundle
+  once and keeps it, so a later check finds it downloaded and does not
+  fetch it again.
+- A fix within experimental is a new, higher version, as anywhere else.
+
+**Check it on a device.** Install the release build, upload a bundle to
+`experimental` only and turn the group's switch on. Reopen the app: its
+update check carries `defaultChannel: experimental` and the bundle is
+offered. Switch it off and reopen the app: nothing is offered, and the
+version stays until Promote passes it. `adb logcat | grep -i capgo` shows
+the channel request and its answer.
 
 ### Without CI
 

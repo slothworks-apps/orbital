@@ -9,6 +9,7 @@ import {
   notPrimaryAddLine, relayChangeWords, relayLockedLine, removeWords, updateSessionsWords,
 } from '@orbital/shared/remote/groupWords';
 import type { ServerUpdateState } from '@orbital/shared/remote/serverUpdate';
+import { experimentalUpdatesWords } from '@orbital/shared/updateChannel';
 import { ROSTER_MAX_ENTRIES } from '@orbital/shared/remote/roster';
 import { buildServer } from '../src/index.js';
 import { parseArgs } from '../src/cli/args.js';
@@ -43,6 +44,16 @@ describe('parseArgs', () => {
     expect(parseArgs(['update', '--when-idle', 'nuc'])).toEqual({ kind: 'update', target: 'nuc', yes: false, when: 'idle' });
     expect(parseArgs(['update', '--cancel'])).toEqual({ kind: 'updateCancel', target: null });
     expect(parseArgs(['update', 'gpu', 'box', '--cancel'])).toEqual({ kind: 'updateCancel', target: 'gpu box' });
+    expect(parseArgs(['experimental'])).toEqual({ kind: 'experimental' });
+    expect(parseArgs(['experimental', 'on'])).toEqual({ kind: 'experimentalSet', on: true, yes: false });
+    expect(parseArgs(['experimental', 'on', '-y'])).toEqual({ kind: 'experimentalSet', on: true, yes: true });
+    expect(parseArgs(['experimental', 'off'])).toEqual({ kind: 'experimentalSet', on: false, yes: false });
+  });
+
+  it('takes --yes only for experimental on, which is the one that asks', () => {
+    for (const argv of [['experimental', '--yes'], ['experimental', 'off', '--yes'], ['experimental', 'maybe'], ['experimental', 'on', 'now']]) {
+      expect(parseArgs(argv).kind, argv.join(' ')).toBe('usage');
+    }
   });
 
   it('takes --when-idle and --cancel only for update, and not together', () => {
@@ -652,6 +663,61 @@ describe('confirmations', () => {
       expect(await run(['update'], s, t)).toBe(posted ? 0 : 1);
       expect(t.io.asked).toHaveLength(1);
       expect(s.calls.some((c) => c.method === 'POST')).toBe(posted);
+    }
+  });
+});
+
+describe('experimental', () => {
+  const alone = status();
+  const group = status({}, {
+    members: [member({ id: 'self-id', name: 'gpu-box', kind: 'headless', self: true }), member({ id: 'ph', name: 'Pixel 8', kind: 'phone' })],
+  });
+  const channel = (value?: string) => ({
+    'GET /api/settings': { status: 200, body: value === undefined ? {} : { update_channel: value } },
+    'PATCH /api/settings': { status: 200, body: { ok: true } },
+  });
+  const run = (argv: string[], s: ReturnType<typeof fakeServer>, t: ReturnType<typeof scriptedIo>) =>
+    runCli(argv, { call: s.call, io: t.api, port: 1 });
+  const patched = (s: ReturnType<typeof fakeServer>) => s.calls.filter((c) => c.method === 'PATCH').map((c) => c.body);
+
+  it('turns on only after a yes, asking in the switch\'s words for the group or this server alone', async () => {
+    for (const [remote, inGroup] of [[group, true], [alone, false]] as const) {
+      const words = experimentalUpdatesWords(inGroup, 'server');
+      for (const [answer, on] of [['n', false], ['y', true]] as const) {
+        const s = fakeServer([remote], channel());
+        const t = scriptedIo([answer]);
+        expect(await run(['experimental', 'on'], s, t)).toBe(on ? 0 : 1);
+        expect(t.io.asked[0]).toContain(`${words.question} ${words.body}`);
+        expect(patched(s)).toEqual(on ? [{ update_channel: 'experimental' }] : []);
+      }
+    }
+    const s = fakeServer([group], channel());
+    const t = scriptedIo();
+    expect(await run(['experimental', 'on', '--yes'], s, t)).toBe(0);
+    expect(t.io.asked).toEqual([]);
+    expect(patched(s)).toEqual([{ update_channel: 'experimental' }]);
+  });
+
+  it('turns off without asking, and changes nothing that is already so', async () => {
+    const s = fakeServer([group], channel('experimental'));
+    const t = scriptedIo();
+    expect(await run(['experimental', 'off'], s, t)).toBe(0);
+    expect(t.io.asked).toEqual([]);
+    expect(patched(s)).toEqual([{ update_channel: 'stable' }]);
+    for (const [value, argv] of [['experimental', 'on'], [undefined, 'off'], ['stable', 'off']] as const) {
+      const u = fakeServer([group], channel(value));
+      const v = scriptedIo();
+      expect(await run(['experimental', argv], u, v)).toBe(0);
+      expect(patched(u)).toEqual([]);
+    }
+  });
+
+  it('shows the state, reading anything but the exact word as off', async () => {
+    for (const [value, on] of [['experimental', true], ['stable', false], ['Experimental', false], [undefined, false]] as const) {
+      const s = fakeServer([alone], channel(value));
+      const t = scriptedIo();
+      expect(await run(['experimental'], s, t)).toBe(0);
+      expect(t.io.out[0]).toMatch(on ? /^Experimental updates are on\./ : /^Experimental updates are off\./);
     }
   });
 });

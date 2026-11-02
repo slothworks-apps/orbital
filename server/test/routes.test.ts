@@ -1239,6 +1239,32 @@ describe('REST routes', () => {
     expect(pushed).toEqual([['default_model', 'sidebar_width'], []]);
   });
 
+  it('GET /api/settings/:key/stamp says when and where a shared value changed, and nothing of a per-device one', async () => {
+    const { app: shared, db: sharedDb } = makeApp({
+      sharedSettings: (db) => {
+        const store = new SharedSettingsStore(db, () => 'self', () => 100);
+        return {
+          partner: () => false, heardFrom: () => {}, grantsChanged: () => {}, list: () => store.list(), listTags: () => [], receive: () => {},
+          changedLocally: (keys) => { store.stampLocal(keys); },
+          tagChangedLocally: () => {}, tagDeletedLocally: () => {},
+        };
+      },
+    });
+    const get = async (key: string) => shared.inject({ method: 'GET', url: `/api/settings/${key}/stamp` });
+    // Never set: no value and no stamp.
+    expect((await get('update_channel')).json()).toEqual({ value: null, at: null, origin: null });
+    // Changed here: stamped now; the origin is this device's id, which this stub has none of.
+    await shared.inject({ method: 'PATCH', url: '/api/settings', payload: { update_channel: 'experimental' } });
+    expect((await get('update_channel')).json()).toMatchObject({ value: 'experimental', at: 100 });
+    // Taken from a member: its id.
+    sharedDb.update(settingsTable).set({ stampAt: 50, stampOrigin: 'LAPTOP' }).where(eq(settingsTable.key, 'update_channel')).run();
+    expect((await get('update_channel')).json()).toEqual({ value: 'experimental', at: 50, origin: 'LAPTOP' });
+    // A value from before the group stamped it, or one taken at joining: no day.
+    sharedDb.update(settingsTable).set({ stampAt: -1 }).where(eq(settingsTable.key, 'update_channel')).run();
+    expect((await get('update_channel')).json().at).toBeNull();
+    expect((await get('sidebar_width')).statusCode).toBe(404);
+  });
+
   it('a tag create, rename, recolour or delete is stamped and pushed; an anchor move or an unchanged name is not', async () => {
     let now = 100;
     const pushed: StampedTag[][] = [];

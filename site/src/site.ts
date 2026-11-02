@@ -16,10 +16,12 @@ export const SITE_URL = 'https://orbital.slothworks.io'
 export const REPO_URL = 'https://github.com/slothworks-apps/orbital'
 
 /**
- * The releases list, not a release or an asset: asset names carry the
- * version, and the list is always current.
+ * The Latest release, not a numbered release or an asset: asset names carry
+ * the version, and Latest is always the current stable one. The releases
+ * list would put the newest prerelease first, which only the experimental
+ * channel gets (spec 2026-11-02-experimental-release-channel-design).
  */
-export const RELEASES_URL = `${REPO_URL}/releases`
+export const RELEASES_URL = `${REPO_URL}/releases/latest`
 
 /** Empty until PHONE_RELEASE is 'public'. */
 export const APP_STORE_URL = ''

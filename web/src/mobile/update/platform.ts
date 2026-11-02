@@ -3,6 +3,7 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core'
 import { Device } from '@capacitor/device'
 import { CapacitorUpdater } from '@capgo/capacitor-updater'
 import { deviceInfoEvent, statsUrl } from './beam'
+import { BEAM_EXPERIMENTAL_CHANNEL, createChannelFollower, startFollowingChannel } from './channel'
 import { loadDiagnostics, saveDiagnostics } from './diagnostics'
 import { BUILTIN, belowFloor, nextHighWater, parseHighWater, revertTarget } from './guard'
 import { stashForRestart, takeRestartStash } from './restartStash'
@@ -26,6 +27,8 @@ const PENDING_KEY = 'orbital.update.pending'
 const HIGH_WATER_KEY = 'orbital.update.highWater'
 /** The app version the built-in bundle reported when it last started well. */
 const BUILTIN_VERSION_KEY = 'orbital.update.builtinVersion'
+/** The Beam channel last applied to the plugin (`channel.ts`): `experimental`, or absent for production. */
+const CHANNEL_KEY = 'orbital.update.channel'
 
 const storage = {
   get: (key: string): string | null => {
@@ -188,14 +191,37 @@ export async function setDiagnostics(on: boolean): Promise<void> {
 
 /**
  * `allowModifyUrl` lets any script in the WebView move the plugin's URLs,
- * and `persistModifyUrl` keeps them: every start puts the update URL back on
- * Beam and the channel URL back to nothing. A URL moved in between is used
- * until then, and what it serves must still be signed (`guard.ts` for an
- * old one).
+ * and `persistModifyUrl` keeps them: every start puts the update URL and
+ * the channel URL back on Beam. A URL moved in between is used until then,
+ * and what it serves must still be signed (`guard.ts` for an old one). A
+ * shell from before channels refuses `setChannel` whatever the URL says
+ * (`allowSetDefaultChannel` off in its config).
  */
 async function pinUrls(beam: Beam): Promise<void> {
   await CapacitorUpdater.setUpdateUrl({ url: `${beam.url}/api/updates` })
-  await CapacitorUpdater.setChannelUrl({ url: '' })
+  await CapacitorUpdater.setChannelUrl({ url: `${beam.url}/api/channel_self` })
+}
+
+/**
+ * The plugin's side of `channel.ts`. Joining experimental asks for an
+ * update check at once, so its newest bundle is offered without waiting for
+ * the next start; leaving it does not — production's bundle is lower than
+ * what the phone runs until production passes it, and never offered
+ * (`downloadVerdict`).
+ */
+function followChannel(): void {
+  startFollowingChannel(
+    createChannelFollower({
+      apply: async (action) => {
+        if (action === 'set') {
+          await CapacitorUpdater.setChannel({ channel: BEAM_EXPERIMENTAL_CHANNEL, triggerAutoUpdate: true })
+        } else await CapacitorUpdater.unsetChannel({})
+      },
+      load: () => storage.get(CHANNEL_KEY),
+      save: (channel) => storage.set(CHANNEL_KEY, channel === 'experimental' ? channel : null),
+      warn: warn('switch the update channel'),
+    }),
+  )
 }
 
 /**
@@ -221,6 +247,7 @@ export async function startUpdates(beam: Beam, running: string): Promise<void> {
     await CapacitorUpdater.addListener('updateAvailable', ({ bundle }) => {
       usePhoneUpdate.getState().downloaded({ id: bundle.id, version: bundle.version }, running)
     })
+    followChannel()
   } catch (err) {
     warn('listen for updates')(err)
     return

@@ -3,15 +3,22 @@ name: Release
 # Ships every app whose version has not shipped yet, and nothing else
 # (spec 2026-10-08-builds-for-testers-design, ADR
 # a-version-ships-once-from-one-workflow). `plan` asks where each version
-# ships to; the jobs after it build and publish only what is missing:
+# ships to; the jobs after it build and publish only what is missing.
 #
-#   mac         desktop/package.json  → a published GitHub Release v<version>
-#   deb         desktop/package.json  → orbital <version> in the apt repository
-#                                       at apt.slothworks.io, and its .deb on
-#                                       the Release v<version> (deb builds,
+# The desktop, the Linux package and the phone's bundle ship to their
+# experimental channel, and "shipped" means there (ADR
+# a-release-reaches-experimental-before-stable); promote.yml, started by
+# hand, moves the same versions to stable:
+#
+#   mac         desktop/package.json  → a GitHub Release v<version>, published
+#                                       as a prerelease (never Latest)
+#   deb         desktop/package.json  → orbital <version> in the `experimental`
+#                                       suite of the apt repository at
+#                                       apt.slothworks.io (deb builds,
 #                                       deb-publish signs and uploads)
 #   ota         mobile/package.json   → the phone's bundle <version> on Beam,
-#                                       encrypted and signed
+#                                       encrypted and signed, deployed to the
+#                                       channel `experimental`
 #   ios         build.gradle          → TestFlight, then the tag
 #                                       mobile-ios-v<versionName>
 #   android     build.gradle          → Play Internal testing, then the tag
@@ -144,6 +151,9 @@ jobs:
       # upload that fails half way leaves no published release without its
       # update feed. `plan` counts a draft as not shipped, and the next run
       # replaces it. Publishing writes the tag v<version> at this commit.
+      # Published as a prerelease, never Latest: Macs on stable read only
+      # Latest, Macs on experimental take prereleases too, and promote.yml
+      # makes it Latest.
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -160,8 +170,8 @@ jobs:
           if [ -s "$notes" ]; then set -- --notes-file "$notes"; else set -- --generate-notes; fi
           gh release create "$tag" \
             desktop/release/*.dmg desktop/release/*.zip desktop/release/*.blockmap desktop/release/latest-mac.yml \
-            --draft --target "$GITHUB_SHA" --title "Orbital $VERSION" "$@"
-          gh release edit "$tag" --draft=false
+            --draft --prerelease --latest=false --target "$GITHUB_SHA" --title "Orbital $VERSION" "$@"
+          gh release edit "$tag" --draft=false --latest=false
 
       - name: Remove the API key and the keychain
         if: always()
@@ -172,8 +182,9 @@ jobs:
   deb:
     # The server for Ubuntu (spec 2026-10-19-headless-server-design → The
     # package, The apt repository), built here and published by
-    # `deb-publish`. After `mac`, and only once the desktop's Release for the
-    # same version is published, so a server is never offered a version with
+    # `deb-publish` to the `experimental` suite. After `mac`, and only once
+    # the desktop's Release for the same version is published (a prerelease
+    # counts), so a server is never offered a version with
     # no DMG; when `mac` was skipped because the DMG had shipped, the Release
     # is there and this runs; when it failed, this does not. Built from the
     # Release's tag, so the package is the server of that DMG, and on 22.04,
@@ -206,12 +217,12 @@ jobs:
           ref: ${{ env.TAG }}
           persist-credentials: false
 
-      # A repository that lists the version already needs no new package:
+      # A suite that lists the version already needs no new package:
       # `deb-publish` only signs its index again. One that cannot be asked
       # reads as not listed.
       - id: listed
         run: |
-          if node scripts/apt-repo.mjs --check "$VERSION"; then
+          if node scripts/apt-repo.mjs --check "$VERSION" --suite experimental; then
             echo "listed=true" >> "$GITHUB_OUTPUT"
           else
             echo "listed=false" >> "$GITHUB_OUTPUT"
@@ -239,8 +250,9 @@ jobs:
           retention-days: 7
 
   deb-publish:
-    # Adds the package `deb` built to the repository, signs it and uploads it
-    # to the S3 bucket (MinIO). The .deb is not attached to the GitHub Release:
+    # Adds the package `deb` built to the repository's `experimental` suite,
+    # signs it and uploads it to the S3 bucket (MinIO); the pool is shared
+    # with `stable`, which promote.yml fills. The .deb is not attached to the GitHub Release:
     # releases are immutable once published. The only job that sees the
     # repository's key and the bucket's token, and it runs no npm: Node's
     # built-ins, gpg, dpkg-scanpackages and the AWS CLI. When `deb` found the
@@ -312,26 +324,30 @@ jobs:
           endpoint="$S3_ENDPOINT"
           s3() { aws s3 --endpoint-url "$endpoint" "$@"; }
           bucket="s3://$S3_BUCKET"
-          index=dists/stable/main/binary-amd64
+          suite=experimental
+          index="dists/$suite/main/binary-amd64"
           current="$RUNNER_TEMP/Packages"
+          # `-` is a suite with no package yet: its first release, or the
+          # empty index apt-resign.yml signs.
           if ! answer="$(aws s3api head-object --endpoint-url "$endpoint" --bucket "$S3_BUCKET" --key "$index/Packages" 2>&1)"; then
             if printf '%s' "$answer" | grep -q '(404)'; then
-              echo "No Packages file yet: the repository's first release."
-              : > "$current"
+              echo "No Packages file yet: the suite's first release."
+              current=-
             else
               echo "$answer"
               exit 1
             fi
           else
             s3 cp "$bucket/$index/Packages" "$current"
+            [ -s "$current" ] || current=-
           fi
 
           repo="$RUNNER_TEMP/repo"
           if [ "$LISTED" = true ]; then
-            node scripts/apt-repo.mjs resign --packages "$current" --out "$repo"
+            node scripts/apt-repo.mjs resign --suite "$suite" --packages "$current" --out "$repo"
             echo "added=false" >> "$GITHUB_OUTPUT"
           else
-            node scripts/apt-repo.mjs add --deb "$RUNNER_TEMP/deb/orbital_${VERSION}_amd64.deb" \
+            node scripts/apt-repo.mjs add --suite "$suite" --deb "$RUNNER_TEMP/deb/orbital_${VERSION}_amd64.deb" \
               --packages "$current" --out "$repo"
           fi
 
@@ -344,7 +360,7 @@ jobs:
             s3 cp "$repo/$index/$f" "$bucket/$index/$f" --cache-control 'no-cache'
           done
           for f in Release Release.gpg InRelease; do
-            s3 cp "$repo/dists/stable/$f" "$bucket/dists/stable/$f" --cache-control 'no-cache'
+            s3 cp "$repo/dists/$suite/$f" "$bucket/dists/$suite/$f" --cache-control 'no-cache'
           done
           s3 cp "$repo/orbital.gpg" "$bucket/orbital.gpg" --cache-control 'no-cache'
 
@@ -353,10 +369,10 @@ jobs:
       - name: Check the repository lists it
         run: |
           for _ in 1 2 3 4 5 6; do
-            node scripts/apt-repo.mjs --check "$VERSION" && exit 0
+            node scripts/apt-repo.mjs --check "$VERSION" --suite experimental && exit 0
             sleep 30
           done
-          echo "::error::apt.slothworks.io does not list orbital $VERSION after the upload"
+          echo "::error::apt.slothworks.io does not list orbital $VERSION in experimental after the upload"
           exit 1
 
   ios:
@@ -534,8 +550,9 @@ jobs:
           npm run test:bundle -w @orbital/web
 
       # Signs, checks the result opens with mobile/ota-public-key.pem, uploads
-      # with minNativeVersion = build.gradle's versionName and the version's
-      # section of mobile/CHANGELOG.md as its notes. The private key exists
+      # to Beam's channel `experimental` (promote.yml moves it to
+      # `production`) with minNativeVersion = build.gradle's versionName and
+      # the version's section of mobile/CHANGELOG.md as its notes. The private key exists
       # only in this step's environment: never on disk, never while npm or
       # the build ran.
       - name: Sign and upload to Beam

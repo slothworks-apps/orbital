@@ -253,6 +253,18 @@ Any member updates any other through `GET`/`POST`/`DELETE /api/server/update`
 **Where the update comes from:**
 - A headless server reads apt (`apt-cache policy orbital`). A request
   file starts the root `orbital-update.path` unit.
+- **The channel** is the group-shared setting `update_channel`
+  (`experimental`; `stable`, which the switch saves when turned off, or
+  absent is stable; spec `2026-11-02-experimental-release-channel-design`).
+  It is switched in Settings → Updates on a Mac or with `orbital
+  experimental on|off` on a server; Settings › Updates reads who turned it
+  on and when from `GET /api/settings/update_channel/stamp`. A Mac's main sets
+  electron-updater's `allowPrerelease` from it and checks at once on a
+  change. A headless server writes it to
+  `/var/lib/orbital/update/channel` (at start, and from a PATCH or a value
+  a member synced, through `settingsChangedEffects`). The root
+  `orbital-channel.path` unit then points `orbital.sources` at that suite.
+  Neither ever downgrades.
 - A Mac asks Electron's main process over the server's `parentPort`
   (`update_state`, `update_start` with `by`, the asking member, and
   `update_cancel`). Main answers `update_ended` with a reason when it
