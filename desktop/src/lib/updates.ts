@@ -77,6 +77,67 @@ export function channelStep(applied: UpdateChannel | null, read: UpdateChannel):
   return { allowPrerelease: read === 'experimental', check: applied !== null && applied !== read };
 }
 
+/** How many times one run asks again because the channel changed under it. */
+export const CHECK_ROUNDS = 3;
+
+/**
+ * A run's answer: what the check found and whether it asked on stable,
+ * when the channel stood still from the check's start to its end; `unsteady`
+ * when it kept changing for every one of `CHECK_ROUNDS` rounds, and nothing
+ * found may be offered.
+ */
+export type SteadyCheck<R> = { kind: 'steady'; result: R; onStable: boolean } | { kind: 'unsteady' };
+
+/**
+ * Update checks, one at a time (spec
+ * 2026-11-02-experimental-release-channel-design § On the Mac).
+ * electron-updater hands a second caller the check already running, which
+ * may have started on the other channel; so every check goes through here
+ * instead. A call while one runs joins it. A channel change while one runs
+ * makes it ask once more on the new channel when it ends, and what the
+ * earlier round found is dropped: a version from the old channel is never
+ * offered, downloaded, or taken for stable's newest.
+ *
+ * `prepare` reads the settings (which may change the channel), `onStable`
+ * reads the channel the check is about to ask on, `check` asks.
+ */
+export class UpdateChecks<R> {
+  private generation = 0;
+  private running: Promise<SteadyCheck<R>> | null = null;
+
+  constructor(
+    private readonly steps: { prepare(): Promise<void>; onStable(): boolean; check(): Promise<R> },
+  ) {}
+
+  /** The channel given to the updater changed. */
+  channelChanged(): void {
+    this.generation++;
+  }
+
+  run(): Promise<SteadyCheck<R>> {
+    if (!this.running) {
+      const run = this.rounds();
+      this.running = run;
+      const clear = () => {
+        if (this.running === run) this.running = null;
+      };
+      run.then(clear, clear);
+    }
+    return this.running;
+  }
+
+  private async rounds(): Promise<SteadyCheck<R>> {
+    for (let round = 0; round < CHECK_ROUNDS; round++) {
+      await this.steps.prepare();
+      const generation = this.generation;
+      const onStable = this.steps.onStable();
+      const result = await this.steps.check();
+      if (this.generation === generation) return { kind: 'steady', result, onStable };
+    }
+    return { kind: 'unsteady' };
+  }
+}
+
 /**
  * The file in `userData` that remembers a version skipped with × on
  * Available, so it is not offered again after a restart. Main is its only

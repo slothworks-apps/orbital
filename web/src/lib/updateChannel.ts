@@ -9,13 +9,6 @@ import { UPDATE_CHANNEL_KEY, parseUpdateChannel, type UpdateChannel } from '@orb
  * off by default — not part of Settings › Experimental.
  */
 
-export { UPDATE_CHANNEL_KEY, type UpdateChannel }
-export { experimentalUpdatesWords } from '@orbital/shared/updateChannel'
-
-/** What the switch saves: on is the exact word the Mac, a server and the phone follow; off anything else. */
-export const CHANNEL_EXPERIMENTAL = 'experimental'
-export const CHANNEL_STABLE = 'stable'
-
 type Settings = Record<string, string | undefined>
 
 /** `experimental` gets every release before everyone else; absent or anything else is stable. */

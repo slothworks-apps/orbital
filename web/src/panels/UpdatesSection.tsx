@@ -3,10 +3,9 @@ import { version as orbitalVersion } from '../../../desktop/package.json'
 import { api } from '../lib/api'
 import { AUTO_DOWNLOAD_KEY, autoDownloadOn, releaseNotesUrl, remoteWaits, updateCheckLine } from '../lib/appUpdate'
 import type { UpdateCheckAnswer } from '../lib/desktop'
-import {
-  CHANNEL_EXPERIMENTAL, CHANNEL_STABLE, UPDATE_CHANNEL_KEY, channelStatusLine, experimentalUpdatesOn,
-  experimentalUpdatesWords, stampOriginName, type SettingStamp,
-} from '../lib/updateChannel'
+import { UPDATE_CHANNEL_KEY, experimentalUpdatesWords, type UpdateChannel } from '@orbital/shared/updateChannel'
+import { recordError } from '../lib/errors'
+import { channelStatusLine, experimentalUpdatesOn, stampOriginName, type SettingStamp } from '../lib/updateChannel'
 import { useNow } from '../lib/useNow'
 import { useAppUpdate } from '../store/appUpdate'
 import { useOrbital } from '../store/store'
@@ -162,7 +161,11 @@ function ExperimentalUpdates({
     api
       .getSettingStamp(UPDATE_CHANNEL_KEY)
       .then((s) => current && setStamp({ at: s.at, origin: s.origin }))
-      .catch(() => current && setStamp(null))
+      .catch((err) => {
+        // The line falls back to saying less; the failure is kept in the error log.
+        recordError(err, 'Could not read when experimental updates were turned on')
+        if (current) setStamp(null)
+      })
     return () => {
       current = false
     }
@@ -199,7 +202,7 @@ function ExperimentalUpdates({
           aria-label="Experimental updates"
           checked={on}
           // Off → on asks first (a second press closes the question); on → off saves at once.
-          onChange={(next) => (next ? setAsking((a) => !a) : void patchAndSet({ [UPDATE_CHANNEL_KEY]: CHANNEL_STABLE }))}
+          onChange={(next) => (next ? setAsking((a) => !a) : void patchAndSet({ [UPDATE_CHANNEL_KEY]: 'stable' satisfies UpdateChannel }))}
         />
         {status && <span className="font-mono fs-11 leading-[1.5] text-ink-900/65 [text-wrap:pretty]">{status}</span>}
       </Row>
@@ -225,7 +228,7 @@ function ExperimentalUpdates({
               size="member"
               onClick={() => {
                 setAsking(false)
-                void patchAndSet({ [UPDATE_CHANNEL_KEY]: CHANNEL_EXPERIMENTAL })
+                void patchAndSet({ [UPDATE_CHANNEL_KEY]: 'experimental' satisfies UpdateChannel })
               }}
             >
               Turn on

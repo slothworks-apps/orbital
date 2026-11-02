@@ -6,7 +6,7 @@
  * server into its apt suite, the phone into its Beam channel.
  */
 
-/** The setting: `experimental`, or absent for stable. */
+/** The setting: `experimental` or `stable`, which every server seeds; absent only on a member that predates it. */
 export const UPDATE_CHANNEL_KEY = 'update_channel';
 
 export type UpdateChannel = 'experimental' | 'stable';

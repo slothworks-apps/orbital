@@ -2924,19 +2924,16 @@ export function registerRoutes(app: FastifyInstance, ctx: RouteContext): void {
   // When and on which device a shared value last changed (spec
   // 2026-10-24-group-shared-settings-design): Settings › Updates says who
   // turned experimental updates on, and when (canvas `Feature - Experimental
-  // updates` 1h). Shared keys only; `at` null for a change not stamped (a
+  // updates` 1h). Shared keys only, read as the group reads them
+  // (`SharedSettingsStore.list`); `at` null for a change not stamped (a
   // default never changed, a value from before joining); `origin` the
-  // device id, null for this device when it has none yet.
+  // device id, null while this device has none yet.
   app.get('/api/settings/:key/stamp', (req, reply) => {
     const { key } = req.params as { key: string };
     if (!isSharedSetting(key)) return reply.code(404).send({ error: 'not_shared' });
-    const row = db.select().from(settingsTable).where(eq(settingsTable.key, key)).get();
-    if (!row) return { value: null, at: null, origin: null };
-    return {
-      value: row.value,
-      at: row.stampAt > 0 ? row.stampAt : null,
-      origin: row.stampOrigin || ctx.remote.selfId(),
-    };
+    const held = ctx.sharedSettings?.list()[key];
+    if (!held) return { value: ctx.settings.get(key), at: null, origin: null };
+    return { value: held.value, at: held.at > 0 ? held.at : null, origin: held.origin };
   });
   app.patch('/api/settings', (req, reply) => {
     if (typeof req.body !== 'object' || req.body === null || Array.isArray(req.body)) {

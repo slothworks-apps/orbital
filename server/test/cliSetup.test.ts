@@ -42,6 +42,7 @@ describe('setupPlan', () => {
       `install -d -o ana -g root -m 0700 ${UPDATE_REQUEST_DIR}`,
       'systemctl enable --now orbital-update.path',
       'systemctl enable --now orbital-channel.path',
+      'systemctl start --no-block orbital-channel.service',
       'loginctl enable-linger ana',
     ]);
     const plan = setupPlan(fresh);
@@ -69,6 +70,7 @@ describe('setupPlan', () => {
     // A server set up before the update channel gets its watcher on the next run.
     expect(argvs(setupPlan({ ...done, channelUnit: { enabled: false, active: false } }))).toEqual([
       'systemctl enable --now orbital-channel.path',
+      'systemctl start --no-block orbital-channel.service',
     ]);
     expect(argvs(setupPlan({ ...done, linger: false }))).toEqual(['loginctl enable-linger ana']);
     expect(argvs(setupPlan({ ...done, recordedUser: '' }))).toHaveLength(2);
@@ -162,7 +164,7 @@ describe('runSetup', () => {
     let status = 0;
     const code = await runSetup({ io: t.io, sys, status: () => Promise.resolve(++status && 0) });
     expect(code).toBe(0);
-    expect(sudo).toHaveLength(7);
+    expect(sudo).toHaveLength(8);
     expect(ran).toContain('systemctl --user enable --now orbital');
     expect(status).toBe(1);
     expect(t.lines.some((l) => l.startsWith('  sudo loginctl enable-linger ana'))).toBe(true);

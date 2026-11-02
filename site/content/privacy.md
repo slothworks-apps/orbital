@@ -193,8 +193,15 @@ needed for updates and always happens. The request carries:
 - the app's version, and the version and build number of the app installed
   from the store;
 - the version of the update component, the first characters of the public
-  key updates are checked against, and the update channel (none);
+  key updates are checked against, and the update channel (`production`,
+  or `experimental` when Experimental updates are on for your devices);
 - whether the app came from a store and whether it runs in an emulator.
+
+**The update channel.** When Experimental updates are turned on or off on
+your Mac, the phone tells the update server which channel it follows. That
+request carries the same fields as the update check and the channel's
+name; the server keeps nothing from it, and the phone remembers the
+choice itself.
 
 **Diagnostics.** With Settings → Send diagnostics on, the app also reports,
 under the same install id:

@@ -8,6 +8,7 @@ import { saveAppLock } from '../platform/appLock'
 import { readNotificationsCache, writeNotificationsCache } from '../platform/cache'
 import { useMobile } from '../state'
 import { DiagnosticsSetting } from '../update/DiagnosticsSetting'
+import { useAppliedChannel } from '../update/channel'
 import { usePhoneUpdate } from '../update/state'
 import { clientRef } from '../transport/clientRef'
 import { CARD, MobileScreen, SectionLabel, SheetPresence, Toggle } from '../ui'
@@ -15,8 +16,6 @@ import { AppearanceSection } from './AppearanceSection'
 import { DevicesSection } from './DevicesSection'
 import { FeedbackSheet } from './FeedbackSheet'
 import { isDemo } from '../../lib/demo'
-import { experimentalUpdatesOn } from '../../lib/updateChannel'
-import { useOrbital } from '../../store/store'
 
 /**
  * The desktop's five rows, in its order (Settings → Notifications). Three
@@ -56,8 +55,9 @@ export const NOTIFICATION_ROWS: readonly { key: keyof NotificationSettings; labe
 /** 9f (spec § 5): the group's devices (canvas 50i), this phone's colours (1k), its notification rules, the app lock. */
 export function SettingsScreen() {
   const shell = usePhoneUpdate((s) => s.shell)
-  // The group takes experimental updates (canvas `Feature - Experimental updates` 1g): said, not switched, here.
-  const experimental = useOrbital((s) => experimentalUpdatesOn(s.settings))
+  // This phone took experimental updates (canvas `Feature - Experimental updates` 1g): said, not switched,
+  // here. What the plugin applied, not the group's setting: an older shell that refused it says nothing.
+  const experimental = useAppliedChannel((s) => s.channel === 'experimental')
   const version = experimental ? `${__MOBILE_VERSION__} · experimental` : __MOBILE_VERSION__
   const ready = useMobile((s) => s.ready)
   const goBack = useMobile((s) => s.goBack)

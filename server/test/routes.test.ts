@@ -1251,11 +1251,11 @@ describe('REST routes', () => {
       },
     });
     const get = async (key: string) => shared.inject({ method: 'GET', url: `/api/settings/${key}/stamp` });
-    // Never set: no value and no stamp.
-    expect((await get('update_channel')).json()).toEqual({ value: null, at: null, origin: null });
-    // Changed here: stamped now; the origin is this device's id, which this stub has none of.
+    // Never set: the seeded value, with no stamp; held by this device.
+    expect((await get('update_channel')).json()).toEqual({ value: 'stable', at: null, origin: 'self' });
+    // Changed here: stamped now, with this device's id.
     await shared.inject({ method: 'PATCH', url: '/api/settings', payload: { update_channel: 'experimental' } });
-    expect((await get('update_channel')).json()).toMatchObject({ value: 'experimental', at: 100 });
+    expect((await get('update_channel')).json()).toEqual({ value: 'experimental', at: 100, origin: 'self' });
     // Taken from a member: its id.
     sharedDb.update(settingsTable).set({ stampAt: 50, stampOrigin: 'LAPTOP' }).where(eq(settingsTable.key, 'update_channel')).run();
     expect((await get('update_channel')).json()).toEqual({ value: 'experimental', at: 50, origin: 'LAPTOP' });
@@ -1263,6 +1263,10 @@ describe('REST routes', () => {
     sharedDb.update(settingsTable).set({ stampAt: -1 }).where(eq(settingsTable.key, 'update_channel')).run();
     expect((await get('update_channel')).json().at).toBeNull();
     expect((await get('sidebar_width')).statusCode).toBe(404);
+    // Without shared settings (no device id yet, say): the value, and nothing known of its change.
+    const { app: alone } = makeApp();
+    expect((await alone.inject({ method: 'GET', url: '/api/settings/update_channel/stamp' })).json())
+      .toEqual({ value: 'stable', at: null, origin: null });
   });
 
   it('a tag create, rename, recolour or delete is stamped and pushed; an anchor move or an unchanged name is not', async () => {

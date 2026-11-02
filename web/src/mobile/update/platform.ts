@@ -27,7 +27,7 @@ const PENDING_KEY = 'orbital.update.pending'
 const HIGH_WATER_KEY = 'orbital.update.highWater'
 /** The app version the built-in bundle reported when it last started well. */
 const BUILTIN_VERSION_KEY = 'orbital.update.builtinVersion'
-/** The Beam channel last applied to the plugin (`channel.ts`): `experimental`, or absent for production. */
+/** The channel last applied to the plugin (`channel.ts`): `experimental` or `stable`; absent when not known. */
 const CHANNEL_KEY = 'orbital.update.channel'
 
 const storage = {
@@ -218,7 +218,7 @@ function followChannel(): void {
         } else await CapacitorUpdater.unsetChannel({})
       },
       load: () => storage.get(CHANNEL_KEY),
-      save: (channel) => storage.set(CHANNEL_KEY, channel === 'experimental' ? channel : null),
+      save: (channel) => storage.set(CHANNEL_KEY, channel),
       warn: warn('switch the update channel'),
     }),
   )

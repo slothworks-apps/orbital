@@ -70,6 +70,7 @@ import {
 import {
   checkAnswerMessage,
   channelStep,
+  UpdateChecks,
   checkIsDue,
   IDLE_SETTLE_MS,
   parseAutoDownload,
@@ -1000,6 +1001,7 @@ function applyChannel(channel: UpdateChannel): void {
   // first check after `startUpdates` reads the settings and applies it.
   if (!updatesEnabled) return;
   const step = channelStep(appliedChannel, channel);
+  if (autoUpdater.allowPrerelease !== step.allowPrerelease) updateChecks.channelChanged();
   appliedChannel = channel;
   autoUpdater.allowPrerelease = step.allowPrerelease;
   // checkForUpdates reads the settings again, finds the channel applied and checks once.
@@ -1117,6 +1119,16 @@ function showNotification(d: SessionNotification): void {
 let updatesEnabled = false;
 /** The update channel last given to electron-updater; null before the first settings read. */
 let appliedChannel: UpdateChannel | null = null;
+/**
+ * Every update check, one at a time: the settings read first, so the flow
+ * knows whether to download what it finds and the channel is applied, then
+ * electron-updater asked on that channel.
+ */
+const updateChecks = new UpdateChecks({
+  prepare: loadSettings,
+  onStable: () => !autoUpdater.allowPrerelease,
+  check: () => autoUpdater.checkForUpdates(),
+});
 
 function skippedVersionPath(): string {
   return join(app.getPath('userData'), SKIPPED_VERSION_FILE);
@@ -1246,11 +1258,11 @@ async function checkForUpdates(manual: boolean): Promise<UpdateCheckAnswer> {
   // not be taken for the install's, and the prompt already answers.
   const restartingInto = updates.restartingInto;
   if (restartingInto !== null) return { kind: 'found', version: restartingInto, outcome: 'none' };
-  await loadSettings();
-  // Read before the check: the channel a check asks on is the one set when it starts.
-  const onStable = !autoUpdater.allowPrerelease;
   try {
-    const result = await autoUpdater.checkForUpdates();
+    const run = await updateChecks.run();
+    // The channel kept changing under the check: nothing it found is offered.
+    if (run.kind === 'unsteady') return { kind: 'error' };
+    const { result, onStable } = run;
     if (!result) return { kind: 'unsupported' };
     // On stable the feed names GitHub's Latest, the newest regular release,
     // whether or not it is newer than this Mac (Settings › Updates' "still

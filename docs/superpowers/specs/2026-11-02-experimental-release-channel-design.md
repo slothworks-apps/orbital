@@ -2,7 +2,7 @@
 id: 2026-11-02-experimental-release-channel-design
 title: Experimental release channel — every release reaches experimental first, one Promote moves it to stable
 type: spec
-status: draft
+status: done
 domain: release
 related:
   - a-release-reaches-experimental-before-stable
@@ -23,7 +23,7 @@ tags:
 ---
 # Experimental release channel
 
-**Status: draft**, agreed in conversation 2026-11-02.
+**Status: done**, agreed in conversation 2026-11-02, built in PR #182.
 
 ## Problem
 
@@ -93,8 +93,10 @@ release forward. The design is the canvas `Feature - Experimental updates`
   places: after the version in Settings → Updates (and the check result
   names a found build "an experimental release"), in the update prompt's
   head line (also the remote-update prompt and What's new), and on the
-  phone's Version row in Settings → About with one line saying where it
-  is changed.
+  phone's version line in Settings → About (the version footer: the
+  phone's About has no Version row) with one line saying where it is
+  changed. The phone shows what it has actually applied, not the group's
+  setting, so a shell that refused the channel shows nothing.
 - Nothing on the map, the sidebar, the dock, the menu bar or a Devices
   row.
 - On a headless server: `orbital experimental on|off`.
@@ -332,16 +334,20 @@ creates it.
 ## Phone
 
 Built for the phone, without a switch of its own: it follows the group
-setting it already reads through `/api/settings`, and shows it read-only
-on the Version row of Settings → About (design 1g). No new route and no
-allowlist change. It needs a native build (the plugin config), so the
-phone's native version and app version are bumped; shells from before it
+setting it already reads through `/api/settings`, and shows the channel it
+has applied read-only on its version line in Settings → About (design 1g).
+No new route and no allowlist change. A server that knows the setting
+always answers it (seeded `stable`), so a read without the key comes from
+an older Mac and changes nothing: a mixed group cannot make the phone
+flip. It needs a native build (the plugin config); shells from before it
 stay on production.
 
 ## Versions
 
-Desktop minor (new feature, the Linux package with it), phone minor plus a
-native bump (config change). The relay is untouched.
+None in PR #182, by decision: the next release bumps the desktop (minor)
+and the phone's app and native versions (minor, the config change needs a
+store build). Until that native build ships, no phone follows the
+channel. The relay is untouched.
 
 ## Left to the builder
 

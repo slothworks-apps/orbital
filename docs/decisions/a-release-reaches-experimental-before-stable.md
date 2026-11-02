@@ -2,7 +2,7 @@
 id: a-release-reaches-experimental-before-stable
 title: A release reaches experimental first, and one Promote moves the same versions to stable
 type: adr
-status: draft
+status: in-force
 domain: release
 tags:
   - release
@@ -42,9 +42,11 @@ phone together, and let it out by hand
   not be what ships. Setting `autoUpdater.channel` also turns
   `allowDowngrade` on.
 - **A per-device switch, the phone following any member on
-  experimental.** A headless server has no Settings of its own to switch,
-  and the phone would have to remember the channel of members that are
-  offline. One person's group moving together is what was wanted.
+  experimental.** A group is one person's devices, and what was wanted is
+  that they move together; the phone would also have to remember the
+  channel of members that are offline. A headless server's
+  `orbital experimental on|off` sets the same group setting, not a
+  channel of its own.
 - **Automatic promotion after a delay.** A release is promoted when it has
   been seen to hold, not when time has passed.
 - **Prerelease version numbers.** Promote would mean a second build and a

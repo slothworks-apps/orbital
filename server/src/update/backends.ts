@@ -198,9 +198,9 @@ export function writeRequest(path: string, content: string): void {
 /**
  * Writes `content` to `path` when it holds anything else, replacing it in
  * one rename so the root updater never reads half a file: the temporary
- * file beside it is unlinked first and created exclusively without
- * following a link, and the rename replaces whatever is at `path`, a
- * symlink included, never what one points to. Answers whether it wrote.
+ * file beside it is written as `writeRequest` writes a request, and the
+ * rename replaces whatever is at `path`, a symlink included, never what one
+ * points to. Answers whether it wrote.
  */
 export function writeStateIfChanged(path: string, content: string): boolean {
   try {
@@ -209,17 +209,7 @@ export function writeStateIfChanged(path: string, content: string): boolean {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }
   const temp = `${path}.tmp`;
-  try {
-    unlinkSync(temp);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-  }
-  const fd = openSync(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-  try {
-    writeSync(fd, content);
-  } finally {
-    closeSync(fd);
-  }
+  writeRequest(temp, content);
   renameSync(temp, path);
   return true;
 }

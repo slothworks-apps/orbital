@@ -108,6 +108,12 @@ export function setupPlan(f: SetupFacts): { error: string } | { steps: RootStep[
       why: "let the group's update channel pick orbital's apt suite",
       argv: ['systemctl', 'enable', '--now', 'orbital-channel.path'],
     });
+    // A channel file the server wrote before the watcher ran does not
+    // trigger it (`PathChanged=`): apply it once now.
+    steps.push({
+      why: "point orbital's apt source at the group's update channel now",
+      argv: ['systemctl', 'start', '--no-block', 'orbital-channel.service'],
+    });
   }
   if (!f.linger) {
     steps.push({ why: 'keep your services running without a login', argv: ['loginctl', 'enable-linger', f.user] });

@@ -191,8 +191,9 @@ export function changelogSection(changelog, version) {
 }
 
 // The real lookups. `notThere` is the one answer that means "not shipped";
-// every other failure, a missing binary included, is thrown.
-function run(command, args, notThere) {
+// every other failure, a missing binary included, is thrown. promote.mjs
+// runs gh through it too.
+export function run(command, args, notThere = () => false) {
   return new Promise((resolve, reject) => {
     execFile(command, args, { encoding: 'utf8' }, (error, stdout, stderr) => {
       if (!error) return resolve({ found: true, stdout })

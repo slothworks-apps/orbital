@@ -14,24 +14,12 @@ CHANNEL=$DIR/channel
 # only it follows the channel; any other name falls back to refreshing every
 # source, and the channel cannot be switched.
 SOURCE=/etc/apt/sources.list.d/orbital.sources
-
-export PATH=/usr/sbin:/usr/bin:/sbin:/bin
-export LC_ALL=C
-export DEBIAN_FRONTEND=noninteractive
-
-MODE=update
-if [ "$#" -gt 0 ]; then
-  case "$1" in
-    channel) MODE=channel ;;
-    *) echo "usage: $0 [channel]" >&2; exit 2 ;;
-  esac
-fi
-
-# One run at a time: an update request and a channel change can fire
-# together, and both rewrite the source and refresh its lists. The second
-# waits for the first.
-exec 9>/run/lock/orbital-update.lock
-flock 9
+# The user `orbital setup` recorded; the channel file is read as that user.
+USER_FILE=/etc/orbital/user
+# In /run itself, which only root writes: in the world-writable /run/lock,
+# another local user could create the file first and hold the lock, and no
+# update or channel switch would ever run again.
+LOCK=/run/orbital-update.lock
 
 # DPkg::Lock::Timeout waits for apt-daily or a person's apt run rather than
 # failing on the lock: 120 s for each of the two apt runs, so the waits and
@@ -49,24 +37,43 @@ refresh() {
   fi
 }
 
+# The user `orbital setup` recorded, when it is a plain user name of an
+# existing account other than root; otherwise nothing, and an answer of 1.
+service_user() {
+  [ -r "$USER_FILE" ] || return 1
+  u="$(head -n 1 -- "$USER_FILE" | tr -d '[:space:]')" || return 1
+  case "$u" in
+    '' | -* | *[!A-Za-z0-9_.-]*) return 1 ;;
+  esac
+  uid="$(id -u -- "$u" 2>/dev/null)" || return 1
+  [ "$uid" != 0 ] || return 1
+  printf '%s\n' "$u"
+}
+
 # The suite the group's channel names (spec
 # 2026-11-02-experimental-release-channel-design → On the Linux server). The
-# directory is the service user's, so the file is read only when it is a
-# regular file and not a symlink, and only the exact word `experimental`
-# (one trailing newline allowed) means experimental; anything else, a
-# missing file included, means stable.
+# directory is the service user's, so root never opens the file: it is read
+# as that user, who could write it anyway, so a symlink swapped in leads only
+# where that user can already read, and a FIFO or a stalled read is cut off
+# by the timeout instead of holding the lock (fd 9 is closed for the reader).
+# A symlink is refused outright. Only the exact word `experimental` (one
+# trailing newline allowed) means experimental; anything else, a missing or
+# unreadable file included, means stable.
 wanted_suite() {
-  if [ -f "$CHANNEL" ] && [ ! -L "$CHANNEL" ]; then
-    # No more than one byte past the word and its newline is read, and the
-    # dot keeps $(...) from stripping trailing newlines, so a second one, or
-    # anything after the word, is not the word.
-    raw="$(head -c 14 "$CHANNEL" && echo .)"
+  if [ -L "$CHANNEL" ] || ! user="$(service_user)"; then
+    echo stable
+    return 0
+  fi
+  # No more than one byte past the word and its newline is read, and the
+  # dot keeps $(...) from stripping trailing newlines, so a second one, or
+  # anything after the word, is not the word.
+  if raw="$(timeout -k 2 5 runuser -u "$user" -- head -c 14 -- "$CHANNEL" 9>&- 2>/dev/null && echo .)"; then
     raw="${raw%.}"
     case "$raw" in
       experimental | "experimental
 ")
         echo experimental
-        return
+        return 0
         ;;
     esac
   fi
@@ -75,7 +82,9 @@ wanted_suite() {
 
 # Points the source's `Suites:` line at the wanted suite, only when it says
 # something else, through a file beside it and a rename. Answers 0 when it
-# changed the source.
+# changed the source, 1 when it left it as it was (already that suite, or no
+# source to switch), and 2 when a step of the switch failed: the source is
+# then untouched and the file beside it removed.
 apply_channel() {
   suite="$(wanted_suite)"
   if [ ! -f "$SOURCE" ] || [ -L "$SOURCE" ]; then
@@ -90,18 +99,47 @@ apply_channel() {
     return 1
   fi
   tmp="$SOURCE.orbital-channel.tmp"
-  rm -f "$tmp"
-  sed "s/^Suites:.*/Suites: $suite/" "$SOURCE" > "$tmp"
-  chmod 0644 "$tmp"
-  mv -f "$tmp" "$SOURCE"
+  if ! rm -f -- "$tmp" \
+    || ! sed "s/^Suites:.*/Suites: $suite/" "$SOURCE" > "$tmp" \
+    || ! grep -qx "Suites: $suite" "$tmp" \
+    || ! chmod 0644 "$tmp" \
+    || ! mv -f -- "$tmp" "$SOURCE"; then
+    rm -f -- "$tmp" 2>/dev/null || true
+    echo "Could not switch $SOURCE to the update channel ($suite); the source stays as it is." >&2
+    return 2
+  fi
   echo "The update channel is $suite: $SOURCE now names that suite."
   return 0
 }
 
 # Until orbital setup has run, the updater does nothing.
 set_up() {
-  [ -s /etc/orbital/user ]
+  [ -s "$USER_FILE" ]
 }
+
+# scripts/linux-update.test.mjs sources this file for the functions above
+# and stops here; systemd starts the script with an environment of its own.
+if [ "${ORBITAL_UPDATE_FUNCTIONS_ONLY:-}" = 1 ]; then
+  return 0
+fi
+
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export LC_ALL=C
+export DEBIAN_FRONTEND=noninteractive
+
+MODE=update
+if [ "$#" -gt 0 ]; then
+  case "$1" in
+    channel) MODE=channel ;;
+    *) echo "usage: $0 [channel]" >&2; exit 2 ;;
+  esac
+fi
+
+# One run at a time: an update request and a channel change can fire
+# together, and both rewrite the source and refresh its lists. The second
+# waits for the first.
+exec 9>"$LOCK"
+flock 9
 
 if [ "$MODE" = channel ]; then
   if ! set_up; then
@@ -110,9 +148,15 @@ if [ "$MODE" = channel ]; then
   fi
   # A channel change alone installs nothing: the lists are refreshed so apt's
   # candidate, and Settings → Devices, show the suite before anyone updates.
-  if apply_channel; then
-    refresh
-  fi
+  # Only a real change is refreshed; a failed switch fails the unit, so it
+  # shows in systemctl --failed.
+  status=0
+  apply_channel || status=$?
+  case "$status" in
+    0) refresh ;;
+    1) ;;
+    *) exit 1 ;;
+  esac
   exit 0
 fi
 
@@ -132,7 +176,8 @@ if ! set_up; then
   exit 0
 fi
 
-# The channel first, so an update never runs against a stale suite.
+# The channel first, so an update never runs against a stale suite. A failed
+# switch is logged and the update goes on against the suite the source names.
 apply_channel || true
 refresh
 

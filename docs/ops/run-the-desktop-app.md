@@ -273,6 +273,13 @@ versions to stable everywhere, building and signing nothing:
 A hotfix is a release followed by Promote straight away. Prereleases older
 than the promoted one stay prereleases; stable Macs skip them.
 
+**When to promote.** Nothing promotes on its own, and until Promote runs
+every stable Mac, server and phone stays on the last stable version
+without a sign of the new one. Promote a regular release once it has run a
+few days on experimental devices without a problem; after each release,
+the Actions list shows the release without a Promote run after it until
+someone promotes.
+
 It runs in the `release` concurrency group, so it waits for a running
 release or re-sign. Its secrets are the apt ones
 ([[run-orbital-on-an-ubuntu-server]]) and `BEAM_UPLOAD_KEY`

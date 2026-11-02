@@ -27,7 +27,6 @@
 // Everything above the CLI is pure or takes its lookups as arguments, so
 // scripts/promote.test.mjs runs without gh, apt.slothworks.io or Beam.
 /* global URL, console, process, fetch */
-import { execFile } from 'node:child_process'
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import {
@@ -46,8 +45,15 @@ import {
   promoteBundle,
   readBeam,
 } from './beam.mjs'
+import { run } from './release-plan.mjs'
 
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/
+
+// Not check-versions.mjs's `compare`, which drops a prerelease part: a
+// desktop version may carry one (`0.46.0-beta.1`, apt-repo.mjs's
+// debVersion), and the newest release must sort `0.46.0` after
+// `0.46.0-beta.2`, which `compare` calls equal. Also refuses a tag that is
+// not a version, which desktopReleases relies on.
 
 /** Semver order, prerelease identifiers included; null for what is not a version. */
 export function parseVersion(version) {
@@ -246,14 +252,8 @@ export async function promotePhone(plan, { beam, uploadKey, fetch }) {
   })
 }
 
-function gh(args) {
-  return new Promise((resolve, reject) => {
-    execFile('gh', args, { encoding: 'utf8' }, (error, stdout, stderr) => {
-      if (error)
-        reject(new Error(`gh ${args.join(' ')} failed: ${(stderr || error.message).trim()}`))
-      else resolve(stdout)
-    })
-  })
+async function gh(args) {
+  return (await run('gh', args)).stdout
 }
 
 function flag(argv, name) {

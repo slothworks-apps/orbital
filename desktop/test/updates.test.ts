@@ -19,6 +19,8 @@ import {
   serverStateDue,
   shouldCheckForUpdates,
   updateSize,
+  CHECK_ROUNDS,
+  UpdateChecks,
   UpdateFlow,
   type FoundOutcome,
   type UpdateAction,
@@ -64,6 +66,99 @@ describe('the update channel', () => {
     expect(channelStep('stable', 'experimental')).toEqual({ allowPrerelease: true, check: true });
     expect(channelStep('experimental', 'stable')).toEqual({ allowPrerelease: false, check: true });
     expect(channelStep('stable', 'stable')).toEqual({ allowPrerelease: false, check: false });
+  });
+});
+
+describe('UpdateChecks', () => {
+  /** A check that answers when `answer` is called; the channel is `stable` until changed. */
+  function harness() {
+    let stable = true;
+    const pending: Array<(found: string) => void> = [];
+    let prepared = 0;
+    const checks = new UpdateChecks<string>({
+      prepare: async () => {
+        prepared++;
+      },
+      onStable: () => stable,
+      check: () => new Promise<string>((resolve) => pending.push(resolve)),
+    });
+    const settle = () => new Promise((r) => setTimeout(r, 0));
+    return {
+      checks,
+      pending,
+      prepared: () => prepared,
+      settle,
+      switchTo(next: 'stable' | 'experimental') {
+        stable = next === 'stable';
+        checks.channelChanged();
+      },
+    };
+  }
+
+  it('answers with what was found and the channel it asked on', async () => {
+    const h = harness();
+    const run = h.checks.run();
+    await h.settle();
+    h.pending[0]('0.47.0');
+    expect(await run).toEqual({ kind: 'steady', result: '0.47.0', onStable: true });
+  });
+
+  it('joins a check already running rather than starting another', async () => {
+    const h = harness();
+    const a = h.checks.run();
+    const b = h.checks.run();
+    await h.settle();
+    expect(h.pending).toHaveLength(1);
+    h.pending[0]('0.47.0');
+    expect(await b).toEqual(await a);
+  });
+
+  it('asks again on the new channel when it changes during a check, and drops the old answer', async () => {
+    const h = harness();
+    const run = h.checks.run();
+    await h.settle();
+    h.switchTo('experimental');
+    // A caller after the change joins the same run, which asks again.
+    const joined = h.checks.run();
+    h.pending[0]('0.46.0');
+    await h.settle();
+    expect(h.pending).toHaveLength(2);
+    expect(h.prepared()).toBe(2);
+    h.pending[1]('0.47.0-experimental');
+    const expected = { kind: 'steady', result: '0.47.0-experimental', onStable: false };
+    expect(await run).toEqual(expected);
+    expect(await joined).toEqual(expected);
+  });
+
+  it('gives up as unsteady when the channel changes during every round', async () => {
+    const h = harness();
+    const run = h.checks.run();
+    for (let round = 0; round < CHECK_ROUNDS; round++) {
+      await h.settle();
+      h.switchTo(round % 2 ? 'stable' : 'experimental');
+      h.pending[round]('x');
+    }
+    expect(await run).toEqual({ kind: 'unsteady' });
+  });
+
+  it('starts a fresh run after one ends, and after one fails', async () => {
+    const h = harness();
+    const first = h.checks.run();
+    await h.settle();
+    h.pending[0]('a');
+    await first;
+    const failing = new UpdateChecks<string>({
+      prepare: async () => {},
+      onStable: () => true,
+      check: () => Promise.reject(new Error('offline')),
+    });
+    await expect(failing.run()).rejects.toThrow('offline');
+    await expect(failing.run()).rejects.toThrow('offline');
+    const second = h.checks.run();
+    await h.settle();
+    expect(h.pending).toHaveLength(2);
+    h.pending[1]('b');
+    expect(await second).toEqual({ kind: 'steady', result: 'b', onStable: true });
   });
 });
 
